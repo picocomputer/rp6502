@@ -29,7 +29,6 @@
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
-#include "emu/host/host.h"
 #include "emu/sys/com.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
@@ -83,7 +82,7 @@ void ria_trigger_vsync(void)
     ria_irq_publish();
 }
 
-/* True while an enabled RIA source is pending. sys.c ORs M6502_IRQ from this
+/* True while an enabled RIA source is pending. cpu.c ORs M6502_IRQ from this
  * after via_tick — purely additive, so the RIA and the VIA share the IRQ line
  * (the VIA owns clearing it; the RIA only ever adds its own assertion). */
 bool ria_irq_asserted(void)
@@ -425,7 +424,7 @@ uint8_t ria_reg_read(uint16_t addr)
     }
 }
 
-/* The RIA's 6502-bus interface, mirroring via_tick (via.c) so sys.c can drive
+/* The RIA's 6502-bus interface, mirroring via_tick (via.c) so cpu.c can drive
  * both peripherals as `pins = peripheral_tick(pins)`. The IRQB OR runs BEFORE the
  * register access so that a read of $FFF0 (which acks/clears the pending flags)
  * still shows IRQB asserted on its own cycle — preserving the prior bus ordering
@@ -450,7 +449,7 @@ uint64_t ria_tick(uint64_t pins)
 }
 
 /* The live chip instance, for the debugger UI (the RIA overlay reads ria.PINS),
- * mirroring via_chip()/sys_cpu(). */
+ * mirroring via_chip()/cpu_chip(). */
 void *ria_chip(void) { return &ria; }
 
 void ria_reg_write(uint16_t addr, uint8_t data)
@@ -460,7 +459,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
     case 0x01: /* UART TX: emit the byte; TX is always ready (bit7). */
     {
         char c = (char)data;
-        emu_stdout_write(&c, 1);
+        com_stdout_write(&c, 1);
         regs[0x00] |= RIA_UART_TX_READY;
         return;
     }

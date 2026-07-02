@@ -10,6 +10,7 @@
  */
 
 #include "emu/mon/rom.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/sys.h"
 #include "utest.h"
 
@@ -42,7 +43,7 @@ UTEST(clock, time_is_phi2_independent)
 {
     ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
     emu_init();
-    emu_set_phi2_khz(2000);
+    cpu_set_phi2_khz_run(2000);
     run_frames(60);
     ASSERT_EQ(emu_now_us(), 1000000ull);
 }
@@ -50,26 +51,26 @@ UTEST(clock, time_is_phi2_independent)
 UTEST(clock, phi2_get_set_clamp)
 {
     /* Exact divisors (clkdiv 1/2/4/8/80) report back unchanged. */
-    emu_set_phi2_khz(8000);
-    ASSERT_EQ(emu_get_phi2_khz(), 8000);
-    emu_set_phi2_khz(4000);
-    ASSERT_EQ(emu_get_phi2_khz(), 4000);
-    emu_set_phi2_khz(2000);
-    ASSERT_EQ(emu_get_phi2_khz(), 2000);
-    emu_set_phi2_khz(1000);
-    ASSERT_EQ(emu_get_phi2_khz(), 1000);
-    emu_set_phi2_khz(100);
-    ASSERT_EQ(emu_get_phi2_khz(), 100);
+    cpu_set_phi2_khz_run(8000);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 8000);
+    cpu_set_phi2_khz_run(4000);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 4000);
+    cpu_set_phi2_khz_run(2000);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 2000);
+    cpu_set_phi2_khz_run(1000);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 1000);
+    cpu_set_phi2_khz_run(100);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 100);
 
     /* Out of range clamps to [100, 8000]. */
-    emu_set_phi2_khz(50);
-    ASSERT_EQ(emu_get_phi2_khz(), 100);
-    emu_set_phi2_khz(20000);
-    ASSERT_EQ(emu_get_phi2_khz(), 8000);
+    cpu_set_phi2_khz_run(50);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 100);
+    cpu_set_phi2_khz_run(20000);
+    ASSERT_EQ(cpu_get_phi2_khz_run(), 8000);
 
     /* An unrepresentable rate quantizes to a nearby achievable one. */
-    emu_set_phi2_khz(3000);
-    ASSERT_TRUE(emu_get_phi2_khz() >= 2950 && emu_get_phi2_khz() <= 3050);
+    cpu_set_phi2_khz_run(3000);
+    ASSERT_TRUE(cpu_get_phi2_khz_run() >= 2950 && cpu_get_phi2_khz_run() <= 3050);
 }
 
 UTEST_MAIN()

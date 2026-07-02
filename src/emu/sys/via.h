@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * 6522 VIA (via.c) — a physical timer/IO chip on the bus at $FFD0-$FFDF, modeled
- * by floooh's chips m6522. Reset + one PHI2 tick, mirroring ria_tick so sys.c
+ * by floooh's chips m6522. Reset + one PHI2 tick, mirroring ria_tick so cpu.c
  * drives both peripherals uniformly.
  */
 

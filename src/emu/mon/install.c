@@ -18,7 +18,7 @@
 
 #include "emu/api/api.h"
 #include "emu/mon/install.h"
-#include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include <errno.h>
 #include <string.h>
 #include <strings.h> /* strcasecmp */

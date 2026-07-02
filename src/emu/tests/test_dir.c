@@ -13,7 +13,7 @@
  * assertions are on the program's real text.
  */
 
-#include "emu/host/host.h"
+#include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
 #include "emu/sys/sys.h"
@@ -62,10 +62,10 @@ UTEST(dir, lists_directory)
     emu_init();
     cap_len = 0;
     cap[0] = 0;
-    emu_set_stdout_tap(tap);
+    com_set_stdout_tap(tap);
     for (int i = 0; i < 600 && !emu_cpu_halted; i++)
         emu_run_frame();
-    emu_set_stdout_tap(NULL);
+    com_set_stdout_tap(NULL);
 
     ASSERT_TRUE(emu_cpu_halted); /* the program ran to completion */
 

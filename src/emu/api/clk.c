@@ -15,8 +15,8 @@
 #include "emu/api/api.h"
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
 #include "api/api.h"
 #include "api/clk.h"
 #include <locale.h>

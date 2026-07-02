@@ -25,7 +25,8 @@
 extern "C"
 {
 #include "emu/dbg/dbg.h"
-#include "emu/host/host.h"
+#include "emu/sys/com.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "emu/dbg/dap.h"
@@ -191,7 +192,7 @@ void post(std::function<void()> fn)
     g_queue.push_back(std::move(fn));
 }
 
-m6502_t *cpu() { return (m6502_t *)sys_cpu(); }
+m6502_t *cpu() { return (m6502_t *)cpu_chip(); }
 
 const char *reason_str(int r)
 {
@@ -539,7 +540,7 @@ extern "C" void dap_start(void)
 {
     dbg_set_stopped_cb(on_stopped);
     dbg_set_line_lookup(line_lookup);
-    emu_set_stdout_tap(stdout_tap);
+    com_set_stdout_tap(stdout_tap);
 
     g_session = dap::Session::create();
 

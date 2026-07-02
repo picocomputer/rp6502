@@ -6,7 +6,7 @@
  * Debugger core (dbg.c) — the one authoritative run/stop/step + address-
  * breakpoint engine, shared by the cppdap adapter (dap.cpp) and the on-screen
  * chips debugger (dbgui.cc). Inert until dbg_set_active(true): the CPU loop in
- * sys.c only consults it when active, so a normal run is unaffected. All control
+ * cpu.c only consults it when active, so a normal run is unaffected. All control
  * runs on the main (emulation) thread EXCEPT dbg_request_pause, which a DAP
  * reader thread may set; it is a lone atomic flag.
  */
@@ -85,7 +85,7 @@ void dbg_set_segments(const dbg_segment_t *segs, int count); /* copies; clamps t
 int dbg_get_segments(const dbg_segment_t **out);             /* count; *out -> the table */
 unsigned dbg_segments_generation(void);                      /* bumps on each set (cheap change check) */
 
-/* Called by sys.c at each instruction fetch (M6502_SYNC) while active. Returns
+/* Called by cpu.c at each instruction fetch (M6502_SYNC) while active. Returns
  * true if the machine must stop BEFORE running the instruction's effect at pc. */
 bool dbg_at_instruction(uint16_t pc, uint8_t sp);
 

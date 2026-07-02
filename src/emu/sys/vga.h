@@ -43,6 +43,12 @@ void vga_task(void);
 void vga_render_scanline(int y);
 void emu_canvas_size(int *w, int *h);
 
+/* Frame presentation. emu_present_framebuffer() returns the completed frame the
+ * window presents; emu_render copies that frame into fb for --screenshot / the
+ * tests. */
+const uint32_t *emu_present_framebuffer(void);
+void emu_render(uint32_t *fb);
+
 /* ------------------------------------------------------------------ */
 /* Firmware VGA ABI reached by the vendored term.c / rln.c / the mode  */
 /* renderers through the firmware path "sys/vga.h" (the shim there      */

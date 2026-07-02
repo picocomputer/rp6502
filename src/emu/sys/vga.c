@@ -230,6 +230,15 @@ const uint32_t *emu_present_framebuffer(void)
     return g_present;
 }
 
+/* Hand back the frame captured at the last vsync boundary (what the window
+ * presents), so --screenshot and the tests see the same completed frame. */
+void emu_render(uint32_t *fb)
+{
+    int w, h;
+    emu_canvas_size(&w, &h);
+    memcpy(fb, emu_present_framebuffer(), (size_t)w * h * sizeof(uint32_t));
+}
+
 /* Render ONE scanline y of the canvas into fb at the canvas's native stride
  * (g_canvas_w). Mirrors firmware vga_render_scanline: run each plane's fill then
  * sprite, where sprites draw onto the current "foreground" (the most recently

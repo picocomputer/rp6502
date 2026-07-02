@@ -20,6 +20,7 @@
 extern "C"
 {
 #include "emu/dbg/dbg.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/via.h"
@@ -547,10 +548,10 @@ void dbgui_init(void)
     ImGui::GetIO().IniFilename = nullptr;
     dbgui_register_settings_handlers();
 
-    m6502_t *cpu = (m6502_t *)sys_cpu();
+    m6502_t *cpu = (m6502_t *)cpu_chip();
     m6522_t *via = (m6522_t *)via_chip();
 
-    uint32_t freq = (uint32_t)emu_get_phi2_khz() * 1000u;
+    uint32_t freq = (uint32_t)cpu_get_phi2_khz_run() * 1000u;
     if (freq == 0)
         freq = 8000000u;
 
@@ -642,7 +643,7 @@ void dbgui_init(void)
     dbgui_layout_load();
     g_inited = true;
 
-    /* Drive ui_dbg's view from sys.c's tick loop (heatmap/history/PC). */
+    /* Drive ui_dbg's view from cpu.c's tick loop (heatmap/history/PC). */
     emu_dbg_cycle_cb = dbgui_tick;
 }
 
@@ -732,7 +733,7 @@ void dbgui_draw(void)
             ui_dbg_continue(&g_dbg, false);
     }
 
-    /* ui_dbg_tick (driven from sys.c every cycle) maintains the PC highlight while
+    /* ui_dbg_tick (driven from cpu.c every cycle) maintains the PC highlight while
      * the CPU runs. When stopped, pin it to dbg.c's authoritative stop PC (also
      * covers dbg_note_stop, which is not produced by a tick) and scroll to it on
      * entry to the stop; while running, ui_dbg's own draw keeps the PC in view. */
@@ -836,7 +837,7 @@ void dbgui_draw(void)
 
 void dbgui_render(void) { simgui_render(); }
 
-/* Per-cycle view update (registered as emu_dbg_cycle_cb; called from sys.c). This
+/* Per-cycle view update (registered as emu_dbg_cycle_cb; called from cpu.c). This
  * is the chips-native way to keep the disassembly view honest: ui_dbg_tick records
  * the execution heatmap (which the disassembler back-scans to find instruction
  * boundaries), the history, and cur_op_pc. It also runs ui_dbg's OWN breakpoint

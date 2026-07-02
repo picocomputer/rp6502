@@ -36,6 +36,22 @@ void com_kbd_push_byte(uint8_t b);
 /* Clear both rings (machine reset). */
 void com_reset(void);
 
+/* Feed bytes from a stdout/console write syscall to the terminal,
+ * applying the firmware's CRLF translation. */
+void com_stdout_write(const char *buf, int len);
+
+/* Same sink without the CRLF translation (com_write / TTY: raw path). */
+void com_stdout_write_raw(const char *buf, int len);
+
+/* Tap the raw terminal byte stream (NULL to clear). Used by tests to assert
+ * program output without rendering a frame. */
+void com_set_stdout_tap(void (*tap)(const char *buf, int len));
+
+/* Firmware stdout routing: the pico/stdlib.h shim redirects the vendored
+ * sources' putchar/printf here. */
+int com_term_putchar(int c);
+int com_term_printf(const char *fmt, ...);
+
 #ifdef __cplusplus
 }
 #endif

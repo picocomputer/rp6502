@@ -52,7 +52,7 @@ void ria_reset(void);
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 
-/* One PHI2 tick of the RIA's 6502-bus interface, mirroring via_tick so sys.c
+/* One PHI2 tick of the RIA's 6502-bus interface, mirroring via_tick so cpu.c
  * drives both bus peripherals uniformly: when the CPU addresses the RIA window
  * ($FFE0-$FFF9) the register access is performed on the pins, and the RIA's IRQB
  * (VSYNC/SIGINT) is ORed onto the shared IRQ line (additive, after the VIA). */

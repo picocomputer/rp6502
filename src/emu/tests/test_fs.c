@@ -15,6 +15,7 @@
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
 #include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "utest.h"

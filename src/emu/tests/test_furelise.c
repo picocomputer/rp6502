@@ -17,6 +17,7 @@
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/sys.h"
+#include "emu/sys/vga.h"
 #include "utest.h"
 #include <math.h>
 

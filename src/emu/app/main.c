@@ -23,10 +23,11 @@
 #include "emu/host/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/dir.h"
+#include "emu/host/fs.h"
 #include "emu/usb/msc.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
@@ -56,7 +57,7 @@ static void queue_input(const char *text)
 static void merge_rom_args(options *o, int argc, char **argv)
 {
     char asset[2048];
-    long n = fs_read_rom_asset("emulator", asset, sizeof asset - 1);
+    long n = rom_read_asset("emulator", asset, sizeof asset - 1);
     if (n < 0)
         return; /* no such asset: command line stands alone */
     asset[n] = 0;
@@ -102,7 +103,7 @@ static int run_dap(const options *o)
     if (o->mute)
         emu_set_audio_enabled(false);
     if (o->phi2_khz > 0)
-        emu_set_phi2_khz((uint16_t)o->phi2_khz);
+        cpu_set_phi2_khz_run((uint16_t)o->phi2_khz);
     if (o->code_page > 0)
     {
         if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
@@ -226,7 +227,7 @@ int main(int argc, char **argv)
         emu_set_audio_enabled(false);
 
     if (o.phi2_khz > 0) /* override the default PHI2 (emu_init reset it) */
-        emu_set_phi2_khz((uint16_t)o.phi2_khz);
+        cpu_set_phi2_khz_run((uint16_t)o.phi2_khz);
 
     if (o.code_page > 0) /* override the default 437 (emu_init reset it) */
     {

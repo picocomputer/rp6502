@@ -34,11 +34,10 @@ uint32_t emu_crc32(uint32_t crc, const void *buf, size_t len);
 bool emu_rom_load(const char *path);
 
 /* ---- ROM: drive (rom.c): the .rp6502's bundled assets, read on demand from the
- * file. The loader names the backing file with fs_set_rom_src and notes where the
- * asset directory begins; a "ROM:name" open then scans the file for the entry —
- * NO bytes are copied into RAM, and the image may carry any number of assets. ---- */
-void fs_set_rom_src(const char *hostpath);
-long fs_read_rom_asset(const char *name, void *buf, size_t max); /* host-side; -1 if no such asset */
+ * file. The loader names the backing file and notes where the asset directory
+ * begins; a "ROM:name" open then scans the file for the entry — NO bytes are
+ * copied into RAM, and the image may carry any number of assets. ---- */
+long rom_read_asset(const char *name, void *buf, size_t max); /* host-side; -1 if no such asset */
 
 /* Run ROM: reads as non-blocking POSIX AIO (the real-time window) vs synchronous
  * (headless/tests, for determinism). Off by default; mirrors msc_set_async. */

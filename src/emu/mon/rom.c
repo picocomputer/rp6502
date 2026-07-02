@@ -52,7 +52,7 @@ static bool parse_u32(const char **pp, uint32_t *out);
 
 /* Name the backing .rp6502 for the ROM: drive; the loader also records where its
  * asset directory begins (g_rom_assets_start). */
-void fs_set_rom_src(const char *hostpath)
+static void rom_set_src(const char *hostpath)
 {
     snprintf(g_rom_src, sizeof(g_rom_src), "%s", hostpath);
 }
@@ -108,7 +108,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
 
 /* Read a named ROM asset's bytes host-side (main.c reads the "emulator" args
  * asset; the 6502 reads assets via the ROM: drive). -1 if no such asset. */
-long fs_read_rom_asset(const char *name, void *buf, size_t max)
+long rom_read_asset(const char *name, void *buf, size_t max)
 {
     size_t base, len;
     if (!rom_find_asset(name, &base, &len))
@@ -465,7 +465,7 @@ bool emu_rom_load(const char *path)
         fseek(f, after_magic, SEEK_SET); /* classic: reprocess from line 2 */
 
     rom_assets_reset();   /* forget the previous ROM's assets (the MSC0: drive persists) */
-    fs_set_rom_src(host); /* ROM: reads seek into this file */
+    rom_set_src(host); /* ROM: reads seek into this file */
     /* The asset directory (if any) begins where the program chunks end; a ROM:
      * open scans it from there on demand. Classic images carry no assets. */
     g_rom_assets_start = (prog_end >= 0) ? (size_t)prog_end : 0;

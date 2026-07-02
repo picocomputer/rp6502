@@ -18,7 +18,6 @@
 #include "emu/host/posixdir.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
-#include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,77 +28,6 @@
 #include <time.h>
 #include <unistd.h>
 #include <utime.h>
-
-/* ---- Address translation: MSC0: <-> host path ---------------------------- */
-
-/* Drop a recognized writable-drive prefix. FatFs recognizes only "0:".."9:" and
- * "MSC0:".."MSC9:" (case-insensitive); anything else keeps its prefix and is
- * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
-const char *fs_strip_drive(const char *path)
-{
-    const char *colon = strchr(path, ':');
-    if (!colon || colon == path)
-        return path;
-    size_t n = (size_t)(colon - path);
-    bool is_drive = (n == 1 && isdigit((unsigned char)path[0])) ||
-                    (n == 4 && strncasecmp(path, "MSC", 3) == 0 &&
-                     isdigit((unsigned char)path[3]));
-    return is_drive ? colon + 1 : path;
-}
-
-bool fs_has_drive_prefix(const char *path)
-{
-    return fs_strip_drive(path) != path;
-}
-
-/* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
- * drive; everything else is the native path verbatim — absolute "/x" from the OS
- * root, relative "x" from the process cwd. The OS resolves "." and "..". */
-static bool msc_to_host(const char *rest, char *host, size_t hsz)
-{
-    int w;
-    if (rest[0] == '/' && rest[1] == '/' &&
-        isalpha((unsigned char)rest[2]) && rest[3] == '/')
-        w = snprintf(host, hsz, "%c:/%s", rest[2], rest + 4);
-    else
-        w = snprintf(host, hsz, "%s", rest[0] ? rest : ".");
-    if (w < 0 || (size_t)w >= hsz)
-    {
-        errno = ENAMETOOLONG;
-        return false;
-    }
-    return true;
-}
-
-bool fs_to_host(const char *path, char *host, size_t hsz)
-{
-    const char *rest = fs_strip_drive(path);
-    /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
-     * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
-     * file; the boot/exec loader reaches installs via fs_resolve_rom instead. */
-    if (rest[0] == ':')
-    {
-        errno = ENOENT;
-        return false;
-    }
-    return msc_to_host(rest, host, hsz);
-}
-
-/* Render a host path as an MSC0: path (the inverse for absolutes): a Windows
- * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
- * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
- * path — getcwd is full-path-or-error). Used for argv[0] and getcwd. */
-size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz)
-{
-    int w;
-    if (isalpha((unsigned char)hostpath[0]) && hostpath[1] == ':')
-        w = snprintf(out, outsz, "MSC0://%c%s", hostpath[0], hostpath + 2);
-    else
-        w = snprintf(out, outsz, "MSC0:%s", hostpath);
-    if (w < 0 || (size_t)w >= outsz)
-        return 0;
-    return (size_t)w;
-}
 
 /* ---- FILINFO synthesis from host metadata -------------------------------- */
 

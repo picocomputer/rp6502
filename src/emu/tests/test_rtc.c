@@ -14,7 +14,7 @@
 #include "emu/api/api.h"
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
-#include "emu/host/host.h"
+#include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
@@ -76,9 +76,9 @@ UTEST(rtc, prints_fixed_timestamps)
     cap[0] = 0;
     ASSERT_TRUE(emu_rom_load(RTC_ROM));
     emu_init();
-    emu_set_stdout_tap(tap);
+    com_set_stdout_tap(tap);
     run_frames(120);
-    emu_set_stdout_tap(NULL);
+    com_set_stdout_tap(NULL);
 
     ASSERT_TRUE(emu_cpu_halted); /* program runs to completion */
     ASSERT_TRUE(strstr(cap, "Jan") != NULL);

@@ -67,13 +67,13 @@ static inline bool time_reached(absolute_time_t t)
  * land in term.c rather than the developer's real stdout. */
 #include <stdio.h>
 
-int emu_term_putchar(int c);
-int emu_term_printf(const char *fmt, ...);
+int com_term_putchar(int c);
+int com_term_printf(const char *fmt, ...);
 
 #undef putchar
 #undef printf
-#define putchar(c) emu_term_putchar(c)
-#define printf emu_term_printf
+#define putchar(c) com_term_putchar(c)
+#define printf com_term_printf
 
 /* Firmware stdin routing (std_tty_read). On the Pico, stdio_getchar drains
  * the com driver's merged RX; here the com module's rings are that merge. */

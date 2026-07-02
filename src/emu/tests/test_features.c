@@ -188,12 +188,12 @@ UTEST(features, rom_emulator_asset)
     ASSERT_TRUE(emu_rom_load(path));
 
     char buf[128];
-    long n = fs_read_rom_asset("emulator", buf, sizeof buf);
+    long n = rom_read_asset("emulator", buf, sizeof buf);
     ASSERT_EQ(n, (long)strlen(args));
     buf[n] = 0;
     ASSERT_STREQ(buf, args);
 
-    ASSERT_EQ(fs_read_rom_asset("nope", buf, sizeof buf), -1L); /* absent -> -1 */
+    ASSERT_EQ(rom_read_asset("nope", buf, sizeof buf), -1L); /* absent -> -1 */
     remove(path);
 }
 

@@ -17,9 +17,9 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
+    ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
     ${RP6502_SRC}/emu/sys/ria.c
-    ${RP6502_SRC}/emu/host/host.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/sys/xreg.c

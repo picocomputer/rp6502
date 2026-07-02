@@ -5,19 +5,22 @@
  *
  * MSC0: the writable host filesystem driver: the catch-all in std.c's driver
  * table (it claims every path no earlier driver took, like the firmware's FatFs
- * driver). Open files are plain host fds in a small pool; paths are translated
- * through dir.c, which also owns the directory and metadata ops. A write marks the
- * file so closing it persists the drive (a no-op natively; web: Emscripten IDBFS).
+ * driver). Owns the MSC0: <-> host path translation (dir.c reuses it for the
+ * directory and metadata ops). Open files are plain host fds in a small pool; a
+ * write marks the file so closing it persists the drive (a no-op natively; web:
+ * Emscripten IDBFS).
  */
 
 #include "emu/api/api.h" /* FS_HOST_MAX_PATH */
 #include "emu/api/std.h"
-#include "emu/host/dir.h" /* fs_to_host */
 #include "emu/host/fs.h"
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #ifdef EMU_HAVE_AIO
 #include <aio.h>
@@ -79,6 +82,77 @@ static int flags_to_posix(uint8_t flags)
     if ((flags & 0x20) && wr) /* TRUNC, only when opened for write */
         o |= O_TRUNC;
     return o;
+}
+
+/* ---- Address translation: MSC0: <-> host path ---------------------------- */
+
+/* Drop a recognized writable-drive prefix. FatFs recognizes only "0:".."9:" and
+ * "MSC0:".."MSC9:" (case-insensitive); anything else keeps its prefix and is
+ * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
+const char *fs_strip_drive(const char *path)
+{
+    const char *colon = strchr(path, ':');
+    if (!colon || colon == path)
+        return path;
+    size_t n = (size_t)(colon - path);
+    bool is_drive = (n == 1 && isdigit((unsigned char)path[0])) ||
+                    (n == 4 && strncasecmp(path, "MSC", 3) == 0 &&
+                     isdigit((unsigned char)path[3]));
+    return is_drive ? colon + 1 : path;
+}
+
+bool fs_has_drive_prefix(const char *path)
+{
+    return fs_strip_drive(path) != path;
+}
+
+/* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
+ * drive; everything else is the native path verbatim — absolute "/x" from the OS
+ * root, relative "x" from the process cwd. The OS resolves "." and "..". */
+static bool msc_to_host(const char *rest, char *host, size_t hsz)
+{
+    int w;
+    if (rest[0] == '/' && rest[1] == '/' &&
+        isalpha((unsigned char)rest[2]) && rest[3] == '/')
+        w = snprintf(host, hsz, "%c:/%s", rest[2], rest + 4);
+    else
+        w = snprintf(host, hsz, "%s", rest[0] ? rest : ".");
+    if (w < 0 || (size_t)w >= hsz)
+    {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
+}
+
+bool fs_to_host(const char *path, char *host, size_t hsz)
+{
+    const char *rest = fs_strip_drive(path);
+    /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
+     * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
+     * file; the boot/exec loader reaches installs via fs_resolve_rom instead. */
+    if (rest[0] == ':')
+    {
+        errno = ENOENT;
+        return false;
+    }
+    return msc_to_host(rest, host, hsz);
+}
+
+/* Render a host path as an MSC0: path (the inverse for absolutes): a Windows
+ * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
+ * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
+ * path — getcwd is full-path-or-error). Used for argv[0] and getcwd. */
+size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz)
+{
+    int w;
+    if (isalpha((unsigned char)hostpath[0]) && hostpath[1] == ':')
+        w = snprintf(out, outsz, "MSC0://%c%s", hostpath[0], hostpath + 2);
+    else
+        w = snprintf(out, outsz, "MSC0:%s", hostpath);
+    if (w < 0 || (size_t)w >= outsz)
+        return 0;
+    return (size_t)w;
 }
 
 /* The fs backends report failures by setting POSIX errno; translate to the 6502 set. */

@@ -13,6 +13,7 @@
 #define _EMU_HOST_FS_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 
 #include "emu/api/std.h" /* std_driver_t */
 
@@ -20,6 +21,13 @@
 extern "C"
 {
 #endif
+
+/* Path addressing: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
+ * Windows drive. */
+bool fs_to_host(const char *path, char *host, size_t hsz);            /* MSC0: -> host path */
+size_t fs_host_to_msc(const char *hostpath, char *out, size_t outsz); /* host -> MSC0: */
+bool fs_has_drive_prefix(const char *path);   /* path carries an MSC0:/N: prefix */
+const char *fs_strip_drive(const char *path); /* path past a recognized drive prefix */
 
 /* Enable POSIX AIO for data transfers (the windowed real-time loop). Off by
  * default: headless/tests and the web build do synchronous I/O. */
