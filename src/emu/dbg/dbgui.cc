@@ -68,9 +68,6 @@ static ui_audio_t g_audio;
 static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
 static bool g_credits_open = false; /* transient about-box; not persisted */
-static bool g_metrics_open = false; /* ImGui's own tool windows; not persisted */
-static bool g_debug_log_open = false;
-static bool g_id_stack_open = false;
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
@@ -519,21 +516,20 @@ static void dbgui_draw_menu(void)
                     emu_set_window_scale(s);
             }
             ImGui::Separator();
-            ImGui::MenuItem("ImGui Metrics", nullptr, &g_metrics_open);
-            ImGui::MenuItem("ImGui Debug Log", nullptr, &g_debug_log_open);
-            ImGui::MenuItem("ImGui ID Stack Tool", nullptr, &g_id_stack_open);
-            ImGui::Separator();
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
         ui_util_options_menu(); /* chips "Options": UI/BG alpha + theme */
-        /* Emulated VGA rate, right-aligned (e.g. "59.9 FPS"; ~60 when keeping up),
-         * held a few pixels off the window edge so it isn't flush against it. */
-        char fps[24];
-        std::snprintf(fps, sizeof fps, "%.1f FPS", dbgui_vga_fps());
+        /* Host frame time + emulated VGA rate, right-aligned (e.g. "2.1 ms  59.9 FPS")
+         * and held a few pixels off the window edge. The ms is ImGui's rolling host
+         * frame average; the FPS is the emulation keeping pace at ~60. */
+        float host_rate = ImGui::GetIO().Framerate;
+        char stats[24];
+        std::snprintf(stats, sizeof stats, "%.1f ms  %.1f FPS",
+                      host_rate > 0.0f ? 1000.0f / host_rate : 0.0f, dbgui_vga_fps());
         float pad = ImGui::GetStyle().ItemSpacing.x + ImGui::GetFontSize() * 0.5f;
-        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(fps).x - pad);
-        ImGui::TextUnformatted(fps);
+        ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(stats).x - pad);
+        ImGui::TextUnformatted(stats);
         ImGui::EndMainMenuBar();
     }
 }
@@ -897,12 +893,6 @@ void dbgui_draw(void)
     ui_memmap_draw(&g_memmap);
     ui_dasm_draw(&g_dasm);
     ui_audio_draw(&g_audio, emu_audio_viz_pos());
-    if (g_metrics_open)
-        ImGui::ShowMetricsWindow(&g_metrics_open);
-    if (g_debug_log_open)
-        ImGui::ShowDebugLogWindow(&g_debug_log_open);
-    if (g_id_stack_open)
-        ImGui::ShowIDStackToolWindow(&g_id_stack_open);
 }
 
 void dbgui_render(void) { simgui_render(); }
