@@ -1,6 +1,25 @@
-[submodule "src/littlefs"]
-	path = src/littlefs
+[submodule "vendor/littlefs"]
+	path = vendor/littlefs
 	url = https://github.com/littlefs-project/littlefs.git
-[submodule "src/tinyusb"]
-	path = src/tinyusb
+[submodule "vendor/tinyusb"]
+	path = vendor/tinyusb
 	url = https://github.com/hathach/tinyusb.git
+[submodule "vendor/chips"]
+	path = vendor/chips
+	url = https://github.com/floooh/chips.git
+[submodule "vendor/sokol"]
+	path = vendor/sokol
+	url = https://github.com/floooh/sokol.git
+[submodule "vendor/imgui"]
+	path = vendor/imgui
+	url = https://github.com/ocornut/imgui.git
+	branch = docking
+[submodule "vendor/cppdap"]
+	path = vendor/cppdap
+	url = https://github.com/google/cppdap.git
+[submodule "vendor/wingetopt"]
+	path = vendor/wingetopt
+	url = https://github.com/alex85k/wingetopt.git
+[submodule "vendor/emsdk"]
+	path = vendor/emsdk
+	url = https://github.com/emscripten-core/emsdk.git

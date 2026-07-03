@@ -7,7 +7,7 @@
 #include "mon/mon.h"
 #include "str/rln.h"
 #include "str/str.h"
-#include "sys/com.h"
+#include "sys/com_hw.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
 #include "sys/pix.h"

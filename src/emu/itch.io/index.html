@@ -1,0 +1,274 @@
+<!doctype html>
+<!--
+  Copyright (c) 2026 Rumbledethumps
+  SPDX-License-Identifier: BSD-3-Clause OR Unlicense
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Picocomputer 6502</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  /* The canvas fills the whole frame; the emulator letterboxes its own picture
+     inside it (against bgcolor), so no aspect math is needed here. */
+  #canvas {
+    display: block; width: 100vw; height: 100vh;
+    background: #000; outline: none;
+    image-rendering: pixelated;            /* crisp upscale for nearest scaling */
+    image-rendering: crisp-edges;
+  }
+  /* Hidden unless the program fails to load (or for ?credits). */
+  #msg {
+    position: fixed; inset: 0; display: none; place-items: center;
+    text-align: center; padding: 1em; color: #c7d0d9;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+</style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="0"></canvas>
+  <div id="msg"></div>
+  <script>
+    /* =====================================================================
+     *  DEPLOY CONFIG — edit this block, then re-zip the folder and upload.
+     *  Nothing else in this file needs changing. See README.md for steps.
+     * ===================================================================== */
+    var CONFIG = {
+      rom:    'adventure.rp6502',          // your program, sitting next to this file
+      title:  'Colossal Cave Adventure',   // browser tab title
+      bg:     '000000',                    // letterbox fill, 6 hex digits (no '#')
+      filter: 'sharp',                     // pixel scaling: nearest | linear | sharp
+      db:      '',    // save database name; blank = the rom filename (see README)
+      persist: false, // true = saves are kept in the player's browser (see README)
+    };
+    /* ===================== end of editable section ====================== */
+
+    document.title = CONFIG.title;
+
+    (function () {
+      var canvas = document.getElementById('canvas');
+      var msg = document.getElementById('msg');
+      function fail(t) { msg.textContent = t; msg.style.display = 'grid'; }
+
+      function load() {
+        var s = document.createElement('script');
+        s.src = 'rp6502.js';
+        s.onerror = function () { fail('Could not load rp6502.js'); };
+        document.body.appendChild(s);
+      }
+
+      var bg = String(CONFIG.bg || '').replace(/^#/, '');
+      var hasBg = /^[0-9a-fA-F]{6}$/.test(bg);
+      if (hasBg) canvas.style.background = document.body.style.background = '#' + bg;
+      var filter = String(CONFIG.filter || '').toLowerCase();
+      var hasFilter = filter === 'nearest' || filter === 'linear' || filter === 'sharp';
+      // The GL filter does the real scaling; only an explicit nearest keeps the
+      // browser's own canvas-CSS step pixelated (it bites on hi-dpi).
+      if (filter !== 'nearest') canvas.style.imageRendering = 'auto';
+
+      // ?credits dumps every bundled component's license notice (the emulator's
+      // built-in --credits). There is no on-page link — it's the attribution
+      // path for anyone who redistributes the emulator. See README.md.
+      if (new URLSearchParams(location.search).has('credits')) {
+        var lines = [];
+        window.Module = {
+          arguments: ['--credits'],
+          print: function (t) {
+            lines.push(t);
+            msg.style.display = 'grid';
+            msg.innerHTML = '<pre style="text-align:left;white-space:pre;max-width:92vw;'
+              + 'max-height:92vh;overflow:auto;margin:0;'
+              + 'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace">'
+              + lines.join('\n').replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</pre>';
+          },
+          printErr: function (t) { console.warn(t); },
+        };
+        load();
+        return; // the wasm prints the notices and exits
+      }
+
+      function baseName(u) {
+        var s = u.split('#')[0].split('?')[0], i = s.lastIndexOf('/');
+        return (i >= 0 ? s.slice(i + 1) : s) || 'rom.rp6502';
+      }
+      function sanitize(s) { return s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'default'; }
+
+      var base = baseName(CONFIG.rom);
+      var dbname = sanitize(String(CONFIG.db || '') || CONFIG.rom);
+      var persist = CONFIG.persist === true;
+      var args = ['--rom', '/' + base];
+      if (hasBg) args.push('--bgcolor', bg);
+      if (hasFilter) args.push('--filter', filter);
+
+      // Failures must land on the page, not just the DevTools console: keep a
+      // tail of stderr, and surface any uncaught error/rejection (a crashed
+      // wasm runtime otherwise leaves a silent black canvas).
+      var errTail = [];
+      window.addEventListener('error', function (e) {
+        fail('Emulator crashed: ' + e.message);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        fail('Emulator crashed: ' + ((e.reason && e.reason.message) || e.reason));
+      });
+
+      var Module = {
+        canvas: canvas,
+        arguments: args,
+        print: function (t) { console.log(t); },
+        printErr: function (t) {
+          console.error(t);
+          errTail.push(t);
+          if (errTail.length > 12) errTail.shift();
+        },
+        postRun: [function () {
+          // When main() reaches the window, sokol owns the canvas as webgl2 and
+          // a 2d probe returns null; a non-null 2d context means startup bailed
+          // before rendering (bad option, install/load failure) with the reason
+          // on stderr. Probing post-mortem can't disturb anything.
+          if (canvas.getContext('2d'))
+            fail('Emulator failed to start: ' + (errTail.join(' · ') || 'see the browser console'));
+        }],
+        preRun: [function () {
+          var M = Module;
+          // MSC0: is /db, made the cwd so program writes land there. With
+          // persist it's IDBFS, mirrored to an IndexedDB database named by
+          // CONFIG.db — IDBFS names databases after the mountpoint, so wrap
+          // getDB to substitute ours. Without persist it's plain memory and
+          // saves vanish when the player leaves.
+          try { M.FS.mkdirTree('/db'); } catch (e) {}
+          if (persist) {
+            var I = M.IDBFS;
+            var getDB = I.getDB;
+            I.getDB = function (name, cb) {
+              return getDB(name === '/db' ? dbname : name, cb);
+            };
+            // Store keys mount-relative ('save.dat', not '/db/save.dat') so
+            // the database doesn't bake in the mountpoint. IDBFS uses one
+            // string as both VFS path and database key, so translate on the
+            // remote side only: prepend on the way out, strip on the way in.
+            var strip = function (p) { return p.slice('/db/'.length); };
+            var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
+            var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
+            I.getRemoteSet = function (mount, cb) {
+              grs(mount, function (err, remote) {
+                if (remote && remote.entries) {
+                  var entries = {};
+                  for (var k in remote.entries) entries['/db/' + k] = remote.entries[k];
+                  remote.entries = entries;
+                }
+                cb(err, remote);
+              });
+            };
+            I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
+            I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
+            I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
+            M.FS.mount(M.IDBFS, {}, '/db');
+            M.addRunDependency('idbfs');
+            M.FS.syncfs(true, function () { M.removeRunDependency('idbfs'); });
+          }
+          M.FS.chdir('/db');
+          // Fetch the program into MEMFS (never written back to IndexedDB, so
+          // storage only holds saves).
+          M.addRunDependency('rom');
+          fetch(CONFIG.rom).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.arrayBuffer();
+          }).then(function (buf) {
+            M.FS.writeFile('/' + base, new Uint8Array(buf));
+          }).catch(function (e) {
+            fail('Could not load ' + CONFIG.rom + ' (' + e.message + ').');
+          }).finally(function () { M.removeRunDependency('rom'); });
+        }],
+        onRuntimeInitialized: function () { initGamepadBridge(); },
+        onAbort: function (w) { fail(String(w)); },
+      };
+      window.Module = Module;
+
+      // The game starts running on load. Browser autoplay policy keeps the audio
+      // context suspended until a user gesture, so resume it (and focus the
+      // canvas for keys) on the first key press or tap — no click-to-start gate.
+      function unlock() {
+        var ctx = Module._saudio_context;
+        if (ctx && ctx.state !== 'running') ctx.resume();
+        canvas.focus();
+      }
+      window.addEventListener('keydown', unlock);
+      window.addEventListener('pointerdown', unlock);
+
+      // Best-effort save flush when the tab is hidden/closed (async, so an abrupt
+      // close may miss it). The guard avoids overlapping syncfs calls.
+      var syncing = false;
+      function flush() {
+        if (!persist || !Module.FS || syncing) return;
+        syncing = true;
+        try { Module.FS.syncfs(false, function () { syncing = false; }); }
+        catch (e) { syncing = false; }
+      }
+      window.addEventListener('pagehide', flush);
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') flush();
+      });
+
+      // ----- Gamepad bridge (browser Gamepad API -> emulator) -----
+      // Privacy-gated: nothing reads navigator.getGamepads() until the running
+      // program maps the gamepad report block into XRAM (it calls xreg_ria_gamepad,
+      // flipping emu_pad_mapped()). A 250 ms watcher checks that flag; only then
+      // do we poll the four "standard mapping" pads per frame and forward each.
+      // If the program releases the block we stop and resume watching, so the
+      // browser only touches the gamepad while a ROM asks for it.
+      function initGamepadBridge() {
+        var mapped = Module._emu_pad_mapped;
+        var report = Module._emu_pad_report;
+        var disconnect = Module._emu_pad_disconnect;
+        if (!mapped || !report || !disconnect) return; // exports absent
+
+        var polling = false, raf = 0, watch = 0;
+        var connected = [false, false, false, false];
+
+        function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+        function axis(v) { return clamp(Math.round((v || 0) * 127), -128, 127); }
+        function trig(btn) { return btn ? clamp(Math.round(btn.value * 255), 0, 255) : 0; }
+        function sony(id) { return /054c|0ce6|dualshock|dualsense|playstation|sony/i.test(id || ''); }
+
+        function poll() {
+          if (!mapped()) { stop(); return; } // program released the pad
+          var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+          for (var p = 0; p < 4; p++) {
+            var gp = pads[p];
+            if (!gp) {
+              if (connected[p]) { disconnect(p); connected[p] = false; }
+              continue;
+            }
+            var b = gp.buttons, a = gp.axes;
+            function on(i) { return (b[i] && b[i].pressed) ? 1 : 0; }
+            // RP6502 canonical bit layout (mirrors emu pad.c / the tester ROM).
+            var dpad = (on(12) ? 0x01 : 0) | (on(13) ? 0x02 : 0) |
+                       (on(14) ? 0x04 : 0) | (on(15) ? 0x08 : 0);
+            var b0 = (on(0) ? 0x01 : 0) | (on(1) ? 0x02 : 0) | (on(2) ? 0x08 : 0) |
+                     (on(3) ? 0x10 : 0) | (on(4) ? 0x40 : 0) | (on(5) ? 0x80 : 0);
+            var b1 = (on(6) ? 0x01 : 0) | (on(7) ? 0x02 : 0) | (on(8) ? 0x04 : 0) |
+                     (on(9) ? 0x08 : 0) | (on(16) ? 0x10 : 0) | (on(10) ? 0x20 : 0) |
+                     (on(11) ? 0x40 : 0);
+            report(p, dpad, b0, b1, axis(a[0]), axis(a[1]), axis(a[2]), axis(a[3]),
+                   trig(b[6]), trig(b[7]), sony(gp.id) ? 1 : 0);
+            connected[p] = true;
+          }
+          raf = requestAnimationFrame(poll);
+        }
+        function start() { if (!polling) { polling = true; raf = requestAnimationFrame(poll); } }
+        function stop() {
+          polling = false;
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+          for (var p = 0; p < 4; p++) if (connected[p]) { disconnect(p); connected[p] = false; }
+          if (!watch) watch = setInterval(check, 250); // watch for the next mapping
+        }
+        function check() { if (mapped()) { clearInterval(watch); watch = 0; start(); } }
+        watch = setInterval(check, 250);
+      }
+
+      load();
+    })();
+  </script>
+</body>
+</html>

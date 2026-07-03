@@ -42,7 +42,7 @@ bool mdm_set_listen_port(uint16_t port)
 #include "net/tel.h"
 #include "net/wfi.h"
 #include "str/str.h"
-#include "sys/com.h"
+#include "sys/com_hw.h"
 #include "sys/lfs.h"
 #include <pico/time.h>
 #include <stdlib.h>

@@ -95,8 +95,9 @@ mode3_fill_cols(mode3_config_t *config, uint16_t **rgb, int16_t *col, int16_t *w
 }
 
 static bool
-mode3_render_1bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_1bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
     if (!row_data)
@@ -131,8 +132,9 @@ mode3_render_1bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, ui
 }
 
 static bool
-mode3_render_1bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_1bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 1);
     if (!row_data)
@@ -167,8 +169,9 @@ mode3_render_1bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t 
 }
 
 static bool
-mode3_render_2bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_2bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
     if (!row_data)
@@ -205,8 +208,9 @@ mode3_render_2bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, ui
 }
 
 static bool
-mode3_render_2bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_2bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 2);
     if (!row_data)
@@ -243,8 +247,9 @@ mode3_render_2bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t 
 }
 
 static bool
-mode3_render_4bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_4bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
@@ -278,8 +283,9 @@ mode3_render_4bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, ui
 }
 
 static bool
-mode3_render_4bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_4bpp_reverse(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 4);
     if (!row_data)
@@ -313,8 +319,9 @@ mode3_render_4bpp_reverse(int16_t, int16_t scanline_id, int16_t width, uint16_t 
 }
 
 static bool
-mode3_render_8bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_8bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint8_t *row_data = mode3_scanline_to_data(scanline_id, config, 8);
     if (!row_data)
@@ -336,8 +343,9 @@ mode3_render_8bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, ui
 }
 
 static bool
-mode3_render_16bpp(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
+mode3_render_16bpp(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
     mode3_config_t *config = (void *)&xram[config_ptr];
     volatile const uint16_t *row_data = (uint16_t *)mode3_scanline_to_data(scanline_id, config, 16);
     if (!row_data || (uint32_t)row_data & 1)

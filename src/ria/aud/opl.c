@@ -27,8 +27,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static OPL *opl_emu8950;
 static int16_t opl_sample;
 
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 static void
-    __attribute__((optimize("O3")))
     __isr
     __time_critical_func(opl_irq_handler)(void)
 {
@@ -60,6 +61,7 @@ static void
                      xram_queue[tail][1]);
     }
 }
+#pragma GCC pop_options
 
 bool opl_xreg(uint16_t word)
 {

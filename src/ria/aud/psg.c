@@ -113,8 +113,9 @@ static struct
     uint32_t noise2;
 } psg_channel_state[PSG_CHANNELS];
 
+#pragma GCC push_options
+#pragma GCC optimize("O3")
 static void
-    __attribute__((optimize("O3")))
     __isr
     __time_critical_func(psg_irq_handler)(void)
 {
@@ -260,6 +261,7 @@ static void
         }
     }
 }
+#pragma GCC pop_options
 
 bool psg_xreg(uint16_t word)
 {

@@ -16,10 +16,14 @@ set(RP6502_PROJECT_DEFINITIONS
     RP6502_CREATOR=0
 )
 
-# Project subdirectories.
+# The shared src/ and vendor/ trees live beside this root CMakeLists (the
+# firmware build). Reference sources and vendored deps via RP6502_ROOT.
+get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
+
+# Project subdirectories (under ${RP6502_ROOT}/src).
 set(RP6502_PROJECT_DIRECTORIES
-    src/ria
-    src/vga
+    ria
+    vga
 )
 
 # Force wrappers defined by pico_printf and pico_stdlib to be
@@ -132,14 +136,14 @@ endif()
 
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
 
-include(pico_sdk_import.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/pico_sdk_import.cmake)
 
-set(PICO_TINYUSB_PATH ${CMAKE_CURRENT_LIST_DIR}/src/tinyusb)
+set(PICO_TINYUSB_PATH ${RP6502_ROOT}/vendor/tinyusb)
 
 project(RP6502 C CXX ASM)
 
 pico_sdk_init()
 
 foreach(_dir IN LISTS RP6502_PROJECT_DIRECTORIES)
-    add_subdirectory(${_dir})
+    add_subdirectory(${RP6502_ROOT}/src/${_dir} ${_dir})
 endforeach()

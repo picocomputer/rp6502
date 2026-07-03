@@ -8,14 +8,14 @@
 #include "api/api.h"
 #include "mon/mon.h"
 #include "str/str.h"
-#include "sys/com.h"
-#include "sys/cpu.h"
+#include "sys/cpu_hw.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
 #include "ria.pio.h"
 #include <pico/stdio.h>
 #include <pico/multicore.h>
 #include <hardware/dma.h>
+#include <hardware/sync.h>
 #include <littlefs/lfs_util.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RIA)
@@ -146,6 +146,7 @@ void ria_stop(void)
         REGSW(0xFFFC) = saved_reset_vec;
         saved_reset_vec = -1;
     }
+    ria_uart_rx_clear(); // discard input queued for the now-stopped 6502 UART
 }
 
 bool ria_active(void)
@@ -260,6 +261,71 @@ void ria_write_buf(uint16_t addr)
     action_state = action_state_write;
     main_run();
 }
+
+// 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. act_loop (core 1)
+// produces TX / consumes RX directly (these live here, in its translation unit,
+// so its hot path stays a plain memory access); com.c (core 0) drains TX and
+// feeds RX through the ria_uart_* accessors. Keeping the cross-core rings a ria
+// concern is what lets com.h stay platform-neutral.
+
+// act_loop's 6502 UART-TX ring: single producer (act_loop, core 1), single
+// consumer (com_tx_fanout via ria_uart_tx_dequeue, core 0).
+#define RIA_UART_TX_BUF_SIZE 32
+static volatile uint8_t ria_uart_tx_buf[RIA_UART_TX_BUF_SIZE];
+static volatile size_t ria_uart_tx_head;
+static volatile size_t ria_uart_tx_tail;
+
+static inline bool ria_uart_tx_writable(void)
+{
+    return (((ria_uart_tx_head + 1) % RIA_UART_TX_BUF_SIZE) != ria_uart_tx_tail);
+}
+
+// Caller (act_loop) must have checked ria_uart_tx_writable() first. __dmb()
+// publishes the slot before the head so the core-0 reader can't observe a new
+// head with a stale slot.
+static inline void ria_uart_tx_write(uint8_t ch)
+{
+    size_t next = (ria_uart_tx_head + 1) % RIA_UART_TX_BUF_SIZE;
+    ria_uart_tx_buf[next] = ch;
+    __dmb();
+    ria_uart_tx_head = next;
+}
+
+// core-0 (com_tx_fanout) pops one byte. The __dmb() finishes reading the slot
+// before publishing the tail advance, pairing with the producer DMB.
+bool ria_uart_tx_dequeue(uint8_t *ch)
+{
+    if (ria_uart_tx_head == ria_uart_tx_tail)
+        return false;
+    size_t next = (ria_uart_tx_tail + 1) % RIA_UART_TX_BUF_SIZE;
+    *ch = ria_uart_tx_buf[next];
+    __dmb();
+    ria_uart_tx_tail = next;
+    return true;
+}
+
+bool ria_uart_tx_empty(void) { return ria_uart_tx_head == ria_uart_tx_tail; }
+
+// 6502 UART-RX single-byte handoff: com_task (core 0) offers, act_loop (core 1)
+// consumes for 0xFFE0/0xFFE2 reads. -1 => empty. The source tag and the
+// ordering barrier stay on core 0 in com.c (act_loop never needs the tag).
+static volatile int ria_uart_rx_slot = -1;
+
+bool ria_uart_rx_offer_ready(void) { return ria_uart_rx_slot < 0; }
+void ria_uart_rx_offer(uint8_t ch) { ria_uart_rx_slot = ch; }
+int ria_uart_rx_peek(void) { return ria_uart_rx_slot; }
+
+bool ria_uart_rx_reclaim(uint8_t *ch)
+{
+    int c = ria_uart_rx_slot;
+    if (c < 0)
+        return false;
+    *ch = (uint8_t)c;
+    ria_uart_rx_slot = -1;
+    return true;
+}
+
+void ria_uart_rx_clear(void) { ria_uart_rx_slot = -1; }
 
 #define CASE_READ(addr) (addr & 0x1F)
 #define CASE_WRITE(addr) (0x20 | (addr & 0x1F))
@@ -399,12 +465,12 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 case CASE_READ(0xFFE2): // UART Rx
                 {
-                    int ch = com_rx_char;
+                    int ch = ria_uart_rx_slot;
                     if (ch >= 0)
                     {
                         REGS(0xFFE2) = (uint8_t)ch;
                         REGS(0xFFE0) |= 0b01000000;
-                        com_rx_char = -1;
+                        ria_uart_rx_slot = -1;
                     }
                     else
                     {
@@ -414,9 +480,9 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     break;
                 }
                 case CASE_WRITE(0xFFE1): // UART Tx
-                    if (com_tx_core1_writable())
-                        com_tx_core1_write(data);
-                    if (com_tx_core1_writable())
+                    if (ria_uart_tx_writable())
+                        ria_uart_tx_write(data);
+                    if (ria_uart_tx_writable())
                         REGS(0xFFE0) |= 0b10000000;
                     else
                         REGS(0xFFE0) &= ~0b10000000;
@@ -426,15 +492,15 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                     uint8_t flags = REGS(0xFFE0);
                     if (!(flags & 0b01000000))
                     {
-                        int ch = com_rx_char;
+                        int ch = ria_uart_rx_slot;
                         if (ch >= 0)
                         {
                             REGS(0xFFE2) = (uint8_t)ch;
                             flags |= 0b01000000;
-                            com_rx_char = -1;
+                            ria_uart_rx_slot = -1;
                         }
                     }
-                    if (com_tx_core1_writable())
+                    if (ria_uart_tx_writable())
                         flags |= 0b10000000;
                     else
                         flags &= ~0b10000000;

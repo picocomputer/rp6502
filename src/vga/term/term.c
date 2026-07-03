@@ -2621,7 +2621,9 @@ void term_task(void)
     term_clean_task(&term_80);
 }
 
-static inline bool __attribute__((optimize("O3")))
+#pragma GCC push_options
+#pragma GCC optimize("O3")
+static inline bool
 term_render_320(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
@@ -2722,7 +2724,7 @@ term_render_320(int16_t scanline_id, uint16_t *rgb)
     return true;
 }
 
-static inline bool __attribute__((optimize("O3")))
+static inline bool
 term_render_640(int16_t scanline_id, uint16_t *rgb)
 {
     scanline_id -= term_scanline_begin;
@@ -2824,14 +2826,17 @@ term_render_640(int16_t scanline_id, uint16_t *rgb)
     return true;
 }
 
-static bool __attribute__((optimize("O3")))
-term_render(int16_t, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t)
+static bool
+term_render(int16_t plane_id, int16_t scanline_id, int16_t width, uint16_t *rgb, uint16_t config_ptr)
 {
+    (void)plane_id;
+    (void)config_ptr;
     if (width == 320)
         return term_render_320(scanline_id, rgb);
     else
         return term_render_640(scanline_id, rgb);
 }
+#pragma GCC pop_options
 
 void term_RIS(void)
 {

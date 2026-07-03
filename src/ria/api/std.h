@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "api/api.h"
 
 /* Main events
  */
@@ -43,5 +44,27 @@ typedef enum
     STD_ERROR,   /* failed, check errno */
     STD_PENDING, /* incomplete, would block */
 } std_rw_result;
+
+// One stdio file driver. The open dispatcher claims a path with the first
+// driver whose handles() returns true, so an inactive driver simply returns
+// false. Each platform builds its own std_drivers[] table from this struct.
+typedef struct
+{
+    // handles, open, and close are required
+    bool (*handles)(const char *);
+    int (*open)(const char *, uint8_t, api_errno *);
+    // close and sync return STD_PENDING while draining (re-dispatched on
+    // schedule), STD_OK when done, STD_ERROR on failure (check errno)
+    std_rw_result (*close)(int desc, api_errno *);
+    // everything else is optional
+    std_rw_result (*read)(int desc, char *, uint32_t, uint32_t *, api_errno *);
+    std_rw_result (*write)(int desc, const char *, uint32_t, uint32_t *, api_errno *);
+    std_rw_result (*sync)(int desc, api_errno *);
+    int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
+} std_driver_t;
+
+// This platform's driver table (std_drivers.c)
+extern const std_driver_t std_drivers[];
+extern const size_t std_driver_count;
 
 #endif /* _RIA_API_STD_H_ */

@@ -1,0 +1,468 @@
+<!doctype html>
+<!--
+  Copyright (c) 2026 Rumbledethumps
+  SPDX-License-Identifier: BSD-3-Clause OR Unlicense
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Picocomputer 6502 — WebAssembly</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: #0b0d10; color: #c7d0d9;
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; flex-direction: column; min-height: 100%;
+  }
+  header { text-align: center; padding: 12px 16px 10px; border-bottom: 1px solid #1c2230; }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: .02em; }
+  header h1 b { color: #5fb0ff; font-weight: 600; }
+  header p { margin: 3px 0 0; font-size: 12px; color: #7f8b99; }
+
+  /* The stage fills the space between header and footer; layout() (below) sizes
+     the frame to the largest 4:3 box that fits inside it (aspect kept within the
+     container, letterboxed by the stage's background). The emulator also
+     letterboxes its own canvas inside the frame if a program selects a non-4:3
+     canvas — the same scaling rules as the desktop app. The stage/frame
+     background follows ?bg= so the HTML letterbox matches the GL clear. */
+  #stage {
+    flex: 1 1 auto; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+    padding: 14px; background: #000;
+  }
+  #frame {
+    position: relative;
+    /* width/height set by layout() */
+    background: #000;
+    box-shadow: 0 0 0 1px #1c2230, 0 10px 44px rgba(0, 0, 0, .6);
+  }
+  #canvas {
+    display: block; width: 100%; height: 100%;
+    background: #000; outline: none;
+    image-rendering: pixelated;            /* crisp upscale, retro pixels */
+    image-rendering: crisp-edges;
+  }
+
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; gap: 10px;
+    align-items: center; justify-content: center; text-align: center;
+    background: rgba(0, 0, 0, .82); cursor: pointer; padding: 16px;
+    transition: opacity .3s ease;
+  }
+  #overlay.hidden { opacity: 0; pointer-events: none; }
+  #overlay .play { font-size: 20px; color: #5fb0ff; font-weight: 600; }
+  #overlay .hint { font-size: 13px; color: #9aa6b2; max-width: 36em; }
+  #overlay .hint code {
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+    background: #171c26; border: 1px solid #2a3342; border-radius: 5px;
+    padding: 1px 6px; color: #e6edf3;
+  }
+  #overlay .hint a { color: #5fb0ff; text-decoration: none; font-size: 16px; }
+  #overlay .hint a:hover { text-decoration: underline; }
+  #overlay .hint .menu {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    align-items: center; justify-content: center;
+    max-width: 42em; margin-top: 6px;
+  }
+  #overlay .hint .menu a {
+    font-size: 13px; color: #c7d0d9; text-decoration: none;
+    background: #171c26; border: 1px solid #2a3342; border-radius: 6px;
+    padding: 6px 12px;
+  }
+  #overlay .hint .menu a:hover { background: #1f2733; color: #fff; border-color: #5fb0ff; text-decoration: none; }
+
+  footer {
+    border-top: 1px solid #1c2230; padding: 10px 16px;
+    display: flex; flex-wrap: wrap; gap: 10px 26px;
+    align-items: center; justify-content: center;
+    font-size: 12.5px; color: #9aa6b2;
+  }
+  footer a { color: #5fb0ff; text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><b>Picocomputer 6502</b> &mdash; WebAssembly</h1>
+    <p>The 65C02 + RIA + VGA emulator, compiled to WebAssembly. Runs entirely in your browser.</p>
+    <p id="mouse-hint" style="display:none; color:#5fb0ff;"></p>
+  </header>
+
+  <main id="stage">
+    <div id="frame">
+      <canvas id="canvas" tabindex="0"></canvas>
+      <div id="overlay">
+        <div class="play" id="overlay-title">Loading&hellip;</div>
+        <div class="hint" id="overlay-hint">Starting the WebAssembly module</div>
+      </div>
+    </div>
+  </main>
+
+  <footer>
+    <span>Saves are session-only (add ?persist=1 to keep them).</span>
+    <span>&middot;</span>
+    <a href="https://picocomputer.github.io" target="_blank" rel="noopener">Picocomputer</a>
+  </footer>
+
+  <script>
+    var canvas = document.getElementById('canvas');
+    var overlay = document.getElementById('overlay');
+    var overlayTitle = document.getElementById('overlay-title');
+    var overlayHint = document.getElementById('overlay-hint');
+    var stage = document.getElementById('stage');
+    var frame = document.getElementById('frame');
+
+    // Size the frame to the largest 4:3 box that fits the stage (aspect kept
+    // within the container, letterboxed by the stage's background). sokol matches
+    // its WebGL framebuffer to the canvas CSS size, so dispatch a resize after
+    // each layout to make it re-read. The emulator additionally letterboxes its
+    // own picture inside the canvas if a program selects a non-4:3 canvas.
+    var ASPECT = 4 / 3;
+    function layout() {
+      var cs = getComputedStyle(stage);
+      var availW = stage.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      var availH = stage.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      var w = availW, h = w / ASPECT;
+      if (h > availH) { h = availH; w = h * ASPECT; }
+      frame.style.width = Math.max(0, Math.floor(w)) + 'px';
+      frame.style.height = Math.max(0, Math.floor(h)) + 'px';
+      window.dispatchEvent(new Event('resize')); // sokol re-reads the canvas size
+    }
+    if (window.ResizeObserver) new ResizeObserver(layout).observe(stage);
+    else window.addEventListener('resize', layout);
+    layout();
+
+    // ----- Configure from the URL and boot the module -----
+    // ?rom=<url>      ROM(s) to install (null drive, :name); repeat or comma-
+    //                 separate. The first boots; a program can exec the rest.
+    // ?db=<name>      browser save database for MSC0: (default: the boot URL,
+    //                 sanitized). Same name -> shared saves; different -> isolated.
+    // ?persist=1      keep saves in browser storage (default: discard on leaving).
+    // ?bg=RRGGBB      letterbox/pillarbox fill color.
+    // ?filter=<f>     canvas scaling: nearest|linear|sharp (default sharp).
+    // ?credits        show third-party credits/licenses instead of running a ROM.
+    (function () {
+      var params = new URLSearchParams(location.search);
+
+      // ?credits: boot the module just to run the emulator's --credits, which
+      // prints every bundled component's notice. Capture stdout and show it in
+      // the overlay (a stopgap until a proper on-screen About view exists).
+      if (params.has('credits')) {
+        var pre = document.createElement('pre');
+        pre.style.cssText = 'text-align:left;white-space:pre;'
+          + 'font:12px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;'
+          + 'width:max-content;max-width:92vw;max-height:70vh;overflow:auto;margin:0';
+        var shown = false;
+        var render = function (t) {
+          if (!shown) {
+            overlayTitle.textContent = 'Third-party credits';
+            overlayHint.style.maxWidth = 'none'; // escape the 36em hint cap
+            overlayHint.innerHTML = '';
+            overlayHint.appendChild(pre);
+            overlay.classList.remove('hidden');
+            shown = true;
+          }
+          pre.appendChild(document.createTextNode(t + '\n'));
+        };
+        window.Module = {
+          arguments: ['--credits'],
+          print: function (t) { render(t); },
+          printErr: function (t) { console.warn(t); },
+        };
+        overlayTitle.textContent = 'Loading credits…';
+        overlay.classList.remove('hidden');
+        var cs = document.createElement('script');
+        cs.src = 'rp6502.js';
+        cs.onerror = function () { fail('Could not load rp6502.js'); };
+        document.body.appendChild(cs);
+        return; // the wasm prints credits and exits; nothing else runs
+      }
+      var roms = [];
+      params.getAll('rom').forEach(function (v) {
+        v.split(',').forEach(function (u) { u = u.trim(); if (u) roms.push(u); });
+      });
+      var bg = params.get('bg') || params.get('bgcolor') || '';
+      bg = bg.replace(/^#/, '');
+      var hasBg = /^[0-9a-fA-F]{6}$/.test(bg);
+      var filter = (params.get('filter') || '').toLowerCase();
+      var hasFilter = filter === 'nearest' || filter === 'linear' || filter === 'sharp';
+      if (hasBg) {
+        var col = '#' + bg;
+        stage.style.background = col;
+        frame.style.background = col;
+        canvas.style.background = col;
+      }
+
+      function sanitize(s) {
+        return s.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 180) || 'default';
+      }
+      function baseName(u) {
+        var s = u.split('#')[0].split('?')[0];
+        var i = s.lastIndexOf('/');
+        return (i >= 0 ? s.slice(i + 1) : s) || 'rom.rp6502';
+      }
+      function fail(msg) {
+        overlayTitle.textContent = 'Failed to start';
+        overlayHint.textContent = msg;
+        overlay.classList.remove('hidden');
+      }
+
+      if (!roms.length) {
+        var MENU = [
+          ['Adventure', 'adventure.rp6502'],
+          ['Mode 2 — tiled bitmap', 'mode2.rp6502'],
+          ['Paint — mouse + 6522', 'paint.rp6502'],
+          ['Für Elise — PSG', 'furelise.rp6502'],
+          ['Gamepad tester', 'gamepad.rp6502'],
+          ['Clock / RTC', 'rtc.rp6502'],
+          ['Directory', 'dir.rp6502'],
+          ['Exec / argv', 'exec.rp6502'],
+        ];
+        overlayTitle.textContent = 'Pick a ROM';
+        overlayHint.innerHTML = '<div class="menu">' + MENU.map(function (m) {
+          return '<a href="?rom=roms/' + m[1] + '">' + m[0] + '</a>';
+        }).join('') + '</div>';
+        return; // menu landing — nothing running yet
+      }
+
+      // Same-basename ROMs from different sources must not collide in the MEMFS
+      // cache; give each its own /roms/<index>/ subdirectory so the installed ROM
+      // name (keyed on the basename) stays clean and a program's exec(":name")
+      // still resolves — a shared "<index>-name" prefix would break that.
+      var cachePaths = roms.map(function (u, i) { return '/roms/' + i + '/' + baseName(u); });
+      var dbname = params.get('db') || sanitize(roms[0]);
+      var persist = params.get('persist') === '1';
+
+      var args = [];
+      cachePaths.forEach(function (p) { args.push('--rom', p); });
+      if (hasBg) args.push('--bgcolor', bg);
+      if (hasFilter) args.push('--filter', filter);
+      // The GL-side filter does the real scaling; align the browser's own
+      // canvas-CSS step (it only bites on hi-dpi, where sokol upscales the
+      // drawing buffer to physical pixels). Default is sharp, so keep the
+      // stylesheet's 'pixelated' only for an explicit nearest.
+      if (filter !== 'nearest') canvas.style.imageRendering = 'auto';
+
+      // Failures must land on the page, not just the DevTools console: keep a
+      // tail of stderr, and surface any uncaught error/rejection (a crashed
+      // wasm runtime otherwise leaves a silent black canvas).
+      var errTail = [];
+      window.addEventListener('error', function (e) {
+        fail('Emulator crashed: ' + e.message);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        fail('Emulator crashed: ' + ((e.reason && e.reason.message) || e.reason));
+      });
+
+      var Module = {
+        canvas: canvas,
+        arguments: args,
+        print: function (t) { console.log(t); },
+        printErr: function (t) {
+          console.error(t);
+          errTail.push(t);
+          if (errTail.length > 12) errTail.shift();
+        },
+        postRun: [function () {
+          // When main() reaches the window, sokol owns the canvas as webgl2 and
+          // a 2d probe returns null; a non-null 2d context means startup bailed
+          // before rendering (bad option, install/load failure) with the reason
+          // on stderr. Probing post-mortem can't disturb anything.
+          if (canvas.getContext('2d'))
+            fail('Emulator failed to start: ' + (errTail.join(' · ') || 'see the browser console'));
+        }],
+        preRun: [function () {
+          var M = Module;
+          // MSC0: is /db, made the cwd so program writes land there. With
+          // persist it's IDBFS, mirrored to the ?db= IndexedDB database —
+          // IDBFS names databases after the mountpoint, so wrap getDB to
+          // substitute ours. Without persist it's plain memory.
+          try { M.FS.mkdirTree('/db'); } catch (e) {}
+          if (persist) {
+            var I = M.IDBFS;
+            var getDB = I.getDB;
+            I.getDB = function (name, cb) {
+              return getDB(name === '/db' ? dbname : name, cb);
+            };
+            // Store keys mount-relative ('save.dat', not '/db/save.dat') so
+            // the database doesn't bake in the mountpoint. IDBFS uses one
+            // string as both VFS path and database key, so translate on the
+            // remote side only: prepend on the way out, strip on the way in.
+            var strip = function (p) { return p.slice('/db/'.length); };
+            var grs = I.getRemoteSet, lre = I.loadRemoteEntry;
+            var sre = I.storeRemoteEntry, rre = I.removeRemoteEntry;
+            I.getRemoteSet = function (mount, cb) {
+              grs(mount, function (err, remote) {
+                if (remote && remote.entries) {
+                  var entries = {};
+                  for (var k in remote.entries) entries['/db/' + k] = remote.entries[k];
+                  remote.entries = entries;
+                }
+                cb(err, remote);
+              });
+            };
+            I.loadRemoteEntry = function (store, path, cb) { return lre(store, strip(path), cb); };
+            I.storeRemoteEntry = function (store, path, entry, cb) { return sre(store, strip(path), entry, cb); };
+            I.removeRemoteEntry = function (store, path, cb) { return rre(store, strip(path), cb); };
+            M.FS.mount(M.IDBFS, {}, '/db');
+            M.addRunDependency('idbfs-load');
+            M.FS.syncfs(true, function (err) {
+              if (err) console.error('syncfs(true)', err);
+              M.removeRunDependency('idbfs-load');
+            });
+          }
+          M.FS.chdir('/db');
+          // Fetch the ROMs into a MEMFS cache (/roms) — never written back to
+          // IndexedDB, so storage only holds saves, not full games.
+          try { M.FS.mkdirTree('/roms'); } catch (e) {}
+          roms.forEach(function (url, i) {
+            var dep = 'rom-' + i;
+            M.addRunDependency(dep);
+            fetch(url).then(function (r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.arrayBuffer();
+            }).then(function (buf) {
+              try { M.FS.mkdirTree('/roms/' + i); } catch (e) {}
+              M.FS.writeFile(cachePaths[i], new Uint8Array(buf));
+            }).catch(function (e) {
+              fail('Could not load ' + url + ' (' + e.message + '). ' +
+                   'It must be served over HTTP with CORS access.');
+            }).finally(function () {
+              M.removeRunDependency(dep);
+            });
+          });
+        }],
+        onRuntimeInitialized: function () {
+          overlayTitle.textContent = '▶ Play';
+          overlayHint.textContent = 'Click or press a key to start (enables sound)';
+          initGamepadBridge();
+          initMouseHint();
+        },
+        onAbort: function (what) { fail(String(what)); }
+      };
+      window.Module = Module;
+
+      // Browser autoplay policy: the WebAudio context starts suspended until a
+      // user gesture. Resume it (and dismiss the overlay) on the first click/key.
+      function start() {
+        var ctx = Module._saudio_context;
+        if (ctx && ctx.state !== 'running') ctx.resume();
+        overlay.classList.add('hidden');
+        canvas.focus();
+        window.removeEventListener('keydown', start);
+        overlay.removeEventListener('click', start);
+      }
+      overlay.addEventListener('click', start);
+      window.addEventListener('keydown', start);
+
+      // Persist saves when the tab is hidden/closed (best-effort: the IndexedDB
+      // write is async, so it may not finish on an abrupt close). The guard
+      // avoids overlapping flushes (emscripten warns about concurrent syncfs).
+      var syncing = false;
+      function flush() {
+        if (!persist || !Module.FS || syncing) return;
+        syncing = true;
+        try { Module.FS.syncfs(false, function () { syncing = false; }); }
+        catch (e) { syncing = false; }
+      }
+      window.addEventListener('pagehide', flush);
+      document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') flush();
+      });
+
+      // ----- Mouse capture hint -----
+      // Pointer lock, motion scaling and buttons are handled in C — sokol
+      // implements pointer lock on the web too, so the same app_sokol mouse path
+      // runs. This only reflects the capture state in the header (a browser tab
+      // has no OS title bar). emu_mou_mapped() reports when a program wants the
+      // mouse; the browser also shows its own "press Esc" pointer-lock notice.
+      function initMouseHint() {
+        var mapped = Module._emu_mou_mapped;
+        var hint = document.getElementById('mouse-hint');
+        if (!mapped || !hint) return;
+        function update() {
+          if (document.pointerLockElement === canvas) {
+            hint.textContent = 'Mouse captured — press Esc to release';
+            hint.style.display = '';
+          } else if (mapped()) {
+            hint.textContent = 'Click the screen to capture the mouse';
+            hint.style.display = '';
+          } else {
+            hint.style.display = 'none';
+          }
+        }
+        document.addEventListener('pointerlockchange', update);
+        setInterval(update, 400); // catch a program mapping/unmapping the mouse
+        update();
+      }
+
+      // ----- Gamepad bridge (browser Gamepad API -> emulator) -----
+      // Privacy-gated: nothing here reads navigator.getGamepads() until the
+      // running program maps the gamepad report block into XRAM (it calls
+      // xreg_ria_gamepad, which flips emu_pad_mapped()). A 250 ms watcher
+      // checks that flag; only once it's set do we start per-frame polling of
+      // the four "standard mapping" pads and forward each to the emulator. If
+      // the program later releases the block we stop and resume watching, so
+      // the browser only ever touches the gamepad while a ROM asks for it.
+      function initGamepadBridge() {
+        var mapped = Module._emu_pad_mapped;
+        var report = Module._emu_pad_report;
+        var disconnect = Module._emu_pad_disconnect;
+        if (!mapped || !report || !disconnect) return; // exports absent
+
+        var polling = false, raf = 0, watch = 0;
+        var connected = [false, false, false, false];
+
+        function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
+        function axis(v) { return clamp(Math.round((v || 0) * 127), -128, 127); }
+        function trig(btn) { return btn ? clamp(Math.round(btn.value * 255), 0, 255) : 0; }
+        function sony(id) { return /054c|0ce6|dualshock|dualsense|playstation|sony/i.test(id || ''); }
+
+        function poll() {
+          if (!mapped()) { stop(); return; } // program released the pad
+          var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+          for (var p = 0; p < 4; p++) {
+            var gp = pads[p];
+            if (!gp) {
+              if (connected[p]) { disconnect(p); connected[p] = false; }
+              continue;
+            }
+            var b = gp.buttons, a = gp.axes;
+            function on(i) { return (b[i] && b[i].pressed) ? 1 : 0; }
+            // RP6502 canonical bit layout (mirrors emu pad.c / the tester ROM).
+            var dpad = (on(12) ? 0x01 : 0) | (on(13) ? 0x02 : 0) |
+                       (on(14) ? 0x04 : 0) | (on(15) ? 0x08 : 0);
+            var b0 = (on(0) ? 0x01 : 0) | (on(1) ? 0x02 : 0) | (on(2) ? 0x08 : 0) |
+                     (on(3) ? 0x10 : 0) | (on(4) ? 0x40 : 0) | (on(5) ? 0x80 : 0);
+            var b1 = (on(6) ? 0x01 : 0) | (on(7) ? 0x02 : 0) | (on(8) ? 0x04 : 0) |
+                     (on(9) ? 0x08 : 0) | (on(16) ? 0x10 : 0) | (on(10) ? 0x20 : 0) |
+                     (on(11) ? 0x40 : 0);
+            report(p, dpad, b0, b1, axis(a[0]), axis(a[1]), axis(a[2]), axis(a[3]),
+                   trig(b[6]), trig(b[7]), sony(gp.id) ? 1 : 0);
+            connected[p] = true;
+          }
+          raf = requestAnimationFrame(poll);
+        }
+        function start() { if (!polling) { polling = true; raf = requestAnimationFrame(poll); } }
+        function stop() {
+          polling = false;
+          if (raf) { cancelAnimationFrame(raf); raf = 0; }
+          for (var p = 0; p < 4; p++) if (connected[p]) { disconnect(p); connected[p] = false; }
+          if (!watch) watch = setInterval(check, 250); // watch for the next mapping
+        }
+        function check() { if (mapped()) { clearInterval(watch); watch = 0; start(); } }
+        watch = setInterval(check, 250);
+      }
+
+      var s = document.createElement('script');
+      s.src = 'rp6502.js';
+      s.onerror = function () { fail('Could not load rp6502.js'); };
+      document.body.appendChild(s);
+    })();
+  </script>
+</body>
+</html>

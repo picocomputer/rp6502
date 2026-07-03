@@ -37,6 +37,7 @@ extern volatile size_t xstack_ptr;
 extern volatile uint8_t regs[];
 #define REGS(addr) regs[(addr) & 0x1F]
 #define REGSW(addr) ((uint16_t *)&REGS(addr))[0]
+#define REGSL(addr) ((uint32_t *)&REGS(addr))[0]
 
 // Misc memory buffer for moving things around.
 // 6502 <-> RAM, USB <-> RAM, UART <-> RAM, etc.

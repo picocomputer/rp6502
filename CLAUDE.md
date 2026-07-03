@@ -1,10 +1,10 @@
 This is a RP2350 project, not RP2040 as some legacy filenames may suggest.
 We do not use the TinyUSB in the Pi Pico SDK.
 We have a submodule with overrides:
-* src/tinyusb
-* src/tinyusb_rp6502/hcd_rp2040.c
-* src/tinyusb_rp6502/rp2040_usb.c
-* src/tinyusb_rp6502/midi_host.c
+* vendor/tinyusb
+* vendor/tinyusb_rp6502/hcd_rp2040.c
+* vendor/tinyusb_rp6502/rp2040_usb.c
+* vendor/tinyusb_rp6502/midi_host.c
 
 Use Read for file content (not `cat`). When Bash is the right tool, keep
 each invocation to a single command. No pipes, no `; echo`, no `2>/dev/null`,
@@ -18,9 +18,10 @@ the user home directory.
 Limit git usage to as few requests as possible unless I specifically ask
 for something only git can answer.
 
-To build, run `cmake --build build` from the project root. That builds
-every target in one shot. Do not hunt for individual ninja target names
-(rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+To build, run `cmake --build build/firmware` from the project root. That
+builds every target in one shot. Do not hunt for individual ninja target
+names (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+The emulator is a separate tree at build/emulator (`cmake --build build/emulator`).
 
 Never delete debug macros (DBG, DEBUG_*, etc.) on "currently unused"
 grounds. They are scaffolding kept for future bring-up. If a review
@@ -44,7 +45,7 @@ When a change alters observable behavior — syscalls/API, device pipes,
 monitor commands — update the matching docs in the same change. Match the
 existing prose voice; never edit docs/build (generated output).
 
-The vendored FatFs sources (src/fatfs/ff.c, ff.h, ffconf.h) are upstream
+The vendored FatFs sources (vendor/fatfs/ff.c, ff.h, ffconf.h) are upstream
 code you re-apply on every version bump, so editing them is a last resort —
 prefer our own files. Two deliberate, sanctioned exceptions already live
 there: the formatting "RP6502 mkfs preview hook" (dsk_mkfs_capture) in ff.c,
