@@ -682,15 +682,17 @@ extern "C" void dap_start(void)
         return dap::LaunchResponse();
     });
 
-    g_session->registerHandler([](const dap::SetBreakpointsRequest &req) {
-        dap::SetBreakpointsResponse r;
+    g_session->registerHandler([](const dap::SetBreakpointsRequest &req,
+                                  std::function<void(dap::SetBreakpointsResponse)> respond) {
         std::string path = req.source.path.value("");
         auto sbs = req.breakpoints.value({});
-        auto addrs = std::make_shared<std::vector<uint16_t>>();
-        {
-            /* src_line_to_addr reads the source map the launch lambda may be
-             * (re)loading on the main thread — fence with g_src_mtx. */
-            std::lock_guard<std::mutex> lk(g_src_mtx);
+        /* Resolve on the main thread: the post queue is FIFO, so a launch
+         * queued ahead of us has loaded the source map before the lookup runs.
+         * cppdap frees req when this handler returns (hence the copies);
+         * respond() is thread-safe and may fire after we return. */
+        post([path, sbs, respond]() {
+            dap::SetBreakpointsResponse r;
+            std::vector<uint16_t> addrs;
             for (auto &sb : sbs)
             {
                 dap::Breakpoint ob;
@@ -701,7 +703,7 @@ extern "C" void dap_start(void)
                     ob.verified = true;
                     ob.line = bound;
                     ob.instructionReference = hex16(addr);
-                    addrs->push_back(addr);
+                    addrs.push_back(addr);
                 }
                 else
                 {
@@ -710,20 +712,17 @@ extern "C" void dap_start(void)
                 }
                 r.breakpoints.push_back(ob);
             }
-        }
-        /* DAP replace-semantics, per source file: swap this file's address set. */
-        std::string p = path;
-        post([p, addrs]() {
-            auto it = g_src_bps.find(p);
+            /* DAP replace-semantics, per source file: swap this file's address set. */
+            auto it = g_src_bps.find(path);
             if (it != g_src_bps.end())
                 for (uint16_t a : it->second)
-                    if (!bp_referenced(a, &p, true)) /* keep if instr or another file wants it */
+                    if (!bp_referenced(a, &path, true)) /* keep if instr or another file wants it */
                         dbg_remove_breakpoint(a);
-            g_src_bps[p] = *addrs;
-            for (uint16_t a : *addrs)
+            g_src_bps[path] = addrs;
+            for (uint16_t a : addrs)
                 dbg_add_breakpoint(a);
+            respond(r);
         });
-        return r;
     });
 
     g_session->registerHandler([](const dap::ConfigurationDoneRequest &) {
