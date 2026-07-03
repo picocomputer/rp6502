@@ -3,12 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * MSC0: the writable host filesystem driver: the catch-all in std.c's driver
- * table (it claims every path no earlier driver took, like the firmware's FatFs
- * driver). Owns the MSC0: <-> host path translation (dir.c reuses it for the
- * directory and metadata ops). Open files are plain host fds in a small pool; a
- * write marks the file so closing it persists the drive (a no-op natively; web:
- * Emscripten IDBFS).
  */
 
 #include "emu/api/std.h"

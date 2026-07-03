@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Top level (sys.c): the 60 Hz frame loop and exec. The 65C02 core, PHI2, and
- * the master clock live in cpu.c; the VGA scanlines and the s/ds/cs/ms timers
- * are deadline consumers of that clock, so all timing is reproducible.
  */
 
 #ifndef _EMU_SYS_H_

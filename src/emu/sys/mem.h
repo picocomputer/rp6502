@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Shared machine memory: the 64KB 6502 RAM, the shared 64KB XRAM, the RIA
- * register file (a window into RAM at $FFE0) and XSTACK, and the XRAM
- * write-notify ring. Plus the fixed bus geometry (the framebuffer size and the
- * RIA/VIA register windows). Owned by mem.c; nearly every module reads these.
  */
 
 #ifndef _EMU_MEM_H_

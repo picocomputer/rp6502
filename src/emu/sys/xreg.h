@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * xreg dispatcher (xreg.c): the in-process stand-in for the PIX bus. Routes a
- * device/channel/address word to the RIA-local devices (keyboard/mouse/gamepad,
- * PSG/OPL) and the VGA canvas/mode programming.
  */
 
 #ifndef _EMU_XREG_H_

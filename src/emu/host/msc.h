@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * MSC0: the writable host filesystem file driver (msc.c) — the catch-all entry in
- * std.c's stdio driver table. open() hands back a small int descriptor the cached
- * read/write/lseek/close/sync act on. Internal wiring across the fs backends, not
- * for general callers.
  */
 
 #ifndef _EMU_HOST_MSC_H_

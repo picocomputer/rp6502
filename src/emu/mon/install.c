@@ -3,17 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Installed ROMs on the NULL DRIVE ":" — the emulator's analog of the firmware's
- * flash-installed ROMs (ria/mon/rom.c rom_open opens a ":name" image for the
- * monitor's boot/exec loader, stripping the leading colon). `--rom <file.rp6502>`
- * installs a .rp6502 by its host basename; the boot/exec loader reaches it as
- * ":basename" through fs_resolve_rom (matched case-insensitively, like the ROM:
- * driver and the firmware). Like the firmware, the null drive is reachable ONLY by
- * the loader — a 6502 open/stat/opendir/chdir of ":name" goes to MSC0:, where a
- * leading ":" is refused (host/msc.c), so it is never the cwd and never enumerated
- * or stat'd. Installs are read-only, referenced by host PATH (no bytes copied), and
- * survive exec so an installed launcher can exec another installed ROM. The browser
- * fetches ROMs into a MEMFS cache and installs them here; the desktop points at disk.
  */
 
 #include "emu/mon/install.h"

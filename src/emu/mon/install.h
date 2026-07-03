@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Installed ROMs on the firmware's null drive ":" (install.c). `--rom <file>`
- * installs a .rp6502 by host basename, reached as ":basename" (matched
- * case-insensitively). Like the firmware, only the boot/exec loader resolves
- * them — not a 6502 open(); read-only, surviving exec.
  */
 
 #ifndef _EMU_INSTALL_H_

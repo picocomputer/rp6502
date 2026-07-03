@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Minimal PNG writer for headless verification (no zlib dependency): emits
- * a truecolor-alpha PNG whose IDAT is a zlib stream of uncompressed DEFLATE
- * stored blocks. Reuses the project's CRC-32 for chunk CRCs.
  */
 
 #include "emu/host/png.h"

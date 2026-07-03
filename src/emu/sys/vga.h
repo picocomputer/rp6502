@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * VGA glue (vga.c): the boot console, canvas selection, the vsync scanline, the
- * per-frame terminal housekeeping, and rendering the current frame into an
- * RGBA8 framebuffer at the canvas's native size.
  */
 
 #ifndef _EMU_VGA_H_

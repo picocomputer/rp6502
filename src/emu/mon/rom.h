@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * ROM loader (rom.c): load a .rp6502 into ram[]/xram[] and serve its bundled
- * assets on demand as the ROM: drive (read-only file windows). Also the shared
- * CRC-32/ISO-HDLC the loader and the PNG writer use.
  */
 
 #ifndef _EMU_ROM_H_

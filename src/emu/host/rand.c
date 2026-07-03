@@ -3,13 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Host stand-in for the pico-sdk's hardware RNG (get_rand_64), the entropy
- * source the vendored firmware atr.c uses for lrand. On real hardware lrand is
- * free-running entropy that a reset/exec never restarts, so the emulator
- * defaults to real host entropy too (seeded lazily on first use) — a game that
- * wants randomness gets it. For reproducible runs (tests, debugging) a fixed
- * seed can be forced with emu_set_random_seed (the --seed CLI option); the
- * generator is unchanged, so a given seed always replays the same stream.
  */
 
 #include "emu/host/rand.h"

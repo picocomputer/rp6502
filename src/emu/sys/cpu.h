@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 65C02 core and the one master clock (cpu.c): the per-cycle bus tick,
- * PHI2, and the virtual time base. Implements the firmware sys/cpu.h PHI2 run
- * contract; this header adds the emulator-only seam.
  */
 
 #ifndef _EMU_CPU_H_

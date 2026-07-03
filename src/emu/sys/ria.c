@@ -3,23 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * RIA register window ($FFE0-$FFF9) and the 6502 syscall ABI.
- *
- * The hardware uses a self-modifying BRA-spin trampoline at $FFF1 plus a
- * RIA-side polling loop. Most syscalls finish synchronously inside the $FFEF
- * (API_OP) write: by the time the 6502 fetches its next instruction the
- * trampoline is released and the return value (A/X/SREG) is patched in.
- *
- * The op latch and dispatch pump are the REAL firmware api_task (ria/api/api.c);
- * main_api() below is the op registry it dispatches through — a runtime array
- * where the firmware uses a switch in main.c, so the dir slots can swap. An op
- * that returns api_working() (stdin until the user types a line; a windowed
- * MSC0:/ROM: read until its AIO transfer completes) stays latched: the 6502
- * spins on the blocked trampoline and api_task is pumped every scanline until
- * the op completes — mirroring how the real RIA polls in its super loop.
- *
- * The return mechanics live in ria/api/api.h, shared with std.c/dir.c and the
- * vendored rln.c.
  */
 
 #include "emu/api/clk.h"

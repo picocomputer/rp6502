@@ -3,16 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 6522 VIA — a physical timer/IO chip on the RP6502 bus at $FFD0-$FFDF.
- * The RIA doesn't model it (it's real silicon beside the 6502), so the emulator
- * provides it from floooh's m6522. Programs use Timer 1 in free-run mode to
- * raise a periodic IRQ (e.g. paint's 125 Hz mouse poll); the VIA's IRQ pin
- * shares M6502_IRQ's bit position, so it drives the CPU's IRQ line directly.
- *
- * m6522's pin layout overlaps the 6502's by design — D0-D7, RW and IRQ sit at
- * the same bit positions and RS0-3 are the low address nibble — so a VIA tick
- * reads everything it needs straight from the CPU pin mask; we only add the
- * chip select for accesses that land in its window.
  */
 
 #define CHIPS_IMPL

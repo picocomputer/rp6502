@@ -3,23 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The console (firmware analog: ria/sys/com.c), both directions.
- *
- * Input rings feeding the vendored line editor (rln.c). The firmware reads
- * keyboard/UART/telnet bytes through com; the emulator needs two streams:
- *
- *   KBD  - user keystrokes from the kbd.c replacement (sokol events).
- *   UART - the terminal's in-band replies (term.c -> com_in_write_reply),
- *          which carry the CPR/DA answers rln's geometry handshake expects.
- *
- * rln tags CPR/DA tracking by source, so the two streams stay separate and
- * are returned with their true COM_SOURCE_* identity.
- *
- * Output is the console TX wire: every terminal-bound byte passes through
- * com_tx_write once — the analog of the firmware's UART TX drain, where the
- * tap/echo/BEL scan sit — then goes out the captured terminal driver. CRLF
- * translation happens above, in the pico stdio shim, exactly as the Pico SDK
- * does above the firmware's com.
  */
 
 #include "sys/com.h"

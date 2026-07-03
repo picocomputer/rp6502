@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Random (rand.c): the host entropy source behind get_rand_64, which the
- * vendored atr.c lrand API reaches through pico/rand.h. The emulator exposes
- * only the seed control point here.
  */
 
 #ifndef _EMU_RAND_H_

@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Top level: the 60 Hz frame loop and exec. Within each scanline the 6502 is
- * pumped (cpu.c) until the master clock reaches that scanline's deadline, so
- * the CPU and the video are paced by the same reproducible time base.
  */
 
 #include "emu/host/msc.h"

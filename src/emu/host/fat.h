@@ -3,11 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The emulator's FatFs backend for MSC0: — a RAM block device (the diskio, called
- * by FatFs) plus the drive glue that lets --tmpdrive present a real, ephemeral
- * FatFs instead of the native host filesystem. The 6502's file/dir syscalls route
- * here (via std.c / host/dir.c) when the FatFs backend is active, running the
- * SHARED ria/api/fat.c driver over the RAM disk — the same code as the firmware.
  */
 
 #ifndef _EMU_HOST_FAT_H_

@@ -3,11 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * VGA glue. Replaces the dual-core PIO scanout with a single in-process
- * renderer that mirrors the firmware's vga.c: a per-scanline prog table holds,
- * per plane, a fill renderer (term/mode1/2/3) and/or a sprite renderer (mode5).
- * Each visible scanline runs every plane's fill+sprite into plane buffers, then
- * composites them into the RGBA framebuffer.
  */
 
 #include "emu/api/oem.h"

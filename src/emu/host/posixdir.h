@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX directory-stream access behind opaque handles, kept in its own TU so
- * host/dir.c can fill the FatFs FILINFO type without pulling <dirent.h> — whose
- * DIR typedef collides with FatFs ff.h's DIR.
  */
 
 #ifndef _EMU_HOST_POSIXDIR_H_

@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * PNG writer (png.c) — headless verification. Encodes an RGBA8 framebuffer to a
- * PNG file (uncompressed DEFLATE), used by the --screenshot path.
  */
 
 #ifndef _EMU_PNG_H_

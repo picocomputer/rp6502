@@ -3,15 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Standalone .rp6502 loader. Mirrors the format parsed by ria/mon/rom.c:
- *
- *   #!RP6502\r\n                 magic
- *   #>$<len> $<crc> [name]\r\n   optional "new format" header / named assets
- *   $<addr> $<len> $<crc>\r\n    data record header, followed by <len> raw bytes
- *
- * Addresses < $10000 load into 6502 RAM; $10000..$1FFFF load into XRAM.
- * A valid image must supply both reset-vector bytes ($FFFC/$FFFD). Each
- * record's CRC is verified (CRC-32/ISO-HDLC, i.e. zlib).
  */
 
 #include "emu/host/msc.h"

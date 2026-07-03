@@ -3,14 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Single in-process xreg dispatcher. Replaces the PIX bus: an xreg(device,
- * channel, address, word) lands here and is routed to the RIA-local devices
- * or the VGA renderer, both of which share the one XRAM array.
- *
- * device 0 = RIA-local: channel 0 = HID (kbd/mou/pad), channel 1 = audio
- *            (PSG at address 0, OPL at address 1) — mirrors main_xreg.
- * device 1 = VGA: channel 0 holds canvas(0)/mode(1)/params, channel 15 is
- *            display control.
  */
 
 #include "emu/hid/kbd.h"

@@ -3,13 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The emulator's FatFs backend for MSC0:. It stands in for the firmware's USB
- * mass-storage drive: a RAM block device (the diskio FatFs calls) plus the glue
- * that lets --tmpdrive present a real, ephemeral FatFs. When the backend is
- * active the 6502's file/dir syscalls run the SHARED ria/api/fat.c driver (files)
- * and FatFs f_* (directories) over the RAM disk — the same code as on hardware,
- * so the tmpdrive exercises real FatFs. The RAM is malloc'd only when a tmpdrive
- * is actually used; the default (host-backed) run allocates nothing.
  */
 
 #include "emu/host/fat.h"

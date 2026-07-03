@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 65C02 core and the one master clock. Every chips tick advances the
- * 256 MHz master clock by the PHI2 divider; the VGA scanlines and the
- * s/ds/cs/ms timers are deadline consumers of that same clock, so the whole
- * machine is paced by one reproducible time base.
  */
 
 #include "emu/chips/rp6502.h"

@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The only TU that includes <dirent.h>: it isolates POSIX DIR so callers can use
- * the FatFs FILINFO type (whose ff.h also typedefs DIR) without a collision.
  */
 
 #include "emu/host/posixdir.h"

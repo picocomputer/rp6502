@@ -3,13 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The emulator's HOST directory / path syscall handlers (host_dir_api_*), written
- * in the firmware's ria/api/dir.c style but against the native OS filesystem: each
- * reads the xstack, does the POSIX work, and pushes a FatFs FILINFO the 6502 reads.
- * The OP dispatcher installs these for the default host drive and swaps in the real
- * firmware dir_api_* (ria/api/dir.c) on --tmpdrive. "MSC0:" maps straight onto the
- * OS filesystem (absolute from the root, relative from the process cwd); ROM:/
- * overlays are not enumerable, so they never appear.
  */
 
 #include "emu/host/dir.h"
