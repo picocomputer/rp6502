@@ -61,6 +61,7 @@ double emu_get_window_scale(void) { return 0.0; }
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h> /* frame limiter (clock_gettime/clock_nanosleep) */
 #if defined(_WIN32)
 #include <windows.h>
@@ -126,6 +127,7 @@ static struct
     int tex_w, tex_h; /* current texture size = canvas native size */
     bool exit_on_halt; /* close the window when the program stops */
     bool vsync;        /* false: pace the loop to 60 Hz in software (sleep_until_ns) */
+    bool flip_v;       /* true on GL-family backends, false on Metal/D3D11 */
     sg_image img;
     sg_view view;
     sg_sampler smp;        /* NEAREST: the canvas texture / prescale source */
@@ -375,6 +377,8 @@ static void init_cb(void)
     sgl_setup(&(sgl_desc_t){
         .logger.func = slog_func,
     });
+    sg_backend b = sg_query_backend();
+    app.flip_v = (b == SG_BACKEND_GLCORE) || (b == SG_BACKEND_GLES3);
     app.smp = sg_make_sampler(&(sg_sampler_desc){
         .min_filter = SG_FILTER_NEAREST,
         .mag_filter = SG_FILTER_NEAREST,
@@ -436,9 +440,21 @@ static uint64_t now_ns(void)
 static void sleep_until_ns(uint64_t target)
 {
 #if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
+#if defined(__APPLE__)
+    uint64_t now = now_ns();
+    if (target > now)
+    {
+        uint64_t delta = target - now;
+        struct timespec req = {.tv_sec = (time_t)(delta / 1000000000ull),
+                               .tv_nsec = (long)(delta % 1000000000ull)};
+        while (nanosleep(&req, &req) != 0 && errno == EINTR)
+            ;
+    }
+#else
     struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
                              .tv_nsec = (long)(target % 1000000000ull)};
     clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &until, NULL);
+#endif
 #else
     (void)target;
 #endif
@@ -645,11 +661,14 @@ static void frame_cb(void)
         else
             sgl_texture(app.view, app.smp);
         sgl_begin_quads();
-        /* Texture v flipped so framebuffer row 0 is at the top. */
-        sgl_v2f_t2f(-qx, qy, 0.0f, 0.0f);
-        sgl_v2f_t2f(qx, qy, 1.0f, 0.0f);
-        sgl_v2f_t2f(qx, -qy, 1.0f, 1.0f);
-        sgl_v2f_t2f(-qx, -qy, 0.0f, 1.0f);
+        /* GL-family backends sample uploaded rows upside down vs the emulator's
+         * row-0-at-top framebuffer; Metal/D3D11 do not. */
+        float tv_top = app.flip_v ? 0.0f : 1.0f;
+        float tv_bot = app.flip_v ? 1.0f : 0.0f;
+        sgl_v2f_t2f(-qx, qy, 0.0f, tv_top);
+        sgl_v2f_t2f(qx, qy, 1.0f, tv_top);
+        sgl_v2f_t2f(qx, -qy, 1.0f, tv_bot);
+        sgl_v2f_t2f(-qx, -qy, 0.0f, tv_bot);
         sgl_end();
     }
 
