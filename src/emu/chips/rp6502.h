@@ -41,7 +41,6 @@ typedef struct
     uint64_t PINS;       /* last bus pin state (do NOT modify; for the debug UI) */
     uint8_t irq_enabled; /* $FFF0 enable mask (VSYNC/SIGINT) */
     uint8_t irq_pending; /* latched pending sources, ORed onto IRQB while enabled */
-    uint8_t pending_op;  /* in-flight syscall op being polled (0 = idle) */
 } ria_t;
 
 /* ------------------------------------------------------------------ */
@@ -65,11 +64,8 @@ void *ria_chip(void); /* ria_t* — the live chip instance, for the debugger UI 
 void ria_trigger_vsync(void);
 bool ria_irq_asserted(void);
 
-/* Re-dispatch the in-flight (pending) syscall — the I/O polling step. Cheap
- * no-op when nothing is pending. ria_task_pump runs every scanline (the
- * emulator's analog of the RIA super-loop); ria_task is the per-frame entry
- * (after the line editor is pumped). */
-void ria_task_pump(void);
+/* Per-frame entry (after the line editor is pumped). The scanline-rate I/O
+ * poll is the shared firmware api_task (ria/api/api.h). */
 void ria_task(void);
 
 /* RIA-side firmware ABI reached by the vendored rln.c/atr.c through the firmware

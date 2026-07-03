@@ -21,6 +21,7 @@
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
+#include "api/api.h"
 #include "aud/aud.h"
 #include "str/rln.h"
 #include <stdio.h>
@@ -103,8 +104,8 @@ static void run_frame(bool render)
 
         if (cpu_run_until(scanline_deadline_8(scanline_n + 1), dbg))
             return; /* held at a breakpoint mid-frame; resume re-enters emu_run_frame */
-        std_task();      /* drain read_xram's PIX gate before the op re-polls */
-        ria_task_pump(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
+        std_task(); /* drain read_xram's PIX gate before the op re-polls */
+        api_task(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
         scanline_n++;
         if (!vsynced && line + 1 >= vsync_line)
         {

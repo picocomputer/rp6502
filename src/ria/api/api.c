@@ -4,7 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "main.h"
 #include "api/api.h"
+#include "sys/cpu.h"
+#include "sys/ria.h"
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_API)
 #include <stdio.h>
@@ -75,6 +78,29 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // API state
 static uint8_t api_errno_opt;
+static uint8_t api_active_op;
+
+// The 6502 requests an API op by writing API_OP and spinning on API_BUSY.
+// The op is latched in api_active_op and main_api() is polled until the
+// handler returns false.
+void api_task(void)
+{
+    // Latch called op in case 6502 app misbehaves
+    if (cpu_active() && !ria_active() &&
+        !api_active_op && API_BUSY)
+    {
+        uint8_t op = API_OP;
+        if (op != 0x00 && op != 0xFF)
+            api_active_op = op;
+    }
+    if (api_active_op && !main_api(api_active_op))
+        api_active_op = 0;
+}
+
+void api_stop(void)
+{
+    api_active_op = 0;
+}
 
 void api_run(void)
 {

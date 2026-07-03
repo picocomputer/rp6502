@@ -10,11 +10,13 @@
  * (API_OP) write: by the time the 6502 fetches its next instruction the
  * trampoline is released and the return value (A/X/SREG) is patched in.
  *
- * I/O follows a polling model: a source returns api_working() until its bytes
- * are ready (stdin until the user types a line; a windowed MSC0:/ROM: read until
- * its AIO transfer completes). The trampoline stays blocked, the 6502 spins on
- * it, and ria_task_pump() re-dispatches the op every scanline until it completes
- * — mirroring how the real RIA polls the operation to completion in its loop.
+ * The op latch and dispatch pump are the REAL firmware api_task (ria/api/api.c);
+ * main_api() below is the op registry it dispatches through — a runtime array
+ * where the firmware uses a switch in main.c, so the dir slots can swap. An op
+ * that returns api_working() (stdin until the user types a line; a windowed
+ * MSC0:/ROM: read until its AIO transfer completes) stays latched: the 6502
+ * spins on the blocked trampoline and api_task is pumped every scanline until
+ * the op completes — mirroring how the real RIA polls in its super loop.
  *
  * The return mechanics live in ria/api/api.h, shared with std.c/dir.c and the
  * vendored rln.c.
@@ -35,6 +37,7 @@
 #include "emu/sys/xreg.h"
 #include "emu/chips/rp6502.h"
 #include "emu/host/dir.h"
+#include "main.h"
 #include "api/api.h"
 #include "api/atr.h"
 #include "api/std.h"
@@ -236,17 +239,19 @@ void emu_dir_ops_set(bool fat)
         api_ops[slots[i].op] = fat ? slots[i].fat : slots[i].host;
 }
 
-/* Returns true if the op has more work (api_working) and should be
+/* The registry api_task dispatches through; the firmware's is the switch in
+ * main.c. Returns true if the op has more work (api_working) and should be
  * re-dispatched, false once it has returned to the 6502. */
-static bool ria_op_dispatch(uint8_t op)
+bool main_api(uint8_t operation)
 {
-    api_op_fn fn = op < 0x40 ? api_ops[op] : NULL;
+    api_op_fn fn = operation < 0x40 ? api_ops[operation] : NULL;
     return fn ? fn() : api_return_errno(API_ENOSYS);
 }
 
-/* The op currently blocked mid-flight (ria.pending_op, 0 = none). An op that
- * returns api_working() (stdin, or async MSC0:/ROM: file I/O) lingers and is
- * re-polled by ria_task; everything else completes on the first dispatch. */
+/* $FFEF write. ZXSTACK (0x00) and EXIT (0xFF) run inside the write, mirroring
+ * act_loop in ria/sys/ria.c; every other op is latched by the shared api_task,
+ * pumped once here so most syscalls still complete before the 6502's next
+ * instruction. */
 static void ria_syscall(uint8_t op)
 {
     api_set_regs_blocked();
@@ -268,31 +273,16 @@ static void ria_syscall(uint8_t op)
         return;
     }
     default:
-        /* Dispatch once. If the handler is still working (api_working: stdin or
-         * async MSC0:/ROM: file I/O), leave it pending and let the 6502 spin until
-         * ria_task finishes it. */
-        ria.pending_op = ria_op_dispatch(op) ? op : 0;
+        api_task();
         return;
     }
-}
-
-/* Re-dispatch the in-flight op (the I/O poll). A cheap no-op when nothing is
- * pending. Called every scanline (the emulator's analog of the RIA super-loop)
- * so a pending source completes within ~32 us of virtual time, not a whole
- * frame — nothing tolerates per-frame I/O latency. */
-void ria_task_pump(void)
-{
-    if (!ria.pending_op)
-        return;
-    if (!ria_op_dispatch(ria.pending_op))
-        ria.pending_op = 0;
 }
 
 /* Per-frame entry, run after the line editor (std_task) so a stdin line that
  * just arrived is dispatched at the frame boundary. */
 void ria_task(void)
 {
-    ria_task_pump();
+    api_task();
 }
 
 /* rln consults this to suppress cursor-shape escapes while the RIA is busy
@@ -506,11 +496,11 @@ bool ria_get_sigint(void)
 void ria_reset(void)
 {
     api_run();
+    api_stop(); /* drop any latched op from the outgoing program */
     ria.irq_enabled = 0; /* $FFF0: IRQ disabled, no pending sources, line idle */
     ria.irq_pending = 0;
     regs[0x10] = 0;
     xstack[XSTACK_SIZE] = 0; /* cstring guard */
-    ria.pending_op = 0;
     emu_cpu_halted = false;
     emu_exit_code = 0;
     std_reset();

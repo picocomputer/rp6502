@@ -134,30 +134,6 @@ void main_task(void)
     ram_task();
 }
 
-// The 6502 requests an API op by writing API_OP and spinning on API_BUSY.
-// The op is latched here and main_api() is polled until the handler
-// returns false.
-static uint8_t api_active_op;
-
-static void api_task(void)
-{
-    // Latch called op in case 6502 app misbehaves
-    if (cpu_active() && !ria_active() &&
-        !api_active_op && API_BUSY)
-    {
-        uint8_t op = API_OP;
-        if (op != 0x00 && op != 0xFF)
-            api_active_op = op;
-    }
-    if (api_active_op && !main_api(api_active_op))
-        api_active_op = 0;
-}
-
-static void api_stop(void)
-{
-    api_active_op = 0;
-}
-
 // Tasks that call FatFs should be here instead of main_task().
 static void task(void)
 {
