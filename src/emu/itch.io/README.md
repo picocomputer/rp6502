@@ -41,13 +41,10 @@ upgrades trivial: pull the newer files and re-apply that block.
 
 ## itch.io embed settings
 
-- **Embed:** *Click to launch in fullscreen* gives the cleanest result and sizes
-  the viewport to the player's screen. *Embed in page* works too — the picture
-  letterboxes to fit whatever viewport you set.
-- **Fullscreen button:** enable it; the picture fills whatever space it's given.
-- **Mobile friendly:** safe to enable — sound just switches on at the first tap.
-- **SharedArrayBuffer support:** leave it **off**. This emulator is single
-  threaded and needs no cross-origin isolation, so it runs on every browser.
+- **Manually set size:** Choose 640x480 or 640x360. 320 wide games will scale.
+- **Kind of Project:** Choose HTML and upload a ZIP file.
+- **Enable scrollbars:** leave it **off**.
+- **SharedArrayBuffer support:** leave it **off**.
 
 ## Saves and browser storage
 
