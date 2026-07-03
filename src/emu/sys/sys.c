@@ -79,12 +79,26 @@ void emu_init(void)
  * app loop calls this at 60 Hz regardless of the host display's refresh rate. */
 static void run_frame(bool render)
 {
-    /* Debugger hold: a stopped CPU freezes virtual time and the window simply
-     * re-presents the last captured frame. Hoisted once per frame so the hot
-     * tick loop pays nothing when debugging is inactive (the common case). */
+    /* Debugger hold: only the 6502 and virtual time freeze. Console output that
+     * reached the terminal after the beam passed its row this frame (a program's
+     * final prints before the stop) hasn't been scanned out yet, so sweep the
+     * visible canvas once from the frozen state; after that the window simply
+     * re-presents the settled frame. Hoisted once per frame so the hot tick
+     * loop pays nothing when debugging is inactive (the common case). */
+    static bool stop_swept;
     const bool dbg = dbg_is_active();
     if (dbg && dbg_is_stopped())
+    {
+        if (render && !stop_swept)
+        {
+            const int h = vga_canvas_height();
+            for (int line = 0; line < h; line++)
+                vga_render_scanline(line);
+            stop_swept = true;
+        }
         return;
+    }
+    stop_swept = false;
 
     const int vsync_line = vga_vsync_scanline();
     const int canvas_h = vga_canvas_height(); /* visible region; snapshot for the frame */

@@ -12,8 +12,10 @@
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
+#include "emu/sys/vga.h"
 #include "sys/com.h"
 #include "utest.h"
+#include <string.h>
 
 /* The first instruction the CPU fetches after reset = the RESET vector target. */
 static uint16_t entry_pc(void)
@@ -137,6 +139,50 @@ UTEST(dbg, stop_at_entry)
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_ENTRY);
 
     disarm();
+}
+
+static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
+
+static uint32_t frame_crc(void)
+{
+    int cw, ch;
+    emu_canvas_size(&cw, &ch);
+    return emu_crc32(0, fb, (size_t)cw * ch * 4);
+}
+
+/* A stop freezes the machine but not the screen: terminal output that hasn't
+ * been scanned out yet (a program's final prints before the halt) is swept to
+ * the framebuffer once from the frozen state. All running frames here skip
+ * rendering, so ONLY the stopped-state sweeps ever touch the framebuffer. */
+UTEST(dbg, stop_sweeps_pending_output_to_framebuffer)
+{
+    ASSERT_TRUE(load());
+    vga_set_framebuffer(fb);
+    memset(fb, 0, sizeof(fb));
+    uint32_t untouched = frame_crc();
+    dbg_set_active(true);
+
+    dbg_add_breakpoint(entry_pc()); /* stop before anything prints */
+    emu_run_frame_norender();
+    ASSERT_TRUE(dbg_is_stopped());
+    emu_run_frame();
+    uint32_t console_blank = frame_crc();
+    ASSERT_NE(console_blank, untouched); /* the sweep painted the blank console */
+
+    dbg_clear_breakpoints();
+    dbg_continue();
+    for (int i = 0; i < 60; i++) /* intro banner prints; nothing rendered */
+        emu_run_frame_norender();
+    dbg_request_break();
+    emu_run_frame_norender();
+    ASSERT_TRUE(dbg_is_stopped());
+
+    emu_run_frame();
+    ASSERT_TRUE(dbg_is_stopped());
+    ASSERT_NE(frame_crc(), console_blank); /* the banner reached the pixels */
+
+    disarm();
+    vga_set_framebuffer(NULL);
 }
 
 /* Continue after a stop resumes free execution: the program runs to completion.
