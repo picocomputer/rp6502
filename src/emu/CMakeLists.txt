@@ -19,54 +19,54 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
+    ${RP6502_SRC}/emu/api/clk.c
+    ${RP6502_SRC}/emu/api/oem.c
+    ${RP6502_SRC}/emu/api/pro.c
+    ${RP6502_SRC}/emu/api/std_drivers.c
+    ${RP6502_SRC}/emu/aud/aud.c
+    ${RP6502_SRC}/emu/aud/snd.c
+    ${RP6502_SRC}/emu/chips/w65c02.c
+    ${RP6502_SRC}/emu/dbg/dbg.c
+    ${RP6502_SRC}/emu/hid/kbd.c
+    ${RP6502_SRC}/emu/hid/mou.c
+    ${RP6502_SRC}/emu/hid/pad.c
+    ${RP6502_SRC}/emu/host/dir.c
+    ${RP6502_SRC}/emu/host/fat.c
+    ${RP6502_SRC}/emu/host/msc.c
+    ${RP6502_SRC}/emu/host/png.c
+    ${RP6502_SRC}/emu/host/posixdir.c
+    ${RP6502_SRC}/emu/host/rand.c
+    ${RP6502_SRC}/emu/mon/install.c
+    ${RP6502_SRC}/emu/mon/rom.c
+    ${RP6502_SRC}/emu/shim/pico/stdio.c
+    ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
     ${RP6502_SRC}/emu/sys/ria.c
-    ${RP6502_SRC}/emu/dbg/dbg.c
-    ${RP6502_SRC}/emu/sys/vga.c
-    ${RP6502_SRC}/emu/sys/xreg.c
-    ${RP6502_SRC}/emu/host/dir.c
-    ${RP6502_SRC}/emu/host/posixdir.c
-    ${RP6502_SRC}/emu/host/msc.c
-    ${RP6502_SRC}/emu/mon/install.c
-    ${RP6502_SRC}/emu/mon/rom.c
-    ${RP6502_SRC}/emu/host/png.c
     ${RP6502_SRC}/emu/sys/sys.c
-    ${RP6502_SRC}/emu/chips/w65c02.c
-    ${RP6502_SRC}/emu/api/oem.c
-    ${RP6502_SRC}/emu/host/rand.c
-    ${RP6502_SRC}/emu/api/std_drivers.c
-    ${RP6502_SRC}/emu/sys/com.c
-    ${RP6502_SRC}/emu/shim/pico/stdio.c
-    ${RP6502_SRC}/emu/hid/kbd.c
-    ${RP6502_SRC}/emu/hid/pad.c
-    ${RP6502_SRC}/emu/hid/mou.c
+    ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/sys/via.c
-    ${RP6502_SRC}/emu/api/clk.c
-    ${RP6502_SRC}/emu/api/pro.c
-    ${RP6502_SRC}/emu/aud/snd.c
-    ${RP6502_SRC}/emu/aud/aud.c
-    ${RP6502_SRC}/ria/aud/bel.c
-    ${RP6502_SRC}/ria/aud/psg.c
-    ${RP6502_SRC}/ria/aud/opl.c
-    ${RP6502_VENDOR}/emu8950/emu8950.c
-    ${RP6502_VENDOR}/fatfs/ffunicode.c
-    ${RP6502_VENDOR}/fatfs/ff.c
-    ${RP6502_SRC}/ria/api/fat.c
-    ${RP6502_SRC}/ria/api/dir.c
-    ${RP6502_SRC}/ria/api/std.c
+    ${RP6502_SRC}/emu/sys/xreg.c
     ${RP6502_SRC}/ria/api/api.c
-    ${RP6502_SRC}/emu/host/fat.c
-    ${RP6502_SRC}/vga/term/term.c
-    ${RP6502_SRC}/vga/term/font.c
-    ${RP6502_SRC}/vga/term/color.c
+    ${RP6502_SRC}/ria/api/atr.c
+    ${RP6502_SRC}/ria/api/dir.c
+    ${RP6502_SRC}/ria/api/fat.c
+    ${RP6502_SRC}/ria/api/std.c
+    ${RP6502_SRC}/ria/aud/bel.c
+    ${RP6502_SRC}/ria/aud/opl.c
+    ${RP6502_SRC}/ria/aud/psg.c
+    ${RP6502_SRC}/ria/str/rln.c
     ${RP6502_SRC}/vga/modes/mode1.c
     ${RP6502_SRC}/vga/modes/mode2.c
     ${RP6502_SRC}/vga/modes/mode3.c
     ${RP6502_SRC}/vga/modes/mode4.c
     ${RP6502_SRC}/vga/modes/mode5.c
-    ${RP6502_SRC}/ria/api/atr.c
-    ${RP6502_SRC}/ria/str/rln.c
+    ${RP6502_SRC}/vga/term/color.c
+    ${RP6502_SRC}/vga/term/font.c
+    ${RP6502_SRC}/vga/term/term.c
+    ${RP6502_VENDOR}/emu8950/emu8950.c
+    ${RP6502_VENDOR}/fatfs/ff.c
+    ${RP6502_VENDOR}/fatfs/ffunicode.c
 )
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit.
@@ -261,17 +261,17 @@ else()
         endif()
 
         target_sources(rp6502-emu PRIVATE
-            ${RP6502_SRC}/emu/dbg/imgui_impl.cc
-            ${RP6502_SRC}/emu/dbg/dbgui.cc
-            ${RP6502_SRC}/emu/dbg/dbgui_layout.cc
-            ${RP6502_SRC}/emu/dbg/dap.cpp
-            ${RP6502_SRC}/emu/dbg/dwarf_line.c
-            ${RP6502_SRC}/emu/dbg/dwarf_info.c
             ${RP6502_SRC}/emu/dbg/cc65dbg.c
-            ${RP6502_VENDOR}/imgui/imgui.cpp
+            ${RP6502_SRC}/emu/dbg/dap.cpp
+            ${RP6502_SRC}/emu/dbg/dbgui_layout.cc
+            ${RP6502_SRC}/emu/dbg/dbgui.cc
+            ${RP6502_SRC}/emu/dbg/dwarf_info.c
+            ${RP6502_SRC}/emu/dbg/dwarf_line.c
+            ${RP6502_SRC}/emu/dbg/imgui_impl.cc
             ${RP6502_VENDOR}/imgui/imgui_draw.cpp
             ${RP6502_VENDOR}/imgui/imgui_tables.cpp
-            ${RP6502_VENDOR}/imgui/imgui_widgets.cpp)
+            ${RP6502_VENDOR}/imgui/imgui_widgets.cpp
+            ${RP6502_VENDOR}/imgui/imgui.cpp)
         target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/imgui)
         target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_M6502 UI_DASM_USE_M6502)
         target_link_libraries(rp6502-emu PRIVATE cppdap)
