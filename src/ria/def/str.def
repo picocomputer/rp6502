@@ -15,4 +15,5 @@
  */
 
 #include "def/str_en.def"
+#include "def/str_fr.def"
 #include "def/str_pl.def"

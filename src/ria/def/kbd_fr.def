@@ -1,0 +1,107 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: Unlicense
+ */
+
+// clang-format off
+#include "def/def.h"
+#define XSUFFIX FR
+XBEGIN("FR", "France")
+
+// XKEY(keycode, unmodified, shift, altGr, shift+altGr, use_caps_lock)
+XKEY(0x04, 'q',    'Q',    0,      0,       true)
+XKEY(0x05, 'b',    'B',    0,      0,       true)
+XKEY(0x06, 'c',    'C',    0,      0,       true)
+XKEY(0x07, 'd',    'D',    0,      0,       true)
+XKEY(0x08, 'e',    'E',    0x20AC, 0,       true) // €
+XKEY(0x09, 'f',    'F',    0,      0,       true)
+XKEY(0x0a, 'g',    'G',    0,      0,       true)
+XKEY(0x0b, 'h',    'H',    0,      0,       true)
+XKEY(0x0c, 'i',    'I',    0,      0,       true)
+XKEY(0x0d, 'j',    'J',    0,      0,       true)
+XKEY(0x0e, 'k',    'K',    0,      0,       true)
+XKEY(0x0f, 'l',    'L',    0,      0,       true)
+XKEY(0x10, ',',    '?',    0,      0,      false)
+XKEY(0x11, 'n',    'N',    0,      0,       true)
+XKEY(0x12, 'o',    'O',    0,      0,       true)
+XKEY(0x13, 'p',    'P',    0,      0,       true)
+XKEY(0x14, 'a',    'A',    0,      0,       true)
+XKEY(0x15, 'r',    'R',    0,      0,       true)
+XKEY(0x16, 's',    'S',    0,      0,       true)
+XKEY(0x17, 't',    'T',    0,      0,       true)
+XKEY(0x18, 'u',    'U',    0,      0,       true)
+XKEY(0x19, 'v',    'V',    0,      0,       true)
+XKEY(0x1a, 'z',    'Z',    0,      0,       true)
+XKEY(0x1b, 'x',    'X',    0,      0,       true)
+XKEY(0x1c, 'y',    'Y',    0,      0,       true)
+XKEY(0x1d, 'w',    'W',    0,      0,       true)
+XKEY(0x1e, '&',    '1',    0,      0,      false)
+XKEY(0x1f, 0x00E9, '2',    '~',    0,      false) // é
+XKEY(0x20, '"',    '3',    '#',    0,      false)
+XKEY(0x21, '\'',   '4',    '{',    0,      false)
+XKEY(0x22, '(',    '5',    '[',    0,      false)
+XKEY(0x23, '-',    '6',    '|',    0,      false)
+XKEY(0x24, 0x00E8, '7',    '`',    0,      false) // è
+XKEY(0x25, '_',    '8',    '\\',   0,      false)
+XKEY(0x26, 0x00E7, '9',    '^',    0,      false) // ç
+XKEY(0x27, 0x00E0, '0',    '@',    0,      false) // à
+XKEY(0x28, '\r',   '\r',   0,      0,      false) // Enter
+XKEY(0x29, 0x1b,   0x1b,   0,      0,      false) // Esc
+XKEY(0x2a, 0x7f,   0x7f,   0,      0,      false) // Backspace
+XKEY(0x2b, '\t',   '\t',   0,      0,      false) // Tab
+XKEY(0x2c, ' ',    ' ',    0,      0,      false) // Space
+XKEY(0x2d, ')',    0x00B0, ']',    0,      false) // ) °
+XKEY(0x2e, '=',    '+',    '}',    0,      false)
+XKEY(0x2f, '^',    0x00A8, 0,      0,      false) // ^ ¨
+XKEY(0x30, '$',    0x00A3, 0,      0,      false) // £
+XKEY(0x31, '*',    0x00B5, 0,      0,      false) // µ
+XKEY(0x32, '<',    '>',    0,      0,      false)
+XKEY(0x33, 'm',    'M',    0,      0,       true)
+XKEY(0x34, 0x00F9, '%',    0,      0,      false) // ù
+XKEY(0x35, 0x00B2, 0,      0,      0,      false) // ²
+XKEY(0x36, ';',    '.',    0,      0,      false)
+XKEY(0x37, ':',    '/',    0,      0,      false)
+XKEY(0x38, '!',    0x00A7, 0,      0,      false) // §
+// Keypad
+XKEY(0x54, '/',    '/',    0,      0,      false)
+XKEY(0x55, '*',    '*',    0,      0,      false)
+XKEY(0x56, '-',    '-',    0,      0,      false)
+XKEY(0x57, '+',    '+',    0,      0,      false)
+XKEY(0x58, '\r',   '\r',   0,      0,      false)
+XKEY(0x59, '1',    0,      0,      0,      false)
+XKEY(0x5a, '2',    0,      0,      0,      false)
+XKEY(0x5b, '3',    0,      0,      0,      false)
+XKEY(0x5c, '4',    0,      0,      0,      false)
+XKEY(0x5d, '5',    0,      0,      0,      false)
+XKEY(0x5e, '6',    0,      0,      0,      false)
+XKEY(0x5f, '7',    0,      0,      0,      false)
+XKEY(0x60, '8',    0,      0,      0,      false)
+XKEY(0x61, '9',    0,      0,      0,      false)
+XKEY(0x62, '0',    0,      0,      0,      false)
+XKEY(0x63, ',',    0,      0,      0,      false)
+XKEY(0x64, '<',    '>',    0,      0,      false)
+XKEY(0x67, '=',    '=',    0,      0,      false)
+
+// Dead keys: XDEAD(dead_key, base_key, result)
+XDEAD('^',      'a', 0x00E2) // â
+XDEAD('^',      'A', 0x00C2) // Â
+XDEAD('^',      'e', 0x00EA) // ê
+XDEAD('^',      'E', 0x00CA) // Ê
+XDEAD('^',      'i', 0x00EE) // î
+XDEAD('^',      'I', 0x00CE) // Î
+XDEAD('^',      'o', 0x00F4) // ô
+XDEAD('^',      'O', 0x00D4) // Ô
+XDEAD('^',      'u', 0x00FB) // û
+XDEAD('^',      'U', 0x00DB) // Û
+XDEAD(0x00A8,   'e', 0x00EB) // ë
+XDEAD(0x00A8,   'E', 0x00CB) // Ë
+XDEAD(0x00A8,   'i', 0x00EF) // ï
+XDEAD(0x00A8,   'I', 0x00CF) // Ï
+XDEAD(0x00A8,   'u', 0x00FC) // ü
+XDEAD(0x00A8,   'U', 0x00DC) // Ü
+XDEAD(0x00A8,   'y', 0x00FF) // ÿ
+
+XEND()
+#undef XSUFFIX

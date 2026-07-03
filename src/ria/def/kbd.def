@@ -24,6 +24,7 @@
 
 #include "def/kbd_dk.def"
 #include "def/kbd_de.def"
+#include "def/kbd_fr.def"
 #include "def/kbd_pl.def"
 #include "def/kbd_se.def"
 #include "def/kbd_us.def"
