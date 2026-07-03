@@ -247,11 +247,34 @@
       // stylesheet's 'pixelated' only for an explicit nearest.
       if (filter !== 'nearest') canvas.style.imageRendering = 'auto';
 
+      // Failures must land on the page, not just the DevTools console: keep a
+      // tail of stderr, and surface any uncaught error/rejection (a crashed
+      // wasm runtime otherwise leaves a silent black canvas).
+      var errTail = [];
+      window.addEventListener('error', function (e) {
+        fail('Emulator crashed: ' + e.message);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        fail('Emulator crashed: ' + ((e.reason && e.reason.message) || e.reason));
+      });
+
       var Module = {
         canvas: canvas,
         arguments: args,
         print: function (t) { console.log(t); },
-        printErr: function (t) { console.error(t); },
+        printErr: function (t) {
+          console.error(t);
+          errTail.push(t);
+          if (errTail.length > 12) errTail.shift();
+        },
+        postRun: [function () {
+          // When main() reaches the window, sokol owns the canvas as webgl2 and
+          // a 2d probe returns null; a non-null 2d context means startup bailed
+          // before rendering (bad option, install/load failure) with the reason
+          // on stderr. Probing post-mortem can't disturb anything.
+          if (canvas.getContext('2d'))
+            fail('Emulator failed to start: ' + (errTail.join(' · ') || 'see the browser console'));
+        }],
         preRun: [function () {
           var M = Module;
           // MSC0: is /db, made the cwd so program writes land there. With

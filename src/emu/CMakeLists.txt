@@ -195,9 +195,13 @@ else()
         endif()
     elseif(EMSCRIPTEN)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3)
+        # Browsers that back growable wasm memory with a resizable ArrayBuffer
+        # may still reject resizable views at TextDecoder/WebGL; keep the
+        # classic heap so every API handoff works everywhere.
         target_link_options(rp6502-emu PRIVATE
             "-sUSE_WEBGL2=1"
             "-sALLOW_MEMORY_GROWTH=1"
+            "-sGROWABLE_ARRAYBUFFERS=0"
             "-sSTACK_SIZE=512KB"
             "-sFORCE_FILESYSTEM=1"
             "-lidbfs.js"
