@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windowed presentation via sokol_app + sokol_gl. Built only when
- * EMU_WITH_SOKOL is defined; otherwise a stub keeps the headless
- * (--screenshot) build self-contained.
  */
 
 #include "emu/app/window.h"

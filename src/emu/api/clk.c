@@ -3,13 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The RIA clock/time API (ria/api/clk.c). On real hardware the 6502 libc
- * offloads gmtime/localtime/mktime/strftime to the RIA, which carries newlib's
- * timezone and locale tables the 6502 can't. Here the host's libc stands in:
- * time comes from the host wall clock, conversions use the host timezone, and
- * strftime renders in the host's locale (newlocale ""), then UTF-8 -> OEM code
- * page so accented day/month names land as the terminal's glyphs — mirroring
- * the firmware's str_utf8_to_oem (FatFs ff_uni2oem with the active code page).
  */
 
 #include "emu/api/clk.h"
@@ -26,8 +19,7 @@
  * C locale. NULL if the environment locale isn't installed (falls back to C). */
 static locale_t g_locale;
 
-/* Wall-clock offset in seconds: time_get returns host time + this; time_set
- * adjusts it. 0 means the host's real time (the natural real-time clock). */
+/* Wall-clock offset in seconds. Allows setting time without changing host clock. */
 static int64_t g_time_offset;
 
 void clk_reset(void)

@@ -3,11 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Host audio output: drain the emulator's native-rate stereo ring, linear-
- * resample it to the sokol-audio device rate, and push. The RIA devices run at a
- * fixed rate (PSG 24 kHz, OPL ~49.7 kHz) that rarely matches the host device, so
- * we rate-convert here; the resampler state carries across frames so the
- * interpolation is continuous. Split out of app_sokol.c (the window file).
  */
 
 #include "emu/app/audio_out.h"

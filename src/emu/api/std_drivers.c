@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This platform's stdio driver table for the vendored ria/api/std.c: ROM:
- * assets first, then the RAM FatFs (only while --tmpdrive is mounted), then
- * the native host filesystem as the always-true catch-all, last. Also holds
- * the machine-reset hook and the console device names std.c matches on.
  */
 
 #include "emu/api/std.h"

@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * OEM code page (oem.c) — drives the font glyphs, clk strftime, and ff_uni2oem
- * filename conversion. Effective page only (default 437). The clk/atr handlers
- * reach the "run" names through the firmware api/oem.h; only these emu entry
- * points live here.
  */
 
 #ifndef _EMU_OEM_H_

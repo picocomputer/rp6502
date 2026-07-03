@@ -3,14 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Entry point. A ROM is mandatory (the emulator has nothing to run
- * otherwise). Default mode opens a window; --screenshot renders headlessly
- * to a PNG, which is how the build verifies output without a display.
- *
- * The launch ROM may carry an "emulator" asset whose contents are parsed as
- * options (the usual --flag --opt=value quoted form). Those apply first and the
- * real command line overrides them, so a ROM can ship its preferred defaults.
- * The CLI parser itself lives in cli.c.
  */
 
 #include "emu/api/oem.h"

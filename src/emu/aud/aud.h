@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Audio host bridge (aud.c): the emulator stand-in for ria/aud/aud.c. The
- * desktop has no PWM IRQ, so aud_setup records the installed driver handler +
- * rate here for snd.c to pump; the window app reads native-rate frames out.
  */
 
 #ifndef _EMU_AUD_H_

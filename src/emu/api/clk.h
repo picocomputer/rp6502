@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * RIA clock/time API (clk.c): host wall clock, timezone, locale. The clk_api_*
- * handlers and clk_get_run are declared by the firmware api/clk.h, which clk.c
- * and ria.c include; only clk_reset is emu-specific.
  */
 
 #ifndef _EMU_CLK_H_

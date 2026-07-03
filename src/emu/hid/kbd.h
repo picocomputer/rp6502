@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Keyboard input (kbd.c) — replaces the firmware USB HID driver. Two faces: the
- * stdin byte stream (printable text + xterm/VT sequences for the line editor)
- * and the HID keyboard bitmap (the xreg_ria_keyboard API).
  */
 
 #ifndef _EMU_KBD_H_

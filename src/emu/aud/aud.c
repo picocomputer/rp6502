@@ -3,13 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emulator stand-in for ria/aud/aud.c (named for the firmware component it
- * replaces, like ria.c/vga.c). The firmware aud.c drives the RP2350 PWM and a
- * sample-rate interrupt; the desktop has neither. This keeps the hardware-
- * independent half — the shared sine table and the one-active-device manager —
- * and, instead of wiring an IRQ, records the installed sample handler and rate
- * so snd.c can pump it. The vendored psg/opl/bel drivers link against this
- * exactly as they would the firmware aud.c.
  */
 
 #include "emu/aud/aud.h"
@@ -33,8 +26,6 @@ void aud_init(void)
 
 void aud_stop(void)
 {
-    // Match the firmware: stopping a PSG/OPL device falls back to the standing
-    // BEL device (silent until rung), not to no device at all.
     bel_setup();
 }
 

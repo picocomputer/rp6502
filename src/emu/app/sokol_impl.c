@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The single translation unit that emits the sokol implementations.
- * Backend is selected by the build (SOKOL_GLCORE on desktop Linux).
  */
 
 #include "sokol_log.h"

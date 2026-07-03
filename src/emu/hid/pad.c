@@ -3,15 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Gamepad input — the emulator's stand-in for the firmware USB HID gamepad
- * driver (ria/hid/pad.c). That driver parses USB HID reports into a 10-byte
- * pad_xram_t per player and mirrors them into XRAM at an xreg-configured
- * address; this maintains the same XRAM layout from host/test input.
- *
- * A 6502 program enables it with xreg(0, 0, 2, addr) and reads each of the
- * four players at addr + player*10. Byte 0 is the dpad/feature byte and its
- * bit 7 (0x80) is "connected" — a program ignores a player until it is set,
- * so pad_connect() must precede any button press to be observed.
  */
 
 #include "emu/hid/pad.h"

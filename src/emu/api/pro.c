@@ -3,16 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Program/argv support (ria/api/pro.c): the RIA_OP_ARGV (0x08) and
- * RIA_OP_EXEC (0x09) syscalls. A program reads its argv on startup (ARGV) and
- * can replace itself with another .rp6502 (EXEC). The argv buffer layout mirrors
- * the firmware and the 6502 libc (ria_execv / mainargs):
- *
- *   offset[0], offset[1], ..., offset[n-1], {0,0}, str[0], str[1], ..., str[n-1]
- *
- * Each offset is a little-endian uint16 into the buffer pointing at its NUL-
- * terminated string; the {0,0} pair terminates the table. argv[0] is the
- * program's own path, so a program can re-exec itself.
  */
 
 #include "emu/api/pro.h"

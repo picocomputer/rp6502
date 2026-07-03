@@ -3,19 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Host audio core. On the RP2350 a PWM slice fires an IRQ at the device's
- * sample rate; the driver's handler computes one stereo sample and writes it
- * to the audio PWM channels. The emulator has no PWM, so:
- *
- *   - the vendored aud/psg/opl/bel drivers compile unchanged, but their PWM
- *     writes land in pwm_set_chan_level() below (the host stand-in), and
- *   - aud_setup() (off-device) just records the installed handler and rate
- *     instead of wiring an interrupt.
- *
- * Each emulated VGA frame snd_task() pumps the active handler rate/60 times,
- * captures the per-sample L/R levels, and pushes them to a native-rate ring.
- * The window app drains the ring and resamples to the host audio device; the
- * headless test suite reads it directly. No sokol/ALSA dependency lives here.
  */
 
 #include "emu/aud/aud.h"

@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Program / argv (pro.c): argv passing + exec, and the launcher chain the
- * vendored atr.c reaches through the LAUNCHER/EXIT_CODE attributes. Mirrors the
- * firmware api/pro.c.
  */
 
 #ifndef _EMU_PRO_H_

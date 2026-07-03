@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windowed presentation (app_sokol.c): open a sokol window and run the machine
- * until closed, plus the letterbox fill color and the canvas->window scale
- * filter. A stub keeps the headless (--screenshot) build self-contained.
  */
 
 #ifndef _EMU_WINDOW_H_

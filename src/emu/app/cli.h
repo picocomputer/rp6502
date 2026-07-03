@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Command-line parsing (cli.c): the option table + getopt_long parser, shared by
- * main.c's bootstrap and its ROM "emulator" asset merge. parse_args fills an
- * options struct, assigning only the options present so a later pass overrides an
- * earlier one; tokenize_args splits the ROM asset string into argv tokens.
  */
 
 #ifndef _EMU_CLI_H_

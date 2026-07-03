@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mouse input (mou.c) — replaces the firmware USB HID mouse driver. Points a
- * report block ({buttons,x,y,wheel,pan}, 5 bytes) at XRAM (xreg_ria_mouse) and
- * accumulates host pointer motion/buttons into it (ria/hid/mou.c).
  */
 
 #ifndef _EMU_MOU_H_

@@ -3,21 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Keyboard input — the emulator's stand-in for the firmware USB HID driver
- * (ria/hid/kbd.c). That driver turns HID scancodes into a terminal byte
- * stream on the keyboard com source; this owns the whole translation from host
- * key events to that stream so the windowing layer (app_sokol.c) carries no
- * keyboard knowledge. The line editor (rln.c) reads the result as COM_SOURCE_KBD.
- *
- * kbd_event() is the one entry the window forwards every key/char event to: it
- * feeds the HID bitmap, maps printable input through UTF-8 to the active OEM
- * code page (the firmware works in OEM bytes, not Unicode), and turns editing,
- * navigation and function keys into the same xterm/VT byte sequences the
- * firmware emits — arrows, F1-F12, Home/End, Insert/Delete, PageUp/Down —
- * including the ESC[1;{mod} modifier annotations. Only sokol's event TYPES are
- * used here, no sapp_* calls, so the headless emu_core still links.
- *
- * Tests drive the lower-level kbd_text()/kbd_key()/kbd_hid_set() directly.
  */
 
 #include "emu/api/oem.h"

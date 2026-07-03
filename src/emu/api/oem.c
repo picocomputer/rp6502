@@ -3,12 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * OEM code page (the emulator stand-in for ria/api/oem.c). On hardware oem.c
- * resolves an IBM/DOS code page from CONFIG.SYS or the host locale and drives
- * the VGA font, FatFs, and the keyboard. The emulator models only the effective
- * code page — no config file, no locale-auto (per design) — defaulting to 437,
- * and drives the terminal glyph table (font_set_code_page). clk.c reads it to
- * map strftime output to OEM glyphs and ff_uni2oem uses it for filenames.
  */
 
 #include "emu/api/oem.h"

@@ -3,10 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Command-line parsing: the getopt_long option table and the ROM-asset
- * tokenizer. main.c runs parse_args over the real command line and (via
- * merge_rom_args) over the launch ROM's "emulator" asset; getopt state is reset
- * between passes so the same parser can run several times.
  */
 
 #include "emu/app/cli.h"

@@ -3,8 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The stdio syscalls are the vendored ria/api/std.c; this platform supplies
- * its driver table (api/std_drivers.c) and the machine-reset hook.
  */
 
 #ifndef _EMU_STD_H_

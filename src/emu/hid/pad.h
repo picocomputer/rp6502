@@ -3,9 +3,6 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Gamepad input (pad.c) — replaces the firmware USB HID gamepad driver. Points a
- * 4-player report block at XRAM (xreg_ria_gamepad) and publishes host input into
- * it, mirroring the firmware's report layout (ria/hid/pad.c).
  */
 
 #ifndef _EMU_PAD_H_
