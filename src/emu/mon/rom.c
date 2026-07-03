@@ -279,7 +279,10 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
         *err = API_EINVAL;
         return -1;
     }
-    w->pos = (size_t)(base + off);
+    long np = base + off;
+    if ((size_t)np > w->len) /* clamp to the asset extent (firmware rom_std_lseek) */
+        np = (long)w->len;
+    w->pos = (size_t)np;
     *pos = (int32_t)w->pos;
     return 0;
 }

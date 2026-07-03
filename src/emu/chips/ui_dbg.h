@@ -243,6 +243,8 @@ typedef struct ui_dbg_state_t {
     uint16_t stepover_pc;
     int last_trap_id;           // can be used to identify breakpoint which caused trap
     int delete_breakpoint_index;
+    uint16_t delete_breakpoint_addr; // RP6502: delete-modal keys on identity, not index
+    int delete_breakpoint_type;      // RP6502: (breakpoints[] is re-appended each frame)
     int num_breakpoints;
     ui_dbg_breakpoint_t breakpoints[UI_DBG_MAX_BREAKPOINTS];
 } ui_dbg_state_t;
@@ -1111,13 +1113,25 @@ static void _ui_dbg_bp_draw(ui_dbg_t* win) {
         }
         if (del_bp_index != -1) {
             ImGui::OpenPopup("Delete?");
+            /* RP6502: capture identity, not just the row index — the emulator's
+               mirror re-appends breakpoints[] every frame, so an index can point at
+               a different entry by the time the modal is confirmed. */
             win->dbg.delete_breakpoint_index = del_bp_index;
+            win->dbg.delete_breakpoint_addr = win->dbg.breakpoints[del_bp_index].addr;
+            win->dbg.delete_breakpoint_type = win->dbg.breakpoints[del_bp_index].type;
         }
         if ((win->dbg.delete_breakpoint_index >= 0) && ImGui::BeginPopupModal("Delete?", 0, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Delete breakpoint at %04X?", win->dbg.breakpoints[win->dbg.delete_breakpoint_index].addr);
+            ImGui::Text("Delete breakpoint at %04X?", win->dbg.delete_breakpoint_addr);
             ImGui::Separator();
             if (ImGui::Button("Ok", ImVec2(120, 0))) {
-                _ui_dbg_bp_del(win, win->dbg.delete_breakpoint_index);
+                /* RP6502: resolve by identity (addr+type), not the stale row index. */
+                for (int _di = 0; _di < win->dbg.num_breakpoints; _di++) {
+                    if (win->dbg.breakpoints[_di].addr == win->dbg.delete_breakpoint_addr &&
+                        win->dbg.breakpoints[_di].type == win->dbg.delete_breakpoint_type) {
+                        _ui_dbg_bp_del(win, _di);
+                        break;
+                    }
+                }
                 ImGui::CloseCurrentPopup();
                 win->dbg.delete_breakpoint_index = -1;
             }

@@ -1,4 +1,19 @@
 #pragma once
+/*
+ * RP6502 — SUSPECTED 65C02 timing/bus deviations, NOT YET FIXED. Verify each
+ * against a WDC W65C02S datasheet before relying on cycle-accurate behavior:
+ *   - WAI (0xCB) is a plain NOP that never stalls; real WAI halts until IRQB/NMIB
+ *     (continuing without taking the interrupt when I is set).
+ *   - STP (0xDB) never raises M6502_SYNC, so a debugger pause can't land after it.
+ *   - NOP (0xEA) and the seven 2-byte NOP# opcodes take 1 cycle instead of 2.
+ *   - BBR/BBS run 4 cycles instead of 5; JMP (abs) 5 instead of 6; decimal-mode
+ *     ADC/SBC lack the extra CMOS cycle; some abs,X RMW / NOP forms are a cycle short.
+ *   - RMW uses the NMOS read-write-write bus pattern (W65C02S does read-read-write),
+ *     and indexed stores take the phantom read at the target address rather than the
+ *     PC — both issue a spurious/extra access to read-sensitive RIA registers.
+ * (Flagged by the 2026-07 emulator code review; the note above at "safe stalls" is
+ * among the claims to re-check.)
+ */
 /*#
     # w65c02.h  --  WDC 65C02 (W65C02S) CPU emulator for the RP6502
 

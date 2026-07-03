@@ -14,6 +14,7 @@ extern "C"
 #endif
 
 void clk_reset(void);
+void clk_run(void);
 
 #ifdef __cplusplus
 }

@@ -60,17 +60,38 @@ static void merge_rom_args(options *o, int argc, char **argv)
     options_init(&merged);
     if (parse_args(rom_argc, rom_argv, &merged))
         fprintf(stderr, "rp6502-emu: ignoring the rest of the ROM 'emulator' options after a bad token\n");
-    parse_args(argc, argv, &merged); /* the command line wins */
+    parse_args(argc, argv, &merged); /* the command line wins within allowed fields */
 
-    /* The drive/rom selection was already acted on from the command-line pass;
-     * keep it and take everything else from the merged result. */
-    merged.rom = o->rom;
-    merged.tmpdrive = o->tmpdrive;
-    merged.inidir = o->inidir; /* a workstation/CLI concern, not a ROM preset */
-    for (int i = 0; i < o->n_installs; i++)
-        merged.installs[i] = o->installs[i];
-    merged.n_installs = o->n_installs;
-    *o = merged;
+    /* Allowlist: a ROM's "emulator" asset may preset only presentation/timing
+     * options — never anything that touches the host filesystem, injects input,
+     * or controls the session (rom/shot/input/frames/tmpdrive/inidir/installs/
+     * debug/dap/rom_args stay command-line only). Take the allowed fields from
+     * the merged parse (the command line already overrode the asset there) and
+     * leave every other field of o at its command-line value. */
+    if (merged.have_bg)
+    {
+        o->have_bg = true;
+        o->bg_r = merged.bg_r;
+        o->bg_g = merged.bg_g;
+        o->bg_b = merged.bg_b;
+    }
+    if (merged.have_scale)
+    {
+        o->have_scale = true;
+        o->scale = merged.scale;
+    }
+    o->vsync = merged.vsync;
+    o->scale_filter = merged.scale_filter;
+    if (merged.phi2_khz > 0)
+        o->phi2_khz = merged.phi2_khz;
+    if (merged.code_page > 0)
+        o->code_page = merged.code_page;
+    o->mute = merged.mute;
+    if (merged.have_seed)
+    {
+        o->have_seed = true;
+        o->seed = merged.seed;
+    }
 }
 
 #ifdef EMU_WITH_DEBUGGER

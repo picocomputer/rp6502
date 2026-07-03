@@ -40,6 +40,8 @@ void std_reset(void)
     std_init();      /* re-establish the console streams (fd 0-4) */
     dir_stop();      /* close open FatFs directories (ria/api/dir.c) */
     host_dir_stop(); /* close open host directories */
-    com_reset();
+    com_set_bel(true); /* reset BEL per program start; type-ahead in the com rings
+                          survives across exec (firmware parity — com_reset, the
+                          full flush, is cold-boot only) */
     rln_init();
 }

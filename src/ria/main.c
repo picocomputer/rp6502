@@ -152,6 +152,7 @@ static void task(void)
 static void run(void)
 {
     pro_run();
+    com_run();
     rln_run();
     dir_run();
     vga_run();

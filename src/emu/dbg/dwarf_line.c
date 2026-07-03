@@ -326,8 +326,14 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
 
 static int row_cmp(const void *a, const void *b)
 {
-    uint32_t x = ((const dl_row *)a)->addr, y = ((const dl_row *)b)->addr;
-    return (x > y) - (x < y);
+    const dl_row *ra = (const dl_row *)a, *rb = (const dl_row *)b;
+    if (ra->addr != rb->addr)
+        return (ra->addr > rb->addr) - (ra->addr < rb->addr);
+    /* Same address: order an end-of-sequence marker BEFORE a real row so the
+     * "largest addr <= target" search lands on the real row that actually covers
+     * the address (the next sequence's start), not the previous sequence's end
+     * marker — deterministic regardless of qsort stability (Windows/musl). */
+    return (int)rb->end_seq - (int)ra->end_seq;
 }
 static int func_cmp(const void *a, const void *b)
 {

@@ -23,6 +23,7 @@
  */
 
 void com_init(void);
+void com_run(void);
 void com_task(void);
 void com_stop(void);
 void com_break(void);

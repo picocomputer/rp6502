@@ -49,6 +49,7 @@ struct host_file
     bool used;
     int fd;
     bool wrote;
+    bool writable; /* opened for write: lseek past EOF extends (else it clamps) */
 #ifdef EMU_HAVE_AIO
     bool aio_active;
     struct aiocb cb;
@@ -221,7 +222,7 @@ int host_msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
-    files[des] = (struct host_file){.used = true, .fd = fd};
+    files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & 0x02) != 0};
     if (flags & 0x40) /* APPEND: one-time seek to EOF (O_TRUNC already ran) */
         lseek(fd, 0, SEEK_END);
     return des;
@@ -424,6 +425,26 @@ int host_msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_e
     {
         *err = API_ERANGE;
         return -1;
+    }
+    /* Match FatFs f_lseek (firmware fat_std_lseek): a read-only file clamps the
+     * pointer to its size; a writable file is extended to the target. Plain POSIX
+     * lseek would leave a read pointer past EOF and defer any extension to the
+     * next write, diverging from hardware. */
+    off_t size = lseek(f->fd, 0, SEEK_END);
+    if (size < 0)
+    {
+        *err = host_msc_errno_to_api_errno(errno);
+        return -1;
+    }
+    if (target > size)
+    {
+        if (!f->writable)
+            target = size; /* read mode: clamp to EOF */
+        else if (ftruncate(f->fd, target) < 0) /* write mode: extend the file */
+        {
+            *err = host_msc_errno_to_api_errno(errno);
+            return -1;
+        }
     }
     off_t np = lseek(f->fd, target, SEEK_SET);
     if (np < 0)

@@ -229,9 +229,11 @@
         return; // menu landing — nothing running yet
       }
 
-      // Same-basename ROMs from different sources must not collide in the
-      // MEMFS cache, so key each cache path on its load index too.
-      var cachePaths = roms.map(function (u, i) { return '/roms/' + i + '-' + baseName(u); });
+      // Same-basename ROMs from different sources must not collide in the MEMFS
+      // cache; give each its own /roms/<index>/ subdirectory so the installed ROM
+      // name (keyed on the basename) stays clean and a program's exec(":name")
+      // still resolves — a shared "<index>-name" prefix would break that.
+      var cachePaths = roms.map(function (u, i) { return '/roms/' + i + '/' + baseName(u); });
       var dbname = params.get('db') || sanitize(roms[0]);
       var persist = params.get('persist') === '1';
 
@@ -301,6 +303,7 @@
               if (!r.ok) throw new Error('HTTP ' + r.status);
               return r.arrayBuffer();
             }).then(function (buf) {
+              try { M.FS.mkdirTree('/roms/' + i); } catch (e) {}
               M.FS.writeFile(cachePaths[i], new Uint8Array(buf));
             }).catch(function (e) {
               fail('Could not load ' + url + ' (' + e.message + '). ' +

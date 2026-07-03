@@ -205,6 +205,8 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
+// Cold-boot flush: clear queued input and reset the BEL default. NOT called per
+// exec — type-ahead survives a program change; std_reset resets BEL alone.
 void com_reset(void)
 {
     memset(&kbd_ring, 0, sizeof(kbd_ring));

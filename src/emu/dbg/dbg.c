@@ -147,10 +147,17 @@ static bool step_should_stop(uint16_t pc, uint8_t sp)
         return true;
     if (g_step == DBG_STEP_LINE_OUT)
         return sp > g_step_sp; /* returned past the starting frame (RTS unwinds SP) */
-    /* OVER/INTO need source lines; with no line table or no known start line
-     * (a program built without -g) they degrade to a single instruction step. */
+    /* OVER/INTO want source lines. With no line table or no known start line (a
+     * program built without -g), INTO degrades to a single instruction step, but
+     * OVER still steps over calls by call-depth: run straight through anything
+     * deeper than the start frame (a JSR lowered SP by 2), stopping once SP is
+     * back at the start depth — so Step Over doesn't descend into JSR callees. */
     if (!g_line_lookup || g_step_line == 0)
-        return true;
+    {
+        if (g_step == DBG_STEP_LINE_OVER)
+            return sp >= g_step_sp;
+        return true; /* INTO (or any non-OVER line step): single instruction */
+    }
     /* OVER: while inside a deeper call (JSR pushed a return address, so SP fell
      * below the start), run straight through it. */
     if (g_step == DBG_STEP_LINE_OVER && sp < g_step_sp)

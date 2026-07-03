@@ -241,6 +241,9 @@ static uint8_t sokol_to_hid(int kc)
     case SAPP_KEYCODE_DELETE: return 0x4C;
     case SAPP_KEYCODE_HOME: return 0x4A;
     case SAPP_KEYCODE_END: return 0x4D;
+    case SAPP_KEYCODE_INSERT: return 0x49;
+    case SAPP_KEYCODE_PAGE_UP: return 0x4B;
+    case SAPP_KEYCODE_PAGE_DOWN: return 0x4E;
     default: return 0;
     }
 }
@@ -330,10 +333,13 @@ void kbd_event(const sapp_event *e)
     {
     case SAPP_EVENTTYPE_CHAR:
         /* Printable input only; control codes (<32) and DEL arrive via KEY_DOWN
-         * below, so skip them here to avoid double injection. */
+         * below, so skip them here to avoid double injection. Ctrl/Alt chords are
+         * likewise emitted by KEY_DOWN (as C0 / ESC-prefixed bytes); X11 still fires
+         * a CHAR for them, so drop those here or the plain char double-injects. */
         if (kbd_suppress_char)
             kbd_suppress_char = false;
-        else if (e->char_code >= 32 && e->char_code != 127)
+        else if (e->char_code >= 32 && e->char_code != 127 &&
+                 !(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT)))
         {
             char u[5];
             kbd_text(utf8_encode(e->char_code, u));
@@ -391,10 +397,16 @@ void kbd_event(const sapp_event *e)
         case SAPP_KEYCODE_KP_0: kbd_suppress_char = true; kbd_key(KBD_KEY_INSERT, ctrl, shift, alt); break;
         case SAPP_KEYCODE_KP_DECIMAL: kbd_suppress_char = true; kbd_key(KBD_KEY_DELETE, ctrl, shift, alt); break;
         default:
-            /* Ctrl+<letter> -> C0 control byte (Ctrl-C latches SIGINT). No CHAR
-             * event fires for these, so promote here. */
-            if (ctrl && !alt && e->key_code >= SAPP_KEYCODE_A && e->key_code <= SAPP_KEYCODE_Z)
-                kbd_ctrl_letter((char)('A' + (e->key_code - SAPP_KEYCODE_A)));
+            /* Ctrl+<key> -> C0 control byte (Ctrl-C latches SIGINT). Cover the full
+             * @.._ / `..~ range the firmware promotes (Ctrl+[ = ESC, Ctrl+\ = FS,
+             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; kbd_ctrl_promote gates
+             * the valid range. The CHAR case above drops the X11 duplicate. */
+            if (ctrl && !alt)
+            {
+                char ch = kbd_ascii_from_key(e->key_code, shift);
+                if (ch && kbd_ctrl_promote(ch))
+                    kbd_ctrl_letter(ch);
+            }
             /* Alt+<printable> -> ESC<char> (Meta), ctrl-promoting first when both
              * held, mirroring the firmware order. No CHAR fires for Alt combos. */
             else if (alt)

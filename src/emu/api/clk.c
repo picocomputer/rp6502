@@ -22,6 +22,10 @@ static locale_t g_locale;
 /* Wall-clock offset in seconds. Allows setting time without changing host clock. */
 static int64_t g_time_offset;
 
+/* Master-clock time (us) at the current program's start. clk_get_run counts from
+ * here; clk_run re-anchors it on every program start (firmware clk_run parity). */
+static uint64_t g_run_start_us;
+
 void clk_reset(void)
 {
     g_time_offset = 0;
@@ -30,11 +34,18 @@ void clk_reset(void)
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
-/* 6502 run time since boot in ticks of us_per_tick microseconds, from the one
- * master clock (the vendored atr.c reads it for the s/ds/cs/ms attributes). */
+// Re-anchor the 6502 run clock to now (called at program start, incl. exec).
+void clk_run(void)
+{
+    g_run_start_us = emu_now_us();
+}
+
+/* 6502 run time since the current program started, in ticks of us_per_tick
+ * microseconds, from the one master clock (the vendored atr.c reads it for the
+ * s/ds/cs/ms attributes). */
 uint32_t clk_get_run(uint32_t us_per_tick)
 {
-    return (uint32_t)(emu_now_us() / us_per_tick);
+    return (uint32_t)((emu_now_us() - g_run_start_us) / us_per_tick);
 }
 
 /* strftime in the host locale, then UTF-8 -> OEM into dst (max bytes). */

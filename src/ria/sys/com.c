@@ -811,6 +811,13 @@ void __in_flash("com_init") com_init(void)
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
 }
 
+// Reset per-program-start console state: the BEL alert returns to its default
+// (enabled) so a program that muted it doesn't leak the setting into the next.
+void com_run(void)
+{
+    com_bel_enabled = true;
+}
+
 void com_stop(void)
 {
     if (!ria_active())

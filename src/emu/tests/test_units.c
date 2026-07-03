@@ -46,8 +46,8 @@ UTEST(xreg, device_channel_dispatch)
     ASSERT_TRUE(emu_xreg(0, 0, 0, 0));  /* RIA-local devices: accepted (stub) */
     ASSERT_TRUE(emu_xreg(1, 0, 0, 3));  /* VGA canvas 640x480 */
     ASSERT_FALSE(emu_xreg(1, 15, 0, 0)); /* VGA control channel is RIA-private (EACCES) */
-    ASSERT_FALSE(emu_xreg(2, 0, 0, 0)); /* unknown device */
-    ASSERT_FALSE(emu_xreg(1, 5, 0, 0)); /* unknown VGA channel */
+    ASSERT_TRUE(emu_xreg(2, 0, 0, 0));  /* PIX device 2-7: over the bus, no ACK, AX=0 (firmware parity) */
+    ASSERT_TRUE(emu_xreg(1, 5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report

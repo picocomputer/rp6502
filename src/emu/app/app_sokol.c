@@ -144,10 +144,11 @@ static struct
     uint32_t *fb;          /* caller's framebuffer: vga renders in, frame_cb uploads */
 } app;
 
-/* Mouse sensitivity: host motion is converted to canvas pixels (so it's
- * window-scale independent) then multiplied by this. 2 makes paint, whose
- * MOUSE_DIV halves it, track the physical mouse ~1:1 on screen. */
-#define EMU_MOUSE_GAIN 2.0f
+/* Mouse sensitivity: the ROM always works in 640px-wide mouse units and halves
+ * them itself for a 320px canvas, so convert host motion to a fraction of the
+ * canvas's on-screen width scaled to a fixed 640 — a full-width sweep is 640
+ * counts regardless of the canvas resolution. */
+#define EMU_MOUSE_REF_WIDTH 640.0f
 
 /* Max emulated frames the pacer will run in one callback before dropping the
  * backlog (no fast-forward after a stall). Also the deepest frame-skip on a
@@ -722,10 +723,14 @@ static void event_cb(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_MOVE:
         if (sapp_mouse_locked())
         {
-            float s = canvas_scale();
-            if (s > 0.0f)
-                mou_host_move(e->mouse_dx / s * EMU_MOUSE_GAIN,
-                              e->mouse_dy / s * EMU_MOUSE_GAIN);
+            int cw, ch;
+            emu_canvas_size(&cw, &ch);
+            float onscreen_w = (float)cw * canvas_scale(); /* drawn canvas width, fb px */
+            if (onscreen_w > 0.0f)
+            {
+                float gain = EMU_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */
+                mou_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
+            }
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:

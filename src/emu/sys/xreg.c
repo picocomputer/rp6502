@@ -87,12 +87,14 @@ bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
             }
             return true; /* parameter register stored */
         }
-        /* Non-channel-0 VGA channels are unmodeled (EINVAL). Channel 15 (the
-         * RIA-private VGA control channel, EACCES) is handled up front in
-         * std_xreg before it reaches here. */
-        return false;
+        /* VGA channels 1-14 go over the PIX bus to external devices with no ACK
+         * required, so hardware returns success (pix_api_xreg); the emulator has
+         * no such devices, so it is a no-op success. Channel 15 is the RIA-private
+         * VGA control channel — normally EACCES'd in std_xreg before here, but NAK
+         * it at this layer too for a direct call. */
+        return channel != 0x0F;
 
-    default:
-        return false;
+    default: /* PIX devices 2-7: sent over the bus, no ACK, AX=0 on hardware. */
+        return true;
     }
 }

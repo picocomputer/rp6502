@@ -324,13 +324,14 @@ static void rw_write(int which, uint8_t data)
 #define RIA_UART_RX_READY 0x40
 #define RIA_UART_TX_READY 0x80
 
-/* The emulator has no physical UART; the bare-UART RX pins read the same typed
- * input as stdin (the keyboard com source). Using the direct UART regs while a
- * stdio call is in flight is undefined per the docs, so sharing the source is
- * faithful. */
+/* The emulator has no physical UART; the bare-UART RX pins read the merged input
+ * stream (keyboard plus terminal replies), matching the firmware's com_rx_pick
+ * across all sources — so a terminal-query reply (e.g. the CPR from ESC[6n) is
+ * readable at $FFE2. Mixing the direct UART regs with an in-flight stdio call is
+ * undefined per the docs, so sharing the stream is faithful. */
 static int ria_uart_rx_next(void)
 {
-    com_source_t src = COM_SOURCE_KBD;
+    com_source_t src = COM_SOURCE_ANY;
     return com_getchar(&src);
 }
 
@@ -487,14 +488,17 @@ void ria_reset(void)
     emu_cpu_halted = false;
     emu_exit_code = 0;
     std_reset();
+    rln_run(); /* running-program line editor: max 254, history off (firmware run()) */
     kbd_reset();
     pad_reset();
     mou_reset();
     clk_reset();
+    clk_run(); /* re-anchor the run clock to this program's start (firmware run()) */
     snd_reset();
-    /* NOTE: the OEM code page is deliberately NOT reset here. ria_reset also runs
-     * on exec, and an exec'd program inherits the current code page (it can read
-     * it back via the CODE_PAGE attribute). oem_reset() is a cold-boot default,
-     * applied by emu_init instead — keeping the font, code page, and attribute
-     * in sync across an exec. */
+    /* NOTE: the OEM code page and PHI2 are deliberately NOT reset here. ria_reset
+     * also runs on exec; unlike hardware — which reverts both to the system
+     * settings when a program stops — the emulator lets an exec'd program inherit
+     * the parent's code page and PHI2 (an intentional divergence; the program can
+     * still read the code page back via the CODE_PAGE attribute). The cold-boot
+     * defaults live in emu_init (oem_reset) and cpu_init (default PHI2). */
 }

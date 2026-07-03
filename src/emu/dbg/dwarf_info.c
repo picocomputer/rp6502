@@ -1002,6 +1002,14 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
         free(buf);
         return NULL;
     }
+    /* A .debug_str/.debug_line_str whose [off, off+size) runs past EOF would let a
+     * DW_FORM_strp/line_strp offset (read_form bounds it only against the section
+     * size) dereference outside the file buffer. Neutralize an out-of-range table
+     * so those forms resolve to "" instead of reading unmapped memory. */
+    if (str_off && (uint64_t)str_off + str_size > (uint64_t)sz)
+        str_off = str_size = 0;
+    if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)sz)
+        lstr_off = lstr_size = 0;
 
     dwarf_info_t *di = calloc(1, sizeof *di);
     if (!di) { free(buf); return NULL; }

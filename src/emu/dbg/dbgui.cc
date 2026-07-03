@@ -741,6 +741,18 @@ static bool ui_has_exec_bp(uint16_t addr)
     return false;
 }
 
+/* Does ui_dbg's list hold an ENABLED execution breakpoint at addr? Only enabled
+ * ones are armed in dbg.c; a disabled one lives in ui_dbg's list alone. */
+static bool ui_has_enabled_exec_bp(uint16_t addr)
+{
+    for (int i = 0; i < g_dbg.dbg.num_breakpoints; i++)
+        if (g_dbg.dbg.breakpoints[i].type == UI_DBG_BREAKTYPE_EXEC &&
+            g_dbg.dbg.breakpoints[i].enabled &&
+            g_dbg.dbg.breakpoints[i].addr == addr)
+            return true;
+    return false;
+}
+
 /* Dockspace central-node rect in framebuffer pixels, refreshed each dbgui_draw and
  * read by the window layer to size the emulated canvas (see dbgui_canvas_rect). */
 static int g_canvas_x, g_canvas_y, g_canvas_w, g_canvas_h;
@@ -843,9 +855,14 @@ void dbgui_draw(void)
      * when dbg.c holds more than that across the 64K space. */
     uint16_t before[UI_DBG_MAX_BREAKPOINTS];
     int n_before = 0;
-    int keep = 0; /* drop last frame's EXEC mirror, keep the user's non-EXEC entries */
+    /* Drop last frame's ENABLED-EXEC mirror (rebuilt from dbg.c below), but keep
+     * the user's non-EXEC entries AND any user-disabled EXEC entries — dbg.c only
+     * holds armed (enabled) addresses, so a disabled EXEC bp exists only here and
+     * must survive the wipe or the user's disable is reverted every frame. */
+    int keep = 0;
     for (int i = 0; i < g_dbg.dbg.num_breakpoints; i++)
-        if (g_dbg.dbg.breakpoints[i].type != UI_DBG_BREAKTYPE_EXEC)
+        if (g_dbg.dbg.breakpoints[i].type != UI_DBG_BREAKTYPE_EXEC ||
+            !g_dbg.dbg.breakpoints[i].enabled)
             g_dbg.dbg.breakpoints[keep++] = g_dbg.dbg.breakpoints[i];
     g_dbg.dbg.num_breakpoints = keep;
     for (int li = 0; li < UI_DBG_NUM_LINES && g_dbg.dbg.num_breakpoints < UI_DBG_MAX_BREAKPOINTS; li++)
@@ -880,12 +897,12 @@ void dbgui_draw(void)
      * deltas are exactly the user's edits (Debug Control / DAP edits already landed
      * in dbg.c and were mirrored in). */
     for (int i = 0; i < n_before; i++)
-        if (!ui_has_exec_bp(before[i]))
+        if (!ui_has_enabled_exec_bp(before[i])) /* removed OR disabled -> disarm in dbg.c */
             dbg_remove_breakpoint(before[i]);
     for (int i = 0; i < g_dbg.dbg.num_breakpoints; i++)
     {
         const ui_dbg_breakpoint_t *bp = &g_dbg.dbg.breakpoints[i];
-        if (bp->type == UI_DBG_BREAKTYPE_EXEC && !dbg_has_breakpoint(bp->addr))
+        if (bp->type == UI_DBG_BREAKTYPE_EXEC && bp->enabled && !dbg_has_breakpoint(bp->addr))
             dbg_add_breakpoint(bp->addr);
     }
 

@@ -94,6 +94,27 @@ dwarf_info_t *g_dinfo = nullptr;
 cc65dbg_t *g_cc65 = nullptr;
 std::map<std::string, std::vector<uint16_t>> g_src_bps; /* source breakpoints, per file */
 
+/* True if address a is still wanted by a breakpoint set other than the one being
+ * replaced, so replace-semantics on one category (a source file or the instruction
+ * set) never clears a coincident breakpoint another category set at the same
+ * address. skip_src, when non-NULL, excludes the source file being replaced. */
+static bool bp_referenced(uint16_t a, const std::string *skip_src, bool with_instr)
+{
+    if (with_instr)
+        for (uint16_t x : g_instr_bps)
+            if (x == a)
+                return true;
+    for (auto &kv : g_src_bps)
+    {
+        if (skip_src && kv.first == *skip_src)
+            continue;
+        for (uint16_t x : kv.second)
+            if (x == a)
+                return true;
+    }
+    return false;
+}
+
 /* Read a byte of 6502 memory — the callback the variable resolvers use to fetch
  * the live frame base (soft / C stack pointer). Only called while stopped. */
 uint8_t dap_readmem(uint16_t a) { return ram[a]; }
@@ -585,30 +606,41 @@ extern "C" void dap_start(void)
         bool soe = req.stopOnEntry.value(false);
         bool sox = req.stopOnExit.value(true);
 
-        src_free();
-        if (!dbg.empty())
-        {
-            /* cc65 toolchain: an ld65 --dbgfile (cc65 emits no DWARF). */
-            g_cc65 = cc65dbg_load(dbg.c_str());
-        }
-        else
-        {
-            /* llvm-mos: DWARF in the companion ELF; default it to the program
-             * path with ".rp6502" removed (the cmake launch-target ELF). */
-            if (elf.empty())
+        post([program, args, soe, sox, elf, dbg]() {
+            /* Debug-info (g_cc65/g_dwarf/g_dinfo/g_segments) and CPU state are owned
+             * by this main/emulation thread; the loads and segment push run here,
+             * never on the cppdap reader thread that delivered the request. */
+            src_free();
+            std::string base = program; /* program path with a trailing ".rp6502" removed */
+            const std::string ext = ".rp6502";
+            if (base.size() > ext.size() &&
+                base.compare(base.size() - ext.size(), ext.size(), ext) == 0)
+                base = base.substr(0, base.size() - ext.size());
+            if (!dbg.empty())
             {
-                elf = program;
-                const std::string ext = ".rp6502";
-                if (elf.size() > ext.size() &&
-                    elf.compare(elf.size() - ext.size(), ext.size(), ext) == 0)
-                    elf = elf.substr(0, elf.size() - ext.size());
+                /* cc65 toolchain: an ld65 --dbgfile (cc65 emits no DWARF). */
+                g_cc65 = cc65dbg_load(dbg.c_str());
             }
-            g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
-            g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
-        }
-        push_segments(); /* feed the memory map the program's segment sizes */
+            else if (!elf.empty())
+            {
+                g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
+                g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
+            }
+            else
+            {
+                /* Neither field given: prefer a cc65 ".dbg" companion beside the
+                 * program (the ld65 --dbgfile the cc65 template ships), else the
+                 * llvm-mos ELF's DWARF at the same base. */
+                std::string cand = base + ".dbg";
+                g_cc65 = cc65dbg_load(cand.c_str());
+                if (!g_cc65)
+                {
+                    g_dwarf = dwarf_line_load(base.c_str());
+                    g_dinfo = dwarf_info_load(base.c_str());
+                }
+            }
+            push_segments(); /* feed the memory map the program's segment sizes */
 
-        post([program, args, soe, sox]() {
             g_stop_on_entry = soe;
             g_stop_on_exit = sox;
             g_reached_entry = false;
@@ -670,7 +702,8 @@ extern "C" void dap_start(void)
             auto it = g_src_bps.find(p);
             if (it != g_src_bps.end())
                 for (uint16_t a : it->second)
-                    dbg_remove_breakpoint(a);
+                    if (!bp_referenced(a, &p, true)) /* keep if instr or another file wants it */
+                        dbg_remove_breakpoint(a);
             g_src_bps[p] = *addrs;
             for (uint16_t a : *addrs)
                 dbg_add_breakpoint(a);
@@ -875,7 +908,8 @@ extern "C" void dap_start(void)
         }
         post([addrs]() {
             for (uint16_t a : g_instr_bps)
-                dbg_remove_breakpoint(a);
+                if (!bp_referenced(a, nullptr, false)) /* keep if a source file wants it */
+                    dbg_remove_breakpoint(a);
             g_instr_bps = *addrs;
             for (uint16_t a : g_instr_bps)
                 dbg_add_breakpoint(a);
@@ -914,6 +948,7 @@ extern "C" void dap_start(void)
             want = 0;
         uint16_t pc = (uint16_t)(base & 0xFFFF);
         long ioff = req.instructionOffset.has_value() ? (long)req.instructionOffset.value() : 0;
+        long lead_pad = 0; /* placeholder rows before base when the back-decode can't align */
         if (ioff < 0)
         {
             // No backward decode on the variable-length 65C02: scan candidate
@@ -922,6 +957,7 @@ extern "C" void dap_start(void)
             long n = -ioff;
             uint16_t tgt = (uint16_t)(base & 0xFFFF);
             uint16_t best = tgt;
+            bool aligned = false;
             for (long back = n * 3; back >= 1; back--)
             {
                 uint16_t p = (uint16_t)((base - back) & 0xFFFF);
@@ -936,10 +972,16 @@ extern "C" void dap_start(void)
                 if (p == tgt && k == n)
                 {
                     best = (uint16_t)((base - back) & 0xFFFF);
+                    aligned = true;
                     break;
                 }
             }
             pc = best;
+            // Couldn't decode n instructions before base: keep base at result
+            // index n by padding the leading slots with placeholder rows, as the
+            // DAP spec requires (rather than shifting every row up by n).
+            if (!aligned)
+                lead_pad = n;
         }
         else if (ioff > 0)
         {
@@ -950,7 +992,16 @@ extern "C" void dap_start(void)
                 pc = m6502dasm_op(pc, dasm_in, dasm_out, &c);
             }
         }
-        for (long i = 0; i < want; i++)
+        for (long i = 0; i < lead_pad && (long)r.instructions.size() < want; i++)
+        {
+            uint16_t a = (uint16_t)((base - (lead_pad - i)) & 0xFFFF);
+            dap::DisassembledInstruction di;
+            di.address = hex16(a);
+            di.instruction = "(unknown)";
+            di.presentationHint = "invalid";
+            r.instructions.push_back(di);
+        }
+        while ((long)r.instructions.size() < want)
         {
             DasmCtx ctx;
             ctx.pc = pc;

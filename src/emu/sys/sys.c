@@ -12,6 +12,7 @@
 #include "emu/aud/snd.h"
 #include "emu/dbg/dbg.h"
 #include "emu/mon/rom.h"
+#include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
@@ -64,6 +65,7 @@ void emu_init(void)
     emu_vga_frame_count = 0;
     aud_init(); /* fill the shared sine table (no PWM off-device) */
     ria_reset();
+    com_reset();        /* cold boot: flush queued input (per-exec keeps type-ahead) */
     oem_reset();        /* cold boot: default code page 437 (exec preserves the page) */
     vga_boot_console(); /* font_init loads that same 437 default into the font */
     cpu_reset();
