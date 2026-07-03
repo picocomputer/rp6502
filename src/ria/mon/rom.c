@@ -6,6 +6,7 @@
 
 #include "main.h"
 #include "api/api.h"
+#include "api/fat.h"
 #include "api/pro.h"
 #include "api/std.h"
 #include "mon/hlp.h"
@@ -958,8 +959,8 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
     int io = 0;
     if (!rom_find_asset(asset_name, &asset_len, &io))
     {
-        *err = io > 0   ? api_errno_from_fatfs((unsigned)io)
-               : io < 0 ? api_errno_from_lfs(io)
+        *err = io > 0   ? fat_fresult_to_api_errno((unsigned)io)
+               : io < 0 ? lfs_error_to_api_errno(io)
                         : API_ENOENT;
         return -1;
     }
@@ -1010,7 +1011,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
         *bytes_read = br;
         if (fresult != FR_OK)
         {
-            *err = api_errno_from_fatfs(fresult);
+            *err = fat_fresult_to_api_errno(fresult);
             return STD_ERROR;
         }
     }
@@ -1020,7 +1021,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
         if (result < 0)
         {
             *bytes_read = 0;
-            *err = api_errno_from_lfs((int)result);
+            *err = lfs_error_to_api_errno((int)result);
             return STD_ERROR;
         }
         *bytes_read = (uint32_t)result;

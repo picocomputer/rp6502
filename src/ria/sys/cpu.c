@@ -7,7 +7,7 @@
 #include "main.h"
 #include "str/str.h"
 #include "sys/cfg.h"
-#include "sys/cpu.h"
+#include "sys/cpu_hw.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/sync.h>

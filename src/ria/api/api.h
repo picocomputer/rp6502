@@ -8,7 +8,8 @@
 #define _RIA_API_API_H_
 
 /* The API driver manages function calls from the 6502.
- * This header includes helpers for API implementations.
+ * Ops are latched here and dispatched through main_api(); this header
+ * also holds the fastcall registers and helpers for API implementations.
  */
 
 #include <stddef.h>
@@ -57,15 +58,6 @@ bool api_set_errno_opt(uint8_t opt);
 // into a cc65 or llvm-mos errno.
 uint16_t api_platform_errno(api_errno num);
 
-// Convert a FatFs FRESULT to an api_errno.
-api_errno api_errno_from_fatfs(unsigned fresult);
-
-// Convert a littlefs error code to an api_errno.
-api_errno api_errno_from_lfs(int lfs_err);
-
-// Convert a host (POSIX) errno to an api_errno.
-// Implemented and used by a host backend (the emulator).
-api_errno api_errno_from_host(int host_errno);
 
 /* RIA fastcall registers
  */
@@ -153,14 +145,14 @@ static inline bool api_push_int32(const int32_t *data) { return api_push_n(data,
 static inline void api_set_regs_blocked()
 {
     // BRA opcode + offset lands atomically.
-    *(uint16_t *)&regs[0x11] = 0xFE80;
+    REGSW(0xFFF1) = 0xFE80;
 }
 
 static inline void api_set_regs_released()
 {
     // finish writing the last two bytes
-    regs[0x13] = 0xA9;
-    regs[0x12] = 0;
+    REGS(0xFFF3) = 0xA9;
+    REGS(0xFFF2) = 0;
 }
 
 /* Sets the return value along with the LDX and RTS.
@@ -168,7 +160,7 @@ static inline void api_set_regs_released()
 
 static inline void api_set_ax(uint16_t val)
 {
-    *(uint32_t *)&regs[0x14] = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
+    REGSL(0xFFF4) = 0x6000A200 | (val & 0xFF) | ((val << 8) & 0xFF0000);
 }
 
 static inline void api_set_axsreg(uint32_t val)
@@ -214,12 +206,6 @@ static inline bool api_return_errno(api_errno errnum)
     API_ERRNO = api_platform_errno(errnum);
     xstack_ptr = XSTACK_SIZE;
     return api_return_axsreg(-1);
-}
-
-// Failure returns -1 and sets errno from FatFS FRESULT
-static inline bool api_return_fresult(unsigned fresult)
-{
-    return api_return_errno(api_errno_from_fatfs(fresult));
 }
 
 #endif /* _RIA_API_API_H_ */

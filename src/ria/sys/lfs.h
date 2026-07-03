@@ -15,6 +15,7 @@
 #include <stdbool.h>
 #include <hardware/flash.h>
 #include <littlefs/lfs.h>
+#include "api/api.h"
 
 // Our only volume is mounted here for all to use.
 extern lfs_t lfs_volume;
@@ -41,5 +42,8 @@ int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...);
 
 // Safe gets.
 char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err);
+
+// Convert a littlefs error code to an api_errno.
+api_errno lfs_error_to_api_errno(int lfs_err);
 
 #endif /* _RIA_SYS_LFS_H_ */

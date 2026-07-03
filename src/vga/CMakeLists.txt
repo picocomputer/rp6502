@@ -73,9 +73,9 @@ pico_generate_pio_header(rp6502_vga
 # Override various lib files with custom code.
 # The magic is that header-only files don't get compiled.
 set_source_files_properties(
-    ${PROJECT_SOURCE_DIR}/src/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
+    ${RP6502_ROOT}/vendor/tinyusb/src/portable/raspberrypi/rp2040/rp2040_usb.c
     PROPERTIES HEADER_FILE_ONLY TRUE
 )
 target_sources(rp6502_vga PRIVATE
-    ${PROJECT_SOURCE_DIR}/src/tinyusb_rp6502/rp2040_usb.c
+    ${RP6502_ROOT}/vendor/tinyusb_rp6502/rp2040_usb.c
 )

@@ -7,7 +7,7 @@
 #include "main.h"
 #include "aud/bel.h"
 #include "hid/kbd.h"
-#include "sys/com.h"
+#include "sys/com_hw.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"
@@ -33,17 +33,37 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 /* Two TX producers feed com_tx_fanout: stdio / std_tty_write on core 0
  * write to com_tx_core0_buf; act_loop on core 1 (6502 writes to 0xFFE1)
- * writes to com_tx_core1_buf. Only the rings declared in com.h cross
- * cores; everything else in this file is core-0 main-loop only.
+ * fills the ria-owned TX ring, drained here via ria_uart_tx_dequeue().
+ * The cross-core rings live in ria.c; everything in this file is core-0
+ * main-loop only.
  */
 
-volatile uint8_t com_tx_core0_buf[COM_TX_CORE0_BUF_SIZE];
-volatile size_t com_tx_core0_head;
-volatile size_t com_tx_core0_tail;
+// The core-0-only TX ring. Producers (stdio, std_tty_write) and consumer
+// (com_tx_fanout) all run on the core-0 main loop, so the SPSC protocol is
+// serialized naturally; no lock, no __dmb() needed.
+#define COM_TX_CORE0_BUF_SIZE 32
+static uint8_t com_tx_core0_buf[COM_TX_CORE0_BUF_SIZE];
+static size_t com_tx_core0_head;
+static size_t com_tx_core0_tail;
 
-volatile uint8_t com_tx_core1_buf[COM_TX_CORE1_BUF_SIZE];
-volatile size_t com_tx_core1_head;
-volatile size_t com_tx_core1_tail;
+bool com_putchar_ready(void)
+{
+    return (
+        (((com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE) != com_tx_core0_tail) &&
+        (((com_tx_core0_head + 2) % COM_TX_CORE0_BUF_SIZE) != com_tx_core0_tail));
+}
+
+bool com_writable(void)
+{
+    return (((com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE) != com_tx_core0_tail);
+}
+
+void com_write(char ch)
+{
+    size_t next = (com_tx_core0_head + 1) % COM_TX_CORE0_BUF_SIZE;
+    com_tx_core0_buf[next] = (uint8_t)ch;
+    com_tx_core0_head = next;
+}
 
 #define COM_UART_TX_BUF_SIZE 32
 static size_t com_uart_tx_tail;
@@ -59,33 +79,24 @@ static size_t com_uart_rx_head;
 static size_t com_uart_rx_tail;
 static uint8_t com_uart_rx_buf[COM_UART_RX_BUF_SIZE];
 
-// com_rx_char is the core-0 → core-1 single-byte handoff slot. act_loop
-// on core 1 reads it to serve 6502 0xFFE2 reads; com_task refills it
-// from the merge picker (one byte per tick when empty). The stdio path
-// recovers from it when stdio is the active consumer. Per-source readers
-// (com_kbd_read / com_uart_read / com_tel_read) also recover it when the
-// recorded source matches, so a byte the merge picker pulled isn't
-// stranded here when rln is the active consumer.
-volatile int com_rx_char = -1;
-
-// Valid only while com_rx_char >= 0. Written and read on core 0 only,
-// alongside com_rx_char's updates; act_loop on core 1 never reads it.
+// The RX handoff slot itself now lives in ria.c (ria_uart_rx_slot): act_loop on
+// core 1 reads it to serve 6502 0xFFE0/0xFFE2 reads; com_task offers into it from
+// the merge picker (one byte per tick when it's empty). We keep only the core-0
+// source tag here — the source that owns the currently-offered byte — so
+// per-source readers can recover a byte the picker offered when rln (rather than
+// the 6502) is the eventual consumer. act_loop never needs the tag.
 static com_source_t com_rx_char_src;
 
-// Single-byte recover from the cross-core handoff slot. Per-source readers
-// call this so a byte the merge picker pulled isn't stranded in
-// com_rx_char when rln (rather than the 6502) is the eventual consumer.
+// Single-byte recover from the cross-core handoff slot. Per-source readers call
+// this so a byte the merge picker offered to the 6502 isn't stranded when rln is
+// the active consumer instead.
 static size_t com_recover_rx_char(char *buf, com_source_t src)
 {
-    if (com_rx_char_src == src)
+    uint8_t ch;
+    if (com_rx_char_src == src && ria_uart_rx_reclaim(&ch))
     {
-        int ch = com_rx_char;
-        if (ch >= 0)
-        {
-            buf[0] = (char)ch;
-            com_rx_char = -1;
-            return 1;
-        }
+        buf[0] = (char)ch;
+        return 1;
     }
     return 0;
 }
@@ -582,10 +593,9 @@ static void com_uart_flush(void)
 }
 
 // One char per source per pass so the core-0 and core-1 streams interleave
-// instead of one starving the other. The consumer-side __dmb() below pairs
-// with the producer DMB in com_tx_core1_write(): it finishes reading the slot
-// before publishing the tail advance so the producer can't overwrite an
-// in-flight read.
+// instead of one starving the other. The core-1 (6502) TX bytes come from the
+// ria-owned ring via ria_uart_tx_dequeue(), which holds the consumer-side
+// __dmb() pairing with the producer DMB in ria_uart_tx_write().
 static void com_tx_fanout(void)
 {
     while (com_uart_tx_writable() && com_tel_tx_writable())
@@ -602,14 +612,11 @@ static void com_tx_fanout(void)
             if (!com_uart_tx_writable() || !com_tel_tx_writable())
                 break;
         }
-        if (com_tx_core1_head != com_tx_core1_tail)
+        uint8_t ch1;
+        if (ria_uart_tx_dequeue(&ch1))
         {
-            size_t next = (com_tx_core1_tail + 1) % COM_TX_CORE1_BUF_SIZE;
-            char ch = com_tx_core1_buf[next];
-            com_uart_tx_write(ch);
-            com_tel_tx_write(ch);
-            __dmb();
-            com_tx_core1_tail = next;
+            com_uart_tx_write((char)ch1);
+            com_tel_tx_write((char)ch1);
             work = true;
         }
         if (!work)
@@ -620,9 +627,9 @@ static void com_tx_fanout(void)
 // Sticky three-source multiplex: keyboard, UART, telnet. Whichever
 // fires first holds the lock until idle for 1ms, so a single tap on
 // one source can't slice a paste on another. Used by stdin and by
-// com_task's com_rx_char refill. *src_out, when non-NULL, reports
-// which source produced the returned bytes so com_task can tag
-// com_rx_char for later recovery by the matching per-source reader.
+// com_task's RX handoff refill. *src_out, when non-NULL, reports
+// which source produced the returned bytes so com_task can tag the
+// offered byte for later recovery by the matching per-source reader.
 static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 {
     static com_source_t source = COM_SOURCE_ANY;
@@ -715,8 +722,12 @@ int com_getchar(com_source_t *src)
 // protocol reply (begins with ESC) from the next pasted line's typed bytes.
 int com_peekchar(com_source_t src)
 {
-    if (com_rx_char_src == src && com_rx_char >= 0)
-        return com_rx_char;
+    if (com_rx_char_src == src)
+    {
+        int ch = ria_uart_rx_peek();
+        if (ch >= 0)
+            return ch;
+    }
     switch (src)
     {
     case COM_SOURCE_UART:
@@ -770,8 +781,8 @@ static int com_stdio_in_chars(char *buf, int length)
 
     // Pick up new chars via the sticky merge picker. stdio sees a
     // flat byte stream — the source tag is irrelevant here. The
-    // per-source readers inside com_rx_pick recover com_rx_char when
-    // tagged for their source, so any byte sitting in the handoff
+    // per-source readers inside com_rx_pick recover the offered byte
+    // when tagged for their source, so any byte sitting in the handoff
     // slot is delivered here without a separate drain.
     count += com_rx_pick(&buf[count], length - count, NULL);
 
@@ -800,15 +811,22 @@ void __in_flash("com_init") com_init(void)
     hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
 }
 
+// Reset per-program-start console state: the BEL alert returns to its default
+// (enabled) so a program that muted it doesn't leak the setting into the next.
+void com_run(void)
+{
+    com_bel_enabled = true;
+}
+
 void com_stop(void)
 {
-    com_rx_char = -1;
     if (!ria_active())
     {
+        while (!ria_uart_tx_empty())
+            com_stdio_pump();
         printf(STR_TERM_SOFT_RESET);
         while (!com_putchar_ready())
             com_stdio_pump();
-        putchar('\n'); // doesn't flush
     }
 }
 
@@ -845,8 +863,6 @@ void com_break(void)
 
     REGS(0xFFE0) = 0;
     REGS(0xFFE2) = 0;
-
-    com_rx_char = -1;
 }
 
 void com_task(void)
@@ -865,16 +881,14 @@ void com_task(void)
     // so they don't need a pump here.
     com_uart_drain_rx();
 
-    // RX: refill the cross-core handoff slot. com_rx_char is a single
-    // volatile int; act_loop on core 1 only ever observes -1 or 0..255
-    // and never reads com_rx_char_src. The __dmb() here is a core-0
-    // compiler barrier (memory clobber) pinning the non-volatile
-    // com_rx_char_src write ahead of the volatile com_rx_char write,
-    // so a per-source reader on core 0 can't see a fresh char tagged
-    // with a stale src. One byte per tick — bounded enough that a
-    // tight rln drain on the per-source readers still wins most of
-    // the upstream bytes.
-    if (com_rx_char < 0)
+    // RX: refill the cross-core handoff slot (ria_uart_rx_slot, owned by ria.c).
+    // act_loop on core 1 only ever observes -1 or 0..255 and never reads
+    // com_rx_char_src. The __dmb() here is a core-0 compiler barrier (memory
+    // clobber) pinning the non-volatile com_rx_char_src write ahead of the slot
+    // store, so a per-source reader on core 0 can't see a fresh byte tagged with
+    // a stale src. One byte per tick — bounded enough that a tight rln drain on
+    // the per-source readers still wins most of the upstream bytes.
+    if (ria_uart_rx_offer_ready())
     {
         char ch;
         com_source_t src;
@@ -882,7 +896,7 @@ void com_task(void)
         {
             com_rx_char_src = src;
             __dmb();
-            com_rx_char = (uint8_t)ch;
+            ria_uart_rx_offer((uint8_t)ch);
         }
     }
 

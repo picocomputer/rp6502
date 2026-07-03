@@ -6,6 +6,7 @@
 
 #include "api/api.h"
 #include "api/dir.h"
+#include "api/fat.h"
 #include <fatfs/ff.h>
 #include <pico.h>
 
@@ -27,6 +28,12 @@ static_assert(FF_LFN_UNICODE == 0);
 #define DIR_MAX_OPEN 8
 static DIR dirs[DIR_MAX_OPEN];
 static int32_t tells[DIR_MAX_OPEN];
+
+// Failure returns -1 and sets errno from FatFS FRESULT
+static inline bool api_return_fresult(unsigned fresult)
+{
+    return api_return_errno(fat_fresult_to_api_errno(fresult));
+}
 
 void dir_run(void)
 {

@@ -31,9 +31,9 @@
 #include "net/wfi.h"
 #include "str/rln.h"
 #include "str/str.h"
-#include "sys/com.h"
+#include "sys/com_hw.h"
 #include "sys/cfg.h"
-#include "sys/cpu.h"
+#include "sys/cpu_hw.h"
 #include "sys/led.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
@@ -152,6 +152,7 @@ static void task(void)
 static void run(void)
 {
     pro_run();
+    com_run();
     rln_run();
     dir_run();
     vga_run();
