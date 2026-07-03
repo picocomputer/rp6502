@@ -113,7 +113,15 @@ static int run_dap(const options *o)
     if (o->mute)
         emu_set_audio_enabled(false);
     if (o->phi2_khz > 0)
+    {
+        if (o->phi2_khz < CPU_PHI2_MIN_KHZ || o->phi2_khz > CPU_PHI2_MAX_KHZ)
+        {
+            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
+                    o->phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
+            return 1;
+        }
         cpu_set_phi2_khz_run((uint16_t)o->phi2_khz);
+    }
     if (o->code_page > 0)
     {
         if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
@@ -229,7 +237,15 @@ int main(int argc, char **argv)
         emu_set_audio_enabled(false);
 
     if (o.phi2_khz > 0) /* override the default PHI2 (emu_init reset it) */
+    {
+        if (o.phi2_khz < CPU_PHI2_MIN_KHZ || o.phi2_khz > CPU_PHI2_MAX_KHZ)
+        {
+            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
+                    o.phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
+            return 1;
+        }
         cpu_set_phi2_khz_run((uint16_t)o.phi2_khz);
+    }
 
     if (o.code_page > 0) /* override the default 437 (emu_init reset it) */
     {

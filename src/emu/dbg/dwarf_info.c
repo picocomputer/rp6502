@@ -665,6 +665,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
 
     cur c = {cu_data, cu_end, true};
     int stack[64];
+    const int stack_max = (int)(sizeof stack / sizeof stack[0]);
     int depth = 0;
     int current_parent = -1;
 
@@ -675,7 +676,12 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
         if (code == 0)
         {
             if (depth == 0) break;
-            current_parent = stack[--depth];
+            /* Track logical depth exactly even past stack_max so pushes and pops
+             * stay balanced (a clamped push with an unclamped pop would desync the
+             * whole CU); only in-range slots restore an exact parent. */
+            depth--;
+            if (depth < stack_max)
+                current_parent = stack[depth];
             continue;
         }
         const abbrev *a = abbrev_find(ab, code);
@@ -771,8 +777,9 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
 
         if (a->has_children)
         {
-            if (depth < (int)(sizeof stack / sizeof stack[0]))
-                stack[depth++] = current_parent;
+            if (depth < stack_max)
+                stack[depth] = current_parent;
+            depth++; /* advance even when the slot is out of range (see pop) */
             current_parent = idx;
         }
     }

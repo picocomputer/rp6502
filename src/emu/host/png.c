@@ -128,6 +128,12 @@ bool emu_write_png(const char *path, int w, int h, const uint32_t *rgba)
 
     free(zs);
     free(raw);
-    fclose(f);
-    return true;
+    /* ferror() catches any short write across the unchecked fputc/fwrite above;
+     * fclose() surfaces a deferred flush failure. Either means a truncated PNG. */
+    bool ok = (ferror(f) == 0);
+    if (fclose(f) != 0)
+        ok = false;
+    if (!ok)
+        fprintf(stderr, "rp6502-emu: error writing PNG '%s'\n", path);
+    return ok;
 }

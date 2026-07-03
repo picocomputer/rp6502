@@ -248,11 +248,17 @@ std_rw_result host_msc_std_close(int desc, api_errno *err)
     }
 #endif
     bool wrote = f->wrote;
+    int rc = 0;
     if (f->fd >= 0)
-        close(f->fd);
+        rc = close(f->fd);
     f->used = false;
     if (wrote)
         host_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
+    if (rc != 0) /* deferred flush failure (ENOSPC/EIO on network/overlay FS) */
+    {
+        *err = host_msc_errno_to_api_errno(errno);
+        return STD_ERROR;
+    }
     return STD_OK;
 }
 

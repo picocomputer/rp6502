@@ -88,7 +88,12 @@ std::vector<uint16_t> g_instr_bps;          /* current instruction breakpoints (
 
 /* The program's source map: DWARF (.debug_line + .debug_info, llvm-mos ELF) or
  * cc65 (.dbg). Exactly one toolchain is loaded per session; the helpers below
- * dispatch to whichever. g_dinfo is the variable/type half of the DWARF map. */
+ * dispatch to whichever. g_dinfo is the variable/type half of the DWARF map.
+ * g_src_mtx guards these three pointers and the memory they own: the launch lambda
+ * frees+reloads them on the main thread while cppdap request handlers read them on
+ * the reader thread. Main-thread readers (dbg.c stepping) don't take it — they
+ * can't run concurrently with the same-thread writer, and read+read is safe. */
+std::mutex g_src_mtx;
 dwarf_line_t *g_dwarf = nullptr;
 dwarf_info_t *g_dinfo = nullptr;
 cc65dbg_t *g_cc65 = nullptr;
@@ -609,37 +614,42 @@ extern "C" void dap_start(void)
         post([program, args, soe, sox, elf, dbg]() {
             /* Debug-info (g_cc65/g_dwarf/g_dinfo/g_segments) and CPU state are owned
              * by this main/emulation thread; the loads and segment push run here,
-             * never on the cppdap reader thread that delivered the request. */
-            src_free();
-            std::string base = program; /* program path with a trailing ".rp6502" removed */
-            const std::string ext = ".rp6502";
-            if (base.size() > ext.size() &&
-                base.compare(base.size() - ext.size(), ext.size(), ext) == 0)
-                base = base.substr(0, base.size() - ext.size());
-            if (!dbg.empty())
+             * never on the cppdap reader thread that delivered the request. g_src_mtx
+             * fences the free+reload so a reader-thread handler can't observe a
+             * half-freed/half-loaded map. */
             {
-                /* cc65 toolchain: an ld65 --dbgfile (cc65 emits no DWARF). */
-                g_cc65 = cc65dbg_load(dbg.c_str());
-            }
-            else if (!elf.empty())
-            {
-                g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
-                g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
-            }
-            else
-            {
-                /* Neither field given: prefer a cc65 ".dbg" companion beside the
-                 * program (the ld65 --dbgfile the cc65 template ships), else the
-                 * llvm-mos ELF's DWARF at the same base. */
-                std::string cand = base + ".dbg";
-                g_cc65 = cc65dbg_load(cand.c_str());
-                if (!g_cc65)
+                std::lock_guard<std::mutex> lk(g_src_mtx);
+                src_free();
+                std::string base = program; /* program path with a trailing ".rp6502" removed */
+                const std::string ext = ".rp6502";
+                if (base.size() > ext.size() &&
+                    base.compare(base.size() - ext.size(), ext.size(), ext) == 0)
+                    base = base.substr(0, base.size() - ext.size());
+                if (!dbg.empty())
                 {
-                    g_dwarf = dwarf_line_load(base.c_str());
-                    g_dinfo = dwarf_info_load(base.c_str());
+                    /* cc65 toolchain: an ld65 --dbgfile (cc65 emits no DWARF). */
+                    g_cc65 = cc65dbg_load(dbg.c_str());
                 }
+                else if (!elf.empty())
+                {
+                    g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
+                    g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
+                }
+                else
+                {
+                    /* Neither field given: prefer a cc65 ".dbg" companion beside the
+                     * program (the ld65 --dbgfile the cc65 template ships), else the
+                     * llvm-mos ELF's DWARF at the same base. */
+                    std::string cand = base + ".dbg";
+                    g_cc65 = cc65dbg_load(cand.c_str());
+                    if (!g_cc65)
+                    {
+                        g_dwarf = dwarf_line_load(base.c_str());
+                        g_dinfo = dwarf_info_load(base.c_str());
+                    }
+                }
+                push_segments(); /* feed the memory map the program's segment sizes */
             }
-            push_segments(); /* feed the memory map the program's segment sizes */
 
             g_stop_on_entry = soe;
             g_stop_on_exit = sox;
@@ -677,24 +687,29 @@ extern "C" void dap_start(void)
         std::string path = req.source.path.value("");
         auto sbs = req.breakpoints.value({});
         auto addrs = std::make_shared<std::vector<uint16_t>>();
-        for (auto &sb : sbs)
         {
-            dap::Breakpoint ob;
-            uint16_t addr = 0;
-            int bound = 0;
-            if (src_line_to_addr(path.c_str(), (int)sb.line, &addr, &bound))
+            /* src_line_to_addr reads the source map the launch lambda may be
+             * (re)loading on the main thread — fence with g_src_mtx. */
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            for (auto &sb : sbs)
             {
-                ob.verified = true;
-                ob.line = bound;
-                ob.instructionReference = hex16(addr);
-                addrs->push_back(addr);
+                dap::Breakpoint ob;
+                uint16_t addr = 0;
+                int bound = 0;
+                if (src_line_to_addr(path.c_str(), (int)sb.line, &addr, &bound))
+                {
+                    ob.verified = true;
+                    ob.line = bound;
+                    ob.instructionReference = hex16(addr);
+                    addrs->push_back(addr);
+                }
+                else
+                {
+                    ob.verified = false;
+                    ob.line = sb.line;
+                }
+                r.breakpoints.push_back(ob);
             }
-            else
-            {
-                ob.verified = false;
-                ob.line = sb.line;
-            }
-            r.breakpoints.push_back(ob);
         }
         /* DAP replace-semantics, per source file: swap this file's address set. */
         std::string p = path;
@@ -744,23 +759,28 @@ extern "C" void dap_start(void)
 
         const char *file = nullptr;
         int line = 0;
-        if (src_addr_to_line(pc, &file, &line))
         {
-            dap::Source src;
-            src.path = file;
-            src.name = base_name(file);
-            f.source = src;
-            f.line = line;
-            f.column = 1;
-        }
-        const char *fn = src_addr_to_func(pc);
-        if (fn)
-            f.name = fn;
-        else
-        {
-            char name[16];
-            snprintf(name, sizeof name, "$%04X", pc);
-            f.name = name;
+            /* file/fn point into the source map; resolve and copy them under
+             * g_src_mtx so a concurrent (re)load can't free them mid-use. */
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            if (src_addr_to_line(pc, &file, &line))
+            {
+                dap::Source src;
+                src.path = file;
+                src.name = base_name(file);
+                f.source = src;
+                f.line = line;
+                f.column = 1;
+            }
+            const char *fn = src_addr_to_func(pc);
+            if (fn)
+                f.name = fn;
+            else
+            {
+                char name[16];
+                snprintf(name, sizeof name, "$%04X", pc);
+                f.name = name;
+            }
         }
         r.stackFrames.push_back(f);
         r.totalFrames = 1;
@@ -771,7 +791,12 @@ extern "C" void dap_start(void)
         dap::ScopesResponse r;
         /* Locals + Globals only when a source/type map is loaded; Registers
          * always (the machine-level view). */
-        if (g_dinfo || g_cc65)
+        bool have_map;
+        {
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            have_map = (g_dinfo || g_cc65);
+        }
+        if (have_map)
         {
             dap::Scope loc;
             loc.name = "Locals";
@@ -820,6 +845,9 @@ extern "C" void dap_start(void)
         {
             /* Locals in the frame at the current stop. */
             uint16_t pc = dbg_stop_pc();
+            /* The resolvers read the source/type map and return name pointers into
+             * it; fence against a concurrent (re)load on the main thread. */
+            std::lock_guard<std::mutex> lk(g_src_mtx);
             if (g_dinfo)
             {
                 dwarf_var_t buf[256];
@@ -838,6 +866,7 @@ extern "C" void dap_start(void)
         else if (ref == 3)
         {
             /* Global / file-static variables. */
+            std::lock_guard<std::mutex> lk(g_src_mtx);
             if (g_dinfo)
             {
                 dwarf_var_t buf[512];
