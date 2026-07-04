@@ -36,7 +36,7 @@ int ble_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 // Configuration setting BLE
 void ble_load_enabled(const char *str);
-bool ble_set_enabled(uint8_t ble);
+bool ble_set_enabled(unsigned ble);
 uint8_t ble_get_enabled(void);
 
 #endif /* _RIA_BLE_BLE_H_ */

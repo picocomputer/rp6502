@@ -250,6 +250,12 @@ static kbd_connection_t *kbd_get_connection_by_slot(int slot)
     return NULL;
 }
 
+uint8_t kbd_get_report_id(int slot)
+{
+    kbd_connection_t *conn = kbd_get_connection_by_slot(slot);
+    return conn ? conn->report_id : 0;
+}
+
 static void kbd_merge_keys(void)
 {
     memset(kbd_keys, 0, sizeof(kbd_keys));

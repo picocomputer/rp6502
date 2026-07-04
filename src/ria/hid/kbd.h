@@ -37,6 +37,9 @@ bool kbd_umount(int slot);
 // Process HID keyboard report.
 void kbd_report(int slot, uint8_t const *data, size_t size);
 
+// Report ID of the keyboard on this slot, or 0 if its report map uses none.
+uint8_t kbd_get_report_id(int slot);
+
 // Set the extended register value.
 bool kbd_xreg(uint16_t word);
 
