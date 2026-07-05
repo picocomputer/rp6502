@@ -15,6 +15,11 @@
 #include <string.h>
 #include <time.h>
 
+#if defined(__APPLE__)
+size_t strftime_l(char *restrict, size_t, const char *restrict,
+                  const struct tm *restrict, locale_t);
+#endif
+
 /* Host locale used only for strftime, so the rest of the process stays in the
  * C locale. NULL if the environment locale isn't installed (falls back to C). */
 static locale_t g_locale;

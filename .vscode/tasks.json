@@ -5,7 +5,7 @@
             "label": "Compile Project",
             "type": "process",
             "isBuildCommand": true,
-            "command": "${userHome}/.pico-sdk/ninja/v1.12.1/ninja",
+            "command": "${userHome}/.pico-sdk/ninja/v1.13.2/ninja",
             "args": [
                 "-C",
                 "${workspaceFolder}/build/firmware"
@@ -17,13 +17,13 @@
             },
             "problemMatcher": "$gcc",
             "windows": {
-                "command": "${env:USERPROFILE}/.pico-sdk/ninja/v1.12.1/ninja.exe"
+                "command": "${env:USERPROFILE}/.pico-sdk/ninja/v1.13.2/ninja.exe"
             }
         },
         {
             "label": "Run Project",
             "type": "process",
-            "command": "${env:HOME}/.pico-sdk/picotool/2.2.0-a4/picotool/picotool",
+            "command": "${env:HOME}/.pico-sdk/picotool/2.3.0/picotool/picotool",
             "args": [
                 "load",
                 "${command:raspberry-pi-pico.launchTargetPath}",
@@ -35,7 +35,7 @@
             },
             "problemMatcher": [],
             "windows": {
-                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.2.0-a4/picotool/picotool.exe"
+                "command": "${env:USERPROFILE}/.pico-sdk/picotool/2.3.0/picotool/picotool.exe"
             }
         },
         {
