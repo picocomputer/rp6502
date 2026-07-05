@@ -24,6 +24,7 @@
 
 extern "C"
 {
+#include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/com.h"
@@ -269,14 +270,23 @@ void on_stopped(int reason, uint16_t pc)
     send_stopped(reason);
 }
 
-/* Program console output -> the Debug Console (also still shown in the window). */
+/* Program console output -> the Debug Console (also still shown in the window).
+ * The bytes are in the active OEM code page; convert to UTF-8 so a high byte
+ * (e.g. CP437 0x81 'ü') can't produce a malformed JSON OutputEvent. */
 void stdout_tap(const char *buf, int len)
 {
     if (!g_session)
         return;
+    std::string utf8;
+    utf8.reserve((size_t)len);
+    for (int i = 0; i < len; i++)
+    {
+        char enc[3];
+        utf8.append(enc, (size_t)oem_to_utf8((unsigned char)buf[i], enc));
+    }
     dap::OutputEvent ev;
     ev.category = "stdout";
-    ev.output = std::string(buf, (size_t)len);
+    ev.output = std::move(utf8);
     g_session->send(ev);
 }
 

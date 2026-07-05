@@ -31,6 +31,11 @@ void oem_set_code_page_run(uint16_t cp);
  * returns 0 only at the terminating NUL. */
 unsigned char oem_utf8_to_oem(const char **p);
 
+/* Inverse of oem_utf8_to_oem: one OEM byte in the active code page -> its UTF-8
+ * bytes written to dst (at most 3, no NUL); returns the count. Unmappable high
+ * bytes become U+FFFD, so the result is always valid UTF-8. */
+int oem_to_utf8(unsigned char b, char *dst);
+
 #ifdef __cplusplus
 }
 #endif

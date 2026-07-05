@@ -11,8 +11,9 @@
 #include "emu/sys/vga.h"
 #include "term/font.h"
 
-/* FatFs Unicode->OEM mapping (ffunicode.c). WCHAR/DWORD/WORD are uint16/32/16. */
+/* FatFs conversion (ffunicode.c). WCHAR/DWORD/WORD are uint16/32/16. */
 extern uint16_t ff_uni2oem(uint32_t uni, uint16_t cp);
+extern uint16_t ff_oem2uni(uint16_t oem, uint16_t cp);
 
 #define OEM_DEFAULT_CODE_PAGE 437
 
@@ -109,4 +110,32 @@ unsigned char oem_utf8_to_oem(const char **p)
         return 0x7F;
     uint16_t oem = ff_uni2oem(cp, oem_code_page);
     return oem ? (unsigned char)oem : 0x7F;
+}
+
+/* The inverse of oem_utf8_to_oem: one OEM byte -> its UTF-8 encoding. The
+ * single-byte pages we support stay in the BMP, so at most 3 bytes. */
+int oem_to_utf8(unsigned char b, char *dst)
+{
+    uint32_t u = b;
+    if (b >= 0x80)
+    {
+        u = ff_oem2uni(b, oem_code_page);
+        if (!u)
+            u = 0xFFFD; // unmappable -> U+FFFD
+    }
+    if (u < 0x80)
+    {
+        dst[0] = (char)u;
+        return 1;
+    }
+    if (u < 0x800)
+    {
+        dst[0] = (char)(0xC0 | (u >> 6));
+        dst[1] = (char)(0x80 | (u & 0x3F));
+        return 2;
+    }
+    dst[0] = (char)(0xE0 | (u >> 12));
+    dst[1] = (char)(0x80 | ((u >> 6) & 0x3F));
+    dst[2] = (char)(0x80 | (u & 0x3F));
+    return 3;
 }
