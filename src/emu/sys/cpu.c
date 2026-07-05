@@ -77,9 +77,15 @@ static inline uint64_t bus_cycle(uint64_t p)
     if (p & M6502_RW)
     {
         M6502_SET_DATA(p, ram[addr]);
+        if (__builtin_expect(dbg_watch_armed, 0))
+            dbg_watch_access(addr, ram[addr], false);
     }
     else
+    {
         ram[addr] = M6502_GET_DATA(p);
+        if (__builtin_expect(dbg_watch_armed, 0))
+            dbg_watch_access(addr, ram[addr], true);
+    }
     return p;
 }
 

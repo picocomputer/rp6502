@@ -202,6 +202,25 @@ static const char *base_name(const char *p)
     return s ? s + 1 : p;
 }
 
+/* True if one path is a trailing path-component suffix of the other, so a client
+ * absolute path matches a relative .dbg path yet a/util.c != b/util.c. Both '/'
+ * and '\' separate. Compared from the end on component boundaries. */
+static bool path_suffix_match(const char *a, const char *b)
+{
+    size_t i = strlen(a), j = strlen(b);
+    while (i > 0 && j > 0)
+    {
+        char ca = a[i - 1], cb = b[j - 1];
+        bool sa = (ca == '/' || ca == '\\'), sb = (cb == '/' || cb == '\\');
+        if (sa && sb) { i--; j--; continue; }
+        if (sa || sb) break; /* one ended a component, the other did not */
+        if (ca != cb) return false;
+        i--; j--;
+    }
+    return (i == 0 || a[i - 1] == '/' || a[i - 1] == '\\') &&
+           (j == 0 || b[j - 1] == '/' || b[j - 1] == '\\');
+}
+
 static bool rec_is(const char *line, const char *type, const char **body)
 {
     size_t n = strlen(type);
@@ -500,7 +519,12 @@ cc65dbg_t *cc65dbg_load(const char *path)
                     p++;
                     any = true;
                 }
-                if (any && sid < nspan && spans[sid].seg < nseg)
+                /* Only code-segment spans bound a scope's PC range. A cc65 scope
+                 * also lists its static locals' spans, which sit in BSS/DATA far
+                 * above the code; folding those in would balloon the hull to the
+                 * whole program and make the scope's autos "in scope" everywhere. */
+                if (any && sid < nspan && spans[sid].seg < nseg &&
+                    !db->segs[spans[sid].seg].is_data)
                 {
                     uint32_t lo = segstart[spans[sid].seg] + spans[sid].start;
                     uint32_t hi = lo + (spans[sid].size ? spans[sid].size : 1);
@@ -745,28 +769,34 @@ bool cc65dbg_src_to_addr(const cc65dbg_t *db, const char *file, int line,
 {
     if (!db || !file)
         return false;
+    /* Basename must match; a full path-suffix match is preferred (disambiguates
+     * same-named files), falling back to basename so a client absolute path still
+     * binds to the build-relative .dbg path. */
     const char *want = base_name(file);
-    bool found = false;
-    int best_line = 0;
-    uint32_t best_addr = 0;
+    bool sfound = false, bfound = false;
+    int sline = 0, bline = 0;
+    uint32_t saddr = 0, baddr = 0;
     for (size_t i = 0; i < db->nrows; i++)
     {
         const cc_row *r = &db->rows[i];
         if (r->line < line || strcmp(base_name(r->file), want) != 0)
             continue;
-        if (!found || r->line < best_line || (r->line == best_line && r->addr < best_addr))
+        if (!bfound || r->line < bline || (r->line == bline && r->addr < baddr))
         {
-            found = true;
-            best_line = r->line;
-            best_addr = r->addr;
+            bfound = true; bline = r->line; baddr = r->addr;
+        }
+        if (path_suffix_match(r->file, file) &&
+            (!sfound || r->line < sline || (r->line == sline && r->addr < saddr)))
+        {
+            sfound = true; sline = r->line; saddr = r->addr;
         }
     }
-    if (!found)
+    if (!sfound && !bfound)
         return false;
     if (addr)
-        *addr = (uint16_t)best_addr;
+        *addr = (uint16_t)(sfound ? saddr : baddr);
     if (bound_line)
-        *bound_line = best_line;
+        *bound_line = sfound ? sline : bline;
     return true;
 }
 
@@ -787,6 +817,20 @@ const char *cc65dbg_addr_to_func(const cc65dbg_t *db, uint16_t addr)
             hi = mid;
     }
     return best == (size_t)-1 ? NULL : db->funcs[best].name;
+}
+
+bool cc65dbg_func_addr(const cc65dbg_t *db, const char *name, uint16_t *addr)
+{
+    if (!db || !name)
+        return false;
+    for (size_t i = 0; i < db->nfuncs; i++)
+        if (strcmp(db->funcs[i].name, name) == 0)
+        {
+            if (addr)
+                *addr = (uint16_t)db->funcs[i].addr;
+            return true;
+        }
+    return false;
 }
 
 /* True if csym i is an auto whose lexical scope covers pc. */

@@ -29,6 +29,7 @@ typedef enum
     DBG_REASON_BREAKPOINT, /* hit an address breakpoint */
     DBG_REASON_STEP,       /* a step completed */
     DBG_REASON_PAUSE,      /* host/DAP requested a pause */
+    DBG_REASON_DATA,       /* a watchpoint (data breakpoint) tripped */
 } dbg_reason_t;
 
 typedef enum
@@ -62,6 +63,22 @@ void dbg_clear_breakpoints(void);
 void dbg_add_breakpoint(uint16_t addr);
 void dbg_remove_breakpoint(uint16_t addr);
 bool dbg_has_breakpoint(uint16_t addr);
+
+/* Optional gate run (main thread) after a breakpoint's bitmap bit matches: return
+ * true to stop, false to keep running (condition unmet / logpoint). NULL clears. */
+void dbg_set_break_filter(bool (*cb)(uint16_t pc));
+
+/* Watchpoints (data breakpoints). The bus write/read hook checks dbg_watch_armed
+ * (0 = none, skip) and, on a hit, calls dbg_note_data_stop(addr) to stop at the
+ * next instruction boundary with reason DATA. dbg_watch_armed is owned by the DAP
+ * layer (main thread); the count keeps the per-cycle bus hook a single branch. */
+extern int dbg_watch_armed;
+void dbg_note_data_stop(uint16_t data_addr);
+uint16_t dbg_data_stop_addr(void);
+/* The DAP layer registers the watch scanner; the bus hook (cpu.c) invokes it only
+ * when dbg_watch_armed != 0. is_write distinguishes a store from a load. */
+void dbg_set_watch_cb(void (*cb)(uint16_t addr, uint8_t val, bool is_write));
+void dbg_watch_access(uint16_t addr, uint8_t val, bool is_write);
 
 /* Fired on the main thread when execution halts (DAP adapter -> StoppedEvent).
  * The ImGui view polls dbg_is_stopped() instead, so one observer is enough. */

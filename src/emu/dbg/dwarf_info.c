@@ -225,6 +225,7 @@ static int64_t sleb(cur *c)
         if (!c->ok) break;
         v |= (int64_t)(b & 0x7f) << shift;
         shift += 7;
+        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
     } while (b & 0x80);
     if (shift < 64 && (b & 0x40))
         v |= -((int64_t)1 << shift);
@@ -258,6 +259,7 @@ static int64_t sleb_raw(const uint8_t *p, const uint8_t *end)
         v |= (int64_t)(b & 0x7f) << shift;
         shift += 7;
         if (!(b & 0x80)) break;
+        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
     }
     if (shift < 64 && (b & 0x40))
         v |= -((int64_t)1 << shift);
@@ -520,7 +522,7 @@ static struct dtype *void_type(dwarf_info_t *di)
     return t;
 }
 
-static struct dtype *build_type(cu_ctx *cu, int idx);
+static struct dtype *build_type(cu_ctx *cu, int idx, int depth);
 
 static uint32_t array_count(cu_ctx *cu, int arr_idx)
 {
@@ -530,19 +532,25 @@ static uint32_t array_count(cu_ctx *cu, int arr_idx)
     {
         if (cu->dies[i].parent != arr_idx) continue;
         if (cu->dies[i].tag != DW_TAG_subrange_type) continue;
-        uint32_t n = cu->dies[i].has_count ? (uint32_t)cu->dies[i].count : 0;
-        total = total ? total * (n ? n : 1) : (n ? n : 1);
+        uint32_t m = (cu->dies[i].has_count ? (uint32_t)cu->dies[i].count : 0);
+        if (!m) m = 1;
+        uint64_t prod = total ? (uint64_t)total * m : m;
+        total = prod > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)prod; /* saturate */
     }
     return total; /* 0 = unknown length (flexible array) */
 }
 
-static struct dtype *build_type(cu_ctx *cu, int idx)
+static struct dtype *build_type(cu_ctx *cu, int idx, int depth)
 {
     if (idx < 0 || idx >= cu->ndies)
         return NULL;
     if (cu->memo[idx])
         return cu->memo[idx];
     dwarf_info_t *di = cu->di;
+    /* Bound recursion: a crafted deep (non-cyclic) type chain would otherwise
+     * exhaust the C stack (the memo only guards cycles, not depth). */
+    if (depth > 256)
+        return void_type(di);
     die_t *d = &cu->dies[idx];
 
     /* qualifiers + typedef are transparent: map straight to the underlying type
@@ -551,7 +559,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
         d->tag == DW_TAG_volatile_type || d->tag == DW_TAG_restrict_type)
     {
         cu->memo[idx] = void_type(di); /* placeholder before recursing (cycle guard) */
-        struct dtype *under = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref))
+        struct dtype *under = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref), depth + 1)
                                           : void_type(di);
         cu->memo[idx] = under;
         return under;
@@ -573,7 +581,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
     {
         t->kind = DW_KIND_POINTER;
         t->size = d->has_byte_size ? d->byte_size : 2;
-        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref)) : NULL;
+        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref), depth + 1) : NULL;
         const char *pt = t->inner && t->inner->name ? t->inner->name : "void";
         char buf[160];
         snprintf(buf, sizeof buf, "%s *", pt);
@@ -583,9 +591,10 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
     case DW_TAG_array_type:
     {
         t->kind = DW_KIND_ARRAY;
-        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref)) : NULL;
+        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref), depth + 1) : NULL;
         t->count = array_count(cu, idx);
-        t->size = (t->inner ? t->inner->size : 0) * t->count;
+        uint64_t asz = (uint64_t)(t->inner ? t->inner->size : 0) * t->count;
+        t->size = asz > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)asz; /* saturate */
         const char *et = t->inner && t->inner->name ? t->inner->name : "?";
         char buf[160];
         if (t->count)
@@ -614,7 +623,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
             t->members[t->nmembers].name = cu->dies[i].name ? cu->dies[i].name : (char *)"";
             t->members[t->nmembers].offset = cu->dies[i].member_off;
             t->members[t->nmembers].type =
-                cu->dies[i].has_type ? build_type(cu, die_index_by_off(cu, cu->dies[i].type_ref)) : NULL;
+                cu->dies[i].has_type ? build_type(cu, die_index_by_off(cu, cu->dies[i].type_ref), depth + 1) : NULL;
             t->nmembers++;
         }
         break;
@@ -742,7 +751,12 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
                 d.has_count = true;
                 break;
             case DW_AT_upper_bound:
-                if (!d.has_count) { d.count = v.u + 1; d.has_count = true; }
+                if (!d.has_count)
+                {
+                    int64_t ub = (v.kind == FV_I) ? v.s : (int64_t)v.u;
+                    if (ub >= 0) { d.count = (uint64_t)ub + 1; d.has_count = true; }
+                    /* ub < 0 (e.g. -1) => flexible array; leave count unset */
+                }
                 break;
             case DW_AT_data_member_location:
                 if (v.kind == FV_BLOCK)
@@ -804,8 +818,8 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
         gvar_t g;
         memset(&g, 0, sizeof g);
         g.name = d->name;
-        g.type = d->has_type ? build_type(&cu, die_index_by_off(&cu, d->type_ref)) : NULL;
-        if (d->loc && d->loc_len >= 1 && d->loc[0] == DW_OP_addr)
+        g.type = d->has_type ? build_type(&cu, die_index_by_off(&cu, d->type_ref), 0) : NULL;
+        if (d->loc && d->loc_len >= 2 && d->loc[0] == DW_OP_addr)
         {
             uint32_t a = 0;
             for (uint32_t k = 0; k + 1 <= d->loc_len - 1 && k < 4; k++)
@@ -879,7 +893,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
             lvar_t lv;
             memset(&lv, 0, sizeof lv);
             lv.name = v->name;
-            lv.type = v->has_type ? build_type(&cu, die_index_by_off(&cu, v->type_ref)) : NULL;
+            lv.type = v->has_type ? build_type(&cu, die_index_by_off(&cu, v->type_ref), 0) : NULL;
             lv.loc = malloc(v->loc_len);
             if (!lv.loc) continue;
             memcpy(lv.loc, v->loc, v->loc_len);
@@ -1131,8 +1145,9 @@ static bool frame_base_value(const func_t *fn, uint8_t (*readmem)(uint16_t), uin
         const uint8_t *p = fn->fb + 1;
         uint64_t reg = uleb_raw(p, fn->fb + fn->fb_len, NULL);
         /* llvm-mos: RS0 (the rc0:rc1 soft stack pointer pair) is DWARF reg 528;
-         * RSn lives at zero page 2n. Anything else falls back to rc0:rc1. */
-        zp = (reg >= 528) ? (uint32_t)((reg - 528) * 2) : 0;
+         * RSn lives at zero page 2n. Anything else falls back to rc0:rc1. Range
+         * the reg BEFORE the multiply so a huge operand can't wrap into 0..0xFE. */
+        zp = (reg >= 528 && reg <= 528 + 0x7f) ? (uint32_t)((reg - 528) * 2) : 0;
     }
     else if (op >= DW_OP_reg0 && op <= DW_OP_reg31)
     {
@@ -1177,7 +1192,7 @@ int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
         if (v->loc_len >= 1)
         {
             uint8_t op = v->loc[0];
-            if (op == DW_OP_addr)
+            if (op == DW_OP_addr && v->loc_len >= 2) /* need >=1 operand byte */
             {
                 uint32_t a = 0;
                 for (uint32_t k = 0; k + 1 <= v->loc_len - 1 && k < 4; k++)

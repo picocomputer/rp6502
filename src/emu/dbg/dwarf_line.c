@@ -101,6 +101,7 @@ static int64_t sleb(cur *c)
         if (!c->ok) break;
         v |= (int64_t)(b & 0x7f) << shift;
         shift += 7;
+        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
     } while (b & 0x80);
     if (shift < 64 && (b & 0x40))
         v |= -((int64_t)1 << shift);
@@ -145,6 +146,24 @@ static const char *base_name(const char *p)
 {
     const char *s = strrchr(p, '/');
     return s ? s + 1 : p;
+}
+
+/* True if one path is a trailing path-component suffix of the other, so a client
+ * absolute path matches a relative DWARF path yet a/util.c != b/util.c. */
+static bool path_suffix_match(const char *a, const char *b)
+{
+    size_t i = strlen(a), j = strlen(b);
+    while (i > 0 && j > 0)
+    {
+        char ca = a[i - 1], cb = b[j - 1];
+        bool sa = (ca == '/' || ca == '\\'), sb = (cb == '/' || cb == '\\');
+        if (sa && sb) { i--; j--; continue; }
+        if (sa || sb) break;
+        if (ca != cb) return false;
+        i--; j--;
+    }
+    return (i == 0 || a[i - 1] == '/' || a[i - 1] == '\\') &&
+           (j == 0 || b[j - 1] == '/' || b[j - 1] == '\\');
 }
 
 /* DWARF line standard opcodes */
@@ -576,35 +595,38 @@ bool dwarf_line_src_to_addr(const dwarf_line_t *dl, const char *file, int line,
 {
     if (!dl || !file)
         return false;
+    /* Among rows at/after the requested line pick the smallest (line, then
+     * address) so a breakpoint binds to the next code line. Basename must match;
+     * a full path-suffix match is preferred (disambiguates same-named files),
+     * falling back to basename so a client absolute path still binds to the
+     * build-relative DWARF path. */
     const char *want = base_name(file);
-    /* Among rows whose file basename matches and line >= requested, pick the
-     * smallest (line, then address) so a breakpoint binds to the next code line. */
-    bool found = false;
-    int best_line = 0;
-    uint32_t best_addr = 0;
+    bool sfound = false, bfound = false;
+    int sline = 0, bline = 0;
+    uint32_t saddr = 0, baddr = 0;
     for (size_t i = 0; i < dl->nrows; i++)
     {
         const dl_row *r = &dl->rows[i];
-        if (r->end_seq || !r->file)
-            continue;
-        if (r->line < line)
+        if (r->end_seq || !r->file || r->line < line)
             continue;
         if (strcmp(base_name(r->file), want) != 0)
             continue;
-        if (!found || r->line < best_line ||
-            (r->line == best_line && r->addr < best_addr))
+        if (!bfound || r->line < bline || (r->line == bline && r->addr < baddr))
         {
-            found = true;
-            best_line = r->line;
-            best_addr = r->addr;
+            bfound = true; bline = r->line; baddr = r->addr;
+        }
+        if (path_suffix_match(r->file, file) &&
+            (!sfound || r->line < sline || (r->line == sline && r->addr < saddr)))
+        {
+            sfound = true; sline = r->line; saddr = r->addr;
         }
     }
-    if (!found)
+    if (!sfound && !bfound)
         return false;
     if (addr)
-        *addr = (uint16_t)best_addr;
+        *addr = (uint16_t)(sfound ? saddr : baddr);
     if (bound_line)
-        *bound_line = best_line;
+        *bound_line = sfound ? sline : bline;
     return true;
 }
 
@@ -632,4 +654,18 @@ const char *dwarf_line_addr_to_func(const dwarf_line_t *dl, uint16_t addr)
     if (fn->size != 0 && addr >= fn->addr + fn->size)
         return NULL;
     return fn->name;
+}
+
+bool dwarf_line_func_addr(const dwarf_line_t *dl, const char *name, uint16_t *addr)
+{
+    if (!dl || !name)
+        return false;
+    for (size_t i = 0; i < dl->nfuncs; i++)
+        if (strcmp(dl->funcs[i].name, name) == 0)
+        {
+            if (addr)
+                *addr = (uint16_t)dl->funcs[i].addr;
+            return true;
+        }
+    return false;
 }

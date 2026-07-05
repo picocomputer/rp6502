@@ -86,6 +86,7 @@ std::unique_ptr<dap::Session> g_session;
 std::mutex g_mtx;
 std::vector<std::function<void()>> g_queue; /* main-thread work */
 std::vector<uint16_t> g_instr_bps;          /* current instruction breakpoints (main thread) */
+std::vector<uint16_t> g_func_bps;           /* current function breakpoints (main thread) */
 
 /* The program's source map: DWARF (.debug_line + .debug_info, llvm-mos ELF) or
  * cc65 (.dbg). Exactly one toolchain is loaded per session; the helpers below
@@ -98,7 +99,33 @@ std::mutex g_src_mtx;
 dwarf_line_t *g_dwarf = nullptr;
 dwarf_info_t *g_dinfo = nullptr;
 cc65dbg_t *g_cc65 = nullptr;
-std::map<std::string, std::vector<uint16_t>> g_src_bps; /* source breakpoints, per file */
+/* Optional per-breakpoint semantics (condition/hit-count/logpoint). Sparse: an
+ * address with none of these never appears in g_bp_meta and always stops. */
+struct BpMeta
+{
+    std::string condition, logMessage;
+    enum HitOp { HIT_NONE, HIT_EQ, HIT_GE, HIT_GT, HIT_LT, HIT_LE, HIT_MULT } hitOp = HIT_NONE;
+    long hitN = 0;
+    unsigned long hits = 0;
+    bool plain() const { return condition.empty() && logMessage.empty() && hitOp == HIT_NONE; }
+};
+struct SrcBp
+{
+    uint16_t addr;
+    BpMeta meta;
+};
+std::map<std::string, std::vector<SrcBp>> g_src_bps; /* source breakpoints, per file */
+std::map<uint16_t, BpMeta> g_bp_meta;                /* flattened; consulted by bp_filter */
+
+/* Data breakpoints (watchpoints): a store/load into [addr, addr+width) trips a
+ * stop. Owned by the main thread (SetDataBreakpoints post lambda + the bus hook). */
+struct Watch
+{
+    uint16_t addr;
+    int width;
+    bool on_read, on_write;
+};
+std::vector<Watch> g_watches;
 
 /* True if address a is still wanted by a breakpoint set other than the one being
  * replaced, so replace-semantics on one category (a source file or the instruction
@@ -110,15 +137,28 @@ static bool bp_referenced(uint16_t a, const std::string *skip_src, bool with_ins
         for (uint16_t x : g_instr_bps)
             if (x == a)
                 return true;
+    for (uint16_t x : g_func_bps) /* a function breakpoint always wants its entry */
+        if (x == a)
+            return true;
     for (auto &kv : g_src_bps)
     {
         if (skip_src && kv.first == *skip_src)
             continue;
-        for (uint16_t x : kv.second)
-            if (x == a)
+        for (const SrcBp &sb : kv.second)
+            if (sb.addr == a)
                 return true;
     }
     return false;
+}
+
+/* Rebuild g_bp_meta from all source files' non-plain breakpoints (main thread). */
+void rebuild_bp_meta()
+{
+    g_bp_meta.clear();
+    for (auto &kv : g_src_bps)
+        for (const SrcBp &sb : kv.second)
+            if (!sb.meta.plain())
+                g_bp_meta[sb.addr] = sb.meta;
 }
 
 /* Read a byte of 6502 memory — the callback the variable resolvers use to fetch
@@ -148,6 +188,14 @@ const char *src_addr_to_func(uint16_t addr)
     if (g_cc65)
         return cc65dbg_addr_to_func(g_cc65, addr);
     return nullptr;
+}
+bool src_func_addr(const char *name, uint16_t *addr)
+{
+    if (g_dwarf)
+        return dwarf_line_func_addr(g_dwarf, name, addr);
+    if (g_cc65)
+        return cc65dbg_func_addr(g_cc65, name, addr);
+    return false;
 }
 void src_free()
 {
@@ -240,6 +288,8 @@ const char *reason_str(int r)
         return "step";
     case DBG_REASON_ENTRY:
         return "entry";
+    case DBG_REASON_DATA:
+        return "data breakpoint";
     default:
         return "pause";
     }
@@ -356,6 +406,41 @@ int var_ref(uint16_t addr, const dtype_t *t)
 {
     g_varnodes.push_back({addr, t});
     return 1000 + (int)g_varnodes.size() - 1;
+}
+
+/* A call-stack frame, rebuilt each StackTrace: src_pc is the address whose source
+ * line/function names the frame (frame 0 = the stopped PC; a caller = its
+ * call-site PC−1), ip is the machine instruction pointer to show. Frame id = the
+ * index into g_frames; ScopesRequest.frameId selects it. */
+struct Frame
+{
+    uint16_t src_pc;
+    uint16_t ip;
+};
+std::vector<Frame> g_frames;
+
+/* Walk the 6502 hardware stack (page 1) collecting JSR return frames, appending
+ * to g_frames after frame 0. A candidate 2-byte return pair is accepted only when
+ * a JSR (0x20) sits at pushed−2 AND its target resolves to a known function —
+ * this rejects data pushes (PHA/PHP) and interrupt frames. On the first
+ * unrecognized slot the walk truncates (under-report, never fabricate). Caller
+ * must hold g_src_mtx (src_addr_to_func reads the source map). */
+void unwind_stack()
+{
+    uint8_t sp = m6502_s(cpu());
+    for (int depth = 0; depth < 64; depth++)
+    {
+        uint8_t lo_s = (uint8_t)(sp + 1), hi_s = (uint8_t)(sp + 2);
+        uint16_t pushed = (uint16_t)(ram[0x100 + lo_s] | (ram[0x100 + hi_s] << 8));
+        uint16_t jsr = (uint16_t)(pushed - 2);
+        if (ram[jsr] != 0x20)
+            break;
+        uint16_t target = (uint16_t)(ram[(uint16_t)(jsr + 1)] | (ram[(uint16_t)(jsr + 2)] << 8));
+        if (!src_addr_to_func(target))
+            break;
+        g_frames.push_back({pushed, (uint16_t)(pushed + 1)});
+        sp = (uint8_t)(sp + 2);
+    }
 }
 
 uint64_t mem_le(uint16_t addr, int n)
@@ -582,6 +667,549 @@ std::vector<dap::Variable> expand_node(VarNode n)
     return out;
 }
 
+/* ---- expression evaluation --------------------------------------------------
+ * A small C-ish evaluator shared by EvaluateRequest (watch/hover/repl),
+ * SetVariable/SetExpression (target + RHS), and breakpoint conditions. Reuses the
+ * DWARF/cc65 symbol resolvers, the dtype_t graph, and make_var() for formatting.
+ * Reads ram[] + the source map, so reader-thread callers hold g_src_mtx; the
+ * main-thread condition filter is the sole writer and needs no lock. cc65 has no
+ * type graph, so member/typed-index there report an honest error. */
+
+struct EvalResult
+{
+    bool ok = false;
+    std::string err;
+    bool lvalue = false;           /* addr/type/width describe a memory object */
+    uint16_t addr = 0;
+    bool addr_ok = true;           /* false -> register-resident / <optimized out> */
+    const dtype_t *type = nullptr; /* null on the cc65 (untyped) path */
+    int width = 2;                 /* byte width when type == null */
+    int64_t ival = 0;              /* value of a computed rvalue */
+    bool has_ival = false;         /* true -> rvalue, not a memory lvalue */
+};
+
+EvalResult ev_rvalue(int64_t v)
+{
+    EvalResult r;
+    r.ok = true;
+    r.has_ival = true;
+    r.ival = v;
+    r.width = 2;
+    return r;
+}
+
+int64_t load_scalar(const EvalResult &e)
+{
+    if (e.has_ival) return e.ival;
+    if (!e.addr_ok) return 0;
+    int sz = e.type ? (int)dwarf_type_size(e.type) : e.width;
+    if (sz <= 0 || sz > 8) sz = 2;
+    uint64_t raw = mem_le(e.addr, sz);
+    if (e.type && dwarf_type_kind(e.type) == DW_KIND_BASE)
+    {
+        int enc = dwarf_type_encoding(e.type);
+        if ((enc == DW_ATE_signed || enc == DW_ATE_signed_char) && sz < 8 &&
+            (raw & ((uint64_t)1 << (sz * 8 - 1))))
+            return (int64_t)(raw | (~(uint64_t)0 << (sz * 8)));
+    }
+    return (int64_t)raw;
+}
+
+/* Write `sz` little-endian bytes of value into 6502 memory (regs alias ram). */
+void store_scalar(uint16_t addr, int sz, int64_t value)
+{
+    if (sz <= 0 || sz > 8) sz = 2;
+    for (int i = 0; i < sz; i++)
+        ram[(uint16_t)(addr + i)] = (uint8_t)((uint64_t)value >> (8 * i));
+}
+
+bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
+{
+    if (g_dinfo)
+    {
+        dwarf_var_t buf[256];
+        int n = dwarf_info_locals(g_dinfo, pc, dap_readmem, buf, 256);
+        for (int i = 0; i < n; i++)
+            if (name == buf[i].name)
+            {
+                r.ok = r.lvalue = true;
+                r.addr = buf[i].addr; r.addr_ok = buf[i].addr_ok; r.type = buf[i].type;
+                return true;
+            }
+        int m = dwarf_info_globals(g_dinfo, buf, 256);
+        for (int i = 0; i < m; i++)
+            if (name == buf[i].name)
+            {
+                r.ok = r.lvalue = true;
+                r.addr = buf[i].addr; r.addr_ok = buf[i].addr_ok; r.type = buf[i].type;
+                return true;
+            }
+    }
+    else if (g_cc65)
+    {
+        cc65var_t buf[256];
+        int n = cc65dbg_locals(g_cc65, pc, dap_readmem, buf, 256);
+        for (int i = 0; i < n; i++)
+            if (name == buf[i].name)
+            {
+                r.ok = r.lvalue = true;
+                r.addr = buf[i].addr; r.addr_ok = buf[i].addr_ok;
+                r.width = buf[i].size ? buf[i].size : 2;
+                return true;
+            }
+        int m = cc65dbg_globals(g_cc65, buf, 256);
+        for (int i = 0; i < m; i++)
+            if (name == buf[i].name)
+            {
+                r.ok = r.lvalue = true;
+                r.addr = buf[i].addr; r.addr_ok = buf[i].addr_ok;
+                r.width = buf[i].size ? buf[i].size : 2;
+                return true;
+            }
+    }
+    r.err = "unknown identifier '" + name + "'";
+    return false;
+}
+
+struct Eval
+{
+    const char *p;
+    uint16_t pc;
+    bool err = false;
+    std::string errmsg;
+
+    static bool is_alpha(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'; }
+    static bool is_dig(char c) { return c >= '0' && c <= '9'; }
+    void skip() { while (*p == ' ' || *p == '\t') p++; }
+    void fail(const std::string &m) { if (!err) { err = true; errmsg = m; } }
+
+    std::string ident()
+    {
+        skip();
+        std::string s;
+        while (is_alpha(*p) || is_dig(*p)) s += *p++;
+        return s;
+    }
+
+    EvalResult expr() { return lor(); }
+
+    EvalResult lor()
+    {
+        EvalResult a = land();
+        for (;;)
+        {
+            skip();
+            if (!(p[0] == '|' && p[1] == '|')) break;
+            p += 2;
+            EvalResult b = land();
+            if (err) return a;
+            a = ev_rvalue((load_scalar(a) != 0 || load_scalar(b) != 0) ? 1 : 0);
+        }
+        return a;
+    }
+    EvalResult land()
+    {
+        EvalResult a = equality();
+        for (;;)
+        {
+            skip();
+            if (!(p[0] == '&' && p[1] == '&')) break;
+            p += 2;
+            EvalResult b = equality();
+            if (err) return a;
+            a = ev_rvalue((load_scalar(a) != 0 && load_scalar(b) != 0) ? 1 : 0);
+        }
+        return a;
+    }
+    EvalResult equality()
+    {
+        EvalResult a = relational();
+        for (;;)
+        {
+            skip();
+            bool eq = (p[0] == '=' && p[1] == '=');
+            bool ne = (p[0] == '!' && p[1] == '=');
+            if (!eq && !ne) break;
+            p += 2;
+            EvalResult b = relational();
+            if (err) return a;
+            bool r = load_scalar(a) == load_scalar(b);
+            a = ev_rvalue((eq ? r : !r) ? 1 : 0);
+        }
+        return a;
+    }
+    EvalResult relational()
+    {
+        EvalResult a = add();
+        for (;;)
+        {
+            skip();
+            char c0 = p[0], c1 = p[1];
+            int op = 0; /* 1:<  2:>  3:<=  4:>= */
+            if (c0 == '<' && c1 == '=') { op = 3; p += 2; }
+            else if (c0 == '>' && c1 == '=') { op = 4; p += 2; }
+            else if (c0 == '<') { op = 1; p++; }
+            else if (c0 == '>') { op = 2; p++; }
+            else break;
+            EvalResult b = add();
+            if (err) return a;
+            int64_t x = load_scalar(a), y = load_scalar(b);
+            bool r = op == 1 ? x < y : op == 2 ? x > y : op == 3 ? x <= y : x >= y;
+            a = ev_rvalue(r ? 1 : 0);
+        }
+        return a;
+    }
+
+    EvalResult add()
+    {
+        EvalResult a = mul();
+        for (;;)
+        {
+            skip();
+            char op = *p;
+            if (op != '+' && op != '-') break;
+            p++;
+            EvalResult b = mul();
+            if (err) return a;
+            a = ev_rvalue(op == '+' ? load_scalar(a) + load_scalar(b)
+                                    : load_scalar(a) - load_scalar(b));
+        }
+        return a;
+    }
+    EvalResult mul()
+    {
+        EvalResult a = unary();
+        for (;;)
+        {
+            skip();
+            char op = *p;
+            if (op != '*' && op != '/' && op != '%') break; /* prefix deref is in unary */
+            p++;
+            EvalResult b = unary();
+            if (err) return a;
+            int64_t x = load_scalar(a), y = load_scalar(b);
+            a = ev_rvalue(op == '*' ? x * y : (y == 0 ? 0 : op == '/' ? x / y : x % y));
+        }
+        return a;
+    }
+    EvalResult unary()
+    {
+        skip();
+        char c = *p;
+        if (c == '-') { p++; return ev_rvalue(-load_scalar(unary())); }
+        if (c == '+') { p++; return unary(); }
+        if (c == '*') { p++; return deref(unary()); }
+        if (c == '&')
+        {
+            p++;
+            EvalResult v = unary();
+            if (!v.lvalue) { fail("'&' needs an lvalue"); return v; }
+            return ev_rvalue(v.addr);
+        }
+        return postfix();
+    }
+    EvalResult deref(EvalResult v)
+    {
+        if (err) return v;
+        if (v.type)
+        {
+            dw_kind_t k = dwarf_type_kind(v.type);
+            if (k == DW_KIND_POINTER)
+            {
+                EvalResult r; r.ok = r.lvalue = true;
+                r.addr = (uint16_t)mem_le(v.addr, 2);
+                r.type = dwarf_type_pointee(v.type);
+                return r;
+            }
+            if (k == DW_KIND_ARRAY)
+            {
+                uint32_t c;
+                EvalResult r; r.ok = r.lvalue = true; r.addr = v.addr;
+                r.type = dwarf_type_element(v.type, &c);
+                return r;
+            }
+            fail("cannot dereference"); return v;
+        }
+        EvalResult r; r.ok = r.lvalue = true; /* cc65: raw 16-bit pointer */
+        r.addr = (uint16_t)mem_le(v.addr, 2); r.width = 2;
+        return r;
+    }
+    EvalResult postfix()
+    {
+        EvalResult v = primary();
+        for (;;)
+        {
+            skip();
+            if (*p == '.') { p++; v = member(v, false); }
+            else if (p[0] == '-' && p[1] == '>') { p += 2; v = member(v, true); }
+            else if (*p == '[')
+            {
+                p++;
+                EvalResult idx = expr();
+                skip();
+                if (*p == ']') p++; else fail("expected ']'");
+                v = index(v, load_scalar(idx));
+            }
+            else break;
+            if (err) break;
+        }
+        return v;
+    }
+    EvalResult member(EvalResult v, bool arrow)
+    {
+        std::string nm = ident();
+        if (nm.empty()) { fail("expected member name"); return v; }
+        if (!v.type) { fail("no type info (cc65 build)"); return v; }
+        uint16_t base = v.addr;
+        const dtype_t *st = v.type;
+        if (arrow)
+        {
+            if (dwarf_type_kind(st) != DW_KIND_POINTER) { fail("'->' needs a pointer"); return v; }
+            base = (uint16_t)mem_le(v.addr, 2);
+            st = dwarf_type_pointee(st);
+        }
+        if (!st || (dwarf_type_kind(st) != DW_KIND_STRUCT && dwarf_type_kind(st) != DW_KIND_UNION))
+        { fail("not a struct/union"); return v; }
+        int mc = dwarf_type_member_count(st);
+        for (int i = 0; i < mc; i++)
+        {
+            const char *mn; uint32_t off; const dtype_t *mt;
+            if (dwarf_type_member(st, i, &mn, &off, &mt) && mn && nm == mn)
+            {
+                EvalResult r; r.ok = r.lvalue = true;
+                r.addr = (uint16_t)(base + off); r.type = mt;
+                return r;
+            }
+        }
+        fail("no member '" + nm + "'"); return v;
+    }
+    EvalResult index(EvalResult v, int64_t i)
+    {
+        if (!v.type) { fail("no type info (cc65 build)"); return v; }
+        dw_kind_t k = dwarf_type_kind(v.type);
+        if (k == DW_KIND_ARRAY)
+        {
+            uint32_t c;
+            const dtype_t *e = dwarf_type_element(v.type, &c);
+            int es = e ? (int)dwarf_type_size(e) : 1; if (es <= 0) es = 1;
+            EvalResult r; r.ok = r.lvalue = true;
+            r.addr = (uint16_t)(v.addr + i * es); r.type = e;
+            return r;
+        }
+        if (k == DW_KIND_POINTER)
+        {
+            const dtype_t *e = dwarf_type_pointee(v.type);
+            int es = e ? (int)dwarf_type_size(e) : 1; if (es <= 0) es = 1;
+            EvalResult r; r.ok = r.lvalue = true;
+            r.addr = (uint16_t)((uint16_t)mem_le(v.addr, 2) + i * es); r.type = e;
+            return r;
+        }
+        fail("not indexable"); return v;
+    }
+    EvalResult reg()
+    {
+        std::string nm = ident();
+        m6502_t *c = cpu();
+        if (nm == "A") return ev_rvalue(m6502_a(c));
+        if (nm == "X") return ev_rvalue(m6502_x(c));
+        if (nm == "Y") return ev_rvalue(m6502_y(c));
+        if (nm == "S" || nm == "SP") return ev_rvalue(m6502_s(c));
+        if (nm == "P") return ev_rvalue(m6502_p(c));
+        if (nm == "PC") return ev_rvalue(m6502_pc(c));
+        fail("unknown register '$" + nm + "'");
+        return EvalResult{};
+    }
+    EvalResult number()
+    {
+        char *end = nullptr;
+        long long v = (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
+                          ? strtoll(p, &end, 16) : strtoll(p, &end, 10);
+        if (end) p = end;
+        return ev_rvalue(v);
+    }
+    EvalResult primary()
+    {
+        skip();
+        char c = *p;
+        if (c == '(')
+        {
+            p++;
+            EvalResult v = expr();
+            skip();
+            if (*p == ')') p++; else fail("expected ')'");
+            return v;
+        }
+        if (c == '$') { p++; return reg(); }
+        if (is_dig(c)) return number();
+        if (is_alpha(c))
+        {
+            std::string nm = ident();
+            EvalResult r;
+            if (!resolve_ident(nm, pc, r)) fail(r.err);
+            return r;
+        }
+        fail(std::string("unexpected '") + (c ? c : '?') + "'");
+        return EvalResult{};
+    }
+};
+
+/* Evaluate expr at frame pc. On success .ok is set; else .err holds a message. */
+EvalResult eval_expr(const char *expr, uint16_t pc)
+{
+    Eval e;
+    e.p = expr;
+    e.pc = pc;
+    EvalResult r = e.expr();
+    e.skip();
+    if (!e.err && *e.p) e.fail("trailing input");
+    if (e.err) { EvalResult bad; bad.ok = false; bad.err = e.errmsg; return bad; }
+    return r;
+}
+
+/* Resolve an expanded aggregate child (a g_varnodes entry + a DAP child name like
+ * "[3]", "member", or "*") to its lvalue, so SetVariable can write it. */
+EvalResult resolve_child(const VarNode &pn, const std::string &name)
+{
+    EvalResult base;
+    base.ok = base.lvalue = true;
+    base.addr = pn.addr;
+    base.type = pn.type;
+    Eval e;
+    e.p = "";
+    e.pc = dbg_stop_pc();
+    if (!name.empty() && name[0] == '[')
+        return e.index(base, strtoll(name.c_str() + 1, nullptr, 10));
+    if (name == "*")
+        return e.deref(base);
+    e.p = name.c_str();
+    return e.member(base, false);
+}
+
+std::vector<uint8_t> b64decode(const std::string &s)
+{
+    auto val = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    std::vector<uint8_t> out;
+    int buf = 0, bits = 0;
+    for (char c : s)
+    {
+        int v = val(c);
+        if (v < 0) continue;
+        buf = (buf << 6) | v;
+        bits += 6;
+        if (bits >= 8) { bits -= 8; out.push_back((uint8_t)((buf >> bits) & 0xFF)); }
+    }
+    return out;
+}
+
+/* Parse a DAP hitCondition ("> 5", ">=5", "==5", "%3", or bare "5" => >=) into m. */
+void parse_hit(const std::string &s, BpMeta &m)
+{
+    size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) i++;
+    if (i >= s.size()) { m.hitOp = BpMeta::HIT_NONE; return; }
+    BpMeta::HitOp op = BpMeta::HIT_GE; /* bare N => >= */
+    if (s.compare(i, 2, ">=") == 0) { op = BpMeta::HIT_GE; i += 2; }
+    else if (s.compare(i, 2, "<=") == 0) { op = BpMeta::HIT_LE; i += 2; }
+    else if (s.compare(i, 2, "==") == 0) { op = BpMeta::HIT_EQ; i += 2; }
+    else if (s[i] == '>') { op = BpMeta::HIT_GT; i++; }
+    else if (s[i] == '<') { op = BpMeta::HIT_LT; i++; }
+    else if (s[i] == '=') { op = BpMeta::HIT_EQ; i++; }
+    else if (s[i] == '%') { op = BpMeta::HIT_MULT; i++; }
+    m.hitOp = op;
+    m.hitN = strtol(s.c_str() + i, nullptr, 0);
+}
+
+/* Hit-count test, after the condition held and m.hits was bumped. */
+bool hit_satisfied(const BpMeta &m)
+{
+    long h = (long)m.hits, n = m.hitN;
+    switch (m.hitOp)
+    {
+    case BpMeta::HIT_EQ:   return h == n;
+    case BpMeta::HIT_GE:   return h >= n;
+    case BpMeta::HIT_GT:   return h > n;
+    case BpMeta::HIT_LT:   return h < n;
+    case BpMeta::HIT_LE:   return h <= n;
+    case BpMeta::HIT_MULT: return n > 0 && (h % n) == 0;
+    default:               return true;
+    }
+}
+
+/* Splice {expr} occurrences in a logpoint message via the evaluator. */
+std::string interp_log(const std::string &msg, uint16_t pc)
+{
+    std::string out;
+    for (size_t i = 0; i < msg.size();)
+    {
+        if (msg[i] != '{') { out += msg[i++]; continue; }
+        size_t e = msg.find('}', i);
+        if (e == std::string::npos) { out += msg.substr(i); break; }
+        std::string ex = msg.substr(i + 1, e - i - 1);
+        EvalResult r = eval_expr(ex.c_str(), pc);
+        if (!r.ok) out += "{" + ex + "?}";
+        else if (r.lvalue) out += make_var("", r.addr, r.addr_ok, r.type, r.width).value;
+        else out += std::to_string(r.ival);
+        i = e + 1;
+    }
+    return out;
+}
+
+/* Main-thread gate registered via dbg_set_break_filter: a breakpoint's bitmap bit
+ * matched — honor its condition, hit-count, and logpoint. Consulted only for
+ * addresses carrying metadata (g_bp_meta is sparse), so plain breakpoints stay
+ * O(1). Runs while the CPU is live at an instruction boundary, so eval reads the
+ * about-to-execute frame/registers directly (no lock: main thread is sole writer). */
+bool bp_filter(uint16_t pc)
+{
+    auto it = g_bp_meta.find(pc);
+    if (it == g_bp_meta.end())
+        return true; /* plain breakpoint */
+    BpMeta &m = it->second;
+    if (!m.condition.empty())
+    {
+        EvalResult e = eval_expr(m.condition.c_str(), pc);
+        if (!e.ok || load_scalar(e) == 0)
+            return false; /* condition unmet/erroring -> don't count the hit, keep running */
+    }
+    m.hits++;
+    if (!hit_satisfied(m))
+        return false;
+    if (!m.logMessage.empty())
+    {
+        if (g_session)
+        {
+            dap::OutputEvent ev;
+            ev.category = "console";
+            ev.output = interp_log(m.logMessage, pc) + "\n";
+            g_session->send(ev);
+        }
+        return false; /* logpoint: logged, keep running */
+    }
+    return true;
+}
+
+/* Registered via dbg_set_watch_cb; called from the bus hook only while a watch is
+ * armed. Runs on the main thread mid-cycle; the store has already landed, so we
+ * latch a stop for the next instruction boundary (standard watchpoint semantics). */
+void dbg_watch_on_access(uint16_t addr, uint8_t val, bool is_write)
+{
+    (void)val;
+    for (const Watch &w : g_watches)
+    {
+        if (is_write ? !w.on_write : !w.on_read) continue;
+        if (addr < w.addr || addr >= (uint32_t)w.addr + w.width) continue;
+        dbg_note_data_stop(addr);
+        return;
+    }
+}
+
 } // namespace
 
 extern "C" void dap_set_default_args(int argc, char **argv)
@@ -593,6 +1221,8 @@ extern "C" void dap_start(void)
 {
     dbg_set_stopped_cb(on_stopped);
     dbg_set_line_lookup(line_lookup);
+    dbg_set_break_filter(bp_filter);
+    dbg_set_watch_cb(dbg_watch_on_access);
     com_set_tx_tap(stdout_tap);
 
     g_session = dap::Session::create();
@@ -604,6 +1234,16 @@ extern "C" void dap_start(void)
         r.supportsDisassembleRequest = true;
         r.supportsInstructionBreakpoints = true;
         r.supportsSteppingGranularity = true;
+        r.supportsDelayedStackTraceLoading = true;
+        r.supportsEvaluateForHovers = true;
+        r.supportsSetVariable = true;
+        r.supportsSetExpression = true;
+        r.supportsWriteMemoryRequest = true;
+        r.supportsConditionalBreakpoints = true;
+        r.supportsHitConditionalBreakpoints = true;
+        r.supportsLogPoints = true;
+        r.supportsDataBreakpoints = true;
+        r.supportsFunctionBreakpoints = true;
         /* Variable.type + Variable.memoryReference are gated on CLIENT caps
          * (supportsVariableType / supportsMemoryReferences), which VS Code sends;
          * the adapter need not advertise anything for them. */
@@ -672,6 +1312,10 @@ extern "C" void dap_start(void)
             dbg_clear_breakpoints();
             g_instr_bps.clear();
             g_src_bps.clear();
+            g_bp_meta.clear();
+            g_func_bps.clear();
+            g_watches.clear();
+            dbg_watch_armed = 0;
             dbg_stop_at_entry();   /* hold at the first instruction for config */
             if (!program.empty())
             {
@@ -705,7 +1349,7 @@ extern "C" void dap_start(void)
          * respond() is thread-safe and may fire after we return. */
         post([path, sbs, respond]() {
             dap::SetBreakpointsResponse r;
-            std::vector<uint16_t> addrs;
+            std::vector<SrcBp> bps;
             for (auto &sb : sbs)
             {
                 dap::Breakpoint ob;
@@ -716,7 +1360,12 @@ extern "C" void dap_start(void)
                     ob.verified = true;
                     ob.line = bound;
                     ob.instructionReference = hex16(addr);
-                    addrs.push_back(addr);
+                    SrcBp bp;
+                    bp.addr = addr;
+                    bp.meta.condition = sb.condition.value("");
+                    bp.meta.logMessage = sb.logMessage.value("");
+                    parse_hit(sb.hitCondition.value(""), bp.meta);
+                    bps.push_back(bp);
                 }
                 else
                 {
@@ -728,12 +1377,13 @@ extern "C" void dap_start(void)
             /* DAP replace-semantics, per source file: swap this file's address set. */
             auto it = g_src_bps.find(path);
             if (it != g_src_bps.end())
-                for (uint16_t a : it->second)
-                    if (!bp_referenced(a, &path, true)) /* keep if instr or another file wants it */
-                        dbg_remove_breakpoint(a);
-            g_src_bps[path] = addrs;
-            for (uint16_t a : addrs)
-                dbg_add_breakpoint(a);
+                for (const SrcBp &sb : it->second)
+                    if (!bp_referenced(sb.addr, &path, true)) /* keep if instr/another file wants it */
+                        dbg_remove_breakpoint(sb.addr);
+            g_src_bps[path] = bps;
+            for (const SrcBp &sb : bps)
+                dbg_add_breakpoint(sb.addr);
+            rebuild_bp_meta();
             respond(r);
         });
     });
@@ -758,75 +1408,96 @@ extern "C" void dap_start(void)
         return r;
     });
 
-    g_session->registerHandler([](const dap::StackTraceRequest &) {
+    g_session->registerHandler([](const dap::StackTraceRequest &req) {
         dap::StackTraceResponse r;
-        /* a fresh stop: invalidate last stop's expandable-variable references */
+        /* a fresh stop: invalidate last stop's expandable-variable refs + frames */
         g_varnodes.clear();
-        dap::StackFrame f;
-        f.id = 1;
-        uint16_t pc = dbg_stop_pc();
-        f.instructionPointerReference = hex16(pc);
-        f.line = 0;
-        f.column = 0;
-
-        const char *file = nullptr;
-        int line = 0;
+        g_frames.clear();
         {
-            /* file/fn point into the source map; resolve and copy them under
-             * g_src_mtx so a concurrent (re)load can't free them mid-use. */
+            /* file/fn/unwind all read the source map; hold g_src_mtx so a
+             * concurrent (re)load on the main thread can't free it mid-use. */
             std::lock_guard<std::mutex> lk(g_src_mtx);
-            if (src_addr_to_line(pc, &file, &line))
+            uint16_t pc0 = dbg_stop_pc();
+            g_frames.push_back({pc0, pc0});
+            unwind_stack();
+
+            /* Return the requested window; g_frames holds all frames so Scopes
+             * can select any frameId. */
+            int64_t start = req.startFrame.value(0);
+            if (start < 0) start = 0;
+            int64_t levels = req.levels.value(0);
+            int64_t end = (levels > 0) ? start + levels : (int64_t)g_frames.size();
+            if (end > (int64_t)g_frames.size()) end = (int64_t)g_frames.size();
+            for (int64_t i = start; i < end; i++)
             {
-                dap::Source src;
-                src.path = file;
-                src.name = base_name(file);
-                f.source = src;
-                f.line = line;
-                f.column = 1;
-            }
-            const char *fn = src_addr_to_func(pc);
-            if (fn)
-                f.name = fn;
-            else
-            {
-                char name[16];
-                snprintf(name, sizeof name, "$%04X", pc);
-                f.name = name;
+                dap::StackFrame f;
+                f.id = i;
+                f.instructionPointerReference = hex16(g_frames[(size_t)i].ip);
+                f.line = 0;
+                f.column = 0;
+                const char *file = nullptr;
+                int line = 0;
+                if (src_addr_to_line(g_frames[(size_t)i].src_pc, &file, &line))
+                {
+                    dap::Source src;
+                    src.path = file;
+                    src.name = base_name(file);
+                    f.source = src;
+                    f.line = line;
+                    f.column = 1;
+                }
+                const char *fn = src_addr_to_func(g_frames[(size_t)i].src_pc);
+                if (fn)
+                    f.name = fn;
+                else
+                {
+                    char name[16];
+                    snprintf(name, sizeof name, "$%04X", g_frames[(size_t)i].ip);
+                    f.name = name;
+                }
+                r.stackFrames.push_back(f);
             }
         }
-        r.stackFrames.push_back(f);
-        r.totalFrames = 1;
+        r.totalFrames = (int)g_frames.size();
         return r;
     });
 
-    g_session->registerHandler([](const dap::ScopesRequest &) {
+    g_session->registerHandler([](const dap::ScopesRequest &req) {
         dap::ScopesResponse r;
-        /* Locals + Globals only when a source/type map is loaded; Registers
-         * always (the machine-level view). */
+        bool top = req.frameId == 0; /* frame 0 = the live top frame */
         bool have_map;
         {
             std::lock_guard<std::mutex> lk(g_src_mtx);
             have_map = (g_dinfo || g_cc65);
         }
-        if (have_map)
+        /* Locals + Registers apply only to the live top frame (a caller's soft
+         * frame base / registers can't be recovered without CFI). Globals are
+         * frame-independent (fixed addresses), so every frame shows them. */
+        if (have_map && top)
         {
             dap::Scope loc;
             loc.name = "Locals";
             loc.variablesReference = 2;
             loc.expensive = false;
             r.scopes.push_back(loc);
+        }
+        if (have_map)
+        {
             dap::Scope glb;
             glb.name = "Globals";
             glb.variablesReference = 3;
             glb.expensive = false;
             r.scopes.push_back(glb);
         }
-        dap::Scope reg;
-        reg.name = "Registers";
-        reg.presentationHint = "registers";
-        reg.variablesReference = 1;
-        reg.expensive = false;
-        r.scopes.push_back(reg);
+        if (top)
+        {
+            dap::Scope reg;
+            reg.name = "Registers";
+            reg.presentationHint = "registers";
+            reg.variablesReference = 1;
+            reg.expensive = false;
+            r.scopes.push_back(reg);
+        }
         return r;
     });
 
@@ -896,9 +1567,12 @@ extern "C" void dap_start(void)
         }
         else if (ref >= 1000)
         {
-            /* Expand a previously emitted aggregate/pointer node. */
+            /* Expand a previously emitted aggregate/pointer node. The node holds a
+             * dtype_t* into g_dinfo, so fence against a concurrent (re)load that
+             * frees the type graph — like the ref==2/3 branches above. */
+            std::lock_guard<std::mutex> lk(g_src_mtx);
             size_t idx = (size_t)(ref - 1000);
-            if (idx < g_varnodes.size())
+            if (g_dinfo && idx < g_varnodes.size())
                 r.variables = expand_node(g_varnodes[idx]);
         }
         return r;
@@ -1056,6 +1730,230 @@ extern "C" void dap_start(void)
         }
         return r;
     });
+
+    /* Expression evaluation (watch/hover/repl). Read-only; runs on the reader
+     * thread under g_src_mtx like VariablesRequest — the CPU is idle while
+     * stopped, so ram[]/registers are stable. */
+    g_session->registerHandler(
+        [](const dap::EvaluateRequest &req) -> dap::ResponseOrError<dap::EvaluateResponse> {
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            if (!g_dinfo && !g_cc65)
+                return dap::Error("no debug info loaded");
+            EvalResult e = eval_expr(req.expression.c_str(), dbg_stop_pc());
+            if (!e.ok)
+                return dap::Error(e.err);
+            dap::EvaluateResponse r;
+            if (e.lvalue)
+            {
+                dap::Variable v = make_var("", e.addr, e.addr_ok, e.type, e.width);
+                r.result = v.value;
+                r.type = v.type;
+                r.variablesReference = v.variablesReference;
+                r.memoryReference = v.memoryReference;
+            }
+            else
+            {
+                char b[48];
+                snprintf(b, sizeof b, "%lld (0x%llX)", (long long)e.ival,
+                         (unsigned long long)(uint64_t)e.ival);
+                r.result = b;
+                r.variablesReference = 0;
+            }
+            return r;
+        });
+
+    /* SetVariable / SetExpression / WriteMemory: writes to ram[]/registers. Safe
+     * on the reader thread while stopped (CPU idle, no concurrent writer) — the
+     * same invariant the reads rely on; take g_src_mtx for the resolvers. */
+    g_session->registerHandler(
+        [](const dap::SetVariableRequest &req) -> dap::ResponseOrError<dap::SetVariableResponse> {
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            int64_t ref = req.variablesReference;
+            EvalResult rhs = eval_expr(req.value.c_str(), dbg_stop_pc());
+            if (!rhs.ok)
+                return dap::Error(rhs.err);
+            int64_t val = load_scalar(rhs);
+            dap::SetVariableResponse r;
+            if (ref == 1) /* Registers */
+            {
+                m6502_t *c = cpu();
+                const std::string &nm = req.name;
+                if (nm == "A") m6502_set_a(c, (uint8_t)val);
+                else if (nm == "X") m6502_set_x(c, (uint8_t)val);
+                else if (nm == "Y") m6502_set_y(c, (uint8_t)val);
+                else if (nm == "SP" || nm == "S") m6502_set_s(c, (uint8_t)val);
+                else if (nm == "P") m6502_set_p(c, (uint8_t)val);
+                else if (nm == "PC") m6502_set_pc(c, (uint16_t)val);
+                else return dap::Error("unknown register '%s'", nm.c_str());
+                char b[16];
+                snprintf(b, sizeof b, nm == "PC" ? "$%04X" : "$%02X", (unsigned)val);
+                r.value = b;
+                return r;
+            }
+            EvalResult tgt;
+            if (ref >= 1000)
+            {
+                size_t idx = (size_t)(ref - 1000);
+                if (idx >= g_varnodes.size())
+                    return dap::Error("stale variable reference");
+                tgt = resolve_child(g_varnodes[idx], req.name);
+            }
+            else /* Locals (2) / Globals (3) */
+                resolve_ident(req.name, dbg_stop_pc(), tgt);
+            if (!tgt.ok || !tgt.lvalue)
+                return dap::Error(tgt.ok ? "not assignable" : tgt.err);
+            if (!tgt.addr_ok)
+                return dap::Error("value is not in memory");
+            int w = tgt.type ? (int)dwarf_type_size(tgt.type) : tgt.width;
+            store_scalar(tgt.addr, w, val);
+            dap::Variable nv = make_var("", tgt.addr, true, tgt.type, tgt.width);
+            r.value = nv.value;
+            r.type = nv.type;
+            r.variablesReference = nv.variablesReference;
+            r.memoryReference = nv.memoryReference;
+            return r;
+        });
+
+    g_session->registerHandler(
+        [](const dap::SetExpressionRequest &req) -> dap::ResponseOrError<dap::SetExpressionResponse> {
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            EvalResult tgt = eval_expr(req.expression.c_str(), dbg_stop_pc());
+            if (!tgt.ok || !tgt.lvalue)
+                return dap::Error(tgt.ok ? "expression is not assignable" : tgt.err);
+            if (!tgt.addr_ok)
+                return dap::Error("value is not in memory");
+            EvalResult rhs = eval_expr(req.value.c_str(), dbg_stop_pc());
+            if (!rhs.ok)
+                return dap::Error(rhs.err);
+            int w = tgt.type ? (int)dwarf_type_size(tgt.type) : tgt.width;
+            store_scalar(tgt.addr, w, load_scalar(rhs));
+            dap::Variable nv = make_var("", tgt.addr, true, tgt.type, tgt.width);
+            dap::SetExpressionResponse r;
+            r.value = nv.value;
+            r.type = nv.type;
+            r.variablesReference = nv.variablesReference;
+            r.memoryReference = nv.memoryReference;
+            return r;
+        });
+
+    g_session->registerHandler([](const dap::WriteMemoryRequest &req) {
+        dap::WriteMemoryResponse r;
+        long base = (long)parse_addr(req.memoryReference);
+        if (req.offset.has_value())
+            base += req.offset.value();
+        std::vector<uint8_t> bytes = b64decode(req.data);
+        int written = 0;
+        for (size_t i = 0; i < bytes.size(); i++)
+        {
+            long a = base + (long)i;
+            if (a < 0 || a > 0xFFFF) break;
+            ram[a] = bytes[i];
+            written++;
+        }
+        r.bytesWritten = written;
+        r.offset = 0;
+        return r;
+    });
+
+    /* Data breakpoints (watchpoints). Info: resolve an expression/variable to an
+     * address + width and mint a dataId. Read-only, reader thread under g_src_mtx. */
+    g_session->registerHandler(
+        [](const dap::DataBreakpointInfoRequest &req)
+            -> dap::ResponseOrError<dap::DataBreakpointInfoResponse> {
+            std::lock_guard<std::mutex> lk(g_src_mtx);
+            dap::DataBreakpointInfoResponse r;
+            EvalResult e;
+            if (req.variablesReference.has_value() && req.variablesReference.value() >= 1000)
+            {
+                size_t idx = (size_t)(req.variablesReference.value() - 1000);
+                if (idx < g_varnodes.size())
+                    e = resolve_child(g_varnodes[idx], req.name);
+            }
+            else
+                e = eval_expr(req.name.c_str(), dbg_stop_pc());
+            if (!e.ok || !e.lvalue || !e.addr_ok)
+            {
+                r.dataId = dap::null();
+                r.description = e.ok ? "not a memory location" : e.err;
+                return r;
+            }
+            int w = e.type ? (int)dwarf_type_size(e.type) : e.width;
+            if (w <= 0 || w > 256) w = 1;
+            char id[16];
+            snprintf(id, sizeof id, "%04X:%d", e.addr, w);
+            r.dataId = std::string(id);
+            r.description = req.name;
+            r.accessTypes = {std::string("read"), std::string("write"), std::string("readWrite")};
+            r.canPersist = false;
+            return r;
+        });
+
+    g_session->registerHandler([](const dap::SetDataBreakpointsRequest &req) {
+        dap::SetDataBreakpointsResponse r;
+        auto watches = std::make_shared<std::vector<Watch>>();
+        for (auto &db : req.breakpoints)
+        {
+            dap::Breakpoint ob;
+            unsigned addr = 0, width = 1;
+            if (sscanf(db.dataId.c_str(), "%x:%u", &addr, &width) == 2)
+            {
+                Watch w;
+                w.addr = (uint16_t)addr;
+                w.width = (int)(width ? width : 1);
+                std::string acc = db.accessType.value("write");
+                w.on_write = (acc == "write" || acc == "readWrite");
+                w.on_read = (acc == "read" || acc == "readWrite");
+                watches->push_back(w);
+                ob.verified = true;
+            }
+            else
+                ob.verified = false;
+            r.breakpoints.push_back(ob);
+        }
+        post([watches]() {
+            g_watches = *watches;
+            dbg_watch_armed = (int)g_watches.size();
+        });
+        return r;
+    });
+
+    /* Function breakpoints: resolve each name to its entry on the main thread
+     * (FIFO after the launch that loads the map), then respond — same ordering as
+     * SetBreakpoints, since these arrive during configuration before the map exists. */
+    g_session->registerHandler(
+        [](const dap::SetFunctionBreakpointsRequest &req,
+           std::function<void(dap::SetFunctionBreakpointsResponse)> respond) {
+            auto names = std::make_shared<std::vector<std::string>>();
+            for (auto &fb : req.breakpoints)
+                names->push_back(fb.name);
+            post([names, respond]() {
+                dap::SetFunctionBreakpointsResponse r;
+                std::vector<uint16_t> addrs;
+                for (const std::string &nm : *names)
+                {
+                    dap::Breakpoint ob;
+                    uint16_t addr = 0;
+                    if (src_func_addr(nm.c_str(), &addr))
+                    {
+                        ob.verified = true;
+                        ob.instructionReference = hex16(addr);
+                        addrs.push_back(addr);
+                    }
+                    else
+                        ob.verified = false;
+                    r.breakpoints.push_back(ob);
+                }
+                std::vector<uint16_t> old = g_func_bps;
+                g_func_bps.clear(); /* clear first so bp_referenced excludes this category */
+                for (uint16_t a : old)
+                    if (!bp_referenced(a, nullptr, true)) /* keep if instr/source wants it */
+                        dbg_remove_breakpoint(a);
+                g_func_bps = addrs;
+                for (uint16_t a : g_func_bps)
+                    dbg_add_breakpoint(a);
+                respond(r);
+            });
+        });
 
     /* Bind to the stdio DAP channel; cppdap spawns the reader thread. */
 #ifdef _WIN32

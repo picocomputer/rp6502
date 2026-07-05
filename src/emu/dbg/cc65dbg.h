@@ -44,6 +44,9 @@ bool cc65dbg_src_to_addr(const cc65dbg_t *db, const char *file, int line,
  * stripped, or NULL. Stable pointer owned by db. */
 const char *cc65dbg_addr_to_func(const cc65dbg_t *db, uint16_t addr);
 
+/* A function's entry address by name (the '_'-stripped label). False if absent. */
+bool cc65dbg_func_addr(const cc65dbg_t *db, const char *name, uint16_t *addr);
+
 /* ---- best-effort variable inspection ----
  * cc65's .dbg carries no C type info (every csym has type=0), so `size` is the
  * scalar byte width inferred from memory layout (the gap to the next symbol);
