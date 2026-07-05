@@ -49,8 +49,9 @@ set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=overri
 # __aeabi_read_tp's naked inline-asm literal pool loads can end up out of
 # the assembler's encodable range once whole-program LTO merges everything
 # into one giant unit. Keep this one file out of LTO.
-set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_thread_local/thread_local.c
-    PROPERTIES COMPILE_OPTIONS "-fno-lto")
+# **! Obsolete after @rumbledethumps' PICO_THREAD_LOCAL_TYPE Commit 20f16c0 **
+# set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_thread_local/thread_local.c
+#    PROPERTIES COMPILE_OPTIONS "-fno-lto")
 
 target_include_directories(${RIA_TARGET} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
