@@ -23,7 +23,7 @@
             "name": "Emulator Debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/emulator/rp6502-emu",
+            "program": "${workspaceFolder}/build/emulator/Debug/rp6502-emu",
             "args": [
                 "--debug",
                 "${workspaceFolder}/src/emu/tests/roms/${input:romPick}"
