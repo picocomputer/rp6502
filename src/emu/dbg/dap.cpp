@@ -460,8 +460,9 @@ bool type_expandable(const dtype_t *t)
 }
 
 /* Build a DAP Variable for (name, addr, type). type == nullptr -> an untyped
- * 16-bit word (the cc65 path). */
-dap::Variable make_var(const std::string &name, uint16_t addr, bool addr_ok, const dtype_t *t)
+ * hex word (the cc65 path): `width` bytes wide (1/2/4), defaulting to 2. */
+dap::Variable make_var(const std::string &name, uint16_t addr, bool addr_ok, const dtype_t *t,
+                       int width = 0)
 {
     dap::Variable v;
     v.name = name;
@@ -471,8 +472,10 @@ dap::Variable make_var(const std::string &name, uint16_t addr, bool addr_ok, con
     if (!addr_ok) { v.value = "<optimized out>"; return v; }
     if (!t)
     {
+        int w = (width == 1 || width == 2 || width == 4) ? width : 2;
+        const char *fmt = w == 1 ? "0x%02X" : w == 4 ? "0x%08X" : "0x%04X";
         char b[24];
-        snprintf(b, sizeof b, "0x%04X", (unsigned)mem_le(addr, 2));
+        snprintf(b, sizeof b, fmt, (unsigned)mem_le(addr, w));
         v.value = b;
         return v;
     }
@@ -869,7 +872,7 @@ extern "C" void dap_start(void)
                 cc65var_t buf[256];
                 int n = cc65dbg_locals(g_cc65, pc, dap_readmem, buf, 256);
                 for (int i = 0; i < n; i++)
-                    r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, nullptr));
+                    r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, nullptr, buf[i].size));
             }
         }
         else if (ref == 3)
@@ -888,7 +891,7 @@ extern "C" void dap_start(void)
                 cc65var_t buf[512];
                 int n = cc65dbg_globals(g_cc65, buf, 512);
                 for (int i = 0; i < n; i++)
-                    r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, nullptr));
+                    r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, nullptr, buf[i].size));
             }
         }
         else if (ref >= 1000)

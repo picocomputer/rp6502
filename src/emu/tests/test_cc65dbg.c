@@ -111,6 +111,9 @@ UTEST(cc65dbg, locals_frame_base)
     ASSERT_TRUE(vi->addr_ok && vj->addr_ok);
     ASSERT_EQ((int)vi->addr, 0x0502); /* sp($0500) + offs(-2) + frame_size(4) */
     ASSERT_EQ((int)vj->addr, 0x0500); /* sp($0500) + offs(-4) + frame_size(4) */
+    /* widths from the offset gap: j@-4 -> i@-2 = 2; i@-2 -> frame base 0 = 2 */
+    ASSERT_EQ((int)vi->size, 2);
+    ASSERT_EQ((int)vj->size, 2);
     /* outside the function scope -> no locals */
     ASSERT_EQ(cc65dbg_locals(db, 0x0300, fake_mem, v, 16), 0);
     cc65dbg_free(db);
@@ -121,9 +124,12 @@ UTEST(cc65dbg, globals_via_import_chain)
     cc65dbg_t *db = cc65dbg_load(CC65_DBG);
     cc65var_t v[16];
     int n = cc65dbg_globals(db, v, 16);
-    ASSERT_EQ(n, 1); /* `gcounter`; the function `main` is excluded */
+    /* `gcounter` is recorded twice (its DATA label + the extern csym importing
+     * it) and deduped to one; the function `main` is excluded (CODE segment). */
+    ASSERT_EQ(n, 1);
     ASSERT_TRUE(strcmp(v[0].name, "gcounter") == 0);
-    ASSERT_EQ((int)v[0].addr, 0x0800); /* csym -> import sym -> exp -> data lab */
+    ASSERT_EQ((int)v[0].addr, 0x0800);
+    ASSERT_EQ((int)v[0].size, 2); /* the data lab carries an explicit size=2 */
     cc65dbg_free(db);
 }
 

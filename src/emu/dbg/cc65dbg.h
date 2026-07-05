@@ -44,9 +44,10 @@ bool cc65dbg_src_to_addr(const cc65dbg_t *db, const char *file, int line,
  * stripped, or NULL. Stable pointer owned by db. */
 const char *cc65dbg_addr_to_func(const cc65dbg_t *db, uint16_t addr);
 
-/* ---- best-effort, UNTYPED variable inspection ----
- * cc65's .dbg carries no usable C type info (every csym has type=0), so unlike
- * the DWARF path these report only a name + 6502 address; the caller reads a
+/* ---- best-effort variable inspection ----
+ * cc65's .dbg carries no C type info (every csym has type=0), so `size` is the
+ * scalar byte width inferred from memory layout (the gap to the next symbol);
+ * 0 means unknown (aggregate, or an unbounded leftmost parameter) — read a
  * 16-bit word there. Auto locals are addressed relative to the C stack pointer
  * c_sp, which is only at the frame base at statement boundaries — reliable at a
  * breakpoint stop, not mid-expression. */
@@ -55,6 +56,7 @@ typedef struct
     const char *name; /* stable pointer owned by db */
     uint16_t addr;
     bool addr_ok;
+    uint8_t size; /* scalar byte width 1/2/4; 0 = unknown -> 16-bit word */
 } cc65var_t;
 
 /* The auto locals/parameters in scope at pc (csym sc=auto whose lexical scope
@@ -63,8 +65,8 @@ typedef struct
 int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
                    uint8_t (*readmem)(uint16_t addr), cc65var_t *out, int max);
 
-/* The global (sc=ext/static, non-function) C variables, at their fixed
- * addresses. Returns count. */
+/* The C globals (the "_name" data-segment labels), at their fixed addresses.
+ * Returns count. */
 int cc65dbg_globals(const cc65dbg_t *db, cc65var_t *out, int max);
 
 /* ---- linker segments (the .dbg "seg" records) ----

@@ -51,6 +51,7 @@ typedef struct
     bool is_global;
     int32_t offs;  /* auto: frame offset relative to c_sp */
     uint32_t addr; /* global: fixed 6502 address */
+    uint32_t size; /* global: scalar byte width from layout (0 = unknown) */
 } cc_csym;
 
 /* a linker segment (CODE/DATA/BSS/...) with its load address + size */
@@ -59,6 +60,7 @@ typedef struct
     const char *name;
     uint32_t start;
     uint32_t size;
+    bool is_data; /* holds variables (rw, or RODATA) vs code (CODE/STARTUP/...) */
 } cc_seg;
 
 struct cc65dbg
@@ -217,8 +219,9 @@ enum { SYM_LAB = 1, SYM_CODE = 2, SYM_IMP = 4 };
 /* Resolve a sym id to its defining label, following one or more import->export
  * hops. Returns false if it doesn't resolve to a label. */
 static bool sym_resolve(const uint32_t *symval, const uint32_t *symexp,
-                        const uint8_t *symflags, uint32_t nsym, uint32_t id,
-                        uint32_t *addr, bool *is_code)
+                        const uint8_t *symflags, const uint32_t *symsize,
+                        uint32_t nsym, uint32_t id,
+                        uint32_t *addr, bool *is_code, uint32_t *size)
 {
     for (int hop = 0; hop < 8 && id < nsym; hop++)
     {
@@ -226,6 +229,8 @@ static bool sym_resolve(const uint32_t *symval, const uint32_t *symexp,
         {
             *addr = symval[id];
             *is_code = (symflags[id] & SYM_CODE) != 0;
+            if (size)
+                *size = symsize[id];
             return true;
         }
         if (symflags[id] & SYM_IMP)
@@ -244,6 +249,11 @@ static int row_cmp(const void *a, const void *b)
 static int func_cmp(const void *a, const void *b)
 {
     uint32_t x = ((const cc_func *)a)->addr, y = ((const cc_func *)b)->addr;
+    return (x > y) - (x < y);
+}
+static int u32_cmp(const void *a, const void *b)
+{
+    uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
     return (x > y) - (x < y);
 }
 
@@ -322,13 +332,14 @@ cc65dbg_t *cc65dbg_load(const char *path)
      * csym usually points at an import sym, which chains via "exp" to the lab. */
     uint32_t *symval = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL;
     uint32_t *symexp = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL;
+    uint32_t *symsize = nsym ? calloc(nsym, sizeof(uint32_t)) : NULL; /* lab "size=" */
     uint8_t *symflags = nsym ? calloc(nsym, sizeof(uint8_t)) : NULL; /* see SYM_* above */
     if (db && nscope)
         db->scopes = calloc(nscope, sizeof(cc_scope));
     if (db && nseg)
         db->segs = calloc(nseg, sizeof(cc_seg));
     if (!db || (nfile && !files) || (nseg && (!segstart || !segcode || !db->segs)) || (nspan && !spans) ||
-        (nsym && (!symval || !symexp || !symflags)) || (nscope && !db->scopes))
+        (nsym && (!symval || !symexp || !symsize || !symflags)) || (nscope && !db->scopes))
     {
         free(files);
         free(segstart);
@@ -336,6 +347,7 @@ cc65dbg_t *cc65dbg_load(const char *path)
         free(spans);
         free(symval);
         free(symexp);
+        free(symsize);
         free(symflags);
         free(lines);
         free(buf);
@@ -373,9 +385,14 @@ cc65dbg_t *cc65dbg_load(const char *path)
                 size_t n;
                 bool has_name = field(body, "name", &v, &n);
                 segcode[id] = has_name && n == 4 && strncmp(v, "CODE", 4) == 0;
+                const char *tv;
+                size_t tnn;
+                bool is_rw = field(body, "type", &tv, &tnn) && tnn == 2 && strncmp(tv, "rw", 2) == 0;
+                bool is_rodata = has_name && n == 6 && strncmp(v, "RODATA", 6) == 0;
                 db->segs[id].name = has_name ? intern(db, v, n) : NULL;
                 db->segs[id].start = segstart[id];
                 db->segs[id].size = fu32(body, "size", 0);
+                db->segs[id].is_data = is_rw || is_rodata;
             }
         }
         else if (rec_is(line, "span", &body))
@@ -405,6 +422,7 @@ cc65dbg_t *cc65dbg_load(const char *path)
                 if (is_lab)
                 {
                     symval[id] = val;
+                    symsize[id] = fu32(body, "size", 0);
                     symflags[id] = (uint8_t)(SYM_LAB | (is_code ? SYM_CODE : 0));
                 }
                 else if (is_imp)
@@ -431,6 +449,28 @@ cc65dbg_t *cc65dbg_load(const char *path)
                     db->funcs[db->nfuncs].addr = val;
                     db->funcs[db->nfuncs].name = intern(db, nv + 1, nn - 1); /* strip '_' */
                     db->nfuncs++;
+                }
+            }
+            /* a "_name" label in a data segment is a C global. cc65 emits no csym
+             * for a global defined in this TU, so the label is the only record of
+             * it; the leading '_' + an alpha next char is the C-identifier mark
+             * that skips compiler/runtime symbols (Lxxxx, __argv, condes), and the
+             * data-segment test skips code entry points (_init/_exit in STARTUP).
+             * Width comes from an explicit "size=" or the layout gap in pass 3. */
+            char c1 = nn >= 2 ? nv[1] : 0;
+            if (has_name && nv[0] == '_' && seg < nseg && db->segs[seg].is_data &&
+                ((c1 >= 'a' && c1 <= 'z') || (c1 >= 'A' && c1 <= 'Z')))
+            {
+                cc_csym *nc = realloc(db->csyms, (db->ncsyms + 1) * sizeof(cc_csym));
+                if (nc)
+                {
+                    db->csyms = nc;
+                    cc_csym *cs = &db->csyms[db->ncsyms++];
+                    memset(cs, 0, sizeof *cs);
+                    cs->name = intern(db, nv + 1, nn - 1); /* strip '_' */
+                    cs->is_global = true;
+                    cs->addr = val;
+                    cs->size = fu32(body, "size", 0);
                 }
             }
         }
@@ -503,13 +543,15 @@ cc65dbg_t *cc65dbg_load(const char *path)
                 /* a global is a data label; a function csym resolves to a CODE
                  * label and is excluded. */
                 uint32_t symid = fu32(body, "sym", 0xffffffff);
-                uint32_t addr;
+                uint32_t addr, lab_size = 0;
                 bool is_code;
-                if (sym_resolve(symval, symexp, symflags, nsym, symid, &addr, &is_code) &&
+                if (sym_resolve(symval, symexp, symflags, symsize, nsym, symid,
+                                &addr, &is_code, &lab_size) &&
                     !is_code)
                 {
                     cs.is_global = true;
                     cs.addr = addr;
+                    cs.size = lab_size; /* authoritative when present; else 0 */
                 }
                 else
                     continue;
@@ -573,12 +615,54 @@ cc65dbg_t *cc65dbg_load(const char *path)
         }
     }
 
+    /* Pass 3: global sizes with no explicit "size=" — cc65/ld65 pack a segment's
+     * objects contiguously and unpadded, so a global's width is the distance to
+     * the next label (bounded by its segment's end). */
+    uint32_t *labaddr = nsym ? malloc(nsym * sizeof(uint32_t)) : NULL;
+    if (labaddr)
+    {
+        size_t nlab = 0;
+        for (uint32_t id = 0; id < nsym; id++)
+            if (symflags[id] & SYM_LAB)
+                labaddr[nlab++] = symval[id];
+        qsort(labaddr, nlab, sizeof(uint32_t), u32_cmp);
+        for (size_t i = 0; i < db->ncsyms; i++)
+        {
+            cc_csym *cs = &db->csyms[i];
+            if (!cs->is_global || cs->size != 0)
+                continue;
+            uint32_t bound = 0x10000; /* the enclosing segment's end */
+            for (size_t s = 0; s < db->nsegs; s++)
+                if (db->segs[s].name && cs->addr >= db->segs[s].start &&
+                    cs->addr < db->segs[s].start + db->segs[s].size)
+                {
+                    bound = db->segs[s].start + db->segs[s].size;
+                    break;
+                }
+            size_t lo = 0, hi = nlab; /* first label strictly above cs->addr */
+            while (lo < hi)
+            {
+                size_t mid = (lo + hi) / 2;
+                if (labaddr[mid] > cs->addr)
+                    hi = mid;
+                else
+                    lo = mid + 1;
+            }
+            if (lo < nlab && labaddr[lo] < bound)
+                bound = labaddr[lo];
+            if (bound > cs->addr)
+                cs->size = bound - cs->addr;
+        }
+        free(labaddr);
+    }
+
     free(files);
     free(segstart);
     free(segcode);
     free(spans);
     free(symval);
     free(symexp);
+    free(symsize);
     free(symflags);
     free(lines);
     free(buf);
@@ -715,6 +799,13 @@ static bool csym_in_scope(const cc65dbg_t *db, size_t i, uint16_t pc)
     return s->has && pc >= s->lo && pc < s->hi;
 }
 
+/* cc65 carries no C types; map a layout-derived byte span to a scalar display
+ * width (1/2/4), else 0 = unknown (aggregate/unbounded) -> caller reads a word. */
+static uint8_t scalar_width(uint32_t span)
+{
+    return (span == 1 || span == 2 || span == 4) ? (uint8_t)span : 0;
+}
+
 int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
                    uint8_t (*readmem)(uint16_t addr), cc65var_t *out, int max)
 {
@@ -737,9 +828,27 @@ int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
     {
         if (!csym_in_scope(db, i, pc))
             continue;
+        int32_t o = db->csyms[i].offs;
         out[n].name = db->csyms[i].name;
-        out[n].addr = (uint16_t)((int32_t)sp + db->csyms[i].offs + frame_size);
+        out[n].addr = (uint16_t)((int32_t)sp + o + frame_size);
         out[n].addr_ok = true;
+        /* Width = gap up to the next in-scope offset (a var at `o` occupies
+         * [o, o+size)). Locals (o<0) are additionally bounded by the frame base
+         * 0. Only the leftmost param has nothing above it -> width 0 (a word). */
+        bool bounded = o < 0;
+        int32_t ub = 0;
+        for (size_t j = 0; j < db->ncsyms; j++)
+        {
+            if (!csym_in_scope(db, j, pc))
+                continue;
+            int32_t oj = db->csyms[j].offs;
+            if (oj > o && (!bounded || oj < ub))
+            {
+                ub = oj;
+                bounded = true;
+            }
+        }
+        out[n].size = bounded ? scalar_width((uint32_t)(ub - o)) : 0;
         n++;
     }
     return n;
@@ -754,9 +863,18 @@ int cc65dbg_globals(const cc65dbg_t *db, cc65var_t *out, int max)
     {
         if (!db->csyms[i].is_global)
             continue;
+        uint16_t addr = (uint16_t)db->csyms[i].addr;
+        /* a global can be recorded twice (its data label + an extern csym that
+         * imports it); one address is one variable, so keep the first. */
+        bool dup = false;
+        for (int k = 0; k < n; k++)
+            if (out[k].addr == addr) { dup = true; break; }
+        if (dup)
+            continue;
         out[n].name = db->csyms[i].name;
-        out[n].addr = (uint16_t)db->csyms[i].addr;
+        out[n].addr = addr;
         out[n].addr_ok = true;
+        out[n].size = scalar_width(db->csyms[i].size);
         n++;
     }
     return n;
