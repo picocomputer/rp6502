@@ -135,6 +135,7 @@ endif()
 # ====================================================================================
 
 set(PICO_BOARD pico2_w CACHE STRING "Board type")
+set(PICO_THREAD_LOCAL_TYPE emutls CACHE INTERNAL "")
 
 include(${CMAKE_CURRENT_LIST_DIR}/pico_sdk_import.cmake)
 
