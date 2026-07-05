@@ -29,10 +29,6 @@ bool vga_set_canvas(uint16_t canvas);
  * scanline any installed program renders (firmware fires ria_vsync there). */
 int vga_vsync_scanline(void);
 
-/* Per-frame terminal housekeeping (cursor blink, cell blink, lazy clears),
- * driven off the virtual clock. */
-void vga_task(void);
-
 /* Render one scanline y of the current frame into the present buffer (RGBA8
  * 0xAABBGGRR, canvas-native stride). Interleaved with the CPU between scanlines
  * so mid-frame state changes land on later lines (raster effects), matching

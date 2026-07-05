@@ -5,8 +5,8 @@
  *
  * RIA debug window for the RP6502 — a chips-ui-style inspector beside ui_w65c02.h
  * and ui/ui_m6522.h. Unlike those (forks of upstream chip widgets), the RIA is
- * bespoke: it shares the 6502 bus, so the window shows the bus as the RIA last
- * decoded it (ria_chip()->PINS, plus a synthetic CS over the RIA window) and a
+ * bespoke: it shares the 6502 bus, so the window shows the RIA's pins as last
+ * decoded (ria_chip()->PINS, plus a synthetic CS over the RIA window) and a
  * read-only view of the register file ($FFE0-$FFFF, in ram[]) and the XSTACK SP.
  *
  * Header-only with the implementation under CHIPS_UI_IMPL, emitted by the single
@@ -65,20 +65,18 @@ void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings);
 #include "emu/chips/w65c02.h" /* M6502_* pin macros (for the pin diagram) */
 #include "emu/sys/mem.h"      /* ram, xstack_ptr, RIA_WINDOW_LO/HI */
 
-/* The RIA is not a chips-modeled chip; it shares the 6502 bus, so its "pins" are
- * that bus as the RIA decodes it (fed live from ria_chip()->PINS), plus a synthetic
- * CS lit while the RIA window is addressed. RIA_PIN_CS rides a free bit above
- * M6502_PIN_MASK (bit 40), so it never collides with a real CPU pin. */
+/* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
+ * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
+ * are decoded off-chip into CS, so they never reach the RIA. Pins are fed live
+ * from ria_chip()->PINS; RIA_PIN_CS rides a free bit above M6502_PIN_MASK (bit 40),
+ * so it never collides with a real CPU pin. */
 #define RIA_PIN_CS (1ULL << 40)
 static const ui_chip_pin_t _ui_rp6502_pins[] = {
     {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
     {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW}, {"SYNC", 10, M6502_SYNC}, {"IRQ", 11, M6502_IRQ},
-    {"RES", 12, M6502_RES}, {"CS", 13, RIA_PIN_CS},
-    {"A0", 16, M6502_A0}, {"A1", 17, M6502_A1}, {"A2", 18, M6502_A2}, {"A3", 19, M6502_A3},
-    {"A4", 20, M6502_A4}, {"A5", 21, M6502_A5}, {"A6", 22, M6502_A6}, {"A7", 23, M6502_A7},
-    {"A8", 24, M6502_A8}, {"A9", 25, M6502_A9}, {"A10", 26, M6502_A10}, {"A11", 27, M6502_A11},
-    {"A12", 28, M6502_A12}, {"A13", 29, M6502_A13}, {"A14", 30, M6502_A14}, {"A15", 31, M6502_A15},
+    {"RW", 9, M6502_RW}, {"IRQ", 10, M6502_IRQ}, {"RES", 11, M6502_RES}, {"CS", 12, RIA_PIN_CS},
+    {"A0", 13, M6502_A0}, {"A1", 14, M6502_A1}, {"A2", 15, M6502_A2}, {"A3", 16, M6502_A3},
+    {"A4", 17, M6502_A4},
 };
 
 /* The documented RIA register window ($FFE0-$FFFF, ria.rst). width 2 = a 16-bit
@@ -105,7 +103,7 @@ void ui_rp6502_init(ui_rp6502_t *win, const ui_rp6502_desc_t *desc)
     win->open = desc->open;
     win->valid = true;
     ui_chip_desc_t cd;
-    UI_CHIP_INIT_DESC(&cd, "RIA", 32, _ui_rp6502_pins);
+    UI_CHIP_INIT_DESC(&cd, "RIA", 26, _ui_rp6502_pins);
     ui_chip_init(&win->chip, &cd);
 }
 

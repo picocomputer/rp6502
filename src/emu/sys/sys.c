@@ -22,6 +22,7 @@
 #include "api/api.h"
 #include "aud/aud.h"
 #include "str/rln.h"
+#include "term/term.h"
 #include <stdio.h>
 
 /* Pending exec (op 0x09): the new program loads at the frame boundary rather
@@ -119,6 +120,9 @@ static void run_frame(bool render)
             return; /* held at a breakpoint mid-frame; resume re-enters emu_run_frame */
         std_task(); /* drain read_xram's PIX gate before the op re-polls */
         api_task(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
+        term_task(); /* VGA chip super-loop analog: per scanline, so the
+                      * one-row-per-tick lazy clears drain within the frame
+                      * that issued them, not one row per frame */
         scanline_n++;
         if (!vsynced && line + 1 >= vsync_line)
         {
@@ -136,7 +140,6 @@ static void run_frame(bool render)
      * the read callback) then advance any blocking syscall waiting on it. */
     rln_task();
     ria_task();
-    vga_task(); /* cursor/cell blink, evaluated at the new virtual time */
     snd_task(); /* generate this frame's audio from the active RIA device */
 
     /* An exec committed this frame: load the new program and restart the CPU,

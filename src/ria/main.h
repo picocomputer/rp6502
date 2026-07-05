@@ -35,6 +35,10 @@ void main_stop(void);
 // If the 6502 is running, stop events will be called first.
 void main_break(void);
 
+// Like main_break, but keeps the launcher/exec chain so the launcher
+// re-runs instead of dropping to the monitor. Triggered by Alt-F4.
+void main_break_to_launcher(void);
+
 /* Special events dispatched from main.c
  */
 
