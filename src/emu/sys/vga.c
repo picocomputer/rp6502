@@ -199,13 +199,6 @@ int vga_vsync_scanline(void)
     return g_canvas_h;
 }
 
-void vga_task(void)
-{
-    /* Drives cursor/cell blink and lazy row clears off the virtual clock.
-     * Once per frame is ample for the ~1 Hz cursor and ~3-6 Hz cell rates. */
-    term_task();
-}
-
 /* Current canvas pixel size (≤ VGA_MAX_WIDTH x VGA_MAX_HEIGHT). The presentation
  * layer reads this to size its texture and scale the canvas to the display. */
 void emu_canvas_size(int *w, int *h)

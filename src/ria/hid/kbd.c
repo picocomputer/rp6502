@@ -605,7 +605,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                 kbd_alt_mode = false;
                 kbd_dead_key0 = kbd_dead_key1 = 0;
                 api_set_ax(0xFFFF);
-                main_stop();
+                main_break_to_launcher();
                 return;
             }
             break;

@@ -198,7 +198,6 @@ static void break_(void) // break is keyword
     vga_break();
     mem_break();
     rln_break();
-    pro_break();
     com_break();
 }
 
@@ -373,6 +372,12 @@ void main_stop(void)
 }
 
 void main_break(void)
+{
+    pro_cancel_launcher();
+    is_breaking = true;
+}
+
+void main_break_to_launcher(void)
 {
     is_breaking = true;
 }

@@ -830,20 +830,24 @@ void com_stop(void)
     }
 }
 
+// Console newline for a break, skipped when the pending TX already ends
+// in CRLF so we don't leave a blank line.
+static void com_ensure_newline(void)
+{
+    size_t head = com_tx_core0_head;
+    size_t tail = com_tx_core0_tail;
+    size_t count = (head - tail + COM_TX_CORE0_BUF_SIZE) % COM_TX_CORE0_BUF_SIZE;
+    size_t last = head;
+    size_t prev = (head + COM_TX_CORE0_BUF_SIZE - 1) % COM_TX_CORE0_BUF_SIZE;
+    if (count < 2 ||
+        com_tx_core0_buf[last] != '\n' ||
+        com_tx_core0_buf[prev] != '\r')
+        putchar('\n');
+}
+
 void com_break(void)
 {
-    // Queue a newline unless com_stop just left a CRLF.
-    {
-        size_t head = com_tx_core0_head;
-        size_t tail = com_tx_core0_tail;
-        size_t count = (head - tail + COM_TX_CORE0_BUF_SIZE) % COM_TX_CORE0_BUF_SIZE;
-        size_t last = head;
-        size_t prev = (head + COM_TX_CORE0_BUF_SIZE - 1) % COM_TX_CORE0_BUF_SIZE;
-        if (count < 2 ||
-            com_tx_core0_buf[last] != '\n' ||
-            com_tx_core0_buf[prev] != '\r')
-            putchar('\n');
-    }
+    com_ensure_newline();
 
     // Drain hw FIFO first so any in-flight bytes land in the ring,
     // then clear the ring.

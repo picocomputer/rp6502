@@ -19,7 +19,6 @@
 
 void pro_run(void);
 void pro_stop(void);
-void pro_break(void);
 
 /* argv management
  */
@@ -37,8 +36,9 @@ bool pro_api_argv(void);
 bool pro_api_exec(void);
 
 /* Launcher: when set, pro_stop() will re-exec the launcher ROM.
- * The chain breaks when the launcher itself stops or on pro_break().
+ * The chain breaks when the launcher itself stops or on pro_cancel_launcher().
  */
+void pro_cancel_launcher(void);
 bool pro_has_launcher(void);
 void pro_set_launcher(bool is_launcher);
 bool pro_is_launcher(void);

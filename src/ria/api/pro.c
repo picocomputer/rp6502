@@ -71,7 +71,7 @@ void pro_stop(void)
     }
 }
 
-void pro_break(void)
+void pro_cancel_launcher(void)
 {
     pro_launcher_path[0] = '\0';
 }
