@@ -63,10 +63,24 @@ typedef struct
 } cc65var_t;
 
 /* The auto locals/parameters in scope at pc (csym sc=auto whose lexical scope
- * covers pc), addressed relative to the live c_sp (read via readmem). Returns
- * count. */
-int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
-                   uint8_t (*readmem)(uint16_t addr), cc65var_t *out, int max);
+ * covers pc), addressed at frame_base + offs. base_ok false marks each as
+ * unresolvable (a caller frame whose base couldn't be reconstructed). Returns
+ * count. Register-passed parameters (no stack address) are omitted. */
+int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc, uint16_t frame_base,
+                   bool base_ok, cc65var_t *out, int max);
+
+/* The entry-sp frame base (= live c_sp + frame_size) at pc, for the top frame.
+ * False if the .dbg carries no c_sp. */
+bool cc65dbg_frame_base(const cc65dbg_t *db, uint16_t pc,
+                        uint8_t (*readmem)(uint16_t addr), uint16_t *out);
+
+/* The frame size at pc (bytes the prologue lowers c_sp for locals). */
+int32_t cc65dbg_frame_size(const cc65dbg_t *db, uint16_t pc);
+
+/* The byte size of the argument region above the function's frame base, for
+ * chaining a caller's frame base. False when it can't be determined exactly
+ * (any parameter -> fail-closed), so the caller frame is left unresolvable. */
+bool cc65dbg_arg_size(const cc65dbg_t *db, uint16_t pc, uint16_t *out);
 
 /* The C globals (the "_name" data-segment labels), at their fixed addresses.
  * Returns count. */

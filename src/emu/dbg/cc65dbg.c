@@ -49,6 +49,7 @@ typedef struct
     uint32_t scope;
     bool is_auto;
     bool is_global;
+    bool has_offs; /* auto: false = passed in a register (no stack address) */
     int32_t offs;  /* auto: frame offset relative to c_sp */
     uint32_t addr; /* global: fixed 6502 address */
     uint32_t size; /* global: scalar byte width from layout (0 = unknown) */
@@ -559,8 +560,11 @@ cc65dbg_t *cc65dbg_load(const char *path)
             cs.scope = fu32(body, "scope", 0xffffffff);
             if (is_auto)
             {
+                const char *ov;
+                size_t on;
                 cs.is_auto = true;
-                cs.offs = fi32(body, "offs", 0);
+                cs.has_offs = field(body, "offs", &ov, &on);
+                cs.offs = cs.has_offs ? fi32(body, "offs", 0) : 0;
             }
             else if (is_global)
             {
@@ -850,32 +854,66 @@ static uint8_t scalar_width(uint32_t span)
     return (span == 1 || span == 2 || span == 4) ? (uint8_t)span : 0;
 }
 
-int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
-                   uint8_t (*readmem)(uint16_t addr), cc65var_t *out, int max)
+/* The frame size at pc: the deepest (most negative) in-scope auto offset. The
+ * prologue lowers the live c_sp by this below the entry-sp frame base. */
+int32_t cc65dbg_frame_size(const cc65dbg_t *db, uint16_t pc)
 {
-    if (!db || !readmem || !db->has_c_sp)
+    if (!db)
         return 0;
-    uint16_t sp = (uint16_t)(readmem(db->c_sp) | (readmem((uint16_t)(db->c_sp + 1)) << 8));
-
-    /* cc65's csym `offs` is relative to the frame base = the C stack pointer ON
-     * FUNCTION ENTRY. The prologue (decsp/subysp) then lowers `sp` by the frame
-     * size, so at a stop the live `sp` sits frame_size below the frame base and
-     * a local's address is `sp + offs + frame_size`. The frame allocated at this
-     * PC is the deepest (most negative) auto offset of the in-scope locals. */
     int32_t frame_size = 0;
     for (size_t i = 0; i < db->ncsyms; i++)
-        if (csym_in_scope(db, i, pc) && -db->csyms[i].offs > frame_size)
+        if (csym_in_scope(db, i, pc) && db->csyms[i].has_offs &&
+            -db->csyms[i].offs > frame_size)
             frame_size = -db->csyms[i].offs;
+    return frame_size;
+}
 
-    int n = 0;
-    for (size_t i = 0; i < db->ncsyms && n < max; i++)
+bool cc65dbg_frame_base(const cc65dbg_t *db, uint16_t pc,
+                        uint8_t (*readmem)(uint16_t addr), uint16_t *out)
+{
+    if (!db || !readmem || !db->has_c_sp)
+        return false;
+    uint16_t sp = (uint16_t)(readmem(db->c_sp) | (readmem((uint16_t)(db->c_sp + 1)) << 8));
+    /* frame base = the C stack pointer on function entry = live sp + frame_size */
+    *out = (uint16_t)((int32_t)sp + cc65dbg_frame_size(db, pc));
+    return true;
+}
+
+bool cc65dbg_arg_size(const cc65dbg_t *db, uint16_t pc, uint16_t *out)
+{
+    if (!db)
+        return false;
+    /* The argument region above a function's frame base separates it from its
+     * caller's frame. cc65 .dbg carries no C types, so it can be sized exactly
+     * only when the callee takes no arguments: a stack parameter's leftmost
+     * width is unbounded, and a register parameter's prologue-home size is
+     * unrecorded. Any parameter -> fail-closed (the caller frame is distrusted). */
+    for (size_t i = 0; i < db->ncsyms; i++)
     {
         if (!csym_in_scope(db, i, pc))
             continue;
+        const cc_csym *cs = &db->csyms[i];
+        if (!cs->has_offs || cs->offs >= 0) /* a parameter (register or stack) */
+            return false;
+    }
+    *out = 0;
+    return true;
+}
+
+int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc, uint16_t frame_base,
+                   bool base_ok, cc65var_t *out, int max)
+{
+    if (!db)
+        return 0;
+    int n = 0;
+    for (size_t i = 0; i < db->ncsyms && n < max; i++)
+    {
+        if (!csym_in_scope(db, i, pc) || !db->csyms[i].has_offs)
+            continue; /* register params have no stack address */
         int32_t o = db->csyms[i].offs;
         out[n].name = db->csyms[i].name;
-        out[n].addr = (uint16_t)((int32_t)sp + o + frame_size);
-        out[n].addr_ok = true;
+        out[n].addr = (uint16_t)((int32_t)frame_base + o);
+        out[n].addr_ok = base_ok;
         /* Width = gap up to the next in-scope offset (a var at `o` occupies
          * [o, o+size)). Locals (o<0) are additionally bounded by the frame base
          * 0. Only the leftmost param has nothing above it -> width 0 (a word). */
@@ -883,7 +921,7 @@ int cc65dbg_locals(const cc65dbg_t *db, uint16_t pc,
         int32_t ub = 0;
         for (size_t j = 0; j < db->ncsyms; j++)
         {
-            if (!csym_in_scope(db, j, pc))
+            if (!csym_in_scope(db, j, pc) || !db->csyms[j].has_offs)
                 continue;
             int32_t oj = db->csyms[j].offs;
             if (oj > o && (!bounded || oj < ub))

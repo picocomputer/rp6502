@@ -1165,18 +1165,70 @@ static bool frame_base_value(const func_t *fn, uint8_t (*readmem)(uint16_t), uin
     return true;
 }
 
-int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
-                      uint8_t (*readmem)(uint16_t addr),
-                      dwarf_var_t *out, int max)
+static const func_t *find_func(const dwarf_info_t *di, uint16_t pc)
 {
-    if (!di || !readmem) return 0;
-    const func_t *fn = NULL;
     for (int i = 0; i < di->nfuncs; i++)
-        if (pc >= di->funcs[i].lo && pc < di->funcs[i].hi) { fn = &di->funcs[i]; break; }
-    if (!fn) return 0;
+        if (pc >= di->funcs[i].lo && pc < di->funcs[i].hi)
+            return &di->funcs[i];
+    return NULL;
+}
 
-    uint16_t fb = 0;
-    bool fb_ok = frame_base_value(fn, readmem, &fb);
+bool dwarf_info_frame_base(const dwarf_info_t *di, uint16_t pc,
+                           uint8_t (*readmem)(uint16_t addr), uint16_t *out)
+{
+    if (!di || !readmem)
+        return false;
+    const func_t *fn = find_func(di, pc);
+    if (!fn)
+        return false;
+    return frame_base_value(fn, readmem, out);
+}
+
+bool dwarf_info_frame_size(const dwarf_info_t *di, uint16_t pc,
+                           uint8_t (*readmem)(uint16_t addr), uint16_t *alloc)
+{
+    if (!di || !readmem)
+        return false;
+    const func_t *fn = find_func(di, pc);
+    if (!fn)
+        return false;
+    bool has_fbreg = false;
+    for (int i = 0; i < fn->nlocals; i++)
+        if (fn->locals[i].loc_len >= 1 && fn->locals[i].loc[0] == 0x91 /*DW_OP_fbreg*/)
+        {
+            has_fbreg = true;
+            break;
+        }
+    /* The soft-stack allocation is the prologue's fixed idiom on rc0:rc1 (zp $00):
+     * clc/lda $00/adc #lo/sta $00/lda $01/adc #hi/sta $01, so alloc = -(lo|hi<<8).
+     * DWARF-visible local extents undercount (spill slots carry no DIE) and there
+     * is no .debug_frame on this target, so the prologue is the only exact source. */
+    uint16_t p = (uint16_t)fn->lo;
+    uint8_t b[13];
+    for (int i = 0; i < 13; i++)
+        b[i] = readmem((uint16_t)(p + i));
+    if (b[0] == 0x18 && b[1] == 0xA5 && b[2] == 0x00 && b[3] == 0x69 &&
+        b[5] == 0x85 && b[6] == 0x00 && b[7] == 0xA5 && b[8] == 0x01 &&
+        b[9] == 0x69 && b[11] == 0x85 && b[12] == 0x01)
+    {
+        int16_t imm = (int16_t)((uint16_t)b[4] | ((uint16_t)b[10] << 8));
+        *alloc = (uint16_t)(-imm);
+        return true;
+    }
+    if (has_fbreg)
+        return false; /* fbreg locals but no recognizable frame -> can't chain */
+    *alloc = 0; /* static allocation / leaf: the soft SP is untouched */
+    return true;
+}
+
+int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc, uint16_t frame_base,
+                      bool base_ok, dwarf_var_t *out, int max)
+{
+    if (!di)
+        return 0;
+    const func_t *fn = find_func(di, pc);
+    if (!fn)
+        return 0;
 
     int n = 0;
     for (int i = 0; i < fn->nlocals && n < max; i++)
@@ -1200,10 +1252,10 @@ int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
                 r.addr = (uint16_t)a;
                 r.addr_ok = true;
             }
-            else if (op == 0x91 /*DW_OP_fbreg*/ && fb_ok)
+            else if (op == 0x91 /*DW_OP_fbreg*/ && base_ok)
             {
                 int64_t off = sleb_raw(v->loc + 1, v->loc + v->loc_len);
-                r.addr = (uint16_t)((int32_t)fb + (int32_t)off);
+                r.addr = (uint16_t)((int32_t)frame_base + (int32_t)off);
                 r.addr_ok = true;
             }
         }

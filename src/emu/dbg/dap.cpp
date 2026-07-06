@@ -416,30 +416,112 @@ struct Frame
 {
     uint16_t src_pc;
     uint16_t ip;
+    uint16_t base;  /* reconstructed soft/C stack frame base for locals */
+    bool base_ok;   /* false -> frame-relative locals can't be resolved here */
 };
 std::vector<Frame> g_frames;
 
+/* variablesReference scheme: 1 = Registers, 3 = Globals, 1000+ = expandable
+ * aggregate nodes; a frame's Locals scope is LOCALS_REF_BASE + frameId (a band
+ * clear of those, sized past the unwind's 64-frame cap). */
+constexpr int64_t LOCALS_REF_BASE = 200;
+constexpr int64_t LOCALS_REF_SPAN = 256;
+
+/* A 6502 stack slot holds a JSR return address when a JSR (0x20) sits at pushed−2
+ * and its operand is EXACTLY a known function's entry. Requiring the entry (not
+ * merely an in-range address) is what makes the scan below safe: register/data
+ * bytes practically never form a JSR pointing at a real entry, so no frame is
+ * fabricated. Caller holds g_src_mtx (the source map reads). */
+bool stack_return_target(uint16_t pushed, uint16_t *target_out)
+{
+    uint16_t jsr = (uint16_t)(pushed - 2);
+    if (ram[jsr] != 0x20)
+        return false;
+    uint16_t target = (uint16_t)(ram[(uint16_t)(jsr + 1)] | (ram[(uint16_t)(jsr + 2)] << 8));
+    const char *fn = src_addr_to_func(target);
+    uint16_t entry;
+    if (!fn || !src_func_addr(fn, &entry) || entry != target)
+        return false;
+    if (target_out)
+        *target_out = target;
+    return true;
+}
+
 /* Walk the 6502 hardware stack (page 1) collecting JSR return frames, appending
- * to g_frames after frame 0. A candidate 2-byte return pair is accepted only when
- * a JSR (0x20) sits at pushed−2 AND its target resolves to a known function —
- * this rejects data pushes (PHA/PHP) and interrupt frames. On the first
- * unrecognized slot the walk truncates (under-report, never fabricate). Caller
- * must hold g_src_mtx (src_addr_to_func reads the source map). */
+ * to g_frames after frame 0. At each level scan forward for the next return slot:
+ * llvm-mos saves callee registers on the hardware stack around calls (phx of the
+ * imaginary registers), so return addresses are not adjacent; cc65 keeps its
+ * frame on the soft stack, so its slots are. The scan skips those saved bytes but
+ * truncates once no return slot appears within the window (under-report, never
+ * fabricate). Caller must hold g_src_mtx. */
+constexpr int UNWIND_SCAN_MAX = 16; /* bytes of register saves to step over */
 void unwind_stack()
 {
     uint8_t sp = m6502_s(cpu());
     for (int depth = 0; depth < 64; depth++)
     {
-        uint8_t lo_s = (uint8_t)(sp + 1), hi_s = (uint8_t)(sp + 2);
-        uint16_t pushed = (uint16_t)(ram[0x100 + lo_s] | (ram[0x100 + hi_s] << 8));
-        uint16_t jsr = (uint16_t)(pushed - 2);
-        if (ram[jsr] != 0x20)
+        bool found = false;
+        for (int skip = 0; skip <= UNWIND_SCAN_MAX; skip++)
+        {
+            uint8_t lo_s = (uint8_t)(sp + 1 + skip), hi_s = (uint8_t)(sp + 2 + skip);
+            uint16_t pushed = (uint16_t)(ram[0x100 + lo_s] | (ram[0x100 + hi_s] << 8));
+            if (!stack_return_target(pushed, nullptr))
+                continue;
+            g_frames.push_back({pushed, (uint16_t)(pushed + 1)});
+            sp = (uint8_t)(sp + 2 + skip);
+            found = true;
             break;
-        uint16_t target = (uint16_t)(ram[(uint16_t)(jsr + 1)] | (ram[(uint16_t)(jsr + 2)] << 8));
-        if (!src_addr_to_func(target))
+        }
+        if (!found)
             break;
-        g_frames.push_back({pushed, (uint16_t)(pushed + 1)});
-        sp = (uint8_t)(sp + 2);
+    }
+}
+
+/* Fill each frame's soft/C stack frame base by chaining outward from the live top
+ * frame. There is no CFI on either target, so a caller's base is reconstructed
+ * from stack-adjustment deltas: llvm-mos adds the callee's prologue allocation;
+ * cc65 adds the callee's argument region + the caller's own frame size. Fail-
+ * closed: the moment a delta can't be determined exactly, that frame and every
+ * outer frame are left base_ok=false so their frame-relative locals show as
+ * unavailable rather than as fabricated values. Caller holds g_src_mtx. */
+void compute_frame_bases()
+{
+    if (g_frames.empty())
+        return;
+    if (g_dinfo)
+    {
+        g_frames[0].base_ok =
+            dwarf_info_frame_base(g_dinfo, g_frames[0].src_pc, dap_readmem, &g_frames[0].base);
+        for (size_t k = 1; k < g_frames.size(); k++)
+        {
+            uint16_t alloc;
+            if (g_frames[k - 1].base_ok &&
+                dwarf_info_frame_size(g_dinfo, g_frames[k - 1].src_pc, dap_readmem, &alloc))
+            {
+                g_frames[k].base = (uint16_t)(g_frames[k - 1].base + alloc);
+                g_frames[k].base_ok = true;
+            }
+            else
+                g_frames[k].base_ok = false;
+        }
+    }
+    else if (g_cc65)
+    {
+        g_frames[0].base_ok =
+            cc65dbg_frame_base(g_cc65, g_frames[0].src_pc, dap_readmem, &g_frames[0].base);
+        for (size_t k = 1; k < g_frames.size(); k++)
+        {
+            uint16_t argsz;
+            if (g_frames[k - 1].base_ok &&
+                cc65dbg_arg_size(g_cc65, g_frames[k - 1].src_pc, &argsz))
+            {
+                int32_t fs = cc65dbg_frame_size(g_cc65, g_frames[k].src_pc);
+                g_frames[k].base = (uint16_t)((int32_t)g_frames[k - 1].base + argsz + fs);
+                g_frames[k].base_ok = true;
+            }
+            else
+                g_frames[k].base_ok = false;
+        }
     }
 }
 
@@ -728,7 +810,9 @@ bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
     if (g_dinfo)
     {
         dwarf_var_t buf[256];
-        int n = dwarf_info_locals(g_dinfo, pc, dap_readmem, buf, 256);
+        uint16_t fb = 0;
+        bool fb_ok = dwarf_info_frame_base(g_dinfo, pc, dap_readmem, &fb);
+        int n = dwarf_info_locals(g_dinfo, pc, fb, fb_ok, buf, 256);
         for (int i = 0; i < n; i++)
             if (name == buf[i].name)
             {
@@ -748,7 +832,9 @@ bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
     else if (g_cc65)
     {
         cc65var_t buf[256];
-        int n = cc65dbg_locals(g_cc65, pc, dap_readmem, buf, 256);
+        uint16_t fb = 0;
+        bool fb_ok = cc65dbg_frame_base(g_cc65, pc, dap_readmem, &fb);
+        int n = cc65dbg_locals(g_cc65, pc, fb, fb_ok, buf, 256);
         for (int i = 0; i < n; i++)
             if (name == buf[i].name)
             {
@@ -1420,6 +1506,7 @@ extern "C" void dap_start(void)
             uint16_t pc0 = dbg_stop_pc();
             g_frames.push_back({pc0, pc0});
             unwind_stack();
+            compute_frame_bases();
 
             /* Return the requested window; g_frames holds all frames so Scopes
              * can select any frameId. */
@@ -1464,20 +1551,21 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler([](const dap::ScopesRequest &req) {
         dap::ScopesResponse r;
-        bool top = req.frameId == 0; /* frame 0 = the live top frame */
         bool have_map;
         {
             std::lock_guard<std::mutex> lk(g_src_mtx);
             have_map = (g_dinfo || g_cc65);
         }
-        /* Locals + Registers apply only to the live top frame (a caller's soft
-         * frame base / registers can't be recovered without CFI). Globals are
-         * frame-independent (fixed addresses), so every frame shows them. */
-        if (have_map && top)
+        /* Locals apply to any frame (the Variables handler resolves them against
+         * that frame's reconstructed base, marking unresolvable ones unavailable).
+         * Globals are frame-independent (fixed addresses). Registers are the live
+         * top frame only — a caller's registers aren't recoverable without CFI. */
+        bool valid_frame = req.frameId >= 0 && (size_t)req.frameId < g_frames.size();
+        if (have_map && valid_frame)
         {
             dap::Scope loc;
             loc.name = "Locals";
-            loc.variablesReference = 2;
+            loc.variablesReference = LOCALS_REF_BASE + req.frameId;
             loc.expensive = false;
             r.scopes.push_back(loc);
         }
@@ -1489,7 +1577,7 @@ extern "C" void dap_start(void)
             glb.expensive = false;
             r.scopes.push_back(glb);
         }
-        if (top)
+        if (req.frameId == 0)
         {
             dap::Scope reg;
             reg.name = "Registers";
@@ -1524,26 +1612,33 @@ extern "C" void dap_start(void)
             add("PC", m6502_pc(c), 2);
             add("P", m6502_p(c), 1);
         }
-        else if (ref == 2)
+        else if (ref >= LOCALS_REF_BASE && ref < LOCALS_REF_BASE + LOCALS_REF_SPAN)
         {
-            /* Locals in the frame at the current stop. */
-            uint16_t pc = dbg_stop_pc();
-            /* The resolvers read the source/type map and return name pointers into
-             * it; fence against a concurrent (re)load on the main thread. */
+            /* Locals of the selected frame, resolved at that frame's call-site PC
+             * against its reconstructed base. The resolvers read the source/type
+             * map and return name pointers into it; fence against a concurrent
+             * (re)load on the main thread. */
+            size_t fi = (size_t)(ref - LOCALS_REF_BASE);
             std::lock_guard<std::mutex> lk(g_src_mtx);
-            if (g_dinfo)
+            if (fi < g_frames.size())
             {
-                dwarf_var_t buf[256];
-                int n = dwarf_info_locals(g_dinfo, pc, dap_readmem, buf, 256);
-                for (int i = 0; i < n; i++)
-                    r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, buf[i].type));
-            }
-            else if (g_cc65)
-            {
-                cc65var_t buf[256];
-                int n = cc65dbg_locals(g_cc65, pc, dap_readmem, buf, 256);
-                for (int i = 0; i < n; i++)
-                    r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, nullptr, buf[i].size));
+                uint16_t pc = g_frames[fi].src_pc;
+                uint16_t base = g_frames[fi].base;
+                bool base_ok = g_frames[fi].base_ok;
+                if (g_dinfo)
+                {
+                    dwarf_var_t buf[256];
+                    int n = dwarf_info_locals(g_dinfo, pc, base, base_ok, buf, 256);
+                    for (int i = 0; i < n; i++)
+                        r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, buf[i].type));
+                }
+                else if (g_cc65)
+                {
+                    cc65var_t buf[256];
+                    int n = cc65dbg_locals(g_cc65, pc, base, base_ok, buf, 256);
+                    for (int i = 0; i < n; i++)
+                        r.variables.push_back(make_var(buf[i].name, buf[i].addr, buf[i].addr_ok, nullptr, buf[i].size));
+                }
             }
         }
         else if (ref == 3)

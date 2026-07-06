@@ -55,12 +55,25 @@ int dwarf_info_globals(const dwarf_info_t *di, dwarf_var_t *out, int max);
 
 /* Enumerate the locals + parameters in scope at pc: the variables of the
  * function whose [low,high) covers pc, restricted to those whose lexical block
- * also covers pc. readmem fetches a byte of 6502 memory so DW_OP_fbreg locations
- * can be resolved against the live frame base. Writes up to max; returns count.
- * Returns 0 when pc is not inside any known function. */
-int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
-                      uint8_t (*readmem)(uint16_t addr),
-                      dwarf_var_t *out, int max);
+ * also covers pc. DW_OP_fbreg locations resolve to frame_base + off; base_ok
+ * false (a caller frame whose base couldn't be reconstructed) marks them
+ * unresolvable, while DW_OP_addr statics still resolve. Writes up to max;
+ * returns count. Returns 0 when pc is not inside any known function. */
+int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc, uint16_t frame_base,
+                      bool base_ok, dwarf_var_t *out, int max);
+
+/* The live frame base (soft stack pointer RS0 = rc0:rc1) of the function at pc,
+ * for the top frame. False if pc is in no known function or the frame base can't
+ * be evaluated. */
+bool dwarf_info_frame_base(const dwarf_info_t *di, uint16_t pc,
+                           uint8_t (*readmem)(uint16_t addr), uint16_t *out);
+
+/* The soft-stack bytes the function at pc allocates (read from its prologue), to
+ * chain a caller's frame base: base[caller] = base[callee] + *alloc. False when
+ * it can't be determined exactly (fbreg locals with no recognizable prologue ->
+ * fail-closed). *alloc = 0 for a static-allocation / leaf function. */
+bool dwarf_info_frame_size(const dwarf_info_t *di, uint16_t pc,
+                           uint8_t (*readmem)(uint16_t addr), uint16_t *alloc);
 
 /* ---- type introspection ---- */
 
