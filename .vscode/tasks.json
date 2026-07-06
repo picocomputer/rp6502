@@ -8,7 +8,7 @@
             "command": "${userHome}/.pico-sdk/ninja/v1.13.2/ninja",
             "args": [
                 "-C",
-                "${command:cmake.buildDirectory}"
+                "${workspaceFolder}/build/firmware"
             ],
             "group": "build",
             "presentation": {
@@ -115,7 +115,7 @@
             "command": "ctest",
             "args": [
                 "--test-dir",
-                "${workspaceFolder}/build/emulator/Debug",
+                "${workspaceFolder}/build/emulator",
                 "--output-on-failure"
             ],
             "dependsOn": "emu: Build (Debug)",
