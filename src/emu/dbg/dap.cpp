@@ -30,7 +30,7 @@ extern "C"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/dbg/dap.h"
 #include "emu/dbg/dwarf_line.h"
 #include "emu/dbg/dwarf_info.h"
@@ -2205,7 +2205,7 @@ extern "C" void dap_pump(void)
             dbg_note_stop(m6502_pc(cpu())); /* present halt as a stop */
             dap::StoppedEvent ev;
             ev.reason = "exited";
-            ev.description = "Program exited (code " + std::to_string(sys_exit_code()) +
+            ev.description = "Program exited (code " + std::to_string(main_exit_code()) +
                              ") — press Stop to close";
             ev.threadId = 1;
             ev.allThreadsStopped = true;

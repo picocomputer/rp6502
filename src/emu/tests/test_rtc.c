@@ -19,7 +19,7 @@
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "api/api.h"
 #include "api/clk.h"
 #include "utest.h"
@@ -39,7 +39,7 @@ static void tap(const char *buf, int len)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        sys_run_frame();
+        main_run_frame();
 }
 
 /* The 18-byte wire tm the 6502 libc pushes: 9 int16 in struct-tm order. */
@@ -76,7 +76,7 @@ UTEST(rtc, prints_fixed_timestamps)
     cap_len = 0;
     cap[0] = 0;
     ASSERT_TRUE(rom_load(RTC_ROM));
-    sys_init();
+    main_init();
     com_set_tx_tap(tap);
     run_frames(120);
     com_set_tx_tap(NULL);
@@ -95,7 +95,7 @@ UTEST(rtc, strftime_maps_utf8_to_oem)
 {
     setenv("LC_ALL", "C", 1);
     ASSERT_TRUE(rom_load(RTC_ROM));
-    sys_init(); /* resets clk (locale) and atr (code page 437) */
+    main_init(); /* resets clk (locale) and atr (code page 437) */
 
     struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0}; /* fields unused by literals */
     char out[16];
@@ -112,7 +112,7 @@ UTEST(rtc, strftime_z_uses_host_offset)
     setenv("TZ", "PST8", 1);
     setenv("LC_ALL", "C", 1);
     ASSERT_TRUE(rom_load(RTC_ROM));
-    sys_init(); /* clk_reset -> tzset() adopts TZ=PST8 */
+    main_init(); /* clk_reset -> tzset() adopts TZ=PST8 */
 
     struct wire_tm w = {0, 0, 12, 1, 6, 125, 2, 181, 0}; /* 2025-07-01, no DST */
     char out[16];
@@ -127,7 +127,7 @@ UTEST(rtc, code_page_drives_oem_mapping)
 {
     setenv("LC_ALL", "C", 1);
     ASSERT_TRUE(rom_load(RTC_ROM));
-    sys_init();
+    main_init();
     ASSERT_EQ(oem_get_code_page(), (uint16_t)437); /* default */
 
     struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0};
@@ -150,20 +150,20 @@ UTEST(rtc, code_page_drives_oem_mapping)
 UTEST(rtc, exec_preserves_code_page)
 {
     ASSERT_TRUE(rom_load(RTC_ROM));
-    sys_init();
+    main_init();
     ASSERT_EQ(oem_get_code_page(), (uint16_t)437);
     ASSERT_TRUE(oem_set_code_page(850));
     ria_reset(); /* the path the exec reload runs */
     ASSERT_EQ(oem_get_code_page(), (uint16_t)850); /* preserved across exec */
 }
 
-/* A cold boot (sys_init), unlike exec, resets the code page to the 437 default. */
+/* A cold boot (main_init), unlike exec, resets the code page to the 437 default. */
 UTEST(rtc, cold_boot_defaults_code_page)
 {
     ASSERT_TRUE(rom_load(RTC_ROM));
-    sys_init();
+    main_init();
     ASSERT_TRUE(oem_set_code_page(850));
-    sys_init(); /* cold boot */
+    main_init(); /* cold boot */
     ASSERT_EQ(oem_get_code_page(), (uint16_t)437);
 }
 

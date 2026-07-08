@@ -41,6 +41,9 @@ void vga_canvas_size(int *w, int *h);
 #define VGA_MAX_WIDTH 640
 #define VGA_MAX_HEIGHT 480
 
+#define VGA_HZ 60         /* the RP6502 VGA is always 60 Hz */
+#define VGA_SCANLINES 525 /* 640x480@60 total scanlines (480 visible + blanking) */
+
 /* Register the app-owned framebuffer the scanlines render into (RGBA8, canvas
  * stride; must hold the largest canvas). NULL skips pixel work. */
 void vga_set_framebuffer(uint32_t *fb);

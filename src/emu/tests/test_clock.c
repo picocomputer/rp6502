@@ -11,14 +11,14 @@
 
 #include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "pico/time.h"
 #include "utest.h"
 
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        sys_run_frame();
+        main_run_frame();
 }
 
 /* The master clock advances at the fixed scanline rate regardless of what the
@@ -27,13 +27,13 @@ static void run_frames(int n)
 UTEST(clock, run_time_is_exact_and_reproducible)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
     run_frames(60);
     ASSERT_EQ(time_us_64(), 1000000ull);
 
     /* A second identical run yields the identical time. */
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
     run_frames(6);
     ASSERT_EQ(time_us_64(), 100000ull); /* 100 ms */
 }
@@ -43,7 +43,7 @@ UTEST(clock, run_time_is_exact_and_reproducible)
 UTEST(clock, time_is_phi2_independent)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
     cpu_set_phi2_khz_run(2000);
     run_frames(60);
     ASSERT_EQ(time_us_64(), 1000000ull);

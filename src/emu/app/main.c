@@ -18,7 +18,7 @@
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
@@ -133,7 +133,7 @@ static bool apply_options(const options *o)
  * (with the debugger overlay) so the program is visible while VS Code drives. */
 static int run_dap(const options *o)
 {
-    sys_init();
+    main_init();
     cpu_set_halted(true); /* hold until the DAP launch loads a program */
     dbg_set_active(true);
 
@@ -226,7 +226,7 @@ int main(int argc, char **argv)
     /* The ROM is loaded; fold its "emulator" asset args under the command line. */
     merge_rom_args(&o, argc, argv);
 
-    sys_init();
+    main_init();
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
     if (!pro_set_argv(rom, o.n_rom_args, o.rom_args))
@@ -254,14 +254,14 @@ int main(int argc, char **argv)
          * the per-scanline pixel work (most of the per-frame cost); render the
          * last one and snapshot it. */
         for (int i = 0; i < frames - 1; i++)
-            sys_run_frame_norender();
-        sys_run_frame(); /* renders into g_fb (registered above) */
+            main_run_frame_norender();
+        main_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!png_write(o.shot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.shot, frames, cpu_halted() ? "halted" : "running", sys_exit_code());
+               o.shot, frames, cpu_halted() ? "halted" : "running", main_exit_code());
         return 0;
     }
 

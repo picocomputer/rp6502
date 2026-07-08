@@ -15,7 +15,7 @@
 #include "emu/mon/rom.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "aud/bel.h"
 #include "sys/com.h"
 #include "sys/ria.h"
@@ -29,7 +29,7 @@
 UTEST(features, sigint_irq)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
 
     ASSERT_FALSE(ria_irq_asserted()); /* idle at boot */
 
@@ -62,7 +62,7 @@ UTEST(features, sigint_irq)
 UTEST(features, launcher_chain)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
 
     /* A shell starts and registers itself as the launcher. */
     pro_set_argv("MSC0:/shell.rp6502", 0, NULL);
@@ -97,7 +97,7 @@ UTEST(features, launcher_chain)
 UTEST(features, empty_args_kept)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
 
     char *args[] = {"", "x", ""};
     ASSERT_TRUE(pro_set_argv("MSC0:/a.rp6502", 3, args));
@@ -138,7 +138,7 @@ static bool pumped_audio(int frames)
 UTEST(features, teletype_bell)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
 
     ASSERT_EQ(aud_rate(), 24000); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
@@ -159,7 +159,7 @@ UTEST(features, teletype_bell)
 UTEST(features, audio_disable)
 {
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    sys_init();
+    main_init();
     ASSERT_EQ(aud_rate(), 24000); /* enabled by default */
 
     aud_set_enabled(false);

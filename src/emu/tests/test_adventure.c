@@ -16,7 +16,7 @@
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "sys/com.h"
 #include "utest.h"
 #include <string.h>
@@ -43,7 +43,7 @@ static bool boot(const char *input)
     cap[0] = 0;
     if (!rom_load(ADVENTURE_ROM))
         return false;
-    sys_init();
+    main_init();
     com_set_tx_tap(tap);
     if (input)
         feed(input);
@@ -53,7 +53,7 @@ static bool boot(const char *input)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        sys_run_frame();
+        main_run_frame();
 }
 
 /* The intro banner prints before any input is read — proves the program

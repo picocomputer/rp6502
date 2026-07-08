@@ -24,7 +24,8 @@ extern "C"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
+#include "emu/sys/vga.h"
 #include "emu/sys/via.h"
 }
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
@@ -204,7 +205,7 @@ static void draw_control(void)
     {
         const bool stopped = dbg_is_stopped();
         if (cpu_halted())
-            ImGui::Text("exited (code %d)", sys_exit_code()); /* no CPU to step/pause */
+            ImGui::Text("exited (code %d)", main_exit_code()); /* no CPU to step/pause */
         else if (stopped)
             ImGui::Text("STOPPED at $%04X", dbg_stop_pc());
         else
@@ -446,7 +447,7 @@ static void dbgui_register_settings_handlers(void)
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
- * host can't run the machine in real time. Measured from sys_frame_count() over
+ * host can't run the machine in real time. Measured from main_frame_count() over
  * wall-clock windows — NOT io.Framerate, which is the host's uncapped present rate
  * (often hundreds of Hz) and says nothing about whether the emulation keeps pace.
  * Counts hold flat while stopped at a breakpoint, so it reads ~0 when paused. */
@@ -459,12 +460,12 @@ static float dbgui_vga_fps(void)
     if (!primed)
     {
         primed = true;
-        win_base = sys_frame_count();
+        win_base = main_frame_count();
     }
     win_time += ImGui::GetIO().DeltaTime;
     if (win_time >= 0.5) /* refresh the reading twice a second */
     {
-        unsigned long now = sys_frame_count();
+        unsigned long now = main_frame_count();
         fps = (float)((double)(now - win_base) / win_time);
         win_base = now;
         win_time = 0.0;
@@ -593,8 +594,8 @@ void dbgui_init(void)
     dd.title = "Disassembler";
     dd.m6502 = cpu;
     dd.freq_hz = freq;
-    dd.frame_ticks = freq / SYS_VGA_HZ;
-    dd.scanline_ticks = dd.frame_ticks / SYS_VGA_SCANLINES;
+    dd.frame_ticks = freq / VGA_HZ;
+    dd.scanline_ticks = dd.frame_ticks / VGA_SCANLINES;
     if (dd.scanline_ticks == 0)
         dd.scanline_ticks = 1;
     dd.read_cb = mem_read;

@@ -16,7 +16,7 @@
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
 #include "utest.h"
@@ -33,13 +33,13 @@ static uint32_t frame_crc(void)
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        sys_run_frame();
+        main_run_frame();
 }
 
 UTEST(paint, via_irq_moves_pointer)
 {
     ASSERT_TRUE(rom_load(PAINT_ROM));
-    sys_init();
+    main_init();
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 

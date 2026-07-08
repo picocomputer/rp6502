@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The emulator's syscall op registry — the counterpart to ria/main.c's
- * main_api switch. main.c holds the op table (api_ops) that main_api
- * dispatches through; the shared ria/api/api.c reaches main_api via "main.h".
+ * The emulator's runner — the counterpart to ria/main.c. Cold boot (main_init),
+ * the frame/tick engine (main_run_frame), machine run state, and the syscall op
+ * registry (main_api) the shared ria/api/api.c dispatches through via "main.h".
  */
 
 #ifndef _EMU_MAIN_H_
@@ -19,6 +19,17 @@
 extern "C"
 {
 #endif
+
+void main_init(void);               /* cold boot: fan out to every subsystem */
+void main_run_frame(void);          /* run one 60 Hz VGA frame, rendering it */
+void main_run_frame_norender(void); /* same, but skip pixel rendering (catch-up) */
+
+unsigned long main_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */
+
+/* Program exit code, set by the EXIT syscall (and a failed exec). The CPU-halt
+ * gate that stops ticking is cpu_halted() / cpu_set_halted() in sys/cpu.h. */
+int main_exit_code(void);
+void main_set_exit_code(int code);
 
 /* Point the op table's dir slots at the firmware FatFs handlers (fat, over the
  * RAM disk) or the emu's host handlers. */

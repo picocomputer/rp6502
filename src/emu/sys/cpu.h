@@ -28,11 +28,11 @@ extern "C"
 /* Warm restart (exec): reset the 65C02 core, keeping the clock and PHI2. */
 void cpu_reset(void);
 
-/* Run 6502 cycles until the master clock reaches deadline_8, the program
- * halts, or (dbg) an instruction breakpoint stops the machine. Returns true on
- * a breakpoint stop, leaving the clock mid-scanline; otherwise the clock is at
- * deadline_8 or later on return (time flows even while halted). */
-bool cpu_run_until(uint64_t deadline_8, bool dbg);
+uint64_t cpu_tick(void);   /* advance one PHI2 cycle; returns the bus pins */
+uint32_t cpu_step_8(void); /* 1/8-tick units advanced per 6502 cycle */
+
+/* True on an opcode fetch (SYNC); out-writes the fetch PC and SP. */
+bool cpu_opcode_fetch(uint64_t pins, uint16_t *pc, uint8_t *sp);
 
 /* Program-halt gate: the CPU stops ticking once halted (the EXIT syscall, a
  * failed exec, or a --dap launch hold set it; ria_reset clears it on restart).

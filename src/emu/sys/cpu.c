@@ -8,7 +8,6 @@
 #include "emu/chips/rp6502.h"
 #include "emu/chips/w65c02.h"
 #include "emu/dbg/dbg.h"
-#include "emu/host/time.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/via.h"
@@ -54,8 +53,7 @@ uint16_t cpu_get_phi2_khz_run(void)
 }
 
 /* Program-halt gate: set true by the EXIT syscall, a failed exec, or a --dap
- * launch hold; cleared by ria_reset on (re)start. The hot tick loop reads it
- * directly, so it lives here rather than behind a cross-TU accessor. */
+ * launch hold; cleared by ria_reset on (re)start. */
 static bool halted;
 
 bool cpu_active(void) { return !halted; }
@@ -98,40 +96,22 @@ void cpu_reset(void)
     pins = m6502_init(&cpu, &(m6502_desc_t){0});
 }
 
-bool cpu_run_until(uint64_t deadline_8, bool dbg)
+uint64_t cpu_tick(void)
 {
-    /* Run the master clock in a local: nothing on the per-cycle path reads it
-     * (time_us_64's callers run between scanlines), so we accumulate here and
-     * commit before every return, sparing two cross-TU time.c calls per cycle. */
-    uint64_t clock_8 = time_clock_8();
-    const uint32_t step_8 = master_per_cycle_8;
-    while (clock_8 < deadline_8 && !halted)
-    {
-        pins = m6502_tick(&cpu, pins);
-        pins = via_tick(pins);  /* counts the VIA timers + drives M6502_IRQ */
-        pins = ria_tick(pins);  /* RIA window access + additive $FFF0 IRQ (after the VIA) */
-        pins = bus_cycle(pins); /* RAM (the peripheral windows were serviced above) */
-        clock_8 += step_8;
-        if (dbg)
-        {
-            /* Feed the on-screen overlay's ui_dbg view every cycle (its
-             * disassembly heatmap/history/PC); display-only, never gates the
-             * CPU. NULL unless the window overlay registered it. */
-            if (cpu_dbg_cycle_cb)
-                cpu_dbg_cycle_cb(pins);
-            /* Breakpoint/step check at each opcode fetch (M6502_SYNC). Stops
-             * before the instruction's effect runs; the partial frame is then
-             * abandoned and the machine holds until the debugger resumes. */
-            if ((pins & M6502_SYNC) &&
-                dbg_at_instruction(M6502_GET_ADDR(pins), m6502_s(&cpu)))
-            {
-                time_set_8(clock_8); /* commit before abandoning the frame */
-                return true;
-            }
-        }
-    }
-    if (clock_8 < deadline_8)
-        clock_8 = deadline_8; /* halted: keep the master clock (time) flowing */
-    time_set_8(clock_8);
-    return false;
+    pins = m6502_tick(&cpu, pins);
+    pins = via_tick(pins);  /* counts the VIA timers + drives M6502_IRQ */
+    pins = ria_tick(pins);  /* RIA window access + additive $FFF0 IRQ (after the VIA) */
+    pins = bus_cycle(pins); /* RAM (the peripheral windows were serviced above) */
+    return pins;
+}
+
+uint32_t cpu_step_8(void) { return master_per_cycle_8; }
+
+bool cpu_opcode_fetch(uint64_t pins, uint16_t *pc, uint8_t *sp)
+{
+    if (!(pins & M6502_SYNC))
+        return false;
+    *pc = M6502_GET_ADDR(pins);
+    *sp = m6502_s(&cpu);
+    return true;
 }

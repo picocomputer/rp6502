@@ -16,7 +16,7 @@
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "utest.h"
 #include <math.h>
@@ -27,7 +27,7 @@ static void pump(int n, float *peak, double *energy, long *frames)
     static float buf[4096 * 2];
     for (int i = 0; i < n; i++)
     {
-        sys_run_frame();
+        main_run_frame();
         int got;
         while ((got = aud_read(buf, 4096)) > 0)
         {
@@ -49,7 +49,7 @@ static void pump(int n, float *peak, double *energy, long *frames)
 UTEST(furelise, plays_psg_audio)
 {
     ASSERT_TRUE(rom_load(FURELISE_ROM));
-    sys_init();
+    main_init();
     /* The standing BEL device runs at boot (firmware: aud_init installs it),
      * silent until ezpsg_init swaps in the PSG — also 24 kHz. */
     ASSERT_EQ(aud_rate(), 24000);
@@ -76,7 +76,7 @@ UTEST(furelise, plays_psg_audio)
 UTEST(furelise, reset_silences)
 {
     ASSERT_TRUE(rom_load(FURELISE_ROM));
-    sys_init();
+    main_init();
 
     float peak = 0.0f;
     double energy = 0.0;
@@ -94,16 +94,16 @@ UTEST(furelise, reset_silences)
 
 /* furelise prints its title "Für Elise" — the 'ü' is a CP437 high-half glyph
  * (byte 0x81). It must actually render, not blank. Regression guard for the
- * font high-half loading: across repeated sys_init (this test process), font_init
+ * font high-half loading: across repeated main_init (this test process), font_init
  * must re-load the high half, not leave 0x80-0xFF blank ("F r Elise"). */
 UTEST(furelise, umlaut_renders)
 {
     static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
     ASSERT_TRUE(rom_load(FURELISE_ROM));
-    sys_init();
+    main_init();
     vga_set_framebuffer(fb);
     for (int i = 0; i < 8; i++)
-        sys_run_frame(); /* prints the title; the lazy-clear render needs frames */
+        main_run_frame(); /* prints the title; the lazy-clear render needs frames */
 
     /* Count lit pixels in the 8x16 cell at (col,row0) of the 80x30 console.
      * "Für Elise": F=col0, ü=col1, r=col2. */

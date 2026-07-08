@@ -7,7 +7,7 @@
 
 #include "emu/aud/aud.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/sys/vga.h"
 #include "aud/aud.h"
 #include "aud/bel.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
@@ -111,8 +111,8 @@ void aud_task(void)
     uint32_t rate = aud_irq_rate;
 
     g_sample_acc += rate;
-    unsigned n = g_sample_acc / SYS_VGA_HZ;
-    g_sample_acc -= n * SYS_VGA_HZ;
+    unsigned n = g_sample_acc / VGA_HZ;
+    g_sample_acc -= n * VGA_HZ;
 
     for (unsigned i = 0; i < n; i++)
     {

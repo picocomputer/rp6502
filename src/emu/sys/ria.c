@@ -16,7 +16,7 @@
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/via.h"
 #include "emu/chips/rp6502.h"
 #include "api/api.h"
@@ -85,7 +85,7 @@ static void ria_syscall(uint8_t op)
     case 0xFF: /* EXIT */
     {
         int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
-        sys_set_exit_code((uint8_t)code);
+        main_set_exit_code((uint8_t)code);
         (void)api_return_ax(0);
         /* If a launcher is armed, pro_exit re-execs it (machine keeps running);
          * otherwise the chain has ended, so halt. */
@@ -324,7 +324,7 @@ void ria_reset(void)
     regs[0x10] = 0;
     xstack[XSTACK_SIZE] = 0; /* cstring guard */
     cpu_set_halted(false);
-    sys_set_exit_code(0);
+    main_set_exit_code(0);
     std_reset();
     rln_run(); /* running-program line editor: max 254, history off (firmware run()) */
     kbd_reset();
@@ -338,5 +338,5 @@ void ria_reset(void)
      * settings when a program stops — the emulator lets an exec'd program inherit
      * the parent's code page and PHI2 (an intentional divergence; the program can
      * still read the code page back via the CODE_PAGE attribute). The cold-boot
-     * defaults live in sys_init (oem_reset) and cpu_init (default PHI2). */
+     * defaults live in main_init (oem_reset) and cpu_init (default PHI2). */
 }

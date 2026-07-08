@@ -16,7 +16,7 @@
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "utest.h"
 #include <string.h>
 
@@ -39,7 +39,7 @@ static void cap_reset(void)
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        sys_run_frame();
+        main_run_frame();
 }
 
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in
@@ -96,7 +96,7 @@ UTEST(gamepad, connected_pad_renders)
 {
     pad_reset();
     ASSERT_TRUE(rom_load(GAMEPAD_ROM));
-    sys_init();
+    main_init();
     run(20); /* the ROM maps the pad block and draws four empty slots */
 
     cap_reset();
@@ -124,7 +124,7 @@ UTEST(gamepad, disconnected_pad_ignored)
 {
     pad_reset();
     ASSERT_TRUE(rom_load(GAMEPAD_ROM));
-    sys_init();
+    main_init();
     run(20);
 
     /* No pad_connect: the press rides an unplugged controller. */

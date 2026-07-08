@@ -13,7 +13,7 @@
 #include "emu/host/msc.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 
 #ifndef EMU_WITH_SOKOL
@@ -480,7 +480,7 @@ static void frame_cb(void)
         started = true;
         start_ns = now_ns();
     }
-    uint64_t target = (now_ns() - start_ns) * SYS_VGA_HZ / 1000000000ull;
+    uint64_t target = (now_ns() - start_ns) * VGA_HZ / 1000000000ull;
     uint64_t behind = target > done ? target - done : 0;
     if (behind > WINDOW_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
     {
@@ -490,9 +490,9 @@ static void frame_cb(void)
     for (uint64_t i = 0; i < behind; i++)
     {
         if (i + 1 < behind)
-            sys_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
+            main_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
         else
-            sys_run_frame(); /* the frame we'll present: render it */
+            main_run_frame(); /* the frame we'll present: render it */
         done++;
     }
 
@@ -525,8 +525,8 @@ static void frame_cb(void)
         if (bench_total >= bench_limit)
         {
             fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                    sys_frame_count(), bench_total,
-                    (double)sys_frame_count() / bench_total);
+                    main_frame_count(), bench_total,
+                    (double)main_frame_count() / bench_total);
             sapp_request_quit();
         }
     }
@@ -684,7 +684,7 @@ static void frame_cb(void)
      * done·period would target a deadline already past and busy-loop. With vsync
      * the swap-block above already paces the loop. */
     if (!app.vsync)
-        sleep_until_ns(start_ns + (done + 1) * (1000000000ull / SYS_VGA_HZ));
+        sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
 }
 
 static void event_cb(const sapp_event *e)

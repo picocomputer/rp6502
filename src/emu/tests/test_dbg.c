@@ -12,7 +12,7 @@
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "sys/com.h"
 #include "utest.h"
@@ -28,7 +28,7 @@ static bool load(void)
 {
     if (!rom_load(ADVENTURE_ROM))
         return false;
-    sys_init();
+    main_init();
     return true;
 }
 
@@ -39,7 +39,7 @@ static void feed(const char *s)
         com_kbd_push_byte((uint8_t)*p);
 }
 
-/* Leave the engine inert so a later test (and sys_run_frame) runs normally. */
+/* Leave the engine inert so a later test (and main_run_frame) runs normally. */
 static void disarm(void)
 {
     dbg_continue();
@@ -57,7 +57,7 @@ UTEST(dbg, breakpoint_stops_at_entry)
     dbg_add_breakpoint(entry);
     dbg_set_active(true);
 
-    sys_run_frame();
+    main_run_frame();
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry);
@@ -65,7 +65,7 @@ UTEST(dbg, breakpoint_stops_at_entry)
     ASSERT_FALSE(cpu_halted()); /* stopped, not exited */
 
     /* Held: while stopped, further frames do not advance the CPU. */
-    sys_run_frame();
+    main_run_frame();
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry);
 
@@ -80,12 +80,12 @@ UTEST(dbg, step_advances_one_instruction)
     uint16_t entry = entry_pc();
     dbg_add_breakpoint(entry);
     dbg_set_active(true);
-    sys_run_frame();
+    main_run_frame();
     ASSERT_TRUE(dbg_is_stopped());
 
     dbg_remove_breakpoint(entry); /* prove the next stop is the step, not the bp */
     dbg_step(DBG_STEP_INSTR);
-    sys_run_frame();
+    main_run_frame();
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_STEP);
@@ -102,7 +102,7 @@ UTEST(dbg, pause_stops_running_cpu)
     dbg_set_active(true);
     dbg_request_pause();
 
-    sys_run_frame();
+    main_run_frame();
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_PAUSE);
@@ -118,7 +118,7 @@ UTEST(dbg, break_request_stops_as_breakpoint)
     dbg_set_active(true);
     dbg_request_break();
 
-    sys_run_frame();
+    main_run_frame();
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_BREAKPOINT);
@@ -133,7 +133,7 @@ UTEST(dbg, stop_at_entry)
     dbg_set_active(true);
     dbg_stop_at_entry();
 
-    sys_run_frame();
+    main_run_frame();
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry_pc());
@@ -164,21 +164,21 @@ UTEST(dbg, stop_sweeps_pending_output_to_framebuffer)
     dbg_set_active(true);
 
     dbg_add_breakpoint(entry_pc()); /* stop before anything prints */
-    sys_run_frame_norender();
+    main_run_frame_norender();
     ASSERT_TRUE(dbg_is_stopped());
-    sys_run_frame();
+    main_run_frame();
     uint32_t console_blank = frame_crc();
     ASSERT_NE(console_blank, untouched); /* the sweep painted the blank console */
 
     dbg_clear_breakpoints();
     dbg_continue();
     for (int i = 0; i < 60; i++) /* intro banner prints; nothing rendered */
-        sys_run_frame_norender();
+        main_run_frame_norender();
     dbg_request_break();
-    sys_run_frame_norender();
+    main_run_frame_norender();
     ASSERT_TRUE(dbg_is_stopped());
 
-    sys_run_frame();
+    main_run_frame();
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_NE(frame_crc(), console_blank); /* the banner reached the pixels */
 
@@ -195,7 +195,7 @@ UTEST(dbg, continue_runs_to_exit)
     uint16_t entry = entry_pc();
     dbg_add_breakpoint(entry);
     dbg_set_active(true);
-    sys_run_frame();
+    main_run_frame();
     ASSERT_TRUE(dbg_is_stopped());
 
     dbg_clear_breakpoints();
@@ -205,7 +205,7 @@ UTEST(dbg, continue_runs_to_exit)
     /* Decline the intro prompt, "quit", then confirm "yes" -> the game exits. */
     feed("no\rquit\ryes\r");
     for (int i = 0; i < 600 && !cpu_halted(); i++)
-        sys_run_frame();
+        main_run_frame();
     ASSERT_TRUE(cpu_halted());
     ASSERT_FALSE(dbg_is_stopped());
 

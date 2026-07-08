@@ -14,7 +14,7 @@
 #include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "term/color.h"
 #include "utest.h"
@@ -34,7 +34,7 @@ static uint32_t to_rgba(uint16_t p)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        sys_run_frame();
+        main_run_frame();
 }
 
 /* Both tile glyphs are diagonal 1bpp patterns, so the tilemap mixes the two
@@ -43,7 +43,7 @@ static void run_frames(int n)
 UTEST(mode2, renders_tilemap_on_320x240_canvas)
 {
     ASSERT_TRUE(rom_load(MODE2_ROM));
-    sys_init();
+    main_init();
     vga_set_framebuffer(fb);
     run_frames(20);
 
@@ -72,7 +72,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
 UTEST(mode2, keyboard_presses_exit)
 {
     ASSERT_TRUE(rom_load(MODE2_ROM));
-    sys_init();
+    main_init();
     vga_set_framebuffer(fb);
     run_frames(20);
     ASSERT_FALSE(cpu_halted()); /* scrolling, no key down */
