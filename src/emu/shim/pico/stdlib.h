@@ -42,23 +42,23 @@ typedef unsigned int uint;
 typedef void (*irq_handler_t)(void);
 
 // Monotonic microsecond virtual clock derived from the master clock.
-uint64_t emu_now_us(void);
+uint64_t cpu_now_us(void);
 
 typedef uint64_t absolute_time_t;
 
 static inline absolute_time_t make_timeout_time_us(int64_t us)
 {
-    return emu_now_us() + (us < 0 ? 0 : (uint64_t)us);
+    return cpu_now_us() + (us < 0 ? 0 : (uint64_t)us);
 }
 
 static inline absolute_time_t make_timeout_time_ms(int64_t ms)
 {
-    return emu_now_us() + (ms < 0 ? 0 : (uint64_t)ms * 1000);
+    return cpu_now_us() + (ms < 0 ? 0 : (uint64_t)ms * 1000);
 }
 
 static inline bool time_reached(absolute_time_t t)
 {
-    return emu_now_us() >= t;
+    return cpu_now_us() >= t;
 }
 
 /* Firmware stdout/stdin routing. On the Pico, putchar/printf reach the

@@ -17,14 +17,14 @@ extern "C"
 {
 #endif
 
-void host_fat_disk_reset(void);    /* wipe the RAM disk to an unformatted state */
-bool host_fat_mount(void);   /* --tmpdrive: format + mount a fresh RAM FatFs, make it the backend */
-void host_fat_unmount(void); /* restore the native host backend (tests; the drive is session-lived otherwise) */
-bool host_fat_active(void);       /* true once the FatFs backend is the active MSC0: drive */
+void hostfat_disk_reset(void);    /* wipe the RAM disk to an unformatted state */
+bool hostfat_mount(void);   /* --tmpdrive: format + mount a fresh RAM FatFs, make it the backend */
+void hostfat_unmount(void); /* restore the native host backend (tests; the drive is session-lived otherwise) */
+bool hostfat_active(void);       /* true once the FatFs backend is the active MSC0: drive */
 
 /* The FatFs backend runs the SHARED ria/api/fat.c file driver (fat_std_*), listed
- * in std.c's table and gated on host_fat_active(); the dir syscalls run the
- * firmware's dir_api_* (ria/api/dir.c), swapped in via emu_dir_ops_set(). */
+ * in std.c's table and gated on hostfat_active(); the dir syscalls run the
+ * firmware's dir_api_* (ria/api/dir.c), swapped in via hostdir_ops_set(). */
 
 #ifdef __cplusplus
 }

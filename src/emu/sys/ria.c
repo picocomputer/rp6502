@@ -9,11 +9,12 @@
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
-#include "emu/aud/snd.h"
+#include "emu/aud/aud.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
 #include "emu/sys/com.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/via.h"
@@ -140,7 +141,7 @@ static bool std_xreg(void)
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
  * slots can be swapped between the emu's host handlers and the REAL firmware
  * dir_api_* (ria/api/dir.c) when --tmpdrive mounts a RAM FatFs. The dir slots
- * default to host below; emu_dir_ops_set() swaps them. */
+ * default to host below; hostdir_ops_set() swaps them. */
 typedef bool (*api_op_fn)(void);
 static api_op_fn api_ops[0x40] = {
     [0x01] = std_xreg,
@@ -159,26 +160,26 @@ static api_op_fn api_ops[0x40] = {
     [0x18] = std_api_write_xstack,
     [0x19] = std_api_write_xram,
     [0x1A] = std_api_lseek_cc65,
-    [0x1B] = host_dir_api_unlink,
-    [0x1C] = host_dir_api_rename,
+    [0x1B] = hostdir_api_unlink,
+    [0x1C] = hostdir_api_rename,
     [0x1D] = std_api_lseek_llvm,
     [0x1E] = std_api_syncfs,
-    [0x1F] = host_dir_api_stat,
-    [0x20] = host_dir_api_opendir,
-    [0x21] = host_dir_api_readdir,
-    [0x22] = host_dir_api_closedir,
-    [0x23] = host_dir_api_telldir,
-    [0x24] = host_dir_api_seekdir,
-    [0x25] = host_dir_api_rewinddir,
-    [0x26] = host_dir_api_chmod,
-    [0x27] = host_dir_api_utime,
-    [0x28] = host_dir_api_mkdir,
-    [0x29] = host_dir_api_chdir,
-    [0x2A] = host_dir_api_chdrive,
-    [0x2B] = host_dir_api_getcwd,
-    [0x2C] = host_dir_api_setlabel,
-    [0x2D] = host_dir_api_getlabel,
-    [0x2E] = host_dir_api_getfree,
+    [0x1F] = hostdir_api_stat,
+    [0x20] = hostdir_api_opendir,
+    [0x21] = hostdir_api_readdir,
+    [0x22] = hostdir_api_closedir,
+    [0x23] = hostdir_api_telldir,
+    [0x24] = hostdir_api_seekdir,
+    [0x25] = hostdir_api_rewinddir,
+    [0x26] = hostdir_api_chmod,
+    [0x27] = hostdir_api_utime,
+    [0x28] = hostdir_api_mkdir,
+    [0x29] = hostdir_api_chdir,
+    [0x2A] = hostdir_api_chdrive,
+    [0x2B] = hostdir_api_getcwd,
+    [0x2C] = hostdir_api_setlabel,
+    [0x2D] = hostdir_api_getlabel,
+    [0x2E] = hostdir_api_getfree,
     [0x30] = rln_api_lastkey,
     [0x31] = rln_api_peek,
     [0x32] = rln_api_poke,
@@ -192,31 +193,31 @@ static api_op_fn api_ops[0x40] = {
 
 /* Swap the dir op slots: the firmware's own dir_api_* (over the RAM FatFs) when
  * fat, else the emu's host handlers. Called by the drive lifecycle (host/fat.c). */
-void emu_dir_ops_set(bool fat)
+void hostdir_ops_set(bool fat)
 {
     static const struct
     {
         uint8_t op;
         api_op_fn host, fat;
     } slots[] = {
-        {0x1B, host_dir_api_unlink, dir_api_unlink},
-        {0x1C, host_dir_api_rename, dir_api_rename},
-        {0x1F, host_dir_api_stat, dir_api_stat},
-        {0x20, host_dir_api_opendir, dir_api_opendir},
-        {0x21, host_dir_api_readdir, dir_api_readdir},
-        {0x22, host_dir_api_closedir, dir_api_closedir},
-        {0x23, host_dir_api_telldir, dir_api_telldir},
-        {0x24, host_dir_api_seekdir, dir_api_seekdir},
-        {0x25, host_dir_api_rewinddir, dir_api_rewinddir},
-        {0x26, host_dir_api_chmod, dir_api_chmod},
-        {0x27, host_dir_api_utime, dir_api_utime},
-        {0x28, host_dir_api_mkdir, dir_api_mkdir},
-        {0x29, host_dir_api_chdir, dir_api_chdir},
-        {0x2A, host_dir_api_chdrive, dir_api_chdrive},
-        {0x2B, host_dir_api_getcwd, dir_api_getcwd},
-        {0x2C, host_dir_api_setlabel, dir_api_setlabel},
-        {0x2D, host_dir_api_getlabel, dir_api_getlabel},
-        {0x2E, host_dir_api_getfree, dir_api_getfree},
+        {0x1B, hostdir_api_unlink, dir_api_unlink},
+        {0x1C, hostdir_api_rename, dir_api_rename},
+        {0x1F, hostdir_api_stat, dir_api_stat},
+        {0x20, hostdir_api_opendir, dir_api_opendir},
+        {0x21, hostdir_api_readdir, dir_api_readdir},
+        {0x22, hostdir_api_closedir, dir_api_closedir},
+        {0x23, hostdir_api_telldir, dir_api_telldir},
+        {0x24, hostdir_api_seekdir, dir_api_seekdir},
+        {0x25, hostdir_api_rewinddir, dir_api_rewinddir},
+        {0x26, hostdir_api_chmod, dir_api_chmod},
+        {0x27, hostdir_api_utime, dir_api_utime},
+        {0x28, hostdir_api_mkdir, dir_api_mkdir},
+        {0x29, hostdir_api_chdir, dir_api_chdir},
+        {0x2A, hostdir_api_chdrive, dir_api_chdrive},
+        {0x2B, hostdir_api_getcwd, dir_api_getcwd},
+        {0x2C, hostdir_api_setlabel, dir_api_setlabel},
+        {0x2D, hostdir_api_getlabel, dir_api_getlabel},
+        {0x2E, hostdir_api_getfree, dir_api_getfree},
     };
     for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++)
         api_ops[slots[i].op] = fat ? slots[i].fat : slots[i].host;
@@ -247,12 +248,12 @@ static void ria_syscall(uint8_t op)
     case 0xFF: /* EXIT */
     {
         int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
-        emu_exit_code = (uint8_t)code;
+        sys_set_exit_code((uint8_t)code);
         (void)api_return_ax(0);
         /* If a launcher is armed, pro_exit re-execs it (machine keeps running);
          * otherwise the chain has ended, so halt. */
         if (!pro_exit(code))
-            emu_cpu_halted = true;
+            cpu_set_halted(true);
         return;
     }
     default:
@@ -485,8 +486,8 @@ void ria_reset(void)
     ria.irq_pending = 0;
     regs[0x10] = 0;
     xstack[XSTACK_SIZE] = 0; /* cstring guard */
-    emu_cpu_halted = false;
-    emu_exit_code = 0;
+    cpu_set_halted(false);
+    sys_set_exit_code(0);
     std_reset();
     rln_run(); /* running-program line editor: max 254, history off (firmware run()) */
     kbd_reset();
@@ -494,11 +495,11 @@ void ria_reset(void)
     mou_reset();
     clk_reset();
     clk_run(); /* re-anchor the run clock to this program's start (firmware run()) */
-    snd_reset();
+    aud_reset();
     /* NOTE: the OEM code page and PHI2 are deliberately NOT reset here. ria_reset
      * also runs on exec; unlike hardware — which reverts both to the system
      * settings when a program stops — the emulator lets an exec'd program inherit
      * the parent's code page and PHI2 (an intentional divergence; the program can
      * still read the code page back via the CODE_PAGE attribute). The cold-boot
-     * defaults live in emu_init (oem_reset) and cpu_init (default PHI2). */
+     * defaults live in sys_init (oem_reset) and cpu_init (default PHI2). */
 }

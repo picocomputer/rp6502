@@ -39,7 +39,7 @@ static uint64_t rand_entropy(void)
     return s ? s : 1;
 }
 
-void host_rand_set_seed(uint64_t seed)
+void rand_set_seed(uint64_t seed)
 {
     rand_state = seed ? seed : 1; /* 0 would freeze the LCG warm-up */
     rand_seeded = true;
@@ -48,7 +48,7 @@ void host_rand_set_seed(uint64_t seed)
 uint64_t get_rand_64(void)
 {
     if (!rand_seeded)
-        host_rand_set_seed(rand_entropy());
+        rand_set_seed(rand_entropy());
     rand_state = rand_state * 6364136223846793005ull + 1442695040888963407ull;
     uint64_t x = rand_state ^ (rand_state >> 33);
     x *= 0xff51afd7ed558ccdull;

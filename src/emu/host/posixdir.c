@@ -10,12 +10,12 @@
 #include <errno.h>
 #include <stdio.h>
 
-void *host_opendir_posix(const char *path)
+void *posixdir_open(const char *path)
 {
     return opendir(path);
 }
 
-int host_readdir_posix(void *d, char *name, size_t namesz, bool *is_dir)
+int posixdir_read(void *d, char *name, size_t namesz, bool *is_dir)
 {
     errno = 0;
     struct dirent *de = readdir((DIR *)d);
@@ -26,12 +26,12 @@ int host_readdir_posix(void *d, char *name, size_t namesz, bool *is_dir)
     return 1;
 }
 
-void host_rewinddir_posix(void *d)
+void posixdir_rewind(void *d)
 {
     rewinddir((DIR *)d);
 }
 
-void host_closedir_posix(void *d)
+void posixdir_close(void *d)
 {
     closedir((DIR *)d);
 }

@@ -20,7 +20,7 @@
 
 #include <stdio.h>
 
-int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
     (void)fb;
     (void)scale;
@@ -31,15 +31,15 @@ int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool
     return 1;
 }
 
-void emu_set_bgcolor(uint8_t r, uint8_t g, uint8_t b) { (void)r, (void)g, (void)b; }
+void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b) { (void)r, (void)g, (void)b; }
 
 /* Headless renders at native resolution (no canvas->window scaling), so the
  * filter is genuinely a no-op here. */
-void emu_set_scale_filter(emu_scale_filter_t filter) { (void)filter; }
+void window_set_scale_filter(window_scale_filter_t filter) { (void)filter; }
 
-void emu_set_window_scale(double scale) { (void)scale; }
+void window_set_scale(double scale) { (void)scale; }
 
-double emu_get_window_scale(void) { return 0.0; }
+double window_get_scale(void) { return 0.0; }
 
 #else
 
@@ -135,11 +135,11 @@ static struct
     sgl_pipeline pip;      /* swapchain-format sgl pipeline */
     sgl_pipeline pip_off;  /* RGBA8/none/1 sgl pipeline for the offscreen pass */
     sgl_context off_ctx;   /* sgl context whose formats match the offscreen RT */
-    sg_image rt_img;       /* EMU_FILTER_SHARP: offscreen integer-prescale target */
+    sg_image rt_img;       /* WINDOW_FILTER_SHARP: offscreen integer-prescale target */
     sg_view rt_att;        /* its color-attachment view (render into) */
     sg_view rt_tex;        /* its texture view (sample in the final pass) */
     int rt_w, rt_h;        /* current offscreen size (0 = not created yet) */
-    emu_scale_filter_t filter; /* 0 == NEAREST default */
+    window_scale_filter_t filter; /* 0 == NEAREST default */
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
     int title_variant;     /* last window-title state (running/stopped/mouse) */
     uint8_t mouse_buttons; /* host mouse button bitmap while captured */
@@ -150,21 +150,21 @@ static struct
  * them itself for a 320px canvas, so convert host motion to a fraction of the
  * canvas's on-screen width scaled to a fixed 640 — a full-width sweep is 640
  * counts regardless of the canvas resolution. */
-#define EMU_MOUSE_REF_WIDTH 640.0f
+#define WINDOW_MOUSE_REF_WIDTH 640.0f
 
 /* Max emulated frames the pacer will run in one callback before dropping the
  * backlog (no fast-forward after a stall). Also the deepest frame-skip on a
  * sub-60 display: 6 supports presents down to ~10 Hz, caps catch-up to ~100 ms. */
-#define EMU_MAX_SKIP 6
+#define WINDOW_MAX_SKIP 6
 
-void emu_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
+void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
     app.bg_r = r / 255.0f;
     app.bg_g = g / 255.0f;
     app.bg_b = b / 255.0f;
 }
 
-void emu_set_scale_filter(emu_scale_filter_t filter) { app.filter = filter; }
+void window_set_scale_filter(window_scale_filter_t filter) { app.filter = filter; }
 
 /* (Re)create the streaming texture at the canvas's native size. The canvas can
  * change at runtime (xreg_vga_canvas), so the texture follows it. */
@@ -189,7 +189,7 @@ static void resize_canvas_texture(int w, int h)
 }
 
 /* (Re)create the offscreen prescale target at exactly w x h (an integer
- * multiple of the canvas). Used only by EMU_FILTER_SHARP. Views reference the
+ * multiple of the canvas). Used only by WINDOW_FILTER_SHARP. Views reference the
  * image, so they are destroyed first; the offscreen sgl context is format-only
  * and is not touched here. */
 static void resize_render_target(int w, int h)
@@ -219,11 +219,11 @@ static void resize_render_target(int w, int h)
 
 /* Sharp-bilinear prescale factor: the largest integer by which the canvas
  * still fits the window (floor per axis, take the smaller for square pixels),
- * clamped to [1, EMU_PRESCALE_MAX]. The final LINEAR pass absorbs the leftover
+ * clamped to [1, WINDOW_PRESCALE_MAX]. The final LINEAR pass absorbs the leftover
  * fractional scale. The cap bounds VRAM (a maximized window on a tiny canvas
  * can't allocate an enormous target); 1 keeps a window-smaller-than-canvas from
  * hitting a zero-size target (the final pass then downscales). */
-#define EMU_PRESCALE_MAX 6 /* 640*6 x 480*6 RGBA8 ~= 42 MB ceiling */
+#define WINDOW_PRESCALE_MAX 6 /* 640*6 x 480*6 RGBA8 ~= 42 MB ceiling */
 
 static int sharp_prescale(int cw, int ch, int aw, int ah)
 {
@@ -231,8 +231,8 @@ static int sharp_prescale(int cw, int ch, int aw, int ah)
     int f = fx < fy ? fx : fy;
     if (f < 1)
         f = 1;
-    if (f > EMU_PRESCALE_MAX)
-        f = EMU_PRESCALE_MAX;
+    if (f > WINDOW_PRESCALE_MAX)
+        f = WINDOW_PRESCALE_MAX;
     return f;
 }
 
@@ -269,7 +269,7 @@ static int top_reserved_px(void)
     return 0;
 }
 
-void emu_set_window_scale(double scale)
+void window_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
@@ -278,7 +278,7 @@ void emu_set_window_scale(double scale)
     resize_window(w, h + top_reserved_px());
 }
 
-double emu_get_window_scale(void)
+double window_get_scale(void)
 {
     if (!sapp_isvalid())
         return 0.0;
@@ -334,7 +334,7 @@ static void update_title(void)
 {
     int v;
     const char *t;
-    if (emu_cpu_halted)
+    if (cpu_halted())
     {
         v = 1;
         t = "Picocomputer 6502 (stopped)";
@@ -368,7 +368,7 @@ static void init_cb(void)
         .logger.func = slog_func,
     });
 #ifdef EMU_WITH_AUDIO
-    if (emu_audio_enabled()) /* --mute opens no OS audio device */
+    if (aud_enabled()) /* --mute opens no OS audio device */
         saudio_setup(&(saudio_desc){
             .num_channels = 2,
             .logger.func = slog_func,
@@ -486,19 +486,19 @@ static void frame_cb(void)
         started = true;
         start_ns = now_ns();
     }
-    uint64_t target = (now_ns() - start_ns) * EMU_VGA_HZ / 1000000000ull;
+    uint64_t target = (now_ns() - start_ns) * SYS_VGA_HZ / 1000000000ull;
     uint64_t behind = target > done ? target - done : 0;
-    if (behind > EMU_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
+    if (behind > WINDOW_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
     {
-        done += behind - EMU_MAX_SKIP;
-        behind = EMU_MAX_SKIP;
+        done += behind - WINDOW_MAX_SKIP;
+        behind = WINDOW_MAX_SKIP;
     }
     for (uint64_t i = 0; i < behind; i++)
     {
         if (i + 1 < behind)
-            emu_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
+            sys_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
         else
-            emu_run_frame(); /* the frame we'll present: render it */
+            sys_run_frame(); /* the frame we'll present: render it */
         done++;
     }
 
@@ -514,7 +514,7 @@ static void frame_cb(void)
     if (sapp_mouse_locked() && !mou_is_mapped())
         sapp_lock_mouse(false);
     update_title();
-    if (emu_cpu_halted && app.exit_on_halt)
+    if (cpu_halted() && app.exit_on_halt)
         sapp_request_quit();
 
     /* EMU_BENCH_MS=N: run N ms then report the achieved VGA-frame rate (should
@@ -531,8 +531,8 @@ static void frame_cb(void)
         if (bench_total >= bench_limit)
         {
             fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                    emu_vga_frame_count, bench_total,
-                    (double)emu_vga_frame_count / bench_total);
+                    sys_frame_count(), bench_total,
+                    (double)sys_frame_count() / bench_total);
             sapp_request_quit();
         }
     }
@@ -610,7 +610,7 @@ static void frame_cb(void)
      * which catches both a canvas change (cw/ch) and a window resize (factor).
      * The offscreen pass uses its own RGBA8-format sgl context; the default
      * context carries the (possibly BGRA8) swapchain format. */
-    if (ever_uploaded && app.filter == EMU_FILTER_SHARP)
+    if (ever_uploaded && app.filter == WINDOW_FILTER_SHARP)
     {
         int f = sharp_prescale(cw, ch, vw, vh);
         int want_w = cw * f, want_h = ch * f;
@@ -654,9 +654,9 @@ static void frame_cb(void)
         sgl_viewport(vx, vy, vw, vh, true); /* the canvas region (central node when docked) */
         sgl_load_pipeline(app.pip);
         sgl_enable_texture();
-        if (app.filter == EMU_FILTER_SHARP)
+        if (app.filter == WINDOW_FILTER_SHARP)
             sgl_texture(app.rt_tex, app.smp_linear);
-        else if (app.filter == EMU_FILTER_LINEAR)
+        else if (app.filter == WINDOW_FILTER_LINEAR)
             sgl_texture(app.view, app.smp_linear);
         else
             sgl_texture(app.view, app.smp);
@@ -690,7 +690,7 @@ static void frame_cb(void)
      * done·period would target a deadline already past and busy-loop. With vsync
      * the swap-block above already paces the loop. */
     if (!app.vsync)
-        sleep_until_ns(start_ns + (done + 1) * (1000000000ull / EMU_VGA_HZ));
+        sleep_until_ns(start_ns + (done + 1) * (1000000000ull / SYS_VGA_HZ));
 }
 
 /* All host key/char translation lives in kbd.c; the window just forwards. */
@@ -747,7 +747,7 @@ static void event_cb(const sapp_event *e)
             float onscreen_w = (float)cw * canvas_scale(); /* drawn canvas width, fb px */
             if (onscreen_w > 0.0f)
             {
-                float gain = EMU_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */
+                float gain = WINDOW_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */
                 mou_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
             }
         }
@@ -764,7 +764,7 @@ static void event_cb(const sapp_event *e)
 static void cleanup_cb(void)
 {
 #ifdef EMU_WITH_AUDIO
-    if (emu_audio_enabled())
+    if (aud_enabled())
         saudio_shutdown();
 #endif
 #ifdef EMU_WITH_DEBUGGER
@@ -776,7 +776,7 @@ static void cleanup_cb(void)
     sg_shutdown();
 }
 
-int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
     (void)have_scale;
     /* Clamp to a sane range; the !(>=) form also maps NaN (atof of garbage) to
@@ -794,7 +794,7 @@ int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool
      * 6502 keeps clocking while it completes (read_xram is background DMA into
      * XRAM) — both the MSC0: drive and ROM: asset reads. Headless/--screenshot
      * never reach here and stay synchronous. */
-    host_msc_set_async(true);
+    msc_set_async(true);
     rom_set_async(true);
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9

@@ -38,7 +38,7 @@ static void cap_reset(void)
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        emu_run_frame();
+        sys_run_frame();
 }
 
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in
@@ -94,8 +94,8 @@ UTEST(gamepad, xram_mirror)
 UTEST(gamepad, connected_pad_renders)
 {
     pad_reset();
-    ASSERT_TRUE(emu_rom_load(GAMEPAD_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(GAMEPAD_ROM));
+    sys_init();
     run(20); /* the ROM maps the pad block and draws four empty slots */
 
     cap_reset();
@@ -114,7 +114,7 @@ UTEST(gamepad, connected_pad_renders)
     run(20);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Select") != NULL); /* P0 now prints its button row */
-    ASSERT_FALSE(emu_cpu_halted);
+    ASSERT_FALSE(cpu_halted());
 }
 
 /* An unplugged controller is gated out: input on a pad whose connected bit is
@@ -122,8 +122,8 @@ UTEST(gamepad, connected_pad_renders)
 UTEST(gamepad, disconnected_pad_ignored)
 {
     pad_reset();
-    ASSERT_TRUE(emu_rom_load(GAMEPAD_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(GAMEPAD_ROM));
+    sys_init();
     run(20);
 
     /* No pad_connect: the press rides an unplugged controller. */
@@ -136,7 +136,7 @@ UTEST(gamepad, disconnected_pad_ignored)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL);
     ASSERT_TRUE(strstr(cap, "Select") == NULL); /* the press was ignored */
-    ASSERT_FALSE(emu_cpu_halted);
+    ASSERT_FALSE(cpu_halted());
 }
 
 UTEST_MAIN()

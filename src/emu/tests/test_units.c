@@ -21,14 +21,14 @@
 UTEST(crc32, known_vectors)
 {
     /* CRC-32/ISO-HDLC (zlib) check value for "123456789". */
-    ASSERT_EQ(emu_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
-    ASSERT_EQ(emu_crc32(0, "", 0), (uint32_t)0x00000000u);
+    ASSERT_EQ(rom_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
+    ASSERT_EQ(rom_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
 
 UTEST(rom, loads)
 {
     memset(ram, 0, 0x10000);
-    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
+    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
     /* the loader places code at the $0200 entry and points the reset vector
      * there ($FFFC/$FFFD -> $0200). */
     ASSERT_EQ(ram[0xFFFC], 0x00);
@@ -38,7 +38,7 @@ UTEST(rom, loads)
 
 UTEST(rom, rejects_missing_file)
 {
-    ASSERT_FALSE(emu_rom_load("/nonexistent/definitely-not-a.rp6502"));
+    ASSERT_FALSE(rom_load("/nonexistent/definitely-not-a.rp6502"));
 }
 
 UTEST(xreg, device_channel_dispatch)

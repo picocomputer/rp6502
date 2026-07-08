@@ -34,9 +34,15 @@ void cpu_reset(void);
  * deadline_8 or later on return (time flows even while halted). */
 bool cpu_run_until(uint64_t deadline_8, bool dbg);
 
+/* Program-halt gate: the CPU stops ticking once halted (the EXIT syscall, a
+ * failed exec, or a --dap launch hold set it; ria_reset clears it on restart).
+ * cpu_active() — the firmware contract — is its inverse. */
+bool cpu_halted(void);
+void cpu_set_halted(bool halted);
+
 /* Deterministic virtual microsecond clock — the master clock all timing
  * derives from; the same number of frames always yields the same time. */
-uint64_t emu_now_us(void);
+uint64_t cpu_now_us(void);
 
 /* The live 65C02 instance, for the debugger UI + DAP register access (the
  * debug code casts to m6502_t*, which includes the chip header, so this need

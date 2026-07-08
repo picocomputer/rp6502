@@ -25,8 +25,8 @@ static void write_chunk(FILE *f, const char *type, const uint8_t *data, uint32_t
     fwrite(type, 1, 4, f);
     if (len)
         fwrite(data, 1, len, f);
-    uint32_t crc = emu_crc32(0, type, 4);
-    crc = emu_crc32(crc, data, len);
+    uint32_t crc = rom_crc32(0, type, 4);
+    crc = rom_crc32(crc, data, len);
     put_be32(f, crc);
 }
 
@@ -41,7 +41,7 @@ static uint32_t adler32(const uint8_t *data, size_t len)
     return (b << 16) | a;
 }
 
-bool host_png_write(const char *path, int w, int h, const uint32_t *rgba)
+bool png_write(const char *path, int w, int h, const uint32_t *rgba)
 {
     FILE *f = fopen(path, "wb");
     if (!f)

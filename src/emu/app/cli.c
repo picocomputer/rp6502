@@ -28,7 +28,7 @@ void options_init(options *o)
     o->frames = 120;
     o->scale = 1.5;
     o->vsync = true; /* default on; --no-vsync to disable */
-    o->scale_filter = EMU_FILTER_SHARP; /* default sharp */
+    o->scale_filter = WINDOW_FILTER_SHARP; /* default sharp */
 }
 
 /* "RRGGBB" (optional leading '#') -> three 0-255 channels. */
@@ -152,11 +152,11 @@ int parse_args(int argc, char **argv, options *o)
         case OPT_NO_VSYNC: o->vsync = false; break;
         case OPT_FILTER:
             if (!strcmp(optarg, "nearest"))
-                o->scale_filter = EMU_FILTER_NEAREST;
+                o->scale_filter = WINDOW_FILTER_NEAREST;
             else if (!strcmp(optarg, "linear"))
-                o->scale_filter = EMU_FILTER_LINEAR;
+                o->scale_filter = WINDOW_FILTER_LINEAR;
             else if (!strcmp(optarg, "sharp"))
-                o->scale_filter = EMU_FILTER_SHARP;
+                o->scale_filter = WINDOW_FILTER_SHARP;
             else
             {
                 fprintf(stderr, "rp6502-emu: bad --filter '%s' "

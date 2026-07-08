@@ -33,7 +33,7 @@ static uint32_t to_rgba(uint16_t p)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        emu_run_frame();
+        sys_run_frame();
 }
 
 /* Both tile glyphs are diagonal 1bpp patterns, so the tilemap mixes the two
@@ -41,8 +41,8 @@ static void run_frames(int n)
  * tile renderer drew onto its 320x240 canvas (not the terminal). */
 UTEST(mode2, renders_tilemap_on_320x240_canvas)
 {
-    ASSERT_TRUE(emu_rom_load(MODE2_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(MODE2_ROM));
+    sys_init();
     vga_set_framebuffer(fb);
     run_frames(20);
 
@@ -62,7 +62,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
     }
     ASSERT_GT(n_fg, (size_t)0);   /* tile foreground pixels drew */
     ASSERT_GT(n_bg, (size_t)0);   /* on a background */
-    ASSERT_FALSE(emu_cpu_halted); /* still scrolling */
+    ASSERT_FALSE(cpu_halted()); /* still scrolling */
 }
 
 /* The program runs two scroll loops (8x8 then 16x16 tiles); each polls the
@@ -70,25 +70,25 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
  * completion. */
 UTEST(mode2, keyboard_presses_exit)
 {
-    ASSERT_TRUE(emu_rom_load(MODE2_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(MODE2_ROM));
+    sys_init();
     vga_set_framebuffer(fb);
     run_frames(20);
-    ASSERT_FALSE(emu_cpu_halted); /* scrolling, no key down */
+    ASSERT_FALSE(cpu_halted()); /* scrolling, no key down */
 
     /* First scroll -> exit -> reprogram to 16x16 tiles, scroll again. */
     kbd_hid_set(0x2C, true); /* press space */
     run_frames(5);
     kbd_hid_set(0x2C, false); /* release */
     run_frames(10);
-    ASSERT_FALSE(emu_cpu_halted); /* now in the second scroll loop */
+    ASSERT_FALSE(cpu_halted()); /* now in the second scroll loop */
 
     /* Second scroll -> exit -> program prints and exits. */
     kbd_hid_set(0x2C, true);
     run_frames(5);
     kbd_hid_set(0x2C, false);
     run_frames(10);
-    ASSERT_TRUE(emu_cpu_halted);
+    ASSERT_TRUE(cpu_halted());
 }
 
 UTEST_MAIN()

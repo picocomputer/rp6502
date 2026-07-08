@@ -8,11 +8,10 @@
  * writes note configs and gate bits to XRAM, and paces itself on vsync. This
  * exercises the whole chain: the xreg audio dispatch, the XRAM write-notify
  * queue that carries gate edges to the sample handler, the vendored psg.c DSP,
- * and the snd.c per-frame pump feeding the native-rate ring.
+ * and the aud.c per-frame pump feeding the native-rate ring.
  */
 
 #include "emu/aud/aud.h"
-#include "emu/aud/snd.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
@@ -27,9 +26,9 @@ static void pump(int n, float *peak, double *energy, long *frames)
     static float buf[4096 * 2];
     for (int i = 0; i < n; i++)
     {
-        emu_run_frame();
+        sys_run_frame();
         int got;
-        while ((got = emu_audio_read(buf, 4096)) > 0)
+        while ((got = aud_read(buf, 4096)) > 0)
         {
             for (int s = 0; s < got * 2; s++)
             {
@@ -48,11 +47,11 @@ static void pump(int n, float *peak, double *energy, long *frames)
  * samples); once it plays, samples appear at the PSG's fixed 24 kHz. */
 UTEST(furelise, plays_psg_audio)
 {
-    ASSERT_TRUE(emu_rom_load(FURELISE_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(FURELISE_ROM));
+    sys_init();
     /* The standing BEL device runs at boot (firmware: aud_init installs it),
      * silent until ezpsg_init swaps in the PSG — also 24 kHz. */
-    ASSERT_EQ(emu_audio_rate(), 24000);
+    ASSERT_EQ(aud_rate(), 24000);
 
     float peak = 0.0f;
     double energy = 0.0;
@@ -60,11 +59,11 @@ UTEST(furelise, plays_psg_audio)
 
     /* A few frames in, the ROM has run ezpsg_init -> the PSG is live. */
     pump(8, &peak, &energy, &frames);
-    ASSERT_EQ(emu_audio_rate(), 24000);
+    ASSERT_EQ(aud_rate(), 24000);
 
     /* Play ~3 s of the song; the first notes ramp up well within that. */
     pump(180, &peak, &energy, &frames);
-    ASSERT_FALSE(emu_cpu_halted); /* still playing */
+    ASSERT_FALSE(cpu_halted()); /* still playing */
 
     ASSERT_GT(frames, (long)(24000 * 2)); /* ~24 kHz of stereo frames generated */
     ASSERT_GT(peak, 0.01f);               /* the song is audibly playing */
@@ -75,35 +74,35 @@ UTEST(furelise, plays_psg_audio)
  * clears the ring. */
 UTEST(furelise, reset_silences)
 {
-    ASSERT_TRUE(emu_rom_load(FURELISE_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(FURELISE_ROM));
+    sys_init();
 
     float peak = 0.0f;
     double energy = 0.0;
     long frames = 0;
     pump(60, &peak, &energy, &frames);
-    ASSERT_EQ(emu_audio_rate(), 24000);
+    ASSERT_EQ(aud_rate(), 24000);
     ASSERT_GT(peak, 0.0f);
 
-    ria_reset(); /* snd_reset -> aud_stop falls back to the standing BEL */
-    ASSERT_EQ(emu_audio_rate(), 24000); /* BEL device present, but silent */
+    ria_reset(); /* aud_reset -> aud_stop falls back to the standing BEL */
+    ASSERT_EQ(aud_rate(), 24000); /* BEL device present, but silent */
 
     static float buf[64];
-    ASSERT_EQ(emu_audio_read(buf, 64), 0); /* ring drained */
+    ASSERT_EQ(aud_read(buf, 64), 0); /* ring drained */
 }
 
 /* furelise prints its title "Für Elise" — the 'ü' is a CP437 high-half glyph
  * (byte 0x81). It must actually render, not blank. Regression guard for the
- * font high-half loading: across repeated emu_init (this test process), font_init
+ * font high-half loading: across repeated sys_init (this test process), font_init
  * must re-load the high half, not leave 0x80-0xFF blank ("F r Elise"). */
 UTEST(furelise, umlaut_renders)
 {
     static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-    ASSERT_TRUE(emu_rom_load(FURELISE_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(FURELISE_ROM));
+    sys_init();
     vga_set_framebuffer(fb);
     for (int i = 0; i < 8; i++)
-        emu_run_frame(); /* prints the title; the lazy-clear render needs frames */
+        sys_run_frame(); /* prints the title; the lazy-clear render needs frames */
 
     /* Count lit pixels in the 8x16 cell at (col,row0) of the 80x30 console.
      * "Für Elise": F=col0, ü=col1, r=col2. */

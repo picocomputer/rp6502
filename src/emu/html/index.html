@@ -378,10 +378,10 @@
       // Pointer lock, motion scaling and buttons are handled in C — sokol
       // implements pointer lock on the web too, so the same app_sokol mouse path
       // runs. This only reflects the capture state in the header (a browser tab
-      // has no OS title bar). emu_mou_mapped() reports when a program wants the
+      // has no OS title bar). mou_mapped() reports when a program wants the
       // mouse; the browser also shows its own "press Esc" pointer-lock notice.
       function initMouseHint() {
-        var mapped = Module._emu_mou_mapped;
+        var mapped = Module._mou_mapped;
         var hint = document.getElementById('mouse-hint');
         if (!mapped || !hint) return;
         function update() {
@@ -403,15 +403,15 @@
       // ----- Gamepad bridge (browser Gamepad API -> emulator) -----
       // Privacy-gated: nothing here reads navigator.getGamepads() until the
       // running program maps the gamepad report block into XRAM (it calls
-      // xreg_ria_gamepad, which flips emu_pad_mapped()). A 250 ms watcher
+      // xreg_ria_gamepad, which flips pad_mapped()). A 250 ms watcher
       // checks that flag; only once it's set do we start per-frame polling of
       // the four "standard mapping" pads and forward each to the emulator. If
       // the program later releases the block we stop and resume watching, so
       // the browser only ever touches the gamepad while a ROM asks for it.
       function initGamepadBridge() {
-        var mapped = Module._emu_pad_mapped;
-        var report = Module._emu_pad_report;
-        var disconnect = Module._emu_pad_disconnect;
+        var mapped = Module._pad_mapped;
+        var report = Module._pad_report;
+        var disconnect = Module._pad_disconnect;
         if (!mapped || !report || !disconnect) return; // exports absent
 
         var polling = false, raf = 0, watch = 0;

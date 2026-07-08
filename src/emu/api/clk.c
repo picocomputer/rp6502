@@ -42,7 +42,7 @@ void clk_reset(void)
 // Re-anchor the 6502 run clock to now (called at program start, incl. exec).
 void clk_run(void)
 {
-    g_run_start_us = emu_now_us();
+    g_run_start_us = cpu_now_us();
 }
 
 /* 6502 run time since the current program started, in ticks of us_per_tick
@@ -50,7 +50,7 @@ void clk_run(void)
  * s/ds/cs/ms attributes). */
 uint32_t clk_get_run(uint32_t us_per_tick)
 {
-    return (uint32_t)((emu_now_us() - g_run_start_us) / us_per_tick);
+    return (uint32_t)((cpu_now_us() - g_run_start_us) / us_per_tick);
 }
 
 /* strftime in the host locale, then UTF-8 -> OEM into dst (max bytes). */

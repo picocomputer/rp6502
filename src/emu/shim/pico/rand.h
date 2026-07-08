@@ -5,7 +5,7 @@
  *
  * Host shim for the pico-sdk pico/rand.h. The vendored firmware atr.c pulls
  * entropy from get_rand_64; the emulator backs it with host entropy (rand.c),
- * or a fixed seed via host_rand_set_seed. Only the one entry the firmware
+ * or a fixed seed via rand_set_seed. Only the one entry the firmware
  * uses is declared.
  */
 

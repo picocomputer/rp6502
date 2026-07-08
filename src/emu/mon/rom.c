@@ -33,7 +33,7 @@
  * memory: a "ROM:name" open scans the directory in the file for the entry, like
  * the firmware's rom_find_asset, then reads it on demand. A new program replaces
  * these; the MSC0: drive beside them is untouched. */
-static char g_rom_src[HOST_MSC_MAX_PATH];
+static char g_rom_src[MSC_MAX_PATH];
 static size_t g_rom_assets_start;
 
 /* the loader's text-line reader + hex-field parser, defined below */
@@ -162,7 +162,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
     int fd = open(hostpath, O_RDONLY);
     if (fd < 0)
     {
-        *err = host_msc_errno_to_api_errno(errno);
+        *err = msc_errno_to_api_errno(errno);
         return -1;
     }
     int des = 0;
@@ -230,7 +230,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
             w->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
             if (aio_read(&w->cb) != 0)
             {
-                *err = host_msc_errno_to_api_errno(errno);
+                *err = msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
             w->aio_active = true;
@@ -243,7 +243,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         ssize_t r = aio_return(&w->cb);
         if (r < 0)
         {
-            *err = host_msc_errno_to_api_errno(e);
+            *err = msc_errno_to_api_errno(e);
             return STD_ERROR;
         }
         w->pos += (size_t)r;
@@ -254,7 +254,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
     ssize_t r = pread(w->fd, buf, want, (off_t)(w->base + w->pos));
     if (r < 0)
     {
-        *err = host_msc_errno_to_api_errno(errno);
+        *err = msc_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     w->pos += (size_t)r;
@@ -317,7 +317,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
  * wrapped as ria_buf_crc32 over the fixed mbuf — neither a general (buf,len)
  * function nor part of a module the emulator compiles, so the emulator keeps its
  * own. Same polynomial, so the values match the .rp6502 headers and golden CRC. */
-uint32_t emu_crc32(uint32_t crc, const void *buf, size_t len)
+uint32_t rom_crc32(uint32_t crc, const void *buf, size_t len)
 {
     static uint32_t table[256];
     static bool init = false;
@@ -412,9 +412,9 @@ static long fgets_line(FILE *f, char *line, size_t cap)
     return (long)i;
 }
 
-bool emu_rom_load(const char *path)
+bool rom_load(const char *path)
 {
-    char host[HOST_MSC_MAX_PATH];
+    char host[MSC_MAX_PATH];
     if (!fs_resolve_rom(path, host, sizeof(host)))
     {
         fprintf(stderr, "rp6502-emu: cannot resolve ROM '%s'\n", path);
@@ -504,7 +504,7 @@ bool emu_rom_load(const char *path)
             fclose(f);
             return false;
         }
-        if (emu_crc32(0, dst, len) != crc)
+        if (rom_crc32(0, dst, len) != crc)
         {
             fprintf(stderr, "rp6502-emu: CRC mismatch in record at $%X\n", addr);
             fclose(f);

@@ -183,7 +183,7 @@ void vga_boot_console(void)
     build_lut();
     /* Rebuilds the glyph tables and loads the default code page (437), matching
      * oem_reset's default so the font and the CODE_PAGE attribute agree at boot.
-     * font_init is idempotent, so this is safe on every emu_init. */
+     * font_init is idempotent, so this is safe on every sys_init. */
     font_init();
     term_init();
     vga_set_canvas(0); /* console = 640x480, installs the term program */
@@ -277,7 +277,7 @@ static void render_scanline(int y, uint32_t *fb)
 }
 
 /* Render scanline y of the current frame into the registered framebuffer,
- * interleaved with the CPU by emu_run_frame so mid-frame state changes land on
+ * interleaved with the CPU by sys_run_frame so mid-frame state changes land on
  * later lines (raster effects), matching the real per-scanline VGA scanout. */
 void vga_render_scanline(int y)
 {

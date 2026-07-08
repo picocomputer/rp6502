@@ -1419,7 +1419,7 @@ extern "C" void dap_start(void)
                     ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
                     g_session->send(ev);
                 }
-                emu_exec(program.c_str());
+                sys_exec(program.c_str());
             }
         });
         return dap::LaunchResponse();
@@ -2086,7 +2086,7 @@ extern "C" void dap_pump(void)
     /* Program exit (once): either keep the session alive in a stopped state so
      * the final screen + machine state stay inspectable until the client
      * disconnects (stopOnExit, the default), or terminate the session. */
-    if (!g_terminated && g_launch_done && emu_cpu_halted && !dbg_is_stopped())
+    if (!g_terminated && g_launch_done && cpu_halted() && !dbg_is_stopped())
     {
         g_terminated = true;
         if (!g_session)
@@ -2096,7 +2096,7 @@ extern "C" void dap_pump(void)
             dbg_note_stop(m6502_pc(cpu())); /* present halt as a stop */
             dap::StoppedEvent ev;
             ev.reason = "exited";
-            ev.description = "Program exited (code " + std::to_string(emu_exit_code) +
+            ev.description = "Program exited (code " + std::to_string(sys_exit_code()) +
                              ") — press Stop to close";
             ev.threadId = 1;
             ev.allThreadsStopped = true;

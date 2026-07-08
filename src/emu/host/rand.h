@@ -17,7 +17,7 @@ extern "C"
 
 /* Force a fixed lrand seed for reproducible runs. With no seed set,
  * get_rand_64 defaults to host entropy. */
-void host_rand_set_seed(uint64_t seed);
+void rand_set_seed(uint64_t seed);
 
 #ifdef __cplusplus
 }

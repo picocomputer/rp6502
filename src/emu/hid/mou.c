@@ -88,7 +88,7 @@ void mou_reset(void)
 /* The web shell shows the "click to capture" hint only once a program maps the
  * mouse. The capture itself (pointer lock) and motion scaling are handled by the
  * shared app_sokol mouse path — sokol implements pointer lock on the web too. */
-EMSCRIPTEN_KEEPALIVE int emu_mou_mapped(void)
+EMSCRIPTEN_KEEPALIVE int mou_mapped(void)
 {
     return mou_is_mapped() ? 1 : 0;
 }

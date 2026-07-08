@@ -40,9 +40,9 @@ static bool boot(const char *input)
 {
     cap_len = 0;
     cap[0] = 0;
-    if (!emu_rom_load(ADVENTURE_ROM))
+    if (!rom_load(ADVENTURE_ROM))
         return false;
-    emu_init();
+    sys_init();
     com_set_tx_tap(tap);
     if (input)
         feed(input);
@@ -52,7 +52,7 @@ static bool boot(const char *input)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        emu_run_frame();
+        sys_run_frame();
 }
 
 /* The intro banner prints before any input is read — proves the program
@@ -64,7 +64,7 @@ UTEST(adventure, intro_banner)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "Colossal Cave Adventure") != NULL);
     ASSERT_TRUE(strstr(cap, "Would you like instructions?") != NULL);
-    ASSERT_FALSE(emu_cpu_halted); /* blocked on the first stdin read */
+    ASSERT_FALSE(cpu_halted()); /* blocked on the first stdin read */
 }
 
 /* Answering the first prompt requires a full stdin line read through rln; the
@@ -76,7 +76,7 @@ UTEST(adventure, opening_room)
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "standing at the end of a road") != NULL);
     ASSERT_TRUE(strstr(cap, "small brick") != NULL);
-    ASSERT_FALSE(emu_cpu_halted);
+    ASSERT_FALSE(cpu_halted());
 }
 
 /* A second command proves the parser (which scans the asset vocabulary files)
@@ -87,7 +87,7 @@ UTEST(adventure, parses_a_command)
     run_frames(200);
     com_set_tx_tap(NULL);
     ASSERT_TRUE(strstr(cap, "I see no lamp here") != NULL);
-    ASSERT_FALSE(emu_cpu_halted);
+    ASSERT_FALSE(cpu_halted());
 }
 
 UTEST_MAIN()

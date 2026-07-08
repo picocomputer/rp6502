@@ -26,19 +26,19 @@ static uint32_t frame_crc(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    return emu_crc32(0, fb, (size_t)cw * ch * 4);
+    return rom_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        emu_run_frame();
+        sys_run_frame();
 }
 
 UTEST(paint, via_irq_moves_pointer)
 {
-    ASSERT_TRUE(emu_rom_load(PAINT_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(PAINT_ROM));
+    sys_init();
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 
@@ -56,7 +56,7 @@ UTEST(paint, via_irq_moves_pointer)
     run(20);
     ASSERT_NE(frame_crc(), still);
 
-    ASSERT_FALSE(emu_cpu_halted);
+    ASSERT_FALSE(cpu_halted());
 }
 
 UTEST_MAIN()

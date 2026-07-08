@@ -16,7 +16,7 @@ extern "C"
 {
 #endif
 
-bool host_png_write(const char *path, int w, int h, const uint32_t *rgba);
+bool png_write(const char *path, int w, int h, const uint32_t *rgba);
 
 #ifdef __cplusplus
 }

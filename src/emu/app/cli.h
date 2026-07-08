@@ -10,7 +10,7 @@
 
 #include <stddef.h>
 
-#include "emu/app/window.h" /* emu_scale_filter_t */
+#include "emu/app/window.h" /* window_scale_filter_t */
 
 #ifdef __cplusplus
 extern "C"
@@ -31,7 +31,7 @@ typedef struct
     double scale;
     bool have_scale;
     bool vsync; /* --no-vsync turns it off (default on) */
-    emu_scale_filter_t scale_filter;
+    window_scale_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */
     bool mute;

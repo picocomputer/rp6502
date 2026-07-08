@@ -58,16 +58,16 @@ UTEST(dir, lists_directory)
     ASSERT_EQ(mkdir(sub, 0777), 0);
 
     ASSERT_TRUE(chdir(d) == 0); /* the program lists "" = the cwd */
-    ASSERT_TRUE(emu_rom_load(DIR_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(DIR_ROM));
+    sys_init();
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);
-    for (int i = 0; i < 600 && !emu_cpu_halted; i++)
-        emu_run_frame();
+    for (int i = 0; i < 600 && !cpu_halted(); i++)
+        sys_run_frame();
     com_set_tx_tap(NULL);
 
-    ASSERT_TRUE(emu_cpu_halted); /* the program ran to completion */
+    ASSERT_TRUE(cpu_halted()); /* the program ran to completion */
 
     /* The cwd (PATH line) and all three entries are listed. The cwd shows as the
      * native MSC0:<host path>. */

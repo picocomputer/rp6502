@@ -10,7 +10,6 @@
 #include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
 #include "emu/sys/via.h"
 
 static m6502_t cpu;
@@ -29,7 +28,7 @@ void *cpu_chip(void) { return &cpu; }
  * fractional divider lands on an integer per-cycle step. Wraps in centuries. */
 static uint64_t master_8;
 
-uint64_t emu_now_us(void)
+uint64_t cpu_now_us(void)
 {
     /* 256 MHz -> 256 ticks/us -> 2048 eighth-ticks/us. */
     return master_8 / 2048;
@@ -63,7 +62,14 @@ uint16_t cpu_get_phi2_khz_run(void)
     return phi2_khz_run;
 }
 
-bool cpu_active(void) { return !emu_cpu_halted; }
+/* Program-halt gate: set true by the EXIT syscall, a failed exec, or a --dap
+ * launch hold; cleared by ria_reset on (re)start. The hot tick loop reads it
+ * directly, so it lives here rather than behind a cross-TU accessor. */
+static bool halted;
+
+bool cpu_active(void) { return !halted; }
+bool cpu_halted(void) { return halted; }
+void cpu_set_halted(bool on) { halted = on; }
 
 static inline uint64_t bus_cycle(uint64_t p)
 {
@@ -104,7 +110,7 @@ void cpu_reset(void)
 
 bool cpu_run_until(uint64_t deadline_8, bool dbg)
 {
-    while (master_8 < deadline_8 && !emu_cpu_halted)
+    while (master_8 < deadline_8 && !halted)
     {
         pins = m6502_tick(&cpu, pins);
         pins = via_tick(pins);  /* counts the VIA timers + drives M6502_IRQ */

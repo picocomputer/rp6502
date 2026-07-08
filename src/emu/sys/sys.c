@@ -9,7 +9,7 @@
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
-#include "emu/aud/snd.h"
+#include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/com.h"
@@ -27,23 +27,26 @@
 
 /* Pending exec (op 0x09): the new program loads at the frame boundary rather
  * than mid-tick, so the master clock and the partially-run frame stay
- * consistent. emu_exec() captures the ROM path (resolved by emu_rom_load) and
+ * consistent. sys_exec() captures the ROM path (resolved by rom_load) and
  * stops the current program. */
 static bool exec_pending;
-static char exec_path[HOST_MSC_MAX_PATH];
+static char exec_path[MSC_MAX_PATH];
 
-void emu_exec(const char *rom_path)
+void sys_exec(const char *rom_path)
 {
     snprintf(exec_path, sizeof(exec_path), "%s", rom_path);
     exec_pending = true;
-    emu_cpu_halted = true; /* stop the current program; the tick loop exits */
+    cpu_set_halted(true); /* stop the current program; the tick loop exits */
 }
 
-bool emu_cpu_halted = false;
-int emu_exit_code = 0;
+static int s_exit_code;
 
 /* Total VGA frames run since start (diagnostic: should advance at 60 Hz). */
-unsigned long emu_vga_frame_count;
+static unsigned long s_frame_count;
+
+int sys_exit_code(void) { return s_exit_code; }
+void sys_set_exit_code(int code) { s_exit_code = code; }
+unsigned long sys_frame_count(void) { return s_frame_count; }
 
 /* VGA scanline deadlines and counters, all on the master clock. */
 static uint64_t scanline_n; /* total scanlines emitted since boot */
@@ -61,12 +64,12 @@ static inline uint64_t scanline_deadline_8(uint64_t n)
     return n * 4096000ull / 63;
 }
 
-void emu_init(void)
+void sys_init(void)
 {
     exec_pending = false;
-    cpu_init(); /* master clock to boot, default PHI2 (--phi2 reapplies after emu_init) */
+    cpu_init(); /* master clock to boot, default PHI2 (--phi2 reapplies after sys_init) */
     scanline_n = 0;
-    emu_vga_frame_count = 0;
+    s_frame_count = 0;
     aud_init(); /* fill the shared sine table (no PWM off-device) */
     ria_reset();
     com_reset();        /* cold boot: flush queued input (per-exec keeps type-ahead) */
@@ -106,7 +109,7 @@ static void run_frame(bool render)
 
     const int vsync_line = vga_vsync_scanline();
     const int canvas_h = vga_canvas_height(); /* visible region; snapshot for the frame */
-    const uint64_t frame_end_n = scanline_n + EMU_VGA_SCANLINES;
+    const uint64_t frame_end_n = scanline_n + SYS_VGA_SCANLINES;
     int line = 0; /* 0-based scanline within this frame */
     bool vsynced = false;
 
@@ -120,7 +123,7 @@ static void run_frame(bool render)
             vga_render_scanline(line);
 
         if (cpu_run_until(scanline_deadline_8(scanline_n + 1), dbg))
-            return; /* held at a breakpoint mid-frame; resume re-enters emu_run_frame */
+            return; /* held at a breakpoint mid-frame; resume re-enters sys_run_frame */
         std_task(); /* drain read_xram's PIX gate before the op re-polls */
         api_task(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
         term_task(); /* VGA chip super-loop analog: per scanline, so the
@@ -138,12 +141,12 @@ static void run_frame(bool render)
         line++;
     }
 
-    emu_vga_frame_count++;
+    s_frame_count++;
     /* Pump the line editor (drains keyboard + terminal replies, echoes, fires
      * the read callback) then advance any blocking syscall waiting on it. */
     rln_task();
     ria_task();
-    snd_task(); /* generate this frame's audio from the active RIA device */
+    aud_task(); /* generate this frame's audio from the active RIA device */
 
     /* An exec committed this frame: load the new program and restart the CPU,
      * keeping the master clock and the argv pro_api_exec stored. The terminal
@@ -152,11 +155,11 @@ static void run_frame(bool render)
     if (exec_pending)
     {
         exec_pending = false;
-        if (!emu_rom_load(exec_path))
+        if (!rom_load(exec_path))
         {
             fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);
-            emu_cpu_halted = true;
-            emu_exit_code = 1;
+            cpu_set_halted(true);
+            s_exit_code = 1;
         }
         else
         {
@@ -169,9 +172,9 @@ static void run_frame(bool render)
 }
 
 /* Run one frame and render it (the displayed frame). */
-void emu_run_frame(void) { run_frame(true); }
+void sys_run_frame(void) { run_frame(true); }
 
 /* Run one frame WITHOUT rendering — a catch-up frame the pacer will not present.
  * CPU/chip/timing/vsync all advance; only the per-scanline pixel work is skipped
  * (most of the per-frame cost), so catching up after a slow/stalled host is cheap. */
-void emu_run_frame_norender(void) { run_frame(false); }
+void sys_run_frame_norender(void) { run_frame(false); }

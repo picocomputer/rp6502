@@ -203,8 +203,8 @@ static void draw_control(void)
     if (ImGui::Begin("Debug Control", &g_control_open))
     {
         const bool stopped = dbg_is_stopped();
-        if (emu_cpu_halted)
-            ImGui::Text("exited (code %d)", emu_exit_code); /* no CPU to step/pause */
+        if (cpu_halted())
+            ImGui::Text("exited (code %d)", sys_exit_code()); /* no CPU to step/pause */
         else if (stopped)
             ImGui::Text("STOPPED at $%04X", dbg_stop_pc());
         else
@@ -221,7 +221,7 @@ static void draw_control(void)
             if (ImGui::Button("Step Over"))
                 dbg_step(DBG_STEP_LINE_OVER);
         }
-        else if (!emu_cpu_halted && ImGui::Button("Pause"))
+        else if (!cpu_halted() && ImGui::Button("Pause"))
             dbg_request_pause();
 
         ImGui::Separator();
@@ -446,7 +446,7 @@ static void dbgui_register_settings_handlers(void)
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
- * host can't run the machine in real time. Measured from emu_vga_frame_count over
+ * host can't run the machine in real time. Measured from sys_frame_count() over
  * wall-clock windows — NOT io.Framerate, which is the host's uncapped present rate
  * (often hundreds of Hz) and says nothing about whether the emulation keeps pace.
  * Counts hold flat while stopped at a breakpoint, so it reads ~0 when paused. */
@@ -459,12 +459,12 @@ static float dbgui_vga_fps(void)
     if (!primed)
     {
         primed = true;
-        win_base = emu_vga_frame_count;
+        win_base = sys_frame_count();
     }
     win_time += ImGui::GetIO().DeltaTime;
     if (win_time >= 0.5) /* refresh the reading twice a second */
     {
-        unsigned long now = emu_vga_frame_count;
+        unsigned long now = sys_frame_count();
         fps = (float)((double)(now - win_base) / win_time);
         win_base = now;
         win_time = 0.0;
@@ -508,13 +508,13 @@ static void dbgui_draw_menu(void)
              * after a manual resize, so docked panels deliberately don't factor
              * in. The check marks the preset the window currently matches. */
             static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
-            double cur = emu_get_window_scale();
+            double cur = window_get_scale();
             for (double s : scales)
             {
                 char label[5];
                 std::snprintf(label, sizeof label, "%.1fx", s);
                 if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
-                    emu_set_window_scale(s);
+                    window_set_scale(s);
             }
             ImGui::Separator();
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
@@ -593,8 +593,8 @@ void dbgui_init(void)
     dd.title = "Disassembler";
     dd.m6502 = cpu;
     dd.freq_hz = freq;
-    dd.frame_ticks = freq / EMU_VGA_HZ;
-    dd.scanline_ticks = dd.frame_ticks / EMU_VGA_SCANLINES;
+    dd.frame_ticks = freq / SYS_VGA_HZ;
+    dd.scanline_ticks = dd.frame_ticks / SYS_VGA_SCANLINES;
     if (dd.scanline_ticks == 0)
         dd.scanline_ticks = 1;
     dd.read_cb = mem_read;
@@ -684,10 +684,10 @@ void dbgui_init(void)
     dsd.open = false;
     ui_dasm_init(&g_dasm, &dsd);
 
-    /* Waveform of the produced audio (snd.c's mono viz tap). */
+    /* Waveform of the produced audio (aud.c's mono viz tap). */
     ui_audio_desc_t ad{};
     ad.title = "Audio";
-    ad.sample_buffer = emu_audio_viz_buffer(&ad.num_samples);
+    ad.sample_buffer = aud_viz_buffer(&ad.num_samples);
     ad.x = 620;
     ad.y = 480;
     ad.open = false;
@@ -916,7 +916,7 @@ void dbgui_draw(void)
     ui_memedit_draw(&g_memedit);
     ui_memmap_draw(&g_memmap);
     ui_dasm_draw(&g_dasm);
-    ui_audio_draw(&g_audio, emu_audio_viz_pos());
+    ui_audio_draw(&g_audio, aud_viz_pos());
 }
 
 void dbgui_render(void) { simgui_render(); }

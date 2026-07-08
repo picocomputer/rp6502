@@ -22,29 +22,29 @@ extern "C"
 
 /* Point the OP dispatcher's dir slots at the FatFs firmware handlers (true, over the
  * RAM disk) or the host handlers (false). Called by the drive lifecycle. */
-void emu_dir_ops_set(bool fat);
+void hostdir_ops_set(bool fat);
 
 /* The emu's HOST dir syscall handlers (emu/host/dir.c), installed in the OP array. */
-bool host_dir_api_stat(void);
-bool host_dir_api_opendir(void);
-bool host_dir_api_readdir(void);
-bool host_dir_api_closedir(void);
-bool host_dir_api_telldir(void);
-bool host_dir_api_seekdir(void);
-bool host_dir_api_rewinddir(void);
-bool host_dir_api_unlink(void);
-bool host_dir_api_rename(void);
-bool host_dir_api_chmod(void);
-bool host_dir_api_utime(void);
-bool host_dir_api_mkdir(void);
-bool host_dir_api_chdir(void);
-bool host_dir_api_chdrive(void);
-bool host_dir_api_getcwd(void);
-bool host_dir_api_setlabel(void);
-bool host_dir_api_getlabel(void);
-bool host_dir_api_getfree(void);
+bool hostdir_api_stat(void);
+bool hostdir_api_opendir(void);
+bool hostdir_api_readdir(void);
+bool hostdir_api_closedir(void);
+bool hostdir_api_telldir(void);
+bool hostdir_api_seekdir(void);
+bool hostdir_api_rewinddir(void);
+bool hostdir_api_unlink(void);
+bool hostdir_api_rename(void);
+bool hostdir_api_chmod(void);
+bool hostdir_api_utime(void);
+bool hostdir_api_mkdir(void);
+bool hostdir_api_chdir(void);
+bool hostdir_api_chdrive(void);
+bool hostdir_api_getcwd(void);
+bool hostdir_api_setlabel(void);
+bool hostdir_api_getlabel(void);
+bool hostdir_api_getfree(void);
 
-void host_dir_stop(void); /* close open host directories (machine reset) */
+void hostdir_stop(void); /* close open host directories (machine reset) */
 
 #ifdef __cplusplus
 }
