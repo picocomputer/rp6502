@@ -47,7 +47,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
     run_frames(20);
 
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     ASSERT_EQ(cw, 320);
     ASSERT_EQ(ch, 240);
 

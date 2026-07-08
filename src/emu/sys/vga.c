@@ -201,7 +201,7 @@ int vga_vsync_scanline(void)
 
 /* Current canvas pixel size (≤ VGA_MAX_WIDTH x VGA_MAX_HEIGHT). The presentation
  * layer reads this to size its texture and scale the canvas to the display. */
-void emu_canvas_size(int *w, int *h)
+void vga_canvas_size(int *w, int *h)
 {
     *w = g_canvas_w;
     *h = g_canvas_h;

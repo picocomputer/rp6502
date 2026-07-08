@@ -17,7 +17,7 @@ extern "C"
 #endif
 
 /* Returns false on an unhandled device/channel (caller maps to EINVAL). */
-bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word);
+bool xreg_write(uint8_t device, uint8_t channel, uint8_t address, uint16_t word);
 
 #ifdef __cplusplus
 }

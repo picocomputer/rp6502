@@ -43,11 +43,11 @@ UTEST(rom, rejects_missing_file)
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(emu_xreg(0, 0, 0, 0));  /* RIA-local devices: accepted (stub) */
-    ASSERT_TRUE(emu_xreg(1, 0, 0, 3));  /* VGA canvas 640x480 */
-    ASSERT_FALSE(emu_xreg(1, 15, 0, 0)); /* VGA control channel is RIA-private (EACCES) */
-    ASSERT_TRUE(emu_xreg(2, 0, 0, 0));  /* PIX device 2-7: over the bus, no ACK, AX=0 (firmware parity) */
-    ASSERT_TRUE(emu_xreg(1, 5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(xreg_write(0, 0, 0, 0));  /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(xreg_write(1, 0, 0, 3));  /* VGA canvas 640x480 */
+    ASSERT_FALSE(xreg_write(1, 15, 0, 0)); /* VGA control channel is RIA-private (EACCES) */
+    ASSERT_TRUE(xreg_write(2, 0, 0, 0));  /* PIX device 2-7: over the bus, no ACK, AX=0 (firmware parity) */
+    ASSERT_TRUE(xreg_write(1, 5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
@@ -58,7 +58,7 @@ UTEST(pad, host_report_encoding)
     pad_reset();
     ASSERT_FALSE(pad_is_mapped()); /* nothing touches input until a ROM maps it */
 
-    ASSERT_TRUE(emu_xreg(0, 0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
+    ASSERT_TRUE(xreg_write(0, 0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
     ASSERT_TRUE(pad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
@@ -85,7 +85,7 @@ UTEST(pad, host_report_encoding)
     /* Unplug blanks the record; unmapping clears the gate. */
     pad_connect(0, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
-    ASSERT_TRUE(emu_xreg(0, 0, 2, 0xFFFF));
+    ASSERT_TRUE(xreg_write(0, 0, 2, 0xFFFF));
     ASSERT_FALSE(pad_is_mapped());
 }
 

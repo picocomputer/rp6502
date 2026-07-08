@@ -41,7 +41,7 @@ static uint32_t adler32(const uint8_t *data, size_t len)
     return (b << 16) | a;
 }
 
-bool emu_write_png(const char *path, int w, int h, const uint32_t *rgba)
+bool host_png_write(const char *path, int w, int h, const uint32_t *rgba)
 {
     FILE *f = fopen(path, "wb");
     if (!f)

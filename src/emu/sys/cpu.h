@@ -46,7 +46,7 @@ void *cpu_chip(void); /* m6502_t* */
 /* Optional per-CPU-cycle observer for the debugger UI. Display-only and MUST
  * NOT gate the CPU — dbg.c is the one authoritative engine. NULL when no
  * observer is registered. */
-extern void (*emu_dbg_cycle_cb)(uint64_t pins);
+extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
 #ifdef __cplusplus
 }

@@ -65,7 +65,7 @@ void cli_usage(const char *argv0);
 int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap);
 
 /* The path component after the last '/'. */
-const char *base_name(const char *p);
+const char *cli_base_name(const char *p);
 
 #ifdef __cplusplus
 }

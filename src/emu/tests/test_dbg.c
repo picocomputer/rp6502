@@ -146,7 +146,7 @@ static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static uint32_t frame_crc(void)
 {
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     return emu_crc32(0, fb, (size_t)cw * ch * 4);
 }
 

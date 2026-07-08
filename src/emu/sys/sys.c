@@ -39,6 +39,9 @@ void emu_exec(const char *rom_path)
     emu_cpu_halted = true; /* stop the current program; the tick loop exits */
 }
 
+bool emu_cpu_halted = false;
+int emu_exit_code = 0;
+
 /* Total VGA frames run since start (diagnostic: should advance at 60 Hz). */
 unsigned long emu_vga_frame_count;
 

@@ -16,7 +16,7 @@
 #include <getopt.h>
 #endif
 
-const char *base_name(const char *p)
+const char *cli_base_name(const char *p)
 {
     const char *s = strrchr(p, '/');
     return s ? s + 1 : p;

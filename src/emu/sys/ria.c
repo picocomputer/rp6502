@@ -113,7 +113,7 @@ static bool std_xreg(void)
      * a register that consumes earlier ones (e.g. the term mode word at
      * address 1) land after its parameters. */
     bool canvas_first = (device == 1 && channel == 0 && address == 0 && count > 1);
-    if (canvas_first && !emu_xreg(device, channel, address, word_at(0)))
+    if (canvas_first && !xreg_write(device, channel, address, word_at(0)))
     {
         xstack_ptr = XSTACK_SIZE;
         return api_return_errno(API_EINVAL);
@@ -123,7 +123,7 @@ static bool std_xreg(void)
         /* PIX_DEVICE_RIA (device 0) holds the address constant (last-wins);
          * only the VGA/non-RIA path walks address+i. */
         uint8_t reg = device ? (uint8_t)(address + i) : address;
-        if (!emu_xreg(device, channel, reg, word_at(i)))
+        if (!xreg_write(device, channel, reg, word_at(i)))
         {
             xstack_ptr = XSTACK_SIZE;
             return api_return_errno(API_EINVAL);

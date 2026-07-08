@@ -34,7 +34,7 @@ void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale);
 void dbgui_draw(void);   /* build the windows (between new_frame and render) */
 void dbgui_render(void); /* draw ImGui into the current sokol-gfx pass */
 /* Per-CPU-cycle view update: feed the chips ui_dbg its tick so the disassembly
- * heatmap/history/current-PC stay current. Registered as emu_dbg_cycle_cb by
+ * heatmap/history/current-PC stay current. Registered as cpu_dbg_cycle_cb by
  * dbgui_init and called from cpu.c's tick loop; display-only (never gates the
  * CPU — dbg.c is the authoritative engine). */
 void dbgui_tick(uint64_t pins);

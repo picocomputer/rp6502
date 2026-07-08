@@ -700,14 +700,14 @@ void dbgui_init(void)
     g_inited = true;
 
     /* Drive ui_dbg's view from cpu.c's tick loop (heatmap/history/PC). */
-    emu_dbg_cycle_cb = dbgui_tick;
+    cpu_dbg_cycle_cb = dbgui_tick;
 }
 
 void dbgui_discard(void)
 {
     if (!g_inited)
         return;
-    emu_dbg_cycle_cb = nullptr; /* stop feeding ui_dbg before it is destroyed */
+    cpu_dbg_cycle_cb = nullptr; /* stop feeding ui_dbg before it is destroyed */
     dbgui_layout_save();        /* final flush of geometry + open flags */
     ui_audio_discard(&g_audio);
     ui_dasm_discard(&g_dasm);
@@ -921,7 +921,7 @@ void dbgui_draw(void)
 
 void dbgui_render(void) { simgui_render(); }
 
-/* Per-cycle view update (registered as emu_dbg_cycle_cb; called from cpu.c). This
+/* Per-cycle view update (registered as cpu_dbg_cycle_cb; called from cpu.c). This
  * is the chips-native way to keep the disassembly view honest: ui_dbg_tick records
  * the execution heatmap (which the disassembler back-scans to find instruction
  * boundaries), the history, and cur_op_pc. It also runs ui_dbg's OWN breakpoint

@@ -272,7 +272,7 @@ static int top_reserved_px(void)
 void emu_set_window_scale(double scale)
 {
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     int h = (int)(VGA_MAX_HEIGHT * scale + 0.5);
     int w = (int)((long)h * cw / ch);
     resize_window(w, h + top_reserved_px());
@@ -320,7 +320,7 @@ static void canvas_region(int *x, int *y, int *w, int *h)
 static float canvas_scale(void)
 {
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     int rx, ry, rw, rh;
     canvas_region(&rx, &ry, &rw, &rh);
     float sx = (float)rw / cw;
@@ -409,7 +409,7 @@ static void init_cb(void)
         .colors[0].blend.enabled = false,
     });
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     resize_canvas_texture(cw, ch);
     if (!overlay_active())
         set_aspect_hint(cw, ch);
@@ -538,7 +538,7 @@ static void frame_cb(void)
     }
 
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     if (cw != app.tex_w || ch != app.tex_h)
     {
         /* Before tex_w/tex_h update, note whether the window is still within <1px
@@ -743,7 +743,7 @@ static void event_cb(const sapp_event *e)
         if (sapp_mouse_locked())
         {
             int cw, ch;
-            emu_canvas_size(&cw, &ch);
+            vga_canvas_size(&cw, &ch);
             float onscreen_w = (float)cw * canvas_scale(); /* drawn canvas width, fb px */
             if (onscreen_w > 0.0f)
             {
@@ -801,7 +801,7 @@ int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool
      * canvas opens wider. The WM may restore a previous size instead; that's fine
      * — init_cb sets the aspect hint and the quad letterboxes either way. */
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
     int canvas_h = (int)(VGA_MAX_HEIGHT * app.scale + 0.5);
     int win_w = (int)((long)canvas_h * cw / ch);
     int win_h = canvas_h;

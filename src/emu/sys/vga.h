@@ -34,7 +34,7 @@ int vga_vsync_scanline(void);
  * so mid-frame state changes land on later lines (raster effects), matching
  * real per-scanline scanout. */
 void vga_render_scanline(int y);
-void emu_canvas_size(int *w, int *h);
+void vga_canvas_size(int *w, int *h);
 
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */

@@ -20,7 +20,7 @@ static uint64_t pins;
  * cpu.h). The window overlay registers dbgui_tick here; NULL otherwise, so the
  * hot tick loop pays only a null check. It MUST NOT gate the CPU — dbg.c is the
  * one authoritative engine. */
-void (*emu_dbg_cycle_cb)(uint64_t pins);
+void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
 /* The live 65C02 instance, for the debugger UI + DAP register access. */
 void *cpu_chip(void) { return &cpu; }
@@ -116,8 +116,8 @@ bool cpu_run_until(uint64_t deadline_8, bool dbg)
             /* Feed the on-screen overlay's ui_dbg view every cycle (its
              * disassembly heatmap/history/PC); display-only, never gates the
              * CPU. NULL unless the window overlay registered it. */
-            if (emu_dbg_cycle_cb)
-                emu_dbg_cycle_cb(pins);
+            if (cpu_dbg_cycle_cb)
+                cpu_dbg_cycle_cb(pins);
             /* Breakpoint/step check at each opcode fetch (M6502_SYNC). Stops
              * before the instruction's effect runs; the partial frame is then
              * abandoned and the machine holds until the debugger resumes. */

@@ -109,7 +109,7 @@ static int run_dap(const options *o)
         emu_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
     emu_set_scale_filter(o->scale_filter);
     if (o->have_seed)
-        emu_set_random_seed((uint64_t)o->seed);
+        host_rand_set_seed((uint64_t)o->seed);
     if (o->mute)
         emu_set_audio_enabled(false);
     if (o->phi2_khz > 0)
@@ -201,7 +201,7 @@ int main(int argc, char **argv)
     const char *rom = o.rom;
     if (!rom && o.n_installs > 0)
     {
-        snprintf(bootbuf, sizeof(bootbuf), ":%s", base_name(o.installs[0]));
+        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(o.installs[0]));
         rom = bootbuf;
     }
 
@@ -231,7 +231,7 @@ int main(int argc, char **argv)
     emu_set_scale_filter(o.scale_filter);
 
     if (o.have_seed) /* force a reproducible RNG stream (else host entropy) */
-        emu_set_random_seed((uint64_t)o.seed);
+        host_rand_set_seed((uint64_t)o.seed);
 
     if (o.mute) /* no synth work, and the window opens no OS audio device */
         emu_set_audio_enabled(false);
@@ -275,8 +275,8 @@ int main(int argc, char **argv)
             emu_run_frame_norender();
         emu_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
-        emu_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
-        if (!emu_write_png(o.shot, cw, ch, g_fb))
+        vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
+        if (!host_png_write(o.shot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
                o.shot, frames, emu_cpu_halted ? "halted" : "running", emu_exit_code);
