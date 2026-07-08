@@ -6,6 +6,16 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+# The hot per-cycle chain (cpu.c -> m6502_tick/via_tick/ria_tick/time_*) lives in
+# separate TUs; the code is written for LTO (declare in .h, define in .c) so the
+# optimizer can inline it. Turn LTO on for Release (native + wasm are both Release
+# presets); debug builds stay fast. check_ipo_supported skips it where unavailable.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_ok OUTPUT ipo_msg)
+if(ipo_ok AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)

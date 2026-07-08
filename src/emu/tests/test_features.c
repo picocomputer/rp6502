@@ -178,6 +178,13 @@ UTEST(features, audio_disable)
     ASSERT_EQ(total, 0);
 
     aud_set_enabled(true); /* restore the default for any later test */
+    /* Drain the bell we rang: audio is a continuous stream (a reset never
+     * silences it), so play it out here instead of bleeding into a later test. */
+    for (int f = 0; f < 128; f++)
+    {
+        aud_task();
+        aud_read(buf, 2048);
+    }
 }
 
 /* Write a minimal .rp6502 carrying an "emulator" args asset, for the launch-arg

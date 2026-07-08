@@ -54,4 +54,11 @@ and DBC range tables, and by ffunicode.c) that drops the DBCS code pages.
 Keep any such edit minimal, tag it RP6502, and call it out — don't churn
 or "reconcile" markers.
 
+Audio never resets. The audio stream is intentionally never cleared or reset.
+PSG and OPL reset; the BEL device (bel_state + its sound queue in
+ria/aud/bel.c) and anything already in the audio buffer are deliberately NOT
+reset or cleared — a rung bell rings through a reset. bel_setup() re-seeds only
+the noise LFSR; never make it (or an aud reset) clear bel_state.active or the
+queue. "A reset should silence a playing/queued bell" is NOT a bug.
+
 Commit this information to MEMORY.

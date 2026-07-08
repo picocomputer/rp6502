@@ -100,13 +100,18 @@ void cpu_reset(void)
 
 bool cpu_run_until(uint64_t deadline_8, bool dbg)
 {
-    while (time_clock_8() < deadline_8 && !halted)
+    /* Run the master clock in a local: nothing on the per-cycle path reads it
+     * (time_us_64's callers run between scanlines), so we accumulate here and
+     * commit before every return, sparing two cross-TU time.c calls per cycle. */
+    uint64_t clock_8 = time_clock_8();
+    const uint32_t step_8 = master_per_cycle_8;
+    while (clock_8 < deadline_8 && !halted)
     {
         pins = m6502_tick(&cpu, pins);
         pins = via_tick(pins);  /* counts the VIA timers + drives M6502_IRQ */
         pins = ria_tick(pins);  /* RIA window access + additive $FFF0 IRQ (after the VIA) */
         pins = bus_cycle(pins); /* RAM (the peripheral windows were serviced above) */
-        time_advance_8(master_per_cycle_8);
+        clock_8 += step_8;
         if (dbg)
         {
             /* Feed the on-screen overlay's ui_dbg view every cycle (its
@@ -119,10 +124,14 @@ bool cpu_run_until(uint64_t deadline_8, bool dbg)
              * abandoned and the machine holds until the debugger resumes. */
             if ((pins & M6502_SYNC) &&
                 dbg_at_instruction(M6502_GET_ADDR(pins), m6502_s(&cpu)))
-                return true; /* clock deliberately NOT clamped: frame abandoned */
+            {
+                time_set_8(clock_8); /* commit before abandoning the frame */
+                return true;
+            }
         }
     }
-    if (time_clock_8() < deadline_8)
-        time_set_8(deadline_8); /* halted: keep the master clock (time) flowing */
+    if (clock_8 < deadline_8)
+        clock_8 = deadline_8; /* halted: keep the master clock (time) flowing */
+    time_set_8(clock_8);
     return false;
 }
