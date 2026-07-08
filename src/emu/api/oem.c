@@ -32,8 +32,8 @@ static bool oem_code_page_supported(uint16_t cp)
     return false;
 }
 
-/* Cold-boot default, called from sys_init (NOT ria_reset, so an exec'd program
- * keeps the current page). vga_boot_console's font_init then loads this same 437
+/* Cold-boot default only — not re-applied on machine reset, so an exec'd program
+ * keeps the current page. vga_boot_console's font_init then loads this same 437
  * default into the font, keeping the font, code page, and attribute in sync. */
 void oem_reset(void)
 {

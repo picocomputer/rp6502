@@ -1348,9 +1348,8 @@ bool bp_filter(uint16_t pc)
     return true;
 }
 
-/* Registered via dbg_set_watch_cb; called from the bus hook only while a watch is
- * armed. Runs on the main thread mid-cycle; the store has already landed, so we
- * latch a stop for the next instruction boundary (standard watchpoint semantics). */
+/* Runs on the main thread mid-cycle; the store has already landed, so we latch a
+ * stop for the next instruction boundary (standard watchpoint semantics). */
 void dbg_watch_on_access(uint16_t addr, uint8_t val, bool is_write)
 {
     (void)val;

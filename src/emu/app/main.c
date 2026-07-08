@@ -94,17 +94,10 @@ static void merge_rom_args(options *o, int argc, char **argv)
     }
 }
 
-#ifdef EMU_WITH_DEBUGGER
-/* DAP mode (--dap): the program is delivered by the VS Code launch request, not
- * the command line. Boot the machine held (CPU stopped, no program) and serve
- * DAP on stdio; the launch handler loads + runs the ROM. The window still opens
- * (with the debugger overlay) so the program is visible while VS Code drives. */
-static int run_dap(const options *o)
+/* Apply the presentation/timing options shared by both launch paths. False (with
+ * a message) on an out-of-range --phi2 or an unsupported --code-page. */
+static bool apply_options(const options *o)
 {
-    sys_init();
-    cpu_set_halted(true); /* hold until the DAP launch loads a program */
-    dbg_set_active(true);
-
     if (o->have_bg)
         window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
     window_set_scale_filter(o->scale_filter);
@@ -118,7 +111,7 @@ static int run_dap(const options *o)
         {
             fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
                     o->phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
-            return 1;
+            return false;
         }
         cpu_set_phi2_khz_run((uint16_t)o->phi2_khz);
     }
@@ -127,9 +120,25 @@ static int run_dap(const options *o)
         if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
         {
             fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o->code_page);
-            return 1;
+            return false;
         }
     }
+    return true;
+}
+
+#ifdef EMU_WITH_DEBUGGER
+/* DAP mode (--dap): the program is delivered by the VS Code launch request, not
+ * the command line. Boot the machine held (CPU stopped, no program) and serve
+ * DAP on stdio; the launch handler loads + runs the ROM. The window still opens
+ * (with the debugger overlay) so the program is visible while VS Code drives. */
+static int run_dap(const options *o)
+{
+    sys_init();
+    cpu_set_halted(true); /* hold until the DAP launch loads a program */
+    dbg_set_active(true);
+
+    if (!apply_options(o))
+        return 1;
 
     if (o->rom_args)
         dap_set_default_args(o->n_rom_args, o->rom_args);
@@ -226,35 +235,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (o.have_bg)
-        window_set_bgcolor((uint8_t)o.bg_r, (uint8_t)o.bg_g, (uint8_t)o.bg_b);
-    window_set_scale_filter(o.scale_filter);
-
-    if (o.have_seed) /* force a reproducible RNG stream (else host entropy) */
-        rand_set_seed((uint64_t)o.seed);
-
-    if (o.mute) /* no synth work, and the window opens no OS audio device */
-        aud_set_enabled(false);
-
-    if (o.phi2_khz > 0) /* override the default PHI2 (sys_init reset it) */
-    {
-        if (o.phi2_khz < CPU_PHI2_MIN_KHZ || o.phi2_khz > CPU_PHI2_MAX_KHZ)
-        {
-            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
-                    o.phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
-            return 1;
-        }
-        cpu_set_phi2_khz_run((uint16_t)o.phi2_khz);
-    }
-
-    if (o.code_page > 0) /* override the default 437 (sys_init reset it) */
-    {
-        if (o.code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o.code_page))
-        {
-            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o.code_page);
-            return 1;
-        }
-    }
+    if (!apply_options(&o))
+        return 1;
 
     /* Enable the debugger engine (the on-screen UI and the DAP adapter both
      * attach to it). Inert with no breakpoints, but --dap will also stand up the

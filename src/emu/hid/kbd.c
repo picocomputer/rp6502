@@ -68,7 +68,7 @@ void kbd_reset(void)
 }
 
 /* Toggle a lock LED in the HID bitmap and re-publish it (Num=1, Caps=2,
- * Scroll=4). The host input layer calls this on the lock keys. */
+ * Scroll=4). */
 void kbd_toggle_lock(uint8_t bit)
 {
     kbd_leds ^= bit;

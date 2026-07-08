@@ -15,8 +15,7 @@ extern "C"
 
 struct sapp_event;
 
-/* Translate one host (sokol) input event into emulated keyboard/mouse input.
- * The window forwards every event here after the debugger overlay declines it. */
+/* Translate one host (sokol) input event into emulated keyboard/mouse input. */
 void input_event(const struct sapp_event *e);
 
 #ifdef __cplusplus

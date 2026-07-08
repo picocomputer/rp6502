@@ -18,8 +18,7 @@ extern "C"
 
 /* Non-character keys, mapped to the same xterm/VT byte sequences the firmware
  * USB HID driver emits (ria/hid/kbd.c). Printable keys arrive as UTF-8 text via
- * kbd_text() instead. The host input layer (app/input.c) translates host key
- * events into these; tests/headless inject directly. */
+ * kbd_text() instead. */
 typedef enum
 {
     KBD_KEY_ENTER,

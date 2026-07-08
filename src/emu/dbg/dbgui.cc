@@ -921,8 +921,8 @@ void dbgui_draw(void)
 
 void dbgui_render(void) { simgui_render(); }
 
-/* Per-cycle view update (registered as cpu_dbg_cycle_cb; called from cpu.c). This
- * is the chips-native way to keep the disassembly view honest: ui_dbg_tick records
+/* Per-cycle view update. This is the chips-native way to keep the disassembly
+ * view honest: ui_dbg_tick records
  * the execution heatmap (which the disassembler back-scans to find instruction
  * boundaries), the history, and cur_op_pc. It also runs ui_dbg's OWN breakpoint
  * engine — the only evaluator of the non-EXEC types (Byte/Word at each opcode
