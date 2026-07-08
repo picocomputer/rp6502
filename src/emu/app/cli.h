@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_CLI_H_
-#define _EMU_CLI_H_
+#ifndef _EMU_APP_CLI_H_
+#define _EMU_APP_CLI_H_
 
 #include <stddef.h>
 
@@ -71,4 +71,4 @@ const char *cli_base_name(const char *p);
 }
 #endif
 
-#endif /* _EMU_CLI_H_ */
+#endif /* _EMU_APP_CLI_H_ */

@@ -10,7 +10,7 @@
  * 6502 filesystem syscalls over a real FatFs (--tmpdrive) rather than the host.
  */
 
-#include "emu/host/fat.h"
+#include "emu/host/hostfat.h"
 #include "fatfs/ff.h"
 #include "utest.h"
 #include <stdbool.h>

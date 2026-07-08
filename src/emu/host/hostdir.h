@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_HOST_DIR_H_
-#define _EMU_HOST_DIR_H_
+#ifndef _EMU_HOST_HOSTDIR_H_
+#define _EMU_HOST_HOSTDIR_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -19,10 +19,6 @@
 extern "C"
 {
 #endif
-
-/* Point the OP dispatcher's dir slots at the FatFs firmware handlers (true, over the
- * RAM disk) or the host handlers (false). Called by the drive lifecycle. */
-void hostdir_ops_set(bool fat);
 
 /* The emu's HOST dir syscall handlers (emu/host/dir.c), installed in the OP array. */
 bool hostdir_api_stat(void);
@@ -50,4 +46,4 @@ void hostdir_stop(void); /* close open host directories (machine reset) */
 }
 #endif
 
-#endif /* _EMU_HOST_DIR_H_ */
+#endif /* _EMU_HOST_HOSTDIR_H_ */

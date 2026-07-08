@@ -5,7 +5,6 @@
  *
  */
 
-#include "emu/host/msc.h"
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
@@ -24,20 +23,6 @@
 #include "str/rln.h"
 #include "term/term.h"
 #include <stdio.h>
-
-/* Pending exec (op 0x09): the new program loads at the frame boundary rather
- * than mid-tick, so the master clock and the partially-run frame stay
- * consistent. sys_exec() captures the ROM path (resolved by rom_load) and
- * stops the current program. */
-static bool exec_pending;
-static char exec_path[MSC_MAX_PATH];
-
-void sys_exec(const char *rom_path)
-{
-    snprintf(exec_path, sizeof(exec_path), "%s", rom_path);
-    exec_pending = true;
-    cpu_set_halted(true); /* stop the current program; the tick loop exits */
-}
 
 static int s_exit_code;
 
@@ -66,7 +51,7 @@ static inline uint64_t scanline_deadline_8(uint64_t n)
 
 void sys_init(void)
 {
-    exec_pending = false;
+    pro_init();
     cpu_init(); /* master clock to boot, default PHI2 (--phi2 reapplies after sys_init) */
     scanline_n = 0;
     s_frame_count = 0;
@@ -152,9 +137,9 @@ static void run_frame(bool render)
      * keeping the master clock and the argv pro_api_exec stored. The terminal
      * and VGA state are NOT reset — the new program's output appends to the
      * existing screen, as on real hardware. */
-    if (exec_pending)
+    const char *exec_path = pro_take_exec();
+    if (exec_path)
     {
-        exec_pending = false;
         if (!rom_load(exec_path))
         {
             fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);

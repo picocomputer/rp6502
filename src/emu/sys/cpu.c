@@ -28,11 +28,7 @@ void *cpu_chip(void) { return &cpu; }
  * fractional divider lands on an integer per-cycle step. Wraps in centuries. */
 static uint64_t master_8;
 
-uint64_t cpu_now_us(void)
-{
-    /* 256 MHz -> 256 ticks/us -> 2048 eighth-ticks/us. */
-    return master_8 / 2048;
-}
+uint64_t cpu_clock_8(void) { return master_8; }
 
 /* ------------------------------------------------------------------ */
 /* PHI2 (the 6502 clock), a fractional divider of the master clock     */

@@ -19,6 +19,7 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
+    ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/api/clk.c
     ${RP6502_SRC}/emu/api/oem.c
     ${RP6502_SRC}/emu/api/pro.c
@@ -29,12 +30,13 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
-    ${RP6502_SRC}/emu/host/dir.c
-    ${RP6502_SRC}/emu/host/fat.c
+    ${RP6502_SRC}/emu/host/hostdir.c
+    ${RP6502_SRC}/emu/host/hostfat.c
     ${RP6502_SRC}/emu/host/msc.c
     ${RP6502_SRC}/emu/host/png.c
     ${RP6502_SRC}/emu/host/posixdir.c
     ${RP6502_SRC}/emu/host/rand.c
+    ${RP6502_SRC}/emu/host/time.c
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/shim/pico/stdio.c
@@ -149,7 +151,7 @@ if(EMU_HAS_WINDOW)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/app_sokol.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c)
 if(EMU_HAS_WINDOW)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c)
 endif()
@@ -185,7 +187,7 @@ else()
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/app_sokol.c
+        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c
             PROPERTIES COMPILE_FLAGS "-x objective-c")
         target_link_libraries(rp6502-emu PRIVATE
             "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit")

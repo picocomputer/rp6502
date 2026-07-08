@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_SYS_H_
-#define _EMU_SYS_H_
+#ifndef _EMU_SYS_SYS_H_
+#define _EMU_SYS_SYS_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,11 +26,6 @@ void sys_init(void);
 void sys_run_frame(void);          /* run one 60 Hz VGA frame, rendering it scanline-by-scanline */
 void sys_run_frame_norender(void); /* same, but skip pixel rendering (a catch-up frame) */
 
-/* Request an exec: load rom_path (a host/drive path or overlay ROM name) as the
- * new program at the next frame boundary, restarting the CPU but keeping the
- * clock and the argv set by pro_api_exec. */
-void sys_exec(const char *rom_path);
-
 /* Program exit code, set by the EXIT syscall (and a failed exec). The CPU-halt
  * gate that stops ticking is cpu_halted() / cpu_set_halted() in sys/cpu.h. */
 int sys_exit_code(void);
@@ -40,4 +35,4 @@ void sys_set_exit_code(int code);
 }
 #endif
 
-#endif /* _EMU_SYS_H_ */
+#endif /* _EMU_SYS_SYS_H_ */

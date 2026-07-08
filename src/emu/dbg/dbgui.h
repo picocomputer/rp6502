@@ -9,8 +9,8 @@
  * is in debug mode (dbg_is_active()).
  */
 
-#ifndef _EMU_DBGUI_H_
-#define _EMU_DBGUI_H_
+#ifndef _EMU_DBG_DBGUI_H_
+#define _EMU_DBG_DBGUI_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -57,4 +57,4 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
 }
 #endif
 
-#endif /* _EMU_DBGUI_H_ */
+#endif /* _EMU_DBG_DBGUI_H_ */

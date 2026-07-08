@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_AUD_H_
-#define _EMU_AUD_H_
+#ifndef _EMU_AUD_AUD_H_
+#define _EMU_AUD_AUD_H_
 
 #include <stdbool.h>
 
@@ -41,4 +41,4 @@ int aud_viz_pos(void); /* current write position in that buffer */
 }
 #endif
 
-#endif /* _EMU_AUD_H_ */
+#endif /* _EMU_AUD_AUD_H_ */

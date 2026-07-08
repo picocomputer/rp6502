@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_ROM_H_
-#define _EMU_ROM_H_
+#ifndef _EMU_MON_ROM_H_
+#define _EMU_MON_ROM_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -52,4 +52,4 @@ void rom_assets_reset(void); /* forget the asset directory (a new program replac
 }
 #endif
 
-#endif /* _EMU_ROM_H_ */
+#endif /* _EMU_MON_ROM_H_ */

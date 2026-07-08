@@ -1419,7 +1419,7 @@ extern "C" void dap_start(void)
                     ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
                     g_session->send(ev);
                 }
-                sys_exec(program.c_str());
+                pro_exec(program.c_str());
             }
         });
         return dap::LaunchResponse();

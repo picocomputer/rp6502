@@ -12,6 +12,7 @@
 #include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/sys.h"
+#include "pico/time.h"
 #include "utest.h"
 
 static void run_frames(int n)
@@ -28,13 +29,13 @@ UTEST(clock, run_time_is_exact_and_reproducible)
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
     sys_init();
     run_frames(60);
-    ASSERT_EQ(cpu_now_us(), 1000000ull);
+    ASSERT_EQ(time_us_64(), 1000000ull);
 
     /* A second identical run yields the identical time. */
     ASSERT_TRUE(rom_load(ADVENTURE_ROM));
     sys_init();
     run_frames(6);
-    ASSERT_EQ(cpu_now_us(), 100000ull); /* 100 ms */
+    ASSERT_EQ(time_us_64(), 100000ull); /* 100 ms */
 }
 
 /* Time is paced by the 60 Hz VGA, not the CPU: a quarter-speed PHI2 runs a
@@ -45,7 +46,7 @@ UTEST(clock, time_is_phi2_independent)
     sys_init();
     cpu_set_phi2_khz_run(2000);
     run_frames(60);
-    ASSERT_EQ(cpu_now_us(), 1000000ull);
+    ASSERT_EQ(time_us_64(), 1000000ull);
 }
 
 UTEST(clock, phi2_get_set_clamp)

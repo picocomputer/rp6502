@@ -124,7 +124,7 @@ bool msc_to_host(const char *path, char *host, size_t hsz)
     const char *rest = msc_strip_drive(path);
     /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
      * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
-     * file; the boot/exec loader reaches installs via fs_resolve_rom instead. */
+     * file; the boot/exec loader reaches installs via install_resolve instead. */
     if (rest[0] == ':')
     {
         errno = ENOENT;

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_PAD_H_
-#define _EMU_PAD_H_
+#ifndef _EMU_HID_PAD_H_
+#define _EMU_HID_PAD_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -68,4 +68,4 @@ void pad_reset(void);
 }
 #endif
 
-#endif /* _EMU_PAD_H_ */
+#endif /* _EMU_HID_PAD_H_ */

@@ -9,8 +9,8 @@
  * --dap mode.
  */
 
-#ifndef _EMU_DAP_H_
-#define _EMU_DAP_H_
+#ifndef _EMU_DBG_DAP_H_
+#define _EMU_DBG_DAP_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -43,4 +43,4 @@ void dap_stop(void);
 }
 #endif
 
-#endif /* _EMU_DAP_H_ */
+#endif /* _EMU_DBG_DAP_H_ */

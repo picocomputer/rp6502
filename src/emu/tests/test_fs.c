@@ -13,7 +13,7 @@
 
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
-#include "emu/host/dir.h"
+#include "emu/host/hostdir.h"
 #include "emu/host/msc.h"
 #include "dirsys.h"
 #include "stdsys.h"

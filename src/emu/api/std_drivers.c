@@ -6,11 +6,11 @@
  */
 
 #include "emu/api/std.h"
-#include "emu/host/dir.h"
+#include "emu/host/hostdir.h"
 #include "emu/host/msc.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/com.h"
-#include "emu/host/fat.h"
+#include "emu/host/hostfat.h"
 #include "api/dir.h"
 #include "api/fat.h"
 #include "str/rln.h"

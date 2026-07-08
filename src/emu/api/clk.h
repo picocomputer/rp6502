@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_CLK_H_
-#define _EMU_CLK_H_
+#ifndef _EMU_API_CLK_H_
+#define _EMU_API_CLK_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -20,4 +20,4 @@ void clk_run(void);
 }
 #endif
 
-#endif /* _EMU_CLK_H_ */
+#endif /* _EMU_API_CLK_H_ */

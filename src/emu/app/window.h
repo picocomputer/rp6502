@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_WINDOW_H_
-#define _EMU_WINDOW_H_
+#ifndef _EMU_APP_WINDOW_H_
+#define _EMU_APP_WINDOW_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -57,8 +57,12 @@ void window_set_scale(double scale);
 /* The window's current scale by the same formula; 0 when there is no window. */
 double window_get_scale(void);
 
+/* On-screen pixels per canvas pixel (the aspect-fit blit scale). The input layer
+ * divides host mouse motion by this so pointer speed is window-size independent. */
+float window_canvas_scale(void);
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_WINDOW_H_ */
+#endif /* _EMU_APP_WINDOW_H_ */

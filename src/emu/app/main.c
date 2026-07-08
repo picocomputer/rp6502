@@ -14,7 +14,7 @@
 #include "emu/host/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/fat.h"
+#include "emu/host/hostfat.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
@@ -179,7 +179,7 @@ int main(int argc, char **argv)
 
     /* Install ROMs before the boot load / any exec can resolve them. */
     for (int i = 0; i < o.n_installs; i++)
-        if (!fs_install_rom(o.installs[i]))
+        if (!install_rom(o.installs[i]))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;

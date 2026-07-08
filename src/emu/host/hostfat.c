@@ -5,8 +5,8 @@
  *
  */
 
-#include "emu/host/fat.h"
-#include "emu/host/dir.h" /* hostdir_ops_set (swap the dir slots) */
+#include "emu/host/hostfat.h"
+#include "emu/main.h"     /* main_dir_ops_set (swap the dir slots) */
 #include "api/dir.h"      /* dir_run / dir_stop (the firmware FatFs DIR pool) */
 #include "api/fat.h"     /* fat_std_* file driver; pulls api/api.h + api/std.h */
 #include "fatfs/ff.h"
@@ -137,8 +137,8 @@ bool hostfat_mount(void)
         return false;
     if (f_mount(&g_ramfs, "MSC0:", 1) != FR_OK)
         return false;
-    dir_run();             /* fresh FatFs directory pool (ria/api/dir.c) */
-    hostdir_ops_set(true); /* the 6502 dir syscalls -> firmware dir_api_* */
+    dir_run();              /* fresh FatFs directory pool (ria/api/dir.c) */
+    main_dir_ops_set(true); /* the 6502 dir syscalls -> firmware dir_api_* */
     g_active = true;       /* std.c's fat driver now claims MSC0: (file syscalls -> FatFs) */
     return true;
 }
@@ -147,6 +147,6 @@ void hostfat_unmount(void)
 {
     dir_stop(); /* close open FatFs directories (ria/api/dir.c) */
     f_unmount("MSC0:");
-    hostdir_ops_set(false); /* back to the native host handlers */
+    main_dir_ops_set(false); /* back to the native host handlers */
     g_active = false;       /* std.c's fat driver declines; host reclaims MSC0: */
 }

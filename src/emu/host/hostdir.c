@@ -5,7 +5,7 @@
  *
  */
 
-#include "emu/host/dir.h"
+#include "emu/host/hostdir.h"
 #include "emu/host/msc.h"
 #include "emu/host/posixdir.h"
 #include "emu/sys/mem.h"

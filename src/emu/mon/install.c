@@ -25,7 +25,7 @@ typedef struct
 static install_t installs[INSTALL_MAX];
 
 /* Install a .rp6502 on the null drive, keyed by its host-path basename. */
-bool fs_install_rom(const char *hostpath)
+bool install_rom(const char *hostpath)
 {
     const char *base = strrchr(hostpath, '/');
     base = base ? base + 1 : hostpath;
@@ -59,7 +59,7 @@ static install_t *install_find(const char *name)
 /* Resolve a boot/exec ROM path to the host file to open: an installed ":name" ->
  * its backing file, a drive path -> msc_to_host, else the bare path (the native
  * CLI / tests, against the process cwd). The loader (rom.c) then opens it. */
-bool fs_resolve_rom(const char *path, char *out, size_t outsz)
+bool install_resolve(const char *path, char *out, size_t outsz)
 {
     if (path[0] == ':') /* null drive: an installed ROM, or nothing */
     {

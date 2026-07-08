@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_OEM_H_
-#define _EMU_OEM_H_
+#ifndef _EMU_API_OEM_H_
+#define _EMU_API_OEM_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -40,4 +40,4 @@ int oem_to_utf8(unsigned char b, char *dst);
 }
 #endif
 
-#endif /* _EMU_OEM_H_ */
+#endif /* _EMU_API_OEM_H_ */

@@ -415,7 +415,7 @@ static long fgets_line(FILE *f, char *line, size_t cap)
 bool rom_load(const char *path)
 {
     char host[MSC_MAX_PATH];
-    if (!fs_resolve_rom(path, host, sizeof(host)))
+    if (!install_resolve(path, host, sizeof(host)))
     {
         fprintf(stderr, "rp6502-emu: cannot resolve ROM '%s'\n", path);
         return false;

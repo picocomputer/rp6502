@@ -11,8 +11,8 @@
  * addresses are the 6502 load addresses (the emulator's PC directly).
  */
 
-#ifndef _EMU_CC65DBG_H_
-#define _EMU_CC65DBG_H_
+#ifndef _EMU_DBG_CC65DBG_H_
+#define _EMU_DBG_CC65DBG_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -102,4 +102,4 @@ int cc65dbg_segments(const cc65dbg_t *db, cc65seg_t *out, int max);
 }
 #endif
 
-#endif /* _EMU_CC65DBG_H_ */
+#endif /* _EMU_DBG_CC65DBG_H_ */

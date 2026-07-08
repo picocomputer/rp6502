@@ -11,8 +11,8 @@
  * reader thread may set; it is a lone atomic flag.
  */
 
-#ifndef _EMU_DBG_H_
-#define _EMU_DBG_H_
+#ifndef _EMU_DBG_DBG_H_
+#define _EMU_DBG_DBG_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -111,4 +111,4 @@ bool dbg_at_instruction(uint16_t pc, uint8_t sp);
 }
 #endif
 
-#endif /* _EMU_DBG_H_ */
+#endif /* _EMU_DBG_DBG_H_ */

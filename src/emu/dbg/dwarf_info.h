@@ -19,8 +19,8 @@
  *                          caller's readmem callback).
  */
 
-#ifndef _EMU_DWARF_INFO_H_
-#define _EMU_DWARF_INFO_H_
+#ifndef _EMU_DBG_DWARF_INFO_H_
+#define _EMU_DBG_DWARF_INFO_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -125,4 +125,4 @@ const char *dwarf_type_enum_name(const dtype_t *t, int64_t value);
 }
 #endif
 
-#endif /* _EMU_DWARF_INFO_H_ */
+#endif /* _EMU_DBG_DWARF_INFO_H_ */

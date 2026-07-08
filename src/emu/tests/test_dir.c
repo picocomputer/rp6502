@@ -15,7 +15,8 @@
 
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
-#include "emu/host/dir.h"
+#include "emu/host/hostdir.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/sys.h"
 #include "utest.h"
 #include <stdio.h>

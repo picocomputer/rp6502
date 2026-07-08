@@ -10,8 +10,8 @@
  * are the 6502 load addresses, i.e. the emulator's PC directly.
  */
 
-#ifndef _EMU_DWARF_LINE_H_
-#define _EMU_DWARF_LINE_H_
+#ifndef _EMU_DBG_DWARF_LINE_H_
+#define _EMU_DBG_DWARF_LINE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -62,4 +62,4 @@ int dwarf_line_sections(const dwarf_line_t *dl, dwarf_section_t *out, int max);
 }
 #endif
 
-#endif /* _EMU_DWARF_LINE_H_ */
+#endif /* _EMU_DBG_DWARF_LINE_H_ */

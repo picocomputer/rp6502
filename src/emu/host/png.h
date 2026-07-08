@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_PNG_H_
-#define _EMU_PNG_H_
+#ifndef _EMU_HOST_PNG_H_
+#define _EMU_HOST_PNG_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -22,4 +22,4 @@ bool png_write(const char *path, int w, int h, const uint32_t *rgba);
 }
 #endif
 
-#endif /* _EMU_PNG_H_ */
+#endif /* _EMU_HOST_PNG_H_ */

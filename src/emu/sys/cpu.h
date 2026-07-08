@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_CPU_H_
-#define _EMU_CPU_H_
+#ifndef _EMU_SYS_CPU_H_
+#define _EMU_SYS_CPU_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -40,9 +40,10 @@ bool cpu_run_until(uint64_t deadline_8, bool dbg);
 bool cpu_halted(void);
 void cpu_set_halted(bool halted);
 
-/* Deterministic virtual microsecond clock — the master clock all timing
- * derives from; the same number of frames always yields the same time. */
-uint64_t cpu_now_us(void);
+/* Raw master clock in 1/8-of-a-256MHz-tick units (2048 per microsecond). The
+ * host time shim (host/time.c) converts it to the virtual microsecond clock;
+ * deterministic — the same number of frames always yields the same value. */
+uint64_t cpu_clock_8(void);
 
 /* The live 65C02 instance, for the debugger UI + DAP register access (the
  * debug code casts to m6502_t*, which includes the chip header, so this need
@@ -58,4 +59,4 @@ extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 }
 #endif
 
-#endif /* _EMU_CPU_H_ */
+#endif /* _EMU_SYS_CPU_H_ */

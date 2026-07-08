@@ -8,10 +8,10 @@
 #include "emu/app/window.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/mon/rom.h"
 #include "emu/host/msc.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
@@ -56,6 +56,7 @@ double window_get_scale(void) { return 0.0; }
 #include "emu/dbg/dbgui.h"
 #include "emu/dbg/dap.h"
 #endif
+#include "emu/app/input.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -142,15 +143,8 @@ static struct
     window_scale_filter_t filter; /* 0 == NEAREST default */
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
     int title_variant;     /* last window-title state (running/stopped/mouse) */
-    uint8_t mouse_buttons; /* host mouse button bitmap while captured */
     uint32_t *fb;          /* caller's framebuffer: vga renders in, frame_cb uploads */
 } app;
-
-/* Mouse sensitivity: the ROM always works in 640px-wide mouse units and halves
- * them itself for a 320px canvas, so convert host motion to a fraction of the
- * canvas's on-screen width scaled to a fixed 640 — a full-width sweep is 640
- * counts regardless of the canvas resolution. */
-#define WINDOW_MOUSE_REF_WIDTH 640.0f
 
 /* Max emulated frames the pacer will run in one callback before dropping the
  * backlog (no fast-forward after a stall). Also the deepest frame-skip on a
@@ -317,7 +311,7 @@ static void canvas_region(int *x, int *y, int *w, int *h)
  * divided by this to get canvas-space motion, so pointer speed doesn't change
  * with the window size. The canvas occupies the window below the debugger menu
  * bar, so its height excludes that reserved strip. */
-static float canvas_scale(void)
+float window_canvas_scale(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
@@ -693,72 +687,13 @@ static void frame_cb(void)
         sleep_until_ns(start_ns + (done + 1) * (1000000000ull / SYS_VGA_HZ));
 }
 
-/* All host key/char translation lives in kbd.c; the window just forwards. */
-void kbd_event(const sapp_event *e);
-
 static void event_cb(const sapp_event *e)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_handle_event(e))
         return; /* the debug UI consumed this event */
 #endif
-    switch (e->type)
-    {
-    case SAPP_EVENTTYPE_KEY_DOWN:
-        /* Esc releases a captured mouse (a capture concern) instead of being
-         * typed; every other key/char is translated by kbd.c. */
-        if (e->key_code == SAPP_KEYCODE_ESCAPE && sapp_mouse_locked())
-        {
-            sapp_lock_mouse(false); /* matches the browser's pointer-lock exit */
-            break;
-        }
-        kbd_event(e);
-        break;
-    case SAPP_EVENTTYPE_KEY_UP:
-    case SAPP_EVENTTYPE_CHAR:
-        kbd_event(e);
-        break;
-    case SAPP_EVENTTYPE_MOUSE_DOWN:
-        if (!sapp_mouse_locked())
-        {
-            /* First click captures the mouse (only once a program wants it);
-             * the click itself is consumed by the capture. */
-            if (mou_is_mapped())
-                sapp_lock_mouse(true);
-        }
-        else if (e->mouse_button >= 0 && e->mouse_button <= 2)
-        {
-            app.mouse_buttons |= (uint8_t)(1u << e->mouse_button);
-            mou_host_buttons(app.mouse_buttons);
-        }
-        break;
-    case SAPP_EVENTTYPE_MOUSE_UP:
-        if (sapp_mouse_locked() && e->mouse_button >= 0 && e->mouse_button <= 2)
-        {
-            app.mouse_buttons &= (uint8_t)~(1u << e->mouse_button);
-            mou_host_buttons(app.mouse_buttons);
-        }
-        break;
-    case SAPP_EVENTTYPE_MOUSE_MOVE:
-        if (sapp_mouse_locked())
-        {
-            int cw, ch;
-            vga_canvas_size(&cw, &ch);
-            float onscreen_w = (float)cw * canvas_scale(); /* drawn canvas width, fb px */
-            if (onscreen_w > 0.0f)
-            {
-                float gain = WINDOW_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */
-                mou_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
-            }
-        }
-        break;
-    case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        if (sapp_mouse_locked())
-            mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
-        break;
-    default:
-        break;
-    }
+    input_event(e); /* translate host key/mouse events (app/input.c) */
 }
 
 static void cleanup_cb(void)

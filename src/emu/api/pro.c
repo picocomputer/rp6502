@@ -9,7 +9,7 @@
 #include "emu/host/msc.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
-#include "emu/sys/sys.h"
+#include "emu/sys/cpu.h"
 #include "api/api.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,6 +25,33 @@ static uint8_t pro_argv[XSTACK_SIZE];
 static char pro_running_path[MSC_MAX_PATH];
 static char pro_launcher_path[MSC_MAX_PATH];
 static int16_t pro_exit_code;
+
+/* Pending exec (op 0x09): the new program loads at the frame boundary rather
+ * than mid-tick, so the master clock and the partially-run frame stay
+ * consistent. pro_exec() captures the ROM path and stops the current program;
+ * the frame loop commits it via pro_take_exec(). */
+static bool exec_pending;
+static char exec_path[MSC_MAX_PATH];
+
+void pro_init(void)
+{
+    exec_pending = false;
+}
+
+void pro_exec(const char *rom_path)
+{
+    snprintf(exec_path, sizeof(exec_path), "%s", rom_path);
+    exec_pending = true;
+    cpu_set_halted(true); /* stop the current program; the tick loop exits */
+}
+
+const char *pro_take_exec(void)
+{
+    if (!exec_pending)
+        return NULL;
+    exec_pending = false;
+    return exec_path;
+}
 
 static uint16_t pro_argv_count(void)
 {
@@ -189,7 +216,7 @@ bool pro_exit(int16_t exit_code)
     snprintf(path, sizeof path, "%s", pro_launcher_path);
     pro_argv_clear();
     pro_argv_append(path);
-    sys_exec(path);
+    pro_exec(path);
     return true;
 }
 
@@ -219,6 +246,6 @@ bool pro_api_exec(void)
     }
     /* argv[0] (an MSC0:/overlay/host name) is resolved by the loader at the
      * frame boundary; a load failure surfaces on reload, matching the firmware. */
-    sys_exec(pro_argv_index(0));
+    pro_exec(pro_argv_index(0));
     return api_return_ax(0);
 }

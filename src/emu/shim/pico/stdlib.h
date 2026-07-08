@@ -41,25 +41,9 @@ typedef unsigned int uint;
 #define __isr
 typedef void (*irq_handler_t)(void);
 
-// Monotonic microsecond virtual clock derived from the master clock.
-uint64_t cpu_now_us(void);
-
-typedef uint64_t absolute_time_t;
-
-static inline absolute_time_t make_timeout_time_us(int64_t us)
-{
-    return cpu_now_us() + (us < 0 ? 0 : (uint64_t)us);
-}
-
-static inline absolute_time_t make_timeout_time_ms(int64_t ms)
-{
-    return cpu_now_us() + (ms < 0 ? 0 : (uint64_t)ms * 1000);
-}
-
-static inline bool time_reached(absolute_time_t t)
-{
-    return cpu_now_us() >= t;
-}
+// Monotonic microsecond virtual clock + timeout helpers (the real SDK's
+// pico/stdlib.h pulls these in from pico/time.h too).
+#include "pico/time.h"
 
 /* Firmware stdout/stdin routing. On the Pico, putchar/printf reach the
  * configured stdio driver (the terminal) through the pico_stdio layer; the

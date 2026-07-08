@@ -15,6 +15,7 @@
 #include "emu/hid/mou.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
