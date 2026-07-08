@@ -125,7 +125,7 @@ endif()
 
 # Determine if window available
 include(CheckIncludeFile)
-if(WIN32 OR APPLE OR EMSCRIPTEN)
+if(WIN32 OR APPLE OR EMSCRIPTEN OR ANDROID)
     set(EMU_HAS_WINDOW ON)
 else()
     check_include_file("GL/gl.h" EMU_HAS_GL_HEADER)
@@ -141,7 +141,7 @@ endif()
 
 # Determine if audio available
 if(EMU_HAS_WINDOW)
-    if(WIN32 OR APPLE OR EMSCRIPTEN)
+    if(WIN32 OR APPLE OR EMSCRIPTEN OR ANDROID)
         set(EMU_HAS_AUDIO ON)
     else()
         check_include_file("alsa/asoundlib.h" EMU_HAS_ALSA_HEADER)
@@ -158,8 +158,14 @@ if(EMU_HAS_AUDIO)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/audio_out.c)
 endif()
 
-add_executable(rp6502-emu ${APP_SOURCES})
-target_link_libraries(rp6502-emu PRIVATE emu_core)
+if(ANDROID)
+    add_library(rp6502-emu SHARED ${APP_SOURCES})
+    target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
+    target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
+else()
+    add_executable(rp6502-emu ${APP_SOURCES})
+    target_link_libraries(rp6502-emu PRIVATE emu_core)
+endif()
 target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/sokol)
 
 # Windows is only platform without getopt
@@ -177,7 +183,11 @@ if(NOT EMU_HAS_WINDOW)
         "sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev")
 else()
     # SOKOL_NO_ENTRY: we provide main() ourselves and call sapp_run() directly.
-    target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL SOKOL_NO_ENTRY)
+    if(ANDROID)
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL)
+    else()
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL SOKOL_NO_ENTRY)
+    endif()
     set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
     if(WIN32)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
@@ -231,6 +241,8 @@ else()
             COMMENT "Assembling itch.io sample (build/web/itch.io) + adventure.rp6502"
             VERBATIM)
         add_dependencies(itch_root rp6502-emu)
+    elseif(ANDROID)
+        # Android graphics and libraries are configured in the target section.
     else() # Linux / BSD
         find_package(Threads REQUIRED)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLCORE)
@@ -250,8 +262,8 @@ else()
             "On Debian/Ubuntu: sudo apt-get install libasound2-dev")
     endif()
 
-    # Include debugging except on web version
-    if(NOT EMSCRIPTEN)
+    # Include debugging except on web and Android versions
+    if(NOT EMSCRIPTEN AND NOT ANDROID)
         # cppdap (the DAP server library): no examples/tests/fuzzer, vendored
         # nlohmann/json. Exposes the `cppdap` target with its include dir.
         set(CPPDAP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -288,7 +300,7 @@ else()
 endif()
 
 # Tests
-if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN)
+if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
     add_subdirectory(tests)
 endif()

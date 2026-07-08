@@ -141,6 +141,7 @@ static int run_dap(const options *o)
 }
 #endif
 
+#ifndef __ANDROID__
 int main(int argc, char **argv)
 {
     options o;
@@ -285,3 +286,4 @@ int main(int argc, char **argv)
 
     return emu_run_window(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
 }
+#endif

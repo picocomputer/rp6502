@@ -67,7 +67,7 @@ double emu_get_window_scale(void) { return 0.0; }
 #include <windows.h>
 #endif
 
-#if defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
 /* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
  * a one-shot resize when the canvas changes, and a PAspect size hint that asks
  * the window manager to keep that aspect during interactive resizes (we don't
@@ -823,6 +823,9 @@ int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool
         }
     }
 #endif
+#if defined(__ANDROID__)
+    (void)win_w; (void)win_h; (void)vsync;
+#else
     sapp_run(&(sapp_desc){
         .init_cb = init_cb,
         .frame_cb = frame_cb,
@@ -834,7 +837,199 @@ int emu_run_window(uint32_t *fb, double scale, bool have_scale, bool vsync, bool
         .window_title = "Picocomputer 6502",
         .logger.func = slog_func,
     });
+#endif
     return 0;
 }
+
+#if defined(__ANDROID__)
+#include <android/input.h>
+#include <android/keycodes.h>
+#include "emu/hid/pad.h"
+
+// Define the Android gamepad buttons state tracking variables
+static uint8_t g_android_button0 = 0;
+static uint8_t g_android_button1 = 0;
+static uint8_t g_android_dpad = 0;
+static int g_android_lx = 0;
+static int g_android_ly = 0;
+static int g_android_rx = 0;
+static int g_android_ry = 0;
+static int g_android_lt = 0;
+static int g_android_rt = 0;
+
+int rp6502_android_input_hook(const AInputEvent* event)
+{
+    int32_t type = AInputEvent_getType(event);
+    if (type == AINPUT_EVENT_TYPE_KEY)
+    {
+        int32_t key_code = AKeyEvent_getKeyCode(event);
+        int32_t action = AKeyEvent_getAction(event);
+        bool down = (action == AKEY_EVENT_ACTION_DOWN);
+        
+        switch (key_code)
+        {
+            // Retroid Pocket 3+ physical gamepad mapping
+            case AKEYCODE_BUTTON_A:
+                if (down) g_android_button0 |= 0x01; else g_android_button0 &= ~0x01;
+                break;
+            case AKEYCODE_BUTTON_B:
+                if (down) g_android_button0 |= 0x02; else g_android_button0 &= ~0x02;
+                break;
+            case AKEYCODE_BUTTON_X:
+                if (down) g_android_button0 |= 0x08; else g_android_button0 &= ~0x08;
+                break;
+            case AKEYCODE_BUTTON_Y:
+                if (down) g_android_button0 |= 0x10; else g_android_button0 &= ~0x10;
+                break;
+            case AKEYCODE_BUTTON_L1:
+                if (down) g_android_button0 |= 0x40; else g_android_button0 &= ~0x40;
+                break;
+            case AKEYCODE_BUTTON_R1:
+                if (down) g_android_button0 |= 0x80; else g_android_button0 &= ~0x80;
+                break;
+                
+            case AKEYCODE_BUTTON_L2:
+                if (down) g_android_button1 |= 0x01; else g_android_button1 &= ~0x01;
+                break;
+            case AKEYCODE_BUTTON_R2:
+                if (down) g_android_button1 |= 0x02; else g_android_button1 &= ~0x02;
+                break;
+            case AKEYCODE_BUTTON_SELECT:
+                if (down) g_android_button1 |= 0x04; else g_android_button1 &= ~0x04;
+                break;
+            case AKEYCODE_BUTTON_START:
+                if (down) g_android_button1 |= 0x08; else g_android_button1 &= ~0x08;
+                break;
+            case AKEYCODE_BUTTON_MODE: // Home button
+                if (down) g_android_button1 |= 0x10; else g_android_button1 &= ~0x10;
+                break;
+            case AKEYCODE_BUTTON_THUMBL:
+                if (down) g_android_button1 |= 0x20; else g_android_button1 &= ~0x20;
+                break;
+            case AKEYCODE_BUTTON_THUMBR:
+                if (down) g_android_button1 |= 0x40; else g_android_button1 &= ~0x40;
+                break;
+                
+            case AKEYCODE_DPAD_UP:
+                if (down) g_android_dpad |= 0x01; else g_android_dpad &= ~0x01;
+                break;
+            case AKEYCODE_DPAD_DOWN:
+                if (down) g_android_dpad |= 0x02; else g_android_dpad &= ~0x02;
+                break;
+            case AKEYCODE_DPAD_LEFT:
+                if (down) g_android_dpad |= 0x04; else g_android_dpad &= ~0x04;
+                break;
+            case AKEYCODE_DPAD_RIGHT:
+                if (down) g_android_dpad |= 0x08; else g_android_dpad &= ~0x08;
+                break;
+                
+            default:
+                return 0; // Not handled
+        }
+        pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
+                        g_android_lx, g_android_ly, g_android_rx, g_android_ry,
+                        g_android_lt, g_android_rt, false);
+        return 1; // Handled
+    }
+    else if (type == AINPUT_EVENT_TYPE_MOTION)
+    {
+        // Read Hat/D-pad axes
+        float hat_x = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_X, 0);
+        float hat_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0);
+        
+        g_android_dpad = 0;
+        if (hat_x < -0.5f) g_android_dpad |= 0x04; // LEFT
+        if (hat_x > 0.5f)  g_android_dpad |= 0x08; // RIGHT
+        if (hat_y < -0.5f) g_android_dpad |= 0x01; // UP
+        if (hat_y > 0.5f)  g_android_dpad |= 0x02; // DOWN
+        
+        // Read Analog Stick axes
+        float lx_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_X, 0);
+        float ly_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0);
+        float rx_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Z, 0);
+        float ry_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RZ, 0);
+        
+        g_android_lx = (int)(lx_val * 127.0f);
+        g_android_ly = (int)(ly_val * 127.0f);
+        g_android_rx = (int)(rx_val * 127.0f);
+        g_android_ry = (int)(ry_val * 127.0f);
+        
+        // Read Trigger axes
+        float lt_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_BRAKE, 0);
+        float rt_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_GAS, 0);
+        g_android_lt = (int)(lt_val * 255.0f);
+        g_android_rt = (int)(rt_val * 255.0f);
+        
+        pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
+                        g_android_lx, g_android_ly, g_android_rx, g_android_ry,
+                        g_android_lt, g_android_rt, false);
+        return 1; // Handled
+    }
+    return 0; // Not handled
+}
+
+// Global framebuffer for Android
+static uint32_t android_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
+
+// Forward declarations from emulator codebase
+extern void emu_init(void);
+extern bool emu_rom_load(const char *name);
+extern void host_msc_set_async(bool async);
+extern void rom_set_async(bool async);
+
+#include <unistd.h>
+#include <android/native_activity.h>
+
+sapp_desc sokol_main(int argc, char* argv[])
+{
+    (void)argc; (void)argv;
+    
+    // Change working directory to app's external files path on Android
+    const void* native_act = sapp_android_get_native_activity();
+    if (native_act)
+    {
+        ANativeActivity* activity = (ANativeActivity*)native_act;
+        if (activity->internalDataPath)
+        {
+            chdir(activity->internalDataPath);
+        }
+        else if (activity->externalDataPath)
+        {
+            chdir(activity->externalDataPath);
+        }
+    }
+    
+    // Initialize host MSC & ROM loader async modes
+    host_msc_set_async(true);
+    rom_set_async(true);
+    
+    // Initialize emulator
+    emu_init();
+    vga_set_framebuffer(android_fb);
+    
+    // Try to load a default rom (boot.rp6502) if it exists, or run empty
+    emu_rom_load("boot.rp6502");
+    
+    // Connect gamepad player 0
+    pad_connect(0, true);
+    
+    // Setup app state
+    app.fb = android_fb;
+    app.scale = 1.0;
+    app.vsync = true;
+    app.exit_on_halt = false;
+    
+    return (sapp_desc){
+        .init_cb = init_cb,
+        .frame_cb = frame_cb,
+        .event_cb = event_cb,
+        .cleanup_cb = cleanup_cb,
+        .width = 640,
+        .height = 480,
+        .window_title = "Picocomputer 6502",
+        .logger.func = slog_func,
+    };
+}
+#endif
 
 #endif /* EMU_WITH_SOKOL */

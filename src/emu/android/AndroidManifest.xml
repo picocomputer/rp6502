@@ -1,0 +1,16 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.picocomputer.rp6502">
+    <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+    <application android:label="rp6502 Emulator" android:hasCode="false" android:icon="@android:drawable/sym_def_app_icon">
+        <activity android:name="android.app.NativeActivity"
+            android:label="rp6502 Emulator"
+            android:configChanges="orientation|keyboardHidden|screenSize|screenLayout|navigation"
+            android:exported="true">
+            <meta-data android:name="android.app.lib_name" android:value="rp6502-emu" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

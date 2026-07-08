@@ -1,2 +1,9 @@
 /build/
 /.venv/
+src/emu/android/build/
+src/emu/android/.gradle/
+src/emu/android/.idea/
+src/emu/android/.cxx/
+src/emu/android/local.properties
+src/emu/android/*.keystore
+src/emu/android/*.jks
