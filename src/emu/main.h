@@ -12,6 +12,7 @@
 #define _EMU_MAIN_H_
 
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "ria/main.h" /* the main_api contract the shared api.c dispatches through */
 
@@ -25,6 +26,10 @@ void main_run_frame(void);          /* run one 60 Hz VGA frame, rendering it */
 void main_run_frame_norender(void); /* same, but skip pixel rendering (catch-up) */
 
 unsigned long main_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */
+
+/* The virtual master clock in 1/8-of-a-256 MHz-tick units (2048/µs); the run loop
+ * advances it, host/time.c exposes it as the pico monotonic microsecond clock. */
+uint64_t main_clock_8(void);
 
 /* Program exit code, set by the EXIT syscall (and a failed exec). The CPU-halt
  * gate that stops ticking is cpu_halted() / cpu_set_halted() in sys/cpu.h. */

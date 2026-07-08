@@ -11,7 +11,6 @@
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/host/hostdir.h"
-#include "emu/host/time.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
@@ -38,6 +37,10 @@
 /* Machine-global run state                                            */
 /* ------------------------------------------------------------------ */
 
+/* The virtual master clock, in 1/8-of-a-256 MHz-tick units (2048/µs) so the PHI2
+ * fractional divider lands on an integer per-cycle step. Wraps in centuries. */
+static uint64_t master_8;
+
 static int s_exit_code;
 
 /* Diagnostic: should advance at 60 Hz. */
@@ -49,12 +52,13 @@ static uint64_t scanline_n;
 int main_exit_code(void) { return s_exit_code; }
 void main_set_exit_code(int code) { s_exit_code = code; }
 unsigned long main_frame_count(void) { return s_frame_count; }
+uint64_t main_clock_8(void) { return master_8; }
 
 void main_init(void)
 {
     pro_init();
-    time_reset(); /* the virtual master clock starts at boot */
-    cpu_init();   /* default PHI2 (--phi2 reapplies after main_init) */
+    cpu_init(); /* default PHI2 (--phi2 reapplies after main_init) */
+    master_8 = 0; /* the virtual master clock starts at boot */
     scanline_n = 0;
     s_frame_count = 0;
     aud_init(); /* fill the shared sine table (no PWM off-device) */
@@ -89,10 +93,9 @@ static uint64_t scanline_deadline_8(uint64_t n)
  * deadline_8 or later on return (time flows even while halted). */
 static bool run_until(uint64_t deadline_8, bool dbg)
 {
-    /* Run the master clock in a local: nothing on the per-cycle path reads it,
-     * so accumulate here and commit before every return, sparing two cross-TU
-     * time.c calls per cycle. */
-    uint64_t clock_8 = time_clock_8();
+    /* Accumulate in a local and commit to master_8 before every return: nothing
+     * else reads the clock mid-scanline, so this keeps the hot loop off the static. */
+    uint64_t clock_8 = master_8;
     const uint32_t step_8 = cpu_step_8();
     while (clock_8 < deadline_8 && cpu_active())
     {
@@ -108,14 +111,14 @@ static bool run_until(uint64_t deadline_8, bool dbg)
             uint8_t sp;
             if (cpu_opcode_fetch(pins, &pc, &sp) && dbg_at_instruction(pc, sp))
             {
-                time_set_8(clock_8); /* commit before abandoning the frame */
+                master_8 = clock_8; /* commit before abandoning the frame */
                 return true;
             }
         }
     }
     if (clock_8 < deadline_8)
         clock_8 = deadline_8; /* halted: keep the master clock (time) flowing */
-    time_set_8(clock_8);
+    master_8 = clock_8;
     return false;
 }
 

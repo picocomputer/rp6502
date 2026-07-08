@@ -46,7 +46,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/host/png.c
     ${RP6502_SRC}/emu/host/posixdir.c
     ${RP6502_SRC}/emu/host/rand.c
-    ${RP6502_SRC}/emu/host/time.c
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/shim/pico/stdio.c
