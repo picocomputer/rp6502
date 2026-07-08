@@ -13,3 +13,4 @@
 #ifdef EMU_WITH_AUDIO
 #include "sokol_audio.h"
 #endif
+#include "util/sokol_debugtext.h"
