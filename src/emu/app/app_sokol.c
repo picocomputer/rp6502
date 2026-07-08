@@ -1120,6 +1120,16 @@ int rp6502_android_input_hook(const AInputEvent* event)
                         {
                             emu_rom_load(g_rom_files[g_rom_selected_index]);
                             emu_init();
+                            // Reset key and button states to prevent stuck inputs after closing the menu
+                            g_android_button0 = 0;
+                            g_android_button1 = 0;
+                            g_android_dpad = 0;
+                            g_android_lx = 0;
+                            g_android_ly = 0;
+                            g_android_rx = 0;
+                            g_android_ry = 0;
+                            g_android_lt = 0;
+                            g_android_rt = 0;
                             pad_connect(0, true);
                             g_android_menu_active = false;
                         }
