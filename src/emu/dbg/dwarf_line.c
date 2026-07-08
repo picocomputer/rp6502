@@ -196,6 +196,8 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
     if (version < 2 || version > 4)
         return; /* DWARF 5 has a different prologue; not emitted with -gdwarf-4 */
     uint32_t header_len = u32(c);
+    if (!c->ok || c->p > unit_end || header_len > (uint32_t)(unit_end - c->p))
+        return; /* header_length runs past the unit: corrupt prologue */
     const uint8_t *prog = c->p + header_len; /* program starts after the prologue */
 
     uint8_t min_inst = u8(c);

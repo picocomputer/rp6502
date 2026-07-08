@@ -53,6 +53,11 @@ const char *pro_take_exec(void)
     return exec_path;
 }
 
+bool pro_exec_pending(void)
+{
+    return exec_pending;
+}
+
 static uint16_t pro_argv_count(void)
 {
     for (uint16_t i = 0; i < XSTACK_SIZE / 2; i++)

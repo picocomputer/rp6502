@@ -268,6 +268,9 @@ bool g_stop_on_entry = false;
 bool g_stop_on_exit = true; /* present program exit as a stop, not a terminate */
 bool g_terminated = false;
 bool g_term_sent = false; /* a TerminatedEvent has gone out; don't repeat it at teardown */
+bool g_launch_requested = false; /* a launch reached pro_exec; used to detect a load that never started */
+unsigned g_stop_gen = 0;         /* bumped on each client-visible stop */
+unsigned g_varnodes_gen = ~0u;   /* the g_stop_gen g_varnodes were built for */
 std::vector<std::string> g_default_args; /* ROM argv[1..] for launch requests that carry none */
 
 void post(std::function<void()> fn)
@@ -297,6 +300,7 @@ const char *reason_str(int r)
 
 void send_stopped(int reason)
 {
+    g_stop_gen++; /* a new stop: expandable-variable refs from the last one are stale */
     if (!g_session)
         return;
     dap::StoppedEvent ev;
@@ -426,6 +430,35 @@ std::vector<Frame> g_frames;
  * clear of those, sized past the unwind's 64-frame cap). */
 constexpr int64_t LOCALS_REF_BASE = 200;
 constexpr int64_t LOCALS_REF_SPAN = 256;
+
+/* Name-resolution context for one frame. have_base false => compute the base live
+ * from pc (valid only for the innermost frame); true => use the base
+ * compute_frame_bases() reconstructed for a caller frame. */
+struct FrameCtx
+{
+    uint16_t pc = 0;
+    uint16_t base = 0;
+    bool base_ok = false;
+    bool have_base = false;
+};
+
+/* Map a client frameId to its resolution context. Falls back to the innermost
+ * frame (live base) when the stack hasn't been unwound or the id is out of range.
+ * Caller holds g_src_mtx. */
+FrameCtx frame_ctx(int64_t frameId)
+{
+    FrameCtx fc;
+    if (frameId >= 0 && (size_t)frameId < g_frames.size())
+    {
+        fc.pc = g_frames[(size_t)frameId].src_pc;
+        fc.base = g_frames[(size_t)frameId].base;
+        fc.base_ok = g_frames[(size_t)frameId].base_ok;
+        fc.have_base = true;
+    }
+    else
+        fc.pc = dbg_stop_pc();
+    return fc;
+}
 
 /* A 6502 stack slot holds a JSR return address when a JSR (0x20) sits at pushed−2
  * and its operand is EXACTLY a known function's entry. Requiring the entry (not
@@ -805,14 +838,15 @@ void store_scalar(uint16_t addr, int sz, int64_t value)
         ram[(uint16_t)(addr + i)] = (uint8_t)((uint64_t)value >> (8 * i));
 }
 
-bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
+bool resolve_ident(const std::string &name, const FrameCtx &fc, EvalResult &r)
 {
     if (g_dinfo)
     {
-        dwarf_var_t buf[256];
-        uint16_t fb = 0;
-        bool fb_ok = dwarf_info_frame_base(g_dinfo, pc, dap_readmem, &fb);
-        int n = dwarf_info_locals(g_dinfo, pc, fb, fb_ok, buf, 256);
+        dwarf_var_t buf[512];
+        uint16_t fb = fc.base;
+        bool fb_ok = fc.have_base ? fc.base_ok
+                                  : dwarf_info_frame_base(g_dinfo, fc.pc, dap_readmem, &fb);
+        int n = dwarf_info_locals(g_dinfo, fc.pc, fb, fb_ok, buf, 512);
         for (int i = 0; i < n; i++)
             if (name == buf[i].name)
             {
@@ -820,7 +854,7 @@ bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
                 r.addr = buf[i].addr; r.addr_ok = buf[i].addr_ok; r.type = buf[i].type;
                 return true;
             }
-        int m = dwarf_info_globals(g_dinfo, buf, 256);
+        int m = dwarf_info_globals(g_dinfo, buf, 512);
         for (int i = 0; i < m; i++)
             if (name == buf[i].name)
             {
@@ -831,10 +865,11 @@ bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
     }
     else if (g_cc65)
     {
-        cc65var_t buf[256];
-        uint16_t fb = 0;
-        bool fb_ok = cc65dbg_frame_base(g_cc65, pc, dap_readmem, &fb);
-        int n = cc65dbg_locals(g_cc65, pc, fb, fb_ok, buf, 256);
+        cc65var_t buf[512];
+        uint16_t fb = fc.base;
+        bool fb_ok = fc.have_base ? fc.base_ok
+                                  : cc65dbg_frame_base(g_cc65, fc.pc, dap_readmem, &fb);
+        int n = cc65dbg_locals(g_cc65, fc.pc, fb, fb_ok, buf, 512);
         for (int i = 0; i < n; i++)
             if (name == buf[i].name)
             {
@@ -843,7 +878,7 @@ bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
                 r.width = buf[i].size ? buf[i].size : 2;
                 return true;
             }
-        int m = cc65dbg_globals(g_cc65, buf, 256);
+        int m = cc65dbg_globals(g_cc65, buf, 512);
         for (int i = 0; i < m; i++)
             if (name == buf[i].name)
             {
@@ -860,9 +895,21 @@ bool resolve_ident(const std::string &name, uint16_t pc, EvalResult &r)
 struct Eval
 {
     const char *p;
-    uint16_t pc;
+    FrameCtx fc;
+    int depth = 0;
     bool err = false;
     std::string errmsg;
+
+    /* Bound native recursion: the descent re-enters through expr() (parentheses,
+     * '[' index) and unary() (prefix operators), so a pathological expression like
+     * "((((...))))" or "----x" would otherwise overflow the C stack. */
+    static constexpr int MAX_DEPTH = 256;
+    struct Depth
+    {
+        Eval &e;
+        Depth(Eval &ev) : e(ev) { if (++e.depth > MAX_DEPTH) e.fail("expression nesting too deep"); }
+        ~Depth() { --e.depth; }
+    };
 
     static bool is_alpha(char c) { return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '_'; }
     static bool is_dig(char c) { return c >= '0' && c <= '9'; }
@@ -877,7 +924,7 @@ struct Eval
         return s;
     }
 
-    EvalResult expr() { return lor(); }
+    EvalResult expr() { Depth d(*this); if (err) return EvalResult{}; return lor(); }
 
     EvalResult lor()
     {
@@ -957,8 +1004,8 @@ struct Eval
             p++;
             EvalResult b = mul();
             if (err) return a;
-            a = ev_rvalue(op == '+' ? load_scalar(a) + load_scalar(b)
-                                    : load_scalar(a) - load_scalar(b));
+            uint64_t x = (uint64_t)load_scalar(a), y = (uint64_t)load_scalar(b);
+            a = ev_rvalue((int64_t)(op == '+' ? x + y : x - y));
         }
         return a;
     }
@@ -974,15 +1021,26 @@ struct Eval
             EvalResult b = unary();
             if (err) return a;
             int64_t x = load_scalar(a), y = load_scalar(b);
-            a = ev_rvalue(op == '*' ? x * y : (y == 0 ? 0 : op == '/' ? x / y : x % y));
+            int64_t res;
+            if (op == '*')
+                res = (int64_t)((uint64_t)x * (uint64_t)y);
+            else if (y == 0)
+                res = 0;                                  /* keep the existing "div by zero -> 0" */
+            else if (x == INT64_MIN && y == -1)
+                res = (op == '/') ? INT64_MIN : 0;        /* the one signed-overflow div/mod case */
+            else
+                res = (op == '/') ? x / y : x % y;
+            a = ev_rvalue(res);
         }
         return a;
     }
     EvalResult unary()
     {
+        Depth d(*this);
+        if (err) return EvalResult{};
         skip();
         char c = *p;
-        if (c == '-') { p++; return ev_rvalue(-load_scalar(unary())); }
+        if (c == '-') { p++; return ev_rvalue((int64_t)(0 - (uint64_t)load_scalar(unary()))); }
         if (c == '+') { p++; return unary(); }
         if (c == '*') { p++; return deref(unary()); }
         if (c == '&')
@@ -1131,7 +1189,7 @@ struct Eval
         {
             std::string nm = ident();
             EvalResult r;
-            if (!resolve_ident(nm, pc, r)) fail(r.err);
+            if (!resolve_ident(nm, fc, r)) fail(r.err);
             return r;
         }
         fail(std::string("unexpected '") + (c ? c : '?') + "'");
@@ -1139,17 +1197,26 @@ struct Eval
     }
 };
 
-/* Evaluate expr at frame pc. On success .ok is set; else .err holds a message. */
-EvalResult eval_expr(const char *expr, uint16_t pc)
+/* Evaluate expr in the given frame context. On success .ok is set; else .err
+ * holds a message. */
+EvalResult eval_expr_at(const char *expr, const FrameCtx &fc)
 {
     Eval e;
     e.p = expr;
-    e.pc = pc;
+    e.fc = fc;
     EvalResult r = e.expr();
     e.skip();
     if (!e.err && *e.p) e.fail("trailing input");
     if (e.err) { EvalResult bad; bad.ok = false; bad.err = e.errmsg; return bad; }
     return r;
+}
+
+/* Evaluate expr at the innermost frame's pc (live base). */
+EvalResult eval_expr(const char *expr, uint16_t pc)
+{
+    FrameCtx fc;
+    fc.pc = pc;
+    return eval_expr_at(expr, fc);
 }
 
 /* Resolve an expanded aggregate child (a g_varnodes entry + a DAP child name like
@@ -1162,7 +1229,7 @@ EvalResult resolve_child(const VarNode &pn, const std::string &name)
     base.type = pn.type;
     Eval e;
     e.p = "";
-    e.pc = dbg_stop_pc();
+    e.fc.pc = dbg_stop_pc();
     if (!name.empty() && name[0] == '[')
         return e.index(base, strtoll(name.c_str() + 1, nullptr, 10));
     if (name == "*")
@@ -1182,12 +1249,12 @@ std::vector<uint8_t> b64decode(const std::string &s)
         return -1;
     };
     std::vector<uint8_t> out;
-    int buf = 0, bits = 0;
+    unsigned buf = 0, bits = 0;
     for (char c : s)
     {
         int v = val(c);
         if (v < 0) continue;
-        buf = (buf << 6) | v;
+        buf = ((buf << 6) | (unsigned)v) & 0xFFFFu; /* keep only the pending bits */
         bits += 6;
         if (bits >= 8) { bits -= 8; out.push_back((uint8_t)((buf >> bits) & 0xFF)); }
     }
@@ -1421,6 +1488,7 @@ extern "C" void dap_start(void)
                 }
                 pro_exec(program.c_str());
             }
+            g_launch_requested = true; /* dap_pump can now detect a load that never started */
         });
         return dap::LaunchResponse();
     });
@@ -1496,8 +1564,16 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler([](const dap::StackTraceRequest &req) {
         dap::StackTraceResponse r;
-        /* a fresh stop: invalidate last stop's expandable-variable refs + frames */
-        g_varnodes.clear();
+        /* Invalidate expandable-variable refs only on a genuinely new stop — VS Code
+         * issues several StackTrace requests per stop when paging the call stack
+         * (supportsDelayedStackTraceLoading), and refs already handed to the client
+         * must keep resolving across those pages. g_frames is always rebuilt (cheap,
+         * deterministic). */
+        if (g_varnodes_gen != g_stop_gen)
+        {
+            g_varnodes.clear();
+            g_varnodes_gen = g_stop_gen;
+        }
         g_frames.clear();
         {
             /* file/fn/unwind all read the source map; hold g_src_mtx so a
@@ -1834,7 +1910,9 @@ extern "C" void dap_start(void)
             std::lock_guard<std::mutex> lk(g_src_mtx);
             if (!g_dinfo && !g_cc65)
                 return dap::Error("no debug info loaded");
-            EvalResult e = eval_expr(req.expression.c_str(), dbg_stop_pc());
+            /* Evaluate in the client-selected frame (watch/hover on a caller frame),
+             * not always the innermost one. */
+            EvalResult e = eval_expr_at(req.expression.c_str(), frame_ctx(req.frameId.value(0)));
             if (!e.ok)
                 return dap::Error(e.err);
             dap::EvaluateResponse r;
@@ -1864,7 +1942,12 @@ extern "C" void dap_start(void)
         [](const dap::SetVariableRequest &req) -> dap::ResponseOrError<dap::SetVariableResponse> {
             std::lock_guard<std::mutex> lk(g_src_mtx);
             int64_t ref = req.variablesReference;
-            EvalResult rhs = eval_expr(req.value.c_str(), dbg_stop_pc());
+            /* The Locals scope ref encodes the frame (LOCALS_REF_BASE + frameId);
+             * resolve both the value expression and the target in that frame. */
+            int64_t fid = (ref >= LOCALS_REF_BASE && ref < LOCALS_REF_BASE + LOCALS_REF_SPAN)
+                              ? ref - LOCALS_REF_BASE : -1;
+            FrameCtx fc = frame_ctx(fid);
+            EvalResult rhs = eval_expr_at(req.value.c_str(), fc);
             if (!rhs.ok)
                 return dap::Error(rhs.err);
             int64_t val = load_scalar(rhs);
@@ -1893,8 +1976,8 @@ extern "C" void dap_start(void)
                     return dap::Error("stale variable reference");
                 tgt = resolve_child(g_varnodes[idx], req.name);
             }
-            else /* Locals (2) / Globals (3) */
-                resolve_ident(req.name, dbg_stop_pc(), tgt);
+            else /* Locals (LOCALS_REF_BASE + frameId) / Globals (3) */
+                resolve_ident(req.name, fc, tgt);
             if (!tgt.ok || !tgt.lvalue)
                 return dap::Error(tgt.ok ? "not assignable" : tgt.err);
             if (!tgt.addr_ok)
@@ -1912,12 +1995,13 @@ extern "C" void dap_start(void)
     g_session->registerHandler(
         [](const dap::SetExpressionRequest &req) -> dap::ResponseOrError<dap::SetExpressionResponse> {
             std::lock_guard<std::mutex> lk(g_src_mtx);
-            EvalResult tgt = eval_expr(req.expression.c_str(), dbg_stop_pc());
+            FrameCtx fc = frame_ctx(req.frameId.value(0));
+            EvalResult tgt = eval_expr_at(req.expression.c_str(), fc);
             if (!tgt.ok || !tgt.lvalue)
                 return dap::Error(tgt.ok ? "expression is not assignable" : tgt.err);
             if (!tgt.addr_ok)
                 return dap::Error("value is not in memory");
-            EvalResult rhs = eval_expr(req.value.c_str(), dbg_stop_pc());
+            EvalResult rhs = eval_expr_at(req.value.c_str(), fc);
             if (!rhs.ok)
                 return dap::Error(rhs.err);
             int w = tgt.type ? (int)dwarf_type_size(tgt.type) : tgt.width;
@@ -1965,7 +2049,13 @@ extern "C" void dap_start(void)
                     e = resolve_child(g_varnodes[idx], req.name);
             }
             else
-                e = eval_expr(req.name.c_str(), dbg_stop_pc());
+            {
+                /* The variable's Locals scope ref (if any) names its frame. */
+                int64_t ref = req.variablesReference.value(-1);
+                int64_t fid = (ref >= LOCALS_REF_BASE && ref < LOCALS_REF_BASE + LOCALS_REF_SPAN)
+                                  ? ref - LOCALS_REF_BASE : -1;
+                e = eval_expr_at(req.name.c_str(), frame_ctx(fid));
+            }
             if (!e.ok || !e.lvalue || !e.addr_ok)
             {
                 r.dataId = dap::null();
@@ -2083,6 +2173,25 @@ extern "C" void dap_pump(void)
             dbg_continue();
     }
 
+    /* A launched program that never reached its entry point: rom_load failed at the
+     * frame commit (CPU left halted, entry stop unconsumed) or an empty program was
+     * launched. Without this the session hangs — both the entry-resolve branch above
+     * and the exit branch below wait on g_reached_entry / g_launch_done. Resolve the
+     * launch so the exit branch announces/terminates. pro_exec_pending() excludes the
+     * window between pro_exec() and its commit. */
+    if (!g_launch_done && g_launch_requested && g_configured.load() &&
+        !g_reached_entry && !pro_exec_pending() && cpu_halted() && !dbg_is_stopped())
+    {
+        g_launch_done = true;
+        if (g_session)
+        {
+            dap::OutputEvent ev;
+            ev.category = "console";
+            ev.output = "rp6502-emu: program failed to start\n";
+            g_session->send(ev);
+        }
+    }
+
     /* Program exit (once): either keep the session alive in a stopped state so
      * the final screen + machine state stay inspectable until the client
      * disconnects (stopOnExit, the default), or terminate the session. */
@@ -2093,6 +2202,7 @@ extern "C" void dap_pump(void)
             ; /* no client */
         else if (g_stop_on_exit)
         {
+            g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
             dbg_note_stop(m6502_pc(cpu())); /* present halt as a stop */
             dap::StoppedEvent ev;
             ev.reason = "exited";

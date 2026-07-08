@@ -28,6 +28,7 @@ void pro_init(void); /* clear any pending exec (cold boot) */
  * loop commits it via pro_take_exec(). */
 void pro_exec(const char *rom_path);
 const char *pro_take_exec(void); /* the pending exec path, cleared, else NULL */
+bool pro_exec_pending(void);     /* an exec is queued but not yet committed */
 
 /* Launcher chain (firmware pro.h), reached by the vendored atr.c through the
  * LAUNCHER/EXIT_CODE attributes. A launcher re-runs after each child exits;

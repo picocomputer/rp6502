@@ -325,6 +325,8 @@ static const abbrev *abbrev_find(const abbrev_tab *t, uint32_t code)
 }
 static void abbrev_parse(abbrev_tab *t, const uint8_t *base, const uint8_t *end, uint32_t off)
 {
+    if (base > end || off > (uint32_t)(end - base))
+        return; /* abbrev offset past the section: leave the table empty */
     cur c = {base + off, end, true};
     for (;;)
     {
