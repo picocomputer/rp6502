@@ -40,11 +40,6 @@ bool cpu_run_until(uint64_t deadline_8, bool dbg);
 bool cpu_halted(void);
 void cpu_set_halted(bool halted);
 
-/* Raw master clock in 1/8-of-a-256MHz-tick units (2048 per microsecond). The
- * host time shim (host/time.c) converts it to the virtual microsecond clock;
- * deterministic — the same number of frames always yields the same value. */
-uint64_t cpu_clock_8(void);
-
 /* The live 65C02 instance, for the debugger UI + DAP register access (the
  * debug code casts to m6502_t*, which includes the chip header, so this need
  * not pull it in). */

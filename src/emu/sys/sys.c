@@ -10,6 +10,7 @@
 #include "emu/api/std.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
+#include "emu/host/time.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
@@ -52,7 +53,8 @@ static inline uint64_t scanline_deadline_8(uint64_t n)
 void sys_init(void)
 {
     pro_init();
-    cpu_init(); /* master clock to boot, default PHI2 (--phi2 reapplies after sys_init) */
+    time_reset(); /* the virtual master clock starts at boot */
+    cpu_init();   /* default PHI2 (--phi2 reapplies after sys_init) */
     scanline_n = 0;
     s_frame_count = 0;
     aud_init(); /* fill the shared sine table (no PWM off-device) */

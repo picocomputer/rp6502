@@ -8,6 +8,7 @@
 #include "emu/chips/rp6502.h"
 #include "emu/chips/w65c02.h"
 #include "emu/dbg/dbg.h"
+#include "emu/host/time.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/via.h"
@@ -23,12 +24,6 @@ void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
 /* The live 65C02 instance, for the debugger UI + DAP register access. */
 void *cpu_chip(void) { return &cpu; }
-
-/* The master clock in 1/8-of-a-256MHz-tick units. Held that fine so the PHI2
- * fractional divider lands on an integer per-cycle step. Wraps in centuries. */
-static uint64_t master_8;
-
-uint64_t cpu_clock_8(void) { return master_8; }
 
 /* ------------------------------------------------------------------ */
 /* PHI2 (the 6502 clock), a fractional divider of the master clock     */
@@ -93,7 +88,6 @@ static inline uint64_t bus_cycle(uint64_t p)
 
 void cpu_init(void)
 {
-    master_8 = 0; /* run time starts at boot */
     cpu_set_phi2_khz_run(CPU_PHI2_DEFAULT);
 }
 
@@ -106,13 +100,13 @@ void cpu_reset(void)
 
 bool cpu_run_until(uint64_t deadline_8, bool dbg)
 {
-    while (master_8 < deadline_8 && !halted)
+    while (time_clock_8() < deadline_8 && !halted)
     {
         pins = m6502_tick(&cpu, pins);
         pins = via_tick(pins);  /* counts the VIA timers + drives M6502_IRQ */
         pins = ria_tick(pins);  /* RIA window access + additive $FFF0 IRQ (after the VIA) */
         pins = bus_cycle(pins); /* RAM (the peripheral windows were serviced above) */
-        master_8 += master_per_cycle_8;
+        time_advance_8(master_per_cycle_8);
         if (dbg)
         {
             /* Feed the on-screen overlay's ui_dbg view every cycle (its
@@ -128,7 +122,7 @@ bool cpu_run_until(uint64_t deadline_8, bool dbg)
                 return true; /* clock deliberately NOT clamped: frame abandoned */
         }
     }
-    if (master_8 < deadline_8)
-        master_8 = deadline_8; /* halted: keep the master clock (time) flowing */
+    if (time_clock_8() < deadline_8)
+        time_set_8(deadline_8); /* halted: keep the master clock (time) flowing */
     return false;
 }
