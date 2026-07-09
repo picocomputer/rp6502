@@ -6,6 +6,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 endif()
 
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_ok OUTPUT ipo_msg)
+if(ipo_ok AND CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_STANDARD 17)
@@ -19,23 +25,21 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
+    ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/api/clk.c
     ${RP6502_SRC}/emu/api/oem.c
     ${RP6502_SRC}/emu/api/pro.c
     ${RP6502_SRC}/emu/api/std_drivers.c
     ${RP6502_SRC}/emu/aud/aud.c
-    ${RP6502_SRC}/emu/aud/snd.c
     ${RP6502_SRC}/emu/chips/w65c02.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
-    ${RP6502_SRC}/emu/host/dir.c
-    ${RP6502_SRC}/emu/host/fat.c
+    ${RP6502_SRC}/emu/api/hostfs.c
+    ${RP6502_SRC}/emu/api/tmpfs.c
     ${RP6502_SRC}/emu/host/msc.c
-    ${RP6502_SRC}/emu/host/png.c
-    ${RP6502_SRC}/emu/host/posixdir.c
-    ${RP6502_SRC}/emu/host/rand.c
+    ${RP6502_SRC}/emu/app/rand.c
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/shim/pico/stdio.c
@@ -43,7 +47,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
     ${RP6502_SRC}/emu/sys/ria.c
-    ${RP6502_SRC}/emu/sys/sys.c
     ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/sys/via.c
     ${RP6502_SRC}/emu/sys/xreg.c
@@ -68,6 +71,19 @@ add_library(emu_core STATIC
     ${RP6502_VENDOR}/fatfs/ff.c
     ${RP6502_VENDOR}/fatfs/ffunicode.c
 )
+
+# Platform filesystem primitives: one folder compiled per OS; both define the same
+# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c stays portable. File I/O + entropy
+# seams follow in a later pass.
+if(WIN32)
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/win/dir.c
+        ${RP6502_SRC}/emu/win/fs.c)
+else()
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/posix/dir.c
+        ${RP6502_SRC}/emu/posix/fs.c)
+endif()
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -150,7 +166,7 @@ if(EMU_HAS_WINDOW)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/app_sokol.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c)
 if(EMU_HAS_WINDOW)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c)
 endif()
@@ -186,7 +202,7 @@ else()
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/app_sokol.c
+        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c
             PROPERTIES COMPILE_FLAGS "-x objective-c")
         target_link_libraries(rp6502-emu PRIVATE
             "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit")
@@ -269,6 +285,7 @@ else()
             ${RP6502_SRC}/emu/dbg/dap.cpp
             ${RP6502_SRC}/emu/dbg/dbgui_layout.cc
             ${RP6502_SRC}/emu/dbg/dbgui.cc
+            ${RP6502_SRC}/emu/dbg/dwarf_cursor.c
             ${RP6502_SRC}/emu/dbg/dwarf_info.c
             ${RP6502_SRC}/emu/dbg/dwarf_line.c
             ${RP6502_SRC}/emu/dbg/imgui_impl.cc

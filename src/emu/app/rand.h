@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_RAND_H_
-#define _EMU_RAND_H_
+#ifndef _EMU_APP_RAND_H_
+#define _EMU_APP_RAND_H_
 
 #include <stdint.h>
 
@@ -17,10 +17,10 @@ extern "C"
 
 /* Force a fixed lrand seed for reproducible runs. With no seed set,
  * get_rand_64 defaults to host entropy. */
-void emu_set_random_seed(uint64_t seed);
+void rand_set_seed(uint64_t seed);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_RAND_H_ */
+#endif /* _EMU_APP_RAND_H_ */

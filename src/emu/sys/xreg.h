@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_XREG_H_
-#define _EMU_XREG_H_
+#ifndef _EMU_SYS_XREG_H_
+#define _EMU_SYS_XREG_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -17,10 +17,10 @@ extern "C"
 #endif
 
 /* Returns false on an unhandled device/channel (caller maps to EINVAL). */
-bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word);
+bool xreg_write(uint8_t device, uint8_t channel, uint8_t address, uint16_t word);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_XREG_H_ */
+#endif /* _EMU_SYS_XREG_H_ */

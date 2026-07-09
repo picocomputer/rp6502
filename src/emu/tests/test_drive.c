@@ -16,10 +16,10 @@
 #include "emu/api/std.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/dir.h"
+#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
 #include "emu/sys/mem.h"
-#include "emu/host/fat.h"
+#include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -40,7 +40,7 @@ static bool fresh(void)
 {
     char tmpl[] = "/tmp/drive_test_XXXXXX";
     const char *d = mkdtemp(tmpl);
-    char resolved[HOST_MSC_MAX_PATH];
+    char resolved[MSC_MAX_PATH];
     if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
@@ -59,7 +59,7 @@ static void make_file(const char *rel, const char *data, uint16_t n)
 }
 
 /* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
- * firmware, ONLY the boot/exec loader resolves it (fs_resolve_rom + emu_rom_load);
+ * firmware, ONLY the boot/exec loader resolves it (install_resolve + rom_load);
  * a 6502 open(":name") is not special — it goes to MSC0: and fails. Installs are
  * separate from MSC0: (a same-named host file is untouched) and coexist. */
 UTEST(drive, install_resolve_and_load)
@@ -69,29 +69,29 @@ UTEST(drive, install_resolve_and_load)
     /* A real MSC0: file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
 
-    ASSERT_TRUE(fs_install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" -> ADVENTURE_ROM */
+    ASSERT_TRUE(install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" -> ADVENTURE_ROM */
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
-    char second[HOST_MSC_MAX_PATH];
+    char second[MSC_MAX_PATH];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
-    ASSERT_TRUE(fs_install_rom(second));
+    ASSERT_TRUE(install_rom(second));
 
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
-    char host[HOST_MSC_MAX_PATH];
-    ASSERT_TRUE(fs_resolve_rom(":adventure.rp6502", host, sizeof(host)));
+    char host[MSC_MAX_PATH];
+    ASSERT_TRUE(install_resolve(":adventure.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, ADVENTURE_ROM);
-    ASSERT_TRUE(fs_resolve_rom(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
+    ASSERT_TRUE(install_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
     ASSERT_STREQ(host, ADVENTURE_ROM);
-    ASSERT_TRUE(fs_resolve_rom(":second.rp6502", host, sizeof(host)));
+    ASSERT_TRUE(install_resolve(":second.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, second);
     /* An uninstalled or empty ":name" does not resolve. */
-    ASSERT_FALSE(fs_resolve_rom(":nope.rp6502", host, sizeof(host)));
-    ASSERT_FALSE(fs_resolve_rom(":", host, sizeof(host)));
+    ASSERT_FALSE(install_resolve(":nope.rp6502", host, sizeof(host)));
+    ASSERT_FALSE(install_resolve(":", host, sizeof(host)));
 
     /* The boot/exec loader streams the installed file. */
-    ASSERT_TRUE(emu_rom_load(":adventure.rp6502"));
+    ASSERT_TRUE(rom_load(":adventure.rp6502"));
 
     /* A 6502 open(":name") is NOT a thing — like the firmware it goes to MSC0:,
      * where a leading ":" is refused; the install never leaks to the host fs. */
@@ -113,29 +113,29 @@ UTEST(drive, install_resolve_and_load)
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
-    ASSERT_TRUE(fs_install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
+    ASSERT_TRUE(install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
-    host_dir_api_stat();
+    hostfs_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":");
-    host_dir_api_opendir();
+    hostfs_api_opendir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    host_dir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":"); /* not a cwd-able drive */
-    host_dir_api_chdrive();
+    hostfs_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    host_dir_api_unlink();
+    hostfs_api_unlink();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":sub");
-    host_dir_api_mkdir();
+    hostfs_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
     dsys_path("MSC0::adventure.rp6502");
-    host_dir_api_stat();
+    hostfs_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
 }
 
@@ -145,8 +145,8 @@ UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    char cwd[HOST_MSC_MAX_PATH], expect[HOST_MSC_MAX_PATH];
-    host_dir_api_getcwd();
+    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
@@ -164,12 +164,12 @@ UTEST(drive, mount_transparent_no_chroot)
 
     /* chdir into a subdir; getcwd tracks the native cwd. */
     dsys_path("sub");
-    host_dir_api_mkdir();
+    hostfs_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("sub");
-    host_dir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    host_dir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
     ASSERT_STREQ(cwd, expect);
@@ -177,16 +177,16 @@ UTEST(drive, mount_transparent_no_chroot)
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
      * old --drive-root chroot would have refused this with EACCES). */
     dsys_path("..");
-    host_dir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    host_dir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
-    host_dir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    host_dir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
@@ -198,8 +198,8 @@ UTEST(drive, mount_transparent_no_chroot)
 UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
     std_stop();
-    ASSERT_TRUE(host_fat_mount());
-    ASSERT_TRUE(host_fat_active()); /* the 6502 syscalls now route to the RAM FatFs */
+    ASSERT_TRUE(tmpfs_mount());
+    ASSERT_TRUE(tmpfs_active()); /* the 6502 syscalls now route to the RAM FatFs */
 
     /* getcwd reports the FatFs volume root, not a host path. */
     char cwd[64];
@@ -226,15 +226,15 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     ssys_close(f);
 
     /* Deactivate the FatFs backend so later tests use the host filesystem. */
-    host_fat_unmount();
+    tmpfs_unmount();
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (host_msc_set_async): the driver submits the transfer and returns STD_PENDING
+ * (msc_set_async): the driver submits the transfer and returns STD_PENDING
  * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
  * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
  * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
- * across reads, EOF, and lseek interop. Left in sync mode for the other tests. */
+ * across reads, EOF, and lseek interop. */
 static void async_aio_body(int *utest_result)
 {
     char src[5000];
@@ -267,9 +267,9 @@ static void async_aio_body(int *utest_result)
 UTEST(drive, async_aio_transfer)
 {
     ASSERT_TRUE(fresh());
-    host_msc_set_async(true);
+    msc_set_async(true);
     async_aio_body(utest_result);
-    host_msc_set_async(false); /* leave the suite in sync mode for the other tests */
+    msc_set_async(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()

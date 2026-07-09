@@ -5,7 +5,6 @@
  */
 
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
 
 uint8_t ram[0x10000];
 uint8_t xram[0x10000];
@@ -22,6 +21,3 @@ volatile uint8_t xram_queue_page;
 volatile uint8_t xram_queue_head;
 volatile uint8_t xram_queue_tail;
 volatile uint8_t xram_queue[256][2];
-
-bool emu_cpu_halted = false;
-int emu_exit_code = 0;

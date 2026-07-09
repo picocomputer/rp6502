@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_MOU_H_
-#define _EMU_MOU_H_
+#ifndef _EMU_HID_MOU_H_
+#define _EMU_HID_MOU_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -39,4 +39,4 @@ void mou_reset(void);
 }
 #endif
 
-#endif /* _EMU_MOU_H_ */
+#endif /* _EMU_HID_MOU_H_ */

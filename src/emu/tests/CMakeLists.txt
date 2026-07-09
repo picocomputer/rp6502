@@ -85,14 +85,14 @@ set_tests_properties(dbg PROPERTIES TIMEOUT 60)
 # build of vars.c) is committed, so this runs with no toolchain or window.
 # vars.c is deliberately header-less so its line numbers match the committed
 # .debug_line; prepending a license header shifts them and breaks dwarf_line. ---
-add_executable(test_dwarf_info test_dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_info.c)
+add_executable(test_dwarf_info test_dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
 target_include_directories(test_dwarf_info PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf_info PRIVATE VARS_ELF="${ROMS}/vars.elf")
 add_test(NAME dwarf_info COMMAND test_dwarf_info)
 
 # --- DWARF .debug_line address<->source mapping (dwarf_line.c). Reuses the same
 # committed vars.elf fixture (it also carries .debug_line + .symtab). ---
-add_executable(test_dwarf_line test_dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_line.c)
+add_executable(test_dwarf_line test_dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
 target_include_directories(test_dwarf_line PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf_line PRIVATE VARS_ELF="${ROMS}/vars.elf")
 add_test(NAME dwarf_line COMMAND test_dwarf_line)

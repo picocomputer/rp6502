@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_COM_H_
-#define _EMU_COM_H_
+#ifndef _EMU_SYS_COM_H_
+#define _EMU_SYS_COM_H_
 
 #include "ria/sys/com.h"
 
@@ -44,4 +44,4 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len));
 }
 #endif
 
-#endif /* _EMU_COM_H_ */
+#endif /* _EMU_SYS_COM_H_ */

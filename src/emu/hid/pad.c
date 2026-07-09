@@ -159,23 +159,23 @@ void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
 #include <emscripten.h>
 
 /* Bridge for web/index.html's Gamepad-API poller. The page only touches the
- * browser Gamepad API once emu_pad_mapped() reports a program has pointed the
+ * browser Gamepad API once pad_mapped() reports a program has pointed the
  * report block at XRAM (xreg_ria_gamepad), so no gamepad access happens until a
- * ROM asks for it. emu_pad_report writes one player's decoded state; the page
+ * ROM asks for it. pad_report writes one player's decoded state; the page
  * computes the canonical bit layout from the browser's "standard" mapping. */
-EMSCRIPTEN_KEEPALIVE int emu_pad_mapped(void)
+EMSCRIPTEN_KEEPALIVE int pad_mapped(void)
 {
     return pad_is_mapped() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE void emu_pad_report(int player, int dpad, int button0, int button1,
+EMSCRIPTEN_KEEPALIVE void pad_report(int player, int dpad, int button0, int button1,
                                          int lx, int ly, int rx, int ry, int lt, int rt, int sony)
 {
     pad_host_report(player, (uint8_t)dpad, (uint8_t)button0, (uint8_t)button1,
                     lx, ly, rx, ry, lt, rt, sony != 0);
 }
 
-EMSCRIPTEN_KEEPALIVE void emu_pad_disconnect(int player)
+EMSCRIPTEN_KEEPALIVE void pad_disconnect(int player)
 {
     pad_connect(player, false);
 }

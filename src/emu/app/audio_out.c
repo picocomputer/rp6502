@@ -26,7 +26,7 @@ void audio_out_pump(void)
 {
     if (!saudio_isvalid())
         return;
-    int in_rate = emu_audio_rate();
+    int in_rate = aud_rate();
     int out_rate = saudio_sample_rate();
     if (in_rate <= 0 || out_rate <= 0)
         return;
@@ -35,7 +35,7 @@ void audio_out_pump(void)
     static float in[4096 * 2];
     static float out[4096 * 2];
     int navail;
-    while ((navail = emu_audio_read(in, 4096)) > 0)
+    while ((navail = aud_read(in, 4096)) > 0)
     {
         int oc = 0;
         for (int i = 0; i < navail; i++)

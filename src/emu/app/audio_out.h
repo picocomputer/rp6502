@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_AUDIO_OUT_H_
-#define _EMU_AUDIO_OUT_H_
+#ifndef _EMU_APP_AUDIO_OUT_H_
+#define _EMU_APP_AUDIO_OUT_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -21,4 +21,4 @@ void audio_out_pump(void);
 }
 #endif
 
-#endif /* _EMU_AUDIO_OUT_H_ */
+#endif /* _EMU_APP_AUDIO_OUT_H_ */

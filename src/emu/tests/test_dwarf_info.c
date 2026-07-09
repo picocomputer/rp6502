@@ -29,6 +29,18 @@ static uint8_t fake_mem(uint16_t a)
     return 0;
 }
 
+/* main's real prologue at its entry $02c4 (from llvm-objdump): it lowers the
+ * soft SP rc0:rc1 by $000B via `clc; lda $00; adc #$f5; sta $00; lda $01;
+ * adc #$ff; sta $01`, so dwarf_info_frame_size reads a frame of 11 bytes. */
+static uint8_t fake_prologue_mem(uint16_t a)
+{
+    static const uint8_t pro[13] = {0x18, 0xA5, 0x00, 0x69, 0xF5, 0x85, 0x00,
+                                    0xA5, 0x01, 0x69, 0xFF, 0x85, 0x01};
+    if (a >= 0x02c4 && a < 0x02c4 + 13)
+        return pro[a - 0x02c4];
+    return 0;
+}
+
 static const dwarf_var_t *find(const dwarf_var_t *v, int n, const char *name)
 {
     for (int i = 0; i < n; i++)
@@ -179,7 +191,10 @@ UTEST(dwarf_info, locals_in_scope)
     dwarf_info_t *di = dwarf_info_load(VARS_ELF);
     ASSERT_TRUE(di != NULL);
     dwarf_var_t v[64];
-    int n = dwarf_info_locals(di, 0x300, fake_mem, v, 64); /* inside main [0x2c4,0x3ef) */
+    uint16_t fb = 0;
+    ASSERT_TRUE(dwarf_info_frame_base(di, 0x300, fake_mem, &fb)); /* inside main [0x2c4,0x3ef) */
+    ASSERT_EQ((int)fb, 0x0500);
+    int n = dwarf_info_locals(di, 0x300, fb, true, v, 64);
     ASSERT_TRUE(n >= 3);
 
     const dwarf_var_t *li = find(v, n, "local_i");
@@ -196,8 +211,27 @@ UTEST(dwarf_info, locals_in_scope)
     ASSERT_TRUE(lpc != NULL);
     ASSERT_EQ((int)dwarf_type_kind(lpc->type), (int)DW_KIND_POINTER);
 
+    /* a caller frame whose base couldn't be reconstructed -> fbreg unresolvable */
+    n = dwarf_info_locals(di, 0x300, fb, false, v, 64);
+    ASSERT_TRUE(n >= 3);
+    ASSERT_FALSE(find(v, n, "local_i")->addr_ok); /* DW_OP_fbreg */
+
     /* outside any function -> no locals */
-    ASSERT_EQ(dwarf_info_locals(di, 0x0010, fake_mem, v, 64), 0);
+    ASSERT_EQ(dwarf_info_locals(di, 0x0010, fb, true, v, 64), 0);
+    dwarf_info_free(di);
+}
+
+/* The exact soft-stack frame size comes from the prologue, not the DWARF locals
+ * (which undercount: main's visible span is 9, the prologue allocates 11). */
+UTEST(dwarf_info, frame_size_from_prologue)
+{
+    dwarf_info_t *di = dwarf_info_load(VARS_ELF);
+    ASSERT_TRUE(di != NULL);
+    uint16_t alloc = 0xffff;
+    ASSERT_TRUE(dwarf_info_frame_size(di, 0x300, fake_prologue_mem, &alloc));
+    ASSERT_EQ((int)alloc, 11);
+    /* pc outside any known function -> can't size (fail-closed) */
+    ASSERT_FALSE(dwarf_info_frame_size(di, 0x0010, fake_prologue_mem, &alloc));
     dwarf_info_free(di);
 }
 

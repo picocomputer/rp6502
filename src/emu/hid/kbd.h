@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_KBD_H_
-#define _EMU_KBD_H_
+#ifndef _EMU_HID_KBD_H_
+#define _EMU_HID_KBD_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -18,8 +18,7 @@ extern "C"
 
 /* Non-character keys, mapped to the same xterm/VT byte sequences the firmware
  * USB HID driver emits (ria/hid/kbd.c). Printable keys arrive as UTF-8 text via
- * kbd_text() instead. The window layer (app_sokol) translates host key events
- * into these; tests/headless inject directly. */
+ * kbd_text() instead. */
 typedef enum
 {
     KBD_KEY_ENTER,
@@ -70,8 +69,11 @@ bool kbd_set_xram(uint16_t addr);
 void kbd_hid_set(uint8_t hid_keycode, bool down);
 void kbd_reset(void);
 
+/* Toggle a lock LED in the HID bitmap (Num=1, Caps=2, Scroll=4). */
+void kbd_toggle_lock(uint8_t bit);
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_KBD_H_ */
+#endif /* _EMU_HID_KBD_H_ */

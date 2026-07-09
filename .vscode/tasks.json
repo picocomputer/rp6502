@@ -117,7 +117,7 @@
             "command": "ctest",
             "args": [
                 "--test-dir",
-                "${workspaceFolder}/build/emulator",
+                "${workspaceFolder}/build/emulator/debug",
                 "--output-on-failure"
             ],
             "dependsOn": "emu: Build (Debug)",
