@@ -16,6 +16,7 @@
  */
 
 #include "emu/dbg/dwarf_info.h"
+#include "emu/dbg/dwarf_cursor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -172,67 +173,9 @@ struct dwarf_info
     int nsyms;
 };
 
-/* ---- byte cursor ---- */
-typedef struct
-{
-    const uint8_t *p, *end;
-    bool ok;
-} cur;
+/* Byte cursor (dwarf_cur + dwarf_u8/dwarf_u16/dwarf_u32/dwarf_u64/dwarf_uleb/dwarf_sleb) is in dwarf_cursor.c. */
 
-static uint8_t u8(cur *c)
-{
-    if (c->p >= c->end) { c->ok = false; return 0; }
-    return *c->p++;
-}
-static uint16_t u16(cur *c)
-{
-    uint16_t a = u8(c), b = u8(c);
-    return (uint16_t)(a | (b << 8));
-}
-static uint32_t u32(cur *c)
-{
-    uint32_t a = u16(c), b = u16(c);
-    return a | (b << 16);
-}
-static uint64_t u64(cur *c)
-{
-    uint64_t a = u32(c), b = u32(c);
-    return a | (b << 32);
-}
-static uint64_t uleb(cur *c)
-{
-    uint64_t v = 0;
-    int shift = 0;
-    for (;;)
-    {
-        uint8_t b = u8(c);
-        if (!c->ok) break;
-        v |= (uint64_t)(b & 0x7f) << shift;
-        if (!(b & 0x80)) break;
-        shift += 7;
-        if (shift > 63) { c->ok = false; break; }
-    }
-    return v;
-}
-static int64_t sleb(cur *c)
-{
-    int64_t v = 0;
-    int shift = 0;
-    uint8_t b = 0;
-    do
-    {
-        b = u8(c);
-        if (!c->ok) break;
-        v |= (int64_t)(b & 0x7f) << shift;
-        shift += 7;
-        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
-    } while (b & 0x80);
-    if (shift < 64 && (b & 0x40))
-        v |= -((int64_t)1 << shift);
-    return v;
-}
-
-/* uleb/sleb over a raw byte span (for stored expression bytes at query time) */
+/* dwarf_uleb/dwarf_sleb over a raw byte span (for stored expression bytes at query time) */
 static uint64_t uleb_raw(const uint8_t *p, const uint8_t *end, const uint8_t **out)
 {
     uint64_t v = 0;
@@ -327,20 +270,20 @@ static void abbrev_parse(abbrev_tab *t, const uint8_t *base, const uint8_t *end,
 {
     if (base > end || off > (uint32_t)(end - base))
         return; /* abbrev offset past the section: leave the table empty */
-    cur c = {base + off, end, true};
+    dwarf_cur c = {base + off, end, true};
     for (;;)
     {
-        uint32_t code = (uint32_t)uleb(&c);
+        uint32_t code = (uint32_t)dwarf_uleb(&c);
         if (!c.ok || code == 0)
             break;
-        uint16_t tag = (uint16_t)uleb(&c);
-        uint8_t children = u8(&c);
+        uint16_t tag = (uint16_t)dwarf_uleb(&c);
+        uint8_t children = dwarf_u8(&c);
         ab_attr *attrs = NULL;
         int n = 0;
         for (;;)
         {
-            uint16_t at = (uint16_t)uleb(&c);
-            uint16_t fm = (uint16_t)uleb(&c);
+            uint16_t at = (uint16_t)dwarf_uleb(&c);
+            uint16_t fm = (uint16_t)dwarf_uleb(&c);
             if (!c.ok || (at == 0 && fm == 0))
                 break;
             ab_attr *na = realloc(attrs, (n + 1) * sizeof(ab_attr));
@@ -413,7 +356,7 @@ typedef struct
 enum { FV_U, FV_I, FV_STR, FV_BLOCK, FV_REF };
 
 /* read one attribute value of `form`; cu_off is the CU header start (for refs) */
-static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
+static void read_form(dwarf_cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
                       const char *dstr, uint32_t dstr_size,
                       const char *dlstr, uint32_t dlstr_size, formval *v)
 {
@@ -422,27 +365,27 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
     {
     case DW_FORM_addr:
         v->kind = FV_U;
-        v->u = (addr_size == 8) ? u64(c) : u32(c);
+        v->u = (addr_size == 8) ? dwarf_u64(c) : dwarf_u32(c);
         break;
-    case DW_FORM_data1: v->kind = FV_U; v->u = u8(c); break;
-    case DW_FORM_data2: v->kind = FV_U; v->u = u16(c); break;
-    case DW_FORM_data4: v->kind = FV_U; v->u = u32(c); break;
-    case DW_FORM_data8: v->kind = FV_U; v->u = u64(c); break;
-    case DW_FORM_sdata: v->kind = FV_I; v->s = sleb(c); break;
-    case DW_FORM_udata: v->kind = FV_U; v->u = uleb(c); break;
-    case DW_FORM_flag: v->kind = FV_U; v->u = u8(c); break;
+    case DW_FORM_data1: v->kind = FV_U; v->u = dwarf_u8(c); break;
+    case DW_FORM_data2: v->kind = FV_U; v->u = dwarf_u16(c); break;
+    case DW_FORM_data4: v->kind = FV_U; v->u = dwarf_u32(c); break;
+    case DW_FORM_data8: v->kind = FV_U; v->u = dwarf_u64(c); break;
+    case DW_FORM_sdata: v->kind = FV_I; v->s = dwarf_sleb(c); break;
+    case DW_FORM_udata: v->kind = FV_U; v->u = dwarf_uleb(c); break;
+    case DW_FORM_flag: v->kind = FV_U; v->u = dwarf_u8(c); break;
     case DW_FORM_flag_present: v->kind = FV_U; v->u = 1; break;
-    case DW_FORM_sec_offset: v->kind = FV_U; v->u = u32(c); break;
+    case DW_FORM_sec_offset: v->kind = FV_U; v->u = dwarf_u32(c); break;
     case DW_FORM_strp:
     {
-        uint32_t o = u32(c);
+        uint32_t o = dwarf_u32(c);
         v->kind = FV_STR;
         v->str = (o < dstr_size) ? dstr + o : "";
         break;
     }
     case DW_FORM_line_strp:
     {
-        uint32_t o = u32(c);
+        uint32_t o = dwarf_u32(c);
         v->kind = FV_STR;
         v->str = (dlstr && o < dlstr_size) ? dlstr + o : "";
         break;
@@ -455,15 +398,15 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
         if (c->p < c->end) c->p++;
         break;
     }
-    case DW_FORM_ref1: v->kind = FV_REF; v->u = cu_off + u8(c); break;
-    case DW_FORM_ref2: v->kind = FV_REF; v->u = cu_off + u16(c); break;
-    case DW_FORM_ref4: v->kind = FV_REF; v->u = cu_off + u32(c); break;
-    case DW_FORM_ref8: v->kind = FV_REF; v->u = cu_off + u64(c); break;
-    case DW_FORM_ref_udata: v->kind = FV_REF; v->u = cu_off + uleb(c); break;
-    case DW_FORM_ref_addr: v->kind = FV_REF; v->u = u32(c); break;
+    case DW_FORM_ref1: v->kind = FV_REF; v->u = cu_off + dwarf_u8(c); break;
+    case DW_FORM_ref2: v->kind = FV_REF; v->u = cu_off + dwarf_u16(c); break;
+    case DW_FORM_ref4: v->kind = FV_REF; v->u = cu_off + dwarf_u32(c); break;
+    case DW_FORM_ref8: v->kind = FV_REF; v->u = cu_off + dwarf_u64(c); break;
+    case DW_FORM_ref_udata: v->kind = FV_REF; v->u = cu_off + dwarf_uleb(c); break;
+    case DW_FORM_ref_addr: v->kind = FV_REF; v->u = dwarf_u32(c); break;
     case DW_FORM_exprloc:
     {
-        uint64_t n = uleb(c);
+        uint64_t n = dwarf_uleb(c);
         if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
@@ -476,10 +419,10 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
     case DW_FORM_block4:
     case DW_FORM_block:
     {
-        uint64_t n = (form == DW_FORM_block1) ? u8(c)
-                     : (form == DW_FORM_block2) ? u16(c)
-                     : (form == DW_FORM_block4) ? u32(c)
-                                                : uleb(c);
+        uint64_t n = (form == DW_FORM_block1) ? dwarf_u8(c)
+                     : (form == DW_FORM_block2) ? dwarf_u16(c)
+                     : (form == DW_FORM_block4) ? dwarf_u32(c)
+                                                : dwarf_uleb(c);
         if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
@@ -674,7 +617,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
     cu.di = di;
     cu.addr_size = addr_size;
 
-    cur c = {cu_data, cu_end, true};
+    dwarf_cur c = {cu_data, cu_end, true};
     int stack[64];
     const int stack_max = (int)(sizeof stack / sizeof stack[0]);
     int depth = 0;
@@ -683,7 +626,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
     while (c.p < cu_end && c.ok)
     {
         uint32_t off = (uint32_t)(c.p - info);
-        uint32_t code = (uint32_t)uleb(&c);
+        uint32_t code = (uint32_t)dwarf_uleb(&c);
         if (code == 0)
         {
             if (depth == 0) break;
@@ -713,7 +656,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
             uint16_t at = a->attrs[i].attr;
             uint16_t fm = a->attrs[i].form;
             if (fm == DW_FORM_indirect)
-                fm = (uint16_t)uleb(&c);
+                fm = (uint16_t)dwarf_uleb(&c);
             formval v;
             read_form(&c, fm, addr_size, cu_off, dstr, dstr_size, dlstr, dlstr_size, &v);
             if (!c.ok) break;
@@ -1047,24 +990,24 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
     const uint8_t *ab_end = ab_base + abbrev_size;
 
     /* walk the compilation units */
-    cur c = {info, info_end, true};
+    dwarf_cur c = {info, info_end, true};
     while (c.p + 4 <= info_end && c.ok)
     {
         const uint8_t *unit_start = c.p;
         uint32_t cu_off = (uint32_t)(unit_start - info);
-        uint32_t unit_len = u32(&c);
+        uint32_t unit_len = dwarf_u32(&c);
         if (unit_len == 0 || unit_len == 0xffffffffu)
             break;
         const uint8_t *unit_end = unit_start + 4 + unit_len;
         if (unit_end > info_end) unit_end = info_end;
 
-        uint16_t version = u16(&c);
+        uint16_t version = dwarf_u16(&c);
         uint32_t ab_off;
         uint8_t addr_size;
         if (version >= 2 && version <= 4)
         {
-            ab_off = u32(&c);
-            addr_size = u8(&c);
+            ab_off = dwarf_u32(&c);
+            addr_size = dwarf_u8(&c);
         }
         else
         {

@@ -10,6 +10,7 @@
  */
 
 #include "emu/dbg/dwarf_line.h"
+#include "emu/dbg/dwarf_cursor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,69 +54,7 @@ struct dwarf_line
     int nsections;
 };
 
-/* ---- byte cursor over a buffer ---- */
-typedef struct
-{
-    const uint8_t *p, *end;
-    bool ok;
-} cur;
-
-static uint8_t u8(cur *c)
-{
-    if (c->p >= c->end) { c->ok = false; return 0; }
-    return *c->p++;
-}
-static uint16_t u16(cur *c)
-{
-    uint16_t a = u8(c), b = u8(c);
-    return (uint16_t)(a | (b << 8));
-}
-static uint32_t u32(cur *c)
-{
-    uint32_t a = u16(c), b = u16(c);
-    return a | (b << 16);
-}
-static uint64_t uleb(cur *c)
-{
-    uint64_t v = 0;
-    int shift = 0;
-    for (;;)
-    {
-        uint8_t b = u8(c);
-        if (!c->ok) break;
-        v |= (uint64_t)(b & 0x7f) << shift;
-        if (!(b & 0x80)) break;
-        shift += 7;
-        if (shift > 63) { c->ok = false; break; }
-    }
-    return v;
-}
-static int64_t sleb(cur *c)
-{
-    int64_t v = 0;
-    int shift = 0;
-    uint8_t b = 0;
-    do
-    {
-        b = u8(c);
-        if (!c->ok) break;
-        v |= (int64_t)(b & 0x7f) << shift;
-        shift += 7;
-        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
-    } while (b & 0x80);
-    if (shift < 64 && (b & 0x40))
-        v |= -((int64_t)1 << shift);
-    return v;
-}
-static const char *cstr(cur *c)
-{
-    const char *s = (const char *)c->p;
-    while (c->p < c->end && *c->p)
-        c->p++;
-    if (c->p >= c->end) { c->ok = false; return ""; }
-    c->p++; /* skip NUL */
-    return s;
-}
+/* Byte cursor (dwarf_cur + dwarf_u8/dwarf_u16/dwarf_u32/dwarf_uleb/dwarf_sleb/dwarf_cstr) is in dwarf_cursor.c. */
 
 /* ---- growable string + row pools on the dwarf_line_t ---- */
 static const char *intern(dwarf_line_t *dl, const char *s)
@@ -190,29 +129,29 @@ enum
 };
 
 /* Parse one line-number program unit at [c->p, unit_end). DWARF 2-4 only. */
-static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
+static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end)
 {
-    uint16_t version = u16(c);
+    uint16_t version = dwarf_u16(c);
     if (version < 2 || version > 4)
         return; /* DWARF 5 has a different prologue; not emitted with -gdwarf-4 */
-    uint32_t header_len = u32(c);
+    uint32_t header_len = dwarf_u32(c);
     if (!c->ok || c->p > unit_end || header_len > (uint32_t)(unit_end - c->p))
         return; /* header_length runs past the unit: corrupt prologue */
     const uint8_t *prog = c->p + header_len; /* program starts after the prologue */
 
-    uint8_t min_inst = u8(c);
+    uint8_t min_inst = dwarf_u8(c);
     if (version >= 4)
-        (void)u8(c); /* maximum_operations_per_instruction */
-    uint8_t default_is_stmt = u8(c);
-    int8_t line_base = (int8_t)u8(c);
-    uint8_t line_range = u8(c);
-    uint8_t opcode_base = u8(c);
+        (void)dwarf_u8(c); /* maximum_operations_per_instruction */
+    uint8_t default_is_stmt = dwarf_u8(c);
+    int8_t line_base = (int8_t)dwarf_u8(c);
+    uint8_t line_range = dwarf_u8(c);
+    uint8_t opcode_base = dwarf_u8(c);
     if (!c->ok || min_inst == 0 || line_range == 0)
         return;
     uint8_t std_len[256];
     memset(std_len, 0, sizeof std_len);
     for (int i = 1; i < opcode_base && i < 256; i++)
-        std_len[i] = u8(c);
+        std_len[i] = dwarf_u8(c);
 
     /* include_directories (1-based), terminated by an empty string. */
     const char *dirs[64];
@@ -220,7 +159,7 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
     dirs[0] = ""; /* index 0 = compilation directory (unknown here) */
     for (;;)
     {
-        const char *d = cstr(c);
+        const char *d = dwarf_cstr(c);
         if (!c->ok || d[0] == 0)
             break;
         if (++ndirs < 64)
@@ -234,12 +173,12 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
     files[0] = "";
     for (;;)
     {
-        const char *name = cstr(c);
+        const char *name = dwarf_cstr(c);
         if (!c->ok || name[0] == 0)
             break;
-        uint64_t di = uleb(c);
-        (void)uleb(c); /* mtime */
-        (void)uleb(c); /* length */
+        uint64_t di = dwarf_uleb(c);
+        (void)dwarf_uleb(c); /* mtime */
+        (void)dwarf_uleb(c); /* length */
         char full[1024];
         if (name[0] == '/' || di == 0 || di >= (uint64_t)(ndirs + 1) || di >= 64)
             snprintf(full, sizeof full, "%s", name);
@@ -260,14 +199,14 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
 
     while (c->p < unit_end && c->ok)
     {
-        uint8_t op = u8(c);
+        uint8_t op = dwarf_u8(c);
         if (op == 0)
         {
             /* extended opcode */
-            uint64_t len = uleb(c);
+            uint64_t len = dwarf_uleb(c);
             if (len > (uint64_t)(unit_end - c->p)) { c->ok = false; break; }
             const uint8_t *next = c->p + len;
-            uint8_t sub = u8(c);
+            uint8_t sub = dwarf_u8(c);
             if (sub == LNE_end_sequence)
             {
                 push_row(dl, address, NULL, line, true);
@@ -282,7 +221,7 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
                 int nb = (int)len - 1; /* address size = operand bytes */
                 for (int i = 0; i < nb; i++)
                 {
-                    uint8_t b = u8(c);
+                    uint8_t b = dwarf_u8(c);
                     if (i < 4)
                         a |= (uint32_t)b << (8 * i);
                 }
@@ -299,16 +238,16 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
                 push_row(dl, address, (file >= 0 && file < nfiles + 1 && file < 256) ? files[file] : "", line, false);
                 break;
             case LNS_advance_pc:
-                address += (uint32_t)(uleb(c) * min_inst);
+                address += (uint32_t)(dwarf_uleb(c) * min_inst);
                 break;
             case LNS_advance_line:
-                line += (int)sleb(c);
+                line += (int)dwarf_sleb(c);
                 break;
             case LNS_set_file:
-                file = (int)uleb(c);
+                file = (int)dwarf_uleb(c);
                 break;
             case LNS_set_column:
-                (void)uleb(c);
+                (void)dwarf_uleb(c);
                 break;
             case LNS_negate_stmt:
                 is_stmt = !is_stmt;
@@ -319,18 +258,18 @@ static void parse_unit(dwarf_line_t *dl, cur *c, const uint8_t *unit_end)
                 address += (uint32_t)(((255 - opcode_base) / line_range) * min_inst);
                 break;
             case LNS_fixed_advance_pc:
-                address += u16(c);
+                address += dwarf_u16(c);
                 break;
             case LNS_set_prologue_end:
             case LNS_set_epilogue_begin:
                 break;
             case LNS_set_isa:
-                (void)uleb(c);
+                (void)dwarf_uleb(c);
                 break;
             default:
                 /* unknown standard opcode: skip its ULEB operands */
                 for (int i = 0; i < std_len[op]; i++)
-                    (void)uleb(c);
+                    (void)dwarf_uleb(c);
                 break;
             }
         }
@@ -508,17 +447,17 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
     }
 
     /* Walk the (possibly multiple) units in .debug_line. */
-    cur c = {buf + dl_off, buf + dl_off + dl_size, true};
+    dwarf_cur c = {buf + dl_off, buf + dl_off + dl_size, true};
     while (c.p + 4 <= c.end && c.ok)
     {
         const uint8_t *unit_start = c.p;
-        uint32_t unit_len = u32(&c);
+        uint32_t unit_len = dwarf_u32(&c);
         if (unit_len == 0 || unit_len == 0xffffffffu)
             break; /* 0 / 64-bit DWARF: stop */
         const uint8_t *unit_end = unit_start + 4 + unit_len;
         if (unit_end > c.end)
             unit_end = c.end;
-        cur uc = {c.p, unit_end, true};
+        dwarf_cur uc = {c.p, unit_end, true};
         parse_unit(dl, &uc, unit_end);
         c.p = unit_end;
     }

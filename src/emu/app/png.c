@@ -19,6 +19,14 @@ static void put_be32(FILE *f, uint32_t v)
     fputc(v & 0xFF, f);
 }
 
+static void put_be32_buf(uint8_t *dst, uint32_t v)
+{
+    dst[0] = (v >> 24) & 0xFF;
+    dst[1] = (v >> 16) & 0xFF;
+    dst[2] = (v >> 8) & 0xFF;
+    dst[3] = v & 0xFF;
+}
+
 static void write_chunk(FILE *f, const char *type, const uint8_t *data, uint32_t len)
 {
     put_be32(f, len);
@@ -54,10 +62,8 @@ bool png_write(const char *path, int w, int h, const uint32_t *rgba)
     fwrite(sig, 1, 8, f);
 
     uint8_t ihdr[13];
-    ihdr[0] = (w >> 24) & 0xFF; ihdr[1] = (w >> 16) & 0xFF;
-    ihdr[2] = (w >> 8) & 0xFF;  ihdr[3] = w & 0xFF;
-    ihdr[4] = (h >> 24) & 0xFF; ihdr[5] = (h >> 16) & 0xFF;
-    ihdr[6] = (h >> 8) & 0xFF;  ihdr[7] = h & 0xFF;
+    put_be32_buf(ihdr, (uint32_t)w);
+    put_be32_buf(ihdr + 4, (uint32_t)h);
     ihdr[8] = 8;  /* bit depth */
     ihdr[9] = 6;  /* color type: truecolor + alpha */
     ihdr[10] = 0; /* compression */
@@ -118,10 +124,8 @@ bool png_write(const char *path, int w, int h, const uint32_t *rgba)
         off += block;
     }
     uint32_t ad = adler32(raw, raw_len);
-    zs[zn++] = (ad >> 24) & 0xFF;
-    zs[zn++] = (ad >> 16) & 0xFF;
-    zs[zn++] = (ad >> 8) & 0xFF;
-    zs[zn++] = ad & 0xFF;
+    put_be32_buf(zs + zn, ad);
+    zn += 4;
 
     write_chunk(f, "IDAT", zs, (uint32_t)zn);
     write_chunk(f, "IEND", NULL, 0);

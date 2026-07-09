@@ -237,19 +237,15 @@ static bool std_xreg(void)
     uint8_t channel = xstack[XSTACK_SIZE - 2];
     uint8_t address = xstack[XSTACK_SIZE - 3];
     int count = (int)((XSTACK_SIZE - xstack_ptr - 3) / 2);
-    if ((xstack_ptr & 1) == 0 || count < 1 || count > XSTACK_SIZE / 2 ||
+    bool aligned = (xstack_ptr & 1) != 0;
+    xstack_ptr = XSTACK_SIZE; /* args consumed; nothing below reads xstack_ptr */
+    if (!aligned || count < 1 || count > XSTACK_SIZE / 2 ||
         device > 7 || channel > 15)
-    {
-        xstack_ptr = XSTACK_SIZE;
         return api_return_errno(API_EINVAL);
-    }
     /* VGA control channel ($F) is RIA-private while VGA is connected (always,
      * in the emulator), so a write NAKs (mirrors ria/sys/pix.c). */
     if (device == 1 && channel == 0xF)
-    {
-        xstack_ptr = XSTACK_SIZE;
         return api_return_errno(API_EACCES);
-    }
     /* word[i] lives at xstack[SIZE-5-2i] and targets address+i. Hardware
      * dispatch order: a VGA channel-0 multi-word call starting at address 0
      * sends the canvas word (address 0) first so it can't clear later mode
@@ -258,22 +254,15 @@ static bool std_xreg(void)
      * address 1) land after its parameters. */
     bool canvas_first = (device == 1 && channel == 0 && address == 0 && count > 1);
     if (canvas_first && !xreg_write(device, channel, address, word_at(0)))
-    {
-        xstack_ptr = XSTACK_SIZE;
         return api_return_errno(API_EINVAL);
-    }
     for (int i = count - 1; i >= (canvas_first ? 1 : 0); i--)
     {
         /* PIX_DEVICE_RIA (device 0) holds the address constant (last-wins);
          * only the VGA/non-RIA path walks address+i. */
         uint8_t reg = device ? (uint8_t)(address + i) : address;
         if (!xreg_write(device, channel, reg, word_at(i)))
-        {
-            xstack_ptr = XSTACK_SIZE;
             return api_return_errno(API_EINVAL);
-        }
     }
-    xstack_ptr = XSTACK_SIZE;
     return api_return_ax(0);
 }
 

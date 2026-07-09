@@ -176,6 +176,43 @@ static int32_t fi32(const char *rec, const char *key, int32_t def)
     return neg ? -m : m;
 }
 
+/* key's value equals lit (whole-string; field() already stripped quotes). */
+static bool field_is(const char *rec, const char *key, const char *lit)
+{
+    const char *v;
+    size_t n;
+    size_t l = strlen(lit);
+    return field(rec, key, &v, &n) && n == l && memcmp(v, lit, l) == 0;
+}
+
+/* Parse the next id from a "id" or "id+id+..." span list at *p (< end),
+ * advancing past a trailing '+' and skipping empty tokens. False at end. */
+static bool next_span_id(const char **p, const char *end, uint32_t *sid)
+{
+    while (*p < end)
+    {
+        uint32_t v = 0;
+        bool any = false;
+        while (*p < end && **p >= '0' && **p <= '9')
+        {
+            v = v * 10 + (uint32_t)(**p - '0');
+            (*p)++;
+            any = true;
+        }
+        bool plus = (*p < end && **p == '+');
+        if (plus)
+            (*p)++;
+        if (any)
+        {
+            *sid = v;
+            return true;
+        }
+        if (!plus)
+            break;
+    }
+    return false;
+}
+
 static const char *intern(cc65dbg_t *db, const char *s, size_t n)
 {
     char *dup = malloc(n + 1);
@@ -405,9 +442,7 @@ cc65dbg_t *cc65dbg_load(const char *path)
                 size_t n;
                 bool has_name = field(body, "name", &v, &n);
                 segcode[id] = has_name && n == 4 && strncmp(v, "CODE", 4) == 0;
-                const char *tv;
-                size_t tnn;
-                bool is_rw = field(body, "type", &tv, &tnn) && tnn == 2 && strncmp(tv, "rw", 2) == 0;
+                bool is_rw = field_is(body, "type", "rw");
                 bool is_rodata = has_name && n == 6 && strncmp(v, "RODATA", 6) == 0;
                 db->segs[id].name = has_name ? intern(db, v, n) : NULL;
                 db->segs[id].start = segstart[id];
@@ -427,10 +462,10 @@ cc65dbg_t *cc65dbg_load(const char *path)
         }
         else if (rec_is(line, "sym", &body))
         {
-            const char *tv, *nv;
-            size_t tn, nn;
-            bool is_lab = field(body, "type", &tv, &tn) && tn == 3 && strncmp(tv, "lab", 3) == 0;
-            bool is_imp = field(body, "type", &tv, &tn) && tn == 3 && strncmp(tv, "imp", 3) == 0;
+            const char *nv;
+            size_t nn;
+            bool is_lab = field_is(body, "type", "lab");
+            bool is_imp = field_is(body, "type", "imp");
             bool has_name = field(body, "name", &nv, &nn);
             uint32_t id = fu32(body, "id", 0xffffffff);
             uint32_t seg = fu32(body, "seg", 0xffffffff);
@@ -510,21 +545,14 @@ cc65dbg_t *cc65dbg_load(const char *path)
             if (id >= nscope || !field(body, "span", &sv, &sn))
                 continue; /* scopes without spans (e.g. struct) carry no PC range */
             const char *p = sv, *end = sv + sn;
-            while (p < end)
+            uint32_t sid;
+            while (next_span_id(&p, end, &sid))
             {
-                uint32_t sid = 0;
-                bool any = false;
-                while (p < end && *p >= '0' && *p <= '9')
-                {
-                    sid = sid * 10 + (uint32_t)(*p - '0');
-                    p++;
-                    any = true;
-                }
                 /* Only code-segment spans bound a scope's PC range. A cc65 scope
                  * also lists its static locals' spans, which sit in BSS/DATA far
                  * above the code; folding those in would balloon the hull to the
                  * whole program and make the scope's autos "in scope" everywhere. */
-                if (any && sid < nspan && spans[sid].seg < nseg &&
+                if (sid < nspan && spans[sid].seg < nseg &&
                     !db->segs[spans[sid].seg].is_data)
                 {
                     uint32_t lo = segstart[spans[sid].seg] + spans[sid].start;
@@ -533,8 +561,6 @@ cc65dbg_t *cc65dbg_load(const char *path)
                     if (!s->has) { s->lo = lo; s->hi = hi; s->has = true; }
                     else { if (lo < s->lo) s->lo = lo; if (hi > s->hi) s->hi = hi; }
                 }
-                if (p < end && *p == '+') p++;
-                else break;
             }
         }
         else if (rec_is(line, "csym", &body))
@@ -543,17 +569,11 @@ cc65dbg_t *cc65dbg_load(const char *path)
             size_t nn;
             if (!field(body, "name", &nv, &nn))
                 continue;
-            const char *scv;
-            size_t scn;
             bool is_auto = false, is_global = false;
-            if (field(body, "sc", &scv, &scn))
-            {
-                if (scn == 4 && strncmp(scv, "auto", 4) == 0)
-                    is_auto = true;
-                else if ((scn == 3 && strncmp(scv, "ext", 3) == 0) ||
-                         (scn == 6 && strncmp(scv, "static", 6) == 0))
-                    is_global = true;
-            }
+            if (field_is(body, "sc", "auto"))
+                is_auto = true;
+            else if (field_is(body, "sc", "ext") || field_is(body, "sc", "static"))
+                is_global = true;
             cc_csym cs;
             memset(&cs, 0, sizeof cs);
             cs.name = intern(db, nv, nn);
@@ -611,19 +631,11 @@ cc65dbg_t *cc65dbg_load(const char *path)
         const char *fname = (fileid < nfile && files[fileid]) ? files[fileid] : NULL;
         if (!fname || lno <= 0)
             continue;
-        /* span is "id" or "id+id+..." */
         const char *p = sv, *end = sv + sn;
-        while (p < end)
+        uint32_t sid;
+        while (next_span_id(&p, end, &sid))
         {
-            uint32_t sid = 0;
-            bool any = false;
-            while (p < end && *p >= '0' && *p <= '9')
-            {
-                sid = sid * 10 + (uint32_t)(*p - '0');
-                p++;
-                any = true;
-            }
-            if (any && sid < nspan && spans[sid].seg < nseg)
+            if (sid < nspan && spans[sid].seg < nseg)
             {
                 cc_row *nr = realloc(db->rows, (db->nrows + 1) * sizeof(cc_row));
                 if (nr)
@@ -636,10 +648,6 @@ cc65dbg_t *cc65dbg_load(const char *path)
                     db->nrows++;
                 }
             }
-            if (p < end && *p == '+')
-                p++;
-            else
-                break;
         }
     }
 

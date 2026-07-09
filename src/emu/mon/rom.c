@@ -346,20 +346,18 @@ static bool parse_u32(const char **pp, uint32_t *out)
         p++;
     uint32_t v = 0;
     int n = 0;
+    bool hex = false;
     if (*p == '$')
     {
+        hex = true;
         p++;
-        while (isxdigit((unsigned char)*p))
-        {
-            char c = *p++;
-            int d = (c <= '9') ? c - '0' : (toupper((unsigned char)c) - 'A' + 10);
-            v = v * 16 + (uint32_t)d;
-            n++;
-        }
     }
     else if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
     {
+        hex = true;
         p += 2;
+    }
+    if (hex)
         while (isxdigit((unsigned char)*p))
         {
             char c = *p++;
@@ -367,15 +365,12 @@ static bool parse_u32(const char **pp, uint32_t *out)
             v = v * 16 + (uint32_t)d;
             n++;
         }
-    }
     else
-    {
         while (isdigit((unsigned char)*p))
         {
             v = v * 10 + (uint32_t)(*p++ - '0');
             n++;
         }
-    }
     if (!n)
         return false;
     *pp = p;

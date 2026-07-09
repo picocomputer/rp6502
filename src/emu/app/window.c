@@ -263,12 +263,26 @@ static int top_reserved_px(void)
     return 0;
 }
 
+/* Window width that gives the canvas its square-pixel aspect (cw:ch) at height
+ * h; long math avoids overflow on tall canvases. */
+static int aspect_width(int h, int cw, int ch)
+{
+    return (int)((long)h * cw / ch);
+}
+
+/* Canvas height in framebuffer pixels for a requested --scale (VGA_MAX_HEIGHT
+ * rows at scale, rounded); inverse of window_get_scale. */
+static int scaled_canvas_height(double scale)
+{
+    return (int)(VGA_MAX_HEIGHT * scale + 0.5);
+}
+
 void window_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    int h = (int)(VGA_MAX_HEIGHT * scale + 0.5);
-    int w = (int)((long)h * cw / ch);
+    int h = scaled_canvas_height(scale);
+    int w = aspect_width(h, cw, ch);
     resize_window(w, h + top_reserved_px());
 }
 
@@ -553,7 +567,7 @@ static void frame_cb(void)
              * We don't poll-and-snap to enforce it: programmatic resizes are unreliable
              * under WSLg (it restores geometry and drops requests). Height is left
              * as-is; only the width tracks the aspect. */
-            int new_w = (int)((long)h * cw / ch);
+            int new_w = aspect_width(h, cw, ch);
             if (at_aspect && new_w != w)
                 resize_window(new_w, h);
         }
@@ -737,8 +751,8 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
      * — init_cb sets the aspect hint and the quad letterboxes either way. */
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    int canvas_h = (int)(VGA_MAX_HEIGHT * app.scale + 0.5);
-    int win_w = (int)((long)canvas_h * cw / ch);
+    int canvas_h = scaled_canvas_height(app.scale);
+    int win_w = aspect_width(canvas_h, cw, ch);
     int win_h = canvas_h;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())

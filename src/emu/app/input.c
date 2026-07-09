@@ -289,6 +289,18 @@ static void input_key(const sapp_event *e)
 
 static uint8_t mouse_buttons; /* host mouse button bitmap while captured */
 
+/* Set or clear a captured mouse button (0..2 = left/right/middle) and publish. */
+static void set_mouse_button(int btn, bool down)
+{
+    if (btn < 0 || btn > 2)
+        return;
+    if (down)
+        mouse_buttons |= (uint8_t)(1u << btn);
+    else
+        mouse_buttons &= (uint8_t)~(1u << btn);
+    mou_host_buttons(mouse_buttons);
+}
+
 void input_event(const sapp_event *e)
 {
     switch (e->type)
@@ -315,18 +327,12 @@ void input_event(const sapp_event *e)
             if (mou_is_mapped())
                 sapp_lock_mouse(true);
         }
-        else if (e->mouse_button >= 0 && e->mouse_button <= 2)
-        {
-            mouse_buttons |= (uint8_t)(1u << e->mouse_button);
-            mou_host_buttons(mouse_buttons);
-        }
+        else
+            set_mouse_button(e->mouse_button, true);
         break;
     case SAPP_EVENTTYPE_MOUSE_UP:
-        if (sapp_mouse_locked() && e->mouse_button >= 0 && e->mouse_button <= 2)
-        {
-            mouse_buttons &= (uint8_t)~(1u << e->mouse_button);
-            mou_host_buttons(mouse_buttons);
-        }
+        if (sapp_mouse_locked())
+            set_mouse_button(e->mouse_button, false);
         break;
     case SAPP_EVENTTYPE_MOUSE_MOVE:
         if (sapp_mouse_locked())

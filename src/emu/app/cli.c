@@ -210,6 +210,9 @@ int parse_args(int argc, char **argv, options *o)
     return 0;
 }
 
+/* Tokenizer whitespace: space, tab, CR, LF only (not isspace's \v/\f). */
+static bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
 int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
 {
     int argc = 0;
@@ -217,7 +220,7 @@ int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
     const char *p = s;
     while (*p && argc < max)
     {
-        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        while (is_ws(*p))
             p++;
         if (!*p)
             break;
@@ -239,7 +242,7 @@ int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
             }
             else
             {
-                if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+                if (is_ws(c))
                     break;
                 if (c == '"' || c == '\'')
                 {

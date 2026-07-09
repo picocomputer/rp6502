@@ -566,6 +566,15 @@ uint64_t mem_le(uint16_t addr, int n)
     return v;
 }
 
+/* Sign-extend the low sz bytes of raw to a full int64_t (sz<8 guards the
+ * shift-by-64 UB when sz==8). */
+int64_t sign_extend(uint64_t raw, int sz)
+{
+    if (sz < 8 && (raw & ((uint64_t)1 << (sz * 8 - 1))))
+        return (int64_t)(raw | (~(uint64_t)0 << (sz * 8)));
+    return (int64_t)raw;
+}
+
 std::string char_repr(uint8_t c)
 {
     char b[8];
@@ -622,9 +631,7 @@ std::string base_value(uint16_t addr, const dtype_t *t)
     uint64_t raw = mem_le(addr, sz);
     if (enc == DW_ATE_signed || enc == DW_ATE_signed_char)
     {
-        int64_t s = (int64_t)raw;
-        if (sz < 8 && (raw & ((uint64_t)1 << (sz * 8 - 1))))
-            s = (int64_t)(raw | (~(uint64_t)0 << (sz * 8)));
+        int64_t s = sign_extend(raw, sz);
         if (enc == DW_ATE_signed_char)
         {
             snprintf(b, sizeof b, " (%lld)", (long long)s);
@@ -823,9 +830,8 @@ int64_t load_scalar(const EvalResult &e)
     if (e.type && dwarf_type_kind(e.type) == DW_KIND_BASE)
     {
         int enc = dwarf_type_encoding(e.type);
-        if ((enc == DW_ATE_signed || enc == DW_ATE_signed_char) && sz < 8 &&
-            (raw & ((uint64_t)1 << (sz * 8 - 1))))
-            return (int64_t)(raw | (~(uint64_t)0 << (sz * 8)));
+        if (enc == DW_ATE_signed || enc == DW_ATE_signed_char)
+            return sign_extend(raw, sz);
     }
     return (int64_t)raw;
 }
