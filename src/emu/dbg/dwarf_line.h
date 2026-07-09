@@ -10,8 +10,8 @@
  * are the 6502 load addresses, i.e. the emulator's PC directly.
  */
 
-#ifndef _EMU_DWARF_LINE_H_
-#define _EMU_DWARF_LINE_H_
+#ifndef _EMU_DBG_DWARF_LINE_H_
+#define _EMU_DBG_DWARF_LINE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -43,6 +43,9 @@ bool dwarf_line_src_to_addr(const dwarf_line_t *dl, const char *file, int line,
  * owned by dl. */
 const char *dwarf_line_addr_to_func(const dwarf_line_t *dl, uint16_t addr);
 
+/* A function's entry address by name (.symtab STT_FUNC). False if not found. */
+bool dwarf_line_func_addr(const dwarf_line_t *dl, const char *name, uint16_t *addr);
+
 /* ---- allocatable ELF sections (.text/.data/.bss/.zp/...) ----
  * Each section's 6502 load address + size, for the memory-map view. */
 typedef struct
@@ -59,4 +62,4 @@ int dwarf_line_sections(const dwarf_line_t *dl, dwarf_section_t *out, int max);
 }
 #endif
 
-#endif /* _EMU_DWARF_LINE_H_ */
+#endif /* _EMU_DBG_DWARF_LINE_H_ */

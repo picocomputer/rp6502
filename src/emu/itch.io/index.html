@@ -213,14 +213,14 @@
       // ----- Gamepad bridge (browser Gamepad API -> emulator) -----
       // Privacy-gated: nothing reads navigator.getGamepads() until the running
       // program maps the gamepad report block into XRAM (it calls xreg_ria_gamepad,
-      // flipping emu_pad_mapped()). A 250 ms watcher checks that flag; only then
+      // flipping pad_mapped()). A 250 ms watcher checks that flag; only then
       // do we poll the four "standard mapping" pads per frame and forward each.
       // If the program releases the block we stop and resume watching, so the
       // browser only touches the gamepad while a ROM asks for it.
       function initGamepadBridge() {
-        var mapped = Module._emu_pad_mapped;
-        var report = Module._emu_pad_report;
-        var disconnect = Module._emu_pad_disconnect;
+        var mapped = Module._pad_mapped;
+        var report = Module._pad_report;
+        var disconnect = Module._pad_disconnect;
         if (!mapped || !report || !disconnect) return; // exports absent
 
         var polling = false, raf = 0, watch = 0;

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_PNG_H_
-#define _EMU_PNG_H_
+#ifndef _EMU_APP_PNG_H_
+#define _EMU_APP_PNG_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -16,10 +16,10 @@ extern "C"
 {
 #endif
 
-bool emu_write_png(const char *path, int w, int h, const uint32_t *rgba);
+bool png_write(const char *path, int w, int h, const uint32_t *rgba);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_PNG_H_ */
+#endif /* _EMU_APP_PNG_H_ */

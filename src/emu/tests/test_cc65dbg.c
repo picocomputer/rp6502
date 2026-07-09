@@ -93,13 +93,23 @@ UTEST(cc65dbg, ignores_non_c_lines)
 }
 
 /* cc65 `offs` is relative to the frame base (entry sp); the live sp sits
- * frame_size below it, so addr = sp + offs + frame_size. The fixture's main has
- * autos i@offs-2 and j@offs-4, so frame_size=4 -> i at sp+2, j at sp+0. */
+ * frame_size below it, so the frame base = live sp + frame_size and a local's
+ * address = frame_base + offs. The fixture's main has autos i@offs-2 and
+ * j@offs-4, so frame_size=4, frame base = $0500 + 4 = $0504. */
 UTEST(cc65dbg, locals_frame_base)
 {
     cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    ASSERT_EQ((int)cc65dbg_frame_size(db, 0x0240), 4); /* deepest auto j@-4 */
+    uint16_t base = 0;
+    ASSERT_TRUE(cc65dbg_frame_base(db, 0x0240, fake_mem, &base));
+    ASSERT_EQ((int)base, 0x0504); /* live sp($0500) + frame_size(4) */
+    /* main takes no parameters -> its argument region is exactly 0 (chainable). */
+    uint16_t argsz = 0xffff;
+    ASSERT_TRUE(cc65dbg_arg_size(db, 0x0240, &argsz));
+    ASSERT_EQ((int)argsz, 0);
+
     cc65var_t v[16];
-    int n = cc65dbg_locals(db, 0x0240, fake_mem, v, 16);
+    int n = cc65dbg_locals(db, 0x0240, base, true, v, 16);
     ASSERT_EQ(n, 2); /* i + j; the `main` csym is a function, not an auto */
     const cc65var_t *vi = NULL, *vj = NULL;
     for (int k = 0; k < n; k++)
@@ -109,10 +119,17 @@ UTEST(cc65dbg, locals_frame_base)
     }
     ASSERT_TRUE(vi && vj);
     ASSERT_TRUE(vi->addr_ok && vj->addr_ok);
-    ASSERT_EQ((int)vi->addr, 0x0502); /* sp($0500) + offs(-2) + frame_size(4) */
-    ASSERT_EQ((int)vj->addr, 0x0500); /* sp($0500) + offs(-4) + frame_size(4) */
+    ASSERT_EQ((int)vi->addr, 0x0502); /* base($0504) + offs(-2) */
+    ASSERT_EQ((int)vj->addr, 0x0500); /* base($0504) + offs(-4) */
+    /* widths from the offset gap: j@-4 -> i@-2 = 2; i@-2 -> frame base 0 = 2 */
+    ASSERT_EQ((int)vi->size, 2);
+    ASSERT_EQ((int)vj->size, 2);
+    /* a caller frame whose base couldn't be reconstructed -> unresolvable */
+    n = cc65dbg_locals(db, 0x0240, base, false, v, 16);
+    ASSERT_EQ(n, 2);
+    ASSERT_FALSE(v[0].addr_ok);
     /* outside the function scope -> no locals */
-    ASSERT_EQ(cc65dbg_locals(db, 0x0300, fake_mem, v, 16), 0);
+    ASSERT_EQ(cc65dbg_locals(db, 0x0300, base, true, v, 16), 0);
     cc65dbg_free(db);
 }
 
@@ -121,9 +138,12 @@ UTEST(cc65dbg, globals_via_import_chain)
     cc65dbg_t *db = cc65dbg_load(CC65_DBG);
     cc65var_t v[16];
     int n = cc65dbg_globals(db, v, 16);
-    ASSERT_EQ(n, 1); /* `gcounter`; the function `main` is excluded */
+    /* `gcounter` is recorded twice (its DATA label + the extern csym importing
+     * it) and deduped to one; the function `main` is excluded (CODE segment). */
+    ASSERT_EQ(n, 1);
     ASSERT_TRUE(strcmp(v[0].name, "gcounter") == 0);
-    ASSERT_EQ((int)v[0].addr, 0x0800); /* csym -> import sym -> exp -> data lab */
+    ASSERT_EQ((int)v[0].addr, 0x0800);
+    ASSERT_EQ((int)v[0].size, 2); /* the data lab carries an explicit size=2 */
     cc65dbg_free(db);
 }
 

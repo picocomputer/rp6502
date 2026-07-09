@@ -16,6 +16,7 @@
  */
 
 #include "emu/dbg/dwarf_info.h"
+#include "emu/dbg/dwarf_cursor.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -172,66 +173,9 @@ struct dwarf_info
     int nsyms;
 };
 
-/* ---- byte cursor ---- */
-typedef struct
-{
-    const uint8_t *p, *end;
-    bool ok;
-} cur;
+/* Byte cursor (dwarf_cur + dwarf_u8/dwarf_u16/dwarf_u32/dwarf_u64/dwarf_uleb/dwarf_sleb) is in dwarf_cursor.c. */
 
-static uint8_t u8(cur *c)
-{
-    if (c->p >= c->end) { c->ok = false; return 0; }
-    return *c->p++;
-}
-static uint16_t u16(cur *c)
-{
-    uint16_t a = u8(c), b = u8(c);
-    return (uint16_t)(a | (b << 8));
-}
-static uint32_t u32(cur *c)
-{
-    uint32_t a = u16(c), b = u16(c);
-    return a | (b << 16);
-}
-static uint64_t u64(cur *c)
-{
-    uint64_t a = u32(c), b = u32(c);
-    return a | (b << 32);
-}
-static uint64_t uleb(cur *c)
-{
-    uint64_t v = 0;
-    int shift = 0;
-    for (;;)
-    {
-        uint8_t b = u8(c);
-        if (!c->ok) break;
-        v |= (uint64_t)(b & 0x7f) << shift;
-        if (!(b & 0x80)) break;
-        shift += 7;
-        if (shift > 63) { c->ok = false; break; }
-    }
-    return v;
-}
-static int64_t sleb(cur *c)
-{
-    int64_t v = 0;
-    int shift = 0;
-    uint8_t b = 0;
-    do
-    {
-        b = u8(c);
-        if (!c->ok) break;
-        v |= (int64_t)(b & 0x7f) << shift;
-        shift += 7;
-    } while (b & 0x80);
-    if (shift < 64 && (b & 0x40))
-        v |= -((int64_t)1 << shift);
-    return v;
-}
-
-/* uleb/sleb over a raw byte span (for stored expression bytes at query time) */
+/* dwarf_uleb/dwarf_sleb over a raw byte span (for stored expression bytes at query time) */
 static uint64_t uleb_raw(const uint8_t *p, const uint8_t *end, const uint8_t **out)
 {
     uint64_t v = 0;
@@ -258,6 +202,7 @@ static int64_t sleb_raw(const uint8_t *p, const uint8_t *end)
         v |= (int64_t)(b & 0x7f) << shift;
         shift += 7;
         if (!(b & 0x80)) break;
+        if (shift > 63) break; /* malformed: guard the next <<shift (UB at >=64) */
     }
     if (shift < 64 && (b & 0x40))
         v |= -((int64_t)1 << shift);
@@ -323,20 +268,22 @@ static const abbrev *abbrev_find(const abbrev_tab *t, uint32_t code)
 }
 static void abbrev_parse(abbrev_tab *t, const uint8_t *base, const uint8_t *end, uint32_t off)
 {
-    cur c = {base + off, end, true};
+    if (base > end || off > (uint32_t)(end - base))
+        return; /* abbrev offset past the section: leave the table empty */
+    dwarf_cur c = {base + off, end, true};
     for (;;)
     {
-        uint32_t code = (uint32_t)uleb(&c);
+        uint32_t code = (uint32_t)dwarf_uleb(&c);
         if (!c.ok || code == 0)
             break;
-        uint16_t tag = (uint16_t)uleb(&c);
-        uint8_t children = u8(&c);
+        uint16_t tag = (uint16_t)dwarf_uleb(&c);
+        uint8_t children = dwarf_u8(&c);
         ab_attr *attrs = NULL;
         int n = 0;
         for (;;)
         {
-            uint16_t at = (uint16_t)uleb(&c);
-            uint16_t fm = (uint16_t)uleb(&c);
+            uint16_t at = (uint16_t)dwarf_uleb(&c);
+            uint16_t fm = (uint16_t)dwarf_uleb(&c);
             if (!c.ok || (at == 0 && fm == 0))
                 break;
             ab_attr *na = realloc(attrs, (n + 1) * sizeof(ab_attr));
@@ -409,7 +356,7 @@ typedef struct
 enum { FV_U, FV_I, FV_STR, FV_BLOCK, FV_REF };
 
 /* read one attribute value of `form`; cu_off is the CU header start (for refs) */
-static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
+static void read_form(dwarf_cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
                       const char *dstr, uint32_t dstr_size,
                       const char *dlstr, uint32_t dlstr_size, formval *v)
 {
@@ -418,27 +365,27 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
     {
     case DW_FORM_addr:
         v->kind = FV_U;
-        v->u = (addr_size == 8) ? u64(c) : u32(c);
+        v->u = (addr_size == 8) ? dwarf_u64(c) : dwarf_u32(c);
         break;
-    case DW_FORM_data1: v->kind = FV_U; v->u = u8(c); break;
-    case DW_FORM_data2: v->kind = FV_U; v->u = u16(c); break;
-    case DW_FORM_data4: v->kind = FV_U; v->u = u32(c); break;
-    case DW_FORM_data8: v->kind = FV_U; v->u = u64(c); break;
-    case DW_FORM_sdata: v->kind = FV_I; v->s = sleb(c); break;
-    case DW_FORM_udata: v->kind = FV_U; v->u = uleb(c); break;
-    case DW_FORM_flag: v->kind = FV_U; v->u = u8(c); break;
+    case DW_FORM_data1: v->kind = FV_U; v->u = dwarf_u8(c); break;
+    case DW_FORM_data2: v->kind = FV_U; v->u = dwarf_u16(c); break;
+    case DW_FORM_data4: v->kind = FV_U; v->u = dwarf_u32(c); break;
+    case DW_FORM_data8: v->kind = FV_U; v->u = dwarf_u64(c); break;
+    case DW_FORM_sdata: v->kind = FV_I; v->s = dwarf_sleb(c); break;
+    case DW_FORM_udata: v->kind = FV_U; v->u = dwarf_uleb(c); break;
+    case DW_FORM_flag: v->kind = FV_U; v->u = dwarf_u8(c); break;
     case DW_FORM_flag_present: v->kind = FV_U; v->u = 1; break;
-    case DW_FORM_sec_offset: v->kind = FV_U; v->u = u32(c); break;
+    case DW_FORM_sec_offset: v->kind = FV_U; v->u = dwarf_u32(c); break;
     case DW_FORM_strp:
     {
-        uint32_t o = u32(c);
+        uint32_t o = dwarf_u32(c);
         v->kind = FV_STR;
         v->str = (o < dstr_size) ? dstr + o : "";
         break;
     }
     case DW_FORM_line_strp:
     {
-        uint32_t o = u32(c);
+        uint32_t o = dwarf_u32(c);
         v->kind = FV_STR;
         v->str = (dlstr && o < dlstr_size) ? dlstr + o : "";
         break;
@@ -451,15 +398,15 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
         if (c->p < c->end) c->p++;
         break;
     }
-    case DW_FORM_ref1: v->kind = FV_REF; v->u = cu_off + u8(c); break;
-    case DW_FORM_ref2: v->kind = FV_REF; v->u = cu_off + u16(c); break;
-    case DW_FORM_ref4: v->kind = FV_REF; v->u = cu_off + u32(c); break;
-    case DW_FORM_ref8: v->kind = FV_REF; v->u = cu_off + u64(c); break;
-    case DW_FORM_ref_udata: v->kind = FV_REF; v->u = cu_off + uleb(c); break;
-    case DW_FORM_ref_addr: v->kind = FV_REF; v->u = u32(c); break;
+    case DW_FORM_ref1: v->kind = FV_REF; v->u = cu_off + dwarf_u8(c); break;
+    case DW_FORM_ref2: v->kind = FV_REF; v->u = cu_off + dwarf_u16(c); break;
+    case DW_FORM_ref4: v->kind = FV_REF; v->u = cu_off + dwarf_u32(c); break;
+    case DW_FORM_ref8: v->kind = FV_REF; v->u = cu_off + dwarf_u64(c); break;
+    case DW_FORM_ref_udata: v->kind = FV_REF; v->u = cu_off + dwarf_uleb(c); break;
+    case DW_FORM_ref_addr: v->kind = FV_REF; v->u = dwarf_u32(c); break;
     case DW_FORM_exprloc:
     {
-        uint64_t n = uleb(c);
+        uint64_t n = dwarf_uleb(c);
         if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
@@ -472,10 +419,10 @@ static void read_form(cur *c, uint16_t form, uint8_t addr_size, uint32_t cu_off,
     case DW_FORM_block4:
     case DW_FORM_block:
     {
-        uint64_t n = (form == DW_FORM_block1) ? u8(c)
-                     : (form == DW_FORM_block2) ? u16(c)
-                     : (form == DW_FORM_block4) ? u32(c)
-                                                : uleb(c);
+        uint64_t n = (form == DW_FORM_block1) ? dwarf_u8(c)
+                     : (form == DW_FORM_block2) ? dwarf_u16(c)
+                     : (form == DW_FORM_block4) ? dwarf_u32(c)
+                                                : dwarf_uleb(c);
         if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
         v->kind = FV_BLOCK;
         v->block = c->p;
@@ -520,7 +467,7 @@ static struct dtype *void_type(dwarf_info_t *di)
     return t;
 }
 
-static struct dtype *build_type(cu_ctx *cu, int idx);
+static struct dtype *build_type(cu_ctx *cu, int idx, int depth);
 
 static uint32_t array_count(cu_ctx *cu, int arr_idx)
 {
@@ -530,19 +477,25 @@ static uint32_t array_count(cu_ctx *cu, int arr_idx)
     {
         if (cu->dies[i].parent != arr_idx) continue;
         if (cu->dies[i].tag != DW_TAG_subrange_type) continue;
-        uint32_t n = cu->dies[i].has_count ? (uint32_t)cu->dies[i].count : 0;
-        total = total ? total * (n ? n : 1) : (n ? n : 1);
+        uint32_t m = (cu->dies[i].has_count ? (uint32_t)cu->dies[i].count : 0);
+        if (!m) m = 1;
+        uint64_t prod = total ? (uint64_t)total * m : m;
+        total = prod > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)prod; /* saturate */
     }
     return total; /* 0 = unknown length (flexible array) */
 }
 
-static struct dtype *build_type(cu_ctx *cu, int idx)
+static struct dtype *build_type(cu_ctx *cu, int idx, int depth)
 {
     if (idx < 0 || idx >= cu->ndies)
         return NULL;
     if (cu->memo[idx])
         return cu->memo[idx];
     dwarf_info_t *di = cu->di;
+    /* Bound recursion: a crafted deep (non-cyclic) type chain would otherwise
+     * exhaust the C stack (the memo only guards cycles, not depth). */
+    if (depth > 256)
+        return void_type(di);
     die_t *d = &cu->dies[idx];
 
     /* qualifiers + typedef are transparent: map straight to the underlying type
@@ -551,7 +504,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
         d->tag == DW_TAG_volatile_type || d->tag == DW_TAG_restrict_type)
     {
         cu->memo[idx] = void_type(di); /* placeholder before recursing (cycle guard) */
-        struct dtype *under = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref))
+        struct dtype *under = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref), depth + 1)
                                           : void_type(di);
         cu->memo[idx] = under;
         return under;
@@ -573,7 +526,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
     {
         t->kind = DW_KIND_POINTER;
         t->size = d->has_byte_size ? d->byte_size : 2;
-        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref)) : NULL;
+        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref), depth + 1) : NULL;
         const char *pt = t->inner && t->inner->name ? t->inner->name : "void";
         char buf[160];
         snprintf(buf, sizeof buf, "%s *", pt);
@@ -583,9 +536,10 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
     case DW_TAG_array_type:
     {
         t->kind = DW_KIND_ARRAY;
-        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref)) : NULL;
+        t->inner = d->has_type ? build_type(cu, die_index_by_off(cu, d->type_ref), depth + 1) : NULL;
         t->count = array_count(cu, idx);
-        t->size = (t->inner ? t->inner->size : 0) * t->count;
+        uint64_t asz = (uint64_t)(t->inner ? t->inner->size : 0) * t->count;
+        t->size = asz > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)asz; /* saturate */
         const char *et = t->inner && t->inner->name ? t->inner->name : "?";
         char buf[160];
         if (t->count)
@@ -614,7 +568,7 @@ static struct dtype *build_type(cu_ctx *cu, int idx)
             t->members[t->nmembers].name = cu->dies[i].name ? cu->dies[i].name : (char *)"";
             t->members[t->nmembers].offset = cu->dies[i].member_off;
             t->members[t->nmembers].type =
-                cu->dies[i].has_type ? build_type(cu, die_index_by_off(cu, cu->dies[i].type_ref)) : NULL;
+                cu->dies[i].has_type ? build_type(cu, die_index_by_off(cu, cu->dies[i].type_ref), depth + 1) : NULL;
             t->nmembers++;
         }
         break;
@@ -663,7 +617,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
     cu.di = di;
     cu.addr_size = addr_size;
 
-    cur c = {cu_data, cu_end, true};
+    dwarf_cur c = {cu_data, cu_end, true};
     int stack[64];
     const int stack_max = (int)(sizeof stack / sizeof stack[0]);
     int depth = 0;
@@ -672,7 +626,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
     while (c.p < cu_end && c.ok)
     {
         uint32_t off = (uint32_t)(c.p - info);
-        uint32_t code = (uint32_t)uleb(&c);
+        uint32_t code = (uint32_t)dwarf_uleb(&c);
         if (code == 0)
         {
             if (depth == 0) break;
@@ -702,7 +656,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
             uint16_t at = a->attrs[i].attr;
             uint16_t fm = a->attrs[i].form;
             if (fm == DW_FORM_indirect)
-                fm = (uint16_t)uleb(&c);
+                fm = (uint16_t)dwarf_uleb(&c);
             formval v;
             read_form(&c, fm, addr_size, cu_off, dstr, dstr_size, dlstr, dlstr_size, &v);
             if (!c.ok) break;
@@ -742,7 +696,12 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
                 d.has_count = true;
                 break;
             case DW_AT_upper_bound:
-                if (!d.has_count) { d.count = v.u + 1; d.has_count = true; }
+                if (!d.has_count)
+                {
+                    int64_t ub = (v.kind == FV_I) ? v.s : (int64_t)v.u;
+                    if (ub >= 0) { d.count = (uint64_t)ub + 1; d.has_count = true; }
+                    /* ub < 0 (e.g. -1) => flexible array; leave count unset */
+                }
                 break;
             case DW_AT_data_member_location:
                 if (v.kind == FV_BLOCK)
@@ -804,8 +763,8 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
         gvar_t g;
         memset(&g, 0, sizeof g);
         g.name = d->name;
-        g.type = d->has_type ? build_type(&cu, die_index_by_off(&cu, d->type_ref)) : NULL;
-        if (d->loc && d->loc_len >= 1 && d->loc[0] == DW_OP_addr)
+        g.type = d->has_type ? build_type(&cu, die_index_by_off(&cu, d->type_ref), 0) : NULL;
+        if (d->loc && d->loc_len >= 2 && d->loc[0] == DW_OP_addr)
         {
             uint32_t a = 0;
             for (uint32_t k = 0; k + 1 <= d->loc_len - 1 && k < 4; k++)
@@ -879,7 +838,7 @@ static void parse_cu(dwarf_info_t *di, const uint8_t *info, uint32_t cu_off,
             lvar_t lv;
             memset(&lv, 0, sizeof lv);
             lv.name = v->name;
-            lv.type = v->has_type ? build_type(&cu, die_index_by_off(&cu, v->type_ref)) : NULL;
+            lv.type = v->has_type ? build_type(&cu, die_index_by_off(&cu, v->type_ref), 0) : NULL;
             lv.loc = malloc(v->loc_len);
             if (!lv.loc) continue;
             memcpy(lv.loc, v->loc, v->loc_len);
@@ -1031,24 +990,24 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
     const uint8_t *ab_end = ab_base + abbrev_size;
 
     /* walk the compilation units */
-    cur c = {info, info_end, true};
+    dwarf_cur c = {info, info_end, true};
     while (c.p + 4 <= info_end && c.ok)
     {
         const uint8_t *unit_start = c.p;
         uint32_t cu_off = (uint32_t)(unit_start - info);
-        uint32_t unit_len = u32(&c);
+        uint32_t unit_len = dwarf_u32(&c);
         if (unit_len == 0 || unit_len == 0xffffffffu)
             break;
         const uint8_t *unit_end = unit_start + 4 + unit_len;
         if (unit_end > info_end) unit_end = info_end;
 
-        uint16_t version = u16(&c);
+        uint16_t version = dwarf_u16(&c);
         uint32_t ab_off;
         uint8_t addr_size;
         if (version >= 2 && version <= 4)
         {
-            ab_off = u32(&c);
-            addr_size = u8(&c);
+            ab_off = dwarf_u32(&c);
+            addr_size = dwarf_u8(&c);
         }
         else
         {
@@ -1131,8 +1090,9 @@ static bool frame_base_value(const func_t *fn, uint8_t (*readmem)(uint16_t), uin
         const uint8_t *p = fn->fb + 1;
         uint64_t reg = uleb_raw(p, fn->fb + fn->fb_len, NULL);
         /* llvm-mos: RS0 (the rc0:rc1 soft stack pointer pair) is DWARF reg 528;
-         * RSn lives at zero page 2n. Anything else falls back to rc0:rc1. */
-        zp = (reg >= 528) ? (uint32_t)((reg - 528) * 2) : 0;
+         * RSn lives at zero page 2n. Anything else falls back to rc0:rc1. Range
+         * the reg BEFORE the multiply so a huge operand can't wrap into 0..0xFE. */
+        zp = (reg >= 528 && reg <= 528 + 0x7f) ? (uint32_t)((reg - 528) * 2) : 0;
     }
     else if (op >= DW_OP_reg0 && op <= DW_OP_reg31)
     {
@@ -1150,18 +1110,70 @@ static bool frame_base_value(const func_t *fn, uint8_t (*readmem)(uint16_t), uin
     return true;
 }
 
-int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
-                      uint8_t (*readmem)(uint16_t addr),
-                      dwarf_var_t *out, int max)
+static const func_t *find_func(const dwarf_info_t *di, uint16_t pc)
 {
-    if (!di || !readmem) return 0;
-    const func_t *fn = NULL;
     for (int i = 0; i < di->nfuncs; i++)
-        if (pc >= di->funcs[i].lo && pc < di->funcs[i].hi) { fn = &di->funcs[i]; break; }
-    if (!fn) return 0;
+        if (pc >= di->funcs[i].lo && pc < di->funcs[i].hi)
+            return &di->funcs[i];
+    return NULL;
+}
 
-    uint16_t fb = 0;
-    bool fb_ok = frame_base_value(fn, readmem, &fb);
+bool dwarf_info_frame_base(const dwarf_info_t *di, uint16_t pc,
+                           uint8_t (*readmem)(uint16_t addr), uint16_t *out)
+{
+    if (!di || !readmem)
+        return false;
+    const func_t *fn = find_func(di, pc);
+    if (!fn)
+        return false;
+    return frame_base_value(fn, readmem, out);
+}
+
+bool dwarf_info_frame_size(const dwarf_info_t *di, uint16_t pc,
+                           uint8_t (*readmem)(uint16_t addr), uint16_t *alloc)
+{
+    if (!di || !readmem)
+        return false;
+    const func_t *fn = find_func(di, pc);
+    if (!fn)
+        return false;
+    bool has_fbreg = false;
+    for (int i = 0; i < fn->nlocals; i++)
+        if (fn->locals[i].loc_len >= 1 && fn->locals[i].loc[0] == 0x91 /*DW_OP_fbreg*/)
+        {
+            has_fbreg = true;
+            break;
+        }
+    /* The soft-stack allocation is the prologue's fixed idiom on rc0:rc1 (zp $00):
+     * clc/lda $00/adc #lo/sta $00/lda $01/adc #hi/sta $01, so alloc = -(lo|hi<<8).
+     * DWARF-visible local extents undercount (spill slots carry no DIE) and there
+     * is no .debug_frame on this target, so the prologue is the only exact source. */
+    uint16_t p = (uint16_t)fn->lo;
+    uint8_t b[13];
+    for (int i = 0; i < 13; i++)
+        b[i] = readmem((uint16_t)(p + i));
+    if (b[0] == 0x18 && b[1] == 0xA5 && b[2] == 0x00 && b[3] == 0x69 &&
+        b[5] == 0x85 && b[6] == 0x00 && b[7] == 0xA5 && b[8] == 0x01 &&
+        b[9] == 0x69 && b[11] == 0x85 && b[12] == 0x01)
+    {
+        int16_t imm = (int16_t)((uint16_t)b[4] | ((uint16_t)b[10] << 8));
+        *alloc = (uint16_t)(-imm);
+        return true;
+    }
+    if (has_fbreg)
+        return false; /* fbreg locals but no recognizable frame -> can't chain */
+    *alloc = 0; /* static allocation / leaf: the soft SP is untouched */
+    return true;
+}
+
+int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc, uint16_t frame_base,
+                      bool base_ok, dwarf_var_t *out, int max)
+{
+    if (!di)
+        return 0;
+    const func_t *fn = find_func(di, pc);
+    if (!fn)
+        return 0;
 
     int n = 0;
     for (int i = 0; i < fn->nlocals && n < max; i++)
@@ -1177,7 +1189,7 @@ int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
         if (v->loc_len >= 1)
         {
             uint8_t op = v->loc[0];
-            if (op == DW_OP_addr)
+            if (op == DW_OP_addr && v->loc_len >= 2) /* need >=1 operand byte */
             {
                 uint32_t a = 0;
                 for (uint32_t k = 0; k + 1 <= v->loc_len - 1 && k < 4; k++)
@@ -1185,10 +1197,10 @@ int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc,
                 r.addr = (uint16_t)a;
                 r.addr_ok = true;
             }
-            else if (op == 0x91 /*DW_OP_fbreg*/ && fb_ok)
+            else if (op == 0x91 /*DW_OP_fbreg*/ && base_ok)
             {
                 int64_t off = sleb_raw(v->loc + 1, v->loc + v->loc_len);
-                r.addr = (uint16_t)((int32_t)fb + (int32_t)off);
+                r.addr = (uint16_t)((int32_t)frame_base + (int32_t)off);
                 r.addr_ok = true;
             }
         }

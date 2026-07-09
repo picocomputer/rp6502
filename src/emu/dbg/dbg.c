@@ -40,6 +40,16 @@ static uint8_t g_step_sp;      /* SP at the step start (call-depth reference) */
 static atomic_bool g_pause_req;
 static bool g_break_req;
 
+/* Optional per-breakpoint gate (condition/hit-count/logpoint), consulted by the
+ * DAP layer only after the bitmap matched; NULL => every breakpoint stops. */
+static bool (*g_break_filter)(uint16_t pc);
+
+/* Watchpoints: the DAP bus hook latches a pending data stop; dbg_at_instruction
+ * presents it at the next boundary (the store has already completed). */
+int dbg_watch_armed;
+static bool g_data_pending;
+static uint16_t g_data_addr;
+
 /* 64Kbit address-breakpoint bitmap (1 bit per 6502 address). */
 static uint8_t g_bp[0x10000 / 8];
 
@@ -71,6 +81,7 @@ void dbg_note_stop(uint16_t pc)
     g_stopped = true;
     g_stop_reason = DBG_REASON_PAUSE;
     g_stop_pc = pc;
+    g_stop_sp = g_cur_sp; /* keep the step reference fresh (a Step after this stop) */
     g_step = DBG_STEP_NONE;
 }
 
@@ -181,6 +192,12 @@ bool dbg_at_instruction(uint16_t pc, uint8_t sp)
         enter_stop(DBG_REASON_PAUSE, pc);
         return true;
     }
+    if (g_data_pending)
+    {
+        g_data_pending = false;
+        enter_stop(DBG_REASON_DATA, pc);
+        return true;
+    }
     if (g_stop_at_entry)
     {
         g_stop_at_entry = false;
@@ -192,11 +209,32 @@ bool dbg_at_instruction(uint16_t pc, uint8_t sp)
         enter_stop(DBG_REASON_STEP, pc);
         return true;
     }
-    /* Breakpoints fire even mid-step (e.g. a bp inside a stepped-over call). */
-    if (g_break_req || bp_test(pc))
+    /* Breakpoints fire even mid-step (e.g. a bp inside a stepped-over call).
+     * A user-forced break (g_break_req, the dbgui pause) is unconditional; a real
+     * address breakpoint may carry a condition/hit-count/logpoint, consulted only
+     * after the O(1) bitmap already matched (so the hot path stays O(1)). */
+    if (g_break_req)
+    {
+        enter_stop(DBG_REASON_BREAKPOINT, pc);
+        return true;
+    }
+    if (bp_test(pc) && (!g_break_filter || g_break_filter(pc)))
     {
         enter_stop(DBG_REASON_BREAKPOINT, pc);
         return true;
     }
     return false;
+}
+
+void dbg_set_break_filter(bool (*cb)(uint16_t pc)) { g_break_filter = cb; }
+
+void dbg_note_data_stop(uint16_t addr) { g_data_pending = true; g_data_addr = addr; }
+uint16_t dbg_data_stop_addr(void) { return g_data_addr; }
+
+static void (*g_watch_cb)(uint16_t addr, uint8_t val, bool is_write);
+void dbg_set_watch_cb(void (*cb)(uint16_t addr, uint8_t val, bool is_write)) { g_watch_cb = cb; }
+void dbg_watch_access(uint16_t addr, uint8_t val, bool is_write)
+{
+    if (g_watch_cb)
+        g_watch_cb(addr, val, is_write);
 }

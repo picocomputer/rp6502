@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_PRO_H_
-#define _EMU_PRO_H_
+#ifndef _EMU_API_PRO_H_
+#define _EMU_API_PRO_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -21,6 +21,14 @@ bool pro_api_exec(void); /* op 0x09: replace the program */
 /* Seed the initial program's argv: its own path + args. False on overflow. */
 bool pro_set_argv(const char *rom, int argc, char *const *args);
 void pro_run(void); /* snapshot argv[0] of the starting program */
+void pro_init(void); /* clear any pending exec (cold boot) */
+
+/* Request an exec: load rom_path (a host/drive path or overlay ROM name) as the
+ * new program at the next frame boundary. Stops the current program; the frame
+ * loop commits it via pro_take_exec(). */
+void pro_exec(const char *rom_path);
+const char *pro_take_exec(void); /* the pending exec path, cleared, else NULL */
+bool pro_exec_pending(void);     /* an exec is queued but not yet committed */
 
 /* Launcher chain (firmware pro.h), reached by the vendored atr.c through the
  * LAUNCHER/EXIT_CODE attributes. A launcher re-runs after each child exits;
@@ -35,4 +43,4 @@ bool pro_exit(int16_t exit_code); /* true if a launcher re-exec was scheduled */
 }
 #endif
 
-#endif /* _EMU_PRO_H_ */
+#endif /* _EMU_API_PRO_H_ */

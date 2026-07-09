@@ -5,17 +5,17 @@
  *
  */
 
-#include "emu/host/posixdir.h"
+#include "emu/plat.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 
-void *host_opendir_posix(const char *path)
+void *dir_open(const char *path)
 {
     return opendir(path);
 }
 
-int host_readdir_posix(void *d, char *name, size_t namesz, bool *is_dir)
+int dir_read(void *d, char *name, size_t namesz, bool *is_dir)
 {
     errno = 0;
     struct dirent *de = readdir((DIR *)d);
@@ -26,12 +26,12 @@ int host_readdir_posix(void *d, char *name, size_t namesz, bool *is_dir)
     return 1;
 }
 
-void host_rewinddir_posix(void *d)
+void dir_rewind(void *d)
 {
     rewinddir((DIR *)d);
 }
 
-void host_closedir_posix(void *d)
+void dir_close(void *d)
 {
     closedir((DIR *)d);
 }

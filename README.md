@@ -68,11 +68,8 @@ Native Tools prompt.
 The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-Nobody is working on the emulator for macOS either. This one is a warm sunny
-spot waiting for a claimant: the CMake tree already selects Metal, compiles
-sokol as Objective-C, and links the Cocoa/Metal frameworks, and the host
-layer is plain POSIX. It may be one build away from working — be the first
-to find out.
+For emulation, I assume `xcode-select --install` is all you need. The submission
+to make MacOS work didn't come with instructions.
 
 ## Building with CMake and VS Code
 

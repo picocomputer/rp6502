@@ -20,7 +20,7 @@
 #include "aud/opl.h"
 #include <string.h>
 
-bool emu_xreg(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
+bool xreg_write(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
 {
     switch (device)
     {

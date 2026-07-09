@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_VGA_H_
-#define _EMU_VGA_H_
+#ifndef _EMU_SYS_VGA_H_
+#define _EMU_SYS_VGA_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -34,12 +34,15 @@ int vga_vsync_scanline(void);
  * so mid-frame state changes land on later lines (raster effects), matching
  * real per-scanline scanout. */
 void vga_render_scanline(int y);
-void emu_canvas_size(int *w, int *h);
+void vga_canvas_size(int *w, int *h);
 
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */
 #define VGA_MAX_WIDTH 640
 #define VGA_MAX_HEIGHT 480
+
+#define VGA_HZ 60         /* the RP6502 VGA is always 60 Hz */
+#define VGA_SCANLINES 525 /* 640x480@60 total scanlines (480 visible + blanking) */
 
 /* Register the app-owned framebuffer the scanlines render into (RGBA8, canvas
  * stride; must hold the largest canvas). NULL skips pixel work. */
@@ -65,7 +68,7 @@ typedef enum
 } vga_canvas_t;
 
 bool vga_connected(void);          /* the emulator always has a display */
-vga_canvas_t vga_get_canvas(void); /* current canvas */
+vga_canvas_t vga_get_canvas(void);
 uint8_t vga_get_display_type(void);
 
 #define VGA_PROG_MAX 512
@@ -92,4 +95,4 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
 }
 #endif
 
-#endif /* _EMU_VGA_H_ */
+#endif /* _EMU_SYS_VGA_H_ */

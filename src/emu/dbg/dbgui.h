@@ -9,8 +9,8 @@
  * is in debug mode (dbg_is_active()).
  */
 
-#ifndef _EMU_DBGUI_H_
-#define _EMU_DBGUI_H_
+#ifndef _EMU_DBG_DBGUI_H_
+#define _EMU_DBG_DBGUI_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,9 +34,8 @@ void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale);
 void dbgui_draw(void);   /* build the windows (between new_frame and render) */
 void dbgui_render(void); /* draw ImGui into the current sokol-gfx pass */
 /* Per-CPU-cycle view update: feed the chips ui_dbg its tick so the disassembly
- * heatmap/history/current-PC stay current. Registered as emu_dbg_cycle_cb by
- * dbgui_init and called from cpu.c's tick loop; display-only (never gates the
- * CPU — dbg.c is the authoritative engine). */
+ * heatmap/history/current-PC stay current. Display-only — never gates the CPU
+ * (dbg.c is the authoritative engine). */
 void dbgui_tick(uint64_t pins);
 /* Height (ImGui points) of the overlay's top menu bar, so the window layer can
  * reserve room for it and lay the emulated canvas out below the menu rather than
@@ -57,4 +56,4 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
 }
 #endif
 
-#endif /* _EMU_DBGUI_H_ */
+#endif /* _EMU_DBG_DBGUI_H_ */

@@ -9,8 +9,8 @@
  * --dap mode.
  */
 
-#ifndef _EMU_DAP_H_
-#define _EMU_DAP_H_
+#ifndef _EMU_DBG_DAP_H_
+#define _EMU_DBG_DAP_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -20,7 +20,7 @@ extern "C"
 /* Create the DAP session, register handlers, and bind it to stdin/stdout.
  * cppdap runs the message reader on its own thread; handlers either marshal work
  * to the main loop (via dap_pump) or read machine state while the CPU is
- * stopped. Call once, after emu_init(). */
+ * stopped. Call once, after main_init(). */
 void dap_start(void);
 
 /* ROM argv[1..] used when a launch request carries no args of its own.
@@ -43,4 +43,4 @@ void dap_stop(void);
 }
 #endif
 
-#endif /* _EMU_DAP_H_ */
+#endif /* _EMU_DBG_DAP_H_ */

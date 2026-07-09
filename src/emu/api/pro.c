@@ -9,7 +9,7 @@
 #include "emu/host/msc.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
-#include "emu/sys/sys.h"
+#include "emu/sys/cpu.h"
 #include "api/api.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,9 +22,41 @@ static uint8_t pro_argv[XSTACK_SIZE];
 /* Launcher chain (firmware pro.c): pro_running_path is argv[0] of the program
  * running now; pro_launcher_path is the ROM to re-run when a program exits.
  * pro_exit_code holds the last exit code for the EXIT_CODE attribute. */
-static char pro_running_path[HOST_MSC_MAX_PATH];
-static char pro_launcher_path[HOST_MSC_MAX_PATH];
+static char pro_running_path[MSC_MAX_PATH];
+static char pro_launcher_path[MSC_MAX_PATH];
 static int16_t pro_exit_code;
+
+/* Pending exec (op 0x09): the new program loads at the frame boundary rather
+ * than mid-tick, so the master clock and the partially-run frame stay
+ * consistent. pro_exec() captures the ROM path and stops the current program;
+ * the frame loop commits it via pro_take_exec(). */
+static bool exec_pending;
+static char exec_path[MSC_MAX_PATH];
+
+void pro_init(void)
+{
+    exec_pending = false;
+}
+
+void pro_exec(const char *rom_path)
+{
+    snprintf(exec_path, sizeof(exec_path), "%s", rom_path);
+    exec_pending = true;
+    cpu_set_halted(true); /* stop the current program; the tick loop exits */
+}
+
+const char *pro_take_exec(void)
+{
+    if (!exec_pending)
+        return NULL;
+    exec_pending = false;
+    return exec_path;
+}
+
+bool pro_exec_pending(void)
+{
+    return exec_pending;
+}
 
 static uint16_t pro_argv_count(void)
 {
@@ -112,11 +144,11 @@ static const char *pro_argv_index(uint16_t idx)
  * through realpath. Empty args are kept, like the monitor's LOAD. */
 bool pro_set_argv(const char *rom, int argc, char *const *args)
 {
-    char abs[HOST_MSC_MAX_PATH], msc[HOST_MSC_MAX_PATH];
+    char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH];
     const char *argv0 = rom;
-    if (!host_msc_has_drive_prefix(rom) && rom[0] != ':' && realpath(rom, abs))
+    if (!msc_has_drive_prefix(rom) && rom[0] != ':' && realpath(rom, abs))
     {
-        host_msc_from_host(abs, msc, sizeof(msc));
+        msc_from_host(abs, msc, sizeof(msc));
         argv0 = msc;
     }
     /* Length-guard each string: pro_argv_append's uint16 math trusts
@@ -185,11 +217,11 @@ bool pro_exit(int16_t exit_code)
     }
     /* Build the relaunch argv from a copy: pro_argv_append overwrites pro_argv,
      * and the launcher path must survive to seed pro_running_path on reload. */
-    char path[HOST_MSC_MAX_PATH];
+    char path[MSC_MAX_PATH];
     snprintf(path, sizeof path, "%s", pro_launcher_path);
     pro_argv_clear();
     pro_argv_append(path);
-    emu_exec(path);
+    pro_exec(path);
     return true;
 }
 
@@ -218,7 +250,7 @@ bool pro_api_exec(void)
         return api_return_errno(API_EINVAL);
     }
     /* argv[0] (an MSC0:/overlay/host name) is resolved by the loader at the
-     * frame boundary; a load failure surfaces on reload, matching the firmware. */
-    emu_exec(pro_argv_index(0));
+     * frame boundary. */
+    pro_exec(pro_argv_index(0));
     return api_return_ax(0);
 }

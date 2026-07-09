@@ -6,7 +6,7 @@
  * Host shim for ria/main.h. The shared api.c reaches main_api() through the
  * firmware path "main.h", which would otherwise resolve to the VGA tree's
  * main.h (src/vga precedes src/ria on the include path). The emulator's
- * main_api (the op registry) lives in emu/sys/ria.c.
+ * main_api (the op registry) lives in emu/main.c.
  */
 
 #ifndef _EMU_SHIM_MAIN_H_

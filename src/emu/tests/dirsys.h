@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Test helpers to drive the host dir syscall handlers (emu/host/dir.c
- * host_dir_api_*) the way the 6502 does: stage the args on the xstack / in the API
+ * Test helpers to drive the host filesystem syscall handlers (emu/api/hostfs.c
+ * hostfs_api_*) the way the 6502 does: stage the args on the xstack / in the API
  * registers, call the handler, then read the AX result and decode any pushed
- * FILINFO / string. The handlers are the unit under test now that the standalone
- * host_* backend was inlined into them.
+ * FILINFO / string. The handlers are the unit under test; they call the platform
+ * primitives (emu/plat.h) for the actual OS operations.
  */
 
 #ifndef _EMU_TESTS_DIRSYS_H_

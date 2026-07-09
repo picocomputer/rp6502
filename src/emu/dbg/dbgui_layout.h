@@ -11,8 +11,8 @@
  * ImGui's built-in [Window] handler. No chips-UI dependency here.
  */
 
-#ifndef _EMU_DBGUI_LAYOUT_H_
-#define _EMU_DBGUI_LAYOUT_H_
+#ifndef _EMU_DBG_DBGUI_LAYOUT_H_
+#define _EMU_DBG_DBGUI_LAYOUT_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -30,4 +30,4 @@ void dbgui_layout_save(void);
 }
 #endif
 
-#endif /* _EMU_DBGUI_LAYOUT_H_ */
+#endif /* _EMU_DBG_DBGUI_LAYOUT_H_ */
