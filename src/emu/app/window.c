@@ -882,11 +882,7 @@ static int g_android_rt = 0;
 
 
 
-// Forward declarations from emulator codebase
-extern void emu_init(void);
-extern bool emu_rom_load(const char *name);
-extern void host_msc_set_async(bool async);
-extern void rom_set_async(bool async);
+// Forward declarations from emulator codebase (using clean includes)
 
 #include <jni.h>
 #include <unistd.h>
@@ -1067,8 +1063,8 @@ int rp6502_android_input_hook(const AInputEvent* event)
                     case AKEYCODE_BUTTON_A:
                         if (g_rom_count > 0)
                         {
-                            emu_rom_load(g_rom_files[g_rom_selected_index]);
-                            emu_init();
+                            rom_load(g_rom_files[g_rom_selected_index]);
+                            main_init();
                             // Reset key and button states to prevent stuck inputs after closing the menu
                             g_android_button0 = 0;
                             g_android_button1 = 0;
@@ -1254,15 +1250,15 @@ sapp_desc sokol_main(int argc, char* argv[])
     chdir(g_rom_dir);
     
     // Initialize host MSC & ROM loader async modes
-    host_msc_set_async(true);
+    msc_set_async(true);
     rom_set_async(true);
     
     // Initialize emulator
-    emu_init();
+    main_init();
     vga_set_framebuffer(android_fb);
     
     // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
-    if (emu_rom_load("boot.rp6502"))
+    if (rom_load("boot.rp6502"))
     {
         g_android_menu_active = false;
     }
