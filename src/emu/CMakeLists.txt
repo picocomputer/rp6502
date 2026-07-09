@@ -40,12 +40,10 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
-    ${RP6502_SRC}/emu/host/hostdir.c
-    ${RP6502_SRC}/emu/host/hostfat.c
+    ${RP6502_SRC}/emu/api/hostfs.c
+    ${RP6502_SRC}/emu/api/tmpfs.c
     ${RP6502_SRC}/emu/host/msc.c
-    ${RP6502_SRC}/emu/host/png.c
-    ${RP6502_SRC}/emu/host/posixdir.c
-    ${RP6502_SRC}/emu/host/rand.c
+    ${RP6502_SRC}/emu/app/rand.c
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/shim/pico/stdio.c
@@ -77,6 +75,19 @@ add_library(emu_core STATIC
     ${RP6502_VENDOR}/fatfs/ff.c
     ${RP6502_VENDOR}/fatfs/ffunicode.c
 )
+
+# Platform filesystem primitives: one folder compiled per OS; both define the same
+# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c stays portable. File I/O + entropy
+# seams follow in a later pass.
+if(WIN32)
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/win/dir.c
+        ${RP6502_SRC}/emu/win/fs.c)
+else()
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/posix/dir.c
+        ${RP6502_SRC}/emu/posix/fs.c)
+endif()
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
@@ -159,7 +170,7 @@ if(EMU_HAS_WINDOW)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c)
 if(EMU_HAS_WINDOW)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c)
 endif()

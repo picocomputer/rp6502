@@ -9,6 +9,7 @@
 #define _EMU_API_OEM_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -35,6 +36,12 @@ unsigned char oem_utf8_to_oem(const char **p);
  * bytes written to dst (at most 3, no NUL); returns the count. Unmappable high
  * bytes become U+FFFD, so the result is always valid UTF-8. */
 int oem_to_utf8(unsigned char b, char *dst);
+
+/* OEM (active code page) <-> UTF-16, for platforms whose native filesystem API is
+ * wide (Win32 …W). oem_to_wide writes up to wcount-1 code units + a 0 terminator and
+ * returns the unit count; oem_from_wide is the inverse (unmappable -> 0x7F). */
+int oem_to_wide(const char *s, uint16_t *w, int wcount);
+size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz);
 
 #ifdef __cplusplus
 }

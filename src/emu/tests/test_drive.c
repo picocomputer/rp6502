@@ -16,10 +16,10 @@
 #include "emu/api/std.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/hostdir.h"
+#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
 #include "emu/sys/mem.h"
-#include "emu/host/hostfat.h"
+#include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -116,26 +116,26 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     ASSERT_TRUE(install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
-    hostdir_api_stat();
+    hostfs_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":");
-    hostdir_api_opendir();
+    hostfs_api_opendir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    hostdir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":"); /* not a cwd-able drive */
-    hostdir_api_chdrive();
+    hostfs_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    hostdir_api_unlink();
+    hostfs_api_unlink();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":sub");
-    hostdir_api_mkdir();
+    hostfs_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
     dsys_path("MSC0::adventure.rp6502");
-    hostdir_api_stat();
+    hostfs_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
 }
 
@@ -146,7 +146,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
-    hostdir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
@@ -164,12 +164,12 @@ UTEST(drive, mount_transparent_no_chroot)
 
     /* chdir into a subdir; getcwd tracks the native cwd. */
     dsys_path("sub");
-    hostdir_api_mkdir();
+    hostfs_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("sub");
-    hostdir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostdir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
     ASSERT_STREQ(cwd, expect);
@@ -177,16 +177,16 @@ UTEST(drive, mount_transparent_no_chroot)
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
      * old --drive-root chroot would have refused this with EACCES). */
     dsys_path("..");
-    hostdir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostdir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
-    hostdir_api_chdir();
+    hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostdir_api_getcwd();
+    hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
@@ -198,8 +198,8 @@ UTEST(drive, mount_transparent_no_chroot)
 UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
     std_stop();
-    ASSERT_TRUE(hostfat_mount());
-    ASSERT_TRUE(hostfat_active()); /* the 6502 syscalls now route to the RAM FatFs */
+    ASSERT_TRUE(tmpfs_mount());
+    ASSERT_TRUE(tmpfs_active()); /* the 6502 syscalls now route to the RAM FatFs */
 
     /* getcwd reports the FatFs volume root, not a host path. */
     char cwd[64];
@@ -226,7 +226,7 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     ssys_close(f);
 
     /* Deactivate the FatFs backend so later tests use the host filesystem. */
-    hostfat_unmount();
+    tmpfs_unmount();
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO

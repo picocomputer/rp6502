@@ -5,7 +5,7 @@
  *
  */
 
-#include "emu/host/hostfat.h"
+#include "emu/api/tmpfs.h"
 #include "emu/main.h"     /* main_dir_ops_set (swap the dir slots) */
 #include "api/dir.h"      /* dir_run / dir_stop (the firmware FatFs DIR pool) */
 #include "api/fat.h"     /* fat_std_* file driver; pulls api/api.h + api/std.h */
@@ -35,7 +35,7 @@ static bool ram_alloc(void)
     return g_ram != NULL;
 }
 
-void hostfat_disk_reset(void)
+void tmpfs_disk_reset(void)
 {
     if (ram_alloc())
         memset(g_ram, 0, RAM_BYTES);
@@ -124,14 +124,14 @@ int dsk_mkfs_capture(BYTE fsty, DWORD au_sectors)
 static FATFS g_ramfs;
 static bool g_active;
 
-bool hostfat_active(void) { return g_active; }
+bool tmpfs_active(void) { return g_active; }
 
 /* --tmpdrive: format a fresh RAM FatFs and make it the active MSC0: backend. The
  * 6502 dir syscalls run the REAL firmware dir_api_* (ria/api/dir.c) over this RAM
  * FatFs; the file syscalls run the shared fat_std_* driver. */
-bool hostfat_mount(void)
+bool tmpfs_mount(void)
 {
-    hostfat_disk_reset();
+    tmpfs_disk_reset();
     BYTE work[FF_MAX_SS]; /* f_mkfs scratch: one sector, on the stack — mount is rare */
     if (f_mkfs("MSC0:", 0, work, sizeof(work)) != FR_OK)
         return false;
@@ -143,7 +143,7 @@ bool hostfat_mount(void)
     return true;
 }
 
-void hostfat_unmount(void)
+void tmpfs_unmount(void)
 {
     dir_stop(); /* close open FatFs directories (ria/api/dir.c) */
     f_unmount("MSC0:");

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_HOST_RAND_H_
-#define _EMU_HOST_RAND_H_
+#ifndef _EMU_APP_RAND_H_
+#define _EMU_APP_RAND_H_
 
 #include <stdint.h>
 
@@ -23,4 +23,4 @@ void rand_set_seed(uint64_t seed);
 }
 #endif
 
-#endif /* _EMU_HOST_RAND_H_ */
+#endif /* _EMU_APP_RAND_H_ */

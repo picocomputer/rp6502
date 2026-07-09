@@ -10,11 +10,11 @@
 #include "emu/app/window.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/host/png.h"
-#include "emu/host/rand.h"
+#include "emu/app/png.h"
+#include "emu/app/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/hostfat.h"
+#include "emu/api/tmpfs.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
@@ -180,7 +180,7 @@ int main(int argc, char **argv)
      * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
      * (isolation). This locates the drive, so it comes from the command line,
      * not the ROM's asset args. */
-    if (o.tmpdrive && !hostfat_mount())
+    if (o.tmpdrive && !tmpfs_mount())
     {
         fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;

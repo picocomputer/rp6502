@@ -5,7 +5,7 @@
  *
  */
 
-#include "emu/host/png.h"
+#include "emu/app/png.h"
 #include "emu/mon/rom.h"
 #include <stdio.h>
 #include <stdlib.h>

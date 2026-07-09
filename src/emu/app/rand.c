@@ -5,7 +5,7 @@
  *
  */
 
-#include "emu/host/rand.h"
+#include "emu/app/rand.h"
 #include "pico/rand.h"
 #include <stdbool.h>
 #include <time.h>

@@ -6,11 +6,11 @@
  */
 
 #include "emu/api/std.h"
-#include "emu/host/hostdir.h"
+#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/com.h"
-#include "emu/host/hostfat.h"
+#include "emu/api/tmpfs.h"
 #include "api/dir.h"
 #include "api/fat.h"
 #include "str/rln.h"
@@ -23,7 +23,7 @@ const char STR_TTY_COLON[] = "TTY:";
 static bool fat_handles(const char *path)
 {
     (void)path;
-    return hostfat_active();
+    return tmpfs_active();
 }
 
 const std_driver_t std_drivers[] = {
@@ -39,7 +39,7 @@ void std_reset(void)
     std_stop();      /* close open files, reset the in-flight op + rln read */
     std_init();      /* re-establish the console streams (fd 0-4) */
     dir_stop();      /* close open FatFs directories (ria/api/dir.c) */
-    hostdir_stop(); /* close open host directories */
+    hostfs_stop(); /* close open host directories */
     com_set_bel(true); /* reset BEL per program start; type-ahead in the com rings
                           survives across exec (firmware parity — com_reset, the
                           full flush, is cold-boot only) */

@@ -138,3 +138,35 @@ int oem_to_utf8(unsigned char b, char *dst)
     dst[2] = (char)(0x80 | (u & 0x3F));
     return 3;
 }
+
+/* OEM bytes -> UTF-16 (active code page). ASCII passes through; a high byte maps via
+ * ff_oem2uni (unmappable -> U+FFFD). At most wcount-1 units + a 0 terminator. */
+int oem_to_wide(const char *s, uint16_t *w, int wcount)
+{
+    int n = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p && n < wcount - 1; p++)
+    {
+        uint16_t u = *p < 0x80 ? *p : ff_oem2uni(*p, oem_code_page);
+        w[n++] = u ? u : 0xFFFD;
+    }
+    if (wcount > 0)
+        w[n] = 0;
+    return n;
+}
+
+/* UTF-16 -> OEM bytes (active code page), the inverse. A code unit above the single-
+ * byte pages (or a lone surrogate) is unmappable and becomes 0x7F, like the firmware's
+ * str_utf8_to_oem. At most dstsz-1 bytes + a NUL. */
+size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
+{
+    size_t n = 0;
+    for (; *w && n + 1 < dstsz; w++)
+    {
+        unsigned char b = *w < 0x80 ? (unsigned char)*w
+                                    : (unsigned char)ff_uni2oem(*w, oem_code_page);
+        dst[n++] = b ? (char)b : 0x7F;
+    }
+    if (dstsz)
+        dst[n] = 0;
+    return n;
+}
