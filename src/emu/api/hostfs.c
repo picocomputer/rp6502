@@ -5,21 +5,15 @@
  *
  */
 
-#include "emu/host/dir.h"
+#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
-#include "emu/host/posixdir.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "api/api.h"
 #include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <time.h>
-#include <unistd.h>
-#include <utime.h>
 
 /* ---- FILINFO synthesis from host metadata -------------------------------- */
 
@@ -35,7 +29,7 @@
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
-    localtime_r(&t, &tm);
+    fs_localtime(t, &tm);
     int year = tm.tm_year + 1900;
     if (year < 1980)
     {
@@ -47,26 +41,26 @@ static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
     *ftime = (uint16_t)((tm.tm_hour << 11) | (tm.tm_min << 5) | (tm.tm_sec / 2));
 }
 
-/* Synthesize FatFs attributes from a host mode + name (no FAT bits on the host,
- * so: directory, archive on files, read-only when unwritable, hidden dotfiles). */
-static uint8_t fat_attrib(const struct stat *st, const char *name)
+/* Synthesize FatFs attributes from host metadata (no FAT bits on the host, so:
+ * directory, archive on files, read-only when unwritable, hidden per the platform). */
+static uint8_t fat_attrib(const struct fs_meta *m)
 {
-    uint8_t a = S_ISDIR(st->st_mode) ? FS_AM_DIR : FS_AM_ARC;
-    if (!(st->st_mode & S_IWUSR))
+    uint8_t a = m->is_dir ? FS_AM_DIR : FS_AM_ARC;
+    if (m->is_readonly)
         a |= FS_AM_RDO;
-    if (name[0] == '.')
+    if (m->is_hidden)
         a |= FS_AM_HID;
     return a;
 }
 
-static void info_from_stat(FILINFO *fno, const struct stat *st, const char *name)
+static void info_from_stat(FILINFO *fno, const struct fs_meta *m, const char *name)
 {
     snprintf(fno->fname, sizeof(fno->fname), "%s", name);
     fno->altname[0] = 0; /* host has no 8.3 short name */
-    fno->fsize = st->st_size > 0xFFFFFFFF ? 0xFFFFFFFF : (FSIZE_t)st->st_size;
-    fno->fattrib = fat_attrib(st, name);
-    fat_pack_time(st->st_mtime, &fno->fdate, &fno->ftime);
-    fat_pack_time(st->st_ctime, &fno->crdate, &fno->crtime);
+    fno->fsize = m->size > 0xFFFFFFFF ? 0xFFFFFFFF : (FSIZE_t)m->size;
+    fno->fattrib = fat_attrib(m);
+    fat_pack_time(m->mtime, &fno->fdate, &fno->ftime);
+    fat_pack_time(m->crtime, &fno->crdate, &fno->crtime);
 }
 
 /* Push one entry in the firmware FILINFO byte order: fields reversed so they land
@@ -93,30 +87,30 @@ static bool dir_push_filinfo(FILINFO *fno)
 /* Fail the syscall from the current errno (mapped to an api_errno). */
 static bool host_err(void)
 {
-    return api_return_errno(host_msc_errno_to_api_errno(errno));
+    return api_return_errno(msc_errno_to_api_errno(errno));
 }
 
 /* ---- Directory pool ------------------------------------------------------ */
 
 #define HOST_MAX_DIR 8
 
-/* Open directory handles: a POSIX stream (opaque) plus the opened path (to stat
+/* Open directory handles: an opaque platform stream plus the opened path (to stat
  * each entry) and an entry-index counter (mirrors the firmware tells[]). */
 struct host_dir
 {
     bool used;
     void *dp;
-    char host[HOST_MSC_MAX_PATH];
+    char host[MSC_MAX_PATH];
     long pos;
 };
 static struct host_dir dirs[HOST_MAX_DIR];
 
-void host_dir_stop(void)
+void hostfs_stop(void)
 {
     for (int i = 0; i < HOST_MAX_DIR; i++)
     {
         if (dirs[i].used && dirs[i].dp)
-            host_closedir_posix(dirs[i].dp);
+            dir_close(dirs[i].dp);
         dirs[i].used = false;
         dirs[i].dp = NULL;
     }
@@ -138,7 +132,7 @@ static struct host_dir *dir_slot(int des, api_errno *err)
 }
 
 /* Read the next real directory entry (skipping "." / ".."), filling a FILINFO from
- * a stat of it (fname[0]==0 at end-of-directory). Shared by readdir and seekdir. */
+ * a stat of it (fname[0]==0 at end-of-directory). */
 static int host_next_entry(int des, FILINFO *fno, api_errno *err)
 {
     struct host_dir *d = dir_slot(des, err);
@@ -149,10 +143,10 @@ static int host_next_entry(int des, FILINFO *fno, api_errno *err)
     int r;
     do
     {
-        r = host_readdir_posix(d->dp, name, sizeof(name), &is_dir);
+        r = dir_read(d->dp, name, sizeof(name), &is_dir);
         if (r < 0)
         {
-            *err = host_msc_errno_to_api_errno(errno);
+            *err = msc_errno_to_api_errno(errno);
             return -1;
         }
         if (r == 0)
@@ -162,11 +156,11 @@ static int host_next_entry(int des, FILINFO *fno, api_errno *err)
         }
     } while (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
     d->pos++;
-    char entry[HOST_MSC_MAX_PATH];
-    struct stat st;
+    char entry[MSC_MAX_PATH];
+    struct fs_meta meta;
     if (snprintf(entry, sizeof(entry), "%s/%s", d->host, name) < (int)sizeof(entry) &&
-        stat(entry, &st) == 0)
-        info_from_stat(fno, &st, name);
+        fs_stat(entry, &meta))
+        info_from_stat(fno, &meta, name);
     else
     {
         memset(fno, 0, sizeof(*fno)); /* unstattable entry: name + dir guess */
@@ -178,26 +172,26 @@ static int host_next_entry(int des, FILINFO *fno, api_errno *err)
 
 /* ---- The host dir syscall handlers (installed in the OP array) ------------ */
 
-bool host_dir_api_stat(void)
+bool hostfs_api_stat(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    struct stat st;
-    if (stat(host, &st) != 0)
+    struct fs_meta meta;
+    if (!fs_stat(host, &meta))
         return host_err();
     /* stat names a single entry; report its basename, not the whole path. */
     const char *base = strrchr(host, '/');
     FILINFO fno;
-    info_from_stat(&fno, &st, base ? base + 1 : host);
+    info_from_stat(&fno, &meta, base ? base + 1 : host);
     if (!dir_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
 
-bool host_dir_api_opendir(void)
+bool hostfs_api_opendir(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
@@ -207,10 +201,10 @@ bool host_dir_api_opendir(void)
             break;
     if (des == HOST_MAX_DIR)
         return api_return_errno(API_EMFILE);
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    void *dp = host_opendir_posix(host);
+    void *dp = dir_open(host);
     if (!dp)
         return host_err();
     dirs[des].used = true;
@@ -220,7 +214,7 @@ bool host_dir_api_opendir(void)
     return api_return_ax((uint16_t)des);
 }
 
-bool host_dir_api_readdir(void)
+bool hostfs_api_readdir(void)
 {
     FILINFO fno;
     api_errno err;
@@ -231,19 +225,19 @@ bool host_dir_api_readdir(void)
     return api_return_ax(0);
 }
 
-bool host_dir_api_closedir(void)
+bool hostfs_api_closedir(void)
 {
     api_errno err;
     struct host_dir *d = dir_slot(API_A, &err);
     if (!d)
         return api_return_errno(err);
-    host_closedir_posix(d->dp);
+    dir_close(d->dp);
     d->used = false;
     d->dp = NULL;
     return api_return_ax(0);
 }
 
-bool host_dir_api_telldir(void)
+bool hostfs_api_telldir(void)
 {
     api_errno err;
     struct host_dir *d = dir_slot(API_A, &err);
@@ -252,20 +246,20 @@ bool host_dir_api_telldir(void)
     return api_return_axsreg((uint32_t)d->pos);
 }
 
-bool host_dir_api_rewinddir(void)
+bool hostfs_api_rewinddir(void)
 {
     api_errno err;
     struct host_dir *d = dir_slot(API_A, &err);
     if (!d)
         return api_return_errno(err);
-    host_rewinddir_posix(d->dp);
+    dir_rewind(d->dp);
     d->pos = 0;
     return api_return_ax(0);
 }
 
 /* Seek by entry index, mirroring the firmware: rewind if going back, then read
  * forward to the target. Fails (EINVAL) if the target is past the end. */
-bool host_dir_api_seekdir(void)
+bool hostfs_api_seekdir(void)
 {
     int des = API_A;
     int32_t offs;
@@ -279,7 +273,7 @@ bool host_dir_api_seekdir(void)
         return api_return_errno(API_EINVAL);
     if (d->pos > offs)
     {
-        host_rewinddir_posix(d->dp);
+        dir_rewind(d->dp);
         d->pos = 0;
     }
     while (d->pos < offs)
@@ -293,19 +287,19 @@ bool host_dir_api_seekdir(void)
     return api_return_ax(0);
 }
 
-bool host_dir_api_unlink(void)
+bool hostfs_api_unlink(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    if (remove(host) != 0)
+    if (!fs_remove(host))
         return host_err();
     return api_return_ax(0);
 }
 
-bool host_dir_api_rename(void)
+bool hostfs_api_rename(void)
 {
     /* xstack holds newname\0oldname (firmware order); rename(old, new). */
     char *newname = (char *)&xstack[xstack_ptr];
@@ -316,17 +310,17 @@ bool host_dir_api_rename(void)
     if (oldname == (char *)&xstack[XSTACK_SIZE])
         return api_return_errno(API_EINVAL);
     oldname++;
-    char ho[HOST_MSC_MAX_PATH], hn[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(oldname, ho, sizeof(ho)) || !host_msc_to_host(newname, hn, sizeof(hn)))
+    char ho[MSC_MAX_PATH], hn[MSC_MAX_PATH];
+    if (!msc_to_host(oldname, ho, sizeof(ho)) || !msc_to_host(newname, hn, sizeof(hn)))
         return host_err();
-    if (rename(ho, hn) != 0)
+    if (!fs_rename(ho, hn))
         return host_err();
     return api_return_ax(0);
 }
 
 /* Best-effort: only the read-only bit maps to the host (write permission).
  * Hidden/system/archive have no host equivalent and are silently dropped. */
-bool host_dir_api_chmod(void)
+bool hostfs_api_chmod(void)
 {
     uint8_t mask = API_A;
     uint8_t attr;
@@ -336,25 +330,17 @@ bool host_dir_api_chmod(void)
     xstack_ptr = XSTACK_SIZE;
     if (!(mask & FS_AM_RDO))
         return api_return_ax(0);
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    struct stat st;
-    if (stat(host, &st) != 0)
-        return host_err();
-    mode_t m = st.st_mode & 07777;
-    if (attr & FS_AM_RDO)
-        m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
-    else
-        m |= S_IWUSR;
-    if (chmod(host, m) != 0)
+    if (!fs_set_readonly(host, (attr & FS_AM_RDO) != 0))
         return host_err();
     return api_return_ax(0);
 }
 
 /* Best-effort: set the modification time from the FAT date/time. The creation
  * time the API also carries (crtime in AX, crdate) is not settable on POSIX. */
-bool host_dir_api_utime(void)
+bool hostfs_api_utime(void)
 {
     uint16_t crdate, ftime, fdate;
     if (!api_pop_uint16(&crdate) || !api_pop_uint16(&ftime) || !api_pop_uint16(&fdate))
@@ -362,8 +348,8 @@ bool host_dir_api_utime(void)
     (void)crdate;
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
     struct tm tm;
     memset(&tm, 0, sizeof(tm));
@@ -374,40 +360,38 @@ bool host_dir_api_utime(void)
     tm.tm_min = (ftime >> 5) & 0x3F;
     tm.tm_sec = (ftime & 0x1F) * 2;
     tm.tm_isdst = -1;
-    struct utimbuf ub;
-    ub.actime = ub.modtime = mktime(&tm);
-    if (utime(host, &ub) != 0)
+    if (!fs_set_mtime(host, mktime(&tm)))
         return host_err();
     return api_return_ax(0);
 }
 
-bool host_dir_api_mkdir(void)
+bool hostfs_api_mkdir(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    if (mkdir(host, 0777) != 0)
+    if (!fs_mkdir(host))
         return host_err();
     return api_return_ax(0);
 }
 
-bool host_dir_api_chdir(void)
+bool hostfs_api_chdir(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    if (chdir(host) != 0) /* chdir validates existence/dir-ness and sets errno */
+    if (!fs_chdir(host)) /* chdir validates existence/dir-ness and sets errno */
         return host_err();
     return api_return_ax(0);
 }
 
 /* The 6502 sees MSC0: (and the bare current drive); reject anything else as a
  * missing device. */
-bool host_dir_api_chdrive(void)
+bool hostfs_api_chdrive(void)
 {
     const char *drive = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
@@ -418,22 +402,22 @@ bool host_dir_api_chdrive(void)
     for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
         name[i] = (char)drive[i];
     name[i] = 0;
-    if (name[0] == 0 || strcasecmp(name, "MSC0") == 0)
+    if (name[0] == 0 || fs_strcasecmp(name, "MSC0") == 0)
         return api_return_ax(0);
     return api_return_errno(API_ENODEV);
 }
 
-bool host_dir_api_getcwd(void)
+bool hostfs_api_getcwd(void)
 {
     /* Write "MSC0:<cwd>" at the bottom of the xstack, then relocate it to the top
      * so it pops in order — matching firmware dir_api_getcwd. */
-    char cwd[HOST_MSC_MAX_PATH];
-    if (!getcwd(cwd, sizeof(cwd)))
+    char cwd[MSC_MAX_PATH];
+    if (!fs_getcwd(cwd, sizeof(cwd)))
     {
         xstack_ptr = XSTACK_SIZE;
         return host_err();
     }
-    size_t len = host_msc_from_host(cwd, (char *)xstack, XSTACK_SIZE);
+    size_t len = msc_from_host(cwd, (char *)xstack, XSTACK_SIZE);
     if (len == 0) /* did not fit: full-path-or-error */
     {
         xstack_ptr = XSTACK_SIZE;
@@ -447,31 +431,30 @@ bool host_dir_api_getcwd(void)
 
 /* The host filesystem has no FAT volume label; report an empty one and accept
  * (ignore) a set, so label-aware programs run rather than erroring. */
-bool host_dir_api_getlabel(void)
+bool hostfs_api_getlabel(void)
 {
     xstack_ptr = XSTACK_SIZE; /* consume the path; no label to push */
     return api_return_ax(1);  /* empty string -> length 0 + terminator */
 }
 
-bool host_dir_api_setlabel(void)
+bool hostfs_api_setlabel(void)
 {
     xstack_ptr = XSTACK_SIZE;
     return api_return_ax(0);
 }
 
-bool host_dir_api_getfree(void)
+bool hostfs_api_getfree(void)
 {
     const char *path = (const char *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;
-    char host[HOST_MSC_MAX_PATH];
-    if (!host_msc_to_host(path, host, sizeof(host)))
+    char host[MSC_MAX_PATH];
+    if (!msc_to_host(path, host, sizeof(host)))
         return host_err();
-    struct statvfs vfs;
-    if (statvfs(host, &vfs) != 0)
+    uint64_t tot_bytes, fre_bytes;
+    if (!fs_freespace(host, &tot_bytes, &fre_bytes))
         return host_err();
-    uint64_t unit = vfs.f_frsize ? vfs.f_frsize : vfs.f_bsize;
-    uint64_t tot64 = (uint64_t)vfs.f_blocks * unit / 512;
-    uint64_t fre64 = (uint64_t)vfs.f_bavail * unit / 512;
+    uint64_t tot64 = tot_bytes / 512;
+    uint64_t fre64 = fre_bytes / 512;
     uint32_t tot = tot64 > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot64;
     uint32_t fre = fre64 > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fre64;
     if (!api_push_uint32(&tot) || !api_push_uint32(&fre))

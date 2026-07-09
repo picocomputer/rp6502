@@ -10,15 +10,15 @@
 #include "emu/app/window.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/host/png.h"
-#include "emu/host/rand.h"
+#include "emu/app/png.h"
+#include "emu/app/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/host/fat.h"
+#include "emu/api/tmpfs.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/sys.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
@@ -94,31 +94,24 @@ static void merge_rom_args(options *o, int argc, char **argv)
     }
 }
 
-#ifdef EMU_WITH_DEBUGGER
-/* DAP mode (--dap): the program is delivered by the VS Code launch request, not
- * the command line. Boot the machine held (CPU stopped, no program) and serve
- * DAP on stdio; the launch handler loads + runs the ROM. The window still opens
- * (with the debugger overlay) so the program is visible while VS Code drives. */
-static int run_dap(const options *o)
+/* Apply the presentation/timing options shared by both launch paths. False (with
+ * a message) on an out-of-range --phi2 or an unsupported --code-page. */
+static bool apply_options(const options *o)
 {
-    emu_init();
-    emu_cpu_halted = true; /* hold until the DAP launch loads a program */
-    dbg_set_active(true);
-
     if (o->have_bg)
-        emu_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
-    emu_set_scale_filter(o->scale_filter);
+        window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
+    window_set_scale_filter(o->scale_filter);
     if (o->have_seed)
-        emu_set_random_seed((uint64_t)o->seed);
+        rand_set_seed((uint64_t)o->seed);
     if (o->mute)
-        emu_set_audio_enabled(false);
+        aud_set_enabled(false);
     if (o->phi2_khz > 0)
     {
         if (o->phi2_khz < CPU_PHI2_MIN_KHZ || o->phi2_khz > CPU_PHI2_MAX_KHZ)
         {
             fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
                     o->phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
-            return 1;
+            return false;
         }
         cpu_set_phi2_khz_run((uint16_t)o->phi2_khz);
     }
@@ -127,17 +120,33 @@ static int run_dap(const options *o)
         if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
         {
             fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o->code_page);
-            return 1;
+            return false;
         }
     }
+    return true;
+}
+
+#ifdef EMU_WITH_DEBUGGER
+/* DAP mode (--dap): the program is delivered by the VS Code launch request, not
+ * the command line. Boot the machine held (CPU stopped, no program) and serve
+ * DAP on stdio; the launch handler loads + runs the ROM. The window still opens
+ * (with the debugger overlay) so the program is visible while VS Code drives. */
+static int run_dap(const options *o)
+{
+    main_init();
+    cpu_set_halted(true); /* hold until the DAP launch loads a program */
+    dbg_set_active(true);
+
+    if (!apply_options(o))
+        return 1;
 
     if (o->rom_args)
         dap_set_default_args(o->n_rom_args, o->rom_args);
-    dap_start(); /* DAP on stdin/stdout; emu_run_window pumps it each frame */
+    dap_start(); /* DAP on stdin/stdout; window_run pumps it each frame */
     /* The debug session lifecycle is DAP-driven (StoppedEvent/TerminatedEvent on
      * exit, the window closes on Disconnect), so the window is held (never
      * auto-closed) — the final screen stays up until the client disconnects. */
-    return emu_run_window(g_fb, o->scale, o->have_scale, o->vsync, false);
+    return window_run(g_fb, o->scale, o->have_scale, o->vsync, false);
 }
 #endif
 
@@ -172,7 +181,7 @@ int main(int argc, char **argv)
      * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
      * (isolation). This locates the drive, so it comes from the command line,
      * not the ROM's asset args. */
-    if (o.tmpdrive && !host_fat_mount())
+    if (o.tmpdrive && !tmpfs_mount())
     {
         fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;
@@ -180,7 +189,7 @@ int main(int argc, char **argv)
 
     /* Install ROMs before the boot load / any exec can resolve them. */
     for (int i = 0; i < o.n_installs; i++)
-        if (!fs_install_rom(o.installs[i]))
+        if (!install_rom(o.installs[i]))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;
@@ -202,7 +211,7 @@ int main(int argc, char **argv)
     const char *rom = o.rom;
     if (!rom && o.n_installs > 0)
     {
-        snprintf(bootbuf, sizeof(bootbuf), ":%s", base_name(o.installs[0]));
+        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(o.installs[0]));
         rom = bootbuf;
     }
 
@@ -212,13 +221,13 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    if (!emu_rom_load(rom))
+    if (!rom_load(rom))
         return 1;
 
     /* The ROM is loaded; fold its "emulator" asset args under the command line. */
     merge_rom_args(&o, argc, argv);
 
-    emu_init();
+    main_init();
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
     if (!pro_set_argv(rom, o.n_rom_args, o.rom_args))
@@ -227,35 +236,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (o.have_bg)
-        emu_set_bgcolor((uint8_t)o.bg_r, (uint8_t)o.bg_g, (uint8_t)o.bg_b);
-    emu_set_scale_filter(o.scale_filter);
-
-    if (o.have_seed) /* force a reproducible RNG stream (else host entropy) */
-        emu_set_random_seed((uint64_t)o.seed);
-
-    if (o.mute) /* no synth work, and the window opens no OS audio device */
-        emu_set_audio_enabled(false);
-
-    if (o.phi2_khz > 0) /* override the default PHI2 (emu_init reset it) */
-    {
-        if (o.phi2_khz < CPU_PHI2_MIN_KHZ || o.phi2_khz > CPU_PHI2_MAX_KHZ)
-        {
-            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
-                    o.phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
-            return 1;
-        }
-        cpu_set_phi2_khz_run((uint16_t)o.phi2_khz);
-    }
-
-    if (o.code_page > 0) /* override the default 437 (emu_init reset it) */
-    {
-        if (o.code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o.code_page))
-        {
-            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o.code_page);
-            return 1;
-        }
-    }
+    if (!apply_options(&o))
+        return 1;
 
     /* Enable the debugger engine (the on-screen UI and the DAP adapter both
      * attach to it). Inert with no breakpoints, but --dap will also stand up the
@@ -273,17 +255,17 @@ int main(int argc, char **argv)
          * the per-scanline pixel work (most of the per-frame cost); render the
          * last one and snapshot it. */
         for (int i = 0; i < frames - 1; i++)
-            emu_run_frame_norender();
-        emu_run_frame(); /* renders into g_fb (registered above) */
+            main_run_frame_norender();
+        main_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
-        emu_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
-        if (!emu_write_png(o.shot, cw, ch, g_fb))
+        vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
+        if (!png_write(o.shot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.shot, frames, emu_cpu_halted ? "halted" : "running", emu_exit_code);
+               o.shot, frames, cpu_halted() ? "halted" : "running", main_exit_code());
         return 0;
     }
 
-    return emu_run_window(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
+    return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
 }
 #endif

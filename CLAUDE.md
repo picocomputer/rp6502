@@ -54,4 +54,8 @@ and DBC range tables, and by ffunicode.c) that drops the DBCS code pages.
 Keep any such edit minimal, tag it RP6502, and call it out — don't churn
 or "reconcile" markers.
 
+The audio stream is intentionally never cleared or reset. PSG and OPL reset;
+the BEL device and anything already in the audio buffer are deliberately NOT
+reset or cleared — a rung bell rings through a reset.
+
 Commit this information to MEMORY.

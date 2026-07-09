@@ -21,14 +21,14 @@
 UTEST(crc32, known_vectors)
 {
     /* CRC-32/ISO-HDLC (zlib) check value for "123456789". */
-    ASSERT_EQ(emu_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
-    ASSERT_EQ(emu_crc32(0, "", 0), (uint32_t)0x00000000u);
+    ASSERT_EQ(rom_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
+    ASSERT_EQ(rom_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
 
 UTEST(rom, loads)
 {
     memset(ram, 0, 0x10000);
-    ASSERT_TRUE(emu_rom_load(ADVENTURE_ROM));
+    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
     /* the loader places code at the $0200 entry and points the reset vector
      * there ($FFFC/$FFFD -> $0200). */
     ASSERT_EQ(ram[0xFFFC], 0x00);
@@ -38,16 +38,16 @@ UTEST(rom, loads)
 
 UTEST(rom, rejects_missing_file)
 {
-    ASSERT_FALSE(emu_rom_load("/nonexistent/definitely-not-a.rp6502"));
+    ASSERT_FALSE(rom_load("/nonexistent/definitely-not-a.rp6502"));
 }
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(emu_xreg(0, 0, 0, 0));  /* RIA-local devices: accepted (stub) */
-    ASSERT_TRUE(emu_xreg(1, 0, 0, 3));  /* VGA canvas 640x480 */
-    ASSERT_FALSE(emu_xreg(1, 15, 0, 0)); /* VGA control channel is RIA-private (EACCES) */
-    ASSERT_TRUE(emu_xreg(2, 0, 0, 0));  /* PIX device 2-7: over the bus, no ACK, AX=0 (firmware parity) */
-    ASSERT_TRUE(emu_xreg(1, 5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(xreg_write(0, 0, 0, 0));  /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(xreg_write(1, 0, 0, 3));  /* VGA canvas 640x480 */
+    ASSERT_FALSE(xreg_write(1, 15, 0, 0)); /* VGA control channel is RIA-private (EACCES) */
+    ASSERT_TRUE(xreg_write(2, 0, 0, 0));  /* PIX device 2-7: over the bus, no ACK, AX=0 (firmware parity) */
+    ASSERT_TRUE(xreg_write(1, 5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
@@ -58,7 +58,7 @@ UTEST(pad, host_report_encoding)
     pad_reset();
     ASSERT_FALSE(pad_is_mapped()); /* nothing touches input until a ROM maps it */
 
-    ASSERT_TRUE(emu_xreg(0, 0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
+    ASSERT_TRUE(xreg_write(0, 0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
     ASSERT_TRUE(pad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
@@ -85,7 +85,7 @@ UTEST(pad, host_report_encoding)
     /* Unplug blanks the record; unmapping clears the gate. */
     pad_connect(0, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
-    ASSERT_TRUE(emu_xreg(0, 0, 2, 0xFFFF));
+    ASSERT_TRUE(xreg_write(0, 0, 2, 0xFFFF));
     ASSERT_FALSE(pad_is_mapped());
 }
 

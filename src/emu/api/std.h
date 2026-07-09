@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_STD_H_
-#define _EMU_STD_H_
+#ifndef _EMU_API_STD_H_
+#define _EMU_API_STD_H_
 
 #ifdef __cplusplus
 extern "C"
@@ -21,4 +21,4 @@ void std_reset(void); /* machine reset: close open files + dirs, reset the conso
 }
 #endif
 
-#endif /* _EMU_STD_H_ */
+#endif /* _EMU_API_STD_H_ */

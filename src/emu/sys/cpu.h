@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_CPU_H_
-#define _EMU_CPU_H_
+#ifndef _EMU_SYS_CPU_H_
+#define _EMU_SYS_CPU_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,15 +28,17 @@ extern "C"
 /* Warm restart (exec): reset the 65C02 core, keeping the clock and PHI2. */
 void cpu_reset(void);
 
-/* Run 6502 cycles until the master clock reaches deadline_8, the program
- * halts, or (dbg) an instruction breakpoint stops the machine. Returns true on
- * a breakpoint stop, leaving the clock mid-scanline; otherwise the clock is at
- * deadline_8 or later on return (time flows even while halted). */
-bool cpu_run_until(uint64_t deadline_8, bool dbg);
+uint64_t cpu_tick(void);   /* advance one PHI2 cycle; returns the bus pins */
+uint32_t cpu_step_8(void); /* 1/8-tick units advanced per 6502 cycle */
 
-/* Deterministic virtual microsecond clock — the master clock all timing
- * derives from; the same number of frames always yields the same time. */
-uint64_t emu_now_us(void);
+/* True on an opcode fetch (SYNC); out-writes the fetch PC and SP. */
+bool cpu_opcode_fetch(uint64_t pins, uint16_t *pc, uint8_t *sp);
+
+/* Program-halt gate: the CPU stops ticking once halted (the EXIT syscall, a
+ * failed exec, or a --dap launch hold set it; ria_reset clears it on restart).
+ * cpu_active() — the firmware contract — is its inverse. */
+bool cpu_halted(void);
+void cpu_set_halted(bool halted);
 
 /* The live 65C02 instance, for the debugger UI + DAP register access (the
  * debug code casts to m6502_t*, which includes the chip header, so this need
@@ -46,10 +48,10 @@ void *cpu_chip(void); /* m6502_t* */
 /* Optional per-CPU-cycle observer for the debugger UI. Display-only and MUST
  * NOT gate the CPU — dbg.c is the one authoritative engine. NULL when no
  * observer is registered. */
-extern void (*emu_dbg_cycle_cb)(uint64_t pins);
+extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_CPU_H_ */
+#endif /* _EMU_SYS_CPU_H_ */

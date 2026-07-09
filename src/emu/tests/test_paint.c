@@ -15,7 +15,8 @@
 #include "emu/hid/mou.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
+#include "emu/sys/cpu.h"
+#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
 #include "utest.h"
@@ -25,20 +26,20 @@ static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static uint32_t frame_crc(void)
 {
     int cw, ch;
-    emu_canvas_size(&cw, &ch);
-    return emu_crc32(0, fb, (size_t)cw * ch * 4);
+    vga_canvas_size(&cw, &ch);
+    return rom_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        emu_run_frame();
+        main_run_frame();
 }
 
 UTEST(paint, via_irq_moves_pointer)
 {
-    ASSERT_TRUE(emu_rom_load(PAINT_ROM));
-    emu_init();
+    ASSERT_TRUE(rom_load(PAINT_ROM));
+    main_init();
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 
@@ -56,7 +57,7 @@ UTEST(paint, via_irq_moves_pointer)
     run(20);
     ASSERT_NE(frame_crc(), still);
 
-    ASSERT_FALSE(emu_cpu_halted);
+    ASSERT_FALSE(cpu_halted());
 }
 
 UTEST_MAIN()

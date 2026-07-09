@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_ROM_H_
-#define _EMU_ROM_H_
+#ifndef _EMU_MON_ROM_H_
+#define _EMU_MON_ROM_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -20,15 +20,15 @@ extern "C"
 #endif
 
 /* CRC-32/ISO-HDLC (zlib). Shared by the ROM loader and the PNG writer. */
-uint32_t emu_crc32(uint32_t crc, const void *buf, size_t len);
+uint32_t rom_crc32(uint32_t crc, const void *buf, size_t len);
 
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path
- * (MSC0:/...), or an overlay ROM name; emu_rom_load resolves it. The program
+ * (MSC0:/...), or an overlay ROM name; rom_load resolves it. The program
  * memory-chunk records are streamed straight into ram[]/xram[]; the named assets
  * are NOT read — only the start of the asset directory is noted, so a ROM: read
  * scans the file for the entry on demand. Returns false (message on stderr) on
  * any format or CRC error. */
-bool emu_rom_load(const char *path);
+bool rom_load(const char *path);
 
 /* ---- ROM: drive (rom.c): the .rp6502's bundled assets, read on demand from the
  * file. The loader names the backing file and notes where the asset directory
@@ -52,4 +52,4 @@ void rom_assets_reset(void); /* forget the asset directory (a new program replac
 }
 #endif
 
-#endif /* _EMU_ROM_H_ */
+#endif /* _EMU_MON_ROM_H_ */

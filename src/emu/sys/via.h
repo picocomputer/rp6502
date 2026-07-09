@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_VIA_H_
-#define _EMU_VIA_H_
+#ifndef _EMU_SYS_VIA_H_
+#define _EMU_SYS_VIA_H_
 
 #include <stdint.h>
 
@@ -30,4 +30,4 @@ void *via_chip(void);
 }
 #endif
 
-#endif /* _EMU_VIA_H_ */
+#endif /* _EMU_SYS_VIA_H_ */

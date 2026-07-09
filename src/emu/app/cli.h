@@ -5,12 +5,12 @@
  *
  */
 
-#ifndef _EMU_CLI_H_
-#define _EMU_CLI_H_
+#ifndef _EMU_APP_CLI_H_
+#define _EMU_APP_CLI_H_
 
 #include <stddef.h>
 
-#include "emu/app/window.h" /* emu_scale_filter_t */
+#include "emu/app/window.h" /* window_scale_filter_t */
 
 #ifdef __cplusplus
 extern "C"
@@ -31,11 +31,11 @@ typedef struct
     double scale;
     bool have_scale;
     bool vsync; /* --no-vsync turns it off (default on) */
-    emu_scale_filter_t scale_filter;
+    window_scale_filter_t scale_filter;
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */
     bool mute;
-    bool debug;   /* --debug: on-screen machine debugger (dbg engine active) */
+    bool debug;   /* --debug: on-screen machine debugger */
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
     bool credits;       /* --credits: print third-party notices and exit */
     const char *inidir; /* --ini: config file for the debugger UI layout (else default) */
@@ -65,10 +65,10 @@ void cli_usage(const char *argv0);
 int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap);
 
 /* The path component after the last '/'. */
-const char *base_name(const char *p);
+const char *cli_base_name(const char *p);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_CLI_H_ */
+#endif /* _EMU_APP_CLI_H_ */

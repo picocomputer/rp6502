@@ -16,7 +16,7 @@
 #include <getopt.h>
 #endif
 
-const char *base_name(const char *p)
+const char *cli_base_name(const char *p)
 {
     const char *s = strrchr(p, '/');
     return s ? s + 1 : p;
@@ -27,8 +27,8 @@ void options_init(options *o)
     memset(o, 0, sizeof *o);
     o->frames = 120;
     o->scale = 1.5;
-    o->vsync = true; /* default on; --no-vsync to disable */
-    o->scale_filter = EMU_FILTER_SHARP; /* default sharp */
+    o->vsync = true;
+    o->scale_filter = WINDOW_FILTER_SHARP;
 }
 
 /* "RRGGBB" (optional leading '#') -> three 0-255 channels. */
@@ -152,11 +152,11 @@ int parse_args(int argc, char **argv, options *o)
         case OPT_NO_VSYNC: o->vsync = false; break;
         case OPT_FILTER:
             if (!strcmp(optarg, "nearest"))
-                o->scale_filter = EMU_FILTER_NEAREST;
+                o->scale_filter = WINDOW_FILTER_NEAREST;
             else if (!strcmp(optarg, "linear"))
-                o->scale_filter = EMU_FILTER_LINEAR;
+                o->scale_filter = WINDOW_FILTER_LINEAR;
             else if (!strcmp(optarg, "sharp"))
-                o->scale_filter = EMU_FILTER_SHARP;
+                o->scale_filter = WINDOW_FILTER_SHARP;
             else
             {
                 fprintf(stderr, "rp6502-emu: bad --filter '%s' "
@@ -210,6 +210,9 @@ int parse_args(int argc, char **argv, options *o)
     return 0;
 }
 
+/* Tokenizer whitespace: space, tab, CR, LF only (not isspace's \v/\f). */
+static bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
 int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
 {
     int argc = 0;
@@ -217,7 +220,7 @@ int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
     const char *p = s;
     while (*p && argc < max)
     {
-        while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n')
+        while (is_ws(*p))
             p++;
         if (!*p)
             break;
@@ -239,7 +242,7 @@ int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
             }
             else
             {
-                if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+                if (is_ws(c))
                     break;
                 if (c == '"' || c == '\'')
                 {

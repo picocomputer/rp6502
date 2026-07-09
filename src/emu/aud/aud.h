@@ -5,38 +5,40 @@
  *
  */
 
-#ifndef _EMU_AUD_H_
-#define _EMU_AUD_H_
+#ifndef _EMU_AUD_AUD_H_
+#define _EMU_AUD_AUD_H_
 
 #include <stdbool.h>
-#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-void (*aud_host_irq(void))(void); /* active sample handler, NULL before init */
-uint32_t aud_host_rate(void);     /* its sample rate in Hz, 0 before init */
+/* Main events
+ */
 
-/* Native sample rate (Hz) of the active device, or 0 when silent / disabled. */
-int emu_audio_rate(void);
+void aud_task(void);  /* generate this frame's samples from the active device */
+void aud_reset(void); /* silence + clear the ring (machine reset / exec) */
 
 /* --mute: disable audio entirely — the synth stops running (no per-frame
  * CPU work) and the window app opens no OS audio device. Default enabled. */
-void emu_set_audio_enabled(bool on);
-bool emu_audio_enabled(void);
+void aud_set_enabled(bool on);
+bool aud_enabled(void);
+
+/* Native sample rate (Hz) of the active device, or 0 when silent / disabled. */
+int aud_rate(void);
 
 /* Pull up to max_frames interleaved stereo frames (L,R floats in [-1,1]) from
  * the native-rate ring. Returns the number of frames written. */
-int emu_audio_read(float *dst, int max_frames);
+int aud_read(float *dst, int max_frames);
 
 /* Rolling mono downmix of the produced output, for waveform display. */
-const float *emu_audio_viz_buffer(int *num_samples);
-int emu_audio_viz_pos(void); /* current write position in that buffer */
+const float *aud_viz_buffer(int *num_samples);
+int aud_viz_pos(void); /* current write position in that buffer */
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* _EMU_AUD_H_ */
+#endif /* _EMU_AUD_AUD_H_ */

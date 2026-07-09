@@ -15,23 +15,7 @@
 #include "pico/types.h"
 #include "scanvideo.pio.h"
 
-// == CONFIG ============
-#define SCANVIDEO_PLANE_COUNT 3
-
-// == PIXEL FORMAT ======
-#define SCANVIDEO_ALPHA_PIN 5u
-#define SCANVIDEO_ALPHA_MASK (1u << SCANVIDEO_ALPHA_PIN)
-#define SCANVIDEO_PIXEL_RSHIFT 0u
-#define SCANVIDEO_PIXEL_GSHIFT 6u
-#define SCANVIDEO_PIXEL_BSHIFT 11u
-#define SCANVIDEO_PIXEL_RCOUNT 5u
-#define SCANVIDEO_PIXEL_GCOUNT 5u
-#define SCANVIDEO_PIXEL_BCOUNT 5u
-#define SCANVIDEO_PIXEL_FROM_RGB8(r, g, b) ((((b) >> 3u) << SCANVIDEO_PIXEL_BSHIFT) | (((g) >> 3u) << SCANVIDEO_PIXEL_GSHIFT) | (((r) >> 3u) << SCANVIDEO_PIXEL_RSHIFT))
-#define SCANVIDEO_PIXEL_FROM_RGB5(r, g, b) (((b) << SCANVIDEO_PIXEL_BSHIFT) | ((g) << SCANVIDEO_PIXEL_GSHIFT) | ((r) << SCANVIDEO_PIXEL_RSHIFT))
-#define SCANVIDEO_R5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_RSHIFT) & 0x1f)
-#define SCANVIDEO_G5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_GSHIFT) & 0x1f)
-#define SCANVIDEO_B5_FROM_PIXEL(p) (((p) >> SCANVIDEO_PIXEL_BSHIFT) & 0x1f)
+#include "scanvideo/pixel_format.h"
 
 // == COMPOSABLE SCANLINE ==
 #define COMPOSABLE_COLOR_RUN ((unsigned)composable_offset_color_run)

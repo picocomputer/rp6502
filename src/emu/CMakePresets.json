@@ -10,7 +10,6 @@
             "name": "base",
             "hidden": true,
             "generator": "Ninja",
-            "binaryDir": "${sourceDir}/../../build/emulator",
             "cacheVariables": {
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
             }
@@ -20,6 +19,7 @@
             "displayName": "Debug",
             "description": "Disable optimizations - include debug information.",
             "inherits": "base",
+            "binaryDir": "${sourceDir}/../../build/emulator/debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
@@ -29,6 +29,7 @@
             "displayName": "Release",
             "description": "Optimized for speed - exclude debug information.",
             "inherits": "base",
+            "binaryDir": "${sourceDir}/../../build/emulator/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }

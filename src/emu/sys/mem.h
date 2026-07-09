@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_MEM_H_
-#define _EMU_MEM_H_
+#ifndef _EMU_SYS_MEM_H_
+#define _EMU_SYS_MEM_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -59,4 +59,4 @@ extern volatile uint8_t xram_queue[256][2];
 }
 #endif
 
-#endif /* _EMU_MEM_H_ */
+#endif /* _EMU_SYS_MEM_H_ */
