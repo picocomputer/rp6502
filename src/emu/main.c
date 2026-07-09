@@ -42,8 +42,6 @@
 static uint64_t master_8;
 
 static int s_exit_code;
-
-/* Diagnostic: should advance at 60 Hz. */
 static unsigned long s_frame_count;
 
 /* Absolute, never reset per frame — feeds the exact deadline math below. */
@@ -58,10 +56,10 @@ void main_init(void)
 {
     pro_init();
     cpu_init(); /* default PHI2 (--phi2 reapplies after main_init) */
-    master_8 = 0; /* the virtual master clock starts at boot */
+    master_8 = 0;
     scanline_n = 0;
     s_frame_count = 0;
-    aud_init(); /* fill the shared sine table (no PWM off-device) */
+    aud_init();
     ria_reset();
     com_reset();        /* cold boot: flush queued input (per-exec keeps type-ahead) */
     oem_reset();        /* cold boot: default code page 437 (exec preserves the page) */
@@ -151,7 +149,7 @@ static void run_frame(bool render)
     stop_swept = false;
 
     const int vsync_line = vga_vsync_scanline();
-    const int canvas_h = vga_canvas_height(); /* visible region; snapshot for the frame */
+    const int canvas_h = vga_canvas_height();
     const uint64_t frame_end_n = scanline_n + VGA_SCANLINES;
     int line = 0; /* 0-based scanline within this frame */
     bool vsynced = false;
@@ -187,7 +185,7 @@ static void run_frame(bool render)
      * the read callback) then advance any blocking syscall waiting on it. */
     rln_task();
     ria_task();
-    aud_task(); /* generate this frame's audio from the active RIA device */
+    aud_task();
 
     /* An exec committed this frame: load the new program and restart the CPU,
      * keeping the master clock and the argv pro_api_exec stored. The terminal
@@ -207,7 +205,7 @@ static void run_frame(bool render)
             ria_reset(); /* RIA/std/kbd/atr/clk; clears halt, keeps VSYNC + screen */
             cpu_reset();
             via_reset();
-            pro_run(); /* the reloaded program (exec or launcher) is now running */
+            pro_run();
         }
     }
 }
@@ -246,12 +244,10 @@ static bool std_xreg(void)
      * in the emulator), so a write NAKs (mirrors ria/sys/pix.c). */
     if (device == 1 && channel == 0xF)
         return api_return_errno(API_EACCES);
-    /* word[i] lives at xstack[SIZE-5-2i] and targets address+i. Hardware
-     * dispatch order: a VGA channel-0 multi-word call starting at address 0
-     * sends the canvas word (address 0) first so it can't clear later mode
-     * programming; every other word follows high address -> low. This makes
-     * a register that consumes earlier ones (e.g. the term mode word at
-     * address 1) land after its parameters. */
+    /* A VGA channel-0 write from address 0 must send the canvas word (address 0)
+     * first so it can't clear later mode programming; the rest follow high
+     * address -> low, landing each register after the parameters it consumes
+     * (e.g. the term mode word at address 1). */
     bool canvas_first = (device == 1 && channel == 0 && address == 0 && count > 1);
     if (canvas_first && !xreg_write(device, channel, address, word_at(0)))
         return api_return_errno(API_EINVAL);

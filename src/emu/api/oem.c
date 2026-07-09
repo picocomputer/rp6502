@@ -64,7 +64,7 @@ uint16_t oem_get_code_page_run(void)
 
 void oem_set_code_page_run(uint16_t cp)
 {
-    oem_set_code_page(cp); /* best-effort; unsupported pages left unchanged */
+    oem_set_code_page(cp);
 }
 
 /* A deliberate local copy of the firmware's str_utf8_to_oem (str/str.c). That

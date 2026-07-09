@@ -729,7 +729,6 @@ void cc65dbg_free(cc65dbg_t *db)
     free(db);
 }
 
-/* The linker segments with a name and a non-zero size, at their load addresses. */
 int cc65dbg_segments(const cc65dbg_t *db, cc65seg_t *out, int max)
 {
     if (!db)

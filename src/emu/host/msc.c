@@ -136,7 +136,7 @@ bool msc_to_host(const char *path, char *host, size_t hsz)
 /* Render a host path as an MSC0: path (the inverse for absolutes): a Windows
  * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
  * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
- * path — getcwd is full-path-or-error). Used for argv[0] and getcwd. */
+ * path — getcwd is full-path-or-error). */
 size_t msc_from_host(const char *hostpath, char *out, size_t outsz)
 {
     int w;

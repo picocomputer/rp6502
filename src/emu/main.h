@@ -14,7 +14,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "ria/main.h" /* the main_api contract the shared api.c dispatches through */
+#include "ria/main.h"
 
 #ifdef __cplusplus
 extern "C"

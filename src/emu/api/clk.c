@@ -39,7 +39,7 @@ void clk_reset(void)
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
-// Re-anchor the 6502 run clock to now (called at program start, incl. exec).
+// Re-anchor the 6502 run clock to now.
 void clk_run(void)
 {
     g_run_start_us = time_us_64();
@@ -190,7 +190,7 @@ bool clk_api_strftime(void)
 #endif
     }
     size_t n = clk_strftime((char *)xstack, max, format, &tm);
-    xstack_ptr = XSTACK_SIZE - n; /* relocate the result to the top of xstack */
+    xstack_ptr = XSTACK_SIZE - n;
     memmove(&xstack[xstack_ptr], xstack, n);
     return api_return_ax(n);
 }

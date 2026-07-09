@@ -234,7 +234,7 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
  * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
  * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
  * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
- * across reads, EOF, and lseek interop. Left in sync mode for the other tests. */
+ * across reads, EOF, and lseek interop. */
 static void async_aio_body(int *utest_result)
 {
     char src[5000];

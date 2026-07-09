@@ -132,7 +132,7 @@ static struct host_dir *dir_slot(int des, api_errno *err)
 }
 
 /* Read the next real directory entry (skipping "." / ".."), filling a FILINFO from
- * a stat of it (fname[0]==0 at end-of-directory). Shared by readdir and seekdir. */
+ * a stat of it (fname[0]==0 at end-of-directory). */
 static int host_next_entry(int des, FILINFO *fno, api_errno *err)
 {
     struct host_dir *d = dir_slot(des, err);

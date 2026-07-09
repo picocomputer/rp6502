@@ -17,7 +17,7 @@ void via_reset(void)
     m6522_init(&via);
 }
 
-/* The live 6522 instance, for the debugger UI (ui_m6522). */
+/* The live 6522 instance, for the debugger UI. */
 void *via_chip(void) { return &via; }
 
 uint64_t via_tick(uint64_t pins)

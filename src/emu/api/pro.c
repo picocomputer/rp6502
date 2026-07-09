@@ -250,7 +250,7 @@ bool pro_api_exec(void)
         return api_return_errno(API_EINVAL);
     }
     /* argv[0] (an MSC0:/overlay/host name) is resolved by the loader at the
-     * frame boundary; a load failure surfaces on reload, matching the firmware. */
+     * frame boundary. */
     pro_exec(pro_argv_index(0));
     return api_return_ax(0);
 }

@@ -32,7 +32,7 @@ static void kbd_write_xram(void)
         if (kbd_keys[k])
             any = true;
     if (!any)
-        kbd_keys[0] |= 1; /* no keys down */
+        kbd_keys[0] |= 1;
     kbd_keys[0] |= (kbd_leds & 7) << 1;
     if (kbd_xram != 0xFFFF)
         memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
@@ -67,8 +67,6 @@ void kbd_reset(void)
     kbd_xram = 0xFFFF;
 }
 
-/* Toggle a lock LED in the HID bitmap and re-publish it (Num=1, Caps=2,
- * Scroll=4). */
 void kbd_toggle_lock(uint8_t bit)
 {
     kbd_leds ^= bit;

@@ -35,7 +35,7 @@ typedef struct
     int phi2_khz;  /* 0 = leave at default */
     int code_page; /* 0 = leave at the default 437 */
     bool mute;
-    bool debug;   /* --debug: on-screen machine debugger (dbg engine active) */
+    bool debug;   /* --debug: on-screen machine debugger */
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
     bool credits;       /* --credits: print third-party notices and exit */
     const char *inidir; /* --ini: config file for the debugger UI layout (else default) */

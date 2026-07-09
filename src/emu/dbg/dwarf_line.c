@@ -485,7 +485,6 @@ void dwarf_line_free(dwarf_line_t *dl)
     free(dl);
 }
 
-/* The allocatable ELF sections (load address + size), for the memory-map view. */
 int dwarf_line_sections(const dwarf_line_t *dl, dwarf_section_t *out, int max)
 {
     if (!dl)

@@ -36,7 +36,6 @@
 static char g_rom_src[MSC_MAX_PATH];
 static size_t g_rom_assets_start;
 
-/* the loader's text-line reader + hex-field parser, defined below */
 static long fgets_line(FILE *f, char *line, size_t cap);
 static bool parse_u32(const char **pp, uint32_t *out);
 
@@ -96,8 +95,8 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
     return found;
 }
 
-/* Read a named ROM asset's bytes host-side (main.c reads the "emulator" args
- * asset; the 6502 reads assets via the ROM: drive). -1 if no such asset. */
+/* Read a named ROM asset's bytes host-side (the 6502 reads assets via the ROM:
+ * drive). -1 if no such asset. */
 long rom_read_asset(const char *name, void *buf, size_t max)
 {
     size_t base, len;

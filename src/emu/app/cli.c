@@ -27,8 +27,8 @@ void options_init(options *o)
     memset(o, 0, sizeof *o);
     o->frames = 120;
     o->scale = 1.5;
-    o->vsync = true; /* default on; --no-vsync to disable */
-    o->scale_filter = WINDOW_FILTER_SHARP; /* default sharp */
+    o->vsync = true;
+    o->scale_filter = WINDOW_FILTER_SHARP;
 }
 
 /* "RRGGBB" (optional leading '#') -> three 0-255 channels. */

@@ -511,7 +511,7 @@ static void frame_cb(void)
     }
 
 #ifdef EMU_WITH_AUDIO
-    audio_out_pump(); /* feed the host audio device from this frame's samples */
+    audio_out_pump();
 #endif
 
     /* Reflect the run state in the title so the user knows the run is done (exec
@@ -707,7 +707,7 @@ static void event_cb(const sapp_event *e)
     if (dbg_is_active() && dbgui_handle_event(e))
         return; /* the debug UI consumed this event */
 #endif
-    input_event(e); /* translate host key/mouse events (app/input.c) */
+    input_event(e);
 }
 
 static void cleanup_cb(void)
