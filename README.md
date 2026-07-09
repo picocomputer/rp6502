@@ -69,7 +69,7 @@ The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
 For emulation, I assume `xcode-select --install` is all you need. The submission
-to make MacOS work didn't come with special instructions.
+to make MacOS work didn't come with instructions.
 
 ## Building with CMake and VS Code
 
