@@ -71,6 +71,15 @@ jobs:
           curl -fSL -o /tmp/pico-sdk-tools.tar.gz "$base/pico-sdk-tools-${PICO_SDK_VERSION}-x86_64-lin.tar.gz"
           tar -xzf /tmp/pico-sdk-tools.tar.gz -C "$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}"
 
+      - name: Derive firmware version (tag → version, off-tag → build timestamp)
+        id: fwver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build firmware (pico2_w) — rp6502_ria_w + rp6502_vga
         run: |
           set -euxo pipefail
@@ -78,6 +87,7 @@ jobs:
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2_w \
+            -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
@@ -90,6 +100,7 @@ jobs:
           cmake -S . -B build/pico2 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2 \
+            -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
@@ -251,8 +262,8 @@ jobs:
       - name: Package itch.io bundle
         run: |
           set -euxo pipefail
-          cd build/web
-          zip -r "$GITHUB_WORKSPACE/itch.io.zip" itch.io
+          cd build/web/itch.io
+          zip -r "$GITHUB_WORKSPACE/itch.io.zip" .
 
       - uses: actions/upload-artifact@v7
         with:

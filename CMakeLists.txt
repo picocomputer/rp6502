@@ -46,6 +46,11 @@ foreach(_def IN LISTS RP6502_PROJECT_DEFINITIONS)
     endif()
 endforeach()
 
+# -DRP6502_VERSION=<v> (release builds) overrides an empty default
+if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
+    set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
+endif()
+
 set(RP6502_GEN_VERSION_SCRIPT ${CMAKE_BINARY_DIR}/gen_rp6502_version_header.cmake)
 file(WRITE ${RP6502_GEN_VERSION_SCRIPT} [[
 if(VERSION)
