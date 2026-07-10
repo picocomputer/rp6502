@@ -338,9 +338,14 @@ jobs:
           name: rp6502-release-zip
           path: dist
 
+      - name: Compose release title (matches historical "Version X" format)
+        id: title
+        run: echo "name=Version ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          name: ${{ steps.title.outputs.name }}
           files: |
             dist/rp6502-*.zip
             dist/SHA256SUMS
