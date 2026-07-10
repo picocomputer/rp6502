@@ -19,6 +19,7 @@
 #include "hid/kbd.h"
 #include "hid/mou.h"
 #include "hid/pad.h"
+#include "hid/tab.h"
 #include "mon/dsk.h"
 #include "mon/fil.h"
 #include "mon/mon.h"
@@ -98,6 +99,7 @@ static void __in_flash("init") init(void)
     kbd_init();
     mou_init();
     pad_init();
+    tab_init();
     rom_init();
     clk_init();
     mdm_init();
@@ -177,6 +179,7 @@ static void stop(void)
     kbd_stop();
     mou_stop();
     pad_stop();
+    tab_stop();
     aud_stop();
     mdm_stop();
     rom_stop();
@@ -221,6 +224,8 @@ bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
         return mou_xreg(word);
     case 0x002:
         return pad_xreg(word);
+    case 0x003:
+        return tab_xreg(word);
     // Channel 1 for audio devices.
     case 0x100:
         return psg_xreg(word);

@@ -1,0 +1,337 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include "hid/hid.h"
+#include "hid/tab.h"
+#include "sys/mem.h"
+#include "sys/vga.h"
+#include <pico.h>
+#include <string.h>
+
+#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_TAB)
+#include <stdio.h>
+#define DBG(...) printf(__VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+#define TAB_MAX_MICE 4
+
+/* XRAM report block. Every field is one byte, so each 6502 read is atomic; a
+ * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
+ * one non-zero, decoded first-non-zero-wins (X>639 marks an inactive contact).
+ * Only status + contacts are written back; control is ROM-owned. */
+#define TAB_MAX_CONTACTS 8
+#define TAB_HEADER_SIZE 2  /* status, control */
+#define TAB_CONTACT_SIZE 6 /* flags, x0, x1, x2, y0, y1 */
+#define TAB_BLOCK_SIZE (TAB_HEADER_SIZE + TAB_MAX_CONTACTS * TAB_CONTACT_SIZE)
+
+#define TAB_OFF_STATUS 0
+#define TAB_OFF_CONTROL 1
+#define TAB_OFF_CONTACTS 2
+
+/* status (fw->ROM): host_cursor is always 0 on real hardware (no host cursor). */
+#define TAB_STATUS_HOST_CURSOR 0x01
+
+/* contact flags (b7 hover so the 6502 tests it with BIT/BMI). */
+#define TAB_FLAG_LEFT 0x01
+#define TAB_FLAG_RIGHT 0x02
+#define TAB_FLAG_MIDDLE 0x04
+#define TAB_FLAG_BTN4 0x08
+#define TAB_FLAG_BTN5 0x10
+#define TAB_FLAG_HOVER 0x80
+
+#define TAB_INACTIVE_X 640 /* a coordinate past the canvas = no contact */
+
+static uint8_t tab_state[TAB_BLOCK_SIZE];
+static uint16_t tab_xram;
+
+/* Primary pointer, canvas space. Relative mice accumulate here. */
+static int16_t tab_x;
+static int16_t tab_y;
+
+typedef struct
+{
+    bool valid;
+    int slot;
+    uint8_t report_id;
+    uint16_t button_offsets[5]; // buttons 1..5, 0xFFFF if absent
+    bool x_relative;            // true for mice
+    uint16_t x_offset;
+    uint8_t x_size;
+    int32_t x_min, x_max;
+    uint16_t y_offset;
+    uint8_t y_size;
+    int32_t y_min, y_max;
+    uint16_t tip_offset;     // Digitizer Tip Switch, 0xFFFF if absent
+    uint16_t inrange_offset; // Digitizer In Range, 0xFFFF if absent
+    uint8_t buttons;
+} tab_connection_t;
+
+static tab_connection_t tab_connections[TAB_MAX_MICE];
+
+static tab_connection_t *tab_get_connection_by_slot(int slot)
+{
+    for (int i = 0; i < TAB_MAX_MICE; ++i)
+        if (tab_connections[i].valid && tab_connections[i].slot == slot)
+            return &tab_connections[i];
+    return NULL;
+}
+
+static void tab_canvas_size(int *w, int *h)
+{
+    switch (vga_get_canvas())
+    {
+    case vga_canvas_320_240: *w = 320; *h = 240; break;
+    case vga_canvas_320_180: *w = 320; *h = 180; break;
+    case vga_canvas_640_360: *w = 640; *h = 360; break;
+    case vga_canvas_console:
+    case vga_canvas_640_480:
+    default: *w = 640; *h = 480; break;
+    }
+}
+
+/* X (0..764) -> three single-byte windows, exactly one non-zero. */
+static void tab_encode_x(uint8_t *d, int x)
+{
+    if (x < 0)
+        x = 0;
+    if (x > 764)
+        x = 764;
+    d[0] = d[1] = d[2] = 0;
+    if (x <= 254)
+        d[0] = (uint8_t)(x + 1);
+    else if (x <= 509)
+        d[1] = (uint8_t)(x - 254);
+    else
+        d[2] = (uint8_t)(x - 509);
+}
+
+/* Y (0..509) -> two single-byte windows, exactly one non-zero. */
+static void tab_encode_y(uint8_t *d, int y)
+{
+    if (y < 0)
+        y = 0;
+    if (y > 509)
+        y = 509;
+    d[0] = d[1] = 0;
+    if (y <= 254)
+        d[0] = (uint8_t)(y + 1);
+    else
+        d[1] = (uint8_t)(y - 254);
+}
+
+static void tab_put_contact(int i, uint8_t flags, int x, int y)
+{
+    uint8_t *c = &tab_state[TAB_OFF_CONTACTS + i * TAB_CONTACT_SIZE];
+    c[0] = flags;
+    tab_encode_x(&c[1], x);
+    tab_encode_y(&c[4], y);
+}
+
+static void tab_clear_contact(int i)
+{
+    tab_put_contact(i, 0, TAB_INACTIVE_X, 0);
+}
+
+/* Push status + contacts to XRAM; never the ROM-owned control byte. Each byte is
+ * atomic and the decode tolerates any interleaving, so no barrier is needed. */
+static void tab_write_xram(void)
+{
+    if (tab_xram == 0xFFFF)
+        return;
+    xram[tab_xram + TAB_OFF_STATUS] = tab_state[TAB_OFF_STATUS];
+    memcpy(&xram[tab_xram + TAB_OFF_CONTACTS], &tab_state[TAB_OFF_CONTACTS],
+           TAB_MAX_CONTACTS * TAB_CONTACT_SIZE);
+}
+
+void __in_flash("tab_init") tab_init(void)
+{
+    tab_stop();
+}
+
+void tab_stop(void)
+{
+    tab_xram = 0xFFFF;
+}
+
+bool tab_xreg(uint16_t word)
+{
+    if (word != 0xFFFF && word > 0x10000 - TAB_BLOCK_SIZE)
+        return false;
+    tab_xram = word;
+    memset(tab_state, 0, sizeof(tab_state)); /* status host_cursor=0: no host cursor on hardware */
+    for (int i = 0; i < TAB_MAX_CONTACTS; ++i)
+        tab_clear_contact(i);
+    if (tab_xram != 0xFFFF) /* one-time full write also seeds control=0 (ROM draws its own) */
+        memcpy(&xram[tab_xram], tab_state, TAB_BLOCK_SIZE);
+    return true;
+}
+
+static bool __in_flash("tab_parse") tab_parse_field(const hid_field_t *field, void *context)
+{
+    tab_connection_t *conn = (tab_connection_t *)context;
+
+    if (conn->report_id != 0 && field->report_id != 0xFFFF &&
+        field->report_id != conn->report_id)
+        return true;
+
+    bool matched = false;
+    if (field->usage_page == 0x01) // Generic Desktop
+    {
+        switch (field->usage)
+        {
+        case 0x30: // X
+            conn->x_offset = field->bit_pos;
+            conn->x_size = field->size;
+            conn->x_relative = (field->input_flags & 0x04) != 0;
+            conn->x_min = field->logical_min;
+            conn->x_max = field->logical_max;
+            matched = true;
+            break;
+        case 0x31: // Y
+            conn->y_offset = field->bit_pos;
+            conn->y_size = field->size;
+            conn->y_min = field->logical_min;
+            conn->y_max = field->logical_max;
+            matched = true;
+            break;
+        }
+    }
+    else if (field->usage_page == 0x09) // Button
+    {
+        if (field->usage >= 1 && field->usage <= 5)
+        {
+            conn->button_offsets[field->usage - 1] = field->bit_pos;
+            matched = true;
+        }
+    }
+    else if (field->usage_page == 0x0D) // Digitizer
+    {
+        if (field->usage == 0x42) // Tip Switch
+        {
+            conn->tip_offset = field->bit_pos;
+            matched = true;
+        }
+        else if (field->usage == 0x32) // In Range
+        {
+            conn->inrange_offset = field->bit_pos;
+            matched = true;
+        }
+    }
+
+    if (matched && conn->report_id == 0 && field->report_id != 0xFFFF)
+        conn->report_id = field->report_id;
+
+    return true;
+}
+
+bool __in_flash("tab_mount") tab_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
+{
+    int conn_num = -1;
+    for (int i = 0; i < TAB_MAX_MICE; ++i)
+        if (!tab_connections[i].valid)
+        {
+            conn_num = i;
+            break;
+        }
+    if (conn_num < 0)
+        return false;
+
+    tab_connection_t *conn = &tab_connections[conn_num];
+    memset(conn, 0, sizeof(tab_connection_t));
+    for (int i = 0; i < 5; i++)
+        conn->button_offsets[i] = 0xFFFF;
+    conn->tip_offset = 0xFFFF;
+    conn->inrange_offset = 0xFFFF;
+    conn->slot = slot;
+
+    hid_descriptor_parse(desc_data, desc_len, tab_parse_field, conn);
+
+    // A pointing device needs both axes.
+    conn->valid = conn->x_size > 0 && conn->y_size > 0;
+
+    DBG("tab_mount: slot=%d, valid=%d, x_rel=%d, tip=%d\n",
+        slot, conn->valid, conn->x_relative, conn->tip_offset != 0xFFFF);
+
+    return conn->valid;
+}
+
+bool tab_umount(int slot)
+{
+    tab_connection_t *conn = tab_get_connection_by_slot(slot);
+    if (conn == NULL)
+        return false;
+    conn->valid = false;
+    return true;
+}
+
+void tab_report(int slot, uint8_t const *data, size_t size)
+{
+    tab_connection_t *conn = tab_get_connection_by_slot(slot);
+    if (conn == NULL)
+        return;
+
+    const uint8_t *report_data = data;
+    uint16_t report_data_len = size;
+
+    if (conn->report_id != 0)
+    {
+        if (report_data_len == 0 || report_data[0] != conn->report_id)
+            return;
+        report_data++;
+        report_data_len--;
+    }
+
+    int cw, ch;
+    tab_canvas_size(&cw, &ch);
+
+    // Position: integrate a relative mouse, scale an absolute digitizer.
+    if (conn->x_relative)
+    {
+        tab_x += hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
+        tab_y += hid_extract_signed(report_data, report_data_len, conn->y_offset, conn->y_size);
+    }
+    else
+    {
+        uint32_t rx = hid_extract_bits(report_data, report_data_len, conn->x_offset, conn->x_size);
+        uint32_t ry = hid_extract_bits(report_data, report_data_len, conn->y_offset, conn->y_size);
+        int32_t xs = conn->x_max - conn->x_min;
+        int32_t ys = conn->y_max - conn->y_min;
+        if (xs > 0)
+            tab_x = (int16_t)(((int64_t)((int32_t)rx - conn->x_min) * (cw - 1)) / xs);
+        if (ys > 0)
+            tab_y = (int16_t)(((int64_t)((int32_t)ry - conn->y_min) * (ch - 1)) / ys);
+    }
+    if (tab_x < 0)
+        tab_x = 0;
+    else if (tab_x > cw - 1)
+        tab_x = cw - 1;
+    if (tab_y < 0)
+        tab_y = 0;
+    else if (tab_y > ch - 1)
+        tab_y = ch - 1;
+
+    // Buttons: mouse buttons 1..5, plus a digitizer Tip Switch as the primary.
+    uint8_t buttons = 0;
+    for (int i = 0; i < 5; i++)
+        if (conn->button_offsets[i] != 0xFFFF)
+            if (hid_extract_bits(report_data, report_data_len, conn->button_offsets[i], 1))
+                buttons |= (uint8_t)(1 << i);
+    if (conn->tip_offset != 0xFFFF)
+        if (hid_extract_bits(report_data, report_data_len, conn->tip_offset, 1))
+            buttons |= TAB_FLAG_LEFT;
+    conn->buttons = buttons;
+
+    // Hover: a mouse always tracks; an absolute pen tracks when In Range; a bare
+    // touchscreen (tip only, no In Range) does not.
+    bool hover = conn->x_relative;
+    if (!conn->x_relative && conn->inrange_offset != 0xFFFF)
+        hover = hid_extract_bits(report_data, report_data_len, conn->inrange_offset, 1) != 0;
+
+    tab_put_contact(0, (uint8_t)(buttons | (hover ? TAB_FLAG_HOVER : 0)), tab_x, tab_y);
+    tab_write_xram();
+}

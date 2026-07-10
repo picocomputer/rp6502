@@ -61,6 +61,12 @@ double window_get_scale(void);
  * divides host mouse motion by this so pointer speed is window-size independent. */
 float window_canvas_scale(void);
 
+/* Map a framebuffer-pixel point (sokol e->mouse_x/y or a touchpoint) to canvas
+ * pixel coords, clamped to the canvas. Returns true when the raw point was over
+ * the drawn canvas (false = in the letterbox / outside). Used by the absolute
+ * "tablet" input path. */
+bool window_canvas_from_fb(float px, float py, int *cx, int *cy);
+
 #ifdef __cplusplus
 }
 #endif

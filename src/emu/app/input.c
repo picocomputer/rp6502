@@ -12,6 +12,7 @@
 #include "emu/app/window.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
+#include "emu/hid/tab.h"
 #include "emu/sys/com.h"
 #include "emu/sys/vga.h"
 #include "sokol_app.h"
@@ -301,8 +302,86 @@ static void set_mouse_button(int btn, bool down)
     mou_host_buttons(mouse_buttons);
 }
 
+/* ------------------------------------------------------------------ */
+/* Tablet (absolute pointer / touch)                                   */
+/* ------------------------------------------------------------------ */
+
+static uint8_t tab_buttons; /* host button bitmap for the absolute pointer */
+
+/* Route a host pointer/touch event to the tablet device. No capture: the host
+ * cursor's absolute position (or each touch point) maps straight to the canvas. */
+static void input_tablet(const sapp_event *e)
+{
+    int cx, cy;
+    switch (e->type)
+    {
+    case SAPP_EVENTTYPE_MOUSE_DOWN:
+    case SAPP_EVENTTYPE_MOUSE_UP:
+    {
+        uint8_t bit = e->mouse_button == SAPP_MOUSEBUTTON_LEFT     ? TAB_FLAG_LEFT
+                      : e->mouse_button == SAPP_MOUSEBUTTON_RIGHT  ? TAB_FLAG_RIGHT
+                      : e->mouse_button == SAPP_MOUSEBUTTON_MIDDLE ? TAB_FLAG_MIDDLE
+                                                                   : 0;
+        if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
+            tab_buttons |= bit;
+        else
+            tab_buttons &= (uint8_t)~bit;
+    }
+        __attribute__((fallthrough));
+    case SAPP_EVENTTYPE_MOUSE_MOVE:
+        window_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
+        tab_host_pointer(cx, cy, tab_buttons);
+        break;
+    case SAPP_EVENTTYPE_MOUSE_LEAVE:
+        tab_host_clear(); /* pointer left the window */
+        break;
+    case SAPP_EVENTTYPE_TOUCHES_BEGAN:
+    case SAPP_EVENTTYPE_TOUCHES_MOVED:
+    case SAPP_EVENTTYPE_TOUCHES_ENDED:
+    case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
+    {
+        bool ending = e->type == SAPP_EVENTTYPE_TOUCHES_ENDED ||
+                      e->type == SAPP_EVENTTYPE_TOUCHES_CANCELLED;
+        tab_point_t pts[SAPP_MAX_TOUCHPOINTS];
+        int n = 0;
+        for (int i = 0; i < e->num_touches && n < SAPP_MAX_TOUCHPOINTS; ++i)
+        {
+            if (ending && e->touches[i].changed)
+                continue; /* the finger lifting this event is no longer a contact */
+            window_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy);
+            pts[n].x = (int16_t)cx;
+            pts[n].y = (int16_t)cy;
+            n++;
+        }
+        tab_host_touch(pts, n);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 void input_event(const sapp_event *e)
 {
+    /* An absolute-pointer program takes host pointer/touch events directly (no
+     * capture); keys still fall through to the keyboard path below. */
+    if (tab_is_mapped())
+        switch (e->type)
+        {
+        case SAPP_EVENTTYPE_MOUSE_DOWN:
+        case SAPP_EVENTTYPE_MOUSE_UP:
+        case SAPP_EVENTTYPE_MOUSE_MOVE:
+        case SAPP_EVENTTYPE_MOUSE_LEAVE:
+        case SAPP_EVENTTYPE_TOUCHES_BEGAN:
+        case SAPP_EVENTTYPE_TOUCHES_MOVED:
+        case SAPP_EVENTTYPE_TOUCHES_ENDED:
+        case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
+            input_tablet(e);
+            return;
+        default:
+            break;
+        }
+
     switch (e->type)
     {
     case SAPP_EVENTTYPE_KEY_DOWN:

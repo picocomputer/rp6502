@@ -9,6 +9,7 @@
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/hid/mou.h"
+#include "emu/hid/tab.h"
 #include "emu/mon/rom.h"
 #include "emu/host/msc.h"
 #include "emu/sys/cpu.h"
@@ -336,6 +337,77 @@ float window_canvas_scale(void)
     return (sx < sy ? sx : sy);
 }
 
+bool window_canvas_from_fb(float px, float py, int *cx, int *cy)
+{
+    int cw, ch;
+    vga_canvas_size(&cw, &ch);
+    int rx, ry, rw, rh;
+    canvas_region(&rx, &ry, &rw, &rh);
+    float sx = (float)rw / cw, sy = (float)rh / ch;
+    float scale = sx < sy ? sx : sy;
+    if (scale <= 0.0f)
+        return false;
+    /* The canvas is centered (letterboxed) within its region. */
+    float ox = rx + (rw - cw * scale) * 0.5f;
+    float oy = ry + (rh - ch * scale) * 0.5f;
+    float fx = (px - ox) / scale;
+    float fy = (py - oy) / scale;
+    bool inside = fx >= 0.0f && fx < cw && fy >= 0.0f && fy < ch;
+    int ix = (int)fx, iy = (int)fy;
+    if (ix < 0)
+        ix = 0;
+    else if (ix > cw - 1)
+        ix = cw - 1;
+    if (iy < 0)
+        iy = 0;
+    else if (iy > ch - 1)
+        iy = ch - 1;
+    *cx = ix;
+    *cy = iy;
+    return inside;
+}
+
+/* Map the ROM's tablet control byte to a sokol system cursor. */
+static sapp_mouse_cursor tab_cursor_to_sokol(uint8_t shape)
+{
+    switch (shape)
+    {
+    case TAB_CURSOR_ARROW: return SAPP_MOUSECURSOR_ARROW;
+    case TAB_CURSOR_CROSSHAIR: return SAPP_MOUSECURSOR_CROSSHAIR;
+    case TAB_CURSOR_IBEAM: return SAPP_MOUSECURSOR_IBEAM;
+    case TAB_CURSOR_HAND: return SAPP_MOUSECURSOR_POINTING_HAND;
+    case TAB_CURSOR_RESIZE_EW: return SAPP_MOUSECURSOR_RESIZE_EW;
+    case TAB_CURSOR_RESIZE_NS: return SAPP_MOUSECURSOR_RESIZE_NS;
+    default: return SAPP_MOUSECURSOR_DEFAULT;
+    }
+}
+
+/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
+ * hides it (the ROM draws its own), otherwise show that shape. Only touches
+ * sokol on a change; restores the default cursor once no tablet is mapped. */
+static void update_cursor(void)
+{
+    static int applied = -1; /* last applied TAB_CURSOR_*, or -1 = no tablet */
+    int shape = tab_is_mapped() ? (int)tab_control() : -1;
+    if (shape >= TAB_CURSOR_COUNT)
+        shape = TAB_CURSOR_OFF;
+    if (shape == applied)
+        return;
+    applied = shape;
+    if (shape < 0) /* no tablet mapped: restore the default cursor */
+    {
+        sapp_set_mouse_cursor(SAPP_MOUSECURSOR_DEFAULT);
+        sapp_show_mouse(true);
+    }
+    else if (shape == TAB_CURSOR_OFF)
+        sapp_show_mouse(false);
+    else
+    {
+        sapp_set_mouse_cursor(tab_cursor_to_sokol(shape));
+        sapp_show_mouse(true);
+    }
+}
+
 /* Reflect run + mouse-capture state in the window title, only when it changes.
  * When a program has mapped the mouse, the title carries the capture hint. */
 static void update_title(void)
@@ -522,6 +594,7 @@ static void frame_cb(void)
     if (sapp_mouse_locked() && !mou_is_mapped())
         sapp_lock_mouse(false);
     update_title();
+    update_cursor(); /* apply the tablet ROM's requested host cursor / hide */
     if (cpu_halted() && app.exit_on_halt)
         sapp_request_quit();
 
