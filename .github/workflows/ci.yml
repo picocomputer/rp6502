@@ -28,7 +28,7 @@ jobs:
   firmware:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Init firmware submodules
         run: git submodule update --init --depth 1 vendor/littlefs vendor/tinyusb
@@ -47,7 +47,7 @@ jobs:
 
       - name: Cache Pico SDK + picotool + pioasm
         id: pico
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pico-sdk
           key: pico-${{ env.PICO_SDK_VERSION }}-cyw43-lwip-btstack-mbedtls-x86_64-v1
@@ -75,34 +75,34 @@ jobs:
         run: |
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
-          cmake -S . -B build/firmware -G Ninja \
+          cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2_w \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
-          cmake --build build/firmware
+          cmake --build build
 
       - name: Sanity build non-W RIA (pico2, not shipped)
         run: |
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
-          cmake -S . -B build/firmware-pico2 -G Ninja \
+          cmake -S . -B build/pico2 -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2 \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
-          cmake --build build/firmware-pico2
+          cmake --build build/pico2
 
       - name: Stage firmware artifacts
         run: |
           set -euxo pipefail
           mkdir -p out
-          cp build/firmware/ria/rp6502_ria_w.uf2 out/
-          cp build/firmware/vga/rp6502_vga.uf2 out/
+          cp build/ria/rp6502_ria_w.uf2 out/
+          cp build/vga/rp6502_vga.uf2 out/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: firmware
           path: out/*.uf2
@@ -121,7 +121,7 @@ jobs:
           - { runner: ubuntu-24.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Init emulator submodules
         run: |
@@ -151,7 +151,7 @@ jobs:
           cp build/emulator/release/rp6502-emu "rp6502-emu-${{ matrix.arch }}"
           tar -czf "rp6502-emu-${{ matrix.arch }}.tar.gz" "rp6502-emu-${{ matrix.arch }}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: emu-linux-${{ matrix.arch }}
           path: rp6502-emu-${{ matrix.arch }}.tar.gz
@@ -163,7 +163,7 @@ jobs:
   emu-macos:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Init emulator submodules
         run: |
@@ -212,7 +212,7 @@ jobs:
           PLIST
           tar -czf rp6502-emu-app.tar.gz rp6502-emu.app
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: emu-macos
           path: rp6502-emu-app.tar.gz
@@ -224,7 +224,7 @@ jobs:
   emu-wasm:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Init web-build submodules
         run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/emsdk
@@ -254,7 +254,7 @@ jobs:
           cd build/web
           zip -r "$GITHUB_WORKSPACE/itch.io.zip" itch.io
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: itch-io
           path: itch.io.zip
@@ -267,9 +267,9 @@ jobs:
     needs: [firmware, emu-linux, emu-macos, emu-wasm]
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: _artifacts
 
@@ -303,7 +303,7 @@ jobs:
           sha256sum "rp6502-${VERSION}.zip" > SHA256SUMS
           cat SHA256SUMS
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: rp6502-release-zip
           path: |
@@ -322,13 +322,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: rp6502-release-zip
           path: dist
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             dist/rp6502-*.zip

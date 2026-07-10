@@ -10,7 +10,7 @@
         "${workspaceFolder}",
         "${workspaceFolder}/src/emu"
     ],
-    "cmake.buildDirectory": "${sourceDirectory}/build/firmware",
+    "cmake.buildDirectory": "${sourceDirectory}/build",
     "cmake.configureOnEdit": true,
     "cmake.automaticReconfigure": true,
     "cmake.configureOnOpen": true,
