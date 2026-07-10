@@ -1,0 +1,351 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  PICO_SDK_VERSION: "2.3.0"
+  PICO_TOOLS_TAG: "v2.3.0-0"
+  ARM_TOOLCHAIN: "15.2.Rel1"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Firmware: one pico2_w build produces rp6502_ria_w.uf2 + rp6502_vga.uf2.
+  # A second pico2 build is a CI-only regression check (not shipped).
+  # ---------------------------------------------------------------------------
+  firmware:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init firmware submodules
+        run: git submodule update --init --depth 1 vendor/littlefs vendor/tinyusb
+
+      - name: Install host packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build python3 git ca-certificates \
+            libusb-1.0-0-dev pkg-config
+
+      - name: Install Arm GNU toolchain (${{ env.ARM_TOOLCHAIN }})
+        uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: ${{ env.ARM_TOOLCHAIN }}
+
+      - name: Cache Pico SDK + picotool + pioasm
+        id: pico
+        uses: actions/cache@v4
+        with:
+          path: ~/.pico-sdk
+          key: pico-${{ env.PICO_SDK_VERSION }}-cyw43-lwip-btstack-mbedtls-x86_64-v1
+
+      - name: Fetch Pico SDK ${{ env.PICO_SDK_VERSION }} + prebuilt tools
+        if: steps.pico.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          SDK_DIR="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
+          git clone --branch "${PICO_SDK_VERSION}" --depth 1 \
+            https://github.com/raspberrypi/pico-sdk "$SDK_DIR"
+          git -C "$SDK_DIR" submodule update --init --depth 1 \
+            lib/cyw43-driver lib/lwip lib/btstack lib/mbedtls
+          # Prebuilt picotool (RP2350 .uf2 generation) and pioasm (PIO headers),
+          # laid out exactly like the Pico VS Code extension's ~/.pico-sdk.
+          mkdir -p "$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}" \
+                   "$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}"
+          base="https://github.com/raspberrypi/pico-sdk-tools/releases/download/${PICO_TOOLS_TAG}"
+          curl -fSL -o /tmp/picotool.tar.gz "$base/picotool-${PICO_SDK_VERSION}-x86_64-lin.tar.gz"
+          tar -xzf /tmp/picotool.tar.gz -C "$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}"
+          curl -fSL -o /tmp/pico-sdk-tools.tar.gz "$base/pico-sdk-tools-${PICO_SDK_VERSION}-x86_64-lin.tar.gz"
+          tar -xzf /tmp/pico-sdk-tools.tar.gz -C "$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}"
+
+      - name: Build firmware (pico2_w) — rp6502_ria_w + rp6502_vga
+        run: |
+          set -euxo pipefail
+          export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
+          cmake -S . -B build/firmware -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_BOARD=pico2_w \
+            -DPICO_SDK_PATH="$PICO_SDK_PATH" \
+            -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
+            -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
+          cmake --build build/firmware
+
+      - name: Sanity build non-W RIA (pico2, not shipped)
+        run: |
+          set -euxo pipefail
+          export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
+          cmake -S . -B build/firmware-pico2 -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPICO_BOARD=pico2 \
+            -DPICO_SDK_PATH="$PICO_SDK_PATH" \
+            -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
+            -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
+          cmake --build build/firmware-pico2
+
+      - name: Stage firmware artifacts
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          cp build/firmware/ria/rp6502_ria_w.uf2 out/
+          cp build/firmware/vga/rp6502_vga.uf2 out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: out/*.uf2
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Emulator (Linux x86_64 + arm64): build the windowed emu, run the CTest suite,
+  # ship a bare arch-suffixed binary.
+  # ---------------------------------------------------------------------------
+  emu-linux:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04,     arch: x86_64 }
+          - { runner: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init emulator submodules
+        run: |
+          git submodule update --init --depth 1 \
+            vendor/chips vendor/sokol vendor/imgui vendor/cppdap
+          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
+
+      - name: Install build + windowed-emu dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build \
+            libgl-dev libx11-dev libxi-dev libxcursor-dev libasound2-dev
+
+      - name: Configure & build emulator (Release)
+        run: |
+          set -euxo pipefail
+          cmake -S src/emu -B build/emulator/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/emulator/release
+
+      - name: Run emulator tests
+        run: ctest --test-dir build/emulator/release --output-on-failure
+
+      - name: Stage Linux emulator binary
+        run: |
+          set -euxo pipefail
+          cp build/emulator/release/rp6502-emu "rp6502-emu-${{ matrix.arch }}"
+          tar -czf "rp6502-emu-${{ matrix.arch }}.tar.gz" "rp6502-emu-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emu-linux-${{ matrix.arch }}
+          path: rp6502-emu-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Emulator (macOS, arm64): build, test, wrap the binary in an unsigned .app.
+  # ---------------------------------------------------------------------------
+  emu-macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init emulator submodules
+        run: |
+          git submodule update --init --depth 1 \
+            vendor/chips vendor/sokol vendor/imgui vendor/cppdap
+          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure & build emulator (Release, arm64)
+        run: |
+          set -euxo pipefail
+          cmake -S src/emu -B build/emulator/release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+          cmake --build build/emulator/release
+
+      - name: Run emulator tests
+        run: ctest --test-dir build/emulator/release --output-on-failure
+
+      - name: Assemble rp6502-emu.app
+        run: |
+          set -euxo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VER="${GITHUB_REF_NAME#v}"; else VER="0.0.0"; fi
+          APP=rp6502-emu.app
+          mkdir -p "$APP/Contents/MacOS"
+          cp build/emulator/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
+          chmod +x "$APP/Contents/MacOS/rp6502-emu"
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleExecutable</key>            <string>rp6502-emu</string>
+              <key>CFBundleIdentifier</key>            <string>com.picocomputer.rp6502-emu</string>
+              <key>CFBundleName</key>                  <string>rp6502-emu</string>
+              <key>CFBundleDisplayName</key>           <string>RP6502 Emulator</string>
+              <key>CFBundlePackageType</key>           <string>APPL</string>
+              <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+              <key>CFBundleShortVersionString</key>    <string>${VER}</string>
+              <key>CFBundleVersion</key>               <string>${VER}</string>
+              <key>LSMinimumSystemVersion</key>        <string>11.0</string>
+              <key>NSHighResolutionCapable</key>       <true/>
+          </dict>
+          </plist>
+          PLIST
+          tar -czf rp6502-emu-app.tar.gz rp6502-emu.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emu-macos
+          path: rp6502-emu-app.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Emulator (WebAssembly): build the emsdk web target, ship the itch.io bundle.
+  # ---------------------------------------------------------------------------
+  emu-wasm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Init web-build submodules
+        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/emsdk
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3
+
+      - name: Install & activate Emscripten SDK
+        run: |
+          set -euxo pipefail
+          ./vendor/emsdk/emsdk install latest
+          ./vendor/emsdk/emsdk activate latest
+
+      - name: Build web / itch.io bundle
+        run: |
+          set -exo pipefail
+          source ./vendor/emsdk/emsdk_env.sh
+          cd src/emu
+          cmake --preset wasm
+          cmake --build --preset wasm
+
+      - name: Package itch.io bundle
+        run: |
+          set -euxo pipefail
+          cd build/web
+          zip -r "$GITHUB_WORKSPACE/itch.io.zip" itch.io
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: itch-io
+          path: itch.io.zip
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).
+  # ---------------------------------------------------------------------------
+  package:
+    needs: [firmware, emu-linux, emu-macos, emu-wasm]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: _artifacts
+
+      - name: Assemble release zip
+        run: |
+          set -euxo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="0.0.0+$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)"
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+          mkdir stage
+          # Firmware
+          cp _artifacts/firmware/rp6502_ria_w.uf2 stage/
+          cp _artifacts/firmware/rp6502_vga.uf2   stage/
+          # Linux emulators (tar preserves the +x bit lost by upload-artifact)
+          tar -xzf _artifacts/emu-linux-x86_64/rp6502-emu-x86_64.tar.gz   -C stage
+          tar -xzf _artifacts/emu-linux-aarch64/rp6502-emu-aarch64.tar.gz -C stage
+          chmod +x stage/rp6502-emu-x86_64 stage/rp6502-emu-aarch64
+          # macOS app
+          tar -xzf _artifacts/emu-macos/rp6502-emu-app.tar.gz -C stage
+          chmod +x stage/rp6502-emu.app/Contents/MacOS/rp6502-emu
+          # WebAssembly itch.io bundle (shipped as a nested zip)
+          cp _artifacts/itch-io/itch.io.zip stage/
+          # Static distribution files
+          cp src/dist/README.txt src/dist/basic.rp6502 src/dist/nfc.rp6502 src/dist/term.rp6502 stage/
+          # One zip, everything at the root
+          ( cd stage && zip -r -y "../rp6502-${VERSION}.zip" . )
+          sha256sum "rp6502-${VERSION}.zip" > SHA256SUMS
+          cat SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rp6502-release-zip
+          path: |
+            rp6502-${{ env.VERSION }}.zip
+            SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Release: on a v* tag, publish the zip as a GitHub Release.
+  # ---------------------------------------------------------------------------
+  release:
+    needs: [package]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rp6502-release-zip
+          path: dist
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/rp6502-*.zip
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          body: |
+            ## Picocomputer 6502 release
+
+            Flash `rp6502_ria_w.uf2` and `rp6502_vga.uf2` to the two Pi Pico 2 boards
+            (see `README.txt` in the zip).
+
+            **macOS** `rp6502-emu.app` is unsigned/un-notarized. First launch is blocked by
+            Gatekeeper — right-click → Open once, or run
+            `xattr -dr com.apple.quarantine rp6502-emu.app`.
+
+            **Linux** `rp6502-emu-x86_64` / `rp6502-emu-aarch64` are built on Ubuntu 24.04 and
+            need a recent glibc plus GL/X11/ALSA runtime libraries installed.
+
+            **Web** `itch.io.zip` is the ready-to-publish itch.io sample (serve over HTTP).
