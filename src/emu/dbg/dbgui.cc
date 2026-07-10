@@ -770,6 +770,11 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h)
     return true;
 }
 
+bool dbgui_wants_mouse(void)
+{
+    return ImGui::GetIO().WantCaptureMouse;
+}
+
 void dbgui_draw(void)
 {
     /* Persist layout changes. ImGui sets WantSaveIniSettings (after its timer) for

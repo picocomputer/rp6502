@@ -385,25 +385,36 @@ static sapp_mouse_cursor tab_cursor_to_sokol(uint8_t shape)
 /* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
  * hides it (the ROM draws its own), otherwise show that shape. Only touches
  * sokol on a change; restores the default cursor once no tablet is mapped. */
+/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
+ * hides it (the ROM draws its own), otherwise show that shape. Applied every
+ * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
+ * would be overwritten — and only while the mouse is over the canvas; over a
+ * debugger panel ImGui keeps its own cursor. */
 static void update_cursor(void)
 {
-    static int applied = -1; /* last applied TAB_CURSOR_*, or -1 = no tablet */
-    int shape = tab_is_mapped() ? (int)tab_control() : -1;
-    if (shape >= TAB_CURSOR_COUNT)
-        shape = TAB_CURSOR_OFF;
-    if (shape == applied)
-        return;
-    applied = shape;
-    if (shape < 0) /* no tablet mapped: restore the default cursor */
+    static bool had_tablet;
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active() && dbgui_wants_mouse())
+        return; /* mouse is over a debugger panel: leave ImGui's cursor */
+#endif
+    if (tab_is_mapped())
     {
-        sapp_set_mouse_cursor(SAPP_MOUSECURSOR_DEFAULT);
-        sapp_show_mouse(true);
+        had_tablet = true;
+        int shape = tab_control();
+        if (shape >= TAB_CURSOR_COUNT)
+            shape = TAB_CURSOR_OFF;
+        if (shape == TAB_CURSOR_OFF)
+            sapp_show_mouse(false);
+        else
+        {
+            sapp_set_mouse_cursor(tab_cursor_to_sokol(shape));
+            sapp_show_mouse(true);
+        }
     }
-    else if (shape == TAB_CURSOR_OFF)
-        sapp_show_mouse(false);
-    else
+    else if (had_tablet)
     {
-        sapp_set_mouse_cursor(tab_cursor_to_sokol(shape));
+        had_tablet = false;
+        sapp_set_mouse_cursor(SAPP_MOUSECURSOR_DEFAULT);
         sapp_show_mouse(true);
     }
 }
@@ -594,7 +605,6 @@ static void frame_cb(void)
     if (sapp_mouse_locked() && !mou_is_mapped())
         sapp_lock_mouse(false);
     update_title();
-    update_cursor(); /* apply the tablet ROM's requested host cursor / hide */
     if (cpu_halted() && app.exit_on_halt)
         sapp_request_quit();
 
@@ -669,6 +679,10 @@ static void frame_cb(void)
         dbgui_draw();
     }
 #endif
+
+    /* After the debugger set its cursor (simgui, every frame) so the tablet's
+     * cursor wins over the canvas. */
+    update_cursor();
 
     /* Aspect-preserving quad fitted into the canvas region (the dockspace central
      * node when the debugger is up, else the whole window; a normal run has no
