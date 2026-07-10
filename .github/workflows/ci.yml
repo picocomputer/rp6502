@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, ci]   # 'ci' is the bring-up branch; drop once merged to main
+    branches: [main]
     tags: ['v*']
   pull_request:
     branches: [main]
