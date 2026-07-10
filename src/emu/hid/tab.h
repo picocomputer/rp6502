@@ -80,7 +80,7 @@ void tab_host_touch(const tab_point_t *pts, int n);
 void tab_host_clear(void);
 
 /* The ROM's requested cursor shape (control byte, one of TAB_CURSOR_*); 0 when
- * unmapped. The window layer applies it to the host cursor. */
+ * unmapped. */
 uint8_t tab_control(void);
 
 void tab_reset(void);

@@ -22,8 +22,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 /* XRAM report block. Every field is one byte, so each 6502 read is atomic; a
  * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
- * one non-zero, decoded first-non-zero-wins (X>639 marks an inactive contact).
- * Only status + contacts are written back; control is ROM-owned. */
+ * one non-zero, decoded first-non-zero-wins. An inactive contact reports flags=0;
+ * X/Y are always kept within the canvas. Only status + contacts are written
+ * back; control is ROM-owned. */
 #define TAB_MAX_CONTACTS 8
 #define TAB_HEADER_SIZE 2  /* status, control */
 #define TAB_CONTACT_SIZE 6 /* flags, x0, x1, x2, y0, y1 */
@@ -43,8 +44,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define TAB_FLAG_BTN4 0x08
 #define TAB_FLAG_BTN5 0x10
 #define TAB_FLAG_HOVER 0x80
-
-#define TAB_INACTIVE_X 640 /* a coordinate past the canvas = no contact */
 
 /* A relative mouse reports device counts (mickeys) far finer than a canvas
  * pixel, so it is tracked in a fixed reference resolution at the legacy mouse
@@ -95,19 +94,6 @@ static tab_connection_t *tab_get_connection_by_slot(int slot)
     return NULL;
 }
 
-static void tab_canvas_size(int *w, int *h)
-{
-    switch (vga_get_canvas())
-    {
-    case vga_canvas_320_240: *w = 320; *h = 240; break;
-    case vga_canvas_320_180: *w = 320; *h = 180; break;
-    case vga_canvas_640_360: *w = 640; *h = 360; break;
-    case vga_canvas_console:
-    case vga_canvas_640_480:
-    default: *w = 640; *h = 480; break;
-    }
-}
-
 /* X (0..764) -> three single-byte windows, exactly one non-zero. */
 static void tab_encode_x(uint8_t *d, int x)
 {
@@ -148,7 +134,7 @@ static void tab_put_contact(int i, uint8_t flags, int x, int y)
 
 static void tab_clear_contact(int i)
 {
-    tab_put_contact(i, 0, TAB_INACTIVE_X, 0);
+    tab_put_contact(i, 0, 0, 0); /* flags=0 marks it inactive; X/Y stay in-canvas */
 }
 
 /* Push status + contacts to XRAM; never the ROM-owned control byte. Each byte is
@@ -185,6 +171,36 @@ bool tab_xreg(uint16_t word)
     return true;
 }
 
+/* Pass 1: pick which report a multi-collection device drives us with. A digitizer
+ * (Tip Switch) wins over a bare Generic-Desktop X/Y, so a pen/touch panel that
+ * also exposes a mouse-compatibility collection is decoded as the absolute
+ * digitizer rather than as its relative-mouse alias. */
+typedef struct
+{
+    uint16_t rid_digitizer; // report id carrying a Tip Switch, 0xFFFF if none
+    uint16_t rid_xy;        // first report id carrying GD X/Y, 0xFFFF if none
+} tab_select_t;
+
+static bool __in_flash("tab_select") tab_select_report(const hid_field_t *field, void *context)
+{
+    tab_select_t *sel = (tab_select_t *)context;
+    if (field->usage_page == 0x0D && field->usage == 0x42) // Digitizer Tip Switch
+    {
+        if (sel->rid_digitizer == 0xFFFF)
+            sel->rid_digitizer = field->report_id;
+    }
+    else if (field->usage_page == 0x01 &&
+             (field->usage == 0x30 || field->usage == 0x31)) // GD X or Y
+    {
+        if (sel->rid_xy == 0xFFFF)
+            sel->rid_xy = field->report_id;
+    }
+    return true;
+}
+
+/* Pass 2: extract the chosen report's fields. Offsets are first-wins, so a
+ * multi-touch descriptor (several Finger collections sharing one report id) binds
+ * to the first contact's fields — the slot a single-finger report fills. */
 static bool __in_flash("tab_parse") tab_parse_field(const hid_field_t *field, void *context)
 {
     tab_connection_t *conn = (tab_connection_t *)context;
@@ -193,52 +209,44 @@ static bool __in_flash("tab_parse") tab_parse_field(const hid_field_t *field, vo
         field->report_id != conn->report_id)
         return true;
 
-    bool matched = false;
     if (field->usage_page == 0x01) // Generic Desktop
     {
         switch (field->usage)
         {
         case 0x30: // X
-            conn->x_offset = field->bit_pos;
-            conn->x_size = field->size;
-            conn->x_relative = (field->input_flags & 0x04) != 0;
-            conn->x_min = field->logical_min;
-            conn->x_max = field->logical_max;
-            matched = true;
+            if (conn->x_size == 0)
+            {
+                conn->x_offset = field->bit_pos;
+                conn->x_size = field->size;
+                conn->x_relative = (field->input_flags & 0x04) != 0;
+                conn->x_min = field->logical_min;
+                conn->x_max = field->logical_max;
+            }
             break;
         case 0x31: // Y
-            conn->y_offset = field->bit_pos;
-            conn->y_size = field->size;
-            conn->y_min = field->logical_min;
-            conn->y_max = field->logical_max;
-            matched = true;
+            if (conn->y_size == 0)
+            {
+                conn->y_offset = field->bit_pos;
+                conn->y_size = field->size;
+                conn->y_min = field->logical_min;
+                conn->y_max = field->logical_max;
+            }
             break;
         }
     }
     else if (field->usage_page == 0x09) // Button
     {
-        if (field->usage >= 1 && field->usage <= 5)
-        {
+        if (field->usage >= 1 && field->usage <= 5 &&
+            conn->button_offsets[field->usage - 1] == 0xFFFF)
             conn->button_offsets[field->usage - 1] = field->bit_pos;
-            matched = true;
-        }
     }
     else if (field->usage_page == 0x0D) // Digitizer
     {
-        if (field->usage == 0x42) // Tip Switch
-        {
+        if (field->usage == 0x42 && conn->tip_offset == 0xFFFF) // Tip Switch
             conn->tip_offset = field->bit_pos;
-            matched = true;
-        }
-        else if (field->usage == 0x32) // In Range
-        {
+        else if (field->usage == 0x32 && conn->inrange_offset == 0xFFFF) // In Range
             conn->inrange_offset = field->bit_pos;
-            matched = true;
-        }
     }
-
-    if (matched && conn->report_id == 0 && field->report_id != 0xFFFF)
-        conn->report_id = field->report_id;
 
     return true;
 }
@@ -263,10 +271,20 @@ bool __in_flash("tab_mount") tab_mount(int slot, uint8_t const *desc_data, uint1
     conn->inrange_offset = 0xFFFF;
     conn->slot = slot;
 
+    // Pass 1: choose the report id, preferring a digitizer over a mouse-compat one.
+    tab_select_t sel = {0xFFFF, 0xFFFF};
+    hid_descriptor_parse(desc_data, desc_len, tab_select_report, &sel);
+    uint16_t chosen = sel.rid_digitizer != 0xFFFF ? sel.rid_digitizer : sel.rid_xy;
+    conn->report_id = chosen == 0xFFFF ? 0 : (uint8_t)chosen; // 0xFFFF => no report id
+
+    // Pass 2: extract that report's fields.
     hid_descriptor_parse(desc_data, desc_len, tab_parse_field, conn);
 
-    // A pointing device needs both axes.
-    conn->valid = conn->x_size > 0 && conn->y_size > 0;
+    // Accept a relative mouse or an absolute digitizer/pen; reject an absolute
+    // Generic-Desktop device with no digitizer usage (e.g. a gamepad's sticks).
+    conn->valid = conn->x_size > 0 && conn->y_size > 0 &&
+                  (conn->x_relative || conn->tip_offset != 0xFFFF ||
+                   conn->inrange_offset != 0xFFFF);
 
     DBG("tab_mount: slot=%d, valid=%d, x_rel=%d, tip=%d\n",
         slot, conn->valid, conn->x_relative, conn->tip_offset != 0xFFFF);
@@ -280,7 +298,23 @@ bool tab_umount(int slot)
     if (conn == NULL)
         return false;
     conn->valid = false;
+    // Release contact 0 once the last pointer is gone, so a press held at unplug
+    // does not stay latched. A surviving device refreshes it on its next report.
+    for (int i = 0; i < TAB_MAX_MICE; ++i)
+        if (tab_connections[i].valid)
+            return true;
+    tab_clear_contact(0);
+    tab_write_xram();
     return true;
+}
+
+/* Read an axis field, sign-extending when the device declares a signed range
+ * (logical_min < 0), matching hid_scale_analog. */
+static int32_t tab_axis_value(const uint8_t *r, uint16_t len, uint16_t off, uint8_t size, int32_t lmin)
+{
+    if (lmin < 0)
+        return hid_extract_signed(r, len, off, size);
+    return (int32_t)hid_extract_bits(r, len, off, size);
 }
 
 void tab_report(int slot, uint8_t const *data, size_t size)
@@ -301,7 +335,7 @@ void tab_report(int slot, uint8_t const *data, size_t size)
     }
 
     int cw, ch;
-    tab_canvas_size(&cw, &ch);
+    vga_canvas_size(&cw, &ch);
 
     // Position: integrate a relative mouse, scale an absolute digitizer.
     if (conn->x_relative)
@@ -324,19 +358,21 @@ void tab_report(int slot, uint8_t const *data, size_t size)
             tab_ref_y = 0;
         else if (tab_ref_y > TAB_REF_HEIGHT - 1)
             tab_ref_y = TAB_REF_HEIGHT - 1;
+        // One isotropic gain (the width ratio) on both axes keeps motion
+        // pixel-square; the clamp below bounds the vertical extent.
         tab_x = (int16_t)((int32_t)tab_ref_x * cw / TAB_REF_WIDTH);
-        tab_y = (int16_t)((int32_t)tab_ref_y * ch / TAB_REF_HEIGHT);
+        tab_y = (int16_t)((int32_t)tab_ref_y * cw / TAB_REF_WIDTH);
     }
     else
     {
-        uint32_t rx = hid_extract_bits(report_data, report_data_len, conn->x_offset, conn->x_size);
-        uint32_t ry = hid_extract_bits(report_data, report_data_len, conn->y_offset, conn->y_size);
+        int32_t rx = tab_axis_value(report_data, report_data_len, conn->x_offset, conn->x_size, conn->x_min);
+        int32_t ry = tab_axis_value(report_data, report_data_len, conn->y_offset, conn->y_size, conn->y_min);
         int32_t xs = conn->x_max - conn->x_min;
         int32_t ys = conn->y_max - conn->y_min;
         if (xs > 0)
-            tab_x = (int16_t)(((int64_t)((int32_t)rx - conn->x_min) * (cw - 1)) / xs);
+            tab_x = (int16_t)(((int64_t)(rx - conn->x_min) * (cw - 1)) / xs);
         if (ys > 0)
-            tab_y = (int16_t)(((int64_t)((int32_t)ry - conn->y_min) * (ch - 1)) / ys);
+            tab_y = (int16_t)(((int64_t)(ry - conn->y_min) * (ch - 1)) / ys);
     }
     if (tab_x < 0)
         tab_x = 0;
@@ -346,6 +382,16 @@ void tab_report(int slot, uint8_t const *data, size_t size)
         tab_y = 0;
     else if (tab_y > ch - 1)
         tab_y = ch - 1;
+
+    // An absolute device set tab_x/tab_y directly; keep the relative-mouse
+    // reference in step so a later mouse continues from here instead of snapping
+    // back to a stale position.
+    if (!conn->x_relative)
+    {
+        tab_ref_x = (int16_t)((int32_t)tab_x * TAB_REF_WIDTH / cw);
+        tab_ref_y = (int16_t)((int32_t)tab_y * TAB_REF_WIDTH / cw);
+        tab_sub_x = tab_sub_y = 0;
+    }
 
     // Buttons: mouse buttons 1..5, plus a digitizer Tip Switch as the primary.
     uint8_t buttons = 0;

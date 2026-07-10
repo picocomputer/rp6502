@@ -306,35 +306,82 @@ static void set_mouse_button(int btn, bool down)
 /* Tablet (absolute pointer / touch)                                   */
 /* ------------------------------------------------------------------ */
 
-static uint8_t tab_buttons; /* host button bitmap for the absolute pointer */
+/* Left/right/middle bit (TAB_FLAG_*) for a sokol mouse button. */
+static uint8_t mouse_button_bit(sapp_mousebutton mb)
+{
+    return mb == SAPP_MOUSEBUTTON_LEFT     ? TAB_FLAG_LEFT
+           : mb == SAPP_MOUSEBUTTON_RIGHT  ? TAB_FLAG_RIGHT
+           : mb == SAPP_MOUSEBUTTON_MIDDLE ? TAB_FLAG_MIDDLE
+                                           : 0;
+}
 
-/* Route a host pointer/touch event to the tablet device. No capture: the host
- * cursor's absolute position (or each touch point) maps straight to the canvas. */
-static void input_tablet(const sapp_event *e)
+/* Host mouse buttons as a tablet/mouse bitmap (bit 0 left, 1 right, 2 middle).
+ * Taken from the event modifiers so a release missed off-window (e.g. the web
+ * build gets no mouseup outside the canvas) can't latch a stale button; the
+ * changing button is forced on/off since some platforms report it a beat late. */
+static uint8_t pointer_buttons(const sapp_event *e)
+{
+    uint8_t b = 0;
+    if (e->modifiers & SAPP_MODIFIER_LMB)
+        b |= TAB_FLAG_LEFT;
+    if (e->modifiers & SAPP_MODIFIER_RMB)
+        b |= TAB_FLAG_RIGHT;
+    if (e->modifiers & SAPP_MODIFIER_MMB)
+        b |= TAB_FLAG_MIDDLE;
+    uint8_t bit = mouse_button_bit(e->mouse_button);
+    if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
+        b |= bit;
+    else if (e->type == SAPP_EVENTTYPE_MOUSE_UP)
+        b &= (uint8_t)~bit;
+    return b;
+}
+
+/* Route a host pointer/touch event to the tablet device (absolute canvas
+ * position, no capture). Because the pointer is never captured while a tablet is
+ * mapped, a mouse the program also mapped is fed here too: the one physical
+ * pointer drives both blocks like hardware, and the ROM reads the mouse block
+ * whenever every tablet contact flag is 0. Returns true when it consumed e. */
+static bool input_tablet(const sapp_event *e)
 {
     int cx, cy;
     switch (e->type)
     {
     case SAPP_EVENTTYPE_MOUSE_DOWN:
     case SAPP_EVENTTYPE_MOUSE_UP:
-    {
-        uint8_t bit = e->mouse_button == SAPP_MOUSEBUTTON_LEFT     ? TAB_FLAG_LEFT
-                      : e->mouse_button == SAPP_MOUSEBUTTON_RIGHT  ? TAB_FLAG_RIGHT
-                      : e->mouse_button == SAPP_MOUSEBUTTON_MIDDLE ? TAB_FLAG_MIDDLE
-                                                                   : 0;
-        if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
-            tab_buttons |= bit;
-        else
-            tab_buttons &= (uint8_t)~bit;
-    }
-        __attribute__((fallthrough));
     case SAPP_EVENTTYPE_MOUSE_MOVE:
-        window_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
-        tab_host_pointer(cx, cy, tab_buttons);
-        break;
+    {
+        bool inside = window_canvas_from_fb(e->mouse_x, e->mouse_y, &cx, &cy);
+        window_set_pointer_on_canvas(inside); /* the tablet owns the cursor only on-canvas */
+        uint8_t buttons = pointer_buttons(e);
+        if (inside)
+            tab_host_pointer(cx, cy, buttons);
+        else
+            tab_host_clear(); /* outside the canvas: no contact, all buttons released */
+        if (mou_is_mapped()) /* the same physical pointer also drives the mouse block */
+        {
+            mou_host_buttons(buttons);
+            if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+            {
+                int cw, ch;
+                vga_canvas_size(&cw, &ch);
+                float onscreen_w = (float)cw * window_canvas_scale();
+                if (onscreen_w > 0.0f)
+                {
+                    float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
+                    mou_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
+                }
+            }
+        }
+        return true;
+    }
+    case SAPP_EVENTTYPE_MOUSE_SCROLL:
+        if (mou_is_mapped()) /* the tablet has no wheel */
+            mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+        return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
-        tab_host_clear(); /* pointer left the window */
-        break;
+        window_set_pointer_on_canvas(false); /* hand the cursor back to the system */
+        tab_host_clear();                    /* pointer left the window */
+        return true;
     case SAPP_EVENTTYPE_TOUCHES_BEGAN:
     case SAPP_EVENTTYPE_TOUCHES_MOVED:
     case SAPP_EVENTTYPE_TOUCHES_ENDED:
@@ -348,39 +395,27 @@ static void input_tablet(const sapp_event *e)
         {
             if (ending && e->touches[i].changed)
                 continue; /* the finger lifting this event is no longer a contact */
-            window_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy);
+            if (!window_canvas_from_fb(e->touches[i].pos_x, e->touches[i].pos_y, &cx, &cy))
+                continue; /* touch in the letterbox: not a canvas contact */
             pts[n].x = (int16_t)cx;
             pts[n].y = (int16_t)cy;
             n++;
         }
         tab_host_touch(pts, n);
-        break;
+        return true;
     }
     default:
-        break;
+        return false;
     }
 }
 
 void input_event(const sapp_event *e)
 {
     /* An absolute-pointer program takes host pointer/touch events directly (no
-     * capture); keys still fall through to the keyboard path below. */
-    if (tab_is_mapped())
-        switch (e->type)
-        {
-        case SAPP_EVENTTYPE_MOUSE_DOWN:
-        case SAPP_EVENTTYPE_MOUSE_UP:
-        case SAPP_EVENTTYPE_MOUSE_MOVE:
-        case SAPP_EVENTTYPE_MOUSE_LEAVE:
-        case SAPP_EVENTTYPE_TOUCHES_BEGAN:
-        case SAPP_EVENTTYPE_TOUCHES_MOVED:
-        case SAPP_EVENTTYPE_TOUCHES_ENDED:
-        case SAPP_EVENTTYPE_TOUCHES_CANCELLED:
-            input_tablet(e);
-            return;
-        default:
-            break;
-        }
+     * capture); input_tablet consumes those and returns true. Everything else
+     * (keys, and pointer events when no tablet is mapped) falls through below. */
+    if (tab_is_mapped() && input_tablet(e))
+        return;
 
     switch (e->type)
     {

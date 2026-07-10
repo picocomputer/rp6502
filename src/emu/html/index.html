@@ -383,13 +383,16 @@
       // mouse; the browser also shows its own "press Esc" pointer-lock notice.
       function initMouseHint() {
         var mapped = Module._mou_mapped;
+        var tabMapped = Module._tab_mapped;
         var hint = document.getElementById('mouse-hint');
         if (!mapped || !hint) return;
         function update() {
           if (document.pointerLockElement === canvas) {
             hint.textContent = 'Mouse captured — press Esc to release';
             hint.style.display = '';
-          } else if (mapped()) {
+          } else if (mapped() && !(tabMapped && tabMapped())) {
+            // The absolute tablet takes the pointer without capture, so the
+            // capture prompt only applies when a plain mouse alone is mapped.
             hint.textContent = 'Click the screen to capture the mouse';
             hint.style.display = '';
           } else {

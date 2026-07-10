@@ -9,9 +9,6 @@
 #include "emu/sys/mem.h"
 #include <string.h>
 
-/* Coordinate past the canvas that marks an inactive contact (X>639). */
-#define TAB_INACTIVE_X 640
-
 /* Our copy of the report block. Offset TAB_OFF_CONTROL is ROM-owned and never
  * written back after the one-time init, so a whole-block memcpy is avoided on
  * update (it would clobber the ROM's cursor request). */
@@ -58,7 +55,7 @@ static void tab_put_contact(int i, uint8_t flags, int x, int y)
 
 static void tab_clear_contact(int i)
 {
-    tab_put_contact(i, 0, TAB_INACTIVE_X, 0);
+    tab_put_contact(i, 0, 0, 0); /* flags=0 marks it inactive; X/Y stay in-canvas */
 }
 
 /* Push status + contacts to XRAM, but never the ROM-owned control byte. */
@@ -133,8 +130,8 @@ void tab_reset(void)
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
-/* The web shell reads this to enable touch forwarding and drop the mouse
- * "click to capture" hint once a program maps the tablet. */
+/* The web shell reads this to drop the mouse "click to capture" hint once a
+ * program maps the tablet (the tablet takes the pointer without capturing it). */
 EMSCRIPTEN_KEEPALIVE int tab_mapped(void)
 {
     return tab_is_mapped() ? 1 : 0;

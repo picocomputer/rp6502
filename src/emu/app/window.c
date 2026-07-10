@@ -343,10 +343,12 @@ bool window_canvas_from_fb(float px, float py, int *cx, int *cy)
     vga_canvas_size(&cw, &ch);
     int rx, ry, rw, rh;
     canvas_region(&rx, &ry, &rw, &rh);
-    float sx = (float)rw / cw, sy = (float)rh / ch;
-    float scale = sx < sy ? sx : sy;
+    float scale = window_canvas_scale();
     if (scale <= 0.0f)
+    {
+        *cx = *cy = 0;
         return false;
+    }
     /* The canvas is centered (letterboxed) within its region. */
     float ox = rx + (rw - cw * scale) * 0.5f;
     float oy = ry + (rh - ch * scale) * 0.5f;
@@ -383,21 +385,34 @@ static sapp_mouse_cursor tab_cursor_to_sokol(uint8_t shape)
 }
 
 /* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
- * hides it (the ROM draws its own), otherwise show that shape. Only touches
- * sokol on a change; restores the default cursor once no tablet is mapped. */
-/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
  * hides it (the ROM draws its own), otherwise show that shape. Applied every
  * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
- * would be overwritten — and only while the mouse is over the canvas; over a
- * debugger panel ImGui keeps its own cursor. */
+ * would be overwritten. Over a debugger panel ImGui owns the shape, so we only
+ * keep the pointer visible there. */
+/* Whether the host pointer is over the drawn canvas, set by the input layer. The
+ * tablet only owns the host cursor while true; in the letterbox (or a debugger
+ * panel, handled below) the system cursor shows. Defaults true so a freshly
+ * mapped tablet shows its cursor before the first motion. */
+static bool pointer_on_canvas = true;
+
+void window_set_pointer_on_canvas(bool on)
+{
+    pointer_on_canvas = on;
+}
+
 static void update_cursor(void)
 {
     static bool had_tablet;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_wants_mouse())
-        return; /* mouse is over a debugger panel: leave ImGui's cursor */
+    {
+        /* Over a debugger panel ImGui owns the cursor shape; undo any
+         * TAB_CURSOR_OFF hide so the panel is usable with a visible pointer. */
+        sapp_show_mouse(true);
+        return;
+    }
 #endif
-    if (tab_is_mapped())
+    if (tab_is_mapped() && pointer_on_canvas)
     {
         had_tablet = true;
         int shape = tab_control();
@@ -435,7 +450,7 @@ static void update_title(void)
         v = 3;
         t = "Picocomputer 6502  -  Esc releases mouse";
     }
-    else if (mou_is_mapped())
+    else if (mou_is_mapped() && !tab_is_mapped())
     {
         v = 2;
         t = "Picocomputer 6502  -  click to capture mouse";
@@ -601,8 +616,9 @@ static void frame_cb(void)
      * un-halts within a frame, so this only trips on a real exit), and close the
      * window if asked, so a launcher can run a ROM and return. */
     /* Release a captured mouse if the program gave up the device (exec'd away,
-     * unmapped); then refresh the title (run state + capture hint). */
-    if (sapp_mouse_locked() && !mou_is_mapped())
+     * unmapped) or mapped the absolute tablet (which never captures); then refresh
+     * the title (run state + capture hint). */
+    if (sapp_mouse_locked() && (!mou_is_mapped() || tab_is_mapped()))
         sapp_lock_mouse(false);
     update_title();
     if (cpu_halted() && app.exit_on_halt)

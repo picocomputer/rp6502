@@ -63,9 +63,13 @@ float window_canvas_scale(void);
 
 /* Map a framebuffer-pixel point (sokol e->mouse_x/y or a touchpoint) to canvas
  * pixel coords, clamped to the canvas. Returns true when the raw point was over
- * the drawn canvas (false = in the letterbox / outside). Used by the absolute
- * "tablet" input path. */
+ * the drawn canvas (false = in the letterbox / outside, coords set to 0,0). */
 bool window_canvas_from_fb(float px, float py, int *cx, int *cy);
+
+/* Tell the window layer whether the host pointer is over the drawn canvas, so the
+ * tablet's requested cursor applies only there and the system cursor shows in the
+ * letterbox. */
+void window_set_pointer_on_canvas(bool on);
 
 #ifdef __cplusplus
 }
