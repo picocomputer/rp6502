@@ -8,6 +8,7 @@
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
+#include "emu/hid/tab.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/xreg.h"
 #include "term/term.h"
@@ -31,6 +32,8 @@ bool xreg_write(uint8_t device, uint8_t channel, uint8_t address, uint16_t word)
             return mou_set_xram(word);
         if (channel == 0 && address == 2) /* gamepad -> XRAM report block */
             return pad_set_xram(word);
+        if (channel == 0 && address == 3) /* tablet -> XRAM report block */
+            return tab_set_xram(word);
         if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
         {
             if (address == 0)

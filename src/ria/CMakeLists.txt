@@ -90,6 +90,7 @@ target_sources(${RIA_TARGET} PRIVATE
     hid/kbd.c
     hid/mou.c
     hid/pad.c
+    hid/tab.c
     mon/dsk.c
     mon/fil.c
     mon/hlp.c
