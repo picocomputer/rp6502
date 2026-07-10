@@ -46,12 +46,27 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define TAB_INACTIVE_X 640 /* a coordinate past the canvas = no contact */
 
+/* A relative mouse reports device counts (mickeys) far finer than a canvas
+ * pixel, so it is tracked in a fixed reference resolution at the legacy mouse
+ * rate (mou.c reports counts >>1) and then scaled to the canvas — so the ROM
+ * gets absolute XY at a width-independent speed and needs no compensation. */
+#define TAB_REF_WIDTH 640
+#define TAB_REF_HEIGHT 480
+#define TAB_MOUSE_DIV 2 /* counts per reference pixel; matches mou.c's >>1 */
+
 static uint8_t tab_state[TAB_BLOCK_SIZE];
 static uint16_t tab_xram;
 
-/* Primary pointer, canvas space. Relative mice accumulate here. */
+/* Primary pointer, canvas space (what is written to XRAM). */
 static int16_t tab_x;
 static int16_t tab_y;
+
+/* Relative-mouse pointer in the TAB_REF reference space, with the sub-count
+ * remainder carried between reports so slow motion is not lost. */
+static int16_t tab_ref_x;
+static int16_t tab_ref_y;
+static int16_t tab_sub_x;
+static int16_t tab_sub_y;
 
 typedef struct
 {
@@ -68,7 +83,6 @@ typedef struct
     int32_t y_min, y_max;
     uint16_t tip_offset;     // Digitizer Tip Switch, 0xFFFF if absent
     uint16_t inrange_offset; // Digitizer In Range, 0xFFFF if absent
-    uint8_t buttons;
 } tab_connection_t;
 
 static tab_connection_t tab_connections[TAB_MAX_MICE];
@@ -292,8 +306,26 @@ void tab_report(int slot, uint8_t const *data, size_t size)
     // Position: integrate a relative mouse, scale an absolute digitizer.
     if (conn->x_relative)
     {
-        tab_x += hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
-        tab_y += hid_extract_signed(report_data, report_data_len, conn->y_offset, conn->y_size);
+        // Accumulate counts at the legacy rate into the reference space (carrying
+        // the sub-count remainder), then scale to the canvas.
+        tab_sub_x += (int16_t)hid_extract_signed(report_data, report_data_len, conn->x_offset, conn->x_size);
+        tab_sub_y += (int16_t)hid_extract_signed(report_data, report_data_len, conn->y_offset, conn->y_size);
+        int sx = tab_sub_x / TAB_MOUSE_DIV;
+        int sy = tab_sub_y / TAB_MOUSE_DIV;
+        tab_sub_x -= (int16_t)(sx * TAB_MOUSE_DIV);
+        tab_sub_y -= (int16_t)(sy * TAB_MOUSE_DIV);
+        tab_ref_x += (int16_t)sx;
+        tab_ref_y += (int16_t)sy;
+        if (tab_ref_x < 0)
+            tab_ref_x = 0;
+        else if (tab_ref_x > TAB_REF_WIDTH - 1)
+            tab_ref_x = TAB_REF_WIDTH - 1;
+        if (tab_ref_y < 0)
+            tab_ref_y = 0;
+        else if (tab_ref_y > TAB_REF_HEIGHT - 1)
+            tab_ref_y = TAB_REF_HEIGHT - 1;
+        tab_x = (int16_t)((int32_t)tab_ref_x * cw / TAB_REF_WIDTH);
+        tab_y = (int16_t)((int32_t)tab_ref_y * ch / TAB_REF_HEIGHT);
     }
     else
     {
@@ -324,7 +356,6 @@ void tab_report(int slot, uint8_t const *data, size_t size)
     if (conn->tip_offset != 0xFFFF)
         if (hid_extract_bits(report_data, report_data_len, conn->tip_offset, 1))
             buttons |= TAB_FLAG_LEFT;
-    conn->buttons = buttons;
 
     // Hover: a mouse always tracks; an absolute pen tracks when In Range; a bare
     // touchscreen (tip only, no In Range) does not.
