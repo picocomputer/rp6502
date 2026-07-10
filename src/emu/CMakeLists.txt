@@ -36,6 +36,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
+    ${RP6502_SRC}/emu/hid/tab.c
     ${RP6502_SRC}/emu/api/hostfs.c
     ${RP6502_SRC}/emu/api/tmpfs.c
     ${RP6502_SRC}/emu/host/msc.c

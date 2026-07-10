@@ -9,6 +9,7 @@
 #include "hid/hid.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
+#include "hid/tab.h"
 #include "hid/pad.h"
 #include "host/hcd.h"
 #include "main.h"
@@ -163,6 +164,7 @@ void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *re
     int slot = usb_idx_to_hid_slot(idx);
     kbd_report(slot, report, len);
     mou_report(slot, report, len);
+    tab_report(slot, report, len);
     pad_report(slot, report, len);
     tuh_hid_receive_report(dev_addr, idx);
 }
@@ -192,6 +194,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         ++usb_count_hid_mou;
         valid = true;
     }
+    if (tab_mount(slot, desc_report, desc_len)) /* a mouse feeds this too; a pure digitizer only this */
+        valid = true;
     if (pad_mount(slot, desc_report, desc_len, vendor_id, product_id))
     {
         ++usb_count_hid_pad;
@@ -214,6 +218,7 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
         --usb_count_hid_kbd;
     if (mou_umount(slot))
         --usb_count_hid_mou;
+    tab_umount(slot);
     if (pad_umount(slot))
         --usb_count_hid_pad;
 }

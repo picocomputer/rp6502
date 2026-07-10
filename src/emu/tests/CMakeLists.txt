@@ -144,6 +144,14 @@ target_compile_definitions(test_paint PRIVATE PAINT_ROM="${ROMS}/paint.rp6502")
 add_test(NAME paint COMMAND test_paint)
 set_tests_properties(paint PROPERTIES TIMEOUT 60)
 
+# --- absolute pointer (tablet) window encoding, via paint_tab ---
+add_executable(test_paint_tab test_paint_tab.c)
+target_link_libraries(test_paint_tab PRIVATE emu_core)
+target_include_directories(test_paint_tab PRIVATE ${UTEST_DIR})
+target_compile_definitions(test_paint_tab PRIVATE PAINT_TAB_ROM="${ROMS}/paint_tab.rp6502")
+add_test(NAME paint_tab COMMAND test_paint_tab)
+set_tests_properties(paint_tab PROPERTIES TIMEOUT 60)
+
 # --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
 add_executable(test_gamepad test_gamepad.c)
 target_link_libraries(test_gamepad PRIVATE emu_core)

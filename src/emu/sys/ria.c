@@ -13,6 +13,7 @@
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
+#include "emu/hid/tab.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
@@ -330,6 +331,7 @@ void ria_reset(void)
     kbd_reset();
     pad_reset();
     mou_reset();
+    tab_reset();
     clk_reset();
     clk_run(); /* re-anchor the run clock to this program's start (firmware run()) */
     aud_reset();

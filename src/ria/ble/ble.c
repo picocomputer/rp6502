@@ -15,6 +15,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "hid/hid.h"
 #include "hid/kbd.h"
 #include "hid/mou.h"
+#include "hid/tab.h"
 #include "hid/pad.h"
 #include "net/cyw.h"
 #include "str/str.h"
@@ -208,6 +209,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             }
             if (mou_mount(slot, descriptor, descriptor_len))
                 ++ble_count_mou;
+            tab_mount(slot, descriptor, descriptor_len);
             if (pad_mount(slot, descriptor, descriptor_len, 0, 0))
                 ++ble_count_pad;
         }
@@ -235,6 +237,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             }
             if (mou_umount(slot))
                 --ble_count_mou;
+            tab_umount(slot);
             if (pad_umount(slot))
                 --ble_count_pad;
         }
@@ -258,6 +261,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
         int slot = ble_hid_slot(cid, service_index);
         kbd_report(slot, report, report_len);
         mou_report(slot, report, report_len);
+        tab_report(slot, report, report_len);
         pad_report(slot, report, report_len);
         break;
     }

@@ -51,6 +51,9 @@ bool dbgui_handle_event(const void *sapp_event_ptr);
  * fill: the dockspace central node, which shrinks as panels dock beside it. False
  * before the first dbgui_draw; the caller then falls back to the whole window. */
 bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
+/* True when ImGui wants the mouse (it is over a debugger panel/widget), so the
+ * caller should leave ImGui's cursor alone. Only valid while the debugger is active. */
+bool dbgui_wants_mouse(void);
 
 #ifdef __cplusplus
 }
