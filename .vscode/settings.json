@@ -13,7 +13,7 @@
     "cmake.buildDirectory": "${sourceDirectory}/build/firmware",
     "cmake.configureOnEdit": true,
     "cmake.automaticReconfigure": true,
-    "cmake.configureOnOpen": false,
+    "cmake.configureOnOpen": true,
     "cmake.autoSelectActiveFolder": false,
     "cmake.generator": "Ninja",
     "cmake.cmakePath": "${userHome}/.pico-sdk/cmake/v4.3.4/bin/cmake",
