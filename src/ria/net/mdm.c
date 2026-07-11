@@ -6,6 +6,7 @@
 
 #ifndef RP6502_RIA_W
 #include "net/mdm.h"
+#include <pico/stdlib.h>
 void mdm_task(void) {}
 void mdm_stop(void) {}
 void __in_flash("mdm_init") mdm_init(void) {}
