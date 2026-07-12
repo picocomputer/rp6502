@@ -19,6 +19,11 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+// De-frame one 4-byte USB-MIDI event packet to raw wire bytes; implemented in
+// the MIDI host override (vendor/tinyusb_rp6502/midi_host.c), which drops
+// padding/reserved packets and copes with running-status devices.
+extern uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out);
+
 // The std pipe carries SMF-style events both directions: a variable length
 // quantity delta time in ticks, then a raw wire MIDI message. Writes are
 // released to the device on schedule, reads are a timestamped recording.
@@ -80,6 +85,7 @@ typedef struct
     uint8_t tx_status;
     bool tx_pending;
     bool tx_idle;
+    uint8_t tx_rt; // realtime byte interrupting a message, emitted inline; 0 = none
     uint8_t tx_acc[3]; // sysex bytes accumulating toward one packet
     uint8_t tx_acc_len;
     bool tx_acc_eox;      // accumulator ends the sysex
@@ -188,17 +194,13 @@ static void mid_rx_push_sysex_end(mid_t *conn)
 // Absolute tick anchoring keeps timing exact across drops.
 static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, uint8_t len)
 {
-    if (conn->rx_ring_sysex)
+    // No deltas inside sysex, they would be ambiguous with data bytes
+    if (conn->rx_ring_sysex && len == 1 && msg[0] >= 0xF8)
     {
-        // No deltas inside sysex, they would be ambiguous with data bytes
-        if (len == 1 && msg[0] >= 0xF8)
-        {
-            if (mid_ring_free(conn->rx_head, conn->rx_tail) <= 1)
-                return false;
-            mid_rx_push(conn, msg[0]);
-            return true;
-        }
-        mid_rx_push_sysex_end(conn);
+        if (mid_ring_free(conn->rx_head, conn->rx_tail) <= 1)
+            return false;
+        mid_rx_push(conn, msg[0]);
+        return true;
     }
     if (t_ns < conn->rx_epoch_ns)
         t_ns = conn->rx_epoch_ns;
@@ -209,8 +211,14 @@ static bool mid_rx_push_event(mid_t *conn, uint64_t t_ns, const uint8_t *msg, ui
                     ? 0x0FFFFFFF
                     : (uint32_t)(total - conn->rx_ticks);
     uint16_t reserve = msg[0] == 0xF0 ? 1 : 0; // sysex keeps space for F7
-    if (mid_ring_free(conn->rx_head, conn->rx_tail) < mid_vlq_len(delta) + len + reserve)
+    // Interrupting an open recorded sysex spends one F7 to close it; only spend
+    // it if the whole event also fits, so a full ring drops the change whole
+    // rather than truncating with a phantom F7 the device never sent.
+    uint16_t close = conn->rx_ring_sysex ? 1 : 0;
+    if (mid_ring_free(conn->rx_head, conn->rx_tail) < mid_vlq_len(delta) + len + reserve + close)
         return false;
+    if (conn->rx_ring_sysex)
+        mid_rx_push_sysex_end(conn);
     conn->rx_ticks += delta;
     mid_rx_push_vlq(conn, delta);
     for (uint8_t i = 0; i < len; i++)
@@ -254,6 +262,8 @@ static void mid_rx_wire_byte(mid_t *conn, uint64_t t_ns, uint8_t b)
             conn->rx_in_sysex = false;
             mid_rx_push_sysex_end(conn);
         }
+        conn->rx_status = 0; // EOX is system common: cancels running status
+        conn->rx_msg_len = 0;
         return;
     }
     if (b == 0xF0)
@@ -335,41 +345,22 @@ static bool mid_itf_can_rx(uint8_t itf)
     return false;
 }
 
-// Demux one event packet to its port. The CIN is untrusted (devices encode
-// it wrong), payload length derives from status and the port's sysex state.
-static void mid_rx_packet(uint8_t itf, uint64_t t_ns, const uint8_t *pkt)
+// Sink one de-framed wire byte into its port. Raw mode buffers bytes straight
+// (dropping the tail when the ring is full); SMF mode runs them through the
+// timestamping wire parser.
+static void mid_rx_sink(mid_t *conn, uint64_t t_ns, uint8_t b)
 {
-    mid_t *conn = mid_find_port(itf, pkt[0] >> 4);
-    if (!conn || !conn->opened || !conn->has_rx)
-        return; // closed or absent cable, drop
-    uint8_t b = pkt[1];
-    uint8_t len;
-    if (b >= 0xF8)
-        len = 1;
-    else if (b == 0xF0 || b < 0x80)
-    {
-        if (b < 0x80 && !mid_raw(conn) && !conn->rx_in_sysex)
-            return; // data with no context, drop
-        len = 1;
-        while (len < 3 && pkt[1 + len] < 0x80)
-            len++;
-        if (len < 3 && pkt[1 + len] == 0xF7)
-            len++;
-    }
-    else
-        len = 1 + mid_msg_data_len(b);
     if (mid_raw(conn))
     {
-        for (uint8_t i = 0; i < len; i++)
-            if (mid_ring_free(conn->rx_head, conn->rx_tail))
-                mid_rx_push(conn, pkt[1 + i]);
-        return;
+        if (mid_ring_free(conn->rx_head, conn->rx_tail))
+            mid_rx_push(conn, b);
     }
-    for (uint8_t i = 0; i < len; i++)
-        mid_rx_wire_byte(conn, t_ns, pkt[1 + i]);
+    else
+        mid_rx_wire_byte(conn, t_ns, b);
 }
 
-// One interface FIFO carries every cable's packets.
+// One interface FIFO carries every cable's packets; de-frame each and route the
+// wire bytes to their cable's port.
 static void mid_rx_pull_itf(uint8_t itf)
 {
     while (mid_itf_can_rx(itf))
@@ -380,7 +371,15 @@ static void mid_rx_pull_itf(uint8_t itf)
             break;
         uint64_t t_ns = time_us_64() * 1000;
         for (uint32_t i = 0; i + 4 <= n; i += 4)
-            mid_rx_packet(itf, t_ns, &stage[i]);
+        {
+            mid_t *conn = mid_find_port(itf, stage[i] >> 4);
+            if (!conn || !conn->opened || !conn->has_rx)
+                continue; // closed or absent cable, drop
+            uint8_t wire[3];
+            uint8_t m = tuh_midi_frame(itf, &stage[i], wire);
+            for (uint8_t j = 0; j < m; j++)
+                mid_rx_sink(conn, t_ns, wire[j]);
+        }
     }
 }
 
@@ -486,6 +485,13 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
                 conn->tx_pending = conn->tx_meta = true;
             continue;
         }
+        if (b >= 0xF8 && b != 0xFF && conn->tx_msg_len)
+        {
+            // Realtime interrupts an in-progress message: hand it to the run
+            // loop to emit inline and keep the partial for its remaining bytes.
+            conn->tx_rt = b;
+            break;
+        }
         if (conn->tx_msg_len && b >= 0x80)
             conn->tx_msg_len = 0; // malformed, drop the partial message
         if (!conn->tx_msg_len)
@@ -509,8 +515,8 @@ static bool mid_tx_parse(mid_t *conn, uint64_t now_ns)
                     continue;
                 }
             }
-            else if (b == 0xF0 || (b >= 0xF1 && b <= 0xF6))
-                conn->tx_status = 0;
+            else if (b == 0xF0 || (b >= 0xF1 && b <= 0xF7))
+                conn->tx_status = 0; // system common (incl. stray F7) cancels it
             else if (b < 0xF0)
                 conn->tx_status = b;
         }
@@ -553,9 +559,12 @@ static void mid_tx_apply_meta(mid_t *conn)
             (const uint8_t[]){0xFF, 0x51, 0x03, (uint8_t)(tempo >> 16),
                               (uint8_t)(tempo >> 8), (uint8_t)tempo},
             6);
-        if (device_sysex) // resume the interrupted device sysex as a fragment
+        if (device_sysex && pushed) // resume the interrupted device sysex fragment
             mid_rx_push_event(conn, t_ns, (const uint8_t[]){0xF0}, 1);
-        if (tempo && pushed)
+        // Apply the tempo even if the echo did not fit: the marker is best-effort,
+        // but dropping the rate change derails the timeline (and a cable with no
+        // RX reader, whose ring never drains, would then never rebase at all).
+        if (tempo)
         {
             // Rebase both timelines so the new rate begins cleanly here
             conn->tempo = tempo;
@@ -674,6 +683,13 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
     bool wrote = false;
     for (;;)
     {
+        if (conn->tx_rt) // a realtime that interrupted a message: emit it first
+        {
+            if (!mid_tx_packet(conn, MIDI_CIN_1BYTE_DATA, &conn->tx_rt, 1))
+                return wrote;
+            wrote = true;
+            conn->tx_rt = 0;
+        }
         if (conn->tx_state == MID_TX_SYSEX)
         {
             for (;;)
@@ -724,6 +740,8 @@ static bool mid_tx_run(uint8_t idx, uint64_t now_ns)
         }
         if (!mid_tx_parse(conn, now_ns))
         {
+            if (conn->tx_rt) // parse handed back a realtime; loop to emit it
+                continue;
             conn->tx_idle = true;
             return wrote;
         }
@@ -892,6 +910,7 @@ int mid_std_open(const char *name, uint8_t flags, api_errno *err)
     conn->tx_status = 0;
     conn->tx_pending = false;
     conn->tx_idle = true;
+    conn->tx_rt = 0;
     conn->tx_meta = false;
     conn->tx_acc_len = 0;
     conn->tx_acc_eox = false;
@@ -928,9 +947,22 @@ static void mid_close_finalize(mid_t *conn)
 {
     if (!mid_raw(conn) && conn->mounted && conn->has_tx && conn->tx_state == MID_TX_SYSEX)
     {
-        uint8_t eox = 0xF7;
-        if (mid_tx_packet(conn, MIDI_CIN_SYSEX_END_1BYTE, &eox, 1))
-            tuh_midi_write_flush(conn->itf);
+        // Don't strand the 1-2 sysex bytes still buffered below a full packet:
+        // append the F7 and flush them as one SYSEX_END packet. An already-empty
+        // accumulator just needs the lone F7 terminator.
+        if (conn->tx_acc_len > 0 && conn->tx_acc_len < 3 && !conn->tx_acc_eox)
+        {
+            conn->tx_acc[conn->tx_acc_len++] = 0xF7;
+            conn->tx_acc_eox = true;
+            if (mid_tx_flush_acc(conn))
+                tuh_midi_write_flush(conn->itf);
+        }
+        else
+        {
+            uint8_t eox = 0xF7;
+            if (mid_tx_packet(conn, MIDI_CIN_SYSEX_END_1BYTE, &eox, 1))
+                tuh_midi_write_flush(conn->itf);
+        }
     }
     conn->opened = false;
 }
