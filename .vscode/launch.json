@@ -39,6 +39,10 @@
             "externalConsole": false,
             "MIMode": "gdb",
             "preLaunchTask": "emu: Build (Debug)",
+            "windows": {
+                "program": "${workspaceFolder}/build/emulator/debug/rp6502-emu.exe",
+                "miDebuggerPath": "C:/msys64/ucrt64/bin/gdb.exe"
+            },
             "setupCommands": [
                 {
                     "description": "Enable pretty-printing for gdb",
