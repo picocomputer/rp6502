@@ -182,6 +182,12 @@ add_executable(rp6502-emu ${APP_SOURCES})
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/sokol)
 
+if(WIN32 AND NOT MSVC)
+    # MinGW-only: fold libgcc/libstdc++/libwinpthread into the exe so it runs from a
+    # plain Windows desktop without MSYS2's ucrt64/bin on PATH.
+    target_link_options(rp6502-emu PRIVATE -static-libgcc -static-libstdc++ -static)
+endif()
+
 # Windows is only platform without getopt
 if(WIN32)
     add_subdirectory(${RP6502_VENDOR}/wingetopt wingetopt)
