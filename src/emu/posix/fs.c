@@ -6,14 +6,19 @@
  */
 
 #include "emu/plat.h"
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include <time.h>
 #include <unistd.h>
 #include <utime.h>
+#ifdef _WIN32
+#include <windows.h> /* mingw has no sys/statvfs.h; GetDiskFreeSpaceExA covers fs_freespace */
+#else
+#include <sys/statvfs.h>
+#endif
 
 bool fs_stat(const char *path, struct fs_meta *out)
 {
@@ -33,6 +38,14 @@ bool fs_stat(const char *path, struct fs_meta *out)
 
 bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
+#ifdef _WIN32
+    ULARGE_INTEGER avail, total;
+    if (!GetDiskFreeSpaceExA(path, &avail, &total, NULL))
+        return false;
+    *total_bytes = total.QuadPart;
+    *avail_bytes = avail.QuadPart;
+    return true;
+#else
     struct statvfs vfs;
     if (statvfs(path, &vfs) != 0)
         return false;
@@ -40,6 +53,7 @@ bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes
     *total_bytes = (uint64_t)vfs.f_blocks * unit;
     *avail_bytes = (uint64_t)vfs.f_bavail * unit;
     return true;
+#endif
 }
 
 bool fs_set_readonly(const char *path, bool readonly)
@@ -64,7 +78,11 @@ bool fs_set_mtime(const char *path, time_t mtime)
 
 bool fs_mkdir(const char *path)
 {
+#ifdef _WIN32
+    return mkdir(path) == 0; /* mingw's mkdir takes no mode */
+#else
     return mkdir(path, 0777) == 0;
+#endif
 }
 
 bool fs_chdir(const char *path)
@@ -74,7 +92,14 @@ bool fs_chdir(const char *path)
 
 bool fs_getcwd(char *buf, size_t sz)
 {
-    return getcwd(buf, sz) != NULL;
+    if (!getcwd(buf, sz))
+        return false;
+#ifdef _WIN32
+    for (char *p = buf; *p; p++) /* rest of the codebase is '/'-separated */
+        if (*p == '\\')
+            *p = '/';
+#endif
+    return true;
 }
 
 bool fs_rename(const char *oldp, const char *newp)
@@ -95,4 +120,23 @@ void fs_localtime(time_t t, struct tm *out)
 int fs_strcasecmp(const char *a, const char *b)
 {
     return strcasecmp(a, b);
+}
+
+char *fs_realpath(const char *path, char *resolved)
+{
+#ifdef _WIN32
+    /* mingw/MSVC have no realpath(); _fullpath() doesn't check existence like
+     * POSIX realpath() does, so stat() first to match the semantics callers rely on. */
+    struct stat st;
+    if (stat(path, &st) != 0)
+        return NULL;
+    if (!_fullpath(resolved, path, PATH_MAX))
+        return NULL;
+    for (char *p = resolved; *p; p++) /* rest of the codebase is '/'-separated */
+        if (*p == '\\')
+            *p = '/';
+    return resolved;
+#else
+    return realpath(path, resolved);
+#endif
 }

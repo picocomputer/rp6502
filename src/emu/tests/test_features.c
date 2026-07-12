@@ -22,7 +22,28 @@
 #include "stdsys.h"
 #include "utest.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* POSIX always has /tmp; Windows doesn't, so ask the OS for its temp dir. */
+static const char *test_tmp_base(void)
+{
+#ifdef _WIN32
+    static char buf[512];
+    const char *t = getenv("TEMP");
+    if (!t || !*t)
+        t = getenv("TMP");
+    if (!t || !*t)
+        return ".";
+    size_t i = 0;
+    for (; t[i] && i + 1 < sizeof buf; i++)
+        buf[i] = t[i] == '\\' ? '/' : t[i];
+    buf[i] = 0;
+    return buf;
+#else
+    return "/tmp";
+#endif
+}
 
 /* SIGINT: a Ctrl-C latches, is reported once via the attribute, and (only when
  * the program enabled the $FFF0 IRQ) asserts the CPU's IRQ line until read. */
@@ -192,7 +213,8 @@ UTEST(features, audio_disable)
  * CPU). Returns the path, or NULL on a write failure. */
 static const char *make_asset_rom(const char *args)
 {
-    static const char *path = "/tmp/emu_asset_test.rp6502";
+    static char path[512];
+    snprintf(path, sizeof path, "%s/emu_asset_test.rp6502", test_tmp_base());
     uint8_t vec[2] = {0x00, 0x02}; /* reset vector -> $0200 */
     char rec[64];
     int reclen = snprintf(rec, sizeof rec, "$FFFC $2 $%08X\r\n", rom_crc32(0, vec, 2));

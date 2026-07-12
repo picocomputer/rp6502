@@ -23,8 +23,28 @@
 #include "api/api.h"
 #include "api/clk.h"
 #include "utest.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef _WIN32
+/* mingw/MSVC have no setenv(); _putenv() takes "NAME=value" and always overwrites. */
+static int setenv(const char *name, const char *value, int overwrite)
+{
+    (void)overwrite;
+    char buf[256];
+    snprintf(buf, sizeof buf, "%s=%s", name, value);
+    return _putenv(buf);
+}
+#endif
+
+/* clk.c's g_locale is resolved from LC_ALL once and cached for the process.
+ * Other UTESTs in this binary call main_init() (-> clk_reset()) before this
+ * one gets to setenv("LC_ALL", "C", 1) below, which would otherwise cache
+ * whichever locale the host happens to default to. Force it before main(). */
+__attribute__((constructor)) static void force_c_locale(void)
+{
+    setenv("LC_ALL", "C", 1);
+}
 
 static char cap[1 << 16];
 static size_t cap_len;

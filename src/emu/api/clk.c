@@ -14,10 +14,38 @@
 #include <locale.h>
 #include <string.h>
 #include <time.h>
+#ifdef _WIN32
+#include <stdlib.h>
+#endif
 
 #if defined(__APPLE__)
 size_t strftime_l(char *restrict, size_t, const char *restrict,
                   const struct tm *restrict, locale_t);
+#endif
+
+#ifdef _WIN32
+/* mingw/MSVC have no POSIX-2008 locale_t/newlocale/strftime_l; both provide
+ * the same shapes under an underscore, with LC_ALL implied instead of a mask. */
+typedef _locale_t locale_t;
+#define LC_ALL_MASK LC_ALL
+#define strftime_l _strftime_l
+
+/* _create_locale(LC_ALL, "") means "the OS's Control Panel locale", ignoring
+ * LC_ALL/LANG entirely -- unlike POSIX newlocale's "" (environment-driven).
+ * Read the env vars ourselves so `LC_ALL=C` (e.g. in tests) behaves the same
+ * on Windows as it does on POSIX. */
+static locale_t win_newlocale(const char *name)
+{
+    if (!name || !*name)
+    {
+        const char *env = getenv("LC_ALL");
+        if (!env || !*env)
+            env = getenv("LANG");
+        name = (env && *env) ? env : "";
+    }
+    return _create_locale(LC_ALL, name);
+}
+#define newlocale(mask, name, base) win_newlocale(name)
 #endif
 
 /* Host locale used only for strftime, so the rest of the process stays in the

@@ -21,6 +21,16 @@
 #ifdef EMU_HAVE_AIO
 #include <aio.h>
 #endif
+#ifdef _WIN32
+/* mingw/MSVC have lseek/read but no pread(). Each rom_window owns a private
+ * fd (opened per-window, never shared), so seek-then-read is safe here. */
+static ssize_t pread(int fd, void *buf, size_t count, off_t offset)
+{
+    if (lseek(fd, offset, SEEK_SET) < 0)
+        return -1;
+    return read(fd, buf, (unsigned int)count);
+}
+#endif
 
 /* ------------------------------------------------------------------ */
 /* ROM: drive — read-only assets, windows into the loaded .rp6502      */
@@ -158,7 +168,11 @@ static struct rom_window *rom_win(int desc)
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
+#ifdef _WIN32
+    int fd = open(hostpath, O_RDONLY | O_BINARY); /* else text-mode stops at 0x1A */
+#else
     int fd = open(hostpath, O_RDONLY);
+#endif
     if (fd < 0)
     {
         *err = msc_errno_to_api_errno(errno);

@@ -58,6 +58,9 @@ bool fs_remove(const char *path);     /* a file or an empty directory */
 /* ---- misc primitives ---- */
 void fs_localtime(time_t t, struct tm *out);
 int fs_strcasecmp(const char *a, const char *b);
+/* Canonicalize an existing path (symlinks/./.. resolved); like POSIX realpath(3),
+ * fails if the target doesn't exist. resolved must hold at least PATH_MAX bytes. */
+char *fs_realpath(const char *path, char *resolved);
 
 #ifdef __cplusplus
 }

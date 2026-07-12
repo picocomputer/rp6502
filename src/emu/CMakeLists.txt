@@ -74,9 +74,10 @@ add_library(emu_core STATIC
 )
 
 # Platform filesystem primitives: one folder compiled per OS; both define the same
-# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c stays portable. File I/O + entropy
-# seams follow in a later pass.
-if(WIN32)
+# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c stays portable. MinGW/Clang on
+# Windows get real POSIX headers from the mingw-w64 CRT, so they use posix/*.c like
+# every other non-MSVC platform; only MSVC lacks them.
+if(MSVC)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/emu/win/dir.c
         ${RP6502_SRC}/emu/win/fs.c)
@@ -116,7 +117,9 @@ target_include_directories(emu_core PUBLIC
     ${RP6502_VENDOR}/chips
     ${RP6502_VENDOR}/sokol
 )
-target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
+# _POSIX_THREAD_SAFE_FUNCTIONS unlocks mingw-w64's inline localtime_r/gmtime_r
+# (time.h gates them on it); harmless elsewhere, where glibc implies it via _GNU_SOURCE.
+target_compile_definitions(emu_core PUBLIC _GNU_SOURCE _POSIX_THREAD_SAFE_FUNCTIONS RP6502_EXFAT=0)
 # MSVC has no separate libm
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)

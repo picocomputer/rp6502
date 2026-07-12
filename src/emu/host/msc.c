@@ -75,6 +75,9 @@ static int flags_to_posix(uint8_t flags)
         o |= O_EXCL;
     if ((flags & 0x20) && wr) /* TRUNC, only when opened for write */
         o |= O_TRUNC;
+#ifdef _WIN32
+    o |= O_BINARY; /* else the CRT's text-mode read stops at a 0x1A byte */
+#endif
     return o;
 }
 

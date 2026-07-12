@@ -18,6 +18,7 @@
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
@@ -34,14 +35,35 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
+/* POSIX always has /tmp; Windows doesn't, so ask the OS for its temp dir. */
+static const char *test_tmp_base(void)
+{
+#ifdef _WIN32
+    static char buf[512];
+    const char *t = getenv("TEMP");
+    if (!t || !*t)
+        t = getenv("TMP");
+    if (!t || !*t)
+        return ".";
+    size_t i = 0;
+    for (; t[i] && i + 1 < sizeof buf; i++)
+        buf[i] = t[i] == '\\' ? '/' : t[i];
+    buf[i] = 0;
+    return buf;
+#else
+    return "/tmp";
+#endif
+}
+
 static char g_dir[256]; /* a temp dir, made the MSC0: mount */
 
 static bool fresh(void)
 {
-    char tmpl[] = "/tmp/drive_test_XXXXXX";
+    char tmpl[512];
+    snprintf(tmpl, sizeof tmpl, "%s/drive_test_XXXXXX", test_tmp_base());
     const char *d = mkdtemp(tmpl);
     char resolved[MSC_MAX_PATH];
-    if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
+    if (!d || !fs_realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
     std_stop();
@@ -145,10 +167,10 @@ UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH], hostbuf[MSC_MAX_PATH];
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
+    msc_from_host(g_dir, expect, sizeof(expect)); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
     /* A relative MSC0: path lands in the cwd (= g_dir). */
@@ -171,7 +193,8 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_EQ(dsys_ax(), 0);
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
+    snprintf(hostbuf, sizeof(hostbuf), "%s/sub", g_dir);
+    msc_from_host(hostbuf, expect, sizeof(expect));
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
@@ -181,7 +204,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_EQ(dsys_ax(), 0);
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
+    msc_from_host(g_dir, expect, sizeof(expect));
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
     hostfs_api_chdir();

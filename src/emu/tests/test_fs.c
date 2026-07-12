@@ -15,6 +15,7 @@
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "utest.h"
@@ -29,14 +30,35 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
+/* POSIX always has /tmp; Windows doesn't, so ask the OS for its temp dir. */
+static const char *test_tmp_base(void)
+{
+#ifdef _WIN32
+    static char buf[512];
+    const char *t = getenv("TEMP");
+    if (!t || !*t)
+        t = getenv("TMP");
+    if (!t || !*t)
+        return ".";
+    size_t i = 0;
+    for (; t[i] && i + 1 < sizeof buf; i++)
+        buf[i] = t[i] == '\\' ? '/' : t[i];
+    buf[i] = 0;
+    return buf;
+#else
+    return "/tmp";
+#endif
+}
+
 static char g_dir[256]; /* a temp dir, made the MSC0: cwd */
 
 static bool fresh_cwd(void)
 {
-    char tmpl[] = "/tmp/msc0_test_XXXXXX";
+    char tmpl[512];
+    snprintf(tmpl, sizeof tmpl, "%s/msc0_test_XXXXXX", test_tmp_base());
     const char *d = mkdtemp(tmpl);
     char resolved[MSC_MAX_PATH]; /* realpath needs a PATH_MAX buffer */
-    if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
+    if (!d || !fs_realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
         return false;
     strcpy(g_dir, resolved);
     std_stop(); /* close any files a prior test left open */
@@ -90,10 +112,10 @@ UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
 
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH], hostbuf[MSC_MAX_PATH];
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
+    msc_from_host(g_dir, expect, sizeof(expect)); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
     dsys_path("saves");
@@ -104,7 +126,8 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_EQ(dsys_ax(), 0);
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s/saves", g_dir);
+    snprintf(hostbuf, sizeof(hostbuf), "%s/saves", g_dir);
+    msc_from_host(hostbuf, expect, sizeof(expect));
     ASSERT_STREQ(cwd, expect);
 
     /* A relative path resolves under the new cwd. */
@@ -130,10 +153,11 @@ UTEST(fs, no_chroot_clamp)
     dsys_path("sub");
     hostfs_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH], hostbuf[MSC_MAX_PATH];
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
+    snprintf(hostbuf, sizeof(hostbuf), "%s/sub", g_dir);
+    msc_from_host(hostbuf, expect, sizeof(expect));
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir ... */
@@ -142,7 +166,7 @@ UTEST(fs, no_chroot_clamp)
     ASSERT_EQ(dsys_ax(), 0);
     hostfs_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
+    msc_from_host(g_dir, expect, sizeof(expect));
     ASSERT_STREQ(cwd, expect);
 
     /* ... and again climbs ABOVE it — no clamp; the cwd walks the real tree. */

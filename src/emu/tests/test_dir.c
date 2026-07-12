@@ -16,6 +16,7 @@
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
+#include "emu/plat.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
 #include "utest.h"
@@ -24,6 +25,26 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+/* POSIX always has /tmp; Windows doesn't, so ask the OS for its temp dir. */
+static const char *test_tmp_base(void)
+{
+#ifdef _WIN32
+    static char buf[512];
+    const char *t = getenv("TEMP");
+    if (!t || !*t)
+        t = getenv("TMP");
+    if (!t || !*t)
+        return ".";
+    size_t i = 0;
+    for (; t[i] && i + 1 < sizeof buf; i++)
+        buf[i] = t[i] == '\\' ? '/' : t[i];
+    buf[i] = 0;
+    return buf;
+#else
+    return "/tmp";
+#endif
+}
 
 static char cap[1 << 16];
 static size_t cap_len;
@@ -49,14 +70,15 @@ static void write_file(const char *dir, const char *name, const char *data)
 
 UTEST(dir, lists_directory)
 {
-    char tmpl[] = "/tmp/dir_rom_test_XXXXXX";
+    char tmpl[512];
+    snprintf(tmpl, sizeof tmpl, "%s/dir_rom_test_XXXXXX", test_tmp_base());
     const char *d = mkdtemp(tmpl);
     ASSERT_TRUE(d != NULL);
     write_file(d, "alpha.txt", "hello");             /* 5 bytes */
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
     char sub[512];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
-    ASSERT_EQ(mkdir(sub, 0777), 0);
+    ASSERT_TRUE(fs_mkdir(sub));
 
     ASSERT_TRUE(chdir(d) == 0); /* the program lists "" = the cwd */
     ASSERT_TRUE(rom_load(DIR_ROM));
