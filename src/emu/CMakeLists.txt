@@ -88,7 +88,8 @@ else()
         ${RP6502_SRC}/emu/posix/os.c)
 endif()
 
-# The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit.
+# The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit, so the
+# VGA renderers cast pointers to 32-bit ints. Silence that per-compiler on those files.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(
         ${RP6502_SRC}/vga/modes/mode1.c
@@ -98,6 +99,23 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         ${RP6502_SRC}/vga/modes/mode5.c
         PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
     )
+    # ram/xram (emu/sys/mem.c) are 64 KB tentative definitions; -fno-common keeps them in
+    # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing their
+    # oversized __common alignment.
+    target_compile_options(emu_core PRIVATE -fno-common)
+    # Clang flags the shared firmware's one-arg static_assert(...) as a C23 extension.
+    if(CMAKE_C_COMPILER_ID MATCHES "Clang")
+        target_compile_options(emu_core PRIVATE -Wno-c23-extensions)
+    endif()
+elseif(MSVC)
+    set_source_files_properties(
+        ${RP6502_SRC}/vga/modes/mode1.c
+        ${RP6502_SRC}/vga/modes/mode2.c
+        ${RP6502_SRC}/vga/modes/mode3.c
+        ${RP6502_SRC}/vga/modes/mode4.c
+        ${RP6502_SRC}/vga/modes/mode5.c
+        PROPERTIES COMPILE_OPTIONS "/wd4311;/wd4312"
+    )
 endif()
 
 # emu8950.c gates its whole body on USE_EMU8950_OPL
@@ -105,6 +123,13 @@ set_source_files_properties(
     ${RP6502_VENDOR}/emu8950/emu8950.c
     PROPERTIES COMPILE_DEFINITIONS "USE_EMU8950_OPL=1"
 )
+# Vendored emu8950 redefines min/max that windows.h already provides.
+if(MSVC)
+    set_source_files_properties(
+        ${RP6502_VENDOR}/emu8950/emu8950.c
+        PROPERTIES COMPILE_OPTIONS "/wd4005"
+    )
+endif()
 
 # Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
@@ -124,6 +149,9 @@ if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 else()
     target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FImsvc_compat.h)
+    # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
+    # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
+    target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
     target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
 endif()
 
