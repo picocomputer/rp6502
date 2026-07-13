@@ -12,6 +12,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#ifdef _MSC_VER
+#include <BaseTsd.h>
+typedef SSIZE_T fs_ssize_t;
+#else
+#include <sys/types.h>
+typedef ssize_t fs_ssize_t;
+#endif
 
 #ifdef __cplusplus
 extern "C"
@@ -52,12 +59,24 @@ bool fs_set_mtime(const char *path, time_t mtime); /* sets last-modified only */
 bool fs_mkdir(const char *path);
 bool fs_chdir(const char *path);
 bool fs_getcwd(char *buf, size_t sz); /* guest-encoding, '/'-separated */
+bool fs_realpath(const char *path, char *out, size_t outsz); /* absolute, '/'-separated */
 bool fs_rename(const char *oldp, const char *newp); /* replaces an existing target */
 bool fs_remove(const char *path);     /* a file or an empty directory */
 
+/* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
+int fs_open(const char *path, int flags, int mode);
+int fs_close(int fd);
+fs_ssize_t fs_read(int fd, void *buf, size_t n);
+fs_ssize_t fs_write(int fd, const void *buf, size_t n);
+int64_t fs_lseek(int fd, int64_t off, int whence);
+int fs_ftruncate(int fd, int64_t length);
+fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off);
+
 /* ---- misc primitives ---- */
 void fs_localtime(time_t t, struct tm *out);
+void fs_gmtime(time_t t, struct tm *out);
 int fs_strcasecmp(const char *a, const char *b);
+int fs_strncasecmp(const char *a, const char *b, size_t n);
 
 #ifdef __cplusplus
 }

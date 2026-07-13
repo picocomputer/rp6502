@@ -6,7 +6,10 @@
  */
 
 #include "emu/plat.h"
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 #include <sys/stat.h>
@@ -77,6 +80,22 @@ bool fs_getcwd(char *buf, size_t sz)
     return getcwd(buf, sz) != NULL;
 }
 
+bool fs_realpath(const char *path, char *out, size_t outsz)
+{
+    char *r = realpath(path, NULL);
+    if (!r)
+        return false;
+    if (strlen(r) >= outsz)
+    {
+        free(r);
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    memcpy(out, r, strlen(r) + 1);
+    free(r);
+    return true;
+}
+
 bool fs_rename(const char *oldp, const char *newp)
 {
     return rename(oldp, newp) == 0; /* POSIX rename replaces an existing target */
@@ -87,12 +106,57 @@ bool fs_remove(const char *path)
     return remove(path) == 0; /* removes a file or an empty directory */
 }
 
+int fs_open(const char *path, int flags, int mode)
+{
+    return open(path, flags, mode);
+}
+
+int fs_close(int fd)
+{
+    return close(fd);
+}
+
+fs_ssize_t fs_read(int fd, void *buf, size_t n)
+{
+    return read(fd, buf, n);
+}
+
+fs_ssize_t fs_write(int fd, const void *buf, size_t n)
+{
+    return write(fd, buf, n);
+}
+
+int64_t fs_lseek(int fd, int64_t off, int whence)
+{
+    return (int64_t)lseek(fd, (off_t)off, whence);
+}
+
+int fs_ftruncate(int fd, int64_t length)
+{
+    return ftruncate(fd, (off_t)length);
+}
+
+fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off)
+{
+    return pread(fd, buf, n, (off_t)off);
+}
+
 void fs_localtime(time_t t, struct tm *out)
 {
     localtime_r(&t, out);
 }
 
+void fs_gmtime(time_t t, struct tm *out)
+{
+    gmtime_r(&t, out);
+}
+
 int fs_strcasecmp(const char *a, const char *b)
 {
     return strcasecmp(a, b);
+}
+
+int fs_strncasecmp(const char *a, const char *b, size_t n)
+{
+    return strncasecmp(a, b, n);
 }

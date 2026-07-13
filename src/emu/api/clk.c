@@ -7,6 +7,7 @@
 
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "pico/time.h"
 #include "api/api.h"
@@ -20,9 +21,11 @@ size_t strftime_l(char *restrict, size_t, const char *restrict,
                   const struct tm *restrict, locale_t);
 #endif
 
+#if !defined(_WIN32)
 /* Host locale used only for strftime, so the rest of the process stays in the
  * C locale. NULL if the environment locale isn't installed (falls back to C). */
 static locale_t g_locale;
+#endif
 
 /* Wall-clock offset in seconds. Allows setting time without changing host clock. */
 static int64_t g_time_offset;
@@ -34,8 +37,10 @@ static uint64_t g_run_start_us;
 void clk_reset(void)
 {
     g_time_offset = 0;
+#if !defined(_WIN32)
     if (!g_locale)
         g_locale = newlocale(LC_ALL_MASK, "", (locale_t)0);
+#endif
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
@@ -58,8 +63,12 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
                            const struct tm *tm)
 {
     char utf8[512];
+#if defined(_WIN32)
+    size_t un = strftime(utf8, sizeof utf8, format, tm);
+#else
     size_t un = g_locale ? strftime_l(utf8, sizeof utf8, format, tm, g_locale)
                          : strftime(utf8, sizeof utf8, format, tm);
+#endif
     /* On overflow strftime returns 0 and leaves the buffer unspecified; force a
      * terminator so the UTF-8 walk below can't run off the end. */
     utf8[un < sizeof utf8 ? un : sizeof utf8 - 1] = 0;
@@ -76,11 +85,21 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
 }
 
 /* The 18-byte wire struct tm the 6502 libc pushes (9 int16, struct-tm order). */
-struct __attribute__((packed)) clk_wire_tm
+#ifdef _MSC_VER
+#pragma pack(push, 1)
+#endif
+struct
+#ifdef __GNUC__
+    __attribute__((packed))
+#endif
+    clk_wire_tm
 {
     int16_t tm_sec, tm_min, tm_hour, tm_mday, tm_mon;
     int16_t tm_year, tm_wday, tm_yday, tm_isdst;
 };
+#ifdef _MSC_VER
+#pragma pack(pop)
+#endif
 _Static_assert(18 == sizeof(struct clk_wire_tm), "wire struct tm");
 
 static void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
@@ -124,8 +143,10 @@ static bool clk_api_to_tm(bool local)
         return api_return_errno(API_EINVAL);
     time_t t = (int64_t)u; /* 8-byte pushes carry the sign */
     struct tm tm;
-    if (!(local ? localtime_r(&t, &tm) : gmtime_r(&t, &tm)))
-        return api_return_errno(API_EINVAL);
+    if (local)
+        fs_localtime(t, &tm);
+    else
+        fs_gmtime(t, &tm);
     if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
     struct clk_wire_tm w;

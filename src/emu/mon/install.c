@@ -7,10 +7,9 @@
 
 #include "emu/mon/install.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include <errno.h>
 #include <string.h>
-#include <strings.h> /* strcasecmp */
-#include <sys/stat.h>
 
 #define INSTALL_MAX 16
 #define INSTALL_NAME_MAX 64
@@ -24,15 +23,23 @@ typedef struct
 } install_t;
 static install_t installs[INSTALL_MAX];
 
+static const char *host_basename(const char *hostpath)
+{
+    const char *base = hostpath;
+    for (const char *p = hostpath; *p; p++)
+        if (*p == '/' || *p == '\\')
+            base = p + 1;
+    return base;
+}
+
 /* Install a .rp6502 on the null drive, keyed by its host-path basename. */
 bool install_rom(const char *hostpath)
 {
-    const char *base = strrchr(hostpath, '/');
-    base = base ? base + 1 : hostpath;
+    const char *base = host_basename(hostpath);
     if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= MSC_MAX_PATH)
         return false;
-    struct stat st;
-    if (stat(hostpath, &st) != 0) /* must exist; size for the whole-file window */
+    struct fs_meta meta;
+    if (!fs_stat(hostpath, &meta)) /* must exist; size for the whole-file window */
         return false;
     for (int i = 0; i < INSTALL_MAX; i++)
         if (!installs[i].used)
@@ -40,7 +47,7 @@ bool install_rom(const char *hostpath)
             installs[i].used = true;
             strcpy(installs[i].name, base);
             strcpy(installs[i].host, hostpath);
-            installs[i].size = (size_t)st.st_size;
+            installs[i].size = (size_t)meta.size;
             return true;
         }
     return false;
@@ -51,7 +58,7 @@ bool install_rom(const char *hostpath)
 static install_t *install_find(const char *name)
 {
     for (int i = 0; i < INSTALL_MAX; i++)
-        if (installs[i].used && strcasecmp(installs[i].name, name) == 0)
+        if (installs[i].used && fs_strcasecmp(installs[i].name, name) == 0)
             return &installs[i];
     return NULL;
 }

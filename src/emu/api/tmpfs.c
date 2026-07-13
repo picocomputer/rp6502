@@ -7,6 +7,7 @@
 
 #include "emu/api/tmpfs.h"
 #include "emu/main.h"     /* main_dir_ops_set (swap the dir slots) */
+#include "emu/plat.h"
 #include "api/dir.h"      /* dir_run / dir_stop (the firmware FatFs DIR pool) */
 #include "api/fat.h"     /* fat_std_* file driver; pulls api/api.h + api/std.h */
 #include "fatfs/ff.h"
@@ -103,7 +104,7 @@ DWORD get_fattime(void)
 {
     time_t t = time(NULL);
     struct tm tm;
-    localtime_r(&t, &tm);
+    fs_localtime(t, &tm);
     if (tm.tm_year + 1900 < 1980)
         return ((DWORD)1 << 16) | ((DWORD)1 << 21); /* 1980-01-01 */
     return ((DWORD)(tm.tm_year - 80) << 25) | ((DWORD)(tm.tm_mon + 1) << 21) |

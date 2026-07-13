@@ -8,6 +8,7 @@
 #include "emu/host/msc.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include <ctype.h>
@@ -16,10 +17,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <unistd.h>
 #ifdef EMU_HAVE_AIO
 #include <aio.h>
+#include <unistd.h>
 #endif
 
 /* ------------------------------------------------------------------ */
@@ -80,7 +80,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
             while (*p == ' ' || *p == '\t')
                 p++;
             long data = ftell(f); /* the asset's data starts just after its header */
-            if (strcasecmp(p, name) == 0)
+            if (fs_strcasecmp(p, name) == 0)
             {
                 *base = (size_t)data;
                 *len = (size_t)alen;
@@ -116,7 +116,7 @@ long rom_read_asset(const char *name, void *buf, size_t max)
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
 {
-    if (strncasecmp(path, "ROM:", 4) == 0)
+    if (fs_strncasecmp(path, "ROM:", 4) == 0)
     {
         *rest = path + 4;
         return true;
@@ -158,7 +158,7 @@ static struct rom_window *rom_win(int desc)
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
-    int fd = open(hostpath, O_RDONLY);
+    int fd = fs_open(hostpath, O_RDONLY, 0);
     if (fd < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -170,7 +170,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
             break;
     if (des == ROM_OPEN_MAX)
     {
-        close(fd);
+        fs_close(fd);
         *err = API_EMFILE;
         return -1;
     }
@@ -198,7 +198,7 @@ std_rw_result rom_std_close(int desc, api_errno *err)
     }
 #endif
     if (w->fd >= 0)
-        close(w->fd);
+        fs_close(w->fd);
     w->used = false;
     return STD_OK;
 }
@@ -250,7 +250,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         return STD_OK;
     }
 #endif
-    ssize_t r = pread(w->fd, buf, want, (off_t)(w->base + w->pos));
+    fs_ssize_t r = fs_pread(w->fd, buf, want, (int64_t)(w->base + w->pos));
     if (r < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -423,7 +423,7 @@ bool rom_load(const char *path)
 
     char line[512];
     if (fgets_line(f, line, sizeof(line)) < 0 ||
-        strncasecmp(line, "#!RP6502", 8) != 0)
+        fs_strncasecmp(line, "#!RP6502", 8) != 0)
     {
         fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
         fclose(f);

@@ -74,8 +74,7 @@ add_library(emu_core STATIC
 )
 
 # Platform filesystem primitives: one folder compiled per OS; both define the same
-# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c stays portable. File I/O + entropy
-# seams follow in a later pass.
+# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c and host file I/O stay portable.
 if(WIN32)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/emu/win/dir.c
@@ -120,6 +119,9 @@ target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
 # MSVC has no separate libm
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
+else()
+    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FImsvc_compat.h)
+    target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
 endif()
 
 # Non-blocking file I/O (POSIX AIO) where the platform provides it; msc/rom fall

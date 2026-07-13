@@ -56,12 +56,18 @@ $ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
 The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-Nobody is working on the emulator for Windows. Unclaimed territory — wander
-in and make it yours. The CMake platform branches (D3D11, wingetopt) are
-already in place; what remains is the host filesystem layer (`src/emu/host`,
-`src/emu/mon/rom.c`), which still speaks POSIX and needs Win32 shims. The
-CMake presets use the Ninja generator, so with MSVC configure from an x64
-Native Tools prompt.
+For a native x64 emulator build (MSVC + Ninja, no WSL/MSYS2), open an
+**x64 Native Tools Command Prompt for VS**, then:
+
+```
+cd src\emu
+cmake --preset debug
+cmake --build --preset debug
+```
+
+The binary is `build\emulator\debug\rp6502-emu.exe`. Release uses `--preset release`.
+Ninja must be on PATH. Initialize submodules first (`git submodule update --init`,
+then `git -C vendor/cppdap submodule update --init third_party/json`).
 
 ## MacOs
 

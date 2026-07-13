@@ -325,8 +325,7 @@ bool dir_api_setlabel(void)
 // int f_getlabel(const char* path, char* label, unsigned long* vsn)
 bool dir_api_getlabel(void)
 {
-    const int label_size = 12;
-    char label[label_size];
+    char label[12];
     DWORD vsn;
     TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
     xstack_ptr = XSTACK_SIZE;

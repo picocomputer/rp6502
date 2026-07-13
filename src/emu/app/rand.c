@@ -8,8 +8,12 @@
 #include "emu/app/rand.h"
 #include "pico/rand.h"
 #include <stdbool.h>
+#include <stdint.h>
 #include <time.h>
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
 #include <sys/random.h>
 #endif
 
@@ -30,6 +34,19 @@ static uint64_t rand_entropy(void)
             return s;
     }
 #endif
+#if defined(_WIN32)
+    {
+        LARGE_INTEGER f, c;
+        FILETIME ft;
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&c);
+        GetSystemTimeAsFileTime(&ft);
+        uint64_t s = (uint64_t)c.QuadPart * 6364136223846793005ull +
+                     ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) +
+                     (uint64_t)(uintptr_t)&f + (uint64_t)f.QuadPart;
+        return s ? s : 1;
+    }
+#else
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
     clock_gettime(CLOCK_REALTIME, &real);
@@ -37,6 +54,7 @@ static uint64_t rand_entropy(void)
                  (uint64_t)real.tv_sec * 1442695040888963407ull +
                  (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
     return s ? s : 1;
+#endif
 }
 
 void rand_set_seed(uint64_t seed)
