@@ -18,16 +18,17 @@
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
+#include "hostcompat.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #define O_RD 0x01
 #define O_WR 0x02
@@ -38,14 +39,14 @@ static char g_dir[256]; /* a temp dir, made the MSC0: mount */
 
 static bool fresh(void)
 {
-    char tmpl[] = "/tmp/drive_test_XXXXXX";
-    const char *d = mkdtemp(tmpl);
-    char resolved[MSC_MAX_PATH];
-    if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
+    char dir[MSC_MAX_PATH];
+    if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
-    strcpy(g_dir, resolved);
     std_stop();
-    return chdir(g_dir) == 0; /* MSC0: is the process cwd */
+    if (!fs_chdir(dir))
+        return false;
+    /* g_dir mirrors hostfs's own fs_getcwd, so MSC0:<g_dir> holds on any host. */
+    return fs_getcwd(g_dir, sizeof(g_dir));
 }
 
 static void make_file(const char *rel, const char *data, uint16_t n)
