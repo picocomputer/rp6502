@@ -182,9 +182,6 @@ jobs:
             vendor/chips vendor/sokol vendor/imgui vendor/cppdap
           git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
-      - name: Install Ninja
-        run: brew install ninja
-
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
@@ -287,18 +284,22 @@ jobs:
             vendor/chips vendor/sokol vendor/imgui vendor/cppdap vendor/wingetopt
           git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
-      - name: Set up MSVC (x64)
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
-
+      # Set up the MSVC x64 toolchain via the runner's own Visual Studio (no
+      # third-party action), then build in the same step so the dev-shell env
+      # (cl.exe, INCLUDE/LIB) is in scope. ctest below only runs the built exes.
       - name: Configure & build emulator (Release)
-        shell: bash
+        shell: pwsh
         run: |
-          set -euxo pipefail
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           cd src/emu
           cmake --preset release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build --preset release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Run emulator tests
         run: ctest --test-dir build/emulator/release --output-on-failure
