@@ -31,13 +31,13 @@ add_test(NAME adventure COMMAND test_adventure)
 set_tests_properties(adventure PROPERTIES TIMEOUT 60)
 
 # --- Filesystem (host-backed MSC0: + read-only ROM: + directory enumeration) ---
-add_executable(test_fs test_fs.c hostcompat.c)
+add_executable(test_fs test_fs.c)
 target_link_libraries(test_fs PRIVATE emu_core)
 target_include_directories(test_fs PRIVATE ${UTEST_DIR})
 add_test(NAME fs COMMAND test_fs)
 
 # --- Drive fs.c paths: host-backed MSC0:, ROM overlay, async POSIX-AIO transfers ---
-add_executable(test_drive test_drive.c hostcompat.c)
+add_executable(test_drive test_drive.c)
 target_link_libraries(test_drive PRIVATE emu_core)
 target_include_directories(test_drive PRIVATE ${UTEST_DIR})
 target_compile_definitions(test_drive PRIVATE ADVENTURE_ROM="${ADVENTURE}")
@@ -50,7 +50,7 @@ target_include_directories(test_fatfs PRIVATE ${UTEST_DIR})
 add_test(NAME fatfs COMMAND test_fatfs)
 
 # --- Directory enumeration integration (dir.rp6502: opendir/readdir/stat/getfree) ---
-add_executable(test_dir test_dir.c hostcompat.c)
+add_executable(test_dir test_dir.c)
 target_link_libraries(test_dir PRIVATE emu_core)
 target_include_directories(test_dir PRIVATE ${UTEST_DIR})
 target_compile_definitions(test_dir PRIVATE DIR_ROM="${ROMS}/dir.rp6502")
@@ -111,7 +111,7 @@ target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${
 add_test(NAME w65c02dasm COMMAND test_w65c02dasm)
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
-add_executable(test_rtc test_rtc.c hostcompat.c)
+add_executable(test_rtc test_rtc.c)
 target_link_libraries(test_rtc PRIVATE emu_core)
 target_include_directories(test_rtc PRIVATE ${UTEST_DIR})
 target_compile_definitions(test_rtc PRIVATE RTC_ROM="${ROMS}/rtc.rp6502")

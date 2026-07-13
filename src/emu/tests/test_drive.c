@@ -24,7 +24,7 @@
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
-#include "hostcompat.h"
+#include "emu/plat.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +40,7 @@ static char g_dir[256]; /* a temp dir, made the MSC0: mount */
 static bool fresh(void)
 {
     char dir[MSC_MAX_PATH];
-    if (!host_make_tmpdir(dir, sizeof(dir)))
+    if (!os_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
     if (!fs_chdir(dir))

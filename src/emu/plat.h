@@ -78,6 +78,24 @@ void fs_gmtime(time_t t, struct tm *out);
 int fs_strcasecmp(const char *a, const char *b);
 int fs_strncasecmp(const char *a, const char *b, size_t n);
 
+/* ---- other host-OS primitives (posix/os.c or win/os.c, one compiled) ---- */
+uint64_t os_entropy_64(void);            /* seed material from the host RNG/clocks */
+uint64_t os_mono_ns(void);               /* monotonic clock, nanoseconds */
+void os_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
+
+/* Host-locale strftime (the C locale stays elsewhere in the process). */
+void os_locale_reset(void); /* (re)load the environment locale */
+size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
+void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
+
+/* App config location, in the host's native path spelling. */
+bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
+void os_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
+
+/* Test-only host helpers (the tests drive the rest of the seam directly). */
+bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
+void os_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
+
 #ifdef __cplusplus
 }
 #endif

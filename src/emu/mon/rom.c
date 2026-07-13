@@ -17,10 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifdef EMU_HAVE_AIO
-#include <aio.h>
-#include <unistd.h>
-#endif
+#include "emu/host/aio.h"
 
 /* ------------------------------------------------------------------ */
 /* ROM: drive — read-only assets, windows into the loaded .rp6502      */

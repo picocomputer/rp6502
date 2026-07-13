@@ -14,12 +14,11 @@
 
 #include "emu/plat.h"
 #include "emu/api/oem.h"
+#include "emu/win/win.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <windows.h>
-
-#define DIR_WPATH_MAX 4096
 
 struct win_dir
 {
@@ -27,34 +26,13 @@ struct win_dir
     WIN32_FIND_DATAW fd;
     bool first; /* FindFirstFileW already yielded the first entry */
     bool alive;
-    wchar_t pattern[DIR_WPATH_MAX];
+    wchar_t pattern[WIN_WPATH_MAX];
 };
-
-static void win_dir_set_errno(DWORD e)
-{
-    switch (e)
-    {
-    case ERROR_FILE_NOT_FOUND:
-    case ERROR_PATH_NOT_FOUND:
-    case ERROR_NO_MORE_FILES:
-        errno = ENOENT;
-        break;
-    case ERROR_ACCESS_DENIED:
-        errno = EACCES;
-        break;
-    case ERROR_NOT_ENOUGH_MEMORY:
-        errno = ENOMEM;
-        break;
-    default:
-        errno = EIO;
-        break;
-    }
-}
 
 void *dir_open(const char *path)
 {
-    wchar_t base[DIR_WPATH_MAX];
-    if (oem_to_wide(path, (uint16_t *)base, DIR_WPATH_MAX) <= 0)
+    wchar_t base[WIN_WPATH_MAX];
+    if (oem_to_wide(path, (uint16_t *)base, WIN_WPATH_MAX) <= 0)
     {
         errno = EINVAL;
         return NULL;
@@ -69,7 +47,7 @@ void *dir_open(const char *path)
         errno = ENOMEM;
         return NULL;
     }
-    if (n + 3 >= DIR_WPATH_MAX)
+    if (n + 3 >= WIN_WPATH_MAX)
     {
         free(d);
         errno = ENAMETOOLONG;
@@ -83,7 +61,7 @@ void *dir_open(const char *path)
     d->h = FindFirstFileW(d->pattern, &d->fd);
     if (d->h == INVALID_HANDLE_VALUE)
     {
-        win_dir_set_errno(GetLastError());
+        win_set_errno(GetLastError());
         free(d);
         return NULL;
     }
@@ -107,7 +85,7 @@ int dir_read(void *opaque, char *name, size_t namesz, bool *is_dir)
             DWORD e = GetLastError();
             if (e == ERROR_NO_MORE_FILES)
                 return 0;
-            win_dir_set_errno(e);
+            win_set_errno(e);
             return -1;
         }
     }

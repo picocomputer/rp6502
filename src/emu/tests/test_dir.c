@@ -19,7 +19,7 @@
 #include "emu/plat.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
-#include "hostcompat.h"
+#include "emu/plat.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,7 +50,7 @@ static void write_file(const char *dir, const char *name, const char *data)
 UTEST(dir, lists_directory)
 {
     char d[512];
-    ASSERT_TRUE(host_make_tmpdir(d, sizeof(d)));
+    ASSERT_TRUE(os_make_tmpdir(d, sizeof(d)));
     write_file(d, "alpha.txt", "hello");             /* 5 bytes */
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
     char sub[512];

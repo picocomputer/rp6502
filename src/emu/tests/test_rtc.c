@@ -22,7 +22,7 @@
 #include "emu/main.h"
 #include "api/api.h"
 #include "api/clk.h"
-#include "hostcompat.h"
+#include "emu/plat.h"
 #include "utest.h"
 #include <stdlib.h>
 #include <string.h>
@@ -72,8 +72,8 @@ static uint16_t drive_strftime(const struct wire_tm *w, const char *fmt,
  * (1-Jan-2025 and 1-Jul-2025, both noon UTC) render deterministically. */
 UTEST(rtc, prints_fixed_timestamps)
 {
-    host_setenv("TZ", "UTC");
-    host_setenv("LC_ALL", "C");
+    os_setenv("TZ", "UTC");
+    os_setenv("LC_ALL", "C");
     cap_len = 0;
     cap[0] = 0;
     ASSERT_TRUE(rom_load(RTC_ROM));
@@ -94,7 +94,7 @@ UTEST(rtc, prints_fixed_timestamps)
  * proving clk.c routes strftime output through the OEM converter. */
 UTEST(rtc, strftime_maps_utf8_to_oem)
 {
-    host_setenv("LC_ALL", "C");
+    os_setenv("LC_ALL", "C");
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init(); /* resets clk (locale) and atr (code page 437) */
 
@@ -110,8 +110,8 @@ UTEST(rtc, strftime_maps_utf8_to_oem)
  * tm without tm_gmtoff. PST8 is a POSIX TZ (UTC-8, no DST) needing no tzdata. */
 UTEST(rtc, strftime_z_uses_host_offset)
 {
-    host_setenv("TZ", "PST8");
-    host_setenv("LC_ALL", "C");
+    os_setenv("TZ", "PST8");
+    os_setenv("LC_ALL", "C");
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init(); /* clk_reset -> tzset() adopts TZ=PST8 */
 
@@ -126,7 +126,7 @@ UTEST(rtc, strftime_z_uses_host_offset)
  * page changes the strftime output, and unsupported pages are rejected. */
 UTEST(rtc, code_page_drives_oem_mapping)
 {
-    host_setenv("LC_ALL", "C");
+    os_setenv("LC_ALL", "C");
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init();
     ASSERT_EQ(oem_get_code_page(), (uint16_t)437); /* default */

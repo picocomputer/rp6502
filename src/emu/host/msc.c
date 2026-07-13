@@ -14,10 +14,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#ifdef EMU_HAVE_AIO
-#include <aio.h>
-#include <unistd.h>
-#endif
+#include "emu/host/aio.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>

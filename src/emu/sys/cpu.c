@@ -12,10 +12,6 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/via.h"
 
-#ifndef __GNUC__
-#define __builtin_expect(x, v) (x)
-#endif
-
 static m6502_t cpu;
 static uint64_t pins;
 

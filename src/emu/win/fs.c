@@ -21,6 +21,7 @@
 
 #include "emu/plat.h"
 #include "emu/api/oem.h"
+#include "emu/win/win.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -31,54 +32,6 @@
 #include <string.h>
 #include <time.h>
 #include <windows.h>
-
-#define FS_WPATH_MAX 4096
-
-static void win_set_errno(DWORD e)
-{
-    switch (e)
-    {
-    case ERROR_FILE_NOT_FOUND:
-    case ERROR_PATH_NOT_FOUND:
-    case ERROR_INVALID_NAME:
-        errno = ENOENT;
-        break;
-    case ERROR_ACCESS_DENIED:
-    case ERROR_SHARING_VIOLATION:
-    case ERROR_LOCK_VIOLATION:
-        errno = EACCES;
-        break;
-    case ERROR_ALREADY_EXISTS:
-    case ERROR_FILE_EXISTS:
-        errno = EEXIST;
-        break;
-    case ERROR_NOT_ENOUGH_MEMORY:
-        errno = ENOMEM;
-        break;
-    case ERROR_DIRECTORY:
-        errno = ENOTDIR;
-        break;
-    case ERROR_DIR_NOT_EMPTY:
-        errno = ENOTEMPTY;
-        break;
-    case ERROR_FILENAME_EXCED_RANGE:
-        errno = ENAMETOOLONG;
-        break;
-    case ERROR_INVALID_PARAMETER:
-    case ERROR_INVALID_HANDLE:
-        errno = EINVAL;
-        break;
-    case ERROR_DISK_FULL:
-        errno = ENOSPC;
-        break;
-    case ERROR_TOO_MANY_OPEN_FILES:
-        errno = EMFILE;
-        break;
-    default:
-        errno = EIO;
-        break;
-    }
-}
 
 static bool path_to_wide(const char *path, wchar_t *w, int wcount)
 {
@@ -110,8 +63,8 @@ static void time_t_to_filetime(time_t t, FILETIME *ft)
 
 bool fs_stat(const char *path, struct fs_meta *out)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     WIN32_FILE_ATTRIBUTE_DATA fad;
     if (!GetFileAttributesExW(w, GetFileExInfoStandard, &fad))
@@ -130,13 +83,13 @@ bool fs_stat(const char *path, struct fs_meta *out)
 
 bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     /* Prefer the parent directory when path names a file. */
-    wchar_t dir[FS_WPATH_MAX];
-    wcsncpy(dir, w, FS_WPATH_MAX - 1);
-    dir[FS_WPATH_MAX - 1] = 0;
+    wchar_t dir[WIN_WPATH_MAX];
+    wcsncpy(dir, w, WIN_WPATH_MAX - 1);
+    dir[WIN_WPATH_MAX - 1] = 0;
     wchar_t *slash = wcsrchr(dir, L'\\');
     wchar_t *slash2 = wcsrchr(dir, L'/');
     if (slash2 && (!slash || slash2 > slash))
@@ -156,8 +109,8 @@ bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes
 
 bool fs_set_readonly(const char *path, bool readonly)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     DWORD a = GetFileAttributesW(w);
     if (a == INVALID_FILE_ATTRIBUTES)
@@ -179,8 +132,8 @@ bool fs_set_readonly(const char *path, bool readonly)
 
 bool fs_set_mtime(const char *path, time_t mtime)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     HANDLE h = CreateFileW(w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
@@ -204,8 +157,8 @@ bool fs_set_mtime(const char *path, time_t mtime)
 
 bool fs_mkdir(const char *path)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     if (_wmkdir(w) != 0)
         return false;
@@ -214,8 +167,8 @@ bool fs_mkdir(const char *path)
 
 bool fs_chdir(const char *path)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     return _wchdir(w) == 0;
 }
@@ -227,34 +180,30 @@ bool fs_getcwd(char *buf, size_t sz)
         return false;
     oem_from_wide((const uint16_t *)w, buf, sz);
     free(w);
-    for (char *p = buf; *p; p++)
-        if (*p == '\\')
-            *p = '/';
+    win_to_slash(buf);
     return true;
 }
 
 bool fs_realpath(const char *path, char *out, size_t outsz)
 {
-    wchar_t wpath[FS_WPATH_MAX], wfull[FS_WPATH_MAX];
-    if (!path_to_wide(path, wpath, FS_WPATH_MAX))
+    wchar_t wpath[WIN_WPATH_MAX], wfull[WIN_WPATH_MAX];
+    if (!path_to_wide(path, wpath, WIN_WPATH_MAX))
         return false;
-    DWORD n = GetFullPathNameW(wpath, FS_WPATH_MAX, wfull, NULL);
-    if (n == 0 || n >= FS_WPATH_MAX)
+    DWORD n = GetFullPathNameW(wpath, WIN_WPATH_MAX, wfull, NULL);
+    if (n == 0 || n >= WIN_WPATH_MAX)
     {
         win_set_errno(n ? ERROR_FILENAME_EXCED_RANGE : GetLastError());
         return false;
     }
     oem_from_wide((const uint16_t *)wfull, out, outsz);
-    for (char *p = out; *p; p++)
-        if (*p == '\\')
-            *p = '/';
+    win_to_slash(out);
     return true;
 }
 
 bool fs_rename(const char *oldp, const char *newp)
 {
-    wchar_t wo[FS_WPATH_MAX], wn[FS_WPATH_MAX];
-    if (!path_to_wide(oldp, wo, FS_WPATH_MAX) || !path_to_wide(newp, wn, FS_WPATH_MAX))
+    wchar_t wo[WIN_WPATH_MAX], wn[WIN_WPATH_MAX];
+    if (!path_to_wide(oldp, wo, WIN_WPATH_MAX) || !path_to_wide(newp, wn, WIN_WPATH_MAX))
         return false;
     if (!MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING))
     {
@@ -266,8 +215,8 @@ bool fs_rename(const char *oldp, const char *newp)
 
 bool fs_remove(const char *path)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
     if (_wunlink(w) == 0)
         return true;
@@ -281,8 +230,8 @@ bool fs_remove(const char *path)
 
 int fs_open(const char *path, int flags, int mode)
 {
-    wchar_t w[FS_WPATH_MAX];
-    if (!path_to_wide(path, w, FS_WPATH_MAX))
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return -1;
     int oflags = flags | _O_BINARY;
     return _wopen(w, oflags, mode);

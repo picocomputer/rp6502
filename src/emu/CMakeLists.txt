@@ -78,11 +78,14 @@ add_library(emu_core STATIC
 if(WIN32)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/emu/win/dir.c
-        ${RP6502_SRC}/emu/win/fs.c)
+        ${RP6502_SRC}/emu/win/fs.c
+        ${RP6502_SRC}/emu/win/os.c
+        ${RP6502_SRC}/emu/win/win.c)
 else()
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/emu/posix/dir.c
-        ${RP6502_SRC}/emu/posix/fs.c)
+        ${RP6502_SRC}/emu/posix/fs.c
+        ${RP6502_SRC}/emu/posix/os.c)
 endif()
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit.
@@ -169,7 +172,7 @@ if(EMU_HAS_WINDOW)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c ${RP6502_SRC}/emu/app/web_exports.c)
 if(EMU_HAS_WINDOW)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c)
 endif()
