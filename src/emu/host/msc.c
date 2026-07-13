@@ -87,7 +87,7 @@ const char *msc_strip_drive(const char *path)
         return path;
     size_t n = (size_t)(colon - path);
     bool is_drive = (n == 1 && isdigit((unsigned char)path[0])) ||
-                    (n == 4 && fs_strncasecmp(path, "MSC", 3) == 0 &&
+                    (n == 4 && os_strncasecmp(path, "MSC", 3) == 0 &&
                      isdigit((unsigned char)path[3]));
     return is_drive ? colon + 1 : path;
 }

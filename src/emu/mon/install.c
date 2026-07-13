@@ -58,7 +58,7 @@ bool install_rom(const char *hostpath)
 static install_t *install_find(const char *name)
 {
     for (int i = 0; i < INSTALL_MAX; i++)
-        if (installs[i].used && fs_strcasecmp(installs[i].name, name) == 0)
+        if (installs[i].used && os_strcasecmp(installs[i].name, name) == 0)
             return &installs[i];
     return NULL;
 }

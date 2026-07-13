@@ -283,23 +283,3 @@ fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off)
     errno = save;
     return r;
 }
-
-void fs_localtime(time_t t, struct tm *out)
-{
-    localtime_s(out, &t);
-}
-
-void fs_gmtime(time_t t, struct tm *out)
-{
-    gmtime_s(out, &t);
-}
-
-int fs_strcasecmp(const char *a, const char *b)
-{
-    return _stricmp(a, b);
-}
-
-int fs_strncasecmp(const char *a, const char *b, size_t n)
-{
-    return _strnicmp(a, b, n);
-}

@@ -72,21 +72,23 @@ int64_t fs_lseek(int fd, int64_t off, int whence);
 int fs_ftruncate(int fd, int64_t length);
 fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off);
 
-/* ---- misc primitives ---- */
-void fs_localtime(time_t t, struct tm *out);
-void fs_gmtime(time_t t, struct tm *out);
-int fs_strcasecmp(const char *a, const char *b);
-int fs_strncasecmp(const char *a, const char *b, size_t n);
-
 /* ---- other host-OS primitives (posix/os.c or win/os.c, one compiled) ---- */
 uint64_t os_entropy_64(void);            /* seed material from the host RNG/clocks */
 uint64_t os_mono_ns(void);               /* monotonic clock, nanoseconds */
 void os_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
 
+/* Broken-down host time (local zone / UTC). */
+void os_localtime(time_t t, struct tm *out);
+void os_gmtime(time_t t, struct tm *out);
+
 /* Host-locale strftime (the C locale stays elsewhere in the process). */
 void os_locale_reset(void); /* (re)load the environment locale */
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
+
+/* Case-insensitive compare (POSIX strcasecmp / Windows _stricmp). */
+int os_strcasecmp(const char *a, const char *b);
+int os_strncasecmp(const char *a, const char *b, size_t n);
 
 /* App config location, in the host's native path spelling. */
 bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */

@@ -51,6 +51,18 @@ void os_sleep_until_ns(uint64_t target)
     (void)target; /* the D3D11 Present already paces the loop */
 }
 
+/* ---- broken-down time ---- */
+
+void os_localtime(time_t t, struct tm *out)
+{
+    localtime_s(out, &t);
+}
+
+void os_gmtime(time_t t, struct tm *out)
+{
+    gmtime_s(out, &t);
+}
+
 /* ---- host-locale strftime ---- */
 
 void os_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
@@ -63,6 +75,18 @@ size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 {
     (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
+}
+
+/* ---- case-insensitive compare ---- */
+
+int os_strcasecmp(const char *a, const char *b)
+{
+    return _stricmp(a, b);
+}
+
+int os_strncasecmp(const char *a, const char *b, size_t n)
+{
+    return _strnicmp(a, b, n);
 }
 
 /* ---- config location ---- */

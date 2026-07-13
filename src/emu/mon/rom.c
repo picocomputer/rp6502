@@ -77,7 +77,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
             while (*p == ' ' || *p == '\t')
                 p++;
             long data = ftell(f); /* the asset's data starts just after its header */
-            if (fs_strcasecmp(p, name) == 0)
+            if (os_strcasecmp(p, name) == 0)
             {
                 *base = (size_t)data;
                 *len = (size_t)alen;
@@ -113,7 +113,7 @@ long rom_read_asset(const char *name, void *buf, size_t max)
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
 {
-    if (fs_strncasecmp(path, "ROM:", 4) == 0)
+    if (os_strncasecmp(path, "ROM:", 4) == 0)
     {
         *rest = path + 4;
         return true;
@@ -420,7 +420,7 @@ bool rom_load(const char *path)
 
     char line[512];
     if (fgets_line(f, line, sizeof(line)) < 0 ||
-        fs_strncasecmp(line, "#!RP6502", 8) != 0)
+        os_strncasecmp(line, "#!RP6502", 8) != 0)
     {
         fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
         fclose(f);

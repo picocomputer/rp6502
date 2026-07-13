@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -71,6 +72,18 @@ void os_sleep_until_ns(uint64_t target)
 #endif
 }
 
+/* ---- broken-down time ---- */
+
+void os_localtime(time_t t, struct tm *out)
+{
+    localtime_r(&t, out);
+}
+
+void os_gmtime(time_t t, struct tm *out)
+{
+    gmtime_r(&t, out);
+}
+
 /* ---- host-locale strftime ---- */
 
 #if defined(__APPLE__)
@@ -102,6 +115,18 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 #else
     (void)tm, (void)probe;
 #endif
+}
+
+/* ---- case-insensitive compare ---- */
+
+int os_strcasecmp(const char *a, const char *b)
+{
+    return strcasecmp(a, b);
+}
+
+int os_strncasecmp(const char *a, const char *b, size_t n)
+{
+    return strncasecmp(a, b, n);
 }
 
 /* ---- config location ---- */

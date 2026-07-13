@@ -117,9 +117,9 @@ static bool clk_api_to_tm(bool local)
     time_t t = (int64_t)u; /* 8-byte pushes carry the sign */
     struct tm tm;
     if (local)
-        fs_localtime(t, &tm);
+        os_localtime(t, &tm);
     else
-        fs_gmtime(t, &tm);
+        os_gmtime(t, &tm);
     if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
     struct clk_wire_tm w;

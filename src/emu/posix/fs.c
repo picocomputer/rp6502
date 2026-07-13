@@ -11,7 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include <time.h>
@@ -139,24 +138,4 @@ int fs_ftruncate(int fd, int64_t length)
 fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off)
 {
     return pread(fd, buf, n, (off_t)off);
-}
-
-void fs_localtime(time_t t, struct tm *out)
-{
-    localtime_r(&t, out);
-}
-
-void fs_gmtime(time_t t, struct tm *out)
-{
-    gmtime_r(&t, out);
-}
-
-int fs_strcasecmp(const char *a, const char *b)
-{
-    return strcasecmp(a, b);
-}
-
-int fs_strncasecmp(const char *a, const char *b, size_t n)
-{
-    return strncasecmp(a, b, n);
 }

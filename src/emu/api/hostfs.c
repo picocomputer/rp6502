@@ -29,7 +29,7 @@
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
-    fs_localtime(t, &tm);
+    os_localtime(t, &tm);
     int year = tm.tm_year + 1900;
     if (year < 1980)
     {
@@ -402,7 +402,7 @@ bool hostfs_api_chdrive(void)
     for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
         name[i] = (char)drive[i];
     name[i] = 0;
-    if (name[0] == 0 || fs_strcasecmp(name, "MSC0") == 0)
+    if (name[0] == 0 || os_strcasecmp(name, "MSC0") == 0)
         return api_return_ax(0);
     return api_return_errno(API_ENODEV);
 }
