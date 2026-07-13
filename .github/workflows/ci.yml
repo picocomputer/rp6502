@@ -272,10 +272,54 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Emulator (Windows, x64): build the D3D11 emu with MSVC + Ninja, run the
+  # CTest suite, ship the bare rp6502-emu.exe.
+  # ---------------------------------------------------------------------------
+  emu-windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Init emulator submodules
+        shell: bash
+        run: |
+          git submodule update --init --depth 1 \
+            vendor/chips vendor/sokol vendor/imgui vendor/cppdap vendor/wingetopt
+          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
+
+      - name: Set up MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Configure & build emulator (Release)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd src/emu
+          cmake --preset release
+          cmake --build --preset release
+
+      - name: Run emulator tests
+        run: ctest --test-dir build/emulator/release --output-on-failure
+
+      - name: Stage Windows emulator binary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cp build/emulator/release/rp6502-emu.exe rp6502-emu.exe
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: emu-windows
+          path: rp6502-emu.exe
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).
   # ---------------------------------------------------------------------------
   package:
-    needs: [firmware, emu-linux, emu-macos, emu-wasm]
+    needs: [firmware, emu-linux, emu-macos, emu-wasm, emu-windows]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -305,6 +349,8 @@ jobs:
           # macOS app
           tar -xzf _artifacts/emu-macos/rp6502-emu-app.tar.gz -C stage
           chmod +x stage/rp6502-emu.app/Contents/MacOS/rp6502-emu
+          # Windows emulator
+          cp _artifacts/emu-windows/rp6502-emu.exe stage/
           # WebAssembly itch.io bundle (shipped as a nested zip)
           cp _artifacts/itch-io/itch.io.zip stage/
           # Static distribution files
@@ -363,5 +409,9 @@ jobs:
 
             **Linux** `rp6502-emu-x86_64` / `rp6502-emu-aarch64` are built on Ubuntu 24.04 and
             need a recent glibc plus GL/X11/ALSA runtime libraries installed.
+
+            **Windows** `rp6502-emu.exe` is an unsigned native x64 build. SmartScreen may
+            warn on first launch — choose *More info → Run anyway*. Requires a GPU with
+            Direct3D 11.
 
             **Web** `itch.io.zip` is the ready-to-publish itch.io sample (serve over HTTP).
