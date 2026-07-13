@@ -15,8 +15,8 @@ separate tool calls instead of shell operators.
 Never search the root of the filesystem. Everything you need will be in
 the user home directory.
 
-Limit git usage to as few requests as possible unless I specifically ask
-for something only git can answer.
+Don't spam git history unless specifically asked to. Do not commit or push
+unless speccifically asked to.
 
 To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target
