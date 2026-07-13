@@ -39,6 +39,7 @@ void host_setenv(const char *name, const char *value)
 }
 
 #else
+#include <unistd.h> /* macOS/BSD declare mkdtemp here, not in <stdlib.h> */
 
 bool host_make_tmpdir(char *out, size_t outsz)
 {
