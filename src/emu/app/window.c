@@ -1129,8 +1129,9 @@ static void android_scan_roms(void)
     closedir(d);
 }
 
-int rp6502_android_input_hook(const AInputEvent* event)
+bool rp6502_android_input_hook(const void* native_event)
 {
+    const AInputEvent* event = (const AInputEvent*)native_event;
     int32_t type = AInputEvent_getType(event);
     if (type == AINPUT_EVENT_TYPE_KEY)
     {
@@ -1372,6 +1373,7 @@ sapp_desc sokol_main(int argc, char* argv[])
         .frame_cb = frame_cb,
         .event_cb = event_cb,
         .cleanup_cb = cleanup_cb,
+        .native_event_cb = rp6502_android_input_hook,
         .width = 640,
         .height = 480,
         .window_title = "Picocomputer 6502",
