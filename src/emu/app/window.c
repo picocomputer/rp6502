@@ -115,10 +115,28 @@ static void set_aspect_hint(int cw, int ch)
     XFlush(dpy);
 }
 #elif defined(_WIN32)
-/* Implemented in window_win32.c so <windows.h> (whose macros collide with the
- * emulator's own names) stays out of this translation unit. */
-void window_win32_resize(int w, int h);
-static void resize_window(int w, int h) { window_win32_resize(w, h); }
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+static void resize_window(int w, int h)
+{
+    HWND hwnd = (HWND)sapp_win32_get_hwnd();
+    if (!hwnd)
+        return;
+    /* w,h are client (== framebuffer/physical) px; grow by this window's DPI
+     * frame and keep the top-left corner. */
+    RECT r = {0, 0, w, h};
+    AdjustWindowRectExForDpi(&r,
+                             (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
+                             (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
+                             GetDpiForWindow(hwnd));
+    SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
 static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 #else
 static void resize_window(int w, int h) { (void)w, (void)h; }
@@ -248,14 +266,14 @@ static bool overlay_active(void)
 
 /* Framebuffer pixels reserved at the top of the window for the debugger's menu
  * bar, so the canvas is laid out BELOW the menu instead of under it (0 when the
- * overlay is inactive). dbgui reports the bar height in ImGui points; scale by
- * the DPI factor to get framebuffer pixels, and never reserve the whole window. */
+ * overlay is inactive). The overlay renders 1:1 (dbgui gets dpi_scale 1.0), so the
+ * reported bar height is already framebuffer pixels; never reserve the whole window. */
 static int top_reserved_px(void)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
     {
-        int px = (int)(dbgui_menu_height() * sapp_dpi_scale() + 0.5f);
+        int px = (int)(dbgui_menu_height() + 0.5f);
         if (px < 0)
             px = 0;
         if (px > sapp_height() - 1)
@@ -657,7 +675,9 @@ static void frame_cb(void)
      * simgui has its own sokol-gfx pipeline, separate from sgl. */
     if (dbg_is_active())
     {
-        dbgui_new_frame(sapp_width(), sapp_height(), sapp_frame_duration(), sapp_dpi_scale());
+        /* dpi_scale 1.0: render the overlay at native resolution so the 13px
+         * bitmap font lands 1:1 (crisp) instead of being magnified/blurred. */
+        dbgui_new_frame(sapp_width(), sapp_height(), sapp_frame_duration(), 1.0f);
         dbgui_draw();
     }
 #endif

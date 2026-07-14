@@ -574,7 +574,11 @@ void dbgui_init(void)
      * swapchain formats the canvas pipelines use, so the ImGui pipeline matches
      * in the final (swapchain) pass. (Setting them explicitly mismatched.) */
     simgui_desc_t sd{};
+    sd.no_default_font = true; /* we add the bitmap default ourselves */
     simgui_setup(&sd);
+    /* Pixel-perfect ProggyClean at its native 13px; the overlay renders 1:1 (see
+     * dbgui_new_frame / window.c) so it is never magnified/blurred. */
+    ImGui::GetIO().Fonts->AddFontDefaultBitmap();
     /* Docking only; no multi-viewports (sokol_app is single-window). */
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     /* We drive load/save to our own config path (dbgui_layout.cc), so disable
