@@ -56,6 +56,9 @@ typedef enum
 vga_canvas_t vga_get_canvas(void);
 void vga_set_canvas(uint16_t canvas_word);
 
+// Pixel dimensions of the current canvas.
+void vga_canvas_size(int *w, int *h);
+
 // VGA-bound protocol state pushed from other subsystems
 void vga_set_tel_console_active(bool active);
 void vga_set_code_page(uint16_t cp);

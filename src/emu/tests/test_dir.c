@@ -16,14 +16,14 @@
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
+#include "emu/plat.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
+#include "emu/plat.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 static char cap[1 << 16];
 static size_t cap_len;
@@ -49,16 +49,15 @@ static void write_file(const char *dir, const char *name, const char *data)
 
 UTEST(dir, lists_directory)
 {
-    char tmpl[] = "/tmp/dir_rom_test_XXXXXX";
-    const char *d = mkdtemp(tmpl);
-    ASSERT_TRUE(d != NULL);
+    char d[512];
+    ASSERT_TRUE(os_make_tmpdir(d, sizeof(d)));
     write_file(d, "alpha.txt", "hello");             /* 5 bytes */
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
     char sub[512];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
-    ASSERT_EQ(mkdir(sub, 0777), 0);
+    ASSERT_TRUE(fs_mkdir(sub));
 
-    ASSERT_TRUE(chdir(d) == 0); /* the program lists "" = the cwd */
+    ASSERT_TRUE(fs_chdir(d)); /* the program lists "" = the cwd */
     ASSERT_TRUE(rom_load(DIR_ROM));
     main_init();
     cap_len = 0;

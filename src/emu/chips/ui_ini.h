@@ -114,7 +114,12 @@ static void _ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGu
         ImGuiWindowSettings *s = ImGui::FindWindowSettingsByID(ImHashStr(_UI_INI_MANAGER));
         if (!s)
             s = ImGui::CreateNewWindowSettings(_UI_INI_MANAGER);
-        s->Size = ImVec2ih((short)sapp_width(), (short)sapp_height());
+        /* sapp_width/height are framebuffer (physical) px under high_dpi, but this
+         * is restored into sapp_desc, which is logical — store logical so the
+         * window doesn't grow by the DPI factor each session (dpi_scale is 1.0
+         * where high_dpi is off). */
+        float d = sapp_dpi_scale();
+        s->Size = ImVec2ih((short)(sapp_width() / d + 0.5f), (short)(sapp_height() / d + 0.5f));
     }
 }
 

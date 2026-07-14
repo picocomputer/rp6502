@@ -15,10 +15,11 @@ separate tool calls instead of shell operators.
 Never search the root of the filesystem. Everything you need will be in
 the user home directory.
 
-Limit git usage to as few requests as possible unless I specifically ask
-for something only git can answer.
+Don't spam git history unless specifically asked to. Do not commit or push
+unless specifically asked to. Do not look for answers in git history.
+Do not fetch git history unless specifically instructed to.
 
-To build, run `cmake --build build/firmware` from the project root. That
+To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target
 names (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
 The emulator is a separate tree at build/emulator (`cmake --build build/emulator`).
@@ -57,5 +58,15 @@ or "reconcile" markers.
 The audio stream is intentionally never cleared or reset. PSG and OPL reset;
 the BEL device and anything already in the audio buffer are deliberately NOT
 reset or cleared — a rung bell rings through a reset.
+
+Firmware storage I/O is pump-blocking, NOT synchronous. A guest file read
+(fat_std_read -> f_read -> disk_read -> msc_scsi_sync) fires the async USB
+transfer then spins pumping main_task() (usb/vga/cpu/audio) until it completes —
+nothing freezes, and it returns STD_OK in one dispatch (STD_PENDING is console/pipe
+drivers only). The emulator can't pump inline (it presents each frame via a discrete
+sokol swap after run_frame), so it keeps the system live the opposite way: its host
+fs read/write are async and return STD_PENDING, unwinding to the frame loop so the
+frame presents while api_task re-polls. Don't call firmware storage "synchronous" —
+it pump-blocks.
 
 Commit this information to MEMORY.

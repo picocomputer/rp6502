@@ -63,6 +63,10 @@ typedef struct {
   uint8_t rx_cable_count;  // IN endpoint CS descriptor bNumEmbMIDIJack value
   uint8_t tx_cable_count;  // OUT endpoint CS descriptor bNumEmbMIDIJack value
 
+  // Per-cable RX de-framing state used by tuh_midi_frame().
+  uint8_t  rx_run_len[16]; // running-status data byte count per cable (0 = none)
+  uint16_t rx_sysex;       // bit i set while cable i is inside a SysEx
+
   #if CFG_TUH_MIDI_STREAM_API
   // For Stream read()/write() API
   // Messages are always 4 bytes long, queue them for reading and writing so the
@@ -211,6 +215,9 @@ uint16_t midih_open(uint8_t rhport, uint8_t dev_addr, const tusb_desc_interface_
   // A previously aborted open can leave stale counts in the free slot
   p_midi->rx_cable_count = 0;
   p_midi->tx_cable_count = 0;
+  // Fresh de-framing state: no running status, no open SysEx on any cable.
+  p_midi->rx_sysex = 0;
+  tu_memclr(p_midi->rx_run_len, sizeof(p_midi->rx_run_len));
 
   tuh_midi_descriptor_cb_t desc_cb = { 0 };
   desc_cb.jack_num = 0;
@@ -458,6 +465,104 @@ uint32_t tuh_midi_packet_write_n(uint8_t idx, const uint8_t* buffer, uint32_t bu
   const uint32_t bufsize4 = tu_align4(bufsize);
   TU_VERIFY(bufsize4 > 0, 0);
   return tu_edpt_stream_write(&p_midi->ep_stream.tx, buffer, bufsize4);
+}
+
+//--------------------------------------------------------------------+
+// Frame API
+//--------------------------------------------------------------------+
+// De-frame one 4-byte USB-MIDI event packet into raw wire bytes, porting the
+// broken-device input quirks from Linux ALSA (sound/usb/midi.c):
+//
+//  - Drop reserved-CIN (0 or 1) and zero-header padding packets: transfer
+//    padding or a zero CIN left over stale data, not a message.
+//  - Ignore the CIN for length (too many devices encode it wrong); take the
+//    length from the MIDI status byte instead.
+//  - A status-less packet is running status (data bytes, often zero-padded):
+//    emit exactly the tracked running-status byte count, so a trailing 0x00 pad
+//    is never forwarded as data. A corrupt status cannot be told from a real
+//    one by value, so only the tracked length is trusted.
+//
+// Per-cable running status and SysEx state live in the interface. Writes up to
+// three wire bytes to out[] and returns the count (0 = packet dropped).
+uint8_t tuh_midi_frame(uint8_t idx, const uint8_t *pkt, uint8_t *out) {
+  TU_VERIFY(idx < CFG_TUH_MIDI, 0);
+  midih_interface_t *p_midi = &_midi_host[idx];
+
+  const uint8_t cin   = pkt[0] & 0x0f;
+  const uint8_t cable = (pkt[0] >> 4) & 0x0f;
+  if (cin < 2 || cable >= p_midi->rx_cable_count) {
+    return 0; // reserved CIN 0/1, zero header, or unknown cable: padding/noise
+  }
+
+  const uint16_t mask   = (uint16_t) (1u << cable);
+  const uint8_t  status = pkt[1];
+  uint8_t n = 0;
+
+  if (status >= MIDI_STATUS_SYSREAL_TIMING_CLOCK) {
+    // System real-time: one byte. F8-FE leave running status and SysEx intact;
+    // FF (System Reset) cancels both.
+    if (status == MIDI_STATUS_SYSREAL_SYSTEM_RESET) {
+      p_midi->rx_run_len[cable] = 0;
+      p_midi->rx_sysex &= (uint16_t) ~mask;
+    }
+    out[n++] = status;
+  } else if (status == MIDI_STATUS_SYSEX_START) {
+    p_midi->rx_sysex |= mask;
+    out[n++] = status;
+    for (uint8_t i = 2; i < 4; i++) {
+      if (pkt[i] == MIDI_STATUS_SYSEX_END) {
+        out[n++] = pkt[i];
+        p_midi->rx_sysex &= (uint16_t) ~mask;
+        break;
+      }
+      if (pkt[i] > MIDI_MAX_DATA_VAL) break;
+      out[n++] = pkt[i];
+    }
+  } else if (status <= MIDI_MAX_DATA_VAL) {
+    // No status byte in this packet.
+    if (p_midi->rx_sysex & mask) {
+      // SysEx continuation/end: emit data bytes up to (and including) EOX.
+      for (uint8_t i = 1; i < 4; i++) {
+        if (pkt[i] == MIDI_STATUS_SYSEX_END) {
+          out[n++] = pkt[i];
+          p_midi->rx_sysex &= (uint16_t) ~mask;
+          break;
+        }
+        if (pkt[i] > MIDI_MAX_DATA_VAL) break;
+        out[n++] = pkt[i];
+      }
+    } else {
+      // Running status: emit exactly the last status's data byte count. Drops
+      // any pad the device appended. Nothing if no running status is in effect.
+      for (uint8_t i = 0; i < p_midi->rx_run_len[cable]; i++) {
+        out[n++] = pkt[1 + i];
+      }
+    }
+  } else if (status < MIDI_STATUS_SYSEX_START) {
+    // Channel voice status: remember its data length for later running status.
+    const uint8_t hi = status & 0xf0;
+    const uint8_t dlen = (hi == 0xC0 || hi == 0xD0) ? 1 : 2;
+    p_midi->rx_run_len[cable] = dlen;
+    p_midi->rx_sysex &= (uint16_t) ~mask;
+    out[n++] = status;
+    out[n++] = pkt[2];
+    if (dlen == 2) out[n++] = pkt[3];
+  } else {
+    // System common F1..F7: cancels running status.
+    p_midi->rx_run_len[cable] = 0;
+    p_midi->rx_sysex &= (uint16_t) ~mask;
+    out[n++] = status;
+    if (status == MIDI_STATUS_SYSCOM_TIME_CODE_QUARTER_FRAME ||
+        status == MIDI_STATUS_SYSCOM_SONG_SELECT) {
+      out[n++] = pkt[2];
+    } else if (status == MIDI_STATUS_SYSCOM_SONG_POSITION_POINTER) {
+      out[n++] = pkt[2];
+      out[n++] = pkt[3];
+    }
+    // F6 Tune Request and F7 EOX: status byte only.
+  }
+
+  return n;
 }
 
 //--------------------------------------------------------------------+

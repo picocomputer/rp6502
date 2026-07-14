@@ -284,6 +284,19 @@ vga_canvas_t vga_get_canvas(void)
     return vga_canvas_current;
 }
 
+void vga_canvas_size(int *w, int *h)
+{
+    switch (vga_canvas_current)
+    {
+    case vga_canvas_320_240: *w = 320; *h = 240; break;
+    case vga_canvas_320_180: *w = 320; *h = 180; break;
+    case vga_canvas_640_360: *w = 640; *h = 360; break;
+    case vga_canvas_console:
+    case vga_canvas_640_480:
+    default: *w = 640; *h = 480; break;
+    }
+}
+
 void vga_set_canvas(uint16_t canvas_word)
 {
     switch (canvas_word)

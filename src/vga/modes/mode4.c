@@ -217,7 +217,7 @@ static inline void sprite_scanline16(
     bool span_continuous = false;
     if (sp->has_opacity_metadata)
     {
-        uint32_t meta = ((uint32_t *)(sp_img + size * size * sizeof(uint16_t)))[isct.tex_offs_y];
+        uint32_t meta = ((uint32_t *)((const uint8_t *)sp_img + size * size * sizeof(uint16_t)))[isct.tex_offs_y];
         isct = intersect_with_metadata(isct, meta);
         if (isct.size_x <= 0)
             return;

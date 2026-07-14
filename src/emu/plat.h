@@ -12,17 +12,19 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include "api/std.h"
+#ifdef _MSC_VER
+#include <BaseTsd.h>
+typedef SSIZE_T fs_ssize_t;
+#else
+#include <sys/types.h>
+typedef ssize_t fs_ssize_t;
+#endif
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
-
-/* The host OS-primitive seam. api/hostfs.c is portable policy; the platform impl
- * (posix/ or win/, one compiled) fills these. Paths cross the seam in the guest's
- * encoding (OEM code page); posix uses the bytes verbatim, win converts OEM<->UTF-16
- * (emu/api/oem.h). Fallible calls set errno and return false/NULL/-1 so the
- * msc_errno_to_api_errno funnel is unchanged. */
 
 /* ---- directory enumeration ---- */
 void *dir_open(const char *path); /* opaque stream, or NULL + errno */
@@ -52,12 +54,39 @@ bool fs_set_mtime(const char *path, time_t mtime); /* sets last-modified only */
 bool fs_mkdir(const char *path);
 bool fs_chdir(const char *path);
 bool fs_getcwd(char *buf, size_t sz); /* guest-encoding, '/'-separated */
+bool fs_realpath(const char *path, char *out, size_t outsz); /* absolute, '/'-separated */
 bool fs_rename(const char *oldp, const char *newp); /* replaces an existing target */
 bool fs_remove(const char *path);     /* a file or an empty directory */
 
-/* ---- misc primitives ---- */
-void fs_localtime(time_t t, struct tm *out);
-int fs_strcasecmp(const char *a, const char *b);
+/* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
+int fs_open(const char *path, int flags, int mode);
+int fs_close(int fd); /* reaps a still-in-flight fs_read/fs_write on this fd first */
+int64_t fs_lseek(int fd, int64_t off, int whence);
+int fs_ftruncate(int fd, int64_t length);
+std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
+std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
+
+/* ---- other host-OS primitives (posix/os.c or win/os.c, one compiled) ---- */
+uint64_t os_entropy_64(void);            /* seed material from the host RNG/clocks */
+uint64_t os_mono_ns(void);               /* monotonic clock, nanoseconds */
+void os_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
+
+/* Broken-down host time (local zone / UTC). */
+void os_localtime(time_t t, struct tm *out);
+void os_gmtime(time_t t, struct tm *out);
+
+/* Host-locale strftime (the C locale stays elsewhere in the process). */
+void os_locale_reset(void); /* (re)load the environment locale */
+size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
+void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
+
+/* App config location, in the host's native path spelling. */
+bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
+void os_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
+
+/* Test-only host helpers (the tests drive the rest of the seam directly). */
+bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
+void os_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
 
 #ifdef __cplusplus
 }

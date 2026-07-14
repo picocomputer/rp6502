@@ -6,6 +6,7 @@
 
 #ifndef RP6502_RIA_W
 #include "net/cyw.h"
+#include <pico/stdlib.h>
 void __in_flash("cyw_init") cyw_init(void) {}
 void cyw_task(void) {}
 #else

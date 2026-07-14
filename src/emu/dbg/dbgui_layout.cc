@@ -16,45 +16,15 @@
 
 #include "emu/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
 #include "emu/dbg/dbgui_layout.h" /* load/save */
+#include "emu/plat.h"             /* os_config_dir / os_ensure_parent_dir */
 
 #include <cstdio>
-#include <cstdlib> /* getenv */
-#include <cstring> /* strrchr */
-#if defined(_WIN32)
-#include <direct.h> /* _mkdir */
-#define DBGUI_MKDIR(p) _mkdir(p)
-#else
-#include <sys/stat.h> /* mkdir */
-#define DBGUI_MKDIR(p) mkdir(p, 0755)
-#endif
 
 static char g_cfg_override[1024]; /* --ini <file>, or "" for the OS default file */
 
 void dbgui_set_config_file(const char *path)
 {
     std::snprintf(g_cfg_override, sizeof g_cfg_override, "%s", path ? path : "");
-}
-
-/* Create `path` and any missing parent directories. */
-static void dbgui_mkdir_p(const char *path)
-{
-    char tmp[1024];
-    std::snprintf(tmp, sizeof tmp, "%s", path);
-    for (char *p = tmp + 1; *p; p++)
-    {
-        if (*p == '/'
-#if defined(_WIN32)
-            || *p == '\\'
-#endif
-        )
-        {
-            char c = *p;
-            *p = 0;
-            DBGUI_MKDIR(tmp);
-            *p = c;
-        }
-    }
-    DBGUI_MKDIR(tmp);
 }
 
 /* The config file path (override, else <os-config-dir>/dbgui.ini); its parent
@@ -66,39 +36,11 @@ static bool dbgui_config_path(char *out, size_t cap)
     else
     {
         char dir[896];
-#if defined(_WIN32)
-        const char *base = getenv("APPDATA");
-        if (!base || !base[0])
+        if (!os_config_dir(dir, sizeof dir))
             return false;
-        std::snprintf(dir, sizeof dir, "%s\\rp6502-emu", base);
-#else
-        const char *xdg = getenv("XDG_CONFIG_HOME");
-        if (xdg && xdg[0])
-            std::snprintf(dir, sizeof dir, "%s/rp6502-emu", xdg);
-        else
-        {
-            const char *home = getenv("HOME");
-            if (!home || !home[0])
-                return false;
-            std::snprintf(dir, sizeof dir, "%s/.config/rp6502-emu", home);
-        }
-#endif
         std::snprintf(out, cap, "%s/dbgui.ini", dir);
     }
-    /* make the parent dir */
-    char dir[1024];
-    std::snprintf(dir, sizeof dir, "%s", out);
-    char *slash = std::strrchr(dir, '/');
-#if defined(_WIN32)
-    char *bslash = std::strrchr(dir, '\\');
-    if (bslash > slash)
-        slash = bslash;
-#endif
-    if (slash && slash != dir)
-    {
-        *slash = 0;
-        dbgui_mkdir_p(dir);
-    }
+    os_ensure_parent_dir(out);
     return true;
 }
 

@@ -15,13 +15,14 @@
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include "dirsys.h"
 #include "stdsys.h"
+#include "emu/plat.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 /* rp6502 SDK open() flag bits (see ria/usb/msc.c). */
 #define O_RD 0x01
@@ -33,14 +34,16 @@ static char g_dir[256]; /* a temp dir, made the MSC0: cwd */
 
 static bool fresh_cwd(void)
 {
-    char tmpl[] = "/tmp/msc0_test_XXXXXX";
-    const char *d = mkdtemp(tmpl);
-    char resolved[MSC_MAX_PATH]; /* realpath needs a PATH_MAX buffer */
-    if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
+    char dir[MSC_MAX_PATH];
+    if (!os_make_tmpdir(dir, sizeof(dir)))
         return false;
-    strcpy(g_dir, resolved);
     std_stop(); /* close any files a prior test left open */
-    return chdir(g_dir) == 0; /* MSC0: is the process cwd */
+    if (!fs_chdir(dir))
+        return false;
+    /* g_dir is the emulator's own view of the cwd (same fs_getcwd hostfs uses),
+     * so the MSC0:<g_dir> comparisons below hold whatever the host's path
+     * spelling — notably '/'-normalized on Windows. */
+    return fs_getcwd(g_dir, sizeof(g_dir));
 }
 
 static bool host_exists(const char *rel)

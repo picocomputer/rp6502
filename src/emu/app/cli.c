@@ -22,7 +22,7 @@ const char *cli_base_name(const char *p)
     return s ? s + 1 : p;
 }
 
-void options_init(options *o)
+void cli_options_init(cli_options *o)
 {
     memset(o, 0, sizeof *o);
     o->frames = 120;
@@ -123,7 +123,7 @@ static void getopt_reset(void)
 #endif
 }
 
-int parse_args(int argc, char **argv, options *o)
+int cli_parse_args(int argc, char **argv, cli_options *o)
 {
     /* Split at the first standalone "--" before getopt sees it: the tail is the
      * ROM's argv[1..], never parsed as options. Truncating argc also confines
@@ -213,7 +213,7 @@ int parse_args(int argc, char **argv, options *o)
 /* Tokenizer whitespace: space, tab, CR, LF only (not isspace's \v/\f). */
 static bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
 
-int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
+int cli_tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
 {
     int argc = 0;
     size_t w = 0;

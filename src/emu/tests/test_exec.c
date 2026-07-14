@@ -14,12 +14,12 @@
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
 #include "utest.h"
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 static char cap[1 << 16];
 static size_t cap_len;
@@ -49,12 +49,12 @@ UTEST(exec, reexecs_self_with_arg)
      * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
      * MSC0: path and round-trips through the exec resolver. */
     char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH], dir[MSC_MAX_PATH];
-    ASSERT_TRUE(realpath(EXEC_ROM, abs) != NULL);
+    ASSERT_TRUE(fs_realpath(EXEC_ROM, abs, sizeof(abs)));
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
-    ASSERT_TRUE(chdir(dir) == 0);
+    ASSERT_TRUE(fs_chdir(dir));
     msc_from_host(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
     pro_set_argv(msc, 0, NULL);
 

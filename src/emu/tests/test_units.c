@@ -193,10 +193,10 @@ UTEST(kbd, text_to_oem)
 /* Everything after "--" is the ROM's argv[1..], never parsed as options. */
 UTEST(cli, rom_args_after_separator)
 {
-    options o;
-    options_init(&o);
+    cli_options o;
+    cli_options_init(&o);
     char *argv[] = {"emu", "rom.rp6502", "--", "--looks-like-an-option", "b"};
-    ASSERT_EQ(parse_args(5, argv, &o), 0);
+    ASSERT_EQ(cli_parse_args(5, argv, &o), 0);
     ASSERT_STREQ(o.rom, "rom.rp6502");
     ASSERT_EQ(o.n_rom_args, 2);
     ASSERT_STREQ(o.rom_args[0], "--looks-like-an-option");
@@ -205,10 +205,10 @@ UTEST(cli, rom_args_after_separator)
 
 UTEST(cli, rom_args_with_install_form)
 {
-    options o;
-    options_init(&o);
+    cli_options o;
+    cli_options_init(&o);
     char *argv[] = {"emu", "--rom", "x.rp6502", "--", "a"};
-    ASSERT_EQ(parse_args(5, argv, &o), 0);
+    ASSERT_EQ(cli_parse_args(5, argv, &o), 0);
     ASSERT_EQ(o.n_installs, 1);
     ASSERT_TRUE(o.rom == NULL);
     ASSERT_EQ(o.n_rom_args, 1);
@@ -219,31 +219,31 @@ UTEST(cli, rom_args_with_install_form)
  * override an asset preset with "no args". */
 UTEST(cli, rom_args_bare_separator_and_passes)
 {
-    options o;
-    options_init(&o);
+    cli_options o;
+    cli_options_init(&o);
     char *asset[] = {"emulator", "--mute", "--", "x"};
-    ASSERT_EQ(parse_args(4, asset, &o), 0);
+    ASSERT_EQ(cli_parse_args(4, asset, &o), 0);
     ASSERT_EQ(o.n_rom_args, 1);
     ASSERT_STREQ(o.rom_args[0], "x");
 
     char *cli[] = {"emu", "rom.rp6502", "--"};
-    ASSERT_EQ(parse_args(3, cli, &o), 0);
+    ASSERT_EQ(cli_parse_args(3, cli, &o), 0);
     ASSERT_TRUE(o.rom_args != NULL);
     ASSERT_EQ(o.n_rom_args, 0);
     ASSERT_STREQ(o.rom, "rom.rp6502");
 
     char *plain[] = {"emu", "--mute"};
-    ASSERT_EQ(parse_args(2, plain, &o), 0); /* no "--": earlier pass stands */
+    ASSERT_EQ(cli_parse_args(2, plain, &o), 0); /* no "--": earlier pass stands */
     ASSERT_TRUE(o.rom_args != NULL);
     ASSERT_EQ(o.n_rom_args, 0);
 }
 
 UTEST(cli, no_separator_no_rom_args)
 {
-    options o;
-    options_init(&o);
+    cli_options o;
+    cli_options_init(&o);
     char *argv[] = {"emu", "rom.rp6502"};
-    ASSERT_EQ(parse_args(2, argv, &o), 0);
+    ASSERT_EQ(cli_parse_args(2, argv, &o), 0);
     ASSERT_TRUE(o.rom_args == NULL);
     ASSERT_EQ(o.n_rom_args, 0);
     ASSERT_STREQ(o.rom, "rom.rp6502");
