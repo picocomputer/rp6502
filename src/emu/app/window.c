@@ -1342,9 +1342,6 @@ sapp_desc sokol_main(int argc, char* argv[])
     detect_rom_directory();
     chdir(g_rom_dir);
     
-    // Initialize host MSC & ROM loader async modes
-    msc_set_async(true);
-    rom_set_async(true);
     
     // Initialize emulator
     main_init();

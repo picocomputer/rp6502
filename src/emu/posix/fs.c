@@ -6,14 +6,84 @@
  */
 
 #include "emu/plat.h"
-#include <aio.h>
 #include <errno.h>
+#include <unistd.h>
+#include <sys/types.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+
+#if defined(__ANDROID__)
+// Mock POSIX AIO for Android since Bionic libc does not support <aio.h>
+#define EINPROGRESS 115
+#ifndef SIGEV_NONE
+#define SIGEV_NONE 0
+#endif
+struct aiocb {
+    int aio_fildes;
+    off_t aio_offset;
+    void *aio_buf;
+    size_t aio_nbytes;
+    struct {
+        int sigev_notify;
+    } aio_sigevent;
+    // Mock internal fields
+    ssize_t result;
+    int error_code;
+};
+#define AIO_CANCELED 0
+#define AIO_NOTCANCELED 1
+#define AIO_ALLDONE 2
+
+static inline int aio_read(struct aiocb *cb)
+{
+    cb->result = pread(cb->aio_fildes, cb->aio_buf, cb->aio_nbytes, cb->aio_offset);
+    if (cb->result < 0) {
+        cb->error_code = errno;
+    } else {
+        cb->error_code = 0;
+    }
+    return 0;
+}
+
+static inline int aio_write(struct aiocb *cb)
+{
+    cb->result = pwrite(cb->aio_fildes, cb->aio_buf, cb->aio_nbytes, cb->aio_offset);
+    if (cb->result < 0) {
+        cb->error_code = errno;
+    } else {
+        cb->error_code = 0;
+    }
+    return 0;
+}
+
+static inline int aio_error(const struct aiocb *cb)
+{
+    return cb->error_code;
+}
+
+static inline ssize_t aio_return(struct aiocb *cb)
+{
+    return cb->result;
+}
+
+static inline int aio_cancel(int fd, struct aiocb *cb)
+{
+    (void)fd; (void)cb;
+    return AIO_ALLDONE;
+}
+
+static inline int aio_suspend(const struct aiocb *const list[], int n, const struct timespec *timeout)
+{
+    (void)list; (void)n; (void)timeout;
+    return 0;
+}
+#else
+#include <aio.h>
+#endif
 #include <time.h>
 #include <unistd.h>
 #include <utime.h>
