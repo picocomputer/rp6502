@@ -9,7 +9,8 @@
 	url = https://github.com/floooh/chips.git
 [submodule "vendor/sokol"]
 	path = vendor/sokol
-	url = https://github.com/floooh/sokol.git
+	url = https://github.com/jasonfrowe/sokol.git
+	branch = native-event-cb
 [submodule "vendor/imgui"]
 	path = vendor/imgui
 	url = https://github.com/ocornut/imgui.git
