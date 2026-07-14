@@ -17,6 +17,7 @@
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
+#include "emu/host/aio.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
@@ -231,7 +232,7 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
 }
 
 /* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (msc_set_async): the driver submits the transfer and returns STD_PENDING
+ * (aio_set_enabled): the driver submits the transfer and returns STD_PENDING
  * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
  * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
  * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
@@ -268,9 +269,9 @@ static void async_aio_body(int *utest_result)
 UTEST(drive, async_aio_transfer)
 {
     ASSERT_TRUE(fresh());
-    msc_set_async(true);
+    aio_set_enabled(true);
     async_aio_body(utest_result);
-    msc_set_async(false); /* leave the suite in sync mode for the other tests */
+    aio_set_enabled(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()

@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 
 /* ---- FILINFO synthesis from host metadata -------------------------------- */
@@ -402,7 +403,7 @@ bool hostfs_api_chdrive(void)
     for (; drive[i] && drive[i] != ':' && i < sizeof(name) - 1; i++)
         name[i] = (char)drive[i];
     name[i] = 0;
-    if (name[0] == 0 || os_strcasecmp(name, "MSC0") == 0)
+    if (name[0] == 0 || strcasecmp(name, "MSC0") == 0)
         return api_return_ax(0);
     return api_return_errno(API_ENODEV);
 }

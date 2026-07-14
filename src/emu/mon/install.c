@@ -10,6 +10,7 @@
 #include "emu/plat.h"
 #include <errno.h>
 #include <string.h>
+#include <strings.h>
 
 #define INSTALL_MAX 16
 #define INSTALL_NAME_MAX 64
@@ -58,7 +59,7 @@ bool install_rom(const char *hostpath)
 static install_t *install_find(const char *name)
 {
     for (int i = 0; i < INSTALL_MAX; i++)
-        if (installs[i].used && os_strcasecmp(installs[i].name, name) == 0)
+        if (installs[i].used && strcasecmp(installs[i].name, name) == 0)
             return &installs[i];
     return NULL;
 }

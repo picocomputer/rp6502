@@ -86,10 +86,6 @@ void os_locale_reset(void); /* (re)load the environment locale */
 size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
 void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
 
-/* Case-insensitive compare (POSIX strcasecmp / Windows _stricmp). */
-int os_strcasecmp(const char *a, const char *b);
-int os_strncasecmp(const char *a, const char *b, size_t n);
-
 /* App config location, in the host's native path spelling. */
 bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
 void os_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */

@@ -36,10 +36,6 @@ bool rom_load(const char *path);
  * copied into RAM, and the image may carry any number of assets. ---- */
 long rom_read_asset(const char *name, void *buf, size_t max); /* host-side; -1 if no such asset */
 
-/* Run ROM: reads as non-blocking POSIX AIO (the real-time window) vs synchronous
- * (headless/tests, for determinism). Off by default; mirrors msc_set_async. */
-void rom_set_async(bool on);
-
 /* The ROM: file driver (read-only asset windows), for std.c's table. */
 bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);

@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include "emu/host/aio.h"
 
 /* ------------------------------------------------------------------ */
@@ -77,7 +78,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
             while (*p == ' ' || *p == '\t')
                 p++;
             long data = ftell(f); /* the asset's data starts just after its header */
-            if (os_strcasecmp(p, name) == 0)
+            if (strcasecmp(p, name) == 0)
             {
                 *base = (size_t)data;
                 *len = (size_t)alen;
@@ -113,7 +114,7 @@ long rom_read_asset(const char *name, void *buf, size_t max)
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
 {
-    if (os_strncasecmp(path, "ROM:", 4) == 0)
+    if (strncasecmp(path, "ROM:", 4) == 0)
     {
         *rest = path + 4;
         return true;
@@ -121,16 +122,12 @@ static bool path_is_rom(const char *path, const char **rest)
     return false;
 }
 
-/* Reads run as POSIX AIO under the real-time window so the 6502 keeps clocking
- * while they complete (mirrors the MSC0: driver); synchronous otherwise — the
- * headless/test paths stay deterministic and the web build (no aio) reads from
- * the in-RAM MEMFS. */
-static bool g_rom_async;
-void rom_set_async(bool on) { g_rom_async = on; }
-
 /* ---- Read-only file windows [base, base+len) into a host file, opened by the
- * ROM: asset driver. Read on demand: a positioned AIO read polled to completion
- * under the window, or pread when synchronous. Descriptors index the pool. ---- */
+ * ROM: asset driver. Read on demand: when async I/O is enabled (the real-time
+ * window, mirroring the MSC0: driver) the aio_slot holds a positioned read
+ * polled to completion so the 6502 keeps clocking; otherwise a synchronous
+ * pread (headless/tests stay deterministic; the web build has no aio).
+ * Descriptors index the pool. ---- */
 struct rom_window
 {
     bool used;
@@ -138,10 +135,7 @@ struct rom_window
     size_t base;
     size_t len;
     size_t pos;
-#ifdef EMU_HAVE_AIO
-    bool aio_active;
-    struct aiocb cb; /* the single in-flight read, polled by the RIA pump */
-#endif
+    struct aio_slot slot;
 };
 static struct rom_window windows[ROM_OPEN_MAX];
 
@@ -183,17 +177,7 @@ std_rw_result rom_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (w->aio_active) /* reap an in-flight read (a reset can close mid-op) */
-    {
-        const struct aiocb *l = &w->cb;
-        aio_cancel(w->fd, &w->cb);
-        while (aio_error(&w->cb) == EINPROGRESS)
-            aio_suspend(&l, 1, NULL);
-        aio_return(&w->cb);
-        w->aio_active = false;
-    }
-#endif
+    aio_slot_cancel(&w->slot, w->fd); /* reap an in-flight read (a reset can close mid-op) */
     if (w->fd >= 0)
         fs_close(w->fd);
     w->used = false;
@@ -211,42 +195,32 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
     }
     size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
     size_t want = count < avail ? count : avail;
-#ifdef EMU_HAVE_AIO
-    if (g_rom_async)
+    if (aio_enabled())
     {
-        if (!w->aio_active)
+        if (!aio_active(&w->slot))
         {
             if (want == 0)
                 return STD_OK; /* at the window's end: nothing to submit */
-            memset(&w->cb, 0, sizeof(w->cb));
-            w->cb.aio_fildes = w->fd;
-            w->cb.aio_offset = (off_t)(w->base + w->pos);
-            w->cb.aio_buf = buf;
-            w->cb.aio_nbytes = want;
-            w->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-            if (aio_read(&w->cb) != 0)
+            if (!aio_submit_read(&w->slot, w->fd, (int64_t)(w->base + w->pos), buf, want))
             {
                 *err = msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
-            w->aio_active = true;
             return STD_PENDING;
         }
-        int e = aio_error(&w->cb);
-        if (e == EINPROGRESS)
+        size_t n;
+        int rc = aio_poll(&w->slot, &n);
+        if (rc == 0)
             return STD_PENDING;
-        w->aio_active = false;
-        ssize_t r = aio_return(&w->cb);
-        if (r < 0)
+        if (rc < 0)
         {
-            *err = msc_errno_to_api_errno(e);
+            *err = msc_errno_to_api_errno(errno);
             return STD_ERROR;
         }
-        w->pos += (size_t)r;
-        *got = (uint32_t)r;
+        w->pos += n;
+        *got = (uint32_t)n;
         return STD_OK;
     }
-#endif
     fs_ssize_t r = fs_pread(w->fd, buf, want, (int64_t)(w->base + w->pos));
     if (r < 0)
     {
@@ -420,7 +394,7 @@ bool rom_load(const char *path)
 
     char line[512];
     if (fgets_line(f, line, sizeof(line)) < 0 ||
-        os_strncasecmp(line, "#!RP6502", 8) != 0)
+        strncasecmp(line, "#!RP6502", 8) != 0)
     {
         fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
         fclose(f);

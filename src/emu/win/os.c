@@ -77,18 +77,6 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
     (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
 }
 
-/* ---- case-insensitive compare ---- */
-
-int os_strcasecmp(const char *a, const char *b)
-{
-    return _stricmp(a, b);
-}
-
-int os_strncasecmp(const char *a, const char *b, size_t n)
-{
-    return _strnicmp(a, b, n);
-}
-
 /* ---- config location ---- */
 
 bool os_config_dir(char *buf, size_t sz)

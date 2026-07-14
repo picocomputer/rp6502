@@ -14,6 +14,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include "emu/host/aio.h"
 
 #ifdef __EMSCRIPTEN__
@@ -31,26 +32,19 @@ static void host_persist(void) {}
 
 #define HOST_MAX_OPEN 16
 
-/* Data transfers run as POSIX AIO under the windowed real-time loop so the 6502
- * keeps clocking while they complete (read_xram is the documented background DMA
- * into XRAM); synchronous otherwise — headless/tests stay deterministic and the
- * web build (no aio) uses the instant in-RAM MEMFS. */
-static bool g_async;
-void msc_set_async(bool on) { g_async = on; }
-
 /* An open host file: a plain fd, flagged once it is written so the drive is
- * persisted when it closes. Under g_async a single in-flight aiocb carries the
- * current read/write, polled to completion by the per-scanline RIA pump. */
+ * persisted when it closes. When async I/O is enabled (the windowed real-time
+ * loop) its aio_slot carries the single in-flight read/write, polled to
+ * completion by the per-scanline RIA pump so the 6502 keeps clocking; otherwise
+ * transfers are synchronous — headless/tests stay deterministic and the web
+ * build (no aio) uses the instant in-RAM MEMFS. */
 struct host_file
 {
     bool used;
     int fd;
     bool wrote;
     bool writable; /* opened for write: lseek past EOF extends (else it clamps) */
-#ifdef EMU_HAVE_AIO
-    bool aio_active;
-    struct aiocb cb;
-#endif
+    struct aio_slot slot;
 };
 static struct host_file files[HOST_MAX_OPEN];
 
@@ -87,7 +81,7 @@ const char *msc_strip_drive(const char *path)
         return path;
     size_t n = (size_t)(colon - path);
     bool is_drive = (n == 1 && isdigit((unsigned char)path[0])) ||
-                    (n == 4 && os_strncasecmp(path, "MSC", 3) == 0 &&
+                    (n == 4 && strncasecmp(path, "MSC", 3) == 0 &&
                      isdigit((unsigned char)path[3]));
     return is_drive ? colon + 1 : path;
 }
@@ -233,17 +227,7 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (f->aio_active) /* reap an in-flight transfer (a reset can close mid-op) */
-    {
-        const struct aiocb *l = &f->cb;
-        aio_cancel(f->fd, &f->cb);
-        while (aio_error(&f->cb) == EINPROGRESS)
-            aio_suspend(&l, 1, NULL);
-        aio_return(&f->cb);
-        f->aio_active = false;
-    }
-#endif
+    aio_slot_cancel(&f->slot, f->fd); /* reap an in-flight transfer (a reset can close mid-op) */
     bool wrote = f->wrote;
     int rc = 0;
     if (f->fd >= 0)
@@ -268,47 +252,32 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (g_async)
+    if (aio_enabled())
     {
-        if (!f->aio_active)
+        if (!aio_active(&f->slot))
         {
-            off_t off = (off_t)fs_lseek(f->fd, 0, SEEK_CUR);
-            if (off < 0)
+            int64_t off = fs_lseek(f->fd, 0, SEEK_CUR);
+            if (off < 0 || !aio_submit_read(&f->slot, f->fd, off, buf, count))
             {
                 *err = msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
-            memset(&f->cb, 0, sizeof(f->cb));
-            f->cb.aio_fildes = f->fd;
-            f->cb.aio_offset = off;
-            f->cb.aio_buf = buf;
-            f->cb.aio_nbytes = count;
-            f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-            if (aio_read(&f->cb) != 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            f->aio_active = true;
             return STD_PENDING;
         }
-        int e = aio_error(&f->cb);
-        if (e == EINPROGRESS)
+        size_t n;
+        int rc = aio_poll(&f->slot, &n);
+        if (rc == 0)
             return STD_PENDING;
-        f->aio_active = false;
-        ssize_t r = aio_return(&f->cb);
-        if (r < 0)
+        if (rc < 0)
         {
-            *err = msc_errno_to_api_errno(e);
+            *err = msc_errno_to_api_errno(errno);
             return STD_ERROR;
         }
-        if (r > 0)
-            fs_lseek(f->fd, r, SEEK_CUR); /* aio_read leaves the fd offset untouched */
-        *got = (uint32_t)r;
+        if (n > 0)
+            fs_lseek(f->fd, (int64_t)n, SEEK_CUR); /* aio_read leaves the fd offset untouched */
+        *got = (uint32_t)n;
         return STD_OK;
     }
-#endif
     fs_ssize_t r = fs_read(f->fd, buf, count);
     if (r < 0)
     {
@@ -328,48 +297,33 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (g_async)
+    if (aio_enabled())
     {
-        if (!f->aio_active)
+        if (!aio_active(&f->slot))
         {
-            off_t off = (off_t)fs_lseek(f->fd, 0, SEEK_CUR);
-            if (off < 0)
+            int64_t off = fs_lseek(f->fd, 0, SEEK_CUR);
+            if (off < 0 || !aio_submit_write(&f->slot, f->fd, off, buf, count))
             {
                 *err = msc_errno_to_api_errno(errno);
                 return STD_ERROR;
             }
-            memset(&f->cb, 0, sizeof(f->cb));
-            f->cb.aio_fildes = f->fd;
-            f->cb.aio_offset = off;
-            f->cb.aio_buf = (void *)buf;
-            f->cb.aio_nbytes = count;
-            f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-            if (aio_write(&f->cb) != 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            f->aio_active = true;
             return STD_PENDING;
         }
-        int e = aio_error(&f->cb);
-        if (e == EINPROGRESS)
+        size_t n;
+        int rc = aio_poll(&f->slot, &n);
+        if (rc == 0)
             return STD_PENDING;
-        f->aio_active = false;
-        ssize_t r = aio_return(&f->cb);
-        if (r < 0)
+        if (rc < 0)
         {
-            *err = msc_errno_to_api_errno(e);
+            *err = msc_errno_to_api_errno(errno);
             return STD_ERROR;
         }
         f->wrote = true;
-        if (r > 0)
-            fs_lseek(f->fd, r, SEEK_CUR); /* aio_write leaves the fd offset untouched */
-        *put = (uint32_t)r;
+        if (n > 0)
+            fs_lseek(f->fd, (int64_t)n, SEEK_CUR); /* aio_write leaves the fd offset untouched */
+        *put = (uint32_t)n;
         return STD_OK;
     }
-#endif
     fs_ssize_t r = fs_write(f->fd, buf, count);
     if (r < 0)
     {
