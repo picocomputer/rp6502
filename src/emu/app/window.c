@@ -114,6 +114,12 @@ static void set_aspect_hint(int cw, int ch)
     XSetWMNormalHints(dpy, win, &h);
     XFlush(dpy);
 }
+#elif defined(_WIN32)
+/* Implemented in window_win32.c so <windows.h> (whose macros collide with the
+ * emulator's own names) stays out of this translation unit. */
+void window_win32_resize(int w, int h);
+static void resize_window(int w, int h) { window_win32_resize(w, h); }
+static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 #else
 static void resize_window(int w, int h) { (void)w, (void)h; }
 static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
@@ -278,7 +284,10 @@ void window_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    int h = scaled_canvas_height(scale);
+    /* scaled_canvas_height is logical canvas px; resize_window wants framebuffer
+     * (== physical) px, so scale by the DPI factor (1.0 unless high_dpi is on).
+     * top_reserved_px() is already framebuffer px. */
+    int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
     int w = aspect_width(h, cw, ch);
     resize_window(w, h + top_reserved_px());
 }
@@ -287,7 +296,9 @@ double window_get_scale(void)
 {
     if (!sapp_isvalid())
         return 0.0;
-    return (double)(sapp_height() - top_reserved_px()) / VGA_MAX_HEIGHT;
+    /* sapp_height() and top_reserved_px() are framebuffer (physical) px; divide
+     * out the DPI factor so the reported scale stays in logical --scale units. */
+    return (double)(sapp_height() - top_reserved_px()) / (VGA_MAX_HEIGHT * sapp_dpi_scale());
 }
 
 /* The framebuffer-pixel rect (x,y from top-left, w,h) the emulated canvas draws
@@ -824,6 +835,15 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         }
     }
 #endif
+    /* D3D11 (Windows) leaves the backbuffer at LOGICAL size unless high_dpi is
+     * requested, so a DPI-scaled display DWM-stretches (smears) the menu/canvas;
+     * ask for a native-resolution backbuffer there. X11 already renders native
+     * and ignores this flag; macOS Retina would flip to 2x, so leave it off
+     * outside Windows. */
+    bool high_dpi = false;
+#if defined(_WIN32)
+    high_dpi = true;
+#endif
     sapp_run(&(sapp_desc){
         .init_cb = init_cb,
         .frame_cb = frame_cb,
@@ -831,6 +851,7 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .cleanup_cb = cleanup_cb,
         .width = win_w,
         .height = win_h,
+        .high_dpi = high_dpi,
         .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
         .window_title = "Picocomputer 6502",
         .logger.func = slog_func,

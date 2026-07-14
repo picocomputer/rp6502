@@ -230,6 +230,7 @@ else()
     if(WIN32)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
         target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi)
+        target_sources(rp6502-emu PRIVATE ${RP6502_SRC}/emu/app/window_win32.c)
     elseif(APPLE)
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)

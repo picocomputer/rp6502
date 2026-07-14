@@ -16,7 +16,8 @@ Never search the root of the filesystem. Everything you need will be in
 the user home directory.
 
 Don't spam git history unless specifically asked to. Do not commit or push
-unless speccifically asked to.
+unless specifically asked to. Do not look for answers in git history.
+Do not fetch git history unless specifically instructed to.
 
 To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target
