@@ -317,10 +317,41 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # Emulator (Android, arm64-v8a): build the optimized APK, ship the APK.
+  # ---------------------------------------------------------------------------
+  emu-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Build Android APK (Release)
+        run: |
+          cd src/emu/android
+          ./gradlew assembleRelease
+
+      - name: Stage Android APK
+        run: |
+          cp src/emu/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu-release.apk
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: emu-android-apk
+          path: rp6502-emu-release.apk
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).
   # ---------------------------------------------------------------------------
   package:
-    needs: [firmware, emu-linux, emu-macos, emu-wasm, emu-windows]
+    needs: [firmware, emu-linux, emu-macos, emu-wasm, emu-windows, emu-android]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -354,6 +385,8 @@ jobs:
           cp _artifacts/emu-windows/rp6502-emu.exe stage/
           # WebAssembly itch.io bundle (shipped as a nested zip)
           cp _artifacts/itch-io/itch.io.zip stage/
+          # Android APK
+          cp _artifacts/emu-android-apk/rp6502-emu-release.apk stage/
           # Static distribution files
           cp src/dist/README.txt src/dist/basic.rp6502 src/dist/nfc.rp6502 src/dist/term.rp6502 stage/
           # One zip, everything at the root
@@ -416,3 +449,6 @@ jobs:
             Direct3D 11.
 
             **Web** `itch.io.zip` is the ready-to-publish itch.io sample (serve over HTTP).
+
+            **Android** `rp6502-emu-release.apk` is signed with a debug key. Android will warn
+            on installation — choose *More info → Install anyway*.
