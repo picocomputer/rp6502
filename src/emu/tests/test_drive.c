@@ -18,16 +18,17 @@
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
+#include "emu/plat.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 #define O_RD 0x01
 #define O_WR 0x02
@@ -38,14 +39,14 @@ static char g_dir[256]; /* a temp dir, made the MSC0: mount */
 
 static bool fresh(void)
 {
-    char tmpl[] = "/tmp/drive_test_XXXXXX";
-    const char *d = mkdtemp(tmpl);
-    char resolved[MSC_MAX_PATH];
-    if (!d || !realpath(d, resolved) || strlen(resolved) >= sizeof(g_dir))
+    char dir[MSC_MAX_PATH];
+    if (!os_make_tmpdir(dir, sizeof(dir)))
         return false;
-    strcpy(g_dir, resolved);
     std_stop();
-    return chdir(g_dir) == 0; /* MSC0: is the process cwd */
+    if (!fs_chdir(dir))
+        return false;
+    /* g_dir mirrors hostfs's own fs_getcwd, so MSC0:<g_dir> holds on any host. */
+    return fs_getcwd(g_dir, sizeof(g_dir));
 }
 
 static void make_file(const char *rel, const char *data, uint16_t n)
@@ -229,12 +230,10 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     tmpfs_unmount();
 }
 
-/* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (msc_set_async): the driver submits the transfer and returns STD_PENDING
- * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
- * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
- * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
- * across reads, EOF, and lseek interop. */
+/* Data transfers are non-blocking: the driver returns STD_PENDING until the transfer
+ * completes and ssys_dispatch re-polls like the per-scanline RIA pump. Drive the xram
+ * transfers (the read lands straight in xram[] and spans multiple 2048-byte chunks) and
+ * check the bytes, that the fd offset tracks across reads, EOF, and lseek interop. */
 static void async_aio_body(int *utest_result)
 {
     char src[5000];
@@ -254,9 +253,9 @@ static void async_aio_body(int *utest_result)
     ASSERT_EQ(memcmp(&xram[0x8000], src, 3000), 0);
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 2000); /* short read at EOF */
     ASSERT_EQ(memcmp(&xram[0x8000], src + 3000, 2000), 0);
-    /* EOF: a further read returns zero bytes (aio_return == 0) */
+    /* EOF: a further read returns zero bytes */
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 1000), 0);
-    /* lseek interoperates with the aio offset snapshot; xstack reads too */
+    /* lseek interoperates with the transfer's offset; xstack reads too */
     ASSERT_EQ(ssys_lseek(fd, 500, SEEK_SET), 500);
     char buf[16];
     ASSERT_EQ(ssys_read(fd, buf, 16), 16);
@@ -267,9 +266,7 @@ static void async_aio_body(int *utest_result)
 UTEST(drive, async_aio_transfer)
 {
     ASSERT_TRUE(fresh());
-    msc_set_async(true);
     async_aio_body(utest_result);
-    msc_set_async(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()

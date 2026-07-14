@@ -3,10 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * Emscripten filesystem primitives (emu/plat.h). The same POSIX calls as posix/fs.c
+ * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_read/fs_write
+ * complete in one call and never return STD_PENDING — a zero-latency read has nothing to
+ * keep alive. Web is single-threaded with no POSIX aio, so it gets its own seam.
  */
 
 #include "emu/plat.h"
-#include <aio.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -111,72 +114,33 @@ int fs_open(const char *path, int flags, int mode)
     return open(path, flags, mode);
 }
 
-/* The single in-flight transfer. fd < 0 means idle; only one exists at a time because
- * the guest syscall dispatcher is single-op (the same read/write is re-dispatched until
- * it completes). */
-static struct
+int fs_close(int fd)
 {
-    struct aiocb cb;
-    int fd;
-} g_xfer = {.fd = -1};
-
-static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
-{
-    *got = 0;
-    if (g_xfer.fd < 0)
-    {
-        off_t off = lseek(fd, 0, SEEK_CUR); /* aio positions explicitly; snapshot here */
-        if (off < 0)
-            return STD_ERROR;
-        memset(&g_xfer.cb, 0, sizeof g_xfer.cb);
-        g_xfer.cb.aio_fildes = fd;
-        g_xfer.cb.aio_offset = off;
-        g_xfer.cb.aio_buf = buf;
-        g_xfer.cb.aio_nbytes = count;
-        g_xfer.cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-        if ((is_write ? aio_write(&g_xfer.cb) : aio_read(&g_xfer.cb)) != 0)
-            return STD_ERROR;
-        g_xfer.fd = fd;
-        return STD_PENDING;
-    }
-    int e = aio_error(&g_xfer.cb);
-    if (e == EINPROGRESS)
-        return STD_PENDING;
-    ssize_t r = aio_return(&g_xfer.cb);
-    g_xfer.fd = -1;
-    if (r < 0)
-    {
-        errno = e; /* the async failure, not aio_return's own errno write */
-        return STD_ERROR;
-    }
-    if (r > 0)
-        lseek(fd, g_xfer.cb.aio_offset + r, SEEK_SET); /* aio left the offset; advance it */
-    *got = (uint32_t)r;
-    return STD_OK;
+    return close(fd);
 }
 
 std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
-    return xfer_step(fd, buf, count, got, false);
+    ssize_t r = read(fd, buf, count);
+    if (r < 0)
+    {
+        *got = 0;
+        return STD_ERROR;
+    }
+    *got = (uint32_t)r;
+    return STD_OK;
 }
 
 std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
-    return xfer_step(fd, (void *)buf, count, put, true);
-}
-
-int fs_close(int fd)
-{
-    if (g_xfer.fd == fd) /* reap the in-flight transfer before the fd goes away */
+    ssize_t r = write(fd, buf, count);
+    if (r < 0)
     {
-        const struct aiocb *cb = &g_xfer.cb;
-        aio_cancel(fd, &g_xfer.cb);
-        while (aio_error(&g_xfer.cb) == EINPROGRESS)
-            aio_suspend(&cb, 1, NULL);
-        aio_return(&g_xfer.cb);
-        g_xfer.fd = -1;
+        *put = 0;
+        return STD_ERROR;
     }
-    return close(fd);
+    *put = (uint32_t)r;
+    return STD_OK;
 }
 
 int64_t fs_lseek(int fd, int64_t off, int whence)
