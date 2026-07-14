@@ -16,7 +16,9 @@
  *   - crtime is the real ftCreationTime (POSIX has none; it reports change time).
  *   - fs_rename MUST replace an existing target (MOVEFILE_REPLACE_EXISTING).
  *   - fs_remove MUST also delete an empty directory (POSIX remove() does).
- *   - open the CRT in binary mode (_O_BINARY).
+ *   - byte I/O uses overlapped HANDLEs (FILE_FLAG_OVERLAPPED) with a tracked offset, so
+ *     fs_read/fs_write are the non-blocking transfer; fs_open returns an index into
+ *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
  */
 
 #include "emu/plat.h"
@@ -228,58 +230,221 @@ bool fs_remove(const char *path)
     return false;
 }
 
+/* An overlapped handle has no implicit file pointer, so fs_open returns an index into
+ * this table and we track the offset ourselves. 16 host files + 16 ROM windows = 32
+ * concurrent; 64 leaves headroom for tests. */
+#define WIN_MAX_FILES 64
+static struct win_file
+{
+    bool used;
+    HANDLE h;
+    int64_t pos;
+} win_files[WIN_MAX_FILES];
+
+static struct win_file *win_fil(int fd)
+{
+    if (fd < 0 || fd >= WIN_MAX_FILES || !win_files[fd].used)
+        return NULL;
+    return &win_files[fd];
+}
+
+/* The single in-flight transfer (guest dispatcher is single-op, so only one exists at a
+ * time). fd < 0 = idle; g_xfer_event is its manual-reset completion event. */
+static struct
+{
+    OVERLAPPED ov;
+    int fd;
+} g_xfer = {.fd = -1};
+static HANDLE g_xfer_event;
+
 int fs_open(const char *path, int flags, int mode)
 {
+    (void)mode; /* Windows takes permissions from the file; msc opens writable */
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return -1;
-    int oflags = flags | _O_BINARY;
-    return _wopen(w, oflags, mode);
+
+    DWORD access;
+    switch (flags & (O_WRONLY | O_RDWR))
+    {
+    case O_WRONLY: access = GENERIC_WRITE; break;
+    case O_RDWR: access = GENERIC_READ | GENERIC_WRITE; break;
+    default: access = GENERIC_READ; break; /* O_RDONLY */
+    }
+    DWORD disp;
+    if ((flags & O_CREAT) && (flags & O_EXCL))
+        disp = CREATE_NEW;
+    else if ((flags & O_CREAT) && (flags & O_TRUNC))
+        disp = CREATE_ALWAYS;
+    else if (flags & O_CREAT)
+        disp = OPEN_ALWAYS;
+    else if (flags & O_TRUNC)
+        disp = TRUNCATE_EXISTING;
+    else
+        disp = OPEN_EXISTING;
+
+    HANDLE h = CreateFileW(w, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           NULL, disp, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
+    if (h == INVALID_HANDLE_VALUE)
+    {
+        win_set_errno(GetLastError());
+        return -1;
+    }
+    int fd = 0;
+    for (; fd < WIN_MAX_FILES; fd++)
+        if (!win_files[fd].used)
+            break;
+    if (fd == WIN_MAX_FILES)
+    {
+        CloseHandle(h);
+        errno = EMFILE;
+        return -1;
+    }
+    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0};
+    return fd;
 }
 
 int fs_close(int fd)
 {
-    return _close(fd);
+    struct win_file *f = win_fil(fd);
+    if (!f)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    if (g_xfer.fd == fd) /* reap the in-flight transfer before the handle goes away */
+    {
+        DWORD bytes;
+        CancelIoEx(f->h, &g_xfer.ov);
+        GetOverlappedResult(f->h, &g_xfer.ov, &bytes, TRUE);
+        g_xfer.fd = -1;
+    }
+    BOOL ok = CloseHandle(f->h);
+    f->used = false;
+    if (!ok)
+    {
+        win_set_errno(GetLastError());
+        return -1;
+    }
+    return 0;
 }
 
-fs_ssize_t fs_read(int fd, void *buf, size_t n)
+static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
 {
-    unsigned int chunk = n > 0x7fffffffU ? 0x7fffffffU : (unsigned int)n;
-    int r = _read(fd, buf, chunk);
-    return (fs_ssize_t)r;
+    *got = 0;
+    struct win_file *f = win_fil(fd);
+    if (!f)
+    {
+        errno = EBADF;
+        return STD_ERROR;
+    }
+    if (g_xfer.fd < 0)
+    {
+        if (!g_xfer_event && !(g_xfer_event = CreateEventW(NULL, TRUE, FALSE, NULL)))
+        {
+            win_set_errno(GetLastError());
+            return STD_ERROR;
+        }
+        ResetEvent(g_xfer_event);
+        memset(&g_xfer.ov, 0, sizeof g_xfer.ov);
+        g_xfer.ov.hEvent = g_xfer_event;
+        g_xfer.ov.Offset = (DWORD)((uint64_t)f->pos & 0xFFFFFFFFu);
+        g_xfer.ov.OffsetHigh = (DWORD)((uint64_t)f->pos >> 32);
+        BOOL ok = is_write ? WriteFile(f->h, buf, count, NULL, &g_xfer.ov)
+                           : ReadFile(f->h, buf, count, NULL, &g_xfer.ov);
+        if (!ok)
+        {
+            DWORD e = GetLastError();
+            if (e == ERROR_HANDLE_EOF) /* read at/after EOF: done, 0 bytes */
+                return STD_OK;
+            if (e != ERROR_IO_PENDING)
+            {
+                win_set_errno(e);
+                return STD_ERROR;
+            }
+        }
+        g_xfer.fd = fd; /* completed synchronously or queued: reap on the next dispatch */
+        return STD_PENDING;
+    }
+    DWORD bytes = 0;
+    if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, FALSE))
+    {
+        DWORD e = GetLastError();
+        if (e == ERROR_IO_INCOMPLETE)
+            return STD_PENDING;
+        g_xfer.fd = -1;
+        if (e == ERROR_HANDLE_EOF) /* completed at EOF: 0 bytes */
+            return STD_OK;
+        win_set_errno(e);
+        return STD_ERROR;
+    }
+    g_xfer.fd = -1;
+    f->pos += bytes; /* the overlapped handle didn't move; advance our tracked offset */
+    *got = (uint32_t)bytes;
+    return STD_OK;
 }
 
-fs_ssize_t fs_write(int fd, const void *buf, size_t n)
+std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
-    unsigned int chunk = n > 0x7fffffffU ? 0x7fffffffU : (unsigned int)n;
-    int r = _write(fd, buf, chunk);
-    return (fs_ssize_t)r;
+    return xfer_step(fd, buf, count, got, false);
+}
+
+std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+{
+    return xfer_step(fd, (void *)buf, count, put, true);
 }
 
 int64_t fs_lseek(int fd, int64_t off, int whence)
 {
-    return _lseeki64(fd, off, whence);
+    struct win_file *f = win_fil(fd);
+    if (!f)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    int64_t base;
+    if (whence == SEEK_SET)
+        base = 0;
+    else if (whence == SEEK_CUR)
+        base = f->pos;
+    else if (whence == SEEK_END)
+    {
+        LARGE_INTEGER sz;
+        if (!GetFileSizeEx(f->h, &sz))
+        {
+            win_set_errno(GetLastError());
+            return -1;
+        }
+        base = sz.QuadPart;
+    }
+    else
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    int64_t np = base + off;
+    if (np < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    f->pos = np;
+    return np;
 }
 
 int fs_ftruncate(int fd, int64_t length)
 {
-    return _chsize_s(fd, length);
-}
-
-fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off)
-{
-    int64_t cur = _lseeki64(fd, 0, SEEK_CUR);
-    if (cur < 0)
-        return -1;
-    if (_lseeki64(fd, off, SEEK_SET) < 0)
-        return -1;
-    fs_ssize_t r = fs_read(fd, buf, n);
-    int save = errno;
-    if (_lseeki64(fd, cur, SEEK_SET) < 0 && r >= 0)
+    struct win_file *f = win_fil(fd);
+    if (!f)
     {
-        /* Prefer the seek-restore failure if the read succeeded. */
+        errno = EBADF;
         return -1;
     }
-    errno = save;
-    return r;
+    FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = length}};
+    if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
+    {
+        win_set_errno(GetLastError());
+        return -1;
+    }
+    return 0;
 }

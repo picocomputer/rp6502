@@ -17,7 +17,6 @@
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
-#include "emu/host/aio.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
@@ -231,12 +230,10 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     tmpfs_unmount();
 }
 
-/* The windowed real-time path runs data transfers as non-blocking POSIX AIO
- * (aio_set_enabled): the driver submits the transfer and returns STD_PENDING
- * until it completes; ssys_dispatch re-polls like the per-scanline RIA pump.
- * Drive the xram transfers (the AIO lands straight in xram[]; a read spans
- * multiple 2048-byte chunks) and check the bytes, that the fd offset tracks
- * across reads, EOF, and lseek interop. */
+/* Data transfers are non-blocking: the driver returns STD_PENDING until the transfer
+ * completes and ssys_dispatch re-polls like the per-scanline RIA pump. Drive the xram
+ * transfers (the read lands straight in xram[] and spans multiple 2048-byte chunks) and
+ * check the bytes, that the fd offset tracks across reads, EOF, and lseek interop. */
 static void async_aio_body(int *utest_result)
 {
     char src[5000];
@@ -256,9 +253,9 @@ static void async_aio_body(int *utest_result)
     ASSERT_EQ(memcmp(&xram[0x8000], src, 3000), 0);
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 2000); /* short read at EOF */
     ASSERT_EQ(memcmp(&xram[0x8000], src + 3000, 2000), 0);
-    /* EOF: a further read returns zero bytes (aio_return == 0) */
+    /* EOF: a further read returns zero bytes */
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 1000), 0);
-    /* lseek interoperates with the aio offset snapshot; xstack reads too */
+    /* lseek interoperates with the transfer's offset; xstack reads too */
     ASSERT_EQ(ssys_lseek(fd, 500, SEEK_SET), 500);
     char buf[16];
     ASSERT_EQ(ssys_read(fd, buf, 16), 16);
@@ -269,9 +266,7 @@ static void async_aio_body(int *utest_result)
 UTEST(drive, async_aio_transfer)
 {
     ASSERT_TRUE(fresh());
-    aio_set_enabled(true);
     async_aio_body(utest_result);
-    aio_set_enabled(false); /* leave the suite in sync mode for the other tests */
 }
 
 UTEST_MAIN()

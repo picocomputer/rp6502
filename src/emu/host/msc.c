@@ -15,7 +15,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include "emu/host/aio.h"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -32,19 +31,14 @@ static void host_persist(void) {}
 
 #define HOST_MAX_OPEN 16
 
-/* An open host file: a plain fd, flagged once it is written so the drive is
- * persisted when it closes. When async I/O is enabled (the windowed real-time
- * loop) its aio_slot carries the single in-flight read/write, polled to
- * completion by the per-scanline RIA pump so the 6502 keeps clocking; otherwise
- * transfers are synchronous — headless/tests stay deterministic and the web
- * build (no aio) uses the instant in-RAM MEMFS. */
+/* An open host file: a plain fd, flagged once it is written so the drive is persisted
+ * when it closes. The read/write transfer is non-blocking in the fs seam. */
 struct host_file
 {
     bool used;
     int fd;
     bool wrote;
     bool writable; /* opened for write: lseek past EOF extends (else it clamps) */
-    struct aio_slot slot;
 };
 static struct host_file files[HOST_MAX_OPEN];
 
@@ -227,7 +221,6 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    aio_slot_cancel(&f->slot, f->fd); /* reap an in-flight transfer (a reset can close mid-op) */
     bool wrote = f->wrote;
     int rc = 0;
     if (f->fd >= 0)
@@ -246,93 +239,33 @@ std_rw_result msc_std_close(int desc, api_errno *err)
 std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
-    *got = 0;
     if (!f)
     {
+        *got = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (aio_enabled())
-    {
-        if (!aio_active(&f->slot))
-        {
-            int64_t off = fs_lseek(f->fd, 0, SEEK_CUR);
-            if (off < 0 || !aio_submit_read(&f->slot, f->fd, off, buf, count))
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            return STD_PENDING;
-        }
-        size_t n;
-        int rc = aio_poll(&f->slot, &n);
-        if (rc == 0)
-            return STD_PENDING;
-        if (rc < 0)
-        {
-            *err = msc_errno_to_api_errno(errno);
-            return STD_ERROR;
-        }
-        if (n > 0)
-            fs_lseek(f->fd, (int64_t)n, SEEK_CUR); /* aio_read leaves the fd offset untouched */
-        *got = (uint32_t)n;
-        return STD_OK;
-    }
-    fs_ssize_t r = fs_read(f->fd, buf, count);
-    if (r < 0)
-    {
+    std_rw_result r = fs_read(f->fd, buf, count, got);
+    if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
-        return STD_ERROR;
-    }
-    *got = (uint32_t)r;
-    return STD_OK;
+    return r;
 }
 
 std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
-    *put = 0;
     if (!f)
     {
+        *put = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (aio_enabled())
-    {
-        if (!aio_active(&f->slot))
-        {
-            int64_t off = fs_lseek(f->fd, 0, SEEK_CUR);
-            if (off < 0 || !aio_submit_write(&f->slot, f->fd, off, buf, count))
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            return STD_PENDING;
-        }
-        size_t n;
-        int rc = aio_poll(&f->slot, &n);
-        if (rc == 0)
-            return STD_PENDING;
-        if (rc < 0)
-        {
-            *err = msc_errno_to_api_errno(errno);
-            return STD_ERROR;
-        }
+    std_rw_result r = fs_write(f->fd, buf, count, put);
+    if (r == STD_OK)
         f->wrote = true;
-        if (n > 0)
-            fs_lseek(f->fd, (int64_t)n, SEEK_CUR); /* aio_write leaves the fd offset untouched */
-        *put = (uint32_t)n;
-        return STD_OK;
-    }
-    fs_ssize_t r = fs_write(f->fd, buf, count);
-    if (r < 0)
-    {
+    else if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
-        return STD_ERROR;
-    }
-    f->wrote = true;
-    *put = (uint32_t)r;
-    return STD_OK;
+    return r;
 }
 
 int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)

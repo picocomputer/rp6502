@@ -58,4 +58,14 @@ The audio stream is intentionally never cleared or reset. PSG and OPL reset;
 the BEL device and anything already in the audio buffer are deliberately NOT
 reset or cleared — a rung bell rings through a reset.
 
+Firmware storage I/O is pump-blocking, NOT synchronous. A guest file read
+(fat_std_read -> f_read -> disk_read -> msc_scsi_sync) fires the async USB
+transfer then spins pumping main_task() (usb/vga/cpu/audio) until it completes —
+nothing freezes, and it returns STD_OK in one dispatch (STD_PENDING is console/pipe
+drivers only). The emulator can't pump inline (it presents each frame via a discrete
+sokol swap after run_frame), so it keeps the system live the opposite way: its host
+fs read/write are async and return STD_PENDING, unwinding to the frame loop so the
+frame presents while api_task re-polls. Don't call firmware storage "synchronous" —
+it pump-blocks.
+
 Commit this information to MEMORY.

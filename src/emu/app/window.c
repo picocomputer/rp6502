@@ -11,7 +11,6 @@
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
 #include "emu/mon/rom.h"
-#include "emu/host/aio.h"
 #include "emu/host/msc.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
@@ -798,11 +797,6 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
     app.vsync = vsync;
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
-    /* Under the real-time window, file I/O runs as non-blocking POSIX AIO so the
-     * 6502 keeps clocking while it completes (read_xram is background DMA into
-     * XRAM) — both the MSC0: drive and ROM: asset reads. Headless/--screenshot
-     * never reach here and stay synchronous. */
-    aio_set_enabled(true);
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9
      * canvas opens wider. The WM may restore a previous size instead; that's fine

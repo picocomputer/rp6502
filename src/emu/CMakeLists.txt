@@ -39,7 +39,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/tab.c
     ${RP6502_SRC}/emu/api/hostfs.c
     ${RP6502_SRC}/emu/api/tmpfs.c
-    ${RP6502_SRC}/emu/host/aio.c
     ${RP6502_SRC}/emu/host/msc.c
     ${RP6502_SRC}/emu/app/rand.c
     ${RP6502_SRC}/emu/mon/install.c
@@ -74,19 +73,35 @@ add_library(emu_core STATIC
     ${RP6502_VENDOR}/fatfs/ffunicode.c
 )
 
-# Platform filesystem primitives: one folder compiled per OS; both define the same
-# dir_*/fs_* symbols (emu/plat.h), so api/hostfs.c and host file I/O stay portable.
 if(WIN32)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/emu/win/dir.c
         ${RP6502_SRC}/emu/win/fs.c
         ${RP6502_SRC}/emu/win/os.c
         ${RP6502_SRC}/emu/win/win.c)
+elseif(EMSCRIPTEN)
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/posix/dir.c
+        ${RP6502_SRC}/emu/web/fs.c
+        ${RP6502_SRC}/emu/posix/os.c)
 else()
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/emu/posix/dir.c
         ${RP6502_SRC}/emu/posix/fs.c
         ${RP6502_SRC}/emu/posix/os.c)
+    include(CheckSymbolExists)
+    find_library(RT_LIBRARY rt)
+    if(RT_LIBRARY)
+        target_link_libraries(emu_core PUBLIC ${RT_LIBRARY})
+        set(CMAKE_REQUIRED_LIBRARIES ${RT_LIBRARY})
+    endif()
+    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
+    check_symbol_exists(aio_read "aio.h" EMU_POSIX_AIO)
+    unset(CMAKE_REQUIRED_DEFINITIONS)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(NOT EMU_POSIX_AIO)
+        message(FATAL_ERROR "POSIX AIO (aio_read/<aio.h>) is required on this platform")
+    endif()
 endif()
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit, so the
@@ -154,24 +169,6 @@ else()
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
     target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
     target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
-endif()
-
-# Non-blocking file I/O (POSIX AIO) where the platform provides it; msc/rom fall
-# back to synchronous read/write otherwise (web MEMFS, Windows).
-include(CheckSymbolExists)
-if(NOT EMSCRIPTEN)
-    find_library(RT_LIBRARY rt)
-    if(RT_LIBRARY)
-        target_link_libraries(emu_core PUBLIC ${RT_LIBRARY})
-        set(CMAKE_REQUIRED_LIBRARIES ${RT_LIBRARY})
-    endif()
-    set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
-    check_symbol_exists(aio_read "aio.h" EMU_HAVE_AIO)
-    unset(CMAKE_REQUIRED_DEFINITIONS)
-    unset(CMAKE_REQUIRED_LIBRARIES)
-    if(EMU_HAVE_AIO)
-        target_compile_definitions(emu_core PRIVATE EMU_HAVE_AIO)
-    endif()
 endif()
 
 # Determine if window available

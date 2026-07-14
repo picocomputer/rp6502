@@ -18,7 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include "emu/host/aio.h"
 
 /* ------------------------------------------------------------------ */
 /* ROM: drive — read-only assets, windows into the loaded .rp6502      */
@@ -122,12 +121,9 @@ static bool path_is_rom(const char *path, const char **rest)
     return false;
 }
 
-/* ---- Read-only file windows [base, base+len) into a host file, opened by the
- * ROM: asset driver. Read on demand: when async I/O is enabled (the real-time
- * window, mirroring the MSC0: driver) the aio_slot holds a positioned read
- * polled to completion so the 6502 keeps clocking; otherwise a synchronous
- * pread (headless/tests stay deterministic; the web build has no aio).
- * Descriptors index the pool. ---- */
+/* ---- Read-only file windows [base, base+len) into a host file, opened by the ROM:
+ * asset driver. The window's fd is kept positioned at base + pos, and reads go through
+ * the non-blocking fs seam. Descriptors index the pool. ---- */
 struct rom_window
 {
     bool used;
@@ -135,7 +131,6 @@ struct rom_window
     size_t base;
     size_t len;
     size_t pos;
-    struct aio_slot slot;
 };
 static struct rom_window windows[ROM_OPEN_MAX];
 
@@ -166,6 +161,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
         return -1;
     }
     windows[des] = (struct rom_window){.used = true, .fd = fd, .base = base, .len = len};
+    fs_lseek(fd, (int64_t)base, SEEK_SET); /* window reads start at base; keep fd == base + pos */
     return des;
 }
 
@@ -177,7 +173,6 @@ std_rw_result rom_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    aio_slot_cancel(&w->slot, w->fd); /* reap an in-flight read (a reset can close mid-op) */
     if (w->fd >= 0)
         fs_close(w->fd);
     w->used = false;
@@ -187,49 +182,25 @@ std_rw_result rom_std_close(int desc, api_errno *err)
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct rom_window *w = rom_win(desc);
-    *got = 0;
     if (!w)
     {
+        *got = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
     size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
-    size_t want = count < avail ? count : avail;
-    if (aio_enabled())
+    uint32_t want = count < avail ? count : (uint32_t)avail;
+    if (want == 0)
     {
-        if (!aio_active(&w->slot))
-        {
-            if (want == 0)
-                return STD_OK; /* at the window's end: nothing to submit */
-            if (!aio_submit_read(&w->slot, w->fd, (int64_t)(w->base + w->pos), buf, want))
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            return STD_PENDING;
-        }
-        size_t n;
-        int rc = aio_poll(&w->slot, &n);
-        if (rc == 0)
-            return STD_PENDING;
-        if (rc < 0)
-        {
-            *err = msc_errno_to_api_errno(errno);
-            return STD_ERROR;
-        }
-        w->pos += n;
-        *got = (uint32_t)n;
-        return STD_OK;
+        *got = 0;
+        return STD_OK; /* at the window's end (EOF): nothing to read */
     }
-    fs_ssize_t r = fs_pread(w->fd, buf, want, (int64_t)(w->base + w->pos));
-    if (r < 0)
-    {
+    std_rw_result r = fs_read(w->fd, buf, want, got);
+    if (r == STD_OK)
+        w->pos += *got;
+    else if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
-        return STD_ERROR;
-    }
-    w->pos += (size_t)r;
-    *got = (uint32_t)r;
-    return STD_OK;
+    return r;
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
@@ -253,6 +224,7 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     if ((size_t)np > w->len) /* clamp to the asset extent (firmware rom_std_lseek) */
         np = (long)w->len;
     w->pos = (size_t)np;
+    fs_lseek(w->fd, (int64_t)(w->base + w->pos), SEEK_SET); /* keep fd == base + pos for fs_read */
     *pos = (int32_t)w->pos;
     return 0;
 }

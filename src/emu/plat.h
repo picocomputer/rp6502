@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
+#include "api/std.h"
 #ifdef _MSC_VER
 #include <BaseTsd.h>
 typedef SSIZE_T fs_ssize_t;
@@ -24,12 +25,6 @@ typedef ssize_t fs_ssize_t;
 extern "C"
 {
 #endif
-
-/* The host OS-primitive seam. api/hostfs.c is portable policy; the platform impl
- * (posix/ or win/, one compiled) fills these. Paths cross the seam in the guest's
- * encoding (OEM code page); posix uses the bytes verbatim, win converts OEM<->UTF-16
- * (emu/api/oem.h). Fallible calls set errno and return false/NULL/-1 so the
- * msc_errno_to_api_errno funnel is unchanged. */
 
 /* ---- directory enumeration ---- */
 void *dir_open(const char *path); /* opaque stream, or NULL + errno */
@@ -65,12 +60,11 @@ bool fs_remove(const char *path);     /* a file or an empty directory */
 
 /* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
 int fs_open(const char *path, int flags, int mode);
-int fs_close(int fd);
-fs_ssize_t fs_read(int fd, void *buf, size_t n);
-fs_ssize_t fs_write(int fd, const void *buf, size_t n);
+int fs_close(int fd); /* reaps a still-in-flight fs_read/fs_write on this fd first */
 int64_t fs_lseek(int fd, int64_t off, int whence);
 int fs_ftruncate(int fd, int64_t length);
-fs_ssize_t fs_pread(int fd, void *buf, size_t n, int64_t off);
+std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
+std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 
 /* ---- other host-OS primitives (posix/os.c or win/os.c, one compiled) ---- */
 uint64_t os_entropy_64(void);            /* seed material from the host RNG/clocks */
