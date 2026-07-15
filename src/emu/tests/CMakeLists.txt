@@ -86,13 +86,13 @@ set_tests_properties(dbg PROPERTIES TIMEOUT 60)
 # .debug_addr, v5 unit/line headers, frame base + fbreg locals, and the MOS
 # DWARF register numbering (frame_base = DW_OP_regx RS0 = 0x30000). Standalone:
 # the parser only needs libc and the fixture is committed (no toolchain). ---
-add_executable(test_dwarf5 test_dwarf5.c ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
+add_executable(test_dwarf5 test_dwarf5.c ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c ${RP6502_SRC}/emu/dbg/dwarf_elf.c)
 target_include_directories(test_dwarf5 PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf5 PRIVATE DW5_ELF="${ROMS}/dwtest.elf")
 add_test(NAME dwarf5 COMMAND test_dwarf5)
 
 # --- DWARF .debug_frame CFI unwinder (dwarf_frame.c): two-stack unwind. ---
-add_executable(test_dwarf_frame test_dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
+add_executable(test_dwarf_frame test_dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c ${RP6502_SRC}/emu/dbg/dwarf_elf.c)
 target_include_directories(test_dwarf_frame PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf_frame PRIVATE DW5_ELF="${ROMS}/dwtest.elf")
 add_test(NAME dwarf_frame COMMAND test_dwarf_frame)

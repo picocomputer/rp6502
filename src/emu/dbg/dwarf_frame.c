@@ -12,8 +12,8 @@
 
 #include "emu/dbg/dwarf_frame.h"
 #include "emu/dbg/dwarf_cursor.h"
+#include "emu/dbg/dwarf_elf.h"
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -143,6 +143,12 @@ static rule_t *slot_for(state_t *st, uint64_t reg, uint32_t ra_col)
     return NULL; /* a column we don't need; parse but ignore its rule */
 }
 
+/* Push one value; overflow of the tiny fixed eval stack fails the expression. */
+static void eval_push(uint32_t *st, int *sp, uint32_t v, bool *ok)
+{
+    if (*sp < 32) st[(*sp)++] = v; else *ok = false;
+}
+
 /* Evaluate a DWARF expression to a 32-bit value using the live registers. */
 static uint32_t eval_expr(const uint8_t *e, uint32_t len, uint16_t s16, uint16_t rs0,
                           uint8_t (*rd)(uint16_t), bool *ok)
@@ -158,26 +164,26 @@ static uint32_t eval_expr(const uint8_t *e, uint32_t len, uint16_t s16, uint16_t
             int reg = op - OP_breg0;
             int64_t off = dwarf_sleb(&c);
             uint32_t rv = (reg == 4) ? s16 : 0;
-            if (sp < 32) st[sp++] = (uint32_t)(rv + off); else *ok = false;
+            eval_push(st, &sp, (uint32_t)(rv + off), ok);
         }
         else if (op >= OP_lit0 && op <= OP_lit31)
         {
-            if (sp < 32) st[sp++] = op - OP_lit0; else *ok = false;
+            eval_push(st, &sp, op - OP_lit0, ok);
         }
         else
         {
             switch (op)
             {
-            case OP_const1u: if (sp < 32) st[sp++] = dwarf_u8(&c); else *ok = false; break;
-            case OP_const1s: if (sp < 32) st[sp++] = (uint32_t)(int8_t)dwarf_u8(&c); else *ok = false; break;
-            case OP_const2u: if (sp < 32) st[sp++] = dwarf_u16(&c); else *ok = false; break;
-            case OP_const4u: if (sp < 32) st[sp++] = dwarf_u32(&c); else *ok = false; break;
-            case OP_constu: if (sp < 32) st[sp++] = (uint32_t)dwarf_uleb(&c); else *ok = false; break;
-            case OP_consts: if (sp < 32) st[sp++] = (uint32_t)dwarf_sleb(&c); else *ok = false; break;
-            case OP_and: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; st[sp++] = a & b; } else *ok = false; break;
-            case OP_or: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; st[sp++] = a | b; } else *ok = false; break;
-            case OP_plus: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; st[sp++] = a + b; } else *ok = false; break;
-            case OP_minus: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; st[sp++] = a - b; } else *ok = false; break;
+            case OP_const1u: eval_push(st, &sp, dwarf_u8(&c), ok); break;
+            case OP_const1s: eval_push(st, &sp, (uint32_t)(int8_t)dwarf_u8(&c), ok); break;
+            case OP_const2u: eval_push(st, &sp, dwarf_u16(&c), ok); break;
+            case OP_const4u: eval_push(st, &sp, dwarf_u32(&c), ok); break;
+            case OP_constu: eval_push(st, &sp, (uint32_t)dwarf_uleb(&c), ok); break;
+            case OP_consts: eval_push(st, &sp, (uint32_t)dwarf_sleb(&c), ok); break;
+            case OP_and: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; eval_push(st, &sp, a & b, ok); } else *ok = false; break;
+            case OP_or: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; eval_push(st, &sp, a | b, ok); } else *ok = false; break;
+            case OP_plus: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; eval_push(st, &sp, a + b, ok); } else *ok = false; break;
+            case OP_minus: if (sp >= 2) { uint32_t b = st[--sp], a = st[--sp]; eval_push(st, &sp, a - b, ok); } else *ok = false; break;
             case OP_plus_uconst: if (sp >= 1) { uint32_t k = (uint32_t)dwarf_uleb(&c); st[sp - 1] += k; } else *ok = false; break;
             case OP_deref:
                 if (sp >= 1) { uint16_t a = (uint16_t)st[sp - 1]; st[sp - 1] = (uint32_t)(rd(a) | (rd((uint16_t)(a + 1)) << 8)); }
@@ -188,7 +194,7 @@ static uint32_t eval_expr(const uint8_t *e, uint32_t len, uint16_t s16, uint16_t
                 uint64_t reg = dwarf_uleb(&c);
                 int64_t off = dwarf_sleb(&c);
                 uint32_t rv = (reg == 4) ? s16 : (reg == DW_MOS_RS0 ? rs0 : 0);
-                if (sp < 32) st[sp++] = (uint32_t)(rv + off); else *ok = false;
+                eval_push(st, &sp, (uint32_t)(rv + off), ok);
                 break;
             }
             default:
@@ -399,53 +405,27 @@ bool dwarf_frame_has(const dwarf_frame_t *df, uint16_t pc)
 
 /* ---- .debug_frame parse ---- */
 
-#define SH_U32(idx, off)                                                  \
-    ((uint32_t)(buf[e_shoff + (idx) * e_shentsize + (off)] |              \
-                (buf[e_shoff + (idx) * e_shentsize + (off) + 1] << 8) |   \
-                (buf[e_shoff + (idx) * e_shentsize + (off) + 2] << 16) |  \
-                ((uint32_t)buf[e_shoff + (idx) * e_shentsize + (off) + 3] << 24)))
-
 dwarf_frame_t *dwarf_frame_load(const char *elf_path)
 {
-    FILE *f = fopen(elf_path, "rb");
-    if (!f)
+    elf_image im;
+    if (!elf_open(elf_path, &im))
         return NULL;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 64) { fclose(f); return NULL; }
-    uint8_t *buf = malloc((size_t)sz + 1);
-    if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz) { free(buf); fclose(f); return NULL; }
-    buf[sz] = 0; /* terminate any unterminated string at end of file */
-    fclose(f);
-
-    if (memcmp(buf, "\x7f""ELF", 4) != 0 || buf[4] != 1 || buf[5] != 1) { free(buf); return NULL; }
-    uint32_t e_shoff = buf[32] | (buf[33] << 8) | (buf[34] << 16) | ((uint32_t)buf[35] << 24);
-    uint16_t e_shentsize = buf[46] | (buf[47] << 8);
-    uint16_t e_shnum = buf[48] | (buf[49] << 8);
-    uint16_t e_shstrndx = buf[50] | (buf[51] << 8);
-    if (e_shoff == 0 || e_shentsize < 40 || e_shstrndx >= e_shnum ||
-        (uint64_t)e_shoff + (uint64_t)e_shnum * e_shentsize > (uint64_t)sz) { free(buf); return NULL; }
-    uint32_t shstr_off = SH_U32(e_shstrndx, 16);
-    if (shstr_off >= (uint64_t)sz) { free(buf); return NULL; }
-    const char *shstr = (const char *)(buf + shstr_off);
 
     uint32_t fr_off = 0, fr_size = 0;
-    for (uint16_t i = 0; i < e_shnum; i++)
+    if (!elf_find_section(&im, ".debug_frame", &fr_off, &fr_size) ||
+        !fr_size || (uint64_t)fr_off + fr_size > (uint64_t)im.size)
     {
-        uint32_t no = SH_U32(i, 0);
-        const char *nm = (no < (uint64_t)sz - shstr_off) ? shstr + no : "";
-        if (strcmp(nm, ".debug_frame") == 0) { fr_off = SH_U32(i, 16); fr_size = SH_U32(i, 20); break; }
+        elf_close(&im);
+        return NULL;
     }
-    if (!fr_off || !fr_size || (uint64_t)fr_off + fr_size > (uint64_t)sz) { free(buf); return NULL; }
 
     dwarf_frame_t *df = calloc(1, sizeof *df);
-    if (!df) { free(buf); return NULL; }
+    if (!df) { elf_close(&im); return NULL; }
     df->frame = malloc(fr_size);
-    if (!df->frame) { free(df); free(buf); return NULL; }
-    memcpy(df->frame, buf + fr_off, fr_size);
+    if (!df->frame) { free(df); elf_close(&im); return NULL; }
+    memcpy(df->frame, im.buf + fr_off, fr_size);
     df->addr_size = 4; /* MOS default; overridden per-CIE (v4+) below */
-    free(buf);
+    elf_close(&im);
 
     const uint8_t *base = df->frame;
     dwarf_cur c = {base, base + fr_size, true};

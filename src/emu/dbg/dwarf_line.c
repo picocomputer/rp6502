@@ -11,6 +11,7 @@
 
 #include "emu/dbg/dwarf_line.h"
 #include "emu/dbg/dwarf_cursor.h"
+#include "emu/dbg/dwarf_elf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,8 +154,6 @@ enum
     LF_strx = 0x1a,
     LF_strx1 = 0x25,
     LF_strx2 = 0x26,
-    LF_strx3 = 0x27,
-    LF_strx4 = 0x28,
 };
 
 /* Read one v5 line-header form value. String forms return a pointer (into
@@ -469,134 +468,56 @@ static void parse_symbols(dwarf_line_t *dl, const uint8_t *buf, long sz,
 
 dwarf_line_t *dwarf_line_load(const char *elf_path)
 {
-    FILE *f = fopen(elf_path, "rb");
-    if (!f)
+    elf_image im;
+    if (!elf_open(elf_path, &im))
         return NULL;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 64)
-    {
-        fclose(f);
-        return NULL;
-    }
-    uint8_t *buf = malloc((size_t)sz + 1);
-    if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz)
-    {
-        free(buf);
-        fclose(f);
-        return NULL;
-    }
-    buf[sz] = 0; /* terminate any unterminated string at end of file */
-    fclose(f);
-
-    /* ELF32, little-endian only (the llvm-mos target). */
-    if (memcmp(buf, "\x7f""ELF", 4) != 0 || buf[4] != 1 /*ELFCLASS32*/ || buf[5] != 1 /*little*/)
-    {
-        free(buf);
-        return NULL;
-    }
-    uint32_t e_shoff = buf[32] | (buf[33] << 8) | (buf[34] << 16) | ((uint32_t)buf[35] << 24);
-    uint16_t e_shentsize = buf[46] | (buf[47] << 8);
-    uint16_t e_shnum = buf[48] | (buf[49] << 8);
-    uint16_t e_shstrndx = buf[50] | (buf[51] << 8);
-    if (e_shoff == 0 || e_shentsize < 40 || e_shstrndx >= e_shnum ||
-        (uint64_t)e_shoff + (uint64_t)e_shnum * (uint64_t)e_shentsize > (uint64_t)sz)
-    {
-        free(buf);
-        return NULL;
-    }
-
-#define SH_U32(idx, off)                                              \
-    ((uint32_t)(buf[e_shoff + (idx) * e_shentsize + (off)] |           \
-                (buf[e_shoff + (idx) * e_shentsize + (off) + 1] << 8) | \
-                (buf[e_shoff + (idx) * e_shentsize + (off) + 2] << 16) | \
-                ((uint32_t)buf[e_shoff + (idx) * e_shentsize + (off) + 3] << 24)))
 
     /* section header: name(0) type(4) flags(8) addr(12) offset(16) size(20)... */
-    uint32_t shstr_off = SH_U32(e_shstrndx, 16);
-    if (shstr_off >= (uint64_t)sz)
-    {
-        free(buf);
-        return NULL;
-    }
-    const char *shstr = (const char *)(buf + shstr_off);
-
-/* Section name at shstr+SH_U32(i,0), clamped so strcmp never walks past buf. */
-#define SH_NAME(idx)                                            \
-    ((SH_U32(idx, 0) < (uint64_t)sz - shstr_off)                \
-         ? shstr + SH_U32(idx, 0)                               \
-         : "")
-
     uint32_t dl_off = 0, dl_size = 0;
     uint32_t sym_off = 0, sym_size = 0, str_off = 0, str_size = 0;
     uint32_t lstr_off = 0, lstr_size = 0, dstr_off = 0, dstr_size = 0;
-    for (uint16_t i = 0; i < e_shnum; i++)
+    elf_find_section(&im, ".debug_line", &dl_off, &dl_size);
+    elf_find_section(&im, ".debug_line_str", &lstr_off, &lstr_size);
+    elf_find_section(&im, ".debug_str", &dstr_off, &dstr_size);
+    elf_find_section(&im, ".symtab", &sym_off, &sym_size);
+    elf_find_section(&im, ".strtab", &str_off, &str_size);
+    if (dl_off == 0 || dl_size == 0 || (uint64_t)dl_off + dl_size > (uint64_t)im.size)
     {
-        const char *nm = SH_NAME(i);
-        if (strcmp(nm, ".debug_line") == 0)
-        {
-            dl_off = SH_U32(i, 16);
-            dl_size = SH_U32(i, 20);
-        }
-        else if (strcmp(nm, ".debug_line_str") == 0)
-        {
-            lstr_off = SH_U32(i, 16);
-            lstr_size = SH_U32(i, 20);
-        }
-        else if (strcmp(nm, ".debug_str") == 0)
-        {
-            dstr_off = SH_U32(i, 16);
-            dstr_size = SH_U32(i, 20);
-        }
-        else if (strcmp(nm, ".symtab") == 0)
-        {
-            sym_off = SH_U32(i, 16);
-            sym_size = SH_U32(i, 20);
-        }
-        else if (strcmp(nm, ".strtab") == 0)
-        {
-            str_off = SH_U32(i, 16);
-            str_size = SH_U32(i, 20);
-        }
-    }
-    if (dl_off == 0 || dl_size == 0 || (uint64_t)dl_off + dl_size > (uint64_t)sz)
-    {
-        free(buf);
+        elf_close(&im);
         return NULL;
     }
     /* A string table whose [off,off+size) runs past EOF would let a v5 path form
      * dereference outside buf; neutralize it so those paths resolve to "". */
-    if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)sz)
+    if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)im.size)
         lstr_off = lstr_size = 0;
-    if (dstr_off && (uint64_t)dstr_off + dstr_size > (uint64_t)sz)
+    if (dstr_off && (uint64_t)dstr_off + dstr_size > (uint64_t)im.size)
         dstr_off = dstr_size = 0;
-    const uint8_t *lstr = lstr_off ? buf + lstr_off : NULL;
-    const uint8_t *dstr = dstr_off ? buf + dstr_off : NULL;
+    const uint8_t *lstr = lstr_off ? im.buf + lstr_off : NULL;
+    const uint8_t *dstr = dstr_off ? im.buf + dstr_off : NULL;
 
     dwarf_line_t *dl = calloc(1, sizeof *dl);
     if (!dl)
     {
-        free(buf);
+        elf_close(&im);
         return NULL;
     }
 
     /* Allocatable sections (.text/.data/.bss/.zp/.noinit/...) for the memory-map
      * view: name + 6502 load address + size. SHF_ALLOC (flags bit 1) with a
-     * non-zero size; names are interned since buf is freed below. */
-    for (uint16_t i = 0; i < e_shnum && dl->nsections < DL_MAX_SECTIONS; i++)
+     * non-zero size; names are interned since the image is freed below. */
+    for (int i = 0; i < elf_section_count(&im) && dl->nsections < DL_MAX_SECTIONS; i++)
     {
-        uint32_t flags = SH_U32(i, 8), saddr = SH_U32(i, 12), ssize = SH_U32(i, 20);
+        uint32_t flags = elf_shdr_u32(&im, i, 8), saddr = elf_shdr_u32(&im, i, 12), ssize = elf_shdr_u32(&im, i, 20);
         if (!(flags & 0x2) || ssize == 0)
             continue;
-        dl->sections[dl->nsections].name = intern(dl, SH_NAME(i));
+        dl->sections[dl->nsections].name = intern(dl, elf_section_name(&im, i));
         dl->sections[dl->nsections].addr = (uint16_t)saddr;
         dl->sections[dl->nsections].size = ssize;
         dl->nsections++;
     }
 
     /* Walk the (possibly multiple) units in .debug_line. */
-    dwarf_cur c = {buf + dl_off, buf + dl_off + dl_size, true};
+    dwarf_cur c = {im.buf + dl_off, im.buf + dl_off + dl_size, true};
     while (c.p + 4 <= c.end && c.ok)
     {
         const uint8_t *unit_start = c.p;
@@ -610,8 +531,8 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         parse_unit(dl, &uc, unit_end, lstr, lstr_size, dstr, dstr_size);
         c.p = unit_end;
     }
-    parse_symbols(dl, buf, sz, sym_off, sym_size, str_off, str_size);
-    free(buf);
+    parse_symbols(dl, im.buf, im.size, sym_off, sym_size, str_off, str_size);
+    elf_close(&im);
 
     if (dl->nrows == 0)
     {

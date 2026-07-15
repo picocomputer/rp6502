@@ -17,6 +17,7 @@
 
 #include "emu/dbg/dwarf_info.h"
 #include "emu/dbg/dwarf_cursor.h"
+#include "emu/dbg/dwarf_elf.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,10 +58,8 @@ enum
     DW_AT_count = 0x37,
     DW_AT_data_member_location = 0x38,
     DW_AT_encoding = 0x3e,
-    DW_AT_external = 0x3f,
     DW_AT_frame_base = 0x40,
     DW_AT_type = 0x49,
-    DW_AT_declaration = 0x3c,
 };
 enum
 {
@@ -88,8 +87,6 @@ enum
     DW_FORM_sec_offset = 0x17,
     DW_FORM_exprloc = 0x18,
     DW_FORM_flag_present = 0x19,
-    DW_FORM_ref_sup4 = 0x1c,
-    DW_FORM_strp_sup = 0x1d,
     DW_FORM_data16 = 0x1e,
     DW_FORM_line_strp = 0x1f,
     /* DWARF5 indirect / index forms */
@@ -120,7 +117,6 @@ enum
     DW_OP_reg31 = 0x6f,
     DW_OP_regx = 0x90,
     DW_OP_fbreg = 0x91,
-    DW_OP_call_frame_cfa = 0x9c,
     DW_OP_addrx = 0xa1,
 };
 /* MOS DWARF register numbering (MOSRegisterInfo.td): RS0 is the base of the
@@ -1062,112 +1058,56 @@ static void parse_objects(dwarf_info_t *di, const uint8_t *buf, long sz,
     }
 }
 
-#define SH_U32(idx, off)                                                  \
-    ((uint32_t)(buf[e_shoff + (idx) * e_shentsize + (off)] |              \
-                (buf[e_shoff + (idx) * e_shentsize + (off) + 1] << 8) |   \
-                (buf[e_shoff + (idx) * e_shentsize + (off) + 2] << 16) |  \
-                ((uint32_t)buf[e_shoff + (idx) * e_shentsize + (off) + 3] << 24)))
-
 dwarf_info_t *dwarf_info_load(const char *elf_path)
 {
-    FILE *f = fopen(elf_path, "rb");
-    if (!f) return NULL;
-    fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    if (sz <= 64) { fclose(f); return NULL; }
-    uint8_t *buf = malloc((size_t)sz + 1);
-    if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz)
-    {
-        free(buf);
-        fclose(f);
+    elf_image im;
+    if (!elf_open(elf_path, &im))
         return NULL;
-    }
-    buf[sz] = 0; /* terminate any unterminated string at end of file */
-    fclose(f);
-
-    if (memcmp(buf, "\x7f""ELF", 4) != 0 || buf[4] != 1 || buf[5] != 1)
-    {
-        free(buf);
-        return NULL;
-    }
-    uint32_t e_shoff = buf[32] | (buf[33] << 8) | (buf[34] << 16) | ((uint32_t)buf[35] << 24);
-    uint16_t e_shentsize = buf[46] | (buf[47] << 8);
-    uint16_t e_shnum = buf[48] | (buf[49] << 8);
-    uint16_t e_shstrndx = buf[50] | (buf[51] << 8);
-    if (e_shoff == 0 || e_shentsize < 40 || e_shstrndx >= e_shnum)
-    {
-        free(buf);
-        return NULL;
-    }
-    if ((uint64_t)e_shoff + (uint64_t)e_shnum * (uint64_t)e_shentsize > (uint64_t)sz)
-    {
-        free(buf);
-        return NULL;
-    }
-    uint32_t shstr_off = SH_U32(e_shstrndx, 16);
-    if (shstr_off >= (uint64_t)sz)
-    {
-        free(buf);
-        return NULL;
-    }
-    const char *shstr = (const char *)(buf + shstr_off);
-
-/* Section name at shstr+SH_U32(i,0), clamped so strcmp never walks past buf. */
-#define SH_NAME(idx)                                            \
-    ((SH_U32(idx, 0) < (uint64_t)sz - shstr_off)                \
-         ? shstr + SH_U32(idx, 0)                               \
-         : "")
 
     uint32_t info_off = 0, info_size = 0, abbrev_off = 0, abbrev_size = 0;
     uint32_t str_off = 0, str_size = 0, lstr_off = 0, lstr_size = 0;
     uint32_t soff_off = 0, soff_size = 0, addr_off = 0, addr_size_sec = 0;
     uint32_t sym_off = 0, sym_size = 0, symstr_off = 0, symstr_size = 0;
-    for (uint16_t i = 0; i < e_shnum; i++)
-    {
-        const char *nm = SH_NAME(i);
-        uint32_t off = SH_U32(i, 16), size = SH_U32(i, 20);
-        if (strcmp(nm, ".debug_info") == 0) { info_off = off; info_size = size; }
-        else if (strcmp(nm, ".debug_abbrev") == 0) { abbrev_off = off; abbrev_size = size; }
-        else if (strcmp(nm, ".debug_str") == 0) { str_off = off; str_size = size; }
-        else if (strcmp(nm, ".debug_line_str") == 0) { lstr_off = off; lstr_size = size; }
-        else if (strcmp(nm, ".debug_str_offsets") == 0) { soff_off = off; soff_size = size; }
-        else if (strcmp(nm, ".debug_addr") == 0) { addr_off = off; addr_size_sec = size; }
-        else if (strcmp(nm, ".symtab") == 0) { sym_off = off; sym_size = size; }
-        else if (strcmp(nm, ".strtab") == 0) { symstr_off = off; symstr_size = size; }
-    }
+    elf_find_section(&im, ".debug_info", &info_off, &info_size);
+    elf_find_section(&im, ".debug_abbrev", &abbrev_off, &abbrev_size);
+    elf_find_section(&im, ".debug_str", &str_off, &str_size);
+    elf_find_section(&im, ".debug_line_str", &lstr_off, &lstr_size);
+    elf_find_section(&im, ".debug_str_offsets", &soff_off, &soff_size);
+    elf_find_section(&im, ".debug_addr", &addr_off, &addr_size_sec);
+    elf_find_section(&im, ".symtab", &sym_off, &sym_size);
+    elf_find_section(&im, ".strtab", &symstr_off, &symstr_size);
     if (!info_off || !info_size || !abbrev_off ||
-        (uint64_t)info_off + info_size > (uint64_t)sz ||
-        (uint64_t)abbrev_off + abbrev_size > (uint64_t)sz)
+        (uint64_t)info_off + info_size > (uint64_t)im.size ||
+        (uint64_t)abbrev_off + abbrev_size > (uint64_t)im.size)
     {
-        free(buf);
+        elf_close(&im);
         return NULL;
     }
     /* A .debug_str/.debug_line_str whose [off, off+size) runs past EOF would let a
      * DW_FORM_strp/line_strp offset (read_form bounds it only against the section
      * size) dereference outside the file buffer. Neutralize an out-of-range table
      * so those forms resolve to "" instead of reading unmapped memory. */
-    if (str_off && (uint64_t)str_off + str_size > (uint64_t)sz)
+    if (str_off && (uint64_t)str_off + str_size > (uint64_t)im.size)
         str_off = str_size = 0;
-    if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)sz)
+    if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)im.size)
         lstr_off = lstr_size = 0;
-    if (soff_off && (uint64_t)soff_off + soff_size > (uint64_t)sz)
+    if (soff_off && (uint64_t)soff_off + soff_size > (uint64_t)im.size)
         soff_off = soff_size = 0;
-    if (addr_off && (uint64_t)addr_off + addr_size_sec > (uint64_t)sz)
+    if (addr_off && (uint64_t)addr_off + addr_size_sec > (uint64_t)im.size)
         addr_off = addr_size_sec = 0;
 
     dwarf_info_t *di = calloc(1, sizeof *di);
-    if (!di) { free(buf); return NULL; }
+    if (!di) { elf_close(&im); return NULL; }
 
-    parse_objects(di, buf, sz, sym_off, sym_size, symstr_off, symstr_size);
+    parse_objects(di, im.buf, im.size, sym_off, sym_size, symstr_off, symstr_size);
 
-    const char *dstr = str_off ? (const char *)(buf + str_off) : "";
-    const char *dlstr = lstr_off ? (const char *)(buf + lstr_off) : NULL;
-    const uint8_t *soff = soff_off ? buf + soff_off : NULL;
-    const uint8_t *daddr = addr_off ? buf + addr_off : NULL;
-    const uint8_t *info = buf + info_off;
+    const char *dstr = str_off ? (const char *)(im.buf + str_off) : "";
+    const char *dlstr = lstr_off ? (const char *)(im.buf + lstr_off) : NULL;
+    const uint8_t *soff = soff_off ? im.buf + soff_off : NULL;
+    const uint8_t *daddr = addr_off ? im.buf + addr_off : NULL;
+    const uint8_t *info = im.buf + info_off;
     const uint8_t *info_end = info + info_size;
-    const uint8_t *ab_base = buf + abbrev_off;
+    const uint8_t *ab_base = im.buf + abbrev_off;
     const uint8_t *ab_end = ab_base + abbrev_size;
 
     /* walk the compilation units */
@@ -1218,7 +1158,7 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
         c.p = unit_end;
     }
 
-    free(buf);
+    elf_close(&im);
 
     if (di->nglobals == 0 && di->nfuncs == 0)
     {
