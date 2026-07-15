@@ -128,70 +128,97 @@ enum
     LNE_define_file = 3,
 };
 
-/* Parse one line-number program unit at [c->p, unit_end). DWARF 2-4 only. */
-static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end)
+/* DWARF5 line-header content-type codes (dir/file entry formats). */
+enum
 {
-    uint16_t version = dwarf_u16(c);
-    if (version < 2 || version > 4)
-        return; /* DWARF 5 has a different prologue; not emitted with -gdwarf-4 */
-    uint32_t header_len = dwarf_u32(c);
-    if (!c->ok || c->p > unit_end || header_len > (uint32_t)(unit_end - c->p))
-        return; /* header_length runs past the unit: corrupt prologue */
-    const uint8_t *prog = c->p + header_len; /* program starts after the prologue */
+    DW_LNCT_path = 1,
+    DW_LNCT_directory_index = 2,
+    DW_LNCT_timestamp = 3,
+    DW_LNCT_size = 4,
+    DW_LNCT_MD5 = 5,
+};
+/* The forms that appear in a v5 line-header dir/file table. */
+enum
+{
+    LF_data2 = 0x05,
+    LF_data4 = 0x06,
+    LF_data8 = 0x07,
+    LF_string = 0x08,
+    LF_block = 0x09,
+    LF_data1 = 0x0b,
+    LF_udata = 0x0f,
+    LF_strp = 0x0e,
+    LF_data16 = 0x1e,
+    LF_line_strp = 0x1f,
+    LF_strx = 0x1a,
+    LF_strx1 = 0x25,
+    LF_strx2 = 0x26,
+    LF_strx3 = 0x27,
+    LF_strx4 = 0x28,
+};
 
-    uint8_t min_inst = dwarf_u8(c);
-    if (version >= 4)
-        (void)dwarf_u8(c); /* maximum_operations_per_instruction */
-    uint8_t default_is_stmt = dwarf_u8(c);
-    int8_t line_base = (int8_t)dwarf_u8(c);
-    uint8_t line_range = dwarf_u8(c);
-    uint8_t opcode_base = dwarf_u8(c);
-    if (!c->ok || min_inst == 0 || line_range == 0)
-        return;
-    uint8_t std_len[256];
-    memset(std_len, 0, sizeof std_len);
-    for (int i = 1; i < opcode_base && i < 256; i++)
-        std_len[i] = dwarf_u8(c);
-
-    /* include_directories (1-based), terminated by an empty string. */
-    const char *dirs[64];
-    int ndirs = 0;
-    dirs[0] = ""; /* index 0 = compilation directory (unknown here) */
-    for (;;)
+/* Read one v5 line-header form value. String forms return a pointer (into
+ * .debug_line_str/.debug_str, which live in the still-mapped ELF image) via
+ * *sout; numeric forms via *uout. strx* aren't resolved (paths use line_strp). */
+static void lnct_read(dwarf_cur *c, uint16_t form,
+                      const uint8_t *lstr, uint32_t lstr_size,
+                      const uint8_t *str, uint32_t str_size,
+                      const char **sout, uint64_t *uout)
+{
+    switch (form)
     {
-        const char *d = dwarf_cstr(c);
-        if (!c->ok || d[0] == 0)
-            break;
-        if (++ndirs < 64)
-            dirs[ndirs] = d;
-    }
-
-    /* file_names (1-based), each {name, dir_index, mtime, length}. Resolve each
-     * to a full path interned on dl. files[0] is unused. */
-    const char *files[256];
-    int nfiles = 0;
-    files[0] = "";
-    for (;;)
+    case LF_string:
     {
-        const char *name = dwarf_cstr(c);
-        if (!c->ok || name[0] == 0)
-            break;
-        uint64_t di = dwarf_uleb(c);
-        (void)dwarf_uleb(c); /* mtime */
-        (void)dwarf_uleb(c); /* length */
-        char full[1024];
-        if (name[0] == '/' || di == 0 || di >= (uint64_t)(ndirs + 1) || di >= 64)
-            snprintf(full, sizeof full, "%s", name);
-        else
-            snprintf(full, sizeof full, "%s/%s", dirs[di], name);
-        if (++nfiles < 256)
-            files[nfiles] = intern(dl, full);
+        const char *s = (const char *)c->p;
+        while (c->p < c->end && *c->p) c->p++;
+        if (c->p < c->end) c->p++;
+        *sout = s;
+        break;
     }
-    if (!c->ok)
-        return;
+    case LF_line_strp:
+    {
+        uint32_t o = dwarf_u32(c);
+        *sout = (lstr && o < lstr_size) ? (const char *)(lstr + o) : "";
+        break;
+    }
+    case LF_strp:
+    {
+        uint32_t o = dwarf_u32(c);
+        *sout = (str && o < str_size) ? (const char *)(str + o) : "";
+        break;
+    }
+    case LF_data1: *uout = dwarf_u8(c); break;
+    case LF_data2: *uout = dwarf_u16(c); break;
+    case LF_data4: *uout = dwarf_u32(c); break;
+    case LF_data8: *uout = dwarf_u64(c); break;
+    case LF_udata: *uout = dwarf_uleb(c); break;
+    case LF_strx1: *uout = dwarf_u8(c); break;
+    case LF_strx2: *uout = dwarf_u16(c); break;
+    case LF_strx: *uout = dwarf_uleb(c); break;
+    case LF_data16:
+        for (int i = 0; i < 16; i++) (void)dwarf_u8(c);
+        break;
+    case LF_block:
+    {
+        uint64_t n = dwarf_uleb(c);
+        if (n > (uint64_t)(c->end - c->p)) { c->ok = false; break; }
+        c->p += n;
+        break;
+    }
+    default:
+        c->ok = false; /* unknown form: can't size the entry */
+        break;
+    }
+}
 
-    /* Run the line program. */
-    c->p = prog;
+/* Run the line-number program (shared across DWARF 2-5). files[] is indexed by
+ * the DWARF file register directly (0-based for v5, 1-based for v2-4); unused
+ * slots are "". */
+static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
+                             const char *const *files, uint8_t min_inst, uint8_t default_is_stmt,
+                             int8_t line_base, uint8_t line_range, uint8_t opcode_base,
+                             const uint8_t *std_len)
+{
     uint32_t address = 0;
     int file = 1, line = 1;
     bool is_stmt = default_is_stmt != 0;
@@ -235,7 +262,7 @@ static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end)
             switch (op)
             {
             case LNS_copy:
-                push_row(dl, address, (file >= 0 && file < nfiles + 1 && file < 256) ? files[file] : "", line, false);
+                push_row(dl, address, (file >= 0 && file < 256) ? files[file] : "", line, false);
                 break;
             case LNS_advance_pc:
                 address += (uint32_t)(dwarf_uleb(c) * min_inst);
@@ -279,9 +306,153 @@ static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end)
             int adj = op - opcode_base;
             address += (uint32_t)((adj / line_range) * min_inst);
             line += line_base + (adj % line_range);
-            push_row(dl, address, (file >= 0 && file < nfiles + 1 && file < 256) ? files[file] : "", line, false);
+            push_row(dl, address, (file >= 0 && file < 256) ? files[file] : "", line, false);
         }
     }
+}
+
+/* Parse the v5 dir/file tables (form-coded) into files[] (0-based). dirs point
+ * into the still-mapped ELF image; file full-paths are interned on dl. */
+static void parse_v5_tables(dwarf_line_t *dl, dwarf_cur *c, const char **files,
+                            const uint8_t *lstr, uint32_t lstr_size,
+                            const uint8_t *str, uint32_t str_size)
+{
+    /* directory_entry_format + directories */
+    const char *dirs[64];
+    int ndirs = 0;
+    uint8_t dfmt_n = dwarf_u8(c);
+    uint16_t dct[16], dfm[16];
+    for (int i = 0; i < dfmt_n; i++)
+    {
+        uint16_t ct = (uint16_t)dwarf_uleb(c), fm = (uint16_t)dwarf_uleb(c);
+        if (i < 16) { dct[i] = ct; dfm[i] = fm; }
+    }
+    uint64_t dcount = dwarf_uleb(c);
+    for (uint64_t d = 0; d < dcount && c->ok; d++)
+    {
+        const char *dp = "";
+        for (int i = 0; i < dfmt_n && c->ok; i++)
+        {
+            const char *s = ""; uint64_t u = 0;
+            uint16_t fm = (i < 16) ? dfm[i] : 0;
+            if (!fm) { c->ok = false; break; }
+            lnct_read(c, fm, lstr, lstr_size, str, str_size, &s, &u);
+            if ((i < 16 ? dct[i] : 0) == DW_LNCT_path) dp = s;
+        }
+        if (d < 64) dirs[ndirs++] = dp;
+    }
+
+    /* file_name_entry_format + file_names (0-based) */
+    uint8_t ffmt_n = dwarf_u8(c);
+    uint16_t fct[16], ffm[16];
+    for (int i = 0; i < ffmt_n; i++)
+    {
+        uint16_t ct = (uint16_t)dwarf_uleb(c), fm = (uint16_t)dwarf_uleb(c);
+        if (i < 16) { fct[i] = ct; ffm[i] = fm; }
+    }
+    uint64_t fcount = dwarf_uleb(c);
+    for (uint64_t fi = 0; fi < fcount && c->ok; fi++)
+    {
+        const char *fp = ""; uint64_t didx = 0;
+        for (int i = 0; i < ffmt_n && c->ok; i++)
+        {
+            const char *s = ""; uint64_t u = 0;
+            uint16_t fm = (i < 16) ? ffm[i] : 0;
+            if (!fm) { c->ok = false; break; }
+            lnct_read(c, fm, lstr, lstr_size, str, str_size, &s, &u);
+            uint16_t ct = (i < 16) ? fct[i] : 0;
+            if (ct == DW_LNCT_path) fp = s;
+            else if (ct == DW_LNCT_directory_index) didx = u;
+        }
+        char full[1024];
+        if (fp[0] == '/' || didx >= (uint64_t)ndirs || didx >= 64)
+            snprintf(full, sizeof full, "%s", fp);
+        else
+            snprintf(full, sizeof full, "%s/%s", dirs[didx], fp);
+        if (fi < 256) files[fi] = intern(dl, full);
+    }
+}
+
+/* Parse one line-number program unit at [c->p, unit_end). DWARF 2-5. */
+static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
+                       const uint8_t *lstr, uint32_t lstr_size,
+                       const uint8_t *str, uint32_t str_size)
+{
+    const char *files[256];
+    for (int i = 0; i < 256; i++)
+        files[i] = "";
+
+    uint16_t version = dwarf_u16(c);
+    if (version < 2 || version > 5)
+        return;
+
+    if (version >= 5)
+    {
+        (void)dwarf_u8(c); /* address_size */
+        (void)dwarf_u8(c); /* segment_selector_size */
+    }
+    uint32_t header_len = dwarf_u32(c);
+    if (!c->ok || c->p > unit_end || header_len > (uint32_t)(unit_end - c->p))
+        return; /* header_length runs past the unit: corrupt prologue */
+    const uint8_t *prog = c->p + header_len; /* program starts after the prologue */
+
+    uint8_t min_inst = dwarf_u8(c);
+    if (version >= 4)
+        (void)dwarf_u8(c); /* maximum_operations_per_instruction */
+    uint8_t default_is_stmt = dwarf_u8(c);
+    int8_t line_base = (int8_t)dwarf_u8(c);
+    uint8_t line_range = dwarf_u8(c);
+    uint8_t opcode_base = dwarf_u8(c);
+    if (!c->ok || min_inst == 0 || line_range == 0)
+        return;
+    uint8_t std_len[256];
+    memset(std_len, 0, sizeof std_len);
+    for (int i = 1; i < opcode_base && i < 256; i++)
+        std_len[i] = dwarf_u8(c);
+
+    if (version >= 5)
+    {
+        parse_v5_tables(dl, c, files, lstr, lstr_size, str, str_size);
+    }
+    else
+    {
+        /* include_directories (1-based), terminated by an empty string. */
+        const char *dirs[64];
+        int ndirs = 0;
+        dirs[0] = ""; /* index 0 = compilation directory (unknown here) */
+        for (;;)
+        {
+            const char *d = dwarf_cstr(c);
+            if (!c->ok || d[0] == 0)
+                break;
+            if (++ndirs < 64)
+                dirs[ndirs] = d;
+        }
+        /* file_names (1-based), each {name, dir_index, mtime, length}. */
+        int nfiles = 0;
+        for (;;)
+        {
+            const char *name = dwarf_cstr(c);
+            if (!c->ok || name[0] == 0)
+                break;
+            uint64_t di = dwarf_uleb(c);
+            (void)dwarf_uleb(c); /* mtime */
+            (void)dwarf_uleb(c); /* length */
+            char full[1024];
+            if (name[0] == '/' || di == 0 || di >= (uint64_t)(ndirs + 1) || di >= 64)
+                snprintf(full, sizeof full, "%s", name);
+            else
+                snprintf(full, sizeof full, "%s/%s", dirs[di], name);
+            if (++nfiles < 256)
+                files[nfiles] = intern(dl, full);
+        }
+    }
+    if (!c->ok)
+        return;
+
+    c->p = prog;
+    run_line_program(dl, c, unit_end, files, min_inst, default_is_stmt,
+                     line_base, line_range, opcode_base, std_len);
 }
 
 static int row_cmp(const void *a, const void *b)
@@ -400,6 +571,7 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
 
     uint32_t dl_off = 0, dl_size = 0;
     uint32_t sym_off = 0, sym_size = 0, str_off = 0, str_size = 0;
+    uint32_t lstr_off = 0, lstr_size = 0, dstr_off = 0, dstr_size = 0;
     for (uint16_t i = 0; i < e_shnum; i++)
     {
         const char *nm = SH_NAME(i);
@@ -407,6 +579,16 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         {
             dl_off = SH_U32(i, 16);
             dl_size = SH_U32(i, 20);
+        }
+        else if (strcmp(nm, ".debug_line_str") == 0)
+        {
+            lstr_off = SH_U32(i, 16);
+            lstr_size = SH_U32(i, 20);
+        }
+        else if (strcmp(nm, ".debug_str") == 0)
+        {
+            dstr_off = SH_U32(i, 16);
+            dstr_size = SH_U32(i, 20);
         }
         else if (strcmp(nm, ".symtab") == 0)
         {
@@ -424,6 +606,14 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         free(buf);
         return NULL;
     }
+    /* A string table whose [off,off+size) runs past EOF would let a v5 path form
+     * dereference outside buf; neutralize it so those paths resolve to "". */
+    if (lstr_off && (uint64_t)lstr_off + lstr_size > (uint64_t)sz)
+        lstr_off = lstr_size = 0;
+    if (dstr_off && (uint64_t)dstr_off + dstr_size > (uint64_t)sz)
+        dstr_off = dstr_size = 0;
+    const uint8_t *lstr = lstr_off ? buf + lstr_off : NULL;
+    const uint8_t *dstr = dstr_off ? buf + dstr_off : NULL;
 
     dwarf_line_t *dl = calloc(1, sizeof *dl);
     if (!dl)
@@ -458,7 +648,7 @@ dwarf_line_t *dwarf_line_load(const char *elf_path)
         if (unit_end > c.end)
             unit_end = c.end;
         dwarf_cur uc = {c.p, unit_end, true};
-        parse_unit(dl, &uc, unit_end);
+        parse_unit(dl, &uc, unit_end, lstr, lstr_size, dstr, dstr_size);
         c.p = unit_end;
     }
     parse_symbols(dl, buf, sz, sym_off, sym_size, str_off, str_size);
