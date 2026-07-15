@@ -5,9 +5,9 @@
  *
  * Minimal, self-contained DWARF .debug_line reader: parses the line-number
  * program out of an llvm-mos ELF and answers address<->source-line queries for
- * the DAP adapter. No LLVM dependency. DWARF 2-4 (32-bit) is supported, which is
- * what `clang -gdwarf-4` emits for the rp6502 target; the addresses in the table
- * are the 6502 load addresses, i.e. the emulator's PC directly.
+ * the DAP adapter. No LLVM dependency. DWARF5 (32-bit), as emitted by the
+ * llvm-mos debug fork for the rp6502 target; the addresses in the table are the
+ * 6502 load addresses, i.e. the emulator's PC directly.
  */
 
 #ifndef _EMU_DBG_DWARF_LINE_H_
@@ -24,7 +24,7 @@ extern "C"
 typedef struct dwarf_line dwarf_line_t;
 
 /* Load + parse .debug_line from an ELF. Returns NULL if the file can't be read
- * or carries no usable (DWARF 2-4) line table. */
+ * or carries no usable (DWARF5) line table. */
 dwarf_line_t *dwarf_line_load(const char *elf_path);
 void dwarf_line_free(dwarf_line_t *dl);
 

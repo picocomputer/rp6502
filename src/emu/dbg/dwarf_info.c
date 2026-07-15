@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * DWARF .debug_info reader — see dwarf_info.h. Parses the abbrev table and the
- * DIE tree of each compilation unit (DWARF 2-4, 32-bit) into a small in-memory
+ * DIE tree of each compilation unit (DWARF5, 32-bit) into a small in-memory
  * model: the C type graph, the compilation-unit variables (globals/statics), and
  * each function's locals/parameters with their lexical-scope PC ranges and frame
  * base. The DAP adapter walks this to populate the Variables view.
@@ -111,8 +111,6 @@ enum
 {
     DW_AT_str_offsets_base = 0x72,
     DW_AT_addr_base = 0x73,
-    DW_AT_rnglists_base = 0x74,
-    DW_AT_loclists_base = 0x8c,
 };
 enum
 {
@@ -124,11 +122,10 @@ enum
     DW_OP_call_frame_cfa = 0x9c,
     DW_OP_addrx = 0xa1,
 };
-/* MOS DWARF register numbering (MOSRegisterInfo.td): RC (8-bit imaginary) base,
- * RS (16-bit pointer) base. RS0 is the soft-stack pointer (frame base). */
+/* MOS DWARF register numbering (MOSRegisterInfo.td): RS0 is the base of the
+ * 16-bit pointer registers; RS0 itself is the soft-stack pointer (frame base). */
 enum
 {
-    DW_MOS_RC0 = 0x20000,
     DW_MOS_RS0 = 0x30000,
     DW_MOS_IMAG_MAX = 0x80, /* pointer registers RS0..RS127 */
 };
@@ -573,7 +570,7 @@ static bool resolve_static_loc(const uint8_t *loc, uint32_t len, const read_ctx 
     if (loc[0] == DW_OP_addr)
     {
         addr = 0;
-        for (uint32_t k = 0; k + 1 <= len - 1 && k < 4; k++)
+        for (uint32_t k = 0; 1 + k < len && k < 4; k++)
             addr |= (uint32_t)loc[1 + k] << (8 * k);
         p = loc + 1 + rc->addr_size;
     }
@@ -1191,27 +1188,17 @@ dwarf_info_t *dwarf_info_load(const char *elf_path)
         if (unit_end > info_end) unit_end = info_end;
 
         uint16_t version = dwarf_u16(&c);
-        uint32_t ab_off;
-        uint8_t addr_size;
-        if (version >= 2 && version <= 4)
-        {
-            ab_off = dwarf_u32(&c);      /* debug_abbrev_offset, then address_size */
-            addr_size = dwarf_u8(&c);
-        }
-        else if (version == 5)
-        {
-            uint8_t unit_type = dwarf_u8(&c); /* v5 reorders: unit_type, address_size, abbrev */
-            addr_size = dwarf_u8(&c);
-            ab_off = dwarf_u32(&c);
-            if (unit_type != 0x01 /*DW_UT_compile*/)
-            {
-                c.p = unit_end; /* skeleton/split units carry extra header fields */
-                continue;
-            }
-        }
-        else
+        if (version != 5) /* DWARF5-only (llvm-mos debug fork) */
         {
             c.p = unit_end;
+            continue;
+        }
+        uint8_t unit_type = dwarf_u8(&c); /* v5 header: unit_type, address_size, abbrev */
+        uint8_t addr_size = dwarf_u8(&c);
+        uint32_t ab_off = dwarf_u32(&c);
+        if (unit_type != 0x01 /*DW_UT_compile*/)
+        {
+            c.p = unit_end; /* skeleton/split units carry extra header fields */
             continue;
         }
         if (!c.ok) break;
@@ -1303,8 +1290,6 @@ static bool frame_base_value(const dwarf_info_t *di, const func_t *fn,
         uint64_t reg = uleb_raw(fn->fb + 1, fn->fb + fn->fb_len, NULL);
         if (reg >= DW_MOS_RS0 && reg < DW_MOS_RS0 + DW_MOS_IMAG_MAX)
             rs = (int)(reg - DW_MOS_RS0);
-        else if (reg >= 528 && reg <= 528 + 0x7f) /* legacy pre-spec numbering */
-            rs = (int)(reg - 528);
     }
     else if (op >= DW_OP_reg0 && op <= DW_OP_reg31)
     {

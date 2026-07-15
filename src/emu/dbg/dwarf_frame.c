@@ -157,7 +157,7 @@ static uint32_t eval_expr(const uint8_t *e, uint32_t len, uint16_t s16, uint16_t
         {
             int reg = op - OP_breg0;
             int64_t off = dwarf_sleb(&c);
-            uint32_t rv = (reg == 4) ? s16 : (reg == 5 ? 0 : 0);
+            uint32_t rv = (reg == 4) ? s16 : 0;
             if (sp < 32) st[sp++] = (uint32_t)(rv + off); else *ok = false;
         }
         else if (op >= OP_lit0 && op <= OP_lit31)

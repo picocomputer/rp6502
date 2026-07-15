@@ -31,7 +31,7 @@ UTEST(dwarf_frame, loads)
     dwarf_frame_free(df);
 }
 
-/* Stopped in `area` past its 0x62e prologue. Soft SP 0x9000, 6502 SP 0xF8
+/* Stopped in `area` past its 0x647 prologue. Soft SP 0x9000, 6502 SP 0xF8
  * (s16 = 0x01F8). area's FDE row: CFA = RS0 + 14; caller PC = deref[((S+2) &
  * 0xff) | 0x100] = deref[0x1FA]; caller S = ((S+3) & 0xff) | 0x100; caller RS0 =
  * CFA. Put a call site (0x0400, in measure) at 0x1FA. */
@@ -42,7 +42,7 @@ UTEST(dwarf_frame, unwind_area)
     memset(g_mem, 0, sizeof g_mem);
     g_mem[0x1FA] = 0x00;
     g_mem[0x1FB] = 0x04;
-    dwarf_unwind_t u = dwarf_frame_step(df, 0x0640, 0x01F8, 0x9000, rd);
+    dwarf_unwind_t u = dwarf_frame_step(df, 0x0660, 0x01F8, 0x9000, rd);
     ASSERT_TRUE(u.ok);
     ASSERT_EQ((int)u.cfa, 0x900E); /* RS0 + 14 */
     ASSERT_EQ((int)u.pc, 0x0400);  /* return slot -> a call site in measure */

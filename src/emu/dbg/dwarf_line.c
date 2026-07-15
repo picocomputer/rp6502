@@ -211,9 +211,8 @@ static void lnct_read(dwarf_cur *c, uint16_t form,
     }
 }
 
-/* Run the line-number program (shared across DWARF 2-5). files[] is indexed by
- * the DWARF file register directly (0-based for v5, 1-based for v2-4); unused
- * slots are "". */
+/* Run the line-number program. files[] is indexed by the DWARF file register
+ * directly (0-based, per DWARF5); unused slots are "". */
 static void run_line_program(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
                              const char *const *files, uint8_t min_inst, uint8_t default_is_stmt,
                              int8_t line_base, uint8_t line_range, uint8_t opcode_base,
@@ -373,7 +372,7 @@ static void parse_v5_tables(dwarf_line_t *dl, dwarf_cur *c, const char **files,
     }
 }
 
-/* Parse one line-number program unit at [c->p, unit_end). DWARF 2-5. */
+/* Parse one line-number program unit at [c->p, unit_end). DWARF5-only. */
 static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
                        const uint8_t *lstr, uint32_t lstr_size,
                        const uint8_t *str, uint32_t str_size)
@@ -383,22 +382,18 @@ static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
         files[i] = "";
 
     uint16_t version = dwarf_u16(c);
-    if (version < 2 || version > 5)
+    if (version != 5) /* DWARF5-only (llvm-mos debug fork) */
         return;
 
-    if (version >= 5)
-    {
-        (void)dwarf_u8(c); /* address_size */
-        (void)dwarf_u8(c); /* segment_selector_size */
-    }
+    (void)dwarf_u8(c); /* address_size */
+    (void)dwarf_u8(c); /* segment_selector_size */
     uint32_t header_len = dwarf_u32(c);
     if (!c->ok || c->p > unit_end || header_len > (uint32_t)(unit_end - c->p))
         return; /* header_length runs past the unit: corrupt prologue */
     const uint8_t *prog = c->p + header_len; /* program starts after the prologue */
 
     uint8_t min_inst = dwarf_u8(c);
-    if (version >= 4)
-        (void)dwarf_u8(c); /* maximum_operations_per_instruction */
+    (void)dwarf_u8(c); /* maximum_operations_per_instruction */
     uint8_t default_is_stmt = dwarf_u8(c);
     int8_t line_base = (int8_t)dwarf_u8(c);
     uint8_t line_range = dwarf_u8(c);
@@ -410,43 +405,7 @@ static void parse_unit(dwarf_line_t *dl, dwarf_cur *c, const uint8_t *unit_end,
     for (int i = 1; i < opcode_base && i < 256; i++)
         std_len[i] = dwarf_u8(c);
 
-    if (version >= 5)
-    {
-        parse_v5_tables(dl, c, files, lstr, lstr_size, str, str_size);
-    }
-    else
-    {
-        /* include_directories (1-based), terminated by an empty string. */
-        const char *dirs[64];
-        int ndirs = 0;
-        dirs[0] = ""; /* index 0 = compilation directory (unknown here) */
-        for (;;)
-        {
-            const char *d = dwarf_cstr(c);
-            if (!c->ok || d[0] == 0)
-                break;
-            if (++ndirs < 64)
-                dirs[ndirs] = d;
-        }
-        /* file_names (1-based), each {name, dir_index, mtime, length}. */
-        int nfiles = 0;
-        for (;;)
-        {
-            const char *name = dwarf_cstr(c);
-            if (!c->ok || name[0] == 0)
-                break;
-            uint64_t di = dwarf_uleb(c);
-            (void)dwarf_uleb(c); /* mtime */
-            (void)dwarf_uleb(c); /* length */
-            char full[1024];
-            if (name[0] == '/' || di == 0 || di >= (uint64_t)(ndirs + 1) || di >= 64)
-                snprintf(full, sizeof full, "%s", name);
-            else
-                snprintf(full, sizeof full, "%s/%s", dirs[di], name);
-            if (++nfiles < 256)
-                files[nfiles] = intern(dl, full);
-        }
-    }
+    parse_v5_tables(dl, c, files, lstr, lstr_size, str, str_size);
     if (!c->ok)
         return;
 

@@ -2,6 +2,7 @@
  * DWARF5 inspection fixture for the rp6502 emulator reader rewrite.
  * Exercises the location/type/unwind cases the reader must handle:
  *   - globals of several base types + an array + a struct instance
+ *   - an enum type + pointer-typed globals (char * and Rect *)
  *   - a nested struct type (Point in Rect)
  *   - a function with parameters + locals (soft-stack fbreg locations)
  *   - a multi-frame call chain + a small recursion (CFI unwind + frame bases)
@@ -28,6 +29,13 @@ typedef struct
     char tag;
 } Rect;
 
+typedef enum
+{
+    RED,
+    GREEN = 1,
+    BLUE = 7,
+} Color;
+
 /* globals: base types + array + aggregate (DW_OP_addr / DW_OP_addrx) */
 int8_t g_i8 = -7;
 uint8_t g_u8 = 200;
@@ -35,6 +43,11 @@ int16_t g_i16 = -1234;
 uint16_t g_u16 = 55000;
 char g_msg[8] = "hello";
 Rect g_rect = {{3, 4}, 20, 10, 'R'};
+
+/* enum + pointer types (DW_KIND_ENUM / DW_KIND_POINTER) */
+Color g_color = BLUE;
+char *g_ptr = &g_msg[0];
+Rect *g_rectp = &g_rect;
 
 /* leaf with params + locals (soft-stack frame, fbreg locations) */
 static int16_t area(Point a, Point b)
@@ -66,7 +79,7 @@ static uint16_t sum_to(uint16_t n)
 
 int main(void)
 {
-    volatile int16_t a = measure(&g_rect);
+    volatile int16_t a = measure(g_rectp);
     volatile uint16_t s = sum_to(5);
-    return (int)(a + s + g_i8 + g_u8 + g_i16 + g_u16 + g_msg[0] + g_rect.tag);
+    return (int)(a + s + g_i8 + g_u8 + g_i16 + g_u16 + *g_ptr + g_rect.tag + g_color);
 }

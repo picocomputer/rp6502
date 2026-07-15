@@ -80,26 +80,12 @@ target_compile_definitions(test_dbg PRIVATE ADVENTURE_ROM="${ADVENTURE}")
 add_test(NAME dbg COMMAND test_dbg)
 set_tests_properties(dbg PROPERTIES TIMEOUT 60)
 
-# --- DWARF .debug_info variable/type model (dwarf_info.c). Standalone: the
-# parser only needs libc, and the fixture (vars.elf, an llvm-mos -O0 -gdwarf-4
-# build of vars.c) is committed, so this runs with no toolchain or window.
-# vars.c is deliberately header-less so its line numbers match the committed
-# .debug_line; prepending a license header shifts them and breaks dwarf_line. ---
-add_executable(test_dwarf_info test_dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
-target_include_directories(test_dwarf_info PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
-target_compile_definitions(test_dwarf_info PRIVATE VARS_ELF="${ROMS}/vars.elf")
-add_test(NAME dwarf_info COMMAND test_dwarf_info)
-
-# --- DWARF .debug_line address<->source mapping (dwarf_line.c). Reuses the same
-# committed vars.elf fixture (it also carries .debug_line + .symtab). ---
-add_executable(test_dwarf_line test_dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
-target_include_directories(test_dwarf_line PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
-target_compile_definitions(test_dwarf_line PRIVATE VARS_ELF="${ROMS}/vars.elf")
-add_test(NAME dwarf_line COMMAND test_dwarf_line)
-
-# --- DWARF5 coverage (info + line) against dwtest.elf, an llvm-mos debug-fork
-# -O0 -g build: strx strings, DW_OP_addrx globals, v5 unit/line headers, and the
-# MOS DWARF register numbering (frame_base = DW_OP_regx RS0 = 0x30000). ---
+# --- DWARF5 .debug_info + .debug_line reader coverage (dwarf_info.c /
+# dwarf_line.c) against dwtest.elf, an llvm-mos debug-fork -O0 -g build:
+# base/array/struct/enum/pointer types, strx strings, DW_OP_addrx globals via
+# .debug_addr, v5 unit/line headers, frame base + fbreg locals, and the MOS
+# DWARF register numbering (frame_base = DW_OP_regx RS0 = 0x30000). Standalone:
+# the parser only needs libc and the fixture is committed (no toolchain). ---
 add_executable(test_dwarf5 test_dwarf5.c ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
 target_include_directories(test_dwarf5 PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
 target_compile_definitions(test_dwarf5 PRIVATE DW5_ELF="${ROMS}/dwtest.elf")
