@@ -15,6 +15,7 @@
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/main.h"
+#include "emu/plat.h"
 #include "emu/sys/vga.h"
 
 #ifndef EMU_WITH_SOKOL
@@ -63,11 +64,6 @@ double window_get_scale(void) { return 0.0; }
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <time.h> /* frame limiter (clock_gettime/clock_nanosleep) */
-#if defined(_WIN32)
-#include <windows.h>
-#endif
 
 #if defined(__linux__)
 /* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
@@ -118,6 +114,30 @@ static void set_aspect_hint(int cw, int ch)
     XSetWMNormalHints(dpy, win, &h);
     XFlush(dpy);
 }
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+static void resize_window(int w, int h)
+{
+    HWND hwnd = (HWND)sapp_win32_get_hwnd();
+    if (!hwnd)
+        return;
+    /* w,h are client (== framebuffer/physical) px; grow by this window's DPI
+     * frame and keep the top-left corner. */
+    RECT r = {0, 0, w, h};
+    AdjustWindowRectExForDpi(&r,
+                             (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
+                             (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
+                             GetDpiForWindow(hwnd));
+    SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 #else
 static void resize_window(int w, int h) { (void)w, (void)h; }
 static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
@@ -246,14 +266,14 @@ static bool overlay_active(void)
 
 /* Framebuffer pixels reserved at the top of the window for the debugger's menu
  * bar, so the canvas is laid out BELOW the menu instead of under it (0 when the
- * overlay is inactive). dbgui reports the bar height in ImGui points; scale by
- * the DPI factor to get framebuffer pixels, and never reserve the whole window. */
+ * overlay is inactive). The overlay renders 1:1 (dbgui gets dpi_scale 1.0), so the
+ * reported bar height is already framebuffer pixels; never reserve the whole window. */
 static int top_reserved_px(void)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
     {
-        int px = (int)(dbgui_menu_height() * sapp_dpi_scale() + 0.5f);
+        int px = (int)(dbgui_menu_height() + 0.5f);
         if (px < 0)
             px = 0;
         if (px > sapp_height() - 1)
@@ -282,7 +302,10 @@ void window_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    int h = scaled_canvas_height(scale);
+    /* scaled_canvas_height is logical canvas px; resize_window wants framebuffer
+     * (== physical) px, so scale by the DPI factor (1.0 unless high_dpi is on).
+     * top_reserved_px() is already framebuffer px. */
+    int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
     int w = aspect_width(h, cw, ch);
     resize_window(w, h + top_reserved_px());
 }
@@ -291,7 +314,9 @@ double window_get_scale(void)
 {
     if (!sapp_isvalid())
         return 0.0;
-    return (double)(sapp_height() - top_reserved_px()) / VGA_MAX_HEIGHT;
+    /* sapp_height() and top_reserved_px() are framebuffer (physical) px; divide
+     * out the DPI factor so the reported scale stays in logical --scale units. */
+    return (double)(sapp_height() - top_reserved_px()) / (VGA_MAX_HEIGHT * sapp_dpi_scale());
 }
 
 /* The framebuffer-pixel rect (x,y from top-left, w,h) the emulated canvas draws
@@ -525,47 +550,6 @@ static void init_cb(void)
 #endif
 }
 
-/* Absolute monotonic nanosecond clock + a sleep-until-absolute-deadline, for the
- * frame pacer. now_ns() is portable (POSIX clock_gettime; QPC on Windows). The
- * sleep is the no-vsync software pacer; it's a no-op on the web (RAF paces) and
- * Windows (D3D11 Present paces). */
-static uint64_t now_ns(void)
-{
-#if defined(_WIN32)
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&c);
-    return (uint64_t)((double)c.QuadPart * 1e9 / (double)f.QuadPart);
-#else
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-#endif
-}
-
-static void sleep_until_ns(uint64_t target)
-{
-#if !defined(__EMSCRIPTEN__) && !defined(_WIN32)
-#if defined(__APPLE__)
-    uint64_t now = now_ns();
-    if (target > now)
-    {
-        uint64_t delta = target - now;
-        struct timespec req = {.tv_sec = (time_t)(delta / 1000000000ull),
-                               .tv_nsec = (long)(delta % 1000000000ull)};
-        while (nanosleep(&req, &req) != 0 && errno == EINTR)
-            ;
-    }
-#else
-    struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
-                             .tv_nsec = (long)(target % 1000000000ull)};
-    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &until, NULL);
-#endif
-#else
-    (void)target;
-#endif
-}
-
 static void frame_cb(void)
 {
 #ifdef EMU_WITH_DEBUGGER
@@ -590,9 +574,9 @@ static void frame_cb(void)
     if (!started)
     {
         started = true;
-        start_ns = now_ns();
+        start_ns = os_mono_ns();
     }
-    uint64_t target = (now_ns() - start_ns) * VGA_HZ / 1000000000ull;
+    uint64_t target = (os_mono_ns() - start_ns) * VGA_HZ / 1000000000ull;
     uint64_t behind = target > done ? target - done : 0;
     if (behind > WINDOW_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
     {
@@ -691,7 +675,9 @@ static void frame_cb(void)
      * simgui has its own sokol-gfx pipeline, separate from sgl. */
     if (dbg_is_active())
     {
-        dbgui_new_frame(sapp_width(), sapp_height(), sapp_frame_duration(), sapp_dpi_scale());
+        /* dpi_scale 1.0: render the overlay at native resolution so the 13px
+         * bitmap font lands 1:1 (crisp) instead of being magnified/blurred. */
+        dbgui_new_frame(sapp_width(), sapp_height(), sapp_frame_duration(), 1.0f);
         dbgui_draw();
     }
 #endif
@@ -801,7 +787,7 @@ static void frame_cb(void)
      * done·period would target a deadline already past and busy-loop. With vsync
      * the swap-block above already paces the loop. */
     if (!app.vsync)
-        sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
+        os_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
 }
 
 static void event_cb(const sapp_event *e)
@@ -842,12 +828,6 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
     app.vsync = vsync;
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
-    /* Under the real-time window, file I/O runs as non-blocking POSIX AIO so the
-     * 6502 keeps clocking while it completes (read_xram is background DMA into
-     * XRAM) — both the MSC0: drive and ROM: asset reads. Headless/--screenshot
-     * never reach here and stay synchronous. */
-    msc_set_async(true);
-    rom_set_async(true);
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9
      * canvas opens wider. The WM may restore a previous size instead; that's fine
@@ -875,6 +855,15 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         }
     }
 #endif
+    /* D3D11 (Windows) leaves the backbuffer at LOGICAL size unless high_dpi is
+     * requested, so a DPI-scaled display DWM-stretches (smears) the menu/canvas;
+     * ask for a native-resolution backbuffer there. X11 already renders native
+     * and ignores this flag; macOS Retina would flip to 2x, so leave it off
+     * outside Windows. */
+    bool high_dpi = false;
+#if defined(_WIN32)
+    high_dpi = true;
+#endif
     sapp_run(&(sapp_desc){
         .init_cb = init_cb,
         .frame_cb = frame_cb,
@@ -882,6 +871,7 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .cleanup_cb = cleanup_cb,
         .width = win_w,
         .height = win_h,
+        .high_dpi = high_dpi,
         .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
         .window_title = "Picocomputer 6502",
         .logger.func = slog_func,

@@ -27,10 +27,6 @@ size_t msc_from_host(const char *hostpath, char *out, size_t outsz); /* host -> 
 bool msc_has_drive_prefix(const char *path);   /* path carries an MSC0:/N: prefix */
 const char *msc_strip_drive(const char *path); /* path past a recognized drive prefix */
 
-/* Enable POSIX AIO for data transfers (the windowed real-time loop). Off by
- * default: headless/tests and the web build do synchronous I/O. */
-void msc_set_async(bool on);
-
 /* Convert a host (POSIX) errno to an api_errno. */
 api_errno msc_errno_to_api_errno(int host_errno);
 

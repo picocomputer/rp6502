@@ -43,7 +43,7 @@ static void queue_input(const char *text)
 
 /* Fold the launch ROM's "emulator" asset (if any) into o at lower priority than
  * the command line: parse the asset first, then re-apply argv over it. */
-static void merge_rom_args(options *o, int argc, char **argv)
+static void merge_rom_args(cli_options *o, int argc, char **argv)
 {
     char asset[2048];
     long n = rom_read_asset("emulator", asset, sizeof asset - 1);
@@ -54,13 +54,13 @@ static void merge_rom_args(options *o, int argc, char **argv)
     static char store[2048];
     static char *rom_argv[65];
     rom_argv[0] = (char *)"emulator"; /* getopt skips argv[0]; give it a name */
-    int rom_argc = tokenize_args(asset, rom_argv + 1, 64, store, sizeof store) + 1;
+    int rom_argc = cli_tokenize_args(asset, rom_argv + 1, 64, store, sizeof store) + 1;
 
-    options merged;
-    options_init(&merged);
-    if (parse_args(rom_argc, rom_argv, &merged))
+    cli_options merged;
+    cli_options_init(&merged);
+    if (cli_parse_args(rom_argc, rom_argv, &merged))
         fprintf(stderr, "rp6502-emu: ignoring the rest of the ROM 'emulator' options after a bad token\n");
-    parse_args(argc, argv, &merged); /* the command line wins within allowed fields */
+    cli_parse_args(argc, argv, &merged); /* the command line wins within allowed fields */
 
     /* Allowlist: a ROM's "emulator" asset may preset only presentation/timing
      * options — never anything that touches the host filesystem, injects input,
@@ -96,7 +96,7 @@ static void merge_rom_args(options *o, int argc, char **argv)
 
 /* Apply the presentation/timing options shared by both launch paths. False (with
  * a message) on an out-of-range --phi2 or an unsupported --code-page. */
-static bool apply_options(const options *o)
+static bool apply_options(const cli_options *o)
 {
     if (o->have_bg)
         window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
@@ -131,7 +131,7 @@ static bool apply_options(const options *o)
  * the command line. Boot the machine held (CPU stopped, no program) and serve
  * DAP on stdio; the launch handler loads + runs the ROM. The window still opens
  * (with the debugger overlay) so the program is visible while VS Code drives. */
-static int run_dap(const options *o)
+static int run_dap(const cli_options *o)
 {
     main_init();
     cpu_set_halted(true); /* hold until the DAP launch loads a program */
@@ -152,9 +152,9 @@ static int run_dap(const options *o)
 
 int main(int argc, char **argv)
 {
-    options o;
-    options_init(&o);
-    if (parse_args(argc, argv, &o))
+    cli_options o;
+    cli_options_init(&o);
+    if (cli_parse_args(argc, argv, &o))
     {
         cli_usage(argv[0]);
         return 2;

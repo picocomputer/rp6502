@@ -7,6 +7,7 @@
 
 #include "emu/api/std.h"
 #include "emu/host/msc.h"
+#include "emu/plat.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -14,10 +15,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
-#include <unistd.h>
-#ifdef EMU_HAVE_AIO
-#include <aio.h>
-#endif
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -34,26 +31,14 @@ static void host_persist(void) {}
 
 #define HOST_MAX_OPEN 16
 
-/* Data transfers run as POSIX AIO under the windowed real-time loop so the 6502
- * keeps clocking while they complete (read_xram is the documented background DMA
- * into XRAM); synchronous otherwise — headless/tests stay deterministic and the
- * web build (no aio) uses the instant in-RAM MEMFS. */
-static bool g_async;
-void msc_set_async(bool on) { g_async = on; }
-
-/* An open host file: a plain fd, flagged once it is written so the drive is
- * persisted when it closes. Under g_async a single in-flight aiocb carries the
- * current read/write, polled to completion by the per-scanline RIA pump. */
+/* An open host file: a plain fd, flagged once it is written so the drive is persisted
+ * when it closes. The read/write transfer is non-blocking in the fs seam. */
 struct host_file
 {
     bool used;
     int fd;
     bool wrote;
     bool writable; /* opened for write: lseek past EOF extends (else it clamps) */
-#ifdef EMU_HAVE_AIO
-    bool aio_active;
-    struct aiocb cb;
-#endif
 };
 static struct host_file files[HOST_MAX_OPEN];
 
@@ -206,7 +191,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = msc_errno_to_api_errno(errno);
         return -1;
     }
-    int fd = open(host, flags_to_posix(flags), 0666);
+    int fd = fs_open(host, flags_to_posix(flags), 0666);
     if (fd < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -218,13 +203,13 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
             break;
     if (des == HOST_MAX_OPEN)
     {
-        close(fd);
+        fs_close(fd);
         *err = API_EMFILE;
         return -1;
     }
     files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & 0x02) != 0};
     if (flags & 0x40) /* APPEND: one-time seek to EOF (O_TRUNC already ran) */
-        lseek(fd, 0, SEEK_END);
+        fs_lseek(fd, 0, SEEK_END);
     return des;
 }
 
@@ -236,21 +221,10 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (f->aio_active) /* reap an in-flight transfer (a reset can close mid-op) */
-    {
-        const struct aiocb *l = &f->cb;
-        aio_cancel(f->fd, &f->cb);
-        while (aio_error(&f->cb) == EINPROGRESS)
-            aio_suspend(&l, 1, NULL);
-        aio_return(&f->cb);
-        f->aio_active = false;
-    }
-#endif
     bool wrote = f->wrote;
     int rc = 0;
     if (f->fd >= 0)
-        rc = close(f->fd);
+        rc = fs_close(f->fd);
     f->used = false;
     if (wrote)
         host_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
@@ -265,123 +239,33 @@ std_rw_result msc_std_close(int desc, api_errno *err)
 std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
-    *got = 0;
     if (!f)
     {
+        *got = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (g_async)
-    {
-        if (!f->aio_active)
-        {
-            off_t off = lseek(f->fd, 0, SEEK_CUR);
-            if (off < 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            memset(&f->cb, 0, sizeof(f->cb));
-            f->cb.aio_fildes = f->fd;
-            f->cb.aio_offset = off;
-            f->cb.aio_buf = buf;
-            f->cb.aio_nbytes = count;
-            f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-            if (aio_read(&f->cb) != 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            f->aio_active = true;
-            return STD_PENDING;
-        }
-        int e = aio_error(&f->cb);
-        if (e == EINPROGRESS)
-            return STD_PENDING;
-        f->aio_active = false;
-        ssize_t r = aio_return(&f->cb);
-        if (r < 0)
-        {
-            *err = msc_errno_to_api_errno(e);
-            return STD_ERROR;
-        }
-        if (r > 0)
-            lseek(f->fd, r, SEEK_CUR); /* aio_read leaves the fd offset untouched */
-        *got = (uint32_t)r;
-        return STD_OK;
-    }
-#endif
-    ssize_t r = read(f->fd, buf, count);
-    if (r < 0)
-    {
+    std_rw_result r = fs_read(f->fd, buf, count, got);
+    if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
-        return STD_ERROR;
-    }
-    *got = (uint32_t)r;
-    return STD_OK;
+    return r;
 }
 
 std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
-    *put = 0;
     if (!f)
     {
+        *put = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (g_async)
-    {
-        if (!f->aio_active)
-        {
-            off_t off = lseek(f->fd, 0, SEEK_CUR);
-            if (off < 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            memset(&f->cb, 0, sizeof(f->cb));
-            f->cb.aio_fildes = f->fd;
-            f->cb.aio_offset = off;
-            f->cb.aio_buf = (void *)buf;
-            f->cb.aio_nbytes = count;
-            f->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-            if (aio_write(&f->cb) != 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            f->aio_active = true;
-            return STD_PENDING;
-        }
-        int e = aio_error(&f->cb);
-        if (e == EINPROGRESS)
-            return STD_PENDING;
-        f->aio_active = false;
-        ssize_t r = aio_return(&f->cb);
-        if (r < 0)
-        {
-            *err = msc_errno_to_api_errno(e);
-            return STD_ERROR;
-        }
+    std_rw_result r = fs_write(f->fd, buf, count, put);
+    if (r == STD_OK)
         f->wrote = true;
-        if (r > 0)
-            lseek(f->fd, r, SEEK_CUR); /* aio_write leaves the fd offset untouched */
-        *put = (uint32_t)r;
-        return STD_OK;
-    }
-#endif
-    ssize_t r = write(f->fd, buf, count);
-    if (r < 0)
-    {
+    else if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
-        return STD_ERROR;
-    }
-    f->wrote = true;
-    *put = (uint32_t)r;
-    return STD_OK;
+    return r;
 }
 
 int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
@@ -395,21 +279,21 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     /* The position is reported back as a signed 32-bit value (0xFFFFFFFF is the
      * error sentinel), so reject a target past 2GB-1 before moving the pointer,
      * leaving the file pointer where it was rather than at an unreportable spot. */
-    off_t cur = lseek(f->fd, 0, SEEK_CUR);
+    int64_t cur = fs_lseek(f->fd, 0, SEEK_CUR);
     if (cur < 0)
     {
         *err = msc_errno_to_api_errno(errno);
         return -1;
     }
-    off_t base;
+    int64_t base;
     if (whence == SEEK_SET)
         base = 0;
     else if (whence == SEEK_CUR)
         base = cur;
     else if (whence == SEEK_END)
     {
-        base = lseek(f->fd, 0, SEEK_END);
-        lseek(f->fd, cur, SEEK_SET);
+        base = fs_lseek(f->fd, 0, SEEK_END);
+        fs_lseek(f->fd, cur, SEEK_SET);
         if (base < 0)
         {
             *err = msc_errno_to_api_errno(errno);
@@ -421,7 +305,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
         *err = API_EINVAL;
         return -1;
     }
-    off_t target = base + off;
+    int64_t target = base + off;
     if (target < 0)
     {
         *err = API_EINVAL;
@@ -436,7 +320,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
      * pointer to its size; a writable file is extended to the target. Plain POSIX
      * lseek would leave a read pointer past EOF and defer any extension to the
      * next write, diverging from hardware. */
-    off_t size = lseek(f->fd, 0, SEEK_END);
+    int64_t size = fs_lseek(f->fd, 0, SEEK_END);
     if (size < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -446,13 +330,13 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     {
         if (!f->writable)
             target = size; /* read mode: clamp to EOF */
-        else if (ftruncate(f->fd, target) < 0) /* write mode: extend the file */
+        else if (fs_ftruncate(f->fd, target) < 0) /* write mode: extend the file */
         {
             *err = msc_errno_to_api_errno(errno);
             return -1;
         }
     }
-    off_t np = lseek(f->fd, target, SEEK_SET);
+    int64_t np = fs_lseek(f->fd, target, SEEK_SET);
     if (np < 0)
     {
         *err = msc_errno_to_api_errno(errno);

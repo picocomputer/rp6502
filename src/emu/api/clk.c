@@ -7,22 +7,14 @@
 
 #include "emu/api/clk.h"
 #include "emu/api/oem.h"
+#include "emu/compiler.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "pico/time.h"
 #include "api/api.h"
 #include "api/clk.h"
-#include <locale.h>
 #include <string.h>
 #include <time.h>
-
-#if defined(__APPLE__)
-size_t strftime_l(char *restrict, size_t, const char *restrict,
-                  const struct tm *restrict, locale_t);
-#endif
-
-/* Host locale used only for strftime, so the rest of the process stays in the
- * C locale. NULL if the environment locale isn't installed (falls back to C). */
-static locale_t g_locale;
 
 /* Wall-clock offset in seconds. Allows setting time without changing host clock. */
 static int64_t g_time_offset;
@@ -34,8 +26,7 @@ static uint64_t g_run_start_us;
 void clk_reset(void)
 {
     g_time_offset = 0;
-    if (!g_locale)
-        g_locale = newlocale(LC_ALL_MASK, "", (locale_t)0);
+    os_locale_reset();
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
@@ -58,8 +49,7 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
                            const struct tm *tm)
 {
     char utf8[512];
-    size_t un = g_locale ? strftime_l(utf8, sizeof utf8, format, tm, g_locale)
-                         : strftime(utf8, sizeof utf8, format, tm);
+    size_t un = os_strftime_local(utf8, sizeof utf8, format, tm);
     /* On overflow strftime returns 0 and leaves the buffer unspecified; force a
      * terminator so the UTF-8 walk below can't run off the end. */
     utf8[un < sizeof utf8 ? un : sizeof utf8 - 1] = 0;
@@ -76,11 +66,13 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
 }
 
 /* The 18-byte wire struct tm the 6502 libc pushes (9 int16, struct-tm order). */
-struct __attribute__((packed)) clk_wire_tm
+EMU_PACK_BEGIN
+struct EMU_PACKED clk_wire_tm
 {
     int16_t tm_sec, tm_min, tm_hour, tm_mday, tm_mon;
     int16_t tm_year, tm_wday, tm_yday, tm_isdst;
 };
+EMU_PACK_END
 _Static_assert(18 == sizeof(struct clk_wire_tm), "wire struct tm");
 
 static void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
@@ -124,8 +116,10 @@ static bool clk_api_to_tm(bool local)
         return api_return_errno(API_EINVAL);
     time_t t = (int64_t)u; /* 8-byte pushes carry the sign */
     struct tm tm;
-    if (!(local ? localtime_r(&t, &tm) : gmtime_r(&t, &tm)))
-        return api_return_errno(API_EINVAL);
+    if (local)
+        os_localtime(t, &tm);
+    else
+        os_gmtime(t, &tm);
     if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
     struct clk_wire_tm w;
@@ -183,12 +177,7 @@ bool clk_api_strftime(void)
      * %a/%A rather than being recomputed. */
     struct tm probe = tm;
     if (mktime(&probe) != (time_t)-1)
-    {
-#if defined(__GLIBC__) || defined(__APPLE__) || defined(__EMSCRIPTEN__) || defined(__USE_MISC)
-        tm.tm_gmtoff = probe.tm_gmtoff;
-        tm.tm_zone = probe.tm_zone;
-#endif
-    }
+        os_tm_apply_zone(&tm, &probe);
     size_t n = clk_strftime((char *)xstack, max, format, &tm);
     xstack_ptr = XSTACK_SIZE - n;
     memmove(&xstack[xstack_ptr], xstack, n);

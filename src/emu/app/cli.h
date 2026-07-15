@@ -43,9 +43,9 @@ typedef struct
     bool have_seed;
     char **rom_args; /* words after "--", argv[1..] for the booted ROM (NULL = none given) */
     int n_rom_args;
-} options;
+} cli_options;
 
-void options_init(options *o);
+void cli_options_init(cli_options *o);
 
 /* Parse argv (argv[0] is the program name, per the getopt convention) into o,
  * assigning only the options present so a later pass overrides an earlier one.
@@ -54,7 +54,7 @@ void options_init(options *o);
  * "--opt=value", and permutes the lone positional (the ROM) to the tail.
  * Everything after a standalone "--" lands in rom_args (the booted ROM's
  * argv[1..]), never parsed as options. */
-int parse_args(int argc, char **argv, options *o);
+int cli_parse_args(int argc, char **argv, cli_options *o);
 
 /* Print the option summary to stderr (argv0 names the program). */
 void cli_usage(const char *argv0);
@@ -62,7 +62,7 @@ void cli_usage(const char *argv0);
 /* Split a command string into argv tokens, honoring "..."/'...' quoting (a quote
  * groups; unquoted whitespace separates). Token text is written into store[];
  * argv[] is filled with pointers into it. Returns the token count. */
-int tokenize_args(const char *s, char **argv, int max, char *store, size_t cap);
+int cli_tokenize_args(const char *s, char **argv, int max, char *store, size_t cap);
 
 /* The path component after the last '/'. */
 const char *cli_base_name(const char *p);

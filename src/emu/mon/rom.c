@@ -8,6 +8,7 @@
 #include "emu/host/msc.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
+#include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include <ctype.h>
@@ -17,10 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include <unistd.h>
-#ifdef EMU_HAVE_AIO
-#include <aio.h>
-#endif
 
 /* ------------------------------------------------------------------ */
 /* ROM: drive — read-only assets, windows into the loaded .rp6502      */
@@ -124,16 +121,9 @@ static bool path_is_rom(const char *path, const char **rest)
     return false;
 }
 
-/* Reads run as POSIX AIO under the real-time window so the 6502 keeps clocking
- * while they complete (mirrors the MSC0: driver); synchronous otherwise — the
- * headless/test paths stay deterministic and the web build (no aio) reads from
- * the in-RAM MEMFS. */
-static bool g_rom_async;
-void rom_set_async(bool on) { g_rom_async = on; }
-
-/* ---- Read-only file windows [base, base+len) into a host file, opened by the
- * ROM: asset driver. Read on demand: a positioned AIO read polled to completion
- * under the window, or pread when synchronous. Descriptors index the pool. ---- */
+/* ---- Read-only file windows [base, base+len) into a host file, opened by the ROM:
+ * asset driver. The window's fd is kept positioned at base + pos, and reads go through
+ * the non-blocking fs seam. Descriptors index the pool. ---- */
 struct rom_window
 {
     bool used;
@@ -141,10 +131,6 @@ struct rom_window
     size_t base;
     size_t len;
     size_t pos;
-#ifdef EMU_HAVE_AIO
-    bool aio_active;
-    struct aiocb cb; /* the single in-flight read, polled by the RIA pump */
-#endif
 };
 static struct rom_window windows[ROM_OPEN_MAX];
 
@@ -158,7 +144,7 @@ static struct rom_window *rom_win(int desc)
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
-    int fd = open(hostpath, O_RDONLY);
+    int fd = fs_open(hostpath, O_RDONLY, 0);
     if (fd < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -170,11 +156,12 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
             break;
     if (des == ROM_OPEN_MAX)
     {
-        close(fd);
+        fs_close(fd);
         *err = API_EMFILE;
         return -1;
     }
     windows[des] = (struct rom_window){.used = true, .fd = fd, .base = base, .len = len};
+    fs_lseek(fd, (int64_t)base, SEEK_SET); /* window reads start at base; keep fd == base + pos */
     return des;
 }
 
@@ -186,19 +173,8 @@ std_rw_result rom_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-#ifdef EMU_HAVE_AIO
-    if (w->aio_active) /* reap an in-flight read (a reset can close mid-op) */
-    {
-        const struct aiocb *l = &w->cb;
-        aio_cancel(w->fd, &w->cb);
-        while (aio_error(&w->cb) == EINPROGRESS)
-            aio_suspend(&l, 1, NULL);
-        aio_return(&w->cb);
-        w->aio_active = false;
-    }
-#endif
     if (w->fd >= 0)
-        close(w->fd);
+        fs_close(w->fd);
     w->used = false;
     return STD_OK;
 }
@@ -206,59 +182,25 @@ std_rw_result rom_std_close(int desc, api_errno *err)
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct rom_window *w = rom_win(desc);
-    *got = 0;
     if (!w)
     {
+        *got = 0;
         *err = API_EBADF;
         return STD_ERROR;
     }
     size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
-    size_t want = count < avail ? count : avail;
-#ifdef EMU_HAVE_AIO
-    if (g_rom_async)
+    uint32_t want = count < avail ? count : (uint32_t)avail;
+    if (want == 0)
     {
-        if (!w->aio_active)
-        {
-            if (want == 0)
-                return STD_OK; /* at the window's end: nothing to submit */
-            memset(&w->cb, 0, sizeof(w->cb));
-            w->cb.aio_fildes = w->fd;
-            w->cb.aio_offset = (off_t)(w->base + w->pos);
-            w->cb.aio_buf = buf;
-            w->cb.aio_nbytes = want;
-            w->cb.aio_sigevent.sigev_notify = SIGEV_NONE;
-            if (aio_read(&w->cb) != 0)
-            {
-                *err = msc_errno_to_api_errno(errno);
-                return STD_ERROR;
-            }
-            w->aio_active = true;
-            return STD_PENDING;
-        }
-        int e = aio_error(&w->cb);
-        if (e == EINPROGRESS)
-            return STD_PENDING;
-        w->aio_active = false;
-        ssize_t r = aio_return(&w->cb);
-        if (r < 0)
-        {
-            *err = msc_errno_to_api_errno(e);
-            return STD_ERROR;
-        }
-        w->pos += (size_t)r;
-        *got = (uint32_t)r;
-        return STD_OK;
+        *got = 0;
+        return STD_OK; /* at the window's end (EOF): nothing to read */
     }
-#endif
-    ssize_t r = pread(w->fd, buf, want, (off_t)(w->base + w->pos));
-    if (r < 0)
-    {
+    std_rw_result r = fs_read(w->fd, buf, want, got);
+    if (r == STD_OK)
+        w->pos += *got;
+    else if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
-        return STD_ERROR;
-    }
-    w->pos += (size_t)r;
-    *got = (uint32_t)r;
-    return STD_OK;
+    return r;
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
@@ -282,6 +224,7 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     if ((size_t)np > w->len) /* clamp to the asset extent (firmware rom_std_lseek) */
         np = (long)w->len;
     w->pos = (size_t)np;
+    fs_lseek(w->fd, (int64_t)(w->base + w->pos), SEEK_SET); /* keep fd == base + pos for fs_read */
     *pos = (int32_t)w->pos;
     return 0;
 }

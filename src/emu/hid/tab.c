@@ -127,13 +127,3 @@ void tab_reset(void)
     tab_xram = 0xFFFF;
     memset(tab_block, 0, sizeof(tab_block));
 }
-
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-/* The web shell reads this to drop the mouse "click to capture" hint once a
- * program maps the tablet (the tablet takes the pointer without capturing it). */
-EMSCRIPTEN_KEEPALIVE int tab_mapped(void)
-{
-    return tab_is_mapped() ? 1 : 0;
-}
-#endif
