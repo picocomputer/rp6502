@@ -75,20 +75,20 @@ add_library(emu_core STATIC
 
 if(WIN32)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/win/dir.c
-        ${RP6502_SRC}/emu/win/fs.c
-        ${RP6502_SRC}/emu/win/os.c
-        ${RP6502_SRC}/emu/win/win.c)
+        ${RP6502_SRC}/emu/host/win/dir.c
+        ${RP6502_SRC}/emu/host/win/fs.c
+        ${RP6502_SRC}/emu/host/win/os.c
+        ${RP6502_SRC}/emu/host/win/win.c)
 elseif(EMSCRIPTEN)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/posix/dir.c
-        ${RP6502_SRC}/emu/web/fs.c
-        ${RP6502_SRC}/emu/posix/os.c)
+        ${RP6502_SRC}/emu/host/posix/dir.c
+        ${RP6502_SRC}/emu/host/web/fs.c
+        ${RP6502_SRC}/emu/host/posix/os.c)
 else()
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/posix/dir.c
-        ${RP6502_SRC}/emu/posix/fs.c
-        ${RP6502_SRC}/emu/posix/os.c)
+        ${RP6502_SRC}/emu/host/posix/dir.c
+        ${RP6502_SRC}/emu/host/posix/fs.c
+        ${RP6502_SRC}/emu/host/posix/os.c)
     include(CheckSymbolExists)
     find_library(RT_LIBRARY rt)
     if(RT_LIBRARY)

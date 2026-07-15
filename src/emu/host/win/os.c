@@ -11,7 +11,7 @@
 
 #include "emu/plat.h"
 #include "emu/api/oem.h"
-#include "emu/win/win.h"
+#include "emu/host/win/win.h"
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>

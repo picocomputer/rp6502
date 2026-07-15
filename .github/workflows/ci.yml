@@ -334,12 +334,12 @@ jobs:
 
       - name: Build Android APK (Release)
         run: |
-          cd src/emu/android
+          cd src/emu/host/android
           ./gradlew assembleRelease
 
       - name: Stage Android APK
         run: |
-          cp src/emu/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu-release.apk
+          cp src/emu/host/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu-release.apk
 
       - uses: actions/upload-artifact@v7
         with:

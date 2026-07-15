@@ -22,7 +22,7 @@ All builds can be run directly from the command line using the Gradle wrapper in
 
 ### Step 1: Navigate to the Android project folder
 ```bash
-cd src/emu/android
+cd src/emu/host/android
 ```
 
 ### Step 2: Compile the APK
