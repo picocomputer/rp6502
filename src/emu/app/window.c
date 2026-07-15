@@ -1373,7 +1373,9 @@ sapp_desc sokol_main(int argc, char* argv[])
         .frame_cb = frame_cb,
         .event_cb = event_cb,
         .cleanup_cb = cleanup_cb,
-        .native_event_cb = rp6502_android_input_hook,
+        .android = {
+            .native_event_cb = rp6502_android_input_hook,
+        },
         .width = 640,
         .height = 480,
         .window_title = "Picocomputer 6502",
