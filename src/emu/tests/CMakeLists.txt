@@ -97,6 +97,20 @@ target_include_directories(test_dwarf_line PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${
 target_compile_definitions(test_dwarf_line PRIVATE VARS_ELF="${ROMS}/vars.elf")
 add_test(NAME dwarf_line COMMAND test_dwarf_line)
 
+# --- DWARF5 coverage (info + line) against dwtest.elf, an llvm-mos debug-fork
+# -O0 -g build: strx strings, DW_OP_addrx globals, v5 unit/line headers, and the
+# MOS DWARF register numbering (frame_base = DW_OP_regx RS0 = 0x30000). ---
+add_executable(test_dwarf5 test_dwarf5.c ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_line.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
+target_include_directories(test_dwarf5 PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
+target_compile_definitions(test_dwarf5 PRIVATE DW5_ELF="${ROMS}/dwtest.elf")
+add_test(NAME dwarf5 COMMAND test_dwarf5)
+
+# --- DWARF .debug_frame CFI unwinder (dwarf_frame.c): two-stack unwind. ---
+add_executable(test_dwarf_frame test_dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c)
+target_include_directories(test_dwarf_frame PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_SRC}/emu ${RP6502_SRC}/emu/dbg)
+target_compile_definitions(test_dwarf_frame PRIVATE DW5_ELF="${ROMS}/dwtest.elf")
+add_test(NAME dwarf_frame COMMAND test_dwarf_frame)
+
 # --- cc65 .dbg reader (cc65dbg.c): line mapping + funcs + untyped variables.
 # Fixture is the committed, hand-authored cc65.dbg (plain text, no toolchain). ---
 add_executable(test_cc65dbg test_cc65dbg.c ${RP6502_SRC}/emu/dbg/cc65dbg.c)
