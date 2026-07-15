@@ -30,19 +30,6 @@ static uint8_t fake_mem(uint16_t a)
     return 0;
 }
 
-/* Synthetic soft-SP-lowering prologue idiom at area's entry ($0635): the fork
- * emits a register save before this idiom, so the real bytes don't sit at lo;
- * feed the canonical clc/lda $00/adc #lo/sta $00/lda $01/adc #hi/sta $01 that
- * dwarf_info_frame_size matches, here lowering rc0:rc1 by 11. */
-static uint8_t fake_prologue_mem(uint16_t a)
-{
-    static const uint8_t pro[13] = {0x18, 0xA5, 0x00, 0x69, 0xF5, 0x85, 0x00,
-                                    0xA5, 0x01, 0x69, 0xFF, 0x85, 0x01};
-    if (a >= 0x0635 && a < 0x0635 + 13)
-        return pro[a - 0x0635];
-    return 0;
-}
-
 static const dwarf_var_t *find(const dwarf_var_t *v, int n, const char *name)
 {
     for (int i = 0; i < n; i++)
@@ -184,23 +171,12 @@ UTEST(dwarf5, frame_base_and_locals)
     ASSERT_TRUE(a != NULL && a->addr_ok);
     ASSERT_EQ((int)a->addr, 0x900a); /* DW_OP_fbreg +10 */
 
-    /* base unavailable (a caller whose frame base couldn't be recovered) */
+    /* base unavailable (a caller whose frame base couldn't be recovered): the
+     * local is still listed, but unresolved. */
     n = dwarf_info_locals(di, 0x0660, fb, false, v, 64);
-    ASSERT_FALSE(find(v, n, "s")->addr_ok);
-    dwarf_info_free(di);
-}
-
-/* The soft-stack frame size comes from the prologue idiom, not the DWARF local
- * extents. dwarf_info_frame_size reads the idiom at the function's entry. */
-UTEST(dwarf5, frame_size_from_prologue)
-{
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
-    ASSERT_TRUE(di != NULL);
-    uint16_t alloc = 0xffff;
-    ASSERT_TRUE(dwarf_info_frame_size(di, 0x0660, fake_prologue_mem, &alloc)); /* in area */
-    ASSERT_EQ((int)alloc, 11);
-    /* pc outside any known function -> can't size (fail-closed) */
-    ASSERT_FALSE(dwarf_info_frame_size(di, 0x0010, fake_prologue_mem, &alloc));
+    const dwarf_var_t *su = find(v, n, "s");
+    ASSERT_TRUE(su != NULL);
+    ASSERT_FALSE(su->addr_ok);
     dwarf_info_free(di);
 }
 

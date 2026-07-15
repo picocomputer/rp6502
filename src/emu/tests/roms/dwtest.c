@@ -9,7 +9,8 @@
  * The committed dwtest.elf is the DWARF5 fixture for test_dwarf5 / test_dwarf_frame,
  * rebuilt with the llvm-mos debug fork (johnwbyrd, feature/debug/v*) as:
  *   mos-rp6502-clang -g -O0 dwtest.c -o dwtest.rp6502   # emits the sidecar dwtest.rp6502.elf
- * Inspect: llvm-dwarfdump --all / --debug-frame dwtest.rp6502.elf
+ *   cp dwtest.rp6502.elf dwtest.elf                     # the name the build references
+ * Inspect: llvm-dwarfdump --all / --debug-frame dwtest.elf
  * If regenerated, the addresses asserted in test_dwarf5/test_dwarf_frame may shift.
  */
 

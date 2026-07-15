@@ -326,6 +326,10 @@ static bool apply_rule(const rule_t *r, uint32_t cfa, uint16_t s16, uint16_t rs0
     case RULE_OFFSET: { uint16_t a = (uint16_t)(cfa + r->off); *out = (uint16_t)(rd(a) | (rd((uint16_t)(a + 1)) << 8)); return true; }
     case RULE_VAL_EXPR: *out = (uint16_t)eval_expr(r->expr, r->elen, s16, rs0, rd, &ok); return ok;
     case RULE_EXPR: { uint16_t a = (uint16_t)eval_expr(r->expr, r->elen, s16, rs0, rd, &ok); if (!ok) return false; *out = (uint16_t)(rd(a) | (rd((uint16_t)(a + 1)) << 8)); return true; }
+    case RULE_REG:
+        if (r->reg == 4) { *out = s16; return true; }
+        if (r->reg == DW_MOS_RS0) { *out = rs0; return true; }
+        return false; /* value held in a register we don't track */
     case RULE_SAME: *out = cur; return true;
     case RULE_UNDEF:
     default: return false;
@@ -363,11 +367,12 @@ dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
     uint32_t cfa;
     if (st.cfa_is_expr)
         cfa = eval_expr(st.cfa_expr, st.cfa_elen, s16, rs0, readmem, &ok);
+    else if (st.cfa_reg == 4)
+        cfa = s16 + (uint32_t)st.cfa_off;
+    else if (st.cfa_reg == DW_MOS_RS0)
+        cfa = rs0 + (uint32_t)st.cfa_off;
     else
-    {
-        uint32_t base = (st.cfa_reg == 4) ? s16 : (st.cfa_reg == DW_MOS_RS0 ? rs0 : 0);
-        cfa = base + (uint32_t)st.cfa_off;
-    }
+        return u; /* CFA base is a register we don't track: fail the unwind */
     if (!ok)
         return u;
 
@@ -409,8 +414,9 @@ dwarf_frame_t *dwarf_frame_load(const char *elf_path)
     long sz = ftell(f);
     fseek(f, 0, SEEK_SET);
     if (sz <= 64) { fclose(f); return NULL; }
-    uint8_t *buf = malloc((size_t)sz);
+    uint8_t *buf = malloc((size_t)sz + 1);
     if (!buf || fread(buf, 1, (size_t)sz, f) != (size_t)sz) { free(buf); fclose(f); return NULL; }
+    buf[sz] = 0; /* terminate any unterminated string at end of file */
     fclose(f);
 
     if (memcmp(buf, "\x7f""ELF", 4) != 0 || buf[4] != 1 || buf[5] != 1) { free(buf); return NULL; }

@@ -517,34 +517,20 @@ void unwind_stack()
     }
 }
 
-/* Fill each frame's soft/C stack frame base by chaining outward from the live top
- * frame. There is no CFI on either target, so a caller's base is reconstructed
- * from stack-adjustment deltas: llvm-mos adds the callee's prologue allocation;
- * cc65 adds the callee's argument region + the caller's own frame size. Fail-
- * closed: the moment a delta can't be determined exactly, that frame and every
- * outer frame are left base_ok=false so their frame-relative locals show as
- * unavailable rather than as fabricated values. Caller holds g_src_mtx. */
+/* Fill each frame's soft/C stack frame base for the heuristic (non-CFI) unwind.
+ * llvm-mos resolves only the top frame's base directly — caller chaining comes
+ * from CFI, so callers here stay base_ok=false. cc65 has no CFI, so a caller's
+ * base is chained outward from stack-adjustment deltas (callee argument region +
+ * caller frame size). Fail-closed: an unresolved delta leaves that frame and every
+ * outer frame base_ok=false so frame-relative locals show as unavailable rather
+ * than fabricated. Caller holds g_src_mtx. */
 void compute_frame_bases()
 {
     if (g_frames.empty())
         return;
     if (g_dinfo)
-    {
         g_frames[0].base_ok =
             dwarf_info_frame_base(g_dinfo, g_frames[0].src_pc, dap_readmem, &g_frames[0].base);
-        for (size_t k = 1; k < g_frames.size(); k++)
-        {
-            uint16_t alloc;
-            if (g_frames[k - 1].base_ok &&
-                dwarf_info_frame_size(g_dinfo, g_frames[k - 1].src_pc, dap_readmem, &alloc))
-            {
-                g_frames[k].base = (uint16_t)(g_frames[k - 1].base + alloc);
-                g_frames[k].base_ok = true;
-            }
-            else
-                g_frames[k].base_ok = false;
-        }
-    }
     else if (g_cc65)
     {
         g_frames[0].base_ok =
@@ -1623,11 +1609,11 @@ extern "C" void dap_start(void)
              * concurrent (re)load on the main thread can't free it mid-use. */
             std::lock_guard<std::mutex> lk(g_src_mtx);
             uint16_t pc0 = dbg_stop_pc();
-            if (g_dframe)
+            if (g_dframe && dwarf_frame_has(g_dframe, pc0))
                 unwind_stack_cfi(pc0); /* exact CFI unwind (llvm-mos DWARF5) */
             else
             {
-                /* cc65 / no .debug_frame: the heuristic hardware-stack scan. */
+                /* cc65, no .debug_frame, or a pc no FDE covers: heuristic scan. */
                 g_frames.push_back({pc0, pc0});
                 unwind_stack();
                 compute_frame_bases();

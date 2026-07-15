@@ -69,13 +69,6 @@ int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc, uint16_t frame_base,
 bool dwarf_info_frame_base(const dwarf_info_t *di, uint16_t pc,
                            uint8_t (*readmem)(uint16_t addr), uint16_t *out);
 
-/* The soft-stack bytes the function at pc allocates (read from its prologue), to
- * chain a caller's frame base: base[caller] = base[callee] + *alloc. False when
- * it can't be determined exactly (fbreg locals with no recognizable prologue ->
- * fail-closed). *alloc = 0 for a static-allocation / leaf function. */
-bool dwarf_info_frame_size(const dwarf_info_t *di, uint16_t pc,
-                           uint8_t (*readmem)(uint16_t addr), uint16_t *alloc);
-
 /* ---- type introspection ---- */
 
 typedef enum
