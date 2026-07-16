@@ -21,7 +21,7 @@ Do not fetch git history unless specifically instructed to.
 
 To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target
-names (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+names (rp6502-ria, rp6502-ria-w, rp6502-vga, etc.) — just build everything.
 The emulator is a separate tree at build/emulator (`cmake --build build/emulator`).
 
 The emulator's wasm/EMSCRIPTEN target IS buildable locally — don't claim it
