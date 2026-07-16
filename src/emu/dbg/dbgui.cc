@@ -69,7 +69,7 @@ static ui_dasm_t g_dasm;
 static ui_audio_t g_audio;
 static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
-static bool g_credits_open = false; /* transient about-box; not persisted */
+static bool g_credits_open = false; /* the native "Credits" about box */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
@@ -339,8 +339,8 @@ static const ui_chip_pin_t pins_6522[] = {
  * just toggles each window's open flag. ---- */
 static ui_settings_t g_settings;
 
-/* Collect every window's open flag into g_settings. The native "Debug Control"
- * window has no chips struct, so it is added by title here. */
+/* Collect every window's open flag into g_settings. The native windows (Debug
+ * Control, Credits) have no chips struct, so they are added by title here. */
 static void dbgui_collect_settings(void)
 {
     ui_settings_init(&g_settings);
@@ -353,6 +353,7 @@ static void dbgui_collect_settings(void)
     ui_dasm_save_settings(&g_dasm, &g_settings);
     ui_audio_save_settings(&g_audio, &g_settings);
     ui_settings_add(&g_settings, "Debug Control", g_control_open);
+    ui_settings_add(&g_settings, "Credits", g_credits_open);
 }
 
 /* A bit signature of every window's open flag, for cheap per-frame change
@@ -393,6 +394,7 @@ static void chips_ini_applyall(ImGuiContext *, ImGuiSettingsHandler *)
     ui_dasm_load_settings(&g_dasm, &g_settings);
     ui_audio_load_settings(&g_audio, &g_settings);
     g_control_open = ui_settings_isopen(&g_settings, "Debug Control");
+    g_credits_open = ui_settings_isopen(&g_settings, "Credits");
 }
 static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
@@ -973,7 +975,7 @@ bool dbgui_handle_event(const void *evp)
     case SAPP_EVENTTYPE_KEY_DOWN:
     case SAPP_EVENTTYPE_KEY_UP:
     case SAPP_EVENTTYPE_CHAR:
-    case SAPP_EVENTTYPE_CLIPBOARD_PASTED: /* a focused field pastes; don't also type it */
+    case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
         return io.WantCaptureKeyboard;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
     case SAPP_EVENTTYPE_MOUSE_UP:
