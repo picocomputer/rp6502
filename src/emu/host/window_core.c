@@ -16,7 +16,8 @@
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
 #include "sokol_log.h"
-#include "util/sokol_gl.h"
+#include "util/sokol_framebuffer.h"
+#include "util/sokol_letterbox.h"
 #ifdef EMU_WITH_AUDIO
 #include "sokol_audio.h"
 #include "emu/app/audio_out.h"
@@ -25,11 +26,14 @@
 #include "emu/dbg/dbgui.h"
 #include "emu/dbg/dap.h"
 #endif
+#include "emu/app/icon.h"
 #include "emu/app/input.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
+#include "emu/api/pro.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
+#include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
 #include "emu/plat.h"
@@ -39,25 +43,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 static struct
 {
     double scale;     /* requested window scale (may be fractional) */
-    int tex_w, tex_h; /* current texture size = canvas native size */
+    int tex_w, tex_h; /* last seen canvas native size (sfb tracks it lazily) */
     bool exit_on_halt; /* close the window when the program stops */
     bool vsync;        /* false: pace the loop to 60 Hz in software (sleep_until_ns) */
-    bool flip_v;       /* true on GL-family backends, false on Metal/D3D11 */
-    sg_image img;
-    sg_view view;
-    sg_sampler smp;        /* NEAREST: the canvas texture / prescale source */
-    sg_sampler smp_linear; /* LINEAR: the final downscale blit (sharp/linear) */
-    sgl_pipeline pip;      /* swapchain-format sgl pipeline */
-    sgl_pipeline pip_off;  /* RGBA8/none/1 sgl pipeline for the offscreen pass */
-    sgl_context off_ctx;   /* sgl context whose formats match the offscreen RT */
-    sg_image rt_img;       /* WINDOW_FILTER_SHARP: offscreen integer-prescale target */
-    sg_view rt_att;        /* its color-attachment view (render into) */
-    sg_view rt_tex;        /* its texture view (sample in the final pass) */
-    int rt_w, rt_h;        /* current offscreen size (0 = not created yet) */
+    sfb_framebuffer sfb;          /* presents fb: upload, prescale, letterboxed blit */
     window_scale_filter_t filter; /* 0 == NEAREST default */
     float bg_r, bg_g, bg_b; /* letterbox/pillarbox fill (default black) */
     int title_variant;     /* last window-title state (running/stopped/mouse) */
@@ -78,63 +72,12 @@ void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 
 void window_set_scale_filter(window_scale_filter_t filter) { app.filter = filter; }
 
-/* (Re)create the streaming texture at the canvas's native size. The canvas can
- * change at runtime (xreg_vga_canvas), so the texture follows it. */
-static void resize_canvas_texture(int w, int h)
-{
-    if (app.img.id)
-    {
-        sg_destroy_view(app.view);
-        sg_destroy_image(app.img);
-    }
-    app.img = sg_make_image(&(sg_image_desc){
-        .usage.stream_update = true,
-        .width = w,
-        .height = h,
-        .pixel_format = SG_PIXELFORMAT_RGBA8,
-    });
-    app.view = sg_make_view(&(sg_view_desc){
-        .texture.image = app.img,
-    });
-    app.tex_w = w;
-    app.tex_h = h;
-}
-
-/* (Re)create the offscreen prescale target at exactly w x h (an integer
- * multiple of the canvas). Used only by WINDOW_FILTER_SHARP. Views reference the
- * image, so they are destroyed first; the offscreen sgl context is format-only
- * and is not touched here. */
-static void resize_render_target(int w, int h)
-{
-    if (app.rt_img.id)
-    {
-        sg_destroy_view(app.rt_tex);
-        sg_destroy_view(app.rt_att);
-        sg_destroy_image(app.rt_img);
-    }
-    app.rt_img = sg_make_image(&(sg_image_desc){
-        .usage.color_attachment = true,
-        .width = w,
-        .height = h,
-        .pixel_format = SG_PIXELFORMAT_RGBA8,
-        .sample_count = 1,
-    });
-    app.rt_att = sg_make_view(&(sg_view_desc){
-        .color_attachment.image = app.rt_img,
-    });
-    app.rt_tex = sg_make_view(&(sg_view_desc){
-        .texture.image = app.rt_img,
-    });
-    app.rt_w = w;
-    app.rt_h = h;
-}
-
 /* Sharp-bilinear prescale factor: the largest integer by which the canvas
  * still fits the window (floor per axis, take the smaller for square pixels),
- * clamped to [1, WINDOW_PRESCALE_MAX]. The final LINEAR pass absorbs the leftover
- * fractional scale. The cap bounds VRAM (a maximized window on a tiny canvas
- * can't allocate an enormous target); 1 keeps a window-smaller-than-canvas from
- * hitting a zero-size target (the final pass then downscales). */
+ * clamped to [1, WINDOW_PRESCALE_MAX]. sfb's final LINEAR pass absorbs the
+ * leftover fractional scale. The cap bounds VRAM (sfb has no cap of its own;
+ * a maximized window on a tiny canvas can't allocate an enormous target); 1
+ * keeps a window-smaller-than-canvas from hitting a zero-size target. */
 #define WINDOW_PRESCALE_MAX 6 /* 640*6 x 480*6 RGBA8 ~= 42 MB ceiling */
 
 static int sharp_prescale(int cw, int ch, int aw, int ah)
@@ -244,38 +187,53 @@ static void canvas_region(int *x, int *y, int *w, int *h)
     *h = rh;
 }
 
-/* On-screen pixels per canvas pixel (the aspect-fit scale). Host mouse motion is
- * divided by this to get canvas-space motion, so pointer speed doesn't change
- * with the window size. The canvas occupies the window below the debugger menu
- * bar, so its height excludes that reserved strip. */
-float window_canvas_scale(void)
+/* The aspect-fit viewport the canvas draws into, centered within canvas_region
+ * (expressed to slbx as borders against the full framebuffer). Computed live on
+ * every call — events arrive before the first frame and across dock/menu
+ * transitions, so a cached copy would be stale exactly when it matters; this
+ * function is the single source of truth for the render pass and the input
+ * mappers below. */
+static slbx_viewport canvas_viewport(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
     int rx, ry, rw, rh;
     canvas_region(&rx, &ry, &rw, &rh);
-    float sx = (float)rw / cw;
-    float sy = (float)rh / ch;
-    return (sx < sy ? sx : sy);
+    return slbx_letterbox(sapp_width(), sapp_height(),
+                          &(slbx_letterbox_desc){
+                              .content_aspect_ratio = (float)cw / (float)ch,
+                              .border = {
+                                  .left = rx,
+                                  .right = sapp_width() - (rx + rw),
+                                  .top = ry,
+                                  .bottom = sapp_height() - (ry + rh),
+                              },
+                          });
+}
+
+/* On-screen pixels per canvas pixel (the aspect-fit scale). Host mouse motion is
+ * divided by this to get canvas-space motion, so pointer speed doesn't change
+ * with the window size. */
+float window_canvas_scale(void)
+{
+    int cw, ch;
+    vga_canvas_size(&cw, &ch);
+    slbx_viewport vp = canvas_viewport();
+    return (float)vp.width / cw;
 }
 
 bool window_canvas_from_fb(float px, float py, int *cx, int *cy)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    int rx, ry, rw, rh;
-    canvas_region(&rx, &ry, &rw, &rh);
-    float scale = window_canvas_scale();
-    if (scale <= 0.0f)
+    slbx_viewport vp = canvas_viewport();
+    if (vp.width < 1 || vp.height < 1)
     {
         *cx = *cy = 0;
         return false;
     }
-    /* The canvas is centered (letterboxed) within its region. */
-    float ox = rx + (rw - cw * scale) * 0.5f;
-    float oy = ry + (rh - ch * scale) * 0.5f;
-    float fx = (px - ox) / scale;
-    float fy = (py - oy) / scale;
+    float fx = (px - vp.x) * cw / vp.width;
+    float fy = (py - vp.y) * ch / vp.height;
     bool inside = fx >= 0.0f && fx < cw && fy >= 0.0f && fy < ch;
     int ix = (int)fx, iy = (int)fy;
     if (ix < 0)
@@ -391,6 +349,7 @@ static void update_title(void)
 
 void window_core_init(void)
 {
+    sapp_set_icon(icon_desc());
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
         .logger.func = slog_func,
@@ -402,44 +361,18 @@ void window_core_init(void)
             .logger.func = slog_func,
         });
 #endif
-    sgl_setup(&(sgl_desc_t){
+    sfb_setup(&(sfb_desc){
         .logger.func = slog_func,
     });
     host_window_init(); /* Android stands up its text overlay; no-op elsewhere */
-    sg_backend b = sg_query_backend();
-    app.flip_v = (b == SG_BACKEND_GLCORE) || (b == SG_BACKEND_GLES3);
-    app.smp = sg_make_sampler(&(sg_sampler_desc){
-        .min_filter = SG_FILTER_NEAREST,
-        .mag_filter = SG_FILTER_NEAREST,
-        .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
-        .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
-    });
-    app.smp_linear = sg_make_sampler(&(sg_sampler_desc){
-        .min_filter = SG_FILTER_LINEAR,
-        .mag_filter = SG_FILTER_LINEAR,
-        .wrap_u = SG_WRAP_CLAMP_TO_EDGE, /* clamp: the LINEAR tap must not wrap edges */
-        .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
-    });
-    app.pip = sgl_make_pipeline(&(sg_pipeline_desc){
-        .colors[0].blend.enabled = false,
-    });
-    /* The offscreen prescale pass renders into an RGBA8 / no-depth / 1-sample
-     * target. Its sgl context (and the pipeline bound to it) must carry those
-     * exact formats: the default context carries the SWAPCHAIN format, which is
-     * BGRA8 on D3D11/Metal and would fail sokol_gfx validation when flushed into
-     * the RGBA8 offscreen pass. These are format-only and size-independent —
-     * created once, never recreated on resize. */
-    app.off_ctx = sgl_make_context(&(sgl_context_desc_t){
-        .color_format = SG_PIXELFORMAT_RGBA8,
-        .depth_format = SG_PIXELFORMAT_NONE,
-        .sample_count = 1,
-    });
-    app.pip_off = sgl_context_make_pipeline(app.off_ctx, &(sg_pipeline_desc){
-        .colors[0].blend.enabled = false,
-    });
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    resize_canvas_texture(cw, ch);
+    app.sfb = sfb_make_framebuffer(&(sfb_framebuffer_desc){
+        .width = cw,
+        .height = ch,
+    });
+    app.tex_w = cw;
+    app.tex_h = ch;
     if (!overlay_active())
         host_window_set_aspect_hint(cw, ch);
 #ifdef EMU_WITH_DEBUGGER
@@ -495,6 +428,7 @@ void window_core_frame(void)
 #ifdef EMU_WITH_AUDIO
     audio_out_pump();
 #endif
+    input_paste_pump();
 
     /* Reflect the run state in the title so the user knows the run is done (exec
      * un-halts within a frame, so this only trips on a real exit), and close the
@@ -538,7 +472,8 @@ void window_core_frame(void)
         double off = (double)w - (double)h * app.tex_w / app.tex_h;
         int at_aspect = off < 1.0 && off > -1.0;
 
-        resize_canvas_texture(cw, ch);
+        app.tex_w = cw;
+        app.tex_h = ch;
         if (!overlay_active()) /* the debug workbench never tracks the canvas aspect */
         {
             /* Ask the WM to keep the new aspect on interactive resize. WSLg ignores
@@ -556,23 +491,10 @@ void window_core_frame(void)
         }
     }
 
-    /* Upload the new frame from the window's framebuffer (zero copy), but
-     * only when one was produced this callback; a duplicate present (behind == 0,
-     * e.g. a display faster than 60 Hz) re-blits the existing texture below
-     * without re-uploading. sokol's swapchain double-buffers the present. */
-    static bool ever_uploaded;
-    if (behind > 0)
-    {
-        sg_update_image(app.img, &(sg_image_data){
-            .mip_levels[0] = {.ptr = app.fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
-        });
-        ever_uploaded = true;
-    }
-
 #ifdef EMU_WITH_DEBUGGER
     /* Build the debugger windows first (between ImGui new-frame and render) so the
-     * dockspace central-node rect is known before the canvas is laid out into it.
-     * simgui has its own sokol-gfx pipeline, separate from sgl. */
+     * dockspace central-node rect is known before the canvas viewport below is
+     * computed from it. */
     if (dbg_is_active())
     {
         /* dpi_scale 1.0: render the overlay at native resolution so the 13px
@@ -586,89 +508,37 @@ void window_core_frame(void)
      * cursor wins over the canvas. */
     update_cursor();
 
-    /* Aspect-preserving quad fitted into the canvas region (the dockspace central
-     * node when the debugger is up, else the whole window; a normal run has no
-     * overlay and fills the window). The window tracks the canvas aspect (RP6502
-     * square pixels -> canvas aspect = display aspect), so the quad normally fills
-     * the region; if it is off-aspect (the WM ignored the aspect hint, or
-     * mid-resize) it letterboxes/pillarboxes against the clear so content never
-     * stretches. */
-    int vx, vy, vw, vh;
-    canvas_region(&vx, &vy, &vw, &vh); /* central node when docked, else below the menu */
-    float qx = 1.0f, qy = 1.0f;
-    if ((long)vw * ch > (long)vh * cw)
-        qx = (float)((double)vh * cw / ((double)vw * ch)); /* too wide -> pillarbox */
-    else
-        qy = (float)((double)vw * ch / ((double)vh * cw)); /* too tall -> letterbox */
-    /* PASS 1 (sharp only): point-prescale the canvas into the offscreen target
-     * at an integer multiple, filling it edge to edge (no letterbox). The final
-     * pass LINEAR-downscales that — crisp pixels with smooth motion at any
-     * window size. The target is (re)created here whenever its size changes,
-     * which catches both a canvas change (cw/ch) and a window resize (factor).
-     * The offscreen pass uses its own RGBA8-format sgl context; the default
-     * context carries the (possibly BGRA8) swapchain format. */
-    if (ever_uploaded && app.filter == WINDOW_FILTER_SHARP)
+    /* Aspect-preserving viewport fitted into the canvas region (the dockspace
+     * central node when the debugger is up, else the whole window). The window
+     * tracks the canvas aspect (RP6502 square pixels -> canvas aspect = display
+     * aspect), so the viewport normally fills the region; if it is off-aspect
+     * (the WM ignored the aspect hint, or mid-resize) it letterboxes/pillarboxes
+     * against the clear so content never stretches. */
+    slbx_viewport vp = canvas_viewport();
+    int f = app.filter == WINDOW_FILTER_SHARP
+                ? sharp_prescale(cw, ch, vp.width, vp.height)
+                : 1;
+    /* Lazy: recreates sfb's images only when the canvas or the sharp prescale
+     * factor changed. cliprect must be spelled out — sfb_resize stores the raw
+     * desc value, and a zeroed rect on a recreating resize makes a 0x0 image. */
+    bool recreated = sfb_resize(app.sfb, &(sfb_resize_desc){
+        .width = cw,
+        .height = ch,
+        .prescale = f,
+        .cliprect = {0, 0, cw, ch},
+    });
+
+    /* Upload the new frame from the window's framebuffer, but only when one was
+     * produced this callback; a duplicate present (behind == 0, e.g. a display
+     * faster than 60 Hz) re-blits sfb's existing texture below without
+     * re-uploading. A recreating resize must repopulate regardless. */
+    static bool ever_uploaded;
+    if (behind > 0 || recreated)
     {
-        int f = sharp_prescale(cw, ch, vw, vh);
-        int want_w = cw * f, want_h = ch * f;
-        if (want_w != app.rt_w || want_h != app.rt_h)
-            resize_render_target(want_w, want_h);
-
-        sgl_set_context(app.off_ctx);
-        sgl_defaults();
-        sgl_load_pipeline(app.pip_off);
-        sgl_viewport(0, 0, app.rt_w, app.rt_h, true);
-        sgl_enable_texture();
-        sgl_texture(app.view, app.smp); /* NEAREST source = the canvas texture */
-        sgl_begin_quads();
-        /* Full-target quad. V is NOT flipped here (unlike the final quad):
-         * rendering into an offscreen target and sampling it back inverts Y
-         * once, so the final pass's own flip is what lands the image upright. */
-        sgl_v2f_t2f(-1.0f, 1.0f, 0.0f, 1.0f);
-        sgl_v2f_t2f(1.0f, 1.0f, 1.0f, 1.0f);
-        sgl_v2f_t2f(1.0f, -1.0f, 1.0f, 0.0f);
-        sgl_v2f_t2f(-1.0f, -1.0f, 0.0f, 0.0f);
-        sgl_end();
-
-        sg_begin_pass(&(sg_pass){
-            .action = {.colors[0] = {.load_action = SG_LOADACTION_DONTCARE}},
-            .attachments = {.colors[0] = app.rt_att},
+        sfb_update(app.sfb, &(sfb_update_desc){
+            .pixels = {.ptr = app.fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
         });
-        sgl_context_draw(app.off_ctx); /* drains only off_ctx's geometry */
-        sg_end_pass();
-
-        sgl_set_context(SGL_DEFAULT_CONTEXT);
-    }
-
-    /* FINAL PASS (all modes): blit to the swapchain with the letterbox quad.
-     * sharp samples the prescaled target (LINEAR); linear samples the canvas
-     * (LINEAR); nearest samples the canvas (NEAREST). */
-    sgl_defaults();
-    /* Until the first frame has been uploaded the canvas texture is undefined;
-     * emit no geometry so the swapchain pass below shows only the clear color.
-     * host_window_menu_active() also suppresses the canvas while the Android ROM
-     * menu is up (its overlay draws instead). */
-    if (ever_uploaded && !host_window_menu_active())
-    {
-        sgl_viewport(vx, vy, vw, vh, true); /* the canvas region (central node when docked) */
-        sgl_load_pipeline(app.pip);
-        sgl_enable_texture();
-        if (app.filter == WINDOW_FILTER_SHARP)
-            sgl_texture(app.rt_tex, app.smp_linear);
-        else if (app.filter == WINDOW_FILTER_LINEAR)
-            sgl_texture(app.view, app.smp_linear);
-        else
-            sgl_texture(app.view, app.smp);
-        sgl_begin_quads();
-        /* GL-family backends sample uploaded rows upside down vs the emulator's
-         * row-0-at-top framebuffer; Metal/D3D11 do not. */
-        float tv_top = app.flip_v ? 0.0f : 1.0f;
-        float tv_bot = app.flip_v ? 1.0f : 0.0f;
-        sgl_v2f_t2f(-qx, qy, 0.0f, tv_top);
-        sgl_v2f_t2f(qx, qy, 1.0f, tv_top);
-        sgl_v2f_t2f(qx, -qy, 1.0f, tv_bot);
-        sgl_v2f_t2f(-qx, -qy, 0.0f, tv_bot);
-        sgl_end();
+        ever_uploaded = true;
     }
 
     sg_begin_pass(&(sg_pass){
@@ -676,7 +546,18 @@ void window_core_frame(void)
                                  .clear_value = {app.bg_r, app.bg_g, app.bg_b, 1}}},
         .swapchain = sglue_swapchain(),
     });
-    sgl_draw(); /* drains the default context's geometry */
+    /* Until the first frame has been uploaded sfb's texture is undefined; skip
+     * the blit so the pass shows only the clear color. host_window_menu_active()
+     * also suppresses the canvas while the Android ROM menu is up — its sdtx
+     * overlay then draws with the pass's full-window viewport still in effect. */
+    if (ever_uploaded && vp.width > 0 && vp.height > 0 && !host_window_menu_active())
+    {
+        sg_apply_viewport(vp.x, vp.y, vp.width, vp.height, true);
+        if (app.filter == WINDOW_FILTER_NEAREST)
+            sfb_render_ex(app.sfb, &(sfb_render_desc){.use_nearest_filter = true});
+        else
+            sfb_render(app.sfb);
+    }
     host_window_menu_draw(); /* Android ROM menu overlay; no-op elsewhere */
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
@@ -693,8 +574,46 @@ void window_core_frame(void)
         os_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
 }
 
+bool window_core_boot_rom(const char *path)
+{
+#ifdef EMU_WITH_DEBUGGER
+    if (dbg_is_active())
+        return false; /* a DAP session owns the machine's run state */
+#endif
+    /* Screen out not-a-ROM files before rom_load touches machine state, so an
+     * accidental drop leaves the running program alone. rom_load repeats the
+     * check after resolving the drive/:name spellings this fopen can't. */
+    FILE *f = fopen(path, "rb");
+    if (f)
+    {
+        char magic[8];
+        size_t got = fread(magic, 1, sizeof magic, f);
+        fclose(f);
+        if (got != sizeof magic || strncasecmp(magic, "#!RP6502", 8) != 0)
+        {
+            fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
+            return false;
+        }
+    }
+    input_paste_cancel(); /* the new program must not receive an old paste */
+    if (!rom_load(path))
+    {
+        cpu_set_halted(true); /* RAM may be part-written; don't resume garbage */
+        return false;
+    }
+    main_init();
+    pro_set_argv(path, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
+    pro_set_launcher(false);     /* a drop breaks any launcher chain */
+    return true;
+}
+
 void window_core_event(const sapp_event *e)
 {
+    if (e->type == SAPP_EVENTTYPE_FILES_DROPPED)
+    {
+        host_window_files_dropped();
+        return;
+    }
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_handle_event(e))
         return; /* the debug UI consumed this event */
@@ -713,7 +632,7 @@ void window_core_cleanup(void)
     if (dbg_is_active())
         dbgui_discard();
 #endif
-    sgl_shutdown();
+    sfb_shutdown();
     sg_shutdown();
 }
 

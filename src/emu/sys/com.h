@@ -23,6 +23,7 @@ void com_in_write_reply(const char *s, size_t n);
 /* The kbd.c replacement injects user keystrokes as the KBD source. */
 void com_kbd_push(const char *s, size_t n);
 void com_kbd_push_byte(uint8_t b);
+size_t com_kbd_free(void); /* ring headroom; the paste drip stays below it */
 
 /* Cold-boot flush: clear both input rings and reset BEL (machine reset). The
  * per-program-start BEL reset that keeps type-ahead is com_set_bel in std_reset. */

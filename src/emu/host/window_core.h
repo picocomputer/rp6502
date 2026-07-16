@@ -30,6 +30,13 @@ void window_core_frame(void);
 void window_core_event(const sapp_event *e);
 void window_core_cleanup(void);
 
+/* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. Ignored
+ * while a debug session owns the machine. A failed load halts the machine:
+ * rom_load streams into live RAM before it can fail, so the old program may
+ * already be clobbered — matching hardware, where a failed LOAD leaves the CPU
+ * stopped in the monitor. */
+bool window_core_boot_rom(const char *path);
+
 /* ---- hooks the core calls, implemented per host ---- */
 
 /* Resize the OS window to w x h framebuffer px (X11/Win32; no-op elsewhere). */
@@ -51,5 +58,10 @@ bool host_window_menu_active(void);
 /* Draw the host-owned overlay into the current swapchain pass (the Android ROM
  * menu; no-op elsewhere). */
 void host_window_menu_draw(void);
+
+/* A file was dropped on the window: boot it. Desktop hosts pass the dropped
+ * path to window_core_boot_rom; web and Android don't enable drag-n-drop, so
+ * the hook never fires there. */
+void host_window_files_dropped(void);
 
 #endif /* _EMU_HOST_WINDOW_CORE_H_ */

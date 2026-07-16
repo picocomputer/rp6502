@@ -74,8 +74,24 @@ then `git -C vendor/cppdap submodule update --init third_party/json`).
 The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-For emulation, I assume `xcode-select --install` is all you need. The submission
-to make MacOS work didn't come with instructions.
+For the emulator, install Xcode command line tools if needed:
+
+```bash
+xcode-select --install
+```
+
+Install Homebrew if needed:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Install required tools:
+
+```bash
+brew update
+brew install cmake ninja pkg-config
+```
 
 ## Building with CMake and VS Code
 

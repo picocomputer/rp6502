@@ -20,6 +20,7 @@ void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 void host_window_init(void) {}
 bool host_window_menu_active(void) { return false; }
 void host_window_menu_draw(void) {}
+void host_window_files_dropped(void) {} /* dragndrop not enabled: the page is one program */
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
@@ -32,8 +33,10 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .cleanup_cb = window_core_cleanup,
         .width = win_w,
         .height = win_h,
-        .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
+        .swap_interval = vsync ? 1 : 0,
         .window_title = "Picocomputer 6502",
+        .enable_clipboard = true,
+        .clipboard_size = 65536,
         .logger.func = slog_func,
     });
     return 0;

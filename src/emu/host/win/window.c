@@ -21,6 +21,7 @@
 #include "sokol_app.h"
 #include "sokol_log.h"
 #include <stdint.h>
+#include <stdio.h>
 
 void host_window_resize(int w, int h)
 {
@@ -43,6 +44,45 @@ void host_window_init(void) {}
 bool host_window_menu_active(void) { return false; }
 void host_window_menu_draw(void) {}
 
+void host_window_files_dropped(void)
+{
+    /* sokol delivers the path as UTF-8 but rom_load opens with the ANSI CRT
+     * fopen; convert, falling back to the 8.3 short name when the path has
+     * characters the ANSI code page can't hold. When the process code page IS
+     * UTF-8 (app manifest or the Windows setting), fopen takes it as-is — and
+     * WideCharToMultiByte rejects WC_NO_BEST_FIT_CHARS/lpUsedDefaultChar there. */
+    const char *utf8 = sapp_get_dropped_file_path(0);
+    if (GetACP() == CP_UTF8)
+    {
+        window_core_boot_rom(utf8);
+        return;
+    }
+    WCHAR wide[MAX_PATH];
+    char ansi[MAX_PATH];
+    BOOL lossy = FALSE;
+    bool ok = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, MAX_PATH) != 0;
+    if (ok &&
+        (!WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, wide, -1,
+                              ansi, sizeof ansi, NULL, &lossy) ||
+         lossy))
+    {
+        /* In place is allowed; a short name can be LONGER than the long name,
+         * and a too-small buffer returns the needed size, not 0. */
+        DWORD n = GetShortPathNameW(wide, wide, MAX_PATH);
+        lossy = FALSE;
+        ok = n > 0 && n < MAX_PATH &&
+             WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, wide, -1,
+                                 ansi, sizeof ansi, NULL, &lossy) &&
+             !lossy;
+    }
+    if (!ok)
+    {
+        fprintf(stderr, "rp6502-emu: dropped path not representable in the ANSI code page\n");
+        return;
+    }
+    window_core_boot_rom(ansi);
+}
+
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
     int win_w, win_h;
@@ -60,6 +100,9 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .high_dpi = true,
         .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
         .window_title = "Picocomputer 6502",
+        .enable_dragndrop = true, /* drop a .rp6502 to boot it */
+        .enable_clipboard = true, /* Ctrl+V types into the emulated keyboard */
+        .clipboard_size = 65536,
         .logger.func = slog_func,
     });
     return 0;

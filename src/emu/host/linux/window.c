@@ -68,6 +68,11 @@ void host_window_init(void) {}
 bool host_window_menu_active(void) { return false; }
 void host_window_menu_draw(void) {}
 
+void host_window_files_dropped(void)
+{
+    window_core_boot_rom(sapp_get_dropped_file_path(0));
+}
+
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {
     int win_w, win_h;
@@ -81,6 +86,9 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .height = win_h,
         .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
         .window_title = "Picocomputer 6502",
+        .enable_dragndrop = true, /* drop a .rp6502 to boot it */
+        .enable_clipboard = true, /* Ctrl+V types into the emulated keyboard */
+        .clipboard_size = 65536,
         .logger.func = slog_func,
     });
     return 0;

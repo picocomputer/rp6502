@@ -227,7 +227,7 @@ endif()
 # Per-host window: the shared render core + exactly one host's window, or the
 # headless stub when there is no window backend.
 if(EMU_HAS_WINDOW)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/host/window_core.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/icon.c ${RP6502_SRC}/emu/host/window_core.c)
     if(WIN32)
         list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/win/window.c)
     elseif(APPLE)
