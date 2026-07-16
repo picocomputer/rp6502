@@ -13,6 +13,7 @@
 #include "emu/host/window.h"
 #include "emu/host/window_core.h"
 #include "sokol_app.h"
+#include "sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
 #include "sokol_log.h"
 #include "util/sokol_debugtext.h"
 #include "emu/hid/pad.h"
