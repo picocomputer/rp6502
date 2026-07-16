@@ -60,8 +60,8 @@ bool host_window_menu_active(void);
 void host_window_menu_draw(void);
 
 /* A file was dropped on the window: boot it. Desktop hosts pass the dropped
- * path to window_core_boot_rom; web fetches the dropped bytes first (HTML5 has
- * no paths); Android never fires (sokol has no drag-n-drop there). */
+ * path to window_core_boot_rom; web and Android don't enable drag-n-drop, so
+ * the hook never fires there. */
 void host_window_files_dropped(void);
 
 #endif /* _EMU_HOST_WINDOW_CORE_H_ */

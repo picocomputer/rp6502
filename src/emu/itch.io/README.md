@@ -77,10 +77,8 @@ under *Genre / Tags*).
 - **Third-party license notices:** append `?credits` to the page URL to dump
   every bundled component's license (the emulator's built-in `--credits`). Keep
   that path reachable if you redistribute the bundled emulator.
-- **Paste and drag-and-drop:** a browser paste (Ctrl+V / Cmd+V) types the
-  clipboard into the emulated keyboard, and dropping a `.rp6502` on the canvas
-  boots it for that session — a reload restores your game. Both come with the
-  emulator; there's nothing to configure.
+- **Paste:** a browser paste (Ctrl+V / Cmd+V) types the clipboard into the
+  emulated keyboard. Comes with the emulator; there's nothing to configure.
 - `README.md` is for you, the author. itch.io serves every file in the zip but
   only opens `index.html`, so this `.md` is never loaded by the player — delete
   it before uploading if you like.
