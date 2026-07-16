@@ -65,6 +65,7 @@ int64_t fs_lseek(int fd, int64_t off, int whence);
 int fs_ftruncate(int fd, int64_t length);
 std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
+void fs_sync(void);
 
 /* ---- other host-OS primitives (host/posix/os.c or host/win/os.c, one compiled) ---- */
 uint64_t os_entropy_64(void);            /* seed material from the host RNG/clocks */

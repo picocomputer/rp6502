@@ -191,3 +191,5 @@ int fs_ftruncate(int fd, int64_t length)
 {
     return ftruncate(fd, (off_t)length);
 }
+
+void fs_sync(void) {} /* a real host filesystem is already durable */

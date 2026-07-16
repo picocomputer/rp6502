@@ -10,6 +10,7 @@
  */
 
 #include "emu/plat.h"
+#include <emscripten.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -152,3 +153,14 @@ int fs_ftruncate(int fd, int64_t length)
 {
     return ftruncate(fd, (off_t)length);
 }
+
+/* Flush the MSC0: drive (IDBFS) to IndexedDB so writes survive a reload.
+ * Async/fire-and-forget. The --tmpdrive lives in a RAM FatFs, so a sync there
+ * persists nothing — it expires with the session. EM_JS emits an imported symbol,
+ * so wrap it in a plain fs_sync the cross-TU caller (msc.c) can link against. */
+EM_JS(void, web_idbfs_sync, (void), {
+    if (typeof FS !== 'undefined')
+        FS.syncfs(false, function (err) { if (err) console.error('syncfs(false)', err); });
+});
+
+void fs_sync(void) { web_idbfs_sync(); }
