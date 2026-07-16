@@ -10,7 +10,7 @@
 
 #include <stddef.h>
 
-#include "emu/app/window.h" /* window_scale_filter_t */
+#include "emu/host/window.h" /* window_scale_filter_t */
 
 #ifdef __cplusplus
 extern "C"

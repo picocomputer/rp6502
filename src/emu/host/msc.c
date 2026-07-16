@@ -349,6 +349,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
 std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     (void)desc, (void)err;
+    //todo this is wrong. implement on all hosts.
     host_persist();
     return STD_OK;
 }

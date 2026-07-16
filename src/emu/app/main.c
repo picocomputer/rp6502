@@ -7,7 +7,7 @@
 
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
-#include "emu/app/window.h"
+#include "emu/host/window.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/app/png.h"
@@ -150,7 +150,6 @@ static int run_dap(const cli_options *o)
 }
 #endif
 
-#ifndef __ANDROID__
 int main(int argc, char **argv)
 {
     cli_options o;
@@ -268,4 +267,3 @@ int main(int argc, char **argv)
 
     return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
 }
-#endif

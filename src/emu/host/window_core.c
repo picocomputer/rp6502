@@ -3,48 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * The host-neutral window core: the render/frame/present pipeline shared by
+ * every windowed host. It carries no platform #ifdefs (only EMU_WITH_DEBUGGER /
+ * EMU_WITH_AUDIO feature gates). Anything that differs per host — the WM seam,
+ * the entry point, the Android overlay — is a host_window_* hook (window_core.h)
+ * implemented in host/<os>/window.c.
  */
 
-#include "emu/app/window.h"
-#include "emu/aud/aud.h"
-#include "emu/dbg/dbg.h"
-#include "emu/hid/mou.h"
-#include "emu/hid/tab.h"
-#include "emu/mon/rom.h"
-#include "emu/host/msc.h"
-#include "emu/sys/cpu.h"
-#include "emu/sys/mem.h"
-#include "emu/main.h"
-#include "emu/plat.h"
-#include "emu/sys/vga.h"
-
-#ifndef EMU_WITH_SOKOL
-
-#include <stdio.h>
-
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
-{
-    (void)fb;
-    (void)scale;
-    (void)have_scale;
-    (void)vsync;
-    (void)exit_on_halt;
-    fprintf(stderr, "rp6502-emu: built without window support; use --screenshot\n");
-    return 1;
-}
-
-void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b) { (void)r, (void)g, (void)b; }
-
-/* Headless renders at native resolution (no canvas->window scaling), so the
- * filter is genuinely a no-op here. */
-void window_set_scale_filter(window_scale_filter_t filter) { (void)filter; }
-
-void window_set_scale(double scale) { (void)scale; }
-
-double window_get_scale(void) { return 0.0; }
-
-#else
-
+#include "emu/host/window.h"
+#include "emu/host/window_core.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -54,109 +21,24 @@ double window_get_scale(void) { return 0.0; }
 #include "sokol_audio.h"
 #include "emu/app/audio_out.h"
 #endif
-#include "util/sokol_debugtext.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "emu/dbg/dbgui.h"
 #include "emu/dbg/dap.h"
 #endif
 #include "emu/app/input.h"
+#include "emu/aud/aud.h"
+#include "emu/dbg/dbg.h"
+#include "emu/hid/mou.h"
+#include "emu/hid/tab.h"
+#include "emu/sys/cpu.h"
+#include "emu/main.h"
+#include "emu/plat.h"
+#include "emu/sys/vga.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#if defined(__linux__) && !defined(__ANDROID__)
-/* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
- * a one-shot resize when the canvas changes, and a PAspect size hint that asks
- * the window manager to keep that aspect during interactive resizes (we don't
- * fight the WM by snapping the size ourselves; the quad letterboxes whenever the
- * window ends up off-aspect anyway). Forward-declare the few Xlib bits we need
- * rather than pulling in <X11/Xlib.h> and its macro soup (Window is an XID =
- * unsigned long; X11 is already linked for the GL backend). */
-typedef struct _XDisplay Display;
-typedef struct
-{
-    long flags;
-    int x, y, width, height;
-    int min_width, min_height, max_width, max_height;
-    int width_inc, height_inc;
-    struct { int x, y; } min_aspect, max_aspect;
-    int base_width, base_height, win_gravity;
-} XSizeHints;
-#define X_PASPECT (1L << 7) /* XSizeHints PAspect flag */
-extern int XResizeWindow(Display *, unsigned long, unsigned, unsigned);
-extern void XSetWMNormalHints(Display *, unsigned long, XSizeHints *);
-extern int XFlush(Display *);
-
-static void resize_window(int w, int h)
-{
-    Display *dpy = (Display *)sapp_x11_get_display();
-    unsigned long win = (unsigned long)(uintptr_t)sapp_x11_get_window();
-    if (dpy && win)
-    {
-        XResizeWindow(dpy, win, (unsigned)w, (unsigned)h);
-        XFlush(dpy);
-    }
-}
-
-/* Ask the WM to constrain interactive resizes to the canvas aspect (cw:ch). */
-static void set_aspect_hint(int cw, int ch)
-{
-    Display *dpy = (Display *)sapp_x11_get_display();
-    unsigned long win = (unsigned long)(uintptr_t)sapp_x11_get_window();
-    if (!dpy || !win)
-        return;
-    XSizeHints h;
-    memset(&h, 0, sizeof h);
-    h.flags = X_PASPECT;
-    h.min_aspect.x = h.max_aspect.x = cw;
-    h.min_aspect.y = h.max_aspect.y = ch;
-    XSetWMNormalHints(dpy, win, &h);
-    XFlush(dpy);
-}
-#elif defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-static void resize_window(int w, int h)
-{
-    HWND hwnd = (HWND)sapp_win32_get_hwnd();
-    if (!hwnd)
-        return;
-    /* w,h are client (== framebuffer/physical) px; grow by this window's DPI
-     * frame and keep the top-left corner. */
-    RECT r = {0, 0, w, h};
-    AdjustWindowRectExForDpi(&r,
-                             (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
-                             (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
-                             GetDpiForWindow(hwnd));
-    SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top,
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-}
-static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-#else
-static void resize_window(int w, int h) { (void)w, (void)h; }
-static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-#endif
-
-#if defined(__ANDROID__)
-#define MAX_ROMS 64
-#define ROM_NAME_MAX 128
-static char g_rom_files[MAX_ROMS][ROM_NAME_MAX];
-static int g_rom_count = 0;
-static int g_rom_selected_index = 0;
-static bool g_android_menu_active = false;
-static float g_last_menu_y = 0.0f;
-static char g_rom_dir[256] = "";
-static void detect_rom_directory(void);
-static void android_scan_roms(void);
-static void android_request_storage_permission(void);
-#endif
 
 static struct
 {
@@ -317,12 +199,12 @@ void window_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    /* scaled_canvas_height is logical canvas px; resize_window wants framebuffer
-     * (== physical) px, so scale by the DPI factor (1.0 unless high_dpi is on).
-     * top_reserved_px() is already framebuffer px. */
+    /* scaled_canvas_height is logical canvas px; host_window_resize wants
+     * framebuffer (== physical) px, so scale by the DPI factor (1.0 unless
+     * high_dpi is on). top_reserved_px() is already framebuffer px. */
     int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
     int w = aspect_width(h, cw, ch);
-    resize_window(w, h + top_reserved_px());
+    host_window_resize(w, h + top_reserved_px());
 }
 
 double window_get_scale(void)
@@ -424,11 +306,6 @@ static sapp_mouse_cursor tab_cursor_to_sokol(uint8_t shape)
     }
 }
 
-/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
- * hides it (the ROM draws its own), otherwise show that shape. Applied every
- * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
- * would be overwritten. Over a debugger panel ImGui owns the shape, so we only
- * keep the pointer visible there. */
 /* Whether the host pointer is over the drawn canvas, set by the input layer. The
  * tablet only owns the host cursor while true; in the letterbox (or a debugger
  * panel, handled below) the system cursor shows. Defaults true so a freshly
@@ -440,6 +317,11 @@ void window_set_pointer_on_canvas(bool on)
     pointer_on_canvas = on;
 }
 
+/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
+ * hides it (the ROM draws its own), otherwise show that shape. Applied every
+ * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
+ * would be overwritten. Over a debugger panel ImGui owns the shape, so we only
+ * keep the pointer visible there. */
 static void update_cursor(void)
 {
     static bool had_tablet;
@@ -507,7 +389,7 @@ static void update_title(void)
     }
 }
 
-static void init_cb(void)
+void window_core_init(void)
 {
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
@@ -523,12 +405,7 @@ static void init_cb(void)
     sgl_setup(&(sgl_desc_t){
         .logger.func = slog_func,
     });
-#if defined(__ANDROID__)
-    sdtx_setup(&(sdtx_desc_t){
-        .fonts[0] = sdtx_font_c64(),
-        .logger.func = slog_func,
-    });
-#endif
+    host_window_init(); /* Android stands up its text overlay; no-op elsewhere */
     sg_backend b = sg_query_backend();
     app.flip_v = (b == SG_BACKEND_GLCORE) || (b == SG_BACKEND_GLES3);
     app.smp = sg_make_sampler(&(sg_sampler_desc){
@@ -564,14 +441,14 @@ static void init_cb(void)
     vga_canvas_size(&cw, &ch);
     resize_canvas_texture(cw, ch);
     if (!overlay_active())
-        set_aspect_hint(cw, ch);
+        host_window_set_aspect_hint(cw, ch);
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init();
 #endif
 }
 
-static void frame_cb(void)
+void window_core_frame(void)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
@@ -598,12 +475,8 @@ static void frame_cb(void)
         start_ns = os_mono_ns();
     }
     uint64_t target = (os_mono_ns() - start_ns) * VGA_HZ / 1000000000ull;
-#if defined(__ANDROID__)
-    if (g_android_menu_active)
-    {
+    if (host_window_menu_active()) /* Android ROM menu: freeze emulation */
         done = target;
-    }
-#endif
     uint64_t behind = target > done ? target - done : 0;
     if (behind > WINDOW_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
     {
@@ -670,7 +543,7 @@ static void frame_cb(void)
         {
             /* Ask the WM to keep the new aspect on interactive resize. WSLg ignores
              * this (the quad below letterboxes instead); native X11/other WMs honor it. */
-            set_aspect_hint(cw, ch);
+            host_window_set_aspect_hint(cw, ch);
 
             /* Re-fit the window width to the new aspect ONLY if it was still pristine;
              * a window the user has resized off-aspect is left alone (and letterboxed).
@@ -679,7 +552,7 @@ static void frame_cb(void)
              * as-is; only the width tracks the aspect. */
             int new_w = aspect_width(h, cw, ch);
             if (at_aspect && new_w != w)
-                resize_window(new_w, h);
+                host_window_resize(new_w, h);
         }
     }
 
@@ -772,12 +645,10 @@ static void frame_cb(void)
      * (LINEAR); nearest samples the canvas (NEAREST). */
     sgl_defaults();
     /* Until the first frame has been uploaded the canvas texture is undefined;
-     * emit no geometry so the swapchain pass below shows only the clear color. */
-#if defined(__ANDROID__)
-    if (ever_uploaded && !g_android_menu_active)
-#else
-    if (ever_uploaded)
-#endif
+     * emit no geometry so the swapchain pass below shows only the clear color.
+     * host_window_menu_active() also suppresses the canvas while the Android ROM
+     * menu is up (its overlay draws instead). */
+    if (ever_uploaded && !host_window_menu_active())
     {
         sgl_viewport(vx, vy, vw, vh, true); /* the canvas region (central node when docked) */
         sgl_load_pipeline(app.pip);
@@ -806,48 +677,7 @@ static void frame_cb(void)
         .swapchain = sglue_swapchain(),
     });
     sgl_draw(); /* drains the default context's geometry */
-#if defined(__ANDROID__)
-    if (g_android_menu_active)
-    {
-        sdtx_canvas(320.0f, 240.0f);
-        sdtx_origin(2.0f, 2.0f);
-        sdtx_color3b(255, 255, 0); // Yellow
-        sdtx_puts("PICOCOMPUTER 6502 - ROM SELECT\n");
-        sdtx_puts("==============================\n\n");
-        
-        if (g_rom_count == 0)
-        {
-            sdtx_color3b(255, 100, 100); // Red
-            sdtx_puts("No ROM files (.rp6502) found.\n\n");
-            sdtx_color3b(200, 200, 200);
-            sdtx_puts("Please copy ROMs to folder:\n");
-            sdtx_printf("%s/\n\n", g_rom_dir);
-            sdtx_color3b(255, 255, 0); // Yellow
-            sdtx_puts("Press SELECT/START/HOME to request\n");
-            sdtx_puts("SD Card folder access permission");
-        }
-        else
-        {
-            sdtx_color3b(200, 200, 200);
-            for (int i = 0; i < g_rom_count; i++)
-            {
-                if (i == g_rom_selected_index)
-                {
-                    sdtx_color3b(100, 255, 100); // Green selection cursor
-                    sdtx_printf("> %s\n", g_rom_files[i]);
-                    sdtx_color3b(200, 200, 200);
-                }
-                else
-                {
-                    sdtx_printf("  %s\n", g_rom_files[i]);
-                }
-            }
-            sdtx_puts("\n\nUse DPAD Up/Down to navigate\n");
-            sdtx_puts("Press A to Boot Selected ROM");
-        }
-    }
-    sdtx_draw();
-#endif
+    host_window_menu_draw(); /* Android ROM menu overlay; no-op elsewhere */
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_render(); /* ImGui draws on top of the canvas, same swapchain pass */
@@ -863,7 +693,7 @@ static void frame_cb(void)
         os_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
 }
 
-static void event_cb(const sapp_event *e)
+void window_core_event(const sapp_event *e)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_handle_event(e))
@@ -872,7 +702,7 @@ static void event_cb(const sapp_event *e)
     input_event(e);
 }
 
-static void cleanup_cb(void)
+void window_core_cleanup(void)
 {
 #ifdef EMU_WITH_AUDIO
     if (aud_enabled())
@@ -887,7 +717,8 @@ static void cleanup_cb(void)
     sg_shutdown();
 }
 
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync,
+                         bool exit_on_halt, int *out_w, int *out_h)
 {
     (void)have_scale;
     /* Clamp to a sane range; the !(>=) form also maps NaN (atof of garbage) to
@@ -928,460 +759,6 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         }
     }
 #endif
-#if defined(__ANDROID__)
-    (void)win_w; (void)win_h; (void)vsync;
-#else
-    /* D3D11 (Windows) leaves the backbuffer at LOGICAL size unless high_dpi is
-     * requested, so a DPI-scaled display DWM-stretches (smears) the menu/canvas;
-     * ask for a native-resolution backbuffer there. X11 already renders native
-     * and ignores this flag; macOS Retina would flip to 2x, so leave it off
-     * outside Windows. */
-    bool high_dpi = false;
-#if defined(_WIN32)
-    high_dpi = true;
-#endif
-    sapp_run(&(sapp_desc){
-        .init_cb = init_cb,
-        .frame_cb = frame_cb,
-        .event_cb = event_cb,
-        .cleanup_cb = cleanup_cb,
-        .width = win_w,
-        .height = win_h,
-        .high_dpi = high_dpi,
-        .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
-        .window_title = "Picocomputer 6502",
-        .logger.func = slog_func,
-    });
-#endif
-    return 0;
+    *out_w = win_w;
+    *out_h = win_h;
 }
-
-#if defined(__ANDROID__)
-#include <android/input.h>
-#include <android/keycodes.h>
-#include "emu/hid/pad.h"
-#include <dirent.h>
-
-// Define the Android gamepad buttons state tracking variables
-static uint8_t g_android_button0 = 0;
-static uint8_t g_android_button1 = 0;
-static uint8_t g_android_dpad = 0;
-static int g_android_lx = 0;
-static int g_android_ly = 0;
-static int g_android_rx = 0;
-static int g_android_ry = 0;
-static int g_android_lt = 0;
-static int g_android_rt = 0;
-
-
-
-// Forward declarations from emulator codebase (using clean includes)
-
-#include <jni.h>
-#include <unistd.h>
-#include <sys/stat.h>
-#include <android/native_activity.h>
-#include <errno.h>
-
-static void android_request_storage_permission(void)
-{
-    ANativeActivity* activity = (ANativeActivity*)sapp_android_get_native_activity();
-    if (!activity) return;
-
-    JavaVM* jvm = activity->vm;
-    JNIEnv* env = NULL;
-    (*jvm)->GetEnv(jvm, (void**)&env, JNI_VERSION_1_6);
-    if (!env)
-    {
-        (*jvm)->AttachCurrentThread(jvm, &env, NULL);
-    }
-    if (!env) return;
-
-    jclass intent_class = (*env)->FindClass(env, "android/content/Intent");
-    jclass uri_class = (*env)->FindClass(env, "android/net/Uri");
-    
-    jstring action_str = (*env)->NewStringUTF(env, "android.settings.MANAGE_APP_ALL_FILES_ACCESS_PERMISSION");
-    jstring uri_str = (*env)->NewStringUTF(env, "package:com.picocomputer.rp6502");
-    
-    jmethodID uri_parse = (*env)->GetStaticMethodID(env, uri_class, "parse", "(Ljava/lang/String;)Landroid/net/Uri;");
-    jobject uri_obj = (*env)->CallStaticObjectMethod(env, uri_class, uri_parse, uri_str);
-    
-    jmethodID intent_init = (*env)->GetMethodID(env, intent_class, "<init>", "(Ljava/lang/String;)V");
-    jobject intent_obj = (*env)->NewObject(env, intent_class, intent_init, action_str);
-    
-    jmethodID set_data_method = (*env)->GetMethodID(env, intent_class, "setData", "(Landroid/net/Uri;)Landroid/content/Intent;");
-    (*env)->CallObjectMethod(env, intent_obj, set_data_method, uri_obj);
-    
-    jclass activity_class = (*env)->GetObjectClass(env, activity->clazz);
-    jmethodID start_activity_method = (*env)->GetMethodID(env, activity_class, "startActivity", "(Landroid/content/Intent;)V");
-    (*env)->CallVoidMethod(env, activity->clazz, start_activity_method, intent_obj);
-}
-
-static void detect_rom_directory(void)
-{
-    // 1. Try physical SD Card first: scan /storage/
-    DIR* dir = opendir("/storage");
-    if (dir)
-    {
-        struct dirent* de;
-        while ((de = readdir(dir)) != NULL)
-        {
-            if (strcmp(de->d_name, ".") == 0 ||
-                strcmp(de->d_name, "..") == 0 ||
-                strcmp(de->d_name, "self") == 0 ||
-                strcmp(de->d_name, "emulated") == 0)
-            {
-                continue;
-            }
-            
-            // Try /storage/ID/Download/rp6502
-            char path[512];
-            snprintf(path, sizeof(path), "/storage/%s/Download/rp6502", de->d_name);
-            DIR* d = opendir(path);
-            if (d)
-            {
-                closedir(d);
-                strncpy(g_rom_dir, path, sizeof(g_rom_dir) - 1);
-                g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-                closedir(dir);
-                return;
-            }
-            
-            // Try /storage/ID/rp6502
-            snprintf(path, sizeof(path), "/storage/%s/rp6502", de->d_name);
-            d = opendir(path);
-            if (d)
-            {
-                closedir(d);
-                strncpy(g_rom_dir, path, sizeof(g_rom_dir) - 1);
-                g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-                closedir(dir);
-                return;
-            }
-        }
-        closedir(dir);
-    }
-    
-    // 2. Try internal storage Download/rp6502 next
-    DIR* d = opendir("/sdcard/Download/rp6502");
-    if (d)
-    {
-        closedir(d);
-        strcpy(g_rom_dir, "/sdcard/Download/rp6502");
-        return;
-    }
-    
-    // 3. Try to create internal storage Download/rp6502
-    if (mkdir("/sdcard/Download/rp6502", 0777) == 0 || errno == EEXIST)
-    {
-        d = opendir("/sdcard/Download/rp6502");
-        if (d)
-        {
-            closedir(d);
-            strcpy(g_rom_dir, "/sdcard/Download/rp6502");
-            return;
-        }
-    }
-    
-    // 4. Fallback to app internal data path
-    const void* native_act = sapp_android_get_native_activity();
-    if (native_act)
-    {
-        ANativeActivity* activity = (ANativeActivity*)native_act;
-        if (activity->internalDataPath)
-        {
-            strncpy(g_rom_dir, activity->internalDataPath, sizeof(g_rom_dir) - 1);
-            g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-            return;
-        }
-        else if (activity->externalDataPath)
-        {
-            strncpy(g_rom_dir, activity->externalDataPath, sizeof(g_rom_dir) - 1);
-            g_rom_dir[sizeof(g_rom_dir) - 1] = '\0';
-            return;
-        }
-    }
-    
-    // Absolute fallback
-    strcpy(g_rom_dir, ".");
-}
-
-static void android_scan_roms(void)
-{
-    detect_rom_directory();
-    chdir(g_rom_dir);
-
-    g_rom_count = 0;
-    DIR* d = opendir(".");
-    if (!d) return;
-    struct dirent* de;
-    while ((de = readdir(d)) != NULL)
-    {
-        size_t len = strlen(de->d_name);
-        if (de->d_name[0] != '.' && len > 7 && strcasecmp(de->d_name + len - 7, ".rp6502") == 0)
-        {
-            strncpy(g_rom_files[g_rom_count], de->d_name, ROM_NAME_MAX - 1);
-            g_rom_files[g_rom_count][ROM_NAME_MAX - 1] = '\0';
-            g_rom_count++;
-            if (g_rom_count >= MAX_ROMS) break;
-        }
-    }
-    closedir(d);
-}
-
-bool rp6502_android_input_hook(const void* native_event)
-{
-    const AInputEvent* event = (const AInputEvent*)native_event;
-    int32_t type = AInputEvent_getType(event);
-    if (type == AINPUT_EVENT_TYPE_KEY)
-    {
-        int32_t key_code = AKeyEvent_getKeyCode(event);
-        int32_t action = AKeyEvent_getAction(event);
-        bool down = (action == AKEY_EVENT_ACTION_DOWN);
-        
-        // Handle menu navigation if menu is active
-        if (g_android_menu_active)
-        {
-            if (down)
-            {
-                switch (key_code)
-                {
-                    case AKEYCODE_DPAD_UP:
-                        g_rom_selected_index--;
-                        if (g_rom_selected_index < 0) g_rom_selected_index = g_rom_count - 1;
-                        return 1;
-                    case AKEYCODE_DPAD_DOWN:
-                        g_rom_selected_index++;
-                        if (g_rom_selected_index >= g_rom_count) g_rom_selected_index = 0;
-                        return 1;
-                    case AKEYCODE_BUTTON_A:
-                        if (g_rom_count > 0)
-                        {
-                            rom_load(g_rom_files[g_rom_selected_index]);
-                            main_init();
-                            // Reset key and button states to prevent stuck inputs after closing the menu
-                            g_android_button0 = 0;
-                            g_android_button1 = 0;
-                            g_android_dpad = 0;
-                            g_android_lx = 0;
-                            g_android_ly = 0;
-                            g_android_rx = 0;
-                            g_android_ry = 0;
-                            g_android_lt = 0;
-                            g_android_rt = 0;
-                            pad_connect(0, true);
-                            g_android_menu_active = false;
-                        }
-                        return 1;
-                    case AKEYCODE_BUTTON_SELECT:
-                    case AKEYCODE_BUTTON_START:
-                    case AKEYCODE_BUTTON_MODE:
-                        // Request permission page and refresh the list
-                        android_request_storage_permission();
-                        android_scan_roms();
-                        return 1;
-                }
-            }
-            // Block all other keys from propagating when menu is active
-            return 1;
-        }
-        
-        switch (key_code)
-        {
-            // Retroid Pocket 3+ physical gamepad mapping
-            case AKEYCODE_BUTTON_A:
-                if (down) g_android_button0 |= 0x01; else g_android_button0 &= ~0x01;
-                break;
-            case AKEYCODE_BUTTON_B:
-                if (down) g_android_button0 |= 0x02; else g_android_button0 &= ~0x02;
-                break;
-            case AKEYCODE_BUTTON_X:
-                if (down) g_android_button0 |= 0x08; else g_android_button0 &= ~0x08;
-                break;
-            case AKEYCODE_BUTTON_Y:
-                if (down) g_android_button0 |= 0x10; else g_android_button0 &= ~0x10;
-                break;
-            case AKEYCODE_BUTTON_L1:
-                if (down) g_android_button0 |= 0x40; else g_android_button0 &= ~0x40;
-                break;
-            case AKEYCODE_BUTTON_R1:
-                if (down) g_android_button0 |= 0x80; else g_android_button0 &= ~0x80;
-                break;
-                
-            case AKEYCODE_BUTTON_L2:
-                if (down) g_android_button1 |= 0x01; else g_android_button1 &= ~0x01;
-                break;
-            case AKEYCODE_BUTTON_R2:
-                if (down) g_android_button1 |= 0x02; else g_android_button1 &= ~0x02;
-                break;
-            case AKEYCODE_BUTTON_SELECT:
-                if (down) g_android_button1 |= 0x04; else g_android_button1 &= ~0x04;
-                // Toggle ROM select menu when SELECT + START are both pressed
-                if (down && (g_android_button1 & 0x08))
-                {
-                    g_android_menu_active = true;
-                    android_scan_roms();
-                }
-                break;
-            case AKEYCODE_BUTTON_START:
-                if (down) g_android_button1 |= 0x08; else g_android_button1 &= ~0x08;
-                // Toggle ROM select menu when SELECT + START are both pressed
-                if (down && (g_android_button1 & 0x04))
-                {
-                    g_android_menu_active = true;
-                    android_scan_roms();
-                }
-                break;
-            case AKEYCODE_BUTTON_MODE: // Home button
-                if (down) g_android_button1 |= 0x10; else g_android_button1 &= ~0x10;
-                if (down)
-                {
-                    g_android_menu_active = true;
-                    android_scan_roms();
-                }
-                break;
-            case AKEYCODE_BUTTON_THUMBL:
-                if (down) g_android_button1 |= 0x20; else g_android_button1 &= ~0x20;
-                break;
-            case AKEYCODE_BUTTON_THUMBR:
-                if (down) g_android_button1 |= 0x40; else g_android_button1 &= ~0x40;
-                break;
-                
-            case AKEYCODE_DPAD_UP:
-                if (down) g_android_dpad |= 0x01; else g_android_dpad &= ~0x01;
-                break;
-            case AKEYCODE_DPAD_DOWN:
-                if (down) g_android_dpad |= 0x02; else g_android_dpad &= ~0x02;
-                break;
-            case AKEYCODE_DPAD_LEFT:
-                if (down) g_android_dpad |= 0x04; else g_android_dpad &= ~0x04;
-                break;
-            case AKEYCODE_DPAD_RIGHT:
-                if (down) g_android_dpad |= 0x08; else g_android_dpad &= ~0x08;
-                break;
-                
-            default:
-                return 0; // Not handled
-        }
-        pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
-                        g_android_lx, g_android_ly, g_android_rx, g_android_ry,
-                        g_android_lt, g_android_rt, false);
-        return 1; // Handled
-    }
-    else if (type == AINPUT_EVENT_TYPE_MOTION)
-    {
-        // Handle menu navigation if menu is active
-        if (g_android_menu_active)
-        {
-            float hat_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0);
-            float stick_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0);
-            
-            float input_y = 0.0f;
-            if (hat_y < -0.5f || stick_y < -0.5f) input_y = -1.0f;
-            else if (hat_y > 0.5f || stick_y > 0.5f) input_y = 1.0f;
-            
-            if (input_y == -1.0f && g_last_menu_y != -1.0f)
-            {
-                g_rom_selected_index--;
-                if (g_rom_selected_index < 0) g_rom_selected_index = g_rom_count - 1;
-            }
-            else if (input_y == 1.0f && g_last_menu_y != 1.0f)
-            {
-                g_rom_selected_index++;
-                if (g_rom_selected_index >= g_rom_count) g_rom_selected_index = 0;
-            }
-            g_last_menu_y = input_y;
-            return 1; // Consume event
-        }
-        
-        // Read Hat/D-pad axes
-        float hat_x = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_X, 0);
-        float hat_y = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HAT_Y, 0);
-        
-        g_android_dpad = 0;
-        if (hat_x < -0.5f) g_android_dpad |= 0x04; // LEFT
-        if (hat_x > 0.5f)  g_android_dpad |= 0x08; // RIGHT
-        if (hat_y < -0.5f) g_android_dpad |= 0x01; // UP
-        if (hat_y > 0.5f)  g_android_dpad |= 0x02; // DOWN
-        
-        // Read Analog Stick axes
-        float lx_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_X, 0);
-        float ly_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Y, 0);
-        float rx_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_Z, 0);
-        float ry_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_RZ, 0);
-        
-        g_android_lx = (int)(lx_val * 127.0f);
-        g_android_ly = (int)(ly_val * 127.0f);
-        g_android_rx = (int)(rx_val * 127.0f);
-        g_android_ry = (int)(ry_val * 127.0f);
-        
-        // Read Trigger axes
-        float lt_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_BRAKE, 0);
-        float rt_val = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_GAS, 0);
-        g_android_lt = (int)(lt_val * 255.0f);
-        g_android_rt = (int)(rt_val * 255.0f);
-        
-        pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
-                        g_android_lx, g_android_ly, g_android_rx, g_android_ry,
-                        g_android_lt, g_android_rt, false);
-        return 1; // Handled
-    }
-    return 0; // Not handled
-}
-
-// Global framebuffer for Android
-static uint32_t android_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-
-#include <unistd.h>
-#include <sys/stat.h>
-#include <android/native_activity.h>
-
-sapp_desc sokol_main(int argc, char* argv[])
-{
-    (void)argc; (void)argv;
-    
-    detect_rom_directory();
-    chdir(g_rom_dir);
-    
-    
-    // Initialize emulator
-    main_init();
-    vga_set_framebuffer(android_fb);
-    
-    // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
-    if (rom_load("boot.rp6502"))
-    {
-        g_android_menu_active = false;
-    }
-    else
-    {
-        g_android_menu_active = true;
-        android_scan_roms();
-    }
-    
-    // Connect gamepad player 0
-    pad_connect(0, true);
-    
-    // Setup app state
-    app.fb = android_fb;
-    app.scale = 1.0;
-    app.vsync = true;
-    app.exit_on_halt = false;
-    
-    return (sapp_desc){
-        .init_cb = init_cb,
-        .frame_cb = frame_cb,
-        .event_cb = event_cb,
-        .cleanup_cb = cleanup_cb,
-        .android = {
-            .native_event_cb = rp6502_android_input_hook,
-        },
-        .width = 640,
-        .height = 480,
-        .window_title = "Picocomputer 6502",
-        .logger.func = slog_func,
-    };
-}
-#endif
-
-#endif /* EMU_WITH_SOKOL */
