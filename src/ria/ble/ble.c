@@ -306,7 +306,7 @@ static void ble_hci_packet_handler(uint8_t packet_type, uint16_t channel, uint8_
 
     case GAP_EVENT_ADVERTISING_REPORT:
     {
-        // Only process advertisements during pairing mode
+        // Connect from advertisements only while pairing with no connect in flight
         if (!ble_pairing || ble_retry_at)
             break;
 
@@ -443,6 +443,10 @@ static void ble_sm_packet_handler(uint8_t packet_type, uint16_t channel, uint8_t
         if (status == ERROR_CODE_SUCCESS)
         {
             DBG("BLE: Re-encryption complete\n");
+            // A bonded device found while pairing re-encrypts instead of
+            // pairing again, so this also ends pairing mode.
+            ble_pairing = false;
+            led_blink(false);
             if (handle == ble_connecting_handle)
                 ble_start_hids_host(handle);
         }
@@ -471,35 +475,27 @@ static void ble_init_stack(void)
     ble_connecting_handle = HCI_CON_HANDLE_INVALID;
     ble_connecting_cid = 0;
 
-    // Initialize L2CAP
     l2cap_init();
 
-    // Initialize Security Manager for BLE pairing
     sm_init();
     sm_set_io_capabilities(IO_CAPABILITY_NO_INPUT_NO_OUTPUT);
-    // Require bonding and secure connections for all devices
     sm_set_authentication_requirements(SM_AUTHREQ_SECURE_CONNECTION | SM_AUTHREQ_BONDING);
 
-    // Initialize GATT Client
     gatt_client_init();
 
     // Initialize ATT Server with minimal GATT database so peripherals
     // that discover our services get proper ATT responses.
     att_server_init(ble_att_profile_data, NULL, NULL);
 
-    // Initialize HID over GATT Host with descriptor storage
     memset(hid_descriptor_storage, 0, sizeof(hid_descriptor_storage));
     hids_host_init(hid_descriptor_storage, sizeof(hid_descriptor_storage));
 
-    // Register for HCI events
     hci_event_callback_registration.callback = &ble_hci_packet_handler;
     hci_add_event_handler(&hci_event_callback_registration);
 
-    // Register for SM events
     sm_event_callback_registration.callback = &ble_sm_packet_handler;
     sm_add_event_handler(&sm_event_callback_registration);
 
-    // Start the Bluetooth stack
     hci_power_control(HCI_POWER_ON);
 
     DBG("BLE: Initialized with HIDS host\n");
