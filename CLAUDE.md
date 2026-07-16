@@ -21,8 +21,16 @@ Do not fetch git history unless specifically instructed to.
 
 To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target
-names (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+names (rp6502-ria, rp6502-ria-w, rp6502-vga, etc.) — just build everything.
 The emulator is a separate tree at build/emulator (`cmake --build build/emulator`).
+
+The emulator's wasm/EMSCRIPTEN target IS buildable locally — don't claim it
+isn't. The vendored toolchain resolves without sourcing emsdk_env.sh (node is
+on PATH): `cmake -S src/emu -B build/web -G Ninja -DCMAKE_BUILD_TYPE=Release
+-DCMAKE_TOOLCHAIN_FILE=vendor/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`
+then `cmake --build build/web` (CI uses the equivalent `wasm` preset from
+src/emu). Verify the EMSCRIPTEN branch (host/web/fs.c + host/posix) this way
+when you touch it.
 
 Never delete debug macros (DBG, DEBUG_*, etc.) on "currently unused"
 grounds. They are scaffolding kept for future bring-up. If a review

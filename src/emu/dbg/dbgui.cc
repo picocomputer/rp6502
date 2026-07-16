@@ -30,7 +30,7 @@ extern "C"
 }
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "emu/app/window.h"       /* window-scale presets */
+#include "emu/host/window.h"      /* window-scale presets */
 #include "emu/app/credits.h"      /* EMU_CREDITS */
 
 #include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */

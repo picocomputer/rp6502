@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_APP_WINDOW_H_
-#define _EMU_APP_WINDOW_H_
+#ifndef _EMU_HOST_WINDOW_H_
+#define _EMU_HOST_WINDOW_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -75,4 +75,4 @@ void window_set_pointer_on_canvas(bool on);
 }
 #endif
 
-#endif /* _EMU_APP_WINDOW_H_ */
+#endif /* _EMU_HOST_WINDOW_H_ */

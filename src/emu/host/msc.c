@@ -16,19 +16,6 @@
 #include <string.h>
 #include <strings.h>
 
-#ifdef __EMSCRIPTEN__
-#include <emscripten.h>
-/* Flush the MSC0: drive (Emscripten IDBFS) to IndexedDB so writes survive a
- * reload. Async/fire-and-forget. The tmpdrive lives in a RAM FatFs, so a sync
- * there persists nothing — it expires with the session. */
-EM_JS(void, host_persist, (void), {
-    if (typeof FS !== 'undefined')
-        FS.syncfs(false, function (err) { if (err) console.error('syncfs(false)', err); });
-});
-#else
-static void host_persist(void) {}
-#endif
-
 #define HOST_MAX_OPEN 16
 
 /* An open host file: a plain fd, flagged once it is written so the drive is persisted
@@ -227,7 +214,7 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         rc = fs_close(f->fd);
     f->used = false;
     if (wrote)
-        host_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
+        fs_sync(); /* a saved file just closed: persist the drive (web: IDBFS) */
     if (rc != 0) /* deferred flush failure (ENOSPC/EIO on network/overlay FS) */
     {
         *err = msc_errno_to_api_errno(errno);
@@ -349,6 +336,6 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
 std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     (void)desc, (void)err;
-    host_persist();
+    fs_sync();
     return STD_OK;
 }

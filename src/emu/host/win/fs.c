@@ -23,7 +23,7 @@
 
 #include "emu/plat.h"
 #include "emu/api/oem.h"
-#include "emu/win/win.h"
+#include "emu/host/win/win.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -448,3 +448,5 @@ int fs_ftruncate(int fd, int64_t length)
     }
     return 0;
 }
+
+void fs_sync(void) {} /* a real host filesystem is already durable */

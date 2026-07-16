@@ -3,9 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives (emu/plat.h os_*), the counterpart of win/os.c.
- * This is the one file that carries the intra-POSIX-family branches (Linux vs
- * macOS vs Emscripten); the callers above the seam stay platform-free.
+ * POSIX-family host-OS primitives common to every POSIX host (emu/plat.h os_*),
+ * the counterpart of win/os.c. The two primitives that differ by OS —
+ * os_entropy_64 and os_sleep_until_ns — live in the per-host os.c
+ * (linux/macos/web/android); this file holds only what they all share.
  */
 
 #include "emu/plat.h"
@@ -17,58 +18,14 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
-#include <sys/random.h>
-#endif
 
-/* ---- entropy ---- */
-
-uint64_t os_entropy_64(void)
-{
-#if defined(__linux__) && !defined(__EMSCRIPTEN__)
-    {
-        uint64_t s;
-        if (getrandom(&s, sizeof s, 0) == (ssize_t)sizeof s && s)
-            return s;
-    }
-#endif
-    struct timespec mono = {0}, real = {0};
-    clock_gettime(CLOCK_MONOTONIC, &mono);
-    clock_gettime(CLOCK_REALTIME, &real);
-    uint64_t s = (uint64_t)mono.tv_nsec * 6364136223846793005ull +
-                 (uint64_t)real.tv_sec * 1442695040888963407ull +
-                 (uint64_t)real.tv_nsec + (uint64_t)(uintptr_t)&mono;
-    return s ? s : 1;
-}
-
-/* ---- monotonic clock + frame-pacer sleep ---- */
+/* ---- monotonic clock ---- */
 
 uint64_t os_mono_ns(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (uint64_t)ts.tv_sec * 1000000000ull + (uint64_t)ts.tv_nsec;
-}
-
-void os_sleep_until_ns(uint64_t target)
-{
-#if defined(__EMSCRIPTEN__)
-    (void)target; /* requestAnimationFrame paces the web loop */
-#elif defined(__APPLE__)
-    uint64_t now = os_mono_ns();
-    if (target > now)
-    {
-        uint64_t delta = target - now;
-        struct timespec req = {.tv_sec = (time_t)(delta / 1000000000ull),
-                               .tv_nsec = (long)(delta % 1000000000ull)};
-        while (nanosleep(&req, &req) != 0 && errno == EINTR)
-            ;
-    }
-#else
-    struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
-                             .tv_nsec = (long)(target % 1000000000ull)};
-    clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &until, NULL);
-#endif
 }
 
 /* ---- broken-down time ---- */

@@ -46,9 +46,9 @@ The Pi Pico VS Code Extension may need this additional software:
 $ sudo apt install python3 git tar build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
 ```
 
-For the emulator, install GL/X11 dev headers:
+For the emulator, install the GL/X11/ALSA dev headers:
 ```
-$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
+$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev libasound2-dev
 ```
 
 ## Windows
@@ -95,7 +95,7 @@ or a simple python server to run them.
 
 To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
 panel. Select either the Debug or Release variant. You must select the launch
-target for debugging here, either rp6502_ria or rp6502_vga. Pressing F7 will
+target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
