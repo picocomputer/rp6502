@@ -3,10 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten filesystem primitives (emu/plat.h). The same POSIX calls as posix/fs.c
- * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_read/fs_write
- * complete in one call and never return STD_PENDING — a zero-latency read has nothing to
- * keep alive. Web is single-threaded with no POSIX aio, so it gets its own seam.
+ * Android filesystem primitives (emu/plat.h). The same POSIX calls as posix/fs.c, but
+ * the byte transfer is synchronous: fs_read/fs_write complete in one call and never
+ * return STD_PENDING. Bionic has no POSIX aio and we don't offload to a worker thread,
+ * so Android gets its own seam instead of a mock aio in posix/fs.c. Each read blocks
+ * only for one read_xram chunk (2048 bytes).
  */
 
 #include "emu/plat.h"
@@ -152,3 +153,5 @@ int fs_ftruncate(int fd, int64_t length)
 {
     return ftruncate(fd, (off_t)length);
 }
+
+void fs_sync(void) {} /* a real host filesystem is already durable */

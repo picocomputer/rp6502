@@ -3,48 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * The host-neutral window core: the render/frame/present pipeline shared by
+ * every windowed host. It carries no platform #ifdefs (only EMU_WITH_DEBUGGER /
+ * EMU_WITH_AUDIO feature gates). Anything that differs per host — the WM seam,
+ * the entry point, the Android overlay — is a host_window_* hook (window_core.h)
+ * implemented in host/<os>/window.c.
  */
 
-#include "emu/app/window.h"
-#include "emu/aud/aud.h"
-#include "emu/dbg/dbg.h"
-#include "emu/hid/mou.h"
-#include "emu/hid/tab.h"
-#include "emu/mon/rom.h"
-#include "emu/host/msc.h"
-#include "emu/sys/cpu.h"
-#include "emu/sys/mem.h"
-#include "emu/main.h"
-#include "emu/plat.h"
-#include "emu/sys/vga.h"
-
-#ifndef EMU_WITH_SOKOL
-
-#include <stdio.h>
-
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
-{
-    (void)fb;
-    (void)scale;
-    (void)have_scale;
-    (void)vsync;
-    (void)exit_on_halt;
-    fprintf(stderr, "rp6502-emu: built without window support; use --screenshot\n");
-    return 1;
-}
-
-void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b) { (void)r, (void)g, (void)b; }
-
-/* Headless renders at native resolution (no canvas->window scaling), so the
- * filter is genuinely a no-op here. */
-void window_set_scale_filter(window_scale_filter_t filter) { (void)filter; }
-
-void window_set_scale(double scale) { (void)scale; }
-
-double window_get_scale(void) { return 0.0; }
-
-#else
-
+#include "emu/host/window.h"
+#include "emu/host/window_core.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -59,89 +26,19 @@ double window_get_scale(void) { return 0.0; }
 #include "emu/dbg/dap.h"
 #endif
 #include "emu/app/input.h"
+#include "emu/aud/aud.h"
+#include "emu/dbg/dbg.h"
+#include "emu/hid/mou.h"
+#include "emu/hid/tab.h"
+#include "emu/sys/cpu.h"
+#include "emu/main.h"
+#include "emu/plat.h"
+#include "emu/sys/vga.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-#if defined(__linux__)
-/* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
- * a one-shot resize when the canvas changes, and a PAspect size hint that asks
- * the window manager to keep that aspect during interactive resizes (we don't
- * fight the WM by snapping the size ourselves; the quad letterboxes whenever the
- * window ends up off-aspect anyway). Forward-declare the few Xlib bits we need
- * rather than pulling in <X11/Xlib.h> and its macro soup (Window is an XID =
- * unsigned long; X11 is already linked for the GL backend). */
-typedef struct _XDisplay Display;
-typedef struct
-{
-    long flags;
-    int x, y, width, height;
-    int min_width, min_height, max_width, max_height;
-    int width_inc, height_inc;
-    struct { int x, y; } min_aspect, max_aspect;
-    int base_width, base_height, win_gravity;
-} XSizeHints;
-#define X_PASPECT (1L << 7) /* XSizeHints PAspect flag */
-extern int XResizeWindow(Display *, unsigned long, unsigned, unsigned);
-extern void XSetWMNormalHints(Display *, unsigned long, XSizeHints *);
-extern int XFlush(Display *);
-
-static void resize_window(int w, int h)
-{
-    Display *dpy = (Display *)sapp_x11_get_display();
-    unsigned long win = (unsigned long)(uintptr_t)sapp_x11_get_window();
-    if (dpy && win)
-    {
-        XResizeWindow(dpy, win, (unsigned)w, (unsigned)h);
-        XFlush(dpy);
-    }
-}
-
-/* Ask the WM to constrain interactive resizes to the canvas aspect (cw:ch). */
-static void set_aspect_hint(int cw, int ch)
-{
-    Display *dpy = (Display *)sapp_x11_get_display();
-    unsigned long win = (unsigned long)(uintptr_t)sapp_x11_get_window();
-    if (!dpy || !win)
-        return;
-    XSizeHints h;
-    memset(&h, 0, sizeof h);
-    h.flags = X_PASPECT;
-    h.min_aspect.x = h.max_aspect.x = cw;
-    h.min_aspect.y = h.max_aspect.y = ch;
-    XSetWMNormalHints(dpy, win, &h);
-    XFlush(dpy);
-}
-#elif defined(_WIN32)
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-static void resize_window(int w, int h)
-{
-    HWND hwnd = (HWND)sapp_win32_get_hwnd();
-    if (!hwnd)
-        return;
-    /* w,h are client (== framebuffer/physical) px; grow by this window's DPI
-     * frame and keep the top-left corner. */
-    RECT r = {0, 0, w, h};
-    AdjustWindowRectExForDpi(&r,
-                             (DWORD)GetWindowLongPtrW(hwnd, GWL_STYLE), FALSE,
-                             (DWORD)GetWindowLongPtrW(hwnd, GWL_EXSTYLE),
-                             GetDpiForWindow(hwnd));
-    SetWindowPos(hwnd, NULL, 0, 0, r.right - r.left, r.bottom - r.top,
-                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-}
-static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-#else
-static void resize_window(int w, int h) { (void)w, (void)h; }
-static void set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-#endif
 
 static struct
 {
@@ -302,12 +199,12 @@ void window_set_scale(double scale)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    /* scaled_canvas_height is logical canvas px; resize_window wants framebuffer
-     * (== physical) px, so scale by the DPI factor (1.0 unless high_dpi is on).
-     * top_reserved_px() is already framebuffer px. */
+    /* scaled_canvas_height is logical canvas px; host_window_resize wants
+     * framebuffer (== physical) px, so scale by the DPI factor (1.0 unless
+     * high_dpi is on). top_reserved_px() is already framebuffer px. */
     int h = (int)(scaled_canvas_height(scale) * sapp_dpi_scale() + 0.5f);
     int w = aspect_width(h, cw, ch);
-    resize_window(w, h + top_reserved_px());
+    host_window_resize(w, h + top_reserved_px());
 }
 
 double window_get_scale(void)
@@ -409,11 +306,6 @@ static sapp_mouse_cursor tab_cursor_to_sokol(uint8_t shape)
     }
 }
 
-/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
- * hides it (the ROM draws its own), otherwise show that shape. Applied every
- * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
- * would be overwritten. Over a debugger panel ImGui owns the shape, so we only
- * keep the pointer visible there. */
 /* Whether the host pointer is over the drawn canvas, set by the input layer. The
  * tablet only owns the host cursor while true; in the letterbox (or a debugger
  * panel, handled below) the system cursor shows. Defaults true so a freshly
@@ -425,6 +317,11 @@ void window_set_pointer_on_canvas(bool on)
     pointer_on_canvas = on;
 }
 
+/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
+ * hides it (the ROM draws its own), otherwise show that shape. Applied every
+ * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
+ * would be overwritten. Over a debugger panel ImGui owns the shape, so we only
+ * keep the pointer visible there. */
 static void update_cursor(void)
 {
     static bool had_tablet;
@@ -492,7 +389,7 @@ static void update_title(void)
     }
 }
 
-static void init_cb(void)
+void window_core_init(void)
 {
     sg_setup(&(sg_desc){
         .environment = sglue_environment(),
@@ -508,6 +405,7 @@ static void init_cb(void)
     sgl_setup(&(sgl_desc_t){
         .logger.func = slog_func,
     });
+    host_window_init(); /* Android stands up its text overlay; no-op elsewhere */
     sg_backend b = sg_query_backend();
     app.flip_v = (b == SG_BACKEND_GLCORE) || (b == SG_BACKEND_GLES3);
     app.smp = sg_make_sampler(&(sg_sampler_desc){
@@ -543,14 +441,14 @@ static void init_cb(void)
     vga_canvas_size(&cw, &ch);
     resize_canvas_texture(cw, ch);
     if (!overlay_active())
-        set_aspect_hint(cw, ch);
+        host_window_set_aspect_hint(cw, ch);
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_init();
 #endif
 }
 
-static void frame_cb(void)
+void window_core_frame(void)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
@@ -577,6 +475,8 @@ static void frame_cb(void)
         start_ns = os_mono_ns();
     }
     uint64_t target = (os_mono_ns() - start_ns) * VGA_HZ / 1000000000ull;
+    if (host_window_menu_active()) /* Android ROM menu: freeze emulation */
+        done = target;
     uint64_t behind = target > done ? target - done : 0;
     if (behind > WINDOW_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
     {
@@ -643,7 +543,7 @@ static void frame_cb(void)
         {
             /* Ask the WM to keep the new aspect on interactive resize. WSLg ignores
              * this (the quad below letterboxes instead); native X11/other WMs honor it. */
-            set_aspect_hint(cw, ch);
+            host_window_set_aspect_hint(cw, ch);
 
             /* Re-fit the window width to the new aspect ONLY if it was still pristine;
              * a window the user has resized off-aspect is left alone (and letterboxed).
@@ -652,7 +552,7 @@ static void frame_cb(void)
              * as-is; only the width tracks the aspect. */
             int new_w = aspect_width(h, cw, ch);
             if (at_aspect && new_w != w)
-                resize_window(new_w, h);
+                host_window_resize(new_w, h);
         }
     }
 
@@ -745,8 +645,10 @@ static void frame_cb(void)
      * (LINEAR); nearest samples the canvas (NEAREST). */
     sgl_defaults();
     /* Until the first frame has been uploaded the canvas texture is undefined;
-     * emit no geometry so the swapchain pass below shows only the clear color. */
-    if (ever_uploaded)
+     * emit no geometry so the swapchain pass below shows only the clear color.
+     * host_window_menu_active() also suppresses the canvas while the Android ROM
+     * menu is up (its overlay draws instead). */
+    if (ever_uploaded && !host_window_menu_active())
     {
         sgl_viewport(vx, vy, vw, vh, true); /* the canvas region (central node when docked) */
         sgl_load_pipeline(app.pip);
@@ -775,6 +677,7 @@ static void frame_cb(void)
         .swapchain = sglue_swapchain(),
     });
     sgl_draw(); /* drains the default context's geometry */
+    host_window_menu_draw(); /* Android ROM menu overlay; no-op elsewhere */
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active())
         dbgui_render(); /* ImGui draws on top of the canvas, same swapchain pass */
@@ -790,7 +693,7 @@ static void frame_cb(void)
         os_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
 }
 
-static void event_cb(const sapp_event *e)
+void window_core_event(const sapp_event *e)
 {
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_handle_event(e))
@@ -799,7 +702,7 @@ static void event_cb(const sapp_event *e)
     input_event(e);
 }
 
-static void cleanup_cb(void)
+void window_core_cleanup(void)
 {
 #ifdef EMU_WITH_AUDIO
     if (aud_enabled())
@@ -814,7 +717,8 @@ static void cleanup_cb(void)
     sg_shutdown();
 }
 
-int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
+void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync,
+                         bool exit_on_halt, int *out_w, int *out_h)
 {
     (void)have_scale;
     /* Clamp to a sane range; the !(>=) form also maps NaN (atof of garbage) to
@@ -855,28 +759,6 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         }
     }
 #endif
-    /* D3D11 (Windows) leaves the backbuffer at LOGICAL size unless high_dpi is
-     * requested, so a DPI-scaled display DWM-stretches (smears) the menu/canvas;
-     * ask for a native-resolution backbuffer there. X11 already renders native
-     * and ignores this flag; macOS Retina would flip to 2x, so leave it off
-     * outside Windows. */
-    bool high_dpi = false;
-#if defined(_WIN32)
-    high_dpi = true;
-#endif
-    sapp_run(&(sapp_desc){
-        .init_cb = init_cb,
-        .frame_cb = frame_cb,
-        .event_cb = event_cb,
-        .cleanup_cb = cleanup_cb,
-        .width = win_w,
-        .height = win_h,
-        .high_dpi = high_dpi,
-        .swap_interval = vsync ? 1 : 0, /* off: present uncapped (driver may ignore) */
-        .window_title = "Picocomputer 6502",
-        .logger.func = slog_func,
-    });
-    return 0;
+    *out_w = win_w;
+    *out_h = win_h;
 }
-
-#endif /* EMU_WITH_SOKOL */

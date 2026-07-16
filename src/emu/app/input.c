@@ -9,7 +9,7 @@
 
 #ifdef EMU_WITH_SOKOL
 
-#include "emu/app/window.h"
+#include "emu/host/window.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"

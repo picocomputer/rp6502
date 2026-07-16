@@ -6,10 +6,8 @@
  * Web (Emscripten) JS-callable bridges. The browser shell (html/index.html)
  * reaches the emulated HID devices through these EMSCRIPTEN_KEEPALIVE exports.
  * Kept in the executable (not emu_core) so the linker can't drop the object
- * before KEEPALIVE marks the symbols; an empty translation unit elsewhere.
+ * before KEEPALIVE marks the symbols. Compiled only for the Emscripten host.
  */
-
-#ifdef __EMSCRIPTEN__
 
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
@@ -51,5 +49,3 @@ EMSCRIPTEN_KEEPALIVE void pad_disconnect(int player)
 {
     pad_connect(player, false);
 }
-
-#endif /* __EMSCRIPTEN__ */

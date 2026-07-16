@@ -7,7 +7,7 @@
 
 #include "emu/api/oem.h"
 #include "emu/api/pro.h"
-#include "emu/app/window.h"
+#include "emu/host/window.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/app/png.h"
