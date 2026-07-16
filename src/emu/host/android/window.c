@@ -225,10 +225,9 @@ bool rp6502_android_input_hook(const void* native_event)
                         if (g_rom_selected_index >= g_rom_count) g_rom_selected_index = 0;
                         return 1;
                     case AKEYCODE_BUTTON_A:
-                        if (g_rom_count > 0)
+                        if (g_rom_count > 0 &&
+                            window_core_boot_rom(g_rom_files[g_rom_selected_index]))
                         {
-                            rom_load(g_rom_files[g_rom_selected_index]);
-                            main_init();
                             // Reset key and button states to prevent stuck inputs after closing the menu
                             g_android_button0 = 0;
                             g_android_button1 = 0;
@@ -401,6 +400,7 @@ bool rp6502_android_input_hook(const void* native_event)
 
 void host_window_resize(int w, int h) { (void)w, (void)h; }
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
+void host_window_files_dropped(void) {} /* sokol has no Android drag-n-drop */
 
 void host_window_init(void)
 {

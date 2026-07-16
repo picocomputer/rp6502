@@ -195,6 +195,11 @@ void com_kbd_push_byte(uint8_t b)
     ring_push(&kbd_ring, b);
 }
 
+size_t com_kbd_free(void)
+{
+    return (size_t)((kbd_ring.tail - kbd_ring.head - 1) & RING_MASK);
+}
+
 bool com_get_bel(void)
 {
     return com_bel_enabled;

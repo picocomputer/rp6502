@@ -973,6 +973,7 @@ bool dbgui_handle_event(const void *evp)
     case SAPP_EVENTTYPE_KEY_DOWN:
     case SAPP_EVENTTYPE_KEY_UP:
     case SAPP_EVENTTYPE_CHAR:
+    case SAPP_EVENTTYPE_CLIPBOARD_PASTED: /* a focused field pastes; don't also type it */
         return io.WantCaptureKeyboard;
     case SAPP_EVENTTYPE_MOUSE_DOWN:
     case SAPP_EVENTTYPE_MOUSE_UP:

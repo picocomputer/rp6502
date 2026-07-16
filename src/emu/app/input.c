@@ -19,6 +19,8 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* Host (sokol) key/char translation                                   */
@@ -180,11 +182,13 @@ static void input_key(const sapp_event *e)
         /* Printable input only; control codes (<32) and DEL arrive via KEY_DOWN
          * below, so skip them here to avoid double injection. Ctrl/Alt chords are
          * likewise emitted by KEY_DOWN (as C0 / ESC-prefixed bytes); X11 still fires
-         * a CHAR for them, so drop those here or the plain char double-injects. */
+         * a CHAR for them, so drop those here or the plain char double-injects.
+         * Super too: macOS delivers a printable CHAR for Cmd chords (Cmd+V would
+         * type 'v' before the CLIPBOARD_PASTED text lands). */
         if (suppress_char)
             suppress_char = false;
         else if (e->char_code >= 32 && e->char_code != 127 &&
-                 !(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT)))
+                 !(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT | SAPP_MODIFIER_SUPER)))
         {
             char u[5];
             kbd_text(utf8_encode(e->char_code, u));
@@ -249,6 +253,23 @@ static void input_key(const sapp_event *e)
             if (ctrl && !alt)
             {
                 char ch = ascii_from_key(e->key_code, shift);
+#if defined(__EMSCRIPTEN__)
+                /* The browser, not sokol, decides when a paste fires (any
+                 * Ctrl+V variant can land a JS paste event), so every Ctrl+V
+                 * chord types the paste instead of 0x16. */
+                if (e->key_code == SAPP_KEYCODE_V &&
+                    sapp_query_desc().enable_clipboard)
+                    ch = 0;
+#elif !defined(__APPLE__)
+                /* Unshifted Ctrl+V — the exact chord sokol pastes on — types the
+                 * CLIPBOARD_PASTED text instead of 0x16. Shifted variants still
+                 * inject 0x16 (they never paste), and macOS pastes on Cmd+V, so
+                 * its Ctrl+V stays a guest SYN. */
+                if (e->key_code == SAPP_KEYCODE_V &&
+                    e->modifiers == SAPP_MODIFIER_CTRL &&
+                    sapp_query_desc().enable_clipboard)
+                    ch = 0;
+#endif
                 if (ch && ctrl_promote(ch))
                     kbd_ctrl_letter(ch);
             }
@@ -409,6 +430,91 @@ static bool input_tablet(const sapp_event *e)
     }
 }
 
+/* ------------------------------------------------------------------ */
+/* Clipboard paste                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Pasted text still being dripped into the keyboard ring (NULL = idle). */
+static char *paste_buf;
+static size_t paste_len, paste_pos;
+
+/* UTF-8 sequence length from the lead byte (1 for ASCII and invalid leads). */
+static size_t utf8_len(uint8_t lead)
+{
+    if ((lead & 0xe0) == 0xc0)
+        return 2;
+    if ((lead & 0xf0) == 0xe0)
+        return 3;
+    if ((lead & 0xf8) == 0xf0)
+        return 4;
+    return 1;
+}
+
+void input_paste_cancel(void)
+{
+    free(paste_buf);
+    paste_buf = NULL;
+}
+
+/* A new paste replaces any still-dripping one. */
+static void paste_start(const char *s)
+{
+    input_paste_cancel();
+    size_t n = s ? strlen(s) : 0;
+    if (!n)
+        return;
+    paste_buf = malloc(n);
+    if (!paste_buf)
+        return;
+    memcpy(paste_buf, s, n);
+    paste_len = n;
+    paste_pos = 0;
+}
+
+void input_paste_pump(void)
+{
+    if (!paste_buf)
+        return;
+    /* Stay under the ring's headroom so live typing still fits during a long
+     * paste; a full ring drops bytes, which would corrupt the paste. */
+    while (paste_pos < paste_len && com_kbd_free() > 64)
+    {
+        char c = paste_buf[paste_pos];
+        if (c == '\r' || c == '\n')
+        {
+            kbd_key(KBD_KEY_ENTER, false, false, false);
+            paste_pos++;
+            if (c == '\r' && paste_pos < paste_len && paste_buf[paste_pos] == '\n')
+                paste_pos++; /* CRLF is one Enter */
+        }
+        else if (c == '\t')
+        {
+            kbd_key(KBD_KEY_TAB, false, false, false);
+            paste_pos++;
+        }
+        else if ((uint8_t)c < 32 || c == 127)
+        {
+            paste_pos++; /* strip other control bytes */
+        }
+        else
+        {
+            char seq[5];
+            size_t n = utf8_len((uint8_t)c);
+            if (n > paste_len - paste_pos)
+                n = paste_len - paste_pos;
+            memcpy(seq, paste_buf + paste_pos, n);
+            seq[n] = '\0';
+            kbd_text(seq);
+            paste_pos += n;
+        }
+    }
+    if (paste_pos >= paste_len)
+    {
+        free(paste_buf);
+        paste_buf = NULL;
+    }
+}
+
 void input_event(const sapp_event *e)
 {
     /* An absolute-pointer program takes host pointer/touch events directly (no
@@ -464,6 +570,9 @@ void input_event(const sapp_event *e)
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (sapp_mouse_locked())
             mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+        break;
+    case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
+        paste_start(sapp_get_clipboard_string());
         break;
     default:
         break;
