@@ -8,7 +8,6 @@
 #include "api/oem.h"
 #include "aud/bel.h"
 #include "hid/kbd.h"
-#include "sys/com_hw.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/ria.h"

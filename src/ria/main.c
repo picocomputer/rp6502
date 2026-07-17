@@ -32,7 +32,7 @@
 #include "net/wfi.h"
 #include "str/rln.h"
 #include "str/str.h"
-#include "sys/com_hw.h"
+#include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/cpu_hw.h"
 #include "sys/led.h"

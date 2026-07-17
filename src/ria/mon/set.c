@@ -16,7 +16,6 @@
 #include "str/str.h"
 #include "sys/com.h"
 #include "sys/cfg.h"
-#include "sys/com_hw.h"
 #include "sys/cpu_hw.h"
 #include "sys/vga.h"
 #include "usb/nfc.h"
