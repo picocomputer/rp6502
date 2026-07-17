@@ -5,8 +5,9 @@
  *
  */
 
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/hid/kbd.h"
+#include "hid/kbd.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "sys/com.h"
@@ -79,8 +80,13 @@ void kbd_text(const char *utf8)
         return;
     const char *p = utf8;
     unsigned char oem;
-    while ((oem = oem_utf8_to_oem(&p)))
+    while ((oem = oem_from_utf8_next(&p)))
         com_kbd_push_byte(oem);
+}
+
+/* No dead-key cache in the emulator; conversion happens per keystroke. */
+void kbd_rebuild_code_page_cache(void)
+{
 }
 
 /* A Ctrl+<letter> chord from the host keyboard, promoted to its C0 control byte

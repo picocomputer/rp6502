@@ -5,9 +5,10 @@
  *
  */
 
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/host/window.h"
+#include "emu/plat.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/app/png.h"
@@ -32,12 +33,19 @@
 
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
-/* Queue scripted keystrokes onto the keyboard input stream. Newlines become
- * carriage returns so the line editor treats them as Enter. Bytes wait in the
- * com ring until the program's first stdin read drains them. */
+/* Queue scripted keystrokes onto the keyboard input stream, converting the
+ * host-encoding option text to OEM. Newlines become carriage returns so the
+ * line editor treats them as Enter. Bytes wait in the com ring until the
+ * program's first stdin read drains them. */
 static void queue_input(const char *text)
 {
-    for (const char *p = text; *p; p++)
+    char oem[1024]; /* the 512-byte kbd ring caps what can queue anyway */
+    if (!os_argv_to_oem(text, oem, sizeof oem))
+    {
+        fprintf(stderr, "rp6502-emu: --input too long\n");
+        return;
+    }
+    for (const char *p = oem; *p; p++)
         com_kbd_push_byte((uint8_t)(*p == '\n' ? '\r' : *p));
 }
 
@@ -186,13 +194,51 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* Install ROMs before the boot load / any exec can resolve them. */
+    /* Seed the OEM code page before anything converts guest-bound argv or
+     * opens a ROM (conversion is per-page; unseeded, every non-ASCII char
+     * flattens to 0x7F). --cp applies best-effort now so paths convert in the
+     * page the guest will run; apply_options validates it after main_init
+     * re-seeds these same defaults (all idempotent here). */
+    oem_locale_changed(437);
+    oem_set_code_page(0);
+    if (o.code_page > 0 && o.code_page <= UINT16_MAX)
+        oem_set_code_page((uint16_t)o.code_page);
+
+    /* Install ROMs before the boot load / any exec can resolve them. Paths and
+     * ROM args are guest-bound, so they convert from host argv encoding to OEM
+     * here at the entry; --shot/--ini stay host-domain untouched. */
     for (int i = 0; i < o.n_installs; i++)
-        if (!install_rom(o.installs[i]))
+    {
+        char oem[4096];
+        if (!os_argv_to_oem(o.installs[i], oem, sizeof oem) || !install_rom(oem))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;
         }
+    }
+
+    static char args_store[2048];
+    static char *args_oem[64];
+    if (o.rom_args)
+    {
+        size_t used = 0;
+        if (o.n_rom_args > (int)(sizeof args_oem / sizeof *args_oem))
+        {
+            fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
+            return 1;
+        }
+        for (int i = 0; i < o.n_rom_args; i++)
+        {
+            if (!os_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
+            {
+                fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
+                return 1;
+            }
+            args_oem[i] = args_store + used;
+            used += strlen(args_oem[i]) + 1;
+        }
+        o.rom_args = args_oem;
+    }
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
@@ -207,10 +253,26 @@ int main(int argc, char **argv)
 
     /* No positional ROM but installs given: boot the first installed ROM (:name). */
     char bootbuf[256];
-    const char *rom = o.rom;
-    if (!rom && o.n_installs > 0)
+    char rom_oem[4096];
+    const char *rom = NULL;
+    if (o.rom)
     {
-        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(o.installs[0]));
+        if (!os_argv_to_oem(o.rom, rom_oem, sizeof rom_oem))
+        {
+            fprintf(stderr, "rp6502-emu: ROM path too long\n");
+            return 1;
+        }
+        rom = rom_oem;
+    }
+    else if (o.n_installs > 0)
+    {
+        char inst[4096];
+        if (!os_argv_to_oem(o.installs[0], inst, sizeof inst))
+        {
+            fprintf(stderr, "rp6502-emu: ROM path too long\n");
+            return 1;
+        }
+        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(inst));
         rom = bootbuf;
     }
 

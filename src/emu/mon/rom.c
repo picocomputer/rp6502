@@ -61,7 +61,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
 {
     if (!g_rom_assets_start || !g_rom_src[0])
         return false;
-    FILE *f = fopen(g_rom_src, "rb");
+    FILE *f = fs_fopen_rd(g_rom_src);
     if (!f)
         return false;
     bool found = false;
@@ -99,7 +99,7 @@ long rom_read_asset(const char *name, void *buf, size_t max)
     size_t base, len;
     if (!rom_find_asset(name, &base, &len))
         return -1;
-    FILE *f = fopen(g_rom_src, "rb");
+    FILE *f = fs_fopen_rd(g_rom_src);
     if (!f)
         return -1;
     size_t want = len < max ? len : max;
@@ -357,7 +357,7 @@ bool rom_load(const char *path)
         fprintf(stderr, "rp6502-emu: cannot resolve ROM '%s'\n", path);
         return false;
     }
-    FILE *f = fopen(host, "rb");
+    FILE *f = fs_fopen_rd(host);
     if (!f)
     {
         fprintf(stderr, "rp6502-emu: cannot open ROM '%s'\n", path);

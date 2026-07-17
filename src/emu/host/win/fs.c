@@ -7,7 +7,7 @@
  * posix/fs.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
- * oem_to_wide() (emu/api/oem.h) before every …W call, and returned names/paths back
+ * oem_to_wide() (api/oem.h) before every …W call, and returned names/paths back
  * with oem_from_wide(). Fallible calls set errno and return false so the
  * msc_errno_to_api_errno funnel in api/hostfs.c works unchanged.
  *
@@ -22,7 +22,7 @@
  */
 
 #include "emu/plat.h"
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/host/win/win.h"
 #include <direct.h>
 #include <errno.h>
@@ -302,6 +302,14 @@ int fs_open(const char *path, int flags, int mode)
     }
     win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0};
     return fd;
+}
+
+FILE *fs_fopen_rd(const char *path)
+{
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
+        return NULL;
+    return _wfopen(w, L"rb");
 }
 
 int fs_close(int fd)

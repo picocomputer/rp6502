@@ -70,6 +70,7 @@ typedef enum
 bool vga_connected(void);          /* the emulator always has a display */
 vga_canvas_t vga_get_canvas(void);
 uint8_t vga_get_display_type(void);
+void vga_set_code_page(uint16_t cp); /* no PIX bus; loads the font directly */
 
 #define VGA_PROG_MAX 512
 

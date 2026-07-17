@@ -5,6 +5,7 @@
  */
 
 #include "main.h"
+#include "api/oem.h"
 #include "mon/dsk.h"
 #include "mon/fil.h"
 #include "mon/hlp.h"
@@ -215,7 +216,7 @@ static int mon_utf8_response(char *buf, size_t buf_size, int state, unsigned)
     const char *p = str + state;
     size_t i = 0;
     while (i + 1 < buf_size && *p)
-        buf[i++] = (char)str_utf8_to_oem(&p);
+        buf[i++] = (char)oem_from_utf8_next(&p);
     buf[i] = 0;
     if (!*p)
         return -1;

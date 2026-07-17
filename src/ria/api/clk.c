@@ -9,6 +9,7 @@
 
 #include "api/api.h"
 #include "api/clk.h"
+#include "api/oem.h"
 #include "str/rln.h"
 #include "str/str.h"
 #include "sys/cfg.h"
@@ -207,7 +208,7 @@ static bool clk_strftime_worker(char *dst, size_t *pos, size_t max,
         if (loc)
         {
             unsigned char ch;
-            while ((ch = str_utf8_to_oem(&loc)))
+            while ((ch = oem_from_utf8_next(&loc)))
             {
                 if (*pos + 1 >= max)
                     return false;

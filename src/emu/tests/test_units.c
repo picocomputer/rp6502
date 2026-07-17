@@ -7,7 +7,7 @@
  * xreg device/channel dispatch, and the CLI parser.
  */
 
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/app/cli.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/pad.h"
@@ -172,7 +172,8 @@ UTEST(kbd, ansi_sequences)
 UTEST(kbd, text_to_oem)
 {
     char b[32];
-    oem_reset(); /* code page 437 */
+    oem_locale_changed(437); /* the emu boot pair: code page 437 */
+    oem_set_code_page(0);
 
     com_reset();
     kbd_text("Hi!"); /* ASCII passes through */
@@ -188,6 +189,53 @@ UTEST(kbd, text_to_oem)
     kbd_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
     ASSERT_EQ(kbd_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
+}
+
+/* The oem string family: UTF-8 <-> OEM round-trip in the active code page,
+ * snprintf-style overflow reporting, and the counted wide entry (the USB
+ * string descriptor shape). */
+UTEST(oem, utf8_string_roundtrip)
+{
+    oem_locale_changed(437); /* the emu boot pair: code page 437 */
+    oem_set_code_page(0);
+
+    char oem[16], u8[16];
+    ASSERT_EQ(oem_from_utf8("caf\xC3\xA9", oem, sizeof oem), (size_t)4);
+    ASSERT_STREQ(oem, "caf\x82"); /* CP437 'é' */
+    ASSERT_EQ(oem_to_utf8(oem, u8, sizeof u8), (size_t)5);
+    ASSERT_STREQ(u8, "caf\xC3\xA9");
+
+    /* unmappable codepoint and malformed lead byte -> 0x7F */
+    ASSERT_EQ(oem_from_utf8("\xF0\x9F\x98\x80", oem, sizeof oem), (size_t)1);
+    ASSERT_EQ((unsigned char)oem[0], 0x7Fu);
+    ASSERT_EQ(oem_from_utf8("\xFF", oem, sizeof oem), (size_t)1);
+    ASSERT_EQ((unsigned char)oem[0], 0x7Fu);
+
+    /* overlong forms too: 0xC0 0xAF must not decode to '/' */
+    ASSERT_EQ(oem_from_utf8("A\xC0\xAF", oem, sizeof oem), (size_t)2);
+    ASSERT_EQ(oem[0], 'A');
+    ASSERT_EQ((unsigned char)oem[1], 0x7Fu);
+
+    /* snprintf-style: the return is the untruncated length, and a sequence
+     * never splits — a 2-byte dst can't hold 'é' (2 UTF-8 bytes) plus the
+     * NUL, so none of it is written. */
+    ASSERT_EQ(oem_to_utf8("\x82", u8, 2), (size_t)2);
+    ASSERT_EQ(u8[0], 0);
+    ASSERT_EQ(oem_from_utf8("caf\xC3\xA9", oem, 3), (size_t)4);
+    ASSERT_STREQ(oem, "ca");
+
+    /* counted UTF-16 (USB descriptors are not NUL-terminated) */
+    uint16_t w[3] = {'a', 0x00E9, 0x2603}; /* 'a' 'é' snowman */
+    ASSERT_EQ(oem_from_wide_n(w, 3, oem, sizeof oem), (size_t)3);
+    ASSERT_EQ(oem[0], 'a');
+    ASSERT_EQ((unsigned char)oem[1], 0x82u);
+    ASSERT_EQ((unsigned char)oem[2], 0x7Fu);
+
+    /* the page drives the mapping: 'ã' is CP850 0xC6, absent from CP437 */
+    ASSERT_TRUE(oem_set_code_page(850));
+    ASSERT_EQ(oem_from_utf8("\xC3\xA3", oem, sizeof oem), (size_t)1);
+    ASSERT_EQ((unsigned char)oem[0], 0xC6u);
+    oem_set_code_page(0); /* back to auto/437 for later tests */
 }
 
 /* Everything after "--" is the ROM's argv[1..], never parsed as options. */

@@ -6,7 +6,6 @@
  */
 
 #include "emu/api/clk.h"
-#include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
 #include "emu/aud/aud.h"
@@ -340,5 +339,5 @@ void ria_reset(void)
      * settings when a program stops — the emulator lets an exec'd program inherit
      * the parent's code page and PHI2 (an intentional divergence; the program can
      * still read the code page back via the CODE_PAGE attribute). The cold-boot
-     * defaults live in main_init (oem_reset) and cpu_init (default PHI2). */
+     * defaults live in main_init (the oem boot pair) and cpu_init (default PHI2). */
 }

@@ -6,13 +6,13 @@
  */
 
 #include "emu/api/clk.h"
-#include "emu/api/oem.h"
 #include "emu/compiler.h"
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "pico/time.h"
 #include "api/api.h"
 #include "api/clk.h"
+#include "api/oem.h"
 #include <string.h>
 #include <time.h>
 
@@ -56,7 +56,7 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
     size_t pos = 0;
     const char *p = utf8;
     unsigned char ch;
-    while ((ch = oem_utf8_to_oem(&p)))
+    while ((ch = oem_from_utf8_next(&p)))
     {
         if (pos + 1 >= max) /* reserve a terminator; overflow discards the whole render (firmware parity) */
             return 0;

@@ -255,16 +255,14 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
 // Convert USB string descriptor to OEM for display.
 void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size)
 {
-    const tusb_desc_string_t *desc = desc_buf;
     uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
-    uint16_t cp = oem_get_code_page_run();
-    size_t pos = 0;
-    for (uint16_t i = 0; i < ulen && pos + 1 < dest_size; i++)
-    {
-        WCHAR ch = ff_uni2oem(desc->utf16le[i], cp);
-        dest[pos++] = ch ? (char)ch : 127;
-    }
-    dest[pos] = '\0';
+    if (ulen > USB_DESC_STRING_MAX_CHAR_LEN)
+        ulen = USB_DESC_STRING_MAX_CHAR_LEN;
+    // The packed descriptor's utf16le member isn't alignment-safe to address.
+    uint16_t w[USB_DESC_STRING_MAX_CHAR_LEN];
+    memcpy(w, (const uint8_t *)desc_buf + offsetof(tusb_desc_string_t, utf16le),
+           ulen * sizeof(uint16_t));
+    oem_from_wide_n(w, ulen, dest, dest_size);
 }
 
 // One fetch at a time; the pending flag holds the buffer until the

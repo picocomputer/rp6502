@@ -11,6 +11,7 @@
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
+#include "api/oem.h"
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
@@ -392,6 +393,61 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
 
     ASSERT_TRUE(ssys_open("ROM:missing.txt", O_RD) < 0);
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
+}
+
+/* OEM (code page) filenames: the guest works in CP437 bytes; the host seam
+ * converts to the host's Unicode spelling and back, so the same OEM bytes
+ * round-trip through create -> readdir -> stat -> unlink. */
+UTEST(fs, oem_names_roundtrip)
+{
+    oem_locale_changed(437); /* the emu boot pair: code page 437 */
+    oem_set_code_page(0);
+    ASSERT_TRUE(fresh_cwd());
+
+    int f = ssys_open("nap\x82.txt", O_WR | O_CREAT_ | O_TRUNC_); /* CP437 'é' */
+    ASSERT_TRUE(f >= 0);
+    ASSERT_EQ(ssys_write(f, "x", 1), 1);
+    ssys_close(f);
+
+#ifndef _WIN32
+    /* The on-disk spelling is the seam's UTF-8, never the raw OEM bytes (the
+     * one host-encoding assertion here; Windows spells it in UTF-16 instead). */
+    ASSERT_TRUE(host_exists("nap\xC3\xA9.txt"));
+#endif
+
+    FILINFO info;
+    dsys_path("");
+    hostfs_api_opendir();
+    int des = dsys_ax();
+    ASSERT_TRUE(des >= 0);
+    bool saw = false;
+    for (;;)
+    {
+        dsys_des(des);
+        hostfs_api_readdir();
+        ASSERT_EQ(dsys_ax(), 0);
+        dsys_filinfo(&info);
+        if (!info.fname[0])
+            break;
+        if (!strcmp(info.fname, "nap\x82.txt"))
+            saw = true;
+    }
+    dsys_des(des);
+    hostfs_api_closedir();
+    ASSERT_TRUE(saw); /* readdir returns the same OEM bytes */
+
+    dsys_path("nap\x82.txt");
+    hostfs_api_stat();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_filinfo(&info);
+    ASSERT_STREQ(info.fname, "nap\x82.txt");
+
+    dsys_path("nap\x82.txt");
+    hostfs_api_unlink();
+    ASSERT_EQ(dsys_ax(), 0);
+    dsys_path("nap\x82.txt");
+    hostfs_api_stat();
+    ASSERT_EQ(dsys_ax(), -1); /* gone */
 }
 
 UTEST_MAIN()

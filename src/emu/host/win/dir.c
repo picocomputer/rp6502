@@ -7,13 +7,13 @@
  * posix/dir.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
- * oem_to_wide() (emu/api/oem.h) before every …W call, and convert returned names
+ * oem_to_wide() (api/oem.h) before every …W call, and convert returned names
  * back with oem_from_wide(). There is no opendir/readdir on Win32; use
  * FindFirstFileW/FindNextFileW/FindClose over an opaque heap struct.
  */
 
 #include "emu/plat.h"
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/host/win/win.h"
 #include <errno.h>
 #include <stdlib.h>

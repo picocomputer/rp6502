@@ -10,6 +10,7 @@
  * 6502 filesystem syscalls over a real FatFs (--tmpdrive) rather than the host.
  */
 
+#include "api/oem.h"
 #include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
 #include "utest.h"
@@ -94,6 +95,41 @@ UTEST(fatfs, dir_enum_and_chdir)
     char cwd[64];
     ASSERT_EQ(f_getcwd(cwd, sizeof(cwd)), FR_OK);
     ASSERT_TRUE(strstr(cwd, "sub") != NULL);
+    f_unmount("");
+}
+
+/* Non-ASCII (OEM code page) names. FF_CODE_PAGE=0 means the conversion tables
+ * come from f_setcp, which the oem module seeds — without it every name byte
+ * >= 0x80 fails FR_INVALID_NAME. */
+UTEST(fatfs, oem_names)
+{
+    oem_locale_changed(437); /* the emu boot pair seeds f_setcp */
+    oem_set_code_page(0);
+    ASSERT_TRUE(mounted());
+
+    FIL fp;
+    UINT bw = 0;
+    ASSERT_EQ(f_open(&fp, "caf\x82.txt", FA_CREATE_NEW | FA_WRITE), FR_OK); /* CP437 'é' */
+    ASSERT_EQ(f_write(&fp, "x", 1, &bw), FR_OK);
+    ASSERT_EQ(f_close(&fp), FR_OK);
+
+    DIR dir;
+    FILINFO fno;
+    bool saw = false;
+    ASSERT_EQ(f_opendir(&dir, ""), FR_OK);
+    for (;;)
+    {
+        ASSERT_EQ(f_readdir(&dir, &fno), FR_OK);
+        if (!fno.fname[0])
+            break;
+        if (!strcmp(fno.fname, "caf\x82.txt"))
+            saw = true;
+    }
+    f_closedir(&dir);
+    ASSERT_TRUE(saw); /* the OEM bytes round-trip through the UTF-16 LFN */
+
+    ASSERT_EQ(f_stat("caf\x82.txt", &fno), FR_OK);
+    ASSERT_EQ(f_unlink("caf\x82.txt"), FR_OK);
     f_unmount("");
 }
 

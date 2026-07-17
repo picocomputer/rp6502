@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <time.h>
 #include "api/std.h"
 #ifdef _MSC_VER
@@ -59,6 +60,7 @@ bool fs_rename(const char *oldp, const char *newp); /* replaces an existing targ
 bool fs_remove(const char *path);     /* a file or an empty directory */
 
 /* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
+FILE *fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
 int fs_open(const char *path, int flags, int mode);
 int fs_close(int fd); /* reaps a still-in-flight fs_read/fs_write on this fd first */
 int64_t fs_lseek(int fd, int64_t off, int whence);
@@ -84,6 +86,10 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/
 /* App config location, in the host's native path spelling. */
 bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
 void os_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
+
+/* One command-line argument, host argv encoding -> guest OEM. False if it
+ * does not fit. */
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 
 /* Test-only host helpers (the tests drive the rest of the seam directly). */
 bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */

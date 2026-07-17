@@ -5,6 +5,7 @@
  *
  */
 
+#include "api/oem.h"
 #include "sys/com.h"
 #include "sys/ria.h"
 #include "aud/bel.h"
@@ -138,12 +139,17 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len))
 void com_tx_write(const char *buf, int len)
 {
     /* Bring-up aid: EMU_ECHO mirrors the terminal stream to the host's stderr
-     * so the program's text output is visible without rendering the frame. */
+     * so the program's text output is visible without rendering the frame.
+     * Host streams carry host encoding, so OEM bytes expand to UTF-8. */
     static int echo = -1;
     if (echo < 0)
         echo = getenv("EMU_ECHO") ? 1 : 0;
     if (echo)
-        fwrite(buf, 1, (size_t)len, stderr);
+        for (int i = 0; i < len; i++)
+        {
+            char enc[3];
+            fwrite(enc, 1, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc), stderr);
+        }
     if (com_tx_tap)
         com_tx_tap(buf, len);
     if (com_get_bel())

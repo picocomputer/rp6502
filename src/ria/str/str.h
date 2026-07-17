@@ -62,12 +62,6 @@ bool str_parse_uint32(const char **args, uint32_t *result);
 // Ensure there are no more arguments (only spaces to the null terminator).
 bool str_parse_end(const char *args);
 
-// Decode one UTF-8 codepoint at *p, advance *p by 1-4 bytes, and return
-// the OEM byte for the active code page. Returns 0x7F when the codepoint
-// has no mapping or the UTF-8 is malformed (the lead byte is consumed).
-// Returns 0 at end of string without advancing.
-unsigned char str_utf8_to_oem(const char **p);
-
 // Case-insensitive equality of two OEM strings in the active code page (uses
 // FatFs code-page tables and up-case folding; strcasecmp folds only ASCII).
 bool str_oem_eq(const char *a, const char *b);

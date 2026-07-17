@@ -6,7 +6,6 @@
  */
 
 #include "emu/main.h"
-#include "emu/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
@@ -27,6 +26,7 @@
 #include "ria/api/std.h"
 #include "ria/api/dir.h"
 #include "ria/api/clk.h"
+#include "ria/api/oem.h"
 #include "ria/aud/aud.h"
 #include "ria/str/rln.h"
 #include "term/term.h" /* no emu/term shadow; resolves to vga/term */
@@ -61,9 +61,10 @@ void main_init(void)
     s_frame_count = 0;
     aud_init();
     ria_reset();
-    com_reset();        /* cold boot: flush queued input (per-exec keeps type-ahead) */
-    oem_reset();        /* cold boot: default code page 437 (exec preserves the page) */
-    vga_boot_console(); /* font_init loads that same 437 default into the font */
+    com_reset(); /* cold boot: flush queued input (per-exec keeps type-ahead) */
+    oem_locale_changed(437); /* EN locale default; the emulator persists no config */
+    oem_set_code_page(0);    /* cold boot: auto code page (437); exec preserves the page */
+    vga_boot_console();      /* font_init loads that same 437 default into the font */
     cpu_reset();
     via_reset(); /* the VIA shares the 6502's RESB, so a CPU reset clears it */
 }

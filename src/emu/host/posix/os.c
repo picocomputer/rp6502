@@ -10,6 +10,7 @@
  */
 
 #include "emu/plat.h"
+#include "api/oem.h"
 #include <errno.h>
 #include <locale.h>
 #include <stdio.h>
@@ -106,6 +107,12 @@ void os_ensure_parent_dir(const char *filepath)
             *p = '/';
         }
     mkdir(tmp, 0755);
+}
+
+/* POSIX (and Emscripten) argv arrives as UTF-8. */
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+{
+    return oem_from_utf8(arg, dst, dstsz) < dstsz;
 }
 
 /* ---- test-only helpers ---- */

@@ -16,6 +16,7 @@
 #endif
 #include <windows.h>
 
+#include "api/oem.h"
 #include "emu/host/window.h"
 #include "emu/host/window_core.h"
 #include "sokol_app.h"
@@ -44,43 +45,45 @@ void host_window_init(void) {}
 bool host_window_menu_active(void) { return false; }
 void host_window_menu_draw(void) {}
 
+/* True when the wide path survives UTF-16 -> OEM -> UTF-16 unchanged, i.e.
+ * window_core_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
+static bool wide_is_oem_lossless(const WCHAR *w)
+{
+    char oem[MAX_PATH];
+    uint16_t back[MAX_PATH];
+    oem_from_wide((const uint16_t *)w, oem, sizeof oem);
+    oem_to_wide(oem, back, MAX_PATH);
+    return wcscmp(w, (const WCHAR *)back) == 0;
+}
+
 void host_window_files_dropped(void)
 {
-    /* sokol delivers the path as UTF-8 but rom_load opens with the ANSI CRT
-     * fopen; convert, falling back to the 8.3 short name when the path has
-     * characters the ANSI code page can't hold. When the process code page IS
-     * UTF-8 (app manifest or the Windows setting), fopen takes it as-is — and
-     * WideCharToMultiByte rejects WC_NO_BEST_FIT_CHARS/lpUsedDefaultChar there. */
+    /* sokol delivers the path as UTF-8 and window_core_boot_rom converts it to
+     * the guest's OEM code page; fall back to the 8.3 short name when the path
+     * has characters the active OEM code page can't hold. */
     const char *utf8 = sapp_get_dropped_file_path(0);
-    if (GetACP() == CP_UTF8)
+    WCHAR wide[MAX_PATH];
+    if (!MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, MAX_PATH))
+    {
+        fprintf(stderr, "rp6502-emu: dropped path too long\n");
+        return;
+    }
+    if (wide_is_oem_lossless(wide))
     {
         window_core_boot_rom(utf8);
         return;
     }
-    WCHAR wide[MAX_PATH];
-    char ansi[MAX_PATH];
-    BOOL lossy = FALSE;
-    bool ok = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, MAX_PATH) != 0;
-    if (ok &&
-        (!WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, wide, -1,
-                              ansi, sizeof ansi, NULL, &lossy) ||
-         lossy))
+    /* In place is allowed; a short name can be LONGER than the long name,
+     * and a too-small buffer returns the needed size, not 0. */
+    DWORD n = GetShortPathNameW(wide, wide, MAX_PATH);
+    char shortu8[MAX_PATH * 3];
+    if (!n || n >= MAX_PATH || !wide_is_oem_lossless(wide) ||
+        !WideCharToMultiByte(CP_UTF8, 0, wide, -1, shortu8, sizeof shortu8, NULL, NULL))
     {
-        /* In place is allowed; a short name can be LONGER than the long name,
-         * and a too-small buffer returns the needed size, not 0. */
-        DWORD n = GetShortPathNameW(wide, wide, MAX_PATH);
-        lossy = FALSE;
-        ok = n > 0 && n < MAX_PATH &&
-             WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, wide, -1,
-                                 ansi, sizeof ansi, NULL, &lossy) &&
-             !lossy;
-    }
-    if (!ok)
-    {
-        fprintf(stderr, "rp6502-emu: dropped path not representable in the ANSI code page\n");
+        fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
         return;
     }
-    window_core_boot_rom(ansi);
+    window_core_boot_rom(shortu8);
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)

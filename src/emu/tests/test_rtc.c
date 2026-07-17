@@ -13,7 +13,7 @@
 
 #include "api/api.h"
 #include "emu/api/clk.h"
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/sys/com.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
@@ -129,18 +129,18 @@ UTEST(rtc, code_page_drives_oem_mapping)
     os_setenv("LC_ALL", "C");
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init();
-    ASSERT_EQ(oem_get_code_page(), (uint16_t)437); /* default */
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437); /* default */
 
     struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0};
     char out[8];
     drive_strftime(&w, "\xC3\xA3", out, sizeof out); /* "ã" UTF-8 */
     ASSERT_EQ((unsigned char)out[0], 0x7F);          /* not in CP437 */
 
-    ASSERT_FALSE(oem_set_code_page(999));          /* unsupported: rejected */
-    ASSERT_EQ(oem_get_code_page(), (uint16_t)437); /* unchanged */
+    ASSERT_FALSE(oem_set_code_page(999));              /* unsupported: rejected */
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437); /* unchanged */
 
     ASSERT_TRUE(oem_set_code_page(850));
-    ASSERT_EQ(oem_get_code_page(), (uint16_t)850);
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850);
     drive_strftime(&w, "\xC3\xA3", out, sizeof out);
     ASSERT_EQ((unsigned char)out[0], 0xC6); /* CP850 'ã' */
 }
@@ -152,10 +152,10 @@ UTEST(rtc, exec_preserves_code_page)
 {
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init();
-    ASSERT_EQ(oem_get_code_page(), (uint16_t)437);
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
     ASSERT_TRUE(oem_set_code_page(850));
     ria_reset(); /* the path the exec reload runs */
-    ASSERT_EQ(oem_get_code_page(), (uint16_t)850); /* preserved across exec */
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across exec */
 }
 
 /* A cold boot (main_init), unlike exec, resets the code page to the 437 default. */
@@ -165,7 +165,7 @@ UTEST(rtc, cold_boot_defaults_code_page)
     main_init();
     ASSERT_TRUE(oem_set_code_page(850));
     main_init(); /* cold boot */
-    ASSERT_EQ(oem_get_code_page(), (uint16_t)437);
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
 }
 
 UTEST_MAIN()

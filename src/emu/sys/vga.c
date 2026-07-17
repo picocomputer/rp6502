@@ -5,7 +5,6 @@
  *
  */
 
-#include "emu/api/oem.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
 #include "sys/vga.h"
@@ -177,12 +176,17 @@ bool vga_set_canvas(uint16_t canvas)
     return true;
 }
 
+void vga_set_code_page(uint16_t cp)
+{
+    font_set_code_page(cp);
+}
+
 void vga_boot_console(void)
 {
     build_lut();
     /* Rebuilds the glyph tables and loads the default code page (437), matching
-     * oem_reset's default so the font and the CODE_PAGE attribute agree at boot.
-     * font_init is idempotent, so this is safe on every main_init. */
+     * the oem module's cold-boot default so the font and the CODE_PAGE attribute
+     * agree at boot. font_init is idempotent, so this is safe on every main_init. */
     font_init();
     term_init();
     vga_set_canvas(0); /* console = 640x480, installs the term program */

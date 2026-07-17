@@ -640,56 +640,6 @@ bool str_parse_end(const char *args)
     return true;
 }
 
-unsigned char str_utf8_to_oem(const char **p)
-{
-    const unsigned char *s = (const unsigned char *)*p;
-    unsigned char b0 = *s;
-    if (!b0)
-        return 0;
-    if (b0 < 0x80)
-    {
-        *p = (const char *)(s + 1);
-        return b0;
-    }
-    uint32_t cp;
-    int extra;
-    if ((b0 & 0xE0) == 0xC0)
-    {
-        cp = b0 & 0x1F;
-        extra = 1;
-    }
-    else if ((b0 & 0xF0) == 0xE0)
-    {
-        cp = b0 & 0x0F;
-        extra = 2;
-    }
-    else if ((b0 & 0xF8) == 0xF0)
-    {
-        cp = b0 & 0x07;
-        extra = 3;
-    }
-    else
-    {
-        *p = (const char *)(s + 1);
-        return 0x7F;
-    }
-    for (int i = 1; i <= extra; i++)
-    {
-        unsigned char bi = s[i];
-        if ((bi & 0xC0) != 0x80)
-        {
-            *p = (const char *)(s + i);
-            return 0x7F;
-        }
-        cp = (cp << 6) | (bi & 0x3F);
-    }
-    *p = (const char *)(s + extra + 1);
-    if (cp >= 0xD800 && cp <= 0xDFFF)
-        return 0x7F;
-    WCHAR oem = ff_uni2oem(cp, oem_get_code_page_run());
-    return oem ? (unsigned char)oem : 0x7F;
-}
-
 // Per-call UTF-8 decode state used by the *_utf8 vfctprintf callbacks.
 // One byte in per callback invocation; one OEM byte out per complete
 // codepoint. Buffer fields are unused by the putchar variant.
@@ -701,14 +651,6 @@ typedef struct
     size_t dst_size;      // total dst capacity (incl. NUL)
     size_t bytes_written; // OEM bytes written or would-be-written
 } utf8_state;
-
-static unsigned char utf8_codepoint_to_oem(uint32_t cp)
-{
-    if (cp >= 0xD800 && cp <= 0xDFFF)
-        return 0x7F;
-    WCHAR w = ff_uni2oem(cp, oem_get_code_page_run());
-    return w ? (unsigned char)w : 0x7F;
-}
 
 static void utf8_emit_buf(utf8_state *st, unsigned char oem)
 {
@@ -739,7 +681,7 @@ static void utf8_emit_buf(utf8_state *st, unsigned char oem)
             }                                               \
             (st)->accum = ((st)->accum << 6) | (_b & 0x3F); \
             if (--(st)->continuation == 0)                  \
-                EMIT(utf8_codepoint_to_oem((st)->accum));   \
+                EMIT(oem_from_codepoint((st)->accum));      \
         }                                                   \
         else                                                \
         {                                                   \

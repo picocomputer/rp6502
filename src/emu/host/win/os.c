@@ -10,7 +10,7 @@
  */
 
 #include "emu/plat.h"
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/host/win/win.h"
 #include <direct.h>
 #include <io.h>
@@ -107,6 +107,18 @@ void os_ensure_parent_dir(const char *filepath)
             *p = c;
         }
     _mkdir(tmp);
+}
+
+/* The ANSI main()'s argv is in the process ACP, not UTF-8. */
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+{
+    wchar_t w[4096];
+    if (!MultiByteToWideChar(CP_ACP, 0, arg, -1, w, (int)(sizeof w / sizeof *w)))
+        return false;
+    if (wcslen(w) >= dstsz) /* one OEM byte per UTF-16 unit */
+        return false;
+    oem_from_wide((const uint16_t *)w, dst, dstsz);
+    return true;
 }
 
 /* ---- test-only helpers ---- */

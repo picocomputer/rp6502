@@ -30,11 +30,14 @@ void window_core_frame(void);
 void window_core_event(const sapp_event *e);
 void window_core_cleanup(void);
 
-/* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. Ignored
- * while a debug session owns the machine. A failed load halts the machine:
- * rom_load streams into live RAM before it can fail, so the old program may
- * already be clobbered — matching hardware, where a failed LOAD leaves the CPU
- * stopped in the monitor. */
+/* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. The path
+ * is host UTF-8; conversion to the guest's OEM code page happens here, so hosts
+ * pass what the OS handed them (a lossy spelling never boots — pre-substitute
+ * one that converts, like the Windows 8.3 fallback). Ignored while a debug
+ * session owns the machine. A failed load halts the machine: rom_load streams
+ * into live RAM before it can fail, so the old program may already be
+ * clobbered — matching hardware, where a failed LOAD leaves the CPU stopped in
+ * the monitor. */
 bool window_core_boot_rom(const char *path);
 
 /* ---- hooks the core calls, implemented per host ---- */

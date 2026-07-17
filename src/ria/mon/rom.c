@@ -7,6 +7,7 @@
 #include "main.h"
 #include "api/api.h"
 #include "api/fat.h"
+#include "api/oem.h"
 #include "api/pro.h"
 #include "api/std.h"
 #include "mon/hlp.h"
@@ -592,7 +593,7 @@ static int rom_utf8_seq_len(unsigned char b0)
         return 3;
     if ((b0 & 0xF8) == 0xF0)
         return 4;
-    return 1; // invalid lead — str_utf8_to_oem returns 0x7F
+    return 1; // invalid lead — oem_from_utf8_next returns 0x7F
 }
 
 // state encoding: 0 = initial, 1 = streaming (last OEM byte != '\n'),
@@ -671,7 +672,7 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
             }
             return -1;
         }
-        // Sentinel: if str_utf8_to_oem reads past p_end into this 0, it sees a
+        // Sentinel: if oem_from_utf8_next reads past p_end into this 0, it sees a
         // non-continuation byte and returns 0x7F without UB.
         mbuf[got] = 0;
         size_t out = 0;
@@ -682,7 +683,7 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
             int seq = rom_utf8_seq_len((unsigned char)*p);
             if (p + seq > p_end && rom_ftell() < rom_end_pos)
                 break; // partial glyph — re-read on next call
-            buf[out++] = (char)str_utf8_to_oem(&p);
+            buf[out++] = (char)oem_from_utf8_next(&p);
         }
         size_t leftover = (size_t)(p_end - p);
         int err;

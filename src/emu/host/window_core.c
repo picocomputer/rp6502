@@ -31,6 +31,7 @@
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/api/pro.h"
+#include "api/oem.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
 #include "emu/mon/rom.h"
@@ -580,10 +581,26 @@ bool window_core_boot_rom(const char *path)
     if (dbg_is_active())
         return false; /* a DAP session owns the machine's run state */
 #endif
+    /* The host hands a UTF-8 path; everything below the entry is guest OEM.
+     * A lossy conversion can never open (0x7F substitutions name no file), so
+     * refuse it here, before the machine is touched — otherwise the rom_load
+     * failure below would halt the running program over a bad filename. */
+    char oem[4096], back[3 * 4096];
+    if (oem_from_utf8(path, oem, sizeof oem) >= sizeof oem ||
+        oem_to_utf8(oem, back, sizeof back) >= sizeof back)
+    {
+        fprintf(stderr, "rp6502-emu: dropped path too long\n");
+        return false;
+    }
+    if (strcmp(path, back) != 0)
+    {
+        fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
+        return false;
+    }
     /* Screen out not-a-ROM files before rom_load touches machine state, so an
      * accidental drop leaves the running program alone. rom_load repeats the
-     * check after resolving the drive/:name spellings this fopen can't. */
-    FILE *f = fopen(path, "rb");
+     * check after resolving the drive/:name spellings this open can't. */
+    FILE *f = fs_fopen_rd(oem);
     if (f)
     {
         char magic[8];
@@ -596,14 +613,14 @@ bool window_core_boot_rom(const char *path)
         }
     }
     input_paste_cancel(); /* the new program must not receive an old paste */
-    if (!rom_load(path))
+    if (!rom_load(oem))
     {
         cpu_set_halted(true); /* RAM may be part-written; don't resume garbage */
         return false;
     }
     main_init();
-    pro_set_argv(path, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
-    pro_set_launcher(false);     /* a drop breaks any launcher chain */
+    pro_set_argv(oem, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
+    pro_set_launcher(false);    /* a drop breaks any launcher chain */
     return true;
 }
 

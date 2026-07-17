@@ -27,7 +27,6 @@ get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSO
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/api/clk.c
-    ${RP6502_SRC}/emu/api/oem.c
     ${RP6502_SRC}/emu/api/pro.c
     ${RP6502_SRC}/emu/api/std_drivers.c
     ${RP6502_SRC}/emu/aud/aud.c
@@ -44,6 +43,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/shim/pico/stdio.c
+    ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
@@ -55,6 +55,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/ria/api/atr.c
     ${RP6502_SRC}/ria/api/dir.c
     ${RP6502_SRC}/ria/api/fat.c
+    ${RP6502_SRC}/ria/api/oem.c
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/aud/bel.c
     ${RP6502_SRC}/ria/aud/opl.c

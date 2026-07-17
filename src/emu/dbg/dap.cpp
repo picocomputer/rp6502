@@ -24,7 +24,7 @@
 
 extern "C"
 {
-#include "emu/api/oem.h"
+#include "api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/com.h"
@@ -336,12 +336,24 @@ void stdout_tap(const char *buf, int len)
     for (int i = 0; i < len; i++)
     {
         char enc[3];
-        utf8.append(enc, (size_t)oem_to_utf8((unsigned char)buf[i], enc));
+        utf8.append(enc, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc));
     }
     dap::OutputEvent ev;
     ev.category = "stdout";
     ev.output = std::move(utf8);
     g_session->send(ev);
+}
+
+/* The inverse boundary: DAP JSON strings are UTF-8, the guest wants OEM. */
+std::string oem_from_utf8_str(const std::string &u8)
+{
+    std::string oem;
+    oem.reserve(u8.size());
+    const char *p = u8.c_str();
+    unsigned char b;
+    while ((b = oem_from_utf8_next(&p)))
+        oem.push_back((char)b);
+    return oem;
 }
 
 uint16_t parse_addr(const std::string &s)
@@ -1414,7 +1426,12 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler([](const dap::RP6502LaunchRequest &req) {
         std::string program = req.program.value("");
-        std::vector<std::string> args = req.args.value({});
+        /* Request args are UTF-8 JSON and convert here; the --dap command-line
+         * defaults arrived already OEM (main.c converted its argv), so they
+         * pass through — converting them again would mangle high bytes. */
+        std::vector<std::string> args;
+        for (const std::string &a : req.args.value({}))
+            args.push_back(oem_from_utf8_str(a));
         if (args.empty())
             args = g_default_args;
         std::string elf = req.elf.value("");
@@ -1477,21 +1494,25 @@ extern "C" void dap_start(void)
             dbg_stop_at_entry();   /* hold at the first instruction for config */
             if (!program.empty())
             {
+                /* The .dbg/ELF companions above open host-side (UTF-8 paths);
+                 * program crosses into the guest here, so it goes OEM (args
+                 * were converted at the request boundary). */
+                std::string prog_oem = oem_from_utf8_str(program);
                 std::vector<char *> argv;
                 for (const std::string &a : args)
                     argv.push_back(const_cast<char *>(a.c_str()));
-                if (!pro_set_argv(program.c_str(), (int)argv.size(), argv.data()))
+                if (!pro_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
                 {
                     /* Args over the 512-byte argv buffer. The response already
                      * went out, so run anyway — but with argv[0] intact (the
                      * re-exec invariant) and the failure in the Debug Console. */
-                    pro_set_argv(program.c_str(), 0, NULL);
+                    pro_set_argv(prog_oem.c_str(), 0, NULL);
                     dap::OutputEvent ev;
                     ev.category = "console";
                     ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
                     g_session->send(ev);
                 }
-                pro_exec(program.c_str());
+                pro_exec(prog_oem.c_str());
             }
             g_launch_requested = true; /* dap_pump can now detect a load that never started */
         });
