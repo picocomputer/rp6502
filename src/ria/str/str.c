@@ -10,6 +10,7 @@
 #include "sys/cpu.h"
 #include <fatfs/ff.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <pico.h>
