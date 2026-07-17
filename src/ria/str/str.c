@@ -178,8 +178,9 @@ void __in_flash("str_init") str_init(void)
         str_apply_locale(str_sanitize_locale(""));
 }
 
-int str_locales_response(char *buf, size_t buf_size, int state, unsigned)
+int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
 {
+    (void)width;
     const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];
     if (state < 0 || state >= count)
         return -1;
