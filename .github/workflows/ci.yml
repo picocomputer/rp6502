@@ -387,8 +387,8 @@ jobs:
           cp _artifacts/itch-io/itch.io.zip stage/
           # Android APK
           cp _artifacts/emu-android-apk/rp6502-emu.apk stage/
-          # Static distribution files
-          cp src/dist/README.txt src/dist/basic.rp6502 src/dist/nfc.rp6502 src/dist/term.rp6502 stage/
+          # Static distribution files + sample ROM
+          cp src/dist/release/README.txt src/emu/tests/roms/adventure.rp6502 stage/
           # One zip, everything at the root
           ( cd stage && zip -r -y "../rp6502-${VERSION}.zip" . )
           sha256sum "rp6502-${VERSION}.zip" > SHA256SUMS

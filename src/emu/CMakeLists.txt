@@ -311,7 +311,7 @@ else()
         file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${RP6502_SRC}/emu/html" "${CMAKE_BINARY_DIR}/html"
+                "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
             COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
             COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
@@ -320,7 +320,7 @@ else()
         # itch.io sample (build/web/itch.io): the single-program shell.
         add_custom_target(itch_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${RP6502_SRC}/emu/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+                "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
             COMMAND ${CMAKE_COMMAND} -E copy
                 "${CMAKE_SOURCE_DIR}/tests/roms/adventure.rp6502"
                 "${CMAKE_BINARY_DIR}/html/rp6502.js"

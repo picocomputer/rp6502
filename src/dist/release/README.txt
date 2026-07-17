@@ -39,6 +39,7 @@ emulator.
 Discord has a forum for ROMs and publishing on itch.io is recommended if
 you want to reach a larger audience. The documentation has a discord invite.
 
+
 Emulator
 --------
 
@@ -62,5 +63,5 @@ Linux: rp6502-emu-x86_64 and rp6502-emu-aarch64 are built on Ubuntu
 Android: rp6502-emu.apk is signed with a debug key. Android will warn
 on installation; choose "More info" then "Install anyway".
 
-Web: itch.io.zip is the ready-to-publish itch.io sample; is contains a
+Web: itch.io.zip is the ready-to-publish itch.io sample; it contains a
 README for publishing on itch.io.
