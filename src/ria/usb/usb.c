@@ -14,6 +14,7 @@
 #include "host/hcd.h"
 #include "main.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "usb/mid.h"
 #include "usb/msc.h"
 #include "usb/usb.h"

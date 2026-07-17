@@ -19,6 +19,7 @@
 #include "sys/cfg.h"
 #include "str/rln.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include <stdlib.h>
 #include <string.h>
 #include <pico/stdlib.h>

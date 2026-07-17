@@ -13,22 +13,9 @@
  * miscellaneous string functions.
  */
 
-#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-/* The Pico/BSD toolchains supply __printflike via <sys/cdefs.h>; provide it
- * ourselves so this header also compiles on the emulator hosts (glibc has no
- * __printflike, Emscripten no <sys/cdefs.h> at all). */
-#ifndef __printflike
-#ifdef __GNUC__
-#define __printflike(fmtarg, firstvararg) \
-    __attribute__((__format__(__printf__, fmtarg, firstvararg)))
-#else
-#define __printflike(fmtarg, firstvararg)
-#endif
-#endif
 
 // True if c is a path separator. FatFs accepts both '/' and '\'.
 #define str_is_sep(c) ((c) == '/' || (c) == '\\')
@@ -76,17 +63,6 @@ bool str_parse_end(const char *args);
 // Case-insensitive equality of two OEM strings in the active code page (uses
 // FatFs code-page tables and up-case folding; strcasecmp folds only ASCII).
 bool str_oem_eq(const char *a, const char *b);
-
-// printf where utf8_fmt and any %s args are treated as UTF-8.
-// Output bytes are UTF-8 -> OEM-converted (active code page) via putchar.
-__printflike(1, 2) int printf_utf8(const char *utf8_fmt, ...);
-int vprintf_utf8(const char *utf8_fmt, va_list va);
-
-// snprintf with the same UTF-8 -> OEM treatment; result is OEM bytes in dst.
-__printflike(3, 4) int snprintf_utf8(char *dst, size_t dst_size,
-                                     const char *utf8_fmt, ...);
-int vsnprintf_utf8(char *dst, size_t dst_size,
-                   const char *utf8_fmt, va_list va);
 
 // Format a byte count as a short human string ("119.1 GB", "1.44 MB", "512 KB").
 // Media under 5 MB is shown in KB/MB; larger media in decimal MB/GB/TB.

@@ -19,6 +19,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "hid/pad.h"
 #include "net/cyw.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/led.h"
 #include "main.h"

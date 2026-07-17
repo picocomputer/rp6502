@@ -14,6 +14,7 @@ int wfi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #include "net/cyw.h"
 #include "net/wfi.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/mem.h"
 #include <pico/cyw43_arch.h>

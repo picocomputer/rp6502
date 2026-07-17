@@ -22,22 +22,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
-
-// Expand-then-stringify / expand-then-paste. <sys/cdefs.h> supplies __XSTRING
-// and an expanding __CONCAT on the Pico toolchain but not on glibc (the
-// emulator compiles this file too), so use toolchain-independent versions.
-#define STR_XSTR_(x) #x
-#define STR_XSTR(x) STR_XSTR_(x)
-#define STR_PASTE_(a, b) a##b
-#define STR_PASTE(a, b) STR_PASTE_(a, b)
-
-#define STR_PHI2_MIN_MAX STR_XSTR(CPU_PHI2_MIN_KHZ) "-" STR_XSTR(CPU_PHI2_MAX_KHZ)
+#define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
-    const char __in_flash(STR_XSTR(name)) name[] = value;
+    const char __in_flash(__XSTRING(name)) name[] = value;
 #define XR(name, value) \
-    const char __not_in_flash(STR_XSTR(name)) name[] = value;
+    const char __not_in_flash(__XSTRING(name)) name[] = value;
 #include "def/str_sys.def"
 #undef X
 #undef XR
@@ -63,7 +54,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 // [name] designators place each string by its id, so line order within a
 // locale file is irrelevant.
 #define XBEGIN(code, verbose, cp) \
-    static const char *const __in_flash("str_tab") STR_PASTE(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
+    static const char *const __in_flash("str_tab") __CONCAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
 #define XEND() \
     }          \
     ;
@@ -75,7 +66,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #undef STR_ID
 #undef STR_ID_
 
-#define XBEGIN(code, verbose, cp) STR_PASTE(str_tab_, XSUFFIX),
+#define XBEGIN(code, verbose, cp) __CONCAT(str_tab_, XSUFFIX),
 #define XEND()
 #define X(name, value)
 static const char *const *const __in_flash("str_tabs") str_tabs[] = {
@@ -122,7 +113,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 // -Werror=override-init in the table pass above.
 #define XBEGIN(code, verbose, cp) enum \
 {                                      \
-    STR_PASTE(str_count_, XSUFFIX) = 0
+    __CONCAT(str_count_, XSUFFIX) = 0
 #define XEND() \
     }          \
     ;
@@ -132,7 +123,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 #undef XEND
 #undef X
 #define XBEGIN(code, verbose, cp) \
-    static_assert((int)STR_PASTE(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
+    static_assert((int)__CONCAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
 #define XEND()
 #define X(name, value)
 #include "def/str.def"
@@ -165,7 +156,7 @@ static int str_sanitize_locale(const char *name)
     int found_index = -1;
     for (int i = 0; i < count; i++)
     {
-        if (!strcasecmp(str_locale_names[i], STR_XSTR(RP6502_LOCALE)))
+        if (!strcasecmp(str_locale_names[i], __XSTRING(RP6502_LOCALE)))
             default_index = i;
         if (!strcasecmp(str_locale_names[i], name))
             found_index = i;

@@ -11,6 +11,7 @@
 #include "host/usbh_pvt.h"
 #include "host/hcd.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/mem.h"
 #include "usb/msc.h"
 #include "usb/usb.h"

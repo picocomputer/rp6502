@@ -9,6 +9,7 @@
 #include "mon/hlp.h"
 #include "mon/mon.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/ria.h"
 #include "usb/msc.h"

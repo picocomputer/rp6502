@@ -13,6 +13,7 @@ int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 #include "net/ntp.h"
 #include "net/wfi.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include <lwip/dns.h>
 #include <lwip/udp.h>
 #include <pico/aon_timer.h>

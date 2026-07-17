@@ -10,6 +10,7 @@
 #include "net/wfi.h"
 #include "mon/hlp.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>

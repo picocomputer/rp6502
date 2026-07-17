@@ -11,6 +11,7 @@
 #include "mon/mon.h"
 #include "mon/uf2.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/mem.h"
 #include "sys/pix.h"
 #include "sys/vga.h"

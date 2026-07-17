@@ -16,6 +16,7 @@
 #include "net/cyw.h"
 #include "str/rln.h"
 #include "str/str.h"
+#include "sys/com.h"
 #include "sys/cfg.h"
 #include "sys/lfs.h"
 #include "sys/pix.h"
