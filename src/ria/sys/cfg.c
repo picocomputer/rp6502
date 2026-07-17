@@ -166,12 +166,8 @@ static void cfg_load_with_boot_opt(bool boot_only)
             str_load_locale(str);
             break;
         case 'S':
-        {
-            uint16_t cp;
-            if (str_parse_uint16(&str, &cp))
-                oem_load_code_page(cp);
+            oem_load_code_page(str);
             break;
-        }
         case 'L':
             kbd_load_layout(str);
             break;

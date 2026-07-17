@@ -8,6 +8,7 @@
  */
 
 #include "api/oem.h"
+#include "str/str.h"
 #include "emu/app/cli.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/pad.h"
@@ -172,8 +173,7 @@ UTEST(kbd, ansi_sequences)
 UTEST(kbd, text_to_oem)
 {
     char b[32];
-    oem_locale_changed(437); /* the emu boot pair: code page 437 */
-    oem_set_code_page(0);
+    str_init(); /* apply the default locale: code page 437 */
 
     com_reset();
     kbd_text("Hi!"); /* ASCII passes through */
@@ -196,8 +196,7 @@ UTEST(kbd, text_to_oem)
  * string descriptor shape). */
 UTEST(oem, utf8_string_roundtrip)
 {
-    oem_locale_changed(437); /* the emu boot pair: code page 437 */
-    oem_set_code_page(0);
+    str_init(); /* apply the default locale: code page 437 */
 
     char oem[16], u8[16];
     ASSERT_EQ(oem_from_utf8("caf\xC3\xA9", oem, sizeof oem), (size_t)4);
@@ -232,10 +231,10 @@ UTEST(oem, utf8_string_roundtrip)
     ASSERT_EQ((unsigned char)oem[2], 0x7Fu);
 
     /* the page drives the mapping: 'ã' is CP850 0xC6, absent from CP437 */
-    ASSERT_TRUE(oem_set_code_page(850));
+    oem_set_code_page_run(850);
     ASSERT_EQ(oem_from_utf8("\xC3\xA3", oem, sizeof oem), (size_t)1);
     ASSERT_EQ((unsigned char)oem[0], 0xC6u);
-    oem_set_code_page(0); /* back to auto/437 for later tests */
+    str_init(); /* back to the default 437 for later tests */
 }
 
 /* Everything after "--" is the ROM's argv[1..], never parsed as options. */

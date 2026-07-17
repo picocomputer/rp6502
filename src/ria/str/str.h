@@ -17,7 +17,18 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include <sys/cdefs.h>
+
+/* The Pico/BSD toolchains supply __printflike via <sys/cdefs.h>; provide it
+ * ourselves so this header also compiles on the emulator hosts (glibc has no
+ * __printflike, Emscripten no <sys/cdefs.h> at all). */
+#ifndef __printflike
+#ifdef __GNUC__
+#define __printflike(fmtarg, firstvararg) \
+    __attribute__((__format__(__printf__, fmtarg, firstvararg)))
+#else
+#define __printflike(fmtarg, firstvararg)
+#endif
+#endif
 
 // True if c is a path separator. FatFs accepts both '/' and '\'.
 #define str_is_sep(c) ((c) == '/' || (c) == '\\')

@@ -11,6 +11,7 @@
  */
 
 #include "api/oem.h"
+#include "str/str.h"
 #include "emu/api/tmpfs.h"
 #include "fatfs/ff.h"
 #include "utest.h"
@@ -103,8 +104,7 @@ UTEST(fatfs, dir_enum_and_chdir)
  * >= 0x80 fails FR_INVALID_NAME. */
 UTEST(fatfs, oem_names)
 {
-    oem_locale_changed(437); /* the emu boot pair seeds f_setcp */
-    oem_set_code_page(0);
+    str_init(); /* apply the default locale, seeding f_setcp (437) */
     ASSERT_TRUE(mounted());
 
     FIL fp;

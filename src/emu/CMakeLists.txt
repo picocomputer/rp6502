@@ -61,6 +61,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/ria/aud/opl.c
     ${RP6502_SRC}/ria/aud/psg.c
     ${RP6502_SRC}/ria/str/rln.c
+    ${RP6502_SRC}/ria/str/str.c
     ${RP6502_SRC}/vga/modes/mode1.c
     ${RP6502_SRC}/vga/modes/mode2.c
     ${RP6502_SRC}/vga/modes/mode3.c
@@ -178,7 +179,11 @@ target_include_directories(emu_core PUBLIC
     ${RP6502_VENDOR}/chips
     ${RP6502_VENDOR}/sokol
 )
-target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
+target_compile_definitions(emu_core PUBLIC
+    _GNU_SOURCE
+    RP6502_EXFAT=0
+    RP6502_LOCALE=EN
+    PICO_PROGRAM_NAME="RP6502-EMU")
 # MSVC has no separate libm
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)

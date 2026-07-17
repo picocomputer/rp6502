@@ -12,6 +12,7 @@
  */
 
 #include "api/oem.h"
+#include "str/str.h"
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
@@ -400,8 +401,7 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
  * round-trip through create -> readdir -> stat -> unlink. */
 UTEST(fs, oem_names_roundtrip)
 {
-    oem_locale_changed(437); /* the emu boot pair: code page 437 */
-    oem_set_code_page(0);
+    str_init(); /* apply the default locale: code page 437 */
     ASSERT_TRUE(fresh_cwd());
 
     int f = ssys_open("nap\x82.txt", O_WR | O_CREAT_ | O_TRUNC_); /* CP437 'é' */

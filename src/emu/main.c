@@ -29,6 +29,7 @@
 #include "ria/api/oem.h"
 #include "ria/aud/aud.h"
 #include "ria/str/rln.h"
+#include "ria/str/str.h"
 #include "term/term.h" /* no emu/term shadow; resolves to vga/term */
 #include <stdio.h>
 #include <string.h>
@@ -62,9 +63,10 @@ void main_init(void)
     aud_init();
     ria_reset();
     com_reset(); /* cold boot: flush queued input (per-exec keeps type-ahead) */
-    oem_locale_changed(437); /* EN locale default; the emulator persists no config */
-    oem_set_code_page(0);    /* cold boot: auto code page (437); exec preserves the page */
-    vga_boot_console();      /* font_init loads that same 437 default into the font */
+    str_init();  /* apply the default locale, seeding the code page (EN=437); re-applied
+                  * on cold boot, this reverts a guest run-page change (exec preserves it) */
+    oem_init();  /* canonical oem init; a no-op once str_init has resolved the page */
+    vga_boot_console(); /* font_init loads that same default into the font */
     cpu_reset();
     via_reset(); /* the VIA shares the 6502's RESB, so a CPU reset clears it */
 }

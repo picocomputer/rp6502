@@ -136,10 +136,10 @@ UTEST(rtc, code_page_drives_oem_mapping)
     drive_strftime(&w, "\xC3\xA3", out, sizeof out); /* "ã" UTF-8 */
     ASSERT_EQ((unsigned char)out[0], 0x7F);          /* not in CP437 */
 
-    ASSERT_FALSE(oem_set_code_page(999));              /* unsupported: rejected */
+    ASSERT_FALSE(oem_set_code_page(999));              /* unsupported: rejected, run unchanged */
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437); /* unchanged */
 
-    ASSERT_TRUE(oem_set_code_page(850));
+    oem_set_code_page_run(850); /* guest runtime change (leaves the config override clear) */
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850);
     drive_strftime(&w, "\xC3\xA3", out, sizeof out);
     ASSERT_EQ((unsigned char)out[0], 0xC6); /* CP850 'ã' */
@@ -153,7 +153,7 @@ UTEST(rtc, exec_preserves_code_page)
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init();
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
-    ASSERT_TRUE(oem_set_code_page(850));
+    oem_set_code_page_run(850); /* a guest program changed the run page */
     ria_reset(); /* the path the exec reload runs */
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across exec */
 }
@@ -163,8 +163,8 @@ UTEST(rtc, cold_boot_defaults_code_page)
 {
     ASSERT_TRUE(rom_load(RTC_ROM));
     main_init();
-    ASSERT_TRUE(oem_set_code_page(850));
-    main_init(); /* cold boot */
+    oem_set_code_page_run(850); /* a guest program changed the run page */
+    main_init(); /* cold boot: str_init re-applies the default locale -> 437 */
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
 }
 

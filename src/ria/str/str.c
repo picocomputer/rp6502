@@ -13,8 +13,6 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <pico.h>
-#include <pico/printf.h>
-#include <sys/cdefs.h>
 
 #if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
 #include <stdio.h>
@@ -24,13 +22,22 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
-#define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
+
+// Expand-then-stringify / expand-then-paste. <sys/cdefs.h> supplies __XSTRING
+// and an expanding __CONCAT on the Pico toolchain but not on glibc (the
+// emulator compiles this file too), so use toolchain-independent versions.
+#define STR_XSTR_(x) #x
+#define STR_XSTR(x) STR_XSTR_(x)
+#define STR_PASTE_(a, b) a##b
+#define STR_PASTE(a, b) STR_PASTE_(a, b)
+
+#define STR_PHI2_MIN_MAX STR_XSTR(CPU_PHI2_MIN_KHZ) "-" STR_XSTR(CPU_PHI2_MAX_KHZ)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
-    const char __in_flash(__XSTRING(name)) name[] = value;
+    const char __in_flash(STR_XSTR(name)) name[] = value;
 #define XR(name, value) \
-    const char __not_in_flash(__XSTRING(name)) name[] = value;
+    const char __not_in_flash(STR_XSTR(name)) name[] = value;
 #include "def/str_sys.def"
 #undef X
 #undef XR
@@ -56,7 +63,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 // [name] designators place each string by its id, so line order within a
 // locale file is irrelevant.
 #define XBEGIN(code, verbose, cp) \
-    static const char *const __in_flash("str_tab") __CONCAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
+    static const char *const __in_flash("str_tab") STR_PASTE(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
 #define XEND() \
     }          \
     ;
@@ -68,7 +75,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #undef STR_ID
 #undef STR_ID_
 
-#define XBEGIN(code, verbose, cp) __CONCAT(str_tab_, XSUFFIX),
+#define XBEGIN(code, verbose, cp) STR_PASTE(str_tab_, XSUFFIX),
 #define XEND()
 #define X(name, value)
 static const char *const *const __in_flash("str_tabs") str_tabs[] = {
@@ -115,7 +122,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 // -Werror=override-init in the table pass above.
 #define XBEGIN(code, verbose, cp) enum \
 {                                      \
-    __CONCAT(str_count_, XSUFFIX) = 0
+    STR_PASTE(str_count_, XSUFFIX) = 0
 #define XEND() \
     }          \
     ;
@@ -125,7 +132,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 #undef XEND
 #undef X
 #define XBEGIN(code, verbose, cp) \
-    static_assert((int)__CONCAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
+    static_assert((int)STR_PASTE(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
 #define XEND()
 #define X(name, value)
 #include "def/str.def"
@@ -158,7 +165,7 @@ static int str_sanitize_locale(const char *name)
     int found_index = -1;
     for (int i = 0; i < count; i++)
     {
-        if (!strcasecmp(str_locale_names[i], __XSTRING(RP6502_LOCALE)))
+        if (!strcasecmp(str_locale_names[i], STR_XSTR(RP6502_LOCALE)))
             default_index = i;
         if (!strcasecmp(str_locale_names[i], name))
             found_index = i;
@@ -638,136 +645,6 @@ bool str_parse_end(const char *args)
         args++;
     }
     return true;
-}
-
-// Per-call UTF-8 decode state used by the *_utf8 vfctprintf callbacks.
-// One byte in per callback invocation; one OEM byte out per complete
-// codepoint. Buffer fields are unused by the putchar variant.
-typedef struct
-{
-    uint32_t accum;       // partial codepoint
-    uint8_t continuation; // continuation bytes still expected
-    char *dst;
-    size_t dst_size;      // total dst capacity (incl. NUL)
-    size_t bytes_written; // OEM bytes written or would-be-written
-} utf8_state;
-
-static void utf8_emit_buf(utf8_state *st, unsigned char oem)
-{
-    if (st->dst_size && st->bytes_written + 1 < st->dst_size)
-        st->dst[st->bytes_written] = (char)oem;
-    st->bytes_written++;
-}
-
-#define UTF8_FEED(st, b, EMIT)                              \
-    do                                                      \
-    {                                                       \
-        unsigned char _b = (unsigned char)(b);              \
-        if (_b < 0x80)                                      \
-        {                                                   \
-            if ((st)->continuation)                         \
-            {                                               \
-                EMIT(0x7F);                                 \
-                (st)->continuation = 0;                     \
-            }                                               \
-            EMIT(_b);                                       \
-        }                                                   \
-        else if ((_b & 0xC0) == 0x80)                       \
-        {                                                   \
-            if (!(st)->continuation)                        \
-            {                                               \
-                EMIT(0x7F);                                 \
-                break;                                      \
-            }                                               \
-            (st)->accum = ((st)->accum << 6) | (_b & 0x3F); \
-            if (--(st)->continuation == 0)                  \
-                EMIT(oem_from_codepoint((st)->accum));      \
-        }                                                   \
-        else                                                \
-        {                                                   \
-            if ((st)->continuation)                         \
-                EMIT(0x7F);                                 \
-            if ((_b & 0xE0) == 0xC0)                        \
-            {                                               \
-                (st)->accum = _b & 0x1F;                    \
-                (st)->continuation = 1;                     \
-            }                                               \
-            else if ((_b & 0xF0) == 0xE0)                   \
-            {                                               \
-                (st)->accum = _b & 0x0F;                    \
-                (st)->continuation = 2;                     \
-            }                                               \
-            else if ((_b & 0xF8) == 0xF0)                   \
-            {                                               \
-                (st)->accum = _b & 0x07;                    \
-                (st)->continuation = 3;                     \
-            }                                               \
-            else                                            \
-            {                                               \
-                EMIT(0x7F);                                 \
-                (st)->continuation = 0;                     \
-            }                                               \
-        }                                                   \
-    } while (0)
-
-static void cb_putchar(char c, void *arg)
-{
-    utf8_state *st = (utf8_state *)arg;
-#define EMIT(x) putchar((x))
-    UTF8_FEED(st, c, EMIT);
-#undef EMIT
-}
-
-static void cb_buf(char c, void *arg)
-{
-    utf8_state *st = (utf8_state *)arg;
-#define EMIT(x) utf8_emit_buf(st, (x))
-    UTF8_FEED(st, c, EMIT);
-#undef EMIT
-}
-
-int vprintf_utf8(const char *utf8_fmt, va_list va)
-{
-    utf8_state st = {0};
-    int n = vfctprintf(cb_putchar, &st, utf8_fmt, va);
-    if (st.continuation)
-        putchar(0x7F);
-    return n;
-}
-
-int printf_utf8(const char *utf8_fmt, ...)
-{
-    va_list va;
-    va_start(va, utf8_fmt);
-    int n = vprintf_utf8(utf8_fmt, va);
-    va_end(va);
-    return n;
-}
-
-int vsnprintf_utf8(char *dst, size_t dst_size,
-                   const char *utf8_fmt, va_list va)
-{
-    utf8_state st = {0};
-    st.dst = dst;
-    st.dst_size = dst_size;
-    (void)vfctprintf(cb_buf, &st, utf8_fmt, va);
-    if (st.continuation)
-        utf8_emit_buf(&st, 0x7F);
-    if (dst_size)
-    {
-        size_t end = st.bytes_written < dst_size ? st.bytes_written : dst_size - 1;
-        dst[end] = 0;
-    }
-    return (int)st.bytes_written;
-}
-
-int snprintf_utf8(char *dst, size_t dst_size, const char *utf8_fmt, ...)
-{
-    va_list va;
-    va_start(va, utf8_fmt);
-    int n = vsnprintf_utf8(dst, dst_size, utf8_fmt, va);
-    va_end(va);
-    return n;
 }
 
 void str_size(uint64_t bytes, char *out, size_t out_size)

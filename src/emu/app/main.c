@@ -6,6 +6,7 @@
  */
 
 #include "api/oem.h"
+#include "str/str.h"
 #include "emu/api/pro.h"
 #include "emu/host/window.h"
 #include "emu/plat.h"
@@ -196,11 +197,11 @@ int main(int argc, char **argv)
 
     /* Seed the OEM code page before anything converts guest-bound argv or
      * opens a ROM (conversion is per-page; unseeded, every non-ASCII char
-     * flattens to 0x7F). --cp applies best-effort now so paths convert in the
-     * page the guest will run; apply_options validates it after main_init
-     * re-seeds these same defaults (all idempotent here). */
-    oem_locale_changed(437);
-    oem_set_code_page(0);
+     * flattens to 0x7F). str_init applies the default locale (EN=437); --cp
+     * applies best-effort now so paths convert in the page the guest will run.
+     * main_init re-runs str_init/oem_init (idempotent) and apply_options
+     * validates --cp after. */
+    str_init();
     if (o.code_page > 0 && o.code_page <= UINT16_MAX)
         oem_set_code_page((uint16_t)o.code_page);
 

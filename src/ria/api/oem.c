@@ -7,6 +7,7 @@
 #include "api/api.h"
 #include "api/oem.h"
 #include "hid/kbd.h"
+#include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/vga.h"
 #include <fatfs/ff.h>
@@ -110,8 +111,11 @@ void oem_locale_changed(uint16_t cp)
         oem_request_code_page(oem_resolve());
 }
 
-void oem_load_code_page(uint16_t cp)
+void oem_load_code_page(const char *str)
 {
+    uint16_t cp;
+    if (!str_parse_uint16(&str, &cp))
+        return;
     oem_code_page_set = cp; // 0 = auto; legacy non-zero = hard override
     oem_request_code_page(oem_resolve());
 }

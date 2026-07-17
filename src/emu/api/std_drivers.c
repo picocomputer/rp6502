@@ -15,9 +15,6 @@
 #include "api/fat.h"
 #include "str/rln.h"
 
-const char STR_CON_COLON[] = "CON:";
-const char STR_TTY_COLON[] = "TTY:";
-
 /* The RAM FatFs (the shared fat_std_* driver) claims MSC0: only while
  * --tmpdrive is mounted; otherwise the host catch-all reclaims it. */
 static bool fat_handles(const char *path)
