@@ -47,7 +47,7 @@ typedef struct
 /* RIA register window + syscall dispatch (ria.c)                      */
 /* ------------------------------------------------------------------ */
 
-void ria_reset(void);
+void ria_run(void); /* program start: clear the $FFF0 IRQ latches */
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 

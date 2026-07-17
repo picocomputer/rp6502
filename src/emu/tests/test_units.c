@@ -56,7 +56,7 @@ UTEST(xreg, device_channel_dispatch)
  * sticks byte, L2/R2 trigger<->button coupling). */
 UTEST(pad, host_report_encoding)
 {
-    pad_reset();
+    pad_stop();
     ASSERT_FALSE(pad_is_mapped()); /* nothing touches input until a ROM maps it */
 
     ASSERT_TRUE(xreg_write(0, 0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
@@ -109,59 +109,59 @@ UTEST(kbd, ansi_sequences)
 {
     char b[32];
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_UP, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_F1, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_F5, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_F12, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_INSERT, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_HOME, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_F1, false, true, false); /* shift -> 2 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_END, false, true, true); /* shift+alt -> 4 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
-    com_reset();
+    com_init();
     kbd_key(KBD_KEY_ENTER, false, false, false);
     kbd_key(KBD_KEY_BACKSPACE, false, false, false);
     kbd_key(KBD_KEY_BACKSPACE, true, false, false);
@@ -175,17 +175,17 @@ UTEST(kbd, text_to_oem)
     char b[32];
     str_init(); /* apply the default locale: code page 437 */
 
-    com_reset();
+    com_init();
     kbd_text("Hi!"); /* ASCII passes through */
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
-    com_reset();
+    com_init();
     kbd_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
-    com_reset();
+    com_init();
     kbd_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
     ASSERT_EQ(kbd_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);

@@ -7,6 +7,7 @@
 
 #include "emu/main.h"
 #include "emu/api/pro.h"
+#include "emu/api/clk.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/api/hostfs.h"
@@ -17,6 +18,10 @@
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
 #include "emu/sys/xreg.h"
+#include "emu/hid/kbd.h"
+#include "emu/hid/mou.h"
+#include "emu/hid/pad.h"
+#include "emu/hid/tab.h"
 #include "emu/chips/rp6502.h"
 /* Firmware handler decls, ria/-qualified: a bare "api/std.h" or "aud/aud.h" from
  * this root file would bind to the emu/api/ and emu/aud/ shadows beside it, not
@@ -55,20 +60,71 @@ uint64_t main_clock_8(void) { return master_8; }
 
 void main_init(void)
 {
+    /* A cold reboot is stop -> power-on init -> start. Hardware power-on gives a
+     * clean slate for free; the emu's statics persist across main_init calls (the
+     * app restarts, the tests re-boot), so main_stop first tears down any program
+     * still "running" from a prior main_init — closing leaked files/dirs and
+     * resetting rln/hid/api. It is a no-op on the very first boot (all state fresh). */
+    main_stop();
     pro_init();
     cpu_init(); /* default PHI2 (--phi2 reapplies after main_init) */
     master_8 = 0;
     scanline_n = 0;
     s_frame_count = 0;
-    aud_init();
-    ria_reset();
-    com_reset(); /* cold boot: flush queued input (per-exec keeps type-ahead) */
-    str_init();  /* apply the default locale, seeding the code page (EN=437); re-applied
-                  * on cold boot, this reverts a guest run-page change (exec preserves it) */
-    oem_init();  /* canonical oem init; a no-op once str_init has resolved the page */
+    aud_init(); /* standing BEL + a clean host ring */
+    com_init(); /* cold boot: flush queued input (per-program keeps type-ahead) */
+    std_init(); /* console streams fd 0-4 (once; they survive an exec) */
+    clk_init(); /* adopt the host timezone/locale */
+    str_init(); /* apply the default locale, seeding the code page (EN=437); re-applied
+                 * on cold boot, this reverts a guest run-page change (exec preserves it) */
+    oem_init(); /* canonical oem init; a no-op once str_init has resolved the page */
     vga_boot_console(); /* font_init loads that same default into the font */
-    cpu_reset();
-    via_reset(); /* the VIA shares the 6502's RESB, so a CPU reset clears it */
+    main_run(); /* start the machine — fan out to every subsystem's run */
+}
+
+/* ------------------------------------------------------------------ */
+/* Machine lifecycle: start/stop the 6502 (mirrors ria/main.c run/stop) */
+/* ------------------------------------------------------------------ */
+
+/* Start running the 6502 — the counterpart to ria/main.c's run(), same order
+ * (cpu_run last; via_run beside it, the VIA shares the 6502 RESB). Unlike the
+ * firmware's main_run (a scheduler request), this fans out immediately: the emu is
+ * frame-driven and has no run-state machine. The code page and PHI2 are deliberately
+ * NOT reset — an exec'd program inherits the parent's (an intentional divergence
+ * from hardware; the program reads the page back via the CODE_PAGE attribute). The
+ * cold-boot defaults live in main_init and cpu_init. */
+void main_run(void)
+{
+    s_exit_code = 0;
+    xstack[XSTACK_SIZE] = 0; /* cstring guard */
+    pro_run();
+    com_run();
+    rln_run();
+    dir_run();
+    api_run();
+    clk_run();
+    ria_run();
+    via_run();
+    cpu_run(); /* must be last */
+}
+
+/* Stop the 6502 — the counterpart to ria/main.c's stop(), same order (cpu_stop
+ * first). The emu omits the modules it has no analog for (pix/mid/mdm/rom/mon, and
+ * the VGA canvas — the screen persists across an exec) and, deliberately, oem_stop:
+ * the code page rings through. */
+void main_stop(void)
+{
+    cpu_stop(); /* must be first */
+    rln_stop();
+    api_stop(); /* drop any latched op from the outgoing program */
+    std_stop();
+    dir_stop();
+    hostfs_stop();
+    kbd_stop();
+    mou_stop();
+    pad_stop();
+    tab_stop();
+    aud_stop();
 }
 
 /* ------------------------------------------------------------------ */
@@ -197,19 +253,14 @@ static void run_frame(bool render)
     const char *exec_path = pro_take_exec();
     if (exec_path)
     {
+        main_stop(); /* tear down the outgoing program (cpu_stop halts it) */
         if (!rom_load(exec_path))
         {
             fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);
-            cpu_set_halted(true);
-            s_exit_code = 1;
+            s_exit_code = 1; /* stays halted from main_stop */
         }
         else
-        {
-            ria_reset(); /* RIA/std/kbd/atr/clk; clears halt, keeps VSYNC + screen */
-            cpu_reset();
-            via_reset();
-            pro_run();
-        }
+            main_run(); /* start the incoming program; keeps VSYNC + screen */
     }
 }
 

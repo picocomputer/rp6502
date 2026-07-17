@@ -13,8 +13,8 @@ extern "C"
 {
 #endif
 
-void clk_reset(void);
-void clk_run(void);
+void clk_init(void); /* cold boot: adopt the host timezone/locale */
+void clk_run(void);  /* program start: clear the settime offset + re-anchor the run clock */
 
 #ifdef __cplusplus
 }

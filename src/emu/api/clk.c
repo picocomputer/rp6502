@@ -23,16 +23,18 @@ static int64_t g_time_offset;
  * here; clk_run re-anchors it on every program start (firmware clk_run parity). */
 static uint64_t g_run_start_us;
 
-void clk_reset(void)
+// Cold boot: adopt the host timezone/locale.
+void clk_init(void)
 {
-    g_time_offset = 0;
     os_locale_reset();
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
-// Re-anchor the 6502 run clock to now.
+// Program start: clear any settime offset (each program starts on host time) and
+// re-anchor the 6502 run clock to now.
 void clk_run(void)
 {
+    g_time_offset = 0;
     g_run_start_us = time_us_64();
 }
 

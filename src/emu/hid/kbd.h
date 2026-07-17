@@ -67,7 +67,7 @@ void kbd_ctrl_letter(char letter);
  * bit 0 reads 1 when no keys are down. */
 bool kbd_set_xram(uint16_t addr);
 void kbd_hid_set(uint8_t hid_keycode, bool down);
-void kbd_reset(void);
+void kbd_stop(void);
 
 /* Toggle a lock LED in the HID bitmap (Num=1, Caps=2, Scroll=4). */
 void kbd_toggle_lock(uint8_t bit);

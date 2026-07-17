@@ -17,8 +17,6 @@ extern "C"
  * file under MSVC (it searches directories of open includes, including src/emu/). */
 #include "ria/api/std.h"
 
-void std_reset(void); /* machine reset: close open files + dirs, reset the console */
-
 #ifdef __cplusplus
 }
 #endif

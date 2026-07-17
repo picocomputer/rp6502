@@ -216,11 +216,18 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-// Cold-boot flush: clear queued input and reset the BEL default. NOT called per
-// exec — type-ahead survives a program change; std_reset resets BEL alone.
-void com_reset(void)
+// Cold-boot flush: clear queued input and reset the BEL default. NOT run per
+// program — type-ahead survives an exec; com_run resets the BEL alone.
+void com_init(void)
 {
     memset(&kbd_ring, 0, sizeof(kbd_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
+    com_bel_enabled = true;
+}
+
+// Program start: restore the BEL default; the queued input rings are kept so
+// type-ahead survives an exec (firmware com_run).
+void com_run(void)
+{
     com_bel_enabled = true;
 }

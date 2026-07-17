@@ -25,8 +25,12 @@ extern "C"
 /* The master clock unit is 1/8 of a 256 MHz tick (2048 per microsecond), so
  * the PHI2 fractional divider lands on an integer per-cycle step. */
 
-/* Warm restart (exec): reset the 65C02 core, keeping the clock and PHI2. */
-void cpu_reset(void);
+/* Program start: reset the 65C02 core (fetch the vector) and unhalt, keeping the
+ * clock and PHI2. Must be last in the run fan-out. */
+void cpu_run(void);
+
+/* Program stop: halt the 65C02 (freeze ticking). */
+void cpu_stop(void);
 
 uint64_t cpu_tick(void);   /* advance one PHI2 cycle; returns the bus pins */
 uint32_t cpu_step_8(void); /* 1/8-tick units advanced per 6502 cycle */
@@ -35,7 +39,7 @@ uint32_t cpu_step_8(void); /* 1/8-tick units advanced per 6502 cycle */
 bool cpu_opcode_fetch(uint64_t pins, uint16_t *pc, uint8_t *sp);
 
 /* Program-halt gate: the CPU stops ticking once halted (the EXIT syscall, a
- * failed exec, or a --dap launch hold set it; ria_reset clears it on restart).
+ * failed exec, or a --dap launch hold set it; cpu_run clears it on restart).
  * cpu_active() — the firmware contract — is its inverse. */
 bool cpu_halted(void);
 void cpu_set_halted(bool halted);

@@ -47,7 +47,7 @@ static void run(int n)
  * bytes 2/3 are button0/button1. No ROM needed — this pokes pad.c directly. */
 UTEST(gamepad, xram_mirror)
 {
-    pad_reset();
+    pad_stop();
 
     /* The block must fit below 0x10000; 40 bytes won't fit above 0xFFD8. */
     ASSERT_FALSE(pad_set_xram(0xFFD9));
@@ -82,9 +82,9 @@ UTEST(gamepad, xram_mirror)
     for (int i = 0; i < 10; i++)
         ASSERT_EQ(xram[0xFF78 + i], 0);
 
-    /* pad_reset unmaps the block: later input must not touch XRAM. */
+    /* pad_stop unmaps the block: later input must not touch XRAM. */
     xram[0xFF78] = 0xAB;
-    pad_reset();
+    pad_stop();
     pad_connect(0, true);
     ASSERT_EQ(xram[0xFF78], 0xAB);
 }
@@ -94,7 +94,7 @@ UTEST(gamepad, xram_mirror)
  * slot prints "Disconnected" instead. */
 UTEST(gamepad, connected_pad_renders)
 {
-    pad_reset();
+    pad_stop();
     ASSERT_TRUE(rom_load(GAMEPAD_ROM));
     main_init();
     run(20); /* the ROM maps the pad block and draws four empty slots */
@@ -122,7 +122,7 @@ UTEST(gamepad, connected_pad_renders)
  * clear never reaches XRAM, so the program keeps the slot "Disconnected". */
 UTEST(gamepad, disconnected_pad_ignored)
 {
-    pad_reset();
+    pad_stop();
     ASSERT_TRUE(rom_load(GAMEPAD_ROM));
     main_init();
     run(20);

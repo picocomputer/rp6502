@@ -53,7 +53,7 @@ uint16_t cpu_get_phi2_khz_run(void)
 }
 
 /* Program-halt gate: set true by the EXIT syscall, a failed exec, or a --dap
- * launch hold; cleared by ria_reset on (re)start. */
+ * launch hold; cleared by cpu_run on (re)start. */
 static bool halted;
 
 bool cpu_active(void) { return !halted; }
@@ -89,11 +89,19 @@ void cpu_init(void)
     cpu_set_phi2_khz_run(CPU_PHI2_DEFAULT);
 }
 
-/* m6502_init returns a pin mask with RES asserted; the first ticks run
- * the reset sequence and fetch the vector at $FFFC/$FFFD. */
-void cpu_reset(void)
+/* Program start: m6502_init returns a pin mask with RES asserted; the first ticks
+ * run the reset sequence and fetch the vector at $FFFC/$FFFD. Must be last in the
+ * run fan-out (the VIA shares RESB, so via_run runs just before). */
+void cpu_run(void)
 {
     pins = m6502_init(&cpu, &(m6502_desc_t){0});
+    halted = false;
+}
+
+/* Program stop: freeze the 6502 (the tick loop runs only while cpu_active()). */
+void cpu_stop(void)
+{
+    halted = true;
 }
 
 uint64_t cpu_tick(void)

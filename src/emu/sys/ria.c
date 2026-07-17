@@ -5,22 +5,13 @@
  *
  */
 
-#include "emu/api/clk.h"
 #include "emu/api/pro.h"
-#include "emu/api/std.h"
-#include "emu/aud/aud.h"
-#include "emu/hid/kbd.h"
-#include "emu/hid/mou.h"
-#include "emu/hid/pad.h"
-#include "emu/hid/tab.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/main.h"
-#include "emu/sys/via.h"
 #include "emu/chips/rp6502.h"
 #include "api/api.h"
-#include "str/rln.h"
 #include "sys/ria.h"
 #include "emu/chips/w65c02.h"
 #include <string.h>
@@ -300,7 +291,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
 }
 
 /* ------------------------------------------------------------------ */
-/* Reset                                                               */
+/* Lifecycle                                                           */
 /* ------------------------------------------------------------------ */
 
 /* The SIGINT attribute (vendored atr.c) consumes the same latch the $FFF0 IRQ
@@ -315,29 +306,9 @@ bool ria_get_sigint(void)
     return true;
 }
 
-void ria_reset(void)
+void ria_run(void)
 {
-    api_run();
-    api_stop(); /* drop any latched op from the outgoing program */
     ria.irq_enabled = 0; /* $FFF0: IRQ disabled, no pending sources, line idle */
     ria.irq_pending = 0;
     regs[0x10] = 0;
-    xstack[XSTACK_SIZE] = 0; /* cstring guard */
-    cpu_set_halted(false);
-    main_set_exit_code(0);
-    std_reset();
-    rln_run(); /* running-program line editor: max 254, history off (firmware run()) */
-    kbd_reset();
-    pad_reset();
-    mou_reset();
-    tab_reset();
-    clk_reset();
-    clk_run(); /* re-anchor the run clock to this program's start (firmware run()) */
-    aud_reset();
-    /* NOTE: the OEM code page and PHI2 are deliberately NOT reset here. ria_reset
-     * also runs on exec; unlike hardware — which reverts both to the system
-     * settings when a program stops — the emulator lets an exec'd program inherit
-     * the parent's code page and PHI2 (an intentional divergence; the program can
-     * still read the code page back via the CODE_PAGE attribute). The cold-boot
-     * defaults live in main_init (the oem boot pair) and cpu_init (default PHI2). */
 }

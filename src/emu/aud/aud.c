@@ -26,12 +26,7 @@ void aud_init(void)
     // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
         aud_sine_table[i] = (int8_t)lround(cos(M_PI * 2.0 / 256 * i) * -127);
-    bel_setup(); // the BEL is the standing device, as on the firmware (aud.c)
-}
-
-void aud_stop(void)
-{
-    bel_setup();
+    aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
 }
 
 void aud_setup(void (*irq_fn)(void), uint32_t rate)
@@ -151,9 +146,12 @@ const float *aud_viz_buffer(int *num_samples)
 
 int aud_viz_pos(void) { return g_viz_pos; }
 
-void aud_reset(void)
+void aud_stop(void)
 {
-    aud_stop(); /* fall back to the standing BEL device (firmware aud_stop) */
+    bel_setup(); /* fall back to the standing BEL device (firmware aud_stop) */
+    /* Drain the emu's host PCM output ring so a stopped program's stale samples
+     * don't bleed into the next. The BEL device keeps its state — a rung bell
+     * rings through (CLAUDE.md); only this host-side ring is cleared. */
     g_head = g_tail = 0;
     g_sample_acc = 0;
     xram_queue_head = xram_queue_tail = 0;

@@ -62,7 +62,7 @@ bool pad_is_mapped(void);
 void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
                      int lx, int ly, int rx, int ry, int lt, int rt, bool sony);
 
-void pad_reset(void);
+void pad_stop(void);
 
 #ifdef __cplusplus
 }

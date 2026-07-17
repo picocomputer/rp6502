@@ -18,8 +18,7 @@ extern "C"
 /* Main events
  */
 
-void aud_task(void);  /* generate this frame's samples from the active device */
-void aud_reset(void); /* silence + clear the ring (machine reset / exec) */
+void aud_task(void); /* generate this frame's samples from the active device */
 
 /* --mute: disable audio entirely — the synth stops running (no per-frame
  * CPU work) and the window app opens no OS audio device. Default enabled. */

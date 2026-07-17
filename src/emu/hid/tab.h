@@ -83,7 +83,7 @@ void tab_host_clear(void);
  * unmapped. */
 uint8_t tab_control(void);
 
-void tab_reset(void);
+void tab_stop(void);
 
 #ifdef __cplusplus
 }

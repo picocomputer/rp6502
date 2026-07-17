@@ -6,14 +6,10 @@
  */
 
 #include "emu/api/std.h"
-#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
 #include "emu/mon/rom.h"
-#include "emu/sys/com.h"
 #include "emu/api/tmpfs.h"
-#include "api/dir.h"
 #include "api/fat.h"
-#include "str/rln.h"
 
 /* The RAM FatFs (the shared fat_std_* driver) claims MSC0: only while
  * --tmpdrive is mounted; otherwise the host catch-all reclaims it. */
@@ -30,15 +26,3 @@ const std_driver_t std_drivers[] = {
 };
 
 const size_t std_driver_count = sizeof(std_drivers) / sizeof(std_drivers[0]);
-
-void std_reset(void)
-{
-    std_stop();      /* close open files, reset the in-flight op + rln read */
-    std_init();      /* re-establish the console streams (fd 0-4) */
-    dir_stop();      /* close open FatFs directories (ria/api/dir.c) */
-    hostfs_stop(); /* close open host directories */
-    com_set_bel(true); /* reset BEL per program start; type-ahead in the com rings
-                          survives across exec (firmware parity — com_reset, the
-                          full flush, is cold-boot only) */
-    rln_init();
-}

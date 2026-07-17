@@ -61,7 +61,7 @@ void kbd_hid_set(uint8_t hid_keycode, bool down)
     kbd_write_xram();
 }
 
-void kbd_reset(void)
+void kbd_stop(void)
 {
     memset(kbd_keys, 0, sizeof(kbd_keys));
     kbd_keys[0] = 1; /* no keys down */

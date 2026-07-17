@@ -85,7 +85,7 @@ UTEST(furelise, reset_silences)
     ASSERT_EQ(aud_rate(), 24000);
     ASSERT_GT(peak, 0.0f);
 
-    ria_reset(); /* aud_reset -> aud_stop falls back to the standing BEL */
+    main_stop(); /* aud_stop falls back to the standing BEL + drains the ring */
     ASSERT_EQ(aud_rate(), 24000); /* BEL device present, but silent */
 
     static float buf[64];

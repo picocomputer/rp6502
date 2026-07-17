@@ -113,7 +113,7 @@ UTEST(rtc, strftime_z_uses_host_offset)
     os_setenv("TZ", "PST8");
     os_setenv("LC_ALL", "C");
     ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init(); /* clk_reset -> tzset() adopts TZ=PST8 */
+    main_init(); /* clk_init -> tzset() adopts TZ=PST8 */
 
     struct wire_tm w = {0, 0, 12, 1, 6, 125, 2, 181, 0}; /* 2025-07-01, no DST */
     char out[16];
@@ -146,7 +146,7 @@ UTEST(rtc, code_page_drives_oem_mapping)
 }
 
 /* An exec'd program inherits the current code page (it reads it back via the
- * attribute), so the exec-reload reset (ria_reset) must NOT revert it — else the
+ * attribute), so the exec reload (main_stop/main_run) must NOT revert it — else the
  * font (untouched by exec) and the code page would desync. */
 UTEST(rtc, exec_preserves_code_page)
 {
@@ -154,7 +154,8 @@ UTEST(rtc, exec_preserves_code_page)
     main_init();
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
     oem_set_code_page_run(850); /* a guest program changed the run page */
-    ria_reset(); /* the path the exec reload runs */
+    main_stop(); /* the path the exec reload runs */
+    main_run();
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across exec */
 }
 

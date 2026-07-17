@@ -33,7 +33,7 @@ void mou_host_wheel(int dwheel, int dpan);
 /* Set the button byte (bit 0 left, 1 right, 2 middle), mirroring the HID order. */
 void mou_host_buttons(uint8_t buttons);
 
-void mou_reset(void);
+void mou_stop(void);
 
 #ifdef __cplusplus
 }
