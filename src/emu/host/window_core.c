@@ -613,14 +613,14 @@ bool window_core_boot_rom(const char *path)
         }
     }
     input_paste_cancel(); /* the new program must not receive an old paste */
+    /* A dropped ROM is a program change (stop + load + run), not a machine reboot:
+     * the code page / PHI2 ride through from the previous program, like an exec. */
+    main_stop(); /* tear down the outgoing program (cpu_stop halts it) */
     if (!rom_load(oem))
-    {
-        cpu_set_halted(true); /* RAM may be part-written; don't resume garbage */
-        return false;
-    }
-    main_init();
+        return false; /* RAM may be part-written; stays halted from main_stop */
     pro_set_argv(oem, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
     pro_set_launcher(false);    /* a drop breaks any launcher chain */
+    main_run();
     return true;
 }
 

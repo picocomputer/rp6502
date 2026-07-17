@@ -12,15 +12,13 @@
 #include "emu/api/pro.h"
 #include "emu/api/std.h"
 #include "emu/aud/aud.h"
-#include "emu/mon/rom.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/mem.h"
-#include "emu/main.h"
 #include "aud/bel.h"
 #include "sys/com.h"
 #include "sys/ria.h"
 #include "stdsys.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -28,8 +26,7 @@
  * the program enabled the $FFF0 IRQ) asserts the CPU's IRQ line until read. */
 UTEST(features, sigint_irq)
 {
-    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
 
     ASSERT_FALSE(ria_irq_asserted()); /* idle at boot */
 
@@ -61,8 +58,7 @@ UTEST(features, sigint_irq)
  * chain ends when the shell itself exits. */
 UTEST(features, launcher_chain)
 {
-    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
 
     /* A shell starts and registers itself as the launcher. */
     pro_set_argv("MSC0:/shell.rp6502", 0, NULL);
@@ -96,8 +92,7 @@ UTEST(features, launcher_chain)
  * the RIA_OP_ARGV blob (offset table + {0,0} + packed strings). */
 UTEST(features, empty_args_kept)
 {
-    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
 
     char *args[] = {"", "x", ""};
     ASSERT_TRUE(pro_set_argv("MSC0:/a.rp6502", 3, args));
@@ -137,8 +132,7 @@ static bool pumped_audio(int frames)
  * teletype bell, and the enable flag gates that ring end to end. */
 UTEST(features, teletype_bell)
 {
-    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
 
     ASSERT_EQ(aud_rate(), 24000); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
@@ -158,8 +152,7 @@ UTEST(features, teletype_bell)
  * generates no samples at all — not even for a rung bell. */
 UTEST(features, audio_disable)
 {
-    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
     ASSERT_EQ(aud_rate(), 24000); /* enabled by default */
 
     aud_set_enabled(false);
@@ -187,46 +180,4 @@ UTEST(features, audio_disable)
     }
 }
 
-/* Write a minimal .rp6502 carrying an "emulator" args asset, for the launch-arg
- * feature. The reset vector is the only program data (the test never runs the
- * CPU). Returns the path, or NULL on a write failure. */
-static const char *make_asset_rom(const char *args)
-{
-    static const char *path = "/tmp/emu_asset_test.rp6502";
-    uint8_t vec[2] = {0x00, 0x02}; /* reset vector -> $0200 */
-    char rec[64];
-    int reclen = snprintf(rec, sizeof rec, "$FFFC $2 $%08X\r\n", rom_crc32(0, vec, 2));
-    FILE *f = fopen(path, "wb");
-    if (!f)
-        return NULL;
-    fprintf(f, "#!RP6502\r\n");
-    fprintf(f, "#>$%X $0\r\n", reclen + 2); /* program section = record line + 2 vector bytes */
-    fwrite(rec, 1, (size_t)reclen, f);
-    fwrite(vec, 1, 2, f);
-    fprintf(f, "#>$%X $0 emulator\r\n", (unsigned)strlen(args));
-    fwrite(args, 1, strlen(args), f);
-    fclose(f);
-    return path;
-}
-
-/* The launch ROM's "emulator" asset is readable by name (main.c parses it as
- * args). The tokenizer/parser + command-line precedence are exercised by the
- * binary's integration path; here we pin the asset read the loader registers. */
-UTEST(features, rom_emulator_asset)
-{
-    const char *args = "--frames 50 --mute --input=\"hi there\"";
-    const char *path = make_asset_rom(args);
-    ASSERT_TRUE(path != NULL);
-    ASSERT_TRUE(rom_load(path));
-
-    char buf[128];
-    long n = rom_read_asset("emulator", buf, sizeof buf);
-    ASSERT_EQ(n, (long)strlen(args));
-    buf[n] = 0;
-    ASSERT_STREQ(buf, args);
-
-    ASSERT_EQ(rom_read_asset("nope", buf, sizeof buf), -1L); /* absent -> -1 */
-    remove(path);
-}
-
-UTEST_MAIN()
+UTEST_MAIN_EMU()

@@ -13,13 +13,11 @@
  */
 
 #include "emu/hid/mou.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
-#include "utest.h"
+#include "emu_boot.h"
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
@@ -38,8 +36,7 @@ static void run(int n)
 
 UTEST(paint, via_irq_moves_pointer)
 {
-    ASSERT_TRUE(rom_load(PAINT_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(PAINT_ROM));
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 
@@ -60,4 +57,4 @@ UTEST(paint, via_irq_moves_pointer)
     ASSERT_FALSE(cpu_halted());
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

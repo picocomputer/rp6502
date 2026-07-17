@@ -34,7 +34,6 @@ bool rom_load(const char *path);
  * file. The loader names the backing file and notes where the asset directory
  * begins; a "ROM:name" open then scans the file for the entry — NO bytes are
  * copied into RAM, and the image may carry any number of assets. ---- */
-long rom_read_asset(const char *name, void *buf, size_t max); /* host-side; -1 if no such asset */
 
 /* The ROM: file driver (read-only asset windows), for std.c's table. */
 bool rom_std_handles(const char *path);

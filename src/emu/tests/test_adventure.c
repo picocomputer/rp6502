@@ -14,11 +14,9 @@
  */
 
 #include "emu/sys/com.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
 #include "sys/com.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <string.h>
 
 static char cap[1 << 16];
@@ -41,9 +39,8 @@ static bool boot(const char *input)
 {
     cap_len = 0;
     cap[0] = 0;
-    if (!rom_load(ADVENTURE_ROM))
+    if (!emu_restart(ADVENTURE_ROM))
         return false;
-    main_init();
     com_set_tx_tap(tap);
     if (input)
         feed(input);
@@ -91,4 +88,4 @@ UTEST(adventure, parses_a_command)
     ASSERT_FALSE(cpu_halted());
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

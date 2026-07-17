@@ -50,62 +50,9 @@ static void queue_input(const char *text)
         com_kbd_push_byte((uint8_t)(*p == '\n' ? '\r' : *p));
 }
 
-/* Fold the launch ROM's "emulator" asset (if any) into o at lower priority than
- * the command line: parse the asset first, then re-apply argv over it. */
-static void merge_rom_args(cli_options *o, int argc, char **argv)
-{
-    char asset[2048];
-    long n = rom_read_asset("emulator", asset, sizeof asset - 1);
-    if (n < 0)
-        return; /* no such asset: command line stands alone */
-    asset[n] = 0;
-
-    static char store[2048];
-    static char *rom_argv[65];
-    rom_argv[0] = (char *)"emulator"; /* getopt skips argv[0]; give it a name */
-    int rom_argc = cli_tokenize_args(asset, rom_argv + 1, 64, store, sizeof store) + 1;
-
-    cli_options merged;
-    cli_options_init(&merged);
-    if (cli_parse_args(rom_argc, rom_argv, &merged))
-        fprintf(stderr, "rp6502-emu: ignoring the rest of the ROM 'emulator' options after a bad token\n");
-    cli_parse_args(argc, argv, &merged); /* the command line wins within allowed fields */
-
-    /* Allowlist: a ROM's "emulator" asset may preset only presentation/timing
-     * options — never anything that touches the host filesystem, injects input,
-     * or controls the session (rom/shot/input/frames/tmpdrive/inidir/installs/
-     * debug/dap/rom_args stay command-line only). Take the allowed fields from
-     * the merged parse (the command line already overrode the asset there) and
-     * leave every other field of o at its command-line value. */
-    if (merged.have_bg)
-    {
-        o->have_bg = true;
-        o->bg_r = merged.bg_r;
-        o->bg_g = merged.bg_g;
-        o->bg_b = merged.bg_b;
-    }
-    if (merged.have_scale)
-    {
-        o->have_scale = true;
-        o->scale = merged.scale;
-    }
-    o->vsync = merged.vsync;
-    o->scale_filter = merged.scale_filter;
-    if (merged.phi2_khz > 0)
-        o->phi2_khz = merged.phi2_khz;
-    if (merged.code_page > 0)
-        o->code_page = merged.code_page;
-    o->mute = merged.mute;
-    if (merged.have_seed)
-    {
-        o->have_seed = true;
-        o->seed = merged.seed;
-    }
-}
-
-/* Apply the presentation/timing options shared by both launch paths. False (with
- * a message) on an out-of-range --phi2 or an unsupported --code-page. */
-static bool apply_options(const cli_options *o)
+/* Apply the host/window presentation options shared by both launch paths. phi2/cp
+ * are machine settings loaded as config before main_init, not here. */
+static void apply_options(const cli_options *o)
 {
     if (o->have_bg)
         window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
@@ -114,25 +61,6 @@ static bool apply_options(const cli_options *o)
         rand_set_seed((uint64_t)o->seed);
     if (o->mute)
         aud_set_enabled(false);
-    if (o->phi2_khz > 0)
-    {
-        if (o->phi2_khz < CPU_PHI2_MIN_KHZ || o->phi2_khz > CPU_PHI2_MAX_KHZ)
-        {
-            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
-                    o->phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
-            return false;
-        }
-        cpu_set_phi2_khz_run((uint16_t)o->phi2_khz);
-    }
-    if (o->code_page > 0)
-    {
-        if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
-        {
-            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o->code_page);
-            return false;
-        }
-    }
-    return true;
 }
 
 #ifdef EMU_WITH_DEBUGGER
@@ -142,12 +70,11 @@ static bool apply_options(const cli_options *o)
  * (with the debugger overlay) so the program is visible while VS Code drives. */
 static int run_dap(const cli_options *o)
 {
-    main_init();
-    cpu_set_halted(true); /* hold until the DAP launch loads a program */
+    cpu_set_halted(true); /* the machine is initialized; hold it (no program yet)
+                           * until the DAP launch loads + runs one via pro_exec */
     dbg_set_active(true);
 
-    if (!apply_options(o))
-        return 1;
+    apply_options(o);
 
     if (o->rom_args)
         dap_set_default_args(o->n_rom_args, o->rom_args);
@@ -187,23 +114,36 @@ int main(int argc, char **argv)
 
     /* MSC0: is the native host filesystem — whatever the process cwd is.
      * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
-     * (isolation). This locates the drive, so it comes from the command line,
-     * not the ROM's asset args. */
+     * (isolation). */
     if (o.tmpdrive && !tmpfs_mount())
     {
         fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;
     }
 
-    /* Seed the OEM code page before anything converts guest-bound argv or
-     * opens a ROM (conversion is per-page; unseeded, every non-ASCII char
-     * flattens to 0x7F). str_init applies the default locale (EN=437); --cp
-     * applies best-effort now so paths convert in the page the guest will run.
-     * main_init re-runs str_init/oem_init (idempotent) and apply_options
-     * validates --cp after. */
-    str_init();
-    if (o.code_page > 0 && o.code_page <= UINT16_MAX)
-        oem_set_code_page((uint16_t)o.code_page);
+    /* Load the command-line settings as config, then init the machine ONCE —
+     * mirroring the firmware's cfg_init, whose *_load_* verbs run before
+     * cpu_init/oem_init adopt them. Everything below needs the drivers + the
+     * resolved code page (argv conversion is per-page), so it all follows
+     * main_init; the machine is started (main_run) after the ROM loads. */
+    if (o.phi2_khz > 0)
+    {
+        if (o.phi2_khz > UINT16_MAX || !cpu_set_phi2_khz((uint16_t)o.phi2_khz))
+        {
+            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
+                    o.phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
+            return 1;
+        }
+    }
+    if (o.code_page > 0)
+    {
+        if (o.code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o.code_page))
+        {
+            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o.code_page);
+            return 1;
+        }
+    }
+    main_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
      * ROM args are guest-bound, so they convert from host argv encoding to OEM
@@ -286,10 +226,6 @@ int main(int argc, char **argv)
     if (!rom_load(rom))
         return 1;
 
-    /* The ROM is loaded; fold its "emulator" asset args under the command line. */
-    merge_rom_args(&o, argc, argv);
-
-    main_init();
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
     if (!pro_set_argv(rom, o.n_rom_args, o.rom_args))
@@ -298,8 +234,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!apply_options(&o))
-        return 1;
+    apply_options(&o);
 
     /* Enable the debugger engine (the on-screen UI and the DAP adapter both
      * attach to it). Inert with no breakpoints, but --dap will also stand up the
@@ -309,6 +244,8 @@ int main(int argc, char **argv)
 
     if (o.input)
         queue_input(o.input);
+
+    main_run(); /* start the machine — main_init only initialized the drivers */
 
     if (o.shot)
     {

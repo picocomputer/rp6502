@@ -17,9 +17,10 @@ extern "C"
 #endif
 
 /* The firmware contract cpu.c implements: cpu_init, cpu_active,
- * cpu_set_phi2_khz_run (clamped to [CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ],
- * quantized), cpu_get_phi2_khz_run, and the CPU_RP2350_KHZ / CPU_PHI2_*
- * constants. Wrapped here so C++ consumers get C linkage. */
+ * cpu_set_phi2_khz (config, loaded before init), cpu_set_phi2_khz_run (clamped to
+ * [CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ], quantized), cpu_get_phi2_khz_run, and the
+ * CPU_RP2350_KHZ / CPU_PHI2_* constants. Wrapped here so C++ consumers get C
+ * linkage. */
 #include "sys/cpu.h"
 
 /* The master clock unit is 1/8 of a 256 MHz tick (2048 per microsecond), so

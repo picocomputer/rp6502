@@ -12,12 +12,10 @@
 
 #include "emu/api/pro.h"
 #include "emu/sys/com.h"
-#include "emu/mon/rom.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -41,8 +39,7 @@ UTEST(exec, reexecs_self_with_arg)
 {
     cap_len = 0;
     cap[0] = 0;
-    ASSERT_TRUE(rom_load(EXEC_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(EXEC_ROM));
 
     /* Seed argv[0] = the ROM's own MSC0: path, exactly as main.c does, so the
      * program can re-exec itself. chdir into the ROM's directory (like launching
@@ -74,8 +71,7 @@ UTEST(exec, boot_args_reach_program)
 {
     cap_len = 0;
     cap[0] = 0;
-    ASSERT_TRUE(rom_load(EXEC_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(EXEC_ROM));
 
     /* Boot args (the CLI's `exec.rp6502 -- Foo`): pro_set_argv resolves the raw
      * host path to MSC0: form itself. argc==2 at startup, so the program prints
@@ -94,4 +90,4 @@ UTEST(exec, boot_args_reach_program)
     ASSERT_TRUE(strstr(cap, "Executing self") == NULL);
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

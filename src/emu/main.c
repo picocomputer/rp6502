@@ -58,28 +58,24 @@ void main_set_exit_code(int code) { s_exit_code = code; }
 unsigned long main_frame_count(void) { return s_frame_count; }
 uint64_t main_clock_8(void) { return master_8; }
 
+/* Power-up initialization — called exactly ONCE per process (never re-run; init
+ * is not idempotent). Settings are loaded before this (cpu/oem adopt them), the
+ * ROM is loaded after, and the caller starts the machine with main_run(). */
 void main_init(void)
 {
-    /* A cold reboot is stop -> power-on init -> start. Hardware power-on gives a
-     * clean slate for free; the emu's statics persist across main_init calls (the
-     * app restarts, the tests re-boot), so main_stop first tears down any program
-     * still "running" from a prior main_init — closing leaked files/dirs and
-     * resetting rln/hid/api. It is a no-op on the very first boot (all state fresh). */
-    main_stop();
     pro_init();
-    cpu_init(); /* default PHI2 (--phi2 reapplies after main_init) */
+    cpu_init(); /* adopt the loaded PHI2 config (or the built-in default) */
     master_8 = 0;
     scanline_n = 0;
     s_frame_count = 0;
     aud_init(); /* standing BEL + a clean host ring */
-    com_init(); /* cold boot: flush queued input (per-program keeps type-ahead) */
-    std_init(); /* console streams fd 0-4 (once; they survive an exec) */
+    com_init(); /* flush queued input; BEL default */
+    std_init(); /* console streams fd 0-4 */
+    rln_init(); /* line editor (rln_stop re-inits it per program stop) */
     clk_init(); /* adopt the host timezone/locale */
-    str_init(); /* apply the default locale, seeding the code page (EN=437); re-applied
-                 * on cold boot, this reverts a guest run-page change (exec preserves it) */
-    oem_init(); /* canonical oem init; a no-op once str_init has resolved the page */
+    str_init(); /* apply the default locale, seeding the code page (EN=437) */
+    oem_init(); /* resolve the code page: loaded config, else the locale default */
     vga_boot_console(); /* font_init loads that same default into the font */
-    main_run(); /* start the machine — fan out to every subsystem's run */
 }
 
 /* ------------------------------------------------------------------ */

@@ -9,13 +9,11 @@
  */
 
 #include "emu/dbg/dbg.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "sys/com.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <string.h>
 
 /* The first instruction the CPU fetches after reset = the RESET vector target. */
@@ -26,10 +24,7 @@ static uint16_t entry_pc(void)
 
 static bool load(void)
 {
-    if (!rom_load(ADVENTURE_ROM))
-        return false;
-    main_init();
-    return true;
+    return emu_restart(ADVENTURE_ROM);
 }
 
 /* Push CR-terminated keystrokes to stdin, as the line editor consumes them. */
@@ -212,4 +207,4 @@ UTEST(dbg, continue_runs_to_exit)
     disarm();
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

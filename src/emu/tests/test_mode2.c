@@ -11,13 +11,11 @@
  */
 
 #include "emu/hid/kbd.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "term/color.h"
-#include "utest.h"
+#include "emu_boot.h"
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
@@ -42,8 +40,7 @@ static void run_frames(int n)
  * tile renderer drew onto its 320x240 canvas (not the terminal). */
 UTEST(mode2, renders_tilemap_on_320x240_canvas)
 {
-    ASSERT_TRUE(rom_load(MODE2_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(MODE2_ROM));
     vga_set_framebuffer(fb);
     run_frames(20);
 
@@ -71,8 +68,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
  * completion. */
 UTEST(mode2, keyboard_presses_exit)
 {
-    ASSERT_TRUE(rom_load(MODE2_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(MODE2_ROM));
     vga_set_framebuffer(fb);
     run_frames(20);
     ASSERT_FALSE(cpu_halted()); /* scrolling, no key down */
@@ -92,4 +88,4 @@ UTEST(mode2, keyboard_presses_exit)
     ASSERT_TRUE(cpu_halted());
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

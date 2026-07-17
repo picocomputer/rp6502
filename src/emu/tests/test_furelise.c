@@ -12,13 +12,10 @@
  */
 
 #include "emu/aud/aud.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
 #include "emu/sys/vga.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <math.h>
 
 /* Run one frame and drain its audio into running peak/energy accumulators. */
@@ -48,8 +45,7 @@ static void pump(int n, float *peak, double *energy, long *frames)
  * samples); once it plays, samples appear at the PSG's fixed 24 kHz. */
 UTEST(furelise, plays_psg_audio)
 {
-    ASSERT_TRUE(rom_load(FURELISE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(FURELISE_ROM));
     /* The standing BEL device runs at boot (firmware: aud_init installs it),
      * silent until ezpsg_init swaps in the PSG — also 24 kHz. */
     ASSERT_EQ(aud_rate(), 24000);
@@ -71,12 +67,11 @@ UTEST(furelise, plays_psg_audio)
     ASSERT_GT(energy, 1.0);               /* sustained signal, not a lone blip */
 }
 
-/* A machine reset tears the PSG down (back to the silent standing BEL) and
- * clears the ring. */
+/* A program stop tears the PSG down (back to the silent standing BEL) and
+ * drains the ring. */
 UTEST(furelise, reset_silences)
 {
-    ASSERT_TRUE(rom_load(FURELISE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(FURELISE_ROM));
 
     float peak = 0.0f;
     double energy = 0.0;
@@ -93,14 +88,13 @@ UTEST(furelise, reset_silences)
 }
 
 /* furelise prints its title "Für Elise" — the 'ü' is a CP437 high-half glyph
- * (byte 0x81). It must actually render, not blank. Regression guard for the
- * font high-half loading: across repeated main_init (this test process), font_init
- * must re-load the high half, not leave 0x80-0xFF blank ("F r Elise"). */
+ * (byte 0x81). It must actually render, not blank. Regression guard for the font
+ * high-half loading: vga_boot_console's font_init (run once at main_init) must
+ * load the high half, not leave 0x80-0xFF blank ("F r Elise"). */
 UTEST(furelise, umlaut_renders)
 {
     static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-    ASSERT_TRUE(rom_load(FURELISE_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(FURELISE_ROM));
     vga_set_framebuffer(fb);
     for (int i = 0; i < 8; i++)
         main_run_frame(); /* prints the title; the lazy-clear render needs frames */
@@ -119,4 +113,4 @@ UTEST(furelise, umlaut_renders)
     ASSERT_GT(lit[2], 0); /* 'r' drew */
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

@@ -13,11 +13,9 @@
 
 #include "emu/sys/com.h"
 #include "emu/hid/pad.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <string.h>
 
 static char cap[1 << 16];
@@ -95,8 +93,7 @@ UTEST(gamepad, xram_mirror)
 UTEST(gamepad, connected_pad_renders)
 {
     pad_stop();
-    ASSERT_TRUE(rom_load(GAMEPAD_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(GAMEPAD_ROM));
     run(20); /* the ROM maps the pad block and draws four empty slots */
 
     cap_reset();
@@ -123,8 +120,7 @@ UTEST(gamepad, connected_pad_renders)
 UTEST(gamepad, disconnected_pad_ignored)
 {
     pad_stop();
-    ASSERT_TRUE(rom_load(GAMEPAD_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(GAMEPAD_ROM));
     run(20);
 
     /* No pad_connect: the press rides an unplugged controller. */
@@ -140,4 +136,4 @@ UTEST(gamepad, disconnected_pad_ignored)
     ASSERT_FALSE(cpu_halted());
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

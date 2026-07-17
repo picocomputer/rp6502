@@ -92,24 +92,6 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
     return found;
 }
 
-/* Read a named ROM asset's bytes host-side (the 6502 reads assets via the ROM:
- * drive). -1 if no such asset. */
-long rom_read_asset(const char *name, void *buf, size_t max)
-{
-    size_t base, len;
-    if (!rom_find_asset(name, &base, &len))
-        return -1;
-    FILE *f = fs_fopen_rd(g_rom_src);
-    if (!f)
-        return -1;
-    size_t want = len < max ? len : max;
-    size_t got = 0;
-    if (fseek(f, (long)base, SEEK_SET) == 0)
-        got = fread(buf, 1, want, f);
-    fclose(f);
-    return (long)got;
-}
-
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
 {

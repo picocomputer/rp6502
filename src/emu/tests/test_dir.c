@@ -14,13 +14,10 @@
  */
 
 #include "emu/sys/com.h"
-#include "emu/mon/rom.h"
 #include "emu/api/hostfs.h"
 #include "emu/plat.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
-#include "emu/plat.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,8 +55,7 @@ UTEST(dir, lists_directory)
     ASSERT_TRUE(fs_mkdir(sub));
 
     ASSERT_TRUE(fs_chdir(d)); /* the program lists "" = the cwd */
-    ASSERT_TRUE(rom_load(DIR_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(DIR_ROM));
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);
@@ -86,4 +82,4 @@ UTEST(dir, lists_directory)
     ASSERT_TRUE(strstr(cap, "512 byte blocks") != NULL);
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

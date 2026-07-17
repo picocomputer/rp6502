@@ -12,11 +12,9 @@
  */
 
 #include "emu/hid/tab.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
 #include "emu/sys/vga.h"
-#include "utest.h"
+#include "emu_boot.h"
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
@@ -35,8 +33,7 @@ static void run(int n)
 
 UTEST(paint_tab, absolute_pointer_moves)
 {
-    ASSERT_TRUE(rom_load(PAINT_TAB_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(PAINT_TAB_ROM));
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the tablet */
 
@@ -63,4 +60,4 @@ UTEST(paint_tab, absolute_pointer_moves)
     ASSERT_FALSE(cpu_halted());
 }
 
-UTEST_MAIN()
+UTEST_MAIN_EMU()

@@ -12,20 +12,16 @@
  */
 
 #include "api/api.h"
-#include "emu/api/clk.h"
+#include "api/clk.h"
 #include "api/oem.h"
 #include "emu/sys/com.h"
-#include "emu/mon/rom.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
-#include "emu/main.h"
-#include "api/api.h"
-#include "api/clk.h"
 #include "emu/plat.h"
-#include "utest.h"
+#include "emu_boot.h"
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static char cap[1 << 16];
 static size_t cap_len;
@@ -73,11 +69,10 @@ static uint16_t drive_strftime(const struct wire_tm *w, const char *fmt,
 UTEST(rtc, prints_fixed_timestamps)
 {
     os_setenv("TZ", "UTC");
-    os_setenv("LC_ALL", "C");
+    tzset(); /* adopt the TZ live; main_init's one tzset ran with the host default */
     cap_len = 0;
     cap[0] = 0;
-    ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init();
+    ASSERT_TRUE(emu_restart(RTC_ROM));
     com_set_tx_tap(tap);
     run_frames(120);
     com_set_tx_tap(NULL);
@@ -94,9 +89,7 @@ UTEST(rtc, prints_fixed_timestamps)
  * proving clk.c routes strftime output through the OEM converter. */
 UTEST(rtc, strftime_maps_utf8_to_oem)
 {
-    os_setenv("LC_ALL", "C");
-    ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init(); /* resets clk (locale) and atr (code page 437) */
+    oem_set_code_page_run(437); /* the mapping under test (drive_strftime needs no ROM) */
 
     struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0}; /* fields unused by literals */
     char out[16];
@@ -111,9 +104,7 @@ UTEST(rtc, strftime_maps_utf8_to_oem)
 UTEST(rtc, strftime_z_uses_host_offset)
 {
     os_setenv("TZ", "PST8");
-    os_setenv("LC_ALL", "C");
-    ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init(); /* clk_init -> tzset() adopts TZ=PST8 */
+    tzset(); /* adopt PST8 live (drive_strftime needs no ROM) */
 
     struct wire_tm w = {0, 0, 12, 1, 6, 125, 2, 181, 0}; /* 2025-07-01, no DST */
     char out[16];
@@ -126,10 +117,8 @@ UTEST(rtc, strftime_z_uses_host_offset)
  * page changes the strftime output, and unsupported pages are rejected. */
 UTEST(rtc, code_page_drives_oem_mapping)
 {
-    os_setenv("LC_ALL", "C");
-    ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init();
-    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437); /* default */
+    oem_set_code_page_run(437);
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
 
     struct wire_tm w = {0, 0, 12, 1, 0, 125, 3, 0, 0};
     char out[8];
@@ -150,23 +139,17 @@ UTEST(rtc, code_page_drives_oem_mapping)
  * font (untouched by exec) and the code page would desync. */
 UTEST(rtc, exec_preserves_code_page)
 {
-    ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init();
-    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
+    ASSERT_TRUE(emu_restart(RTC_ROM));
     oem_set_code_page_run(850); /* a guest program changed the run page */
-    main_stop(); /* the path the exec reload runs */
+    main_stop();                /* the exec-reload path: stop + (load) + run */
     main_run();
-    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across exec */
+    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across the restart */
 }
 
-/* A cold boot (main_init), unlike exec, resets the code page to the 437 default. */
-UTEST(rtc, cold_boot_defaults_code_page)
+UTEST_STATE();
+int main(int argc, const char *const argv[])
 {
-    ASSERT_TRUE(rom_load(RTC_ROM));
-    main_init();
-    oem_set_code_page_run(850); /* a guest program changed the run page */
-    main_init(); /* cold boot: str_init re-applies the default locale -> 437 */
-    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)437);
+    os_setenv("LC_ALL", "C"); /* deterministic strftime, adopted by the one main_init */
+    main_init();              /* the drivers initialize exactly once */
+    return utest_main(argc, argv);
 }
-
-UTEST_MAIN()
