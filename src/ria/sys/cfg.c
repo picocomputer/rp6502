@@ -15,7 +15,7 @@
 #include "str/str.h"
 #include "sys/cfg.h"
 #include "sys/com.h"
-#include "sys/cpu_hw.h"
+#include "sys/cpu.h"
 #include "sys/lfs.h"
 #include "sys/mem.h"
 #include "sys/vga.h"
