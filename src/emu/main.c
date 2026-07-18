@@ -15,9 +15,9 @@
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
+#include "emu/sys/pix.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
-#include "emu/sys/xreg.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
@@ -33,9 +33,16 @@
 #include "ria/api/clk.h"
 #include "ria/api/oem.h"
 #include "ria/aud/aud.h"
+#include "ria/aud/psg.h"
+#include "ria/aud/opl.h"
 #include "ria/str/rln.h"
 #include "ria/str/str.h"
 #include "term/term.h" /* no emu/term shadow; resolves to vga/term */
+#include "modes/mode1.h"
+#include "modes/mode2.h"
+#include "modes/mode3.h"
+#include "modes/mode4.h"
+#include "modes/mode5.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -268,53 +275,88 @@ void main_run_frame(void) { run_frame(true); }
 void main_run_frame_norender(void) { run_frame(false); }
 
 /* ------------------------------------------------------------------ */
-/* xreg (op 0x01): marshal device/channel/address + words off the xstack */
-/* ------------------------------------------------------------------ */
-
-/* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */
-static uint16_t word_at(int i)
-{
-    uint16_t word;
-    memcpy(&word, &xstack[XSTACK_SIZE - 5 - 2 * i], sizeof(word));
-    return word;
-}
-
-static bool std_xreg(void)
-{
-    uint8_t device = xstack[XSTACK_SIZE - 1];
-    uint8_t channel = xstack[XSTACK_SIZE - 2];
-    uint8_t address = xstack[XSTACK_SIZE - 3];
-    int count = (int)((XSTACK_SIZE - xstack_ptr - 3) / 2);
-    bool aligned = (xstack_ptr & 1) != 0;
-    xstack_ptr = XSTACK_SIZE; /* args consumed; nothing below reads xstack_ptr */
-    if (!aligned || count < 1 || count > XSTACK_SIZE / 2 ||
-        device > 7 || channel > 15)
-        return api_return_errno(API_EINVAL);
-    /* VGA control channel ($F) is RIA-private while VGA is connected (always,
-     * in the emulator), so a write NAKs (mirrors ria/sys/pix.c). */
-    if (device == 1 && channel == 0xF)
-        return api_return_errno(API_EACCES);
-    /* A VGA channel-0 write from address 0 must send the canvas word (address 0)
-     * first so it can't clear later mode programming; the rest follow high
-     * address -> low, landing each register after the parameters it consumes
-     * (e.g. the term mode word at address 1). */
-    bool canvas_first = (device == 1 && channel == 0 && address == 0 && count > 1);
-    if (canvas_first && !xreg_write(device, channel, address, word_at(0)))
-        return api_return_errno(API_EINVAL);
-    for (int i = count - 1; i >= (canvas_first ? 1 : 0); i--)
-    {
-        /* PIX_DEVICE_RIA (device 0) holds the address constant (last-wins);
-         * only the VGA/non-RIA path walks address+i. */
-        uint8_t reg = device ? (uint8_t)(address + i) : address;
-        if (!xreg_write(device, channel, reg, word_at(i)))
-            return api_return_errno(API_EINVAL);
-    }
-    return api_return_ax(0);
-}
-
-/* ------------------------------------------------------------------ */
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
+
+/* PIX XREG register dispatch. Device 0 is the RIA-local virtual device (HID +
+ * audio); device 1 is the VGA. False on an unhandled channel/address. */
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
+{
+    if (channel == 0) /* human interface devices -> XRAM report blocks */
+    {
+        if (address == 0)
+            return kbd_set_xram(word);
+        if (address == 1)
+            return mou_set_xram(word);
+        if (address == 2)
+            return pad_set_xram(word);
+        if (address == 3)
+            return tab_set_xram(word);
+        return false;
+    }
+    if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
+    {
+        if (address == 0)
+            return psg_xreg(word);
+        if (address == 1)
+            return opl_xreg(word);
+        return false;
+    }
+    return false;
+}
+
+bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
+{
+    if (channel == 0)
+    {
+        static uint16_t xregs[16];
+        xregs[address & 0x0F] = word;
+        if (address == 0)
+        {
+            bool ok = vga_set_canvas(word);
+            memset(xregs, 0, sizeof(xregs)); /* fresh state per pix.c */
+            return ok;
+        }
+        if (address == 1)
+        {
+            /* Mode select (xregs[1]); params at addresses 2.. were stored first
+             * by the high->low dispatch. Mirrors vga main_prog, then clears the
+             * registers so the next program starts fresh. */
+            bool ok;
+            switch (word)
+            {
+            case 0:
+                ok = term_prog(xregs);
+                break;
+            case 1:
+                ok = mode1_prog(xregs);
+                break;
+            case 2:
+                ok = mode2_prog(xregs);
+                break;
+            case 3:
+                ok = mode3_prog(xregs);
+                break;
+            case 4:
+                ok = mode4_prog(xregs);
+                break;
+            case 5:
+                ok = mode5_prog(xregs);
+                break;
+            default:
+                ok = false; /* all VGA modes modeled */
+                break;
+            }
+            memset(xregs, 0, sizeof(xregs));
+            return ok;
+        }
+        return true; /* parameter register stored */
+    }
+    /* Channels 1-14 reach external bus devices with no ACK, so hardware returns
+     * success; the emulator has none, so it is a no-op success. Channel 15 is
+     * the RIA-private VGA control channel — NAK. */
+    return channel != 0x0F;
+}
 
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
  * slots can be swapped between the emu's host handlers and the REAL firmware
@@ -322,7 +364,7 @@ static bool std_xreg(void)
  * default to host below; main_dir_ops_set() swaps them. */
 typedef bool (*api_op_fn)(void);
 static api_op_fn api_ops[0x40] = {
-    [0x01] = std_xreg,
+    [0x01] = pix_api_xreg,
     [0x02] = atr_api_phi2,
     [0x03] = atr_api_code_page,
     [0x04] = atr_api_lrand,

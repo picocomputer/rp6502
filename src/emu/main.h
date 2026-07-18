@@ -36,4 +36,8 @@ void main_set_exit_code(int code);
  * RAM disk) or the emu's host handlers. */
 void main_dir_ops_set(bool fat);
 
+/* PIX XREG register dispatch: device 0 (RIA-local HID/audio), device 1 (VGA). */
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
+bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
+
 #endif /* _EMU_MAIN_H_ */
