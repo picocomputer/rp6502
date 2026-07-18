@@ -36,9 +36,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/tab.c
-    ${RP6502_SRC}/emu/api/hostfs.c
-    ${RP6502_SRC}/emu/api/tmpfs.c
     ${RP6502_SRC}/emu/host/msc.c
+    ${RP6502_SRC}/emu/host/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
     ${RP6502_SRC}/emu/mon/install.c
     ${RP6502_SRC}/emu/mon/rom.c
@@ -53,7 +52,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/xreg.c
     ${RP6502_SRC}/ria/api/api.c
     ${RP6502_SRC}/ria/api/atr.c
-    ${RP6502_SRC}/ria/api/dir.c
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/oem.c
     ${RP6502_SRC}/ria/api/std.c

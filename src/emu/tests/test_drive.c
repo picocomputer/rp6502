@@ -16,11 +16,10 @@
 #include "emu/api/std.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
-#include "emu/api/tmpfs.h"
+#include "emu/host/tmp.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -45,7 +44,7 @@ static bool fresh(void)
     std_stop();
     if (!fs_chdir(dir))
         return false;
-    /* g_dir mirrors hostfs's own fs_getcwd, so MSC0:<g_dir> holds on any host. */
+    /* g_dir mirrors msc's own fs_getcwd, so MSC0:<g_dir> holds on any host. */
     return fs_getcwd(g_dir, sizeof(g_dir));
 }
 
@@ -117,26 +116,26 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     ASSERT_TRUE(install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":");
-    hostfs_api_opendir();
+    msc_api_opendir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":"); /* not a cwd-able drive */
-    hostfs_api_chdrive();
+    msc_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    hostfs_api_unlink();
+    msc_api_unlink();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":sub");
-    hostfs_api_mkdir();
+    msc_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
     dsys_path("MSC0::adventure.rp6502");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
 }
 
@@ -147,7 +146,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
@@ -165,12 +164,12 @@ UTEST(drive, mount_transparent_no_chroot)
 
     /* chdir into a subdir; getcwd tracks the native cwd. */
     dsys_path("sub");
-    hostfs_api_mkdir();
+    msc_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("sub");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
     ASSERT_STREQ(cwd, expect);
@@ -178,29 +177,29 @@ UTEST(drive, mount_transparent_no_chroot)
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
      * old --drive-root chroot would have refused this with EACCES). */
     dsys_path("..");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
 
 /* --tmpdrive backs MSC0: with a fresh RAM FatFs: mount swaps the 6502 file
  * syscalls to the shared fat_std_* driver and the dir syscalls to the firmware's
- * dir_api_* (via the OP array), all over the RAM disk. We inspect the volume with
+ * fat_api_* (via the OP array), all over the RAM disk. We inspect the volume with
  * FatFs f_* directly and round-trip a file through the std_* file driver. */
 UTEST(drive, tmpdrive_is_fresh_ramfs)
 {
     std_stop();
-    ASSERT_TRUE(tmpfs_mount());
-    ASSERT_TRUE(tmpfs_active()); /* the 6502 syscalls now route to the RAM FatFs */
+    ASSERT_TRUE(tmp_mount());
+    ASSERT_TRUE(tmp_active()); /* the 6502 syscalls now route to the RAM FatFs */
 
     /* getcwd reports the FatFs volume root, not a host path. */
     char cwd[64];
@@ -227,7 +226,7 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     ssys_close(f);
 
     /* Deactivate the FatFs backend so later tests use the host filesystem. */
-    tmpfs_unmount();
+    tmp_unmount();
 }
 
 /* Data transfers are non-blocking: the driver returns STD_PENDING until the transfer

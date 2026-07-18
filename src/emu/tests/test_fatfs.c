@@ -12,7 +12,7 @@
 
 #include "api/oem.h"
 #include "str/str.h"
-#include "emu/api/tmpfs.h"
+#include "emu/host/tmp.h"
 #include "fatfs/ff.h"
 #include "utest.h"
 #include <stdbool.h>
@@ -24,7 +24,7 @@ static BYTE g_work[4096]; /* f_mkfs work area (>= FF_MAX_SS) */
 /* Wipe the RAM disk, format a fresh FAT volume, and mount it (default drive). */
 static bool mounted(void)
 {
-    tmpfs_disk_reset();
+    tmp_disk_reset();
     if (f_mkfs("", 0, g_work, sizeof(g_work)) != FR_OK)
         return false;
     return f_mount(&g_fs, "", 1) == FR_OK;

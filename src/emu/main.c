@@ -10,7 +10,7 @@
 #include "emu/api/clk.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/api/hostfs.h"
+#include "emu/host/msc.h"
 #include "emu/mon/rom.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
@@ -29,7 +29,7 @@
 #include "ria/api/api.h"
 #include "ria/api/atr.h"
 #include "ria/api/std.h"
-#include "ria/api/dir.h"
+#include "ria/api/fat.h"
 #include "ria/api/clk.h"
 #include "ria/api/oem.h"
 #include "ria/aud/aud.h"
@@ -96,7 +96,7 @@ void main_run(void)
     pro_run();
     com_run();
     rln_run();
-    dir_run();
+    fat_run();
     api_run();
     clk_run();
     ria_run();
@@ -114,8 +114,8 @@ void main_stop(void)
     rln_stop();
     api_stop(); /* drop any latched op from the outgoing program */
     std_stop();
-    dir_stop();
-    hostfs_stop();
+    fat_stop();
+    msc_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -318,7 +318,7 @@ static bool std_xreg(void)
 
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
  * slots can be swapped between the emu's host handlers and the REAL firmware
- * dir_api_* (ria/api/dir.c) when --tmpdrive mounts a RAM FatFs. The dir slots
+ * fat_api_* (ria/api/fat.c) when --tmpdrive mounts a RAM FatFs. The dir slots
  * default to host below; main_dir_ops_set() swaps them. */
 typedef bool (*api_op_fn)(void);
 static api_op_fn api_ops[0x40] = {
@@ -338,26 +338,26 @@ static api_op_fn api_ops[0x40] = {
     [0x18] = std_api_write_xstack,
     [0x19] = std_api_write_xram,
     [0x1A] = std_api_lseek_cc65,
-    [0x1B] = hostfs_api_unlink,
-    [0x1C] = hostfs_api_rename,
+    [0x1B] = msc_api_unlink,
+    [0x1C] = msc_api_rename,
     [0x1D] = std_api_lseek_llvm,
     [0x1E] = std_api_syncfs,
-    [0x1F] = hostfs_api_stat,
-    [0x20] = hostfs_api_opendir,
-    [0x21] = hostfs_api_readdir,
-    [0x22] = hostfs_api_closedir,
-    [0x23] = hostfs_api_telldir,
-    [0x24] = hostfs_api_seekdir,
-    [0x25] = hostfs_api_rewinddir,
-    [0x26] = hostfs_api_chmod,
-    [0x27] = hostfs_api_utime,
-    [0x28] = hostfs_api_mkdir,
-    [0x29] = hostfs_api_chdir,
-    [0x2A] = hostfs_api_chdrive,
-    [0x2B] = hostfs_api_getcwd,
-    [0x2C] = hostfs_api_setlabel,
-    [0x2D] = hostfs_api_getlabel,
-    [0x2E] = hostfs_api_getfree,
+    [0x1F] = msc_api_stat,
+    [0x20] = msc_api_opendir,
+    [0x21] = msc_api_readdir,
+    [0x22] = msc_api_closedir,
+    [0x23] = msc_api_telldir,
+    [0x24] = msc_api_seekdir,
+    [0x25] = msc_api_rewinddir,
+    [0x26] = msc_api_chmod,
+    [0x27] = msc_api_utime,
+    [0x28] = msc_api_mkdir,
+    [0x29] = msc_api_chdir,
+    [0x2A] = msc_api_chdrive,
+    [0x2B] = msc_api_getcwd,
+    [0x2C] = msc_api_setlabel,
+    [0x2D] = msc_api_getlabel,
+    [0x2E] = msc_api_getfree,
     [0x30] = rln_api_lastkey,
     [0x31] = rln_api_peek,
     [0x32] = rln_api_poke,
@@ -369,7 +369,7 @@ static api_op_fn api_ops[0x40] = {
     [0x3F] = clk_api_time_get,
 };
 
-/* Swap the dir op slots: the firmware's own dir_api_* (over the RAM FatFs) when
+/* Swap the dir op slots: the firmware's own fat_api_* (over the RAM FatFs) when
  * fat, else the emu's host handlers. */
 void main_dir_ops_set(bool fat)
 {
@@ -378,24 +378,24 @@ void main_dir_ops_set(bool fat)
         uint8_t op;
         api_op_fn host, fat;
     } slots[] = {
-        {0x1B, hostfs_api_unlink, dir_api_unlink},
-        {0x1C, hostfs_api_rename, dir_api_rename},
-        {0x1F, hostfs_api_stat, dir_api_stat},
-        {0x20, hostfs_api_opendir, dir_api_opendir},
-        {0x21, hostfs_api_readdir, dir_api_readdir},
-        {0x22, hostfs_api_closedir, dir_api_closedir},
-        {0x23, hostfs_api_telldir, dir_api_telldir},
-        {0x24, hostfs_api_seekdir, dir_api_seekdir},
-        {0x25, hostfs_api_rewinddir, dir_api_rewinddir},
-        {0x26, hostfs_api_chmod, dir_api_chmod},
-        {0x27, hostfs_api_utime, dir_api_utime},
-        {0x28, hostfs_api_mkdir, dir_api_mkdir},
-        {0x29, hostfs_api_chdir, dir_api_chdir},
-        {0x2A, hostfs_api_chdrive, dir_api_chdrive},
-        {0x2B, hostfs_api_getcwd, dir_api_getcwd},
-        {0x2C, hostfs_api_setlabel, dir_api_setlabel},
-        {0x2D, hostfs_api_getlabel, dir_api_getlabel},
-        {0x2E, hostfs_api_getfree, dir_api_getfree},
+        {0x1B, msc_api_unlink, fat_api_unlink},
+        {0x1C, msc_api_rename, fat_api_rename},
+        {0x1F, msc_api_stat, fat_api_stat},
+        {0x20, msc_api_opendir, fat_api_opendir},
+        {0x21, msc_api_readdir, fat_api_readdir},
+        {0x22, msc_api_closedir, fat_api_closedir},
+        {0x23, msc_api_telldir, fat_api_telldir},
+        {0x24, msc_api_seekdir, fat_api_seekdir},
+        {0x25, msc_api_rewinddir, fat_api_rewinddir},
+        {0x26, msc_api_chmod, fat_api_chmod},
+        {0x27, msc_api_utime, fat_api_utime},
+        {0x28, msc_api_mkdir, fat_api_mkdir},
+        {0x29, msc_api_chdir, fat_api_chdir},
+        {0x2A, msc_api_chdrive, fat_api_chdrive},
+        {0x2B, msc_api_getcwd, fat_api_getcwd},
+        {0x2C, msc_api_setlabel, fat_api_setlabel},
+        {0x2D, msc_api_getlabel, fat_api_getlabel},
+        {0x2E, msc_api_getfree, fat_api_getfree},
     };
     for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++)
         api_ops[slots[i].op] = fat ? slots[i].fat : slots[i].host;

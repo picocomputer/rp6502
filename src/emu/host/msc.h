@@ -39,6 +39,29 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 std_rw_result msc_std_sync(int desc, api_errno *err);
 int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
 
+/* The native host MSC0: file/directory management syscall handlers, installed in
+ * the OP array (the counterparts to the firmware's fat_api_*). */
+bool msc_api_stat(void);
+bool msc_api_opendir(void);
+bool msc_api_readdir(void);
+bool msc_api_closedir(void);
+bool msc_api_telldir(void);
+bool msc_api_seekdir(void);
+bool msc_api_rewinddir(void);
+bool msc_api_unlink(void);
+bool msc_api_rename(void);
+bool msc_api_chmod(void);
+bool msc_api_utime(void);
+bool msc_api_mkdir(void);
+bool msc_api_chdir(void);
+bool msc_api_chdrive(void);
+bool msc_api_getcwd(void);
+bool msc_api_setlabel(void);
+bool msc_api_getlabel(void);
+bool msc_api_getfree(void);
+
+void msc_stop(void); /* close open host directories (machine reset) */
+
 #ifdef __cplusplus
 }
 #endif

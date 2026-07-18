@@ -8,7 +8,7 @@
 #include "emu/api/std.h"
 #include "emu/host/msc.h"
 #include "emu/mon/rom.h"
-#include "emu/api/tmpfs.h"
+#include "emu/host/tmp.h"
 #include "api/fat.h"
 
 /* The RAM FatFs (the shared fat_std_* driver) claims MSC0: only while
@@ -16,7 +16,7 @@
 static bool fat_handles(const char *path)
 {
     (void)path;
-    return tmpfs_active();
+    return tmp_active();
 }
 
 const std_driver_t std_drivers[] = {

@@ -7,7 +7,7 @@
  * filesystem (no chroot — MSC0:/ is the OS root, a relative path resolves the
  * process cwd, ".." walks freely), plus the read-only ROM: drive. Both the file
  * and dir/metadata ops are driven as the 6502 does — stage the xstack, call the
- * std_api_* / hostfs_api_* handler, read AX and any pushed result (stdsys.h,
+ * std_api_* / msc_api_* handler, read AX and any pushed result (stdsys.h,
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
@@ -15,7 +15,6 @@
 #include "str/str.h"
 #include "emu/api/std.h"
 #include "emu/mon/rom.h"
-#include "emu/api/hostfs.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "dirsys.h"
@@ -42,7 +41,7 @@ static bool fresh_cwd(void)
     std_stop(); /* close any files a prior test left open */
     if (!fs_chdir(dir))
         return false;
-    /* g_dir is the emulator's own view of the cwd (same fs_getcwd hostfs uses),
+    /* g_dir is the emulator's own view of the cwd (same fs_getcwd msc uses),
      * so the MSC0:<g_dir> comparisons below hold whatever the host's path
      * spelling — notably '/'-normalized on Windows. */
     return fs_getcwd(g_dir, sizeof(g_dir));
@@ -86,7 +85,7 @@ UTEST(fs, msc0_write_read_seek)
     ssys_close(f);
 
     dsys_path("hello.txt");
-    hostfs_api_unlink();
+    msc_api_unlink();
     ASSERT_EQ(dsys_ax(), 0);
     ASSERT_FALSE(host_exists("hello.txt"));
 }
@@ -96,18 +95,18 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_TRUE(fresh_cwd());
 
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
     dsys_path("saves");
-    hostfs_api_mkdir();
+    msc_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("saves");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/saves", g_dir);
     ASSERT_STREQ(cwd, expect);
@@ -119,7 +118,7 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_TRUE(host_exists("saves/game.sav"));
 
     dsys_path("nope");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), -1); /* missing dir fails */
 }
 
@@ -130,31 +129,31 @@ UTEST(fs, no_chroot_clamp)
     ASSERT_TRUE(fresh_cwd());
 
     dsys_path("sub");
-    hostfs_api_mkdir();
+    msc_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("sub");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir ... */
     dsys_path("..");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
     ASSERT_STREQ(cwd, expect);
 
     /* ... and again climbs ABOVE it — no clamp; the cwd walks the real tree. */
     dsys_path("..");
-    hostfs_api_chdir();
+    msc_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    hostfs_api_getcwd();
+    msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect);
 }
@@ -182,13 +181,13 @@ UTEST(fs, chdrive_stays_on_msc0)
 {
     ASSERT_TRUE(fresh_cwd());
     dsys_path("MSC0:");
-    hostfs_api_chdrive();
+    msc_api_chdrive();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("MSC0");
-    hostfs_api_chdrive();
+    msc_api_chdrive();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("Z:");
-    hostfs_api_chdrive();
+    msc_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1); /* another drive is not a thing */
 }
 
@@ -214,13 +213,13 @@ UTEST(fs, dir_enumeration)
     make_file("alpha.txt", "hello", 5);
     make_file("beta.dat", "wider content here", 18);
     dsys_path("subdir");
-    hostfs_api_mkdir();
+    msc_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
 
     /* stat reports size + synthesized FAT attributes. */
     FILINFO info;
     dsys_path("alpha.txt");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_filinfo(&info);
     ASSERT_EQ(info.fsize, 5u);
@@ -228,19 +227,19 @@ UTEST(fs, dir_enumeration)
     ASSERT_FALSE(info.fattrib & AM_DIR);
     ASSERT_STREQ(info.fname, "alpha.txt");
     dsys_path("subdir");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_filinfo(&info);
     ASSERT_TRUE(info.fattrib & AM_DIR);
 
     dsys_path("nope.txt");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), -1); /* ENOENT surfaces */
 
     /* opendir/readdir lists exactly the three entries; "." and ".." are
      * skipped like FatFs; entry order is filesystem-defined, so match by name. */
     dsys_path("");
-    hostfs_api_opendir();
+    msc_api_opendir();
     int des = dsys_ax();
     ASSERT_TRUE(des >= 0);
     bool saw_alpha = false, saw_beta = false, saw_sub = false;
@@ -248,7 +247,7 @@ UTEST(fs, dir_enumeration)
     for (;;)
     {
         dsys_des(des);
-        hostfs_api_readdir();
+        msc_api_readdir();
         ASSERT_EQ(dsys_ax(), 0);
         dsys_filinfo(&info);
         if (!info.fname[0])
@@ -278,33 +277,33 @@ UTEST(fs, dir_enumeration)
 
     /* telldir tracks the entry index; rewinddir restarts it. */
     dsys_des(des);
-    hostfs_api_telldir();
+    msc_api_telldir();
     ASSERT_EQ(dsys_axsreg(), 3);
     dsys_des(des);
-    hostfs_api_rewinddir();
+    msc_api_rewinddir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_des(des);
-    hostfs_api_telldir();
+    msc_api_telldir();
     ASSERT_EQ(dsys_axsreg(), 0);
     dsys_des(des);
-    hostfs_api_readdir();
+    msc_api_readdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_filinfo(&info);
     ASSERT_TRUE(info.fname[0]); /* an entry again after rewind */
 
     dsys_des(des);
-    hostfs_api_closedir();
+    msc_api_closedir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_des(des);
-    hostfs_api_readdir();
+    msc_api_readdir();
     ASSERT_EQ(dsys_ax(), -1); /* closed handle -> EBADF */
     dsys_des(99);
-    hostfs_api_readdir();
+    msc_api_readdir();
     ASSERT_EQ(dsys_ax(), -1); /* out-of-range -> EINVAL */
 
     /* getfree reports real host free/total space (in 512-byte sectors). */
     dsys_path("");
-    hostfs_api_getfree();
+    msc_api_getfree();
     ASSERT_EQ(dsys_ax(), 0);
     uint32_t freeb = 0, totalb = 0;
     dsys_getfree(&freeb, &totalb);
@@ -313,32 +312,32 @@ UTEST(fs, dir_enumeration)
 
     /* no host volume label: an empty string (length 1 = just the terminator). */
     dsys_path("");
-    hostfs_api_getlabel();
+    msc_api_getlabel();
     ASSERT_EQ(dsys_ax(), 1);
 
     /* chmod toggles the read-only bit (the one FAT attribute with a host
      * equivalent), visible back through stat. */
     dsys_chmod(AM_RDO, AM_RDO, "alpha.txt");
-    hostfs_api_chmod();
+    msc_api_chmod();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("alpha.txt");
-    hostfs_api_stat();
+    msc_api_stat();
     dsys_filinfo(&info);
     ASSERT_TRUE(info.fattrib & AM_RDO);
     dsys_chmod(AM_RDO, 0, "alpha.txt");
-    hostfs_api_chmod();
+    msc_api_chmod();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("alpha.txt");
-    hostfs_api_stat();
+    msc_api_stat();
     dsys_filinfo(&info);
     ASSERT_FALSE(info.fattrib & AM_RDO);
 
     /* utime sets the modification date (FAT-packed: 1990-03-15). */
     dsys_utime((8 << 11), (10 << 9) | (3 << 5) | 15, "beta.dat");
-    hostfs_api_utime();
+    msc_api_utime();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("beta.dat");
-    hostfs_api_stat();
+    msc_api_stat();
     dsys_filinfo(&info);
     ASSERT_EQ((unsigned)((info.fdate >> 9) & 0x7F), 10u); /* 1980 + 10 = 1990 */
     ASSERT_EQ((unsigned)((info.fdate >> 5) & 0x0F), 3u);  /* March */
@@ -417,14 +416,14 @@ UTEST(fs, oem_names_roundtrip)
 
     FILINFO info;
     dsys_path("");
-    hostfs_api_opendir();
+    msc_api_opendir();
     int des = dsys_ax();
     ASSERT_TRUE(des >= 0);
     bool saw = false;
     for (;;)
     {
         dsys_des(des);
-        hostfs_api_readdir();
+        msc_api_readdir();
         ASSERT_EQ(dsys_ax(), 0);
         dsys_filinfo(&info);
         if (!info.fname[0])
@@ -433,20 +432,20 @@ UTEST(fs, oem_names_roundtrip)
             saw = true;
     }
     dsys_des(des);
-    hostfs_api_closedir();
+    msc_api_closedir();
     ASSERT_TRUE(saw); /* readdir returns the same OEM bytes */
 
     dsys_path("nap\x82.txt");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_filinfo(&info);
     ASSERT_STREQ(info.fname, "nap\x82.txt");
 
     dsys_path("nap\x82.txt");
-    hostfs_api_unlink();
+    msc_api_unlink();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("nap\x82.txt");
-    hostfs_api_stat();
+    msc_api_stat();
     ASSERT_EQ(dsys_ax(), -1); /* gone */
 }
 

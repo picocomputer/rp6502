@@ -14,7 +14,7 @@
  */
 
 #include "emu/sys/com.h"
-#include "emu/api/hostfs.h"
+#include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/cpu.h"
 #include "emu_boot.h"

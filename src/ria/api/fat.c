@@ -3,16 +3,20 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The FatFs stdio file driver (extracted from usb/msc.c): open/close/read/write/
- * lseek/sync over a small FIL pool. FatFs-only — the block device (diskio) is
- * provided by the platform, so the desktop emulator reuses this over a RAM disk.
+ * The FatFs filesystem module: the stdio file driver (open/close/read/write/lseek/
+ * sync over a FIL pool, extracted from usb/msc.c) and the file/directory management
+ * API (the 0x1B..0x2E syscalls, over a DIR pool). FatFs-only — the block device
+ * (diskio) is provided by the platform, so the desktop emulator reuses this over a
+ * RAM disk.
  */
 
+#include "api/api.h"
 #include "api/fat.h"
 #include "fatfs/ff.h"
 #include <assert.h>
 #include <pico.h>
 #include <stdio.h>
+#include <string.h>
 
 // File descriptor pool for open files
 #define FAT_STD_FIL_MAX 8
@@ -275,4 +279,354 @@ std_rw_result fat_std_sync(int desc, api_errno *err)
         return STD_ERROR;
     }
     return STD_OK;
+}
+
+/* ---- File and directory management (the 0x1B..0x2E syscalls) -------------- */
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_FAT)
+#define DBG(...) printf(__VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+// Validate essential settings in ffconf.h
+static_assert(FF_LFN_BUF == 255);
+static_assert(FF_SFN_BUF == 12);
+static_assert(FF_USE_CHMOD == 1);
+static_assert(FF_FS_CRTIME == 1);
+static_assert(FF_USE_LABEL == 1);
+static_assert(FF_LFN_UNICODE == 0);
+
+#define DIR_MAX_OPEN 8
+static DIR dirs[DIR_MAX_OPEN];
+static int32_t tells[DIR_MAX_OPEN];
+
+// Failure returns -1 and sets errno from FatFS FRESULT
+static inline bool api_return_fresult(unsigned fresult)
+{
+    return api_return_errno(fat_fresult_to_api_errno(fresult));
+}
+
+void fat_run(void)
+{
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+        dirs[i].obj.fs = 0;
+}
+
+void fat_stop(void)
+{
+    for (int i = 0; i < DIR_MAX_OPEN; i++)
+    {
+        f_closedir(&dirs[i]);
+        dirs[i].obj.fs = 0;
+    }
+}
+
+static bool dir_push_filinfo(FILINFO *fno)
+{
+    // Push fields in reverse so they land in forward
+    // order in the 6502-visible struct.
+    bool ok = true;
+    for (int i = FF_LFN_BUF; i >= 0; i--)
+        ok &= api_push_char(&fno->fname[i]);
+    for (int i = FF_SFN_BUF; i >= 0; i--)
+        ok &= api_push_char(&fno->altname[i]);
+    ok &= api_push_uint8(&fno->fattrib);
+    ok &= api_push_uint16(&fno->crtime);
+    ok &= api_push_uint16(&fno->crdate);
+    ok &= api_push_uint16(&fno->ftime);
+    ok &= api_push_uint16(&fno->fdate);
+    uint32_t fsize = fno->fsize;
+    if (fno->fsize > 0xFFFFFFFF)
+        fsize = 0xFFFFFFFF;
+    ok &= api_push_uint32(&fsize);
+    return ok;
+}
+
+// int f_stat (const char *path, struct f_stat *dirent);
+bool fat_api_stat(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FILINFO fno;
+    FRESULT fresult = f_stat(path, &fno);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    if (!dir_push_filinfo(&fno))
+        return api_return_errno(API_ENOMEM);
+    return api_return_ax(0);
+}
+
+// int f_opendir (const char* name);
+bool fat_api_opendir(void)
+{
+    DIR *dir = 0;
+    unsigned des = 0;
+    for (; des < DIR_MAX_OPEN; des++)
+        if (dirs[des].obj.fs == 0)
+        {
+            dir = &dirs[des];
+            break;
+        }
+    if (!dir)
+        return api_return_errno(API_EMFILE);
+    tells[des] = 0;
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_opendir(dir, path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(des);
+}
+
+// int f_readdir (struct f_stat dirent*, int dirdes);
+bool fat_api_readdir(void)
+{
+    unsigned des = API_A;
+    if (des >= DIR_MAX_OPEN)
+        return api_return_errno(API_EINVAL);
+    DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
+    FILINFO fno;
+    FRESULT fresult = f_readdir(dir, &fno);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    if (fno.fname[0])
+        tells[des]++;
+    if (!dir_push_filinfo(&fno))
+        return api_return_errno(API_ENOMEM);
+    return api_return_ax(0);
+}
+
+// int f_closedir (int dirdes);
+bool fat_api_closedir(void)
+{
+    unsigned des = API_A;
+    if (des >= DIR_MAX_OPEN)
+        return api_return_errno(API_EINVAL);
+    DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
+    FRESULT fresult = f_closedir(dir);
+    dir->obj.fs = 0;
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// long f_telldir (int dirdes);
+bool fat_api_telldir(void)
+{
+    unsigned des = API_A;
+    if (des >= DIR_MAX_OPEN)
+        return api_return_errno(API_EINVAL);
+    DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
+    return api_return_axsreg(tells[des]);
+}
+
+// int f_seekdir (long offs, int dirdes);
+bool fat_api_seekdir(void)
+{
+    unsigned des = API_A;
+    if (des >= DIR_MAX_OPEN)
+        return api_return_errno(API_EINVAL);
+    DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
+    int32_t offs;
+    if (!api_pop_int32_end(&offs))
+        return api_return_errno(API_EINVAL);
+    if (offs < 0)
+        return api_return_errno(API_EINVAL);
+    if (tells[des] > offs)
+    {
+        FRESULT fresult = f_rewinddir(dir);
+        if (fresult != FR_OK)
+            return api_return_fresult(fresult);
+        tells[des] = 0;
+    }
+    while (tells[des] < offs)
+    {
+        FILINFO fno;
+        FRESULT fresult = f_readdir(dir, &fno);
+        if (fresult != FR_OK)
+            return api_return_fresult(fresult);
+        tells[des]++;
+        if (!fno.fname[0])
+            return api_return_fresult(FR_INVALID_OBJECT);
+    }
+    return api_return_ax(0);
+}
+
+// int f_rewinddir (int dirdes);
+bool fat_api_rewinddir(void)
+{
+    unsigned des = API_A;
+    if (des >= DIR_MAX_OPEN)
+        return api_return_errno(API_EINVAL);
+    DIR *dir = &dirs[des];
+    if (dir->obj.fs == 0)
+        return api_return_errno(API_EBADF);
+    FRESULT fresult = f_rewinddir(dir);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    tells[des] = 0;
+    return api_return_ax(0);
+}
+
+// int unlink(const char* name)
+bool fat_api_unlink(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_unlink(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int rename(const char* oldname, const char* newname)
+bool fat_api_rename(void)
+{
+    uint8_t *oldname, *newname;
+    oldname = newname = &xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    while (*oldname)
+        oldname++;
+    if (oldname == &xstack[XSTACK_SIZE])
+        return api_return_errno(API_EINVAL);
+    oldname++;
+    FRESULT fresult = f_rename((TCHAR *)oldname, (TCHAR *)newname);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_chmod (const char *path, unsigned char attr,  unsigned char mask);
+bool fat_api_chmod(void)
+{
+    uint8_t mask = API_A;
+    uint8_t attr;
+    if (!api_pop_uint8(&attr))
+        return api_return_errno(API_EINVAL);
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_chmod(path, attr, mask);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_utime (const char *path, unsigned fdate, unsigned ftime, unsigned crdate, unsigned crtime);
+bool fat_api_utime(void)
+{
+    FILINFO fno;
+    fno.crtime = API_AX;
+    if (!api_pop_uint16(&fno.crdate) ||
+        !api_pop_uint16(&fno.ftime) ||
+        !api_pop_uint16(&fno.fdate))
+        return api_return_errno(API_EINVAL);
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_utime(path, &fno);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_mkdir(const char* name)
+bool fat_api_mkdir(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_mkdir(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int chdir(const char* name)
+bool fat_api_chdir(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_chdir(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_chdrive(const char* name)
+bool fat_api_chdrive(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_chdrive(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_getcwd(char* name, int size)
+bool fat_api_getcwd(void)
+{
+    FRESULT fresult = f_getcwd((TCHAR *)xstack, XSTACK_SIZE);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    uint16_t result_len = strlen((char *)xstack);
+    xstack_ptr = XSTACK_SIZE;
+    for (uint16_t i = result_len; i;)
+        xstack[--xstack_ptr] = xstack[--i];
+    return api_return_ax(result_len + 1);
+}
+
+// int f_setlabel(const char* name)
+bool fat_api_setlabel(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_setlabel(path);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    return api_return_ax(0);
+}
+
+// int f_getlabel(const char* path, char* label, unsigned long* vsn)
+bool fat_api_getlabel(void)
+{
+    char label[12];
+    DWORD vsn;
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    FRESULT fresult = f_getlabel(path, label, &vsn);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    size_t label_len, ret_len;
+    label_len = ret_len = strlen(label);
+    while (label_len)
+        if (!api_push_char(&label[--label_len]))
+            return api_return_errno(API_ENOMEM);
+    return api_return_ax(ret_len + 1);
+}
+
+// int f_getfree(const char* name, unsigned long* free, unsigned long* total)
+bool fat_api_getfree(void)
+{
+    TCHAR *path = (TCHAR *)&xstack[xstack_ptr];
+    xstack_ptr = XSTACK_SIZE;
+    DWORD fre_clust;
+    FATFS *fs;
+    FRESULT fresult = f_getfree(path, &fre_clust, &fs);
+    if (fresult != FR_OK)
+        return api_return_fresult(fresult);
+    uint64_t tot = (uint64_t)(fs->n_fatent - 2) * fs->csize;
+    uint64_t fre = (uint64_t)fre_clust * fs->csize;
+    uint32_t tot_sect = tot > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)tot;
+    uint32_t fre_sect = fre > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fre;
+    if (!api_push_uint32(&tot_sect) || !api_push_uint32(&fre_sect))
+        return api_return_errno(API_ENOMEM);
+    return api_return_ax(0);
 }

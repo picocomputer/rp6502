@@ -6,7 +6,7 @@
  * Paths cross the seam in the guest's OEM code page. Convert to the host's
  * UTF-8 with oem_to_utf8() (api/oem.h) before every libc call, and returned
  * names/paths back with oem_from_utf8(). Fallible calls set errno and return
- * false so the msc_errno_to_api_errno funnel in api/hostfs.c works unchanged.
+ * false so the msc_errno_to_api_errno funnel in host/msc.c works unchanged.
  */
 
 #include "emu/plat.h"

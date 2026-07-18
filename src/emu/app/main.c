@@ -16,7 +16,7 @@
 #include "emu/app/rand.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
-#include "emu/api/tmpfs.h"
+#include "emu/host/tmp.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
@@ -115,7 +115,7 @@ int main(int argc, char **argv)
     /* MSC0: is the native host filesystem — whatever the process cwd is.
      * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
      * (isolation). */
-    if (o.tmpdrive && !tmpfs_mount())
+    if (o.tmpdrive && !tmp_mount())
     {
         fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;

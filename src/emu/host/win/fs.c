@@ -9,7 +9,7 @@
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
  * oem_to_wide() (api/oem.h) before every …W call, and returned names/paths back
  * with oem_from_wide(). Fallible calls set errno and return false so the
- * msc_errno_to_api_errno funnel in api/hostfs.c works unchanged.
+ * msc_errno_to_api_errno funnel in host/msc.c works unchanged.
  *
  * Semantic decisions vs. POSIX (do NOT silently diverge):
  *   - is_hidden reads FILE_ATTRIBUTE_HIDDEN, not a leading-dot name.
