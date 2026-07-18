@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "sys/mem.h"
-#include "sys/com.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/com.h"
 #include <pico.h>
 #include <pico/time.h>
 #include <assert.h>

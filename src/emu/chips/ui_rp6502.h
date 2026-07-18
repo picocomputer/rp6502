@@ -148,6 +148,11 @@ void ui_rp6502_draw(ui_rp6502_t *win)
                               ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
                                   ImGuiTableFlags_SizingFixedFit))
         {
+            /* The RIA register file is regs[] (no longer aliased into ram[]); the
+             * vectors above the window ($FFFA-$FFFF) are real RAM. */
+            auto peek = [](uint16_t a) -> uint8_t {
+                return (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI) ? regs[a & 0x1F] : ram[a];
+            };
             for (auto &r : _ui_rp6502_regs)
             {
                 ImGui::TableNextRow();
@@ -157,11 +162,11 @@ void ui_rp6502_draw(ui_rp6502_t *win)
                 ImGui::TextUnformatted(r.name);
                 ImGui::TableNextColumn();
                 if (r.width == 2)
-                    ImGui::Text("$%04X", (unsigned)(ram[r.addr] |
-                                                    (ram[(uint16_t)(r.addr + 1)] << 8)));
+                    ImGui::Text("$%04X", (unsigned)(peek(r.addr) |
+                                                    (peek((uint16_t)(r.addr + 1)) << 8)));
                 else
                 {
-                    uint8_t v = ram[r.addr];
+                    uint8_t v = peek(r.addr);
                     ImGui::Text("$%02X", v);
                     char buf[24] = "";
                     if (r.addr == 0xFFE0)
