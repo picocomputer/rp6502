@@ -44,7 +44,7 @@ extern size_t xstack_ptr;
  * page matches xram_queue_page records (low byte, value) here; the active
  * audio device's sample handler drains it to spot register changes (PSG gate
  * edges / OPL register writes). The vendored psg.c/opl.c reach these through
- * the sys/mem.h shim. */
+ * the firmware path "sys/mem.h", which resolves here. */
 extern volatile uint8_t xram_queue_page;
 extern volatile uint8_t xram_queue_head;
 extern volatile uint8_t xram_queue_tail;

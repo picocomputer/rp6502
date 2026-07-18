@@ -23,7 +23,7 @@ void main_run_frame_norender(void); /* same, but skip pixel rendering (catch-up)
 unsigned long main_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */
 
 /* The virtual master clock in 1/8-of-a-256 MHz-tick units (2048/µs); the run loop
- * advances it, and shim/pico/time.h's time_us_64 exposes it as the pico monotonic
+ * advances it, and pico/time.h's time_us_64 exposes it as the pico monotonic
  * microsecond clock. */
 uint64_t main_clock_8(void);
 

@@ -69,7 +69,7 @@ bool ria_irq_asserted(void);
 void ria_task(void);
 
 /* RIA-side firmware ABI reached by the vendored rln.c/atr.c through the firmware
- * path "sys/ria.h" (the shim there forwards to this header); ria.c implements
+ * path "sys/ria.h" (emu/sys/ria.h forwards to this header); ria.c implements
  * them. ria_active is always false in the emulator (no mbuf transfers). */
 bool ria_active(void);         /* true while mid mbuf transfer; never here */
 void ria_trigger_sigint(void); /* latch a Ctrl-C SIGINT (raises $FFF0 if enabled) */

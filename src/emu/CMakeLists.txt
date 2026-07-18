@@ -39,7 +39,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/host/rom.c
     ${RP6502_SRC}/emu/host/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
-    ${RP6502_SRC}/emu/shim/pico/stdio.c
+    ${RP6502_SRC}/emu/pico/stdio.c
     ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
@@ -165,7 +165,7 @@ endif()
 
 # Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
-    ${RP6502_SRC}/emu/shim
+    ${RP6502_SRC}/emu
     ${RP6502_SRC}/ria
     ${RP6502_SRC}/vga
     ${RP6502_VENDOR}/fatfs

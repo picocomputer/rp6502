@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ria/hid/kbd.h"
+
 /* Non-character keys, mapped to the same xterm/VT byte sequences the firmware
  * USB HID driver emits (ria/hid/kbd.c). Printable keys arrive as UTF-8 text via
  * kbd_text() instead. */

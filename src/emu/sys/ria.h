@@ -9,9 +9,9 @@
  * so the vendored code compiles unchanged.
  */
 
-#ifndef _EMU_SHIM_SYS_RIA_H_
-#define _EMU_SHIM_SYS_RIA_H_
+#ifndef _EMU_SYS_RIA_H_
+#define _EMU_SYS_RIA_H_
 
 #include "emu/chips/rp6502.h"
 
-#endif /* _EMU_SHIM_SYS_RIA_H_ */
+#endif /* _EMU_SYS_RIA_H_ */

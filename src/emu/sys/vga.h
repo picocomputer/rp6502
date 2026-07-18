@@ -51,9 +51,9 @@ void vga_set_framebuffer(uint32_t *fb);
 
 /* ------------------------------------------------------------------ */
 /* Firmware VGA ABI reached by the vendored term.c / rln.c / the mode  */
-/* renderers through the firmware path "sys/vga.h" (the shim there      */
-/* forwards to this header). vga.c implements them; the emulator        */
-/* collapses the dual-core PIO scanout into a single in-process render. */
+/* renderers through the firmware path "sys/vga.h", which the emu       */
+/* include path resolves here directly. vga.c implements them; the      */
+/* emulator collapses the PIO scanout into a single in-process render.  */
 /* ------------------------------------------------------------------ */
 
 int16_t vga_canvas_height(void);
