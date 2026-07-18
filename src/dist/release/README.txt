@@ -1,7 +1,7 @@
 Picocomputer 6502
 =================
 
-Always begin here at the documentation:
+Always begin at the documentation:
 https://picocomputer.github.io/
 
 

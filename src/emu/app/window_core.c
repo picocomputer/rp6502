@@ -18,6 +18,8 @@
 #include "sokol_log.h"
 #include "util/sokol_framebuffer.h"
 #include "util/sokol_letterbox.h"
+#include "util/sokol_debugtext.h"
+#include "util/sokol_gl.h"
 #ifdef EMU_WITH_AUDIO
 #include "sokol_audio.h"
 #include "emu/app/audio_out.h"
@@ -440,7 +442,9 @@ void window_core_frame(void)
     if (sapp_mouse_locked() && (!mou_is_mapped() || tab_is_mapped()))
         sapp_lock_mouse(false);
     update_title();
-    if (cpu_halted() && app.exit_on_halt)
+    /* A host overlay (the Android ROM menu, the desktop no-ROM prompt) holds the
+     * CPU with no program yet, so a halt there isn't a program exit — don't quit. */
+    if (cpu_halted() && app.exit_on_halt && !host_window_menu_active())
         sapp_request_quit();
 
     /* EMU_BENCH_MS=N: run N ms then report the achieved VGA-frame rate (should
@@ -622,6 +626,189 @@ bool window_core_boot_rom(const char *path)
     pro_set_launcher(false);    /* a drop breaks any launcher chain */
     main_run();
     return true;
+}
+
+/* One convex filled rounded rect as a center-fan of triangles (sokol_gl, in the
+ * current pass, window-pixel coords per the ortho set in window_core_draw_prompt). */
+static void prompt_round_rect(float x, float y, float w, float h, float rad,
+                              uint8_t r, uint8_t g, uint8_t b)
+{
+    if (rad < 0.0f)
+        rad = 0.0f;
+    if (rad > w * 0.5f)
+        rad = w * 0.5f;
+    if (rad > h * 0.5f)
+        rad = h * 0.5f;
+    const float pi = 3.14159265f;
+    const int seg = 6; /* points per corner arc */
+    const float ccx[4] = {x + rad, x + w - rad, x + w - rad, x + rad};
+    const float ccy[4] = {y + rad, y + rad, y + h - rad, y + h - rad};
+    const float a0[4] = {pi, 1.5f * pi, 2.0f * pi, 2.5f * pi};
+    float vx[4 * (seg + 1)], vy[4 * (seg + 1)];
+    int n = 0;
+    for (int c = 0; c < 4; c++)
+        for (int s = 0; s <= seg; s++)
+        {
+            float a = a0[c] + 0.5f * pi * (float)s / (float)seg;
+            vx[n] = ccx[c] + rad * cosf(a);
+            vy[n] = ccy[c] + rad * sinf(a);
+            n++;
+        }
+    float mx = x + w * 0.5f, my = y + h * 0.5f;
+    sgl_begin_triangles();
+    sgl_c3b(r, g, b);
+    for (int i = 0; i < n; i++)
+    {
+        int j = (i + 1) % n;
+        sgl_v2f(mx, my);
+        sgl_v2f(vx[i], vy[i]);
+        sgl_v2f(vx[j], vy[j]);
+    }
+    sgl_end();
+}
+
+/* Stroke the rounded-rect outline as a heavy dashed line: walk the perimeter
+ * (4 edges + 4 corner arcs) as a fine closed polyline and emit a thick quad for
+ * each sample segment whose midpoint falls in a dash (not a gap) phase. */
+static void prompt_dashed_border(float x, float y, float w, float h, float rad,
+                                 float thick, float dash, float gap,
+                                 uint8_t r, uint8_t g, uint8_t b)
+{
+    if (rad < 0.0f)
+        rad = 0.0f;
+    if (rad > w * 0.5f)
+        rad = w * 0.5f;
+    if (rad > h * 0.5f)
+        rad = h * 0.5f;
+    const float pi = 3.14159265f;
+    float perim = 2.0f * ((w - 2.0f * rad) + (h - 2.0f * rad)) + 2.0f * pi * rad;
+    float step = perim / 1400.0f;
+    if (step < 2.5f)
+        step = 2.5f;
+
+    /* edges (from->to) and corner arcs (center, start angle), interleaved
+     * clockwise from the top edge; y is down. */
+    const float ex0[4] = {x + rad, x + w, x + w - rad, x};
+    const float ey0[4] = {y, y + rad, y + h, y + h - rad};
+    const float ex1[4] = {x + w - rad, x + w, x + rad, x};
+    const float ey1[4] = {y, y + h - rad, y + h, y + rad};
+    const float acx[4] = {x + w - rad, x + w - rad, x + rad, x + rad};
+    const float acy[4] = {y + rad, y + h - rad, y + h - rad, y + rad};
+    const float aa0[4] = {1.5f * pi, 0.0f, 0.5f * pi, pi};
+
+    static float px[1800], py[1800];
+    int n = 0;
+    for (int p = 0; p < 4; p++)
+    {
+        float L = hypotf(ex1[p] - ex0[p], ey1[p] - ey0[p]);
+        int ns = (int)(L / step);
+        if (ns < 1)
+            ns = 1;
+        for (int k = 0; k < ns && n < 1800; k++)
+        {
+            float t = (float)k / (float)ns;
+            px[n] = ex0[p] + (ex1[p] - ex0[p]) * t;
+            py[n] = ey0[p] + (ey1[p] - ey0[p]) * t;
+            n++;
+        }
+        int as = (int)(rad * 0.5f * pi / step);
+        if (as < 1)
+            as = 1;
+        for (int k = 0; k < as && n < 1800; k++)
+        {
+            float a = aa0[p] + 0.5f * pi * (float)k / (float)as;
+            px[n] = acx[p] + rad * cosf(a);
+            py[n] = acy[p] + rad * sinf(a);
+            n++;
+        }
+    }
+
+    float thalf = thick * 0.5f, acc = 0.0f, period = dash + gap;
+    sgl_begin_triangles();
+    sgl_c3b(r, g, b);
+    for (int i = 0; i < n; i++)
+    {
+        int j = (i + 1) % n;
+        float ax = px[i], ay = py[i], bx = px[j], by = py[j];
+        float dx = bx - ax, dy = by - ay, len = hypotf(dx, dy);
+        if (len < 1e-4f)
+            continue;
+        if (fmodf(acc + len * 0.5f, period) < dash)
+        {
+            float nx = -dy / len * thalf, ny = dx / len * thalf;
+            sgl_v2f(ax + nx, ay + ny);
+            sgl_v2f(bx + nx, by + ny);
+            sgl_v2f(bx - nx, by - ny);
+            sgl_v2f(ax + nx, ay + ny);
+            sgl_v2f(bx - nx, by - ny);
+            sgl_v2f(ax - nx, ay - ny);
+        }
+        acc += len;
+    }
+    sgl_end();
+}
+
+void window_core_prompt_setup(void)
+{
+    sdtx_setup(&(sdtx_desc_t){
+        .fonts[0] = sdtx_font_c64(),
+        .logger.func = slog_func,
+    });
+    sgl_setup(&(sgl_desc_t){
+        .max_vertices = 16384, /* the dashed border strokes many thick quads */
+        .max_commands = 64,
+        .color_format = (sg_pixel_format)sapp_color_format(),
+        .depth_format = (sg_pixel_format)sapp_depth_format(),
+        .sample_count = sapp_sample_count(),
+        .logger.func = slog_func,
+    });
+}
+
+void window_core_draw_prompt(const char *line1, const char *line2)
+{
+    float w = sapp_widthf(), h = sapp_heightf();
+    if (w < 1.0f || h < 1.0f)
+        return;
+
+    const uint8_t ink[3] = {0xc2, 0xca, 0xd6};   /* dashes + text (soft light) */
+    const uint8_t paper[3] = {0x26, 0x2b, 0x35}; /* dark card fill */
+
+    /* Lay the two lines out on a 40-column grid mapped to the window; a square
+     * glyph keeps the box and text proportional at any window aspect. */
+    const int cols = 40;
+    float glyph = w / (float)cols; /* window px per character cell */
+    int len1 = (int)strlen(line1), len2 = (int)strlen(line2);
+    int wide = len1 > len2 ? len1 : len2;
+
+    float row_mid = (float)cols * 0.5f * h / w; /* grid row at the window center */
+    float row1 = row_mid - 1.15f, row2 = row_mid + 0.15f; /* two centered lines */
+
+    float pad_x = glyph * 2.0f, pad_y = glyph * 1.4f;
+    float bw = wide * glyph + 2.0f * pad_x;
+    float bh = (row2 + 1.0f - row1) * glyph + 2.0f * pad_y;
+    float bx = (w - bw) * 0.5f, by = (h - bh) * 0.5f;
+    float border = glyph * 0.42f; /* heavy */
+    float rad = glyph * 1.3f;
+
+    sgl_defaults();
+    sgl_matrix_mode_projection();
+    sgl_load_identity();
+    sgl_ortho(0.0f, w, h, 0.0f, -1.0f, 1.0f); /* top-left origin, y down, px units */
+    prompt_round_rect(bx, by, bw, bh, rad, paper[0], paper[1], paper[2]);
+    prompt_dashed_border(bx + border * 0.5f, by + border * 0.5f, bw - border,
+                         bh - border, rad - border * 0.5f, border,
+                         glyph * 1.0f, glyph * 0.7f, ink[0], ink[1], ink[2]);
+    sgl_draw();
+
+    /* Lines over the card, in the dash color, each centered on the same grid. */
+    sdtx_canvas((float)cols * 8.0f, (float)cols * 8.0f * h / w);
+    sdtx_origin(0.0f, 0.0f);
+    sdtx_color3b(ink[0], ink[1], ink[2]);
+    sdtx_pos((float)(cols - len1) * 0.5f, row1);
+    sdtx_puts(line1);
+    sdtx_pos((float)(cols - len2) * 0.5f, row2);
+    sdtx_puts(line2);
+    sdtx_draw();
 }
 
 void window_core_event(const sapp_event *e)

@@ -21,6 +21,7 @@ void host_window_init(void) {}
 bool host_window_menu_active(void) { return false; }
 void host_window_menu_draw(void) {}
 void host_window_files_dropped(void) {} /* dragndrop not enabled: the page is one program */
+bool window_wait_for_rom(void) { return false; } /* the page always supplies its program */
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
 {

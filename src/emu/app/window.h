@@ -21,6 +21,13 @@
  * instead of leaving the final output up. */
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt);
 
+/* No ROM was supplied. A build that can still receive one (desktop drag-and-drop)
+ * arms its on-screen "drop a .rp6502 here" prompt, holds the machine, and returns
+ * true so the caller opens the window. A build that can't (web: the page is one
+ * program; headless: no window) returns false, and the caller prints usage and
+ * exits. */
+bool window_wait_for_rom(void);
+
 /* Letterbox/pillarbox fill color behind the canvas (RGB 0-255, default black). */
 void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b);
 

@@ -218,8 +218,16 @@ int main(int argc, char **argv)
 
     if (!rom)
     {
-        cli_usage(argv[0]);
-        return 2;
+        /* No ROM. --screenshot is batch (nothing to shoot); otherwise a desktop
+         * host waits for a drag-and-dropped one. Anything else prints usage. */
+        if (o.shot || !window_wait_for_rom())
+        {
+            cli_usage(argv[0]);
+            return 2;
+        }
+        apply_options(&o);
+        cpu_set_halted(true); /* held until a dropped .rp6502 boots one */
+        return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
     }
 
     if (!rom_load(rom))

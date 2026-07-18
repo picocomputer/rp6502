@@ -24,6 +24,9 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
     return 1;
 }
 
+/* No window to prompt in: the no-ROM caller prints usage and exits. */
+bool window_wait_for_rom(void) { return false; }
+
 void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b) { (void)r, (void)g, (void)b; }
 
 /* Headless renders at native resolution (no canvas->window scaling), so the

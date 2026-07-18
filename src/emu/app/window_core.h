@@ -40,6 +40,16 @@ void window_core_cleanup(void);
  * the monitor. */
 bool window_core_boot_rom(const char *path);
 
+/* Stand up the text + vector renderers for the desktop no-ROM prompt. Call once
+ * from the sokol init callback (host_window_init, after sg_setup). Only the
+ * desktop hosts call it, so web/Android link none of it. */
+void window_core_prompt_setup(void);
+
+/* Draw the centered "drop a ROM" card (dark rounded box, heavy dashed border, the
+ * two message lines in the border color) into the current swapchain pass. Pairs
+ * with a host's host_window_menu_active() being true, which suppresses the canvas. */
+void window_core_draw_prompt(const char *line1, const char *line2);
+
 /* ---- hooks the core calls, implemented per host ---- */
 
 /* Resize the OS window to w x h framebuffer px (X11/Win32; no-op elsewhere). */

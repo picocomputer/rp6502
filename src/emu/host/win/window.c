@@ -41,9 +41,30 @@ void host_window_resize(int w, int h)
 }
 
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-void host_window_init(void) {}
-bool host_window_menu_active(void) { return false; }
-void host_window_menu_draw(void) {}
+
+/* Held with no program until a .rp6502 is dropped: the core freezes the machine
+ * and draws the "drop a ROM" prompt instead of the canvas while this is set. */
+static bool waiting_for_rom;
+
+bool window_wait_for_rom(void)
+{
+    waiting_for_rom = true;
+    return true;
+}
+
+void host_window_init(void)
+{
+    if (waiting_for_rom)
+        window_core_prompt_setup();
+}
+
+bool host_window_menu_active(void) { return waiting_for_rom; }
+
+void host_window_menu_draw(void)
+{
+    if (waiting_for_rom)
+        window_core_draw_prompt("Drop a .rp6502", "ROM file here");
+}
 
 /* True when the wide path survives UTF-16 -> OEM -> UTF-16 unchanged, i.e.
  * window_core_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
@@ -70,7 +91,8 @@ void host_window_files_dropped(void)
     }
     if (wide_is_oem_lossless(wide))
     {
-        window_core_boot_rom(utf8);
+        if (window_core_boot_rom(utf8))
+            waiting_for_rom = false;
         return;
     }
     /* In place is allowed; a short name can be LONGER than the long name,
@@ -83,7 +105,8 @@ void host_window_files_dropped(void)
         fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
         return;
     }
-    window_core_boot_rom(shortu8);
+    if (window_core_boot_rom(shortu8))
+        waiting_for_rom = false;
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
