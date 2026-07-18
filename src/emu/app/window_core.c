@@ -640,7 +640,7 @@ static void prompt_round_rect(float x, float y, float w, float h, float rad,
     if (rad > h * 0.5f)
         rad = h * 0.5f;
     const float pi = 3.14159265f;
-    const int seg = 6; /* points per corner arc */
+    enum { seg = 6 }; /* points per corner arc */
     const float ccx[4] = {x + rad, x + w - rad, x + w - rad, x + rad};
     const float ccy[4] = {y + rad, y + rad, y + h - rad, y + h - rad};
     const float a0[4] = {pi, 1.5f * pi, 2.0f * pi, 2.5f * pi};
