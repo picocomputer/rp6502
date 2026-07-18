@@ -8,6 +8,7 @@
 #include "emu/sys/pix.h"
 #include "emu/main.h"
 #include "ria/api/api.h"
+#include "ria/api/std.h"
 #include <string.h>
 
 /* The receiver side of the PIX bus, collapsed into the emu: no FIFO, so both

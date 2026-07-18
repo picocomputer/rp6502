@@ -227,15 +227,3 @@ bool pix_api_xreg(void)
     }
     return api_working();
 }
-
-// std_task's XRAM-over-PIX flush seam (ria/api/std.h). The firmware pushes each
-// byte onto the PIX bus so the VGA's XRAM mirror stays in sync.
-bool std_xram_ready(void)
-{
-    return pix_ready();
-}
-
-void std_xram_send(uint8_t data, uint16_t addr)
-{
-    pix_send(PIX_DEVICE_XRAM, 0, data, addr);
-}
