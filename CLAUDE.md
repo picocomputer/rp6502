@@ -11,6 +11,10 @@ patterns. All exports begin with the filename. All drivers have a lifecycle:
 init, run, stop, break. All settings have a load, set, get pattern with a
 possible run-only state.
 
+NEVER add even a single clock cycle to ria_action_loop().
+NEVER add even a single clock cycle to ria_action_loop().
+NEVER add even a single clock cycle to ria_action_loop().
+
 Avoid excessive calls to the shell to search for things – you are running in
 an IDE and must use that when possible. Never search the root of the filesystem.
 Everything you need will be in the user home directory.
