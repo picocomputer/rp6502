@@ -8,7 +8,7 @@
 #define _EMU_TESTS_EMU_BOOT_H_
 
 #include "emu/main.h"
-#include "emu/mon/rom.h"
+#include "emu/host/rom.h"
 #include "utest.h"
 
 /* The emulator lifecycle is init-once + stop/run per program (see emu/main.c).

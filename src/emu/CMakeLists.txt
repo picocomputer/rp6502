@@ -37,10 +37,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/tab.c
     ${RP6502_SRC}/emu/host/msc.c
+    ${RP6502_SRC}/emu/host/rom.c
     ${RP6502_SRC}/emu/host/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
-    ${RP6502_SRC}/emu/mon/install.c
-    ${RP6502_SRC}/emu/mon/rom.c
     ${RP6502_SRC}/emu/shim/pico/stdio.c
     ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c

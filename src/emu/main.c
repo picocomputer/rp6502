@@ -11,7 +11,7 @@
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/host/msc.h"
-#include "emu/mon/rom.h"
+#include "emu/host/rom.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"

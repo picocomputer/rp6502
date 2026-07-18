@@ -7,7 +7,7 @@
 
 #include "api/std.h"
 #include "emu/host/msc.h"
-#include "emu/mon/rom.h"
+#include "emu/host/rom.h"
 #include "emu/host/tmp.h"
 #include "api/fat.h"
 

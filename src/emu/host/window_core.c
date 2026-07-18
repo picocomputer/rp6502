@@ -34,7 +34,7 @@
 #include "api/oem.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
-#include "emu/mon/rom.h"
+#include "emu/host/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
 #include "emu/plat.h"

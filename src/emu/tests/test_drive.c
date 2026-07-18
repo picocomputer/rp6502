@@ -14,8 +14,7 @@
  */
 
 #include "api/std.h"
-#include "emu/mon/install.h"
-#include "emu/mon/rom.h"
+#include "emu/host/rom.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
