@@ -11,11 +11,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* ------------------------------------------------------------------ */
 /* Bus geometry                                                        */
 /* ------------------------------------------------------------------ */
@@ -54,9 +49,5 @@ extern volatile uint8_t xram_queue_page;
 extern volatile uint8_t xram_queue_head;
 extern volatile uint8_t xram_queue_tail;
 extern volatile uint8_t xram_queue[256][2];
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_MEM_H_ */

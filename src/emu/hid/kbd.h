@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Non-character keys, mapped to the same xterm/VT byte sequences the firmware
  * USB HID driver emits (ria/hid/kbd.c). Printable keys arrive as UTF-8 text via
  * kbd_text() instead. */
@@ -71,9 +66,5 @@ void kbd_stop(void);
 
 /* Toggle a lock LED in the HID bitmap (Num=1, Caps=2, Scroll=4). */
 void kbd_toggle_lock(uint8_t bit);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HID_KBD_H_ */

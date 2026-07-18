@@ -12,11 +12,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Install the boot console canvas (640x480 term) so the terminal renders
  * at startup without any xreg, matching real hardware. */
 void vga_boot_console(void);
@@ -91,9 +86,5 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
                      void (*sprite_fn)(int16_t scanline, int16_t width,
                                        uint16_t *rgb, uint16_t config_ptr,
                                        uint16_t length));
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_VGA_H_ */

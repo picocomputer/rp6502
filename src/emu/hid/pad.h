@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Flat button id spanning the firmware report's dpad/button0/button1 fields.
  * pad_hid_set maps each to its (byte, bit) in the player record. */
 typedef enum
@@ -63,9 +58,5 @@ void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
                      int lx, int ly, int rx, int ry, int lt, int rt, bool sony);
 
 void pad_stop(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HID_PAD_H_ */

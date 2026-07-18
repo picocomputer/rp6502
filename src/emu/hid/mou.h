@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* xreg_ria_mouse API: point the report block ({buttons,x,y,wheel,pan}, 5 bytes)
  * at an XRAM address (0xFFFF = off). Mirrors ria/hid/mou.c mou_xreg. */
 bool mou_set_xram(uint16_t addr);
@@ -34,9 +29,5 @@ void mou_host_wheel(int dwheel, int dpan);
 void mou_host_buttons(uint8_t buttons);
 
 void mou_stop(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HID_MOU_H_ */

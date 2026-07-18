@@ -12,11 +12,6 @@
 
 #include "emu/host/window.h" /* window_scale_filter_t */
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct
 {
@@ -60,9 +55,5 @@ void cli_usage(const char *argv0);
 
 /* The path component after the last '/'. */
 const char *cli_base_name(const char *p);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_APP_CLI_H_ */

@@ -16,11 +16,6 @@
 
 #include "ria/main.h"
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 void main_init(void);               /* cold boot: fan out to every subsystem */
 void main_run_frame(void);          /* run one 60 Hz VGA frame, rendering it */
 void main_run_frame_norender(void); /* same, but skip pixel rendering (catch-up) */
@@ -40,9 +35,5 @@ void main_set_exit_code(int code);
 /* Point the op table's dir slots at the firmware FatFs handlers (fat, over the
  * RAM disk) or the emu's host handlers. */
 void main_dir_ops_set(bool fat);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_MAIN_H_ */

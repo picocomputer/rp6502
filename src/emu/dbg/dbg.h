@@ -18,11 +18,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 typedef enum
 {
     DBG_REASON_ENTRY,      /* stopped at program entry (stopOnEntry) */
@@ -106,9 +101,5 @@ unsigned dbg_segments_generation(void);                      /* bumps on each se
 /* Called by cpu.c at each instruction fetch (M6502_SYNC) while active. Returns
  * true if the machine must stop BEFORE running the instruction's effect at pc. */
 bool dbg_at_instruction(uint16_t pc, uint8_t sp);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DBG_H_ */

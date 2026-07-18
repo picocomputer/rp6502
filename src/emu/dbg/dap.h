@@ -12,11 +12,6 @@
 #ifndef _EMU_DBG_DAP_H_
 #define _EMU_DBG_DAP_H_
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Create the DAP session, register handlers, and bind it to stdin/stdout.
  * cppdap runs the message reader on its own thread; handlers either marshal work
  * to the main loop (via dap_pump) or read machine state while the CPU is
@@ -38,9 +33,5 @@ bool dap_quit_requested(void);
 
 /* Close the session (window teardown). */
 void dap_stop(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DAP_H_ */

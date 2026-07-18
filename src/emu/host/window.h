@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Open a sokol window and run the machine until closed. The ROM must already be
  * loaded and main_init() called. fb is the caller-owned framebuffer (must hold
  * the largest canvas); vga renders into it and the window presents it. scale
@@ -70,9 +65,5 @@ bool window_canvas_from_fb(float px, float py, int *cx, int *cy);
  * tablet's requested cursor applies only there and the system cursor shows in the
  * letterbox. */
 void window_set_pointer_on_canvas(bool on);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HOST_WINDOW_H_ */

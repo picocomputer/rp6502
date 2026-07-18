@@ -22,11 +22,6 @@ typedef SSIZE_T fs_ssize_t;
 typedef ssize_t fs_ssize_t;
 #endif
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* ---- directory enumeration ---- */
 void *dir_open(const char *path); /* opaque stream, or NULL + errno */
 /* 1 = an entry (name + is_dir filled), 0 = end of directory, -1 = error (errno). */
@@ -94,9 +89,5 @@ bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 /* Test-only host helpers (the tests drive the rest of the seam directly). */
 bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
 void os_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_PLAT_H_ */

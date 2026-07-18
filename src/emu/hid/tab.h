@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Absolute pointer ("tablet") device. Unlike the relative mouse it reports an
  * absolute canvas position. The multi-byte X/Y are delivered coherently through
  * byte-wide XRAM without any RIA/act_loop help: each coordinate is a set of
@@ -84,9 +79,5 @@ void tab_host_clear(void);
 uint8_t tab_control(void);
 
 void tab_stop(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HID_TAB_H_ */

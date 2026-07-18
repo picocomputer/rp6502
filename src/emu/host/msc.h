@@ -13,11 +13,6 @@
 
 #include "emu/api/std.h" /* std_driver_t */
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 #define MSC_MAX_PATH 4096 /* host path buffer size for msc_to_host callers */
 
 /* Path addressing: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
@@ -61,9 +56,5 @@ bool msc_api_getlabel(void);
 bool msc_api_getfree(void);
 
 void msc_stop(void); /* close open host directories (machine reset) */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HOST_MSC_H_ */

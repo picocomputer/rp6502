@@ -11,16 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Returns false on an unhandled device/channel (caller maps to EINVAL). */
 bool xreg_write(uint8_t device, uint8_t channel, uint8_t address, uint16_t word);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_XREG_H_ */

@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 bool pro_api_argv(void); /* op 0x08: read argv onto the xstack */
 bool pro_api_exec(void); /* op 0x09: replace the program */
 /* Seed the initial program's argv: its own path + args. False on overflow. */
@@ -38,9 +33,5 @@ void pro_set_launcher(bool is_launcher);
 bool pro_is_launcher(void);
 int16_t pro_get_exit_code(void);
 bool pro_exit(int16_t exit_code); /* true if a launcher re-exec was scheduled */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_API_PRO_H_ */

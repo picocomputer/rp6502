@@ -11,11 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* The firmware contract cpu.c implements: cpu_init, cpu_active,
  * cpu_set_phi2_khz (config, loaded before init), cpu_set_phi2_khz_run (clamped to
  * [CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ], quantized), cpu_get_phi2_khz_run, and the
@@ -54,9 +49,5 @@ void *cpu_chip(void); /* m6502_t* */
  * NOT gate the CPU — dbg.c is the one authoritative engine. NULL when no
  * observer is registered. */
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_CPU_H_ */

@@ -10,11 +10,6 @@
 
 #include "ria/sys/com.h"
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* term.c routes terminal query replies (DSR/CPR/DA) here; they enter rln's
  * input as the UART (protocol-tracked) source. */
 #define COM_IN_BUF_SIZE 16
@@ -43,9 +38,5 @@ void com_tx_write(const char *buf, int len);
 /* Tap the terminal OUT stream (NULL to clear). Used by tests to assert
  * program output without rendering a frame. */
 void com_set_tx_tap(void (*tap)(const char *buf, int len));
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_COM_H_ */

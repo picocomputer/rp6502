@@ -10,11 +10,6 @@
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Main events
  */
 
@@ -35,9 +30,5 @@ int aud_read(float *dst, int max_frames);
 /* Rolling mono downmix of the produced output, for waveform display. */
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void); /* current write position in that buffer */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_AUD_AUD_H_ */
