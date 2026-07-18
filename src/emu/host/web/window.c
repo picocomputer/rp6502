@@ -6,11 +6,11 @@
  * Web (Emscripten) window host: the sokol entry (window_run -> sapp_run, which
  * runs the browser main loop). The canvas is managed by the page, so resize and
  * aspect hints are no-ops; the render/frame/present pipeline is in
- * host/window_core.c.
+ * app/window_core.c.
  */
 
-#include "emu/host/window.h"
-#include "emu/host/window_core.h"
+#include "emu/app/window.h"
+#include "emu/app/window_core.h"
 #include "sokol_app.h"
 #include "sokol_log.h"
 #include <stdint.h>

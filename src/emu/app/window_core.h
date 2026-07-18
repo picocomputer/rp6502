@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Internal interface between the shared, host-neutral window core
- * (host/window_core.c) and the per-host window files (host/<os>/window.c).
- * Not a public header — app code uses host/window.h. The per-host file supplies
+ * (app/window_core.c) and the per-host window files (host/<os>/window.c).
+ * Not a public header — app code uses app/window.h. The per-host file supplies
  * the entry point (window_run / sokol_main) and the host_window_* hooks; the
  * core supplies the render/frame/present pipeline and the four sokol callbacks.
  */
 
-#ifndef _EMU_HOST_WINDOW_CORE_H_
-#define _EMU_HOST_WINDOW_CORE_H_
+#ifndef _EMU_APP_WINDOW_CORE_H_
+#define _EMU_APP_WINDOW_CORE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -67,4 +67,4 @@ void host_window_menu_draw(void);
  * the hook never fires there. */
 void host_window_files_dropped(void);
 
-#endif /* _EMU_HOST_WINDOW_CORE_H_ */
+#endif /* _EMU_APP_WINDOW_CORE_H_ */

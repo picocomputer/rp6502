@@ -10,8 +10,8 @@
  * implemented in host/<os>/window.c.
  */
 
-#include "emu/host/window.h"
-#include "emu/host/window_core.h"
+#include "emu/app/window.h"
+#include "emu/app/window_core.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"

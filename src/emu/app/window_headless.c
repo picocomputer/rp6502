@@ -9,7 +9,7 @@
  * headers. Provides the window.h symbols the app references as no-ops.
  */
 
-#include "emu/host/window.h"
+#include "emu/app/window.h"
 #include <stdint.h>
 #include <stdio.h>
 

@@ -10,7 +10,7 @@
 
 #include <stddef.h>
 
-#include "emu/host/window.h" /* window_scale_filter_t */
+#include "emu/app/window.h" /* window_scale_filter_t */
 
 /* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct

@@ -8,7 +8,7 @@
 #include "api/oem.h"
 #include "str/str.h"
 #include "emu/api/pro.h"
-#include "emu/host/window.h"
+#include "emu/app/window.h"
 #include "emu/plat.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"

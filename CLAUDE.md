@@ -17,7 +17,8 @@ the user home directory.
 
 Don't spam git history unless specifically asked to. Do not commit or push
 unless specifically asked to. Do not look for answers in git history.
-Do not fetch git history unless specifically instructed to.
+Do not fetch git history unless specifically instructed to. Use git to
+rename or move files and folders.
 
 To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target

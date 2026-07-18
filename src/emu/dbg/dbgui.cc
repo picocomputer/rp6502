@@ -29,7 +29,7 @@ extern "C"
 #include "emu/sys/via.h"
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "emu/host/window.h"      /* window-scale presets */
+#include "emu/app/window.h"      /* window-scale presets */
 }
 #include "emu/app/credits.h" /* EMU_CREDITS */
 

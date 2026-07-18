@@ -230,7 +230,7 @@ endif()
 # Per-host window: the shared render core + exactly one host's window, or the
 # headless stub when there is no window backend.
 if(EMU_HAS_WINDOW)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/icon.c ${RP6502_SRC}/emu/host/window_core.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/icon.c ${RP6502_SRC}/emu/app/window_core.c)
     if(WIN32)
         list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/win/window.c)
     elseif(APPLE)
@@ -243,7 +243,7 @@ if(EMU_HAS_WINDOW)
         list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/linux/window.c)
     endif()
 else()
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/window_headless.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/window_headless.c)
 endif()
 if(EMU_HAS_AUDIO)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/audio_out.c)
@@ -287,7 +287,7 @@ else()
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/host/window_core.c ${RP6502_SRC}/emu/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
+        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/emu/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
             PROPERTIES COMPILE_FLAGS "-x objective-c")
         target_link_libraries(rp6502-emu PRIVATE
             "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit")
