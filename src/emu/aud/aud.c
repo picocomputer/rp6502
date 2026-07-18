@@ -11,7 +11,6 @@
 #include "emu/aud/aud.h"
 #include "ria/aud/bel.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
-#include <hardware/pwm.h>
 #include <math.h>
 #include <string.h>
 
@@ -36,22 +35,20 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
 }
 
 /* ------------------------------------------------------------------ */
-/* PWM capture: the seam the audio drivers write each sample through.  */
+/* Stereo output capture: the seam the audio drivers write through.    */
 /* ------------------------------------------------------------------ */
 
-/* Indexed by slice number; only the two audio slices (L/R) are read back. */
-static uint16_t g_pwm_level[32];
+/* The last stereo level the active handler wrote (centered on AUD_PWM_CENTER =
+ * silence); aud_task reads it back each sample. */
+static uint16_t g_out_l = AUD_PWM_CENTER, g_out_r = AUD_PWM_CENTER;
 
-void pwm_clear_irq(unsigned slice)
+void aud_out(uint16_t left, uint16_t right)
 {
-    (void)slice;
+    g_out_l = left;
+    g_out_r = right;
 }
 
-void pwm_set_chan_level(unsigned slice, unsigned chan, uint16_t level)
-{
-    (void)chan;
-    g_pwm_level[slice & 31] = level;
-}
+void aud_clear_irq(void) {}
 
 /* ------------------------------------------------------------------ */
 /* Native-rate stereo ring                                             */
@@ -111,9 +108,9 @@ void aud_task(void)
 
     for (unsigned i = 0; i < n; i++)
     {
-        handler(); /* advances the synth + writes g_pwm_level via the shim */
-        int l = (int)g_pwm_level[AUD_L_SLICE] - AUD_PWM_CENTER;
-        int r = (int)g_pwm_level[AUD_R_SLICE] - AUD_PWM_CENTER;
+        handler(); /* advances the synth + writes g_out_l/g_out_r via aud_out */
+        int l = (int)g_out_l - AUD_PWM_CENTER;
+        int r = (int)g_out_r - AUD_PWM_CENTER;
         ring_push((float)l / AUD_PWM_CENTER, (float)r / AUD_PWM_CENTER);
     }
 }
@@ -156,7 +153,7 @@ void aud_stop(void)
     g_sample_acc = 0;
     xram_queue_head = xram_queue_tail = 0;
     xram_queue_page = 0;
-    memset(g_pwm_level, 0, sizeof g_pwm_level);
+    g_out_l = g_out_r = AUD_PWM_CENTER;
     memset(g_viz, 0, sizeof g_viz);
     g_viz_pos = 0;
 }
