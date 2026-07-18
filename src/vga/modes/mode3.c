@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/mode3.h"
-#include "modes/modes.h"
-#include "sys/vga.h"
-#include "sys/mem.h"
-#include "term/color.h"
+#include "vga/modes/mode3.h"
+#include "vga/modes/modes.h"
+#include "vga/sys/vga.h"
+#include "vga/sys/mem.h"
+#include "vga/term/color.h"
 #include <string.h>
 
 #pragma GCC push_options

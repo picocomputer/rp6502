@@ -9,7 +9,7 @@
  */
 
 #include "emu/plat.h"
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>

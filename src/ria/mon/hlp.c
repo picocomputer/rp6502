@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/clk.h"
-#include "hid/kbd.h"
-#include "mon/hlp.h"
-#include "mon/mon.h"
-#include "mon/rom.h"
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "str/str.h"
+#include "ria/api/clk.h"
+#include "ria/hid/kbd.h"
+#include "ria/mon/hlp.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/rom.h"
+#include "ria/net/cyw.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
 #include <pico.h>
 #include <string.h>
 

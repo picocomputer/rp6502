@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud/aud.h"
-#include "aud/bel.h"
-#include "aud/psg.h"
-#include "sys/mem.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/bel.h"
+#include "ria/aud/psg.h"
+#include "ria/sys/mem.h"
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 #include <stddef.h>

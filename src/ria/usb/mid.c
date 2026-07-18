@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/mid.h"
-#include "str/str.h"
-#include "usb/usb.h"
+#include "ria/usb/mid.h"
+#include "ria/str/str.h"
+#include "ria/usb/usb.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>

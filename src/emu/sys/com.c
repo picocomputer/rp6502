@@ -5,10 +5,10 @@
  *
  */
 
-#include "api/oem.h"
-#include "sys/com.h"
-#include "sys/ria.h"
-#include "aud/bel.h"
+#include "ria/api/oem.h"
+#include "emu/sys/com.h"
+#include "emu/chips/rp6502.h"
+#include "ria/aud/bel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -4,22 +4,22 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "modes/mode1.h"
-#include "modes/mode2.h"
-#include "modes/mode3.h"
-#include "modes/mode4.h"
-#include "modes/mode5.h"
-#include "sys/com.h"
-#include "sys/led.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
-#include "sys/vga.h"
-#include "term/font.h"
-#include "term/term.h"
-#include "usb/cdc.h"
-#include "usb/usb.h"
+#include "vga/main.h"
+#include "vga/modes/mode1.h"
+#include "vga/modes/mode2.h"
+#include "vga/modes/mode3.h"
+#include "vga/modes/mode4.h"
+#include "vga/modes/mode5.h"
+#include "vga/sys/com.h"
+#include "vga/sys/led.h"
+#include "vga/sys/pix.h"
+#include "vga/sys/ria.h"
+#include "vga/sys/sys.h"
+#include "vga/sys/vga.h"
+#include "vga/term/font.h"
+#include "vga/term/term.h"
+#include "vga/usb/cdc.h"
+#include "vga/usb/usb.h"
 #include <pico/stdlib.h>
 
 static void init(void)

@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/vcp.h"
-#include "str/str.h"
-#include "usb/usb.h"
+#include "ria/usb/vcp.h"
+#include "ria/str/str.h"
+#include "ria/usb/usb.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>

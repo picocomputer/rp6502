@@ -13,8 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "api/api.h"
-#include "api/std.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 

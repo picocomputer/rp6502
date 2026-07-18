@@ -10,7 +10,7 @@
  */
 
 #include "emu/plat.h"
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>

@@ -5,7 +5,7 @@
  *
  */
 
-#include "sys/cfg.h"
+#include "ria/sys/cfg.h"
 
 /* The emulator persists no configuration; settings live for the process. */
 void cfg_save(void)

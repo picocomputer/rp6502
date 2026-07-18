@@ -8,7 +8,7 @@
 /* These do not get localized and must use only ASCII. */
 /* This is a contract with monitor tools like rp6502.py. */
 
-#include "def/def.h"
+#include "ria/def/def.h"
 
 // UF2 program name identifiers
 X(STR_UF2_PROG_NAME_RIA, PICO_PROGRAM_NAME)

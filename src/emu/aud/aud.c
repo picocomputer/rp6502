@@ -8,8 +8,8 @@
 #include "emu/aud/aud.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
-#include "aud/aud.h"
-#include "aud/bel.h"
+#include "emu/aud/aud.h"
+#include "ria/aud/bel.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 #include <hardware/pwm.h>
 #include <math.h>

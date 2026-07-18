@@ -72,7 +72,7 @@ void str_size(uint64_t bytes, char *out, size_t out_size);
 #define X(name, value) \
     extern const char name[];
 #define XR(name, value) X(name, value)
-#include "def/str_sys.def"
+#include "ria/def/str_sys.def"
 #undef X
 #undef XR
 
@@ -83,7 +83,7 @@ void str_size(uint64_t bytes, char *out, size_t out_size);
         name##_LEN = sizeof(value) - 1 \
     };
 #define XR(name, value) X(name, value)
-#include "def/str_sys.def"
+#include "ria/def/str_sys.def"
 #undef X
 #undef XR
 
@@ -96,7 +96,7 @@ enum str_loc_id
 #define XEND()
 #define X(name, value) name,
 #define XR(name, value) X(name, value)
-#include "def/str_en.def" // canonical key order; values ignored in this pass
+#include "ria/def/str_en.def" // canonical key order; values ignored in this pass
 #undef XBEGIN
 #undef XEND
 #undef X

@@ -8,9 +8,9 @@
 // This is compatible with the sprite system in pico-playground which
 // is based on the sprite system used for the RISCBoy games console.
 
-#include "modes/mode4.h"
-#include "sys/mem.h"
-#include "sys/vga.h"
+#include "vga/modes/mode4.h"
+#include "vga/sys/mem.h"
+#include "vga/sys/vga.h"
 #include <pico/stdlib.h>
 #if PICO_ON_DEVICE
 #include <hardware/interp.h>

@@ -15,7 +15,7 @@
  */
 
 #include "emu/plat.h"
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include <emscripten.h>
 #include <errno.h>
 #include <fcntl.h>

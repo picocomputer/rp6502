@@ -17,8 +17,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "api/api.h"
-#include "api/std.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
 
 // Convert a FatFs FRESULT to an api_errno.
 api_errno fat_fresult_to_api_errno(unsigned fresult);

@@ -6,11 +6,11 @@
 
 #ifdef RP6502_RIA_W
 
-#include "main.h"
-#include "net/net.h"
-#include "net/tel.h"
-#include "sys/com.h"
-#include "sys/ria.h"
+#include "ria/main.h"
+#include "ria/net/net.h"
+#include "ria/net/tel.h"
+#include "ria/sys/com.h"
+#include "ria/sys/ria.h"
 #include <pico/stdlib.h>
 #include <string.h>
 

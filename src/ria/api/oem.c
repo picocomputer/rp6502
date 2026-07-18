@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/api.h"
-#include "api/oem.h"
-#include "hid/kbd.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/vga.h"
+#include "ria/api/api.h"
+#include "ria/api/oem.h"
+#include "ria/hid/kbd.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/vga.h"
 #include <fatfs/ff.h>
 #include <pico.h>
 #include <string.h>

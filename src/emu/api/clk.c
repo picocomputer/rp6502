@@ -10,9 +10,9 @@
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
 #include "pico/time.h"
-#include "api/api.h"
-#include "api/clk.h"
-#include "api/oem.h"
+#include "ria/api/api.h"
+#include "emu/api/clk.h"
+#include "ria/api/oem.h"
 #include <string.h>
 #include <time.h>
 

@@ -11,8 +11,8 @@
 #include "emu/sys/mem.h"
 #include "emu/main.h"
 #include "emu/chips/rp6502.h"
-#include "api/api.h"
-#include "sys/ria.h"
+#include "ria/api/api.h"
+#include "emu/chips/rp6502.h"
 #include "emu/chips/w65c02.h"
 #include <string.h>
 

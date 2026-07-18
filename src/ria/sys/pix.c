@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "sys/pix.h"
-#include "sys/vga.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
+#include "ria/sys/pix.h"
+#include "ria/sys/vga.h"
 #include "ria.pio.h"
 #include <pico/time.h>
 #include <string.h>
@@ -225,4 +226,16 @@ bool pix_api_xreg(void)
         pix_api_state_timer = make_timeout_time_ms(PIX_ACK_TIMEOUT_MS);
     }
     return api_working();
+}
+
+// std_task's XRAM-over-PIX flush seam (ria/api/std.h). The firmware pushes each
+// byte onto the PIX bus so the VGA's XRAM mirror stays in sync.
+bool std_xram_ready(void)
+{
+    return pix_ready();
+}
+
+void std_xram_send(uint8_t data, uint16_t addr)
+{
+    pix_send(PIX_DEVICE_XRAM, 0, data, addr);
 }

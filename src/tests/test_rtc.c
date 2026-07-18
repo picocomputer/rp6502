@@ -11,9 +11,9 @@
  * and that %z reflects the host timezone offset.
  */
 
-#include "api/api.h"
-#include "api/clk.h"
-#include "api/oem.h"
+#include "ria/api/api.h"
+#include "emu/api/clk.h"
+#include "ria/api/oem.h"
 #include "emu/sys/com.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"

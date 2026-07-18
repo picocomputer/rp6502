@@ -18,6 +18,6 @@
 
 #include <stdint.h>
 
-#include "scanvideo/pixel_format.h"
+#include "vga/scanvideo/pixel_format.h"
 
 #endif /* _EMU_SHIM_SCANVIDEO_SCANVIDEO_H_ */

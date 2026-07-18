@@ -6,9 +6,9 @@
  */
 
 #include "emu/host/tmp.h"
-#include "emu/main.h" /* main_dir_ops_set (swap the dir slots) */
+#include "emu/main.h"
 #include "emu/plat.h"
-#include "api/fat.h" /* fat_run / fat_stop (the FatFs DIR pool) + fat_std_* file driver */
+#include "ria/api/fat.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include <stdint.h>

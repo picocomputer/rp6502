@@ -10,7 +10,7 @@
  */
 
 #include "emu/plat.h"
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include "emu/host/win/win.h"
 #include <direct.h>
 #include <io.h>

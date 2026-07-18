@@ -15,7 +15,7 @@
 
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
-#include "sys/com.h"
+#include "emu/sys/com.h"
 #include "emu_boot.h"
 #include <string.h>
 

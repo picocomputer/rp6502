@@ -6,7 +6,7 @@
 
 // English
 
-#include "def/def.h"
+#include "ria/def/def.h"
 #define XSUFFIX EN
 XBEGIN("EN", "English", 437)
 

@@ -12,7 +12,7 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/vga.h"
-#include "sys/com.h"
+#include "emu/sys/com.h"
 #include "emu_boot.h"
 #include <string.h>
 

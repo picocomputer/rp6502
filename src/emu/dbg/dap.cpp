@@ -24,7 +24,7 @@
 
 extern "C"
 {
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include "emu/api/pro.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/com.h"
@@ -36,8 +36,8 @@ extern "C"
 #include "emu/dbg/dwarf_info.h"
 #include "emu/dbg/cc65dbg.h"
 }
-#include "emu/chips/w65c02.h"        /* m6502_t register accessors (extern "C") */
-#include "emu/chips/w65c02dasm.h"  /* 65C02 m6502dasm_op declaration (impl lives in dbgui.cc) */
+#include "emu/chips/w65c02.h"
+#include "emu/chips/w65c02dasm.h"
 
 #ifdef _WIN32
 #include <fcntl.h>

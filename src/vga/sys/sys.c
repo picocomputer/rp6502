@@ -5,9 +5,9 @@
  */
 
 #include "rp6502_version.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
+#include "vga/sys/mem.h"
+#include "vga/sys/ria.h"
+#include "vga/sys/sys.h"
 #include <hardware/flash.h>
 #include <pico.h>
 #include <pico/stdlib.h>

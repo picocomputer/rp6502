@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/oem.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/cpu.h"
+#include "ria/api/oem.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/cpu.h"
 #include <fatfs/ff.h>
 #include <string.h>
 #include <strings.h>
@@ -30,7 +30,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
     const char __in_flash(__XSTRING(name)) name[] = value;
 #define XR(name, value) \
     const char __not_in_flash(__XSTRING(name)) name[] = value;
-#include "def/str_sys.def"
+#include "ria/def/str_sys.def"
 #undef X
 #undef XR
 
@@ -46,7 +46,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define XBEGIN(code, verbose, cp)
 #define XEND()
 #define X(name, value) const char __in_flash("str_loc") STR_ID(XSUFFIX, name)[] = value;
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -60,7 +60,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
     }          \
     ;
 #define X(name, value) [name] = STR_ID(XSUFFIX, name),
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -71,7 +71,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define XEND()
 #define X(name, value)
 static const char *const *const __in_flash("str_tabs") str_tabs[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -82,7 +82,7 @@ static const char *const *const __in_flash("str_tabs") str_tabs[] = {
 #define XEND()
 #define X(name, value)
 static const char *const __in_flash("str_locale_names") str_locale_names[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -92,7 +92,7 @@ static const char *const __in_flash("str_locale_names") str_locale_names[] = {
 #define XEND()
 #define X(name, value)
 static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -102,7 +102,7 @@ static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] =
 #define XEND()
 #define X(name, value)
 static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -119,7 +119,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
     }          \
     ;
 #define X(name, value) +1
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -127,7 +127,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
     static_assert((int)__CONCAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
 #define XEND()
 #define X(name, value)
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X

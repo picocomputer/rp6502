@@ -5,18 +5,18 @@
  */
 
 #ifndef RP6502_RIA_W
-#include "net/wfi.h"
+#include "ria/net/wfi.h"
 void wfi_task() {}
 int wfi_status_response(char *, size_t, int, unsigned) { return -1; }
 int wfi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "str/str.h"
-#include "sys/com.h"
-#include "sys/cfg.h"
-#include "sys/mem.h"
+#include "ria/net/cyw.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/mem.h"
 #include <pico/cyw43_arch.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)

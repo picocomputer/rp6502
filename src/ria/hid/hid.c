@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "hid/hid.h"
+#include "ria/hid/hid.h"
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
 #include <stdio.h>

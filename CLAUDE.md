@@ -6,14 +6,14 @@ We have a submodule with overrides:
 * vendor/tinyusb_rp6502/rp2040_usb.c
 * vendor/tinyusb_rp6502/midi_host.c
 
-Use Read for file content (not `cat`). When Bash is the right tool, keep
-each invocation to a single command. No pipes, no `; echo`, no `2>/dev/null`,
-no heredocs — compound commands defeat the permission allowlist matcher
-and prompt for approval even when each segment is permitted. Chain via
-separate tool calls instead of shell operators.
+We have patterns you must obey. Do not write any code without learning these
+patterns. All exports begin with the filename. All drivers have a lifecycle:
+init, run, stop, break. All settings have a load, set, get pattern with a
+possible run-only state.
 
-Never search the root of the filesystem. Everything you need will be in
-the user home directory.
+Avoid excessive calls to the shell to search for things – you are running in
+an IDE and must use that when possible. Never search the root of the filesystem.
+Everything you need will be in the user home directory.
 
 Don't spam git history unless specifically asked to. Do not commit or push
 unless specifically asked to. Do not look for answers in git history.

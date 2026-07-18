@@ -163,13 +163,10 @@ if(MSVC)
     )
 endif()
 
-# Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
     ${RP6502_SRC}/emu
-    ${RP6502_SRC}/ria
-    ${RP6502_SRC}/vga
-    ${RP6502_VENDOR}/fatfs
     ${RP6502_SRC}
+    ${RP6502_VENDOR}/fatfs
     ${RP6502_VENDOR}
     ${RP6502_VENDOR}/chips/chips
     ${RP6502_VENDOR}/chips

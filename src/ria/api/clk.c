@@ -7,12 +7,12 @@
 // The original RP2040 RTC implementation by Brentward is here:
 // https://github.com/picocomputer/rp6502/blob/bd8e3197/src/ria/api/clk.c
 
-#include "api/api.h"
-#include "api/clk.h"
-#include "api/oem.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/cfg.h"
+#include "ria/api/api.h"
+#include "ria/api/clk.h"
+#include "ria/api/oem.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
 #include <hardware/timer.h>
 #include <pico/aon_timer.h>
 #include <stdio.h>

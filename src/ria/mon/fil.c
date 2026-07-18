@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/fil.h"
-#include "mon/mon.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
+#include "ria/mon/fil.h"
+#include "ria/mon/mon.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/ria.h"
 #include <assert.h>
 #include <fatfs/ff.h>
 #include <stdio.h>

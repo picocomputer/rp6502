@@ -10,8 +10,8 @@
  * 6502 filesystem syscalls over a real FatFs (--tmpdrive) rather than the host.
  */
 
-#include "api/oem.h"
-#include "str/str.h"
+#include "ria/api/oem.h"
+#include "ria/str/str.h"
 #include "emu/host/tmp.h"
 #include "fatfs/ff.h"
 #include "utest.h"

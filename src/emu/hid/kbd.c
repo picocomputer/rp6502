@@ -5,13 +5,13 @@
  *
  */
 
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include "emu/hid/kbd.h"
-#include "hid/kbd.h"
+#include "emu/hid/kbd.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
-#include "sys/com.h"
-#include "sys/ria.h"
+#include "emu/sys/com.h"
+#include "emu/chips/rp6502.h"
 #include <stdio.h>
 #include <string.h>
 

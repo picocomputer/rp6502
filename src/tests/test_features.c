@@ -10,13 +10,13 @@
  */
 
 #include "emu/api/pro.h"
-#include "api/std.h"
+#include "ria/api/std.h"
 #include "emu/aud/aud.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/mem.h"
-#include "aud/bel.h"
-#include "sys/com.h"
-#include "sys/ria.h"
+#include "ria/aud/bel.h"
+#include "emu/sys/com.h"
+#include "emu/chips/rp6502.h"
 #include "stdsys.h"
 #include "emu_boot.h"
 #include <stdio.h>

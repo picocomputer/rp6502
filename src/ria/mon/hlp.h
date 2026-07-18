@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "mon/mon.h"
+#include "ria/mon/mon.h"
 
 /* Monitor commands
  */

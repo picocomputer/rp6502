@@ -7,12 +7,12 @@
 
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
-#include "sys/vga.h"
-#include "term/term.h"
-#include "term/font.h"
-#include "scanvideo/scanvideo.h"
+#include "emu/sys/pix.h"
+#include "emu/chips/rp6502.h"
+#include "emu/sys/vga.h"
+#include "vga/term/term.h"
+#include "vga/term/font.h"
+#include "emu/scanvideo/scanvideo.h"
 #include <string.h>
 
 /* Current canvas geometry. The boot console is 640x480. */

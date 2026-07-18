@@ -12,8 +12,8 @@
 #ifndef _EMU_TESTS_STDSYS_H_
 #define _EMU_TESTS_STDSYS_H_
 
-#include "api/api.h"
-#include "api/std.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
 #include "emu/sys/mem.h"
 #include "dirsys.h"
 #include <stdint.h>

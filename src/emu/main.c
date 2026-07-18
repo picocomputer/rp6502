@@ -24,9 +24,6 @@
 #include "emu/hid/pad.h"
 #include "emu/hid/tab.h"
 #include "emu/chips/rp6502.h"
-/* Firmware handler decls, ria/-qualified: a bare "api/std.h" or "aud/aud.h" from
- * this root file would bind to the emu/api/ and emu/aud/ shadows beside it, not
- * the firmware headers that declare aud_init and the *_api_* op handlers. */
 #include "ria/api/api.h"
 #include "ria/api/atr.h"
 #include "ria/api/std.h"
@@ -38,12 +35,12 @@
 #include "ria/aud/opl.h"
 #include "ria/str/rln.h"
 #include "ria/str/str.h"
-#include "term/term.h" /* no emu/term shadow; resolves to vga/term */
-#include "modes/mode1.h"
-#include "modes/mode2.h"
-#include "modes/mode3.h"
-#include "modes/mode4.h"
-#include "modes/mode5.h"
+#include "vga/term/term.h"
+#include "vga/modes/mode1.h"
+#include "vga/modes/mode2.h"
+#include "vga/modes/mode3.h"
+#include "vga/modes/mode4.h"
+#include "vga/modes/mode5.h"
 #include <stdio.h>
 #include <string.h>
 

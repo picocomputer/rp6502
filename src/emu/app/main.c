@@ -5,8 +5,8 @@
  *
  */
 
-#include "api/oem.h"
-#include "str/str.h"
+#include "ria/api/oem.h"
+#include "ria/str/str.h"
 #include "emu/api/pro.h"
 #include "emu/app/window.h"
 #include "emu/plat.h"
@@ -23,7 +23,7 @@
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
-#include "sys/com.h"
+#include "emu/sys/com.h"
 #include <stdio.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER

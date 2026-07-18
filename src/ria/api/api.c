@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "sys/cpu.h"
-#include "sys/ria.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/sys/cpu.h"
+#include "ria/sys/ria.h"
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_API)
 #include <stdio.h>

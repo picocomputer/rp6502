@@ -33,7 +33,7 @@
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/api/pro.h"
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
 #include "emu/host/rom.h"

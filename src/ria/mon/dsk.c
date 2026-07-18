@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "mon/dsk.h"
-#include "mon/hlp.h"
-#include "mon/mon.h"
-#include "str/str.h"
-#include "sys/com.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
-#include "usb/msc.h"
-#include "usb/usb.h"
+#include "ria/main.h"
+#include "ria/mon/dsk.h"
+#include "ria/mon/hlp.h"
+#include "ria/mon/mon.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/ria.h"
+#include "ria/usb/msc.h"
+#include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
