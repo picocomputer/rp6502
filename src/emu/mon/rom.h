@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "emu/api/std.h" /* std_driver_t */
+#include "api/std.h" /* std_driver_t */
 
 /* CRC-32/ISO-HDLC (zlib). Shared by the ROM loader and the PNG writer. */
 uint32_t rom_crc32(uint32_t crc, const void *buf, size_t len);

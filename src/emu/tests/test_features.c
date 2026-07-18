@@ -10,7 +10,7 @@
  */
 
 #include "emu/api/pro.h"
-#include "emu/api/std.h"
+#include "api/std.h"
 #include "emu/aud/aud.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/mem.h"

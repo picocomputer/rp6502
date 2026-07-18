@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "emu/api/std.h" /* std_driver_t */
+#include "api/std.h" /* std_driver_t */
 
 #define MSC_MAX_PATH 4096 /* host path buffer size for msc_to_host callers */
 

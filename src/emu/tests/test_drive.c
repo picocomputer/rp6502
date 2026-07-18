@@ -13,7 +13,7 @@
  *     ria/api/fat.c driver), swapped in as the active dir vtable + file driver.
  */
 
-#include "emu/api/std.h"
+#include "api/std.h"
 #include "emu/mon/install.h"
 #include "emu/mon/rom.h"
 #include "emu/host/msc.h"

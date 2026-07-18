@@ -13,7 +13,7 @@
 
 #include "api/oem.h"
 #include "str/str.h"
-#include "emu/api/std.h"
+#include "api/std.h"
 #include "emu/mon/rom.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"

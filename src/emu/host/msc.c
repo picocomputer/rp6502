@@ -6,7 +6,7 @@
  */
 
 #include "api/api.h"
-#include "emu/api/std.h"
+#include "api/std.h"
 #include "emu/host/msc.h"
 #include "emu/plat.h"
 #include "emu/sys/mem.h"
