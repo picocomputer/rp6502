@@ -16,6 +16,12 @@
  * at startup without any xreg, matching real hardware. */
 void vga_boot_console(void);
 
+/* Arm a console reset for the next vga_task() when a program stops (firmware vga_stop). */
+void vga_stop(void);
+
+/* Perform an armed console reset via the DISPLAY xreg; call once per frame. */
+void vga_task(void);
+
 /* Select a canvas geometry (vga_canvas_t code from vga/sys/vga.h). Returns
  * false for an out-of-range code, leaving the canvas state unchanged. */
 bool vga_set_canvas(uint16_t canvas);

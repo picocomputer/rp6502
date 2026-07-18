@@ -7,6 +7,8 @@
 
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
+#include "sys/pix.h"
+#include "sys/ria.h"
 #include "sys/vga.h"
 #include "term/term.h"
 #include "term/font.h"
@@ -190,6 +192,26 @@ void vga_boot_console(void)
     font_init();
     term_init();
     vga_set_canvas(0); /* console = 640x480, installs the term program */
+}
+
+static bool vga_needs_reset;
+
+void vga_stop(void)
+{
+    /* Reset only on a real program stop (firmware vga_stop). ria_active() is
+     * always false in the emu — no chunked fast-loads — so every main_stop is an
+     * idle stop that arms, exactly as the firmware's exec/exit stop does. */
+    if (!ria_active())
+        vga_needs_reset = true;
+}
+
+void vga_task(void)
+{
+    if (vga_needs_reset)
+    {
+        vga_needs_reset = false;
+        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_get_display_type());
+    }
 }
 
 int vga_vsync_scanline(void)

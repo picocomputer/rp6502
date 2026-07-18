@@ -112,12 +112,12 @@ void main_run(void)
 }
 
 /* Stop the 6502 — the counterpart to ria/main.c's stop(), same order (cpu_stop
- * first). The emu omits the modules it has no analog for (pix/mid/mdm/rom/mon, and
- * the VGA canvas — the screen persists across an exec) and, deliberately, oem_stop:
- * the code page rings through. */
+ * first, vga_stop second). The emu omits the modules it has no analog for
+ * (pix/mid/mdm/rom/mon) and, deliberately, oem_stop: the code page rings through. */
 void main_stop(void)
 {
     cpu_stop(); /* must be first */
+    vga_stop(); /* arm the console reset (firmware stop() resets the VGA) */
     rln_stop();
     api_stop(); /* drop any latched op from the outgoing program */
     std_stop();
@@ -210,6 +210,8 @@ static void run_frame(bool render)
     }
     stop_swept = false;
 
+    vga_task(); /* perform an armed console reset before rendering this frame */
+
     const int vsync_line = vga_vsync_scanline();
     const int canvas_h = vga_canvas_height();
     const uint64_t frame_end_n = scanline_n + VGA_SCANLINES;
@@ -250,9 +252,9 @@ static void run_frame(bool render)
     aud_task();
 
     /* An exec committed this frame: load the new program and restart the CPU,
-     * keeping the master clock and the argv pro_api_exec stored. The terminal
-     * and VGA state are NOT reset — the new program's output appends to the
-     * existing screen, as on real hardware. */
+     * keeping the master clock and the argv pro_api_exec stored. main_stop arms
+     * the console reset (vga_task performs it before the new program draws), as on
+     * real hardware; the screen text survives (preserve-screen terminal RIS). */
     const char *exec_path = pro_take_exec();
     if (exec_path)
     {
@@ -263,7 +265,7 @@ static void run_frame(bool render)
             s_exit_code = 1; /* stays halted from main_stop */
         }
         else
-            main_run(); /* start the incoming program; keeps VSYNC + screen */
+            main_run(); /* start the incoming program; keeps VSYNC + clock */
     }
 }
 
@@ -305,11 +307,14 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
     return false;
 }
 
+/* The VGA mode-xreg accumulator, shared by channel 0 (CANVAS/MODE) and channel 15
+ * (DISPLAY, which clears it) — mirrors the file-level xregs in vga/sys/pix.c. */
+static uint16_t xregs[16];
+
 bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
 {
     if (channel == 0)
     {
-        static uint16_t xregs[16];
         xregs[address & 0x0F] = word;
         if (address == 0)
         {
@@ -352,10 +357,23 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
         }
         return true; /* parameter register stored */
     }
-    /* Channels 1-14 reach external bus devices with no ACK, so hardware returns
-     * success; the emulator has none, so it is a no-op success. Channel 15 is
-     * the RIA-private VGA control channel — NAK. */
-    return channel != 0x0F;
+    if (channel == 0x0F)
+    {
+        /* VGA control channel — RIA-private (guest writes NAK in pix_api_xreg).
+         * Mirrors vga/sys/pix.c pix_ch15_xreg; only registers with an emu analog
+         * are handled. */
+        if (address == 0x00) /* DISPLAY: also resets to the console canvas */
+        {
+            vga_set_canvas(vga_canvas_console); /* == firmware vga_xreg_canvas(NULL) */
+            term_RIS_no_clear();                /* preserve-screen terminal RIS */
+            memset(xregs, 0, sizeof(xregs));
+            return true;
+        }
+        return false; /* no emu analog for the other control registers */
+    }
+    /* Channels 1-14 reach external bus devices with no ACK; the emulator has none,
+     * so a no-op success. */
+    return true;
 }
 
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir

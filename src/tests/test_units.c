@@ -47,7 +47,7 @@ UTEST(xreg, device_channel_dispatch)
 {
     ASSERT_TRUE(main_xreg_0(0, 0, 0));  /* RIA-local devices: accepted (stub) */
     ASSERT_TRUE(main_xreg_1(0, 0, 3));  /* VGA canvas 640x480 */
-    ASSERT_FALSE(main_xreg_1(15, 0, 0)); /* VGA control channel is RIA-private (NAK) */
+    ASSERT_FALSE(main_xreg_1(15, 1, 0)); /* VGA control channel: reg 0 is DISPLAY, other regs have no emu analog (NAK) */
     ASSERT_TRUE(pix_send(2, 0, 0, 0));  /* PIX device 2-7: over the bus, no ACK, AX=0 (firmware parity) */
     ASSERT_TRUE(main_xreg_1(5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
