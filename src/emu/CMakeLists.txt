@@ -28,7 +28,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/api/clk.c
     ${RP6502_SRC}/emu/api/pro.c
-    ${RP6502_SRC}/emu/api/std_drivers.c
     ${RP6502_SRC}/emu/aud/aud.c
     ${RP6502_SRC}/emu/chips/w65c02.c
     ${RP6502_SRC}/emu/dbg/dbg.c
@@ -167,8 +166,8 @@ endif()
 # Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
     ${RP6502_SRC}/emu/shim
-    ${RP6502_SRC}/vga
     ${RP6502_SRC}/ria
+    ${RP6502_SRC}/vga
     ${RP6502_VENDOR}/fatfs
     ${RP6502_SRC}
     ${RP6502_VENDOR}

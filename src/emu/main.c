@@ -12,6 +12,7 @@
 #include "emu/dbg/dbg.h"
 #include "emu/host/msc.h"
 #include "emu/host/rom.h"
+#include "emu/host/tmp.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
@@ -468,4 +469,24 @@ bool main_api(uint8_t operation)
 {
     api_op_fn fn = operation < 0x40 ? api_ops[operation] : NULL;
     return fn ? fn() : api_return_errno(API_ENOSYS);
+}
+
+/* The RAM FatFs (the shared fat_std_* driver) claims MSC0: only while
+ * --tmpdrive is mounted; otherwise the host catch-all reclaims it. */
+static bool fat_handles(const char *path)
+{
+    (void)path;
+    return tmp_active();
+}
+
+static const std_driver_t std_drivers[] = {
+    {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
+    {fat_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
+    {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
+};
+
+const std_driver_t *main_std_drivers(size_t *count)
+{
+    *count = sizeof(std_drivers) / sizeof(std_drivers[0]);
+    return std_drivers;
 }

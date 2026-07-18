@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "api/std.h"
 
 /* This manages the main loop for the operating system.
  * Device drivers (everything is a device driver) are notified of various
@@ -46,5 +47,8 @@ void main_task(void);
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word);
 bool main_api(uint8_t operation);
+
+// This platform's stdio driver table (built in its main.c).
+const std_driver_t *main_std_drivers(size_t *count);
 
 #endif /* _RIA_MAIN_H_ */
