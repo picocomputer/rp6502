@@ -126,6 +126,15 @@ static bool g_active;
 
 bool tmp_active(void) { return g_active; }
 
+/* The `handles` predicate for the shared fat_std_* file driver (std.c's table):
+ * claim MSC0: only while --tmpdrive is mounted; otherwise the host catch-all
+ * reclaims it. */
+bool tmp_std_handles(const char *path)
+{
+    (void)path;
+    return tmp_active();
+}
+
 /* --tmpdrive: format a fresh RAM FatFs and make it the active MSC0: backend. The
  * 6502 dir syscalls run the REAL firmware fat_api_* (ria/api/fat.c) over this RAM
  * FatFs; the file syscalls run the shared fat_std_* driver. */
