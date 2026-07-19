@@ -24,6 +24,7 @@ extern "C"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
+#include "ria/api/oem.h" /* oem_get_code_page_run (RIA panel status) */
 #include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
@@ -637,6 +638,7 @@ void dbgui_init(void)
     ui_m6522_desc_t vd{};
     vd.title = "MOS 65C22 (VIA)";
     vd.via = via;
+    vd.regs_base = VIA_WINDOW_LO; /* the VIA is mapped at $FFD0-$FFDF, not $0000 */
     vd.x = 420;
     vd.y = 360;
     vd.open = false;
