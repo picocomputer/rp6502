@@ -582,8 +582,9 @@ void window_core_frame(void)
 bool window_core_boot_rom(const char *path)
 {
 #ifdef EMU_WITH_DEBUGGER
-    if (dbg_is_active())
-        return false; /* a DAP session owns the machine's run state */
+    if (dap_is_active())
+        return false; /* a DAP client owns the run state; a plain --debug session
+                       * lets you drop a ROM to boot it */
 #endif
     /* The host hands a UTF-8 path; everything below the entry is guest OEM.
      * A lossy conversion can never open (0x7F substitutions name no file), so

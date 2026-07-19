@@ -18,6 +18,10 @@
  * stopped. Call once, after main_init(). */
 void dap_start(void);
 
+/* True once dap_start created the session — a DAP client owns the machine's run
+ * state (so a plain --debug overlay does not). False without --dap. */
+bool dap_is_active(void);
+
 /* ROM argv[1..] used when a launch request carries no args of its own.
  * Call before dap_start. */
 void dap_set_default_args(int argc, char **argv);

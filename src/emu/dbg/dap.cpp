@@ -1387,6 +1387,11 @@ extern "C" void dap_set_default_args(int argc, char **argv)
     g_default_args.assign(argv, argv + argc);
 }
 
+extern "C" bool dap_is_active(void)
+{
+    return g_session != nullptr; /* only dap_start() creates it; plain --debug never does */
+}
+
 extern "C" void dap_start(void)
 {
     dbg_set_stopped_cb(on_stopped);

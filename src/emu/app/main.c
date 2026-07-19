@@ -227,6 +227,8 @@ int main(int argc, char **argv)
             return 2;
         }
         apply_options(&o);
+        if (o.debug)
+            dbg_set_active(true); /* show the debugger overlay while waiting for a drop */
         cpu_set_halted(true); /* held until a dropped .rp6502 boots one */
         return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
     }
