@@ -45,4 +45,13 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 void rom_assets_reset(void); /* forget the asset directory (a new program replaces it) */
 
+/* Read a named asset from the loaded ROM into buf (NUL-terminated, truncated to
+ * bufsz-1). Returns bytes read, or -1 if no ROM is loaded or the asset is absent.
+ * Host-side reader for the debugger's ROM Help viewer. */
+long rom_read_asset(const char *name, char *buf, size_t bufsz);
+
+/* Bumped on each successful rom_load; the ROM Help viewer watches it to re-read
+ * the help asset when the loaded ROM changes while the window is open. */
+uint32_t rom_generation(void);
+
 #endif /* _EMU_HOST_ROM_H_ */

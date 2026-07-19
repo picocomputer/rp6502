@@ -31,6 +31,7 @@ extern "C"
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
 #include "emu/app/window.h"      /* window-scale presets */
+#include "emu/host/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
 #include "emu/app/credits.h" /* EMU_CREDITS */
 #include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
@@ -61,6 +62,7 @@ extern "C"
 
 #include <cstdio>  /* snprintf, sscanf */
 #include <cstring> /* strcmp (ini section match) */
+#include <cmath>   /* fabsf (font-scale snap) */
 
 static ui_dbg_t g_dbg;
 static ui_w65c02_t g_cpuwin;
@@ -71,24 +73,34 @@ static ui_rp6502_t g_ria;
 static ui_dasm_t g_dasm;
 static ui_audio_t g_audio;
 static bool g_inited;
-static bool g_control_open = false; /* the native "Debug Control" window */
-static bool g_credits_open = false; /* the native "Credits" about box */
+static bool g_control_open = false;  /* the native "Debug Control" window */
+static bool g_credits_open = false;  /* the native "Credits" about box */
+static bool g_rom_help_open = false; /* the loaded ROM's "help" asset viewer */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
-/* UI font size (px). Native ProggyClean is 13; the View menu offers integer and
- * half-step multiples (13 * {1, 1.5, 2, 2.5, 3}). Applied as style.FontSizeBase
- * each frame in dbgui_new_frame; persisted via the [RP6502UI][Font] ini section. */
-static const int DBGUI_FONT_SIZES[] = {13, 19, 20, 26, 32, 33, 39};
-static float g_font_size = 13.0f;
-
-/* Select the UI font size, but only one of the offered sizes; mark the ini dirty
- * so the choice survives a restart (a font change alone doesn't dirty ImGui). */
-static void dbgui_set_font_px(int px)
+/* UI font scale. Native ProggyClean is DBGUI_FONT_BASE px; the View menu offers
+ * these multipliers, applied as style.FontSizeBase = base * scale each frame in
+ * dbgui_new_frame and persisted via the [RP6502UI][Font] ini section. */
+static const float DBGUI_FONT_BASE = 13.0f;
+static const struct
 {
-    for (int s : DBGUI_FONT_SIZES)
-        if (s == px && (int)(g_font_size + 0.5f) != px)
+    float scale;
+    const char *label;
+} DBGUI_FONT_SCALES[] = {
+    {1.0f, "1.0x"}, {1.25f, "1.25x"}, {1.5f, "1.5x"},
+    {1.75f, "1.75x"}, {2.0f, "2.0x"}, {2.5f, "2.5x"},
+};
+static float g_font_scale = 1.0f;
+
+/* Select the UI font scale, snapping to one of the offered multipliers; mark the
+ * ini dirty so the choice survives a restart (a font change alone doesn't dirty
+ * ImGui). */
+static void dbgui_set_font_scale(float scale)
+{
+    for (auto &e : DBGUI_FONT_SCALES)
+        if (fabsf(e.scale - scale) < 0.01f && g_font_scale != e.scale)
         {
-            g_font_size = (float)px;
+            g_font_scale = e.scale;
             ImGui::GetIO().WantSaveIniSettings = true;
             return;
         }
@@ -289,14 +301,40 @@ static void draw_credits(void)
     {
         ImGui::Image(g_credits_icon_texid, ImVec2(64, 64));
         ImGui::SameLine();
-        /* Native 13px base, not style.FontSizeBase (which the Font Size menu varies),
-         * so the title stays balanced with the fixed 64px icon at any UI font size. */
-        ImGui::PushFont(nullptr, 13.0f * CREDITS_TITLE_SCALE);
+        /* Native base, not style.FontSizeBase (which the Font Size menu varies), so
+         * the title stays balanced with the fixed 64px icon at any UI font size. */
+        ImGui::PushFont(nullptr, DBGUI_FONT_BASE * CREDITS_TITLE_SCALE);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (64.0f - ImGui::GetTextLineHeight()) * 0.5f);
         ImGui::TextUnformatted("RP6502-EMU");
         ImGui::PopFont();
         ImGui::Spacing();
         ImGui::TextUnformatted(EMU_CREDITS);
+    }
+    ImGui::End();
+}
+
+/* The loaded ROM's "help" asset (UTF-8), word-wrapped. Re-read whenever a new ROM
+ * loads (rom_generation) while the window is open, so dropping a ROM refreshes it;
+ * the asset is the same one the monitor's HELP shows. */
+static void draw_rom_help(void)
+{
+    static char help[32 * 1024];
+    static bool have_help;
+    static uint32_t seen_gen; /* ROM generation the cached text reflects */
+    uint32_t gen = rom_generation();
+    if (g_rom_help_open && gen != seen_gen)
+    {
+        have_help = rom_read_asset("help", help, sizeof help) >= 0;
+        seen_gen = gen;
+    }
+    if (!g_rom_help_open)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(560, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("ROM Help", &g_rom_help_open))
+    {
+        ImGui::PushTextWrapPos(0.0f); /* wrap at the window's right edge */
+        ImGui::TextUnformatted(have_help ? help : "This ROM has no help.");
+        ImGui::PopTextWrapPos();
     }
     ImGui::End();
 }
@@ -393,6 +431,7 @@ static void dbgui_collect_settings(void)
     ui_audio_save_settings(&g_audio, &g_settings);
     ui_settings_add(&g_settings, "Debug Control", g_control_open);
     ui_settings_add(&g_settings, "Credits", g_credits_open);
+    ui_settings_add(&g_settings, "ROM Help", g_rom_help_open);
 }
 
 /* A bit signature of every window's open flag, for cheap per-frame change
@@ -434,6 +473,7 @@ static void chips_ini_applyall(ImGuiContext *, ImGuiSettingsHandler *)
     ui_audio_load_settings(&g_audio, &g_settings);
     g_control_open = ui_settings_isopen(&g_settings, "Debug Control");
     g_credits_open = ui_settings_isopen(&g_settings, "Credits");
+    g_rom_help_open = ui_settings_isopen(&g_settings, "ROM Help");
 }
 static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
@@ -455,13 +495,13 @@ static void *rp6502ui_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const
 }
 static void rp6502ui_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
 {
-    int px = 0;
-    if (std::sscanf(line, "Size=%i", &px) == 1)
-        dbgui_set_font_px(px); /* ignores an out-of-set value */
+    float scale = 0.0f;
+    if (std::sscanf(line, "Scale=%f", &scale) == 1)
+        dbgui_set_font_scale(scale); /* snaps to / ignores an out-of-set value */
 }
 static void rp6502ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
-    buf->appendf("[%s][Font]\nSize=%d\n\n", handler->TypeName, (int)(g_font_size + 0.5f));
+    buf->appendf("[%s][Font]\nScale=%g\n\n", handler->TypeName, g_font_scale);
 }
 
 /* The [RP6502][Launch] block and the dummy [Window][Manager] entry ride in
@@ -586,17 +626,13 @@ static void dbgui_draw_menu(void)
             }
             if (ImGui::BeginMenu("Font Size"))
             {
-                int cur_px = (int)(g_font_size + 0.5f);
-                for (int px : DBGUI_FONT_SIZES)
-                {
-                    char label[8];
-                    std::snprintf(label, sizeof label, "%d px", px);
-                    if (ImGui::MenuItem(label, nullptr, cur_px == px))
-                        dbgui_set_font_px(px);
-                }
+                for (auto &e : DBGUI_FONT_SCALES)
+                    if (ImGui::MenuItem(e.label, nullptr, g_font_scale == e.scale))
+                        dbgui_set_font_scale(e.scale);
                 ImGui::EndMenu();
             }
             ImGui::Separator();
+            ImGui::MenuItem("ROM Help", nullptr, &g_rom_help_open);
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
@@ -828,7 +864,7 @@ void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale)
 {
     /* Set before simgui_new_frame: ImGui::NewFrame latches style.FontSizeBase for
      * the whole frame (UpdateFontsNewFrame), so this applies without a frame lag. */
-    ImGui::GetStyle().FontSizeBase = g_font_size;
+    ImGui::GetStyle().FontSizeBase = DBGUI_FONT_BASE * g_font_scale;
     simgui_frame_desc_t fd{};
     fd.width = width;
     fd.height = height;
@@ -951,6 +987,7 @@ void dbgui_draw(void)
         g_canvas_valid = false;
     draw_control();
     draw_credits();
+    draw_rom_help();
     ui_rp6502_draw(&g_ria);
 
     /* dbg.c is the authoritative run/stop engine + EXEC breakpoint store (shared

@@ -31,6 +31,7 @@
  * these; the MSC0: drive beside them is untouched. */
 static char g_rom_src[MSC_MAX_PATH];
 static size_t g_rom_assets_start;
+static uint32_t g_rom_generation; /* bumped per successful rom_load; ROM Help watches it */
 
 static long fgets_line(FILE *f, char *line, size_t cap);
 static bool parse_u32(const char **pp, uint32_t *out);
@@ -90,6 +91,33 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
     fclose(f);
     return found;
 }
+
+/* Read a named asset from the loaded ROM into buf (NUL-terminated). Returns bytes
+ * read (< bufsz), or -1 if no ROM is loaded or the asset is absent. Host-side
+ * reader for the debugger's ROM Help viewer; the guest reads assets via ROM:. */
+long rom_read_asset(const char *name, char *buf, size_t bufsz)
+{
+    if (!buf || bufsz == 0)
+        return -1;
+    buf[0] = 0;
+    size_t base, len;
+    if (!rom_find_asset(name, &base, &len))
+        return -1;
+    FILE *f = fs_fopen_rd(g_rom_src);
+    if (!f)
+        return -1;
+    long got = -1;
+    if (fseek(f, (long)base, SEEK_SET) == 0)
+    {
+        size_t want = (len < bufsz - 1) ? len : bufsz - 1;
+        got = (long)fread(buf, 1, want, f);
+        buf[got] = 0;
+    }
+    fclose(f);
+    return got;
+}
+
+uint32_t rom_generation(void) { return g_rom_generation; }
 
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
@@ -527,5 +555,6 @@ bool rom_load(const char *path)
         fprintf(stderr, "rp6502-emu: ROM has no reset vector ($FFFC/$FFFD)\n");
         return false;
     }
+    g_rom_generation++;
     return true;
 }
