@@ -749,6 +749,16 @@ static void prompt_dashed_border(float x, float y, float w, float h, float rad,
     sgl_end();
 }
 
+/* GPU resources for the prompt masthead icon, created once in
+ * window_core_prompt_setup (live for the app lifetime, like sgl/sdtx). */
+static struct
+{
+    sg_image img;
+    sg_view view;
+    sg_sampler smp;
+    sgl_pipeline pip; /* alpha blend; the default sgl pipeline is opaque */
+} prompt_icon;
+
 void window_core_prompt_setup(void)
 {
     sdtx_setup(&(sdtx_desc_t){
@@ -763,6 +773,64 @@ void window_core_prompt_setup(void)
         .sample_count = sapp_sample_count(),
         .logger.func = slog_func,
     });
+
+    const sapp_image_desc *ico = &icon_desc()->images[2]; /* 64x64 */
+    prompt_icon.img = sg_make_image(&(sg_image_desc){
+        .width = ico->width,
+        .height = ico->height,
+        .pixel_format = SG_PIXELFORMAT_RGBA8,
+        .data.mip_levels[0] = {.ptr = ico->pixels.ptr, .size = ico->pixels.size},
+    });
+    prompt_icon.view = sg_make_view(&(sg_view_desc){.texture.image = prompt_icon.img});
+    prompt_icon.smp = sg_make_sampler(&(sg_sampler_desc){
+        .min_filter = SG_FILTER_LINEAR,
+        .mag_filter = SG_FILTER_LINEAR,
+        .wrap_u = SG_WRAP_CLAMP_TO_EDGE,
+        .wrap_v = SG_WRAP_CLAMP_TO_EDGE,
+    });
+    prompt_icon.pip = sgl_make_pipeline(&(sg_pipeline_desc){
+        .colors[0].blend = {
+            .enabled = true,
+            .src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA,
+            .dst_factor_rgb = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            .src_factor_alpha = SG_BLENDFACTOR_ONE,
+            .dst_factor_alpha = SG_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+        },
+    });
+}
+
+/* Textured quad for the masthead icon: a blend-enabled sgl pipeline over the
+ * opaque default so the icon's transparent margin composites cleanly. Emitted
+ * into the same sgl recording as the card, before sgl_draw. */
+static void prompt_icon_draw(float x, float y, float sz)
+{
+    sgl_load_pipeline(prompt_icon.pip);
+    sgl_enable_texture();
+    sgl_texture(prompt_icon.view, prompt_icon.smp);
+    sgl_begin_quads();
+    sgl_c3b(255, 255, 255);
+    sgl_v2f_t2f(x, y, 0.0f, 0.0f);
+    sgl_v2f_t2f(x + sz, y, 1.0f, 0.0f);
+    sgl_v2f_t2f(x + sz, y + sz, 1.0f, 1.0f);
+    sgl_v2f_t2f(x, y + sz, 0.0f, 1.0f);
+    sgl_end();
+    sgl_disable_texture();
+    sgl_load_default_pipeline();
+}
+
+/* Accumulate one sdtx line at an arbitrary glyph height (px); x_px/y_px is its
+ * top-left. Sets its own canvas so the glyph size is independent of the bubble's
+ * grid (sdtx bakes each glyph's position at emit time). The caller flushes with a
+ * single sdtx_draw. */
+static void prompt_text_line(const char *s, float gh, float x_px, float y_px,
+                             float w, float h, const uint8_t col[3])
+{
+    float tcols = w / gh; /* canvas columns so each cell is gh window px */
+    sdtx_canvas(tcols * 8.0f, tcols * 8.0f * h / w);
+    sdtx_origin(0.0f, 0.0f);
+    sdtx_color3b(col[0], col[1], col[2]);
+    sdtx_pos(x_px / gh, y_px / gh);
+    sdtx_puts(s);
 }
 
 void window_core_draw_prompt(const char *line1, const char *line2)
@@ -771,8 +839,10 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     if (w < 1.0f || h < 1.0f)
         return;
 
-    const uint8_t ink[3] = {0xc2, 0xca, 0xd6};   /* dashes + text (soft light) */
-    const uint8_t paper[3] = {0x26, 0x2b, 0x35}; /* dark card fill */
+    const uint8_t ink[3] = {0xc2, 0xca, 0xd6};       /* dashes + text (soft light) */
+    const uint8_t paper[3] = {0x26, 0x2b, 0x35};     /* dark card fill */
+    const uint8_t title_col[3] = {0xe8, 0xec, 0xf4}; /* RP6502-EMU masthead (bright) */
+    const uint8_t link_col[3] = {0x7f, 0xb8, 0xf0};  /* docs URL (hyperlink blue) */
 
     /* Lay the two lines out on a 40-column grid mapped to the window; a square
      * glyph keeps the box and text proportional at any window aspect. */
@@ -791,6 +861,23 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     float border = glyph * 0.42f; /* heavy */
     float rad = glyph * 1.3f;
 
+    /* Masthead (icon + title) centered above the card; docs URL centered below.
+     * All in window px on the same y-down grid as the card. */
+    const char *emu_title = "RP6502-EMU";
+    const char *docs_url = "https://picocomputer.github.io/";
+    float icon_sz = glyph * 4.0f;   /* native 64px at a 640-wide window */
+    float title_gh = glyph * 2.2f;  /* masthead title glyph height */
+    float it_gap = glyph * 0.6f;    /* icon-to-title gap */
+    float gap = glyph * 1.3f;       /* card-to-masthead and card-to-URL spacing */
+    float mast_w = icon_sz + it_gap + (float)strlen(emu_title) * title_gh;
+    float mast_x = (w - mast_w) * 0.5f;
+    float mast_top = by - gap - icon_sz;
+    float title_x = mast_x + icon_sz + it_gap;
+    float title_y = mast_top + (icon_sz - title_gh) * 0.5f;
+    float url_gh = glyph;
+    float url_x = (w - (float)strlen(docs_url) * url_gh) * 0.5f;
+    float url_y = by + bh + gap;
+
     sgl_defaults();
     sgl_matrix_mode_projection();
     sgl_load_identity();
@@ -799,6 +886,7 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     prompt_dashed_border(bx + border * 0.5f, by + border * 0.5f, bw - border,
                          bh - border, rad - border * 0.5f, border,
                          glyph * 1.0f, glyph * 0.7f, ink[0], ink[1], ink[2]);
+    prompt_icon_draw(mast_x, mast_top, icon_sz);
     sgl_draw();
 
     /* Lines over the card, in the dash color, each centered on the same grid. */
@@ -809,6 +897,12 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     sdtx_puts(line1);
     sdtx_pos((float)(cols - len2) * 0.5f, row2);
     sdtx_puts(line2);
+
+    /* Accumulate the masthead title and docs URL into the same sdtx buffer, then
+     * flush once: sdtx uploads its vertices on the first sdtx_draw of the frame
+     * only, so a draw between blocks would drop everything emitted after it. */
+    prompt_text_line(emu_title, title_gh, title_x, title_y, w, h, title_col);
+    prompt_text_line(docs_url, url_gh, url_x, url_y, w, h, link_col);
     sdtx_draw();
 }
 
