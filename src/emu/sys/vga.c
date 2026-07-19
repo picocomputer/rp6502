@@ -183,13 +183,8 @@ void vga_set_code_page(uint16_t cp)
     font_set_code_page(cp);
 }
 
-void vga_boot_console(void)
+void vga_init(void)
 {
-    /* Rebuilds the glyph tables and loads the default code page (437), matching
-     * the oem module's cold-boot default so the font and the CODE_PAGE attribute
-     * agree at boot. font_init is idempotent, so this is safe on every main_init. */
-    font_init();
-    term_init();
     vga_set_canvas(0); /* console = 640x480, installs the term program */
 }
 

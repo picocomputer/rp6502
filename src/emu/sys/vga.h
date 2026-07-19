@@ -14,7 +14,7 @@
 
 /* Install the boot console canvas (640x480 term) so the terminal renders
  * at startup without any xreg, matching real hardware. */
-void vga_boot_console(void);
+void vga_init(void);
 
 /* Arm a console reset for the next vga_task() when a program stops (firmware vga_stop). */
 void vga_stop(void);

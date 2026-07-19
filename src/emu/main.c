@@ -35,6 +35,7 @@
 #include "ria/aud/opl.h"
 #include "ria/str/rln.h"
 #include "ria/str/str.h"
+#include "vga/term/font.h"
 #include "vga/term/term.h"
 #include "vga/modes/mode1.h"
 #include "vga/modes/mode2.h"
@@ -69,18 +70,20 @@ uint64_t main_clock_8(void) { return master_8; }
 void main_init(void)
 {
     pro_init();
-    cpu_init(); /* adopt the loaded PHI2 config (or the built-in default) */
+    cpu_init();
     master_8 = 0;
     scanline_n = 0;
     s_frame_count = 0;
-    aud_init(); /* standing BEL + a clean host ring */
-    com_init(); /* flush queued input; BEL default */
-    std_init(); /* console streams fd 0-4 */
-    rln_init(); /* line editor (rln_stop re-inits it per program stop) */
-    clk_init(); /* adopt the host timezone/locale */
-    str_init(); /* apply the default locale, seeding the code page (EN=437) */
-    oem_init(); /* resolve the code page: loaded config, else the locale default */
-    vga_boot_console(); /* font_init loads that same default into the font */
+    aud_init();
+    com_init();
+    std_init();
+    rln_init();
+    clk_init();
+    str_init();
+    oem_init();
+    font_init();
+    term_init();
+    vga_init();
 }
 
 /* ------------------------------------------------------------------ */
@@ -117,7 +120,7 @@ void main_stop(void)
     cpu_stop(); /* must be first */
     vga_stop(); /* arm the console reset (firmware stop() resets the VGA) */
     rln_stop();
-    api_stop(); /* drop any latched op from the outgoing program */
+    api_stop();
     std_stop();
     fat_stop();
     msc_stop();

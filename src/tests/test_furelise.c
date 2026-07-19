@@ -89,7 +89,7 @@ UTEST(furelise, reset_silences)
 
 /* furelise prints its title "Für Elise" — the 'ü' is a CP437 high-half glyph
  * (byte 0x81). It must actually render, not blank. Regression guard for the font
- * high-half loading: vga_boot_console's font_init (run once at main_init) must
+ * high-half loading: font_init (run once at main_init) must
  * load the high half, not leave 0x80-0xFF blank ("F r Elise"). */
 UTEST(furelise, umlaut_renders)
 {
