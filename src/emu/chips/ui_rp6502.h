@@ -127,12 +127,17 @@ void ui_rp6502_draw(ui_rp6502_t *win)
     ImGui::SetNextWindowSize(ImVec2(win->init_w, win->init_h), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(win->title, &win->open))
     {
-        /* Pins: the bus as the RIA chip last decoded it (ria_chip()->PINS), RREQ
-         * lit when the RIA window is the addressed device. */
+        /* Pins: the bus as the RIA chip last decoded it (ria_chip()->PINS) — IRQ
+         * already rides in it (ria_tick drives M6502_IRQ from ria_irq_asserted).
+         * Overlaid: RREQ lit when the RIA window is the addressed device, and RES
+         * lit while the RIA holds the 6502 in reset (between a stop and the next
+         * run — cpu_halted(), which is not the debugger's mid-run pause). */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
         uint16_t a = (uint16_t)(p & 0xFFFFu);
         if (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI)
             p |= RIA_PIN_RREQ;
+        if (cpu_halted())
+            p |= M6502_RES;
         ImGui::BeginChild("##ria_pins", ImVec2(176, 0), true);
         ui_chip_draw(&win->chip, p);
         ImGui::EndChild();
@@ -140,15 +145,13 @@ void ui_rp6502_draw(ui_rp6502_t *win)
         ImGui::BeginChild("##ria_state", ImVec2(0, 0), true);
 
         /* Internal latches the memory-mapped register file doesn't carry: the
-         * xstack pointer (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF]),
-         * whether an enabled IRQ source is currently driving IRQB (the $FFF0
-         * enable mask is write-only from the bus), and the running code page /
-         * PHI2 (config settings with no bus register). */
+         * xstack pointer (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF])
+         * and the running code page / PHI2 (config settings with no bus register).
+         * The RIA's IRQ assertion shows on the IRQ pin (driven by ria_tick). */
         if (ImGui::CollapsingHeader("Status", ImGuiTreeNodeFlags_DefaultOpen))
         {
             ImGui::Text("XSTACK SP:    $%03X", (unsigned)xstack_ptr);
-            ImGui::Text("IRQ asserted: %s", ria_irq_asserted() ? "yes" : "no");
-            ImGui::Text("Code page:    %u", (unsigned)oem_get_code_page_run());
+            ImGui::Text("CODE PAGE:    %u", (unsigned)oem_get_code_page_run());
             ImGui::Text("PHI2:         %u kHz", (unsigned)cpu_get_phi2_khz_run());
         }
 
