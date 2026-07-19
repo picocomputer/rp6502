@@ -157,8 +157,8 @@ static uint8_t mem_read(int layer, uint16_t addr, void *user)
     return mem_peek(addr);
 }
 
-/* ui_memedit callbacks. Layer 0 is the 6502 space ($0000-$FFFF; the RIA register
- * file lives in it at $FFE0); layer 1 is XRAM, which the system maps at $10000-$1FFFF (its
+/* ui_memedit callbacks. Layer 0 is RAM ($0000-$FFEF of the 6502 space; the RIA
+ * register file lives in it at $FFE0); layer 1 is XRAM, which the system maps at $10000-$1FFFF (its
  * own 64KB bank — the 6502 reaches it only through the RIA's RW0/RW1 windows);
  * layer 2 is the 512-byte RIA xstack ($000-$1FF, a top-down LIFO). dbgui_draw
  * scopes the window's max_addr to 512 while that layer is selected, so the editor
@@ -655,7 +655,7 @@ void dbgui_init(void)
      * 16-bit). */
     ui_memedit_desc_t med{};
     med.title = "Memory";
-    med.layers[0] = "CPU";
+    med.layers[0] = "RAM";
     med.layers[1] = "XRAM";
     med.layers[2] = "XSTACK";
     med.read_cb = memedit_read;
@@ -920,11 +920,13 @@ void dbgui_draw(void)
 
     ui_w65c02_draw(&g_cpuwin);
     ui_m6522_draw(&g_viawin);
-    /* The hex editor shares one max_addr across all layers; scope the XSTACK
-     * layer (2) to its 512 bytes so it doesn't show 64KB of 6502 space. CurLayer
-     * was chosen last frame and also keys the read/write callbacks, so the
-     * window size and the layer's data switch together (no mismatched frame). */
-    g_memedit.max_addr = (g_memedit.ed->CurLayer == 2) ? XSTACK_SIZE : 0x10000;
+    /* The hex editor shares one max_addr across all layers; scope each: XSTACK
+     * (layer 2) to its 512 bytes, RAM (layer 0) to $0000-$FFEF, else XRAM's full
+     * 64KB bank. CurLayer was chosen last frame and also keys the read/write
+     * callbacks, so the window size and the layer's data switch together. */
+    g_memedit.max_addr = (g_memedit.ed->CurLayer == 2)   ? XSTACK_SIZE
+                         : (g_memedit.ed->CurLayer == 0) ? 0xFFF0 /* RAM: $0000-$FFEF */
+                                                         : 0x10000;
     ui_memedit_draw(&g_memedit);
     ui_memmap_draw(&g_memmap);
     ui_dasm_draw(&g_dasm);
