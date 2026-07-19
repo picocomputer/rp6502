@@ -759,6 +759,15 @@ static struct
     sgl_pipeline pip; /* alpha blend; the default sgl pipeline is opaque */
 } prompt_icon;
 
+/* Docs link under the prompt bubble, and its on-screen hit box in framebuffer px
+ * (set each frame by window_core_draw_prompt) so a click can open it. */
+static const char PROMPT_DOCS_URL[] = "https://picocomputer.github.io/"; /* opened on click */
+static const char PROMPT_DOCS_TEXT[] = "picocomputer.github.io";         /* shown on screen */
+static struct
+{
+    float x, y, w, h;
+} prompt_url;
+
 void window_core_prompt_setup(void)
 {
     sdtx_setup(&(sdtx_desc_t){
@@ -841,8 +850,7 @@ void window_core_draw_prompt(const char *line1, const char *line2)
 
     const uint8_t ink[3] = {0xc2, 0xca, 0xd6};       /* dashes + text (soft light) */
     const uint8_t paper[3] = {0x26, 0x2b, 0x35};     /* dark card fill */
-    const uint8_t title_col[3] = {0xe8, 0xec, 0xf4}; /* RP6502-EMU masthead (bright) */
-    const uint8_t link_col[3] = {0x7f, 0xb8, 0xf0};  /* docs URL (hyperlink blue) */
+    const uint8_t title_col[3] = {0xe8, 0xec, 0xf4}; /* masthead + docs URL (bright) */
 
     /* Lay the two lines out on a 40-column grid mapped to the window; a square
      * glyph keeps the box and text proportional at any window aspect. */
@@ -864,19 +872,24 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     /* Masthead (icon + title) centered above the card; docs URL centered below.
      * All in window px on the same y-down grid as the card. */
     const char *emu_title = "RP6502-EMU";
-    const char *docs_url = "https://picocomputer.github.io/";
+    const char *docs_url = PROMPT_DOCS_TEXT;
     float icon_sz = glyph * 4.0f;   /* native 64px at a 640-wide window */
     float title_gh = glyph * 2.2f;  /* masthead title glyph height */
     float it_gap = glyph * 0.6f;    /* icon-to-title gap */
-    float gap = glyph * 1.3f;       /* card-to-masthead and card-to-URL spacing */
+    float gap = glyph * 1.3f;       /* card-to-masthead spacing */
     float mast_w = icon_sz + it_gap + (float)strlen(emu_title) * title_gh;
     float mast_x = (w - mast_w) * 0.5f;
     float mast_top = by - gap - icon_sz;
     float title_x = mast_x + icon_sz + it_gap;
     float title_y = mast_top + (icon_sz - title_gh) * 0.5f;
     float url_gh = glyph;
-    float url_x = (w - (float)strlen(docs_url) * url_gh) * 0.5f;
-    float url_y = by + bh + gap;
+    float url_w = (float)strlen(docs_url) * url_gh;
+    float url_x = (w - url_w) * 0.5f;
+    float url_y = by + bh + gap * 1.7f; /* sit a little below the card */
+    prompt_url.x = url_x;
+    prompt_url.y = url_y;
+    prompt_url.w = url_w;
+    prompt_url.h = url_gh;
 
     sgl_defaults();
     sgl_matrix_mode_projection();
@@ -902,8 +915,14 @@ void window_core_draw_prompt(const char *line1, const char *line2)
      * flush once: sdtx uploads its vertices on the first sdtx_draw of the frame
      * only, so a draw between blocks would drop everything emitted after it. */
     prompt_text_line(emu_title, title_gh, title_x, title_y, w, h, title_col);
-    prompt_text_line(docs_url, url_gh, url_x, url_y, w, h, link_col);
+    prompt_text_line(docs_url, url_gh, url_x, url_y, w, h, title_col);
     sdtx_draw();
+}
+
+static bool prompt_url_hit(float x, float y)
+{
+    return x >= prompt_url.x && x < prompt_url.x + prompt_url.w &&
+           y >= prompt_url.y && y < prompt_url.y + prompt_url.h;
 }
 
 void window_core_event(const sapp_event *e)
@@ -912,6 +931,22 @@ void window_core_event(const sapp_event *e)
     {
         host_window_files_dropped();
         return;
+    }
+    /* Docs link on the drop-a-ROM prompt: pointer cursor over it, open on click.
+     * prompt_url is only a real box while that prompt is the active overlay. */
+    if (host_window_menu_active())
+    {
+        if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
+            sapp_set_mouse_cursor(prompt_url_hit(e->mouse_x, e->mouse_y)
+                                      ? SAPP_MOUSECURSOR_POINTING_HAND
+                                      : SAPP_MOUSECURSOR_DEFAULT);
+        else if (e->type == SAPP_EVENTTYPE_MOUSE_UP &&
+                 e->mouse_button == SAPP_MOUSEBUTTON_LEFT &&
+                 prompt_url_hit(e->mouse_x, e->mouse_y))
+        {
+            host_window_open_url(PROMPT_DOCS_URL);
+            return;
+        }
     }
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_handle_event(e))

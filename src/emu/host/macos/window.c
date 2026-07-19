@@ -13,6 +13,8 @@
 #include "sokol_app.h"
 #include "sokol_log.h"
 #include <stdint.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 void host_window_resize(int w, int h) { (void)w, (void)h; }
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
@@ -44,6 +46,24 @@ void host_window_files_dropped(void)
 {
     if (window_core_boot_rom(sapp_get_dropped_file_path(0)))
         waiting_for_rom = false;
+}
+
+void host_window_open_url(const char *url)
+{
+    /* Fire-and-forget /usr/bin/open; double-fork so the grandchild reparents to
+     * launchd and leaves no zombie for us to reap. */
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        if (fork() == 0)
+        {
+            execl("/usr/bin/open", "open", url, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    if (pid > 0)
+        waitpid(pid, NULL, 0);
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)

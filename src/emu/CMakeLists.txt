@@ -279,7 +279,7 @@ else()
     set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
     if(WIN32)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
-        target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi)
+        target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32)
         # GUI subsystem so no console pops up; keep our main() (os_console_attach
         # reattaches stdio when launched from a terminal).
         if(MSVC)

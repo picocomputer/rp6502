@@ -402,6 +402,7 @@ bool rp6502_android_input_hook(const void* native_event)
 void host_window_resize(int w, int h) { (void)w, (void)h; }
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 void host_window_files_dropped(void) {} /* sokol has no Android drag-n-drop */
+void host_window_open_url(const char *url) { (void)url; } /* no desktop drop-a-ROM prompt */
 
 void host_window_init(void)
 {

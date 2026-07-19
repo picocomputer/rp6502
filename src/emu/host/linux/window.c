@@ -14,6 +14,8 @@
 #include "sokol_log.h"
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 /* The window tracks the canvas aspect two ways via the X11 handle sokol exposes:
  * a one-shot resize when the canvas changes, and a PAspect size hint that asks
@@ -92,6 +94,24 @@ void host_window_files_dropped(void)
 {
     if (window_core_boot_rom(sapp_get_dropped_file_path(0)))
         waiting_for_rom = false;
+}
+
+void host_window_open_url(const char *url)
+{
+    /* Fire-and-forget xdg-open; double-fork so the grandchild reparents to init
+     * and leaves no zombie for us to reap. */
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        if (fork() == 0)
+        {
+            execlp("xdg-open", "xdg-open", url, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    if (pid > 0)
+        waitpid(pid, NULL, 0);
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)

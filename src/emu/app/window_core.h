@@ -77,4 +77,8 @@ void host_window_menu_draw(void);
  * the hook never fires there. */
 void host_window_files_dropped(void);
 
+/* Open a URL in the user's default browser (desktop hosts; no-op on web/Android).
+ * Called when the docs link under the drop-a-ROM prompt is clicked. */
+void host_window_open_url(const char *url);
+
 #endif /* _EMU_APP_WINDOW_CORE_H_ */

@@ -15,6 +15,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
 #include "ria/api/oem.h"
 #include "emu/app/window.h"
@@ -107,6 +108,11 @@ void host_window_files_dropped(void)
     }
     if (window_core_boot_rom(shortu8))
         waiting_for_rom = false;
+}
+
+void host_window_open_url(const char *url)
+{
+    ShellExecuteA(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL);
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
