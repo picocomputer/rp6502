@@ -15,10 +15,8 @@
 #include "ria/main.h"
 #include "ria/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/usb/mid.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
-#include "ria/usb/vcp.h"
 #include "ria/usb/xin.h"
 #include <pico/time.h>
 #include <stdio.h>
@@ -133,17 +131,11 @@ int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     int count_gamepad = usb_count_hid_pad + xin_status_count();
-    int count_storage = msc_status_count();
-    int count_serial = vcp_status_count();
-    int count_midi = mid_status_count();
     int count_ep_free = hcd_free_ep_count();
     snprintf_utf8(buf, buf_size, STR_STATUS_USB,
                   usb_count_hid_kbd, usb_count_hid_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
                   usb_count_hid_mou, usb_count_hid_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                   count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
-                  count_storage, count_storage == 1 ? S(STR_STORAGE_SINGULAR) : S(STR_STORAGE_PLURAL),
-                  count_serial, count_serial == 1 ? S(STR_SERIAL_SINGULAR) : S(STR_SERIAL_PLURAL),
-                  count_midi, count_midi == 1 ? S(STR_MIDI_SINGULAR) : S(STR_MIDI_PLURAL),
                   count_ep_free, count_ep_free == 1 ? S(STR_EP_FREE_SINGULAR) : S(STR_EP_FREE_PLURAL));
     return -1;
 }

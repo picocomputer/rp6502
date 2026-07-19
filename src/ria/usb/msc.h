@@ -21,7 +21,6 @@
 /* Status
  */
 
-int msc_status_count(void);
 int msc_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* Disk utility (mon/dsk.c) support. A logical volume index (0..FF_VOLUMES-1)

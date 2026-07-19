@@ -68,15 +68,6 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
     return vcp_cdc_acm_name;
 }
 
-int vcp_status_count(void)
-{
-    int count = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
-        if (vcp_mounts[idx].mounted)
-            count++;
-    return count;
-}
-
 int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_CDC)

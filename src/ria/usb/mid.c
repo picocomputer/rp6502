@@ -788,15 +788,6 @@ void mid_task(void)
             tuh_midi_write_flush(itf);
 }
 
-int mid_status_count(void)
-{
-    int count = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
-        if (mid_mounts[idx].mounted)
-            count++;
-    return count;
-}
-
 int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_MIDI)

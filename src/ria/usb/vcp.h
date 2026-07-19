@@ -24,7 +24,6 @@ void vcp_task(void);
 /* Status
  */
 
-int vcp_status_count(void);
 int vcp_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* STDIO

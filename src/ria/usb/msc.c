@@ -1916,15 +1916,6 @@ void msc_dsk_reenumerate(uint8_t pdrv)
     f_mount(&msc_pdrv[pdrv].fatfs, volstr, 0);
 }
 
-int msc_status_count(void)
-{
-    int count = 0;
-    for (uint8_t vol = 0; vol < FF_VOLUMES; vol++)
-        if (msc_pdrv[vol].status != msc_volume_free)
-            count++;
-    return count;
-}
-
 // Some vendors pad their strings with spaces, others with zeros.
 // This will ensure zeros, which prints better.
 static void msc_inquiry_rtrim(uint8_t *s, size_t l)
