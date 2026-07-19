@@ -12,7 +12,7 @@
 #include "emu/sys/vga.h"
 #include "vga/term/term.h"
 #include "vga/term/font.h"
-#include "emu/scanvideo/scanvideo.h"
+#include "vga/scanvideo/pixel_format.h"
 #include <string.h>
 
 /* Current canvas geometry. The boot console is 640x480. */
@@ -41,19 +41,19 @@ static vga_prog_t g_prog[VGA_PROG_MAX];
 /* Highest scanline any program renders; vsync fires here (firmware parity). */
 static int16_t g_highest_scanline;
 
-/* RGB555(+alpha bit) -> RGBA8 (0xAABBGGRR) lookup. */
-static uint32_t g_lut[0x10000];
-
-static void build_lut(void)
+/* RGB555(+alpha bit) -> RGBA8 (0xAABBGGRR). Computed inline rather than through a
+ * 256 KB value-indexed table: the shifts vectorize, and keeping the cache free
+ * for the CPU core and framebuffer beats a table that thrashes on color-rich
+ * content (and it's a large fraction of L2 on the ARM/WASM targets). */
+static inline uint32_t rgb555_to_rgba8(uint16_t px)
 {
-    for (int p = 0; p < 0x10000; p++)
-    {
-        int r5 = p & 0x1F, g5 = (p >> 6) & 0x1F, b5 = (p >> 11) & 0x1F;
-        uint32_t r = (uint32_t)((r5 << 3) | (r5 >> 2));
-        uint32_t g = (uint32_t)((g5 << 3) | (g5 >> 2));
-        uint32_t b = (uint32_t)((b5 << 3) | (b5 >> 2));
-        g_lut[p] = r | (g << 8) | (b << 16) | 0xFF000000u;
-    }
+    uint32_t r5 = SCANVIDEO_R5_FROM_PIXEL(px);
+    uint32_t g5 = SCANVIDEO_G5_FROM_PIXEL(px);
+    uint32_t b5 = SCANVIDEO_B5_FROM_PIXEL(px);
+    uint32_t r = (r5 << 3) | (r5 >> 2);
+    uint32_t g = (g5 << 3) | (g5 >> 2);
+    uint32_t b = (b5 << 3) | (b5 >> 2);
+    return r | (g << 8) | (b << 16) | 0xFF000000u;
 }
 
 int16_t vga_canvas_height(void)
@@ -185,7 +185,6 @@ void vga_set_code_page(uint16_t cp)
 
 void vga_boot_console(void)
 {
-    build_lut();
     /* Rebuilds the glyph tables and loads the default code page (437), matching
      * the oem module's cold-boot default so the font and the CODE_PAGE attribute
      * agree at boot. font_init is idempotent, so this is safe on every main_init. */
@@ -297,7 +296,7 @@ static void render_scanline(int y, uint32_t *fb)
         for (int i = base + 1; i < SCANVIDEO_PLANE_COUNT; i++)
             if (filled[i] && (plane[i][x] & SCANVIDEO_ALPHA_MASK))
                 px = plane[i][x];
-        dst[x] = g_lut[px];
+        dst[x] = rgb555_to_rgba8(px);
     }
 }
 

@@ -19,7 +19,7 @@
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
-/* Same RGB555(+alpha) -> RGBA8 conversion vga.c builds its LUT with. */
+/* Same RGB555(+alpha) -> RGBA8 conversion vga.c's rgb555_to_rgba8 does. */
 static uint32_t to_rgba(uint16_t p)
 {
     uint32_t r5 = p & 0x1F, g5 = (p >> 6) & 0x1F, b5 = (p >> 11) & 0x1F;
