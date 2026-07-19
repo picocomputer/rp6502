@@ -58,36 +58,36 @@ static void make_file(const char *rel, const char *data, uint16_t n)
 }
 
 /* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
- * firmware, ONLY the boot/exec loader resolves it (install_resolve + rom_load);
+ * firmware, ONLY the boot/exec loader resolves it (rom_resolve + rom_load);
  * a 6502 open(":name") is not special — it goes to MSC0: and fails. Installs are
  * separate from MSC0: (a same-named host file is untouched) and coexist. */
-UTEST(drive, install_resolve_and_load)
+UTEST(drive, rom_resolve_and_load)
 {
     ASSERT_TRUE(fresh());
 
     /* A real MSC0: file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
 
-    ASSERT_TRUE(install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" -> ADVENTURE_ROM */
+    ASSERT_TRUE(rom_install(ADVENTURE_ROM)); /* ":adventure.rp6502" -> ADVENTURE_ROM */
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
     char second[MSC_MAX_PATH];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
-    ASSERT_TRUE(install_rom(second));
+    ASSERT_TRUE(rom_install(second));
 
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
     char host[MSC_MAX_PATH];
-    ASSERT_TRUE(install_resolve(":adventure.rp6502", host, sizeof(host)));
+    ASSERT_TRUE(rom_resolve(":adventure.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, ADVENTURE_ROM);
-    ASSERT_TRUE(install_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
+    ASSERT_TRUE(rom_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
     ASSERT_STREQ(host, ADVENTURE_ROM);
-    ASSERT_TRUE(install_resolve(":second.rp6502", host, sizeof(host)));
+    ASSERT_TRUE(rom_resolve(":second.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, second);
     /* An uninstalled or empty ":name" does not resolve. */
-    ASSERT_FALSE(install_resolve(":nope.rp6502", host, sizeof(host)));
-    ASSERT_FALSE(install_resolve(":", host, sizeof(host)));
+    ASSERT_FALSE(rom_resolve(":nope.rp6502", host, sizeof(host)));
+    ASSERT_FALSE(rom_resolve(":", host, sizeof(host)));
 
     /* The boot/exec loader streams the installed file. */
     ASSERT_TRUE(rom_load(":adventure.rp6502"));
@@ -112,7 +112,7 @@ UTEST(drive, install_resolve_and_load)
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
-    ASSERT_TRUE(install_rom(ADVENTURE_ROM)); /* ":adventure.rp6502" */
+    ASSERT_TRUE(rom_install(ADVENTURE_ROM)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
     msc_api_stat();

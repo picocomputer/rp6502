@@ -356,7 +356,7 @@ static const char *host_basename(const char *hostpath)
 }
 
 /* Install a .rp6502 on the null drive, keyed by its host-path basename. */
-bool install_rom(const char *hostpath)
+bool rom_install(const char *hostpath)
 {
     const char *base = host_basename(hostpath);
     if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= MSC_MAX_PATH)
@@ -389,7 +389,7 @@ static install_t *install_find(const char *name)
 /* Resolve a boot/exec ROM path to the host file to open: an installed ":name" ->
  * its backing file, a drive path -> msc_to_host, else the bare path (the native
  * CLI / tests, against the process cwd). The loader then opens it. */
-bool install_resolve(const char *path, char *out, size_t outsz)
+bool rom_resolve(const char *path, char *out, size_t outsz)
 {
     if (path[0] == ':') /* null drive: an installed ROM, or nothing */
     {
@@ -415,7 +415,7 @@ bool install_resolve(const char *path, char *out, size_t outsz)
 bool rom_load(const char *path)
 {
     char host[MSC_MAX_PATH];
-    if (!install_resolve(path, host, sizeof(host)))
+    if (!rom_resolve(path, host, sizeof(host)))
     {
         fprintf(stderr, "rp6502-emu: cannot resolve ROM '%s'\n", path);
         return false;

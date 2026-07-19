@@ -64,6 +64,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 target_sources(${RIA_TARGET} PRIVATE
     main.c
     api/api.c
+    api/arg.c
     api/atr.c
     api/clk.c
     api/fat.c

@@ -49,6 +49,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/sys/via.c
     ${RP6502_SRC}/ria/api/api.c
+    ${RP6502_SRC}/ria/api/arg.c
     ${RP6502_SRC}/ria/api/atr.c
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/oem.c

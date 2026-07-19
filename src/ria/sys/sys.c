@@ -7,6 +7,7 @@
 #include "rp6502_version.h"
 #include "ria/main.h"
 #include "ria/api/clk.h"
+#include "ria/api/arg.h"
 #include "ria/api/pro.h"
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"
@@ -73,7 +74,7 @@ void sys_mon_reboot(const char *args)
 void sys_mon_reset(const char *args)
 {
     (void)args;
-    pro_argv_clear();
+    arg_clear();
     main_run();
 }
 

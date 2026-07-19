@@ -40,7 +40,7 @@ void rom_mon_help(const char *args);
 // Begin loading an installed rom, if exists.
 bool rom_load_installed(const char *args);
 
-// Begin loading the ROM from pro_argv[0].
+// Begin loading the ROM from argv[0].
 void rom_exec(void);
 
 // Responder prints all installed ROMs.

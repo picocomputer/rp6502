@@ -12,8 +12,11 @@ init, run, stop, break. All settings have a load, set, get pattern with a
 possible run-only state.
 
 NEVER add even a single clock cycle to ria_action_loop().
-NEVER add even a single clock cycle to ria_action_loop().
-NEVER add even a single clock cycle to ria_action_loop().
+
+The emulator TUs use and implement the vga/ria headers along with emulator
+instrumentation prototyped in emu headers. It ok to leave firmware-only
+defines and prototypes in the headers used by the emulator. This is an
+unusual seam that spontaneously emerged on this project, we like it, keep it.
 
 Avoid excessive calls to the shell to search for things – you are running in
 an IDE and must use that when possible. Never search the root of the filesystem.

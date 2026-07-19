@@ -19,10 +19,10 @@ uint32_t rom_crc32(uint32_t crc, const void *buf, size_t len);
 
 /* Install a .rp6502 on the null drive, keyed by its host-path basename, so a
  * boot/exec ":name" resolves back to it. */
-bool install_rom(const char *hostpath);
+bool rom_install(const char *hostpath);
 /* Map a boot/exec ROM path (":name" / drive path / bare) to the host file the
  * loader opens. */
-bool install_resolve(const char *path, char *out, size_t outsz);
+bool rom_resolve(const char *path, char *out, size_t outsz);
 
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path
  * (MSC0:/...), or an overlay ROM name; rom_load resolves it. The program

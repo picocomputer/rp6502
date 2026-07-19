@@ -8,8 +8,7 @@
 #ifndef _EMU_HID_MOU_H_
 #define _EMU_HID_MOU_H_
 
-#include <stdbool.h>
-#include <stdint.h>
+#include "ria/hid/mou.h"
 
 /* xreg_ria_mouse API: point the report block ({buttons,x,y,wheel,pan}, 5 bytes)
  * at an XRAM address (0xFFFF = off). Mirrors ria/hid/mou.c mou_xreg. */
@@ -27,7 +26,5 @@ void mou_host_wheel(int dwheel, int dpan);
 
 /* Set the button byte (bit 0 left, 1 right, 2 middle), mirroring the HID order. */
 void mou_host_buttons(uint8_t buttons);
-
-void mou_stop(void);
 
 #endif /* _EMU_HID_MOU_H_ */

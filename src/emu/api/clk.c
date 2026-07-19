@@ -67,31 +67,6 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
     return pos;
 }
 
-/* The 18-byte wire struct tm the 6502 libc pushes (9 int16, struct-tm order). */
-EMU_PACK_BEGIN
-struct EMU_PACKED clk_wire_tm
-{
-    int16_t tm_sec, tm_min, tm_hour, tm_mday, tm_mon;
-    int16_t tm_year, tm_wday, tm_yday, tm_isdst;
-};
-EMU_PACK_END
-_Static_assert(18 == sizeof(struct clk_wire_tm), "wire struct tm");
-
-static void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
-{
-    w->tm_sec = tm->tm_sec, w->tm_min = tm->tm_min, w->tm_hour = tm->tm_hour;
-    w->tm_mday = tm->tm_mday, w->tm_mon = tm->tm_mon, w->tm_year = tm->tm_year;
-    w->tm_wday = tm->tm_wday, w->tm_yday = tm->tm_yday, w->tm_isdst = tm->tm_isdst;
-}
-
-static void clk_wire_to_tm(const struct clk_wire_tm *w, struct tm *tm)
-{
-    memset(tm, 0, sizeof(*tm));
-    tm->tm_sec = w->tm_sec, tm->tm_min = w->tm_min, tm->tm_hour = w->tm_hour;
-    tm->tm_mday = w->tm_mday, tm->tm_mon = w->tm_mon, tm->tm_year = w->tm_year;
-    tm->tm_wday = w->tm_wday, tm->tm_yday = w->tm_yday, tm->tm_isdst = w->tm_isdst;
-}
-
 /* op 0x3F: time_t time(void) — host wall clock plus any time_set offset. */
 bool clk_api_time_get(void)
 {

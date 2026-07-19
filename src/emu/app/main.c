@@ -150,7 +150,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < o.n_installs; i++)
     {
         char oem[4096];
-        if (!os_argv_to_oem(o.installs[i], oem, sizeof oem) || !install_rom(oem))
+        if (!os_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_install(oem))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;

@@ -8,6 +8,7 @@
 #include "ria/api/api.h"
 #include "ria/api/fat.h"
 #include "ria/api/oem.h"
+#include "ria/api/arg.h"
 #include "ria/api/pro.h"
 #include "ria/api/std.h"
 #include "ria/mon/hlp.h"
@@ -468,7 +469,7 @@ void rom_mon_remove(const char *args)
 
 void rom_exec(void)
 {
-    const char *argv0 = pro_argv_index(0);
+    const char *argv0 = arg_index(0);
     assert(argv0);
     if (*argv0 == ':')
     {
@@ -498,7 +499,7 @@ void rom_exec(void)
     // Skip case correction for installed ROMs (live in flash, not on disk).
     if (*argv0 != ':' && !str_correct_basename(path, sizeof path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    if (!pro_argv_replace(0, path))
+    if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     rom_close();
     if (!rom_open(path))
@@ -508,20 +509,20 @@ void rom_exec(void)
 
 static void rom_load_argv(const char *argv0, const char *args)
 {
-    pro_argv_clear();
-    if (!pro_argv_append(argv0))
+    arg_clear();
+    if (!arg_append(argv0))
         return mon_add_response_utf8(S(STR_ERR_ROM_ARGV_OVERFLOW));
     const char *arg;
     while ((arg = str_parse_string(&args)) != NULL)
-        if (!pro_argv_append(arg))
+        if (!arg_append(arg))
         {
-            pro_argv_clear();
+            arg_clear();
             mon_add_response_utf8(S(STR_ERR_ROM_ARGV_OVERFLOW));
             return;
         }
     if (!str_parse_end(args))
     {
-        pro_argv_clear();
+        arg_clear();
         mon_add_response_utf8(S(STR_ERR_ROM_ARGV_INVALID));
         return;
     }
