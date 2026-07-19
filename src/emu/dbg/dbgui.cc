@@ -78,7 +78,7 @@ static bool g_credits_open = false;  /* the native "Credits" about box */
 static bool g_rom_help_open = false; /* the loaded ROM's "help" asset viewer */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
-/* UI font scale. Native ProggyClean is DBGUI_FONT_BASE px; the View menu offers
+/* UI font scale. Native ProggyClean is DBGUI_FONT_BASE px; the Options menu offers
  * these multipliers, applied as style.FontSizeBase = base * scale each frame in
  * dbgui_new_frame and persisted via the [RP6502UI][Font] ini section. */
 static const float DBGUI_FONT_BASE = 13.0f;
@@ -91,6 +91,7 @@ static const struct
     {1.75f, "1.75x"}, {2.0f, "2.0x"}, {2.5f, "2.5x"},
 };
 static float g_font_scale = 1.0f;
+static int g_theme = 0; /* Options > Theme: 0=Dark 1=Light 2=Classic (session-only) */
 
 /* Select the UI font scale, snapping to one of the offered multipliers; mark the
  * ini dirty so the choice survives a restart (a font change alone doesn't dirty
@@ -600,29 +601,39 @@ static void dbgui_draw_menu(void)
         if (ImGui::BeginMenu("Debug"))
         {
             ImGui::MenuItem("Debug Control", nullptr, &g_control_open);
-            ImGui::MenuItem("Breakpoints", nullptr, &g_dbg.ui.breakpoints.open);
-            ImGui::MenuItem("Stopwatch", nullptr, &g_dbg.ui.stopwatch.open);
+            ImGui::Separator();
             ImGui::MenuItem("Disassembler", nullptr, &g_dbg.ui.open);
             ImGui::MenuItem("Disassembly Browser", nullptr, &g_dasm.open);
             ImGui::MenuItem("Execution History", nullptr, &g_dbg.ui.history.open);
+            ImGui::Separator();
+            ImGui::MenuItem("Breakpoints", nullptr, &g_dbg.ui.breakpoints.open);
+            ImGui::MenuItem("Stopwatch", nullptr, &g_dbg.ui.stopwatch.open);
+            ImGui::Separator();
             ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
             ImGui::MenuItem("Memory Heatmap", nullptr, &g_dbg.ui.heatmap.open);
             ImGui::MenuItem("Memory Segments", nullptr, &g_memmap.open);
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("View"))
+        /* Our own Options (replaces vendor ui_util_options_menu, whose trailing
+         * SameLine(width-120) fought the FPS readout): all display/appearance
+         * settings as submenus, then the info windows. */
+        if (ImGui::BeginMenu("Options"))
         {
-            /* Window-size presets (the --scale values): a reset to a known size
-             * after a manual resize, so docked panels deliberately don't factor
-             * in. The check marks the preset the window currently matches. */
-            static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
-            double cur = window_get_scale();
-            for (double s : scales)
+            if (ImGui::BeginMenu("Window Scale"))
             {
-                char label[5];
-                std::snprintf(label, sizeof label, "%.1fx", s);
-                if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
-                    window_set_scale(s);
+                /* Size presets (the --scale values): a reset to a known size after a
+                 * manual resize; docked panels deliberately don't factor in. The check
+                 * marks the preset the window currently matches. */
+                static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
+                double cur = window_get_scale();
+                for (double s : scales)
+                {
+                    char label[5];
+                    std::snprintf(label, sizeof label, "%.1fx", s);
+                    if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
+                        window_set_scale(s);
+                }
+                ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Font Size"))
             {
@@ -631,12 +642,32 @@ static void dbgui_draw_menu(void)
                         dbgui_set_font_scale(e.scale);
                 ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("Theme"))
+            {
+                if (ImGui::MenuItem("Dark", nullptr, g_theme == 0))
+                {
+                    g_theme = 0;
+                    ImGui::StyleColorsDark();
+                }
+                if (ImGui::MenuItem("Light", nullptr, g_theme == 1))
+                {
+                    g_theme = 1;
+                    ImGui::StyleColorsLight();
+                }
+                if (ImGui::MenuItem("Classic", nullptr, g_theme == 2))
+                {
+                    g_theme = 2;
+                    ImGui::StyleColorsClassic();
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::SliderFloat("UI Alpha", &ImGui::GetStyle().Alpha, 0.1f, 1.0f);
+            ImGui::SliderFloat("BG Alpha", &ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w, 0.1f, 1.0f);
             ImGui::Separator();
             ImGui::MenuItem("ROM Help", nullptr, &g_rom_help_open);
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
-        ui_util_options_menu(); /* chips "Options": UI/BG alpha + theme */
         /* Host frame time + emulated VGA rate, right-aligned (e.g. "2.1 ms  59.9 FPS")
          * and held a few pixels off the window edge. The ms is ImGui's rolling host
          * frame average; the FPS is the emulation keeping pace at ~60. */
