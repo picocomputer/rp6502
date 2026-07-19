@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Portable compiler idioms. Include explicitly (unlike msvc_compat.h, which
+ * Portable compiler idioms. Include explicitly (unlike host/win/compat.h, which
  * is force-included only under MSVC) so both the GCC/Clang and MSVC spellings are
  * visible wherever they're used.
  *

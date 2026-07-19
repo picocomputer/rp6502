@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Forced include under MSVC (/FImsvc_compat.h) so shared RIA/VGA/emulator sources
+ * Forced include under MSVC (/FIcompat.h) so shared RIA/VGA/emulator sources
  * written for GCC/Clang still compile. Only neutralize GCC-isms MSVC lacks — do
  * not add project APIs here.
  */
