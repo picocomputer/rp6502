@@ -59,7 +59,8 @@ extern "C"
 #include "ui/ui_m6522.h"
 #include "emu/chips/ui_dbg.h" /* our fork of ui/ui_dbg.h: history column draws chars, not bytes */
 
-#include <cstdio> /* snprintf, sscanf */
+#include <cstdio>  /* snprintf, sscanf */
+#include <cstring> /* strcmp (ini section match) */
 
 static ui_dbg_t g_dbg;
 static ui_w65c02_t g_cpuwin;
@@ -73,6 +74,25 @@ static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
 static bool g_credits_open = false; /* the native "Credits" about box */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
+
+/* UI font size (px). Native ProggyClean is 13; the View menu offers integer and
+ * half-step multiples (13 * {1, 1.5, 2, 2.5, 3}). Applied as style.FontSizeBase
+ * each frame in dbgui_new_frame; persisted via the [RP6502UI][Font] ini section. */
+static const int DBGUI_FONT_SIZES[] = {13, 19, 20, 26, 32, 33, 39};
+static float g_font_size = 13.0f;
+
+/* Select the UI font size, but only one of the offered sizes; mark the ini dirty
+ * so the choice survives a restart (a font change alone doesn't dirty ImGui). */
+static void dbgui_set_font_px(int px)
+{
+    for (int s : DBGUI_FONT_SIZES)
+        if (s == px && (int)(g_font_size + 0.5f) != px)
+        {
+            g_font_size = (float)px;
+            ImGui::GetIO().WantSaveIniSettings = true;
+            return;
+        }
+}
 
 /* Credits masthead: 64x64 icon + RP6502-EMU title (integer-scaled bitmap font). */
 static constexpr int CREDITS_TITLE_SCALE = 4;
@@ -269,7 +289,9 @@ static void draw_credits(void)
     {
         ImGui::Image(g_credits_icon_texid, ImVec2(64, 64));
         ImGui::SameLine();
-        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * CREDITS_TITLE_SCALE);
+        /* Native 13px base, not style.FontSizeBase (which the Font Size menu varies),
+         * so the title stays balanced with the fixed 64px icon at any UI font size. */
+        ImGui::PushFont(nullptr, 13.0f * CREDITS_TITLE_SCALE);
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (64.0f - ImGui::GetTextLineHeight()) * 0.5f);
         ImGui::TextUnformatted("RP6502-EMU");
         ImGui::PopFont();
@@ -425,6 +447,23 @@ static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, Im
     }
 }
 
+/* [RP6502UI][Font] handler: persists the menu's UI font-size choice. */
+static void rp6502ui_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) {}
+static void *rp6502ui_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
+{
+    return (std::strcmp(name, "Font") == 0) ? (void *)1 : nullptr; /* non-null: read lines */
+}
+static void rp6502ui_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
+{
+    int px = 0;
+    if (std::sscanf(line, "Size=%i", &px) == 1)
+        dbgui_set_font_px(px); /* ignores an out-of-set value */
+}
+static void rp6502ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
+{
+    buf->appendf("[%s][Font]\nSize=%d\n\n", handler->TypeName, (int)(g_font_size + 0.5f));
+}
+
 /* The [RP6502][Launch] block and the dummy [Window][Manager] entry ride in
  * ui_ini.h's elements. */
 static ui_ini_t g_ini;
@@ -448,7 +487,7 @@ bool dbgui_window_size(int *w, int *h)
     return ui_ini_window_size(w, h);
 }
 
-/* Register both settings handlers; called once in dbgui_init, before the layout
+/* Register the settings handlers; called once in dbgui_init, before the layout
  * load, so they fire during LoadIniSettingsFromMemory / SaveIniSettingsToMemory. */
 static void dbgui_register_settings_handlers(void)
 {
@@ -461,6 +500,15 @@ static void dbgui_register_settings_handlers(void)
     chips_h.ApplyAllFn = chips_ini_applyall;
     chips_h.WriteAllFn = chips_ini_writeall;
     ImGui::AddSettingsHandler(&chips_h);
+
+    ImGuiSettingsHandler ui_h;
+    ui_h.TypeName = "RP6502UI";
+    ui_h.TypeHash = ImHashStr("RP6502UI");
+    ui_h.ClearAllFn = rp6502ui_ini_clear;
+    ui_h.ReadOpenFn = rp6502ui_ini_readopen;
+    ui_h.ReadLineFn = rp6502ui_ini_readline;
+    ui_h.WriteAllFn = rp6502ui_ini_writeall;
+    ImGui::AddSettingsHandler(&ui_h);
 
     ui_ini_register(&g_ini);
 }
@@ -535,6 +583,18 @@ static void dbgui_draw_menu(void)
                 std::snprintf(label, sizeof label, "%.1fx", s);
                 if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
                     window_set_scale(s);
+            }
+            if (ImGui::BeginMenu("Font Size"))
+            {
+                int cur_px = (int)(g_font_size + 0.5f);
+                for (int px : DBGUI_FONT_SIZES)
+                {
+                    char label[8];
+                    std::snprintf(label, sizeof label, "%d px", px);
+                    if (ImGui::MenuItem(label, nullptr, cur_px == px))
+                        dbgui_set_font_px(px);
+                }
+                ImGui::EndMenu();
             }
             ImGui::Separator();
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
@@ -766,6 +826,9 @@ void dbgui_discard(void)
 
 void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale)
 {
+    /* Set before simgui_new_frame: ImGui::NewFrame latches style.FontSizeBase for
+     * the whole frame (UpdateFontsNewFrame), so this applies without a frame lag. */
+    ImGui::GetStyle().FontSizeBase = g_font_size;
     simgui_frame_desc_t fd{};
     fd.width = width;
     fd.height = height;
