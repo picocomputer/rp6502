@@ -33,6 +33,7 @@ extern "C"
 #include "emu/app/window.h"      /* window-scale presets */
 }
 #include "emu/app/credits.h" /* EMU_CREDITS */
+#include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
 #include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
 #include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
@@ -72,6 +73,12 @@ static bool g_inited;
 static bool g_control_open = false; /* the native "Debug Control" window */
 static bool g_credits_open = false; /* the native "Credits" about box */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
+
+/* Credits masthead: 64x64 icon + RP6502-EMU title (integer-scaled bitmap font). */
+static constexpr int CREDITS_TITLE_SCALE = 4;
+static sg_image g_credits_icon_img;
+static sg_view g_credits_icon_view;
+static ui_texture_t g_credits_icon_texid;
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
  * as an ImTextureID via simgui_imtextureid. Called from ui_dbg_draw on the main
@@ -259,7 +266,16 @@ static void draw_credits(void)
         return;
     ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Credits", &g_credits_open))
+    {
+        ImGui::Image(g_credits_icon_texid, ImVec2(64, 64));
+        ImGui::SameLine();
+        ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * CREDITS_TITLE_SCALE);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (64.0f - ImGui::GetTextLineHeight()) * 0.5f);
+        ImGui::TextUnformatted("RP6502-EMU");
+        ImGui::PopFont();
+        ImGui::Spacing();
         ImGui::TextUnformatted(EMU_CREDITS);
+    }
     ImGui::End();
 }
 
@@ -582,6 +598,22 @@ void dbgui_init(void)
     /* Pixel-perfect ProggyClean at its native 13px; the overlay renders 1:1 (see
      * dbgui_new_frame / window.c) so it is never magnified/blurred. */
     ImGui::GetIO().Fonts->AddFontDefaultBitmap();
+
+    /* Static icon for the Credits masthead: pixels at creation, no
+     * stream_update (unlike the ui_dbg heatmap in tex_create). */
+    const sapp_image_desc &ico = icon_desc()->images[2]; /* 64x64 */
+    sg_image_desc iid{};
+    iid.width = ico.width;
+    iid.height = ico.height;
+    iid.pixel_format = SG_PIXELFORMAT_RGBA8;
+    iid.data.mip_levels[0].ptr = ico.pixels.ptr;
+    iid.data.mip_levels[0].size = ico.pixels.size;
+    g_credits_icon_img = sg_make_image(&iid);
+    sg_view_desc ivd{};
+    ivd.texture.image = g_credits_icon_img;
+    g_credits_icon_view = sg_make_view(&ivd);
+    g_credits_icon_texid = simgui_imtextureid(g_credits_icon_view);
+
     /* Docking only; no multi-viewports (sokol_app is single-window). */
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     /* We drive load/save to our own config path (dbgui_layout.cc), so disable
@@ -726,6 +758,8 @@ void dbgui_discard(void)
     ui_m6522_discard(&g_viawin);
     ui_w65c02_discard(&g_cpuwin);
     ui_dbg_discard(&g_dbg);
+    sg_destroy_view(g_credits_icon_view);
+    sg_destroy_image(g_credits_icon_img);
     simgui_shutdown();
     g_inited = false;
 }
