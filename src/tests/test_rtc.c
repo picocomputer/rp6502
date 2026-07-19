@@ -17,7 +17,7 @@
 #include "emu/sys/com.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu_boot.h"
 #include <stdlib.h>
 #include <string.h>

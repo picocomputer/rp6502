@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows directory enumeration (emu/plat.h dir_*), the Win32 counterpart of
+ * Windows directory enumeration (emu/host/host.h dir_*), the Win32 counterpart of
  * posix/dir.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
@@ -12,7 +12,7 @@
  * FindFirstFileW/FindNextFileW/FindClose over an opaque heap struct.
  */
 
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "ria/api/oem.h"
 #include "emu/host/win/win.h"
 #include <errno.h>

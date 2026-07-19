@@ -13,7 +13,7 @@
 #include "emu/api/pro.h"
 #include "emu/sys/com.h"
 #include "emu/host/msc.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/sys/cpu.h"
 #include "emu_boot.h"
 #include <stdlib.h>

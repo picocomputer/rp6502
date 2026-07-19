@@ -16,10 +16,10 @@
 #include "ria/api/std.h"
 #include "emu/host/rom.h"
 #include "emu/host/msc.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "dirsys.h"
 #include "stdsys.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>

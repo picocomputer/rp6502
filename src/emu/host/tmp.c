@@ -7,7 +7,7 @@
 
 #include "emu/host/tmp.h"
 #include "emu/main.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "ria/api/fat.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"

@@ -3,13 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives common to every POSIX host (emu/plat.h os_*),
+ * POSIX-family host-OS primitives common to every POSIX host (emu/host/host.h os_*),
  * the counterpart of win/os.c. The two primitives that differ by OS —
  * os_entropy_64 and os_sleep_until_ns — live in the per-host os.c
  * (linux/macos/web/android); this file holds only what they all share.
  */
 
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "ria/api/oem.h"
 #include <errno.h>
 #include <locale.h>

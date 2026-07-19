@@ -39,7 +39,7 @@
 #include "emu/host/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/sys/vga.h"
 #include <math.h>
 #include <stdint.h>

@@ -9,7 +9,7 @@
 #include "ria/str/str.h"
 #include "emu/api/pro.h"
 #include "emu/app/window.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/app/png.h"

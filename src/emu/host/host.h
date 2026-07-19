@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_PLAT_H_
-#define _EMU_PLAT_H_
+#ifndef _EMU_HOST_HOST_H_
+#define _EMU_HOST_HOST_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -93,4 +93,4 @@ bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
 void os_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
 
-#endif /* _EMU_PLAT_H_ */
+#endif /* _EMU_HOST_HOST_H_ */

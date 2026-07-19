@@ -7,7 +7,7 @@
 
 #include "emu/api/pro.h"
 #include "emu/host/msc.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/sys/mem.h"
 #include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"

@@ -7,7 +7,7 @@
 
 #include "emu/api/clk.h"
 #include "emu/compiler.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/sys/mem.h"
 #include "pico/time.h"
 #include "ria/api/api.h"

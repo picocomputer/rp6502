@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Android filesystem primitives (emu/plat.h). The same POSIX calls as posix/fs.c, but
+ * Android filesystem primitives (emu/host/host.h). The same POSIX calls as posix/fs.c, but
  * the byte transfer is synchronous: fs_read/fs_write complete in one call and never
  * return STD_PENDING. Bionic has no POSIX aio and we don't offload to a worker thread,
  * so Android gets its own seam instead of a mock aio in posix/fs.c. Each read blocks
@@ -14,7 +14,7 @@
  * paths back with oem_from_utf8().
  */
 
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "ria/api/oem.h"
 #include <errno.h>
 #include <fcntl.h>

@@ -8,7 +8,7 @@
 #include "ria/api/api.h"
 #include "ria/api/std.h"
 #include "emu/host/msc.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/sys/mem.h"
 #include "fatfs/ff.h"
 #include <ctype.h>
