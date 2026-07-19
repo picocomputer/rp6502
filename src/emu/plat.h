@@ -82,6 +82,9 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/
 bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
 void os_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
 
+/* Reattach stdio to the parent console when launched from one; no-op elsewhere. */
+void os_console_attach(void);
+
 /* One command-line argument, host argv encoding -> guest OEM. False if it
  * does not fit. */
 bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);

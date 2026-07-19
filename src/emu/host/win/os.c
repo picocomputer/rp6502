@@ -88,6 +88,22 @@ bool os_config_dir(char *buf, size_t sz)
     return true;
 }
 
+/* GUI-subsystem processes don't inherit an interactive console's stdio. */
+void os_console_attach(void)
+{
+    HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE pre_err = GetStdHandle(STD_ERROR_HANDLE);
+    HANDLE pre_in = GetStdHandle(STD_INPUT_HANDLE);
+    if (!AttachConsole(ATTACH_PARENT_PROCESS))
+        return;
+    if (!pre_out || pre_out == INVALID_HANDLE_VALUE)
+        freopen("CONOUT$", "w", stdout);
+    if (!pre_err || pre_err == INVALID_HANDLE_VALUE)
+        freopen("CONOUT$", "w", stderr);
+    if (!pre_in || pre_in == INVALID_HANDLE_VALUE)
+        freopen("CONIN$", "r", stdin);
+}
+
 void os_ensure_parent_dir(const char *filepath)
 {
     char tmp[1024];

@@ -87,6 +87,7 @@ static int run_dap(const cli_options *o)
 
 int main(int argc, char **argv)
 {
+    os_console_attach();
     cli_options o;
     cli_options_init(&o);
     if (cli_parse_args(argc, argv, &o))

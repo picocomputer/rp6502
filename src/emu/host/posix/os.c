@@ -109,6 +109,8 @@ void os_ensure_parent_dir(const char *filepath)
     mkdir(tmp, 0755);
 }
 
+void os_console_attach(void) {}
+
 /* POSIX (and Emscripten) argv arrives as UTF-8. */
 bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
