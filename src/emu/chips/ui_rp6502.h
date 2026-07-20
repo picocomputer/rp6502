@@ -70,10 +70,7 @@ void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings);
 /* The RIA shares the 6502 bus but wires only its own pins: RREQ, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
  * are decoded off-chip into RREQ, so they never reach the RIA. Pins are fed live
- * from ria_chip()->PINS; RREQ (the RP6502 schematic's RIA-request select, active
- * high) rides a free bit above M6502_PIN_MASK (bit 40), so it never collides with
- * a real CPU pin. */
-#define RIA_PIN_RREQ (1ULL << 40)
+ * from ria_chip()->PINS; RIA_PIN_RREQ is defined in chips/rp6502.h. */
 static const ui_chip_pin_t _ui_rp6502_pins[] = {
     {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
     {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},

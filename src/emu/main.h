@@ -6,6 +6,10 @@
  * The emulator's runner — the counterpart to ria/main.c. Cold boot (main_init),
  * the frame/tick engine (main_run_frame), machine run state, and the syscall op
  * registry (main_api) the shared ria/api/api.c dispatches through via "main.h".
+ *
+ * main.c is also the board: it owns the master clock and the 6502 bus, decodes the
+ * peripheral windows, and pumps every chip once per PHI2 cycle. Each chip's own
+ * tick lives with the chip (sys/cpu.c, sys/via.c, sys/ria.c, sys/mem.c).
  */
 
 #ifndef _EMU_MAIN_H_

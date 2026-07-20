@@ -6,7 +6,7 @@
  * Debugger core: the one run/stop/step + address-breakpoint engine, shared by
  * the cppdap adapter (dap.cpp) and the on-screen chips debugger (dbgui.cc).
  *
- * Inert until dbg_set_active(true): sys.c's CPU loop only consults it when
+ * Inert until dbg_set_active(true): main.c's CPU loop only consults it when
  * active, so a normal run is byte-for-byte unaffected. All state changes run on
  * the emulation (main) thread — the cppdap reader thread marshals its requests
  * to the main loop — EXCEPT dbg_request_pause(), which is a lone atomic flag a

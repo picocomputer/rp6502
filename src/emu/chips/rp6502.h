@@ -36,6 +36,12 @@ extern "C"
 {
 #endif
 
+/* The RP6502 schematic's RIA-request select (active high), decoded off-chip from
+ * A5-A15. It rides a free bit above M6502_PIN_MASK so it never collides with a real
+ * CPU pin; the VIA's M6522_CS1 uses the same bit, which is harmless because each
+ * chip is ticked on its own pin copy. */
+#define RIA_PIN_RREQ (1ULL << 40)
+
 typedef struct
 {
     uint64_t PINS;       /* last bus pin state (do NOT modify; for the debug UI) */
@@ -51,11 +57,12 @@ void ria_run(void); /* program start: clear the $FFF0 IRQ latches */
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 
-/* One PHI2 tick of the RIA's 6502-bus interface, mirroring via_tick so cpu.c
- * drives both bus peripherals uniformly: when the CPU addresses the RIA window
- * ($FFE0-$FFF9) the register access is performed on the pins, and the RIA's IRQB
- * (VSYNC/SIGINT) is ORed onto the shared IRQ line (additive, after the VIA). */
-uint64_t ria_tick(uint64_t pins);
+/* One PHI2 tick of the RIA's 6502-bus interface, mirroring via_tick so the board
+ * drives both bus peripherals uniformly: when selected (the board decodes the RIA
+ * window into RREQ) the register access is performed on the pins, and the RIA's
+ * IRQB (VSYNC/SIGINT) is driven onto M6502_IRQ. Returns the RIA's own pin mask;
+ * the board merges the data and ORs the IRQ onto the bus. */
+uint64_t ria_tick(uint64_t pins, bool selected);
 void *ria_chip(void); /* ria_t* — the live chip instance, for the debugger UI */
 
 /* RIA $FFF0 interrupt. ria_trigger_vsync latches the VSYNC source (raising IRQB

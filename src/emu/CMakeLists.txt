@@ -29,7 +29,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/api/pro.c
     ${RP6502_SRC}/emu/api/tim.c
     ${RP6502_SRC}/emu/aud/aud.c
-    ${RP6502_SRC}/emu/chips/w65c02.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c

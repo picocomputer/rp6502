@@ -5,15 +5,15 @@
  *
  */
 
-#include "emu/chips/rp6502.h"
+#define CHIPS_IMPL
 #include "emu/chips/w65c02.h"
-#include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/mem.h"
-#include "emu/sys/via.h"
 
 static m6502_t cpu;
-static uint64_t pins;
+
+/* The pin mask m6502_init left asserted (RES). m6502.h requires it be the input to
+ * the first m6502_tick, so main.c seeds the bus from cpu_pins() after cpu_run. */
+static uint64_t reset_pins;
 
 /* Display-only per-cycle observer for the on-screen ui_dbg view (declared in
  * cpu.h). The window overlay registers dbgui_tick here; NULL otherwise, so the
@@ -71,30 +71,6 @@ bool cpu_active(void) { return !halted; }
 bool cpu_halted(void) { return halted; }
 void cpu_set_halted(bool on) { halted = on; }
 
-static inline uint64_t bus_cycle(uint64_t p)
-{
-    uint16_t addr = M6502_GET_ADDR(p);
-    /* The RIA ($FFE0-$FFF9) and VIA ($FFD0-$FFDF) windows are already serviced on
-     * the pins by ria_tick / via_tick (data is on the pins for a read; a write was
-     * consumed) — leave them alone here, this branch only backs RAM. */
-    if ((addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI) ||
-        (addr >= VIA_WINDOW_LO && addr <= VIA_WINDOW_HI))
-        return p;
-    if (p & M6502_RW)
-    {
-        M6502_SET_DATA(p, ram[addr]);
-        if (__builtin_expect(dbg_watch_armed, 0))
-            dbg_watch_access(addr, ram[addr], false);
-    }
-    else
-    {
-        ram[addr] = M6502_GET_DATA(p);
-        if (__builtin_expect(dbg_watch_armed, 0))
-            dbg_watch_access(addr, ram[addr], true);
-    }
-    return p;
-}
-
 void cpu_init(void)
 {
     cpu_set_phi2_khz_run(phi2_khz_cfg ? phi2_khz_cfg : CPU_PHI2_DEFAULT);
@@ -105,7 +81,7 @@ void cpu_init(void)
  * run fan-out (the VIA shares RESB, so via_run runs just before). */
 void cpu_run(void)
 {
-    pins = m6502_init(&cpu, &(m6502_desc_t){0});
+    reset_pins = m6502_init(&cpu, &(m6502_desc_t){0});
     halted = false;
 }
 
@@ -115,13 +91,11 @@ void cpu_stop(void)
     halted = true;
 }
 
-uint64_t cpu_tick(void)
+uint64_t cpu_pins(void) { return reset_pins; }
+
+uint64_t cpu_tick(uint64_t pins)
 {
-    pins = m6502_tick(&cpu, pins);
-    pins = via_tick(pins);  /* counts the VIA timers + drives M6502_IRQ */
-    pins = ria_tick(pins);  /* RIA window access + additive $FFF0 IRQ (after the VIA) */
-    pins = bus_cycle(pins); /* RAM (the peripheral windows were serviced above) */
-    return pins;
+    return m6502_tick(&cpu, pins);
 }
 
 uint32_t cpu_step_8(void) { return master_per_cycle_8; }

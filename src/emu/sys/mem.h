@@ -22,4 +22,8 @@
 
 extern uint8_t ram[0x10000];
 
+/* One PHI2 tick of RAM: the bus cycle for every address the board did not decode to
+ * a peripheral. Backs ram[] and feeds the debugger's watchpoint hook. */
+uint64_t mem_tick(uint64_t pins);
+
 #endif /* _EMU_SYS_MEM_H_ */

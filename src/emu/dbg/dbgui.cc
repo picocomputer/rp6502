@@ -36,7 +36,7 @@ extern "C"
 #include "emu/app/credits.h" /* EMU_CREDITS */
 #include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
-#include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
+#include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
 #include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
 
 #include "sokol_app.h"
@@ -867,7 +867,7 @@ void dbgui_init(void)
     dbgui_layout_load();
     g_inited = true;
 
-    /* Drive ui_dbg's view from cpu.c's tick loop (heatmap/history/PC). */
+    /* Drive ui_dbg's view from main.c's tick loop (heatmap/history/PC). */
     cpu_dbg_cycle_cb = dbgui_tick;
 }
 
@@ -981,7 +981,7 @@ void dbgui_draw(void)
             ui_dbg_continue(&g_dbg, false);
     }
 
-    /* ui_dbg_tick (driven from cpu.c every cycle) maintains the PC highlight while
+    /* ui_dbg_tick (driven from main.c every cycle) maintains the PC highlight while
      * the CPU runs. When stopped, pin it to dbg.c's authoritative stop PC (also
      * covers dbg_note_stop, which is not produced by a tick) and scroll to it on
      * entry to the stop; while running, ui_dbg's own draw keeps the PC in view. */
@@ -1110,7 +1110,7 @@ void dbgui_render(void) { simgui_render(); }
  * fetch, IRQ/NMI on a rising pin edge). A trap files a break request that dbg.c
  * honors at the next M6502_SYNC, so dbg.c stays the one stop authority; an
  * op-level trap lands on the very instruction that tripped it because this runs
- * before cpu.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
+ * before main.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
  * step_mode, so it never self-steps. */
 void dbgui_tick(uint64_t pins)
 {

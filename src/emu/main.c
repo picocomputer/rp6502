@@ -23,6 +23,7 @@
 #include "emu/hid/pad.h"
 #include "emu/hid/tab.h"
 #include "emu/chips/rp6502.h"
+#include "emu/chips/w65c02.h"
 #include "ria/api/api.h"
 #include "ria/api/atr.h"
 #include "ria/api/std.h"
@@ -59,6 +60,11 @@ static unsigned long s_frame_count;
 
 /* Absolute, never reset per frame — feeds the exact deadline math below. */
 static uint64_t scanline_n;
+
+/* The 6502 bus. The board owns it: the CPU drives it, the peripherals and RAM answer
+ * on it, and it carries state (notably IRQ) between cycles. Seeded from cpu_pins()
+ * at every program start — m6502.h requires m6502_init's mask reach the first tick. */
+static uint64_t pins;
 
 int main_exit_code(void) { return s_exit_code; }
 void main_set_exit_code(int code) { s_exit_code = code; }
@@ -110,7 +116,8 @@ void main_run(void)
     clk_run();
     ria_run();
     via_run();
-    cpu_run(); /* must be last */
+    cpu_run();        /* must be last */
+    pins = cpu_pins(); /* the RES-asserted mask m6502_init left; seeds the bus */
 }
 
 /* Stop the 6502 — the counterpart to ria/main.c's stop(), same order (cpu_stop
@@ -149,31 +156,79 @@ static uint64_t scanline_deadline_8(uint64_t n)
     return n * 4096000ull / 63;
 }
 
+/* One PHI2 cycle of the whole machine — the board wiring, in the floooh/chips
+ * system-tick style (see _vic20_tick). The CPU is the only bus master; the VIA and
+ * the RIA tick EVERY cycle (timers count, IRQ latches drive) and each answers on its
+ * own pin copy, so no chip can clobber another's bits. The board decodes the address
+ * once, hands each peripheral its chip-select, merges read data back from whichever
+ * was selected, ORs their interrupt assertions onto the shared line, and backs RAM
+ * for everything it did not decode. */
+static inline uint64_t machine_tick(uint64_t p)
+{
+    p = cpu_tick(p);
+    /* Every chip re-drives its own assertion below, so clear the shared line first
+     * (m6502.h: "you are also responsible for clearing the interrupt pins"). */
+    p &= ~M6502_IRQ;
+
+    const uint16_t addr = M6502_GET_ADDR(p);
+    const bool via_sel = addr >= VIA_WINDOW_LO && addr <= VIA_WINDOW_HI;
+    const bool ria_sel = addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI;
+
+    const uint64_t via_out = via_tick(p, via_sel);
+    if (via_sel)
+        p = M6502_COPY_DATA(p, via_out);
+    if (via_out & M6502_IRQ) /* M6522_IRQ is the same bit — one shared wire */
+        p |= M6502_IRQ;
+
+    const uint64_t ria_out = ria_tick(p, ria_sel);
+    if (ria_sel)
+        p = M6502_COPY_DATA(p, ria_out);
+    if (ria_out & M6502_IRQ)
+        p |= M6502_IRQ;
+
+    if (!via_sel && !ria_sel)
+        p = mem_tick(p);
+    return p;
+}
+
 /* Run 6502 cycles until the master clock reaches deadline_8, the program halts,
  * or (dbg) an instruction breakpoint stops the machine. Returns true on a
  * breakpoint stop, leaving the clock mid-scanline; otherwise the clock is at
  * deadline_8 or later on return (time flows even while halted). */
 static bool run_until(uint64_t deadline_8, bool dbg)
 {
-    /* Accumulate in a local and commit to master_8 before every return: nothing
-     * else reads the clock mid-scanline, so this keeps the hot loop off the static. */
+    /* Accumulate the clock and the bus in locals and commit before every return:
+     * nothing else reads either mid-scanline, so this keeps the hot loop off the
+     * statics (as vic20_exec does with sys->pins). */
     uint64_t clock_8 = master_8;
+    uint64_t p = pins;
     const uint32_t step_8 = cpu_step_8();
-    while (clock_8 < deadline_8 && cpu_active())
+    if (!dbg)
     {
-        uint64_t pins = cpu_tick();
-        clock_8 += step_8;
-        if (dbg)
+        /* Two loops rather than a per-cycle test, per vic20_exec: at ~8M cycles a
+         * second the debug branch is worth keeping out of the common path. */
+        while (clock_8 < deadline_8 && cpu_active())
         {
+            p = machine_tick(p);
+            clock_8 += step_8;
+        }
+    }
+    else
+    {
+        while (clock_8 < deadline_8 && cpu_active())
+        {
+            p = machine_tick(p);
+            clock_8 += step_8;
             if (cpu_dbg_cycle_cb)
-                cpu_dbg_cycle_cb(pins);
+                cpu_dbg_cycle_cb(p);
             /* Stop before the fetched instruction's effect runs; the partial
              * frame is then abandoned and the machine holds until resume. */
             uint16_t pc;
             uint8_t sp;
-            if (cpu_opcode_fetch(pins, &pc, &sp) && dbg_at_instruction(pc, sp))
+            if (cpu_opcode_fetch(p, &pc, &sp) && dbg_at_instruction(pc, sp))
             {
                 master_8 = clock_8; /* commit before abandoning the frame */
+                pins = p;
                 return true;
             }
         }
@@ -181,6 +236,7 @@ static bool run_until(uint64_t deadline_8, bool dbg)
     if (clock_8 < deadline_8)
         clock_8 = deadline_8; /* halted: keep the master clock (time) flowing */
     master_8 = clock_8;
+    pins = p;
     return false;
 }
 

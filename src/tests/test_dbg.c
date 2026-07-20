@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Debugger engine (dbg.c): the run/stop/step + address-breakpoint logic that
- * sys.c consults and that both the DAP adapter and the on-screen ImGui debugger
+ * main.c consults and that both the DAP adapter and the on-screen ImGui debugger
  * drive. Exercised headlessly against adventure.rp6502 — no window required.
  */
 

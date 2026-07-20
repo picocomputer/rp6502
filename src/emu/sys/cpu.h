@@ -28,7 +28,14 @@ void cpu_run(void);
 /* Program stop: halt the 65C02 (freeze ticking). */
 void cpu_stop(void);
 
-uint64_t cpu_tick(void);   /* advance one PHI2 cycle; returns the bus pins */
+/* Advance the 6502 one PHI2 cycle. Takes the bus mask and returns it with the CPU's
+ * address/data/RW driven; the board (main.c) then runs the peripherals and RAM. */
+uint64_t cpu_tick(uint64_t pins);
+
+/* The mask cpu_run left asserted (RES). m6502.h requires it be the input to the
+ * first cpu_tick, so the board seeds its bus from this. */
+uint64_t cpu_pins(void);
+
 uint32_t cpu_step_8(void); /* 1/8-tick units advanced per 6502 cycle */
 
 /* True on an opcode fetch (SYNC); out-writes the fetch PC and SP. */
