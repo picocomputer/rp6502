@@ -4,12 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud/aud.h"
-#include "aud/bel.h"
-#include "aud/psg.h"
-#include "sys/mem.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/bel.h"
+#include "ria/aud/psg.h"
+#include "ria/sys/mem.h"
 #include <pico/stdlib.h>
-#include <hardware/pwm.h>
 #include <stddef.h>
 #include <string.h>
 
@@ -119,7 +118,7 @@ static void
     __isr
     __time_critical_func(psg_irq_handler)(void)
 {
-    pwm_clear_irq(AUD_IRQ_SLICE);
+    aud_clear_irq();
 
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
 
@@ -152,8 +151,7 @@ static void
         sample_r = min_val;
     if (sample_r > max_val)
         sample_r = max_val;
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample_l + AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample_r + AUD_PWM_CENTER);
+    aud_out(sample_l + AUD_PWM_CENTER, sample_r + AUD_PWM_CENTER);
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {

@@ -13,15 +13,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "api/api.h"
-#include "api/std.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 
 /* Status
  */
 
-int msc_status_count(void);
 int msc_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* Disk utility (mon/dsk.c) support. A logical volume index (0..FF_VOLUMES-1)

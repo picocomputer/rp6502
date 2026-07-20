@@ -9,7 +9,7 @@
 
 #ifdef EMU_WITH_SOKOL
 
-#include "emu/host/window.h"
+#include "emu/app/window.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
@@ -164,6 +164,15 @@ static char ctrl_promote(char ch)
     return 0;
 }
 
+/* AltGr arrives as Ctrl+Alt only where the host reports it that way: Windows
+ * natively, and browsers on a Windows host. On X11 AltGr is Mod5 and on macOS
+ * plain Option — there Ctrl+Alt can only be a held chord, never composition. */
+#if defined(_WIN32) || defined(__EMSCRIPTEN__)
+#define ALTGR_IS_CTRL_ALT 1
+#else
+#define ALTGR_IS_CTRL_ALT 0
+#endif
+
 /* Feed one key/char event to the emulated keyboard: the HID bitmap on
  * press/release, printable CHARs as OEM bytes, and the navigation/function/ctrl
  * keys as their byte sequences. (Esc-releases-mouse is a capture concern
@@ -184,11 +193,16 @@ static void input_key(const sapp_event *e)
          * likewise emitted by KEY_DOWN (as C0 / ESC-prefixed bytes); X11 still fires
          * a CHAR for them, so drop those here or the plain char double-injects.
          * Super too: macOS delivers a printable CHAR for Cmd chords (Cmd+V would
-         * type 'v' before the CLIPBOARD_PASTED text lands). */
+         * type 'v' before the CLIPBOARD_PASTED text lands). Where the host
+         * reports AltGr as Ctrl+Alt, that composed char types — matching the
+         * firmware's right-Alt level-3. */
         if (suppress_char)
             suppress_char = false;
         else if (e->char_code >= 32 && e->char_code != 127 &&
-                 !(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT | SAPP_MODIFIER_SUPER)))
+                 !(e->modifiers & SAPP_MODIFIER_SUPER) &&
+                 (!(e->modifiers & (SAPP_MODIFIER_CTRL | SAPP_MODIFIER_ALT)) ||
+                  (ALTGR_IS_CTRL_ALT &&
+                   (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
             char u[5];
             kbd_text(utf8_encode(e->char_code, u));
@@ -274,8 +288,10 @@ static void input_key(const sapp_event *e)
                     kbd_ctrl_letter(ch);
             }
             /* Alt+<printable> -> ESC<char> (Meta), ctrl-promoting first when both
-             * held, mirroring the firmware order. No CHAR fires for Alt combos. */
-            else if (alt)
+             * held, mirroring the firmware order. No CHAR fires for Alt combos.
+             * Ctrl+Alt is excluded only where it means AltGr, whose composed char
+             * arrives via the CHAR case above. */
+            else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
             {
                 char ch = ascii_from_key(e->key_code, shift);
                 if (ch)

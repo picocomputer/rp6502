@@ -5,8 +5,8 @@
  */
 
 #include <tusb.h>
-#include "sys/com.h"
-#include "usb/cdc.h"
+#include "vga/sys/com.h"
+#include "vga/usb/cdc.h"
 
 static absolute_time_t break_timer;
 static bool is_breaking = false;

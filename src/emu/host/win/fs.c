@@ -3,13 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows filesystem primitives (emu/plat.h fs_*), the Win32 counterpart of
+ * Windows filesystem primitives (emu/host/host.h fs_*), the Win32 counterpart of
  * posix/fs.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
- * oem_to_wide() (emu/api/oem.h) before every …W call, and returned names/paths back
+ * oem_to_wide() (api/oem.h) before every …W call, and returned names/paths back
  * with oem_from_wide(). Fallible calls set errno and return false so the
- * msc_errno_to_api_errno funnel in api/hostfs.c works unchanged.
+ * msc_errno_to_api_errno funnel in host/msc.c works unchanged.
  *
  * Semantic decisions vs. POSIX (do NOT silently diverge):
  *   - is_hidden reads FILE_ATTRIBUTE_HIDDEN, not a leading-dot name.
@@ -21,8 +21,8 @@
  *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
  */
 
-#include "emu/plat.h"
-#include "emu/api/oem.h"
+#include "emu/host/host.h"
+#include "ria/api/oem.h"
 #include "emu/host/win/win.h"
 #include <direct.h>
 #include <errno.h>
@@ -302,6 +302,14 @@ int fs_open(const char *path, int flags, int mode)
     }
     win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0};
     return fd;
+}
+
+FILE *fs_fopen_rd(const char *path)
+{
+    wchar_t w[WIN_WPATH_MAX];
+    if (!path_to_wide(path, w, WIN_WPATH_MAX))
+        return NULL;
+    return _wfopen(w, L"rb");
 }
 
 int fs_close(int fd)

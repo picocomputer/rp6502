@@ -15,11 +15,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Set the config FILE the debugger UI persists its layout into. Pass the --ini
  * value here BEFORE dbgui_init; with no override the UI uses <os-config-dir>/dbgui.ini. */
 void dbgui_set_config_file(const char *path);
@@ -54,9 +49,5 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
 /* True when ImGui wants the mouse (it is over a debugger panel/widget), so the
  * caller should leave ImGui's cursor alone. Only valid while the debugger is active. */
 bool dbgui_wants_mouse(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DBGUI_H_ */

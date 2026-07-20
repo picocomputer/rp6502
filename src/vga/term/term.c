@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/modes.h"
-#include "term/color.h"
-#include "term/font.h"
-#include "term/term.h"
-#include "sys/com.h"
-#include "sys/vga.h"
-#include "scanvideo/scanvideo.h"
+#include "vga/modes/modes.h"
+#include "vga/term/color.h"
+#include "vga/term/font.h"
+#include "vga/term/term.h"
+#include "vga/sys/com.h"
+#include "vga/sys/vga.h"
+#include "vga/scanvideo/pixel_format.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>

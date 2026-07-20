@@ -8,13 +8,7 @@
 #ifndef _EMU_HID_TAB_H_
 #define _EMU_HID_TAB_H_
 
-#include <stdbool.h>
-#include <stdint.h>
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+#include "ria/hid/tab.h"
 
 /* Absolute pointer ("tablet") device. Unlike the relative mouse it reports an
  * absolute canvas position. The multi-byte X/Y are delivered coherently through
@@ -82,11 +76,5 @@ void tab_host_clear(void);
 /* The ROM's requested cursor shape (control byte, one of TAB_CURSOR_*); 0 when
  * unmapped. */
 uint8_t tab_control(void);
-
-void tab_reset(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HID_TAB_H_ */

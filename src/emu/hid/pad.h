@@ -11,10 +11,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+/* This is a standalone REPLACE twin (not `#include "ria/hid/pad.h"`): the web
+ * shell's fixed JS-ABI export `pad_report` in host/web/exports.c collides with
+ * the firmware's `pad_report` HID-parser prototype, so the base header can't be
+ * pulled in here. */
 
 /* Flat button id spanning the firmware report's dpad/button0/button1 fields.
  * pad_hid_set maps each to its (byte, bit) in the player record. */
@@ -62,10 +62,6 @@ bool pad_is_mapped(void);
 void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
                      int lx, int ly, int rx, int ry, int lt, int rt, bool sony);
 
-void pad_reset(void);
-
-#ifdef __cplusplus
-}
-#endif
+void pad_stop(void);
 
 #endif /* _EMU_HID_PAD_H_ */

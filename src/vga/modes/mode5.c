@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "modes/mode5.h"
-#include "sys/mem.h"
-#include "sys/vga.h"
-#include "term/color.h"
+#include "vga/modes/mode5.h"
+#include "vga/sys/mem.h"
+#include "vga/sys/vga.h"
+#include "vga/term/color.h"
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")

@@ -15,7 +15,7 @@
 #include "pico/types.h"
 #include "scanvideo.pio.h"
 
-#include "scanvideo/pixel_format.h"
+#include "vga/scanvideo/pixel_format.h"
 
 // == COMPOSABLE SCANLINE ==
 #define COMPOSABLE_COLOR_RUN ((unsigned)composable_offset_color_run)

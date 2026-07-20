@@ -4,15 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/mon.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/com_hw.h"
-#include "sys/cfg.h"
-#include "sys/mem.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
-#include "sys/vga.h"
+#include "ria/mon/mon.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/pix.h"
+#include "ria/sys/ria.h"
+#include "ria/sys/vga.h"
 #include "ria.pio.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>

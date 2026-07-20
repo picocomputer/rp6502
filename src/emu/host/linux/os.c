@@ -8,7 +8,7 @@
  * else a POSIX host needs lives in posix/os.c.
  */
 
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include <sys/random.h>
 #include <time.h>
 

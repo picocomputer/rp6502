@@ -4,15 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/api.h"
-#include "api/pro.h"
-#include "aud/bel.h"
-#include "main.h"
-#include "mon/mon.h"
-#include "mon/rom.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "usb/nfc.h"
+#include "ria/api/api.h"
+#include "ria/api/arg.h"
+#include "ria/api/pro.h"
+#include "ria/aud/bel.h"
+#include "ria/main.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/rom.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/usb/nfc.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
 
@@ -30,16 +31,9 @@ static char pro_launcher_path[256];
 
 static int16_t pro_exit_code;
 
-// Layout: offset[0], offset[1], ..., offset[n-1], {0,0}, str[0], str[1], ..., str[n-1].
-// Each offset is a little-endian uint16 into pro_argv pointing at its string.
-// The {0,0} pair terminates the offset table; strings follow immediately,
-// packed with no padding and in ascending offset order (so str[i] always
-// precedes str[i+1] in memory).
-static uint8_t pro_argv[XSTACK_SIZE];
-
 void pro_run(void)
 {
-    const char *argv0 = pro_argv_index(0);
+    const char *argv0 = arg_index(0);
     if (argv0)
     {
         strncpy(pro_running_path, argv0, sizeof(pro_running_path) - 1);
@@ -65,8 +59,8 @@ void pro_stop(void)
         pro_launcher_path[0] = '\0';
     else
     {
-        pro_argv_clear();
-        pro_argv_append(pro_launcher_path);
+        arg_clear();
+        arg_append(pro_launcher_path);
         rom_exec();
     }
 }
@@ -76,138 +70,15 @@ void pro_cancel_launcher(void)
     pro_launcher_path[0] = '\0';
 }
 
-uint16_t pro_argv_count(void)
-{
-    for (uint16_t i = 0; i < XSTACK_SIZE / 2; i++)
-        if (pro_argv[i * 2] == 0 && pro_argv[i * 2 + 1] == 0)
-            return i;
-    return 0;
-}
-
-void pro_argv_clear(void)
-{
-    pro_argv[0] = pro_argv[1] = 0;
-}
-
-static uint16_t pro_argv_offset_read(uint16_t i)
-{
-    return pro_argv[i * 2] | ((uint16_t)pro_argv[i * 2 + 1] << 8);
-}
-
-static void pro_argv_offset_write(uint16_t i, uint16_t offset)
-{
-    pro_argv[i * 2] = offset & 0xFF;
-    pro_argv[i * 2 + 1] = offset >> 8;
-}
-
-static uint16_t pro_argv_size(void)
-{
-    uint16_t count = pro_argv_count();
-    if (count == 0)
-        return 2;
-    uint16_t offset = pro_argv_offset_read(count - 1);
-    return offset + (uint16_t)strlen((const char *)&pro_argv[offset]) + 1;
-}
-
-static bool pro_argv_validate(void)
-{
-    uint16_t count = pro_argv_count();
-    uint16_t pos = (count + 1) * 2;
-    if (pos >= XSTACK_SIZE)
-        return false;
-    for (uint16_t i = 0; i < count; i++)
-    {
-        if (pro_argv_offset_read(i) != pos)
-            return false;
-        while (pos < XSTACK_SIZE && pro_argv[pos] != 0)
-            pos++;
-        if (pos >= XSTACK_SIZE)
-            return false;
-        pos++;
-    }
-    return true;
-}
-
-bool pro_argv_append(const char *str)
-{
-    uint16_t count = pro_argv_count();
-    uint16_t old_strings_start = (count + 1) * 2;
-    uint16_t old_size = pro_argv_size();
-    uint16_t strings_len = old_size - old_strings_start;
-    uint16_t new_str_len = (uint16_t)strlen(str) + 1;
-    if (old_size + 2 + new_str_len > XSTACK_SIZE)
-        return false;
-    memmove(&pro_argv[old_strings_start + 2], &pro_argv[old_strings_start], strings_len);
-    for (uint16_t i = 0; i < count; i++)
-        pro_argv_offset_write(i, pro_argv_offset_read(i) + 2);
-    uint16_t new_offset = old_strings_start + 2 + strings_len;
-    pro_argv_offset_write(count, new_offset);
-    pro_argv_offset_write(count + 1, 0);
-    memcpy(&pro_argv[new_offset], str, new_str_len);
-    return true;
-}
-
-const char *pro_argv_index(uint16_t idx)
-{
-    if (idx >= pro_argv_count())
-        return NULL;
-    return (const char *)&pro_argv[pro_argv_offset_read(idx)];
-}
-
-bool pro_argv_replace(uint16_t idx, const char *str)
-{
-    uint16_t count = pro_argv_count();
-    if (idx >= count)
-        return false;
-    uint16_t old_offset = pro_argv_offset_read(idx);
-    uint16_t old_len = (uint16_t)strlen((const char *)&pro_argv[old_offset]) + 1;
-    uint16_t new_len = (uint16_t)strlen(str) + 1;
-    uint16_t old_size = pro_argv_size();
-    uint16_t tail_len = old_size - (old_offset + old_len);
-    if (new_len != old_len)
-    {
-        if (new_len > old_len && old_size + (new_len - old_len) > XSTACK_SIZE)
-            return false;
-        memmove(&pro_argv[old_offset + new_len],
-                &pro_argv[old_offset + old_len],
-                tail_len);
-        for (uint16_t i = 0; i < count; i++)
-        {
-            uint16_t offset = pro_argv_offset_read(i);
-            if (offset >= old_offset + old_len)
-            {
-                if (new_len > old_len)
-                    offset += new_len - old_len;
-                else
-                    offset -= old_len - new_len;
-                pro_argv_offset_write(i, offset);
-            }
-        }
-    }
-    memcpy(&pro_argv[old_offset], str, new_len);
-    return true;
-}
-
 bool pro_api_argv(void)
 {
-    uint16_t size = pro_argv_size();
-    xstack_ptr = XSTACK_SIZE - size;
-    memcpy(&xstack[xstack_ptr], pro_argv, size);
-    return api_return_ax(size);
+    return api_return_ax(arg_push_xstack());
 }
 
 bool pro_api_exec(void)
 {
-    size_t ptr = xstack_ptr;
-    uint16_t size = (uint16_t)(XSTACK_SIZE - ptr);
-    memcpy(pro_argv, &xstack[ptr], size);
-    memset(&pro_argv[size], 0, XSTACK_SIZE - size);
-    xstack_ptr = XSTACK_SIZE;
-    if (!pro_argv_validate() || !pro_argv_count())
-    {
-        pro_argv_clear();
+    if (!arg_pull_xstack())
         return api_return_errno(API_EINVAL);
-    }
     // Committed to the exec; rom.c surfaces any load errors on the console.
     main_stop();
     rom_exec();

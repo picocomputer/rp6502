@@ -4,22 +4,25 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "api/fat.h"
-#include "api/pro.h"
-#include "api/std.h"
-#include "mon/hlp.h"
-#include "mon/mon.h"
-#include "mon/rom.h"
-#include "net/cyw.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/lfs.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
-#include "usb/usb.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/api/fat.h"
+#include "ria/api/oem.h"
+#include "ria/api/arg.h"
+#include "ria/api/pro.h"
+#include "ria/api/std.h"
+#include "ria/mon/hlp.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/rom.h"
+#include "ria/net/cyw.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/lfs.h"
+#include "ria/sys/pix.h"
+#include "ria/sys/ria.h"
+#include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <assert.h>
 #include <ctype.h>
@@ -466,7 +469,7 @@ void rom_mon_remove(const char *args)
 
 void rom_exec(void)
 {
-    const char *argv0 = pro_argv_index(0);
+    const char *argv0 = arg_index(0);
     assert(argv0);
     if (*argv0 == ':')
     {
@@ -496,7 +499,7 @@ void rom_exec(void)
     // Skip case correction for installed ROMs (live in flash, not on disk).
     if (*argv0 != ':' && !str_correct_basename(path, sizeof path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    if (!pro_argv_replace(0, path))
+    if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     rom_close();
     if (!rom_open(path))
@@ -506,20 +509,20 @@ void rom_exec(void)
 
 static void rom_load_argv(const char *argv0, const char *args)
 {
-    pro_argv_clear();
-    if (!pro_argv_append(argv0))
+    arg_clear();
+    if (!arg_append(argv0))
         return mon_add_response_utf8(S(STR_ERR_ROM_ARGV_OVERFLOW));
     const char *arg;
     while ((arg = str_parse_string(&args)) != NULL)
-        if (!pro_argv_append(arg))
+        if (!arg_append(arg))
         {
-            pro_argv_clear();
+            arg_clear();
             mon_add_response_utf8(S(STR_ERR_ROM_ARGV_OVERFLOW));
             return;
         }
     if (!str_parse_end(args))
     {
-        pro_argv_clear();
+        arg_clear();
         mon_add_response_utf8(S(STR_ERR_ROM_ARGV_INVALID));
         return;
     }
@@ -592,7 +595,7 @@ static int rom_utf8_seq_len(unsigned char b0)
         return 3;
     if ((b0 & 0xF8) == 0xF0)
         return 4;
-    return 1; // invalid lead — str_utf8_to_oem returns 0x7F
+    return 1; // invalid lead — oem_from_utf8_next returns 0x7F
 }
 
 // state encoding: 0 = initial, 1 = streaming (last OEM byte != '\n'),
@@ -671,7 +674,7 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
             }
             return -1;
         }
-        // Sentinel: if str_utf8_to_oem reads past p_end into this 0, it sees a
+        // Sentinel: if oem_from_utf8_next reads past p_end into this 0, it sees a
         // non-continuation byte and returns 0x7F without UB.
         mbuf[got] = 0;
         size_t out = 0;
@@ -682,7 +685,7 @@ static int rom_help_response(char *buf, size_t buf_size, int state, unsigned)
             int seq = rom_utf8_seq_len((unsigned char)*p);
             if (p + seq > p_end && rom_ftell() < rom_end_pos)
                 break; // partial glyph — re-read on next call
-            buf[out++] = (char)str_utf8_to_oem(&p);
+            buf[out++] = (char)oem_from_utf8_next(&p);
         }
         size_t leftover = (size_t)(p_end - p);
         int err;

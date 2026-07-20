@@ -4,13 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud/aud.h"
-#include "aud/bel.h"
-#include "aud/opl.h"
-#include "sys/mem.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/bel.h"
+#include "ria/aud/opl.h"
+#include "ria/sys/mem.h"
 #include <assert.h>
 #include <pico/stdlib.h>
-#include <hardware/pwm.h>
 #include <string.h>
 #include <emu8950/emu8950.h>
 
@@ -33,11 +32,10 @@ static void
     __isr
     __time_critical_func(opl_irq_handler)(void)
 {
-    pwm_clear_irq(AUD_IRQ_SLICE);
+    aud_clear_irq();
 
     // Output previous sample at start to minimize jitter
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, opl_sample + AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, opl_sample + AUD_PWM_CENTER);
+    aud_out(opl_sample + AUD_PWM_CENTER, opl_sample + AUD_PWM_CENTER);
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
     const int boost_bits = 2;

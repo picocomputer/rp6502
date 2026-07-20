@@ -12,7 +12,9 @@
 
 static m6522_t via;
 
-void via_reset(void)
+/* Program start: reset the VIA. The VIA shares the 6502 RESB, so this runs just
+ * before cpu_run in the run fan-out. */
+void via_run(void)
 {
     m6522_init(&via);
 }

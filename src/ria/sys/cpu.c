@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/cpu_hw.h"
+#include "ria/main.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/cpu.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/sync.h>

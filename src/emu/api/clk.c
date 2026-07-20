@@ -6,13 +6,12 @@
  */
 
 #include "emu/api/clk.h"
-#include "emu/api/oem.h"
-#include "emu/compiler.h"
-#include "emu/plat.h"
+#include "emu/host/host.h"
 #include "emu/sys/mem.h"
 #include "pico/time.h"
-#include "api/api.h"
-#include "api/clk.h"
+#include "ria/api/api.h"
+#include "emu/api/clk.h"
+#include "ria/api/oem.h"
 #include <string.h>
 #include <time.h>
 
@@ -23,16 +22,18 @@ static int64_t g_time_offset;
  * here; clk_run re-anchors it on every program start (firmware clk_run parity). */
 static uint64_t g_run_start_us;
 
-void clk_reset(void)
+// Cold boot: adopt the host timezone/locale.
+void clk_init(void)
 {
-    g_time_offset = 0;
     os_locale_reset();
     tzset(); /* populate tzname for strftime %Z from the host timezone */
 }
 
-// Re-anchor the 6502 run clock to now.
+// Program start: clear any settime offset (each program starts on host time) and
+// re-anchor the 6502 run clock to now.
 void clk_run(void)
 {
+    g_time_offset = 0;
     g_run_start_us = time_us_64();
 }
 
@@ -56,38 +57,13 @@ static size_t clk_strftime(char *dst, size_t max, const char *format,
     size_t pos = 0;
     const char *p = utf8;
     unsigned char ch;
-    while ((ch = oem_utf8_to_oem(&p)))
+    while ((ch = oem_from_utf8_next(&p)))
     {
         if (pos + 1 >= max) /* reserve a terminator; overflow discards the whole render (firmware parity) */
             return 0;
         dst[pos++] = ch;
     }
     return pos;
-}
-
-/* The 18-byte wire struct tm the 6502 libc pushes (9 int16, struct-tm order). */
-EMU_PACK_BEGIN
-struct EMU_PACKED clk_wire_tm
-{
-    int16_t tm_sec, tm_min, tm_hour, tm_mday, tm_mon;
-    int16_t tm_year, tm_wday, tm_yday, tm_isdst;
-};
-EMU_PACK_END
-_Static_assert(18 == sizeof(struct clk_wire_tm), "wire struct tm");
-
-static void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
-{
-    w->tm_sec = tm->tm_sec, w->tm_min = tm->tm_min, w->tm_hour = tm->tm_hour;
-    w->tm_mday = tm->tm_mday, w->tm_mon = tm->tm_mon, w->tm_year = tm->tm_year;
-    w->tm_wday = tm->tm_wday, w->tm_yday = tm->tm_yday, w->tm_isdst = tm->tm_isdst;
-}
-
-static void clk_wire_to_tm(const struct clk_wire_tm *w, struct tm *tm)
-{
-    memset(tm, 0, sizeof(*tm));
-    tm->tm_sec = w->tm_sec, tm->tm_min = w->tm_min, tm->tm_hour = w->tm_hour;
-    tm->tm_mday = w->tm_mday, tm->tm_mon = w->tm_mon, tm->tm_year = w->tm_year;
-    tm->tm_wday = w->tm_wday, tm->tm_yday = w->tm_yday, tm->tm_isdst = w->tm_isdst;
 }
 
 /* op 0x3F: time_t time(void) — host wall clock plus any time_set offset. */

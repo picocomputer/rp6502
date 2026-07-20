@@ -25,11 +25,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 typedef struct dwarf_info dwarf_info_t;
 typedef struct dtype dtype_t; /* opaque C type descriptor, owned by dwarf_info_t */
 
@@ -120,9 +115,5 @@ bool dwarf_type_member(const dtype_t *t, int i, const char **name,
 
 /* DW_KIND_ENUM: the enumerator name for value, or NULL. */
 const char *dwarf_type_enum_name(const dtype_t *t, int64_t value);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DWARF_INFO_H_ */

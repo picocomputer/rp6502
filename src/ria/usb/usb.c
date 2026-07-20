@@ -4,21 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/oem.h"
+#include "ria/api/oem.h"
 #include "fatfs/ff.h"
-#include "hid/hid.h"
-#include "hid/kbd.h"
-#include "hid/mou.h"
-#include "hid/tab.h"
-#include "hid/pad.h"
+#include "ria/hid/hid.h"
+#include "ria/hid/kbd.h"
+#include "ria/hid/mou.h"
+#include "ria/hid/tab.h"
+#include "ria/hid/pad.h"
 #include "host/hcd.h"
-#include "main.h"
-#include "str/str.h"
-#include "usb/mid.h"
-#include "usb/msc.h"
-#include "usb/usb.h"
-#include "usb/vcp.h"
-#include "usb/xin.h"
+#include "ria/main.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/usb/msc.h"
+#include "ria/usb/usb.h"
+#include "ria/usb/xin.h"
 #include <pico/time.h>
 #include <stdio.h>
 #include <string.h>
@@ -132,17 +131,11 @@ int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     int count_gamepad = usb_count_hid_pad + xin_status_count();
-    int count_storage = msc_status_count();
-    int count_serial = vcp_status_count();
-    int count_midi = mid_status_count();
     int count_ep_free = hcd_free_ep_count();
     snprintf_utf8(buf, buf_size, STR_STATUS_USB,
                   usb_count_hid_kbd, usb_count_hid_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
                   usb_count_hid_mou, usb_count_hid_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                   count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
-                  count_storage, count_storage == 1 ? S(STR_STORAGE_SINGULAR) : S(STR_STORAGE_PLURAL),
-                  count_serial, count_serial == 1 ? S(STR_SERIAL_SINGULAR) : S(STR_SERIAL_PLURAL),
-                  count_midi, count_midi == 1 ? S(STR_MIDI_SINGULAR) : S(STR_MIDI_PLURAL),
                   count_ep_free, count_ep_free == 1 ? S(STR_EP_FREE_SINGULAR) : S(STR_EP_FREE_PLURAL));
     return -1;
 }
@@ -255,16 +248,14 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
 // Convert USB string descriptor to OEM for display.
 void usb_desc_string_to_oem(const void *desc_buf, size_t desc_buf_size, char *dest, size_t dest_size)
 {
-    const tusb_desc_string_t *desc = desc_buf;
     uint16_t ulen = usb_desc_string_ulen(desc_buf, desc_buf_size);
-    uint16_t cp = oem_get_code_page_run();
-    size_t pos = 0;
-    for (uint16_t i = 0; i < ulen && pos + 1 < dest_size; i++)
-    {
-        WCHAR ch = ff_uni2oem(desc->utf16le[i], cp);
-        dest[pos++] = ch ? (char)ch : 127;
-    }
-    dest[pos] = '\0';
+    if (ulen > USB_DESC_STRING_MAX_CHAR_LEN)
+        ulen = USB_DESC_STRING_MAX_CHAR_LEN;
+    // The packed descriptor's utf16le member isn't alignment-safe to address.
+    uint16_t w[USB_DESC_STRING_MAX_CHAR_LEN];
+    memcpy(w, (const uint8_t *)desc_buf + offsetof(tusb_desc_string_t, utf16le),
+           ulen * sizeof(uint16_t));
+    oem_from_wide_n(w, ulen, dest, dest_size);
 }
 
 // One fetch at a time; the pending flag holds the buffer until the

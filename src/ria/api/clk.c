@@ -7,11 +7,12 @@
 // The original RP2040 RTC implementation by Brentward is here:
 // https://github.com/picocomputer/rp6502/blob/bd8e3197/src/ria/api/clk.c
 
-#include "api/api.h"
-#include "api/clk.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/cfg.h"
+#include "ria/api/api.h"
+#include "ria/api/clk.h"
+#include "ria/api/oem.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
 #include <hardware/timer.h>
 #include <pico/aon_timer.h>
 #include <stdio.h>
@@ -207,7 +208,7 @@ static bool clk_strftime_worker(char *dst, size_t *pos, size_t max,
         if (loc)
         {
             unsigned char ch;
-            while ((ch = str_utf8_to_oem(&loc)))
+            while ((ch = oem_from_utf8_next(&loc)))
             {
                 if (*pos + 1 >= max)
                     return false;
@@ -395,47 +396,6 @@ bool clk_api_time_set(void)
     if (!aon_timer_set_time(&ts))
         return api_return_errno(API_ERANGE);
     return api_return_ax(0);
-}
-
-struct __attribute__((packed)) clk_wire_tm
-{
-    int16_t tm_sec;
-    int16_t tm_min;
-    int16_t tm_hour;
-    int16_t tm_mday;
-    int16_t tm_mon;
-    int16_t tm_year;
-    int16_t tm_wday;
-    int16_t tm_yday;
-    int16_t tm_isdst;
-};
-static_assert(18 == sizeof(struct clk_wire_tm));
-
-static void clk_tm_to_wire(const struct tm *tm, struct clk_wire_tm *w)
-{
-    w->tm_sec = tm->tm_sec;
-    w->tm_min = tm->tm_min;
-    w->tm_hour = tm->tm_hour;
-    w->tm_mday = tm->tm_mday;
-    w->tm_mon = tm->tm_mon;
-    w->tm_year = tm->tm_year;
-    w->tm_wday = tm->tm_wday;
-    w->tm_yday = tm->tm_yday;
-    w->tm_isdst = tm->tm_isdst;
-}
-
-static void clk_wire_to_tm(const struct clk_wire_tm *w, struct tm *tm)
-{
-    memset(tm, 0, sizeof(*tm));
-    tm->tm_sec = w->tm_sec;
-    tm->tm_min = w->tm_min;
-    tm->tm_hour = w->tm_hour;
-    tm->tm_mday = w->tm_mday;
-    tm->tm_mon = w->tm_mon;
-    tm->tm_year = w->tm_year;
-    tm->tm_wday = w->tm_wday;
-    tm->tm_yday = w->tm_yday;
-    tm->tm_isdst = w->tm_isdst;
 }
 
 static bool clk_api_to_tm(bool local)

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "sys/com.h"
-#include "usb/cdc.h"
+#include "vga/sys/com.h"
+#include "vga/usb/cdc.h"
 #include <tusb.h>
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>

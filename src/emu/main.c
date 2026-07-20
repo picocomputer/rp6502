@@ -6,30 +6,42 @@
  */
 
 #include "emu/main.h"
-#include "emu/api/oem.h"
 #include "emu/api/pro.h"
+#include "emu/api/clk.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/api/hostfs.h"
-#include "emu/mon/rom.h"
+#include "emu/host/msc.h"
+#include "emu/host/rom.h"
+#include "emu/host/tmp.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
+#include "emu/sys/pix.h"
 #include "emu/sys/vga.h"
 #include "emu/sys/via.h"
-#include "emu/sys/xreg.h"
+#include "emu/hid/kbd.h"
+#include "emu/hid/mou.h"
+#include "emu/hid/pad.h"
+#include "emu/hid/tab.h"
 #include "emu/chips/rp6502.h"
-/* Firmware handler decls, ria/-qualified: a bare "api/std.h" or "aud/aud.h" from
- * this root file would bind to the emu/api/ and emu/aud/ shadows beside it, not
- * the firmware headers that declare aud_init and the *_api_* op handlers. */
 #include "ria/api/api.h"
 #include "ria/api/atr.h"
 #include "ria/api/std.h"
-#include "ria/api/dir.h"
+#include "ria/api/fat.h"
 #include "ria/api/clk.h"
+#include "ria/api/oem.h"
 #include "ria/aud/aud.h"
+#include "ria/aud/psg.h"
+#include "ria/aud/opl.h"
 #include "ria/str/rln.h"
-#include "term/term.h" /* no emu/term shadow; resolves to vga/term */
+#include "ria/str/str.h"
+#include "vga/term/font.h"
+#include "vga/term/term.h"
+#include "vga/modes/mode1.h"
+#include "vga/modes/mode2.h"
+#include "vga/modes/mode3.h"
+#include "vga/modes/mode4.h"
+#include "vga/modes/mode5.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -52,20 +64,71 @@ void main_set_exit_code(int code) { s_exit_code = code; }
 unsigned long main_frame_count(void) { return s_frame_count; }
 uint64_t main_clock_8(void) { return master_8; }
 
+/* Power-up initialization — called exactly ONCE per process (never re-run; init
+ * is not idempotent). Settings are loaded before this (cpu/oem adopt them), the
+ * ROM is loaded after, and the caller starts the machine with main_run(). */
 void main_init(void)
 {
     pro_init();
-    cpu_init(); /* default PHI2 (--phi2 reapplies after main_init) */
+    cpu_init();
     master_8 = 0;
     scanline_n = 0;
     s_frame_count = 0;
     aud_init();
-    ria_reset();
-    com_reset();        /* cold boot: flush queued input (per-exec keeps type-ahead) */
-    oem_reset();        /* cold boot: default code page 437 (exec preserves the page) */
-    vga_boot_console(); /* font_init loads that same 437 default into the font */
-    cpu_reset();
-    via_reset(); /* the VIA shares the 6502's RESB, so a CPU reset clears it */
+    com_init();
+    std_init();
+    rln_init();
+    clk_init();
+    str_init();
+    oem_init();
+    font_init();
+    term_init();
+    vga_init();
+}
+
+/* ------------------------------------------------------------------ */
+/* Machine lifecycle: start/stop the 6502 (mirrors ria/main.c run/stop) */
+/* ------------------------------------------------------------------ */
+
+/* Start running the 6502 — the counterpart to ria/main.c's run(), same order
+ * (cpu_run last; via_run beside it, the VIA shares the 6502 RESB). Unlike the
+ * firmware's main_run (a scheduler request), this fans out immediately: the emu is
+ * frame-driven and has no run-state machine. The code page and PHI2 are deliberately
+ * NOT reset — an exec'd program inherits the parent's (an intentional divergence
+ * from hardware; the program reads the page back via the CODE_PAGE attribute). The
+ * cold-boot defaults live in main_init and cpu_init. */
+void main_run(void)
+{
+    s_exit_code = 0;
+    xstack[XSTACK_SIZE] = 0; /* cstring guard */
+    pro_run();
+    com_run();
+    rln_run();
+    fat_run();
+    api_run();
+    clk_run();
+    ria_run();
+    via_run();
+    cpu_run(); /* must be last */
+}
+
+/* Stop the 6502 — the counterpart to ria/main.c's stop(), same order (cpu_stop
+ * first, vga_stop second). The emu omits the modules it has no analog for
+ * (pix/mid/mdm/rom/mon) and, deliberately, oem_stop: the code page rings through. */
+void main_stop(void)
+{
+    cpu_stop(); /* must be first */
+    vga_stop(); /* arm the console reset (firmware stop() resets the VGA) */
+    rln_stop();
+    api_stop();
+    std_stop();
+    fat_stop();
+    msc_stop();
+    kbd_stop();
+    mou_stop();
+    pad_stop();
+    tab_stop();
+    aud_stop();
 }
 
 /* ------------------------------------------------------------------ */
@@ -148,6 +211,8 @@ static void run_frame(bool render)
     }
     stop_swept = false;
 
+    vga_task(); /* perform an armed console reset before rendering this frame */
+
     const int vsync_line = vga_vsync_scanline();
     const int canvas_h = vga_canvas_height();
     const uint64_t frame_end_n = scanline_n + VGA_SCANLINES;
@@ -188,25 +253,20 @@ static void run_frame(bool render)
     aud_task();
 
     /* An exec committed this frame: load the new program and restart the CPU,
-     * keeping the master clock and the argv pro_api_exec stored. The terminal
-     * and VGA state are NOT reset — the new program's output appends to the
-     * existing screen, as on real hardware. */
+     * keeping the master clock and the argv pro_api_exec stored. main_stop arms
+     * the console reset (vga_task performs it before the new program draws), as on
+     * real hardware; the screen text survives (preserve-screen terminal RIS). */
     const char *exec_path = pro_take_exec();
     if (exec_path)
     {
+        main_stop(); /* tear down the outgoing program (cpu_stop halts it) */
         if (!rom_load(exec_path))
         {
             fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);
-            cpu_set_halted(true);
-            s_exit_code = 1;
+            s_exit_code = 1; /* stays halted from main_stop */
         }
         else
-        {
-            ria_reset(); /* RIA/std/kbd/atr/clk; clears halt, keeps VSYNC + screen */
-            cpu_reset();
-            via_reset();
-            pro_run();
-        }
+            main_run(); /* start the incoming program; keeps VSYNC + clock */
     }
 }
 
@@ -218,61 +278,112 @@ void main_run_frame(void) { run_frame(true); }
 void main_run_frame_norender(void) { run_frame(false); }
 
 /* ------------------------------------------------------------------ */
-/* xreg (op 0x01): marshal device/channel/address + words off the xstack */
-/* ------------------------------------------------------------------ */
-
-/* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */
-static uint16_t word_at(int i)
-{
-    uint16_t word;
-    memcpy(&word, &xstack[XSTACK_SIZE - 5 - 2 * i], sizeof(word));
-    return word;
-}
-
-static bool std_xreg(void)
-{
-    uint8_t device = xstack[XSTACK_SIZE - 1];
-    uint8_t channel = xstack[XSTACK_SIZE - 2];
-    uint8_t address = xstack[XSTACK_SIZE - 3];
-    int count = (int)((XSTACK_SIZE - xstack_ptr - 3) / 2);
-    bool aligned = (xstack_ptr & 1) != 0;
-    xstack_ptr = XSTACK_SIZE; /* args consumed; nothing below reads xstack_ptr */
-    if (!aligned || count < 1 || count > XSTACK_SIZE / 2 ||
-        device > 7 || channel > 15)
-        return api_return_errno(API_EINVAL);
-    /* VGA control channel ($F) is RIA-private while VGA is connected (always,
-     * in the emulator), so a write NAKs (mirrors ria/sys/pix.c). */
-    if (device == 1 && channel == 0xF)
-        return api_return_errno(API_EACCES);
-    /* A VGA channel-0 write from address 0 must send the canvas word (address 0)
-     * first so it can't clear later mode programming; the rest follow high
-     * address -> low, landing each register after the parameters it consumes
-     * (e.g. the term mode word at address 1). */
-    bool canvas_first = (device == 1 && channel == 0 && address == 0 && count > 1);
-    if (canvas_first && !xreg_write(device, channel, address, word_at(0)))
-        return api_return_errno(API_EINVAL);
-    for (int i = count - 1; i >= (canvas_first ? 1 : 0); i--)
-    {
-        /* PIX_DEVICE_RIA (device 0) holds the address constant (last-wins);
-         * only the VGA/non-RIA path walks address+i. */
-        uint8_t reg = device ? (uint8_t)(address + i) : address;
-        if (!xreg_write(device, channel, reg, word_at(i)))
-            return api_return_errno(API_EINVAL);
-    }
-    return api_return_ax(0);
-}
-
-/* ------------------------------------------------------------------ */
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
 
+/* PIX XREG register dispatch. Device 0 is the RIA-local virtual device (HID +
+ * audio); device 1 is the VGA. False on an unhandled channel/address. */
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
+{
+    if (channel == 0) /* human interface devices -> XRAM report blocks */
+    {
+        if (address == 0)
+            return kbd_set_xram(word);
+        if (address == 1)
+            return mou_set_xram(word);
+        if (address == 2)
+            return pad_set_xram(word);
+        if (address == 3)
+            return tab_set_xram(word);
+        return false;
+    }
+    if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
+    {
+        if (address == 0)
+            return psg_xreg(word);
+        if (address == 1)
+            return opl_xreg(word);
+        return false;
+    }
+    return false;
+}
+
+/* The VGA mode-xreg accumulator, shared by channel 0 (CANVAS/MODE) and channel 15
+ * (DISPLAY, which clears it) — mirrors the file-level xregs in vga/sys/pix.c. */
+static uint16_t xregs[16];
+
+bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
+{
+    if (channel == 0)
+    {
+        xregs[address & 0x0F] = word;
+        if (address == 0)
+        {
+            bool ok = vga_set_canvas(word);
+            memset(xregs, 0, sizeof(xregs)); /* fresh state per pix.c */
+            return ok;
+        }
+        if (address == 1)
+        {
+            /* Mode select (xregs[1]); params at addresses 2.. were stored first
+             * by the high->low dispatch. Mirrors vga main_prog, then clears the
+             * registers so the next program starts fresh. */
+            bool ok;
+            switch (word)
+            {
+            case 0:
+                ok = term_prog(xregs);
+                break;
+            case 1:
+                ok = mode1_prog(xregs);
+                break;
+            case 2:
+                ok = mode2_prog(xregs);
+                break;
+            case 3:
+                ok = mode3_prog(xregs);
+                break;
+            case 4:
+                ok = mode4_prog(xregs);
+                break;
+            case 5:
+                ok = mode5_prog(xregs);
+                break;
+            default:
+                ok = false; /* all VGA modes modeled */
+                break;
+            }
+            memset(xregs, 0, sizeof(xregs));
+            return ok;
+        }
+        return true; /* parameter register stored */
+    }
+    if (channel == 0x0F)
+    {
+        /* VGA control channel — RIA-private (guest writes NAK in pix_api_xreg).
+         * Mirrors vga/sys/pix.c pix_ch15_xreg; only registers with an emu analog
+         * are handled. */
+        if (address == 0x00) /* DISPLAY: also resets to the console canvas */
+        {
+            vga_set_canvas(vga_canvas_console); /* == firmware vga_xreg_canvas(NULL) */
+            term_RIS_no_clear();                /* preserve-screen terminal RIS */
+            memset(xregs, 0, sizeof(xregs));
+            return true;
+        }
+        return false; /* no emu analog for the other control registers */
+    }
+    /* Channels 1-14 reach external bus devices with no ACK; the emulator has none,
+     * so a no-op success. */
+    return true;
+}
+
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
  * slots can be swapped between the emu's host handlers and the REAL firmware
- * dir_api_* (ria/api/dir.c) when --tmpdrive mounts a RAM FatFs. The dir slots
+ * fat_api_* (ria/api/fat.c) when --tmpdrive mounts a RAM FatFs. The dir slots
  * default to host below; main_dir_ops_set() swaps them. */
 typedef bool (*api_op_fn)(void);
 static api_op_fn api_ops[0x40] = {
-    [0x01] = std_xreg,
+    [0x01] = pix_api_xreg,
     [0x02] = atr_api_phi2,
     [0x03] = atr_api_code_page,
     [0x04] = atr_api_lrand,
@@ -288,26 +399,26 @@ static api_op_fn api_ops[0x40] = {
     [0x18] = std_api_write_xstack,
     [0x19] = std_api_write_xram,
     [0x1A] = std_api_lseek_cc65,
-    [0x1B] = hostfs_api_unlink,
-    [0x1C] = hostfs_api_rename,
+    [0x1B] = msc_api_unlink,
+    [0x1C] = msc_api_rename,
     [0x1D] = std_api_lseek_llvm,
     [0x1E] = std_api_syncfs,
-    [0x1F] = hostfs_api_stat,
-    [0x20] = hostfs_api_opendir,
-    [0x21] = hostfs_api_readdir,
-    [0x22] = hostfs_api_closedir,
-    [0x23] = hostfs_api_telldir,
-    [0x24] = hostfs_api_seekdir,
-    [0x25] = hostfs_api_rewinddir,
-    [0x26] = hostfs_api_chmod,
-    [0x27] = hostfs_api_utime,
-    [0x28] = hostfs_api_mkdir,
-    [0x29] = hostfs_api_chdir,
-    [0x2A] = hostfs_api_chdrive,
-    [0x2B] = hostfs_api_getcwd,
-    [0x2C] = hostfs_api_setlabel,
-    [0x2D] = hostfs_api_getlabel,
-    [0x2E] = hostfs_api_getfree,
+    [0x1F] = msc_api_stat,
+    [0x20] = msc_api_opendir,
+    [0x21] = msc_api_readdir,
+    [0x22] = msc_api_closedir,
+    [0x23] = msc_api_telldir,
+    [0x24] = msc_api_seekdir,
+    [0x25] = msc_api_rewinddir,
+    [0x26] = msc_api_chmod,
+    [0x27] = msc_api_utime,
+    [0x28] = msc_api_mkdir,
+    [0x29] = msc_api_chdir,
+    [0x2A] = msc_api_chdrive,
+    [0x2B] = msc_api_getcwd,
+    [0x2C] = msc_api_setlabel,
+    [0x2D] = msc_api_getlabel,
+    [0x2E] = msc_api_getfree,
     [0x30] = rln_api_lastkey,
     [0x31] = rln_api_peek,
     [0x32] = rln_api_poke,
@@ -319,7 +430,7 @@ static api_op_fn api_ops[0x40] = {
     [0x3F] = clk_api_time_get,
 };
 
-/* Swap the dir op slots: the firmware's own dir_api_* (over the RAM FatFs) when
+/* Swap the dir op slots: the firmware's own fat_api_* (over the RAM FatFs) when
  * fat, else the emu's host handlers. */
 void main_dir_ops_set(bool fat)
 {
@@ -328,24 +439,24 @@ void main_dir_ops_set(bool fat)
         uint8_t op;
         api_op_fn host, fat;
     } slots[] = {
-        {0x1B, hostfs_api_unlink, dir_api_unlink},
-        {0x1C, hostfs_api_rename, dir_api_rename},
-        {0x1F, hostfs_api_stat, dir_api_stat},
-        {0x20, hostfs_api_opendir, dir_api_opendir},
-        {0x21, hostfs_api_readdir, dir_api_readdir},
-        {0x22, hostfs_api_closedir, dir_api_closedir},
-        {0x23, hostfs_api_telldir, dir_api_telldir},
-        {0x24, hostfs_api_seekdir, dir_api_seekdir},
-        {0x25, hostfs_api_rewinddir, dir_api_rewinddir},
-        {0x26, hostfs_api_chmod, dir_api_chmod},
-        {0x27, hostfs_api_utime, dir_api_utime},
-        {0x28, hostfs_api_mkdir, dir_api_mkdir},
-        {0x29, hostfs_api_chdir, dir_api_chdir},
-        {0x2A, hostfs_api_chdrive, dir_api_chdrive},
-        {0x2B, hostfs_api_getcwd, dir_api_getcwd},
-        {0x2C, hostfs_api_setlabel, dir_api_setlabel},
-        {0x2D, hostfs_api_getlabel, dir_api_getlabel},
-        {0x2E, hostfs_api_getfree, dir_api_getfree},
+        {0x1B, msc_api_unlink, fat_api_unlink},
+        {0x1C, msc_api_rename, fat_api_rename},
+        {0x1F, msc_api_stat, fat_api_stat},
+        {0x20, msc_api_opendir, fat_api_opendir},
+        {0x21, msc_api_readdir, fat_api_readdir},
+        {0x22, msc_api_closedir, fat_api_closedir},
+        {0x23, msc_api_telldir, fat_api_telldir},
+        {0x24, msc_api_seekdir, fat_api_seekdir},
+        {0x25, msc_api_rewinddir, fat_api_rewinddir},
+        {0x26, msc_api_chmod, fat_api_chmod},
+        {0x27, msc_api_utime, fat_api_utime},
+        {0x28, msc_api_mkdir, fat_api_mkdir},
+        {0x29, msc_api_chdir, fat_api_chdir},
+        {0x2A, msc_api_chdrive, fat_api_chdrive},
+        {0x2B, msc_api_getcwd, fat_api_getcwd},
+        {0x2C, msc_api_setlabel, fat_api_setlabel},
+        {0x2D, msc_api_getlabel, fat_api_getlabel},
+        {0x2E, msc_api_getfree, fat_api_getfree},
     };
     for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++)
         api_ops[slots[i].op] = fat ? slots[i].fat : slots[i].host;
@@ -358,4 +469,16 @@ bool main_api(uint8_t operation)
 {
     api_op_fn fn = operation < 0x40 ? api_ops[operation] : NULL;
     return fn ? fn() : api_return_errno(API_ENOSYS);
+}
+
+static const std_driver_t std_drivers[] = {
+    {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
+    {tmp_std_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
+    {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
+};
+
+const std_driver_t *main_std_drivers(size_t *count)
+{
+    *count = sizeof(std_drivers) / sizeof(std_drivers[0]);
+    return std_drivers;
 }

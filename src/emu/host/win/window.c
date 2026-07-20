@@ -5,7 +5,7 @@
  *
  * Windows window host: the Win32 WM resize seam and the sokol entry (window_run
  * -> sapp_run with high_dpi for a native-resolution D3D11 backbuffer). The
- * render/frame/present pipeline is in host/window_core.c.
+ * render/frame/present pipeline is in app/window_core.c.
  */
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -15,9 +15,11 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
-#include "emu/host/window.h"
-#include "emu/host/window_core.h"
+#include "ria/api/oem.h"
+#include "emu/app/window.h"
+#include "emu/app/window_core.h"
 #include "sokol_app.h"
 #include "sokol_log.h"
 #include <stdint.h>
@@ -40,47 +42,77 @@ void host_window_resize(int w, int h)
 }
 
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-void host_window_init(void) {}
-bool host_window_menu_active(void) { return false; }
-void host_window_menu_draw(void) {}
+
+/* Held with no program until a .rp6502 is dropped: the core freezes the machine
+ * and draws the "drop a ROM" prompt instead of the canvas while this is set. */
+static bool waiting_for_rom;
+
+bool window_wait_for_rom(void)
+{
+    waiting_for_rom = true;
+    return true;
+}
+
+void host_window_init(void)
+{
+    if (waiting_for_rom)
+        window_core_prompt_setup();
+}
+
+bool host_window_menu_active(void) { return waiting_for_rom; }
+
+void host_window_menu_draw(void)
+{
+    if (waiting_for_rom)
+        window_core_draw_prompt("Drop a .rp6502", "ROM file here");
+}
+
+/* True when the wide path survives UTF-16 -> OEM -> UTF-16 unchanged, i.e.
+ * window_core_boot_rom's OEM conversion of its UTF-8 spelling is lossless. */
+static bool wide_is_oem_lossless(const WCHAR *w)
+{
+    char oem[MAX_PATH];
+    uint16_t back[MAX_PATH];
+    oem_from_wide((const uint16_t *)w, oem, sizeof oem);
+    oem_to_wide(oem, back, MAX_PATH);
+    return wcscmp(w, (const WCHAR *)back) == 0;
+}
 
 void host_window_files_dropped(void)
 {
-    /* sokol delivers the path as UTF-8 but rom_load opens with the ANSI CRT
-     * fopen; convert, falling back to the 8.3 short name when the path has
-     * characters the ANSI code page can't hold. When the process code page IS
-     * UTF-8 (app manifest or the Windows setting), fopen takes it as-is — and
-     * WideCharToMultiByte rejects WC_NO_BEST_FIT_CHARS/lpUsedDefaultChar there. */
+    /* sokol delivers the path as UTF-8 and window_core_boot_rom converts it to
+     * the guest's OEM code page; fall back to the 8.3 short name when the path
+     * has characters the active OEM code page can't hold. */
     const char *utf8 = sapp_get_dropped_file_path(0);
-    if (GetACP() == CP_UTF8)
-    {
-        window_core_boot_rom(utf8);
-        return;
-    }
     WCHAR wide[MAX_PATH];
-    char ansi[MAX_PATH];
-    BOOL lossy = FALSE;
-    bool ok = MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, MAX_PATH) != 0;
-    if (ok &&
-        (!WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, wide, -1,
-                              ansi, sizeof ansi, NULL, &lossy) ||
-         lossy))
+    if (!MultiByteToWideChar(CP_UTF8, 0, utf8, -1, wide, MAX_PATH))
     {
-        /* In place is allowed; a short name can be LONGER than the long name,
-         * and a too-small buffer returns the needed size, not 0. */
-        DWORD n = GetShortPathNameW(wide, wide, MAX_PATH);
-        lossy = FALSE;
-        ok = n > 0 && n < MAX_PATH &&
-             WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, wide, -1,
-                                 ansi, sizeof ansi, NULL, &lossy) &&
-             !lossy;
-    }
-    if (!ok)
-    {
-        fprintf(stderr, "rp6502-emu: dropped path not representable in the ANSI code page\n");
+        fprintf(stderr, "rp6502-emu: dropped path too long\n");
         return;
     }
-    window_core_boot_rom(ansi);
+    if (wide_is_oem_lossless(wide))
+    {
+        if (window_core_boot_rom(utf8))
+            waiting_for_rom = false;
+        return;
+    }
+    /* In place is allowed; a short name can be LONGER than the long name,
+     * and a too-small buffer returns the needed size, not 0. */
+    DWORD n = GetShortPathNameW(wide, wide, MAX_PATH);
+    char shortu8[MAX_PATH * 3];
+    if (!n || n >= MAX_PATH || !wide_is_oem_lossless(wide) ||
+        !WideCharToMultiByte(CP_UTF8, 0, wide, -1, shortu8, sizeof shortu8, NULL, NULL))
+    {
+        fprintf(stderr, "rp6502-emu: dropped path not representable in the OEM code page\n");
+        return;
+    }
+    if (window_core_boot_rom(shortu8))
+        waiting_for_rom = false;
+}
+
+void host_window_open_url(const char *url)
+{
+    ShellExecuteA(NULL, "open", url, NULL, NULL, SW_SHOWNORMAL);
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)

@@ -112,7 +112,7 @@ void pad_hid_set(int player, pad_button_t button, bool down)
     pad_write_xram();
 }
 
-void pad_reset(void)
+void pad_stop(void)
 {
     memset(pad_state, 0, sizeof(pad_state));
     pad_xram = 0xFFFF;

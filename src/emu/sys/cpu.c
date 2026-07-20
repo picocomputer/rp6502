@@ -29,6 +29,7 @@ void *cpu_chip(void) { return &cpu; }
 /* ------------------------------------------------------------------ */
 
 static uint16_t phi2_khz_run;             /* achievable PHI2 after quantization (reported) */
+static uint16_t phi2_khz_cfg;             /* config PHI2 loaded before init (0 = built-in default) */
 static uint32_t master_per_cycle_8 = 256; /* 1/8-ticks advanced per 6502 cycle */
 
 /* Mirror ria/sys/cpu.c cpu_change_phi2_khz: the 6502:RP2350 ratio is 1:32, so
@@ -52,8 +53,18 @@ uint16_t cpu_get_phi2_khz_run(void)
     return phi2_khz_run;
 }
 
+/* Config PHI2 — the machine default, loaded before cpu_init (firmware cfg_init
+ * parity). Validated here; cpu_init quantizes it into the run clock. */
+bool cpu_set_phi2_khz(uint16_t khz)
+{
+    if (khz < CPU_PHI2_MIN_KHZ || khz > CPU_PHI2_MAX_KHZ)
+        return false;
+    phi2_khz_cfg = khz;
+    return true;
+}
+
 /* Program-halt gate: set true by the EXIT syscall, a failed exec, or a --dap
- * launch hold; cleared by ria_reset on (re)start. */
+ * launch hold; cleared by cpu_run on (re)start. */
 static bool halted;
 
 bool cpu_active(void) { return !halted; }
@@ -86,14 +97,22 @@ static inline uint64_t bus_cycle(uint64_t p)
 
 void cpu_init(void)
 {
-    cpu_set_phi2_khz_run(CPU_PHI2_DEFAULT);
+    cpu_set_phi2_khz_run(phi2_khz_cfg ? phi2_khz_cfg : CPU_PHI2_DEFAULT);
 }
 
-/* m6502_init returns a pin mask with RES asserted; the first ticks run
- * the reset sequence and fetch the vector at $FFFC/$FFFD. */
-void cpu_reset(void)
+/* Program start: m6502_init returns a pin mask with RES asserted; the first ticks
+ * run the reset sequence and fetch the vector at $FFFC/$FFFD. Must be last in the
+ * run fan-out (the VIA shares RESB, so via_run runs just before). */
+void cpu_run(void)
 {
     pins = m6502_init(&cpu, &(m6502_desc_t){0});
+    halted = false;
+}
+
+/* Program stop: freeze the 6502 (the tick loop runs only while cpu_active()). */
+void cpu_stop(void)
+{
+    halted = true;
 }
 
 uint64_t cpu_tick(void)

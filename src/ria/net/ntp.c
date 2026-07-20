@@ -5,14 +5,15 @@
  */
 
 #ifndef RP6502_RIA_W
-#include "net/ntp.h"
+#include "ria/net/ntp.h"
 void ntp_task() {}
 int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
-#include "net/ntp.h"
-#include "net/wfi.h"
-#include "str/str.h"
+#include "ria/net/ntp.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
 #include <lwip/dns.h>
 #include <lwip/udp.h>
 #include <pico/aon_timer.h>

@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "net/cmd.h"
-#include "net/cyw.h"
-#include "net/mdm.h"
-#include "net/wfi.h"
-#include "mon/hlp.h"
-#include "str/str.h"
+#include "ria/net/cmd.h"
+#include "ria/net/cyw.h"
+#include "ria/net/mdm.h"
+#include "ria/net/wfi.h"
+#include "ria/mon/hlp.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
 #include <stdio.h>
 #include <ctype.h>
 #include <string.h>

@@ -6,7 +6,7 @@
  * RIA debug window for the RP6502 — a chips-ui-style inspector beside ui_w65c02.h
  * and ui/ui_m6522.h. Unlike those (forks of upstream chip widgets), the RIA is
  * bespoke: it shares the 6502 bus, so the window shows the RIA's pins as last
- * decoded (ria_chip()->PINS, plus a synthetic CS over the RIA window) and a
+ * decoded (ria_chip()->PINS, plus a synthetic RREQ over the RIA window) and a
  * read-only view of the register file ($FFE0-$FFFF, in ram[]) and the XSTACK SP.
  *
  * Header-only with the implementation under CHIPS_UI_IMPL, emitted by the single
@@ -64,17 +64,20 @@ void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings);
 #endif
 #include "emu/chips/w65c02.h" /* M6502_* pin macros (for the pin diagram) */
 #include "emu/sys/mem.h"      /* ram, xstack_ptr, RIA_WINDOW_LO/HI */
+#include "emu/sys/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
+#include "ria/api/oem.h"      /* oem_get_code_page_run (Status) */
 
-/* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
+/* The RIA shares the 6502 bus but wires only its own pins: RREQ, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
- * are decoded off-chip into CS, so they never reach the RIA. Pins are fed live
- * from ria_chip()->PINS; RIA_PIN_CS rides a free bit above M6502_PIN_MASK (bit 40),
- * so it never collides with a real CPU pin. */
-#define RIA_PIN_CS (1ULL << 40)
+ * are decoded off-chip into RREQ, so they never reach the RIA. Pins are fed live
+ * from ria_chip()->PINS; RREQ (the RP6502 schematic's RIA-request select, active
+ * high) rides a free bit above M6502_PIN_MASK (bit 40), so it never collides with
+ * a real CPU pin. */
+#define RIA_PIN_RREQ (1ULL << 40)
 static const ui_chip_pin_t _ui_rp6502_pins[] = {
     {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
     {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW}, {"IRQ", 10, M6502_IRQ}, {"RES", 11, M6502_RES}, {"CS", 12, RIA_PIN_CS},
+    {"RW", 9, M6502_RW}, {"IRQ", 10, M6502_IRQ}, {"RES", 11, M6502_RES}, {"RREQ", 12, RIA_PIN_RREQ},
     {"A0", 13, M6502_A0}, {"A1", 14, M6502_A1}, {"A2", 15, M6502_A2}, {"A3", 16, M6502_A3},
     {"A4", 17, M6502_A4},
 };
@@ -124,62 +127,66 @@ void ui_rp6502_draw(ui_rp6502_t *win)
     ImGui::SetNextWindowSize(ImVec2(win->init_w, win->init_h), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(win->title, &win->open))
     {
-        /* Pins: the bus as the RIA chip last decoded it (ria_chip()->PINS), CS lit
-         * when the RIA window is the addressed device. */
+        /* Pins: the bus as the RIA chip last decoded it (ria_chip()->PINS) — IRQ
+         * already rides in it (ria_tick drives M6502_IRQ from ria_irq_asserted).
+         * Overlaid: RREQ lit when the RIA window is the addressed device, and RES
+         * lit while the RIA holds the 6502 in reset (between a stop and the next
+         * run — cpu_halted(), which is not the debugger's mid-run pause). */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
         uint16_t a = (uint16_t)(p & 0xFFFFu);
         if (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI)
-            p |= RIA_PIN_CS;
+            p |= RIA_PIN_RREQ;
+        if (cpu_halted())
+            p |= M6502_RES;
         ImGui::BeginChild("##ria_pins", ImVec2(176, 0), true);
         ui_chip_draw(&win->chip, p);
         ImGui::EndChild();
         ImGui::SameLine();
         ImGui::BeginChild("##ria_state", ImVec2(0, 0), true);
 
-        /* The xstack pointer — an internal latch the memory-mapped register file
-         * doesn't carry (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF]). */
-        ImGui::Text("XSTACK SP $%03X", (unsigned)xstack_ptr);
-        ImGui::Spacing();
-
-        ImGui::TextUnformatted("Registers");
-        ImGui::Separator();
-        ImGui::BeginChild("##ria_regs", ImVec2(0, 0), false);
-        if (ImGui::BeginTable("##regs", 3,
-                              ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
-                                  ImGuiTableFlags_SizingFixedFit))
+        /* Internal latches the memory-mapped register file doesn't carry: the
+         * xstack pointer (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF])
+         * and the running code page / PHI2 (config settings with no bus register).
+         * The RIA's IRQ assertion shows on the IRQ pin (driven by ria_tick). */
+        if (ImGui::CollapsingHeader("Status", ImGuiTreeNodeFlags_DefaultOpen))
         {
+            ImGui::Text("XSTACK SP:    $%03X", (unsigned)xstack_ptr);
+            ImGui::Text("CODE PAGE:    %u", (unsigned)oem_get_code_page_run());
+            ImGui::Text("PHI2:         %u kHz", (unsigned)cpu_get_phi2_khz_run());
+        }
+
+        if (ImGui::CollapsingHeader("Registers", ImGuiTreeNodeFlags_DefaultOpen))
+        {
+            /* The RIA register file is regs[] (no longer aliased into ram[]); the
+             * vectors above the window ($FFFA-$FFFF) are real RAM. Rows match the
+             * VIA panel's "NAME ($addr/dec): val" layout (ui/ui_m6522.h). */
+            auto peek = [](uint16_t a) -> uint8_t {
+                return (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI) ? regs[a & 0x1F] : ram[a];
+            };
             for (auto &r : _ui_rp6502_regs)
             {
-                ImGui::TableNextRow();
-                ImGui::TableNextColumn();
-                ImGui::Text("$%04X", r.addr);
-                ImGui::TableNextColumn();
-                ImGui::TextUnformatted(r.name);
-                ImGui::TableNextColumn();
                 if (r.width == 2)
-                    ImGui::Text("$%04X", (unsigned)(ram[r.addr] |
-                                                    (ram[(uint16_t)(r.addr + 1)] << 8)));
-                else
                 {
-                    uint8_t v = ram[r.addr];
-                    ImGui::Text("$%02X", v);
-                    char buf[24] = "";
-                    if (r.addr == 0xFFE0)
-                        std::snprintf(buf, sizeof buf, "%s%s", (v & 0x80) ? "TX " : "", (v & 0x40) ? "RX" : "");
-                    else if (r.addr == 0xFFF0)
-                        std::snprintf(buf, sizeof buf, "%s%s", (v & 0x80) ? "VSYNC " : "", (v & 0x40) ? "SIGINT" : "");
-                    else if (r.addr == 0xFFF2 && (v & 0x80))
-                        std::snprintf(buf, sizeof buf, "BUSY");
-                    if (buf[0])
-                    {
-                        ImGui::SameLine();
-                        ImGui::TextDisabled("%s", buf);
-                    }
+                    ImGui::Text("%-6s ($%04X/%5d): $%04X", r.name, r.addr, r.addr,
+                                (unsigned)(peek(r.addr) | (peek((uint16_t)(r.addr + 1)) << 8)));
+                    continue;
+                }
+                uint8_t v = peek(r.addr);
+                ImGui::Text("%-6s ($%04X/%5d): $%02X", r.name, r.addr, r.addr, v);
+                char buf[24] = "";
+                if (r.addr == 0xFFE0)
+                    std::snprintf(buf, sizeof buf, "%s%s", (v & 0x80) ? "TX " : "", (v & 0x40) ? "RX" : "");
+                else if (r.addr == 0xFFF0)
+                    std::snprintf(buf, sizeof buf, "%s%s", (v & 0x80) ? "VSYNC " : "", (v & 0x40) ? "SIGINT" : "");
+                else if (r.addr == 0xFFF2 && (v & 0x80))
+                    std::snprintf(buf, sizeof buf, "BUSY");
+                if (buf[0])
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%s", buf);
                 }
             }
-            ImGui::EndTable();
         }
-        ImGui::EndChild();
 
         ImGui::EndChild();
     }

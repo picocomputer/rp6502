@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/vcp.h"
-#include "str/str.h"
-#include "usb/usb.h"
+#include "ria/usb/vcp.h"
+#include "ria/str/str.h"
+#include "ria/usb/usb.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
@@ -66,15 +66,6 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
         if (vcp_pl2303_list[i][0] == vid && vcp_pl2303_list[i][1] == pid)
             return vcp_pl2303_name;
     return vcp_cdc_acm_name;
-}
-
-int vcp_status_count(void)
-{
-    int count = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
-        if (vcp_mounts[idx].mounted)
-            count++;
-    return count;
 }
 
 int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)

@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud/aud.h"
-#include "aud/bel.h"
-#include "sys/cpu.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/bel.h"
+#include "ria/sys/cpu.h"
 #include <math.h>
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
@@ -18,6 +18,16 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
+
+/* PWM pin/slice/channel mapping (firmware hardware; formerly in aud.h). */
+#define AUD_L_PIN 28
+#define AUD_R_PIN 27
+#define AUD_PWM_IRQ_PIN 14 /* No IO */
+#define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_PWM_IRQ_PIN))
+#define AUD_L_CHAN (pwm_gpio_to_channel(AUD_L_PIN))
+#define AUD_L_SLICE (pwm_gpio_to_slice_num(AUD_L_PIN))
+#define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
+#define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
 int8_t aud_sine_table[256];
 
@@ -71,4 +81,15 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
         irq_set_enabled(PWM_IRQ_WRAP_0, true);
     }
+}
+
+void __time_critical_func(aud_out)(uint16_t left, uint16_t right)
+{
+    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, left);
+    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, right);
+}
+
+void __time_critical_func(aud_clear_irq)(void)
+{
+    pwm_clear_irq(AUD_IRQ_SLICE);
 }

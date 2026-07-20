@@ -10,11 +10,6 @@
 
 #include "ria/sys/com.h"
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* term.c routes terminal query replies (DSR/CPR/DA) here; they enter rln's
  * input as the UART (protocol-tracked) source. */
 #define COM_IN_BUF_SIZE 16
@@ -25,9 +20,12 @@ void com_kbd_push(const char *s, size_t n);
 void com_kbd_push_byte(uint8_t b);
 size_t com_kbd_free(void); /* ring headroom; the paste drip stays below it */
 
-/* Cold-boot flush: clear both input rings and reset BEL (machine reset). The
- * per-program-start BEL reset that keeps type-ahead is com_set_bel in std_reset. */
-void com_reset(void);
+/* Cold-boot flush: clear both input rings and reset BEL (machine power-up). */
+void com_init(void);
+
+/* Program start: restore the BEL default, keeping queued input (type-ahead
+ * survives an exec). The cold-boot ring flush is com_init. */
+void com_run(void);
 
 /* The wire to the terminal: the pico stdio shim hands the captured driver's
  * out_chars here (the analog of the firmware's UART/PIX fanout target). */
@@ -40,9 +38,5 @@ void com_tx_write(const char *buf, int len);
 /* Tap the terminal OUT stream (NULL to clear). Used by tests to assert
  * program output without rendering a frame. */
 void com_set_tx_tap(void (*tap)(const char *buf, int len));
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_COM_H_ */

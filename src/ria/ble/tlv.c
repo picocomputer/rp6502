@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/mon.h"
-#include "str/str.h"
-#include "sys/lfs.h"
+#include "ria/mon/mon.h"
+#include "ria/str/str.h"
+#include "ria/sys/lfs.h"
 #include <hal_flash_bank.h>
 #include <hardware/flash.h>
 #include <string.h>

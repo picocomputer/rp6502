@@ -5,20 +5,20 @@
  */
 
 #ifndef RP6502_RIA_W
-#include "net/cyw.h"
+#include "ria/net/cyw.h"
 #include <pico/stdlib.h>
 void __in_flash("cyw_init") cyw_init(void) {}
 void cyw_task(void) {}
 #else
 
-#include "ble/ble.h"
-#include "mon/mon.h"
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/cpu.h"
+#include "ria/ble/ble.h"
+#include "ria/mon/mon.h"
+#include "ria/net/cyw.h"
+#include "ria/net/wfi.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/cpu.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 

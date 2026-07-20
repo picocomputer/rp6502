@@ -3,13 +3,19 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten filesystem primitives (emu/plat.h). The same POSIX calls as posix/fs.c
+ * Emscripten filesystem primitives (emu/host/host.h). The same POSIX calls as posix/fs.c
  * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_read/fs_write
  * complete in one call and never return STD_PENDING — a zero-latency read has nothing to
  * keep alive. Web is single-threaded with no POSIX aio, so it gets its own seam.
+ *
+ * Paths cross the seam in the guest's OEM code page. Convert to UTF-8 with
+ * oem_to_utf8() (api/oem.h) before every libc call — the Emscripten runtime
+ * decodes C paths as UTF-8 into MEMFS names — and returned paths back with
+ * oem_from_utf8().
  */
 
-#include "emu/plat.h"
+#include "emu/host/host.h"
+#include "ria/api/oem.h"
 #include <emscripten.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -22,10 +28,25 @@
 #include <unistd.h>
 #include <utime.h>
 
+#define FS_UPATH_MAX (3 * 4096) /* worst case: every OEM byte -> 3 UTF-8 bytes */
+
+static bool path_to_utf8(const char *path, char *u8 /* [FS_UPATH_MAX] */)
+{
+    if (oem_to_utf8(path, u8, FS_UPATH_MAX) >= FS_UPATH_MAX)
+    {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
+}
+
 bool fs_stat(const char *path, struct fs_meta *out)
 {
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
     struct stat st;
-    if (stat(path, &st) != 0)
+    if (stat(u8, &st) != 0)
         return false;
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
@@ -40,8 +61,11 @@ bool fs_stat(const char *path, struct fs_meta *out)
 
 bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
     struct statvfs vfs;
-    if (statvfs(path, &vfs) != 0)
+    if (statvfs(u8, &vfs) != 0)
         return false;
     uint64_t unit = vfs.f_frsize ? vfs.f_frsize : vfs.f_bsize;
     *total_bytes = (uint64_t)vfs.f_blocks * unit;
@@ -51,68 +75,108 @@ bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes
 
 bool fs_set_readonly(const char *path, bool readonly)
 {
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
     struct stat st;
-    if (stat(path, &st) != 0)
+    if (stat(u8, &st) != 0)
         return false;
     mode_t m = st.st_mode & 07777;
     if (readonly)
         m &= ~(mode_t)(S_IWUSR | S_IWGRP | S_IWOTH);
     else
         m |= S_IWUSR;
-    return chmod(path, m) == 0;
+    return chmod(u8, m) == 0;
 }
 
 bool fs_set_mtime(const char *path, time_t mtime)
 {
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
     struct utimbuf ub;
     ub.actime = ub.modtime = mtime;
-    return utime(path, &ub) == 0;
+    return utime(u8, &ub) == 0;
 }
 
 bool fs_mkdir(const char *path)
 {
-    return mkdir(path, 0777) == 0;
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
+    return mkdir(u8, 0777) == 0;
 }
 
 bool fs_chdir(const char *path)
 {
-    return chdir(path) == 0;
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
+    return chdir(u8) == 0;
 }
 
 bool fs_getcwd(char *buf, size_t sz)
 {
-    return getcwd(buf, sz) != NULL;
+    char u8[FS_UPATH_MAX];
+    if (!getcwd(u8, sizeof u8))
+        return false;
+    if (oem_from_utf8(u8, buf, sz) >= sz)
+    {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
 }
 
 bool fs_realpath(const char *path, char *out, size_t outsz)
 {
-    char *r = realpath(path, NULL);
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
+    char *r = realpath(u8, NULL);
     if (!r)
         return false;
-    if (strlen(r) >= outsz)
+    size_t need = oem_from_utf8(r, out, outsz);
+    free(r);
+    if (need >= outsz)
     {
-        free(r);
         errno = ENAMETOOLONG;
         return false;
     }
-    memcpy(out, r, strlen(r) + 1);
-    free(r);
     return true;
 }
 
 bool fs_rename(const char *oldp, const char *newp)
 {
-    return rename(oldp, newp) == 0; /* POSIX rename replaces an existing target */
+    char u8old[FS_UPATH_MAX];
+    char u8new[FS_UPATH_MAX];
+    if (!path_to_utf8(oldp, u8old) || !path_to_utf8(newp, u8new))
+        return false;
+    return rename(u8old, u8new) == 0; /* POSIX rename replaces an existing target */
 }
 
 bool fs_remove(const char *path)
 {
-    return remove(path) == 0; /* removes a file or an empty directory */
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return false;
+    return remove(u8) == 0; /* removes a file or an empty directory */
 }
 
 int fs_open(const char *path, int flags, int mode)
 {
-    return open(path, flags, mode);
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return -1;
+    return open(u8, flags, mode);
+}
+
+FILE *fs_fopen_rd(const char *path)
+{
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+        return NULL;
+    return fopen(u8, "rb");
 }
 
 int fs_close(int fd)

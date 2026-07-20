@@ -7,17 +7,42 @@
 #ifndef _RIA_SYS_COM_H_
 #define _RIA_SYS_COM_H_
 
-/* COnsole Manifold. This header is the contract shared with the
- * emulator; the UART/telnet hardware surface is in sys/com_hw.h.
+/* COnsole Manifold and UART driver.
+ * TX fan-out to UART and REM (telnet).
+ * RX merge from UART, keyboard, and remote.
  */
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <pico.h>
+
+#define COM_UART uart1
+#define COM_UART_BAUD_RATE 115200
+#define COM_UART_TX_PIN 4
+#define COM_UART_RX_PIN 5
+
+/* Main events
+ */
+
+void com_init(void);
+void com_run(void);
+void com_task(void);
+void com_stop(void);
+void com_break(void);
 
 // The '\a' BEL alert
 bool com_get_bel(void);
 void com_set_bel(bool value);
+
+// Telnet console server settings
+void com_tel_load_port(const char *str);
+void com_tel_load_key(const char *str);
+bool com_tel_set_port(uint16_t port);
+bool com_tel_set_key(const char *key);
+uint16_t com_tel_get_port(void);
+const char *com_tel_get_key(void);
 
 typedef enum
 {
@@ -52,5 +77,16 @@ bool com_writable(void);
 // Bypasses Pico SDK stdout newline expansion.
 // Caller must have checked com_writable() first.
 void com_write(char ch);
+
+// printf where utf8_fmt and any %s args are treated as UTF-8.
+// Output bytes are UTF-8 -> OEM-converted (active code page) via putchar.
+__printflike(1, 2) int printf_utf8(const char *utf8_fmt, ...);
+int vprintf_utf8(const char *utf8_fmt, va_list va);
+
+// snprintf with the same UTF-8 -> OEM treatment; result is OEM bytes in dst.
+__printflike(3, 4) int snprintf_utf8(char *dst, size_t dst_size,
+                                     const char *utf8_fmt, ...);
+int vsnprintf_utf8(char *dst, size_t dst_size,
+                   const char *utf8_fmt, va_list va);
 
 #endif /* _RIA_SYS_COM_H_ */
