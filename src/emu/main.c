@@ -7,7 +7,6 @@
 
 #include "emu/main.h"
 #include "emu/api/pro.h"
-#include "emu/api/clk.h"
 #include "emu/aud/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/host/msc.h"
@@ -35,6 +34,7 @@
 #include "ria/aud/opl.h"
 #include "ria/str/rln.h"
 #include "ria/str/str.h"
+#include "ria/sys/sys.h"
 #include "vga/term/font.h"
 #include "vga/term/term.h"
 #include "vga/modes/mode1.h"
@@ -78,7 +78,7 @@ void main_init(void)
     com_init();
     std_init();
     rln_init();
-    clk_init();
+    sys_init();
     str_init();
     oem_init();
     font_init();
@@ -106,7 +106,7 @@ void main_run(void)
     rln_run();
     fat_run();
     api_run();
-    clk_run();
+    sys_run();
     ria_run();
     via_run();
     cpu_run(); /* must be last */
@@ -392,6 +392,12 @@ static api_op_fn api_ops[0x40] = {
     [0x09] = pro_api_exec,
     [0x0A] = atr_api_get,
     [0x0B] = atr_api_set,
+    [0x0D] = clk_api_tzset,
+    [0x0E] = clk_api_tzquery,
+    [0x0F] = clk_api_clock,
+    [0x10] = clk_api_get_res,
+    [0x11] = clk_api_get_time,
+    [0x12] = clk_api_set_time,
     [0x14] = std_api_open,
     [0x15] = std_api_close,
     [0x16] = std_api_read_xstack,

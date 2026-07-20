@@ -12,7 +12,7 @@
  */
 
 #include "ria/api/api.h"
-#include "emu/api/clk.h"
+#include "ria/api/clk.h"
 #include "ria/api/oem.h"
 #include "emu/sys/com.h"
 #include "emu/sys/mem.h"
@@ -144,6 +144,30 @@ UTEST(rtc, exec_preserves_code_page)
     main_stop();                /* the exec-reload path: stop + (load) + run */
     main_run();
     ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across the restart */
+}
+
+/* The RTC is machine state, not program state: a guest settime rides through a
+ * program restart exactly as the hardware AON timer does. */
+UTEST(rtc, settime_persists_across_restart)
+{
+    const int64_t want = 1735732800; /* 2025-01-01 noon UTC */
+    const int64_t host_before = (int64_t)time(NULL);
+    memcpy(&xstack[XSTACK_SIZE - 8], &want, 8);
+    xstack_ptr = XSTACK_SIZE - 8;
+    clk_api_time_set();
+    ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0);
+
+    ASSERT_TRUE(emu_restart(RTC_ROM)); /* main_stop + main_run */
+
+    xstack_ptr = XSTACK_SIZE;
+    clk_api_time_get();
+    ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0);
+    int64_t got;
+    memcpy(&got, &xstack[xstack_ptr], 8);
+    /* Only the host seconds that actually elapsed may have accrued. Without the
+     * offset surviving, got would be the host clock — decades off. */
+    ASSERT_TRUE(got >= want);
+    ASSERT_TRUE(got <= want + (int64_t)time(NULL) - host_before);
 }
 
 UTEST_STATE();

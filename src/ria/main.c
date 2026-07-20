@@ -118,7 +118,6 @@ static void __in_flash("init") init(void)
     pad_init();
     tab_init();
     rom_init();
-    clk_init();
     mdm_init();
     rln_init();
 
@@ -176,7 +175,7 @@ static void run(void)
     fat_run();
     vga_run();
     api_run();
-    clk_run();
+    sys_run();
     ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
 }

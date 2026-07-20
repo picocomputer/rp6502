@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/clk.h"
 #include "ria/api/oem.h"
 #include "ria/ble/ble.h"
 #include "ria/hid/kbd.h"
@@ -17,6 +16,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/sys.h"
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include <stdio.h>
@@ -317,7 +317,7 @@ static void set_nfc(const char *args)
 static int set_time_zone_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, clk_get_time_zone());
+    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, sys_get_time_zone());
     return -1;
 }
 
@@ -326,7 +326,7 @@ static void set_time_zone(const char *args)
     if (*args)
     {
         const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !clk_set_time_zone(tok))
+        if (!tok || !str_parse_end(args) || !sys_set_time_zone(tok))
         {
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;
