@@ -9,7 +9,6 @@
 #include "emu/host/msc.h"
 #include "emu/host/host.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
 #include "ria/api/api.h"
 #include "ria/api/arg.h"

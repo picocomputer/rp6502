@@ -12,11 +12,10 @@
 #include "emu/api/pro.h"
 #include "ria/api/std.h"
 #include "emu/aud/aud.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/mem.h"
 #include "ria/aud/bel.h"
 #include "emu/sys/com.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include "stdsys.h"
 #include "emu_boot.h"
 #include <stdio.h>

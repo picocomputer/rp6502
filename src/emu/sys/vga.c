@@ -6,9 +6,8 @@
  */
 
 #include "emu/sys/mem.h"
-#include "emu/sys/vga.h"
 #include "emu/sys/pix.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include "emu/sys/vga.h"
 #include "vga/term/term.h"
 #include "vga/term/font.h"

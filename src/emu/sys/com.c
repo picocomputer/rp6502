@@ -7,7 +7,7 @@
 
 #include "ria/api/oem.h"
 #include "emu/sys/com.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include "ria/aud/bel.h"
 #include <stdio.h>
 #include <stdlib.h>

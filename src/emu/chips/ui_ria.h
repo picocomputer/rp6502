@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * RIA debug window for the RP6502 — a chips-ui-style inspector beside ui_w65c02.h
- * and ui/ui_m6522.h. Unlike those (forks of upstream chip widgets), the RIA is
+ * RIA debug window — a chips-ui-style inspector beside ui_w65c02.h and
+ * ui/ui_m6522.h. Unlike those (forks of upstream chip widgets), the RIA is
  * bespoke: it shares the 6502 bus, so the window shows the RIA's pins as last
  * decoded (ria_chip()->PINS, plus a synthetic RREQ over the RIA window) and a
  * read-only view of the register file ($FFE0-$FFFF, in ram[]) and the XSTACK SP.
@@ -21,7 +21,7 @@
 
 #include "ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
 #include "ui/ui_settings.h"   /* ui_settings_t */
-#include "emu/chips/rp6502.h" /* ria_t, ria_chip */
+#include "emu/sys/ria.h"   /* ria_t, ria_chip, RIA_PIN_RREQ */
 
 #ifdef __cplusplus
 extern "C"
@@ -33,7 +33,7 @@ typedef struct
     const char *title;
     int x, y, w, h; /* initial window geometry; 0 w/h -> default */
     bool open;      /* initial open state */
-} ui_rp6502_desc_t;
+} ui_ria_desc_t;
 
 typedef struct
 {
@@ -42,13 +42,13 @@ typedef struct
     bool open;
     bool valid;
     ui_chip_t chip;
-} ui_rp6502_t;
+} ui_ria_t;
 
-void ui_rp6502_init(ui_rp6502_t *win, const ui_rp6502_desc_t *desc);
-void ui_rp6502_discard(ui_rp6502_t *win);
-void ui_rp6502_draw(ui_rp6502_t *win);
-void ui_rp6502_save_settings(ui_rp6502_t *win, ui_settings_t *settings);
-void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings);
+void ui_ria_init(ui_ria_t *win, const ui_ria_desc_t *desc);
+void ui_ria_discard(ui_ria_t *win);
+void ui_ria_draw(ui_ria_t *win);
+void ui_ria_save_settings(ui_ria_t *win, ui_settings_t *settings);
+void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 
 #ifdef __cplusplus
 }
@@ -70,8 +70,8 @@ void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings);
 /* The RIA shares the 6502 bus but wires only its own pins: RREQ, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
  * are decoded off-chip into RREQ, so they never reach the RIA. Pins are fed live
- * from ria_chip()->PINS; RIA_PIN_RREQ is defined in chips/rp6502.h. */
-static const ui_chip_pin_t _ui_rp6502_pins[] = {
+ * from ria_chip()->PINS; RIA_PIN_RREQ is defined in emu/sys/ria.h. */
+static const ui_chip_pin_t _ui_ria_pins[] = {
     {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
     {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},
     {"RW", 9, M6502_RW}, {"IRQ", 10, M6502_IRQ}, {"RES", 11, M6502_RES}, {"RREQ", 12, RIA_PIN_RREQ},
@@ -81,7 +81,7 @@ static const ui_chip_pin_t _ui_rp6502_pins[] = {
 
 /* The documented RIA register window ($FFE0-$FFFF, ria.rst). width 2 = a 16-bit
  * little-endian pair. The whole window (registers + vectors) lives in ram[]. */
-static const struct { uint16_t addr; const char *name; uint8_t width; } _ui_rp6502_regs[] = {
+static const struct { uint16_t addr; const char *name; uint8_t width; } _ui_ria_regs[] = {
     {0xFFE0, "READY", 1}, {0xFFE1, "TX", 1}, {0xFFE2, "RX", 1}, {0xFFE3, "VSYNC", 1},
     {0xFFE4, "RW0", 1}, {0xFFE5, "STEP0", 1}, {0xFFE6, "ADDR0", 2},
     {0xFFE8, "RW1", 1}, {0xFFE9, "STEP1", 1}, {0xFFEA, "ADDR1", 2},
@@ -91,7 +91,7 @@ static const struct { uint16_t addr; const char *name; uint8_t width; } _ui_rp65
     {0xFFF8, "SREG", 2}, {0xFFFA, "NMIB", 2}, {0xFFFC, "RESB", 2}, {0xFFFE, "IRQB", 2},
 };
 
-void ui_rp6502_init(ui_rp6502_t *win, const ui_rp6502_desc_t *desc)
+void ui_ria_init(ui_ria_t *win, const ui_ria_desc_t *desc)
 {
     CHIPS_ASSERT(win && desc && desc->title);
     memset(win, 0, sizeof(*win));
@@ -103,11 +103,11 @@ void ui_rp6502_init(ui_rp6502_t *win, const ui_rp6502_desc_t *desc)
     win->open = desc->open;
     win->valid = true;
     ui_chip_desc_t cd;
-    UI_CHIP_INIT_DESC(&cd, "RIA", 26, _ui_rp6502_pins);
+    UI_CHIP_INIT_DESC(&cd, "RIA", 26, _ui_ria_pins);
     ui_chip_init(&win->chip, &cd);
 }
 
-void ui_rp6502_discard(ui_rp6502_t *win)
+void ui_ria_discard(ui_ria_t *win)
 {
     CHIPS_ASSERT(win && win->valid);
     win->valid = false;
@@ -115,7 +115,7 @@ void ui_rp6502_discard(ui_rp6502_t *win)
 
 /* A read-only inspector (edit registers via the Memory window if needed; the
  * xstack lives there too, as the Memory window's third layer). */
-void ui_rp6502_draw(ui_rp6502_t *win)
+void ui_ria_draw(ui_ria_t *win)
 {
     CHIPS_ASSERT(win && win->valid && win->title);
     if (!win->open)
@@ -160,7 +160,7 @@ void ui_rp6502_draw(ui_rp6502_t *win)
             auto peek = [](uint16_t a) -> uint8_t {
                 return (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI) ? regs[a & 0x1F] : ram[a];
             };
-            for (auto &r : _ui_rp6502_regs)
+            for (auto &r : _ui_ria_regs)
             {
                 if (r.width == 2)
                 {
@@ -190,13 +190,13 @@ void ui_rp6502_draw(ui_rp6502_t *win)
     ImGui::End();
 }
 
-void ui_rp6502_save_settings(ui_rp6502_t *win, ui_settings_t *settings)
+void ui_ria_save_settings(ui_ria_t *win, ui_settings_t *settings)
 {
     CHIPS_ASSERT(win && settings);
     ui_settings_add(settings, win->title, win->open);
 }
 
-void ui_rp6502_load_settings(ui_rp6502_t *win, const ui_settings_t *settings)
+void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings)
 {
     CHIPS_ASSERT(win && settings);
     win->open = ui_settings_isopen(settings, win->title);

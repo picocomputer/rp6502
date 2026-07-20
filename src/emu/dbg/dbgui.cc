@@ -55,7 +55,7 @@ extern "C"
 #include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
 #include "emu/chips/ui_dasm.h"    /* our fork of ui/ui_dasm.h: 65C02 jump arrows; after w65c02dasm.h (impl calls m6502dasm_op) */
 #include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
-#include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
+#include "emu/chips/ui_ria.h"     /* our RIA debug window (bespoke, not a chips fork) */
 #include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
 #include "ui/ui_m6522.h"
 #include "emu/chips/ui_dbg.h" /* our fork of ui/ui_dbg.h: history column draws chars, not bytes */
@@ -69,7 +69,7 @@ static ui_w65c02_t g_cpuwin;
 static ui_m6522_t g_viawin;
 static ui_memedit_t g_memedit;
 static ui_memmap_t g_memmap;
-static ui_rp6502_t g_ria;
+static ui_ria_t g_ria;
 static ui_dasm_t g_dasm;
 static ui_audio_t g_audio;
 static bool g_inited;
@@ -427,7 +427,7 @@ static void dbgui_collect_settings(void)
     ui_m6522_save_settings(&g_viawin, &g_settings);
     ui_memedit_save_settings(&g_memedit, &g_settings);
     ui_memmap_save_settings(&g_memmap, &g_settings);
-    ui_rp6502_save_settings(&g_ria, &g_settings);
+    ui_ria_save_settings(&g_ria, &g_settings);
     ui_dasm_save_settings(&g_dasm, &g_settings);
     ui_audio_save_settings(&g_audio, &g_settings);
     ui_settings_add(&g_settings, "Debug Control", g_control_open);
@@ -469,7 +469,7 @@ static void chips_ini_applyall(ImGuiContext *, ImGuiSettingsHandler *)
     ui_m6522_load_settings(&g_viawin, &g_settings);
     ui_memedit_load_settings(&g_memedit, &g_settings);
     ui_memmap_load_settings(&g_memmap, &g_settings);
-    ui_rp6502_load_settings(&g_ria, &g_settings);
+    ui_ria_load_settings(&g_ria, &g_settings);
     ui_dasm_load_settings(&g_dasm, &g_settings);
     ui_audio_load_settings(&g_audio, &g_settings);
     g_control_open = ui_settings_isopen(&g_settings, "Debug Control");
@@ -804,11 +804,11 @@ void dbgui_init(void)
     UI_CHIP_INIT_DESC(&vd.chip_desc, "6522", 40, pins_6522);
     ui_m6522_init(&g_viawin, &vd);
 
-    ui_rp6502_desc_t rd{};
+    ui_ria_desc_t rd{};
     rd.title = "RP6502 (RIA)";
     rd.x = 860;
     rd.y = 30;
-    ui_rp6502_init(&g_ria, &rd);
+    ui_ria_init(&g_ria, &rd);
 
     /* Memory editor: three layers (the 6502 space, the XRAM bank, and the RIA
      * xstack). The layer names carry the system address ranges, since the editor
@@ -881,7 +881,7 @@ void dbgui_discard(void)
     ui_dasm_discard(&g_dasm);
     ui_memmap_discard(&g_memmap);
     ui_memedit_discard(&g_memedit);
-    ui_rp6502_discard(&g_ria);
+    ui_ria_discard(&g_ria);
     ui_m6522_discard(&g_viawin);
     ui_w65c02_discard(&g_cpuwin);
     ui_dbg_discard(&g_dbg);
@@ -1019,7 +1019,7 @@ void dbgui_draw(void)
     draw_control();
     draw_credits();
     draw_rom_help();
-    ui_rp6502_draw(&g_ria);
+    ui_ria_draw(&g_ria);
 
     /* dbg.c is the authoritative run/stop engine + EXEC breakpoint store (shared
      * with the DAP adapter); ui_dbg's gutter/toolbar/hotkeys are a front-end

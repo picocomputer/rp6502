@@ -9,7 +9,6 @@
 #include "emu/host/rom.h"
 #include "emu/host/host.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>

@@ -22,7 +22,7 @@
 #include "emu/hid/mou.h"
 #include "emu/hid/pad.h"
 #include "emu/hid/tab.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include "emu/chips/w65c02.h"
 #include "ria/api/api.h"
 #include "ria/api/atr.h"

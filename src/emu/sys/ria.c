@@ -10,9 +10,8 @@
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/main.h"
-#include "emu/chips/rp6502.h"
 #include "ria/api/api.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include "emu/chips/w65c02.h"
 #include <string.h>
 

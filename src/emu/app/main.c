@@ -17,7 +17,6 @@
 #include "emu/host/rom.h"
 #include "emu/host/tmp.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
 #include "emu/sys/vga.h"
