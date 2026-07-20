@@ -29,6 +29,7 @@
 #include "ria/api/fat.h"
 #include "ria/api/clk.h"
 #include "ria/api/oem.h"
+#include "ria/api/tim.h"
 #include "ria/aud/aud.h"
 #include "ria/aud/psg.h"
 #include "ria/aud/opl.h"
@@ -78,7 +79,7 @@ void main_init(void)
     com_init();
     std_init();
     rln_init();
-    sys_init();
+    tim_init();
     str_init();
     oem_init();
     font_init();

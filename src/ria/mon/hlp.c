@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "ria/api/tim.h"
 #include "ria/hid/kbd.h"
 #include "ria/mon/hlp.h"
 #include "ria/mon/mon.h"
@@ -11,7 +12,6 @@
 #include "ria/net/cyw.h"
 #include "ria/net/wfi.h"
 #include "ria/str/str.h"
-#include "ria/sys/sys.h"
 #include <pico.h>
 #include <string.h>
 
@@ -69,7 +69,7 @@ static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMA
 __in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
     {STR_PHI2, STR_HELP_SET_PHI2, NULL},
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
-    {STR_TZ, STR_HELP_SET_TZ, sys_tzdata_response},
+    {STR_TZ, STR_HELP_SET_TZ, tim_tzdata_response},
     {STR_LOC, STR_HELP_SET_LOC, str_locales_response},
     {STR_KB, STR_HELP_SET_KB, kbd_layouts_response},
     {STR_CP, STR_HELP_SET_CP, NULL},

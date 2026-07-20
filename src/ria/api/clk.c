@@ -9,6 +9,7 @@
 
 #include "ria/api/api.h"
 #include "ria/api/clk.h"
+#include "ria/api/tim.h"
 #include "ria/sys/sys.h"
 #include <assert.h>
 #include <string.h>
@@ -19,7 +20,7 @@
 bool clk_api_time_get(void)
 {
     struct timespec ts;
-    if (!sys_get_time(&ts))
+    if (!tim_get_time(&ts))
         return api_return_errno(API_EIO);
     int64_t sec = ts.tv_sec;
     if (!api_push_n(&sec, sizeof(sec)))
@@ -33,7 +34,7 @@ bool clk_api_time_set(void)
     if (!api_pop_uint64_end(&u))
         return api_return_errno(API_EINVAL);
     struct timespec ts = {.tv_sec = (int64_t)u, .tv_nsec = 0};
-    if (!sys_set_time(&ts))
+    if (!tim_set_time(&ts))
         return api_return_errno(API_ERANGE);
     return api_return_ax(0);
 }
@@ -105,7 +106,7 @@ bool clk_api_strftime(void)
         return api_return_errno(API_EINVAL);
     struct tm tm;
     clk_wire_to_tm(&w, &tm);
-    size_t n = sys_strftime((char *)xstack, max, format, &tm);
+    size_t n = tim_strftime((char *)xstack, max, format, &tm);
     // relocate buffer to top of xstack
     xstack_ptr = XSTACK_SIZE - n;
     memmove(&xstack[xstack_ptr], xstack, n);
@@ -129,8 +130,8 @@ bool clk_api_tzset(void)
         char dstname[5];
     } tz;
     static_assert(15 == sizeof(tz));
-    tz.daylight = sys_get_tz_daylight();
-    tz.timezone = sys_get_tz_offset();
+    tz.daylight = tim_get_tz_daylight();
+    tz.timezone = tim_get_tz_offset();
     strncpy(tz.tzname, tzname[0], 4);
     tz.tzname[4] = '\0';
     strncpy(tz.dstname, tzname[1], 4);
@@ -165,7 +166,7 @@ bool clk_api_get_res(void)
     if (API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
     struct timespec ts;
-    sys_get_time_res(&ts);
+    tim_get_time_res(&ts);
     int32_t nsec = ts.tv_nsec;
     uint32_t sec = ts.tv_sec;
     if (!api_push_int32(&nsec) ||
@@ -179,7 +180,7 @@ bool clk_api_get_time(void)
     if (API_A != CLK_ID_REALTIME)
         return api_return_errno(API_EINVAL);
     struct timespec ts;
-    if (!sys_get_time(&ts))
+    if (!tim_get_time(&ts))
         return api_return_errno(API_EIO);
     int32_t nsec = ts.tv_nsec;
     uint32_t sec = ts.tv_sec;
@@ -203,7 +204,7 @@ bool clk_api_set_time(void)
     struct timespec ts;
     ts.tv_sec = rawtime_sec;
     ts.tv_nsec = rawtime_nsec;
-    if (!sys_set_time(&ts))
+    if (!tim_set_time(&ts))
         return api_return_errno(API_ERANGE);
     return api_return_ax(0);
 }

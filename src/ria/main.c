@@ -12,6 +12,7 @@
 #include "ria/api/oem.h"
 #include "ria/api/pro.h"
 #include "ria/api/std.h"
+#include "ria/api/tim.h"
 #include "ria/aud/aud.h"
 #include "ria/aud/opl.h"
 #include "ria/aud/psg.h"
@@ -118,6 +119,7 @@ static void __in_flash("init") init(void)
     pad_init();
     tab_init();
     rom_init();
+    tim_init();
     mdm_init();
     rln_init();
 

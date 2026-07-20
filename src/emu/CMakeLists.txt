@@ -27,6 +27,7 @@ get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSO
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/api/pro.c
+    ${RP6502_SRC}/emu/api/tim.c
     ${RP6502_SRC}/emu/aud/aud.c
     ${RP6502_SRC}/emu/chips/w65c02.c
     ${RP6502_SRC}/emu/dbg/dbg.c
@@ -49,9 +50,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/sys/via.c
     ${RP6502_SRC}/ria/api/api.c
-    ${RP6502_SRC}/ria/api/clk.c
     ${RP6502_SRC}/ria/api/arg.c
     ${RP6502_SRC}/ria/api/atr.c
+    ${RP6502_SRC}/ria/api/clk.c
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/oem.c
     ${RP6502_SRC}/ria/api/std.c
