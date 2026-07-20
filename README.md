@@ -46,9 +46,9 @@ The Pi Pico VS Code Extension may need this additional software:
 $ sudo apt install python3 git tar build-essential gdb-multiarch pkg-config libftdi1-dev libhidapi-hidraw0
 ```
 
-For the emulator, install GL/X11 dev headers:
+For the emulator, install the GL/X11/ALSA dev headers:
 ```
-$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev
+$ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev libasound2-dev
 ```
 
 ## Windows
@@ -74,8 +74,24 @@ then `git -C vendor/cppdap submodule update --init third_party/json`).
 The Pi Pico VS Code Extension should only need the install from
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-For emulation, I assume `xcode-select --install` is all you need. The submission
-to make MacOS work didn't come with instructions.
+For the emulator, install Xcode command line tools if needed:
+
+```bash
+xcode-select --install
+```
+
+Install Homebrew if needed:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+Install required tools:
+
+```bash
+brew update
+brew install cmake ninja pkg-config
+```
 
 ## Building with CMake and VS Code
 
@@ -88,14 +104,14 @@ From the CMake side panel select Folder:emu and Configure:WebAssembly.
 Pressing F7 builds two bundles. `build/web/html` is the tester: a menu shell
 that runs every test ROM. `build/web/itch.io` is a ready-to-publish itch.io
 sample that plays one program (`adventure.rp6502` by default) — see
-`src/emu/itch.io/README.md` to retarget and deploy it. Either must be delivered
+`src/dist/itch.io/README.md` to retarget and deploy it. Either must be delivered
 with a web server; use the VS Code live preview extension `ms-vscode.live-server`
 or a simple python server to run them.
 `python3 -m http.server 8000 --directory build/web/html`
 
 To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
 panel. Select either the Debug or Release variant. You must select the launch
-target for debugging here, either rp6502_ria or rp6502_vga. Pressing F7 will
+target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 

@@ -10,7 +10,7 @@
 
 // Polish
 
-#include "def/def.h"
+#include "ria/def/def.h"
 #define XSUFFIX PL
 XBEGIN("PL", "Polski", 852)
 
@@ -174,12 +174,6 @@ X(STR_MOUSE_SINGULAR, "mysz")
 X(STR_MOUSE_PLURAL, "myszy")
 X(STR_GAMEPAD_SINGULAR, "gamepad")
 X(STR_GAMEPAD_PLURAL, "gamepady")
-X(STR_STORAGE_SINGULAR, "pamięć masowa")
-X(STR_STORAGE_PLURAL, "pamięci masowe")
-X(STR_SERIAL_SINGULAR, "port szeregowy")
-X(STR_SERIAL_PLURAL, "porty szeregowe")
-X(STR_MIDI_SINGULAR, "MIDI")
-X(STR_MIDI_PLURAL, "MIDI")
 X(STR_EP_FREE_SINGULAR, "dostępny EP")
 X(STR_EP_FREE_PLURAL, "dostępnych EP")
 

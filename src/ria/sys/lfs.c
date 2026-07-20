@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/api.h"
-#include "mon/mon.h"
-#include "sys/lfs.h"
+#include "ria/api/api.h"
+#include "ria/mon/mon.h"
+#include "ria/sys/lfs.h"
 #include <pico/printf.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_LFS)

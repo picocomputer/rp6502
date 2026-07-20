@@ -8,16 +8,9 @@
 #ifndef _EMU_API_CLK_H_
 #define _EMU_API_CLK_H_
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+#include "ria/api/clk.h"
 
-void clk_reset(void);
-void clk_run(void);
-
-#ifdef __cplusplus
-}
-#endif
+void clk_init(void); /* cold boot: adopt the host timezone/locale */
+void clk_run(void);  /* program start: clear the settime offset + re-anchor the run clock */
 
 #endif /* _EMU_API_CLK_H_ */

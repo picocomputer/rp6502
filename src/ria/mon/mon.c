@@ -4,23 +4,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "mon/dsk.h"
-#include "mon/fil.h"
-#include "mon/hlp.h"
-#include "mon/mon.h"
-#include "mon/ram.h"
-#include "mon/rom.h"
-#include "mon/set.h"
-#include "mon/uf2.h"
-#include "net/cyw.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/com.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
-#include "usb/usb.h"
+#include "ria/main.h"
+#include "ria/api/oem.h"
+#include "ria/mon/dsk.h"
+#include "ria/mon/fil.h"
+#include "ria/mon/hlp.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/ram.h"
+#include "ria/mon/rom.h"
+#include "ria/mon/set.h"
+#include "ria/mon/uf2.h"
+#include "ria/net/cyw.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/ria.h"
+#include "ria/sys/sys.h"
+#include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
 #include <pico/stdlib.h>
@@ -215,7 +216,7 @@ static int mon_utf8_response(char *buf, size_t buf_size, int state, unsigned)
     const char *p = str + state;
     size_t i = 0;
     while (i + 1 < buf_size && *p)
-        buf[i++] = (char)str_utf8_to_oem(&p);
+        buf[i++] = (char)oem_from_utf8_next(&p);
     buf[i] = 0;
     if (!*p)
         return -1;

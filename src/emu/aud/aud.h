@@ -10,16 +10,12 @@
 
 #include <stdbool.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+#include "ria/aud/aud.h"
 
 /* Main events
  */
 
-void aud_task(void);  /* generate this frame's samples from the active device */
-void aud_reset(void); /* silence + clear the ring (machine reset / exec) */
+void aud_task(void); /* generate this frame's samples from the active device */
 
 /* --mute: disable audio entirely — the synth stops running (no per-frame
  * CPU work) and the window app opens no OS audio device. Default enabled. */
@@ -36,9 +32,5 @@ int aud_read(float *dst, int max_frames);
 /* Rolling mono downmix of the produced output, for waveform display. */
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void); /* current write position in that buffer */
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_AUD_AUD_H_ */

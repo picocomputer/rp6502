@@ -6,23 +6,39 @@ We have a submodule with overrides:
 * vendor/tinyusb_rp6502/rp2040_usb.c
 * vendor/tinyusb_rp6502/midi_host.c
 
-Use Read for file content (not `cat`). When Bash is the right tool, keep
-each invocation to a single command. No pipes, no `; echo`, no `2>/dev/null`,
-no heredocs — compound commands defeat the permission allowlist matcher
-and prompt for approval even when each segment is permitted. Chain via
-separate tool calls instead of shell operators.
+We have patterns you must obey. Do not write any code without learning these
+patterns. All exports begin with the filename. All drivers have a lifecycle:
+init, run, stop, break. All settings have a load, set, get pattern with a
+possible run-only state.
 
-Never search the root of the filesystem. Everything you need will be in
-the user home directory.
+NEVER add even a single clock cycle to ria_action_loop().
+
+The emulator TUs use and implement the vga/ria headers along with emulator
+instrumentation prototyped in emu headers. It ok to leave firmware-only
+defines and prototypes in the headers used by the emulator. This is an
+unusual seam that spontaneously emerged on this project, we like it, keep it.
+
+Avoid excessive calls to the shell to search for things – you are running in
+an IDE and must use that when possible. Never search the root of the filesystem.
+Everything you need will be in the user home directory.
 
 Don't spam git history unless specifically asked to. Do not commit or push
 unless specifically asked to. Do not look for answers in git history.
-Do not fetch git history unless specifically instructed to.
+Do not fetch git history unless specifically instructed to. Use git to
+rename or move files and folders.
 
 To build, run `cmake --build build` from the project root. That
 builds every target in one shot. Do not hunt for individual ninja target
-names (rp6502_ria, rp6502_ria_w, rp6502_vga, etc.) — just build everything.
+names (rp6502-ria, rp6502-ria-w, rp6502-vga, etc.) — just build everything.
 The emulator is a separate tree at build/emulator (`cmake --build build/emulator`).
+
+The emulator's wasm/EMSCRIPTEN target IS buildable locally — don't claim it
+isn't. The vendored toolchain resolves without sourcing emsdk_env.sh (node is
+on PATH): `cmake -S src/emu -B build/web -G Ninja -DCMAKE_BUILD_TYPE=Release
+-DCMAKE_TOOLCHAIN_FILE=vendor/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake`
+then `cmake --build build/web` (CI uses the equivalent `wasm` preset from
+src/emu). Verify the EMSCRIPTEN branch (host/web/fs.c + host/posix) this way
+when you touch it.
 
 Never delete debug macros (DBG, DEBUG_*, etc.) on "currently unused"
 grounds. They are scaffolding kept for future bring-up. If a review

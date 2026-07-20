@@ -122,7 +122,7 @@ uint8_t tab_control(void)
     return xram[tab_xram + TAB_OFF_CONTROL];
 }
 
-void tab_reset(void)
+void tab_stop(void)
 {
     tab_xram = 0xFFFF;
     memset(tab_block, 0, sizeof(tab_block));

@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/api.h"
-#include "api/std.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/com.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/mem.h"
 #include "sys/pix.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
@@ -166,20 +168,22 @@ bool std_api_open(void)
         }
     if (fd < 0)
         return api_return_errno(API_EMFILE);
-    for (size_t i = 0; i < std_driver_count; i++)
+    size_t count;
+    const std_driver_t *drivers = main_std_drivers(&count);
+    for (size_t i = 0; i < count; i++)
     {
-        if (std_drivers[i].handles(path))
+        if (drivers[i].handles(path))
         {
             api_errno err = API_EIO;
-            int idx = std_drivers[i].open(path, API_A, &err);
+            int idx = drivers[i].open(path, API_A, &err);
             if (idx < 0)
                 return api_return_errno(err);
             std_fd_pool[fd].is_open = true;
-            std_fd_pool[fd].close = std_drivers[i].close;
-            std_fd_pool[fd].read = std_drivers[i].read;
-            std_fd_pool[fd].write = std_drivers[i].write;
-            std_fd_pool[fd].sync = std_drivers[i].sync;
-            std_fd_pool[fd].lseek = std_drivers[i].lseek;
+            std_fd_pool[fd].close = drivers[i].close;
+            std_fd_pool[fd].read = drivers[i].read;
+            std_fd_pool[fd].write = drivers[i].write;
+            std_fd_pool[fd].sync = drivers[i].sync;
+            std_fd_pool[fd].lseek = drivers[i].lseek;
             std_fd_pool[fd].desc = idx;
             return api_return_ax(fd);
         }

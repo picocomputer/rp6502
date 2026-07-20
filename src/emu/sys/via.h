@@ -10,13 +10,8 @@
 
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-/* Reset the VIA (system reset / program (re)start). */
-void via_reset(void);
+/* Program start: reset the VIA (it shares the 6502 RESB). */
+void via_run(void);
 
 /* One PHI2 tick: counts the timers and, when the CPU addresses $FFD0-$FFDF,
  * performs the register access. pins is the CPU pin mask; the returned mask
@@ -25,9 +20,5 @@ uint64_t via_tick(uint64_t pins);
 
 /* The live chip instance (m6522_t*), for the debugger UI + DAP register access. */
 void *via_chip(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_VIA_H_ */

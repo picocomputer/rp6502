@@ -5,9 +5,10 @@
  *
  */
 
-#include "sys/com.h"
-#include "sys/ria.h"
-#include "aud/bel.h"
+#include "ria/api/oem.h"
+#include "emu/sys/com.h"
+#include "emu/chips/rp6502.h"
+#include "ria/aud/bel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -138,12 +139,17 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len))
 void com_tx_write(const char *buf, int len)
 {
     /* Bring-up aid: EMU_ECHO mirrors the terminal stream to the host's stderr
-     * so the program's text output is visible without rendering the frame. */
+     * so the program's text output is visible without rendering the frame.
+     * Host streams carry host encoding, so OEM bytes expand to UTF-8. */
     static int echo = -1;
     if (echo < 0)
         echo = getenv("EMU_ECHO") ? 1 : 0;
     if (echo)
-        fwrite(buf, 1, (size_t)len, stderr);
+        for (int i = 0; i < len; i++)
+        {
+            char enc[3];
+            fwrite(enc, 1, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc), stderr);
+        }
     if (com_tx_tap)
         com_tx_tap(buf, len);
     if (com_get_bel())
@@ -195,6 +201,11 @@ void com_kbd_push_byte(uint8_t b)
     ring_push(&kbd_ring, b);
 }
 
+size_t com_kbd_free(void)
+{
+    return (size_t)((kbd_ring.tail - kbd_ring.head - 1) & RING_MASK);
+}
+
 bool com_get_bel(void)
 {
     return com_bel_enabled;
@@ -205,11 +216,18 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-// Cold-boot flush: clear queued input and reset the BEL default. NOT called per
-// exec — type-ahead survives a program change; std_reset resets BEL alone.
-void com_reset(void)
+// Cold-boot flush: clear queued input and reset the BEL default. NOT run per
+// program — type-ahead survives an exec; com_run resets the BEL alone.
+void com_init(void)
 {
     memset(&kbd_ring, 0, sizeof(kbd_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
+    com_bel_enabled = true;
+}
+
+// Program start: restore the BEL default; the queued input rings are kept so
+// type-ahead survives an exec (firmware com_run).
+void com_run(void)
+{
     com_bel_enabled = true;
 }

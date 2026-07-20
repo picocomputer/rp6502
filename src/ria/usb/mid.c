@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/mid.h"
-#include "str/str.h"
-#include "usb/usb.h"
+#include "ria/usb/mid.h"
+#include "ria/str/str.h"
+#include "ria/usb/usb.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>
@@ -786,15 +786,6 @@ void mid_task(void)
     for (uint8_t itf = 0; itf < CFG_TUH_MIDI; itf++)
         if (flush & (1u << itf))
             tuh_midi_write_flush(itf);
-}
-
-int mid_status_count(void)
-{
-    int count = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
-        if (mid_mounts[idx].mounted)
-            count++;
-    return count;
 }
 
 int mid_status_response(char *buf, size_t buf_size, int state, unsigned)

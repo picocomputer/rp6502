@@ -6,8 +6,8 @@
 
 #ifdef RP6502_RIA_W
 
-#include "net/mdm.h"
-#include "net/net.h"
+#include "ria/net/mdm.h"
+#include "ria/net/net.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
 #include <lwip/dns.h>

@@ -4,21 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/clk.h"
-#include "api/oem.h"
-#include "ble/ble.h"
-#include "hid/kbd.h"
-#include "mon/mon.h"
-#include "mon/rom.h"
-#include "mon/set.h"
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/com_hw.h"
-#include "sys/cpu_hw.h"
-#include "sys/vga.h"
-#include "usb/nfc.h"
+#include "ria/api/clk.h"
+#include "ria/api/oem.h"
+#include "ria/ble/ble.h"
+#include "ria/hid/kbd.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/rom.h"
+#include "ria/mon/set.h"
+#include "ria/net/cyw.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/cpu.h"
+#include "ria/sys/vga.h"
+#include "ria/usb/nfc.h"
 #include <stdio.h>
 #include <pico.h>
 

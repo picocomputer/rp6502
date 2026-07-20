@@ -5,10 +5,10 @@
 if (PICO_BOARD STREQUAL "pico2_w" OR
     PICO_BOARD STREQUAL "pimoroni_pico_plus2_w_rp2350")
     set(RP6502_RIA_W TRUE)
-    set(RIA_TARGET rp6502_ria_w)
+    set(RIA_TARGET rp6502-ria-w)
 elseif(PICO_BOARD STREQUAL "pico2")
     set(RP6502_RIA_W FALSE)
-    set(RIA_TARGET rp6502_ria)
+    set(RIA_TARGET rp6502-ria)
 else()
     message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
 endif()
@@ -64,14 +64,13 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 target_sources(${RIA_TARGET} PRIVATE
     main.c
     api/api.c
+    api/arg.c
     api/atr.c
     api/clk.c
-    api/dir.c
     api/fat.c
     api/oem.c
     api/pro.c
     api/std.c
-    api/std_drivers.c
     aud/aud.c
     aud/bel.c
     aud/opl.c

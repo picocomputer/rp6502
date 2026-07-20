@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/vip.h"
-#include "str/str.h"
+#include "ria/mon/vip.h"
+#include "ria/str/str.h"
 #include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>

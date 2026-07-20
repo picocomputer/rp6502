@@ -27,9 +27,7 @@ get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSO
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/api/clk.c
-    ${RP6502_SRC}/emu/api/oem.c
     ${RP6502_SRC}/emu/api/pro.c
-    ${RP6502_SRC}/emu/api/std_drivers.c
     ${RP6502_SRC}/emu/aud/aud.c
     ${RP6502_SRC}/emu/chips/w65c02.c
     ${RP6502_SRC}/emu/dbg/dbg.c
@@ -37,29 +35,30 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/tab.c
-    ${RP6502_SRC}/emu/api/hostfs.c
-    ${RP6502_SRC}/emu/api/tmpfs.c
     ${RP6502_SRC}/emu/host/msc.c
+    ${RP6502_SRC}/emu/host/rom.c
+    ${RP6502_SRC}/emu/host/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
-    ${RP6502_SRC}/emu/mon/install.c
-    ${RP6502_SRC}/emu/mon/rom.c
-    ${RP6502_SRC}/emu/shim/pico/stdio.c
+    ${RP6502_SRC}/emu/pico/stdio.c
+    ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
+    ${RP6502_SRC}/emu/sys/pix.c
     ${RP6502_SRC}/emu/sys/ria.c
     ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/sys/via.c
-    ${RP6502_SRC}/emu/sys/xreg.c
     ${RP6502_SRC}/ria/api/api.c
+    ${RP6502_SRC}/ria/api/arg.c
     ${RP6502_SRC}/ria/api/atr.c
-    ${RP6502_SRC}/ria/api/dir.c
     ${RP6502_SRC}/ria/api/fat.c
+    ${RP6502_SRC}/ria/api/oem.c
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/aud/bel.c
     ${RP6502_SRC}/ria/aud/opl.c
     ${RP6502_SRC}/ria/aud/psg.c
     ${RP6502_SRC}/ria/str/rln.c
+    ${RP6502_SRC}/ria/str/str.c
     ${RP6502_SRC}/vga/modes/mode1.c
     ${RP6502_SRC}/vga/modes/mode2.c
     ${RP6502_SRC}/vga/modes/mode3.c
@@ -75,20 +74,38 @@ add_library(emu_core STATIC
 
 if(WIN32)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/win/dir.c
-        ${RP6502_SRC}/emu/win/fs.c
-        ${RP6502_SRC}/emu/win/os.c
-        ${RP6502_SRC}/emu/win/win.c)
+        ${RP6502_SRC}/emu/host/win/dir.c
+        ${RP6502_SRC}/emu/host/win/fs.c
+        ${RP6502_SRC}/emu/host/win/os.c
+        ${RP6502_SRC}/emu/host/win/win.c)
 elseif(EMSCRIPTEN)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/posix/dir.c
-        ${RP6502_SRC}/emu/web/fs.c
-        ${RP6502_SRC}/emu/posix/os.c)
-else()
+        ${RP6502_SRC}/emu/host/posix/dir.c
+        ${RP6502_SRC}/emu/host/web/fs.c
+        ${RP6502_SRC}/emu/host/posix/os.c
+        ${RP6502_SRC}/emu/host/web/os.c)
+elseif(ANDROID)
+    # Bionic has no <aio.h> and we don't thread host I/O, so Android gets its own
+    # synchronous fs seam (like web). dir stays on posix; os = posix common + android.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/posix/dir.c
-        ${RP6502_SRC}/emu/posix/fs.c
-        ${RP6502_SRC}/emu/posix/os.c)
+        ${RP6502_SRC}/emu/host/posix/dir.c
+        ${RP6502_SRC}/emu/host/android/fs.c
+        ${RP6502_SRC}/emu/host/posix/os.c
+        ${RP6502_SRC}/emu/host/android/os.c)
+elseif(APPLE)
+    # macOS: POSIX aio_read is in libc (no librt needed); os = posix common + macos.
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/host/posix/dir.c
+        ${RP6502_SRC}/emu/host/posix/fs.c
+        ${RP6502_SRC}/emu/host/posix/os.c
+        ${RP6502_SRC}/emu/host/macos/os.c)
+else()
+    # Linux / BSD: os = posix common + linux; POSIX AIO required.
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/emu/host/posix/dir.c
+        ${RP6502_SRC}/emu/host/posix/fs.c
+        ${RP6502_SRC}/emu/host/posix/os.c
+        ${RP6502_SRC}/emu/host/linux/os.c)
     include(CheckSymbolExists)
     find_library(RT_LIBRARY rt)
     if(RT_LIBRARY)
@@ -147,24 +164,27 @@ if(MSVC)
     )
 endif()
 
-# Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
-    ${RP6502_SRC}/emu/shim
-    ${RP6502_SRC}/vga
-    ${RP6502_SRC}/ria
-    ${RP6502_VENDOR}/fatfs
+    ${RP6502_SRC}/emu
     ${RP6502_SRC}
+    ${RP6502_VENDOR}/fatfs
     ${RP6502_VENDOR}
     ${RP6502_VENDOR}/chips/chips
     ${RP6502_VENDOR}/chips
     ${RP6502_VENDOR}/sokol
 )
-target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
+target_compile_definitions(emu_core PUBLIC
+    _GNU_SOURCE
+    RP6502_EXFAT=0
+    RP6502_LOCALE=EN
+    PICO_PROGRAM_NAME="RP6502-EMU")
 # MSVC has no separate libm
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 else()
-    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FImsvc_compat.h)
+    # Shims MSVC alone needs, including a <strings.h> it has no system header for.
+    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/emu/host/win)
+    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
     target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
@@ -173,7 +193,7 @@ endif()
 
 # Determine if window available
 include(CheckIncludeFile)
-if(WIN32 OR APPLE OR EMSCRIPTEN)
+if(WIN32 OR APPLE OR EMSCRIPTEN OR ANDROID)
     set(EMU_HAS_WINDOW ON)
 else()
     check_include_file("GL/gl.h" EMU_HAS_GL_HEADER)
@@ -189,7 +209,7 @@ endif()
 
 # Determine if audio available
 if(EMU_HAS_WINDOW)
-    if(WIN32 OR APPLE OR EMSCRIPTEN)
+    if(WIN32 OR APPLE OR EMSCRIPTEN OR ANDROID)
         set(EMU_HAS_AUDIO ON)
     else()
         check_include_file("alsa/asoundlib.h" EMU_HAS_ALSA_HEADER)
@@ -198,16 +218,44 @@ if(EMU_HAS_WINDOW)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/main.c ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c ${RP6502_SRC}/emu/app/web_exports.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c)
+if(NOT ANDROID)
+    # Desktop/web enter through main(); Android enters through host/android sokol_main.
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/main.c)
+endif()
+if(EMSCRIPTEN)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/web/exports.c)
+endif()
+# Per-host window: the shared render core + exactly one host's window, or the
+# headless stub when there is no window backend.
 if(EMU_HAS_WINDOW)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/icon.c ${RP6502_SRC}/emu/app/window_core.c)
+    if(WIN32)
+        list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/win/window.c)
+    elseif(APPLE)
+        list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/macos/window.c)
+    elseif(EMSCRIPTEN)
+        list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/web/window.c)
+    elseif(ANDROID)
+        list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/android/window.c)
+    else()
+        list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/linux/window.c)
+    endif()
+else()
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/window_headless.c)
 endif()
 if(EMU_HAS_AUDIO)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/audio_out.c)
 endif()
 
-add_executable(rp6502-emu ${APP_SOURCES})
-target_link_libraries(rp6502-emu PRIVATE emu_core)
+if(ANDROID)
+    add_library(rp6502-emu SHARED ${APP_SOURCES})
+    target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
+    target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
+else()
+    add_executable(rp6502-emu ${APP_SOURCES})
+    target_link_libraries(rp6502-emu PRIVATE emu_core)
+endif()
 target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/sokol)
 
 # Windows is only platform without getopt
@@ -225,16 +273,27 @@ if(NOT EMU_HAS_WINDOW)
         "sudo apt-get install libgl-dev libx11-dev libxi-dev libxcursor-dev")
 else()
     # SOKOL_NO_ENTRY: we provide main() ourselves and call sapp_run() directly.
-    target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL SOKOL_NO_ENTRY)
+    if(ANDROID)
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL)
+    else()
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_SOKOL SOKOL_NO_ENTRY)
+    endif()
     set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
     if(WIN32)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
-        target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi)
+        target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32)
+        # GUI subsystem so no console pops up; keep our main() (os_console_attach
+        # reattaches stdio when launched from a terminal).
+        if(MSVC)
+            target_link_options(rp6502-emu PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+        else()
+            target_link_options(rp6502-emu PRIVATE -mwindows)
+        endif()
     elseif(APPLE)
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window.c ${RP6502_SRC}/emu/app/input.c
+        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/emu/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
             PROPERTIES COMPILE_FLAGS "-x objective-c")
         target_link_libraries(rp6502-emu PRIVATE
             "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit")
@@ -258,10 +317,10 @@ else()
             OUTPUT_NAME rp6502
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
         # Tester web root (build/web/html): the menu shell + every test ROM.
-        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
+        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_SRC}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${RP6502_SRC}/emu/html" "${CMAKE_BINARY_DIR}/html"
+                "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
             COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
             COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
@@ -270,15 +329,17 @@ else()
         # itch.io sample (build/web/itch.io): the single-program shell.
         add_custom_target(itch_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${RP6502_SRC}/emu/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+                "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
             COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_SOURCE_DIR}/tests/roms/adventure.rp6502"
+                "${RP6502_SRC}/tests/roms/adventure.rp6502"
                 "${CMAKE_BINARY_DIR}/html/rp6502.js"
                 "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
                 "${CMAKE_BINARY_DIR}/itch.io"
             COMMENT "Assembling itch.io sample (build/web/itch.io) + adventure.rp6502"
             VERBATIM)
         add_dependencies(itch_root rp6502-emu)
+    elseif(ANDROID)
+        # Android graphics and libraries are configured in the target section.
     else() # Linux / BSD
         find_package(Threads REQUIRED)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLCORE)
@@ -298,8 +359,8 @@ else()
             "On Debian/Ubuntu: sudo apt-get install libasound2-dev")
     endif()
 
-    # Include debugging except on web version
-    if(NOT EMSCRIPTEN)
+    # Include debugging except on web and Android versions
+    if(NOT EMSCRIPTEN AND NOT ANDROID)
         # cppdap (the DAP server library): no examples/tests/fuzzer, vendored
         # nlohmann/json. Exposes the `cppdap` target with its include dir.
         set(CPPDAP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -339,7 +400,7 @@ else()
 endif()
 
 # Tests
-if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN)
+if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(tests)
+    add_subdirectory(${RP6502_SRC}/tests tests)
 endif()

@@ -47,7 +47,7 @@ typedef struct
 /* RIA register window + syscall dispatch (ria.c)                      */
 /* ------------------------------------------------------------------ */
 
-void ria_reset(void);
+void ria_run(void); /* program start: clear the $FFF0 IRQ latches */
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 
@@ -68,9 +68,9 @@ bool ria_irq_asserted(void);
  * poll is the shared firmware api_task (ria/api/api.h). */
 void ria_task(void);
 
-/* RIA-side firmware ABI reached by the vendored rln.c/atr.c through the firmware
- * path "sys/ria.h" (the shim there forwards to this header); ria.c implements
- * them. ria_active is always false in the emulator (no mbuf transfers). */
+/* RIA-side firmware ABI the shared rln.c/atr.c/api.c reach through ria/sys/ria.h,
+ * whose declarations match these; ria.c implements them here. ria_active is always
+ * false in the emulator (no mbuf transfers). */
 bool ria_active(void);         /* true while mid mbuf transfer; never here */
 void ria_trigger_sigint(void); /* latch a Ctrl-C SIGINT (raises $FFF0 if enabled) */
 bool ria_get_sigint(void);     /* consume the latched SIGINT for the attribute (true once) */

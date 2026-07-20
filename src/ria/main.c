@@ -4,49 +4,50 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "api/atr.h"
-#include "api/clk.h"
-#include "api/dir.h"
-#include "api/oem.h"
-#include "api/pro.h"
-#include "api/std.h"
-#include "aud/aud.h"
-#include "aud/opl.h"
-#include "aud/psg.h"
-#include "ble/ble.h"
-#include "hid/kbd.h"
-#include "hid/mou.h"
-#include "hid/pad.h"
-#include "hid/tab.h"
-#include "mon/dsk.h"
-#include "mon/fil.h"
-#include "mon/mon.h"
-#include "mon/ram.h"
-#include "mon/rom.h"
-#include "mon/uf2.h"
-#include "net/cyw.h"
-#include "net/mdm.h"
-#include "net/ntp.h"
-#include "net/wfi.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/com_hw.h"
-#include "sys/cfg.h"
-#include "sys/cpu_hw.h"
-#include "sys/led.h"
-#include "sys/lfs.h"
-#include "sys/mem.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
-#include "sys/vga.h"
-#include "usb/usb.h"
-#include "usb/mid.h"
-#include "usb/nfc.h"
-#include "usb/vcp.h"
-#include "usb/xin.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/api/atr.h"
+#include "ria/api/clk.h"
+#include "ria/api/fat.h"
+#include "ria/api/oem.h"
+#include "ria/api/pro.h"
+#include "ria/api/std.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/opl.h"
+#include "ria/aud/psg.h"
+#include "ria/ble/ble.h"
+#include "ria/hid/kbd.h"
+#include "ria/hid/mou.h"
+#include "ria/hid/pad.h"
+#include "ria/hid/tab.h"
+#include "ria/mon/dsk.h"
+#include "ria/mon/fil.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/ram.h"
+#include "ria/mon/rom.h"
+#include "ria/mon/uf2.h"
+#include "ria/net/cyw.h"
+#include "ria/net/mdm.h"
+#include "ria/net/ntp.h"
+#include "ria/net/wfi.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/cpu.h"
+#include "ria/sys/led.h"
+#include "ria/sys/lfs.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/pix.h"
+#include "ria/sys/ria.h"
+#include "ria/sys/sys.h"
+#include "ria/sys/vga.h"
+#include "ria/usb/usb.h"
+#include "ria/usb/mid.h"
+#include "ria/usb/nfc.h"
+#include "ria/usb/vcp.h"
+#include "ria/usb/xin.h"
+#include <pico/stdlib.h>
 #include <pico/time.h>
 #include <stdio.h>
 
@@ -67,6 +68,22 @@
 /**************************************/
 /* All device drivers register below. */
 /**************************************/
+
+// Driver table, msc is catch-all and must be last.
+static __in_flash("std_drivers") const std_driver_t std_drivers[] = {
+    {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
+    {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
+    {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, mid_std_sync, NULL},
+    {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
+    {nfc_std_handles, nfc_std_open, nfc_std_close, nfc_std_read, nfc_std_write, NULL, NULL},
+    {fat_std_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
+};
+
+const std_driver_t *main_std_drivers(size_t *count)
+{
+    *count = sizeof(std_drivers) / sizeof(std_drivers[0]);
+    return std_drivers;
+}
 
 // Many things are sensitive to order in obvious ways, like
 // starting stdio before printing. Please list subtleties.
@@ -156,7 +173,7 @@ static void run(void)
     pro_run();
     com_run();
     rln_run();
-    dir_run();
+    fat_run();
     vga_run();
     api_run();
     clk_run();
@@ -175,7 +192,7 @@ static void stop(void)
     oem_stop();
     std_stop();
     mid_stop();
-    dir_stop();
+    fat_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -288,45 +305,45 @@ bool main_api(uint8_t operation)
     case 0x1A:
         return std_api_lseek_cc65();
     case 0x1B:
-        return dir_api_unlink();
+        return fat_api_unlink();
     case 0x1C:
-        return dir_api_rename();
+        return fat_api_rename();
     case 0x1D:
         return std_api_lseek_llvm();
     case 0x1E:
         return std_api_syncfs();
     case 0x1F:
-        return dir_api_stat();
+        return fat_api_stat();
     case 0x20:
-        return dir_api_opendir();
+        return fat_api_opendir();
     case 0x21:
-        return dir_api_readdir();
+        return fat_api_readdir();
     case 0x22:
-        return dir_api_closedir();
+        return fat_api_closedir();
     case 0x23:
-        return dir_api_telldir();
+        return fat_api_telldir();
     case 0x24:
-        return dir_api_seekdir();
+        return fat_api_seekdir();
     case 0x25:
-        return dir_api_rewinddir();
+        return fat_api_rewinddir();
     case 0x26:
-        return dir_api_chmod();
+        return fat_api_chmod();
     case 0x27:
-        return dir_api_utime();
+        return fat_api_utime();
     case 0x28:
-        return dir_api_mkdir();
+        return fat_api_mkdir();
     case 0x29:
-        return dir_api_chdir();
+        return fat_api_chdir();
     case 0x2A:
-        return dir_api_chdrive();
+        return fat_api_chdrive();
     case 0x2B:
-        return dir_api_getcwd();
+        return fat_api_getcwd();
     case 0x2C:
-        return dir_api_setlabel();
+        return fat_api_setlabel();
     case 0x2D:
-        return dir_api_getlabel();
+        return fat_api_getlabel();
     case 0x2E:
-        return dir_api_getfree();
+        return fat_api_getfree();
     case 0x30:
         return rln_api_lastkey();
     case 0x31:

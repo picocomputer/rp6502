@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "term/color.h"
-#include "scanvideo/scanvideo.h"
+#include "vga/term/color.h"
+#include "vga/scanvideo/pixel_format.h"
 
 // ANSI black/white pair for 1bpp (index 0 transparent, index 1 opaque).
 

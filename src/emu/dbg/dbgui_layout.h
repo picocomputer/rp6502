@@ -14,20 +14,11 @@
 #ifndef _EMU_DBG_DBGUI_LAYOUT_H_
 #define _EMU_DBG_DBGUI_LAYOUT_H_
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Load the config file into ImGui's settings (geometry + the custom handlers).
  * No file on first run -> windows keep their compile-time defaults. */
 void dbgui_layout_load(void);
 
 /* Serialize ImGui's settings (geometry + custom handlers) to the config file. */
 void dbgui_layout_save(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DBGUI_LAYOUT_H_ */

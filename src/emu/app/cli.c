@@ -103,15 +103,13 @@ void cli_usage(const char *argv0)
             "  --credits                 print third-party credits/licenses and exit\n"
             "  --ini <file>              config file for the debugger UI layout\n"
             "                            (ImGui format; e.g. the workspace .rp6502)\n"
-            "  -- <args...>              pass the remaining words to the ROM as argv[1..]\n"
-            "A ROM's 'emulator' asset can preset these; the command line overrides it.\n",
+            "  -- <args...>              pass the remaining words to the ROM as argv[1..]\n",
             argv0);
 }
 
-/* Reset getopt's global state so the same parser can run over several argv sets
- * (the command line, then the ROM "emulator" asset). glibc/musl re-init when
- * optind is set to 0; the BSD-family getopt (and Windows/wingetopt, macOS) needs
- * optreset. */
+/* Reset getopt's global state so the parser starts clean each call. glibc/musl
+ * re-init when optind is set to 0; the BSD-family getopt (and Windows/wingetopt,
+ * macOS) needs optreset. */
 static void getopt_reset(void)
 {
 #if defined(_WIN32) || defined(__APPLE__) || defined(__FreeBSD__) || \
@@ -210,56 +208,3 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
     return 0;
 }
 
-/* Tokenizer whitespace: space, tab, CR, LF only (not isspace's \v/\f). */
-static bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
-
-int cli_tokenize_args(const char *s, char **argv, int max, char *store, size_t cap)
-{
-    int argc = 0;
-    size_t w = 0;
-    const char *p = s;
-    while (*p && argc < max)
-    {
-        while (is_ws(*p))
-            p++;
-        if (!*p)
-            break;
-        if (w >= cap)
-            break;
-        size_t tok = w;
-        char quote = 0;
-        while (*p)
-        {
-            char c = *p;
-            if (quote)
-            {
-                if (c == quote)
-                {
-                    quote = 0;
-                    p++;
-                    continue;
-                }
-            }
-            else
-            {
-                if (is_ws(c))
-                    break;
-                if (c == '"' || c == '\'')
-                {
-                    quote = c;
-                    p++;
-                    continue;
-                }
-            }
-            if (w + 1 < cap)
-                store[w++] = c;
-            p++;
-        }
-        if (w < cap)
-            store[w++] = 0;
-        else
-            store[cap - 1] = 0;
-        argv[argc++] = &store[tok];
-    }
-    return argc;
-}

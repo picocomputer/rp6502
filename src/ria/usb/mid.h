@@ -13,8 +13,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "api/api.h"
-#include "api/std.h"
+#include "ria/api/api.h"
+#include "ria/api/std.h"
 
 /* Main events
  */
@@ -25,7 +25,6 @@ void mid_stop(void);
 /* Status
  */
 
-int mid_status_count(void);
 int mid_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
 /* STDIO

@@ -2,7 +2,7 @@
  *
  * 1. Copy the closest existing layout, e.g. def/kbd_us.def,
  *    to a new def/kbd_<name>.def.
- * 2. Add #include "def/kbd_<name>.def" line below.
+ * 2. Add #include "ria/def/kbd_<name>.def" line below.
  * 3. Edit the new file:
  *      - Set XSUFFIX to a unique ALL_CAPS tag and edit the XBEGIN line: the
  *        short code users see (e.g. "FR") and the full name (e.g. "France").
@@ -22,10 +22,10 @@
  * 4. Build and test with SET KB <layout>.
  */
 
-#include "def/kbd_dk.def"
-#include "def/kbd_de.def"
-#include "def/kbd_fr.def"
-#include "def/kbd_pl.def"
-#include "def/kbd_se.def"
-#include "def/kbd_us.def"
-#include "def/kbd_us_intl.def"
+#include "ria/def/kbd_dk.def"
+#include "ria/def/kbd_de.def"
+#include "ria/def/kbd_fr.def"
+#include "ria/def/kbd_pl.def"
+#include "ria/def/kbd_se.def"
+#include "ria/def/kbd_us.def"
+#include "ria/def/kbd_us_intl.def"

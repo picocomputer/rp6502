@@ -16,11 +16,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 typedef struct dwarf_frame dwarf_frame_t;
 
 /* Load + parse .debug_frame from an ELF. NULL if absent/unusable. */
@@ -48,9 +43,5 @@ dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
 
 /* True if any FDE covers pc (i.e. CFI-based unwinding is available here). */
 bool dwarf_frame_has(const dwarf_frame_t *df, uint16_t pc);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DWARF_FRAME_H_ */

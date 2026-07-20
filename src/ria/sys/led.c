@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "sys/led.h"
-#include "net/cyw.h"
+#include "ria/sys/led.h"
+#include "ria/net/cyw.h"
 #include <pico/stdlib.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_LED)
