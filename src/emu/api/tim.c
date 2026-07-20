@@ -38,6 +38,16 @@ void tim_get_time_res(struct timespec *ts)
     ts->tv_nsec = 0;
 }
 
+bool tim_localtime(time_t t, struct tm *out)
+{
+    return os_localtime(t, out);
+}
+
+bool tim_gmtime(time_t t, struct tm *out)
+{
+    return os_gmtime(t, out);
+}
+
 /* POSIX names the tzset() globals differently in every libc, so derive them:
  * probe both solstices, standard time is whichever sits further west. */
 static void tim_tz_probe(long *std_west, int *daylight)
@@ -72,6 +82,11 @@ long tim_get_tz_offset(void)
     int daylight;
     tim_tz_probe(&west, &daylight);
     return west;
+}
+
+const char *tim_get_tz_name(bool dst)
+{
+    return os_tz_name(dst);
 }
 
 /* strftime in the host locale, then UTF-8 -> OEM into dst (max bytes). */

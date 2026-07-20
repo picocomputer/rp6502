@@ -53,14 +53,19 @@ void os_sleep_until_ns(uint64_t target)
 
 /* ---- broken-down time ---- */
 
-void os_localtime(time_t t, struct tm *out)
+bool os_localtime(time_t t, struct tm *out)
 {
-    localtime_s(out, &t);
+    return localtime_s(out, &t) == 0;
 }
 
-void os_gmtime(time_t t, struct tm *out)
+bool os_gmtime(time_t t, struct tm *out)
 {
-    gmtime_s(out, &t);
+    return gmtime_s(out, &t) == 0;
+}
+
+const char *os_tz_name(bool dst)
+{
+    return _tzname[dst]; /* the UCRT declares tzset() but spells the globals _tzname */
 }
 
 /* ---- host-locale strftime ---- */

@@ -59,7 +59,7 @@ static bool clk_api_to_tm(bool local)
     // Short pushes are unsigned; 8-byte pushes carry the sign.
     time_t t = (int64_t)u;
     struct tm tm;
-    if (!(local ? localtime_r(&t, &tm) : gmtime_r(&t, &tm)))
+    if (!(local ? tim_localtime(t, &tm) : tim_gmtime(t, &tm)))
         return api_return_errno(API_EINVAL);
     if (tm.tm_year < INT16_MIN || tm.tm_year > INT16_MAX)
         return api_return_errno(API_ERANGE);
@@ -132,21 +132,27 @@ bool clk_api_clock(void)
     return api_return_axsreg(clk_get_run(10000));
 }
 
+// MSVC has no __attribute__((packed)); pragma pack is the spelling every
+// toolchain honors, and the wire layout is what the old SDKs expect.
+#pragma pack(push, 1)
+typedef struct
+{
+    int8_t daylight;
+    int32_t timezone;
+    char tzname[5];
+    char dstname[5];
+} clk_tz_wire_t;
+#pragma pack(pop)
+
 bool clk_api_tzset(void)
 {
-    struct __attribute__((packed))
-    {
-        int8_t daylight;
-        int32_t timezone;
-        char tzname[5];
-        char dstname[5];
-    } tz;
+    clk_tz_wire_t tz;
     static_assert(15 == sizeof(tz));
     tz.daylight = tim_get_tz_daylight();
     tz.timezone = tim_get_tz_offset();
-    strncpy(tz.tzname, tzname[0], 4);
+    strncpy(tz.tzname, tim_get_tz_name(false), 4);
     tz.tzname[4] = '\0';
-    strncpy(tz.dstname, tzname[1], 4);
+    strncpy(tz.dstname, tim_get_tz_name(true), 4);
     tz.dstname[4] = '\0';
     if (!api_push_n(&tz, sizeof(tz)))
         return api_return_errno(API_EINVAL);

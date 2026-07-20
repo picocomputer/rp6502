@@ -142,6 +142,16 @@ void tim_get_time_res(struct timespec *ts)
     aon_timer_get_resolution(ts);
 }
 
+bool tim_localtime(time_t t, struct tm *out)
+{
+    return localtime_r(&t, out) != NULL;
+}
+
+bool tim_gmtime(time_t t, struct tm *out)
+{
+    return gmtime_r(&t, out) != NULL;
+}
+
 int tim_get_tz_daylight(void)
 {
     return _daylight;
@@ -150,6 +160,11 @@ int tim_get_tz_daylight(void)
 long tim_get_tz_offset(void)
 {
     return _timezone;
+}
+
+const char *tim_get_tz_name(bool dst)
+{
+    return tzname[dst];
 }
 
 // Locale-aware strftime emitting code page text. Conversions newlib would

@@ -69,9 +69,10 @@ uint64_t os_entropy_64(void);            /* seed material from the host RNG/cloc
 uint64_t os_mono_ns(void);               /* monotonic clock, nanoseconds */
 void os_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
 
-/* Broken-down host time (local zone / UTC). */
-void os_localtime(time_t t, struct tm *out);
-void os_gmtime(time_t t, struct tm *out);
+/* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
+bool os_localtime(time_t t, struct tm *out);
+bool os_gmtime(time_t t, struct tm *out);
+const char *os_tz_name(bool dst); /* tzset()'s zone abbreviation */
 
 /* Host-locale strftime (the C locale stays elsewhere in the process). */
 void os_locale_reset(void); /* (re)load the environment locale */

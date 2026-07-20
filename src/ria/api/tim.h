@@ -37,11 +37,16 @@ const char *tim_get_time_zone(void);
 // POSIX tzset() globals, which every libc spells differently
 int tim_get_tz_daylight(void);
 long tim_get_tz_offset(void);
+const char *tim_get_tz_name(bool dst);
 
 // Real time clock
 bool tim_get_time(struct timespec *ts);
 bool tim_set_time(const struct timespec *ts);
 void tim_get_time_res(struct timespec *ts);
+
+// Broken-down time, local zone or UTC. False when t is out of range.
+bool tim_localtime(time_t t, struct tm *out);
+bool tim_gmtime(time_t t, struct tm *out);
 
 // strftime emitting code page text
 size_t tim_strftime(char *dst, size_t max, const char *format, const struct tm *tm);
