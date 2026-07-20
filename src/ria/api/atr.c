@@ -13,7 +13,6 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/ria.h"
-#include "ria/sys/sys.h"
 #include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>
@@ -75,13 +74,13 @@ bool atr_api_get(void)
     case ATR_RLN_SUPPRESS_NL:
         return api_return_axsreg(rln_get_suppress_nl());
     case ATR_CLK_RUN_MS:
-        return api_return_axsreg(sys_get_run(1000) & 0x7FFFFFFF);
+        return api_return_axsreg(cpu_get_run(1000) & 0x7FFFFFFF);
     case ATR_CLK_RUN_CS:
-        return api_return_axsreg(sys_get_run(10000) & 0x7FFFFFFF);
+        return api_return_axsreg(cpu_get_run(10000) & 0x7FFFFFFF);
     case ATR_CLK_RUN_DS:
-        return api_return_axsreg(sys_get_run(100000) & 0x7FFFFFFF);
+        return api_return_axsreg(cpu_get_run(100000) & 0x7FFFFFFF);
     case ATR_CLK_RUN_S:
-        return api_return_axsreg(sys_get_run(1000000) & 0x7FFFFFFF);
+        return api_return_axsreg(cpu_get_run(1000000) & 0x7FFFFFFF);
     default:
         return api_return_errno(API_EINVAL);
     }

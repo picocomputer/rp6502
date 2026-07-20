@@ -107,7 +107,6 @@ void main_run(void)
     rln_run();
     fat_run();
     api_run();
-    sys_run();
     ria_run();
     via_run();
     cpu_run(); /* must be last */

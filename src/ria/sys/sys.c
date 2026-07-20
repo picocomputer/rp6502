@@ -20,7 +20,6 @@
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/vcp.h"
-#include <hardware/timer.h>
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
 
@@ -30,8 +29,6 @@
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
-
-static uint64_t sys_start_us;
 
 __in_flash("SYS_NAME") static const char SYS_NAME[] =
     RP6502_NAME "\n";
@@ -65,16 +62,6 @@ void __in_flash("sys_init") sys_init(void)
     mon_add_response_utf8(SYS_VERSION);
     mon_add_response_fn(vga_boot_response);
     mon_add_response_utf8("\n");
-}
-
-void sys_run(void)
-{
-    sys_start_us = time_us_64();
-}
-
-uint32_t sys_get_run(uint32_t us_per_tick)
-{
-    return (time_us_64() - sys_start_us) / us_per_tick;
 }
 
 void sys_mon_reboot(const char *args)

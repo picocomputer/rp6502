@@ -10,7 +10,7 @@
 #include "ria/api/api.h"
 #include "ria/api/clk.h"
 #include "ria/api/tim.h"
-#include "ria/sys/sys.h"
+#include "ria/sys/cpu.h"
 #include <assert.h>
 #include <string.h>
 #include <time.h>
@@ -117,7 +117,7 @@ bool clk_api_strftime(void)
 
 bool clk_api_clock(void)
 {
-    return api_return_axsreg(sys_get_run(10000));
+    return api_return_axsreg(cpu_get_run(10000));
 }
 
 bool clk_api_tzset(void)

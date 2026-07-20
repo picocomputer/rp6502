@@ -24,6 +24,7 @@ static uint16_t cpu_phi2_khz_run;
 static uint16_t cpu_phi2_khz_set;
 static volatile bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
+static uint64_t cpu_start_us;
 
 // 6502 to RP2350 clock ratio is 1:32
 static_assert(CPU_PHI2_MAX_KHZ <= CPU_RP2350_KHZ / 32);
@@ -87,7 +88,13 @@ void cpu_task(void)
 
 void cpu_run(void)
 {
+    cpu_start_us = time_us_64();
     cpu_run_requested = true;
+}
+
+uint32_t cpu_get_run(uint32_t us_per_tick)
+{
+    return (time_us_64() - cpu_start_us) / us_per_tick;
 }
 
 void cpu_stop(void)
