@@ -26,6 +26,8 @@
 #ifndef TUSB_CONFIG_H_
 #define TUSB_CONFIG_H_
 
+#include <stdalign.h>
+
 //--------------------------------------------------------------------
 // COMMON CONFIGURATION
 //--------------------------------------------------------------------
@@ -46,7 +48,7 @@
 #endif
 
 #ifndef CFG_TUSB_MEM_ALIGN
-#define CFG_TUSB_MEM_ALIGN __attribute__((aligned(4)))
+#define CFG_TUSB_MEM_ALIGN alignas(4)
 #endif
 
 //--------------------------------------------------------------------

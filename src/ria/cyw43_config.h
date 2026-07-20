@@ -3,6 +3,8 @@
 
 #include <cyw43_configport.h>
 
+// Not alignas; the driver's firmware blobs expand this after the declarator,
+// where an alignment specifier is a syntax error.
 #define CYW43_RESOURCE_ATTRIBUTE __attribute__((aligned(4))) __in_flash("cyw43firmware")
 #define CYW43_PIO_CLOCK_DIV_DYNAMIC 1
 
