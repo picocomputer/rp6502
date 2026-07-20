@@ -18,9 +18,10 @@ instrumentation prototyped in emu headers. It ok to leave firmware-only
 defines and prototypes in the headers used by the emulator. This is an
 unusual seam that spontaneously emerged on this project, we like it, keep it.
 
-Avoid excessive calls to the shell to search for things – you are running in
-an IDE and must use that when possible. Never search the root of the filesystem.
-Everything you need will be in the user home directory.
+Do not harass the user for shell command permissions when you can read the
+files from the IDE. Avoid excessive calls to the shell to search for things –
+you are running in an IDE and must use that when possible. Never search the
+root of the filesystem. Everything you need will be in the user home directory.
 
 Don't spam git history unless specifically asked to. Do not commit or push
 unless specifically asked to. Do not look for answers in git history.
