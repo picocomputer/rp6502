@@ -42,9 +42,6 @@ void cpu_reclock(void);
 // the 6502 is running or about to run once RESB rises.
 bool cpu_active(void);
 
-// 6502 run time since cpu_run, in ticks of us_per_tick microseconds
-uint32_t cpu_get_run(uint32_t us_per_tick);
-
 // Return calculated reset time. May be higher than configured
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us(void);

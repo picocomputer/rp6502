@@ -177,6 +177,7 @@ static void run(void)
     fat_run();
     vga_run();
     api_run();
+    clk_run();
     ria_run(); // Must be immediately before cpu
     cpu_run(); // Must be last
 }

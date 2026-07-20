@@ -11,7 +11,6 @@
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/via.h"
-#include "pico/time.h"
 
 static m6502_t cpu;
 static uint64_t pins;
@@ -67,7 +66,6 @@ bool cpu_set_phi2_khz(uint16_t khz)
 /* Program-halt gate: set true by the EXIT syscall, a failed exec, or a --dap
  * launch hold; cleared by cpu_run on (re)start. */
 static bool halted;
-static uint64_t cpu_start_us;
 
 bool cpu_active(void) { return !halted; }
 bool cpu_halted(void) { return halted; }
@@ -107,16 +105,8 @@ void cpu_init(void)
  * run fan-out (the VIA shares RESB, so via_run runs just before). */
 void cpu_run(void)
 {
-    cpu_start_us = time_us_64();
     pins = m6502_init(&cpu, &(m6502_desc_t){0});
     halted = false;
-}
-
-/* From the one master clock, so run time is a reproducible function of the frame
- * count (the vendored atr.c reads it for the s/ds/cs/ms attributes). */
-uint32_t cpu_get_run(uint32_t us_per_tick)
-{
-    return (uint32_t)((time_us_64() - cpu_start_us) / us_per_tick);
 }
 
 /* Program stop: freeze the 6502 (the tick loop runs only while cpu_active()). */

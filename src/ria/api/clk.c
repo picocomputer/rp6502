@@ -10,12 +10,24 @@
 #include "ria/api/api.h"
 #include "ria/api/clk.h"
 #include "ria/api/tim.h"
-#include "ria/sys/cpu.h"
+#include <pico/time.h>
 #include <assert.h>
 #include <string.h>
 #include <time.h>
 
 #define CLK_ID_REALTIME 0
+
+static uint64_t clk_start_us;
+
+void clk_run(void)
+{
+    clk_start_us = time_us_64();
+}
+
+uint32_t clk_get_run(uint32_t us_per_tick)
+{
+    return (time_us_64() - clk_start_us) / us_per_tick;
+}
 
 bool clk_api_time_get(void)
 {
@@ -117,7 +129,7 @@ bool clk_api_strftime(void)
 
 bool clk_api_clock(void)
 {
-    return api_return_axsreg(cpu_get_run(10000));
+    return api_return_axsreg(clk_get_run(10000));
 }
 
 bool clk_api_tzset(void)

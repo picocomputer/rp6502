@@ -16,6 +16,14 @@
 #include <string.h>
 #include <time.h>
 
+/* Main events
+ */
+
+void clk_run(void);
+
+// 6502 run time in ticks of us_per_tick microseconds
+uint32_t clk_get_run(uint32_t us_per_tick);
+
 /* The 18-byte wire struct tm the 6502 libc pushes for gmtime/localtime/mktime/
  * strftime (9 int16, struct-tm order; all-int16, so it needs no packing). */
 struct clk_wire_tm
