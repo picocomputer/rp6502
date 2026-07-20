@@ -53,6 +53,25 @@ UTEST(features, sigint_irq)
     ASSERT_FALSE(ria_irq_asserted());
 }
 
+/* Reading $FFF0 acks the pending flags, but IRQB must still be asserted on the very
+ * cycle that reads it — ria_tick samples the line before servicing the access. Every
+ * other test drives ria_reg_read directly, so only a tick-level check can catch a
+ * one-cycle-early deassert. */
+UTEST(features, ria_tick_holds_irq_through_ack)
+{
+    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+
+    ria_reg_write(0xFFF0, 0x40); /* enable SIGINT (the write acks it too) */
+    com_kbd_push_byte(0x03);
+    ASSERT_TRUE(ria_irq_asserted());
+
+    uint8_t data = 0;
+    ASSERT_TRUE(ria_tick(0xFFF0, true, &data)); /* still asserted on the acking cycle */
+    ASSERT_TRUE((data & 0x40) != 0);            /* and the flags reached the data bus */
+
+    ASSERT_FALSE(ria_tick(0x0000, true, &data)); /* deasserted the next cycle */
+}
+
 /* Launcher: a shell registers itself, re-runs after each child exits, and the
  * chain ends when the shell itself exits. */
 UTEST(features, launcher_chain)

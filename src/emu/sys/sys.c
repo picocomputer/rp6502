@@ -30,12 +30,15 @@ static uint64_t scanline_n;
 
 static unsigned long frame_count;
 
-/* The bus, as decoded signals. data and irq carry between cycles: the CPU latches
- * the settled data on the next tick, and samples the interrupt line there too. */
+/* The bus between run_until calls, which hoists it into locals for the loop. data and
+ * the IRQs carry across cycles: the CPU latches the settled data on the next tick, and
+ * samples the interrupt line there too. IRQB is wired-OR, but each device keeps its
+ * own line so none has to clear another's — sys_tick ORs them at the CPU. */
 static uint16_t bus_addr;
 static uint8_t bus_data;
 static bool bus_read;
-static bool bus_irq;
+static bool bus_via_irq;
+static bool bus_ria_irq;
 
 uint64_t sys_clk_now(void) { return sys_clk; }
 unsigned long sys_frame_count(void) { return frame_count; }
@@ -58,18 +61,45 @@ static uint64_t scanline_deadline(uint64_t n)
     return n * 4096000ull / 63;
 }
 
+/* Take the parked bus for the run_until loop to own as locals. */
+static inline void bus_hoist(uint16_t *addr, uint8_t *data, bool *read,
+                             bool *via_irq, bool *ria_irq)
+{
+    *addr = bus_addr;
+    *data = bus_data;
+    *read = bus_read;
+    *via_irq = bus_via_irq;
+    *ria_irq = bus_ria_irq;
+}
+
+/* Park it back. Paired with sys_clk at every return from run_until — miss one and a
+ * resumed frame drives a stale bus. */
+static inline void bus_park(uint16_t addr, uint8_t data, bool read,
+                            bool via_irq, bool ria_irq)
+{
+    bus_addr = addr;
+    bus_data = data;
+    bus_read = read;
+    bus_via_irq = via_irq;
+    bus_ria_irq = ria_irq;
+}
+
 /* One PHI2 cycle of the whole machine — the board wiring, in the floooh/chips
  * system-tick style (see _vic20_tick). The CPU is the only bus master and drives the
  * bus in decoded signals; every device ticks each cycle (the VIA counts its timers,
  * the RIA drives IRQB and publishes its pins) and decodes its own window, so the
  * board holds no chip-select state. The read ranges do not overlap, so the order
- * here does not matter. */
-static inline void sys_tick(void)
+ * here does not matter.
+ *
+ * The bus arrives by pointer because run_until owns it as locals for the duration of
+ * the loop, not as the file statics it is parked in between calls. */
+static inline void sys_tick(uint16_t *addr, uint8_t *data, bool *read,
+                            bool *via_irq, bool *ria_irq)
 {
-    cpu_tick(bus_irq, &bus_addr, &bus_read, &bus_data);
-    bus_irq = via_tick(bus_addr, bus_read, &bus_data);
-    bus_irq |= ria_tick(bus_addr, bus_read, &bus_data);
-    mem_tick(bus_addr, bus_read, &bus_data);
+    cpu_tick(addr, read, data, *via_irq || *ria_irq);
+    *via_irq = via_tick(*addr, *read, data);
+    *ria_irq = ria_tick(*addr, *read, data);
+    mem_tick(*addr, *read, data);
 }
 
 /* Run 6502 cycles until the system clock reaches deadline, the program halts, or
@@ -78,10 +108,18 @@ static inline void sys_tick(void)
  * on return (time flows even while halted). */
 static bool run_until(uint64_t deadline, bool dbg)
 {
-    /* Accumulate in a local and commit before every return: nothing else reads the
-     * clock mid-scanline, so this keeps the hot loop off the static (as vic20_exec
-     * does with sys->pins). */
+    /* Hoist the clock and the bus into locals and commit both before every return:
+     * nothing else reads either mid-scanline, so the loop never touches the statics
+     * and the compiler is free to keep the bus in registers (as vic20_exec does with
+     * sys->pins). Measured break-even here — the statics were a single cache line the
+     * store buffer forwarded — so this is for the intent, not a win. */
     uint64_t clk = sys_clk;
+    uint16_t addr;
+    uint8_t data;
+    bool read;
+    bool via_irq;
+    bool ria_irq;
+    bus_hoist(&addr, &data, &read, &via_irq, &ria_irq);
     const uint32_t cycle_ticks = cpu_cycle_ticks();
     if (!dbg)
     {
@@ -89,7 +127,7 @@ static bool run_until(uint64_t deadline, bool dbg)
          * second the debug branch is worth keeping out of the common path. */
         while (clk < deadline && cpu_active())
         {
-            sys_tick();
+            sys_tick(&addr, &data, &read, &via_irq, &ria_irq);
             clk += cycle_ticks;
         }
     }
@@ -97,7 +135,7 @@ static bool run_until(uint64_t deadline, bool dbg)
     {
         while (clk < deadline && cpu_active())
         {
-            sys_tick();
+            sys_tick(&addr, &data, &read, &via_irq, &ria_irq);
             clk += cycle_ticks;
             if (cpu_dbg_cycle_cb)
                 cpu_dbg_cycle_cb(cpu_dbg_pins());
@@ -107,7 +145,8 @@ static bool run_until(uint64_t deadline, bool dbg)
             uint8_t sp;
             if (cpu_opcode_fetch(&pc, &sp) && dbg_at_instruction(pc, sp))
             {
-                sys_clk = clk; /* commit before abandoning the frame */
+                sys_clk = clk; /* commit both before abandoning the frame */
+                bus_park(addr, data, read, via_irq, ria_irq);
                 return true;
             }
         }
@@ -115,6 +154,7 @@ static bool run_until(uint64_t deadline, bool dbg)
     if (clk < deadline)
         clk = deadline; /* halted: keep the clock (time) flowing */
     sys_clk = clk;
+    bus_park(addr, data, read, via_irq, ria_irq);
     return false;
 }
 

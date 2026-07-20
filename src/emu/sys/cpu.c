@@ -96,7 +96,7 @@ void cpu_stop(void)
 /* One PHI2 cycle. The 6502 pin mask is the m6502's own layout, so it never leaves
  * this file: the board hands back the settled bus as decoded signals and gets the
  * next cycle's drive the same way. */
-void cpu_tick(bool irq, uint16_t *addr, bool *read, uint8_t *data)
+void cpu_tick(uint16_t *addr, bool *read, uint8_t *data, bool irq)
 {
     if (irq)
         pins |= M6502_IRQ;

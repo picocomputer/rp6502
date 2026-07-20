@@ -27,7 +27,7 @@ void cpu_stop(void);
 /* Advance the 6502 one PHI2 cycle. irq is the interrupt line as the devices left it
  * last cycle; data is in/out — the value the bus settled on, then the value the CPU
  * drives. The m6502 pin mask stays inside cpu.c; the board speaks decoded signals. */
-void cpu_tick(bool irq, uint16_t *addr, bool *read, uint8_t *data);
+void cpu_tick(uint16_t *addr, bool *read, uint8_t *data, bool irq);
 
 uint32_t cpu_cycle_ticks(void); /* system-clock ticks per 6502 cycle */
 
