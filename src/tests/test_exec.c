@@ -32,7 +32,7 @@ static void tap(const char *buf, int len)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 UTEST(exec, reexecs_self_with_arg)

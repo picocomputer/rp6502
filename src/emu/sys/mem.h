@@ -10,20 +10,13 @@
 
 #include "ria/sys/mem.h"
 
-/* ------------------------------------------------------------------ */
-/* Bus geometry (emulator-only)                                        */
-/* ------------------------------------------------------------------ */
-
-#define RIA_WINDOW_LO 0xFFE0
-#define RIA_WINDOW_HI 0xFFF9 /* inclusive */
-
-#define VIA_WINDOW_LO 0xFFD0
-#define VIA_WINDOW_HI 0xFFDF /* inclusive */
+/* RAM is $0000-$FEFF (os.rst); ram[] itself spans the whole space as a write-through
+ * shadow the debug views and the ROM loader read. */
+#define MEM_RAM_HI 0xFEFF
 
 extern uint8_t ram[0x10000];
 
-/* One PHI2 tick of RAM: the bus cycle for every address the board did not decode to
- * a peripheral. Backs ram[] and feeds the debugger's watchpoint hook. */
-uint64_t mem_tick(uint64_t pins);
+/* One PHI2 tick of the SRAM. data is in/out. */
+void mem_tick(uint16_t addr, bool read, uint8_t *data);
 
 #endif /* _EMU_SYS_MEM_H_ */

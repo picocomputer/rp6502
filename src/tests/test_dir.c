@@ -60,7 +60,7 @@ UTEST(dir, lists_directory)
     cap[0] = 0;
     com_set_tx_tap(tap);
     for (int i = 0; i < 600 && !cpu_halted(); i++)
-        main_run_frame();
+        sys_run_frame();
     com_set_tx_tap(NULL);
 
     ASSERT_TRUE(cpu_halted()); /* the program ran to completion */

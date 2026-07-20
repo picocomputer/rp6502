@@ -16,7 +16,7 @@
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 /* The master clock advances at the fixed scanline rate regardless of what the

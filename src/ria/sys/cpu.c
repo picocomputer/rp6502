@@ -8,6 +8,7 @@
 #include "ria/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/sys.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/sync.h>
@@ -26,7 +27,7 @@ static volatile bool cpu_run_requested;
 static absolute_time_t cpu_resb_timer;
 
 // 6502 to RP2350 clock ratio is 1:32
-static_assert(CPU_PHI2_MAX_KHZ <= CPU_RP2350_KHZ / 32);
+static_assert(CPU_PHI2_MAX_KHZ <= SYS_RP2350_KHZ / 32);
 
 static void cpu_change_phi2_khz(uint16_t freq_khz)
 {
@@ -34,10 +35,10 @@ static void cpu_change_phi2_khz(uint16_t freq_khz)
         freq_khz = CPU_PHI2_MIN_KHZ;
     if (freq_khz > CPU_PHI2_MAX_KHZ)
         freq_khz = CPU_PHI2_MAX_KHZ;
-    float clkdiv = CPU_RP2350_KHZ / 32.f / freq_khz;
+    float clkdiv = SYS_RP2350_KHZ / 32.f / freq_khz;
     uint16_t clkdiv_int = clkdiv;
     uint8_t clkdiv_frac = (clkdiv - clkdiv_int) * (1u << 8u);
-    uint16_t new_khz = CPU_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
+    uint16_t new_khz = SYS_RP2350_KHZ / 32.f / (clkdiv_int + clkdiv_frac / 256.f);
     if (cpu_phi2_khz_run == new_khz)
         return;
     cpu_phi2_khz_run = new_khz;
@@ -46,12 +47,10 @@ static void cpu_change_phi2_khz(uint16_t freq_khz)
 
 void cpu_main(void)
 {
-    // The very first things main() does.
+    // Hold the 6502 in reset from the very start of main().
     gpio_init(CPU_RESB_PIN);
     gpio_put(CPU_RESB_PIN, false);
     gpio_set_dir(CPU_RESB_PIN, GPIO_OUT);
-    vreg_set_voltage(CPU_RP2350_VREG);
-    set_sys_clock_khz(CPU_RP2350_KHZ, true);
 }
 
 void __in_flash("cpu_init") cpu_init(void)

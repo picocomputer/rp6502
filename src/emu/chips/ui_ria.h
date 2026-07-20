@@ -5,9 +5,9 @@
  *
  * RIA debug window — a chips-ui-style inspector beside ui_w65c02.h and
  * ui/ui_m6522.h. Unlike those (forks of upstream chip widgets), the RIA is
- * bespoke: it shares the 6502 bus, so the window shows the RIA's pins as last
- * decoded (ria_chip()->PINS, plus a synthetic RREQ over the RIA window) and a
- * read-only view of the register file ($FFE0-$FFFF, in ram[]) and the XSTACK SP.
+ * bespoke: it shares the 6502 bus, so the window shows the RIA's own pins as last
+ * decoded (ria_chip()->PINS) and a read-only view of the register file
+ * ($FFE0-$FFFF) and the XSTACK SP.
  *
  * Header-only with the implementation under CHIPS_UI_IMPL, emitted by the single
  * TU that defines it (dbgui.cc), matching the chips-ui convention. ImGui is
@@ -21,7 +21,7 @@
 
 #include "ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
 #include "ui/ui_settings.h"   /* ui_settings_t */
-#include "emu/sys/ria.h"   /* ria_t, ria_chip, RIA_PIN_RREQ */
+#include "emu/sys/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_WINDOW_* */
 
 #ifdef __cplusplus
 extern "C"
@@ -62,25 +62,28 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
 #endif
-#include "emu/chips/w65c02.h" /* M6502_* pin macros (for the pin diagram) */
-#include "emu/sys/mem.h"      /* ram, xstack_ptr, RIA_WINDOW_LO/HI */
+#include "emu/sys/mem.h"      /* ram, xstack_ptr */
 #include "emu/sys/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
 #include "ria/api/oem.h"      /* oem_get_code_page_run (Status) */
 
 /* The RIA shares the 6502 bus but wires only its own pins: RREQ, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
  * are decoded off-chip into RREQ, so they never reach the RIA. Pins are fed live
- * from ria_chip()->PINS; RIA_PIN_RREQ is defined in emu/sys/ria.h. */
+ * from ria_chip()->PINS in the RIA's own layout (RIA_PIN_*, emu/sys/ria.h). */
 static const ui_chip_pin_t _ui_ria_pins[] = {
-    {"D0", 0, M6502_D0}, {"D1", 1, M6502_D1}, {"D2", 2, M6502_D2}, {"D3", 3, M6502_D3},
-    {"D4", 4, M6502_D4}, {"D5", 5, M6502_D5}, {"D6", 6, M6502_D6}, {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW}, {"IRQ", 10, M6502_IRQ}, {"RES", 11, M6502_RES}, {"RREQ", 12, RIA_PIN_RREQ},
-    {"A0", 13, M6502_A0}, {"A1", 14, M6502_A1}, {"A2", 15, M6502_A2}, {"A3", 16, M6502_A3},
-    {"A4", 17, M6502_A4},
+    {"D0", 0, RIA_PIN_D0 << 0}, {"D1", 1, RIA_PIN_D0 << 1},
+    {"D2", 2, RIA_PIN_D0 << 2}, {"D3", 3, RIA_PIN_D0 << 3},
+    {"D4", 4, RIA_PIN_D0 << 4}, {"D5", 5, RIA_PIN_D0 << 5},
+    {"D6", 6, RIA_PIN_D0 << 6}, {"D7", 7, RIA_PIN_D0 << 7},
+    {"RW", 9, RIA_PIN_RW}, {"IRQ", 10, RIA_PIN_IRQ},
+    {"RES", 11, RIA_PIN_RES}, {"RREQ", 12, RIA_PIN_RREQ},
+    {"A0", 13, RIA_PIN_A0 << 0}, {"A1", 14, RIA_PIN_A0 << 1},
+    {"A2", 15, RIA_PIN_A0 << 2}, {"A3", 16, RIA_PIN_A0 << 3},
+    {"A4", 17, RIA_PIN_A0 << 4},
 };
 
 /* The documented RIA register window ($FFE0-$FFFF, ria.rst). width 2 = a 16-bit
- * little-endian pair. The whole window (registers + vectors) lives in ram[]. */
+ * little-endian pair. */
 static const struct { uint16_t addr; const char *name; uint8_t width; } _ui_ria_regs[] = {
     {0xFFE0, "READY", 1}, {0xFFE1, "TX", 1}, {0xFFE2, "RX", 1}, {0xFFE3, "VSYNC", 1},
     {0xFFE4, "RW0", 1}, {0xFFE5, "STEP0", 1}, {0xFFE6, "ADDR0", 2},
@@ -124,17 +127,13 @@ void ui_ria_draw(ui_ria_t *win)
     ImGui::SetNextWindowSize(ImVec2(win->init_w, win->init_h), ImGuiCond_FirstUseEver);
     if (ImGui::Begin(win->title, &win->open))
     {
-        /* Pins: the bus as the RIA chip last decoded it (ria_chip()->PINS) — IRQ
-         * already rides in it (ria_tick drives M6502_IRQ from ria_irq_asserted).
-         * Overlaid: RREQ lit when the RIA window is the addressed device, and RES
-         * lit while the RIA holds the 6502 in reset (between a stop and the next
-         * run — cpu_halted(), which is not the debugger's mid-run pause). */
+        /* Pins: the bus as the RIA last saw it (ria_chip()->PINS) — ria_tick sets
+         * RREQ from its own decode and IRQ from ria_irq_asserted. RES is not a RIA
+         * input; overlay it while the machine holds the 6502 in reset (between a
+         * stop and the next run — cpu_halted(), not the debugger's mid-run pause). */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
-        uint16_t a = (uint16_t)(p & 0xFFFFu);
-        if (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI)
-            p |= RIA_PIN_RREQ;
         if (cpu_halted())
-            p |= M6502_RES;
+            p |= RIA_PIN_RES;
         ImGui::BeginChild("##ria_pins", ImVec2(176, 0), true);
         ui_chip_draw(&win->chip, p);
         ImGui::EndChild();
@@ -154,11 +153,12 @@ void ui_ria_draw(ui_ria_t *win)
 
         if (ImGui::CollapsingHeader("Registers", ImGuiTreeNodeFlags_DefaultOpen))
         {
-            /* The RIA register file is regs[] (no longer aliased into ram[]); the
-             * vectors above the window ($FFFA-$FFFF) are real RAM. Rows match the
-             * VIA panel's "NAME ($addr/dec): val" layout (ui/ui_m6522.h). */
+            /* The RIA register file is regs[] (no longer aliased into ram[]), and
+             * the window runs to $FFFF, so the vectors read from it too — the same
+             * bytes the CPU fetches. Rows match the VIA panel's
+             * "NAME ($addr/dec): val" layout (ui/ui_m6522.h). */
             auto peek = [](uint16_t a) -> uint8_t {
-                return (a >= RIA_WINDOW_LO && a <= RIA_WINDOW_HI) ? regs[a & 0x1F] : ram[a];
+                return (a >= RIA_WINDOW_LO) ? regs[a & 0x1F] : ram[a];
             };
             for (auto &r : _ui_ria_regs)
             {

@@ -412,6 +412,7 @@ bool main_active(void)
 
 int main(void)
 {
+    sys_main();
     cpu_main();
     init();
     while (true)

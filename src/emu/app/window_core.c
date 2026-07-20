@@ -39,6 +39,7 @@
 #include "emu/host/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
+#include "emu/sys/sys.h"
 #include "emu/host/host.h"
 #include "emu/sys/vga.h"
 #include <math.h>
@@ -422,9 +423,9 @@ void window_core_frame(void)
     for (uint64_t i = 0; i < behind; i++)
     {
         if (i + 1 < behind)
-            main_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
+            sys_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
         else
-            main_run_frame(); /* the frame we'll present: render it */
+            sys_run_frame(); /* the frame we'll present: render it */
         done++;
     }
 
@@ -461,8 +462,8 @@ void window_core_frame(void)
         if (bench_total >= bench_limit)
         {
             fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                    main_frame_count(), bench_total,
-                    (double)main_frame_count() / bench_total);
+                    sys_frame_count(), bench_total,
+                    (double)sys_frame_count() / bench_total);
             sapp_request_quit();
         }
     }

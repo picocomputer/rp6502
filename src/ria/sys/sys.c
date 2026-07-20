@@ -20,6 +20,8 @@
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/vcp.h"
+#include <hardware/clocks.h>
+#include <hardware/vreg.h>
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
 
@@ -46,6 +48,14 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 #endif
 #endif
     "\n";
+
+/* The very first thing main() does. The clock must be up before anything that
+ * derives from it (the RIA PIO divider, the audio PWM wrap, the RF band choice). */
+void sys_main(void)
+{
+    vreg_set_voltage(SYS_RP2350_VREG);
+    set_sys_clock_khz(SYS_RP2350_KHZ, true);
+}
 
 void __in_flash("sys_init") sys_init(void)
 {

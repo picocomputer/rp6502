@@ -28,7 +28,7 @@ static uint32_t frame_crc(void)
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 UTEST(paint_tab, absolute_pointer_moves)

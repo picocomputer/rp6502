@@ -32,7 +32,7 @@ static uint32_t to_rgba(uint16_t p)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 /* Both tile glyphs are diagonal 1bpp patterns, so the tilemap mixes the two
@@ -100,7 +100,7 @@ UTEST(mode2, stop_resets_canvas_to_console)
     ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240); /* gfx canvas active */
 
     main_stop();      /* the outgoing program stops (as on a ROM swap) */
-    main_run_frame(); /* vga_task performs the armed console reset */
+    sys_run_frame(); /* vga_task performs the armed console reset */
     ASSERT_EQ(vga_get_canvas(), vga_canvas_console);
 }
 

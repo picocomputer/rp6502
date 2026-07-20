@@ -50,7 +50,7 @@ static bool boot(const char *input)
 static void run_frames(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 /* The intro banner prints before any input is read — proves the program

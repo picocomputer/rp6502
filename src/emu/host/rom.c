@@ -539,6 +539,12 @@ bool rom_load(const char *path)
         }
         if (guard)
             memcpy(&ram[0xFF00], guard_save, sizeof guard_save);
+        /* The vectors are RIA registers ($FFE0-$FFFF), and a load bypasses the bus,
+         * so publish them there too — ram[] keeps the shadow every other reader uses.
+         * The firmware's ria_write_buf reaches them over the bus instead. */
+        for (uint32_t a = 0xFFFA; a < 0x10000; a++)
+            if (a >= addr && a < addr + len)
+                regs[a & 0x1F] = ram[a];
         if (addr <= 0xFFFC && addr + len > 0xFFFC)
             reset_lo = true;
         if (addr <= 0xFFFD && addr + len > 0xFFFD)

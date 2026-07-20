@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Host shim for the pico-sdk pico/time.h. The vendored firmware reads "now"
- * through time_us_64; the emulator serves it from the deterministic master clock
- * the runner advances (main_clock_8, in emu/main.c), so run time is a reproducible
- * function of the frame count rather than host wall time. Inlined here — a shim is
+ * through time_us_64; the emulator serves it from the deterministic system clock
+ * the run loop advances (sys_clk_now, in emu/sys/sys.c), so run time is a
+ * reproducible function of the frame count rather than host wall time. Inlined here — a shim is
  * the one place a static-inline definition is warranted (declare-in-.h/define-in-.c
  * everywhere else, for LTO).
  */
@@ -17,11 +17,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-uint64_t main_clock_8(void); /* the emulator's master clock, in 1/8-ticks (emu/main.c) */
+#include "emu/sys/sys.h" /* sys_clk_now, SYS_TICKS_PER_US */
 
 static inline uint64_t time_us_64(void)
 {
-    return main_clock_8() / 2048; /* 2048 eighth-ticks/us (256 MHz -> 256 ticks/us) */
+    return sys_clk_now() / SYS_TICKS_PER_US;
 }
 
 typedef uint64_t absolute_time_t;

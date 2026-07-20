@@ -37,7 +37,7 @@ static void cap_reset(void)
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in

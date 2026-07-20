@@ -31,7 +31,7 @@ static uint32_t frame_crc(void)
 static void run(int n)
 {
     for (int i = 0; i < n; i++)
-        main_run_frame();
+        sys_run_frame();
 }
 
 UTEST(paint, via_irq_moves_pointer)

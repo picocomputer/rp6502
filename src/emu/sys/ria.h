@@ -34,15 +34,24 @@ extern "C"
  * XSTACK are dual-ported shared backing rather than state held here, because the
  * RIA's own firmware addresses them directly through REGS(). */
 
-/* The RP6502 schematic's RIA-request select (active high), decoded off-chip from
- * A5-A15. It rides a free bit above M6502_PIN_MASK so it never collides with a real
- * CPU pin; the VIA's M6522_CS1 uses the same bit, which is harmless because each
- * chip is ticked on its own pin copy. */
-#define RIA_PIN_RREQ (1ULL << 40)
+/* The RIA occupies $FFE0-$FFFF — 32 registers, the last six of which are the 6502
+ * vectors (ria.rst). A5-A15 are decoded off-chip into RREQ. */
+#define RIA_WINDOW_LO 0xFFE0
+#define RIA_WINDOW_HI 0xFFFF /* inclusive */
+
+/* The RIA's pins. It wires only RREQ, RW, D0-D7 and the low five address lines that
+ * select its register window, so it has its own compact layout rather than borrowing
+ * the CPU's. RES is not a RIA input; the debug overlay lights it from cpu_halted(). */
+#define RIA_PIN_A0 (1ULL << 0) /* A0-A4 at bits 0-4 */
+#define RIA_PIN_D0 (1ULL << 8) /* D0-D7 at bits 8-15 */
+#define RIA_PIN_RW (1ULL << 16)
+#define RIA_PIN_IRQ (1ULL << 17)
+#define RIA_PIN_RREQ (1ULL << 18)
+#define RIA_PIN_RES (1ULL << 19)
 
 typedef struct
 {
-    uint64_t PINS;       /* last bus pin state (do NOT modify; for the debug UI) */
+    uint64_t PINS;       /* last bus state in RIA pins (do NOT modify; for the debug UI) */
     uint8_t irq_enabled; /* $FFF0 enable mask (VSYNC/SIGINT) */
     uint8_t irq_pending; /* latched pending sources, ORed onto IRQB while enabled */
 } ria_t;
@@ -50,12 +59,10 @@ typedef struct
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 
-/* One PHI2 tick of the RIA's 6502-bus interface, mirroring via_tick so the board
- * drives both bus peripherals uniformly: when selected (the board decodes the RIA
- * window into RREQ) the register access is performed on the pins, and the RIA's
- * IRQB (VSYNC/SIGINT) is driven onto M6502_IRQ. Returns the RIA's own pin mask;
- * the board merges the data and ORs the IRQ onto the bus. */
-uint64_t ria_tick(uint64_t pins, bool selected);
+/* One PHI2 tick, mirroring via_tick: services the register access when the address
+ * is in the RIA's window, publishes PINS for the debug UI, and returns the RIA's
+ * IRQB (VSYNC/SIGINT). data is in/out. */
+bool ria_tick(uint16_t addr, bool read, uint8_t *data);
 void *ria_chip(void); /* ria_t* — the live chip instance, for the debugger UI */
 
 /* True while an enabled $FFF0 source is pending. ria_trigger_vsync (firmware

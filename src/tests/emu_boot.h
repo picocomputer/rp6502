@@ -8,6 +8,7 @@
 #define _EMU_TESTS_EMU_BOOT_H_
 
 #include "emu/main.h"
+#include "emu/sys/sys.h"
 #include "emu/host/rom.h"
 #include "utest.h"
 

@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "emu/chips/w65c02.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/mem.h"
 #include <stdalign.h>
@@ -24,20 +23,22 @@ volatile uint8_t xram_queue_head;
 volatile uint8_t xram_queue_tail;
 volatile uint8_t xram_queue[256][2];
 
-uint64_t mem_tick(uint64_t pins)
+/* The SRAM's bus cycle. Every write lands — ram[] shadows the whole space, which is
+ * what the debug memory views and the ROM loader read — but only $0000-$FEFF drives
+ * the bus on a read (os.rst). Above that the VIA and RIA answer, and the unassigned
+ * $FF00-$FFCF reads as open bus: nothing drives it, so data keeps what the CPU left. */
+void mem_tick(uint16_t addr, bool read, uint8_t *data)
 {
-    uint16_t addr = M6502_GET_ADDR(pins);
-    if (pins & M6502_RW)
+    if (!read)
     {
-        M6502_SET_DATA(pins, ram[addr]);
+        ram[addr] = *data;
         if (__builtin_expect(dbg_watch_armed, 0))
-            dbg_watch_access(addr, ram[addr], false);
+            dbg_watch_access(addr, *data, true);
     }
-    else
+    else if (addr <= MEM_RAM_HI)
     {
-        ram[addr] = M6502_GET_DATA(pins);
+        *data = ram[addr];
         if (__builtin_expect(dbg_watch_armed, 0))
-            dbg_watch_access(addr, ram[addr], true);
+            dbg_watch_access(addr, *data, false);
     }
-    return pins;
 }

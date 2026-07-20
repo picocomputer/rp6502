@@ -19,6 +19,7 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
+#include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
@@ -263,8 +264,8 @@ int main(int argc, char **argv)
          * the per-scanline pixel work (most of the per-frame cost); render the
          * last one and snapshot it. */
         for (int i = 0; i < frames - 1; i++)
-            main_run_frame_norender();
-        main_run_frame(); /* renders into g_fb (registered above) */
+            sys_run_frame_norender();
+        sys_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!png_write(o.shot, cw, ch, g_fb))

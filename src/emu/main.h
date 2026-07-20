@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The emulator's runner — the counterpart to ria/main.c. Cold boot (main_init),
- * the frame/tick engine (main_run_frame), machine run state, and the syscall op
- * registry (main_api) the shared ria/api/api.c dispatches through via "main.h".
+ * the run/stop lifecycle, and the syscall op registry (main_api) the shared
+ * ria/api/api.c dispatches through via "main.h".
  *
- * main.c is also the board: it owns the master clock and the 6502 bus, decodes the
- * peripheral windows, and pumps every chip once per PHI2 cycle. Each chip's own
- * tick lives with the chip (sys/cpu.c, sys/via.c, sys/ria.c, sys/mem.c).
+ * The machine itself — the bus, the system clock and the frame engine — is
+ * sys/sys.c; each chip's tick lives with the chip (sys/cpu.c, sys/via.c, sys/ria.c,
+ * sys/mem.c).
  */
 
 #ifndef _EMU_MAIN_H_
@@ -20,16 +20,7 @@
 
 #include "ria/main.h"
 
-void main_init(void);               /* cold boot: fan out to every subsystem */
-void main_run_frame(void);          /* run one 60 Hz VGA frame, rendering it */
-void main_run_frame_norender(void); /* same, but skip pixel rendering (catch-up) */
-
-unsigned long main_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */
-
-/* The virtual master clock in 1/8-of-a-256 MHz-tick units (2048/µs); the run loop
- * advances it, and pico/time.h's time_us_64 exposes it as the pico monotonic
- * microsecond clock. */
-uint64_t main_clock_8(void);
+void main_init(void); /* cold boot: fan out to every subsystem */
 
 /* Program exit code, set by the EXIT syscall (and a failed exec). The CPU-halt
  * gate that stops ticking is cpu_halted() / cpu_set_halted() in sys/cpu.h. */

@@ -51,25 +51,10 @@
 /* Machine-global run state                                            */
 /* ------------------------------------------------------------------ */
 
-/* The virtual master clock, in 1/8-of-a-256 MHz-tick units (2048/µs) so the PHI2
- * fractional divider lands on an integer per-cycle step. Wraps in centuries. */
-static uint64_t master_8;
-
 static int s_exit_code;
-static unsigned long s_frame_count;
-
-/* Absolute, never reset per frame — feeds the exact deadline math below. */
-static uint64_t scanline_n;
-
-/* The 6502 bus. The board owns it: the CPU drives it, the peripherals and RAM answer
- * on it, and it carries state (notably IRQ) between cycles. Seeded from cpu_pins()
- * at every program start — m6502.h requires m6502_init's mask reach the first tick. */
-static uint64_t pins;
 
 int main_exit_code(void) { return s_exit_code; }
 void main_set_exit_code(int code) { s_exit_code = code; }
-unsigned long main_frame_count(void) { return s_frame_count; }
-uint64_t main_clock_8(void) { return master_8; }
 
 /* Power-up initialization — called exactly ONCE per process (never re-run; init
  * is not idempotent). Settings are loaded before this (cpu/oem adopt them), the
@@ -78,9 +63,6 @@ void main_init(void)
 {
     pro_init();
     cpu_init();
-    master_8 = 0;
-    scanline_n = 0;
-    s_frame_count = 0;
     aud_init();
     com_init();
     std_init();
@@ -116,8 +98,7 @@ void main_run(void)
     clk_run();
     ria_run();
     via_run();
-    cpu_run();        /* must be last */
-    pins = cpu_pins(); /* the RES-asserted mask m6502_init left; seeds the bus */
+    cpu_run(); /* must be last */
 }
 
 /* Stop the 6502 — the counterpart to ria/main.c's stop(), same order (cpu_stop
@@ -138,201 +119,6 @@ void main_stop(void)
     tab_stop();
     aud_stop();
 }
-
-/* ------------------------------------------------------------------ */
-/* Run engine                                                          */
-/* ------------------------------------------------------------------ */
-
-/* Deadline (1/8-tick units) at which scanline n is due:
- *   n * (8 * 256e6 sub/s) / (60*525 scanline/s) = n * 4096000 / 63  (reduced).
- * Computed from the ABSOLUTE scanline number every time — never accumulated —
- * so the integer division introduces NO drift: it is exact at every frame
- * boundary (n a multiple of 525, since 31500/63 = 500). Do NOT "fix" the
- * non-exact 4096000/63 by tracking a per-scanline remainder; that would
- * double-correct and create real drift. The n*4096000 intermediate overflows
- * uint64 ~4.5 years of uptime (well before master_8 itself), still unreachable. */
-static uint64_t scanline_deadline_8(uint64_t n)
-{
-    return n * 4096000ull / 63;
-}
-
-/* One PHI2 cycle of the whole machine — the board wiring, in the floooh/chips
- * system-tick style (see _vic20_tick). The CPU is the only bus master; the VIA and
- * the RIA tick EVERY cycle (timers count, IRQ latches drive) and each answers on its
- * own pin copy, so no chip can clobber another's bits. The board decodes the address
- * once, hands each peripheral its chip-select, merges read data back from whichever
- * was selected, ORs their interrupt assertions onto the shared line, and backs RAM
- * for everything it did not decode. */
-static inline uint64_t machine_tick(uint64_t p)
-{
-    p = cpu_tick(p);
-    /* Every chip re-drives its own assertion below, so clear the shared line first
-     * (m6502.h: "you are also responsible for clearing the interrupt pins"). */
-    p &= ~M6502_IRQ;
-
-    const uint16_t addr = M6502_GET_ADDR(p);
-    const bool via_sel = addr >= VIA_WINDOW_LO && addr <= VIA_WINDOW_HI;
-    const bool ria_sel = addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI;
-
-    const uint64_t via_out = via_tick(p, via_sel);
-    if (via_sel)
-        p = M6502_COPY_DATA(p, via_out);
-    if (via_out & M6502_IRQ) /* M6522_IRQ is the same bit — one shared wire */
-        p |= M6502_IRQ;
-
-    const uint64_t ria_out = ria_tick(p, ria_sel);
-    if (ria_sel)
-        p = M6502_COPY_DATA(p, ria_out);
-    if (ria_out & M6502_IRQ)
-        p |= M6502_IRQ;
-
-    if (!via_sel && !ria_sel)
-        p = mem_tick(p);
-    return p;
-}
-
-/* Run 6502 cycles until the master clock reaches deadline_8, the program halts,
- * or (dbg) an instruction breakpoint stops the machine. Returns true on a
- * breakpoint stop, leaving the clock mid-scanline; otherwise the clock is at
- * deadline_8 or later on return (time flows even while halted). */
-static bool run_until(uint64_t deadline_8, bool dbg)
-{
-    /* Accumulate the clock and the bus in locals and commit before every return:
-     * nothing else reads either mid-scanline, so this keeps the hot loop off the
-     * statics (as vic20_exec does with sys->pins). */
-    uint64_t clock_8 = master_8;
-    uint64_t p = pins;
-    const uint32_t step_8 = cpu_step_8();
-    if (!dbg)
-    {
-        /* Two loops rather than a per-cycle test, per vic20_exec: at ~8M cycles a
-         * second the debug branch is worth keeping out of the common path. */
-        while (clock_8 < deadline_8 && cpu_active())
-        {
-            p = machine_tick(p);
-            clock_8 += step_8;
-        }
-    }
-    else
-    {
-        while (clock_8 < deadline_8 && cpu_active())
-        {
-            p = machine_tick(p);
-            clock_8 += step_8;
-            if (cpu_dbg_cycle_cb)
-                cpu_dbg_cycle_cb(p);
-            /* Stop before the fetched instruction's effect runs; the partial
-             * frame is then abandoned and the machine holds until resume. */
-            uint16_t pc;
-            uint8_t sp;
-            if (cpu_opcode_fetch(p, &pc, &sp) && dbg_at_instruction(pc, sp))
-            {
-                master_8 = clock_8; /* commit before abandoning the frame */
-                pins = p;
-                return true;
-            }
-        }
-    }
-    if (clock_8 < deadline_8)
-        clock_8 = deadline_8; /* halted: keep the master clock (time) flowing */
-    master_8 = clock_8;
-    pins = p;
-    return false;
-}
-
-/* Advance one 60 Hz VGA frame (525 scanlines). Within each scanline the 6502 is
- * pumped until the master clock reaches that scanline's deadline — so the CPU
- * runs PHI2/scanline-rate cycles and the video is paced by the same clock. The
- * vsync counter ($FFE3) ticks at the highest scanline any program renders. The
- * app loop calls this at 60 Hz regardless of the host display's refresh rate. */
-static void run_frame(bool render)
-{
-    /* Debugger hold: only the 6502 and virtual time freeze. Console output that
-     * reached the terminal after the beam passed its row this frame (a program's
-     * final prints before the stop) hasn't been scanned out yet, so sweep the
-     * visible canvas once from the frozen state; after that the window simply
-     * re-presents the settled frame. Hoisted once per frame so the hot tick
-     * loop pays nothing when debugging is inactive (the common case). */
-    static bool stop_swept;
-    const bool dbg = dbg_is_active();
-    if (dbg && dbg_is_stopped())
-    {
-        if (render && !stop_swept)
-        {
-            const int h = vga_canvas_height();
-            for (int line = 0; line < h; line++)
-                vga_render_scanline(line);
-            stop_swept = true;
-        }
-        return;
-    }
-    stop_swept = false;
-
-    vga_task(); /* perform an armed console reset before rendering this frame */
-
-    const int vsync_line = vga_vsync_scanline();
-    const int canvas_h = vga_canvas_height();
-    const uint64_t frame_end_n = scanline_n + VGA_SCANLINES;
-    int line = 0; /* 0-based scanline within this frame */
-    bool vsynced = false;
-
-    while (scanline_n < frame_end_n)
-    {
-        /* Raster-accurate scanout: draw this visible line from the CURRENT
-         * machine state BEFORE its CPU cycles run, so a mid-frame register/VRAM
-         * write only affects later lines (real per-scanline VGA behavior). A
-         * catch-up frame (render == false) skips the pixels but keeps the timing. */
-        if (render && line < canvas_h)
-            vga_render_scanline(line);
-
-        if (run_until(scanline_deadline_8(scanline_n + 1), dbg))
-            return; /* held at a breakpoint mid-frame; resume re-runs the frame */
-        std_task(); /* drain read_xram's PIX gate before the op re-polls */
-        api_task(); /* poll in-flight I/O each scanline (RIA super-loop analog) */
-        term_task(); /* VGA chip super-loop analog: per scanline, so the
-                      * one-row-per-tick lazy clears drain within the frame
-                      * that issued them, not one row per frame */
-        scanline_n++;
-        if (!vsynced && line + 1 >= vsync_line)
-        {
-            REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* VSYNC counter, 8-bit wrap */
-            ria_trigger_vsync(); /* latch $FFF0 bit7; raises IRQ only if the program enabled it */
-            vsynced = true;
-        }
-        line++;
-    }
-
-    s_frame_count++;
-    /* Pump the line editor (drains keyboard + terminal replies, echoes, fires
-     * the read callback) then advance any blocking syscall waiting on it. */
-    rln_task();
-    ria_task();
-    aud_task();
-
-    /* An exec committed this frame: load the new program and restart the CPU,
-     * keeping the master clock and the argv pro_api_exec stored. main_stop arms
-     * the console reset (vga_task performs it before the new program draws), as on
-     * real hardware; the screen text survives (preserve-screen terminal RIS). */
-    const char *exec_path = pro_take_exec();
-    if (exec_path)
-    {
-        main_stop(); /* tear down the outgoing program (cpu_stop halts it) */
-        if (!rom_load(exec_path))
-        {
-            fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);
-            s_exit_code = 1; /* stays halted from main_stop */
-        }
-        else
-            main_run(); /* start the incoming program; keeps VSYNC + clock */
-    }
-}
-
-void main_run_frame(void) { run_frame(true); }
-
-/* Run one frame WITHOUT rendering — a catch-up frame the pacer will not present.
- * CPU/chip/timing/vsync all advance; only the per-scanline pixel work is skipped
- * (most of the per-frame cost), so catching up after a slow/stalled host is cheap. */
-void main_run_frame_norender(void) { run_frame(false); }
 
 /* ------------------------------------------------------------------ */
 /* Dispatch                                                            */

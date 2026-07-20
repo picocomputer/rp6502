@@ -12,7 +12,6 @@
 #include "emu/main.h"
 #include "ria/api/api.h"
 #include "emu/sys/ria.h"
-#include "emu/chips/w65c02.h"
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
@@ -51,9 +50,9 @@ void ria_trigger_vsync(void)
     ria_irq_publish();
 }
 
-/* True while an enabled RIA source is pending. ria_tick drives M6502_IRQ from this
- * onto its own pin copy; the board ORs every chip's assertion onto the shared line,
- * so the RIA and the VIA can both raise it without either owning the clear. */
+/* True while an enabled RIA source is pending. ria_tick returns this as the RIA's
+ * IRQB; the board ORs every device's assertion onto the shared line, so the RIA and
+ * the VIA can both raise it without either owning the clear. */
 bool ria_irq_asserted(void)
 {
     return (ria.irq_pending & ria.irq_enabled) != 0;
@@ -225,30 +224,33 @@ uint8_t ria_reg_read(uint16_t addr)
     }
 }
 
-/* The RIA's 6502-bus interface, mirroring via_tick (via.c) so the board can drive
- * both peripherals uniformly. The IRQB drive runs BEFORE the register access so a
- * read of $FFF0 (which acks/clears the pending flags) still shows IRQB asserted on
- * its own cycle. ria.PINS is stashed for the debug overlay's pin view. */
-uint64_t ria_tick(uint64_t pins, bool selected)
+/* The RIA's 6502-bus interface, mirroring via_tick (via.c). The IRQB drive is read
+ * BEFORE the register access so a read of $FFF0 (which acks/clears the pending
+ * flags) still shows IRQB asserted on its own cycle. ria.PINS is published in the
+ * RIA's own pin layout for the debug overlay. */
+bool ria_tick(uint16_t addr, bool read, uint8_t *data)
 {
-    /* The RIA's own pins, built fresh from the bus each cycle. It wires only RREQ,
-     * RW, D0-D7 and A0-A4; RREQ is the board's decode of A5-A15. */
-    uint64_t ria_pins = pins & M6502_PIN_MASK;
-    if (ria_irq_asserted())
-        ria_pins |= M6502_IRQ;
+    const bool selected = addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI;
+    const bool irq = ria_irq_asserted();
+
     if (selected)
     {
-        ria_pins |= RIA_PIN_RREQ;
-        uint16_t addr = M6502_GET_ADDR(ria_pins);
-        if (ria_pins & M6502_RW)
-        {
-            M6502_SET_DATA(ria_pins, ria_reg_read(addr)); /* braces: the macro is a {block} */
-        }
+        if (read)
+            *data = ria_reg_read(addr);
         else
-            ria_reg_write(addr, M6502_GET_DATA(ria_pins));
+            ria_reg_write(addr, *data);
     }
-    ria.PINS = ria_pins;
-    return ria_pins;
+
+    /* Only the five address lines the RIA wires actually reach it. */
+    ria.PINS = (addr & 0x1F) * RIA_PIN_A0 | (uint64_t)*data * RIA_PIN_D0;
+    if (read)
+        ria.PINS |= RIA_PIN_RW;
+    if (irq)
+        ria.PINS |= RIA_PIN_IRQ;
+    if (selected)
+        ria.PINS |= RIA_PIN_RREQ;
+
+    return irq;
 }
 
 /* The live chip instance, for the debugger UI (the RIA overlay reads ria.PINS),

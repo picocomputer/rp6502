@@ -24,7 +24,7 @@ static void pump(int n, float *peak, double *energy, long *frames)
     static float buf[4096 * 2];
     for (int i = 0; i < n; i++)
     {
-        main_run_frame();
+        sys_run_frame();
         int got;
         while ((got = aud_read(buf, 4096)) > 0)
         {
@@ -97,7 +97,7 @@ UTEST(furelise, umlaut_renders)
     ASSERT_TRUE(emu_restart(FURELISE_ROM));
     vga_set_framebuffer(fb);
     for (int i = 0; i < 8; i++)
-        main_run_frame(); /* prints the title; the lazy-clear render needs frames */
+        sys_run_frame(); /* prints the title; the lazy-clear render needs frames */
 
     /* Count lit pixels in the 8x16 cell at (col,row0) of the 80x30 console.
      * "Für Elise": F=col0, ü=col1, r=col2. */
