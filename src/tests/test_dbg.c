@@ -42,6 +42,44 @@ static void disarm(void)
     dbg_set_active(false);
 }
 
+/* Watchpoint tap: count what the bus hook reports, split by direction, and flag any
+ * read above the SRAM's window. */
+static int wp_writes, wp_reads, wp_reads_above_ram;
+
+static void wp_tap(uint16_t addr, uint8_t val, bool is_write)
+{
+    (void)val;
+    if (is_write)
+        wp_writes++;
+    else if (++wp_reads, addr > MEM_MMAP_HI)
+        wp_reads_above_ram++;
+}
+
+/* Watchpoints (data breakpoints) are DAP-only, so nothing else covers the bus hook.
+ * It reports every write, but only the reads the SRAM actually drove: the reset
+ * vector at $FFFC and the API trampoline at $FFF0 are the RIA answering, so a frame
+ * that fetches both must still report no read above MEM_MMAP_HI. */
+UTEST(dbg, watchpoints_see_only_sram_reads)
+{
+    ASSERT_TRUE(load());
+    dbg_clear_breakpoints();
+    dbg_set_active(true);
+    wp_writes = wp_reads = wp_reads_above_ram = 0;
+    dbg_set_watch_cb(wp_tap);
+    dbg_watch_armed = 1;
+
+    sys_run_frame();
+
+    dbg_watch_armed = 0;
+    dbg_set_watch_cb(NULL);
+
+    ASSERT_GT(wp_writes, 0);          /* the program stores */
+    ASSERT_GT(wp_reads, 0);           /* and fetches from RAM */
+    ASSERT_EQ(wp_reads_above_ram, 0); /* but never a read a device drove */
+
+    disarm();
+}
+
 /* A breakpoint at the entry point stops the CPU on its very first instruction,
  * before any program effect — reason BREAKPOINT, PC = entry. */
 UTEST(dbg, breakpoint_stops_at_entry)

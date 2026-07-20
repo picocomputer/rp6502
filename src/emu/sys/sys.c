@@ -139,6 +139,10 @@ static bool run_until(uint64_t deadline, bool dbg)
             clk += cycle_ticks;
             if (cpu_dbg_cycle_cb)
                 cpu_dbg_cycle_cb(cpu_dbg_pins());
+            /* Data breakpoints. Only the accesses mem_tick serviced count, so reads a
+             * device drove are excluded — watchpoints cover the SRAM, not registers. */
+            if (dbg_watch_armed && (!read || addr <= MEM_MMAP_HI))
+                dbg_watch_access(addr, data, !read);
             /* Stop before the fetched instruction's effect runs; the partial frame
              * is then abandoned and the machine holds until resume. */
             uint16_t pc;

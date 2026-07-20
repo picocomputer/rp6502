@@ -4,7 +4,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "emu/dbg/dbg.h"
 #include "emu/sys/mem.h"
 #include <stdalign.h>
 
@@ -30,15 +29,7 @@ volatile uint8_t xram_queue[256][2];
 void mem_tick(uint16_t addr, bool read, uint8_t *data)
 {
     if (!read)
-    {
         ram[addr] = *data;
-        if (__builtin_expect(dbg_watch_armed, 0))
-            dbg_watch_access(addr, *data, true);
-    }
     else if (addr <= MEM_MMAP_HI)
-    {
         *data = ram[addr];
-        if (__builtin_expect(dbg_watch_armed, 0))
-            dbg_watch_access(addr, *data, false);
-    }
 }
