@@ -34,6 +34,7 @@ extern "C"
 #include "emu/dbg/dap.h"
 #include "emu/dbg/dwarf_line.h"
 #include "emu/dbg/dwarf_info.h"
+#include "emu/dbg/dwarf_frame.h"
 #include "emu/dbg/cc65dbg.h"
 }
 #include "emu/chips/w65c02.h"
@@ -98,6 +99,7 @@ std::vector<uint16_t> g_func_bps;           /* current function breakpoints (mai
 std::mutex g_src_mtx;
 dwarf_line_t *g_dwarf = nullptr;
 dwarf_info_t *g_dinfo = nullptr;
+dwarf_frame_t *g_dframe = nullptr; /* .debug_frame CFI, for principled unwinding */
 cc65dbg_t *g_cc65 = nullptr;
 /* Optional per-breakpoint semantics (condition/hit-count/logpoint). Sparse: an
  * address with none of these never appears in g_bp_meta and always stops. */
@@ -208,6 +210,11 @@ void src_free()
     {
         dwarf_info_free(g_dinfo);
         g_dinfo = nullptr;
+    }
+    if (g_dframe)
+    {
+        dwarf_frame_free(g_dframe);
+        g_dframe = nullptr;
     }
     if (g_cc65)
     {
@@ -522,34 +529,20 @@ void unwind_stack()
     }
 }
 
-/* Fill each frame's soft/C stack frame base by chaining outward from the live top
- * frame. There is no CFI on either target, so a caller's base is reconstructed
- * from stack-adjustment deltas: llvm-mos adds the callee's prologue allocation;
- * cc65 adds the callee's argument region + the caller's own frame size. Fail-
- * closed: the moment a delta can't be determined exactly, that frame and every
- * outer frame are left base_ok=false so their frame-relative locals show as
- * unavailable rather than as fabricated values. Caller holds g_src_mtx. */
+/* Fill each frame's soft/C stack frame base for the heuristic (non-CFI) unwind.
+ * llvm-mos resolves only the top frame's base directly — caller chaining comes
+ * from CFI, so callers here stay base_ok=false. cc65 has no CFI, so a caller's
+ * base is chained outward from stack-adjustment deltas (callee argument region +
+ * caller frame size). Fail-closed: an unresolved delta leaves that frame and every
+ * outer frame base_ok=false so frame-relative locals show as unavailable rather
+ * than fabricated. Caller holds g_src_mtx. */
 void compute_frame_bases()
 {
     if (g_frames.empty())
         return;
     if (g_dinfo)
-    {
         g_frames[0].base_ok =
             dwarf_info_frame_base(g_dinfo, g_frames[0].src_pc, dap_readmem, &g_frames[0].base);
-        for (size_t k = 1; k < g_frames.size(); k++)
-        {
-            uint16_t alloc;
-            if (g_frames[k - 1].base_ok &&
-                dwarf_info_frame_size(g_dinfo, g_frames[k - 1].src_pc, dap_readmem, &alloc))
-            {
-                g_frames[k].base = (uint16_t)(g_frames[k - 1].base + alloc);
-                g_frames[k].base_ok = true;
-            }
-            else
-                g_frames[k].base_ok = false;
-        }
-    }
     else if (g_cc65)
     {
         g_frames[0].base_ok =
@@ -567,6 +560,35 @@ void compute_frame_bases()
             else
                 g_frames[k].base_ok = false;
         }
+    }
+}
+
+/* CFI-driven unwind (llvm-mos .debug_frame): fills g_frames — src_pc, ip, and
+ * soft-stack frame base — for every frame by evaluating the CIE/FDE rules. This
+ * is exact where unwind_stack()+compute_frame_bases() were heuristic: the CFI
+ * recovers each caller's PC and soft-stack pointer directly. A caller PC that
+ * lands outside any known function stops the walk (never fabricate). Caller
+ * holds g_src_mtx. */
+void unwind_stack_cfi(uint16_t pc0)
+{
+    uint16_t pc = pc0;
+    uint16_t s16 = (uint16_t)(0x0100 | m6502_s(cpu()));
+    uint16_t rs0 = 0;
+    bool base_ok = g_dinfo && dwarf_info_frame_base(g_dinfo, pc, dap_readmem, &rs0);
+    if (!base_ok)
+        rs0 = (uint16_t)(dap_readmem(0) | (dap_readmem(1) << 8)); /* rp6502 soft SP at rc0=$00 */
+    g_frames.push_back({pc, pc, rs0, base_ok});
+    for (int depth = 1; depth < 64; depth++)
+    {
+        dwarf_unwind_t u = dwarf_frame_step(g_dframe, pc, s16, rs0, dap_readmem);
+        if (!u.ok)
+            break;
+        pc = u.pc; /* the return-slot value: a call-site address (return - 1) */
+        s16 = u.s16;
+        rs0 = u.rs0;
+        if (!src_addr_to_func(pc))
+            break;
+        g_frames.push_back({pc, (uint16_t)(pc + 1), rs0, true});
     }
 }
 
@@ -1467,6 +1489,7 @@ extern "C" void dap_start(void)
                 {
                     g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
                     g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
+                    g_dframe = dwarf_frame_load(elf.c_str()); /* NULL -> heuristic unwind */
                 }
                 else
                 {
@@ -1479,6 +1502,7 @@ extern "C" void dap_start(void)
                     {
                         g_dwarf = dwarf_line_load(base.c_str());
                         g_dinfo = dwarf_info_load(base.c_str());
+                        g_dframe = dwarf_frame_load(base.c_str());
                     }
                 }
                 push_segments(); /* feed the memory map the program's segment sizes */
@@ -1611,9 +1635,15 @@ extern "C" void dap_start(void)
              * concurrent (re)load on the main thread can't free it mid-use. */
             std::lock_guard<std::mutex> lk(g_src_mtx);
             uint16_t pc0 = dbg_stop_pc();
-            g_frames.push_back({pc0, pc0});
-            unwind_stack();
-            compute_frame_bases();
+            if (g_dframe && dwarf_frame_has(g_dframe, pc0))
+                unwind_stack_cfi(pc0); /* exact CFI unwind (llvm-mos DWARF5) */
+            else
+            {
+                /* cc65, no .debug_frame, or a pc no FDE covers: heuristic scan. */
+                g_frames.push_back({pc0, pc0});
+                unwind_stack();
+                compute_frame_bases();
+            }
 
             /* Return the requested window; g_frames holds all frames so Scopes
              * can select any frameId. */

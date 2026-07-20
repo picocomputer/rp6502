@@ -379,6 +379,8 @@ else()
             ${RP6502_SRC}/emu/dbg/dbgui_layout.cc
             ${RP6502_SRC}/emu/dbg/dbgui.cc
             ${RP6502_SRC}/emu/dbg/dwarf_cursor.c
+            ${RP6502_SRC}/emu/dbg/dwarf_elf.c
+            ${RP6502_SRC}/emu/dbg/dwarf_frame.c
             ${RP6502_SRC}/emu/dbg/dwarf_info.c
             ${RP6502_SRC}/emu/dbg/dwarf_line.c
             ${RP6502_SRC}/emu/dbg/imgui_impl.cc
