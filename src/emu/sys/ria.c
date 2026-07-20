@@ -248,7 +248,7 @@ bool ria_tick(uint16_t addr, bool read, uint8_t *data)
     if (irq)
         ria.PINS |= RIA_PIN_IRQ;
     if (selected)
-        ria.PINS |= RIA_PIN_RREQ;
+        ria.PINS |= RIA_PIN_CS;
 
     return irq;
 }

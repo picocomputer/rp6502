@@ -35,18 +35,18 @@ extern "C"
  * RIA's own firmware addresses them directly through REGS(). */
 
 /* 6502 memory map: 32 registers, the last six being the vectors (ria.rst).
- * A5-A15 are decoded off-chip into RREQ. */
+ * A5-A15 are decoded off-chip into CS. */
 #define RIA_MMAP_LO 0xFFE0
 #define RIA_MMAP_HI 0xFFFF
 
-/* The RIA's pins. It wires only RREQ, RW, D0-D7 and the low five address lines that
+/* The RIA's pins. It wires only CS, RW, D0-D7 and the low five address lines that
  * select its register window, so it has its own compact layout rather than borrowing
  * the CPU's. RES is not a RIA input; the debug overlay lights it from cpu_halted(). */
 #define RIA_PIN_A0 (1ULL << 0) /* A0-A4 at bits 0-4 */
 #define RIA_PIN_D0 (1ULL << 8) /* D0-D7 at bits 8-15 */
 #define RIA_PIN_RW (1ULL << 16)
 #define RIA_PIN_IRQ (1ULL << 17)
-#define RIA_PIN_RREQ (1ULL << 18)
+#define RIA_PIN_CS (1ULL << 18)
 #define RIA_PIN_RES (1ULL << 19)
 
 typedef struct

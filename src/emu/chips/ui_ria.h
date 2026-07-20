@@ -66,9 +66,9 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #include "emu/sys/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
 #include "ria/api/oem.h"      /* oem_get_code_page_run (Status) */
 
-/* The RIA shares the 6502 bus but wires only its own pins: RREQ, RW, D0-D7, and
+/* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
- * are decoded off-chip into RREQ, so they never reach the RIA. Pins are fed live
+ * are decoded off-chip into CS, so they never reach the RIA. Pins are fed live
  * from ria_chip()->PINS in the RIA's own layout (RIA_PIN_*, emu/sys/ria.h). */
 static const ui_chip_pin_t _ui_ria_pins[] = {
     {"D0", 0, RIA_PIN_D0 << 0}, {"D1", 1, RIA_PIN_D0 << 1},
@@ -76,7 +76,7 @@ static const ui_chip_pin_t _ui_ria_pins[] = {
     {"D4", 4, RIA_PIN_D0 << 4}, {"D5", 5, RIA_PIN_D0 << 5},
     {"D6", 6, RIA_PIN_D0 << 6}, {"D7", 7, RIA_PIN_D0 << 7},
     {"RW", 9, RIA_PIN_RW}, {"IRQ", 10, RIA_PIN_IRQ},
-    {"RES", 11, RIA_PIN_RES}, {"RREQ", 12, RIA_PIN_RREQ},
+    {"RES", 11, RIA_PIN_RES}, {"CS", 12, RIA_PIN_CS},
     {"A0", 13, RIA_PIN_A0 << 0}, {"A1", 14, RIA_PIN_A0 << 1},
     {"A2", 15, RIA_PIN_A0 << 2}, {"A3", 16, RIA_PIN_A0 << 3},
     {"A4", 17, RIA_PIN_A0 << 4},
@@ -128,7 +128,7 @@ void ui_ria_draw(ui_ria_t *win)
     if (ImGui::Begin(win->title, &win->open))
     {
         /* Pins: the bus as the RIA last saw it (ria_chip()->PINS) — ria_tick sets
-         * RREQ from its own decode and IRQ from ria_irq_asserted. RES is not a RIA
+         * CS from its own decode and IRQ from ria_irq_asserted. RES is not a RIA
          * input; overlay it while the machine holds the 6502 in reset (between a
          * stop and the next run — cpu_halted(), not the debugger's mid-run pause). */
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
