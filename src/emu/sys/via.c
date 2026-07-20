@@ -28,7 +28,7 @@ bool via_tick(uint16_t addr, bool read, uint8_t *data)
      * this VIA's ports, so its inputs read low. Carrying them across cycles instead
      * would feed the chip its own driven outputs back as inputs, latching a bit high
      * forever once DDR flips it to input. */
-    const bool selected = addr >= VIA_WINDOW_LO && addr <= VIA_WINDOW_HI;
+    const bool selected = addr >= VIA_MMAP_LO && addr <= VIA_MMAP_HI;
     uint64_t pins = addr & M6522_RS_PINS; /* A0-A3 are the register select */
     if (read)
         pins |= M6522_RW;

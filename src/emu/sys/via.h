@@ -11,8 +11,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define VIA_WINDOW_LO 0xFFD0
-#define VIA_WINDOW_HI 0xFFDF /* inclusive */
+/* 6502 memory map: 16 registers, A4-A15 decoded off-chip into CS1 (os.rst). */
+#define VIA_MMAP_LO 0xFFD0
+#define VIA_MMAP_HI 0xFFDF
 
 /* Program start: reset the VIA (it shares the 6502 RESB). */
 void via_run(void);

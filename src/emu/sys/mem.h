@@ -10,9 +10,11 @@
 
 #include "ria/sys/mem.h"
 
-/* RAM is $0000-$FEFF (os.rst); ram[] itself spans the whole space as a write-through
+/* 6502 RAM. The rest of the map is unassigned, then the VIA and the RIA (os.rst).
+ * ram[] itself spans the whole space; outside this window it is a write-through
  * shadow the debug views and the ROM loader read. */
-#define MEM_RAM_HI 0xFEFF
+#define MEM_MMAP_LO 0x0000
+#define MEM_MMAP_HI 0xFEFF
 
 extern uint8_t ram[0x10000];
 

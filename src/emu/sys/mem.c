@@ -35,7 +35,7 @@ void mem_tick(uint16_t addr, bool read, uint8_t *data)
         if (__builtin_expect(dbg_watch_armed, 0))
             dbg_watch_access(addr, *data, true);
     }
-    else if (addr <= MEM_RAM_HI)
+    else if (addr <= MEM_MMAP_HI)
     {
         *data = ram[addr];
         if (__builtin_expect(dbg_watch_armed, 0))

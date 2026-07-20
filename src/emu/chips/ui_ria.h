@@ -21,7 +21,7 @@
 
 #include "ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
 #include "ui/ui_settings.h"   /* ui_settings_t */
-#include "emu/sys/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_WINDOW_* */
+#include "emu/sys/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_MMAP_* */
 
 #ifdef __cplusplus
 extern "C"
@@ -158,7 +158,7 @@ void ui_ria_draw(ui_ria_t *win)
              * bytes the CPU fetches. Rows match the VIA panel's
              * "NAME ($addr/dec): val" layout (ui/ui_m6522.h). */
             auto peek = [](uint16_t a) -> uint8_t {
-                return (a >= RIA_WINDOW_LO) ? regs[a & 0x1F] : ram[a];
+                return (a >= RIA_MMAP_LO) ? regs[a & 0x1F] : ram[a];
             };
             for (auto &r : _ui_ria_regs)
             {

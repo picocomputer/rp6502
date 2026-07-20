@@ -230,7 +230,7 @@ uint8_t ria_reg_read(uint16_t addr)
  * RIA's own pin layout for the debug overlay. */
 bool ria_tick(uint16_t addr, bool read, uint8_t *data)
 {
-    const bool selected = addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI;
+    const bool selected = addr >= RIA_MMAP_LO && addr <= RIA_MMAP_HI;
     const bool irq = ria_irq_asserted();
 
     if (selected)

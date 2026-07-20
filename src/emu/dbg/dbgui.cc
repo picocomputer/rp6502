@@ -798,7 +798,7 @@ void dbgui_init(void)
     ui_m6522_desc_t vd{};
     vd.title = "MOS 65C22 (VIA)";
     vd.via = via;
-    vd.regs_base = VIA_WINDOW_LO; /* the VIA is mapped at $FFD0-$FFDF, not $0000 */
+    vd.regs_base = VIA_MMAP_LO;
     vd.x = 420;
     vd.y = 360;
     vd.open = false;

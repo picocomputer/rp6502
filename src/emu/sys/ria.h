@@ -27,17 +27,17 @@ extern "C"
  * (no mbuf transfers). */
 #include "ria/sys/ria.h"
 
-/* The RIA decodes the $FFE0-$FFF9 register window, drives data on reads and asserts
+/* The RIA decodes the RIA_MMAP_* register window, drives data on reads and asserts
  * IRQB. The OS services its registers trigger — stdio/file I/O, exec, the VGA/PSG/OPL
  * and USB-HID devices, the clock — are NOT part of this interface; an OP write
  * ($FFEF) hands off to them from ria.c's dispatch. The register file (regs[]) and the
  * XSTACK are dual-ported shared backing rather than state held here, because the
  * RIA's own firmware addresses them directly through REGS(). */
 
-/* The RIA occupies $FFE0-$FFFF — 32 registers, the last six of which are the 6502
- * vectors (ria.rst). A5-A15 are decoded off-chip into RREQ. */
-#define RIA_WINDOW_LO 0xFFE0
-#define RIA_WINDOW_HI 0xFFFF /* inclusive */
+/* 6502 memory map: 32 registers, the last six being the vectors (ria.rst).
+ * A5-A15 are decoded off-chip into RREQ. */
+#define RIA_MMAP_LO 0xFFE0
+#define RIA_MMAP_HI 0xFFFF
 
 /* The RIA's pins. It wires only RREQ, RW, D0-D7 and the low five address lines that
  * select its register window, so it has its own compact layout rather than borrowing
