@@ -17,6 +17,9 @@ patterns. Exports almost always begin with the filename. All drivers have a
 lifecycle: init, run, stop, break. All settings have a load, set, get pattern
 with a possible run-only state.
 
+We do not waste memory defending against bad code. Every byte is precious but
+it's always better to fix bad code even if it's a few more bytes than a hack.
+
 Do not commit or push unless specifically asked to. Do not look for answers
 in git history unless asked to. Do not fetch git history unless specifically
 instructed to.

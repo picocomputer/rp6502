@@ -88,7 +88,6 @@ void main_init(void)
 void main_run(void)
 {
     s_exit_code = 0;
-    xstack[XSTACK_SIZE] = 0; /* cstring guard */
     pro_run();
     com_run();
     rln_run();
