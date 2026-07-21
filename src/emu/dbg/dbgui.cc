@@ -45,7 +45,10 @@ extern "C"
 #include "util/sokol_imgui.h" /* simgui_* + simgui_imtextureid */
 
 /* chips UI headers — CHIPS_UI_IMPL is set by CMake on this TU only. Order per
- * ui_dbg.h's "include before the implementation" note. */
+ * ui_dbg.h's "include before the implementation" note. The w65c02 CPU/dasm/UI
+ * headers live under emu/chips/ (vendored in-tree) because the pinned
+ * vendor/chips submodule predates the w65c02 work; the rest come from
+ * vendor/chips/ui/. */
 #include "ui/ui_util.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_chip.h"
@@ -54,12 +57,12 @@ extern "C"
 #include "ui/ui_audio.h"
 #define CHIPS_UTIL_IMPL           /* emit w65c02dasm_op (the disassembler ui_dbg calls) */
 #include "emu/chips/w65c02dasm.h" /* WDC 65C02 disassembler (chips/util/w65c02dasm.h) */
-#include "emu/chips/ui_dasm.h"    /* our fork of ui/ui_dasm.h: 65C02 jump arrows; after w65c02dasm.h (impl calls w65c02dasm_op) */
-#include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
+#include "emu/chips/ui_dasm.h"    /* chips ui/ui_dasm.h; after w65c02dasm.h (impl calls w65c02dasm_op) */
+#include "emu/chips/ui_w65c02.h"  /* chips ui/ui_w65c02.h (CPU register window) */
 #include "emu/chips/ui_ria.h"     /* our RIA debug window (bespoke, not a chips fork) */
 #include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
 #include "ui/ui_m6522.h"
-#include "emu/chips/ui_dbg.h" /* our fork of ui/ui_dbg.h: history column draws chars, not bytes */
+#include "emu/chips/ui_dbg.h" /* chips ui/ui_dbg.h (disassembly/breakpoints) */
 
 #include <cstdio>  /* snprintf, sscanf */
 #include <cstring> /* strcmp (ini section match) */
@@ -927,6 +930,16 @@ static bool ui_has_enabled_exec_bp(uint16_t addr)
     return false;
 }
 
+/* Delete-breakpoint fix, kept out of the vendored ui_dbg.h: its "Delete?" modal
+ * deletes breakpoints[delete_breakpoint_index], but the per-frame mirror below
+ * reshuffles that list, so a click-frame index is stale by the time the user
+ * confirms. Track the target by identity (addr+type) and re-point the index each
+ * frame the modal is open (see the two blocks around ui_dbg_draw). */
+static bool g_del_bp_pending;
+static uint16_t g_del_bp_addr;
+static int g_del_bp_type;
+static int g_del_bp_prev_index = -1; /* ui_dbg_init sets delete_breakpoint_index to -1 */
+
 /* Dockspace central-node rect in framebuffer pixels, refreshed each dbgui_draw and
  * read by the window layer to size the emulated canvas (see dbgui_canvas_rect). */
 static int g_canvas_x, g_canvas_y, g_canvas_w, g_canvas_h;
@@ -1055,12 +1068,43 @@ void dbgui_draw(void)
         }
     }
 
+    /* The mirror just rebuilt breakpoints[]; re-resolve a pending delete's row
+     * index from its captured identity. A vanished target -> -1, so upstream's
+     * `index >= 0` guard closes the modal without deleting (fail-safe). */
+    if (g_del_bp_pending)
+    {
+        int idx = -1;
+        for (int i = 0; i < g_dbg.dbg.num_breakpoints; i++)
+            if (g_dbg.dbg.breakpoints[i].addr == g_del_bp_addr &&
+                g_dbg.dbg.breakpoints[i].type == g_del_bp_type)
+            {
+                idx = i;
+                break;
+            }
+        g_dbg.dbg.delete_breakpoint_index = idx;
+    }
+
     /* ui_dbg's own toolbar (Continue/Over/Into/Tick/Break) and hotkeys
      * (F5/F10/F11/F8/F6) record their action in ui_dbg's state; translate it into
      * dbg.c after the draw. dbg_step is a no-op unless stopped, so a stray step is
      * harmless. */
     bool ui_was_stopped = ui_dbg_stopped(&g_dbg);
     ui_dbg_draw(&g_dbg);
+    /* Snapshot the delete target's identity on the frame the modal opens (index
+     * went -1 -> >=0; no mirror ran between the click and here, so the row is
+     * exact), and clear when it closes (index back to -1). */
+    {
+        int cur = g_dbg.dbg.delete_breakpoint_index;
+        if (cur >= 0 && g_del_bp_prev_index < 0 && cur < g_dbg.dbg.num_breakpoints)
+        {
+            g_del_bp_addr = g_dbg.dbg.breakpoints[cur].addr;
+            g_del_bp_type = g_dbg.dbg.breakpoints[cur].type;
+            g_del_bp_pending = true;
+        }
+        if (cur < 0)
+            g_del_bp_pending = false;
+        g_del_bp_prev_index = cur;
+    }
     if (g_dbg.dbg.step_mode == UI_DBG_STEPMODE_OVER)
         dbg_step(DBG_STEP_LINE_OVER);
     else if (g_dbg.dbg.step_mode != UI_DBG_STEPMODE_NONE) /* INTO / TICK -> one instruction */

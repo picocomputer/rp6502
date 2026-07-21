@@ -1,24 +1,6 @@
 #pragma once
 /*#
-    # ui_dbg.h  --  CPU debugger UI for the RP6502
-
-    SPDX-License-Identifier: Zlib
-
-    RP6502 modifications Copyright (c) 2026 Rumbledethumps. This file is a
-    derivative of floooh's zlib-licensed chips/ui/ui_dbg.h (Copyright (c) 2018
-    Andre Weissflog, full license retained below) and, per the zlib terms, is
-    itself distributed under that same zlib license. Altered source is plainly
-    marked as such here.
-
-    Changes from upstream:
-      - _ui_dbg_history_draw: the Execution History instruction column printed
-        dasm_line.bytes (the raw opcode bytes) instead of dasm_line.chars (the
-        disassembled text). Tagged RP6502 at the fix.
-      - _ui_dbg_history_draw: the Execution History window has its own menu bar
-        with the Show > Opcode Bytes / Opcode Ticks column toggles. Upstream
-        drives these shared flags only from the Disassembler window's menu, so
-        the columns were untogglable while that window was closed.
-    Include this INSTEAD of chips/ui/ui_dbg.h (never both).
+    # ui_dbg.h
 
     CPU debugger UI.
 
@@ -29,10 +11,11 @@
     before you include this file in *one* C++ file to create the
     implementation.
 
-    Select the supported CPUs with the following macros (define one
-    or the other, but not both):
+    Select the CPU to debug with one of the following macros (define
+    exactly one):
 
     UI_DBG_USE_Z80
+    UI_DBG_USE_M6502
     UI_DBG_USE_W65C02
 
     Optionally provide the following macros with your own implementation
@@ -50,8 +33,10 @@
         - ui_settings.h
         - z80.h         (only if UI_DBG_USE_Z80 is defined)
         - z80dasm.h     (only if UI_DBG_USE_Z80 is defined)
-        - w65c02.h       (only if UI_DBG_USE_W65C02 is defined)
-        - w65c02dasm.h   (only if UI_DBG_USE_W65C02 is defined)
+        - m6502.h       (only if UI_DBG_USE_M6502 is defined)
+        - m6502dasm.h   (only if UI_DBG_USE_M6502 is defined)
+        - w65c02.h      (only if UI_DBG_USE_W65C02 is defined)
+        - w65c02dasm.h  (only if UI_DBG_USE_W65C02 is defined)
 
     All strings provided to ui_dbg_init() must remain alive until
     ui_dbg_discard() is called!
@@ -78,8 +63,8 @@
 #include <stdbool.h>
 #include <inttypes.h> // PRIu64
 
-#if !defined(UI_DBG_USE_Z80) && !defined(UI_DBG_USE_W65C02)
-#error "please define UI_DBG_USE_Z80 or UI_DBG_USE_W65C02"
+#if !defined(UI_DBG_USE_Z80) && !defined(UI_DBG_USE_M6502) && !defined(UI_DBG_USE_W65C02)
+#error "please define UI_DBG_USE_Z80, UI_DBG_USE_M6502 or UI_DBG_USE_W65C02"
 #endif
 
 #ifdef __cplusplus
@@ -207,8 +192,10 @@ typedef struct ui_dbg_desc_t {
     const char* title;          // window title
     #if defined(UI_DBG_USE_Z80)
     z80_t* z80;                 // Z80 CPU to track
+    #elif defined(UI_DBG_USE_M6502)
+    m6502_t* m6502;             // 6502 CPU to track
     #elif defined(UI_DBG_USE_W65C02)
-    w65c02_t* w65c02;             // 6502 CPU to track
+    w65c02_t* w65c02;           // 65C02 CPU to track
     #endif
     uint32_t freq_hz;               // CPU clock frequency in Hz
     uint32_t scanline_ticks;        // length of a raster line in clock cycles
@@ -230,6 +217,8 @@ typedef struct ui_dbg_desc_t {
 typedef struct ui_dbg_state_t {
     #if defined(UI_DBG_USE_Z80)
     z80_t* z80;
+    #elif defined(UI_DBG_USE_M6502)
+    m6502_t* m6502;
     #elif defined(UI_DBG_USE_W65C02)
     w65c02_t* w65c02;
     #endif
@@ -243,8 +232,6 @@ typedef struct ui_dbg_state_t {
     uint16_t stepover_pc;
     int last_trap_id;           // can be used to identify breakpoint which caused trap
     int delete_breakpoint_index;
-    uint16_t delete_breakpoint_addr; // RP6502: delete-modal keys on identity, not index
-    int delete_breakpoint_type;      // RP6502: (breakpoints[] is re-appended each frame)
     int num_breakpoints;
     ui_dbg_breakpoint_t breakpoints[UI_DBG_MAX_BREAKPOINTS];
 } ui_dbg_state_t;
@@ -469,6 +456,8 @@ static inline uint16_t _ui_dbg_disasm(ui_dbg_t* win, uint16_t addr) {
     win->dasm_line.addr = addr;
     #if defined(UI_DBG_USE_Z80)
         z80dasm_op(addr, _ui_dbg_dasm_in_cb, _ui_dbg_dasm_out_cb, win);
+    #elif defined(UI_DBG_USE_M6502)
+        m6502dasm_op(addr, _ui_dbg_dasm_in_cb, _ui_dbg_dasm_out_cb, win);
     #elif defined(UI_DBG_USE_W65C02)
         w65c02dasm_op(addr, _ui_dbg_dasm_in_cb, _ui_dbg_dasm_out_cb, win);
     #endif
@@ -493,8 +482,11 @@ static bool _ui_dbg_is_stepover_op(uint8_t opcode) {
             default:
                 return false;
         }
-    #elif defined(UI_DBG_USE_W65C02)
+    #elif defined(UI_DBG_USE_M6502)
         /* on 6502, only JSR qualifies */
+        return opcode == 0x20;
+    #elif defined(UI_DBG_USE_W65C02)
+        /* on 65C02, only JSR qualifies */
         return opcode == 0x20;
     #endif
 }
@@ -548,7 +540,7 @@ static bool _ui_dbg_is_controlflow_op(uint8_t opcode0, uint8_t opcode1) {
             default:
                 return false;
         }
-    #elif defined(UI_DBG_USE_W65C02)
+    #elif defined(UI_DBG_USE_M6502)
         (void)opcode1;
         switch (opcode0) {
             /* BRK */
@@ -561,6 +553,31 @@ static bool _ui_dbg_is_controlflow_op(uint8_t opcode0, uint8_t opcode1) {
             case 0x10: case 0x30: case 0x50: case 0x70:
             case 0x90: case 0xB0: case 0xD0: case 0xF0:
                 return true;
+            /* RTI */
+            case 0x40:
+            /* RTS */
+            case 0x60:
+                return true;
+            default:
+                return false;
+        }
+    #elif defined(UI_DBG_USE_W65C02)
+        (void)opcode1;
+        /* BBR0..7 / BBS0..7 (zp,rel bit-branches) */
+        if ((opcode0 & 0x0F) == 0x0F) {
+            return true;
+        }
+        switch (opcode0) {
+            /* BRK */
+            case 0x00:
+            /* JSR/JMP abs */
+            case 0x20: case 0x4C:
+            /* JMP ind / JMP (abs,X) */
+            case 0x6C: case 0x7C:
+            /* relative branch + BRA */
+            case 0x10: case 0x30: case 0x50: case 0x70:
+            case 0x90: case 0xB0: case 0xD0: case 0xF0:
+            case 0x80:
             /* RTI */
             case 0x40:
             /* RTS */
@@ -639,17 +656,7 @@ static void _ui_dbg_history_draw(ui_dbg_t* win) {
     }
     ImGui::SetNextWindowPos(ImVec2(win->ui.init_x + win->ui.init_w, win->ui.init_y + 64), ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(win->ui.init_w, 376), ImGuiCond_FirstUseEver);
-    /* RP6502: own menu bar for the column toggles (the same shared flags the
-       Disassembler window's Show menu drives) */
-    if (ImGui::Begin(win->ui.history.title, &win->ui.history.open, ImGuiWindowFlags_MenuBar)) {
-        if (ImGui::BeginMenuBar()) {
-            if (ImGui::BeginMenu("Show")) {
-                ImGui::MenuItem("Opcode Bytes", 0, &win->ui.show_bytes);
-                ImGui::MenuItem("Opcode Ticks", 0, &win->ui.show_ticks);
-                ImGui::EndMenu();
-            }
-            ImGui::EndMenuBar();
-        }
+    if (ImGui::Begin(win->ui.history.title, &win->ui.history.open)) {
         const float line_height = ImGui::GetTextLineHeight();
         ImGui::SetNextWindowContentSize(ImVec2(0, UI_DBG_NUM_HISTORY_ITEMS * line_height));
         ImGui::BeginChild("##main", ImGui::GetContentRegionAvail(), false);
@@ -696,7 +703,7 @@ static void _ui_dbg_history_draw(ui_dbg_t* win) {
             /* disassembled instruction */
             x += glyph_width * 4;
             ImGui::SameLine(x);
-            ImGui::Text("%s", win->dasm_line.chars); /* RP6502: was .bytes */
+            ImGui::Text("%s", win->dasm_line.bytes);
 
             /* tick count */
             x += glyph_width * 17;
@@ -720,6 +727,9 @@ static void _ui_dbg_dbgstate_init(ui_dbg_t* win, ui_dbg_desc_t* desc) {
     #if defined(UI_DBG_USE_Z80)
         CHIPS_ASSERT(desc->z80);
         dbg->z80 = desc->z80;
+    #elif defined(UI_DBG_USE_M6502)
+        CHIPS_ASSERT(desc->m6502);
+        dbg->m6502 = desc->m6502;
     #elif defined(UI_DBG_USE_W65C02)
         CHIPS_ASSERT(desc->w65c02);
         dbg->w65c02 = desc->w65c02;
@@ -748,6 +758,10 @@ static int _ui_dbg_eval_op_breakpoints(ui_dbg_t* win, int trap_id, uint16_t pc) 
                 break;
             case UI_DBG_STEPMODE_OVER:
                 #if defined(UI_DBG_USE_Z80)
+                if (pc == win->dbg.stepover_pc) {
+                    trap_id = UI_DBG_STEP_TRAPID;
+                }
+                #elif defined(UI_DBG_USE_M6502)
                 if (pc == win->dbg.stepover_pc) {
                     trap_id = UI_DBG_STEP_TRAPID;
                 }
@@ -823,6 +837,10 @@ static int _ui_dbg_eval_tick_breakpoints(ui_dbg_t* win, int trap_id, uint64_t pi
                         if (Z80_INT & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
                         }
+                    #elif defined(UI_DBG_USE_M6502)
+                        if (M6502_IRQ & rising_pins) {
+                            trap_id = UI_DBG_BP_BASE_TRAPID + i;
+                        }
                     #elif defined(UI_DBG_USE_W65C02)
                         if (W65C02_IRQ & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
@@ -833,6 +851,10 @@ static int _ui_dbg_eval_tick_breakpoints(ui_dbg_t* win, int trap_id, uint64_t pi
                 case UI_DBG_BREAKTYPE_NMI:
                     #if defined(UI_DBG_USE_Z80)
                         if (Z80_NMI & rising_pins) {
+                            trap_id = UI_DBG_BP_BASE_TRAPID + i;
+                        }
+                    #elif defined(UI_DBG_USE_M6502)
+                        if (M6502_NMI & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
                         }
                     #elif defined(UI_DBG_USE_W65C02)
@@ -1113,25 +1135,13 @@ static void _ui_dbg_bp_draw(ui_dbg_t* win) {
         }
         if (del_bp_index != -1) {
             ImGui::OpenPopup("Delete?");
-            /* RP6502: capture identity, not just the row index — the emulator's
-               mirror re-appends breakpoints[] every frame, so an index can point at
-               a different entry by the time the modal is confirmed. */
             win->dbg.delete_breakpoint_index = del_bp_index;
-            win->dbg.delete_breakpoint_addr = win->dbg.breakpoints[del_bp_index].addr;
-            win->dbg.delete_breakpoint_type = win->dbg.breakpoints[del_bp_index].type;
         }
         if ((win->dbg.delete_breakpoint_index >= 0) && ImGui::BeginPopupModal("Delete?", 0, ImGuiWindowFlags_AlwaysAutoResize)) {
-            ImGui::Text("Delete breakpoint at %04X?", win->dbg.delete_breakpoint_addr);
+            ImGui::Text("Delete breakpoint at %04X?", win->dbg.breakpoints[win->dbg.delete_breakpoint_index].addr);
             ImGui::Separator();
             if (ImGui::Button("Ok", ImVec2(120, 0))) {
-                /* RP6502: resolve by identity (addr+type), not the stale row index. */
-                for (int _di = 0; _di < win->dbg.num_breakpoints; _di++) {
-                    if (win->dbg.breakpoints[_di].addr == win->dbg.delete_breakpoint_addr &&
-                        win->dbg.breakpoints[_di].type == win->dbg.delete_breakpoint_type) {
-                        _ui_dbg_bp_del(win, _di);
-                        break;
-                    }
-                }
+                _ui_dbg_bp_del(win, win->dbg.delete_breakpoint_index);
                 ImGui::CloseCurrentPopup();
                 win->dbg.delete_breakpoint_index = -1;
             }
@@ -1210,6 +1220,13 @@ static void _ui_dbg_heatmap_record_tick(ui_dbg_t* win, uint64_t pins) {
             win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_READ;
         } else if ((pins & Z80_CTRL_PIN_MASK) == (Z80_MREQ|Z80_WR)) {
             const uint16_t addr = Z80_GET_ADDR(pins);
+            win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_WRITE;
+        }
+    #elif defined(UI_DBG_USE_M6502)
+        const uint16_t addr = M6502_GET_ADDR(pins);
+        if (0 != (pins & M6502_RW)) {
+            win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_READ;
+        } else {
             win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_WRITE;
         }
     #elif defined(UI_DBG_USE_W65C02)
@@ -1608,6 +1625,38 @@ void _ui_dbg_draw_regs(ui_dbg_t* win) {
             };
             ImGui::AlignTextToFramePadding();
             ImGui::Text("%s", f_str);
+            ImGui::EndTable();
+        }
+    #elif defined(UI_DBG_USE_M6502)
+        m6502_t* c = win->dbg.m6502;
+        if (ImGui::BeginTable("##reg_columns", 7)) {
+            for (int i = 0; i < 5; i++) {
+                ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 36);
+            }
+            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 64);
+            ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 72);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            m6502_set_a(c, ui_util_input_u8("A", m6502_a(c))); ImGui::TableNextColumn();
+            m6502_set_x(c, ui_util_input_u8("X", m6502_x(c))); ImGui::TableNextColumn();
+            m6502_set_y(c, ui_util_input_u8("Y", m6502_y(c))); ImGui::TableNextColumn();
+            m6502_set_s(c, ui_util_input_u8("S", m6502_s(c))); ImGui::TableNextColumn();
+            m6502_set_p(c, ui_util_input_u8("P", m6502_p(c))); ImGui::TableNextColumn();
+            m6502_set_pc(c, ui_util_input_u16("PC", m6502_pc(c))); ImGui::TableNextColumn();
+            const uint8_t p = m6502_p(c);
+            char p_str[9] = {
+                (p & M6502_NF) ? 'N':'-',
+                (p & M6502_VF) ? 'V':'-',
+                (p & M6502_XF) ? 'X':'-',
+                (p & M6502_BF) ? 'B':'-',
+                (p & M6502_DF) ? 'D':'-',
+                (p & M6502_IF) ? 'I':'-',
+                (p & M6502_ZF) ? 'Z':'-',
+                (p & M6502_CF) ? 'C':'-',
+                0,
+            };
+            ImGui::AlignTextToFramePadding();
+            ImGui::Text("%s", p_str);
             ImGui::EndTable();
         }
     #elif defined(UI_DBG_USE_W65C02)
@@ -2081,7 +2130,9 @@ void ui_dbg_tick(ui_dbg_t* win, uint64_t pins) {
         trap_id = UI_DBG_STEP_TRAPID;
     }
     // evaluate per-op breakpoints
-    #if defined(UI_DBG_USE_W65C02)
+    #if defined(UI_DBG_USE_M6502)
+        const bool new_op = pins & M6502_SYNC;
+    #elif defined(UI_DBG_USE_W65C02)
         const bool new_op = pins & W65C02_SYNC;
     #elif defined(UI_DBG_USE_Z80)
         const bool new_op = z80_opdone(win->dbg.z80);

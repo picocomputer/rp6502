@@ -1,36 +1,28 @@
 #pragma once
 /*#
-    # ui_w65c02.h  --  CPU debug window for the RP6502 (W65C02S)
+    # ui_w65c02.h
 
-    SPDX-License-Identifier: Zlib
-
-    RP6502 modifications Copyright (c) 2026 Rumbledethumps. This file is a
-    derivative of floooh's zlib-licensed chips/ui/ui_m6502.h (Copyright (c) 2018
-    Andre Weissflog, full license retained below) and, per the zlib terms, is
-    itself distributed under that same zlib license. Altered source is plainly
-    marked as such here.
-
-    Changes from upstream:
-      - The register panel's "6510 I/O Port" block (DDR/Input/Output/Drive/
-        Float/Pullup/Pins) was removed. The Picocomputer's CPU is a WDC W65C02S,
-        which has no 6510-style CPU I/O port at $0000/$0001 (those are plain RAM
-        here), so that block only ever showed zeros.
-      - The window API was renamed ui_m6502_* -> ui_w65c02_* (and the type
-        ui_m6502_t -> ui_w65c02_t) to match this fork and the w65c02.h /
-        w65c02dasm.h naming. The tracked CPU type is w65c02_t, from w65c02.h.
-        Include this INSTEAD of chips/ui/ui_m6502.h (never both).
+    Debug visualization UI for w65c02.h
 
     Do this:
     ~~~C
     #define CHIPS_UI_IMPL
     ~~~
-    before you include this file in *one* C++ file to create the implementation.
+    before you include this file in *one* C++ file to create the
+    implementation.
 
-    Include the following headers before the *declaration*:
+    Optionally provide the following macros with your own implementation
+
+    ~~~C
+    CHIPS_ASSERT(c)
+    ~~~
+        your own assert macro (default: assert(c))
+
+    Include the following headers before the including the *declaration*:
         - w65c02.h
         - ui_chip.h
 
-    Include the following headers before the *implementation*:
+    Include the following headers before including the *implementation*:
         - imgui.h
         - w65c02.h
         - ui_chip.h
@@ -70,7 +62,7 @@ extern "C" {
 */
 typedef struct {
     const char* title;          /* window title */
-    w65c02_t* cpu;               /* w65c02_t instance to track */
+    w65c02_t* cpu;              /* w65c02_t instance to track */
     int x, y;                   /* initial window position */
     int w, h;                   /* initial window width and height */
     bool open;                  /* initial open state */
