@@ -13,7 +13,7 @@
  * DAP thread may set at any time.
  *
  * Stop semantics: dbg_at_instruction() is called from the tick loop right after
- * the opcode-fetch cycle (M6502_SYNC) of the instruction at pc, i.e. before that
+ * the opcode-fetch cycle (W65C02_SYNC) of the instruction at pc, i.e. before that
  * instruction's effect cycles run. Stopping there means PC=pc with the registers
  * in their pre-instruction state; resuming completes the instruction. A given
  * address re-evaluates every time it is fetched, so a breakpoint inside a loop

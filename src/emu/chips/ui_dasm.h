@@ -32,7 +32,7 @@
     one must be defined):
 
     UI_DASM_USE_Z80
-    UI_DASM_USE_M6502
+    UI_DASM_USE_W65C02
 
     Optionally provide the following macros with your own implementation
 
@@ -48,7 +48,7 @@
         - ui_util.h
         - ui_settings.h
         - z80dasm.h     (only if UI_DASM_USE_Z80 is defined)
-        - m6502dasm.h   (only if UI_DASM_USE_M6502 is defined)
+        - w65c02dasm.h   (only if UI_DASM_USE_W65C02 is defined)
 
     All strings provided to ui_dasm_init() must remain alive until
     ui_dasm_discard() is called!
@@ -90,7 +90,7 @@ typedef uint8_t (*ui_dasm_read_t)(int layer, uint16_t addr, void* user_data);
 /* CPU types */
 typedef enum {
     UI_DASM_CPUTYPE_Z80 = 0,
-    UI_DASM_CPUTYPE_M6502 = 1,
+    UI_DASM_CPUTYPE_W65C02 = 1,
 } ui_dasm_cputype_t;
 
 /* setup parameters for ui_dasm_init()
@@ -100,7 +100,7 @@ typedef enum {
 typedef struct {
     const char* title;  /* window title */
     const char* layers[UI_DASM_MAX_LAYERS];   /* memory system layer names */
-    ui_dasm_cputype_t cpu_type;     /* only needed when defining both UI_DASM_CPUTYPE_Z80 and _M6502 */
+    ui_dasm_cputype_t cpu_type;     /* only needed when defining both UI_DASM_CPUTYPE_Z80 and _W65C02 */
     uint16_t start_addr;
     ui_dasm_read_t read_cb;
     void* user_data;
@@ -150,8 +150,8 @@ void ui_dasm_load_settings(ui_dasm_t* ui, const ui_settings_t* settings);
 #ifndef __cplusplus
 #error "implementation must be compiled as C++"
 #endif
-#if !defined(UI_DASM_USE_Z80) && !defined(UI_DASM_USE_M6502)
-#error "please define UI_DASM_USE_Z80 and/or UI_DASM_USE_M6502"
+#if !defined(UI_DASM_USE_Z80) && !defined(UI_DASM_USE_W65C02)
+#error "please define UI_DASM_USE_Z80 and/or UI_DASM_USE_W65C02"
 #endif
 #include <string.h> /* memset */
 #include <stdio.h>  /* sscanf, sprintf (ImGui memory editor) */
@@ -215,21 +215,21 @@ static void _ui_dasm_out_cb(char c, void* user_data) {
 static void _ui_dasm_disasm(ui_dasm_t* win) {
     win->str_pos = 0;
     win->bin_pos = 0;
-    #if defined(UI_DASM_USE_Z80) && defined(UI_DASM_USE_M6502)
+    #if defined(UI_DASM_USE_Z80) && defined(UI_DASM_USE_W65C02)
     if (win->cpu_type == UI_DASM_CPUTYPE_Z80) {
         z80dasm_op(win->cur_addr, _ui_dasm_in_cb, _ui_dasm_out_cb, win);
     }
     else {
-        m6502dasm_op(win->cur_addr, _ui_dasm_in_cb, _ui_dasm_out_cb, win);
+        w65c02dasm_op(win->cur_addr, _ui_dasm_in_cb, _ui_dasm_out_cb, win);
     }
     #elif defined(UI_DASM_USE_Z80)
     z80dasm_op(win->cur_addr, _ui_dasm_in_cb, _ui_dasm_out_cb, win);
     #else
-    m6502dasm_op(win->cur_addr, _ui_dasm_in_cb, _ui_dasm_out_cb, win);
+    w65c02dasm_op(win->cur_addr, _ui_dasm_in_cb, _ui_dasm_out_cb, win);
     #endif
 }
 
-/* check if the current Z80 or m6502 instruction contains a jump target */
+/* check if the current Z80 or w65c02 instruction contains a jump target */
 static bool _ui_dasm_jumptarget(ui_dasm_t* win, uint16_t pc, uint16_t* out_addr) {
     if (win->cpu_type == UI_DASM_CPUTYPE_Z80) {
         if (win->bin_pos == 3) {
@@ -275,7 +275,7 @@ static bool _ui_dasm_jumptarget(ui_dasm_t* win, uint16_t pc, uint16_t* out_addr)
         }
     }
     else {
-        /* M6502 CPU */
+        /* W65C02 CPU */
         if (win->bin_pos == 3) {
             uint8_t l, h;
             uint16_t addr;

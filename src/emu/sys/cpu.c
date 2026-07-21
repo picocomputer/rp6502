@@ -10,10 +10,10 @@
 #include "emu/sys/cpu.h"
 #include "ria/sys/sys.h"
 
-static m6502_t cpu;
+static w65c02_t cpu;
 
-/* The 6502 bus, in the m6502's own pin layout. Private to this file — the board
- * speaks decoded signals. m6502_init seeds it with RES asserted. */
+/* The 6502 bus, in the w65c02's own pin layout. Private to this file — the board
+ * speaks decoded signals. w65c02_init seeds it with RES asserted. */
 static uint64_t pins;
 
 /* Display-only per-cycle observer for the on-screen ui_dbg view (declared in
@@ -78,12 +78,12 @@ void cpu_init(void)
     cpu_set_phi2_khz_run(phi2_khz_cfg ? phi2_khz_cfg : CPU_PHI2_DEFAULT);
 }
 
-/* Program start: m6502_init returns a pin mask with RES asserted; the first ticks
+/* Program start: w65c02_init returns a pin mask with RES asserted; the first ticks
  * run the reset sequence and fetch the vector at $FFFC/$FFFD. Must be last in the
  * run fan-out (the VIA shares RESB, so via_run runs just before). */
 void cpu_run(void)
 {
-    pins = m6502_init(&cpu, &(m6502_desc_t){0});
+    pins = w65c02_init(&cpu, &(w65c02_desc_t){0});
     halted = false;
 }
 
@@ -93,35 +93,35 @@ void cpu_stop(void)
     halted = true;
 }
 
-/* One PHI2 cycle. The 6502 pin mask is the m6502's own layout, so it never leaves
+/* One PHI2 cycle. The 6502 pin mask is the w65c02's own layout, so it never leaves
  * this file: the board hands back the settled bus as decoded signals and gets the
  * next cycle's drive the same way. */
 void cpu_tick(uint16_t *addr, bool *read, uint8_t *data, bool irq)
 {
     if (irq)
-        pins |= M6502_IRQ;
+        pins |= W65C02_IRQ;
     else
-        pins &= ~M6502_IRQ;
-    M6502_SET_DATA(pins, *data);
+        pins &= ~W65C02_IRQ;
+    W65C02_SET_DATA(pins, *data);
 
-    pins = m6502_tick(&cpu, pins);
+    pins = w65c02_tick(&cpu, pins);
 
-    *addr = M6502_GET_ADDR(pins);
-    *read = (pins & M6502_RW) != 0;
-    *data = M6502_GET_DATA(pins);
+    *addr = W65C02_GET_ADDR(pins);
+    *read = (pins & W65C02_RW) != 0;
+    *data = W65C02_GET_DATA(pins);
 }
 
 uint32_t cpu_cycle_ticks(void) { return cycle_ticks; }
 
 /* The raw pin mask, for the debugger's per-cycle observer only — its callback
- * contract is the m6502 layout. The non-debug loop never calls this. */
+ * contract is the w65c02 layout. The non-debug loop never calls this. */
 uint64_t cpu_dbg_pins(void) { return pins; }
 
 bool cpu_opcode_fetch(uint16_t *pc, uint8_t *sp)
 {
-    if (!(pins & M6502_SYNC))
+    if (!(pins & W65C02_SYNC))
         return false;
-    *pc = M6502_GET_ADDR(pins);
-    *sp = m6502_s(&cpu);
+    *pc = W65C02_GET_ADDR(pins);
+    *sp = w65c02_s(&cpu);
     return true;
 }

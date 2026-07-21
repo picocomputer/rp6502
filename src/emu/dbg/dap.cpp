@@ -286,7 +286,7 @@ void post(std::function<void()> fn)
     g_queue.push_back(std::move(fn));
 }
 
-m6502_t *cpu() { return (m6502_t *)cpu_chip(); }
+w65c02_t *cpu() { return (w65c02_t *)cpu_chip(); }
 
 const char *reason_str(int r)
 {
@@ -394,7 +394,7 @@ std::string b64(const uint8_t *data, size_t n)
     return out;
 }
 
-/* One-instruction disassembly via m6502dasm, capturing text + raw bytes. */
+/* One-instruction disassembly via w65c02dasm, capturing text + raw bytes. */
 struct DasmCtx
 {
     uint16_t pc;
@@ -509,7 +509,7 @@ bool stack_return_target(uint16_t pushed, uint16_t *target_out)
 constexpr int UNWIND_SCAN_MAX = 16; /* bytes of register saves to step over */
 void unwind_stack()
 {
-    uint8_t sp = m6502_s(cpu());
+    uint8_t sp = w65c02_s(cpu());
     for (int depth = 0; depth < 64; depth++)
     {
         bool found = false;
@@ -572,7 +572,7 @@ void compute_frame_bases()
 void unwind_stack_cfi(uint16_t pc0)
 {
     uint16_t pc = pc0;
-    uint16_t s16 = (uint16_t)(0x0100 | m6502_s(cpu()));
+    uint16_t s16 = (uint16_t)(0x0100 | w65c02_s(cpu()));
     uint16_t rs0 = 0;
     bool base_ok = g_dinfo && dwarf_info_frame_base(g_dinfo, pc, dap_readmem, &rs0);
     if (!base_ok)
@@ -1193,13 +1193,13 @@ struct Eval
     EvalResult reg()
     {
         std::string nm = ident();
-        m6502_t *c = cpu();
-        if (nm == "A") return ev_rvalue(m6502_a(c));
-        if (nm == "X") return ev_rvalue(m6502_x(c));
-        if (nm == "Y") return ev_rvalue(m6502_y(c));
-        if (nm == "S" || nm == "SP") return ev_rvalue(m6502_s(c));
-        if (nm == "P") return ev_rvalue(m6502_p(c));
-        if (nm == "PC") return ev_rvalue(m6502_pc(c));
+        w65c02_t *c = cpu();
+        if (nm == "A") return ev_rvalue(w65c02_a(c));
+        if (nm == "X") return ev_rvalue(w65c02_x(c));
+        if (nm == "Y") return ev_rvalue(w65c02_y(c));
+        if (nm == "S" || nm == "SP") return ev_rvalue(w65c02_s(c));
+        if (nm == "P") return ev_rvalue(w65c02_p(c));
+        if (nm == "PC") return ev_rvalue(w65c02_pc(c));
         fail("unknown register '$" + nm + "'");
         return EvalResult{};
     }
@@ -1732,7 +1732,7 @@ extern "C" void dap_start(void)
         if (ref == 1)
         {
             /* Registers. */
-            m6502_t *c = cpu();
+            w65c02_t *c = cpu();
             auto add = [&](const char *nm, unsigned val, int width) {
                 dap::Variable v;
                 v.name = nm;
@@ -1742,12 +1742,12 @@ extern "C" void dap_start(void)
                 v.variablesReference = 0;
                 r.variables.push_back(v);
             };
-            add("A", m6502_a(c), 1);
-            add("X", m6502_x(c), 1);
-            add("Y", m6502_y(c), 1);
-            add("SP", m6502_s(c), 1);
-            add("PC", m6502_pc(c), 2);
-            add("P", m6502_p(c), 1);
+            add("A", w65c02_a(c), 1);
+            add("X", w65c02_x(c), 1);
+            add("Y", w65c02_y(c), 1);
+            add("SP", w65c02_s(c), 1);
+            add("PC", w65c02_pc(c), 2);
+            add("P", w65c02_p(c), 1);
         }
         else if (ref >= LOCALS_REF_BASE && ref < LOCALS_REF_BASE + LOCALS_REF_SPAN)
         {
@@ -1913,7 +1913,7 @@ extern "C" void dap_start(void)
                 {
                     DasmCtx c;
                     c.pc = p;
-                    p = m6502dasm_op(p, dasm_in, dasm_out, &c);
+                    p = w65c02dasm_op(p, dasm_in, dasm_out, &c);
                     k++;
                 }
                 if (p == tgt && k == n)
@@ -1936,7 +1936,7 @@ extern "C" void dap_start(void)
             {
                 DasmCtx c;
                 c.pc = pc;
-                pc = m6502dasm_op(pc, dasm_in, dasm_out, &c);
+                pc = w65c02dasm_op(pc, dasm_in, dasm_out, &c);
             }
         }
         for (long i = 0; i < lead_pad && (long)r.instructions.size() < want; i++)
@@ -1952,7 +1952,7 @@ extern "C" void dap_start(void)
         {
             DasmCtx ctx;
             ctx.pc = pc;
-            uint16_t next = m6502dasm_op(pc, dasm_in, dasm_out, &ctx);
+            uint16_t next = w65c02dasm_op(pc, dasm_in, dasm_out, &ctx);
             dap::DisassembledInstruction di;
             di.address = hex16(pc);
             di.instruction = ctx.text;
@@ -2015,14 +2015,14 @@ extern "C" void dap_start(void)
             dap::SetVariableResponse r;
             if (ref == 1) /* Registers */
             {
-                m6502_t *c = cpu();
+                w65c02_t *c = cpu();
                 const std::string &nm = req.name;
-                if (nm == "A") m6502_set_a(c, (uint8_t)val);
-                else if (nm == "X") m6502_set_x(c, (uint8_t)val);
-                else if (nm == "Y") m6502_set_y(c, (uint8_t)val);
-                else if (nm == "SP" || nm == "S") m6502_set_s(c, (uint8_t)val);
-                else if (nm == "P") m6502_set_p(c, (uint8_t)val);
-                else if (nm == "PC") m6502_set_pc(c, (uint16_t)val);
+                if (nm == "A") w65c02_set_a(c, (uint8_t)val);
+                else if (nm == "X") w65c02_set_x(c, (uint8_t)val);
+                else if (nm == "Y") w65c02_set_y(c, (uint8_t)val);
+                else if (nm == "SP" || nm == "S") w65c02_set_s(c, (uint8_t)val);
+                else if (nm == "P") w65c02_set_p(c, (uint8_t)val);
+                else if (nm == "PC") w65c02_set_pc(c, (uint16_t)val);
                 else return dap::Error("unknown register '%s'", nm.c_str());
                 char b[16];
                 snprintf(b, sizeof b, nm == "PC" ? "$%04X" : "$%02X", (unsigned)val);
@@ -2264,7 +2264,7 @@ extern "C" void dap_pump(void)
         else if (g_stop_on_exit)
         {
             g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
-            dbg_note_stop(m6502_pc(cpu())); /* present halt as a stop */
+            dbg_note_stop(w65c02_pc(cpu())); /* present halt as a stop */
             dap::StoppedEvent ev;
             ev.reason = "exited";
             ev.description = "Program exited (code " + std::to_string(main_exit_code()) +

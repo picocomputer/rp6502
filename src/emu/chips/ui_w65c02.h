@@ -17,8 +17,8 @@
         here), so that block only ever showed zeros.
       - The window API was renamed ui_m6502_* -> ui_w65c02_* (and the type
         ui_m6502_t -> ui_w65c02_t) to match this fork and the w65c02.h /
-        w65c02dasm.h naming. The tracked CPU type stays m6502_t (the name
-        w65c02.h keeps). Include this INSTEAD of chips/ui/ui_m6502.h (never both).
+        w65c02dasm.h naming. The tracked CPU type is w65c02_t, from w65c02.h.
+        Include this INSTEAD of chips/ui/ui_m6502.h (never both).
 
     Do this:
     ~~~C
@@ -27,12 +27,12 @@
     before you include this file in *one* C++ file to create the implementation.
 
     Include the following headers before the *declaration*:
-        - m6502.h (or the w65c02.h fork)
+        - w65c02.h
         - ui_chip.h
 
     Include the following headers before the *implementation*:
         - imgui.h
-        - m6502.h (or the w65c02.h fork)
+        - w65c02.h
         - ui_chip.h
         - ui_util.h
         - ui_settings.h
@@ -70,7 +70,7 @@ extern "C" {
 */
 typedef struct {
     const char* title;          /* window title */
-    m6502_t* cpu;               /* m6502_t instance to track */
+    w65c02_t* cpu;               /* w65c02_t instance to track */
     int x, y;                   /* initial window position */
     int w, h;                   /* initial window width and height */
     bool open;                  /* initial open state */
@@ -79,7 +79,7 @@ typedef struct {
 
 typedef struct {
     const char* title;
-    m6502_t* cpu;
+    w65c02_t* cpu;
     float init_x, init_y;
     float init_w, init_h;
     bool open;
@@ -131,29 +131,25 @@ void ui_w65c02_discard(ui_w65c02_t* win) {
 }
 
 static void _ui_w65c02_regs(ui_w65c02_t* win) {
-    m6502_t* cpu = win->cpu;
+    w65c02_t* cpu = win->cpu;
     ImGui::Text("A:  %02X", cpu->A);
     ImGui::Text("X:  %02X", cpu->X);
     ImGui::Text("Y:  %02X", cpu->Y);
     ImGui::Text("S:  %02X", cpu->S);
     const uint8_t f = cpu->P;
     char f_str[9] = {
-        (f & M6502_NF) ? 'N':'-',
-        (f & M6502_VF) ? 'V':'-',
-        (f & M6502_XF) ? 'X':'-',
-        (f & M6502_BF) ? 'B':'-',
-        (f & M6502_DF) ? 'D':'-',
-        (f & M6502_IF) ? 'I':'-',
-        (f & M6502_ZF) ? 'Z':'-',
-        (f & M6502_CF) ? 'C':'-',
+        (f & W65C02_NF) ? 'N':'-',
+        (f & W65C02_VF) ? 'V':'-',
+        (f & W65C02_XF) ? 'X':'-',
+        (f & W65C02_BF) ? 'B':'-',
+        (f & W65C02_DF) ? 'D':'-',
+        (f & W65C02_IF) ? 'I':'-',
+        (f & W65C02_ZF) ? 'Z':'-',
+        (f & W65C02_CF) ? 'C':'-',
         0
     };
     ImGui::Text("P:  %02X %s", f, f_str);
     ImGui::Text("PC: %04X", cpu->PC);
-    ImGui::Separator();
-    /* W65C02S: no 6510 CPU I/O port ($0000/$0001 are plain RAM) — upstream's
-     * "6510 I/O Port" block is removed in this fork. */
-    ImGui::Text("BCD: %s", cpu->bcd_enabled ? "enabled":"disabled");
 }
 
 void ui_w65c02_draw(ui_w65c02_t* win) {

@@ -98,7 +98,7 @@ void dbg_set_segments(const dbg_segment_t *segs, int count); /* copies; clamps t
 int dbg_get_segments(const dbg_segment_t **out);             /* count; *out -> the table */
 unsigned dbg_segments_generation(void);                      /* bumps on each set (cheap change check) */
 
-/* Called by main.c at each instruction fetch (M6502_SYNC) while active. Returns
+/* Called by main.c at each instruction fetch (W65C02_SYNC) while active. Returns
  * true if the machine must stop BEFORE running the instruction's effect at pc. */
 bool dbg_at_instruction(uint16_t pc, uint8_t sp);
 

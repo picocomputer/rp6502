@@ -37,7 +37,7 @@ extern "C"
 #include "emu/app/credits.h" /* EMU_CREDITS */
 #include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
-#include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
+#include "emu/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
 #include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
 
 #include "sokol_app.h"
@@ -52,9 +52,9 @@ extern "C"
 #include "ui/ui_memedit.h"
 #include "ui/ui_memmap.h"
 #include "ui/ui_audio.h"
-#define CHIPS_UTIL_IMPL           /* emit m6502dasm_op (the disassembler ui_dbg calls) */
-#include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
-#include "emu/chips/ui_dasm.h"    /* our fork of ui/ui_dasm.h: 65C02 jump arrows; after w65c02dasm.h (impl calls m6502dasm_op) */
+#define CHIPS_UTIL_IMPL           /* emit w65c02dasm_op (the disassembler ui_dbg calls) */
+#include "emu/chips/w65c02dasm.h" /* WDC 65C02 disassembler (chips/util/w65c02dasm.h) */
+#include "emu/chips/ui_dasm.h"    /* our fork of ui/ui_dasm.h: 65C02 jump arrows; after w65c02dasm.h (impl calls w65c02dasm_op) */
 #include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
 #include "emu/chips/ui_ria.h"     /* our RIA debug window (bespoke, not a chips fork) */
 #include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
@@ -343,36 +343,36 @@ static void draw_rom_help(void)
 
 /* Pin diagrams for the chip windows. ui_chip requires a named desc with pins. */
 static const ui_chip_pin_t pins_6502[] = {
-    {"D0", 0, M6502_D0},
-    {"D1", 1, M6502_D1},
-    {"D2", 2, M6502_D2},
-    {"D3", 3, M6502_D3},
-    {"D4", 4, M6502_D4},
-    {"D5", 5, M6502_D5},
-    {"D6", 6, M6502_D6},
-    {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW},
-    {"SYNC", 10, M6502_SYNC},
-    {"RDY", 11, M6502_RDY},
-    {"IRQ", 12, M6502_IRQ},
-    {"NMI", 13, M6502_NMI},
-    {"RES", 14, M6502_RES},
-    {"A0", 16, M6502_A0},
-    {"A1", 17, M6502_A1},
-    {"A2", 18, M6502_A2},
-    {"A3", 19, M6502_A3},
-    {"A4", 20, M6502_A4},
-    {"A5", 21, M6502_A5},
-    {"A6", 22, M6502_A6},
-    {"A7", 23, M6502_A7},
-    {"A8", 24, M6502_A8},
-    {"A9", 25, M6502_A9},
-    {"A10", 26, M6502_A10},
-    {"A11", 27, M6502_A11},
-    {"A12", 28, M6502_A12},
-    {"A13", 29, M6502_A13},
-    {"A14", 30, M6502_A14},
-    {"A15", 31, M6502_A15},
+    {"D0", 0, W65C02_D0},
+    {"D1", 1, W65C02_D1},
+    {"D2", 2, W65C02_D2},
+    {"D3", 3, W65C02_D3},
+    {"D4", 4, W65C02_D4},
+    {"D5", 5, W65C02_D5},
+    {"D6", 6, W65C02_D6},
+    {"D7", 7, W65C02_D7},
+    {"RW", 9, W65C02_RW},
+    {"SYNC", 10, W65C02_SYNC},
+    {"RDY", 11, W65C02_RDY},
+    {"IRQ", 12, W65C02_IRQ},
+    {"NMI", 13, W65C02_NMI},
+    {"RES", 14, W65C02_RES},
+    {"A0", 16, W65C02_A0},
+    {"A1", 17, W65C02_A1},
+    {"A2", 18, W65C02_A2},
+    {"A3", 19, W65C02_A3},
+    {"A4", 20, W65C02_A4},
+    {"A5", 21, W65C02_A5},
+    {"A6", 22, W65C02_A6},
+    {"A7", 23, W65C02_A7},
+    {"A8", 24, W65C02_A8},
+    {"A9", 25, W65C02_A9},
+    {"A10", 26, W65C02_A10},
+    {"A11", 27, W65C02_A11},
+    {"A12", 28, W65C02_A12},
+    {"A13", 29, W65C02_A13},
+    {"A14", 30, W65C02_A14},
+    {"A15", 31, W65C02_A15},
 };
 
 static const ui_chip_pin_t pins_6522[] = {
@@ -750,7 +750,7 @@ void dbgui_init(void)
     ImGui::GetIO().IniFilename = nullptr;
     dbgui_register_settings_handlers();
 
-    m6502_t *cpu = (m6502_t *)cpu_chip();
+    w65c02_t *cpu = (w65c02_t *)cpu_chip();
     m6522_t *via = (m6522_t *)via_chip();
 
     uint32_t freq = (uint32_t)cpu_get_phi2_khz_run() * 1000u;
@@ -759,7 +759,7 @@ void dbgui_init(void)
 
     ui_dbg_desc_t dd{};
     dd.title = "Disassembler";
-    dd.m6502 = cpu;
+    dd.w65c02 = cpu;
     dd.freq_hz = freq;
     dd.frame_ticks = freq / VGA_HZ;
     dd.scanline_ticks = dd.frame_ticks / VGA_SCANLINES;
@@ -845,7 +845,7 @@ void dbgui_init(void)
     ui_dasm_desc_t dsd{};
     dsd.title = "Disassembly Browser";
     dsd.layers[0] = "RAM";
-    dsd.cpu_type = UI_DASM_CPUTYPE_M6502;
+    dsd.cpu_type = UI_DASM_CPUTYPE_W65C02;
     dsd.start_addr = 0x0200; /* the RP6502 program org */
     dsd.read_cb = mem_read;
     dsd.x = 620;
@@ -1109,7 +1109,7 @@ void dbgui_render(void) { simgui_render(); }
  * boundaries), the history, and cur_op_pc. It also runs ui_dbg's OWN breakpoint
  * engine — the only evaluator of the non-EXEC types (Byte/Word at each opcode
  * fetch, IRQ/NMI on a rising pin edge). A trap files a break request that dbg.c
- * honors at the next M6502_SYNC, so dbg.c stays the one stop authority; an
+ * honors at the next W65C02_SYNC, so dbg.c stays the one stop authority; an
  * op-level trap lands on the very instruction that tripped it because this runs
  * before main.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
  * step_mode, so it never self-steps. */

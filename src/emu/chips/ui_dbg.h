@@ -33,7 +33,7 @@
     or the other, but not both):
 
     UI_DBG_USE_Z80
-    UI_DBG_USE_M6502
+    UI_DBG_USE_W65C02
 
     Optionally provide the following macros with your own implementation
 
@@ -50,8 +50,8 @@
         - ui_settings.h
         - z80.h         (only if UI_DBG_USE_Z80 is defined)
         - z80dasm.h     (only if UI_DBG_USE_Z80 is defined)
-        - m6502.h       (only if UI_DBG_USE_M6502 is defined)
-        - m6502dasm.h   (only if UI_DBG_USE_M6502 is defined)
+        - w65c02.h       (only if UI_DBG_USE_W65C02 is defined)
+        - w65c02dasm.h   (only if UI_DBG_USE_W65C02 is defined)
 
     All strings provided to ui_dbg_init() must remain alive until
     ui_dbg_discard() is called!
@@ -78,8 +78,8 @@
 #include <stdbool.h>
 #include <inttypes.h> // PRIu64
 
-#if !defined(UI_DBG_USE_Z80) && !defined(UI_DBG_USE_M6502)
-#error "please define UI_DBG_USE_Z80 or UI_DBG_USE_M6502"
+#if !defined(UI_DBG_USE_Z80) && !defined(UI_DBG_USE_W65C02)
+#error "please define UI_DBG_USE_Z80 or UI_DBG_USE_W65C02"
 #endif
 
 #ifdef __cplusplus
@@ -207,8 +207,8 @@ typedef struct ui_dbg_desc_t {
     const char* title;          // window title
     #if defined(UI_DBG_USE_Z80)
     z80_t* z80;                 // Z80 CPU to track
-    #elif defined(UI_DBG_USE_M6502)
-    m6502_t* m6502;             // 6502 CPU to track
+    #elif defined(UI_DBG_USE_W65C02)
+    w65c02_t* w65c02;             // 6502 CPU to track
     #endif
     uint32_t freq_hz;               // CPU clock frequency in Hz
     uint32_t scanline_ticks;        // length of a raster line in clock cycles
@@ -230,8 +230,8 @@ typedef struct ui_dbg_desc_t {
 typedef struct ui_dbg_state_t {
     #if defined(UI_DBG_USE_Z80)
     z80_t* z80;
-    #elif defined(UI_DBG_USE_M6502)
-    m6502_t* m6502;
+    #elif defined(UI_DBG_USE_W65C02)
+    w65c02_t* w65c02;
     #endif
     bool stopped;
     bool external_debugger_connected;
@@ -469,8 +469,8 @@ static inline uint16_t _ui_dbg_disasm(ui_dbg_t* win, uint16_t addr) {
     win->dasm_line.addr = addr;
     #if defined(UI_DBG_USE_Z80)
         z80dasm_op(addr, _ui_dbg_dasm_in_cb, _ui_dbg_dasm_out_cb, win);
-    #elif defined(UI_DBG_USE_M6502)
-        m6502dasm_op(addr, _ui_dbg_dasm_in_cb, _ui_dbg_dasm_out_cb, win);
+    #elif defined(UI_DBG_USE_W65C02)
+        w65c02dasm_op(addr, _ui_dbg_dasm_in_cb, _ui_dbg_dasm_out_cb, win);
     #endif
     uint16_t next_addr = win->dasm_line.addr;
     win->dasm_line.addr = addr;
@@ -493,7 +493,7 @@ static bool _ui_dbg_is_stepover_op(uint8_t opcode) {
             default:
                 return false;
         }
-    #elif defined(UI_DBG_USE_M6502)
+    #elif defined(UI_DBG_USE_W65C02)
         /* on 6502, only JSR qualifies */
         return opcode == 0x20;
     #endif
@@ -548,7 +548,7 @@ static bool _ui_dbg_is_controlflow_op(uint8_t opcode0, uint8_t opcode1) {
             default:
                 return false;
         }
-    #elif defined(UI_DBG_USE_M6502)
+    #elif defined(UI_DBG_USE_W65C02)
         (void)opcode1;
         switch (opcode0) {
             /* BRK */
@@ -720,9 +720,9 @@ static void _ui_dbg_dbgstate_init(ui_dbg_t* win, ui_dbg_desc_t* desc) {
     #if defined(UI_DBG_USE_Z80)
         CHIPS_ASSERT(desc->z80);
         dbg->z80 = desc->z80;
-    #elif defined(UI_DBG_USE_M6502)
-        CHIPS_ASSERT(desc->m6502);
-        dbg->m6502 = desc->m6502;
+    #elif defined(UI_DBG_USE_W65C02)
+        CHIPS_ASSERT(desc->w65c02);
+        dbg->w65c02 = desc->w65c02;
     #endif
     dbg->delete_breakpoint_index = -1;
 }
@@ -751,7 +751,7 @@ static int _ui_dbg_eval_op_breakpoints(ui_dbg_t* win, int trap_id, uint16_t pc) 
                 if (pc == win->dbg.stepover_pc) {
                     trap_id = UI_DBG_STEP_TRAPID;
                 }
-                #elif defined(UI_DBG_USE_M6502)
+                #elif defined(UI_DBG_USE_W65C02)
                 if (pc == win->dbg.stepover_pc) {
                     trap_id = UI_DBG_STEP_TRAPID;
                 }
@@ -823,8 +823,8 @@ static int _ui_dbg_eval_tick_breakpoints(ui_dbg_t* win, int trap_id, uint64_t pi
                         if (Z80_INT & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
                         }
-                    #elif defined(UI_DBG_USE_M6502)
-                        if (M6502_IRQ & rising_pins) {
+                    #elif defined(UI_DBG_USE_W65C02)
+                        if (W65C02_IRQ & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
                         }
                     #endif
@@ -835,8 +835,8 @@ static int _ui_dbg_eval_tick_breakpoints(ui_dbg_t* win, int trap_id, uint64_t pi
                         if (Z80_NMI & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
                         }
-                    #elif defined(UI_DBG_USE_M6502)
-                        if (M6502_NMI & rising_pins) {
+                    #elif defined(UI_DBG_USE_W65C02)
+                        if (W65C02_NMI & rising_pins) {
                             trap_id = UI_DBG_BP_BASE_TRAPID + i;
                         }
                     #endif
@@ -1212,9 +1212,9 @@ static void _ui_dbg_heatmap_record_tick(ui_dbg_t* win, uint64_t pins) {
             const uint16_t addr = Z80_GET_ADDR(pins);
             win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_WRITE;
         }
-    #elif defined(UI_DBG_USE_M6502)
-        const uint16_t addr = M6502_GET_ADDR(pins);
-        if (0 != (pins & M6502_RW)) {
+    #elif defined(UI_DBG_USE_W65C02)
+        const uint16_t addr = W65C02_GET_ADDR(pins);
+        if (0 != (pins & W65C02_RW)) {
             win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_READ;
         } else {
             win->heatmap.items[addr].state |= UI_DBG_HEATMAP_ITEM_WRITE;
@@ -1610,8 +1610,8 @@ void _ui_dbg_draw_regs(ui_dbg_t* win) {
             ImGui::Text("%s", f_str);
             ImGui::EndTable();
         }
-    #elif defined(UI_DBG_USE_M6502)
-        m6502_t* c = win->dbg.m6502;
+    #elif defined(UI_DBG_USE_W65C02)
+        w65c02_t* c = win->dbg.w65c02;
         if (ImGui::BeginTable("##reg_columns", 7)) {
             for (int i = 0; i < 5; i++) {
                 ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 36);
@@ -1620,22 +1620,22 @@ void _ui_dbg_draw_regs(ui_dbg_t* win) {
             ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, 72);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            m6502_set_a(c, ui_util_input_u8("A", m6502_a(c))); ImGui::TableNextColumn();
-            m6502_set_x(c, ui_util_input_u8("X", m6502_x(c))); ImGui::TableNextColumn();
-            m6502_set_y(c, ui_util_input_u8("Y", m6502_y(c))); ImGui::TableNextColumn();
-            m6502_set_s(c, ui_util_input_u8("S", m6502_s(c))); ImGui::TableNextColumn();
-            m6502_set_p(c, ui_util_input_u8("P", m6502_p(c))); ImGui::TableNextColumn();
-            m6502_set_pc(c, ui_util_input_u16("PC", m6502_pc(c))); ImGui::TableNextColumn();
-            const uint8_t p = m6502_p(c);
+            w65c02_set_a(c, ui_util_input_u8("A", w65c02_a(c))); ImGui::TableNextColumn();
+            w65c02_set_x(c, ui_util_input_u8("X", w65c02_x(c))); ImGui::TableNextColumn();
+            w65c02_set_y(c, ui_util_input_u8("Y", w65c02_y(c))); ImGui::TableNextColumn();
+            w65c02_set_s(c, ui_util_input_u8("S", w65c02_s(c))); ImGui::TableNextColumn();
+            w65c02_set_p(c, ui_util_input_u8("P", w65c02_p(c))); ImGui::TableNextColumn();
+            w65c02_set_pc(c, ui_util_input_u16("PC", w65c02_pc(c))); ImGui::TableNextColumn();
+            const uint8_t p = w65c02_p(c);
             char p_str[9] = {
-                (p & M6502_NF) ? 'N':'-',
-                (p & M6502_VF) ? 'V':'-',
-                (p & M6502_XF) ? 'X':'-',
-                (p & M6502_BF) ? 'B':'-',
-                (p & M6502_DF) ? 'D':'-',
-                (p & M6502_IF) ? 'I':'-',
-                (p & M6502_ZF) ? 'Z':'-',
-                (p & M6502_CF) ? 'C':'-',
+                (p & W65C02_NF) ? 'N':'-',
+                (p & W65C02_VF) ? 'V':'-',
+                (p & W65C02_XF) ? 'X':'-',
+                (p & W65C02_BF) ? 'B':'-',
+                (p & W65C02_DF) ? 'D':'-',
+                (p & W65C02_IF) ? 'I':'-',
+                (p & W65C02_ZF) ? 'Z':'-',
+                (p & W65C02_CF) ? 'C':'-',
                 0,
             };
             ImGui::AlignTextToFramePadding();
@@ -2081,8 +2081,8 @@ void ui_dbg_tick(ui_dbg_t* win, uint64_t pins) {
         trap_id = UI_DBG_STEP_TRAPID;
     }
     // evaluate per-op breakpoints
-    #if defined(UI_DBG_USE_M6502)
-        const bool new_op = pins & M6502_SYNC;
+    #if defined(UI_DBG_USE_W65C02)
+        const bool new_op = pins & W65C02_SYNC;
     #elif defined(UI_DBG_USE_Z80)
         const bool new_op = z80_opdone(win->dbg.z80);
     #endif

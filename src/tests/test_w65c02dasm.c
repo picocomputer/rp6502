@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Unit tests for the W65C02S disassembler (src/emu/chips/w65c02dasm.h), the 65C02
- * fork of chips/util/m6502dasm.h that drives the on-screen ui_dbg disassembly.
+ * Unit tests for the W65C02S disassembler (src/emu/chips/w65c02dasm.h, from
+ * chips/util/w65c02dasm.h) that drives the on-screen ui_dbg disassembly.
  * Each case feeds a hand-built byte sequence and checks both the decoded text
  * and the instruction length (so PC tracking stays aligned). No toolchain or
  * fixture file is needed. Focus is the CMOS additions and the documented
@@ -44,7 +44,7 @@ static int disasm(uint16_t pc, const uint8_t *bytes, char *out, int cap)
     g_out = out;
     g_outcap = cap;
     g_outlen = 0;
-    uint16_t np = m6502dasm_op(pc, dis_in, dis_out, NULL);
+    uint16_t np = w65c02dasm_op(pc, dis_in, dis_out, NULL);
     out[g_outlen] = 0;
     return (int)(uint16_t)(np - pc);
 }

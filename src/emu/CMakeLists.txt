@@ -390,7 +390,7 @@ else()
             ${RP6502_VENDOR}/imgui/imgui_widgets.cpp
             ${RP6502_VENDOR}/imgui/imgui.cpp)
         target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/imgui)
-        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_M6502 UI_DASM_USE_M6502)
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_W65C02 UI_DASM_USE_W65C02)
         target_link_libraries(rp6502-emu PRIVATE cppdap)
         # CHIPS_UI_IMPL / SOKOL_IMGUI_IMPL each belong to exactly one TU.
         set_source_files_properties(${RP6502_SRC}/emu/dbg/imgui_impl.cc
