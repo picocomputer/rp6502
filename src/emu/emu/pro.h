@@ -32,6 +32,7 @@ bool pro_has_launcher(void);
 void pro_set_launcher(bool is_launcher);
 bool pro_is_launcher(void);
 int16_t pro_get_exit_code(void);
-bool pro_exit(int16_t exit_code); /* true if a launcher re-exec was scheduled */
+void pro_set_exit_code(int16_t code); /* record a code for a non-EXIT stop (failed exec) */
+bool pro_exit(int16_t exit_code);     /* true if a launcher re-exec was scheduled */
 
 #endif /* _EMU_API_PRO_H_ */

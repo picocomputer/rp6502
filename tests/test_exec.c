@@ -60,7 +60,7 @@ UTEST(exec, reexecs_self_with_arg)
     com_set_tx_tap(NULL);
 
     ASSERT_TRUE(cpu_halted());
-    ASSERT_EQ(main_exit_code(), 0);
+    ASSERT_EQ(pro_get_exit_code(), 0);
     /* First run reached the exec, second run received the extra arg and won. */
     ASSERT_TRUE(strstr(cap, "Executing self with arg: Foo") != NULL);
     ASSERT_TRUE(strstr(cap, "argv[1] = Foo") != NULL);
@@ -84,7 +84,7 @@ UTEST(exec, boot_args_reach_program)
     com_set_tx_tap(NULL);
 
     ASSERT_TRUE(cpu_halted());
-    ASSERT_EQ(main_exit_code(), 0);
+    ASSERT_EQ(pro_get_exit_code(), 0);
     ASSERT_TRUE(strstr(cap, "argv[1] = Foo") != NULL);
     ASSERT_TRUE(strstr(cap, "Success") != NULL);
     ASSERT_TRUE(strstr(cap, "Executing self") == NULL);

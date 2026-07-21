@@ -26,6 +26,7 @@ extern "C"
 #include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "ria/api/oem.h" /* oem_get_code_page_run (RIA panel status) */
+#include "emu/emu/pro.h" /* pro_get_exit_code (exit-code display) */
 #include "emu/main.h"
 #include "emu/sys/vga.h"
 #include "emu/emu/via.h"
@@ -274,7 +275,7 @@ static void draw_control(void)
     {
         const bool stopped = dbg_is_stopped();
         if (cpu_halted())
-            ImGui::Text("exited (code %d)", main_exit_code()); /* no CPU to step/pause */
+            ImGui::Text("exited (code %d)", pro_get_exit_code()); /* no CPU to step/pause */
         else if (stopped)
             ImGui::Text("STOPPED at $%04X", dbg_stop_pc());
         else

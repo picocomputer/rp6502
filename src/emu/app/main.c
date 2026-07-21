@@ -271,7 +271,7 @@ int main(int argc, char **argv)
         if (!png_write(o.shot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.shot, frames, cpu_halted() ? "halted" : "running", main_exit_code());
+               o.shot, frames, cpu_halted() ? "halted" : "running", pro_get_exit_code());
         return 0;
     }
 

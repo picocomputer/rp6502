@@ -46,15 +46,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* ------------------------------------------------------------------ */
-/* Machine-global run state                                            */
-/* ------------------------------------------------------------------ */
-
-static int s_exit_code;
-
-int main_exit_code(void) { return s_exit_code; }
-void main_set_exit_code(int code) { s_exit_code = code; }
-
 /* Power-up initialization — called exactly ONCE per process (never re-run; init
  * is not idempotent). Settings are loaded before this (cpu/oem adopt them), the
  * ROM is loaded after, and the caller starts the machine with main_run(). */
@@ -87,7 +78,6 @@ void main_init(void)
  * cold-boot defaults live in main_init and cpu_init. */
 void main_run(void)
 {
-    s_exit_code = 0;
     pro_run();
     com_run();
     rln_run();

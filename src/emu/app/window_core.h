@@ -30,6 +30,10 @@ void window_core_frame(void);
 void window_core_event(const sapp_event *e);
 void window_core_cleanup(void);
 
+/* The process exit code once sokol returns: the ROM's exit code when it halted
+ * the app outside debug mode, else 0. The per-host window_run returns this. */
+int window_core_exit_code(void);
+
 /* Boot a .rp6502 (rom_load + cold boot + fresh argv), true on success. The path
  * is host UTF-8; conversion to the guest's OEM code page happens here, so hosts
  * pass what the OS handed them (a lossy spelling never boots — pre-substitute

@@ -74,7 +74,6 @@ static void ria_syscall(uint8_t op)
     case 0xFF: /* EXIT */
     {
         int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
-        main_set_exit_code((uint8_t)code);
         (void)api_return_ax(0);
         /* If a launcher is armed, pro_exit re-execs it (machine keeps running);
          * otherwise the chain has ended, so halt. */

@@ -22,11 +22,6 @@
 
 void main_init(void); /* cold boot: fan out to every subsystem */
 
-/* Program exit code, set by the EXIT syscall (and a failed exec). The CPU-halt
- * gate that stops ticking is cpu_halted() / cpu_set_halted() in sys/cpu.h. */
-int main_exit_code(void);
-void main_set_exit_code(int code);
-
 /* Point the op table's dir slots at the firmware FatFs handlers (fat, over the
  * RAM disk) or the emu's host handlers. */
 void main_dir_ops_set(bool fat);

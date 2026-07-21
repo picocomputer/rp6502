@@ -117,6 +117,13 @@ int16_t pro_get_exit_code(void)
     return pro_exit_code;
 }
 
+/* Record an exit code for a stop that doesn't go through the EXIT syscall — a
+ * failed exec, where the machine halts with no program to run. */
+void pro_set_exit_code(int16_t code)
+{
+    pro_exit_code = code;
+}
+
 /* Program EXIT (op 0xFF), mirroring firmware pro_stop. Records the exit code
  * and, if a launcher is armed and the exiting program is not itself the
  * launcher, schedules a re-exec of the launcher ROM and returns true (the

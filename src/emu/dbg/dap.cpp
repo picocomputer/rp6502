@@ -2259,24 +2259,29 @@ extern "C" void dap_pump(void)
     if (!g_terminated && g_launch_done && cpu_halted() && !dbg_is_stopped())
     {
         g_terminated = true;
-        if (!g_session)
-            ; /* no client */
-        else if (g_stop_on_exit)
+        if (g_session)
         {
-            g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
-            dbg_note_stop(w65c02_pc(cpu())); /* present halt as a stop */
-            dap::StoppedEvent ev;
-            ev.reason = "exited";
-            ev.description = "Program exited (code " + std::to_string(main_exit_code()) +
-                             ") — press Stop to close";
-            ev.threadId = 1;
-            ev.allThreadsStopped = true;
-            g_session->send(ev);
-        }
-        else
-        {
-            g_session->send(dap::TerminatedEvent());
-            g_term_sent = true;
+            /* The numeric exit code the client (VS Code) renders itself. */
+            dap::ExitedEvent exited;
+            exited.exitCode = pro_get_exit_code();
+            g_session->send(exited);
+            if (g_stop_on_exit)
+            {
+                g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
+                dbg_note_stop(w65c02_pc(cpu())); /* present halt as a stop */
+                dap::StoppedEvent ev;
+                ev.reason = "exited";
+                ev.description = "Program exited (code " + std::to_string(pro_get_exit_code()) +
+                                 ") — press Stop to close";
+                ev.threadId = 1;
+                ev.allThreadsStopped = true;
+                g_session->send(ev);
+            }
+            else
+            {
+                g_session->send(dap::TerminatedEvent());
+                g_term_sent = true;
+            }
         }
     }
 }

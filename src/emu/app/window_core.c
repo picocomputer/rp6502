@@ -956,6 +956,15 @@ void window_core_event(const sapp_event *e)
     input_event(e);
 }
 
+/* The process exit code after window_run returns. A ROM that halted the app
+ * outside debug mode (exit_on_halt, i.e. !--debug/--dap) owns the code; a manual
+ * window close, or debug mode where the DAP client carries the code instead,
+ * stays 0. */
+int window_core_exit_code(void)
+{
+    return (app.exit_on_halt && cpu_halted()) ? pro_get_exit_code() : 0;
+}
+
 void window_core_cleanup(void)
 {
 #ifdef EMU_WITH_AUDIO

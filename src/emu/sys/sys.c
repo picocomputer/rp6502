@@ -242,7 +242,7 @@ static void run_frame(bool render)
         if (!rom_load(exec_path))
         {
             fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);
-            main_set_exit_code(1); /* stays halted from main_stop */
+            pro_set_exit_code(1); /* stays halted from main_stop */
         }
         else
             main_run(); /* start the incoming program; keeps VSYNC + clock */
