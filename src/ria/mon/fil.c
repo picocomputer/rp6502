@@ -289,7 +289,7 @@ static void fil_upload_rx_mbuf(bool timeout)
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
     }
-    else if (ria_buf_crc32() != fil_rx_crc)
+    else if (mem_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
     {
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_CRC));

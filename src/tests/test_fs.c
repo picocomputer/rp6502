@@ -16,6 +16,7 @@
 #include "ria/api/std.h"
 #include "emu/host/rom.h"
 #include "emu/host/msc.h"
+#include "emu/sys/mem.h"
 #include "emu/host/host.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -356,7 +357,7 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
      * reset vector (so rom_load accepts it), then a named asset r.txt="abc".
      * The header's chunks_len marks where the program ends and the asset starts. */
     unsigned char vec[2] = {0x00, 0x80}; /* reset vector bytes at $FFFC/$FFFD */
-    uint32_t vcrc = rom_crc32(0, vec, 2);
+    uint32_t vcrc = mem_crc32(0, vec, 2);
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 

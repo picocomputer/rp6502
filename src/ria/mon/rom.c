@@ -245,7 +245,7 @@ static bool rom_read(uint32_t len, uint32_t crc)
         mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
         return false;
     }
-    if (ria_buf_crc32() != crc)
+    if (mem_crc32(0, mbuf, mbuf_len) != crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return false;

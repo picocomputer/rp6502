@@ -17,7 +17,6 @@
 #include <pico/multicore.h>
 #include <hardware/dma.h>
 #include <hardware/sync.h>
-#include <littlefs/lfs_util.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RIA)
 #include <stdio.h>
@@ -82,11 +81,6 @@ bool ria_get_sigint(void)
         return false;
     sigint_pending = 0;
     return true;
-}
-
-uint32_t ria_buf_crc32(void)
-{
-    return ~lfs_crc(~0, mbuf, mbuf_len);
 }
 
 void ria_run(void)

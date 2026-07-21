@@ -263,32 +263,6 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
     return rom_window_open(g_rom_src, base, len, err);
 }
 
-/* A standalone CRC-32/ISO-HDLC (zlib). The firmware's CRC is littlefs's lfs_crc,
- * wrapped as ria_buf_crc32 over the fixed mbuf — neither a general (buf,len)
- * function nor part of a module the emulator compiles, so the emulator keeps its
- * own. Same polynomial, so the values match the .rp6502 headers and golden CRC. */
-uint32_t rom_crc32(uint32_t crc, const void *buf, size_t len)
-{
-    static uint32_t table[256];
-    static bool init = false;
-    if (!init)
-    {
-        for (uint32_t i = 0; i < 256; i++)
-        {
-            uint32_t c = i;
-            for (int k = 0; k < 8; k++)
-                c = (c & 1) ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
-            table[i] = c;
-        }
-        init = true;
-    }
-    crc ^= 0xFFFFFFFFu;
-    const uint8_t *p = (const uint8_t *)buf;
-    for (size_t i = 0; i < len; i++)
-        crc = table[(crc ^ p[i]) & 0xFF] ^ (crc >> 8);
-    return crc ^ 0xFFFFFFFFu;
-}
-
 static bool parse_u32(const char **pp, uint32_t *out)
 {
     const char *p = *pp;
@@ -531,7 +505,7 @@ bool rom_load(const char *path)
             fclose(f);
             return false;
         }
-        if (rom_crc32(0, dst, len) != crc)
+        if (mem_crc32(0, dst, len) != crc)
         {
             fprintf(stderr, "rp6502-emu: CRC mismatch in record at $%X\n", addr);
             fclose(f);

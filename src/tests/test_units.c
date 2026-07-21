@@ -23,8 +23,8 @@
 UTEST(crc32, known_vectors)
 {
     /* CRC-32/ISO-HDLC (zlib) check value for "123456789". */
-    ASSERT_EQ(rom_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
-    ASSERT_EQ(rom_crc32(0, "", 0), (uint32_t)0x00000000u);
+    ASSERT_EQ(mem_crc32(0, "123456789", 9), (uint32_t)0xCBF43926u);
+    ASSERT_EQ(mem_crc32(0, "", 0), (uint32_t)0x00000000u);
 }
 
 UTEST(rom, loads)

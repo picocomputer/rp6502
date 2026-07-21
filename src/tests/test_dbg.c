@@ -181,7 +181,7 @@ static uint32_t frame_crc(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    return rom_crc32(0, fb, (size_t)cw * ch * 4);
+    return mem_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 /* A stop freezes the machine but not the screen: terminal output that hasn't

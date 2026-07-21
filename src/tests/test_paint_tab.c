@@ -13,6 +13,7 @@
 
 #include "emu/hid/tab.h"
 #include "emu/sys/cpu.h"
+#include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
 #include "emu_boot.h"
 
@@ -22,7 +23,7 @@ static uint32_t frame_crc(void)
 {
     int cw, ch;
     vga_canvas_size(&cw, &ch);
-    return rom_crc32(0, fb, (size_t)cw * ch * 4);
+    return mem_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
 static void run(int n)

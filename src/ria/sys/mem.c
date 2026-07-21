@@ -8,6 +8,7 @@
 #include "ria/sys/com.h"
 #include <pico.h>
 #include <pico/time.h>
+#include <littlefs/lfs_util.h>
 #include <assert.h>
 #include <stdalign.h>
 #include <stdio.h>
@@ -34,6 +35,12 @@ alignas(0x20) volatile uint8_t __uninitialized_ram(regs)[0x20];
 
 alignas(4) uint8_t mbuf[MBUF_SIZE];
 size_t mbuf_len;
+
+uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len)
+{
+    // littlefs's CRC table is already linked; reuse it, don't add a second.
+    return ~lfs_crc(~crc, buf, len);
+}
 
 static mem_read_callback_t mem_callback;
 static absolute_time_t mem_deadline;

@@ -342,7 +342,7 @@ static void ram_rx_mbuf(bool timeout)
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         return;
     }
-    if (ria_buf_crc32() != ram_rw_crc)
+    if (mem_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return;

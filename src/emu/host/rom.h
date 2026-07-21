@@ -14,9 +14,6 @@
 
 #include "ria/api/std.h"
 
-/* CRC-32/ISO-HDLC (zlib). Shared by the ROM loader and the PNG writer. */
-uint32_t rom_crc32(uint32_t crc, const void *buf, size_t len);
-
 /* Install a .rp6502 on the null drive, keyed by its host-path basename, so a
  * boot/exec ":name" resolves back to it. */
 bool rom_install(const char *hostpath);
