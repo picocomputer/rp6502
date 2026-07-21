@@ -46,9 +46,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Power-up initialization — called exactly ONCE per process (never re-run; init
- * is not idempotent). Settings are loaded before this (cpu/oem adopt them), the
- * ROM is loaded after, and the caller starts the machine with main_run(). */
 void main_init(void)
 {
     pro_init();
@@ -65,17 +62,6 @@ void main_init(void)
     vga_init();
 }
 
-/* ------------------------------------------------------------------ */
-/* Machine lifecycle: start/stop the 6502 (mirrors ria/main.c run/stop) */
-/* ------------------------------------------------------------------ */
-
-/* Start running the 6502 — the counterpart to ria/main.c's run(), same order
- * (cpu_run last; via_run beside it, the VIA shares the 6502 RESB). Unlike the
- * firmware's main_run (a scheduler request), this fans out immediately: the emu is
- * frame-driven and has no run-state machine. The code page and PHI2 are deliberately
- * NOT reset — an exec'd program inherits the parent's (an intentional divergence
- * from hardware; the program reads the page back via the CODE_PAGE attribute). The
- * cold-boot defaults live in main_init and cpu_init. */
 void main_run(void)
 {
     pro_run();
@@ -89,13 +75,10 @@ void main_run(void)
     cpu_run(); /* must be last */
 }
 
-/* Stop the 6502 — the counterpart to ria/main.c's stop(), same order (cpu_stop
- * first, vga_stop second). The emu omits the modules it has no analog for
- * (pix/mid/mdm/rom/mon) and, deliberately, oem_stop: the code page rings through. */
 void main_stop(void)
 {
     cpu_stop(); /* must be first */
-    vga_stop(); /* arm the console reset (firmware stop() resets the VGA) */
+    vga_stop();
     rln_stop();
     api_stop();
     std_stop();
