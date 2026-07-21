@@ -16,7 +16,7 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/vga.h"
-#include "emu/sys/via.h"
+#include "emu/emu/via.h"
 #include "emu_boot.h"
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];

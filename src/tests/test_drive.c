@@ -14,11 +14,11 @@
  */
 
 #include "ria/api/std.h"
-#include "emu/host/rom.h"
-#include "emu/host/msc.h"
+#include "emu/emu/rom.h"
+#include "emu/emu/msc.h"
 #include "emu/host/host.h"
 #include "emu/sys/mem.h"
-#include "emu/host/tmp.h"
+#include "emu/emu/tmp.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"

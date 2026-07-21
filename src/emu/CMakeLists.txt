@@ -26,17 +26,17 @@ get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSO
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
-    ${RP6502_SRC}/emu/api/pro.c
-    ${RP6502_SRC}/emu/api/tim.c
-    ${RP6502_SRC}/emu/aud/aud.c
+    ${RP6502_SRC}/emu/emu/pro.c
+    ${RP6502_SRC}/emu/emu/tim.c
+    ${RP6502_SRC}/emu/emu/aud.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/tab.c
-    ${RP6502_SRC}/emu/host/msc.c
-    ${RP6502_SRC}/emu/host/rom.c
-    ${RP6502_SRC}/emu/host/tmp.c
+    ${RP6502_SRC}/emu/emu/msc.c
+    ${RP6502_SRC}/emu/emu/rom.c
+    ${RP6502_SRC}/emu/emu/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
     ${RP6502_SRC}/emu/pico/stdio.c
     ${RP6502_SRC}/emu/sys/cfg.c
@@ -47,7 +47,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/ria.c
     ${RP6502_SRC}/emu/sys/sys.c
     ${RP6502_SRC}/emu/sys/vga.c
-    ${RP6502_SRC}/emu/sys/via.c
+    ${RP6502_SRC}/emu/emu/via.c
     ${RP6502_SRC}/ria/api/api.c
     ${RP6502_SRC}/ria/api/arg.c
     ${RP6502_SRC}/ria/api/atr.c

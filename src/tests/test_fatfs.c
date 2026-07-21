@@ -12,7 +12,7 @@
 
 #include "ria/api/oem.h"
 #include "ria/str/str.h"
-#include "emu/host/tmp.h"
+#include "emu/emu/tmp.h"
 #include "fatfs/ff.h"
 #include "utest.h"
 #include <stdbool.h>

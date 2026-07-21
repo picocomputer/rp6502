@@ -5,8 +5,8 @@
  *
  */
 
-#include "emu/api/pro.h"
-#include "emu/host/msc.h"
+#include "emu/emu/pro.h"
+#include "emu/emu/msc.h"
 #include "emu/host/host.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"

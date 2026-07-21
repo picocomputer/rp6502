@@ -5,10 +5,10 @@
  *
  */
 
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "ria/aud/bel.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 #include <math.h>

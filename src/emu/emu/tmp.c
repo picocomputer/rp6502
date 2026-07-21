@@ -5,7 +5,7 @@
  *
  */
 
-#include "emu/host/tmp.h"
+#include "emu/emu/tmp.h"
 #include "emu/main.h"
 #include "emu/host/host.h"
 #include "ria/api/fat.h"

@@ -11,7 +11,7 @@
  * and the aud.c per-frame pump feeding the native-rate ring.
  */
 
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/vga.h"

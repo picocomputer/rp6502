@@ -7,7 +7,7 @@
 
 #define CHIPS_IMPL
 #include "m6522.h"
-#include "emu/sys/via.h"
+#include "emu/emu/via.h"
 
 static m6522_t via;
 

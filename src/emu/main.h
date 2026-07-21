@@ -8,7 +8,7 @@
  * ria/api/api.c dispatches through via "main.h".
  *
  * The machine itself — the bus, the system clock and the frame engine — is
- * sys/sys.c; each chip's tick lives with the chip (sys/cpu.c, sys/via.c, sys/ria.c,
+ * sys/sys.c; each chip's tick lives with the chip (sys/cpu.c, emu/via.c, sys/ria.c,
  * sys/mem.c).
  */
 

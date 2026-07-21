@@ -9,7 +9,7 @@
 
 #ifdef EMU_WITH_AUDIO
 
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "sokol_audio.h"
 
 /* Linear resampler state carried across frames so interpolation is continuous:

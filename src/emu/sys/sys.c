@@ -5,17 +5,17 @@
  *
  */
 
-#include "emu/api/pro.h"
-#include "emu/aud/aud.h"
+#include "emu/emu/pro.h"
+#include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/host/rom.h"
+#include "emu/emu/rom.h"
 #include "emu/main.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/ria.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
-#include "emu/sys/via.h"
+#include "emu/emu/via.h"
 #include "ria/api/api.h"
 #include "ria/api/std.h"
 #include "ria/str/rln.h"

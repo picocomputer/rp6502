@@ -20,7 +20,7 @@
 
 extern "C"
 {
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
@@ -28,11 +28,11 @@ extern "C"
 #include "ria/api/oem.h" /* oem_get_code_page_run (RIA panel status) */
 #include "emu/main.h"
 #include "emu/sys/vga.h"
-#include "emu/sys/via.h"
+#include "emu/emu/via.h"
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
 #include "emu/app/window.h"      /* window-scale presets */
-#include "emu/host/rom.h"        /* rom_read_asset (ROM Help viewer) */
+#include "emu/emu/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
 #include "emu/app/credits.h" /* EMU_CREDITS */
 #include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */

@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Test helpers to drive the host filesystem syscall handlers (emu/host/msc.c
+ * Test helpers to drive the host filesystem syscall handlers (emu/emu/msc.c
  * msc_api_*) the way the 6502 does: stage the args on the xstack / in the API
  * registers, call the handler, then read the AX result and decode any pushed
  * FILINFO / string. The handlers are the unit under test; they call the platform

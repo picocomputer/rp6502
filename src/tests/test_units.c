@@ -13,7 +13,7 @@
 #include "emu/hid/kbd.h"
 #include "emu/hid/pad.h"
 #include "emu/main.h"
-#include "emu/host/rom.h"
+#include "emu/emu/rom.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/pix.h"
 #include "emu/sys/com.h"

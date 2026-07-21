@@ -9,7 +9,7 @@
 
 #include "emu/main.h"
 #include "emu/sys/sys.h"
-#include "emu/host/rom.h"
+#include "emu/emu/rom.h"
 #include "utest.h"
 
 /* The emulator lifecycle is init-once + stop/run per program (see emu/main.c).

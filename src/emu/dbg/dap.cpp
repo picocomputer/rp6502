@@ -25,7 +25,7 @@
 extern "C"
 {
 #include "ria/api/oem.h"
-#include "emu/api/pro.h"
+#include "emu/emu/pro.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"

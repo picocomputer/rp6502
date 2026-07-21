@@ -9,9 +9,9 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
-#include "emu/api/pro.h"
+#include "emu/emu/pro.h"
 #include "ria/api/std.h"
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/sys/mem.h"
 #include "ria/aud/bel.h"
 #include "emu/sys/com.h"
