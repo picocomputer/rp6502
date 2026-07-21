@@ -82,30 +82,54 @@ static bool g_credits_open = false;  /* the native "Credits" about box */
 static bool g_rom_help_open = false; /* the loaded ROM's "help" asset viewer */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
 
-/* UI font scale. Native ProggyClean is DBGUI_FONT_BASE px; the Options menu offers
- * these multipliers, applied as style.FontSizeBase = base * scale each frame in
- * dbgui_new_frame and persisted via the [RP6502UI][Font] ini section. */
+/* UI scale. Native ProggyClean is DBGUI_FONT_BASE px; the Options menu offers these
+ * multipliers, applied as style.FontSizeBase = base * scale each frame (font, in
+ * dbgui_new_frame) and via style.ScaleAllSizes (widget spacing/padding/rounding,
+ * rebuilt from g_style_base on change). Persisted via the [RP6502UI][Scale] ini section. */
 static const float DBGUI_FONT_BASE = 13.0f;
 static const struct
 {
     float scale;
     const char *label;
-} DBGUI_FONT_SCALES[] = {
+} DBGUI_UI_SCALES[] = {
     {1.0f, "1.0x"}, {1.25f, "1.25x"}, {1.5f, "1.5x"},
     {1.75f, "1.75x"}, {2.0f, "2.0x"}, {2.5f, "2.5x"},
 };
-static float g_font_scale = 1.0f;
+static float g_ui_scale = 1.0f;
+/* Pristine (unscaled) style captured in dbgui_init; dbgui_apply_ui_scale re-derives the
+ * scaled sizes from it so repeated changes don't accumulate ScaleAllSizes' truncation. */
+static ImGuiStyle g_style_base;
+static bool g_style_base_valid = false;
 static int g_theme = 0; /* Options > Theme: 0=Dark 1=Light 2=Classic (session-only) */
 
-/* Select the UI font scale, snapping to one of the offered multipliers; mark the
- * ini dirty so the choice survives a restart (a font change alone doesn't dirty
- * ImGui). */
-static void dbgui_set_font_scale(float scale)
+/* Rebuild the widget metrics (spacing/padding/rounding/...) from the pristine base at
+ * g_ui_scale, preserving the live theme colors + alpha. ScaleAllSizes truncates every
+ * field, so we re-derive from base rather than apply deltas. Font is applied per-frame
+ * in dbgui_new_frame. No-op until dbgui_init has captured the base (e.g. the throwaway
+ * peek context in dbgui_window_size). */
+static void dbgui_apply_ui_scale(void)
 {
-    for (auto &e : DBGUI_FONT_SCALES)
-        if (fabsf(e.scale - scale) < 0.01f && g_font_scale != e.scale)
+    if (!g_style_base_valid)
+        return;
+    ImGuiStyle &style = ImGui::GetStyle();
+    ImVec4 colors[ImGuiCol_COUNT];
+    std::memcpy(colors, style.Colors, sizeof colors);
+    float alpha = style.Alpha;
+    style = g_style_base;
+    style.ScaleAllSizes(g_ui_scale);
+    std::memcpy(style.Colors, colors, sizeof colors);
+    style.Alpha = alpha;
+}
+
+/* Select the UI scale, snapping to one of the offered multipliers; mark the ini dirty
+ * so the choice survives a restart (a style change alone doesn't dirty ImGui). */
+static void dbgui_set_ui_scale(float scale)
+{
+    for (auto &e : DBGUI_UI_SCALES)
+        if (fabsf(e.scale - scale) < 0.01f && g_ui_scale != e.scale)
         {
-            g_font_scale = e.scale;
+            g_ui_scale = e.scale;
+            dbgui_apply_ui_scale();
             ImGui::GetIO().WantSaveIniSettings = true;
             return;
         }
@@ -304,12 +328,12 @@ static void draw_credits(void)
     ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Credits", &g_credits_open))
     {
-        ImGui::Image(g_credits_icon_texid, ImVec2(64, 64));
+        const float icon = 64.0f * g_ui_scale;
+        ImGui::Image(g_credits_icon_texid, ImVec2(icon, icon));
         ImGui::SameLine();
-        /* Native base, not style.FontSizeBase (which the Font Size menu varies), so
-         * the title stays balanced with the fixed 64px icon at any UI font size. */
-        ImGui::PushFont(nullptr, DBGUI_FONT_BASE * CREDITS_TITLE_SCALE);
-        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (64.0f - ImGui::GetTextLineHeight()) * 0.5f);
+        /* Title tracks the UI scale so it stays balanced with the (also scaled) icon. */
+        ImGui::PushFont(nullptr, DBGUI_FONT_BASE * CREDITS_TITLE_SCALE * g_ui_scale);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (icon - ImGui::GetTextLineHeight()) * 0.5f);
         ImGui::TextUnformatted("RP6502-EMU");
         ImGui::PopFont();
         ImGui::Spacing();
@@ -492,21 +516,24 @@ static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, Im
     }
 }
 
-/* [RP6502UI][Font] handler: persists the menu's UI font-size choice. */
+/* [RP6502UI][Scale] handler: persists the menu's UI scale choice. "Font" is the legacy
+ * subsection name (pre "scale everything"), still read so an old dbgui.ini migrates. */
 static void rp6502ui_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) {}
 static void *rp6502ui_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
 {
-    return (std::strcmp(name, "Font") == 0) ? (void *)1 : nullptr; /* non-null: read lines */
+    return (std::strcmp(name, "Scale") == 0 || std::strcmp(name, "Font") == 0)
+               ? (void *)1
+               : nullptr; /* non-null: read lines */
 }
 static void rp6502ui_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
 {
     float scale = 0.0f;
     if (std::sscanf(line, "Scale=%f", &scale) == 1)
-        dbgui_set_font_scale(scale); /* snaps to / ignores an out-of-set value */
+        dbgui_set_ui_scale(scale); /* snaps to / ignores an out-of-set value */
 }
 static void rp6502ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
-    buf->appendf("[%s][Font]\nScale=%g\n\n", handler->TypeName, g_font_scale);
+    buf->appendf("[%s][Scale]\nScale=%g\n\n", handler->TypeName, g_ui_scale);
 }
 
 /* The [RP6502][Launch] block and the dummy [Window][Manager] entry ride in
@@ -639,11 +666,11 @@ static void dbgui_draw_menu(void)
                 }
                 ImGui::EndMenu();
             }
-            if (ImGui::BeginMenu("Font Size"))
+            if (ImGui::BeginMenu("UI Scale"))
             {
-                for (auto &e : DBGUI_FONT_SCALES)
-                    if (ImGui::MenuItem(e.label, nullptr, g_font_scale == e.scale))
-                        dbgui_set_font_scale(e.scale);
+                for (auto &e : DBGUI_UI_SCALES)
+                    if (ImGui::MenuItem(e.label, nullptr, g_ui_scale == e.scale))
+                        dbgui_set_ui_scale(e.scale);
                 ImGui::EndMenu();
             }
             if (ImGui::BeginMenu("Theme"))
@@ -726,6 +753,10 @@ void dbgui_init(void)
     simgui_desc_t sd{};
     sd.no_default_font = true; /* we add the bitmap default ourselves */
     simgui_setup(&sd);
+    /* Snapshot the unscaled style so dbgui_apply_ui_scale can re-derive scaled metrics
+     * from a pristine base (before the layout load below, which may set the scale). */
+    g_style_base = ImGui::GetStyle();
+    g_style_base_valid = true;
     /* Pixel-perfect ProggyClean at its native 13px; the overlay renders 1:1 (see
      * dbgui_new_frame / window.c) so it is never magnified/blurred. */
     ImGui::GetIO().Fonts->AddFontDefaultBitmap();
@@ -899,7 +930,7 @@ void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale)
 {
     /* Set before simgui_new_frame: ImGui::NewFrame latches style.FontSizeBase for
      * the whole frame (UpdateFontsNewFrame), so this applies without a frame lag. */
-    ImGui::GetStyle().FontSizeBase = DBGUI_FONT_BASE * g_font_scale;
+    ImGui::GetStyle().FontSizeBase = DBGUI_FONT_BASE * g_ui_scale;
     simgui_frame_desc_t fd{};
     fd.width = width;
     fd.height = height;
