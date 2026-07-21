@@ -60,8 +60,6 @@ bool clk_api_strftime(void);
 
 // Deprecated. Retained for binaries built with older SDKs.
 bool clk_api_clock(void);
-bool clk_api_tzset(void);
-bool clk_api_tzquery(void);
 bool clk_api_get_res(void);
 bool clk_api_get_time(void);
 bool clk_api_set_time(void);

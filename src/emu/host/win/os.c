@@ -63,11 +63,6 @@ bool os_gmtime(time_t t, struct tm *out)
     return gmtime_s(out, &t) == 0;
 }
 
-const char *os_tz_name(bool dst)
-{
-    return _tzname[dst]; /* the UCRT declares tzset() but spells the globals _tzname */
-}
-
 /* ---- host-locale strftime ---- */
 
 void os_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */

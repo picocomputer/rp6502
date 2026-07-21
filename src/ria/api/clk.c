@@ -11,7 +11,6 @@
 #include "ria/api/clk.h"
 #include "ria/api/tim.h"
 #include <pico/time.h>
-#include <assert.h>
 #include <string.h>
 #include <time.h>
 
@@ -130,53 +129,6 @@ bool clk_api_strftime(void)
 bool clk_api_clock(void)
 {
     return api_return_axsreg(clk_get_run(10000));
-}
-
-// MSVC has no __attribute__((packed)); pragma pack is the spelling every
-// toolchain honors, and the wire layout is what the old SDKs expect.
-#pragma pack(push, 1)
-typedef struct
-{
-    int8_t daylight;
-    int32_t timezone;
-    char tzname[5];
-    char dstname[5];
-} clk_tz_wire_t;
-#pragma pack(pop)
-
-bool clk_api_tzset(void)
-{
-    clk_tz_wire_t tz;
-    static_assert(15 == sizeof(tz));
-    tz.daylight = tim_get_tz_daylight();
-    tz.timezone = tim_get_tz_offset();
-    strncpy(tz.tzname, tim_get_tz_name(false), 4);
-    tz.tzname[4] = '\0';
-    strncpy(tz.dstname, tim_get_tz_name(true), 4);
-    tz.dstname[4] = '\0';
-    if (!api_push_n(&tz, sizeof(tz)))
-        return api_return_errno(API_EINVAL);
-    return api_return_ax(0);
-}
-
-bool clk_api_tzquery(void)
-{
-    uint32_t epoch_sec = API_AXSREG;
-    struct timespec ts;
-    ts.tv_sec = epoch_sec;
-    ts.tv_nsec = 0;
-    // mktime(localtime(t)) - mktime(gmtime(t) with local DST) yields the
-    // UTC offset in seconds east of UTC.
-    struct tm local_tm = *localtime(&ts.tv_sec);
-    struct tm gm_tm = *gmtime(&ts.tv_sec);
-    gm_tm.tm_isdst = local_tm.tm_isdst;
-    time_t local_sec = mktime(&local_tm);
-    time_t gm_sec = mktime(&gm_tm);
-    uint8_t isdst = local_tm.tm_isdst;
-    if (!api_push_uint8(&isdst))
-        return api_return_errno(API_EINVAL);
-    int32_t seconds = (int32_t)(local_sec - gm_sec);
-    return api_return_axsreg(seconds);
 }
 
 bool clk_api_get_res(void)

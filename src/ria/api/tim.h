@@ -34,11 +34,6 @@ void tim_load_time_zone(const char *str);
 bool tim_set_time_zone(const char *tz);
 const char *tim_get_time_zone(void);
 
-// POSIX tzset() globals, which every libc spells differently
-int tim_get_tz_daylight(void);
-long tim_get_tz_offset(void);
-const char *tim_get_tz_name(bool dst);
-
 // Real time clock
 bool tim_get_time(struct timespec *ts);
 bool tim_set_time(const struct timespec *ts);

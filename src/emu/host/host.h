@@ -72,7 +72,6 @@ void os_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool os_localtime(time_t t, struct tm *out);
 bool os_gmtime(time_t t, struct tm *out);
-const char *os_tz_name(bool dst); /* tzset()'s zone abbreviation */
 
 /* Host-locale strftime (the C locale stays elsewhere in the process). */
 void os_locale_reset(void); /* (re)load the environment locale */

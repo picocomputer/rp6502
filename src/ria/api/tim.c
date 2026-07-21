@@ -152,21 +152,6 @@ bool tim_gmtime(time_t t, struct tm *out)
     return gmtime_r(&t, out) != NULL;
 }
 
-int tim_get_tz_daylight(void)
-{
-    return _daylight;
-}
-
-long tim_get_tz_offset(void)
-{
-    return _timezone;
-}
-
-const char *tim_get_tz_name(bool dst)
-{
-    return tzname[dst];
-}
-
 // Locale-aware strftime emitting code page text. Conversions newlib would
 // render in the C locale expand from the active locale, UTF-8 in flash
 // converted to the active code page; the rest pass through newlib one spec

@@ -48,47 +48,6 @@ bool tim_gmtime(time_t t, struct tm *out)
     return os_gmtime(t, out);
 }
 
-/* POSIX names the tzset() globals differently in every libc, so derive them:
- * probe both solstices, standard time is whichever sits further west. */
-static void tim_tz_probe(long *std_west, int *daylight)
-{
-    static const time_t probe[2] = {1735732800, 1751371200}; /* 2025 Jan/Jul 1, noon UTC */
-    long west[2];
-    int isdst[2];
-    for (int i = 0; i < 2; i++)
-    {
-        struct tm local, gm;
-        os_localtime(probe[i], &local);
-        os_gmtime(probe[i], &gm);
-        gm.tm_isdst = local.tm_isdst;
-        west[i] = (long)(mktime(&gm) - mktime(&local));
-        isdst[i] = local.tm_isdst > 0;
-    }
-    *std_west = west[0] > west[1] ? west[0] : west[1];
-    *daylight = isdst[0] || isdst[1];
-}
-
-int tim_get_tz_daylight(void)
-{
-    long west;
-    int daylight;
-    tim_tz_probe(&west, &daylight);
-    return daylight;
-}
-
-long tim_get_tz_offset(void)
-{
-    long west;
-    int daylight;
-    tim_tz_probe(&west, &daylight);
-    return west;
-}
-
-const char *tim_get_tz_name(bool dst)
-{
-    return os_tz_name(dst);
-}
-
 /* strftime in the host locale, then UTF-8 -> OEM into dst (max bytes). */
 size_t tim_strftime(char *dst, size_t max, const char *format,
                     const struct tm *tm)

@@ -41,11 +41,6 @@ bool os_gmtime(time_t t, struct tm *out)
     return gmtime_r(&t, out) != NULL;
 }
 
-const char *os_tz_name(bool dst)
-{
-    return tzname[dst];
-}
-
 /* ---- host-locale strftime ---- */
 
 #if defined(__APPLE__)
