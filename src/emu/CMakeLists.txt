@@ -22,6 +22,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
 get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
@@ -318,7 +319,7 @@ else()
             OUTPUT_NAME rp6502
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
         # Tester web root (build/web/html): the menu shell + every test ROM.
-        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_SRC}/tests/roms/*.rp6502")
+        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
@@ -332,7 +333,7 @@ else()
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
             COMMAND ${CMAKE_COMMAND} -E copy
-                "${RP6502_SRC}/tests/roms/adventure.rp6502"
+                "${RP6502_ROOT}/tests/roms/adventure.rp6502"
                 "${CMAKE_BINARY_DIR}/html/rp6502.js"
                 "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
                 "${CMAKE_BINARY_DIR}/itch.io"
@@ -403,5 +404,5 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(${RP6502_SRC}/tests tests)
+    add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()
