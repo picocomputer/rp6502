@@ -29,6 +29,12 @@ int aud_rate(void);
  * the native-rate ring. Returns the number of frames written. */
 int aud_read(float *dst, int max_frames);
 
+/* Drain the native-rate ring, linear-resample to out_rate, and hand finished
+ * interleaved-stereo frames to push() in chunks. The caller supplies the sink
+ * (the window app passes sokol-audio's saudio_push), so emu_core stays free of
+ * any host audio backend. */
+void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames));
+
 /* Rolling mono downmix of the produced output, for waveform display. */
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void); /* current write position in that buffer */

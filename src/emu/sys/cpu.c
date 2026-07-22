@@ -6,7 +6,7 @@
  */
 
 #define CHIPS_IMPL
-#include "emu/chips/w65c02.h"
+#include "chips/chips/w65c02.h"
 #include "emu/sys/cpu.h"
 #include "ria/sys/sys.h"
 

@@ -37,8 +37,8 @@ extern "C"
 #include "emu/dbg/dwarf_frame.h"
 #include "emu/dbg/cc65dbg.h"
 }
-#include "emu/chips/w65c02.h"
-#include "emu/chips/w65c02dasm.h"
+#include "chips/chips/w65c02.h"
+#include "chips/util/w65c02dasm.h"
 
 #ifdef _WIN32
 #include <fcntl.h>

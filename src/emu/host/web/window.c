@@ -11,8 +11,8 @@
 
 #include "emu/app/window.h"
 #include "emu/app/window_core.h"
-#include "sokol_app.h"
-#include "sokol_log.h"
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_log.h"
 #include <stdint.h>
 
 void host_window_resize(int w, int h) { (void)w, (void)h; }
