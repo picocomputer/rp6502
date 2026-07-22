@@ -182,10 +182,10 @@ int wfi_status_response(char *buf, size_t buf_size, int state, unsigned)
     {
         int32_t rssi;
         if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi) && rssi != 0)
-            snprintf_utf8(buf, buf_size, STR_STATUS_WIFI_RSSI,
-                          wfi_status_message(), (int)rssi);
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_WIFI_RSSI,
+                              wfi_status_message(), (int)rssi);
         else
-            snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
     }
     break;
     case 1:
@@ -352,7 +352,7 @@ int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     if (!cyw_get_rf_enable())
     {
         if (state == 0)
-            snprintf_utf8(buf, buf_size, "%s\n", S(STR_RF_OFF));
+            com_snprintf_utf8(buf, buf_size, "%s\n", S(STR_RF_OFF));
         return -1;
     }
     if (state == 0)
@@ -372,7 +372,7 @@ int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     if (i >= wfi_ap_count)
     {
         if (i == 0)
-            snprintf_utf8(buf, buf_size, "%s\n", S(STR_WFI_NO_NETWORKS));
+            com_snprintf_utf8(buf, buf_size, "%s\n", S(STR_WFI_NO_NETWORKS));
         return -1;
     }
     wfi_scan_format(i, buf, buf_size);

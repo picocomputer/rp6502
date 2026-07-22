@@ -197,7 +197,7 @@ static void mon_confirm_enter(bool timeout, const char *buf)
     // The typed token is OEM (active code page); the confirm word is UTF-8, so
     // convert it to OEM, then compare with the code-page-aware str_oem_eq.
     char yes[16];
-    snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
+    com_snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
     const char *tok = str_parse_string(&buf);
     if (cb && tok && str_oem_eq(tok, yes) && str_parse_end(buf))
         cb();
@@ -314,9 +314,9 @@ static int mon_err_response(char *buf, size_t buf_size, int state,
         return state;
     const char *err_str = lookup(state);
     if (err_str != NULL)
-        snprintf_utf8(buf, buf_size, "%s", err_str);
+        com_snprintf_utf8(buf, buf_size, "%s", err_str);
     else
-        snprintf_utf8(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
+        com_snprintf_utf8(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
     return -1;
 }
 
@@ -438,11 +438,11 @@ static void mon_more(void)
     switch (mon_more_state)
     {
     case MON_MORE_START:
-        printf_utf8(S(STR_MON_MORE_SHOW));
+        com_printf_utf8(S(STR_MON_MORE_SHOW));
         mon_more_state = MON_MORE_WAIT;
         break;
     case MON_MORE_END:
-        printf_utf8(S(STR_MON_MORE_ERASE));
+        com_printf_utf8(S(STR_MON_MORE_ERASE));
         mon_more_rows_left = rln_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
@@ -658,7 +658,7 @@ void mon_task(void)
     if (mon_needs_prompt)
     {
         if (mon_confirm_cb)
-            printf_utf8(S(STR_MON_CONFIRM_PROMPT));
+            com_printf_utf8(S(STR_MON_CONFIRM_PROMPT));
         else
             printf("]");
         mon_needs_prompt = false;

@@ -39,7 +39,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/emu/rom.c
     ${RP6502_SRC}/emu/emu/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
-    ${RP6502_SRC}/emu/pico/stdio.c
     ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
@@ -167,7 +166,7 @@ if(MSVC)
 endif()
 
 target_include_directories(emu_core PUBLIC
-    ${RP6502_SRC}/emu
+    ${RP6502_SRC}/emu/host/pico
     ${RP6502_SRC}
     ${RP6502_VENDOR}/fatfs
     ${RP6502_VENDOR}

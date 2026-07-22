@@ -5,18 +5,25 @@
  *
  */
 
-#include "emu/sys/pix.h"
+#include "ria/sys/pix.h"
 #include "emu/main.h"
 #include "ria/api/api.h"
 #include "ria/api/std.h"
 #include <string.h>
 
-/* The receiver side of the PIX bus, collapsed into the emu: no FIFO, so both
- * sends commit immediately. Device 0 on the bus is an XRAM write, already
- * satisfied by the shared xram[], so it is dropped; the RIA-local device-0 xreg
- * is a virtual pre-bus device handled in pix_api_xreg via main_xreg_0. */
+/* The receiver side of the PIX bus, collapsed into the emu. The on-device driver
+ * (ria/sys/pix.h) fires messages into a PIO FIFO; the host has none, so the
+ * <hardware/pio.h> shim's pio_sm_put delivers each one immediately here. pio1 is
+ * the PIX PIO the driver targets — unused on the host, but its address resolves. */
 
-bool pix_send(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
+static pio_hw_t pix_pio;
+pio_hw_t *const pio1 = &pix_pio;
+
+/* Deliver one PIX message. Device 0 (XRAM) is the shared xram[], already
+ * satisfied, so dropped; VGA goes to the xreg dispatch; 2-7 have no emu hardware.
+ * Returns the VGA's ACK/NAK (true otherwise). The RIA-local device-0 xreg is a
+ * virtual pre-bus device handled in pix_api_xreg via main_xreg_0. */
+static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
 {
     switch (dev)
     {
@@ -29,9 +36,13 @@ bool pix_send(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
     }
 }
 
-bool pix_send_blocking(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
+/* pix.h's pix_send packs a PIX_MESSAGE and puts it here; unpack and deliver. */
+void pio_sm_put(pio_hw_t *pio, unsigned sm, uint32_t msg)
 {
-    return pix_send(dev, channel, byte, word);
+    (void)pio;
+    (void)sm;
+    pix_deliver((msg >> 29) & 0x07, (msg >> 24) & 0x0F,
+                (msg >> 16) & 0xFF, msg & 0xFFFF);
 }
 
 /* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */
@@ -71,10 +82,10 @@ bool pix_api_xreg(void)
      * address -> low, landing each register after the parameters it consumes
      * (e.g. the term mode word at address 1). */
     bool canvas_first = (device == PIX_DEVICE_VGA && channel == 0 && address == 0 && count > 1);
-    if (canvas_first && !pix_send_blocking(device, channel, address, word_at(0)))
+    if (canvas_first && !pix_deliver(device, channel, address, word_at(0)))
         return api_return_errno(API_EINVAL);
     for (int i = count - 1; i >= (canvas_first ? 1 : 0); i--)
-        if (!pix_send_blocking(device, channel, (uint8_t)(address + i), word_at(i)))
+        if (!pix_deliver(device, channel, (uint8_t)(address + i), word_at(i)))
             return api_return_errno(API_EINVAL);
     return api_return_ax(0);
 }

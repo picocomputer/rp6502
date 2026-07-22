@@ -11,6 +11,7 @@
 #ifndef _EMU_SHIM_PICO_STDIO_DRIVER_H_
 #define _EMU_SHIM_PICO_STDIO_DRIVER_H_
 
+#include "emu/sys/com.h"
 #include <stdbool.h>
 
 typedef struct stdio_driver
@@ -21,6 +22,11 @@ typedef struct stdio_driver
     bool crlf_enabled;
 } stdio_driver_t;
 
-void stdio_set_driver_enabled(stdio_driver_t *driver, bool enabled);
+/* term.c registers its driver here; capture its out_chars as com's terminal
+ * wire (the analog of the firmware's UART/PIX fanout target). */
+static inline void stdio_set_driver_enabled(stdio_driver_t *driver, bool enabled)
+{
+    com_set_term_out(enabled && driver ? driver->out_chars : NULL);
+}
 
 #endif /* _EMU_SHIM_PICO_STDIO_DRIVER_H_ */

@@ -41,20 +41,7 @@ typedef unsigned int uint;
 #define __isr
 typedef void (*irq_handler_t)(void);
 
-// Monotonic microsecond virtual clock + timeout helpers (the real SDK's
-// pico/stdlib.h pulls these in from pico/time.h too).
 #include "pico/time.h"
-
-/* Firmware stdout/stdin routing. On the Pico, putchar/printf reach the
- * configured stdio driver (the terminal) through the pico_stdio layer; the
- * shim's pico/stdio.c is that layer here, so a reused firmware source's echo
- * and ANSI handshake land in term.c rather than the developer's real stdout. */
-#include <stdio.h>
 #include "pico/stdio.h"
-
-#undef putchar
-#undef printf
-#define putchar(c) stdio_putchar(c)
-#define printf stdio_printf
 
 #endif /* _EMU_SHIM_PICO_STDLIB_H_ */

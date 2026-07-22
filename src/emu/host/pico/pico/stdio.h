@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Host shim for <pico/stdio.h>: emulates the pico_stdio surface for the
- * vendored/shared sources. Output takes the SDK-layer CRLF translation
- * (stdio.c here) into com's terminal wire; input drains the com module's
- * merged RX.
+ * vendored/shared sources. Output (putchar/printf) takes the SDK-layer CRLF
+ * translation in emu/sys/com.c and lands on com's terminal wire; input drains
+ * the com module's merged RX.
  */
 
 #ifndef _EMU_SHIM_PICO_STDIO_H_
@@ -14,9 +14,6 @@
 
 #include "emu/sys/com.h"
 #include <stdint.h>
-
-int stdio_putchar(int c);
-int stdio_printf(const char *fmt, ...);
 
 #define PICO_ERROR_TIMEOUT (-1)
 

@@ -408,7 +408,7 @@ static void uf2_progress(void)
     if (pct != uf2_last_percent)
     {
         uf2_last_percent = pct;
-        printf_utf8(STR_UF2_FLASHING, pct);
+        com_printf_utf8(STR_UF2_FLASHING, pct);
     }
 }
 
@@ -655,7 +655,7 @@ void uf2_task(void)
         watchdog_reboot(0, 0, 0);
         break;
     case UF2_FAILED:
-        printf_utf8(STR_UF2_FLASH_FAILED);
+        com_printf_utf8(STR_UF2_FLASH_FAILED);
         stdio_flush();
         reset_usb_boot(0, 0);
         break;
@@ -673,7 +673,7 @@ void uf2_task(void)
         watchdog_reboot(0, 0, 0);
         break;
     case UF2_VGA_LOCKUP:
-        printf_utf8(STR_UF2_FLASH_FAILED);
+        com_printf_utf8(STR_UF2_FLASH_FAILED);
         stdio_flush();
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x06, 1);
         for (;;)

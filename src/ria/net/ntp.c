@@ -261,7 +261,7 @@ static const char *ntp_status_str(void)
 int ntp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf_utf8(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
+    com_snprintf_utf8(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
     return -1;
 }
 

@@ -6,7 +6,7 @@
  */
 
 #include "emu/sys/mem.h"
-#include "emu/sys/pix.h"
+#include "ria/sys/pix.h"
 #include "emu/sys/ria.h"
 #include "emu/sys/vga.h"
 #include "vga/term/term.h"
