@@ -4,17 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/oem.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/cpu.h"
+#include "ria/api/oem.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/cpu.h"
 #include <fatfs/ff.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <pico.h>
-#include <pico/printf.h>
-#include <sys/cdefs.h>
 
 #if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
 #include <stdio.h>
@@ -31,7 +30,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
     const char __in_flash(__XSTRING(name)) name[] = value;
 #define XR(name, value) \
     const char __not_in_flash(__XSTRING(name)) name[] = value;
-#include "def/str_sys.def"
+#include "ria/def/str_sys.def"
 #undef X
 #undef XR
 
@@ -47,7 +46,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define XBEGIN(code, verbose, cp)
 #define XEND()
 #define X(name, value) const char __in_flash("str_loc") STR_ID(XSUFFIX, name)[] = value;
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -61,7 +60,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
     }          \
     ;
 #define X(name, value) [name] = STR_ID(XSUFFIX, name),
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -72,7 +71,7 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define XEND()
 #define X(name, value)
 static const char *const *const __in_flash("str_tabs") str_tabs[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -83,7 +82,7 @@ static const char *const *const __in_flash("str_tabs") str_tabs[] = {
 #define XEND()
 #define X(name, value)
 static const char *const __in_flash("str_locale_names") str_locale_names[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -93,7 +92,7 @@ static const char *const __in_flash("str_locale_names") str_locale_names[] = {
 #define XEND()
 #define X(name, value)
 static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -103,7 +102,7 @@ static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] =
 #define XEND()
 #define X(name, value)
 static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
-#include "def/str.def"
+#include "ria/def/str.def"
 };
 #undef XBEGIN
 #undef XEND
@@ -120,7 +119,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
     }          \
     ;
 #define X(name, value) +1
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -128,7 +127,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
     static_assert((int)__CONCAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
 #define XEND()
 #define X(name, value)
-#include "def/str.def"
+#include "ria/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
@@ -180,8 +179,9 @@ void __in_flash("str_init") str_init(void)
         str_apply_locale(str_sanitize_locale(""));
 }
 
-int str_locales_response(char *buf, size_t buf_size, int state, unsigned)
+int str_locales_response(char *buf, size_t buf_size, int state, unsigned width)
 {
+    (void)width;
     const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];
     if (state < 0 || state >= count)
         return -1;
@@ -638,194 +638,6 @@ bool str_parse_end(const char *args)
         args++;
     }
     return true;
-}
-
-unsigned char str_utf8_to_oem(const char **p)
-{
-    const unsigned char *s = (const unsigned char *)*p;
-    unsigned char b0 = *s;
-    if (!b0)
-        return 0;
-    if (b0 < 0x80)
-    {
-        *p = (const char *)(s + 1);
-        return b0;
-    }
-    uint32_t cp;
-    int extra;
-    if ((b0 & 0xE0) == 0xC0)
-    {
-        cp = b0 & 0x1F;
-        extra = 1;
-    }
-    else if ((b0 & 0xF0) == 0xE0)
-    {
-        cp = b0 & 0x0F;
-        extra = 2;
-    }
-    else if ((b0 & 0xF8) == 0xF0)
-    {
-        cp = b0 & 0x07;
-        extra = 3;
-    }
-    else
-    {
-        *p = (const char *)(s + 1);
-        return 0x7F;
-    }
-    for (int i = 1; i <= extra; i++)
-    {
-        unsigned char bi = s[i];
-        if ((bi & 0xC0) != 0x80)
-        {
-            *p = (const char *)(s + i);
-            return 0x7F;
-        }
-        cp = (cp << 6) | (bi & 0x3F);
-    }
-    *p = (const char *)(s + extra + 1);
-    if (cp >= 0xD800 && cp <= 0xDFFF)
-        return 0x7F;
-    WCHAR oem = ff_uni2oem(cp, oem_get_code_page_run());
-    return oem ? (unsigned char)oem : 0x7F;
-}
-
-// Per-call UTF-8 decode state used by the *_utf8 vfctprintf callbacks.
-// One byte in per callback invocation; one OEM byte out per complete
-// codepoint. Buffer fields are unused by the putchar variant.
-typedef struct
-{
-    uint32_t accum;       // partial codepoint
-    uint8_t continuation; // continuation bytes still expected
-    char *dst;
-    size_t dst_size;      // total dst capacity (incl. NUL)
-    size_t bytes_written; // OEM bytes written or would-be-written
-} utf8_state;
-
-static unsigned char utf8_codepoint_to_oem(uint32_t cp)
-{
-    if (cp >= 0xD800 && cp <= 0xDFFF)
-        return 0x7F;
-    WCHAR w = ff_uni2oem(cp, oem_get_code_page_run());
-    return w ? (unsigned char)w : 0x7F;
-}
-
-static void utf8_emit_buf(utf8_state *st, unsigned char oem)
-{
-    if (st->dst_size && st->bytes_written + 1 < st->dst_size)
-        st->dst[st->bytes_written] = (char)oem;
-    st->bytes_written++;
-}
-
-#define UTF8_FEED(st, b, EMIT)                              \
-    do                                                      \
-    {                                                       \
-        unsigned char _b = (unsigned char)(b);              \
-        if (_b < 0x80)                                      \
-        {                                                   \
-            if ((st)->continuation)                         \
-            {                                               \
-                EMIT(0x7F);                                 \
-                (st)->continuation = 0;                     \
-            }                                               \
-            EMIT(_b);                                       \
-        }                                                   \
-        else if ((_b & 0xC0) == 0x80)                       \
-        {                                                   \
-            if (!(st)->continuation)                        \
-            {                                               \
-                EMIT(0x7F);                                 \
-                break;                                      \
-            }                                               \
-            (st)->accum = ((st)->accum << 6) | (_b & 0x3F); \
-            if (--(st)->continuation == 0)                  \
-                EMIT(utf8_codepoint_to_oem((st)->accum));   \
-        }                                                   \
-        else                                                \
-        {                                                   \
-            if ((st)->continuation)                         \
-                EMIT(0x7F);                                 \
-            if ((_b & 0xE0) == 0xC0)                        \
-            {                                               \
-                (st)->accum = _b & 0x1F;                    \
-                (st)->continuation = 1;                     \
-            }                                               \
-            else if ((_b & 0xF0) == 0xE0)                   \
-            {                                               \
-                (st)->accum = _b & 0x0F;                    \
-                (st)->continuation = 2;                     \
-            }                                               \
-            else if ((_b & 0xF8) == 0xF0)                   \
-            {                                               \
-                (st)->accum = _b & 0x07;                    \
-                (st)->continuation = 3;                     \
-            }                                               \
-            else                                            \
-            {                                               \
-                EMIT(0x7F);                                 \
-                (st)->continuation = 0;                     \
-            }                                               \
-        }                                                   \
-    } while (0)
-
-static void cb_putchar(char c, void *arg)
-{
-    utf8_state *st = (utf8_state *)arg;
-#define EMIT(x) putchar((x))
-    UTF8_FEED(st, c, EMIT);
-#undef EMIT
-}
-
-static void cb_buf(char c, void *arg)
-{
-    utf8_state *st = (utf8_state *)arg;
-#define EMIT(x) utf8_emit_buf(st, (x))
-    UTF8_FEED(st, c, EMIT);
-#undef EMIT
-}
-
-int vprintf_utf8(const char *utf8_fmt, va_list va)
-{
-    utf8_state st = {0};
-    int n = vfctprintf(cb_putchar, &st, utf8_fmt, va);
-    if (st.continuation)
-        putchar(0x7F);
-    return n;
-}
-
-int printf_utf8(const char *utf8_fmt, ...)
-{
-    va_list va;
-    va_start(va, utf8_fmt);
-    int n = vprintf_utf8(utf8_fmt, va);
-    va_end(va);
-    return n;
-}
-
-int vsnprintf_utf8(char *dst, size_t dst_size,
-                   const char *utf8_fmt, va_list va)
-{
-    utf8_state st = {0};
-    st.dst = dst;
-    st.dst_size = dst_size;
-    (void)vfctprintf(cb_buf, &st, utf8_fmt, va);
-    if (st.continuation)
-        utf8_emit_buf(&st, 0x7F);
-    if (dst_size)
-    {
-        size_t end = st.bytes_written < dst_size ? st.bytes_written : dst_size - 1;
-        dst[end] = 0;
-    }
-    return (int)st.bytes_written;
-}
-
-int snprintf_utf8(char *dst, size_t dst_size, const char *utf8_fmt, ...)
-{
-    va_list va;
-    va_start(va, utf8_fmt);
-    int n = vsnprintf_utf8(dst, dst_size, utf8_fmt, va);
-    va_end(va);
-    return n;
 }
 
 void str_size(uint64_t bytes, char *out, size_t out_size)

@@ -4,19 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "mon/mon.h"
-#include "str/str.h"
-#include "sys/cpu_hw.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/mon/mon.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cpu.h"
+#include "ria/sys/pix.h"
+#include "ria/sys/ria.h"
 #include "ria.pio.h"
 #include <pico/stdio.h>
 #include <pico/multicore.h>
 #include <hardware/dma.h>
 #include <hardware/sync.h>
-#include <littlefs/lfs_util.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RIA)
 #include <stdio.h>
@@ -81,11 +81,6 @@ bool ria_get_sigint(void)
         return false;
     sigint_pending = 0;
     return true;
-}
-
-uint32_t ria_buf_crc32(void)
-{
-    return ~lfs_crc(~0, mbuf, mbuf_len);
 }
 
 void ria_run(void)
@@ -178,7 +173,7 @@ void ria_task(void)
 
 static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
 {
-    snprintf_utf8(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
+    com_snprintf_utf8(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
     return -1;
 }
 

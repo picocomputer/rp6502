@@ -3,14 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows host-OS primitives (emu/plat.h os_*), the Win32 counterpart of
+ * Windows host-OS primitives (emu/host/host.h os_*), the Win32 counterpart of
  * posix/os.c. Several are documented no-ops because the Win32 presentation path
  * already provides the behavior (D3D11 Present paces the frame loop; MSVC's
  * struct tm has no timezone fields and strftime uses the thread locale).
  */
 
-#include "emu/plat.h"
-#include "emu/api/oem.h"
+#include "emu/host/host.h"
+#include "ria/api/oem.h"
 #include "emu/host/win/win.h"
 #include <direct.h>
 #include <io.h>
@@ -53,14 +53,14 @@ void os_sleep_until_ns(uint64_t target)
 
 /* ---- broken-down time ---- */
 
-void os_localtime(time_t t, struct tm *out)
+bool os_localtime(time_t t, struct tm *out)
 {
-    localtime_s(out, &t);
+    return localtime_s(out, &t) == 0;
 }
 
-void os_gmtime(time_t t, struct tm *out)
+bool os_gmtime(time_t t, struct tm *out)
 {
-    gmtime_s(out, &t);
+    return gmtime_s(out, &t) == 0;
 }
 
 /* ---- host-locale strftime ---- */
@@ -88,6 +88,22 @@ bool os_config_dir(char *buf, size_t sz)
     return true;
 }
 
+/* GUI-subsystem processes don't inherit an interactive console's stdio. */
+void os_console_attach(void)
+{
+    HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    HANDLE pre_err = GetStdHandle(STD_ERROR_HANDLE);
+    HANDLE pre_in = GetStdHandle(STD_INPUT_HANDLE);
+    if (!AttachConsole(ATTACH_PARENT_PROCESS))
+        return;
+    if (!pre_out || pre_out == INVALID_HANDLE_VALUE)
+        freopen("CONOUT$", "w", stdout);
+    if (!pre_err || pre_err == INVALID_HANDLE_VALUE)
+        freopen("CONOUT$", "w", stderr);
+    if (!pre_in || pre_in == INVALID_HANDLE_VALUE)
+        freopen("CONIN$", "r", stdin);
+}
+
 void os_ensure_parent_dir(const char *filepath)
 {
     char tmp[1024];
@@ -107,6 +123,18 @@ void os_ensure_parent_dir(const char *filepath)
             *p = c;
         }
     _mkdir(tmp);
+}
+
+/* The ANSI main()'s argv is in the process ACP, not UTF-8. */
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+{
+    wchar_t w[4096];
+    if (!MultiByteToWideChar(CP_ACP, 0, arg, -1, w, (int)(sizeof w / sizeof *w)))
+        return false;
+    if (wcslen(w) >= dstsz) /* one OEM byte per UTF-16 unit */
+        return false;
+    oem_from_wide((const uint16_t *)w, dst, dstsz);
+    return true;
 }
 
 /* ---- test-only helpers ---- */

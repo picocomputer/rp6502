@@ -76,7 +76,7 @@ void mou_host_buttons(uint8_t buttons)
     mou_write_xram();
 }
 
-void mou_reset(void)
+void mou_stop(void)
 {
     memset(mou_state, 0, sizeof(mou_state));
     mou_acc_x = mou_acc_y = 0;

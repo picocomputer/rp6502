@@ -4,23 +4,24 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "mon/dsk.h"
-#include "mon/fil.h"
-#include "mon/hlp.h"
-#include "mon/mon.h"
-#include "mon/ram.h"
-#include "mon/rom.h"
-#include "mon/set.h"
-#include "mon/uf2.h"
-#include "net/cyw.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/com.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
-#include "usb/usb.h"
+#include "ria/main.h"
+#include "ria/api/oem.h"
+#include "ria/mon/dsk.h"
+#include "ria/mon/fil.h"
+#include "ria/mon/hlp.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/ram.h"
+#include "ria/mon/rom.h"
+#include "ria/mon/set.h"
+#include "ria/mon/uf2.h"
+#include "ria/net/cyw.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/ria.h"
+#include "ria/sys/sys.h"
+#include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
 #include <pico/stdlib.h>
@@ -196,7 +197,7 @@ static void mon_confirm_enter(bool timeout, const char *buf)
     // The typed token is OEM (active code page); the confirm word is UTF-8, so
     // convert it to OEM, then compare with the code-page-aware str_oem_eq.
     char yes[16];
-    snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
+    com_snprintf_utf8(yes, sizeof(yes), "%s", S(STR_MON_CONFIRM_YES));
     const char *tok = str_parse_string(&buf);
     if (cb && tok && str_oem_eq(tok, yes) && str_parse_end(buf))
         cb();
@@ -215,7 +216,7 @@ static int mon_utf8_response(char *buf, size_t buf_size, int state, unsigned)
     const char *p = str + state;
     size_t i = 0;
     while (i + 1 < buf_size && *p)
-        buf[i++] = (char)str_utf8_to_oem(&p);
+        buf[i++] = (char)oem_from_utf8_next(&p);
     buf[i] = 0;
     if (!*p)
         return -1;
@@ -313,9 +314,9 @@ static int mon_err_response(char *buf, size_t buf_size, int state,
         return state;
     const char *err_str = lookup(state);
     if (err_str != NULL)
-        snprintf_utf8(buf, buf_size, "%s", err_str);
+        com_snprintf_utf8(buf, buf_size, "%s", err_str);
     else
-        snprintf_utf8(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
+        com_snprintf_utf8(buf, buf_size, S(STR_ERR_UNKNOWN_NUMBER), state);
     return -1;
 }
 
@@ -437,11 +438,11 @@ static void mon_more(void)
     switch (mon_more_state)
     {
     case MON_MORE_START:
-        printf_utf8(S(STR_MON_MORE_SHOW));
+        com_printf_utf8(S(STR_MON_MORE_SHOW));
         mon_more_state = MON_MORE_WAIT;
         break;
     case MON_MORE_END:
-        printf_utf8(S(STR_MON_MORE_ERASE));
+        com_printf_utf8(S(STR_MON_MORE_ERASE));
         mon_more_rows_left = rln_get_term_height() - 1;
         mon_more_state = MON_MORE_OFF;
         break;
@@ -657,7 +658,7 @@ void mon_task(void)
     if (mon_needs_prompt)
     {
         if (mon_confirm_cb)
-            printf_utf8(S(STR_MON_CONFIRM_PROMPT));
+            com_printf_utf8(S(STR_MON_CONFIRM_PROMPT));
         else
             printf("]");
         mon_needs_prompt = false;

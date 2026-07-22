@@ -5,25 +5,13 @@
  *
  */
 
-#include "emu/api/clk.h"
-#include "emu/api/oem.h"
-#include "emu/api/pro.h"
-#include "emu/api/std.h"
-#include "emu/aud/aud.h"
-#include "emu/hid/kbd.h"
-#include "emu/hid/mou.h"
-#include "emu/hid/pad.h"
-#include "emu/hid/tab.h"
+#include "emu/emu/pro.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/main.h"
-#include "emu/sys/via.h"
-#include "emu/chips/rp6502.h"
-#include "api/api.h"
-#include "str/rln.h"
-#include "sys/ria.h"
-#include "emu/chips/w65c02.h"
+#include "ria/api/api.h"
+#include "emu/sys/ria.h"
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,
@@ -62,9 +50,9 @@ void ria_trigger_vsync(void)
     ria_irq_publish();
 }
 
-/* True while an enabled RIA source is pending. cpu.c ORs M6502_IRQ from this
- * after via_tick — purely additive, so the RIA and the VIA share the IRQ line
- * (the VIA owns clearing it; the RIA only ever adds its own assertion). */
+/* True while an enabled RIA source is pending. ria_tick returns this as the RIA's
+ * IRQB; the board ORs every device's assertion onto the shared line, so the RIA and
+ * the VIA can both raise it without either owning the clear. */
 bool ria_irq_asserted(void)
 {
     return (ria.irq_pending & ria.irq_enabled) != 0;
@@ -86,7 +74,6 @@ static void ria_syscall(uint8_t op)
     case 0xFF: /* EXIT */
     {
         int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
-        main_set_exit_code((uint8_t)code);
         (void)api_return_ax(0);
         /* If a launcher is armed, pro_exit re-execs it (machine keeps running);
          * otherwise the chain has ended, so halt. */
@@ -236,28 +223,33 @@ uint8_t ria_reg_read(uint16_t addr)
     }
 }
 
-/* The RIA's 6502-bus interface, mirroring via_tick (via.c) so cpu.c can drive
- * both peripherals as `pins = peripheral_tick(pins)`. The IRQB OR runs BEFORE the
- * register access so that a read of $FFF0 (which acks/clears the pending flags)
- * still shows IRQB asserted on its own cycle — preserving the prior bus ordering
- * (via_tick -> RIA IRQ OR -> RIA register access -> RAM) exactly, so timing is
- * byte-identical. ria.PINS is stashed for the debug overlay's pin view. */
-uint64_t ria_tick(uint64_t pins)
+/* The RIA's 6502-bus interface, mirroring via_tick (via.c). The IRQB drive is read
+ * BEFORE the register access so a read of $FFF0 (which acks/clears the pending
+ * flags) still shows IRQB asserted on its own cycle. ria.PINS is published in the
+ * RIA's own pin layout for the debug overlay. */
+bool ria_tick(uint16_t addr, bool read, uint8_t *data)
 {
-    if (ria_irq_asserted())
-        pins |= M6502_IRQ;
-    uint16_t addr = M6502_GET_ADDR(pins);
-    if (addr >= RIA_WINDOW_LO && addr <= RIA_WINDOW_HI)
+    const bool selected = addr >= RIA_MMAP_LO && addr <= RIA_MMAP_HI;
+    const bool irq = ria_irq_asserted();
+
+    if (selected)
     {
-        if (pins & M6502_RW)
-        {
-            M6502_SET_DATA(pins, ria_reg_read(addr)); /* braces: the macro is a {block} */
-        }
+        if (read)
+            *data = ria_reg_read(addr);
         else
-            ria_reg_write(addr, M6502_GET_DATA(pins));
+            ria_reg_write(addr, *data);
     }
-    ria.PINS = pins;
-    return pins;
+
+    /* Only the five address lines the RIA wires actually reach it. */
+    ria.PINS = (addr & 0x1F) * RIA_PIN_A0 | (uint64_t)*data * RIA_PIN_D0;
+    if (read)
+        ria.PINS |= RIA_PIN_RW;
+    if (irq)
+        ria.PINS |= RIA_PIN_IRQ;
+    if (selected)
+        ria.PINS |= RIA_PIN_CS;
+
+    return irq;
 }
 
 /* The live chip instance, for the debugger UI (the RIA overlay reads ria.PINS),
@@ -301,7 +293,7 @@ void ria_reg_write(uint16_t addr, uint8_t data)
 }
 
 /* ------------------------------------------------------------------ */
-/* Reset                                                               */
+/* Lifecycle                                                           */
 /* ------------------------------------------------------------------ */
 
 /* The SIGINT attribute (vendored atr.c) consumes the same latch the $FFF0 IRQ
@@ -316,29 +308,9 @@ bool ria_get_sigint(void)
     return true;
 }
 
-void ria_reset(void)
+void ria_run(void)
 {
-    api_run();
-    api_stop(); /* drop any latched op from the outgoing program */
     ria.irq_enabled = 0; /* $FFF0: IRQ disabled, no pending sources, line idle */
     ria.irq_pending = 0;
     regs[0x10] = 0;
-    xstack[XSTACK_SIZE] = 0; /* cstring guard */
-    cpu_set_halted(false);
-    main_set_exit_code(0);
-    std_reset();
-    rln_run(); /* running-program line editor: max 254, history off (firmware run()) */
-    kbd_reset();
-    pad_reset();
-    mou_reset();
-    tab_reset();
-    clk_reset();
-    clk_run(); /* re-anchor the run clock to this program's start (firmware run()) */
-    aud_reset();
-    /* NOTE: the OEM code page and PHI2 are deliberately NOT reset here. ria_reset
-     * also runs on exec; unlike hardware — which reverts both to the system
-     * settings when a program stops — the emulator lets an exec'd program inherit
-     * the parent's code page and PHI2 (an intentional divergence; the program can
-     * still read the code page back via the CODE_PAGE attribute). The cold-boot
-     * defaults live in main_init (oem_reset) and cpu_init (default PHI2). */
 }

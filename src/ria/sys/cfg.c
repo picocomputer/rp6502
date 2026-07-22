@@ -4,23 +4,23 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/clk.h"
-#include "api/oem.h"
-#include "ble/ble.h"
-#include "hid/kbd.h"
-#include "mon/mon.h"
-#include "mon/rom.h"
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/com_hw.h"
-#include "sys/cpu_hw.h"
-#include "sys/lfs.h"
-#include "sys/mem.h"
-#include "sys/vga.h"
-#include "usb/nfc.h"
-#include "usb/vcp.h"
+#include "ria/api/oem.h"
+#include "ria/api/tim.h"
+#include "ria/ble/ble.h"
+#include "ria/hid/kbd.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/rom.h"
+#include "ria/net/cyw.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cpu.h"
+#include "ria/sys/lfs.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/vga.h"
+#include "ria/usb/nfc.h"
+#include "ria/usb/vcp.h"
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
 #include <stdio.h>
@@ -103,7 +103,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "%s",
                                CFG_VERSION,
                                cpu_get_phi2_khz(),
-                               clk_get_time_zone(),
+                               tim_get_time_zone(),
                                str_get_locale(),
                                oem_get_code_page(),
                                kbd_get_layout_list(),
@@ -160,7 +160,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             cpu_load_phi2_khz(str);
             break;
         case 'T':
-            clk_load_time_zone(str);
+            tim_load_time_zone(str);
             break;
         case 'M':
             str_load_locale(str);

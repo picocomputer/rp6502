@@ -15,11 +15,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Set the config FILE the debugger UI persists its layout into. Pass the --ini
  * value here BEFORE dbgui_init; with no override the UI uses <os-config-dir>/dbgui.ini. */
 void dbgui_set_config_file(const char *path);
@@ -52,11 +47,13 @@ bool dbgui_handle_event(const void *sapp_event_ptr);
  * before the first dbgui_draw; the caller then falls back to the whole window. */
 bool dbgui_canvas_rect(int *x, int *y, int *w, int *h);
 /* True when ImGui wants the mouse (it is over a debugger panel/widget), so the
- * caller should leave ImGui's cursor alone. Only valid while the debugger is active. */
+ * caller should apply ImGui's cursor (dbgui_mouse_cursor) there. Only valid while
+ * the debugger is active. */
 bool dbgui_wants_mouse(void);
 
-#ifdef __cplusplus
-}
-#endif
+/* The cursor ImGui wants this frame as a sapp_mouse_cursor (int to avoid pulling
+ * sokol into this header); the sole cursor writer (window_core) applies it over a
+ * debugger panel. Only valid while the debugger is active. */
+int dbgui_mouse_cursor(void);
 
 #endif /* _EMU_DBG_DBGUI_H_ */

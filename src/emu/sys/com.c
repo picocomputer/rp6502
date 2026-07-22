@@ -5,9 +5,11 @@
  *
  */
 
-#include "sys/com.h"
-#include "sys/ria.h"
-#include "aud/bel.h"
+#include "ria/api/oem.h"
+#include "emu/sys/com.h"
+#include "emu/sys/ria.h"
+#include "ria/aud/bel.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -138,12 +140,17 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len))
 void com_tx_write(const char *buf, int len)
 {
     /* Bring-up aid: EMU_ECHO mirrors the terminal stream to the host's stderr
-     * so the program's text output is visible without rendering the frame. */
+     * so the program's text output is visible without rendering the frame.
+     * Host streams carry host encoding, so OEM bytes expand to UTF-8. */
     static int echo = -1;
     if (echo < 0)
         echo = getenv("EMU_ECHO") ? 1 : 0;
     if (echo)
-        fwrite(buf, 1, (size_t)len, stderr);
+        for (int i = 0; i < len; i++)
+        {
+            char enc[3];
+            fwrite(enc, 1, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc), stderr);
+        }
     if (com_tx_tap)
         com_tx_tap(buf, len);
     if (com_get_bel())
@@ -152,6 +159,56 @@ void com_tx_write(const char *buf, int len)
                 bel_add(&bel_teletype);
     if (com_term_out)
         com_term_out(buf, len);
+}
+
+/* The pico_stdio layer, folded in from the pico/stdio shim. On hardware the SDK
+ * does CRLF translation above the driver, so a reused firmware source's putchar/
+ * printf reaches the terminal already translated: a bare '\n' becomes "\r\n".
+ * The firmware analog flag (com_stdio_driver.crlf_enabled) is constant true, so
+ * it is applied unconditionally. */
+static void com_crlf_write(const char *buf, int len)
+{
+    static char last;
+    char out[2 * 64];
+    int n = 0;
+    for (int i = 0; i < len; i++)
+    {
+        char c = buf[i];
+        if (c == '\n' && last != '\r')
+            out[n++] = '\r';
+        out[n++] = c;
+        last = c;
+        if (n >= (int)sizeof(out) - 1)
+        {
+            com_tx_write(out, n);
+            n = 0;
+        }
+    }
+    if (n)
+        com_tx_write(out, n);
+}
+
+/* The console TX primitives (ria/sys/com.h): the reused readline/std sources
+ * call these directly. They CRLF-translate and hand the bytes to com_tx_write. */
+int com_putchar(int c)
+{
+    char ch = (char)c;
+    com_crlf_write(&ch, 1);
+    return (int)(unsigned char)c;
+}
+
+int com_printf(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n <= 0)
+        return n;
+    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
+    com_crlf_write(buf, w);
+    return n;
 }
 
 /* Output side of the shared contract. The terminal sink never backpressures,
@@ -210,11 +267,18 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-// Cold-boot flush: clear queued input and reset the BEL default. NOT called per
-// exec — type-ahead survives a program change; std_reset resets BEL alone.
-void com_reset(void)
+// Cold-boot flush: clear queued input and reset the BEL default. NOT run per
+// program — type-ahead survives an exec; com_run resets the BEL alone.
+void com_init(void)
 {
     memset(&kbd_ring, 0, sizeof(kbd_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
+    com_bel_enabled = true;
+}
+
+// Program start: restore the BEL default; the queued input rings are kept so
+// type-ahead survives an exec (firmware com_run).
+void com_run(void)
+{
     com_bel_enabled = true;
 }

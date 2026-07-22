@@ -58,14 +58,14 @@ static void tab_clear_contact(int i)
     tab_put_contact(i, 0, 0, 0); /* flags=0 marks it inactive; X/Y stay in-canvas */
 }
 
-/* Push status + contacts to XRAM, but never the ROM-owned control byte. */
+/* Push everything the firmware owns — status, wheel, pan, contacts — in one
+ * memcpy; they run contiguously after the ROM-owned control byte at offset 0. */
 static void tab_write_xram(void)
 {
     if (tab_xram == 0xFFFF)
         return;
-    xram[tab_xram + TAB_OFF_STATUS] = tab_block[TAB_OFF_STATUS];
-    memcpy(&xram[tab_xram + TAB_OFF_CONTACTS], &tab_block[TAB_OFF_CONTACTS],
-           TAB_MAX_CONTACTS * TAB_CONTACT_SIZE);
+    memcpy(&xram[tab_xram + TAB_OFF_STATUS], &tab_block[TAB_OFF_STATUS],
+           TAB_BLOCK_SIZE - TAB_OFF_STATUS);
 }
 
 bool tab_set_xram(uint16_t addr)
@@ -115,6 +115,15 @@ void tab_host_clear(void)
     tab_write_xram();
 }
 
+void tab_host_wheel(int dwheel, int dpan)
+{
+    if (dwheel == 0 && dpan == 0)
+        return;
+    tab_block[TAB_OFF_WHEEL] = (uint8_t)(tab_block[TAB_OFF_WHEEL] + dwheel);
+    tab_block[TAB_OFF_PAN] = (uint8_t)(tab_block[TAB_OFF_PAN] + dpan);
+    tab_write_xram();
+}
+
 uint8_t tab_control(void)
 {
     if (tab_xram == 0xFFFF)
@@ -122,7 +131,7 @@ uint8_t tab_control(void)
     return xram[tab_xram + TAB_OFF_CONTROL];
 }
 
-void tab_reset(void)
+void tab_stop(void)
 {
     tab_xram = 0xFFFF;
     memset(tab_block, 0, sizeof(tab_block));

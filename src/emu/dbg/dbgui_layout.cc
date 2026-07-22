@@ -14,9 +14,12 @@
 
 #include "imgui.h"
 
+extern "C"
+{
 #include "emu/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
 #include "emu/dbg/dbgui_layout.h" /* load/save */
-#include "emu/plat.h"             /* os_config_dir / os_ensure_parent_dir */
+#include "emu/host/host.h"             /* os_config_dir / os_ensure_parent_dir */
+}
 
 #include <cstdio>
 

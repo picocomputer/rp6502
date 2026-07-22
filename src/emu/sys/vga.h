@@ -12,14 +12,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 /* Install the boot console canvas (640x480 term) so the terminal renders
  * at startup without any xreg, matching real hardware. */
-void vga_boot_console(void);
+void vga_init(void);
+
+/* Arm a console reset for the next vga_task() when a program stops (firmware vga_stop). */
+void vga_stop(void);
+
+/* Perform an armed console reset via the DISPLAY xreg; call once per frame. */
+void vga_task(void);
 
 /* Select a canvas geometry (vga_canvas_t code from vga/sys/vga.h). Returns
  * false for an out-of-range code, leaving the canvas state unchanged. */
@@ -50,9 +51,9 @@ void vga_set_framebuffer(uint32_t *fb);
 
 /* ------------------------------------------------------------------ */
 /* Firmware VGA ABI reached by the vendored term.c / rln.c / the mode  */
-/* renderers through the firmware path "sys/vga.h" (the shim there      */
-/* forwards to this header). vga.c implements them; the emulator        */
-/* collapses the dual-core PIO scanout into a single in-process render. */
+/* renderers through the firmware path "sys/vga.h", which the emu       */
+/* include path resolves here directly. vga.c implements them; the      */
+/* emulator collapses the PIO scanout into a single in-process render.  */
 /* ------------------------------------------------------------------ */
 
 int16_t vga_canvas_height(void);
@@ -70,6 +71,7 @@ typedef enum
 bool vga_connected(void);          /* the emulator always has a display */
 vga_canvas_t vga_get_canvas(void);
 uint8_t vga_get_display_type(void);
+void vga_set_code_page(uint16_t cp); /* no PIX bus; loads the font directly */
 
 #define VGA_PROG_MAX 512
 
@@ -90,9 +92,5 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
                      void (*sprite_fn)(int16_t scanline, int16_t width,
                                        uint16_t *rgb, uint16_t config_ptr,
                                        uint16_t length));
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_SYS_VGA_H_ */

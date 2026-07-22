@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/vcp.h"
-#include "str/str.h"
-#include "usb/usb.h"
+#include "ria/usb/vcp.h"
+#include "ria/str/str.h"
+#include "ria/usb/usb.h"
 #include <tusb.h>
 #include <stdio.h>
 #include <string.h>
@@ -68,15 +68,6 @@ static const char *vcp_alt_vendor_name(uint16_t vid, uint16_t pid)
     return vcp_cdc_acm_name;
 }
 
-int vcp_status_count(void)
-{
-    int count = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_CDC; idx++)
-        if (vcp_mounts[idx].mounted)
-            count++;
-    return count;
-}
-
 int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_CDC)
@@ -98,7 +89,7 @@ int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
         if (desc)
             usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
-        // vendor/product are OEM, snprintf_utf8 would mangle high bytes
+        // vendor/product are OEM, com_snprintf_utf8 would mangle high bytes
         int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                          vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                          product);

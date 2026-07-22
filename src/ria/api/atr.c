@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "api/api.h"
-#include "api/atr.h"
-#include "api/clk.h"
-#include "api/oem.h"
-#include "api/pro.h"
-#include "api/std.h"
-#include "str/rln.h"
-#include "sys/com.h"
-#include "sys/cpu.h"
-#include "sys/ria.h"
+#include "ria/api/api.h"
+#include "ria/api/atr.h"
+#include "ria/api/clk.h"
+#include "ria/api/oem.h"
+#include "ria/api/pro.h"
+#include "ria/api/std.h"
+#include "ria/str/rln.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cpu.h"
+#include "ria/sys/ria.h"
 #include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>

@@ -6,7 +6,7 @@
  * Debugger core (dbg.c) — the one authoritative run/stop/step + address-
  * breakpoint engine, shared by the cppdap adapter (dap.cpp) and the on-screen
  * chips debugger (dbgui.cc). Inert until dbg_set_active(true): the CPU loop in
- * cpu.c only consults it when active, so a normal run is unaffected. All control
+ * main.c only consults it when active, so a normal run is unaffected. All control
  * runs on the main (emulation) thread EXCEPT dbg_request_pause, which a DAP
  * reader thread may set; it is a lone atomic flag.
  */
@@ -17,11 +17,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
 
 typedef enum
 {
@@ -75,7 +70,7 @@ void dbg_set_break_filter(bool (*cb)(uint16_t pc));
 extern int dbg_watch_armed;
 void dbg_note_data_stop(uint16_t data_addr);
 uint16_t dbg_data_stop_addr(void);
-/* The DAP layer registers the watch scanner; the bus hook (cpu.c) invokes it only
+/* The DAP layer registers the watch scanner; the bus hook (sys/mem.c) invokes it only
  * when dbg_watch_armed != 0. is_write distinguishes a store from a load. */
 void dbg_set_watch_cb(void (*cb)(uint16_t addr, uint8_t val, bool is_write));
 void dbg_watch_access(uint16_t addr, uint8_t val, bool is_write);
@@ -103,12 +98,8 @@ void dbg_set_segments(const dbg_segment_t *segs, int count); /* copies; clamps t
 int dbg_get_segments(const dbg_segment_t **out);             /* count; *out -> the table */
 unsigned dbg_segments_generation(void);                      /* bumps on each set (cheap change check) */
 
-/* Called by cpu.c at each instruction fetch (M6502_SYNC) while active. Returns
+/* Called by main.c at each instruction fetch (W65C02_SYNC) while active. Returns
  * true if the machine must stop BEFORE running the instruction's effect at pc. */
 bool dbg_at_instruction(uint16_t pc, uint8_t sp);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DBG_H_ */

@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "mon/fil.h"
-#include "mon/mon.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
+#include "ria/mon/fil.h"
+#include "ria/mon/mon.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/ria.h"
 #include <assert.h>
 #include <fatfs/ff.h>
 #include <stdio.h>
@@ -289,7 +289,7 @@ static void fil_upload_rx_mbuf(bool timeout)
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
     }
-    else if (ria_buf_crc32() != fil_rx_crc)
+    else if (mem_crc32(0, mbuf, mbuf_len) != fil_rx_crc)
     {
         result = FR_INT_ERR;
         mon_add_response_utf8(S(STR_ERR_CRC));

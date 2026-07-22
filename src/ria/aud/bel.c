@@ -4,10 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud/aud.h"
-#include "aud/bel.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/bel.h"
 #include <pico/stdlib.h>
-#include <hardware/pwm.h>
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_BEL)
 #include <stdio.h>
@@ -350,7 +349,7 @@ generate:;
 static __isr void
 __time_critical_func(bel_irq_handler)(void)
 {
-    pwm_clear_irq(AUD_IRQ_SLICE);
+    aud_clear_irq();
 
     int16_t sample = bel_sample(BEL_DEFAULT_RATE);
 
@@ -361,8 +360,7 @@ __time_critical_func(bel_irq_handler)(void)
     if (sample > max_val)
         sample = max_val;
 
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, sample + AUD_PWM_CENTER);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, sample + AUD_PWM_CENTER);
+    aud_out(sample + AUD_PWM_CENTER, sample + AUD_PWM_CENTER);
 }
 #pragma GCC pop_options
 

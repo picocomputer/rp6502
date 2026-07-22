@@ -10,15 +10,9 @@
 
 #include <stddef.h>
 
-#include "emu/host/window.h" /* window_scale_filter_t */
+#include "emu/app/window.h" /* window_scale_filter_t */
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-/* Every option, as parsed; defaults pre-filled. Two passes fill one of these:
- * the ROM's "emulator" asset first, then the real command line (last wins). */
+/* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct
 {
     const char *rom, *shot, *input;
@@ -59,16 +53,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o);
 /* Print the option summary to stderr (argv0 names the program). */
 void cli_usage(const char *argv0);
 
-/* Split a command string into argv tokens, honoring "..."/'...' quoting (a quote
- * groups; unquoted whitespace separates). Token text is written into store[];
- * argv[] is filled with pointers into it. Returns the token count. */
-int cli_tokenize_args(const char *s, char **argv, int max, char *store, size_t cap);
-
 /* The path component after the last '/'. */
 const char *cli_base_name(const char *p);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_APP_CLI_H_ */

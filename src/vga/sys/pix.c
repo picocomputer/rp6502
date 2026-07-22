@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
+#include "vga/main.h"
 #include "vga.pio.h"
-#include "sys/com.h"
-#include "sys/mem.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
-#include "sys/vga.h"
-#include "term/font.h"
-#include "term/term.h"
+#include "vga/sys/com.h"
+#include "vga/sys/mem.h"
+#include "vga/sys/pix.h"
+#include "vga/sys/ria.h"
+#include "vga/sys/sys.h"
+#include "vga/sys/vga.h"
+#include "vga/term/font.h"
+#include "vga/term/term.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>

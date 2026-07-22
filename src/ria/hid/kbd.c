@@ -4,20 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "api/oem.h"
-#include "api/pro.h"
-#include "ble/ble.h"
-#include "hid/kbd.h"
-#include "hid/hid.h"
-#include "mon/mon.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/com.h"
-#include "sys/ria.h"
-#include "usb/usb.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/api/oem.h"
+#include "ria/api/pro.h"
+#include "ria/ble/ble.h"
+#include "ria/hid/kbd.h"
+#include "ria/hid/hid.h"
+#include "ria/mon/mon.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/com.h"
+#include "ria/sys/ria.h"
+#include "ria/usb/usb.h"
 #include <class/hid/hid.h>
 #include <fatfs/ff.h>
 #include <pico/time.h>
@@ -109,7 +109,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define XEND() \
     }          \
     ;
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 #undef XBEGIN
 #undef XKEY
 #undef XDEAD2
@@ -123,7 +123,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define XDEAD3(d1, d2, b, r)
 #define XEND() {0}} \
     ;
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 #undef XBEGIN
 #undef XKEY
 #undef XDEAD2
@@ -137,7 +137,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define XDEAD3(d1, d2, b, r) {d1, d2, b, r},
 #define XEND() {0}} \
     ;
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 #undef XBEGIN
 #undef XKEY
 #undef XDEAD2
@@ -151,7 +151,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define XDEAD2(d, b, r)
 #define XDEAD3(d1, d2, b, r)
 #define XEND()
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 #undef XBEGIN
 #undef XKEY
 #undef XDEAD2
@@ -163,7 +163,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define XDEAD2(d, b, r)
 #define XDEAD3(d1, d2, b, r)
 #define XEND()
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 #undef XBEGIN
 #undef XKEY
 #undef XDEAD2
@@ -177,7 +177,7 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 #define XEND()
 static const char *__in_flash("kbd_layout_names")
     kbd_layout_names[] = {
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -192,7 +192,7 @@ static const char *__in_flash("kbd_layout_names")
 #define XEND()
 static const char *__in_flash("kbd_layout_descriptions")
     kbd_layout_descriptions[] = {
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -206,7 +206,7 @@ static const char *__in_flash("kbd_layout_descriptions")
 #define XDEAD3(d1, d2, b, r)
 #define XEND()
 static DWORD const __in_flash("kbd_layout_keys") (*kbd_layout_keys[])[5] = {
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -220,7 +220,7 @@ static DWORD const __in_flash("kbd_layout_keys") (*kbd_layout_keys[])[5] = {
 #define XDEAD3(d1, d2, b, r)
 #define XEND()
 static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -234,7 +234,7 @@ static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
 #define XDEAD3(d1, d2, b, r)
 #define XEND()
 static DWORD const __in_flash("kbd_layout_dead3") (*kbd_layout_dead3[])[4] = {
-#include "def/kbd.def"
+#include "ria/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY

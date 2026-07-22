@@ -24,8 +24,8 @@
 
 extern "C"
 {
-#include "emu/api/oem.h"
-#include "emu/api/pro.h"
+#include "ria/api/oem.h"
+#include "emu/emu/pro.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
@@ -34,10 +34,11 @@ extern "C"
 #include "emu/dbg/dap.h"
 #include "emu/dbg/dwarf_line.h"
 #include "emu/dbg/dwarf_info.h"
+#include "emu/dbg/dwarf_frame.h"
 #include "emu/dbg/cc65dbg.h"
 }
-#include "emu/chips/w65c02.h"        /* m6502_t register accessors (extern "C") */
-#include "emu/chips/w65c02dasm.h"  /* 65C02 m6502dasm_op declaration (impl lives in dbgui.cc) */
+#include "emu/chips/w65c02.h"
+#include "emu/chips/w65c02dasm.h"
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -98,6 +99,7 @@ std::vector<uint16_t> g_func_bps;           /* current function breakpoints (mai
 std::mutex g_src_mtx;
 dwarf_line_t *g_dwarf = nullptr;
 dwarf_info_t *g_dinfo = nullptr;
+dwarf_frame_t *g_dframe = nullptr; /* .debug_frame CFI, for principled unwinding */
 cc65dbg_t *g_cc65 = nullptr;
 /* Optional per-breakpoint semantics (condition/hit-count/logpoint). Sparse: an
  * address with none of these never appears in g_bp_meta and always stops. */
@@ -209,6 +211,11 @@ void src_free()
         dwarf_info_free(g_dinfo);
         g_dinfo = nullptr;
     }
+    if (g_dframe)
+    {
+        dwarf_frame_free(g_dframe);
+        g_dframe = nullptr;
+    }
     if (g_cc65)
     {
         cc65dbg_free(g_cc65);
@@ -279,7 +286,7 @@ void post(std::function<void()> fn)
     g_queue.push_back(std::move(fn));
 }
 
-m6502_t *cpu() { return (m6502_t *)cpu_chip(); }
+w65c02_t *cpu() { return (w65c02_t *)cpu_chip(); }
 
 const char *reason_str(int r)
 {
@@ -336,12 +343,24 @@ void stdout_tap(const char *buf, int len)
     for (int i = 0; i < len; i++)
     {
         char enc[3];
-        utf8.append(enc, (size_t)oem_to_utf8((unsigned char)buf[i], enc));
+        utf8.append(enc, (size_t)oem_to_utf8_char((unsigned char)buf[i], enc));
     }
     dap::OutputEvent ev;
     ev.category = "stdout";
     ev.output = std::move(utf8);
     g_session->send(ev);
+}
+
+/* The inverse boundary: DAP JSON strings are UTF-8, the guest wants OEM. */
+std::string oem_from_utf8_str(const std::string &u8)
+{
+    std::string oem;
+    oem.reserve(u8.size());
+    const char *p = u8.c_str();
+    unsigned char b;
+    while ((b = oem_from_utf8_next(&p)))
+        oem.push_back((char)b);
+    return oem;
 }
 
 uint16_t parse_addr(const std::string &s)
@@ -375,7 +394,7 @@ std::string b64(const uint8_t *data, size_t n)
     return out;
 }
 
-/* One-instruction disassembly via m6502dasm, capturing text + raw bytes. */
+/* One-instruction disassembly via w65c02dasm, capturing text + raw bytes. */
 struct DasmCtx
 {
     uint16_t pc;
@@ -490,7 +509,7 @@ bool stack_return_target(uint16_t pushed, uint16_t *target_out)
 constexpr int UNWIND_SCAN_MAX = 16; /* bytes of register saves to step over */
 void unwind_stack()
 {
-    uint8_t sp = m6502_s(cpu());
+    uint8_t sp = w65c02_s(cpu());
     for (int depth = 0; depth < 64; depth++)
     {
         bool found = false;
@@ -510,34 +529,20 @@ void unwind_stack()
     }
 }
 
-/* Fill each frame's soft/C stack frame base by chaining outward from the live top
- * frame. There is no CFI on either target, so a caller's base is reconstructed
- * from stack-adjustment deltas: llvm-mos adds the callee's prologue allocation;
- * cc65 adds the callee's argument region + the caller's own frame size. Fail-
- * closed: the moment a delta can't be determined exactly, that frame and every
- * outer frame are left base_ok=false so their frame-relative locals show as
- * unavailable rather than as fabricated values. Caller holds g_src_mtx. */
+/* Fill each frame's soft/C stack frame base for the heuristic (non-CFI) unwind.
+ * llvm-mos resolves only the top frame's base directly — caller chaining comes
+ * from CFI, so callers here stay base_ok=false. cc65 has no CFI, so a caller's
+ * base is chained outward from stack-adjustment deltas (callee argument region +
+ * caller frame size). Fail-closed: an unresolved delta leaves that frame and every
+ * outer frame base_ok=false so frame-relative locals show as unavailable rather
+ * than fabricated. Caller holds g_src_mtx. */
 void compute_frame_bases()
 {
     if (g_frames.empty())
         return;
     if (g_dinfo)
-    {
         g_frames[0].base_ok =
             dwarf_info_frame_base(g_dinfo, g_frames[0].src_pc, dap_readmem, &g_frames[0].base);
-        for (size_t k = 1; k < g_frames.size(); k++)
-        {
-            uint16_t alloc;
-            if (g_frames[k - 1].base_ok &&
-                dwarf_info_frame_size(g_dinfo, g_frames[k - 1].src_pc, dap_readmem, &alloc))
-            {
-                g_frames[k].base = (uint16_t)(g_frames[k - 1].base + alloc);
-                g_frames[k].base_ok = true;
-            }
-            else
-                g_frames[k].base_ok = false;
-        }
-    }
     else if (g_cc65)
     {
         g_frames[0].base_ok =
@@ -555,6 +560,35 @@ void compute_frame_bases()
             else
                 g_frames[k].base_ok = false;
         }
+    }
+}
+
+/* CFI-driven unwind (llvm-mos .debug_frame): fills g_frames — src_pc, ip, and
+ * soft-stack frame base — for every frame by evaluating the CIE/FDE rules. This
+ * is exact where unwind_stack()+compute_frame_bases() were heuristic: the CFI
+ * recovers each caller's PC and soft-stack pointer directly. A caller PC that
+ * lands outside any known function stops the walk (never fabricate). Caller
+ * holds g_src_mtx. */
+void unwind_stack_cfi(uint16_t pc0)
+{
+    uint16_t pc = pc0;
+    uint16_t s16 = (uint16_t)(0x0100 | w65c02_s(cpu()));
+    uint16_t rs0 = 0;
+    bool base_ok = g_dinfo && dwarf_info_frame_base(g_dinfo, pc, dap_readmem, &rs0);
+    if (!base_ok)
+        rs0 = (uint16_t)(dap_readmem(0) | (dap_readmem(1) << 8)); /* rp6502 soft SP at rc0=$00 */
+    g_frames.push_back({pc, pc, rs0, base_ok});
+    for (int depth = 1; depth < 64; depth++)
+    {
+        dwarf_unwind_t u = dwarf_frame_step(g_dframe, pc, s16, rs0, dap_readmem);
+        if (!u.ok)
+            break;
+        pc = u.pc; /* the return-slot value: a call-site address (return - 1) */
+        s16 = u.s16;
+        rs0 = u.rs0;
+        if (!src_addr_to_func(pc))
+            break;
+        g_frames.push_back({pc, (uint16_t)(pc + 1), rs0, true});
     }
 }
 
@@ -1159,13 +1193,13 @@ struct Eval
     EvalResult reg()
     {
         std::string nm = ident();
-        m6502_t *c = cpu();
-        if (nm == "A") return ev_rvalue(m6502_a(c));
-        if (nm == "X") return ev_rvalue(m6502_x(c));
-        if (nm == "Y") return ev_rvalue(m6502_y(c));
-        if (nm == "S" || nm == "SP") return ev_rvalue(m6502_s(c));
-        if (nm == "P") return ev_rvalue(m6502_p(c));
-        if (nm == "PC") return ev_rvalue(m6502_pc(c));
+        w65c02_t *c = cpu();
+        if (nm == "A") return ev_rvalue(w65c02_a(c));
+        if (nm == "X") return ev_rvalue(w65c02_x(c));
+        if (nm == "Y") return ev_rvalue(w65c02_y(c));
+        if (nm == "S" || nm == "SP") return ev_rvalue(w65c02_s(c));
+        if (nm == "P") return ev_rvalue(w65c02_p(c));
+        if (nm == "PC") return ev_rvalue(w65c02_pc(c));
         fail("unknown register '$" + nm + "'");
         return EvalResult{};
     }
@@ -1375,6 +1409,11 @@ extern "C" void dap_set_default_args(int argc, char **argv)
     g_default_args.assign(argv, argv + argc);
 }
 
+extern "C" bool dap_is_active(void)
+{
+    return g_session != nullptr; /* only dap_start() creates it; plain --debug never does */
+}
+
 extern "C" void dap_start(void)
 {
     dbg_set_stopped_cb(on_stopped);
@@ -1414,7 +1453,12 @@ extern "C" void dap_start(void)
 
     g_session->registerHandler([](const dap::RP6502LaunchRequest &req) {
         std::string program = req.program.value("");
-        std::vector<std::string> args = req.args.value({});
+        /* Request args are UTF-8 JSON and convert here; the --dap command-line
+         * defaults arrived already OEM (main.c converted its argv), so they
+         * pass through — converting them again would mangle high bytes. */
+        std::vector<std::string> args;
+        for (const std::string &a : req.args.value({}))
+            args.push_back(oem_from_utf8_str(a));
         if (args.empty())
             args = g_default_args;
         std::string elf = req.elf.value("");
@@ -1445,6 +1489,7 @@ extern "C" void dap_start(void)
                 {
                     g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
                     g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
+                    g_dframe = dwarf_frame_load(elf.c_str()); /* NULL -> heuristic unwind */
                 }
                 else
                 {
@@ -1457,6 +1502,7 @@ extern "C" void dap_start(void)
                     {
                         g_dwarf = dwarf_line_load(base.c_str());
                         g_dinfo = dwarf_info_load(base.c_str());
+                        g_dframe = dwarf_frame_load(base.c_str());
                     }
                 }
                 push_segments(); /* feed the memory map the program's segment sizes */
@@ -1477,21 +1523,25 @@ extern "C" void dap_start(void)
             dbg_stop_at_entry();   /* hold at the first instruction for config */
             if (!program.empty())
             {
+                /* The .dbg/ELF companions above open host-side (UTF-8 paths);
+                 * program crosses into the guest here, so it goes OEM (args
+                 * were converted at the request boundary). */
+                std::string prog_oem = oem_from_utf8_str(program);
                 std::vector<char *> argv;
                 for (const std::string &a : args)
                     argv.push_back(const_cast<char *>(a.c_str()));
-                if (!pro_set_argv(program.c_str(), (int)argv.size(), argv.data()))
+                if (!pro_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
                 {
                     /* Args over the 512-byte argv buffer. The response already
                      * went out, so run anyway — but with argv[0] intact (the
                      * re-exec invariant) and the failure in the Debug Console. */
-                    pro_set_argv(program.c_str(), 0, NULL);
+                    pro_set_argv(prog_oem.c_str(), 0, NULL);
                     dap::OutputEvent ev;
                     ev.category = "console";
                     ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
                     g_session->send(ev);
                 }
-                pro_exec(program.c_str());
+                pro_exec(prog_oem.c_str());
             }
             g_launch_requested = true; /* dap_pump can now detect a load that never started */
         });
@@ -1585,9 +1635,15 @@ extern "C" void dap_start(void)
              * concurrent (re)load on the main thread can't free it mid-use. */
             std::lock_guard<std::mutex> lk(g_src_mtx);
             uint16_t pc0 = dbg_stop_pc();
-            g_frames.push_back({pc0, pc0});
-            unwind_stack();
-            compute_frame_bases();
+            if (g_dframe && dwarf_frame_has(g_dframe, pc0))
+                unwind_stack_cfi(pc0); /* exact CFI unwind (llvm-mos DWARF5) */
+            else
+            {
+                /* cc65, no .debug_frame, or a pc no FDE covers: heuristic scan. */
+                g_frames.push_back({pc0, pc0});
+                unwind_stack();
+                compute_frame_bases();
+            }
 
             /* Return the requested window; g_frames holds all frames so Scopes
              * can select any frameId. */
@@ -1676,7 +1732,7 @@ extern "C" void dap_start(void)
         if (ref == 1)
         {
             /* Registers. */
-            m6502_t *c = cpu();
+            w65c02_t *c = cpu();
             auto add = [&](const char *nm, unsigned val, int width) {
                 dap::Variable v;
                 v.name = nm;
@@ -1686,12 +1742,12 @@ extern "C" void dap_start(void)
                 v.variablesReference = 0;
                 r.variables.push_back(v);
             };
-            add("A", m6502_a(c), 1);
-            add("X", m6502_x(c), 1);
-            add("Y", m6502_y(c), 1);
-            add("SP", m6502_s(c), 1);
-            add("PC", m6502_pc(c), 2);
-            add("P", m6502_p(c), 1);
+            add("A", w65c02_a(c), 1);
+            add("X", w65c02_x(c), 1);
+            add("Y", w65c02_y(c), 1);
+            add("SP", w65c02_s(c), 1);
+            add("PC", w65c02_pc(c), 2);
+            add("P", w65c02_p(c), 1);
         }
         else if (ref >= LOCALS_REF_BASE && ref < LOCALS_REF_BASE + LOCALS_REF_SPAN)
         {
@@ -1857,7 +1913,7 @@ extern "C" void dap_start(void)
                 {
                     DasmCtx c;
                     c.pc = p;
-                    p = m6502dasm_op(p, dasm_in, dasm_out, &c);
+                    p = w65c02dasm_op(p, dasm_in, dasm_out, &c);
                     k++;
                 }
                 if (p == tgt && k == n)
@@ -1880,7 +1936,7 @@ extern "C" void dap_start(void)
             {
                 DasmCtx c;
                 c.pc = pc;
-                pc = m6502dasm_op(pc, dasm_in, dasm_out, &c);
+                pc = w65c02dasm_op(pc, dasm_in, dasm_out, &c);
             }
         }
         for (long i = 0; i < lead_pad && (long)r.instructions.size() < want; i++)
@@ -1896,7 +1952,7 @@ extern "C" void dap_start(void)
         {
             DasmCtx ctx;
             ctx.pc = pc;
-            uint16_t next = m6502dasm_op(pc, dasm_in, dasm_out, &ctx);
+            uint16_t next = w65c02dasm_op(pc, dasm_in, dasm_out, &ctx);
             dap::DisassembledInstruction di;
             di.address = hex16(pc);
             di.instruction = ctx.text;
@@ -1959,14 +2015,14 @@ extern "C" void dap_start(void)
             dap::SetVariableResponse r;
             if (ref == 1) /* Registers */
             {
-                m6502_t *c = cpu();
+                w65c02_t *c = cpu();
                 const std::string &nm = req.name;
-                if (nm == "A") m6502_set_a(c, (uint8_t)val);
-                else if (nm == "X") m6502_set_x(c, (uint8_t)val);
-                else if (nm == "Y") m6502_set_y(c, (uint8_t)val);
-                else if (nm == "SP" || nm == "S") m6502_set_s(c, (uint8_t)val);
-                else if (nm == "P") m6502_set_p(c, (uint8_t)val);
-                else if (nm == "PC") m6502_set_pc(c, (uint16_t)val);
+                if (nm == "A") w65c02_set_a(c, (uint8_t)val);
+                else if (nm == "X") w65c02_set_x(c, (uint8_t)val);
+                else if (nm == "Y") w65c02_set_y(c, (uint8_t)val);
+                else if (nm == "SP" || nm == "S") w65c02_set_s(c, (uint8_t)val);
+                else if (nm == "P") w65c02_set_p(c, (uint8_t)val);
+                else if (nm == "PC") w65c02_set_pc(c, (uint16_t)val);
                 else return dap::Error("unknown register '%s'", nm.c_str());
                 char b[16];
                 snprintf(b, sizeof b, nm == "PC" ? "$%04X" : "$%02X", (unsigned)val);
@@ -2203,24 +2259,29 @@ extern "C" void dap_pump(void)
     if (!g_terminated && g_launch_done && cpu_halted() && !dbg_is_stopped())
     {
         g_terminated = true;
-        if (!g_session)
-            ; /* no client */
-        else if (g_stop_on_exit)
+        if (g_session)
         {
-            g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
-            dbg_note_stop(m6502_pc(cpu())); /* present halt as a stop */
-            dap::StoppedEvent ev;
-            ev.reason = "exited";
-            ev.description = "Program exited (code " + std::to_string(main_exit_code()) +
-                             ") — press Stop to close";
-            ev.threadId = 1;
-            ev.allThreadsStopped = true;
-            g_session->send(ev);
-        }
-        else
-        {
-            g_session->send(dap::TerminatedEvent());
-            g_term_sent = true;
+            /* The numeric exit code the client (VS Code) renders itself. */
+            dap::ExitedEvent exited;
+            exited.exitCode = pro_get_exit_code();
+            g_session->send(exited);
+            if (g_stop_on_exit)
+            {
+                g_stop_gen++; /* a new client-visible stop: stale last stop's var refs */
+                dbg_note_stop(w65c02_pc(cpu())); /* present halt as a stop */
+                dap::StoppedEvent ev;
+                ev.reason = "exited";
+                ev.description = "Program exited (code " + std::to_string(pro_get_exit_code()) +
+                                 ") — press Stop to close";
+                ev.threadId = 1;
+                ev.allThreadsStopped = true;
+                g_session->send(ev);
+            }
+            else
+            {
+                g_session->send(dap::TerminatedEvent());
+                g_term_sent = true;
+            }
         }
     }
 }

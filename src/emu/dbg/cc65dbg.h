@@ -17,11 +17,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 typedef struct cc65dbg cc65dbg_t;
 
 /* Load + parse a cc65 .dbg file. NULL if it can't be read or has no usable C
@@ -97,9 +92,5 @@ typedef struct
 
 /* The segments that have a name and a non-zero size. Returns count (<= max). */
 int cc65dbg_segments(const cc65dbg_t *db, cc65seg_t *out, int max);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_CC65DBG_H_ */

@@ -5,17 +5,18 @@
  */
 
 #ifndef RP6502_RIA_W
-#include "net/wfi.h"
+#include "ria/net/wfi.h"
 void wfi_task() {}
 int wfi_status_response(char *, size_t, int, unsigned) { return -1; }
 int wfi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
-#include "net/cyw.h"
-#include "net/wfi.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/mem.h"
+#include "ria/net/cyw.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/mem.h"
 #include <pico/cyw43_arch.h>
 
 #if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WFI)
@@ -181,10 +182,10 @@ int wfi_status_response(char *buf, size_t buf_size, int state, unsigned)
     {
         int32_t rssi;
         if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi) && rssi != 0)
-            snprintf_utf8(buf, buf_size, STR_STATUS_WIFI_RSSI,
-                          wfi_status_message(), (int)rssi);
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_WIFI_RSSI,
+                              wfi_status_message(), (int)rssi);
         else
-            snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wfi_status_message());
     }
     break;
     case 1:
@@ -351,7 +352,7 @@ int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     if (!cyw_get_rf_enable())
     {
         if (state == 0)
-            snprintf_utf8(buf, buf_size, "%s\n", S(STR_RF_OFF));
+            com_snprintf_utf8(buf, buf_size, "%s\n", S(STR_RF_OFF));
         return -1;
     }
     if (state == 0)
@@ -371,7 +372,7 @@ int wfi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     if (i >= wfi_ap_count)
     {
         if (i == 0)
-            snprintf_utf8(buf, buf_size, "%s\n", S(STR_WFI_NO_NETWORKS));
+            com_snprintf_utf8(buf, buf_size, "%s\n", S(STR_WFI_NO_NETWORKS));
         return -1;
     }
     wfi_scan_format(i, buf, buf_size);

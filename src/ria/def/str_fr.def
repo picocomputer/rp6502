@@ -6,7 +6,7 @@
 
 // French
 
-#include "def/def.h"
+#include "ria/def/def.h"
 #define XSUFFIX FR
 XBEGIN("FR", "Francais", 850)
 
@@ -170,12 +170,6 @@ X(STR_MOUSE_SINGULAR, "souris")
 X(STR_MOUSE_PLURAL, "souris")
 X(STR_GAMEPAD_SINGULAR, "manette")
 X(STR_GAMEPAD_PLURAL, "manettes")
-X(STR_STORAGE_SINGULAR, "stockage")
-X(STR_STORAGE_PLURAL, "stockages")
-X(STR_SERIAL_SINGULAR, "série")
-X(STR_SERIAL_PLURAL, "séries")
-X(STR_MIDI_SINGULAR, "MIDI")
-X(STR_MIDI_PLURAL, "MIDI")
 X(STR_EP_FREE_SINGULAR, "ep libre")
 X(STR_EP_FREE_PLURAL, "ep libres")
 

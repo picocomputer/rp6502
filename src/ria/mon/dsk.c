@@ -4,15 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "mon/dsk.h"
-#include "mon/hlp.h"
-#include "mon/mon.h"
-#include "str/str.h"
-#include "sys/mem.h"
-#include "sys/ria.h"
-#include "usb/msc.h"
-#include "usb/usb.h"
+#include "ria/main.h"
+#include "ria/mon/dsk.h"
+#include "ria/mon/hlp.h"
+#include "ria/mon/mon.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/ria.h"
+#include "ria/usb/msc.h"
+#include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
 #include <string.h>
@@ -249,7 +250,7 @@ static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
             szbuf[0] = '\0';
             if (msc_dsk_get_info(dsk_vol, &info) && info.block_size)
                 str_size((uint64_t)info.block_count * info.block_size, szbuf, sizeof(szbuf));
-            snprintf_utf8(buf, size, S(STR_DISK_DEV), szbuf, vendor, product, rev);
+            com_snprintf_utf8(buf, size, S(STR_DISK_DEV), szbuf, vendor, product, rev);
         }
         return 1;
     }
@@ -257,7 +258,7 @@ static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
     {
         char serial[USB_DESC_STRING_BUF_SIZE];
         if (msc_dsk_serial(dsk_vol, serial, sizeof(serial)))
-            snprintf_utf8(buf, size, S(STR_DISK_SERIAL), serial);
+            com_snprintf_utf8(buf, size, S(STR_DISK_SERIAL), serial);
         return 2;
     }
     case 2: // VOL: boot scheme, filesystem, cluster size, and volume label
@@ -284,7 +285,7 @@ static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
         }
         else
             dsk_fmt_desc(desc, sizeof(desc), scheme, S(STR_PARENS_NONE), 0, NULL, label);
-        snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
+        com_snprintf_utf8(buf, size, S(STR_DISK_VOL_FMT), desc);
         return 3;
     }
     case 3: // VOL: filesystem used of total, percent used (case 2's scan)
@@ -298,13 +299,13 @@ static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
             char usedbuf[24], totbuf[24];
             str_size(usedb, usedbuf, sizeof(usedbuf));
             str_size(totb, totbuf, sizeof(totbuf));
-            snprintf_utf8(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
+            com_snprintf_utf8(buf, size, S(STR_DISK_VOL_USE), usedbuf, totbuf, pct);
         }
         // INFO/VERIFY end here; format and erase continue to the warning.
         return dsk_preview_op == DSK_PREVIEW_PLAIN ? -1 : 4;
     }
     case 4: // confirm warning (format or erase)
-        snprintf_utf8(buf, size, S(dsk_preview_op == DSK_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
+        com_snprintf_utf8(buf, size, S(dsk_preview_op == DSK_PREVIEW_ERASE ? STR_DISK_WARN_ERASE : STR_DISK_WARN_FORMAT));
         return dsk_preview_op == DSK_PREVIEW_FORMAT ? 5 : -1;
     case 5: // FMT: target layout, filesystem, cluster size, quick/full, label
     {
@@ -315,7 +316,7 @@ static int dsk_preview_response(char *buf, size_t size, int state, unsigned)
         dsk_fmt_desc(desc, sizeof(desc), scheme, dsk_fs_name(dsk_fs_resolved), dsk_au,
                      dsk_full ? STR_FULL : STR_QUICK,
                      dsk_has_label ? dsk_label_oem : NULL);
-        snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
+        com_snprintf_utf8(buf, size, S(STR_DISK_FMT), desc);
         return -1;
     }
     default:
@@ -462,7 +463,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
             if (overall != dsk_last_pct)
             {
                 dsk_last_pct = overall;
-                snprintf_utf8(buf, size, STR_DISK_PROG_FORMAT, overall);
+                com_snprintf_utf8(buf, size, STR_DISK_PROG_FORMAT, overall);
             }
         }
         if (dsk_fmt_track >= dsk_fmt_tracks)
@@ -478,7 +479,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
         // before the result. The quick path printed no progress.
         const char *nl = dsk_last_pct >= 0 ? "\n" : "";
         if (fr == FR_OK)
-            snprintf_utf8(buf, size, "%s%s", nl, S(STR_DISK_DONE));
+            com_snprintf_utf8(buf, size, "%s%s", nl, S(STR_DISK_DONE));
         else
         {
             mon_add_response_fatfs(fr);
@@ -499,7 +500,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
         {
             msc_dsk_reenumerate(dsk_vol);
             dsk_state = DSK_IDLE;
-            snprintf_utf8(buf, size, "\n%s", S(STR_DISK_DONE));
+            com_snprintf_utf8(buf, size, "\n%s", S(STR_DISK_DONE));
             return -1;
         }
         {
@@ -524,7 +525,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
             if (pct != dsk_last_pct)
             {
                 dsk_last_pct = pct;
-                snprintf_utf8(buf, size, STR_DISK_PROG_ERASE, pct);
+                com_snprintf_utf8(buf, size, STR_DISK_PROG_ERASE, pct);
             }
         }
         return 0;
@@ -545,7 +546,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
                 {
                     dsk_bad++;
                     buf[0] = '\r'; // overwrite the transient progress line
-                    snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long long)lba);
+                    com_snprintf_utf8(buf + 1, size - 1, S(STR_DISK_BAD_SECTOR), (unsigned long long)lba);
                     return 0;
                 }
             }
@@ -571,7 +572,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
             if (pct != dsk_last_pct)
             {
                 dsk_last_pct = pct;
-                snprintf_utf8(buf, size, STR_DISK_PROG_VERIFY, pct);
+                com_snprintf_utf8(buf, size, STR_DISK_PROG_VERIFY, pct);
                 return 0;
             }
         }
@@ -579,7 +580,7 @@ static int dsk_run_response(char *buf, size_t size, int state, unsigned)
         {
             dsk_state = DSK_IDLE;
             buf[0] = '\n';
-            snprintf_utf8(buf + 1, size - 1, S(STR_DISK_VERIFY_DONE), (int)dsk_bad);
+            com_snprintf_utf8(buf + 1, size - 1, S(STR_DISK_VERIFY_DONE), (int)dsk_bad);
             return -1;
         }
         return 0;
@@ -902,9 +903,9 @@ static int dsk_label_response(char *buf, size_t size, int state, unsigned)
     if (state < 0)
         return state;
     if (dsk_label_changed)
-        snprintf_utf8(buf, size, S(STR_DISK_LABEL_CHANGED), dsk_label_old, dsk_label_cur);
+        com_snprintf_utf8(buf, size, S(STR_DISK_LABEL_CHANGED), dsk_label_old, dsk_label_cur);
     else
-        snprintf_utf8(buf, size, S(STR_DISK_LABEL_RESPONSE), dsk_label_cur);
+        com_snprintf_utf8(buf, size, S(STR_DISK_LABEL_RESPONSE), dsk_label_cur);
     return -1;
 }
 

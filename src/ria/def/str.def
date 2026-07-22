@@ -1,7 +1,7 @@
 /* ADD A LANGUAGE - no C knowledge needed, and you never touch a .c/.h file.
  *
  * 1. Copy def/str_en.def to a new def/str_<lang>.def.
- * 2. Add #include "def/str_<lang>.def" line below.
+ * 2. Add #include "ria/def/str_<lang>.def" line below.
  * 3. Edit the new file:
  *      - Set XSUFFIX to a unique ALL_CAPS tag (e.g. FR) and edit the XBEGIN
  *        line: the code users type in SET LOC (e.g. "FR"), the language's own
@@ -14,6 +14,6 @@
  * 4. Build and test with SET LOC <code>.
  */
 
-#include "def/str_en.def"
-#include "def/str_fr.def"
-#include "def/str_pl.def"
+#include "ria/def/str_en.def"
+#include "ria/def/str_fr.def"
+#include "ria/def/str_pl.def"

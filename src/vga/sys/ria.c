@@ -5,9 +5,9 @@
  */
 
 #include "vga.pio.h"
-#include "sys/com.h"
-#include "sys/ria.h"
-#include "sys/sys.h"
+#include "vga/sys/com.h"
+#include "vga/sys/ria.h"
+#include "vga/sys/sys.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <string.h>

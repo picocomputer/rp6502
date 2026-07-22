@@ -5,24 +5,65 @@
  *
  * macOS window host: the sokol entry (window_run -> sapp_run). Cocoa needs no
  * manual resize or aspect hint, so those hooks are no-ops; the render/frame/
- * present pipeline is in host/window_core.c.
+ * present pipeline is in app/window_core.c.
  */
 
-#include "emu/host/window.h"
-#include "emu/host/window_core.h"
+#include "emu/app/window.h"
+#include "emu/app/window_core.h"
 #include "sokol_app.h"
 #include "sokol_log.h"
 #include <stdint.h>
+#include <unistd.h>
+#include <sys/wait.h>
 
 void host_window_resize(int w, int h) { (void)w, (void)h; }
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
-void host_window_init(void) {}
-bool host_window_menu_active(void) { return false; }
-void host_window_menu_draw(void) {}
+/* Held with no program until a .rp6502 is dropped: the core freezes the machine
+ * and draws the "drop a ROM" prompt instead of the canvas while this is set. */
+static bool waiting_for_rom;
+
+bool window_wait_for_rom(void)
+{
+    waiting_for_rom = true;
+    return true;
+}
+
+void host_window_init(void)
+{
+    if (waiting_for_rom)
+        window_core_prompt_setup();
+}
+
+bool host_window_menu_active(void) { return waiting_for_rom; }
+
+void host_window_menu_draw(void)
+{
+    if (waiting_for_rom)
+        window_core_draw_prompt("Drop a .rp6502", "ROM file here");
+}
 
 void host_window_files_dropped(void)
 {
-    window_core_boot_rom(sapp_get_dropped_file_path(0));
+    if (window_core_boot_rom(sapp_get_dropped_file_path(0)))
+        waiting_for_rom = false;
+}
+
+void host_window_open_url(const char *url)
+{
+    /* Fire-and-forget /usr/bin/open; double-fork so the grandchild reparents to
+     * launchd and leaves no zombie for us to reap. */
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        if (fork() == 0)
+        {
+            execl("/usr/bin/open", "open", url, (char *)NULL);
+            _exit(127);
+        }
+        _exit(0);
+    }
+    if (pid > 0)
+        waitpid(pid, NULL, 0);
 }
 
 int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exit_on_halt)
@@ -43,5 +84,5 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .clipboard_size = 65536,
         .logger.func = slog_func,
     });
-    return 0;
+    return window_core_exit_code();
 }

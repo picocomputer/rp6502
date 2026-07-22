@@ -6,7 +6,7 @@
  */
 
 #include "emu/app/png.h"
-#include "emu/mon/rom.h"
+#include "emu/sys/mem.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,8 +33,8 @@ static void write_chunk(FILE *f, const char *type, const uint8_t *data, uint32_t
     fwrite(type, 1, 4, f);
     if (len)
         fwrite(data, 1, len, f);
-    uint32_t crc = rom_crc32(0, type, 4);
-    crc = rom_crc32(crc, data, len);
+    uint32_t crc = mem_crc32(0, type, 4);
+    crc = mem_crc32(crc, data, len);
     put_be32(f, crc);
 }
 

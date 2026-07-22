@@ -8,30 +8,28 @@
 #ifndef _EMU_HID_TAB_H_
 #define _EMU_HID_TAB_H_
 
-#include <stdbool.h>
-#include <stdint.h>
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+#include "ria/hid/tab.h"
 
 /* Absolute pointer ("tablet") device. Unlike the relative mouse it reports an
  * absolute canvas position. The multi-byte X/Y are delivered coherently through
  * byte-wide XRAM without any RIA/act_loop help: each coordinate is a set of
  * single-byte "windows", exactly one non-zero, decoded first-non-zero-wins. A
- * coordinate past the canvas (X>639) marks an inactive contact. See ria/hid/tab.c
- * for the shared contract; this mirror is driven by host input instead of USB. */
+ * coordinate past the canvas (X>639) marks an inactive contact. The header also
+ * carries a mouse-format wheel/pan (8-bit wrapping accumulators). See
+ * ria/hid/tab.c for the shared contract; this mirror is driven by host input
+ * instead of USB. */
 
 #define TAB_MAX_CONTACTS 8    /* fixed slot count; the ROM allocates the whole block */
-#define TAB_HEADER_SIZE 2     /* status, control */
+#define TAB_HEADER_SIZE 4     /* control, status, wheel, pan */
 #define TAB_CONTACT_SIZE 6    /* flags, x0, x1, x2, y0, y1 */
 #define TAB_BLOCK_SIZE (TAB_HEADER_SIZE + TAB_MAX_CONTACTS * TAB_CONTACT_SIZE)
 
 /* Header offsets */
-#define TAB_OFF_STATUS 0
-#define TAB_OFF_CONTROL 1
-#define TAB_OFF_CONTACTS 2
+#define TAB_OFF_CONTROL 0
+#define TAB_OFF_STATUS 1
+#define TAB_OFF_WHEEL 2
+#define TAB_OFF_PAN 3
+#define TAB_OFF_CONTACTS 4
 
 /* status (fw->ROM) */
 #define TAB_STATUS_HOST_CURSOR 0x01 /* host will render a cursor if asked (see tab.h contract) */
@@ -76,17 +74,15 @@ void tab_host_pointer(int x, int y, uint8_t buttons);
 /* n touch contacts (tip down, no hover); the rest go inactive. No host cursor. */
 void tab_host_touch(const tab_point_t *pts, int n);
 
+/* Accumulate host scroll into the wheel/pan bytes (8-bit wrapping counters),
+ * mirroring the mouse. */
+void tab_host_wheel(int dwheel, int dpan);
+
 /* The pointer left the window / all contacts released: everything inactive. */
 void tab_host_clear(void);
 
 /* The ROM's requested cursor shape (control byte, one of TAB_CURSOR_*); 0 when
  * unmapped. */
 uint8_t tab_control(void);
-
-void tab_reset(void);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_HID_TAB_H_ */

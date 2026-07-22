@@ -52,4 +52,8 @@ void mem_task(void);
 void mem_break(void);
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size);
 
+// CRC-32/ISO-HDLC (zlib). mem_crc32(0, buf, len) is the one-shot value; chain by
+// feeding a prior result back as crc.
+uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len);
+
 #endif /* _RIA_SYS_MEM_H_ */

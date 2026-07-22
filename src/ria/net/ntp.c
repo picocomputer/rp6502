@@ -5,14 +5,15 @@
  */
 
 #ifndef RP6502_RIA_W
-#include "net/ntp.h"
+#include "ria/net/ntp.h"
 void ntp_task() {}
 int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
-#include "net/ntp.h"
-#include "net/wfi.h"
-#include "str/str.h"
+#include "ria/net/ntp.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
 #include <lwip/dns.h>
 #include <lwip/udp.h>
 #include <pico/aon_timer.h>
@@ -260,7 +261,7 @@ static const char *ntp_status_str(void)
 int ntp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf_utf8(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
+    com_snprintf_utf8(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
     return -1;
 }
 

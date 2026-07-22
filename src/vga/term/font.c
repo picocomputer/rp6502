@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "term/font.h"
-#include "term/term.h"
+#include "vga/term/font.h"
+#include "vga/term/term.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>

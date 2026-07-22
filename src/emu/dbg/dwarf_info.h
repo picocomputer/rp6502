@@ -7,11 +7,12 @@
  * companion to dwarf_line.c. It parses .debug_abbrev + .debug_info + .debug_str
  * out of an llvm-mos ELF and answers "what C variables are visible here, where
  * do they live, and what are their types" for the DAP adapter's Variables view.
- * No LLVM dependency. DWARF 2-4 (32-bit) only, which is what `clang -gdwarf-4`
- * emits for the rp6502 target; variable addresses are 6502 addresses directly.
+ * No LLVM dependency. DWARF5 (32-bit) only, as emitted by the llvm-mos debug
+ * fork for the rp6502 target; variable addresses are 6502 addresses directly.
  *
  * Two location forms appear in practice and are resolved here:
- *   - DW_OP_addr <abs>   : globals / statics (an absolute 6502 address)
+ *   - DW_OP_addr <abs> / DW_OP_addrx <idx> : globals / statics (an absolute 6502
+ *                          address; addrx indexes .debug_addr)
  *   - DW_OP_fbreg <off>  : locals, relative to the function frame base. llvm-mos
  *                          uses DW_OP_regx RS0 as the frame base; RS0 is the soft
  *                          stack pointer pair rc0:rc1 at zero page $00, so the
@@ -25,16 +26,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 typedef struct dwarf_info dwarf_info_t;
 typedef struct dtype dtype_t; /* opaque C type descriptor, owned by dwarf_info_t */
 
 /* Load + parse the debug-info sections of an ELF. Returns NULL if the file can't
- * be read or carries no usable (DWARF 2-4) .debug_info. */
+ * be read or carries no usable (DWARF5) .debug_info. */
 dwarf_info_t *dwarf_info_load(const char *elf_path);
 void dwarf_info_free(dwarf_info_t *di);
 
@@ -67,13 +63,6 @@ int dwarf_info_locals(const dwarf_info_t *di, uint16_t pc, uint16_t frame_base,
  * be evaluated. */
 bool dwarf_info_frame_base(const dwarf_info_t *di, uint16_t pc,
                            uint8_t (*readmem)(uint16_t addr), uint16_t *out);
-
-/* The soft-stack bytes the function at pc allocates (read from its prologue), to
- * chain a caller's frame base: base[caller] = base[callee] + *alloc. False when
- * it can't be determined exactly (fbreg locals with no recognizable prologue ->
- * fail-closed). *alloc = 0 for a static-allocation / leaf function. */
-bool dwarf_info_frame_size(const dwarf_info_t *di, uint16_t pc,
-                           uint8_t (*readmem)(uint16_t addr), uint16_t *alloc);
 
 /* ---- type introspection ---- */
 
@@ -120,9 +109,5 @@ bool dwarf_type_member(const dtype_t *t, int i, const char **name,
 
 /* DW_KIND_ENUM: the enumerator name for value, or NULL. */
 const char *dwarf_type_enum_name(const dtype_t *t, int64_t value);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_DBG_DWARF_INFO_H_ */

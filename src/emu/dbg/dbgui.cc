@@ -20,20 +20,25 @@
 
 extern "C"
 {
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
+#include "emu/sys/sys.h"
+#include "ria/api/oem.h" /* oem_get_code_page_run (RIA panel status) */
+#include "emu/emu/pro.h" /* pro_get_exit_code (exit-code display) */
 #include "emu/main.h"
 #include "emu/sys/vga.h"
-#include "emu/sys/via.h"
-}
+#include "emu/emu/via.h"
 #include "emu/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "emu/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "emu/host/window.h"      /* window-scale presets */
-#include "emu/app/credits.h"      /* EMU_CREDITS */
+#include "emu/app/window.h"      /* window-scale presets */
+#include "emu/emu/rom.h"        /* rom_read_asset (ROM Help viewer) */
+}
+#include "emu/app/credits.h" /* EMU_CREDITS */
+#include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
-#include "emu/chips/w65c02.h" /* m6502_t (type + macros; CHIPS_IMPL is in w65c02.c) */
+#include "emu/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
 #include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
 
 #include "sokol_app.h"
@@ -41,36 +46,101 @@ extern "C"
 #include "util/sokol_imgui.h" /* simgui_* + simgui_imtextureid */
 
 /* chips UI headers — CHIPS_UI_IMPL is set by CMake on this TU only. Order per
- * ui_dbg.h's "include before the implementation" note. */
+ * ui_dbg.h's "include before the implementation" note. The w65c02 CPU/dasm/UI
+ * headers live under emu/chips/ (vendored in-tree) because the pinned
+ * vendor/chips submodule predates the w65c02 work; the rest come from
+ * vendor/chips/ui/. */
 #include "ui/ui_util.h"
 #include "ui/ui_settings.h"
 #include "ui/ui_chip.h"
 #include "ui/ui_memedit.h"
 #include "ui/ui_memmap.h"
 #include "ui/ui_audio.h"
-#define CHIPS_UTIL_IMPL           /* emit m6502dasm_op (the disassembler ui_dbg calls) */
-#include "emu/chips/w65c02dasm.h" /* 65C02 fork of chips/util/m6502dasm.h (CMOS opcodes) */
-#include "emu/chips/ui_dasm.h"    /* our fork of ui/ui_dasm.h: 65C02 jump arrows; after w65c02dasm.h (impl calls m6502dasm_op) */
-#include "emu/chips/ui_w65c02.h"  /* our fork of ui/ui_m6502.h: no 6510 I/O-port panel */
-#include "emu/chips/ui_rp6502.h"  /* our RIA debug window (bespoke, not a chips fork) */
+#define CHIPS_UTIL_IMPL           /* emit w65c02dasm_op (the disassembler ui_dbg calls) */
+#include "emu/chips/w65c02dasm.h" /* WDC 65C02 disassembler (chips/util/w65c02dasm.h) */
+#include "emu/chips/ui_dasm.h"    /* chips ui/ui_dasm.h; after w65c02dasm.h (impl calls w65c02dasm_op) */
+#include "emu/chips/ui_w65c02.h"  /* chips ui/ui_w65c02.h (CPU register window) */
+#include "emu/chips/ui_ria.h"     /* our RIA debug window (bespoke, not a chips fork) */
 #include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
 #include "ui/ui_m6522.h"
-#include "emu/chips/ui_dbg.h" /* our fork of ui/ui_dbg.h: history column draws chars, not bytes */
+#include "emu/chips/ui_dbg.h" /* chips ui/ui_dbg.h (disassembly/breakpoints) */
 
-#include <cstdio> /* snprintf, sscanf */
+#include <cstdio>  /* snprintf, sscanf */
+#include <cstring> /* strcmp (ini section match) */
+#include <cmath>   /* fabsf (font-scale snap) */
 
 static ui_dbg_t g_dbg;
 static ui_w65c02_t g_cpuwin;
 static ui_m6522_t g_viawin;
 static ui_memedit_t g_memedit;
 static ui_memmap_t g_memmap;
-static ui_rp6502_t g_ria;
+static ui_ria_t g_ria;
 static ui_dasm_t g_dasm;
 static ui_audio_t g_audio;
 static bool g_inited;
-static bool g_control_open = false; /* the native "Debug Control" window */
-static bool g_credits_open = false; /* the native "Credits" about box */
+static bool g_control_open = false;  /* the native "Debug Control" window */
+static bool g_credits_open = false;  /* the native "Credits" about box */
+static bool g_rom_help_open = false; /* the loaded ROM's "help" asset viewer */
 static float g_menu_h;              /* main-menu-bar height in ImGui points (see dbgui_menu_height) */
+
+/* UI scale. Native ProggyClean is DBGUI_FONT_BASE px; the Options menu offers these
+ * multipliers, applied as style.FontSizeBase = base * scale each frame (font, in
+ * dbgui_new_frame) and via style.ScaleAllSizes (widget spacing/padding/rounding,
+ * rebuilt from g_style_base on change). Persisted via the [RP6502UI][Scale] ini section. */
+static const float DBGUI_FONT_BASE = 13.0f;
+static const struct
+{
+    float scale;
+    const char *label;
+} DBGUI_UI_SCALES[] = {
+    {1.0f, "1.0x"}, {1.25f, "1.25x"}, {1.5f, "1.5x"},
+    {1.75f, "1.75x"}, {2.0f, "2.0x"}, {2.5f, "2.5x"},
+};
+static float g_ui_scale = 1.0f;
+/* Pristine (unscaled) style captured in dbgui_init; dbgui_apply_ui_scale re-derives the
+ * scaled sizes from it so repeated changes don't accumulate ScaleAllSizes' truncation. */
+static ImGuiStyle g_style_base;
+static bool g_style_base_valid = false;
+static int g_theme = 0; /* Options > Theme: 0=Dark 1=Light 2=Classic (session-only) */
+
+/* Rebuild the widget metrics (spacing/padding/rounding/...) from the pristine base at
+ * g_ui_scale, preserving the live theme colors + alpha. ScaleAllSizes truncates every
+ * field, so we re-derive from base rather than apply deltas. Font is applied per-frame
+ * in dbgui_new_frame. No-op until dbgui_init has captured the base (e.g. the throwaway
+ * peek context in dbgui_window_size). */
+static void dbgui_apply_ui_scale(void)
+{
+    if (!g_style_base_valid)
+        return;
+    ImGuiStyle &style = ImGui::GetStyle();
+    ImVec4 colors[ImGuiCol_COUNT];
+    std::memcpy(colors, style.Colors, sizeof colors);
+    float alpha = style.Alpha;
+    style = g_style_base;
+    style.ScaleAllSizes(g_ui_scale);
+    std::memcpy(style.Colors, colors, sizeof colors);
+    style.Alpha = alpha;
+}
+
+/* Select the UI scale, snapping to one of the offered multipliers; mark the ini dirty
+ * so the choice survives a restart (a style change alone doesn't dirty ImGui). */
+static void dbgui_set_ui_scale(float scale)
+{
+    for (auto &e : DBGUI_UI_SCALES)
+        if (fabsf(e.scale - scale) < 0.01f && g_ui_scale != e.scale)
+        {
+            g_ui_scale = e.scale;
+            dbgui_apply_ui_scale();
+            ImGui::GetIO().WantSaveIniSettings = true;
+            return;
+        }
+}
+
+/* Credits masthead: 64x64 icon + RP6502-EMU title (integer-scaled bitmap font). */
+static constexpr int CREDITS_TITLE_SCALE = 4;
+static sg_image g_credits_icon_img;
+static sg_view g_credits_icon_view;
+static ui_texture_t g_credits_icon_texid;
 
 /* ---- ui_dbg texture callbacks: back its heatmap with a sokol-gfx image, used
  * as an ImTextureID via simgui_imtextureid. Called from ui_dbg_draw on the main
@@ -157,8 +227,8 @@ static uint8_t mem_read(int layer, uint16_t addr, void *user)
     return mem_peek(addr);
 }
 
-/* ui_memedit callbacks. Layer 0 is the 6502 space ($0000-$FFFF; the RIA register
- * file lives in it at $FFE0); layer 1 is XRAM, which the system maps at $10000-$1FFFF (its
+/* ui_memedit callbacks. Layer 0 is RAM ($0000-$FFEF of the 6502 space; the RIA
+ * register file lives in it at $FFE0); layer 1 is XRAM, which the system maps at $10000-$1FFFF (its
  * own 64KB bank — the 6502 reaches it only through the RIA's RW0/RW1 windows);
  * layer 2 is the 512-byte RIA xstack ($000-$1FF, a top-down LIFO). dbgui_draw
  * scopes the window's max_addr to 512 while that layer is selected, so the editor
@@ -205,7 +275,7 @@ static void draw_control(void)
     {
         const bool stopped = dbg_is_stopped();
         if (cpu_halted())
-            ImGui::Text("exited (code %d)", main_exit_code()); /* no CPU to step/pause */
+            ImGui::Text("exited (code %d)", pro_get_exit_code()); /* no CPU to step/pause */
         else if (stopped)
             ImGui::Text("STOPPED at $%04X", dbg_stop_pc());
         else
@@ -258,42 +328,79 @@ static void draw_credits(void)
         return;
     ImGui::SetNextWindowSize(ImVec2(620, 420), ImGuiCond_FirstUseEver);
     if (ImGui::Begin("Credits", &g_credits_open))
+    {
+        const float icon = 64.0f * g_ui_scale;
+        ImGui::Image(g_credits_icon_texid, ImVec2(icon, icon));
+        ImGui::SameLine();
+        /* Title tracks the UI scale so it stays balanced with the (also scaled) icon. */
+        ImGui::PushFont(nullptr, DBGUI_FONT_BASE * CREDITS_TITLE_SCALE * g_ui_scale);
+        ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (icon - ImGui::GetTextLineHeight()) * 0.5f);
+        ImGui::TextUnformatted("RP6502-EMU");
+        ImGui::PopFont();
+        ImGui::Spacing();
         ImGui::TextUnformatted(EMU_CREDITS);
+    }
+    ImGui::End();
+}
+
+/* The loaded ROM's "help" asset (UTF-8), word-wrapped. Re-read whenever a new ROM
+ * loads (rom_generation) while the window is open, so dropping a ROM refreshes it;
+ * the asset is the same one the monitor's HELP shows. */
+static void draw_rom_help(void)
+{
+    static char help[32 * 1024];
+    static bool have_help;
+    static uint32_t seen_gen; /* ROM generation the cached text reflects */
+    uint32_t gen = rom_generation();
+    if (g_rom_help_open && gen != seen_gen)
+    {
+        have_help = rom_read_asset("help", help, sizeof help) >= 0;
+        seen_gen = gen;
+    }
+    if (!g_rom_help_open)
+        return;
+    ImGui::SetNextWindowSize(ImVec2(560, 480), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("ROM Help", &g_rom_help_open))
+    {
+        ImGui::PushTextWrapPos(0.0f); /* wrap at the window's right edge */
+        ImGui::TextUnformatted(have_help ? help : "This ROM has no help.");
+        ImGui::PopTextWrapPos();
+    }
     ImGui::End();
 }
 
 /* Pin diagrams for the chip windows. ui_chip requires a named desc with pins. */
 static const ui_chip_pin_t pins_6502[] = {
-    {"D0", 0, M6502_D0},
-    {"D1", 1, M6502_D1},
-    {"D2", 2, M6502_D2},
-    {"D3", 3, M6502_D3},
-    {"D4", 4, M6502_D4},
-    {"D5", 5, M6502_D5},
-    {"D6", 6, M6502_D6},
-    {"D7", 7, M6502_D7},
-    {"RW", 9, M6502_RW},
-    {"SYNC", 10, M6502_SYNC},
-    {"RDY", 11, M6502_RDY},
-    {"IRQ", 12, M6502_IRQ},
-    {"NMI", 13, M6502_NMI},
-    {"RES", 14, M6502_RES},
-    {"A0", 16, M6502_A0},
-    {"A1", 17, M6502_A1},
-    {"A2", 18, M6502_A2},
-    {"A3", 19, M6502_A3},
-    {"A4", 20, M6502_A4},
-    {"A5", 21, M6502_A5},
-    {"A6", 22, M6502_A6},
-    {"A7", 23, M6502_A7},
-    {"A8", 24, M6502_A8},
-    {"A9", 25, M6502_A9},
-    {"A10", 26, M6502_A10},
-    {"A11", 27, M6502_A11},
-    {"A12", 28, M6502_A12},
-    {"A13", 29, M6502_A13},
-    {"A14", 30, M6502_A14},
-    {"A15", 31, M6502_A15},
+    {"D0", 0, W65C02_D0},
+    {"D1", 1, W65C02_D1},
+    {"D2", 2, W65C02_D2},
+    {"D3", 3, W65C02_D3},
+    {"D4", 4, W65C02_D4},
+    {"D5", 5, W65C02_D5},
+    {"D6", 6, W65C02_D6},
+    {"D7", 7, W65C02_D7},
+    {"RW", 9, W65C02_RW},
+    {"SYNC", 10, W65C02_SYNC},
+    {"RDY", 11, W65C02_RDY},
+    {"IRQ", 12, W65C02_IRQ},
+    {"NMI", 13, W65C02_NMI},
+    {"RES", 14, W65C02_RES},
+    {"A0", 16, W65C02_A0},
+    {"A1", 17, W65C02_A1},
+    {"A2", 18, W65C02_A2},
+    {"A3", 19, W65C02_A3},
+    {"A4", 20, W65C02_A4},
+    {"A5", 21, W65C02_A5},
+    {"A6", 22, W65C02_A6},
+    {"A7", 23, W65C02_A7},
+    {"A8", 24, W65C02_A8},
+    {"A9", 25, W65C02_A9},
+    {"A10", 26, W65C02_A10},
+    {"A11", 27, W65C02_A11},
+    {"A12", 28, W65C02_A12},
+    {"A13", 29, W65C02_A13},
+    {"A14", 30, W65C02_A14},
+    {"A15", 31, W65C02_A15},
 };
 
 static const ui_chip_pin_t pins_6522[] = {
@@ -349,11 +456,12 @@ static void dbgui_collect_settings(void)
     ui_m6522_save_settings(&g_viawin, &g_settings);
     ui_memedit_save_settings(&g_memedit, &g_settings);
     ui_memmap_save_settings(&g_memmap, &g_settings);
-    ui_rp6502_save_settings(&g_ria, &g_settings);
+    ui_ria_save_settings(&g_ria, &g_settings);
     ui_dasm_save_settings(&g_dasm, &g_settings);
     ui_audio_save_settings(&g_audio, &g_settings);
     ui_settings_add(&g_settings, "Debug Control", g_control_open);
     ui_settings_add(&g_settings, "Credits", g_credits_open);
+    ui_settings_add(&g_settings, "ROM Help", g_rom_help_open);
 }
 
 /* A bit signature of every window's open flag, for cheap per-frame change
@@ -390,11 +498,12 @@ static void chips_ini_applyall(ImGuiContext *, ImGuiSettingsHandler *)
     ui_m6522_load_settings(&g_viawin, &g_settings);
     ui_memedit_load_settings(&g_memedit, &g_settings);
     ui_memmap_load_settings(&g_memmap, &g_settings);
-    ui_rp6502_load_settings(&g_ria, &g_settings);
+    ui_ria_load_settings(&g_ria, &g_settings);
     ui_dasm_load_settings(&g_dasm, &g_settings);
     ui_audio_load_settings(&g_audio, &g_settings);
     g_control_open = ui_settings_isopen(&g_settings, "Debug Control");
     g_credits_open = ui_settings_isopen(&g_settings, "Credits");
+    g_rom_help_open = ui_settings_isopen(&g_settings, "ROM Help");
 }
 static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
 {
@@ -406,6 +515,26 @@ static void chips_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, Im
             buf->append("IsOpen=1\n");
         buf->append("\n");
     }
+}
+
+/* [RP6502UI][Scale] handler: persists the menu's UI scale choice. "Font" is the legacy
+ * subsection name (pre "scale everything"), still read so an old dbgui.ini migrates. */
+static void rp6502ui_ini_clear(ImGuiContext *, ImGuiSettingsHandler *) {}
+static void *rp6502ui_ini_readopen(ImGuiContext *, ImGuiSettingsHandler *, const char *name)
+{
+    return (std::strcmp(name, "Scale") == 0 || std::strcmp(name, "Font") == 0)
+               ? (void *)1
+               : nullptr; /* non-null: read lines */
+}
+static void rp6502ui_ini_readline(ImGuiContext *, ImGuiSettingsHandler *, void *, const char *line)
+{
+    float scale = 0.0f;
+    if (std::sscanf(line, "Scale=%f", &scale) == 1)
+        dbgui_set_ui_scale(scale); /* snaps to / ignores an out-of-set value */
+}
+static void rp6502ui_ini_writeall(ImGuiContext *, ImGuiSettingsHandler *handler, ImGuiTextBuffer *buf)
+{
+    buf->appendf("[%s][Scale]\nScale=%g\n\n", handler->TypeName, g_ui_scale);
 }
 
 /* The [RP6502][Launch] block and the dummy [Window][Manager] entry ride in
@@ -431,7 +560,7 @@ bool dbgui_window_size(int *w, int *h)
     return ui_ini_window_size(w, h);
 }
 
-/* Register both settings handlers; called once in dbgui_init, before the layout
+/* Register the settings handlers; called once in dbgui_init, before the layout
  * load, so they fire during LoadIniSettingsFromMemory / SaveIniSettingsToMemory. */
 static void dbgui_register_settings_handlers(void)
 {
@@ -445,11 +574,20 @@ static void dbgui_register_settings_handlers(void)
     chips_h.WriteAllFn = chips_ini_writeall;
     ImGui::AddSettingsHandler(&chips_h);
 
+    ImGuiSettingsHandler ui_h;
+    ui_h.TypeName = "RP6502UI";
+    ui_h.TypeHash = ImHashStr("RP6502UI");
+    ui_h.ClearAllFn = rp6502ui_ini_clear;
+    ui_h.ReadOpenFn = rp6502ui_ini_readopen;
+    ui_h.ReadLineFn = rp6502ui_ini_readline;
+    ui_h.WriteAllFn = rp6502ui_ini_writeall;
+    ImGui::AddSettingsHandler(&ui_h);
+
     ui_ini_register(&g_ini);
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
- * host can't run the machine in real time. Measured from main_frame_count() over
+ * host can't run the machine in real time. Measured from sys_frame_count() over
  * wall-clock windows — NOT io.Framerate, which is the host's uncapped present rate
  * (often hundreds of Hz) and says nothing about whether the emulation keeps pace.
  * Counts hold flat while stopped at a breakpoint, so it reads ~0 when paused. */
@@ -462,12 +600,12 @@ static float dbgui_vga_fps(void)
     if (!primed)
     {
         primed = true;
-        win_base = main_frame_count();
+        win_base = sys_frame_count();
     }
     win_time += ImGui::GetIO().DeltaTime;
     if (win_time >= 0.5) /* refresh the reading twice a second */
     {
-        unsigned long now = main_frame_count();
+        unsigned long now = sys_frame_count();
         fps = (float)((double)(now - win_base) / win_time);
         win_base = now;
         win_time = 0.0;
@@ -495,35 +633,73 @@ static void dbgui_draw_menu(void)
         if (ImGui::BeginMenu("Debug"))
         {
             ImGui::MenuItem("Debug Control", nullptr, &g_control_open);
-            ImGui::MenuItem("Breakpoints", nullptr, &g_dbg.ui.breakpoints.open);
-            ImGui::MenuItem("Stopwatch", nullptr, &g_dbg.ui.stopwatch.open);
+            ImGui::Separator();
             ImGui::MenuItem("Disassembler", nullptr, &g_dbg.ui.open);
             ImGui::MenuItem("Disassembly Browser", nullptr, &g_dasm.open);
             ImGui::MenuItem("Execution History", nullptr, &g_dbg.ui.history.open);
+            ImGui::Separator();
+            ImGui::MenuItem("Breakpoints", nullptr, &g_dbg.ui.breakpoints.open);
+            ImGui::MenuItem("Stopwatch", nullptr, &g_dbg.ui.stopwatch.open);
+            ImGui::Separator();
             ImGui::MenuItem("Memory", nullptr, &g_memedit.open);
             ImGui::MenuItem("Memory Heatmap", nullptr, &g_dbg.ui.heatmap.open);
             ImGui::MenuItem("Memory Segments", nullptr, &g_memmap.open);
             ImGui::EndMenu();
         }
-        if (ImGui::BeginMenu("View"))
+        /* Our own Options (replaces vendor ui_util_options_menu, whose trailing
+         * SameLine(width-120) fought the FPS readout): all display/appearance
+         * settings as submenus, then the info windows. */
+        if (ImGui::BeginMenu("Options"))
         {
-            /* Window-size presets (the --scale values): a reset to a known size
-             * after a manual resize, so docked panels deliberately don't factor
-             * in. The check marks the preset the window currently matches. */
-            static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
-            double cur = window_get_scale();
-            for (double s : scales)
+            if (ImGui::BeginMenu("Window Scale"))
             {
-                char label[5];
-                std::snprintf(label, sizeof label, "%.1fx", s);
-                if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
-                    window_set_scale(s);
+                /* Size presets (the --scale values): a reset to a known size after a
+                 * manual resize; docked panels deliberately don't factor in. The check
+                 * marks the preset the window currently matches. */
+                static const double scales[] = {0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0};
+                double cur = window_get_scale();
+                for (double s : scales)
+                {
+                    char label[5];
+                    std::snprintf(label, sizeof label, "%.1fx", s);
+                    if (ImGui::MenuItem(label, nullptr, cur > s - 0.01 && cur < s + 0.01))
+                        window_set_scale(s);
+                }
+                ImGui::EndMenu();
             }
+            if (ImGui::BeginMenu("UI Scale"))
+            {
+                for (auto &e : DBGUI_UI_SCALES)
+                    if (ImGui::MenuItem(e.label, nullptr, g_ui_scale == e.scale))
+                        dbgui_set_ui_scale(e.scale);
+                ImGui::EndMenu();
+            }
+            if (ImGui::BeginMenu("Theme"))
+            {
+                if (ImGui::MenuItem("Dark", nullptr, g_theme == 0))
+                {
+                    g_theme = 0;
+                    ImGui::StyleColorsDark();
+                }
+                if (ImGui::MenuItem("Light", nullptr, g_theme == 1))
+                {
+                    g_theme = 1;
+                    ImGui::StyleColorsLight();
+                }
+                if (ImGui::MenuItem("Classic", nullptr, g_theme == 2))
+                {
+                    g_theme = 2;
+                    ImGui::StyleColorsClassic();
+                }
+                ImGui::EndMenu();
+            }
+            ImGui::SliderFloat("UI Alpha", &ImGui::GetStyle().Alpha, 0.1f, 1.0f);
+            ImGui::SliderFloat("BG Alpha", &ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w, 0.1f, 1.0f);
             ImGui::Separator();
+            ImGui::MenuItem("ROM Help", nullptr, &g_rom_help_open);
             ImGui::MenuItem("Credits", nullptr, &g_credits_open);
             ImGui::EndMenu();
         }
-        ui_util_options_menu(); /* chips "Options": UI/BG alpha + theme */
         /* Host frame time + emulated VGA rate, right-aligned (e.g. "2.1 ms  59.9 FPS")
          * and held a few pixels off the window edge. The ms is ImGui's rolling host
          * frame average; the FPS is the emulation keeping pace at ~60. */
@@ -577,10 +753,33 @@ void dbgui_init(void)
      * in the final (swapchain) pass. (Setting them explicitly mismatched.) */
     simgui_desc_t sd{};
     sd.no_default_font = true; /* we add the bitmap default ourselves */
+    sd.disable_set_mouse_cursor = true; /* window_core's update_cursor is the sole
+                                         * cursor writer; a second per-frame setter
+                                         * double-applies and flickers on X11/WSLg */
     simgui_setup(&sd);
+    /* Snapshot the unscaled style so dbgui_apply_ui_scale can re-derive scaled metrics
+     * from a pristine base (before the layout load below, which may set the scale). */
+    g_style_base = ImGui::GetStyle();
+    g_style_base_valid = true;
     /* Pixel-perfect ProggyClean at its native 13px; the overlay renders 1:1 (see
      * dbgui_new_frame / window.c) so it is never magnified/blurred. */
     ImGui::GetIO().Fonts->AddFontDefaultBitmap();
+
+    /* Static icon for the Credits masthead: pixels at creation, no
+     * stream_update (unlike the ui_dbg heatmap in tex_create). */
+    const sapp_image_desc &ico = icon_desc()->images[2]; /* 64x64 */
+    sg_image_desc iid{};
+    iid.width = ico.width;
+    iid.height = ico.height;
+    iid.pixel_format = SG_PIXELFORMAT_RGBA8;
+    iid.data.mip_levels[0].ptr = ico.pixels.ptr;
+    iid.data.mip_levels[0].size = ico.pixels.size;
+    g_credits_icon_img = sg_make_image(&iid);
+    sg_view_desc ivd{};
+    ivd.texture.image = g_credits_icon_img;
+    g_credits_icon_view = sg_make_view(&ivd);
+    g_credits_icon_texid = simgui_imtextureid(g_credits_icon_view);
+
     /* Docking only; no multi-viewports (sokol_app is single-window). */
     ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     /* We drive load/save to our own config path (dbgui_layout.cc), so disable
@@ -589,7 +788,7 @@ void dbgui_init(void)
     ImGui::GetIO().IniFilename = nullptr;
     dbgui_register_settings_handlers();
 
-    m6502_t *cpu = (m6502_t *)cpu_chip();
+    w65c02_t *cpu = (w65c02_t *)cpu_chip();
     m6522_t *via = (m6522_t *)via_chip();
 
     uint32_t freq = (uint32_t)cpu_get_phi2_khz_run() * 1000u;
@@ -598,7 +797,7 @@ void dbgui_init(void)
 
     ui_dbg_desc_t dd{};
     dd.title = "Disassembler";
-    dd.m6502 = cpu;
+    dd.w65c02 = cpu;
     dd.freq_hz = freq;
     dd.frame_ticks = freq / VGA_HZ;
     dd.scanline_ticks = dd.frame_ticks / VGA_SCANLINES;
@@ -637,17 +836,18 @@ void dbgui_init(void)
     ui_m6522_desc_t vd{};
     vd.title = "MOS 65C22 (VIA)";
     vd.via = via;
+    vd.regs_base = VIA_MMAP_LO;
     vd.x = 420;
     vd.y = 360;
     vd.open = false;
     UI_CHIP_INIT_DESC(&vd.chip_desc, "6522", 40, pins_6522);
     ui_m6522_init(&g_viawin, &vd);
 
-    ui_rp6502_desc_t rd{};
+    ui_ria_desc_t rd{};
     rd.title = "RP6502 (RIA)";
     rd.x = 860;
     rd.y = 30;
-    ui_rp6502_init(&g_ria, &rd);
+    ui_ria_init(&g_ria, &rd);
 
     /* Memory editor: three layers (the 6502 space, the XRAM bank, and the RIA
      * xstack). The layer names carry the system address ranges, since the editor
@@ -655,7 +855,7 @@ void dbgui_init(void)
      * 16-bit). */
     ui_memedit_desc_t med{};
     med.title = "Memory";
-    med.layers[0] = "CPU";
+    med.layers[0] = "RAM";
     med.layers[1] = "XRAM";
     med.layers[2] = "XSTACK";
     med.read_cb = memedit_read;
@@ -683,7 +883,7 @@ void dbgui_init(void)
     ui_dasm_desc_t dsd{};
     dsd.title = "Disassembly Browser";
     dsd.layers[0] = "RAM";
-    dsd.cpu_type = UI_DASM_CPUTYPE_M6502;
+    dsd.cpu_type = UI_DASM_CPUTYPE_W65C02;
     dsd.start_addr = 0x0200; /* the RP6502 program org */
     dsd.read_cb = mem_read;
     dsd.x = 620;
@@ -706,7 +906,7 @@ void dbgui_init(void)
     dbgui_layout_load();
     g_inited = true;
 
-    /* Drive ui_dbg's view from cpu.c's tick loop (heatmap/history/PC). */
+    /* Drive ui_dbg's view from main.c's tick loop (heatmap/history/PC). */
     cpu_dbg_cycle_cb = dbgui_tick;
 }
 
@@ -720,16 +920,21 @@ void dbgui_discard(void)
     ui_dasm_discard(&g_dasm);
     ui_memmap_discard(&g_memmap);
     ui_memedit_discard(&g_memedit);
-    ui_rp6502_discard(&g_ria);
+    ui_ria_discard(&g_ria);
     ui_m6522_discard(&g_viawin);
     ui_w65c02_discard(&g_cpuwin);
     ui_dbg_discard(&g_dbg);
+    sg_destroy_view(g_credits_icon_view);
+    sg_destroy_image(g_credits_icon_img);
     simgui_shutdown();
     g_inited = false;
 }
 
 void dbgui_new_frame(int width, int height, double delta_time, float dpi_scale)
 {
+    /* Set before simgui_new_frame: ImGui::NewFrame latches style.FontSizeBase for
+     * the whole frame (UpdateFontsNewFrame), so this applies without a frame lag. */
+    ImGui::GetStyle().FontSizeBase = DBGUI_FONT_BASE * g_ui_scale;
     simgui_frame_desc_t fd{};
     fd.width = width;
     fd.height = height;
@@ -760,6 +965,16 @@ static bool ui_has_enabled_exec_bp(uint16_t addr)
     return false;
 }
 
+/* Delete-breakpoint fix, kept out of the vendored ui_dbg.h: its "Delete?" modal
+ * deletes breakpoints[delete_breakpoint_index], but the per-frame mirror below
+ * reshuffles that list, so a click-frame index is stale by the time the user
+ * confirms. Track the target by identity (addr+type) and re-point the index each
+ * frame the modal is open (see the two blocks around ui_dbg_draw). */
+static bool g_del_bp_pending;
+static uint16_t g_del_bp_addr;
+static int g_del_bp_type;
+static int g_del_bp_prev_index = -1; /* ui_dbg_init sets delete_breakpoint_index to -1 */
+
 /* Dockspace central-node rect in framebuffer pixels, refreshed each dbgui_draw and
  * read by the window layer to size the emulated canvas (see dbgui_canvas_rect). */
 static int g_canvas_x, g_canvas_y, g_canvas_w, g_canvas_h;
@@ -779,6 +994,26 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h)
 bool dbgui_wants_mouse(void)
 {
     return ImGui::GetIO().WantCaptureMouse;
+}
+
+/* The cursor ImGui wants this frame, mapped to a sapp_mouse_cursor (ARROW when it
+ * has no preference). simgui's own cursor control is disabled, so window_core's
+ * update_cursor applies this over a debugger panel — keeping the resize/text/hand
+ * cursors without a second per-frame setter fighting the tablet crosshair. */
+int dbgui_mouse_cursor(void)
+{
+    switch (ImGui::GetMouseCursor())
+    {
+    case ImGuiMouseCursor_TextInput: return SAPP_MOUSECURSOR_IBEAM;
+    case ImGuiMouseCursor_ResizeAll: return SAPP_MOUSECURSOR_RESIZE_ALL;
+    case ImGuiMouseCursor_ResizeNS: return SAPP_MOUSECURSOR_RESIZE_NS;
+    case ImGuiMouseCursor_ResizeEW: return SAPP_MOUSECURSOR_RESIZE_EW;
+    case ImGuiMouseCursor_ResizeNESW: return SAPP_MOUSECURSOR_RESIZE_NESW;
+    case ImGuiMouseCursor_ResizeNWSE: return SAPP_MOUSECURSOR_RESIZE_NWSE;
+    case ImGuiMouseCursor_Hand: return SAPP_MOUSECURSOR_POINTING_HAND;
+    case ImGuiMouseCursor_NotAllowed: return SAPP_MOUSECURSOR_NOT_ALLOWED;
+    default: return SAPP_MOUSECURSOR_ARROW;
+    }
 }
 
 void dbgui_draw(void)
@@ -815,7 +1050,7 @@ void dbgui_draw(void)
             ui_dbg_continue(&g_dbg, false);
     }
 
-    /* ui_dbg_tick (driven from cpu.c every cycle) maintains the PC highlight while
+    /* ui_dbg_tick (driven from main.c every cycle) maintains the PC highlight while
      * the CPU runs. When stopped, pin it to dbg.c's authoritative stop PC (also
      * covers dbg_note_stop, which is not produced by a tick) and scroll to it on
      * entry to the stop; while running, ui_dbg's own draw keeps the PC in view. */
@@ -852,7 +1087,8 @@ void dbgui_draw(void)
         g_canvas_valid = false;
     draw_control();
     draw_credits();
-    ui_rp6502_draw(&g_ria);
+    draw_rom_help();
+    ui_ria_draw(&g_ria);
 
     /* dbg.c is the authoritative run/stop engine + EXEC breakpoint store (shared
      * with the DAP adapter); ui_dbg's gutter/toolbar/hotkeys are a front-end
@@ -887,12 +1123,43 @@ void dbgui_draw(void)
         }
     }
 
+    /* The mirror just rebuilt breakpoints[]; re-resolve a pending delete's row
+     * index from its captured identity. A vanished target -> -1, so upstream's
+     * `index >= 0` guard closes the modal without deleting (fail-safe). */
+    if (g_del_bp_pending)
+    {
+        int idx = -1;
+        for (int i = 0; i < g_dbg.dbg.num_breakpoints; i++)
+            if (g_dbg.dbg.breakpoints[i].addr == g_del_bp_addr &&
+                g_dbg.dbg.breakpoints[i].type == g_del_bp_type)
+            {
+                idx = i;
+                break;
+            }
+        g_dbg.dbg.delete_breakpoint_index = idx;
+    }
+
     /* ui_dbg's own toolbar (Continue/Over/Into/Tick/Break) and hotkeys
      * (F5/F10/F11/F8/F6) record their action in ui_dbg's state; translate it into
      * dbg.c after the draw. dbg_step is a no-op unless stopped, so a stray step is
      * harmless. */
     bool ui_was_stopped = ui_dbg_stopped(&g_dbg);
     ui_dbg_draw(&g_dbg);
+    /* Snapshot the delete target's identity on the frame the modal opens (index
+     * went -1 -> >=0; no mirror ran between the click and here, so the row is
+     * exact), and clear when it closes (index back to -1). */
+    {
+        int cur = g_dbg.dbg.delete_breakpoint_index;
+        if (cur >= 0 && g_del_bp_prev_index < 0 && cur < g_dbg.dbg.num_breakpoints)
+        {
+            g_del_bp_addr = g_dbg.dbg.breakpoints[cur].addr;
+            g_del_bp_type = g_dbg.dbg.breakpoints[cur].type;
+            g_del_bp_pending = true;
+        }
+        if (cur < 0)
+            g_del_bp_pending = false;
+        g_del_bp_prev_index = cur;
+    }
     if (g_dbg.dbg.step_mode == UI_DBG_STEPMODE_OVER)
         dbg_step(DBG_STEP_LINE_OVER);
     else if (g_dbg.dbg.step_mode != UI_DBG_STEPMODE_NONE) /* INTO / TICK -> one instruction */
@@ -920,11 +1187,13 @@ void dbgui_draw(void)
 
     ui_w65c02_draw(&g_cpuwin);
     ui_m6522_draw(&g_viawin);
-    /* The hex editor shares one max_addr across all layers; scope the XSTACK
-     * layer (2) to its 512 bytes so it doesn't show 64KB of 6502 space. CurLayer
-     * was chosen last frame and also keys the read/write callbacks, so the
-     * window size and the layer's data switch together (no mismatched frame). */
-    g_memedit.max_addr = (g_memedit.ed->CurLayer == 2) ? XSTACK_SIZE : 0x10000;
+    /* The hex editor shares one max_addr across all layers; scope each: XSTACK
+     * (layer 2) to its 512 bytes, RAM (layer 0) to $0000-$FFEF, else XRAM's full
+     * 64KB bank. CurLayer was chosen last frame and also keys the read/write
+     * callbacks, so the window size and the layer's data switch together. */
+    g_memedit.max_addr = (g_memedit.ed->CurLayer == 2)   ? XSTACK_SIZE
+                         : (g_memedit.ed->CurLayer == 0) ? 0xFFF0 /* RAM: $0000-$FFEF */
+                                                         : 0x10000;
     ui_memedit_draw(&g_memedit);
     ui_memmap_draw(&g_memmap);
     ui_dasm_draw(&g_dasm);
@@ -939,9 +1208,9 @@ void dbgui_render(void) { simgui_render(); }
  * boundaries), the history, and cur_op_pc. It also runs ui_dbg's OWN breakpoint
  * engine — the only evaluator of the non-EXEC types (Byte/Word at each opcode
  * fetch, IRQ/NMI on a rising pin edge). A trap files a break request that dbg.c
- * honors at the next M6502_SYNC, so dbg.c stays the one stop authority; an
+ * honors at the next W65C02_SYNC, so dbg.c stays the one stop authority; an
  * op-level trap lands on the very instruction that tripped it because this runs
- * before cpu.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
+ * before main.c's dbg_at_instruction on the same cycle. We never set ui_dbg's
  * step_mode, so it never self-steps. */
 void dbgui_tick(uint64_t pins)
 {

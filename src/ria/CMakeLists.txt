@@ -71,14 +71,14 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 target_sources(${RIA_TARGET} PRIVATE
     main.c
     api/api.c
+    api/arg.c
     api/atr.c
     api/clk.c
-    api/dir.c
     api/fat.c
     api/oem.c
     api/pro.c
     api/std.c
-    api/std_drivers.c
+    api/tim.c
     aud/aud.c
     aud/bel.c
     aud/opl.c

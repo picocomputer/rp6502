@@ -3,13 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives common to every POSIX host (emu/plat.h os_*),
+ * POSIX-family host-OS primitives common to every POSIX host (emu/host/host.h os_*),
  * the counterpart of win/os.c. The two primitives that differ by OS —
  * os_entropy_64 and os_sleep_until_ns — live in the per-host os.c
  * (linux/macos/web/android); this file holds only what they all share.
  */
 
-#include "emu/plat.h"
+#include "emu/host/host.h"
+#include "ria/api/oem.h"
 #include <errno.h>
 #include <locale.h>
 #include <stdio.h>
@@ -30,14 +31,14 @@ uint64_t os_mono_ns(void)
 
 /* ---- broken-down time ---- */
 
-void os_localtime(time_t t, struct tm *out)
+bool os_localtime(time_t t, struct tm *out)
 {
-    localtime_r(&t, out);
+    return localtime_r(&t, out) != NULL;
 }
 
-void os_gmtime(time_t t, struct tm *out)
+bool os_gmtime(time_t t, struct tm *out)
 {
-    gmtime_r(&t, out);
+    return gmtime_r(&t, out) != NULL;
 }
 
 /* ---- host-locale strftime ---- */
@@ -106,6 +107,14 @@ void os_ensure_parent_dir(const char *filepath)
             *p = '/';
         }
     mkdir(tmp, 0755);
+}
+
+void os_console_attach(void) {}
+
+/* POSIX (and Emscripten) argv arrives as UTF-8. */
+bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+{
+    return oem_from_utf8(arg, dst, dstsz) < dstsz;
 }
 
 /* ---- test-only helpers ---- */

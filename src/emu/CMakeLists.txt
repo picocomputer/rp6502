@@ -22,44 +22,44 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
 get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
-    ${RP6502_SRC}/emu/api/clk.c
-    ${RP6502_SRC}/emu/api/oem.c
-    ${RP6502_SRC}/emu/api/pro.c
-    ${RP6502_SRC}/emu/api/std_drivers.c
-    ${RP6502_SRC}/emu/aud/aud.c
-    ${RP6502_SRC}/emu/chips/w65c02.c
+    ${RP6502_SRC}/emu/emu/pro.c
+    ${RP6502_SRC}/emu/emu/tim.c
+    ${RP6502_SRC}/emu/emu/aud.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/tab.c
-    ${RP6502_SRC}/emu/api/hostfs.c
-    ${RP6502_SRC}/emu/api/tmpfs.c
-    ${RP6502_SRC}/emu/host/msc.c
+    ${RP6502_SRC}/emu/emu/msc.c
+    ${RP6502_SRC}/emu/emu/rom.c
+    ${RP6502_SRC}/emu/emu/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
-    ${RP6502_SRC}/emu/mon/install.c
-    ${RP6502_SRC}/emu/mon/rom.c
-    ${RP6502_SRC}/emu/shim/pico/stdio.c
+    ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
+    ${RP6502_SRC}/emu/sys/pix.c
     ${RP6502_SRC}/emu/sys/ria.c
+    ${RP6502_SRC}/emu/sys/sys.c
     ${RP6502_SRC}/emu/sys/vga.c
-    ${RP6502_SRC}/emu/sys/via.c
-    ${RP6502_SRC}/emu/sys/xreg.c
+    ${RP6502_SRC}/emu/emu/via.c
     ${RP6502_SRC}/ria/api/api.c
+    ${RP6502_SRC}/ria/api/arg.c
     ${RP6502_SRC}/ria/api/atr.c
-    ${RP6502_SRC}/ria/api/dir.c
+    ${RP6502_SRC}/ria/api/clk.c
     ${RP6502_SRC}/ria/api/fat.c
+    ${RP6502_SRC}/ria/api/oem.c
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/aud/bel.c
     ${RP6502_SRC}/ria/aud/opl.c
     ${RP6502_SRC}/ria/aud/psg.c
     ${RP6502_SRC}/ria/str/rln.c
+    ${RP6502_SRC}/ria/str/str.c
     ${RP6502_SRC}/vga/modes/mode1.c
     ${RP6502_SRC}/vga/modes/mode2.c
     ${RP6502_SRC}/vga/modes/mode3.c
@@ -165,24 +165,27 @@ if(MSVC)
     )
 endif()
 
-# Header resolution order (PUBLIC so the app and tests inherit it):
 target_include_directories(emu_core PUBLIC
-    ${RP6502_SRC}/emu/shim
-    ${RP6502_SRC}/vga
-    ${RP6502_SRC}/ria
-    ${RP6502_VENDOR}/fatfs
+    ${RP6502_SRC}/emu/host/pico
     ${RP6502_SRC}
+    ${RP6502_VENDOR}/fatfs
     ${RP6502_VENDOR}
     ${RP6502_VENDOR}/chips/chips
     ${RP6502_VENDOR}/chips
     ${RP6502_VENDOR}/sokol
 )
-target_compile_definitions(emu_core PUBLIC _GNU_SOURCE RP6502_EXFAT=0)
+target_compile_definitions(emu_core PUBLIC
+    _GNU_SOURCE
+    RP6502_EXFAT=0
+    RP6502_LOCALE=EN
+    PICO_PROGRAM_NAME="RP6502-EMU")
 # MSVC has no separate libm
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 else()
-    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FImsvc_compat.h)
+    # Shims MSVC alone needs, including a <strings.h> it has no system header for.
+    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/emu/host/win)
+    target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
     target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
@@ -227,7 +230,7 @@ endif()
 # Per-host window: the shared render core + exactly one host's window, or the
 # headless stub when there is no window backend.
 if(EMU_HAS_WINDOW)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/icon.c ${RP6502_SRC}/emu/host/window_core.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/icon.c ${RP6502_SRC}/emu/app/window_core.c)
     if(WIN32)
         list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/win/window.c)
     elseif(APPLE)
@@ -240,7 +243,7 @@ if(EMU_HAS_WINDOW)
         list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/linux/window.c)
     endif()
 else()
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/window_headless.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/window_headless.c)
 endif()
 if(EMU_HAS_AUDIO)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/audio_out.c)
@@ -279,12 +282,19 @@ else()
     set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
     if(WIN32)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
-        target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi)
+        target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32)
+        # GUI subsystem so no console pops up; keep our main() (os_console_attach
+        # reattaches stdio when launched from a terminal).
+        if(MSVC)
+            target_link_options(rp6502-emu PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+        else()
+            target_link_options(rp6502-emu PRIVATE -mwindows)
+        endif()
     elseif(APPLE)
         # sokol on macOS needs Objective-C; compile the impl units as .m and
         # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
         target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/host/window_core.c ${RP6502_SRC}/emu/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
+        set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/emu/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
             PROPERTIES COMPILE_FLAGS "-x objective-c")
         target_link_libraries(rp6502-emu PRIVATE
             "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit")
@@ -308,10 +318,10 @@ else()
             OUTPUT_NAME rp6502
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
         # Tester web root (build/web/html): the menu shell + every test ROM.
-        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/tests/roms/*.rp6502")
+        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${RP6502_SRC}/emu/html" "${CMAKE_BINARY_DIR}/html"
+                "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
             COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
             COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
             COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
@@ -320,9 +330,9 @@ else()
         # itch.io sample (build/web/itch.io): the single-program shell.
         add_custom_target(itch_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${RP6502_SRC}/emu/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+                "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
             COMMAND ${CMAKE_COMMAND} -E copy
-                "${CMAKE_SOURCE_DIR}/tests/roms/adventure.rp6502"
+                "${RP6502_ROOT}/tests/roms/adventure.rp6502"
                 "${CMAKE_BINARY_DIR}/html/rp6502.js"
                 "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
                 "${CMAKE_BINARY_DIR}/itch.io"
@@ -370,6 +380,8 @@ else()
             ${RP6502_SRC}/emu/dbg/dbgui_layout.cc
             ${RP6502_SRC}/emu/dbg/dbgui.cc
             ${RP6502_SRC}/emu/dbg/dwarf_cursor.c
+            ${RP6502_SRC}/emu/dbg/dwarf_elf.c
+            ${RP6502_SRC}/emu/dbg/dwarf_frame.c
             ${RP6502_SRC}/emu/dbg/dwarf_info.c
             ${RP6502_SRC}/emu/dbg/dwarf_line.c
             ${RP6502_SRC}/emu/dbg/imgui_impl.cc
@@ -378,7 +390,7 @@ else()
             ${RP6502_VENDOR}/imgui/imgui_widgets.cpp
             ${RP6502_VENDOR}/imgui/imgui.cpp)
         target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/imgui)
-        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_M6502 UI_DASM_USE_M6502)
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_W65C02 UI_DASM_USE_W65C02)
         target_link_libraries(rp6502-emu PRIVATE cppdap)
         # CHIPS_UI_IMPL / SOKOL_IMGUI_IMPL each belong to exactly one TU.
         set_source_files_properties(${RP6502_SRC}/emu/dbg/imgui_impl.cc
@@ -391,5 +403,5 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(tests)
+    add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()

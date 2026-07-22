@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "hid/hid.h"
-#include "hid/pad.h"
-#include "sys/mem.h"
+#include "ria/hid/hid.h"
+#include "ria/hid/pad.h"
+#include "ria/sys/mem.h"
 #include <pico.h>
 #include <string.h>
 

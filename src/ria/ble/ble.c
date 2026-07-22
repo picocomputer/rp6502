@@ -5,23 +5,24 @@
  */
 
 #if !defined(RP6502_RIA_W)
-#include "ble/ble.h"
+#include "ria/ble/ble.h"
 void ble_task(void) {}
 int ble_status_response(char *, size_t, int, unsigned) { return -1; }
 void ble_set_hid_leds(uint8_t) {}
 #else
 
-#include "ble/ble.h"
-#include "hid/hid.h"
-#include "hid/kbd.h"
-#include "hid/mou.h"
-#include "hid/tab.h"
-#include "hid/pad.h"
-#include "net/cyw.h"
-#include "str/str.h"
-#include "sys/cfg.h"
-#include "sys/led.h"
-#include "main.h"
+#include "ria/ble/ble.h"
+#include "ria/hid/hid.h"
+#include "ria/hid/kbd.h"
+#include "ria/hid/mou.h"
+#include "ria/hid/tab.h"
+#include "ria/hid/pad.h"
+#include "ria/net/cyw.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/cfg.h"
+#include "ria/sys/led.h"
+#include "ria/main.h"
 #include <stdio.h>
 #include <pico/time.h>
 #include <btstack.h>
@@ -614,17 +615,17 @@ int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
     if (ble_enabled)
     {
         if (cyw_get_rf_enable())
-            snprintf_utf8(buf, buf_size, STR_STATUS_BLE_FULL,
-                          ble_count_kbd, ble_count_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
-                          ble_count_mou, ble_count_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
-                          ble_count_pad, ble_count_pad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
-                          ble_pairing ? S(STR_BLE_PAIRING) : "");
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_FULL,
+                              ble_count_kbd, ble_count_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
+                              ble_count_mou, ble_count_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
+                              ble_count_pad, ble_count_pad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
+                              ble_pairing ? S(STR_BLE_PAIRING) : "");
         else
-            snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_RF_OFF));
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_RF_OFF));
     }
     else
     {
-        snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_DISABLED));
+        com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_DISABLED));
     }
     return -1;
 }

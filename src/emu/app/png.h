@@ -11,15 +11,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 bool png_write(const char *path, int w, int h, const uint32_t *rgba);
-
-#ifdef __cplusplus
-}
-#endif
 
 #endif /* _EMU_APP_PNG_H_ */

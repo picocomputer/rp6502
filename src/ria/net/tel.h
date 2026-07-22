@@ -10,7 +10,7 @@
 /* Telnet protocol driver.
  */
 
-#include "net/net.h"
+#include "ria/net/net.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

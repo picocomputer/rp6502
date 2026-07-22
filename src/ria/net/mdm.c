@@ -5,7 +5,7 @@
  */
 
 #ifndef RP6502_RIA_W
-#include "net/mdm.h"
+#include "ria/net/mdm.h"
 #include <pico/stdlib.h>
 void mdm_task(void) {}
 void mdm_stop(void) {}
@@ -36,15 +36,15 @@ bool mdm_set_listen_port(uint16_t port)
 }
 #else
 
-#include "net/cmd.h"
-#include "net/mdm.h"
-#include "net/net.h"
-#include "net/cyw.h"
-#include "net/tel.h"
-#include "net/wfi.h"
-#include "str/str.h"
-#include "sys/com_hw.h"
-#include "sys/lfs.h"
+#include "ria/net/cmd.h"
+#include "ria/net/mdm.h"
+#include "ria/net/net.h"
+#include "ria/net/cyw.h"
+#include "ria/net/tel.h"
+#include "ria/net/wfi.h"
+#include "ria/str/str.h"
+#include "ria/sys/com.h"
+#include "ria/sys/lfs.h"
 #include <pico/time.h>
 #include <stdlib.h>
 

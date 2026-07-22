@@ -13,7 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "api/api.h"
+#include "ria/api/api.h"
 
 /* Main events
  */
@@ -62,9 +62,5 @@ typedef struct
     std_rw_result (*sync)(int desc, api_errno *);
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
 } std_driver_t;
-
-// This platform's driver table (std_drivers.c)
-extern const std_driver_t std_drivers[];
-extern const size_t std_driver_count;
 
 #endif /* _RIA_API_STD_H_ */

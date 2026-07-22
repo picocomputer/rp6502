@@ -7,18 +7,19 @@
  * NativeActivity glue owns the real entry point), the native gamepad/menu input
  * hook, the on-screen ROM-select menu (sdtx overlay + storage scanning + JNI
  * all-files-access permission), and the host_window_* hooks. The render/frame/
- * present pipeline is in host/window_core.c.
+ * present pipeline is in app/window_core.c.
  */
 
-#include "emu/host/window.h"
-#include "emu/host/window_core.h"
+#include "emu/app/window.h"
+#include "emu/app/window_core.h"
 #include "sokol_app.h"
 #include "sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
 #include "sokol_log.h"
 #include "util/sokol_debugtext.h"
 #include "emu/hid/pad.h"
 #include "emu/main.h"
-#include "emu/mon/rom.h"
+#include "emu/emu/rom.h"
+#include "emu/sys/cpu.h"
 #include "emu/sys/vga.h"
 #include <android/input.h>
 #include <android/keycodes.h>
@@ -401,6 +402,7 @@ bool rp6502_android_input_hook(const void* native_event)
 void host_window_resize(int w, int h) { (void)w, (void)h; }
 void host_window_set_aspect_hint(int cw, int ch) { (void)cw, (void)ch; }
 void host_window_files_dropped(void) {} /* sokol has no Android drag-n-drop */
+void host_window_open_url(const char *url) { (void)url; } /* no desktop drop-a-ROM prompt */
 
 void host_window_init(void)
 {
@@ -466,17 +468,19 @@ sapp_desc sokol_main(int argc, char* argv[])
     detect_rom_directory();
     chdir(g_rom_dir);
 
-    // Initialize emulator
+    // Initialize the drivers once; the machine is started per-program (main_run).
     main_init();
 
     // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
     if (rom_load("boot.rp6502"))
     {
         g_android_menu_active = false;
+        main_run(); // start the boot ROM
     }
     else
     {
         g_android_menu_active = true;
+        cpu_set_halted(true); // no program yet — hold until the menu boots one
         android_scan_roms();
     }
 

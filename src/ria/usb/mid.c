@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/mid.h"
-#include "str/str.h"
-#include "usb/usb.h"
+#include "ria/usb/mid.h"
+#include "ria/str/str.h"
+#include "ria/usb/usb.h"
 #include <tusb.h>
 #include <pico/time.h>
 #include <stdio.h>
@@ -85,7 +85,7 @@ typedef struct
     uint8_t tx_status;
     bool tx_pending;
     bool tx_idle;
-    uint8_t tx_rt; // realtime byte interrupting a message, emitted inline; 0 = none
+    uint8_t tx_rt;     // realtime byte interrupting a message, emitted inline; 0 = none
     uint8_t tx_acc[3]; // sysex bytes accumulating toward one packet
     uint8_t tx_acc_len;
     bool tx_acc_eox;      // accumulator ends the sysex
@@ -788,15 +788,6 @@ void mid_task(void)
             tuh_midi_write_flush(itf);
 }
 
-int mid_status_count(void)
-{
-    int count = 0;
-    for (uint8_t idx = 0; idx < CFG_TUH_MIDI; idx++)
-        if (mid_mounts[idx].mounted)
-            count++;
-    return count;
-}
-
 int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     if (state < 0 || state >= CFG_TUH_MIDI)
@@ -817,7 +808,7 @@ int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
             tuh_vid_pid_get(conn->daddr, &vid, &pid);
             snprintf(name, sizeof(name), "%04X:%04X", vid, pid);
         }
-        // name is OEM, snprintf_utf8 would mangle high bytes
+        // name is OEM, com_snprintf_utf8 would mangle high bytes
         snprintf(buf, buf_size, STR_STATUS_MIDI, devname, name);
     }
     return state + 1;

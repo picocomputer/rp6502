@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "usb/usb.h"
+#include "vga/usb/usb.h"
 #include <tusb.h>
 
 void usb_init(void)

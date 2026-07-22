@@ -4,15 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "main.h"
-#include "api/api.h"
-#include "mon/mon.h"
-#include "mon/ram.h"
-#include "str/rln.h"
-#include "str/str.h"
-#include "sys/mem.h"
-#include "sys/pix.h"
-#include "sys/ria.h"
+#include "ria/main.h"
+#include "ria/api/api.h"
+#include "ria/mon/mon.h"
+#include "ria/mon/ram.h"
+#include "ria/str/rln.h"
+#include "ria/str/str.h"
+#include "ria/sys/mem.h"
+#include "ria/sys/pix.h"
+#include "ria/sys/ria.h"
 #include <stdio.h>
 #include <ctype.h>
 
@@ -342,7 +342,7 @@ static void ram_rx_mbuf(bool timeout)
         mon_add_response_utf8(S(STR_ERR_RX_TIMEOUT));
         return;
     }
-    if (ria_buf_crc32() != ram_rw_crc)
+    if (mem_crc32(0, mbuf, mbuf_len) != ram_rw_crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return;

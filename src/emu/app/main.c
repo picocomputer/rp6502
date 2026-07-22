@@ -5,24 +5,25 @@
  *
  */
 
-#include "emu/api/oem.h"
-#include "emu/api/pro.h"
-#include "emu/host/window.h"
-#include "emu/aud/aud.h"
+#include "ria/api/oem.h"
+#include "ria/str/str.h"
+#include "emu/emu/pro.h"
+#include "emu/app/window.h"
+#include "emu/host/host.h"
+#include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/app/png.h"
 #include "emu/app/rand.h"
-#include "emu/mon/install.h"
-#include "emu/mon/rom.h"
-#include "emu/api/tmpfs.h"
+#include "emu/emu/rom.h"
+#include "emu/emu/tmp.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
+#include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
-#include "sys/com.h"
+#include "emu/sys/com.h"
 #include <stdio.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER
@@ -32,71 +33,25 @@
 
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
-/* Queue scripted keystrokes onto the keyboard input stream. Newlines become
- * carriage returns so the line editor treats them as Enter. Bytes wait in the
- * com ring until the program's first stdin read drains them. */
+/* Queue scripted keystrokes onto the keyboard input stream, converting the
+ * host-encoding option text to OEM. Newlines become carriage returns so the
+ * line editor treats them as Enter. Bytes wait in the com ring until the
+ * program's first stdin read drains them. */
 static void queue_input(const char *text)
 {
-    for (const char *p = text; *p; p++)
+    char oem[1024]; /* the 512-byte kbd ring caps what can queue anyway */
+    if (!os_argv_to_oem(text, oem, sizeof oem))
+    {
+        fprintf(stderr, "rp6502-emu: --input too long\n");
+        return;
+    }
+    for (const char *p = oem; *p; p++)
         com_kbd_push_byte((uint8_t)(*p == '\n' ? '\r' : *p));
 }
 
-/* Fold the launch ROM's "emulator" asset (if any) into o at lower priority than
- * the command line: parse the asset first, then re-apply argv over it. */
-static void merge_rom_args(cli_options *o, int argc, char **argv)
-{
-    char asset[2048];
-    long n = rom_read_asset("emulator", asset, sizeof asset - 1);
-    if (n < 0)
-        return; /* no such asset: command line stands alone */
-    asset[n] = 0;
-
-    static char store[2048];
-    static char *rom_argv[65];
-    rom_argv[0] = (char *)"emulator"; /* getopt skips argv[0]; give it a name */
-    int rom_argc = cli_tokenize_args(asset, rom_argv + 1, 64, store, sizeof store) + 1;
-
-    cli_options merged;
-    cli_options_init(&merged);
-    if (cli_parse_args(rom_argc, rom_argv, &merged))
-        fprintf(stderr, "rp6502-emu: ignoring the rest of the ROM 'emulator' options after a bad token\n");
-    cli_parse_args(argc, argv, &merged); /* the command line wins within allowed fields */
-
-    /* Allowlist: a ROM's "emulator" asset may preset only presentation/timing
-     * options — never anything that touches the host filesystem, injects input,
-     * or controls the session (rom/shot/input/frames/tmpdrive/inidir/installs/
-     * debug/dap/rom_args stay command-line only). Take the allowed fields from
-     * the merged parse (the command line already overrode the asset there) and
-     * leave every other field of o at its command-line value. */
-    if (merged.have_bg)
-    {
-        o->have_bg = true;
-        o->bg_r = merged.bg_r;
-        o->bg_g = merged.bg_g;
-        o->bg_b = merged.bg_b;
-    }
-    if (merged.have_scale)
-    {
-        o->have_scale = true;
-        o->scale = merged.scale;
-    }
-    o->vsync = merged.vsync;
-    o->scale_filter = merged.scale_filter;
-    if (merged.phi2_khz > 0)
-        o->phi2_khz = merged.phi2_khz;
-    if (merged.code_page > 0)
-        o->code_page = merged.code_page;
-    o->mute = merged.mute;
-    if (merged.have_seed)
-    {
-        o->have_seed = true;
-        o->seed = merged.seed;
-    }
-}
-
-/* Apply the presentation/timing options shared by both launch paths. False (with
- * a message) on an out-of-range --phi2 or an unsupported --code-page. */
-static bool apply_options(const cli_options *o)
+/* Apply the host/window presentation options shared by both launch paths. phi2/cp
+ * are machine settings loaded as config before main_init, not here. */
+static void apply_options(const cli_options *o)
 {
     if (o->have_bg)
         window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
@@ -105,25 +60,6 @@ static bool apply_options(const cli_options *o)
         rand_set_seed((uint64_t)o->seed);
     if (o->mute)
         aud_set_enabled(false);
-    if (o->phi2_khz > 0)
-    {
-        if (o->phi2_khz < CPU_PHI2_MIN_KHZ || o->phi2_khz > CPU_PHI2_MAX_KHZ)
-        {
-            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
-                    o->phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
-            return false;
-        }
-        cpu_set_phi2_khz_run((uint16_t)o->phi2_khz);
-    }
-    if (o->code_page > 0)
-    {
-        if (o->code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o->code_page))
-        {
-            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o->code_page);
-            return false;
-        }
-    }
-    return true;
 }
 
 #ifdef EMU_WITH_DEBUGGER
@@ -133,12 +69,11 @@ static bool apply_options(const cli_options *o)
  * (with the debugger overlay) so the program is visible while VS Code drives. */
 static int run_dap(const cli_options *o)
 {
-    main_init();
-    cpu_set_halted(true); /* hold until the DAP launch loads a program */
+    cpu_set_halted(true); /* the machine is initialized; hold it (no program yet)
+                           * until the DAP launch loads + runs one via pro_exec */
     dbg_set_active(true);
 
-    if (!apply_options(o))
-        return 1;
+    apply_options(o);
 
     if (o->rom_args)
         dap_set_default_args(o->n_rom_args, o->rom_args);
@@ -152,6 +87,7 @@ static int run_dap(const cli_options *o)
 
 int main(int argc, char **argv)
 {
+    os_console_attach();
     cli_options o;
     cli_options_init(&o);
     if (cli_parse_args(argc, argv, &o))
@@ -178,21 +114,72 @@ int main(int argc, char **argv)
 
     /* MSC0: is the native host filesystem — whatever the process cwd is.
      * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
-     * (isolation). This locates the drive, so it comes from the command line,
-     * not the ROM's asset args. */
-    if (o.tmpdrive && !tmpfs_mount())
+     * (isolation). */
+    if (o.tmpdrive && !tmp_mount())
     {
         fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
         return 1;
     }
 
-    /* Install ROMs before the boot load / any exec can resolve them. */
+    /* Load the command-line settings as config, then init the machine ONCE —
+     * mirroring the firmware's cfg_init, whose *_load_* verbs run before
+     * cpu_init/oem_init adopt them. Everything below needs the drivers + the
+     * resolved code page (argv conversion is per-page), so it all follows
+     * main_init; the machine is started (main_run) after the ROM loads. */
+    if (o.phi2_khz > 0)
+    {
+        if (o.phi2_khz > UINT16_MAX || !cpu_set_phi2_khz((uint16_t)o.phi2_khz))
+        {
+            fprintf(stderr, "rp6502-emu: --phi2 %d out of range (%d-%d)\n",
+                    o.phi2_khz, CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ);
+            return 1;
+        }
+    }
+    if (o.code_page > 0)
+    {
+        if (o.code_page > UINT16_MAX || !oem_set_code_page((uint16_t)o.code_page))
+        {
+            fprintf(stderr, "rp6502-emu: unsupported code page %d\n", o.code_page);
+            return 1;
+        }
+    }
+    main_init();
+
+    /* Install ROMs before the boot load / any exec can resolve them. Paths and
+     * ROM args are guest-bound, so they convert from host argv encoding to OEM
+     * here at the entry; --shot/--ini stay host-domain untouched. */
     for (int i = 0; i < o.n_installs; i++)
-        if (!install_rom(o.installs[i]))
+    {
+        char oem[4096];
+        if (!os_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_install(oem))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;
         }
+    }
+
+    static char args_store[2048];
+    static char *args_oem[64];
+    if (o.rom_args)
+    {
+        size_t used = 0;
+        if (o.n_rom_args > (int)(sizeof args_oem / sizeof *args_oem))
+        {
+            fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
+            return 1;
+        }
+        for (int i = 0; i < o.n_rom_args; i++)
+        {
+            if (!os_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
+            {
+                fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
+                return 1;
+            }
+            args_oem[i] = args_store + used;
+            used += strlen(args_oem[i]) + 1;
+        }
+        o.rom_args = args_oem;
+    }
 
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
@@ -207,26 +194,48 @@ int main(int argc, char **argv)
 
     /* No positional ROM but installs given: boot the first installed ROM (:name). */
     char bootbuf[256];
-    const char *rom = o.rom;
-    if (!rom && o.n_installs > 0)
+    char rom_oem[4096];
+    const char *rom = NULL;
+    if (o.rom)
     {
-        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(o.installs[0]));
+        if (!os_argv_to_oem(o.rom, rom_oem, sizeof rom_oem))
+        {
+            fprintf(stderr, "rp6502-emu: ROM path too long\n");
+            return 1;
+        }
+        rom = rom_oem;
+    }
+    else if (o.n_installs > 0)
+    {
+        char inst[4096];
+        if (!os_argv_to_oem(o.installs[0], inst, sizeof inst))
+        {
+            fprintf(stderr, "rp6502-emu: ROM path too long\n");
+            return 1;
+        }
+        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(inst));
         rom = bootbuf;
     }
 
     if (!rom)
     {
-        cli_usage(argv[0]);
-        return 2;
+        /* No ROM. --screenshot is batch (nothing to shoot); otherwise a desktop
+         * host waits for a drag-and-dropped one. Anything else prints usage. */
+        if (o.shot || !window_wait_for_rom())
+        {
+            cli_usage(argv[0]);
+            return 2;
+        }
+        apply_options(&o);
+        if (o.debug)
+            dbg_set_active(true); /* show the debugger overlay while waiting for a drop */
+        cpu_set_halted(true); /* held until a dropped .rp6502 boots one */
+        return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
     }
 
     if (!rom_load(rom))
         return 1;
 
-    /* The ROM is loaded; fold its "emulator" asset args under the command line. */
-    merge_rom_args(&o, argc, argv);
-
-    main_init();
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
     if (!pro_set_argv(rom, o.n_rom_args, o.rom_args))
@@ -235,8 +244,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    if (!apply_options(&o))
-        return 1;
+    apply_options(&o);
 
     /* Enable the debugger engine (the on-screen UI and the DAP adapter both
      * attach to it). Inert with no breakpoints, but --dap will also stand up the
@@ -247,6 +255,8 @@ int main(int argc, char **argv)
     if (o.input)
         queue_input(o.input);
 
+    main_run(); /* start the machine — main_init only initialized the drivers */
+
     if (o.shot)
     {
         int frames = o.frames < 1 ? 1 : o.frames;
@@ -254,14 +264,14 @@ int main(int argc, char **argv)
          * the per-scanline pixel work (most of the per-frame cost); render the
          * last one and snapshot it. */
         for (int i = 0; i < frames - 1; i++)
-            main_run_frame_norender();
-        main_run_frame(); /* renders into g_fb (registered above) */
+            sys_run_frame_norender();
+        sys_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!png_write(o.shot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.shot, frames, cpu_halted() ? "halted" : "running", main_exit_code());
+               o.shot, frames, cpu_halted() ? "halted" : "running", pro_get_exit_code());
         return 0;
     }
 

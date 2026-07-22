@@ -13,7 +13,8 @@
                 "dir.rp6502",
                 "mode2.rp6502",
                 "furelise.rp6502",
-                "paint.rp6502",
+                "paint_mou.rp6502",
+                "paint_tab.rp6502",
                 "gamepad.rp6502"
             ]
         }
@@ -26,7 +27,7 @@
             "program": "${workspaceFolder}/build/emulator/debug/rp6502-emu",
             "args": [
                 "--debug",
-                "${workspaceFolder}/src/emu/tests/roms/${input:romPick}"
+                "${workspaceFolder}/tests/roms/${input:romPick}"
             ],
             "cwd": "${workspaceFolder}/src/emu",
             "environment": [
