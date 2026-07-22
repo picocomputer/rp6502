@@ -7,8 +7,6 @@
 
 #include "emu/app/audio_out.h"
 
-#ifdef EMU_WITH_AUDIO
-
 #include "emu/emu/aud.h"
 #include "sokol/sokol_audio.h"
 
@@ -67,9 +65,3 @@ void audio_out_pump(void)
             saudio_push(out, oc);
     }
 }
-
-#else
-
-void audio_out_pump(void) {}
-
-#endif /* EMU_WITH_AUDIO */

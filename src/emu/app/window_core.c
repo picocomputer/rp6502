@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The host-neutral window core: the render/frame/present pipeline shared by
- * every windowed host. It carries no platform #ifdefs (only EMU_WITH_DEBUGGER /
- * EMU_WITH_AUDIO feature gates). Anything that differs per host — the WM seam,
+ * every windowed host. It carries no platform #ifdefs (only the EMU_WITH_DEBUGGER
+ * feature gate). Anything that differs per host — the WM seam,
  * the entry point, the Android overlay — is a host_window_* hook (window_core.h)
  * implemented in host/<os>/window.c.
  */
@@ -20,10 +20,8 @@
 #include "sokol/util/sokol_letterbox.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
-#ifdef EMU_WITH_AUDIO
 #include "sokol/sokol_audio.h"
 #include "emu/app/audio_out.h"
-#endif
 #ifdef EMU_WITH_DEBUGGER
 #include "emu/dbg/dbgui.h"
 #include "emu/dbg/dap.h"
@@ -359,13 +357,11 @@ void window_core_init(void)
         .environment = sglue_environment(),
         .logger.func = slog_func,
     });
-#ifdef EMU_WITH_AUDIO
     if (aud_enabled()) /* --mute opens no OS audio device */
         saudio_setup(&(saudio_desc){
             .num_channels = 2,
             .logger.func = slog_func,
         });
-#endif
     sfb_setup(&(sfb_desc){
         .logger.func = slog_func,
     });
@@ -430,9 +426,7 @@ void window_core_frame(void)
         done++;
     }
 
-#ifdef EMU_WITH_AUDIO
     audio_out_pump();
-#endif
     input_paste_pump();
 
     /* Reflect the run state in the title so the user knows the run is done (exec
@@ -968,10 +962,8 @@ int window_core_exit_code(void)
 
 void window_core_cleanup(void)
 {
-#ifdef EMU_WITH_AUDIO
     if (aud_enabled())
         saudio_shutdown();
-#endif
 #ifdef EMU_WITH_DEBUGGER
     dap_stop(); /* notify any attached DAP client before the window goes away */
     if (dbg_is_active())

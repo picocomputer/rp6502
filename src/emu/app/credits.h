@@ -14,9 +14,7 @@ static const char EMU_CREDITS[] =
     "  RP6502                       BSD-3   (c) 2026 Rumbledethumps\n"
     "  Pi Pico SDK                  BSD-3   (c) 2020 Raspberry Pi (Trading) Ltd.\n"
     "  floooh/chips                 zlib    (c) 2018 Andre Weissflog\n"
-#ifdef EMU_WITH_SOKOL
     "  floooh/sokol                 zlib    (c) 2018 Andre Weissflog\n"
-#endif
     "  emu8950 (OPL audio)          MIT     (c) 2001-2020 Mitsutaka Okazaki;\n"
     "                                       (c) 2021-2022 Graham Sanderson\n"
     "  FatFs, ChaN                  FatFs   (c) 2025 ChaN\n"

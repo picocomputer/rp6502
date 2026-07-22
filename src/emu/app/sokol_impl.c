@@ -11,8 +11,6 @@
 #include "sokol/sokol_glue.h"
 #include "sokol/util/sokol_framebuffer.h"
 #include "sokol/util/sokol_letterbox.h"
-#ifdef EMU_WITH_AUDIO
 #include "sokol/sokol_audio.h"
-#endif
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"

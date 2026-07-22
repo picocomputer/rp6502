@@ -7,8 +7,6 @@
 
 #include "emu/app/input.h"
 
-#ifdef EMU_WITH_SOKOL
-
 #include "emu/app/window.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
@@ -595,5 +593,3 @@ void input_event(const sapp_event *e)
         break;
     }
 }
-
-#endif /* EMU_WITH_SOKOL */
