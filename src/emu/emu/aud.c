@@ -135,6 +135,59 @@ int aud_read(float *dst, int max_frames)
     return got;
 }
 
+/* Linear resampler carry across frames so interpolation is continuous: the read
+ * position between the previous and current native input sample, and that
+ * previous sample. */
+static struct
+{
+    double frac;
+    float prev_l, prev_r;
+    bool primed;
+} g_rs;
+
+void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames))
+{
+    int in_rate = aud_rate();
+    if (in_rate <= 0 || out_rate <= 0)
+        return;
+    const double step = (double)in_rate / out_rate; /* input frames per output frame */
+
+    static float in[4096 * 2];
+    static float out[4096 * 2];
+    int navail;
+    while ((navail = aud_read(in, 4096)) > 0)
+    {
+        int oc = 0;
+        for (int i = 0; i < navail; i++)
+        {
+            float cl = in[i * 2 + 0], cr = in[i * 2 + 1];
+            if (!g_rs.primed)
+            {
+                g_rs.prev_l = cl;
+                g_rs.prev_r = cr;
+                g_rs.primed = true;
+            }
+            /* Emit every output sample that falls between prev and cur. */
+            while (g_rs.frac < 1.0)
+            {
+                out[oc * 2 + 0] = g_rs.prev_l + (cl - g_rs.prev_l) * (float)g_rs.frac;
+                out[oc * 2 + 1] = g_rs.prev_r + (cr - g_rs.prev_r) * (float)g_rs.frac;
+                if (++oc == 4096)
+                {
+                    push(out, oc);
+                    oc = 0;
+                }
+                g_rs.frac += step;
+            }
+            g_rs.frac -= 1.0;
+            g_rs.prev_l = cl;
+            g_rs.prev_r = cr;
+        }
+        if (oc > 0)
+            push(out, oc);
+    }
+}
+
 const float *aud_viz_buffer(int *num_samples)
 {
     *num_samples = AUD_VIZ_SAMPLES;

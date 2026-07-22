@@ -21,7 +21,6 @@
 #include "sokol/util/sokol_debugtext.h"
 #include "sokol/util/sokol_gl.h"
 #include "sokol/sokol_audio.h"
-#include "emu/app/audio_out.h"
 #ifdef EMU_WITH_DEBUGGER
 #include "emu/dbg/dbgui.h"
 #include "emu/dbg/dap.h"
@@ -426,7 +425,8 @@ void window_core_frame(void)
         done++;
     }
 
-    audio_out_pump();
+    if (saudio_isvalid()) /* --mute opens no device; skip the resample+push */
+        aud_pump(saudio_sample_rate(), saudio_push);
     input_paste_pump();
 
     /* Reflect the run state in the title so the user knows the run is done (exec

@@ -212,12 +212,11 @@ endif()
 if(EMSCRIPTEN)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/web/exports.c)
 endif()
-# The shared render core + audio pump + exactly one host's window.
+# The shared render core + exactly one host's window.
 list(APPEND APP_SOURCES
     ${RP6502_SRC}/emu/app/sokol_impl.c
     ${RP6502_SRC}/emu/app/icon.c
-    ${RP6502_SRC}/emu/app/window_core.c
-    ${RP6502_SRC}/emu/app/audio_out.c)
+    ${RP6502_SRC}/emu/app/window_core.c)
 if(WIN32)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/win/window.c)
 elseif(APPLE)
