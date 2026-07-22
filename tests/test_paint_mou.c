@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * 6522 VIA timer-IRQ + mouse integration, driven by paint.rp6502. Paint maps the
- * HID mouse (xreg device 0, channel 0, address 1) and arms VIA Timer 1 in
+ * 6522 VIA timer-IRQ + mouse integration, driven by paint_mou.rp6502. Paint maps
+ * the HID mouse (xreg device 0, channel 0, address 1) and arms VIA Timer 1 in
  * free-run mode for a 125 Hz IRQ; its ISR reads the mouse counters and moves the
  * on-screen pointer sprite. With no mouse motion the frame is static, so a frame
  * change after feeding host motion proves the whole chain fired: the VIA pulled
@@ -36,7 +36,7 @@ static void run(int n)
 
 UTEST(paint, via_irq_moves_pointer)
 {
-    ASSERT_TRUE(emu_restart(PAINT_ROM));
+    ASSERT_TRUE(emu_restart(PAINT_MOU_ROM));
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 
