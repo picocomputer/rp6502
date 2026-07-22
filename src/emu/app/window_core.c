@@ -280,18 +280,19 @@ void window_set_pointer_on_canvas(bool on)
 }
 
 /* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
- * hides it (the ROM draws its own), otherwise show that shape. Applied every
- * frame — the debugger's simgui also sets the cursor every frame, so a one-shot
- * would be overwritten. Over a debugger panel ImGui owns the shape, so we only
- * keep the pointer visible there. */
+ * hides it (the ROM draws its own), otherwise show that shape. This is the sole
+ * cursor writer (simgui's own control is disabled), run every frame so a ROM
+ * cursor change or a debugger panel-hover change is reflected promptly. Over a
+ * debugger panel ImGui owns the shape, applied via dbgui_mouse_cursor. */
 static void update_cursor(void)
 {
     static bool had_tablet;
 #ifdef EMU_WITH_DEBUGGER
     if (dbg_is_active() && dbgui_wants_mouse())
     {
-        /* Over a debugger panel ImGui owns the cursor shape; undo any
-         * TAB_CURSOR_OFF hide so the panel is usable with a visible pointer. */
+        /* Over a debugger panel ImGui owns the shape; apply it (simgui no longer
+         * does) and keep the pointer visible over any TAB_CURSOR_OFF hide. */
+        sapp_set_mouse_cursor((sapp_mouse_cursor)dbgui_mouse_cursor());
         sapp_show_mouse(true);
         return;
     }
@@ -510,8 +511,8 @@ void window_core_frame(void)
     }
 #endif
 
-    /* After the debugger set its cursor (simgui, every frame) so the tablet's
-     * cursor wins over the canvas. */
+    /* After dbgui_draw so ImGui's hovered-item cursor for this frame is known;
+     * update_cursor is the sole cursor writer (simgui's control is disabled). */
     update_cursor();
 
     /* Aspect-preserving viewport fitted into the canvas region (the dockspace
