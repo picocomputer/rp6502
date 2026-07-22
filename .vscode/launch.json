@@ -26,7 +26,7 @@
             "program": "${workspaceFolder}/build/emulator/debug/rp6502-emu",
             "args": [
                 "--debug",
-                "${workspaceFolder}/src/tests/roms/${input:romPick}"
+                "${workspaceFolder}/tests/roms/${input:romPick}"
             ],
             "cwd": "${workspaceFolder}/src/emu",
             "environment": [

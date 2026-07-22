@@ -6,14 +6,14 @@
  * Debugger core: the one run/stop/step + address-breakpoint engine, shared by
  * the cppdap adapter (dap.cpp) and the on-screen chips debugger (dbgui.cc).
  *
- * Inert until dbg_set_active(true): sys.c's CPU loop only consults it when
+ * Inert until dbg_set_active(true): main.c's CPU loop only consults it when
  * active, so a normal run is byte-for-byte unaffected. All state changes run on
  * the emulation (main) thread — the cppdap reader thread marshals its requests
  * to the main loop — EXCEPT dbg_request_pause(), which is a lone atomic flag a
  * DAP thread may set at any time.
  *
  * Stop semantics: dbg_at_instruction() is called from the tick loop right after
- * the opcode-fetch cycle (M6502_SYNC) of the instruction at pc, i.e. before that
+ * the opcode-fetch cycle (W65C02_SYNC) of the instruction at pc, i.e. before that
  * instruction's effect cycles run. Stopping there means PC=pc with the registers
  * in their pre-instruction state; resuming completes the instruction. A given
  * address re-evaluates every time it is fetched, so a breakpoint inside a loop

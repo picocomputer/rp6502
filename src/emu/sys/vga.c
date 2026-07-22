@@ -6,9 +6,8 @@
  */
 
 #include "emu/sys/mem.h"
-#include "emu/sys/vga.h"
-#include "emu/sys/pix.h"
-#include "emu/chips/rp6502.h"
+#include "ria/sys/pix.h"
+#include "emu/sys/ria.h"
 #include "emu/sys/vga.h"
 #include "vga/term/term.h"
 #include "vga/term/font.h"
@@ -296,7 +295,7 @@ static void render_scanline(int y, uint32_t *fb)
 }
 
 /* Render scanline y of the current frame into the registered framebuffer,
- * interleaved with the CPU by main_run_frame so mid-frame state changes land on
+ * interleaved with the CPU by sys_run_frame so mid-frame state changes land on
  * later lines (raster effects), matching the real per-scanline VGA scanout. */
 void vga_render_scanline(int y)
 {

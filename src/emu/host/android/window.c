@@ -18,7 +18,7 @@
 #include "util/sokol_debugtext.h"
 #include "emu/hid/pad.h"
 #include "emu/main.h"
-#include "emu/host/rom.h"
+#include "emu/emu/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/vga.h"
 #include <android/input.h>

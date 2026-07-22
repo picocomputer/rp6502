@@ -11,7 +11,7 @@
 #include "ria/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/mem.h"
-#include "sys/pix.h"
+#include "ria/sys/pix.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -107,7 +107,7 @@ static std_rw_result std_stdout_write(int desc, const char *buf, uint32_t count,
     (void)err;
     uint32_t i = 0;
     for (; i < count && com_putchar_ready(); i++)
-        putchar(buf[i]);
+        com_putchar(buf[i]);
     *bytes_written = i;
     return (i < count) ? STD_PENDING : STD_OK;
 }

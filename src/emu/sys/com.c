@@ -7,8 +7,9 @@
 
 #include "ria/api/oem.h"
 #include "emu/sys/com.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include "ria/aud/bel.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,6 +159,56 @@ void com_tx_write(const char *buf, int len)
                 bel_add(&bel_teletype);
     if (com_term_out)
         com_term_out(buf, len);
+}
+
+/* The pico_stdio layer, folded in from the pico/stdio shim. On hardware the SDK
+ * does CRLF translation above the driver, so a reused firmware source's putchar/
+ * printf reaches the terminal already translated: a bare '\n' becomes "\r\n".
+ * The firmware analog flag (com_stdio_driver.crlf_enabled) is constant true, so
+ * it is applied unconditionally. */
+static void com_crlf_write(const char *buf, int len)
+{
+    static char last;
+    char out[2 * 64];
+    int n = 0;
+    for (int i = 0; i < len; i++)
+    {
+        char c = buf[i];
+        if (c == '\n' && last != '\r')
+            out[n++] = '\r';
+        out[n++] = c;
+        last = c;
+        if (n >= (int)sizeof(out) - 1)
+        {
+            com_tx_write(out, n);
+            n = 0;
+        }
+    }
+    if (n)
+        com_tx_write(out, n);
+}
+
+/* The console TX primitives (ria/sys/com.h): the reused readline/std sources
+ * call these directly. They CRLF-translate and hand the bytes to com_tx_write. */
+int com_putchar(int c)
+{
+    char ch = (char)c;
+    com_crlf_write(&ch, 1);
+    return (int)(unsigned char)c;
+}
+
+int com_printf(const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n <= 0)
+        return n;
+    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
+    com_crlf_write(buf, w);
+    return n;
 }
 
 /* Output side of the shared contract. The terminal sink never backpressures,

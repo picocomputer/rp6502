@@ -85,7 +85,7 @@ typedef struct
     uint8_t tx_status;
     bool tx_pending;
     bool tx_idle;
-    uint8_t tx_rt; // realtime byte interrupting a message, emitted inline; 0 = none
+    uint8_t tx_rt;     // realtime byte interrupting a message, emitted inline; 0 = none
     uint8_t tx_acc[3]; // sysex bytes accumulating toward one packet
     uint8_t tx_acc_len;
     bool tx_acc_eox;      // accumulator ends the sysex
@@ -808,7 +808,7 @@ int mid_status_response(char *buf, size_t buf_size, int state, unsigned)
             tuh_vid_pid_get(conn->daddr, &vid, &pid);
             snprintf(name, sizeof(name), "%04X:%04X", vid, pid);
         }
-        // name is OEM, snprintf_utf8 would mangle high bytes
+        // name is OEM, com_snprintf_utf8 would mangle high bytes
         snprintf(buf, buf_size, STR_STATUS_MIDI, devname, name);
     }
     return state + 1;

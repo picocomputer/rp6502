@@ -12,6 +12,7 @@
 #include "ria/api/oem.h"
 #include "ria/api/pro.h"
 #include "ria/api/std.h"
+#include "ria/api/tim.h"
 #include "ria/aud/aud.h"
 #include "ria/aud/opl.h"
 #include "ria/aud/psg.h"
@@ -118,7 +119,7 @@ static void __in_flash("init") init(void)
     pad_init();
     tab_init();
     rom_init();
-    clk_init();
+    tim_init();
     mdm_init();
     rln_init();
 
@@ -278,10 +279,6 @@ bool main_api(uint8_t operation)
         return atr_api_get();
     case 0x0B:
         return atr_api_set();
-    case 0x0D:
-        return clk_api_tzset();
-    case 0x0E:
-        return clk_api_tzquery();
     case 0x0F:
         return clk_api_clock();
     case 0x10:
@@ -411,6 +408,7 @@ bool main_active(void)
 
 int main(void)
 {
+    sys_main();
     cpu_main();
     init();
     while (true)

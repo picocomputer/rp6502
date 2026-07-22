@@ -1954,19 +1954,19 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
             msc_inquiry_rtrim(inq.vendor_id, 8);
             msc_inquiry_rtrim(inq.product_id, 16);
             msc_inquiry_rtrim(inq.product_rev, 4);
-            snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
-                          VolumeStr[vol],
-                          sizebuf,
-                          inq.vendor_id,
-                          inq.product_id,
-                          inq.product_rev);
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+                              VolumeStr[vol],
+                              sizebuf,
+                              inq.vendor_id,
+                              inq.product_id,
+                              inq.product_rev);
         }
         else
         {
-            snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
-                          VolumeStr[vol],
-                          sizebuf,
-                          S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");
+            com_snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+                              VolumeStr[vol],
+                              sizebuf,
+                              S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");
         }
     }
     return state + 1;
@@ -2087,4 +2087,3 @@ bool msc_dsk_format_track(uint8_t vol, uint8_t track, uint8_t head)
         return false;
     return msc_scsi_format_unit(pdrv, track, head) == MSC_STATUS_PASSED;
 }
-

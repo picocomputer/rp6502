@@ -89,7 +89,7 @@ int vcp_status_response(char *buf, size_t buf_size, int state, unsigned)
         if (desc)
             usb_desc_string_to_oem(desc, USB_DESC_STRING_BUF_SIZE, product, sizeof(product));
         snprintf(comname, sizeof(comname), "%s%d", vcp_string, state);
-        // vendor/product are OEM, snprintf_utf8 would mangle high bytes
+        // vendor/product are OEM, com_snprintf_utf8 would mangle high bytes
         int n = snprintf(buf, buf_size, STR_STATUS_CDC, comname,
                          vendor[0] ? vendor : vcp_alt_vendor_name(vid, pid),
                          product);

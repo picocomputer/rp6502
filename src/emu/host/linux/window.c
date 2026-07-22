@@ -132,5 +132,5 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
         .clipboard_size = 65536,
         .logger.func = slog_func,
     });
-    return 0;
+    return window_core_exit_code();
 }

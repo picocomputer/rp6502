@@ -7,6 +7,7 @@
 #include "ria/aud/aud.h"
 #include "ria/aud/bel.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/sys.h"
 #include <math.h>
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
@@ -77,7 +78,7 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
         aud_irq_fn = irq_fn;
         pwm_clear_irq(AUD_IRQ_SLICE);
         irq_set_exclusive_handler(PWM_IRQ_WRAP_0, irq_fn);
-        pwm_set_wrap(AUD_IRQ_SLICE, (CPU_RP2350_KHZ * 1000u) / rate - 1);
+        pwm_set_wrap(AUD_IRQ_SLICE, (SYS_RP2350_KHZ * 1000u) / rate - 1);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, true);
         irq_set_enabled(PWM_IRQ_WRAP_0, true);
     }

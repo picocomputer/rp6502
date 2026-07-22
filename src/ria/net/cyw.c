@@ -19,6 +19,7 @@ void cyw_task(void) {}
 #include "ria/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/sys.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 
@@ -150,9 +151,9 @@ void __in_flash("cyw_init") cyw_init(void)
     // The Raspberry Pi SDK only provides for a 2,0 divider,
     // which is 75MHz for a non-overclocked 150MHz system clock.
     // It easily runs 85MHz+ so we push it to 66MHz.
-    if (CPU_RP2350_KHZ > 198000)
+    if (SYS_RP2350_KHZ > 198000)
         cyw43_set_pio_clkdiv_int_frac8(4, 0);
-    else if (CPU_RP2350_KHZ > 132000)
+    else if (SYS_RP2350_KHZ > 132000)
         cyw43_set_pio_clkdiv_int_frac8(3, 0);
     else
         cyw43_set_pio_clkdiv_int_frac8(2, 0);

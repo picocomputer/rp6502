@@ -1,25 +1,48 @@
 #pragma once
 /*#
-    # w65c02dasm.h  --  WDC 65C02 (W65C02S) disassembler for the RP6502
+    # w65c02dasm.h
 
-    SPDX-License-Identifier: Zlib
+    A stateless WDC 65C02 (W65C02S) disassembler that doesn't call any CRT functions.
 
-    65C02 modifications Copyright (c) 2026 Rumbledethumps. This file is a
-    derivative of floooh's zlib-licensed chips/util/m6502dasm.h (Copyright (c)
-    2018 Andre Weissflog, full license retained below) and, per the zlib terms,
-    is itself distributed under that same zlib license. Altered source is plainly
-    marked as such here.
+    Do this:
+    ~~~C
+    #define CHIPS_UTIL_IMPL
+    ~~~
+    before you include this file in *one* C or C++ file to create the
+    implementation.
 
-    The NMOS bit-pattern decoder was replaced with a flat 256-entry table that
-    covers the full documented W65C02S instruction set: the CMOS additions (BRA,
-    PHX/PLX/PHY/PLY, STZ, INC/DEC A, (zp) indirect, BIT #/zp,X/abs,X, TSB/TRB,
-    JMP (abs,X), RMB/SMB/BBR/BBS, WAI, STP) and the documented multi-byte NOP
-    fills. The PUBLIC API is kept identical to chips/util/m6502dasm.h -- the
-    types m6502dasm_input_t / m6502dasm_output_t and the function m6502dasm_op --
-    so ui_dbg.h (which calls m6502dasm_op when UI_DBG_USE_M6502 is defined)
-    integrates unchanged. Include it before ui_dbg.h, in exactly one translation
-    unit with CHIPS_UTIL_IMPL defined, and do NOT include it alongside
-    chips/util/m6502dasm.h.
+    Optionally provide the following macros with your own implementation
+
+    ~~~C
+    CHIPS_ASSERT(c)
+    ~~~
+        your own assert macro (default: assert(c))
+
+    ## Usage
+
+    There's only one function to call which consumes a stream of instruction bytes
+    and produces a stream of ASCII characters for exactly one instruction:
+
+    ~~~C
+    uint16_t w65c02dasm_op(uint16_t pc, w65c02dasm_input_t in_cb, w65c02dasm_output_t out_cb, void* user_data)
+    ~~~
+
+    pc      - the current 16-bit program counter, this is used to compute
+              absolute target addresses for relative jumps
+    in_cb   - this function is called when the disassembler needs the next
+              instruction byte: uint8_t in_cb(void* user_data)
+    out_cb  - (optional) this function is called when the disassembler produces a single
+              ASCII character: void out_cb(char c, void* user_data)
+    user_data   - a user-provided context pointer for the callbacks
+
+    w65c02dasm_op() returns the new program counter (pc), this should be
+    used as input arg when calling w65c02dasm_op() for the next instruction.
+
+    NOTE that the output callback will never be called with a null character,
+    you need to terminate the resulting string yourself if needed.
+
+    All 256 opcodes are defined; the unused opcodes are the guaranteed NOPs of
+    their respective length.
 
     ## zlib/libpng license
 
@@ -47,12 +70,12 @@ extern "C" {
 #endif
 
 /* the input callback type */
-typedef uint8_t (*m6502dasm_input_t)(void* user_data);
+typedef uint8_t (*w65c02dasm_input_t)(void* user_data);
 /* the output callback type */
-typedef void (*m6502dasm_output_t)(char c, void* user_data);
+typedef void (*w65c02dasm_output_t)(char c, void* user_data);
 
 /* disassemble a single W65C02S instruction into a stream of ASCII characters */
-uint16_t m6502dasm_op(uint16_t pc, m6502dasm_input_t in_cb, m6502dasm_output_t out_cb, void* user_data);
+uint16_t w65c02dasm_op(uint16_t pc, w65c02dasm_input_t in_cb, w65c02dasm_output_t out_cb, void* user_data);
 
 #ifdef __cplusplus
 } /* extern "C" */
@@ -125,7 +148,7 @@ static const _w65c02dasm_op_t _w65c02dasm_ops[256] = {
 
 static const char* _w65c02dasm_hex = "0123456789ABCDEF";
 
-static void _w65c02dasm_str(const char* str, m6502dasm_output_t out_cb, void* user_data) {
+static void _w65c02dasm_str(const char* str, w65c02dasm_output_t out_cb, void* user_data) {
     if (out_cb) {
         char c;
         while (0 != (c = *str++)) {
@@ -134,7 +157,7 @@ static void _w65c02dasm_str(const char* str, m6502dasm_output_t out_cb, void* us
     }
 }
 
-static void _w65c02dasm_u8(uint8_t val, m6502dasm_output_t out_cb, void* user_data) {
+static void _w65c02dasm_u8(uint8_t val, w65c02dasm_output_t out_cb, void* user_data) {
     if (out_cb) {
         out_cb('$', user_data);
         for (int i = 1; i >= 0; i--) {
@@ -143,7 +166,7 @@ static void _w65c02dasm_u8(uint8_t val, m6502dasm_output_t out_cb, void* user_da
     }
 }
 
-static void _w65c02dasm_u16(uint16_t val, m6502dasm_output_t out_cb, void* user_data) {
+static void _w65c02dasm_u16(uint16_t val, w65c02dasm_output_t out_cb, void* user_data) {
     if (out_cb) {
         out_cb('$', user_data);
         for (int i = 3; i >= 0; i--) {
@@ -153,7 +176,7 @@ static void _w65c02dasm_u16(uint16_t val, m6502dasm_output_t out_cb, void* user_
 }
 
 /* main disassembler function */
-uint16_t m6502dasm_op(uint16_t pc, m6502dasm_input_t in_cb, m6502dasm_output_t out_cb, void* user_data) {
+uint16_t w65c02dasm_op(uint16_t pc, w65c02dasm_input_t in_cb, w65c02dasm_output_t out_cb, void* user_data) {
     CHIPS_ASSERT(in_cb);
     uint8_t op;
     _FETCH_U8(op);

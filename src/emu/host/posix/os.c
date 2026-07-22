@@ -31,14 +31,14 @@ uint64_t os_mono_ns(void)
 
 /* ---- broken-down time ---- */
 
-void os_localtime(time_t t, struct tm *out)
+bool os_localtime(time_t t, struct tm *out)
 {
-    localtime_r(&t, out);
+    return localtime_r(&t, out) != NULL;
 }
 
-void os_gmtime(time_t t, struct tm *out)
+bool os_gmtime(time_t t, struct tm *out)
 {
-    gmtime_r(&t, out);
+    return gmtime_r(&t, out) != NULL;
 }
 
 /* ---- host-locale strftime ---- */

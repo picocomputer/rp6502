@@ -268,7 +268,7 @@ static void rln_complete_now(bool timed_out)
     // chunk" signal, so it must wait until defer ends. SUPPRESS_NL
     // drops it so last-line field input keeps the cursor on its row.
     if (!rln_suppress_newline)
-        putchar('\n');
+        com_putchar('\n');
     cc(timed_out, rln_buf);
 }
 
@@ -327,23 +327,23 @@ static void rln_emit_move(uint8_t fr, uint16_t fc, uint8_t tr, uint16_t tc)
     if (tr > fr)
     {
         for (uint8_t i = 0, n = (uint8_t)(tr - fr); i < n; i++)
-            putchar('\n');
-        printf("\r");
+            com_putchar('\n');
+        com_printf("\r");
         if (tc > 1)
-            printf("\33[%uC", tc - 1);
+            com_printf("\33[%uC", tc - 1);
     }
     else if (tr < fr)
     {
-        printf("\33[%uA\r", fr - tr);
+        com_printf("\33[%uA\r", fr - tr);
         if (tc > 1)
-            printf("\33[%uC", tc - 1);
+            com_printf("\33[%uC", tc - 1);
     }
     else if (tc != fc)
     {
         if (tc > fc)
-            printf("\33[%uC", tc - fc);
+            com_printf("\33[%uC", tc - fc);
         else
-            printf("\33[%uD", fc - tc);
+            com_printf("\33[%uD", fc - tc);
     }
 }
 
@@ -362,9 +362,9 @@ static void rln_sync_cursor_to(uint8_t target)
     {
         int delta = (int)target - (int)rln_cur_idx;
         if (delta > 0)
-            printf("\33[%dC", delta);
+            com_printf("\33[%dC", delta);
         else if (delta < 0)
-            printf("\33[%dD", -delta);
+            com_printf("\33[%dD", -delta);
     }
     else if (rln_input_no_wrap())
     {
@@ -376,7 +376,7 @@ static void rln_sync_cursor_to(uint8_t target)
         uint8_t r;
         uint16_t c;
         rln_buf_to_screen(target, &r, &c);
-        printf("\33[%uG", c);
+        com_printf("\33[%uG", c);
     }
     else
     {
@@ -389,7 +389,7 @@ static void rln_sync_cursor_to(uint8_t target)
         // left in pending-wrap (xenl) would survive; CHA to the same column
         // clears it, matching the no-wrap branch's unconditional CHA.
         if (fr == tr && fc == tc && tc == rln_get_term_width())
-            printf("\33[%uG", tc);
+            com_printf("\33[%uG", tc);
     }
     rln_cur_idx = target;
 }
@@ -453,9 +453,9 @@ static void rln_emit_trailing_spaces(uint8_t count)
     if (c + count - 1 >= rln_get_term_width())
         back = (uint16_t)(count - 1);
     for (uint8_t i = 0; i < count; i++)
-        putchar(' ');
+        com_putchar(' ');
     if (back)
-        printf("\33[%uD", back);
+        com_printf("\33[%uD", back);
 }
 
 // Walk down `rows` existing rows from the cursor, clearing each, then return up
@@ -463,12 +463,12 @@ static void rln_emit_trailing_spaces(uint8_t count)
 static void rln_clear_rows_below(uint8_t rows, uint16_t col)
 {
     for (uint8_t k = 0; k < rows; k++)
-        printf("\33[B\r\33[K");
+        com_printf("\33[B\r\33[K");
     if (rows)
     {
-        printf("\33[%uA", rows);
+        com_printf("\33[%uA", rows);
         if (col > 1)
-            printf("\33[%uC", col - 1);
+            com_printf("\33[%uC", col - 1);
     }
 }
 
@@ -488,7 +488,7 @@ static void rln_render_from(uint8_t start)
     if (rln_input_no_wrap())
     {
         for (uint8_t i = start; i < rln_buflen; i++)
-            putchar(rln_buf[i]);
+            com_putchar(rln_buf[i]);
         rln_cur_idx = rln_cursor_max();
         if (rln_last_render_buflen > rln_buflen)
             rln_emit_trailing_spaces((uint8_t)(rln_last_render_buflen - rln_buflen));
@@ -497,7 +497,7 @@ static void rln_render_from(uint8_t start)
     else
     {
         for (uint8_t i = start; i < rln_buflen; i++)
-            putchar(rln_buf[i]);
+            com_putchar(rln_buf[i]);
         // The render leaves the cursor just past the last char. When that char
         // filled the final column the terminal is in pending-wrap. Two cases:
         //   - Full input pinned on the last cell (cursor_max < buflen): keep
@@ -522,9 +522,9 @@ static void rln_render_from(uint8_t start)
             rln_buf_to_screen(rln_buflen, &er, &ec);
             bool filled_margin = rln_buflen > start && ec == 1;
             if (filled_margin)
-                printf(" \b\33[K");
+                com_printf(" \b\33[K");
             else
-                printf("\33[K");
+                com_printf("\33[K");
             rln_cur_idx = rln_buflen;
         }
         // Clear rows a previous (longer) render owned below the new end,
@@ -548,7 +548,7 @@ static void rln_resize_redraw(void)
         return;
     rln_sync_cursor_to(0);
     uint8_t maxr = rln_rendered_max_row;
-    printf("\33[K");
+    com_printf("\33[K");
     rln_clear_rows_below(maxr, rln_prompt_col);
     rln_cur_idx = 0;
     rln_rendered_max_row = 0;
@@ -575,7 +575,7 @@ static void rln_emit_tail_rewrite(uint8_t at, uint8_t pad)
     }
     rln_sync_cursor_to(at);
     for (uint8_t i = at; i < rln_buflen; i++)
-        putchar(rln_buf[i]);
+        com_putchar(rln_buf[i]);
     if (pad)
         rln_emit_trailing_spaces(pad);
     rln_cur_idx = rln_cursor_max();
@@ -884,7 +884,7 @@ static void rln_line_insert(char ch)
             uint16_t c;
             rln_buf_to_screen(rln_bufpos, &r, &c);
             bool at_margin = (c == rln_get_term_width());
-            putchar(ch);
+            com_putchar(ch);
             // The write advances the cursor past the cell, except at the
             // margin where pending-wrap leaves it parked on the cell.
             rln_cur_idx = at_margin ? rln_bufpos : (uint8_t)(rln_bufpos + 1);
@@ -922,9 +922,9 @@ static void rln_emit_mode_cursor(void)
     if (!rln_decscusr_ok)
         return;
     if (rln_overwrite)
-        printf("\33[1 q");
+        com_printf("\33[1 q");
     else
-        printf("\33[5 q");
+        com_printf("\33[5 q");
 }
 
 static void rln_toggle_overwrite(void)
@@ -1513,12 +1513,12 @@ void rln_read_line(rln_read_callback_t callback)
     // client never gets the boot soft-reset, so don't assume its default).
     // DECAWM is forced on every read and left on by contract — cooked-input
     // callers accept it; rln does not save or restore the prior state.
-    printf("\33[?25l\33[?7h\0337\33[6n");
+    com_printf("\33[?25l\33[?7h\0337\33[6n");
     if (rln_max_length > 0)
-        printf("\33[>c\0338 \b");
+        com_printf("\33[>c\0338 \b");
     if (!(rln_width_override && rln_height_override))
-        printf("\33[999;999H\33[6n\0338");
-    printf("\33[?25h");
+        com_printf("\33[999;999H\33[6n\0338");
+    com_printf("\33[?25h");
 }
 
 void rln_read_line_timeout(rln_read_callback_t callback, uint32_t timeout_ms)
@@ -1660,7 +1660,7 @@ void rln_run(void)
     rln_enable_history = false;
     rln_max_length = 254; // reserve 1 for the stdin newline
     if (rln_decscusr_ok && !ria_active())
-        printf("\33[0 q");
+        com_printf("\33[0 q");
 }
 
 void rln_stop(void)
@@ -1785,8 +1785,8 @@ bool rln_api_peek(void)
 // any other write; track where the cursor parks (on the cell at the margin).
 static void rln_poke_emit_caret(uint8_t target, char ch)
 {
-    putchar('^');
-    putchar((char)('@' + ch));
+    com_putchar('^');
+    com_putchar((char)('@' + ch));
     rln_cur_idx = (uint8_t)(target + 2);
     if (rln_prompt_col)
     {

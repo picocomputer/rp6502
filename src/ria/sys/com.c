@@ -1014,7 +1014,7 @@ static void cb_buf(char c, void *arg)
 #undef EMIT
 }
 
-int vprintf_utf8(const char *utf8_fmt, va_list va)
+int com_vprintf_utf8(const char *utf8_fmt, va_list va)
 {
     utf8_state st = {0};
     int n = vfctprintf(cb_putchar, &st, utf8_fmt, va);
@@ -1023,17 +1023,17 @@ int vprintf_utf8(const char *utf8_fmt, va_list va)
     return n;
 }
 
-int printf_utf8(const char *utf8_fmt, ...)
+int com_printf_utf8(const char *utf8_fmt, ...)
 {
     va_list va;
     va_start(va, utf8_fmt);
-    int n = vprintf_utf8(utf8_fmt, va);
+    int n = com_vprintf_utf8(utf8_fmt, va);
     va_end(va);
     return n;
 }
 
-int vsnprintf_utf8(char *dst, size_t dst_size,
-                   const char *utf8_fmt, va_list va)
+int com_vsnprintf_utf8(char *dst, size_t dst_size,
+                       const char *utf8_fmt, va_list va)
 {
     utf8_state st = {0};
     st.dst = dst;
@@ -1049,11 +1049,25 @@ int vsnprintf_utf8(char *dst, size_t dst_size,
     return (int)st.bytes_written;
 }
 
-int snprintf_utf8(char *dst, size_t dst_size, const char *utf8_fmt, ...)
+int com_snprintf_utf8(char *dst, size_t dst_size, const char *utf8_fmt, ...)
 {
     va_list va;
     va_start(va, utf8_fmt);
-    int n = vsnprintf_utf8(dst, dst_size, utf8_fmt, va);
+    int n = com_vsnprintf_utf8(dst, dst_size, utf8_fmt, va);
+    va_end(va);
+    return n;
+}
+
+int com_putchar(int c)
+{
+    return putchar(c);
+}
+
+int com_printf(const char *fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    int n = vprintf(fmt, va);
     va_end(va);
     return n;
 }

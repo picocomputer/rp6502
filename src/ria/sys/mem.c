@@ -8,7 +8,9 @@
 #include "ria/sys/com.h"
 #include <pico.h>
 #include <pico/time.h>
+#include <littlefs/lfs_util.h>
 #include <assert.h>
+#include <stdalign.h>
 #include <stdio.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
@@ -18,8 +20,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // 4KB segments because a single 64KB array crashes my debugger
-static uint8_t __uninitialized_ram(xram_blocks)[16][0x1000]
-    __attribute__((aligned(4)));
+alignas(4) static uint8_t __uninitialized_ram(xram_blocks)[16][0x1000];
 uint8_t *const xram = (uint8_t *)xram_blocks;
 
 volatile uint8_t xram_queue_page;
@@ -30,11 +31,16 @@ volatile uint8_t xram_queue[256][2];
 uint8_t xstack[XSTACK_SIZE + 1];
 volatile size_t xstack_ptr;
 
-volatile uint8_t __uninitialized_ram(regs)[0x20]
-    __attribute__((aligned(0x20)));
+alignas(0x20) volatile uint8_t __uninitialized_ram(regs)[0x20];
 
-uint8_t mbuf[MBUF_SIZE] __attribute__((aligned(4)));
+alignas(4) uint8_t mbuf[MBUF_SIZE];
 size_t mbuf_len;
+
+uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len)
+{
+    // littlefs's CRC table is already linked; reuse it, don't add a second.
+    return ~lfs_crc(~crc, buf, len);
+}
 
 static mem_read_callback_t mem_callback;
 static absolute_time_t mem_deadline;

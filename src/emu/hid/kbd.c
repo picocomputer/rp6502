@@ -7,11 +7,9 @@
 
 #include "ria/api/oem.h"
 #include "emu/hid/kbd.h"
-#include "emu/hid/kbd.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/com.h"
-#include "emu/chips/rp6502.h"
+#include "emu/sys/ria.h"
 #include <stdio.h>
 #include <string.h>
 

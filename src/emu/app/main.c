@@ -7,19 +7,19 @@
 
 #include "ria/api/oem.h"
 #include "ria/str/str.h"
-#include "emu/api/pro.h"
+#include "emu/emu/pro.h"
 #include "emu/app/window.h"
 #include "emu/host/host.h"
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/app/png.h"
 #include "emu/app/rand.h"
-#include "emu/host/rom.h"
-#include "emu/host/tmp.h"
+#include "emu/emu/rom.h"
+#include "emu/emu/tmp.h"
 #include "emu/sys/mem.h"
-#include "emu/chips/rp6502.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
+#include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
@@ -264,14 +264,14 @@ int main(int argc, char **argv)
          * the per-scanline pixel work (most of the per-frame cost); render the
          * last one and snapshot it. */
         for (int i = 0; i < frames - 1; i++)
-            main_run_frame_norender();
-        main_run_frame(); /* renders into g_fb (registered above) */
+            sys_run_frame_norender();
+        sys_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!png_write(o.shot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.shot, frames, cpu_halted() ? "halted" : "running", main_exit_code());
+               o.shot, frames, cpu_halted() ? "halted" : "running", pro_get_exit_code());
         return 0;
     }
 

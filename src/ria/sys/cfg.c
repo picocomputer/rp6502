@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/clk.h"
 #include "ria/api/oem.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "ria/hid/kbd.h"
 #include "ria/mon/mon.h"
@@ -103,7 +103,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                "%s",
                                CFG_VERSION,
                                cpu_get_phi2_khz(),
-                               clk_get_time_zone(),
+                               tim_get_time_zone(),
                                str_get_locale(),
                                oem_get_code_page(),
                                kbd_get_layout_list(),
@@ -160,7 +160,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             cpu_load_phi2_khz(str);
             break;
         case 'T':
-            clk_load_time_zone(str);
+            tim_load_time_zone(str);
             break;
         case 'M':
             str_load_locale(str);

@@ -30,15 +30,16 @@
 #endif
 #include "emu/app/icon.h"
 #include "emu/app/input.h"
-#include "emu/aud/aud.h"
+#include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
-#include "emu/api/pro.h"
+#include "emu/emu/pro.h"
 #include "ria/api/oem.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
-#include "emu/host/rom.h"
+#include "emu/emu/rom.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
+#include "emu/sys/sys.h"
 #include "emu/host/host.h"
 #include "emu/sys/vga.h"
 #include <math.h>
@@ -422,9 +423,9 @@ void window_core_frame(void)
     for (uint64_t i = 0; i < behind; i++)
     {
         if (i + 1 < behind)
-            main_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
+            sys_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
         else
-            main_run_frame(); /* the frame we'll present: render it */
+            sys_run_frame(); /* the frame we'll present: render it */
         done++;
     }
 
@@ -461,8 +462,8 @@ void window_core_frame(void)
         if (bench_total >= bench_limit)
         {
             fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                    main_frame_count(), bench_total,
-                    (double)main_frame_count() / bench_total);
+                    sys_frame_count(), bench_total,
+                    (double)sys_frame_count() / bench_total);
             sapp_request_quit();
         }
     }
@@ -953,6 +954,15 @@ void window_core_event(const sapp_event *e)
         return; /* the debug UI consumed this event */
 #endif
     input_event(e);
+}
+
+/* The process exit code after window_run returns. A ROM that halted the app
+ * outside debug mode (exit_on_halt, i.e. !--debug/--dap) owns the code; a manual
+ * window close, or debug mode where the DAP client carries the code instead,
+ * stays 0. */
+int window_core_exit_code(void)
+{
+    return (app.exit_on_halt && cpu_halted()) ? pro_get_exit_code() : 0;
 }
 
 void window_core_cleanup(void)

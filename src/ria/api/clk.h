@@ -7,9 +7,7 @@
 #ifndef _RIA_API_CLK_H_
 #define _RIA_API_CLK_H_
 
-#define CLK_TZ_MAX_SIZE 64
-
-/* The CLK driver manages real-time counters.
+/* The CLK driver converts time for the 6502.
  */
 
 #include <stddef.h>
@@ -21,20 +19,7 @@
 /* Main events
  */
 
-void clk_init(void);
 void clk_run(void);
-
-// Print for status command
-int clk_status_response(char *buf, size_t buf_size, int state, unsigned width);
-
-// Show tz database
-int clk_tzdata_response(char *buf, size_t buf_size, int state, unsigned width);
-
-// Configuration setting TZ
-// Use POSIX TZ format. e.g. PST8PDT,M3.2.0/2,M11.1.0/2
-void clk_load_time_zone(const char *str);
-bool clk_set_time_zone(const char *tz);
-const char *clk_get_time_zone(void);
 
 // 6502 run time in ticks of us_per_tick microseconds
 uint32_t clk_get_run(uint32_t us_per_tick);
@@ -75,8 +60,6 @@ bool clk_api_strftime(void);
 
 // Deprecated. Retained for binaries built with older SDKs.
 bool clk_api_clock(void);
-bool clk_api_tzset(void);
-bool clk_api_tzquery(void);
 bool clk_api_get_res(void);
 bool clk_api_get_time(void);
 bool clk_api_set_time(void);

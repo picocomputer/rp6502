@@ -6,9 +6,9 @@
 
 #include "rp6502_version.h"
 #include "ria/main.h"
-#include "ria/api/clk.h"
 #include "ria/api/arg.h"
 #include "ria/api/pro.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"
 #include "ria/net/ntp.h"
@@ -20,6 +20,8 @@
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/vcp.h"
+#include <hardware/clocks.h>
+#include <hardware/vreg.h>
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
 
@@ -46,6 +48,14 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 #endif
 #endif
     "\n";
+
+/* The very first thing main() does. The clock must be up before anything that
+ * derives from it (the RIA PIO divider, the audio PWM wrap, the RF band choice). */
+void sys_main(void)
+{
+    vreg_set_voltage(SYS_RP2350_VREG);
+    set_sys_clock_khz(SYS_RP2350_KHZ, true);
+}
 
 void __in_flash("sys_init") sys_init(void)
 {
@@ -86,7 +96,7 @@ void sys_mon_status(const char *args)
     mon_add_response_fn(vga_status_response);
     mon_add_response_fn(wfi_status_response);
     mon_add_response_fn(ntp_status_response);
-    mon_add_response_fn(clk_status_response);
+    mon_add_response_fn(tim_status_response);
     mon_add_response_fn(ble_status_response);
     mon_add_response_fn(usb_status_response);
     mon_add_response_fn(msc_status_response);

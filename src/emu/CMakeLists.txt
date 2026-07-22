@@ -22,35 +22,36 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
 get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
+get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
-    ${RP6502_SRC}/emu/api/clk.c
-    ${RP6502_SRC}/emu/api/pro.c
-    ${RP6502_SRC}/emu/aud/aud.c
-    ${RP6502_SRC}/emu/chips/w65c02.c
+    ${RP6502_SRC}/emu/emu/pro.c
+    ${RP6502_SRC}/emu/emu/tim.c
+    ${RP6502_SRC}/emu/emu/aud.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
     ${RP6502_SRC}/emu/hid/pad.c
     ${RP6502_SRC}/emu/hid/tab.c
-    ${RP6502_SRC}/emu/host/msc.c
-    ${RP6502_SRC}/emu/host/rom.c
-    ${RP6502_SRC}/emu/host/tmp.c
+    ${RP6502_SRC}/emu/emu/msc.c
+    ${RP6502_SRC}/emu/emu/rom.c
+    ${RP6502_SRC}/emu/emu/tmp.c
     ${RP6502_SRC}/emu/app/rand.c
-    ${RP6502_SRC}/emu/pico/stdio.c
     ${RP6502_SRC}/emu/sys/cfg.c
     ${RP6502_SRC}/emu/sys/com.c
     ${RP6502_SRC}/emu/sys/cpu.c
     ${RP6502_SRC}/emu/sys/mem.c
     ${RP6502_SRC}/emu/sys/pix.c
     ${RP6502_SRC}/emu/sys/ria.c
+    ${RP6502_SRC}/emu/sys/sys.c
     ${RP6502_SRC}/emu/sys/vga.c
-    ${RP6502_SRC}/emu/sys/via.c
+    ${RP6502_SRC}/emu/emu/via.c
     ${RP6502_SRC}/ria/api/api.c
     ${RP6502_SRC}/ria/api/arg.c
     ${RP6502_SRC}/ria/api/atr.c
+    ${RP6502_SRC}/ria/api/clk.c
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/oem.c
     ${RP6502_SRC}/ria/api/std.c
@@ -165,7 +166,7 @@ if(MSVC)
 endif()
 
 target_include_directories(emu_core PUBLIC
-    ${RP6502_SRC}/emu
+    ${RP6502_SRC}/emu/host/pico
     ${RP6502_SRC}
     ${RP6502_VENDOR}/fatfs
     ${RP6502_VENDOR}
@@ -317,7 +318,7 @@ else()
             OUTPUT_NAME rp6502
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
         # Tester web root (build/web/html): the menu shell + every test ROM.
-        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_SRC}/tests/roms/*.rp6502")
+        file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
         add_custom_target(web_root ALL
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
@@ -331,7 +332,7 @@ else()
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
             COMMAND ${CMAKE_COMMAND} -E copy
-                "${RP6502_SRC}/tests/roms/adventure.rp6502"
+                "${RP6502_ROOT}/tests/roms/adventure.rp6502"
                 "${CMAKE_BINARY_DIR}/html/rp6502.js"
                 "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
                 "${CMAKE_BINARY_DIR}/itch.io"
@@ -389,7 +390,7 @@ else()
             ${RP6502_VENDOR}/imgui/imgui_widgets.cpp
             ${RP6502_VENDOR}/imgui/imgui.cpp)
         target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/imgui)
-        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_M6502 UI_DASM_USE_M6502)
+        target_compile_definitions(rp6502-emu PRIVATE EMU_WITH_DEBUGGER UI_DBG_USE_W65C02 UI_DASM_USE_W65C02)
         target_link_libraries(rp6502-emu PRIVATE cppdap)
         # CHIPS_UI_IMPL / SOKOL_IMGUI_IMPL each belong to exactly one TU.
         set_source_files_properties(${RP6502_SRC}/emu/dbg/imgui_impl.cc
@@ -402,5 +403,5 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(${RP6502_SRC}/tests tests)
+    add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()

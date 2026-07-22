@@ -245,7 +245,7 @@ static bool rom_read(uint32_t len, uint32_t crc)
         mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
         return false;
     }
-    if (ria_buf_crc32() != crc)
+    if (mem_crc32(0, mbuf, mbuf_len) != crc)
     {
         mon_add_response_utf8(S(STR_ERR_CRC));
         return false;
@@ -895,13 +895,13 @@ int rom_installed_response(char *buf, size_t buf_size, int state, unsigned)
     {
         if (count)
         {
-            snprintf_utf8(buf, buf_size,
-                          count == 1 ? S(STR_ROM_INSTALLED_SINGULAR)
-                                     : S(STR_ROM_INSTALLED_PLURAL),
-                          count);
+            com_snprintf_utf8(buf, buf_size,
+                              count == 1 ? S(STR_ROM_INSTALLED_SINGULAR)
+                                         : S(STR_ROM_INSTALLED_PLURAL),
+                              count);
             return 1;
         }
-        snprintf_utf8(buf, buf_size, S(STR_ROM_INSTALLED_NONE));
+        com_snprintf_utf8(buf, buf_size, S(STR_ROM_INSTALLED_NONE));
         return -1;
     }
     if (found)

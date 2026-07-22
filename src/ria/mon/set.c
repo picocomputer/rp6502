@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/clk.h"
 #include "ria/api/oem.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "ria/hid/kbd.h"
 #include "ria/mon/mon.h"
@@ -119,8 +119,8 @@ static int set_rf_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t en = cyw_get_rf_enable();
-    snprintf_utf8(buf, buf_size, STR_SET_RF_RESPONSE,
-                  en, en ? S(STR_ON) : S(STR_OFF));
+    com_snprintf_utf8(buf, buf_size, STR_SET_RF_RESPONSE,
+                      en, en ? S(STR_ON) : S(STR_OFF));
     return -1;
 }
 
@@ -140,11 +140,11 @@ static int set_rfcc_response(char *buf, size_t buf_size, int state, unsigned)
     (void)state;
     const char *cc = cyw_get_rf_country_code();
     if (strlen(cc))
-        snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                      cc, " ", cyw_get_rf_country_code_verbose());
+        com_snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
+                          cc, " ", cyw_get_rf_country_code_verbose());
     else
-        snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
-                      "", "", S(STR_WORLDWIDE));
+        com_snprintf_utf8(buf, buf_size, STR_SET_RFCC_RESPONSE,
+                          "", "", S(STR_WORLDWIDE));
     return -1;
 }
 
@@ -170,11 +170,11 @@ static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
     (void)state;
     const char *ssid = wfi_get_ssid();
 #if RP6502_CREATOR
-    snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
-                  strlen(ssid) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
+                      strlen(ssid) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
-    snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
-                  strlen(ssid) ? ssid : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
+                      strlen(ssid) ? ssid : S(STR_PARENS_NONE));
 #endif
     return -1;
 }
@@ -183,8 +183,8 @@ static int set_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *pass = wfi_get_pass();
-    snprintf_utf8(buf, buf_size, STR_SET_PASS_RESPONSE,
-                  strlen(pass) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, STR_SET_PASS_RESPONSE,
+                      strlen(pass) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
 }
 
@@ -226,10 +226,10 @@ static int set_ble_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t en = ble_get_enabled();
-    snprintf_utf8(buf, buf_size, STR_SET_BLE_RESPONSE,
-                  en, en ? S(STR_ENABLED) : S(STR_DISABLED),
-                  ble_is_pairing() ? S(STR_BLE_PAIRING) : "",
-                  cyw_get_rf_enable() ? "" : S(STR_BLE_NO_RF));
+    com_snprintf_utf8(buf, buf_size, STR_SET_BLE_RESPONSE,
+                      en, en ? S(STR_ENABLED) : S(STR_DISABLED),
+                      ble_is_pairing() ? S(STR_BLE_PAIRING) : "",
+                      cyw_get_rf_enable() ? "" : S(STR_BLE_NO_RF));
     return -1;
 }
 
@@ -248,8 +248,8 @@ static int set_key_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *key = com_tel_get_key();
-    snprintf_utf8(buf, buf_size, STR_SET_KEY_RESPONSE,
-                  strlen(key) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, STR_SET_KEY_RESPONSE,
+                      strlen(key) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
 }
 
@@ -257,8 +257,8 @@ static int set_port_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     bool en = com_tel_get_port() > 0 && com_tel_get_key()[0];
-    snprintf_utf8(buf, buf_size, STR_SET_PORT_RESPONSE,
-                  com_tel_get_port(), en ? S(STR_ENABLED) : S(STR_DISABLED));
+    com_snprintf_utf8(buf, buf_size, STR_SET_PORT_RESPONSE,
+                      com_tel_get_port(), en ? S(STR_ENABLED) : S(STR_DISABLED));
     return -1;
 }
 
@@ -298,8 +298,8 @@ static int set_nfc_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t en = nfc_get_enabled();
-    snprintf_utf8(buf, buf_size, STR_SET_NFC_RESPONSE,
-                  en, en ? S(STR_ENABLED) : S(STR_DISABLED));
+    com_snprintf_utf8(buf, buf_size, STR_SET_NFC_RESPONSE,
+                      en, en ? S(STR_ENABLED) : S(STR_DISABLED));
     return -1;
 }
 
@@ -317,7 +317,7 @@ static void set_nfc(const char *args)
 static int set_time_zone_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, clk_get_time_zone());
+    snprintf(buf, buf_size, STR_SET_TZ_RESPONSE, tim_get_time_zone());
     return -1;
 }
 
@@ -326,7 +326,7 @@ static void set_time_zone(const char *args)
     if (*args)
     {
         const char *tok = str_parse_string(&args);
-        if (!tok || !str_parse_end(args) || !clk_set_time_zone(tok))
+        if (!tok || !str_parse_end(args) || !tim_set_time_zone(tok))
         {
             mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
             return;

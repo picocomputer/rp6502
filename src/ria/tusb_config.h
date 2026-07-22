@@ -7,6 +7,8 @@
 #ifndef _TUSB_CONFIG_H
 #define _TUSB_CONFIG_H
 
+#include <stdalign.h>
+
 // #undef CFG_TUSB_DEBUG
 // #define CFG_TUSB_DEBUG 2
 
@@ -25,7 +27,7 @@
 #endif
 
 #ifndef CFG_TUH_MEM_ALIGN
-#define CFG_TUH_MEM_ALIGN __attribute__((aligned(4)))
+#define CFG_TUH_MEM_ALIGN alignas(4)
 #endif
 
 #define CFG_TUH_ENABLED (1)

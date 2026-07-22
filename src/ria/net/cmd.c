@@ -349,20 +349,20 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
     case 12:
     {
         const char *cc = cyw_get_rf_country_code();
-        snprintf_utf8(buf, buf_size, "+RFCC:%s\r\n", strlen(cc) ? cc : S(STR_WORLDWIDE));
+        com_snprintf_utf8(buf, buf_size, "+RFCC:%s\r\n", strlen(cc) ? cc : S(STR_WORLDWIDE));
         break;
     }
     case 13:
 #if RP6502_CREATOR
-        snprintf_utf8(buf, buf_size, "+SSID:%s\r\n",
-                      strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+        com_snprintf_utf8(buf, buf_size, "+SSID:%s\r\n",
+                          strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
         snprintf(buf, buf_size, "+SSID:%s\r\n", wfi_get_ssid());
 #endif
         break;
     case 14:
-        snprintf_utf8(buf, buf_size, "+PASS:%s\r\n",
-                      strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+        com_snprintf_utf8(buf, buf_size, "+PASS:%s\r\n",
+                          strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
         break;
     default:
         return -1;
@@ -460,7 +460,7 @@ static int cmd_plus_rfcc_response(char *buf, size_t buf_size, int state, unsigne
 {
     (void)state;
     const char *cc = cyw_get_rf_country_code();
-    snprintf_utf8(buf, buf_size, "%s\r\n", strlen(cc) ? cc : S(STR_WORLDWIDE));
+    com_snprintf_utf8(buf, buf_size, "%s\r\n", strlen(cc) ? cc : S(STR_WORLDWIDE));
     return -1;
 }
 
@@ -492,8 +492,8 @@ static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state, unsigne
 {
     (void)state;
 #if RP6502_CREATOR
-    snprintf_utf8(buf, buf_size, "%s\r\n",
-                  strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, "%s\r\n",
+                      strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
     snprintf(buf, buf_size, "%s\r\n", wfi_get_ssid());
 #endif
@@ -527,7 +527,7 @@ static bool cmd_plus_ssid(const char **s)
 static int cmd_plus_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
 }
 

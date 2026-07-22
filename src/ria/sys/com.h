@@ -78,15 +78,14 @@ bool com_writable(void);
 // Caller must have checked com_writable() first.
 void com_write(char ch);
 
-// printf where utf8_fmt and any %s args are treated as UTF-8.
-// Output bytes are UTF-8 -> OEM-converted (active code page) via putchar.
-__printflike(1, 2) int printf_utf8(const char *utf8_fmt, ...);
-int vprintf_utf8(const char *utf8_fmt, va_list va);
-
-// snprintf with the same UTF-8 -> OEM treatment; result is OEM bytes in dst.
-__printflike(3, 4) int snprintf_utf8(char *dst, size_t dst_size,
-                                     const char *utf8_fmt, ...);
-int vsnprintf_utf8(char *dst, size_t dst_size,
-                   const char *utf8_fmt, va_list va);
+// Console TX with newline (CRLF) expansion.
+int com_putchar(int c);
+__printflike(1, 2) int com_printf(const char *fmt, ...);
+__printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
+int com_vprintf_utf8(const char *utf8_fmt, va_list va);
+__printflike(3, 4) int com_snprintf_utf8(char *dst, size_t dst_size,
+                                         const char *utf8_fmt, ...);
+int com_vsnprintf_utf8(char *dst, size_t dst_size,
+                       const char *utf8_fmt, va_list va);
 
 #endif /* _RIA_SYS_COM_H_ */
