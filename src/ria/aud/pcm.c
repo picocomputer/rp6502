@@ -6,10 +6,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "aud/aud.h"
-#include "aud/bel.h"
-#include "aud/pcm.h"
-#include "sys/mem.h"
+#include "ria/aud/aud.h"
+#include "ria/aud/bel.h"
+#include "ria/aud/pcm.h"
+#include "ria/sys/mem.h"
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>
 
@@ -49,6 +49,16 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
  *   log2=13 (8 KB, ~46 ms)   - comfortable for once-per-VSYNC with margin
  */
 
+/* PWM pin/slice/channel mapping (firmware hardware; formerly in aud.h). */
+#define AUD_L_PIN 28
+#define AUD_R_PIN 27
+#define AUD_PWM_IRQ_PIN 14 /* No IO */
+#define AUD_IRQ_SLICE (pwm_gpio_to_slice_num(AUD_PWM_IRQ_PIN))
+#define AUD_L_CHAN (pwm_gpio_to_channel(AUD_L_PIN))
+#define AUD_L_SLICE (pwm_gpio_to_slice_num(AUD_L_PIN))
+#define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
+#define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
+
 static volatile uint16_t pcm_base;
 static volatile uint16_t pcm_buf_mask;
 static volatile uint32_t pcm_rate;
@@ -63,7 +73,7 @@ static void
     __isr
     __time_critical_func(pcm_irq_handler)(void)
 {
-    pwm_clear_irq(AUD_IRQ_SLICE);
+    aud_clear_irq();
 
     // Output previous sample at start to minimize jitter
     pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, pcm_sample_l + AUD_PWM_CENTER);
