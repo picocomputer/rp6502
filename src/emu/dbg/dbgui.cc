@@ -58,8 +58,8 @@ extern "C"
 #include "chips/util/w65c02dasm.h"   /* WDC 65C02 disassembler */
 #include "chips/ui/ui_dasm.h"        /* after w65c02dasm.h (impl calls w65c02dasm_op) */
 #include "chips/ui/ui_w65c02.h"      /* CPU register window */
-#include "emu/chips/ui_ria.h"  /* our RIA debug window (bespoke, not a chips fork) */
-#include "emu/chips/ui_ini.h"  /* dummy elements: [RP6502][Launch] + [Window][Manager] */
+#include "emu/app/ui_ria.h"  /* our RIA debug window (bespoke, not a chips fork) */
+#include "emu/app/ui_ini.h"  /* dummy elements: [RP6502][Launch] + [Window][Manager] */
 #include "chips/ui/ui_m6522.h"
 #include "chips/ui/ui_dbg.h"         /* disassembly/breakpoints */
 
