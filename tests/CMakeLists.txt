@@ -136,13 +136,13 @@ target_compile_definitions(test_furelise PRIVATE
 add_test(NAME furelise COMMAND test_furelise)
 set_tests_properties(furelise PROPERTIES TIMEOUT 60)
 
-# --- 6522 VIA timer IRQ + HID mouse, via the paint demo ---
-add_executable(test_paint test_paint.c)
-target_link_libraries(test_paint PRIVATE emu_core)
-target_include_directories(test_paint PRIVATE ${UTEST_DIR})
-target_compile_definitions(test_paint PRIVATE PAINT_ROM="${ROMS}/paint.rp6502")
-add_test(NAME paint COMMAND test_paint)
-set_tests_properties(paint PROPERTIES TIMEOUT 60)
+# --- 6522 VIA timer IRQ + HID mouse, via the paint_mou demo ---
+add_executable(test_paint_mou test_paint_mou.c)
+target_link_libraries(test_paint_mou PRIVATE emu_core)
+target_include_directories(test_paint_mou PRIVATE ${UTEST_DIR})
+target_compile_definitions(test_paint_mou PRIVATE PAINT_MOU_ROM="${ROMS}/paint_mou.rp6502")
+add_test(NAME paint_mou COMMAND test_paint_mou)
+set_tests_properties(paint_mou PROPERTIES TIMEOUT 60)
 
 # --- absolute pointer (tablet) window encoding, via paint_tab ---
 add_executable(test_paint_tab test_paint_tab.c)

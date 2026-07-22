@@ -753,6 +753,9 @@ void dbgui_init(void)
      * in the final (swapchain) pass. (Setting them explicitly mismatched.) */
     simgui_desc_t sd{};
     sd.no_default_font = true; /* we add the bitmap default ourselves */
+    sd.disable_set_mouse_cursor = true; /* window_core's update_cursor is the sole
+                                         * cursor writer; a second per-frame setter
+                                         * double-applies and flickers on X11/WSLg */
     simgui_setup(&sd);
     /* Snapshot the unscaled style so dbgui_apply_ui_scale can re-derive scaled metrics
      * from a pristine base (before the layout load below, which may set the scale). */
@@ -991,6 +994,26 @@ bool dbgui_canvas_rect(int *x, int *y, int *w, int *h)
 bool dbgui_wants_mouse(void)
 {
     return ImGui::GetIO().WantCaptureMouse;
+}
+
+/* The cursor ImGui wants this frame, mapped to a sapp_mouse_cursor (ARROW when it
+ * has no preference). simgui's own cursor control is disabled, so window_core's
+ * update_cursor applies this over a debugger panel — keeping the resize/text/hand
+ * cursors without a second per-frame setter fighting the tablet crosshair. */
+int dbgui_mouse_cursor(void)
+{
+    switch (ImGui::GetMouseCursor())
+    {
+    case ImGuiMouseCursor_TextInput: return SAPP_MOUSECURSOR_IBEAM;
+    case ImGuiMouseCursor_ResizeAll: return SAPP_MOUSECURSOR_RESIZE_ALL;
+    case ImGuiMouseCursor_ResizeNS: return SAPP_MOUSECURSOR_RESIZE_NS;
+    case ImGuiMouseCursor_ResizeEW: return SAPP_MOUSECURSOR_RESIZE_EW;
+    case ImGuiMouseCursor_ResizeNESW: return SAPP_MOUSECURSOR_RESIZE_NESW;
+    case ImGuiMouseCursor_ResizeNWSE: return SAPP_MOUSECURSOR_RESIZE_NWSE;
+    case ImGuiMouseCursor_Hand: return SAPP_MOUSECURSOR_POINTING_HAND;
+    case ImGuiMouseCursor_NotAllowed: return SAPP_MOUSECURSOR_NOT_ALLOWED;
+    default: return SAPP_MOUSECURSOR_ARROW;
+    }
 }
 
 void dbgui_draw(void)

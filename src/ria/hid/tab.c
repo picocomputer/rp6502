@@ -23,16 +23,20 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 /* XRAM report block. Every field is one byte, so each 6502 read is atomic; a
  * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
  * one non-zero, decoded first-non-zero-wins. An inactive contact reports flags=0;
- * X/Y are always kept within the canvas. Only status + contacts are written
- * back; control is ROM-owned. */
+ * X/Y are always kept within the canvas. wheel/pan are 8-bit wrapping
+ * accumulators read like the mouse's (subtract the previous value). The ROM-owned
+ * control byte leads the block so everything the firmware writes back — status,
+ * wheel, pan, contacts — is one contiguous run. */
 #define TAB_MAX_CONTACTS 8
-#define TAB_HEADER_SIZE 2  /* status, control */
+#define TAB_HEADER_SIZE 4  /* control, status, wheel, pan */
 #define TAB_CONTACT_SIZE 6 /* flags, x0, x1, x2, y0, y1 */
 #define TAB_BLOCK_SIZE (TAB_HEADER_SIZE + TAB_MAX_CONTACTS * TAB_CONTACT_SIZE)
 
-#define TAB_OFF_STATUS 0
-#define TAB_OFF_CONTROL 1
-#define TAB_OFF_CONTACTS 2
+#define TAB_OFF_CONTROL 0
+#define TAB_OFF_STATUS 1
+#define TAB_OFF_WHEEL 2
+#define TAB_OFF_PAN 3
+#define TAB_OFF_CONTACTS 4
 
 /* status (fw->ROM): host_cursor is always 0 on real hardware (no host cursor). */
 #define TAB_STATUS_HOST_CURSOR 0x01
@@ -80,6 +84,10 @@ typedef struct
     uint16_t y_offset;
     uint8_t y_size;
     int32_t y_min, y_max;
+    uint16_t wheel_offset; // Wheel/scroll wheel
+    uint8_t wheel_size;
+    uint16_t pan_offset; // Horizontal pan/tilt
+    uint8_t pan_size;
     uint16_t tip_offset;     // Digitizer Tip Switch, 0xFFFF if absent
     uint16_t inrange_offset; // Digitizer In Range, 0xFFFF if absent
 } tab_connection_t;
@@ -137,15 +145,16 @@ static void tab_clear_contact(int i)
     tab_put_contact(i, 0, 0, 0); /* flags=0 marks it inactive; X/Y stay in-canvas */
 }
 
-/* Push status + contacts to XRAM; never the ROM-owned control byte. Each byte is
- * atomic and the decode tolerates any interleaving, so no barrier is needed. */
+/* Push everything the firmware owns — status, wheel, pan, contacts — to XRAM in
+ * one memcpy; they run contiguously after the ROM-owned control byte at offset 0.
+ * Each byte is atomic and the decode tolerates any interleaving, so no barrier
+ * is needed. */
 static void tab_write_xram(void)
 {
     if (tab_xram == 0xFFFF)
         return;
-    xram[tab_xram + TAB_OFF_STATUS] = tab_state[TAB_OFF_STATUS];
-    memcpy(&xram[tab_xram + TAB_OFF_CONTACTS], &tab_state[TAB_OFF_CONTACTS],
-           TAB_MAX_CONTACTS * TAB_CONTACT_SIZE);
+    memcpy(&xram[tab_xram + TAB_OFF_STATUS], &tab_state[TAB_OFF_STATUS],
+           TAB_BLOCK_SIZE - TAB_OFF_STATUS);
 }
 
 void __in_flash("tab_init") tab_init(void)
@@ -232,6 +241,28 @@ static bool __in_flash("tab_parse") tab_parse_field(const hid_field_t *field, vo
                 conn->y_max = field->logical_max;
             }
             break;
+        case 0x38: // Wheel
+            if (conn->wheel_size == 0)
+            {
+                conn->wheel_offset = field->bit_pos;
+                conn->wheel_size = field->size;
+            }
+            break;
+        case 0x3C: // Pan/horizontal wheel
+            if (conn->pan_size == 0)
+            {
+                conn->pan_offset = field->bit_pos;
+                conn->pan_size = field->size;
+            }
+            break;
+        }
+    }
+    else if (field->usage_page == 0x0C) // Consumer
+    {
+        if (field->usage == 0x238 && conn->pan_size == 0) // AC Pan
+        {
+            conn->pan_offset = field->bit_pos;
+            conn->pan_size = field->size;
         }
     }
     else if (field->usage_page == 0x09) // Button
@@ -408,6 +439,14 @@ void tab_report(int slot, uint8_t const *data, size_t size)
     bool hover = conn->x_relative;
     if (!conn->x_relative && conn->inrange_offset != 0xFFFF)
         hover = hid_extract_bits(report_data, report_data_len, conn->inrange_offset, 1) != 0;
+
+    // Scroll: only a mouse carries these; a pen/touch has wheel_size 0 and is skipped.
+    if (conn->wheel_size > 0)
+        tab_state[TAB_OFF_WHEEL] += hid_extract_signed(report_data, report_data_len,
+                                                       conn->wheel_offset, conn->wheel_size);
+    if (conn->pan_size > 0)
+        tab_state[TAB_OFF_PAN] += hid_extract_signed(report_data, report_data_len,
+                                                     conn->pan_offset, conn->pan_size);
 
     tab_put_contact(0, (uint8_t)(buttons | (hover ? TAB_FLAG_HOVER : 0)), tab_x, tab_y);
     tab_write_xram();

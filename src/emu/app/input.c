@@ -412,7 +412,8 @@ static bool input_tablet(const sapp_event *e)
         return true;
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
-        if (mou_is_mapped()) /* the tablet has no wheel */
+        tab_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+        if (mou_is_mapped()) /* the same scroll also drives the mouse block */
             mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:

@@ -12,6 +12,7 @@
 #include "emu/app/cli.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/pad.h"
+#include "emu/hid/tab.h"
 #include "emu/main.h"
 #include "emu/emu/rom.h"
 #include "emu/sys/mem.h"
@@ -89,6 +90,30 @@ UTEST(pad, host_report_encoding)
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
     ASSERT_TRUE(main_xreg_0(0, 2, 0xFFFF));
     ASSERT_FALSE(pad_is_mapped());
+}
+
+/* The tablet's mouse-format wheel/pan: header bytes +2/+3 are 8-bit wrapping
+ * accumulators fed by host scroll, exactly like the mouse block. */
+UTEST(tab, host_wheel_encoding)
+{
+    tab_stop();
+    ASSERT_FALSE(tab_is_mapped()); /* nothing touches input until a ROM maps it */
+
+    ASSERT_TRUE(main_xreg_0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
+    ASSERT_TRUE(tab_is_mapped());
+    ASSERT_EQ(xram[0xFF00 + 2], 0x00); /* wheel default 0 */
+    ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
+
+    tab_host_wheel(3, -2);
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)3);  /* wheel accumulates */
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)-2); /* pan accumulates (wraps) */
+
+    tab_host_wheel(-4, 5);
+    ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
+    ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)3);  /* -2 + 5 */
+
+    ASSERT_TRUE(main_xreg_0(0, 3, 0xFFFF));
+    ASSERT_FALSE(tab_is_mapped());
 }
 
 /* Drain the keyboard com ring (what kbd_key/kbd_text push) into buf. */
