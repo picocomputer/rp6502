@@ -104,10 +104,10 @@ target_include_directories(test_cc65dbg PRIVATE ${UTEST_DIR} ${RP6502_SRC})
 target_compile_definitions(test_cc65dbg PRIVATE CC65_DBG="${ROMS}/cc65.dbg")
 add_test(NAME cc65dbg COMMAND test_cc65dbg)
 
-# --- W65C02S disassembler (the 65C02 fork driving the ui_dbg disasm view). ---
-# Header-only (w65c02dasm.h with CHIPS_UTIL_IMPL); no fixture/toolchain needed.
+# --- W65C02S disassembler (vendor/chips/util/w65c02dasm.h, driving the ui_dbg
+# disasm view). Header-only (CHIPS_UTIL_IMPL); no fixture/toolchain needed. ---
 add_executable(test_w65c02dasm test_w65c02dasm.c)
-target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${RP6502_SRC})
+target_include_directories(test_w65c02dasm PRIVATE ${UTEST_DIR} ${RP6502_SRC} ${RP6502_VENDOR})
 add_test(NAME w65c02dasm COMMAND test_w65c02dasm)
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---

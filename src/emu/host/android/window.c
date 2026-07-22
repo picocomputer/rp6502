@@ -12,10 +12,10 @@
 
 #include "emu/app/window.h"
 #include "emu/app/window_core.h"
-#include "sokol_app.h"
-#include "sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
-#include "sokol_log.h"
-#include "util/sokol_debugtext.h"
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
+#include "sokol/sokol_log.h"
+#include "sokol/util/sokol_debugtext.h"
 #include "emu/hid/pad.h"
 #include "emu/main.h"
 #include "emu/emu/rom.h"

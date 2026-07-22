@@ -19,8 +19,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
-#include "ui/ui_settings.h"   /* ui_settings_t */
+#include "chips/ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
+#include "chips/ui/ui_settings.h"   /* ui_settings_t */
 #include "emu/sys/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_MMAP_* */
 
 #ifdef __cplusplus

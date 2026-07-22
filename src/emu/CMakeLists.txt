@@ -168,11 +168,7 @@ endif()
 target_include_directories(emu_core PUBLIC
     ${RP6502_SRC}/emu/host/pico
     ${RP6502_SRC}
-    ${RP6502_VENDOR}/fatfs
     ${RP6502_VENDOR}
-    ${RP6502_VENDOR}/chips/chips
-    ${RP6502_VENDOR}/chips
-    ${RP6502_VENDOR}/sokol
 )
 target_compile_definitions(emu_core PUBLIC
     _GNU_SOURCE
@@ -257,7 +253,6 @@ else()
     add_executable(rp6502-emu ${APP_SOURCES})
     target_link_libraries(rp6502-emu PRIVATE emu_core)
 endif()
-target_include_directories(rp6502-emu PRIVATE ${RP6502_VENDOR}/sokol)
 
 # Windows is only platform without getopt
 if(WIN32)

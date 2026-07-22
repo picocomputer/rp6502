@@ -15,7 +15,7 @@
 #include "emu/hid/tab.h"
 #include "emu/sys/com.h"
 #include "emu/sys/vga.h"
-#include "sokol_app.h"
+#include "sokol/sokol_app.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>

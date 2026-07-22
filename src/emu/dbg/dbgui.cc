@@ -38,32 +38,30 @@ extern "C"
 #include "emu/app/credits.h" /* EMU_CREDITS */
 #include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
-#include "emu/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
-#include "m6522.h"            /* m6522_t (type; CHIPS_IMPL is in via.c) */
+#include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
+#include "chips/chips/m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
 
-#include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "util/sokol_imgui.h" /* simgui_* + simgui_imtextureid */
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_gfx.h"
+#include "sokol/util/sokol_imgui.h" /* simgui_* + simgui_imtextureid */
 
 /* chips UI headers — CHIPS_UI_IMPL is set by CMake on this TU only. Order per
- * ui_dbg.h's "include before the implementation" note. The w65c02 CPU/dasm/UI
- * headers live under emu/chips/ (vendored in-tree) because the pinned
- * vendor/chips submodule predates the w65c02 work; the rest come from
- * vendor/chips/ui/. */
-#include "ui/ui_util.h"
-#include "ui/ui_settings.h"
-#include "ui/ui_chip.h"
-#include "ui/ui_memedit.h"
-#include "ui/ui_memmap.h"
-#include "ui/ui_audio.h"
-#define CHIPS_UTIL_IMPL           /* emit w65c02dasm_op (the disassembler ui_dbg calls) */
-#include "emu/chips/w65c02dasm.h" /* WDC 65C02 disassembler (chips/util/w65c02dasm.h) */
-#include "emu/chips/ui_dasm.h"    /* chips ui/ui_dasm.h; after w65c02dasm.h (impl calls w65c02dasm_op) */
-#include "emu/chips/ui_w65c02.h"  /* chips ui/ui_w65c02.h (CPU register window) */
-#include "emu/chips/ui_ria.h"     /* our RIA debug window (bespoke, not a chips fork) */
-#include "emu/chips/ui_ini.h"     /* dummy elements: [RP6502][Launch] + [Window][Manager] */
-#include "ui/ui_m6522.h"
-#include "emu/chips/ui_dbg.h" /* chips ui/ui_dbg.h (disassembly/breakpoints) */
+ * ui_dbg.h's "include before the implementation" note. All come from
+ * vendor/chips; only ui_ria.h/ui_ini.h below are ours. */
+#include "chips/ui/ui_util.h"
+#include "chips/ui/ui_settings.h"
+#include "chips/ui/ui_chip.h"
+#include "chips/ui/ui_memedit.h"
+#include "chips/ui/ui_memmap.h"
+#include "chips/ui/ui_audio.h"
+#define CHIPS_UTIL_IMPL        /* emit w65c02dasm_op (the disassembler ui_dbg calls) */
+#include "chips/util/w65c02dasm.h"   /* WDC 65C02 disassembler */
+#include "chips/ui/ui_dasm.h"        /* after w65c02dasm.h (impl calls w65c02dasm_op) */
+#include "chips/ui/ui_w65c02.h"      /* CPU register window */
+#include "emu/chips/ui_ria.h"  /* our RIA debug window (bespoke, not a chips fork) */
+#include "emu/chips/ui_ini.h"  /* dummy elements: [RP6502][Launch] + [Window][Manager] */
+#include "chips/ui/ui_m6522.h"
+#include "chips/ui/ui_dbg.h"         /* disassembly/breakpoints */
 
 #include <cstdio>  /* snprintf, sscanf */
 #include <cstring> /* strcmp (ini section match) */

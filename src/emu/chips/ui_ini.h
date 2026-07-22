@@ -53,7 +53,7 @@ bool ui_ini_window_size(int *w, int *h);
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
 #endif
-#include "sokol_app.h" /* the [Window][Manager] refresh reads the live window size */
+#include "sokol/sokol_app.h" /* the [Window][Manager] refresh reads the live window size */
 
 #define _UI_INI_MANAGER "Manager" /* the dummy [Window] entry's name */
 

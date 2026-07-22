@@ -10,7 +10,7 @@
 #ifdef EMU_WITH_AUDIO
 
 #include "emu/emu/aud.h"
-#include "sokol_audio.h"
+#include "sokol/sokol_audio.h"
 
 /* Linear resampler state carried across frames so interpolation is continuous:
  * the read position between the previous and current native input sample, and

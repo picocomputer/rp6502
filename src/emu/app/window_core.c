@@ -12,16 +12,16 @@
 
 #include "emu/app/window.h"
 #include "emu/app/window_core.h"
-#include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "sokol_glue.h"
-#include "sokol_log.h"
-#include "util/sokol_framebuffer.h"
-#include "util/sokol_letterbox.h"
-#include "util/sokol_debugtext.h"
-#include "util/sokol_gl.h"
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_gfx.h"
+#include "sokol/sokol_glue.h"
+#include "sokol/sokol_log.h"
+#include "sokol/util/sokol_framebuffer.h"
+#include "sokol/util/sokol_letterbox.h"
+#include "sokol/util/sokol_debugtext.h"
+#include "sokol/util/sokol_gl.h"
 #ifdef EMU_WITH_AUDIO
-#include "sokol_audio.h"
+#include "sokol/sokol_audio.h"
 #include "emu/app/audio_out.h"
 #endif
 #ifdef EMU_WITH_DEBUGGER

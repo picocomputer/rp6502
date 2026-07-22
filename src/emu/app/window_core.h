@@ -15,7 +15,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
-#include "sokol_app.h"
+#include "sokol/sokol_app.h"
 
 /* Seed the core's window/render state from the launch options and report the
  * window's initial pixel size (canvas aspect at the requested scale, plus the
