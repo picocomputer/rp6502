@@ -7,15 +7,13 @@
 
 #include "emu/app/input.h"
 
-#ifdef EMU_WITH_SOKOL
-
 #include "emu/app/window.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
 #include "emu/sys/com.h"
 #include "emu/sys/vga.h"
-#include "sokol_app.h"
+#include "sokol/sokol_app.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -595,5 +593,3 @@ void input_event(const sapp_event *e)
         break;
     }
 }
-
-#endif /* EMU_WITH_SOKOL */

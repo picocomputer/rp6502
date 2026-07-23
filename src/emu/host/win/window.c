@@ -20,8 +20,8 @@
 #include "ria/api/oem.h"
 #include "emu/app/window.h"
 #include "emu/app/window_core.h"
-#include "sokol_app.h"
-#include "sokol_log.h"
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_log.h"
 #include <stdint.h>
 #include <stdio.h>
 

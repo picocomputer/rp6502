@@ -12,6 +12,6 @@
 
 #include "imgui.h"
 
-#include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "util/sokol_imgui.h" /* SOKOL_IMGUI_IMPL provided by CMake */
+#include "sokol/sokol_app.h"
+#include "sokol/sokol_gfx.h"
+#include "sokol/util/sokol_imgui.h" /* SOKOL_IMGUI_IMPL provided by CMake */
