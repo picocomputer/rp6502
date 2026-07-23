@@ -46,6 +46,13 @@ target_compile_options(${RIA_TARGET} PRIVATE
 # A duplicated locale id in def/str_*.def would silently leave a hole
 set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
 
+# __aeabi_read_tp's naked inline-asm literal pool loads can end up out of
+# the assembler's encodable range once whole-program LTO merges everything
+# into one giant unit. Keep this one file out of LTO.
+# **! Obsolete after @rumbledethumps' PICO_THREAD_LOCAL_TYPE Commit 20f16c0 **
+# set_source_files_properties(${PICO_SDK_PATH}/src/rp2_common/pico_thread_local/thread_local.c
+#    PROPERTIES COMPILE_OPTIONS "-fno-lto")
+
 target_include_directories(${RIA_TARGET} PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${RP6502_ROOT}/src
@@ -75,6 +82,7 @@ target_sources(${RIA_TARGET} PRIVATE
     aud/aud.c
     aud/bel.c
     aud/opl.c
+    aud/pcm.c
     aud/psg.c
     ble/ble.c
     ble/tlv.c
