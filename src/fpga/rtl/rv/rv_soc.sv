@@ -14,6 +14,12 @@
  * MMIO so far, word-wide at 0xF0000000:
  *   +0  console: write emits the low byte; reads as 0 (always ready)
  *   +4  halt: write stops the simulation testbench, value is the exit code
+ *
+ * Everything outside the TCM and the local page goes out the system bus,
+ * with one wait state so the machine's single-cycle devices — SRAM port B,
+ * the RIA cells, the 6502's reset — see one strobe per access and answer by
+ * the stretched data phase. Byte lanes carry sb/lb; the loader moves bytes,
+ * which is all a 6502's memory wants.
  */
 
 module rv_soc (
@@ -24,7 +30,15 @@ module rv_soc (
     output logic rv_soc_tx_valid,
 
     output logic rv_soc_halted,
-    output logic [31:0] rv_soc_exit_code
+    output logic [31:0] rv_soc_exit_code,
+
+    /* System bus: one strobe per access during the stretched data phase. */
+    output logic rv_soc_bus_stb,
+    output logic rv_soc_bus_we,
+    output logic [31:0] rv_soc_bus_addr,
+    output logic [31:0] rv_soc_bus_wdata,
+    output logic [3:0] rv_soc_bus_wstrb,
+    input logic [31:0] bus_rdata
 );
 
     localparam int TCM_WORDS = 32768;  // 128 KB
@@ -102,13 +116,15 @@ module rv_soc (
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    always_comb hready = 1'b1;
-
-    // Address-phase capture; the data phase completes one cycle later.
-    logic dph_active, dph_write, dph_mmio;
+    // Address-phase capture; the data phase completes one cycle later,
+    // or two for the system bus.
+    logic dph_active, dph_write, dph_mmio, dph_ext, dph_waited;
     logic [14:0] dph_word;  // TCM word index; strb carries the byte lanes
+    logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [3:0] mmio_reg;
+
+    always_comb hready = !(dph_active && dph_ext && !dph_waited);
 
     logic [3:0] strb;
     always_comb begin
@@ -130,17 +146,35 @@ module rv_soc (
             dph_active <= 1'b0;
             dph_write <= 1'b0;
             dph_mmio <= 1'b0;
+            dph_ext <= 1'b0;
+            dph_waited <= 1'b0;
             dph_word <= '0;
+            dph_addr <= '0;
             dph_strb <= '0;
             mmio_reg <= '0;
-        end else begin
+        end else if (hready) begin
             dph_active <= htrans[1];
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
+            dph_ext <= haddr[31:28] != 4'h0 && haddr[31:28] != 4'hF;
             dph_word <= haddr[16:2];
+            dph_addr <= haddr;
             dph_strb <= strb;
             mmio_reg <= haddr[3:0];
+            dph_waited <= 1'b0;
+        end else begin
+            dph_waited <= 1'b1;
         end
+    end
+
+    // The strobe is the wait-state cycle: captured address out, write data
+    // straight off the held AHB data phase, reads answered next cycle.
+    always_comb begin
+        rv_soc_bus_stb = dph_active && dph_ext && !dph_waited;
+        rv_soc_bus_we = rv_soc_bus_stb && dph_write;
+        rv_soc_bus_addr = dph_addr;
+        rv_soc_bus_wdata = hwdata;
+        rv_soc_bus_wstrb = dph_strb;
     end
 
     // TCM read launches in the address phase; write lands in the data phase.
@@ -158,7 +192,14 @@ module rv_soc (
         end
     end
 
-    always_comb hrdata = dph_mmio ? 32'h0 : tcm_rdata;
+    always_comb begin
+        if (dph_ext)
+            hrdata = bus_rdata;
+        else if (dph_mmio)
+            hrdata = 32'h0;
+        else
+            hrdata = tcm_rdata;
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

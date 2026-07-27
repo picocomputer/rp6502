@@ -7,11 +7,18 @@
  * wrappers under platform/ adapt this to the Analogue Pocket (APF) or MiSTer;
  * the simulation verilates this module directly and drives it from sim/.
  *
- * So far: the 6502 at a divided PHI2, its 64 KB, the VIA at $FFD0, and the
- * RIA's bare UART and register cells at $FFE0 — enough machine to run a
- * program that prints. The memory map and its quirks follow emu/sys/mem.c:
- * every write also lands in the SRAM shadow, and $FF00-$FFCF reads float at
- * the last value the bus carried.
+ * So far: the 6502 at a divided PHI2, its 64 KB, the VIA at $FFD0, the
+ * RIA's bare UART and register cells at $FFE0, and the soft CPU that owns
+ * them all — a Hazard3 whose firmware loads programs into the 6502's memory,
+ * writes its vectors, and releases its reset, the way the RIA boots the real
+ * machine. The memory map and its quirks follow emu/sys/mem.c: every write
+ * also lands in the SRAM shadow, and $FF00-$FFCF reads float at the last
+ * value the bus carried.
+ *
+ * The soft CPU's window on the machine, byte-wide unless noted:
+ *   0x10000000  the 6502's 64 KB
+ *   0x20000000  the RIA register cells, one per byte address
+ *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
  */
 
 module rp6502
@@ -26,6 +33,12 @@ module rp6502
     input logic rx_valid,
     input logic [7:0] rx_data,
     output logic rp6502_rx_taken,
+
+    /* The soft CPU's own console and the testbench halt. */
+    output logic [7:0] rp6502_rv_tx_data,
+    output logic rp6502_rv_tx_valid,
+    output logic rp6502_rv_halted,
+    output logic [31:0] rp6502_rv_exit_code,
 
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline
 );
@@ -52,9 +65,12 @@ module rp6502
     /* verilator lint_on UNUSEDSIGNAL */
     always_comb unused_sync = cpu_sync;
 
+    /* The 6502 runs when the OS says so; cpu_run is its inverted RESB. */
+    logic cpu_run /*verilator public_flat_rw*/;
+
     cpu65 cpu (
         .clk(clk_sys),
-        .rst_n(rst_n),
+        .rst_n(rst_n && cpu_run),
         .en(phi2_en),
         .data_i(cpu_din),
         .irq_i(via_irq),
@@ -82,12 +98,10 @@ module rp6502
         .a_wdata(cpu_dout),
         .a_we(cpu_we && phi2_en),
         .a_rdata(sram_rdata),
-        .b_addr(16'h0000),
-        .b_wdata(8'h00),
-        .b_we(1'b0),
-        /* verilator lint_off PINCONNECTEMPTY */
-        .b_rdata()
-        /* verilator lint_on PINCONNECTEMPTY */
+        .b_addr(bus_addr[15:0]),
+        .b_wdata(bus_wbyte),
+        .b_we(bus_stb && bus_we && bus_sel_sram),
+        .b_rdata(sram_b_rdata)
     );
 
     logic [7:0] via_data;
@@ -103,6 +117,77 @@ module rp6502
         .via_irq(via_irq)
     );
 
+    /* The soft CPU and its window on the machine. */
+    logic bus_stb, bus_we;
+    logic [31:0] bus_addr, bus_wdata;
+    logic [3:0] bus_wstrb;
+    logic [31:0] bus_rdata;
+
+    rv_soc rv (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .rv_soc_tx_data(rp6502_rv_tx_data),
+        .rv_soc_tx_valid(rp6502_rv_tx_valid),
+        .rv_soc_halted(rp6502_rv_halted),
+        .rv_soc_exit_code(rp6502_rv_exit_code),
+        .rv_soc_bus_stb(bus_stb),
+        .rv_soc_bus_we(bus_we),
+        .rv_soc_bus_addr(bus_addr),
+        .rv_soc_bus_wdata(bus_wdata),
+        .rv_soc_bus_wstrb(bus_wstrb),
+        .bus_rdata(bus_rdata)
+    );
+
+    /* Byte lane per sb/lb; the window is byte-wide by design, so the wide
+     * decode bits and the lane-zero strobe fold into the others. */
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_bus;
+    always_comb unused_bus = ^{bus_addr[27:16], bus_wstrb[0]};
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [7:0] bus_wbyte;
+    always_comb begin
+        bus_wbyte = bus_wdata[7:0];
+        if (bus_wstrb[1])
+            bus_wbyte = bus_wdata[15:8];
+        if (bus_wstrb[2])
+            bus_wbyte = bus_wdata[23:16];
+        if (bus_wstrb[3])
+            bus_wbyte = bus_wdata[31:24];
+    end
+
+    logic bus_sel_sram, bus_sel_regs, bus_sel_ctl;
+    always_comb begin
+        bus_sel_sram = bus_addr[31:28] == 4'h1;
+        bus_sel_regs = bus_addr[31:28] == 4'h2;
+        bus_sel_ctl = bus_addr[31:28] == 4'h4;
+    end
+
+    logic [7:0] sram_b_rdata, regs_b_rdata;
+    logic [1:0] bus_rsel;  // which target answers: 0 sram, 1 regs, 2 control
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n) begin
+            cpu_run <= 1'b0;
+            bus_rsel <= 2'd0;
+        end else begin
+            if (bus_stb)
+                bus_rsel <= bus_sel_regs ? 2'd1 : (bus_sel_ctl ? 2'd2 : 2'd0);
+            if (bus_stb && bus_we && bus_sel_ctl)
+                cpu_run <= bus_wbyte[0];
+        end
+    end
+
+    /* Reads answer one cycle after the strobe, the byte on every lane so
+     * the master's own extract picks the addressed one. */
+    logic [7:0] bus_rbyte;
+    always_comb begin
+        case (bus_rsel)
+            2'd1: bus_rbyte = regs_b_rdata;
+            2'd2: bus_rbyte = {7'b0, cpu_run};
+            default: bus_rbyte = sram_b_rdata;
+        endcase
+        bus_rdata = {4{bus_rbyte}};
+    end
+
     logic [7:0] ria_data;
     ria_regs ria (
         .clk(clk_sys),
@@ -117,7 +202,11 @@ module rp6502
         .ria_regs_tx_valid(rp6502_tx_valid),
         .rx_valid(rx_valid),
         .rx_data(rx_data),
-        .ria_regs_rx_taken(rp6502_rx_taken)
+        .ria_regs_rx_taken(rp6502_rx_taken),
+        .b_we(bus_stb && bus_we && bus_sel_regs),
+        .b_rs(bus_addr[4:0]),
+        .b_wdata(bus_wbyte),
+        .ria_regs_b_rdata(regs_b_rdata)
     );
 
     /* The bus keeps its last value across the unmapped window. */

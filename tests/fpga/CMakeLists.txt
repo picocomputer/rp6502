@@ -42,6 +42,7 @@ rp6502_add_test(oracle
 find_package(verilator CONFIG QUIET HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 if(verilator_FOUND)
     set(RP6502_MACHINE_SOURCES
+        ${CMAKE_CURRENT_LIST_DIR}/hazard3.vlt
         ${CPU65_ROM}
         ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv
         ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
@@ -49,7 +50,13 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/cpu65/phi2_div.sv
         ${RP6502_FPGA_RTL}/mem/sram64k.sv
         ${RP6502_FPGA_RTL}/ria/ria_regs.sv
+        ${RP6502_FPGA_RTL}/rv/rv_soc.sv
         ${RP6502_FPGA_RTL}/core/rp6502.sv)
+    set(RP6502_MACHINE_VERILATOR_ARGS
+        -y ${RP6502_VENDOR}/hazard3/hdl
+        -y ${RP6502_VENDOR}/hazard3/hdl/arith
+        -y ${RP6502_VENDOR}/hazard3/hdl/debug/dm
+        -y ${RP6502_VENDOR}/hazard3/hdl/debug/dtm)
 
     rp6502_add_test(rtl
         SOURCES test_rtl.cpp tb_core.cpp
@@ -60,7 +67,8 @@ if(verilator_FOUND)
         TOP_MODULE rp6502
         PREFIX Vrp6502
         TRACE_FST
-        VERILATOR_ARGS -Wall --assert
+        INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+        VERILATOR_ARGS -Wall --assert ${RP6502_MACHINE_VERILATOR_ARGS}
     )
 
     # The whole machine so far boots a program that talks through the UART.
@@ -73,7 +81,8 @@ if(verilator_FOUND)
         SOURCES ${RP6502_MACHINE_SOURCES}
         TOP_MODULE rp6502
         PREFIX Vrp6502
-        VERILATOR_ARGS -Wall --assert -O3
+        INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+        VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
     )
 
     # --- The 65C02 in RTL, against the same suites as the emulator's C ---
@@ -138,23 +147,20 @@ if(verilator_FOUND)
             VERBATIM)
         add_custom_target(sw_bin DEPENDS ${SW_BIN})
 
-        rp6502_add_test(rvsoc
-            SOURCES test_rvsoc.cpp
+        # The real boot path: no backdoor into the 6502's world, only the
+        # firmware image, the way a bitstream carries it.
+        rp6502_add_test(boot
+            SOURCES test_boot.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS SW_BIN="${SW_BIN}"
             TIMEOUT 120)
-        add_dependencies(test_rvsoc sw_bin)
-        verilate(test_rvsoc
-            SOURCES ${CMAKE_CURRENT_LIST_DIR}/hazard3.vlt
-                ${RP6502_FPGA_RTL}/rv/rv_soc.sv
-            TOP_MODULE rv_soc
-            PREFIX Vrvsoc
+        add_dependencies(test_boot sw_bin cpu65_rom)
+        verilate(test_boot
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
             INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-            VERILATOR_ARGS -Wall --assert -O3
-                -y ${RP6502_VENDOR}/hazard3/hdl
-                -y ${RP6502_VENDOR}/hazard3/hdl/arith
-                -y ${RP6502_VENDOR}/hazard3/hdl/debug/dm
-                -y ${RP6502_VENDOR}/hazard3/hdl/debug/dtm
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
     else()
         message(WARNING

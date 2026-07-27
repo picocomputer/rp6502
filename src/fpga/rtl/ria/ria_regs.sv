@@ -33,7 +33,15 @@ module ria_regs (
     /* RX: a byte offered from the console side, taken when latched. */
     input logic rx_valid,
     input logic [7:0] rx_data,
-    output logic ria_regs_rx_taken
+    output logic ria_regs_rx_taken,
+
+    /* The OS side: the soft CPU reads and writes the cells directly, the
+     * way the firmware's REGS() macros treat them as memory. Plain array
+     * access at the system clock, no side effects. */
+    input logic b_we,
+    input logic [4:0] b_rs,
+    input logic [7:0] b_wdata,
+    output logic [7:0] ria_regs_b_rdata
 );
 
     localparam logic [7:0] TX_READY = 8'h80;
@@ -67,6 +75,8 @@ module ria_regs (
 
     /* Registered with the side effect it reports: the offered byte is taken
      * at the same edge that latches it, never a cycle before. */
+    always_comb ria_regs_b_rdata = regs[b_rs];
+
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             for (int i = 0; i < 32; i++)
@@ -113,6 +123,11 @@ module ria_regs (
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= 1'b0;
         end
+        /* The OS side is plain shared memory at the system clock; it lands
+         * regardless of the 6502's enable, and a same-cell collision goes to
+         * the OS, as arbitrary as it is on the real dual-core part. */
+        if (rst_n && b_we)
+            regs[b_rs] <= b_wdata;
     end
 
 endmodule

@@ -33,6 +33,8 @@ static void machine_reset()
     clock_cycle();
     clock_cycle();
     dut->rst_n = 1;
+    /* These tests bypass the firmware boot; run the 6502 directly. */
+    dut->rootp->rp6502__DOT__cpu_run = 1;
 }
 
 /* Load bytes into SRAM and point the reset vector at entry. */
