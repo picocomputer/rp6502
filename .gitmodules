@@ -23,3 +23,6 @@
 [submodule "vendor/emsdk"]
 	path = vendor/emsdk
 	url = https://github.com/emscripten-core/emsdk.git
+[submodule "vendor/6502_65C02_functional_tests"]
+	path = vendor/6502_65C02_functional_tests
+	url = https://github.com/Klaus2m5/6502_65C02_functional_tests

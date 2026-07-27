@@ -30,10 +30,13 @@ which downloads much more than needed:
 $ git -C vendor/cppdap submodule update --init third_party/json
 ```
 
-The CPU conformance tests replay per-cycle bus traces from
-[SingleStepTests](https://github.com/SingleStepTests/65x02) against both the
-emulator's 65C02 and the FPGA core's, which is what keeps the two from drifting
-apart. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
+Both 65C02 implementations, the emulator's and the FPGA core's, are held to the
+same two suites so neither can drift alone. Klaus Dormann's functional tests
+come with the submodules above and run long self-checking sequences.
+
+The other suite replays per-cycle bus traces from
+[SingleStepTests](https://github.com/SingleStepTests/65x02), one instruction per
+case. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
 one-time developer download rather than a submodule. Run the VS Code
 **vectors: download** task, or from the command line:
 ```

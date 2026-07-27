@@ -17,7 +17,7 @@ static uint8_t vec_mem[0x10000];
 
 typedef struct
 {
-    vec_regs_t regs;
+    dut_regs_t regs;
     uint16_t addr[VEC_MAX_RAM];
     uint8_t val[VEC_MAX_RAM];
     uint16_t count;
@@ -72,7 +72,7 @@ static void fail(vec_result_t *r, uint8_t opcode, size_t index, const char *fmt,
              opcode, index, msg);
 }
 
-bool vec_run(const char *path, const vec_cpu_t *cpu, int only_opcode,
+bool vec_run(const char *path, const dut_t *cpu, int only_opcode,
              vec_result_t *result)
 {
     memset(result, 0, sizeof *result);
@@ -127,7 +127,8 @@ bool vec_run(const char *path, const vec_cpu_t *cpu, int only_opcode,
         {
             uint16_t addr;
             bool read;
-            cpu->bus(&addr, &read);
+            bool sync;
+            cpu->bus(&addr, &read, &sync);
 
             uint8_t data = vec_mem[addr];
             cpu->tick(&data);
@@ -146,7 +147,7 @@ bool vec_run(const char *path, const vec_cpu_t *cpu, int only_opcode,
 
         if (!bad)
         {
-            vec_regs_t got;
+            dut_regs_t got;
             cpu->end(&got);
             if (got.pc != final.regs.pc || got.s != final.regs.s ||
                 got.a != final.regs.a || got.x != final.regs.x ||
