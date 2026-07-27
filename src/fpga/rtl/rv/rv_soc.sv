@@ -14,6 +14,8 @@
  * MMIO so far, word-wide at 0xF0000000:
  *   +0  console: write emits the low byte; reads as 0 (always ready)
  *   +4  halt: write stops the simulation testbench, value is the exit code
+ *   +8  keyboard in: one offered byte, bit 8 valid, popped by the read;
+ *       the testbench fills it now, the APF input bridge will later
  *
  * Everything outside the TCM and the local page goes out the system bus,
  * with one wait state so the machine's single-cycle devices — SRAM port B,
@@ -199,11 +201,15 @@ module rv_soc (
         end
     end
 
+    logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
+    logic mmio_kbd_valid /*verilator public_flat_rw*/;
+
     always_comb begin
         if (dph_ext)
             hrdata = bus_rdata;
         else if (dph_mmio)
-            hrdata = 32'h0;
+            hrdata = mmio_reg == 4'h8
+                ? {23'd0, mmio_kbd_valid, mmio_kbd_data} : 32'h0;
         else
             hrdata = tcm_rdata;
     end
@@ -214,8 +220,12 @@ module rv_soc (
             rv_soc_tx_valid <= 1'b0;
             rv_soc_halted <= 1'b0;
             rv_soc_exit_code <= 32'h0;
+            mmio_kbd_valid <= 1'b0;
+            mmio_kbd_data <= 8'h00;
         end else begin
             rv_soc_tx_valid <= 1'b0;
+            if (dph_active && !dph_write && dph_mmio && mmio_reg == 4'h8)
+                mmio_kbd_valid <= 1'b0;
             if (dph_active && dph_write && dph_mmio) begin
                 case (mmio_reg)
                     4'h0: begin

@@ -135,7 +135,8 @@ if(verilator_FOUND)
         set(SW_SRC ${RP6502_SRC}/fpga/sw)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
-            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/mem.c ${SW_SRC}/trap.c
+            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c ${SW_SRC}/mem.c
+            ${SW_SRC}/trap.c
             ${RP6502_SRC}/ria/api/api.c)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
@@ -143,6 +144,7 @@ if(verilator_FOUND)
                 -ffunction-sections -fdata-sections -Wl,--gc-sections
                 -isystem /usr/lib/picolibc/riscv64-unknown-elf/include
                 -I ${RP6502_SRC}
+                -I ${RP6502_SRC}/emu/host/pico
                 -Wl,-T,${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
                 -o ${CMAKE_CURRENT_BINARY_DIR}/sw.elf
                 ${SW_SOURCES}

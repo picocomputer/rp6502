@@ -57,10 +57,21 @@ UTEST(boot, firmware_boots_the_6502)
     }
     dut->rst_n = 1;
 
+    /* Typed input arrives through the platform keyboard slot, one offered
+     * byte the firmware's com_task moves into its rings; the program echoes
+     * it back and stops at the carriage return. */
+    const char typed[] = "HI\r";
+    size_t typed_at = 0;
+
     std::string rv_out, cpu_out;
     bool stopped = false;
     for (int i = 0; i < 800000; i++)
     {
+        if (typed[typed_at] && !dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid)
+        {
+            dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_data = typed[typed_at++];
+            dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid = 1;
+        }
         dut->clk_sys = 1;
         dut->eval();
         dut->clk_sys = 0;
@@ -79,16 +90,15 @@ UTEST(boot, firmware_boots_the_6502)
     ASSERT_TRUE(stopped);
     /* CA is the machine's first real syscall: api.c answered $4143 through
      * the trampoline, and the 6502 printed A then X. DB is the second, the
-     * uint16 $4243 pushed on the xstack coming back incremented. */
-    ASSERT_STREQ(cpu_out.c_str(), "HELLO, WORLD!\r\nCADB");
-    /* The same bytes arrive on the OS console through the drained ring,
-     * interleaved with the loader's own narration. */
+     * uint16 $4243 pushed on the xstack coming back incremented. HI\r is
+     * the keyboard echoed through com.c's rings and the $FFE2 offer. */
+    ASSERT_STREQ(cpu_out.c_str(), "HELLO, WORLD!\r\nCADBHI\r");
+    /* The same bytes arrive on the OS console through the manifold, whole:
+     * after the boot narration, com_tx_write is the console's only writer,
+     * so the machine's stream is contiguous. */
     ASSERT_TRUE(strstr(rv_out.c_str(), "boot: loading") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "boot: running") != NULL);
-    ASSERT_TRUE(strstr(rv_out.c_str(), "api: op") != NULL);
-    ASSERT_TRUE(strstr(rv_out.c_str(), "HELLO, WORLD!") != NULL);
-    ASSERT_TRUE(strstr(rv_out.c_str(), "CA") != NULL);
-    ASSERT_TRUE(strstr(rv_out.c_str(), "DB") != NULL);
+    ASSERT_TRUE(strstr(rv_out.c_str(), "HELLO, WORLD!\r\nCADBHI\r") != NULL);
 }
 
 UTEST_STATE();

@@ -8,21 +8,14 @@
  * memory, write its vectors into the register cells, and release its reset.
  */
 
+#include "com.h"
+#include "mmio.h"
 #include "ria/api/api.h"
 #include "ria/main.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/ria.h"
 
 #include <stdint.h>
-
-#define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
-
-/* The machine, as mapped in rp6502.sv. Byte windows by design. */
-#define SRAM ((volatile uint8_t *)0x10000000u)
-#define REGS_WIN ((volatile uint8_t *)0x20000000u)
-#define UART_POP (*(volatile uint32_t *)0x20000040u)
-#define CPU_RUN (*(volatile uint8_t *)0x40000000u)
-#define API_PENDING (*(volatile uint8_t *)0x40000004u)
 
 static void print(const char *s)
 {
@@ -32,10 +25,11 @@ static void print(const char *s)
 
 /* Until the .rp6502 loader arrives, the program rides in the firmware:
  * print "HELLO, WORLD!\r\n" through $FFE1 under the $FFE0 ready bit, then a
- * bare syscall, then one carrying an xstack argument, STP. */
+ * bare syscall, then one carrying an xstack argument, then echo the console
+ * input back until a carriage return arrives, STP. */
 static const uint8_t boot_prog[] = {
     0xA2, 0x00,              /*       ldx #0          */
-    0xBD, 0x3A, 0x02,        /* loop: lda msg,x       */
+    0xBD, 0x50, 0x02,        /* loop: lda msg,x       */
     0xF0, 0x0C,              /*       beq done        */
     0x2C, 0xE0, 0xFF,        /* wait: bit $FFE0       */
     0x10, 0xFB,              /*       bpl wait        */
@@ -59,6 +53,17 @@ static const uint8_t boot_prog[] = {
     0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
     0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
     0x8E, 0xE1, 0xFF,        /*       stx $FFE1       */
+    /* echo the RX latch back out until a carriage return */
+    0x2C, 0xE0, 0xFF,        /* echo: bit $FFE0       */
+    0x50, 0xFB,              /*       bvc echo        */
+    0xAD, 0xE2, 0xFF,        /*       lda $FFE2       */
+    0x48,                    /*       pha             */
+    0x2C, 0xE0, 0xFF,        /* wtx:  bit $FFE0       */
+    0x10, 0xFB,              /*       bpl wtx         */
+    0x68,                    /*       pla             */
+    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
+    0xC9, 0x0D,              /*       cmp #$0D        */
+    0xD0, 0xEA,              /*       bne echo        */
     0xDB,                    /*       stp             */
     'H', 'E', 'L', 'L', 'O', ',', ' ',
     'W', 'O', 'R', 'L', 'D', '!', '\r', '\n', 0,
@@ -81,7 +86,6 @@ static bool api_answered;
 
 bool main_api(uint8_t operation)
 {
-    print("api: op\n");
     api_answered = true;
     switch (operation)
     {
@@ -101,6 +105,7 @@ bool main_api(uint8_t operation)
 
 int main(void)
 {
+    com_init();
     print("boot: loading\n");
 
     for (uint32_t i = 0; i < sizeof boot_prog; i++)
@@ -123,18 +128,19 @@ int main(void)
     print("boot: running\n");
 
     /* The OS loop: the real api.c latches the op and dispatches through
-     * main_api, and the console drain forwards whatever the 6502 says —
-     * com.c in miniature. Quiet after the syscall means the work is done. */
+     * main_api, and the manifold moves the console bytes. Quiet after the
+     * syscalls means the work is done — a simulation-only exit. */
     uint32_t quiet = 0;
+    uint32_t moved = com_moved();
     for (uint32_t spins = 0; spins < 2000000u; spins++)
     {
         if (API_PENDING)
             API_PENDING = 0;
         api_task();
-        uint32_t v = UART_POP;
-        if (v & 0x100)
+        com_task();
+        if (com_moved() != moved)
         {
-            MMIO_CONSOLE = v & 0xFF;
+            moved = com_moved();
             quiet = 0;
         }
         else if (api_answered && ++quiet > 2000)
