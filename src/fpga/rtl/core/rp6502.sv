@@ -19,6 +19,7 @@
  *   0x10000000  the 6502's 64 KB
  *   0x20000000  the RIA register cells, one per byte address
  *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
+ *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
  */
 
 module rp6502
@@ -162,16 +163,21 @@ module rp6502
         bus_sel_ctl = bus_addr[31:28] == 4'h4;
     end
 
+    logic api_pending;
+    logic bus_ctl_api;
     logic [7:0] sram_b_rdata, regs_b_rdata;
     logic [1:0] bus_rsel;  // which target answers: 0 sram, 1 regs, 2 control
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
             cpu_run <= 1'b0;
             bus_rsel <= 2'd0;
+            bus_ctl_api <= 1'b0;
         end else begin
-            if (bus_stb)
+            if (bus_stb) begin
                 bus_rsel <= bus_sel_regs ? 2'd1 : (bus_sel_ctl ? 2'd2 : 2'd0);
-            if (bus_stb && bus_we && bus_sel_ctl)
+                bus_ctl_api <= bus_addr[2];
+            end
+            if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
                 cpu_run <= bus_wbyte[0];
         end
     end
@@ -182,7 +188,8 @@ module rp6502
     always_comb begin
         case (bus_rsel)
             2'd1: bus_rbyte = regs_b_rdata;
-            2'd2: bus_rbyte = {7'b0, cpu_run};
+            2'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
+                : {7'b0, cpu_run};
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = {4{bus_rbyte}};
@@ -206,7 +213,9 @@ module rp6502
         .b_we(bus_stb && bus_we && bus_sel_regs),
         .b_rs(bus_addr[4:0]),
         .b_wdata(bus_wbyte),
-        .ria_regs_b_rdata(regs_b_rdata)
+        .ria_regs_b_rdata(regs_b_rdata),
+        .ria_regs_api_pending(api_pending),
+        .api_ack(bus_stb && bus_we && bus_sel_ctl && bus_addr[2])
     );
 
     /* The bus keeps its last value across the unmapped window. */

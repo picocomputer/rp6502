@@ -12,6 +12,13 @@
  *
  * Read data is combinational from pre-tick state; side effects land at the
  * enabled edge, the same discipline as via.sv.
+ *
+ * A write to $FFEF is a syscall: the hardware itself arms the BRA -2 block
+ * at $FFF1 in the same cycle the op lands, so the 6502 can JSR into the
+ * trampoline immediately and there is no window where it outruns the OS
+ * (api.h's api_set_regs_blocked becomes a harmless duplicate). The OS sees
+ * the op in the cells, does its work, patches the return bytes, and clears
+ * the pending flag.
  */
 
 module ria_regs (
@@ -41,7 +48,11 @@ module ria_regs (
     input logic b_we,
     input logic [4:0] b_rs,
     input logic [7:0] b_wdata,
-    output logic [7:0] ria_regs_b_rdata
+    output logic [7:0] ria_regs_b_rdata,
+
+    /* A syscall is pending; the OS acknowledges. */
+    output logic ria_regs_api_pending,
+    input logic api_ack
 );
 
     localparam logic [7:0] TX_READY = 8'h80;
@@ -84,9 +95,12 @@ module ria_regs (
             ria_regs_tx_data <= 8'h00;
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= 1'b0;
+            ria_regs_api_pending <= 1'b0;
         end else if (en) begin
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= pull;
+            if (api_ack)
+                ria_regs_api_pending <= 1'b0;
             if (cs) begin
                 if (we) begin
                     case (rs)
@@ -94,6 +108,14 @@ module ria_regs (
                             ria_regs_tx_data <= data_i;
                             ria_regs_tx_valid <= 1'b1;
                             regs[0] <= regs[0] | TX_READY;
+                        end
+                        5'h0F: begin
+                            /* The op lands and the trampoline blocks, one
+                             * indivisible cycle. */
+                            regs[5'h0F] <= data_i;
+                            regs[5'h11] <= 8'h80;
+                            regs[5'h12] <= 8'hFE;
+                            ria_regs_api_pending <= 1'b1;
                         end
                         default: regs[rs] <= data_i;
                     endcase
@@ -122,6 +144,8 @@ module ria_regs (
         end else begin
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= 1'b0;
+            if (api_ack)
+                ria_regs_api_pending <= 1'b0;
         end
         /* The OS side is plain shared memory at the system clock; it lands
          * regardless of the 6502's enable, and a same-cell collision goes to
