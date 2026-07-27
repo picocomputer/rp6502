@@ -362,11 +362,12 @@ jobs:
       - name: Init simulation submodules
         run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/6502_65C02_functional_tests
 
-      - name: Install build dependencies + Verilator
+      - name: Install build dependencies + Verilator + RISC-V toolchain
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build verilator
+            build-essential cmake ninja-build verilator \
+            gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
       # Blobless sparse clone of one directory; the full repo is 4.8 GB.
       - name: Fetch SingleStepTests CPU vectors
