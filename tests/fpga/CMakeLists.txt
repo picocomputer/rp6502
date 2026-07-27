@@ -25,6 +25,26 @@ add_custom_command(OUTPUT ${CPU65_ROM}
     VERBATIM)
 add_custom_target(cpu65_rom ALL DEPENDS ${CPU65_ROM})
 
+# The font ROM comes from vga/term/font.c the same way: generated at
+# configure time for verilate(), kept fresh by the build-time rule, and
+# checked byte for byte against font_init's runtime tables by test_font.
+set(VID_FONT_GEN ${RP6502_SRC}/fpga/codegen/vid_font_gen.py)
+set(VID_FONT_PKG ${CMAKE_CURRENT_BINARY_DIR}/vid_font_pkg.sv)
+set(VID_FONT_H ${CMAKE_CURRENT_BINARY_DIR}/vid_font_tables.h)
+execute_process(
+    COMMAND python3 ${VID_FONT_GEN} --emit-sv ${VID_FONT_PKG} --emit-h ${VID_FONT_H}
+    RESULT_VARIABLE VID_FONT_GEN_RC)
+if(VID_FONT_GEN_RC)
+    message(FATAL_ERROR "vid_font_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${VID_FONT_PKG} ${VID_FONT_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${VID_FONT_GEN}
+        --emit-sv ${VID_FONT_PKG} --emit-h ${VID_FONT_H}
+    DEPENDS ${VID_FONT_GEN} ${RP6502_SRC}/vga/term/font.c
+    COMMENT "Generating the vid_font ROM"
+    VERBATIM)
+add_custom_target(vid_font_rom ALL DEPENDS ${VID_FONT_PKG} ${VID_FONT_H})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -35,6 +55,12 @@ target_include_directories(fpga_oracle PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 rp6502_add_test(oracle
     SOURCES test_oracle.cpp
     LIBS fpga_oracle FIXTURE adventure.rp6502)
+
+rp6502_add_test(font
+    SOURCES test_font.cpp
+    INCLUDES ${CMAKE_CURRENT_BINARY_DIR}
+    LIBS fpga_oracle)
+add_dependencies(test_font vid_font_rom)
 
 # --- The verilated machine ---
 # Platform wrappers under src/fpga/platform are not verilated; the simulation
