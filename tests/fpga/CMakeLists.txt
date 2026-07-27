@@ -41,17 +41,39 @@ rp6502_add_test(oracle
 # models the host bridge in C++ instead, so one harness serves every target.
 find_package(verilator CONFIG QUIET HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 if(verilator_FOUND)
+    set(RP6502_MACHINE_SOURCES
+        ${CPU65_ROM}
+        ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv
+        ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
+        ${RP6502_FPGA_RTL}/cpu65/via.sv
+        ${RP6502_FPGA_RTL}/cpu65/phi2_div.sv
+        ${RP6502_FPGA_RTL}/mem/sram64k.sv
+        ${RP6502_FPGA_RTL}/ria/ria_regs.sv
+        ${RP6502_FPGA_RTL}/core/rp6502.sv)
+
     rp6502_add_test(rtl
         SOURCES test_rtl.cpp tb_core.cpp
         INCLUDES ${CMAKE_CURRENT_LIST_DIR})
+    add_dependencies(test_rtl cpu65_rom)
     verilate(test_rtl
-        SOURCES
-            ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv
-            ${RP6502_FPGA_RTL}/core/rp6502.sv
+        SOURCES ${RP6502_MACHINE_SOURCES}
         TOP_MODULE rp6502
         PREFIX Vrp6502
         TRACE_FST
         VERILATOR_ARGS -Wall --assert
+    )
+
+    # The whole machine so far boots a program that talks through the UART.
+    rp6502_add_test(hello
+        SOURCES test_hello.cpp
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+        TIMEOUT 120)
+    add_dependencies(test_hello cpu65_rom)
+    verilate(test_hello
+        SOURCES ${RP6502_MACHINE_SOURCES}
+        TOP_MODULE rp6502
+        PREFIX Vrp6502
+        VERILATOR_ARGS -Wall --assert -O3
     )
 
     # --- The 65C02 in RTL, against the same suites as the emulator's C ---
