@@ -49,9 +49,11 @@ static FRESULT fil_resolve_dst(const char *src, const char *dst,
         char fname[FF_LFN_BUF + 1];
         if (!str_lookup_basename(src, fname, sizeof fname))
             return FR_NO_FILE;
-        // Skip the joiner if dst already ends in a separator.
+        // Skip the joiner if dst already ends in a separator or a drive
+        // colon; "0:name" must stay relative to that drive's directory.
         size_t dst_len = strlen(dst);
-        const char *sep = (dst_len > 0 && str_is_sep(dst[dst_len - 1])) ? "" : "/";
+        char dst_end = dst_len ? dst[dst_len - 1] : '\0';
+        const char *sep = (str_is_sep(dst_end) || dst_end == ':') ? "" : "/";
         int n = snprintf(out, out_sz, "%s%s%s", dst, sep, fname);
         if (n < 0 || (size_t)n >= out_sz)
             return FR_INVALID_NAME;

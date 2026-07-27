@@ -235,10 +235,15 @@ const char *str_abs_path(const char *path)
 {
     size_t drive_len;
     const char *segs_src;
+    const char *colon = strchr(path, ':');
+    // A drive-prefixed path without a separator after the colon is
+    // relative to that drive's current directory. ":name" (installed
+    // ROM namespace) stays absolute.
+    bool relative = colon ? (colon != path && !str_is_sep(colon[1]))
+                          : !str_is_sep(path[0]);
 
-    if (strchr(path, ':'))
+    if (colon && !relative)
     {
-        const char *colon = strchr(path, ':');
         drive_len = (size_t)(colon - path) + 1;
         if (drive_len >= sizeof(str_buf))
             return NULL;
@@ -253,11 +258,29 @@ const char *str_abs_path(const char *path)
     {
         if (f_getcwd(str_buf, sizeof(str_buf)) != FR_OK)
             return NULL;
-        const char *colon = strchr(str_buf, ':');
-        if (!colon)
+        if (colon)
+        {
+            // f_getcwd only reads the current drive: save it, hop to
+            // the target drive for its current directory, and hop back.
+            const char *save_colon = strchr(str_buf, ':');
+            if (!save_colon)
+                return NULL;
+            char save[6];
+            size_t save_len = (size_t)(save_colon + 1 - str_buf);
+            memcpy(save, str_buf, save_len);
+            save[save_len] = '\0';
+            if (f_chdrive(path) != FR_OK)
+                return NULL;
+            FRESULT fr = f_getcwd(str_buf, sizeof(str_buf));
+            f_chdrive(save);
+            if (fr != FR_OK)
+                return NULL;
+        }
+        const char *buf_colon = strchr(str_buf, ':');
+        if (!buf_colon)
             return NULL;
-        drive_len = (size_t)(colon - str_buf) + 1;
-        segs_src = path;
+        drive_len = (size_t)(buf_colon - str_buf) + 1;
+        segs_src = colon ? colon + 1 : path;
         if (str_is_sep(*segs_src))
             segs_src++;
     }
@@ -265,7 +288,7 @@ const char *str_abs_path(const char *path)
     // For relative paths start at the end of the CWD already in str_buf.
     // For absolute paths start fresh after the drive prefix.
     size_t out;
-    if (!strchr(path, ':') && !str_is_sep(path[0]))
+    if (relative)
     {
         out = strlen(str_buf);
         while (out > drive_len && str_buf[out - 1] == '/')

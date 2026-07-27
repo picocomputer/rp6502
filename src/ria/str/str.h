@@ -22,7 +22,8 @@
 
 // Converts a FatFS path to a fully-qualified absolute path,
 // resolving the CWD for relative paths.
-// Returns a pointer to static storage valid until the next str_* call.
+// Returns a pointer to static storage valid until the next str_* call;
+// path must not alias it (copy a str_parse_string result out first).
 // Returns NULL if the path exceeds 255 characters or CWD lookup fails.
 const char *str_abs_path(const char *path);
 
