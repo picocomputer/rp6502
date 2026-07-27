@@ -26,3 +26,6 @@
 [submodule "vendor/6502_65C02_functional_tests"]
 	path = vendor/6502_65C02_functional_tests
 	url = https://github.com/Klaus2m5/6502_65C02_functional_tests
+[submodule "vendor/hazard3"]
+	path = vendor/hazard3
+	url = https://github.com/Wren6991/Hazard3
