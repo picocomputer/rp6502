@@ -95,6 +95,20 @@ if(verilator_FOUND)
     else()
         message(WARNING "CPU fixtures absent — cpu65 RTL conformance skipped.")
     endif()
+
+    # --- The VIA in RTL, against chips/m6522.h in lockstep ---
+    # T1/T2 timers and their interrupts are live machine features; see
+    # emu/emu/via.c for the wiring this reproduces.
+    rp6502_add_test(via
+        SOURCES test_via.cpp
+        INCLUDES ${RP6502_VENDOR}/chips_rp6502 ${RP6502_VENDOR}
+        TIMEOUT 300)
+    verilate(test_via
+        SOURCES ${RP6502_FPGA_RTL}/cpu65/via.sv
+        TOP_MODULE via
+        PREFIX Vvia
+        VERILATOR_ARGS -Wall --assert -O3
+    )
 else()
     message(WARNING
         "Verilator not found — RTL tests skipped, only the oracle builds.\n"
