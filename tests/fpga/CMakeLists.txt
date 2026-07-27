@@ -258,6 +258,23 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
+        # The M3 exit test: a scripted session settled and pixel-exact,
+        # plus the RTL-relative blink phase check.
+        rp6502_add_test(session
+            SOURCES test_session.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 300)
+        add_dependencies(test_session sw_bin cpu65_rom vid_font_rom)
+        verilate(test_session
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
         # The .rp6502 loader against the staged window, the testbench
         # playing the platform bridge.
         rp6502_add_test(rom

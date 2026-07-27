@@ -155,7 +155,7 @@ module vid_term (
     logic [6:0] cur_cx;
     logic [2:0] cur_style;  // wrap-park forces block
 
-    logic [6:0] col;  // 0..79
+    logic [6:0] rescol;  // the cell being resolved, one ahead of px
     logic [9:0] px;    // write pointer into the line
     logic [3:0] step;
     logic run;
@@ -212,7 +212,7 @@ module vid_term (
     logic [15:0] fg_res, bg_res;
     always_comb begin
         attr_r = w0_n[15:8];
-        cur_here = cur_hit && col == cur_cx;
+        cur_here = cur_hit && rescol == cur_cx;
         cur_block = cur_here && (cur_style == 3'd0 || cur_style == 3'd1
                                  || cur_style == 3'd2);
         bits_res = font_bits;
@@ -250,7 +250,7 @@ module vid_term (
             cur_hit <= 1'b0;
             cur_cx <= '0;
             cur_style <= '0;
-            col <= '0;
+            rescol <= '0;
             px <= '0;
             step <= '0;
             w0_n <= '0;
@@ -266,7 +266,7 @@ module vid_term (
                 wr_bank <= !wr_bank;
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
                 run <= 1'b1;
-                col <= '0;
+                rescol <= '0;
                 px <= '0;
                 step <= '0;
             end else if (run && step == 4'd0) begin
@@ -315,6 +315,7 @@ module vid_term (
                         fg_r <= fg_res;
                         bg_r <= bg_res;
                         shreg <= bits_res;
+                        rescol <= 7'd1;
                         fetch_word <= fetch_word + 14'd1;
                         step <= 4'd6;
                     end
@@ -340,7 +341,7 @@ module vid_term (
                                 fg_r <= fg_res;
                                 bg_r <= bg_res;
                                 shreg <= bits_res;
-                                col <= col + 7'd1;
+                                rescol <= rescol + 7'd1;
                                 fetch_word <= fetch_word + 14'd1;
                                 if (px == 10'd639)
                                     run <= 1'b0;
