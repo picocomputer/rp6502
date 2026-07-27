@@ -144,7 +144,7 @@ if(verilator_FOUND)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
                 -Os -ffreestanding -nostartfiles
-                --specs=picolibc.specs
+                --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
                 -ffunction-sections -fdata-sections -Wl,--gc-sections
                 -I ${RP6502_SRC}
                 -I ${SW_SRC}/shim
