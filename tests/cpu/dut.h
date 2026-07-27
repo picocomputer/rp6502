@@ -48,6 +48,10 @@ extern "C"
         void (*tick)(uint8_t *data);
 
         void (*end)(dut_regs_t *regs);
+
+        /* Drive the interrupt-side pins for the coming cycles. Suites that
+         * never raise them leave this unused. */
+        void (*pins)(bool irq, bool nmi, bool rdy, bool res);
     } dut_t;
 
 #ifdef __cplusplus

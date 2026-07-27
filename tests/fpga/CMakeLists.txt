@@ -60,7 +60,7 @@ if(verilator_FOUND)
     set(KLAUS ${RP6502_ROOT}/vendor/6502_65C02_functional_tests/bin_files)
     if(RP6502_CPU_VECTORS AND EXISTS ${KLAUS}/6502_functional_test.bin)
         rp6502_add_test(cpu65
-            SOURCES test_cpu65.cpp
+            SOURCES test_cpu65.cpp cpu65_dut.cpp
                 ${RP6502_ROOT}/tests/cpu/vec.c ${RP6502_ROOT}/tests/cpu/klaus.c
             INCLUDES ${RP6502_ROOT}/tests/cpu
             DEFS
@@ -70,6 +70,23 @@ if(verilator_FOUND)
             TIMEOUT 900)
         add_dependencies(test_cpu65 cpu_vectors cpu65_rom)
         verilate(test_cpu65
+            SOURCES ${CPU65_ROM} ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
+            TOP_MODULE cpu65
+            PREFIX Vcpu65
+            VERILATOR_ARGS -Wall --assert -O3
+        )
+
+        # Interrupts, reset, RDY, WAI and STP: the C emulation and the RTL in
+        # lockstep under scripted pins — coverage the vectors cannot express.
+        rp6502_add_test(lockstep
+            SOURCES test_lockstep.cpp cpu65_dut.cpp
+                ${RP6502_ROOT}/tests/cpu/chips_dut.c
+                ${RP6502_ROOT}/tests/cpu/lockstep.c
+            INCLUDES ${RP6502_ROOT}/tests/cpu
+                ${RP6502_VENDOR}/chips_rp6502 ${RP6502_VENDOR}
+            TIMEOUT 300)
+        add_dependencies(test_lockstep cpu65_rom)
+        verilate(test_lockstep
             SOURCES ${CPU65_ROM} ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
             TOP_MODULE cpu65
             PREFIX Vcpu65

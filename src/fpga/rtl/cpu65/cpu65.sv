@@ -66,8 +66,10 @@ module cpu65
     logic wait_flag /*verilator public_flat_rw*/;
     logic stop_flag /*verilator public_flat_rw*/;
     logic nmi_prev /*verilator public_flat_rw*/;
-    // RES is consumed at SYNC; latching the pin means a pulse between opcode
-    // fetches is not lost.
+    // The power-on one-shot only: the C model comes out of init with RES
+    // pending for its first SYNC. At runtime RES is a level sampled at SYNC,
+    // exactly as the C does it; a pulse between opcode fetches is lost on
+    // both sides, and the machine holds RESB far longer than an instruction.
     logic res_seen /*verilator public_flat_rw*/;
 
     // ------------------------------------------------------------------
@@ -559,11 +561,10 @@ module cpu65
         end else if (en) begin
             nmi_prev <= nmi_i;
             if (stop_stall || wait_stall) begin
-                res_seen <= res_seen || res_i;
+                // Only the pin moves; the C returns before its prologue.
             end else if (rdy_stall) begin
                 irq_pip <= irq_pip_det << 1;
                 nmi_pip <= nmi_pip_det;
-                res_seen <= res_seen || res_i;
             end else begin
                 pc <= post_pc;
                 ad <= post_ad;
@@ -587,7 +588,7 @@ module cpu65
                 brk_irq <= n_brk_irq;
                 brk_nmi <= n_brk_nmi;
                 brk_res <= n_brk_res;
-                res_seen <= take_res ? 1'b0 : (res_seen || res_i);
+                res_seen <= take_res ? 1'b0 : res_seen;
                 cpu65_addr <= full_addr;
                 cpu65_data <= dout;
                 cpu65_we <= n_we;
