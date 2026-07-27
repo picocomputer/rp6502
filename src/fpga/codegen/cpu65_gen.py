@@ -205,6 +205,76 @@ DATA_MAP = {
 }
 
 
+# What the datapath does with registers, named. As with ADDR_MAP, every folded
+# operation the C emits must appear here or generation fails, so an upstream
+# change cannot reach the RTL unnoticed. Register, bit and flag selects are
+# fields decoded from the opcode, not separate operations.
+OP_MAP = {
+    '': 'NONE',
+    # moving bytes around
+    'c->AD=_GD()': 'AD_LOAD',
+    'c->AD|=_GD()<<8': 'AD_HI',
+    'c->AD|=_GD()<<8;if(((c->AD)^(c->AD+IDX))&0xFF00==0)': 'AD_HI_INDEX',
+    'c->AD=(c->AD+c->X)&0xFF': 'AD_ADD_X_ZP',
+    'c->AD=(c->AD+c->X)&0xFFFF': 'AD_ADD_X',
+    'c->REG=_GD();_NZ(c->REG)': 'LOAD',
+    'c->PC=c->AD': 'PC_FROM_AD',
+    'c->PC=(_GD()<<8)|c->AD': 'PC_FROM_ABS',
+    'c->PC=_GD()': 'PCL_FROM_BUS',
+    'c->PC=(_GD()<<8)|(c->PC&0xFF)': 'PCH_FROM_BUS',
+    # arithmetic and logic
+    'c->A LOGIC=_GD();_NZ(c->A)': 'LOGIC',
+    '_w65c02_cmp(c,REG,_GD())': 'CMP',
+    '_w65c02_bit(c,_GD())': 'BIT',
+    'c->P&=~W65C02_ZF;if(0==(c->A&_GD())){c->P|=W65C02_ZF;}': 'BIT_IMM',
+    'c->AD=_GD();if(0==(c->P&W65C02_DF)){_w65c02_ADDSUB(c,c->AD);}': 'ADDSUB_BINARY',
+    '_w65c02_ADDSUB(c,c->AD)': 'ADDSUB_DECIMAL',
+    'c->AD=_w65c02_SHIFT(c,c->AD)': 'SHIFT_AD',
+    'c->A=_w65c02_SHIFT(c,c->A)': 'SHIFT_A',
+    'c->AD STEP;_NZ(c->AD)': 'AD_STEP',
+    'c->A STEP;_NZ(c->A)': 'A_STEP',
+    'c->X++;_NZ(c->X)': 'X_INC',
+    'c->X--;_NZ(c->X)': 'X_DEC',
+    'c->Y++;_NZ(c->Y)': 'Y_INC',
+    'c->Y--;_NZ(c->Y)': 'Y_DEC',
+    # the bit instructions
+    'c->AD=(c->AD>>BIT)&1': 'BIT_SELECT',
+    'c->AD&=~BIT': 'RMB',
+    'c->AD|=BIT': 'SMB',
+    'c->P&=~W65C02_ZF;if(0==(c->A&c->AD)){c->P|=W65C02_ZF;}c->AD|=c->A': 'TSB',
+    'c->P&=~W65C02_ZF;if(0==(c->A&c->AD)){c->P|=W65C02_ZF;}c->AD&=~c->A': 'TRB',
+    # transfers
+    'c->X=c->A;_NZ(c->X)': 'TAX',
+    'c->Y=c->A;_NZ(c->Y)': 'TAY',
+    'c->A=c->X;_NZ(c->A)': 'TXA',
+    'c->A=c->Y;_NZ(c->A)': 'TYA',
+    'c->X=c->S;_NZ(c->X)': 'TSX',
+    'c->S=c->X': 'TXS',
+    # flags
+    'c->P&=~W65C02_FLAG': 'FLAG_CLEAR',
+    'c->P|=W65C02_FLAG': 'FLAG_SET',
+    'c->P&=~W65C02_VF': 'CLV',
+    'c->P=(_GD()|W65C02_XF)&~W65C02_BF': 'PULL_P',
+    # branches: compute the target, then fix the page up if it crossed
+    'c->AD=c->PC+(int8_t)_GD();if((c->P&FLAG)!=VAL)': 'BRANCH_TEST',
+    'c->AD=c->PC+(int8_t)_GD()': 'BRANCH_ALWAYS',
+    'if((c->AD&0xFF00)==(c->PC&0xFF00)){c->PC=c->AD;}': 'BRANCH_FIXUP',
+    'if((c->AD&0xFF00)==(c->PC&0xFF00)){c->PC=c->AD;c->irq_pip>>=1;c->nmi_pip>>=1;}':
+        'BRANCH_FIXUP_PIP',
+    'if(0==(uint8_t)c->AD){c->AD=c->PC+(int8_t)_GD();}': 'BBR_TEST',
+    'if(0!=(uint8_t)c->AD){c->AD=c->PC+(int8_t)_GD();}': 'BBS_TEST',
+    # interrupt entry and the stalls
+    'if(0==(c->brk_flags&(W65C02_BRK_IRQ|W65C02_BRK_NMI))){c->PC++;}'
+    'if(0==(c->brk_flags&W65C02_BRK_RESET))': 'BRK_PUSH_PCH',
+    'if(0==(c->brk_flags&W65C02_BRK_RESET))': 'BRK_PUSH',
+    'if(c->brk_flags&W65C02_BRK_RESET){c->AD=0xFFFC;}else{if(c->brk_flags&W65C02_BRK_NMI)'
+    '{c->AD=0xFFFA;}else{c->AD=0xFFFE;}}': 'BRK_VECTOR',
+    'c->P|=W65C02_FLAG;c->P&=~W65C02_FLAG;c->brk_flags=0': 'BRK_ENTER',
+    'c->wait_flag=1': 'WAI',
+    'c->stop_flag=1': 'STP',
+}
+
+
 def check_vocabulary(gen):
     """Every address and data expression the C emits must be one we model."""
     for name, (lo, off, hi, post) in ADDR_MAP.items():
@@ -219,6 +289,24 @@ def check_vocabulary(gen):
             for d in t.data_out:
                 if d not in DATA_MAP:
                     missing.append('$%02X %s t%d data: %s' % (op, mnem, i, d))
+            if fold_op(t.op) not in OP_MAP:
+                missing.append('$%02X %s t%d operation: %s'
+                               % (op, mnem, i, fold_op(t.op)))
+
+    # And nothing modelled that the C no longer emits, so the maps stay a
+    # description of this instruction set rather than of its history.
+    seen_a, seen_d, seen_o = set(), set(), set()
+    for _, _, ts in opcodes(gen):
+        for t in ts:
+            seen_a.update(t.addrs)
+            seen_d.update(t.data_out)
+            seen_o.add(fold_op(t.op))
+    for name, seen in (('address', set(ADDR_MAP) - seen_a),
+                       ('data', set(DATA_MAP) - seen_d),
+                       ('operation', set(OP_MAP) - seen_o)):
+        for extra in sorted(seen):
+            missing.append('unused %s mapping: %s' % (name, extra))
+
     return missing
 
 
@@ -269,9 +357,103 @@ def report(gen):
         print('  %4d  %s' % (n, o if o else '(none)'))
 
 
+def enum_decl(name, values, width):
+    body = ',\n'.join('        %s_%s' % (name.upper(), v) for v in values)
+    return ('    typedef enum logic [%d:0] {\n%s\n    } cpu65_%s_t;\n'
+            % (width - 1, body, name))
+
+
+def bits(n):
+    w = 1
+    while (1 << w) < n:
+        w += 1
+    return w
+
+
+def emit(gen, out):
+    """The decode table as SystemVerilog, one entry per opcode and cycle.
+
+    Written as a case rather than an array so it synthesizes to logic: the FPGA
+    has no M10K blocks to spare for a CPU, and the machine's video and audio
+    paths need every one of them.
+    """
+    ops = sorted(set(OP_MAP.values()))
+    douts = sorted(set(DATA_MAP.values())) + ['NONE']
+
+    lines = []
+    lines.append('/*\n * Copyright (c) 2026 Rumbledethumps\n *\n'
+                 ' * SPDX-License-Identifier: BSD-3-Clause\n *\n'
+                 ' * Generated by src/fpga/codegen/cpu65_gen.py. Do not edit.\n'
+                 ' *\n * The W65C02S decode table, taken from the same generator that emits\n'
+                 ' * the C emulation, so the two cannot disagree about what any opcode does\n'
+                 ' * or how long it takes.\n'
+                 ' *\n'
+                 ' * Some cycles decide something. Where an operation carries a condition,\n'
+                 ' * an indexed address that crosses a page, a branch, a decimal add, the\n'
+                 ' * x-prefixed address is the one to drive when the condition fails, and\n'
+                 ' * fetch and skip apply only when it holds. Which cycles those are is the\n'
+                 ' * operation, not a separate field.\n */\n')
+    lines.append('package cpu65_rom_pkg;\n')
+    lines.append(enum_decl('lo', LO, bits(len(LO))))
+    lines.append(enum_decl('off', OFF, bits(len(OFF))))
+    lines.append(enum_decl('hi', HI, bits(len(HI))))
+    lines.append(enum_decl('post', POST, bits(len(POST))))
+    lines.append(enum_decl('dout', douts, bits(len(douts))))
+    lines.append(enum_decl('op', ops, bits(len(ops))))
+
+    lines.append('''
+    typedef struct packed {
+        cpu65_lo_t   lo;
+        cpu65_off_t  off;
+        cpu65_hi_t   hi;
+        cpu65_post_t post;
+        // Taken instead when an indexed address carries into the next page.
+        cpu65_lo_t   xlo;
+        cpu65_off_t  xoff;
+        cpu65_hi_t   xhi;
+        cpu65_post_t xpost;
+        cpu65_dout_t dout;
+        cpu65_op_t   op;
+        logic        wr;
+        // Gated by the operation's condition where it has one.
+        logic        fetch;
+        logic        skip;
+    } cpu65_cw_t;
+''')
+
+    def addr_fields(a):
+        lo, off, hi, post = ADDR_MAP[a]
+        return ('LO_%s, OFF_%s, HI_%s, POST_%s' % (lo, off, hi, post))
+
+    hold = 'LO_HOLD, OFF_0, HI_HOLD, POST_NONE'
+
+    lines.append('    function automatic cpu65_cw_t cpu65_rom'
+                 '(input logic [10:0] ua);\n        case (ua)\n')
+    for op, (mnem, am), ts in opcodes(gen):
+        lines.append('        // $%02X %s %s\n' % (op, mnem, am))
+        for t, tick in enumerate(ts):
+            a = tick.addrs[0] if tick.addrs else None
+            x = tick.addrs[1] if len(tick.addrs) > 1 else None
+            prim = addr_fields(a) if a else hold
+            alt = addr_fields(x) if x else prim
+            dout = DATA_MAP[tick.data_out[0]] if tick.data_out else 'NONE'
+            lines.append(
+                "        11'h%03X: return '{%s, %s, DOUT_%s, OP_%s, 1'b%d, 1'b%d, 1'b%d};\n"
+                % ((op << 3) | t, prim, alt, dout, OP_MAP[fold_op(tick.op)],
+                   tick.write, tick.fetch, tick.skip))
+    lines.append("        default: return '{%s, %s, DOUT_NONE, OP_NONE, "
+                 "1'b0, 1'b0, 1'b0};\n" % (hold, hold))
+    lines.append('        endcase\n    endfunction\n\nendpackage\n')
+
+    with open(out, 'w') as f:
+        f.write(''.join(lines))
+    return sum(len(ts) for _, _, ts in opcodes(gen))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--report', action='store_true')
+    ap.add_argument('--emit', metavar='FILE')
     args = ap.parse_args()
 
     gen = load_gen()
@@ -282,10 +464,14 @@ def main():
                          % (len(missing), '\n  '.join(missing)))
         return 1
 
+    if args.emit:
+        n = emit(gen, args.emit)
+        print('%s: %d cycles over 256 opcodes' % (os.path.basename(args.emit), n))
+        return 0
     if args.report:
         report(gen)
         return 0
-    sys.stderr.write('nothing to do; try --report\n')
+    sys.stderr.write('nothing to do; try --report or --emit\n')
     return 1
 
 
