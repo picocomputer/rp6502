@@ -18,6 +18,7 @@
  * The soft CPU's window on the machine, byte-wide unless noted:
  *   0x10000000  the 6502's 64 KB
  *   0x20000000  the RIA register cells; +0x40 pops the 6502's TX ring,
+ *               +0x100 the xstack bytes, +0x320 the xstack pointer,
  *               +0x48 offers an RX byte toward the $FFE2 latch
  *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
  *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
@@ -216,7 +217,7 @@ module rp6502
         .ria_regs_rx_taken(rp6502_rx_taken),
         .b_we(bus_stb && bus_we && bus_sel_regs),
         .b_re(bus_stb && !bus_we && bus_sel_regs),
-        .b_word(bus_addr[6:2]),
+        .b_word(bus_addr[9:2]),
         .b_wstrb(bus_wstrb),
         .b_wdata(bus_wdata),
         .ria_regs_b_rdata(regs_b_rdata),

@@ -13,6 +13,13 @@
  * Read data is combinational from pre-tick state; side effects land at the
  * enabled edge, the same discipline as via.sv.
  *
+ * The XSTACK lives here too: 512 bytes plus the guard byte that is the
+ * empty stack's top. A write to $FFEC pushes, a read pops, and cell $0C is
+ * the top-of-stack mirror both sides maintain — hardware after the 6502's
+ * push and pop, the firmware's own API_STACK stores after its. The OS sees
+ * the bytes and the pointer through its window, the plain memory that
+ * api_push_n and api_pop_n expect.
+ *
  * A write to $FFEF is a syscall: the hardware itself arms the BRA -2 block
  * at $FFF1 in the same cycle the op lands, so the 6502 can JSR into the
  * trampoline immediately and there is no window where it outruns the OS
@@ -45,10 +52,11 @@ module ria_regs (
     /* The OS side: words 0-7 are the cells, plain memory the way the
      * firmware's REGS macros treat them, wide enough for REGSW and REGSL.
      * Word 16 pops the 6502's TX ring (bit 8 valid), word 18 offers an RX
-     * byte and reads back whether the offer slot is free. */
+     * byte and reads back whether the offer slot is free. Words 64-192 are
+     * the xstack bytes, word 200 the stack pointer. */
     input logic b_we,
     input logic b_re,
-    input logic [4:0] b_word,
+    input logic [7:0] b_word,
     input logic [3:0] b_wstrb,
     input logic [31:0] b_wdata,
     output logic [31:0] ria_regs_b_rdata,
@@ -68,6 +76,12 @@ module ria_regs (
     logic [3:0] txf_w, txf_r;
     logic [4:0] txf_count;
     logic txf_pop;
+
+    /* The XSTACK: 512 bytes, a zero guard at the top, and the pointer. */
+    logic [7:0] xs[516];
+    logic [9:0] xsp;
+    logic xs_fill;  // a pop's mirror refill lands one clock later
+    logic [9:0] xs_fill_at;
 
     /* The OS's RX offer, merged with the external one; external wins. */
     logic os_rx_valid;
@@ -106,19 +120,31 @@ module ria_regs (
 
     /* Registered with the side effect it reports: the offered byte is taken
      * at the same edge that latches it, never a cycle before. */
+    logic [9:0] xs_byte;
+    always_comb xs_byte = {b_word - 8'd64, 2'b00};
+
     always_comb begin
         case (b_word)
-            5'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
-            5'd18: ria_regs_b_rdata = {31'd0, !os_rx_valid};
-            default: ria_regs_b_rdata = {
-                regs[{b_word[2:0], 2'd3}], regs[{b_word[2:0], 2'd2}],
-                regs[{b_word[2:0], 2'd1}], regs[{b_word[2:0], 2'd0}]
-            };
+            8'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
+            8'd18: ria_regs_b_rdata = {31'd0, !os_rx_valid};
+            8'd200: ria_regs_b_rdata = {22'd0, xsp};
+            default: begin
+                if (b_word >= 8'd64 && b_word <= 8'd192)
+                    ria_regs_b_rdata = {
+                        xs[xs_byte+10'd3], xs[xs_byte+10'd2],
+                        xs[xs_byte+10'd1], xs[xs_byte+10'd0]
+                    };
+                else
+                    ria_regs_b_rdata = {
+                        regs[{b_word[2:0], 2'd3}], regs[{b_word[2:0], 2'd2}],
+                        regs[{b_word[2:0], 2'd1}], regs[{b_word[2:0], 2'd0}]
+                    };
+            end
         endcase
     end
 
     /* Popping is the strobed read of word 16 with a byte available. */
-    always_comb txf_pop = b_re && b_word == 5'd16 && txf_count != 5'd0;
+    always_comb txf_pop = b_re && b_word == 8'd16 && txf_count != 5'd0;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -143,6 +169,11 @@ module ria_regs (
                             ria_regs_tx_data <= data_i;
                             ria_regs_tx_valid <= 1'b1;
                         end
+                        5'h0C: begin
+                            /* Push: the mirror is the byte just pushed. */
+                            if (xsp != 10'd0)
+                                regs[5'h0C] <= data_i;
+                        end
                         5'h0F: begin
                             /* The op lands and the trampoline blocks, one
                              * indivisible cycle. */
@@ -161,6 +192,7 @@ module ria_regs (
                                 regs[2] <= eff_rx_data;
                             end
                         end
+                        5'h0C: ;  /* pop: pointer and mirror move below */
                         5'h02: begin
                             /* Return the latch, then refill or empty it. */
                             if (pull) begin
@@ -181,10 +213,15 @@ module ria_regs (
             if (api_ack)
                 ria_regs_api_pending <= 1'b0;
         end
+        /* A pop's mirror refill arrives from the RAM one clock after the
+         * pointer moved, always between 6502 cycles; an OS write below still
+         * outranks it. */
+        if (rst_n && xs_fill)
+            regs[5'h0C] <= xs[xs_fill_at];
         /* The OS side is plain shared memory at the system clock; it lands
          * regardless of the 6502's enable, and a same-cell collision goes to
          * the OS, as arbitrary as it is on the real dual-core part. */
-        if (rst_n && b_we && b_word < 5'd8) begin
+        if (rst_n && b_we && b_word < 8'd8) begin
             if (b_wstrb[0])
                 regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
             if (b_wstrb[1])
@@ -208,7 +245,43 @@ module ria_regs (
             txf_count <= 5'd0;
             os_rx_valid <= 1'b0;
             os_rx_data <= 8'h00;
+            xsp <= 10'd512;
+            xs_fill <= 1'b0;
+            xs_fill_at <= 10'd0;
         end else begin
+            /* The 6502's stack ops, and the pop's one-clock-late refill of
+             * the top-of-stack mirror out of the RAM. */
+            xs_fill <= 1'b0;
+            if (en && cs && rs == 5'h0C) begin
+                if (we) begin
+                    if (xsp != 10'd0) begin
+                        xs[xsp-10'd1] <= data_i;
+                        xsp <= xsp - 10'd1;
+                    end
+                end else begin
+                    if (xsp != 10'd512) begin
+                        xsp <= xsp + 10'd1;
+                        xs_fill <= 1'b1;
+                        xs_fill_at <= xsp + 10'd1;
+                    end else begin
+                        xs_fill <= 1'b1;
+                        xs_fill_at <= xsp;
+                    end
+                end
+            end
+            /* OS writes: xstack bytes by lane, or the pointer. */
+            if (b_we && b_word >= 8'd64 && b_word <= 8'd192) begin
+                if (b_wstrb[0])
+                    xs[xs_byte+10'd0] <= b_wdata[7:0];
+                if (b_wstrb[1])
+                    xs[xs_byte+10'd1] <= b_wdata[15:8];
+                if (b_wstrb[2])
+                    xs[xs_byte+10'd2] <= b_wdata[23:16];
+                if (b_wstrb[3])
+                    xs[xs_byte+10'd3] <= b_wdata[31:24];
+            end
+            if (b_we && b_word == 8'd200)
+                xsp <= b_wdata[9:0];
             if (push_now) begin
                 txf[txf_w] <= data_i;
                 txf_w <= txf_w + 4'd1;
@@ -216,7 +289,7 @@ module ria_regs (
             if (txf_pop)
                 txf_r <= txf_r + 4'd1;
             txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
-            if (b_we && b_word == 5'd18 && !os_rx_valid) begin
+            if (b_we && b_word == 8'd18 && !os_rx_valid) begin
                 os_rx_valid <= 1'b1;
                 os_rx_data <= b_wdata[7:0];
             end else if (en && pull && !rx_valid) begin

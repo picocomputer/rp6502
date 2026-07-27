@@ -31,10 +31,11 @@ static void print(const char *s)
 }
 
 /* Until the .rp6502 loader arrives, the program rides in the firmware:
- * print "HELLO, WORLD!\r\n" through $FFE1 under the $FFE0 ready bit, STP. */
+ * print "HELLO, WORLD!\r\n" through $FFE1 under the $FFE0 ready bit, then a
+ * bare syscall, then one carrying an xstack argument, STP. */
 static const uint8_t boot_prog[] = {
     0xA2, 0x00,              /*       ldx #0          */
-    0xBD, 0x22, 0x02,        /* loop: lda msg,x       */
+    0xBD, 0x3A, 0x02,        /* loop: lda msg,x       */
     0xF0, 0x0C,              /*       beq done        */
     0x2C, 0xE0, 0xFF,        /* wait: bit $FFE0       */
     0x10, 0xFB,              /*       bpl wait        */
@@ -44,6 +45,16 @@ static const uint8_t boot_prog[] = {
     0xEA,                    /*       nop             */
     /* done: the machine's first syscall — op $42 answers AX */
     0xA9, 0x42,              /*       lda #$42        */
+    0x8D, 0xEF, 0xFF,        /*       sta $FFEF       */
+    0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
+    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
+    0x8E, 0xE1, 0xFF,        /*       stx $FFE1       */
+    /* op $43 increments the uint16 pushed on the xstack */
+    0xA9, 0x42,              /*       lda #$42        */
+    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       */
+    0xA9, 0x43,              /*       lda #$43        */
+    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       */
+    0xA9, 0x43,              /*       lda #$43        */
     0x8D, 0xEF, 0xFF,        /*       sta $FFEF       */
     0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
     0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
@@ -76,6 +87,13 @@ bool main_api(uint8_t operation)
     {
     case 0x42:
         return api_return_ax(0x4143);
+    case 0x43:
+    {
+        uint16_t val;
+        if (!api_pop_uint16_end(&val))
+            return api_return_errno(API_EINVAL);
+        return api_return_ax(val + 1);
+    }
     default:
         return api_return_errno(API_ENOSYS);
     }

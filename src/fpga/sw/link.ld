@@ -41,6 +41,9 @@ SECTIONS
 
     __stack_top = ORIGIN(TCM) + LENGTH(TCM);
 
-    /* The RIA register cells are hardware; REGS() indexes them here. */
+    /* The RIA register cells are hardware; REGS() indexes them here, and
+     * the xstack and its pointer live behind the same window. */
     PROVIDE(regs = 0x20000000);
+    PROVIDE(xstack = 0x20000100);
+    PROVIDE(xstack_ptr = 0x20000320);
 }

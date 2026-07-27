@@ -78,8 +78,9 @@ UTEST(boot, firmware_boots_the_6502)
     ASSERT_EQ(dut->rp6502_rv_exit_code, 0u);
     ASSERT_TRUE(stopped);
     /* CA is the machine's first real syscall: api.c answered $4143 through
-     * the trampoline, and the 6502 printed A then X. */
-    ASSERT_STREQ(cpu_out.c_str(), "HELLO, WORLD!\r\nCA");
+     * the trampoline, and the 6502 printed A then X. DB is the second, the
+     * uint16 $4243 pushed on the xstack coming back incremented. */
+    ASSERT_STREQ(cpu_out.c_str(), "HELLO, WORLD!\r\nCADB");
     /* The same bytes arrive on the OS console through the drained ring,
      * interleaved with the loader's own narration. */
     ASSERT_TRUE(strstr(rv_out.c_str(), "boot: loading") != NULL);
@@ -87,6 +88,7 @@ UTEST(boot, firmware_boots_the_6502)
     ASSERT_TRUE(strstr(rv_out.c_str(), "api: op") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "HELLO, WORLD!") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "CA") != NULL);
+    ASSERT_TRUE(strstr(rv_out.c_str(), "DB") != NULL);
 }
 
 UTEST_STATE();
