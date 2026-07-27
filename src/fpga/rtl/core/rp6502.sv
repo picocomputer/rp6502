@@ -136,7 +136,7 @@ module rp6502
     );
 
     /* The soft CPU and its window on the machine. */
-    logic bus_stb, bus_we;
+    logic bus_stb, bus_we, bus_pend;
     logic [31:0] bus_addr, bus_wdata;
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
@@ -148,7 +148,8 @@ module rp6502
         .rv_soc_tx_valid(rp6502_rv_tx_valid),
         .rv_soc_halted(rp6502_rv_halted),
         .rv_soc_exit_code(rp6502_rv_exit_code),
-        .bus_rdy(1'b1),
+        .bus_rdy(!(bus_sel_xram && xr_busy)),
+        .rv_soc_bus_pend(bus_pend),
         .rv_soc_bus_stb(bus_stb),
         .rv_soc_bus_we(bus_we),
         .rv_soc_bus_addr(bus_addr),
@@ -248,6 +249,12 @@ module rp6502
         .ria_regs_rx_taken(rp6502_rx_taken),
         .vsync_pulse(vid_vsync_pulse),
         .ria_regs_irq(ria_irq),
+        .ria_regs_xr_busy(xr_busy),
+        .ria_regs_xr_we(xr_we),
+        .ria_regs_xr_addr(xr_addr),
+        .ria_regs_xr_wdata(xr_wdata),
+        .xr_rdata(xram_b_rdata),
+        .xr_cpu_want(bus_pend && bus_sel_xram),
         .b_we(bus_stb && bus_we && bus_sel_regs),
         .b_re(bus_stb && !bus_we && bus_sel_regs),
         .b_word(bus_addr[9:2]),
@@ -301,8 +308,13 @@ module rp6502
     );
     always_comb rp6502_scanline = vid_v;
 
-    /* The XRAM; port A idles until the mode engines arrive. */
+    /* The XRAM; port A idles until the mode engines arrive. Port B is the
+     * RW engine's while busy — the soft CPU's strobe waits — and the
+     * engine's background refresh yields to the soft CPU in turn. */
     logic [7:0] xram_b_rdata;
+    logic xr_busy, xr_we;
+    logic [15:0] xr_addr;
+    logic [7:0] xr_wdata;
     /* verilator lint_off UNUSEDSIGNAL */
     logic [31:0] xram_a_unused;
     /* verilator lint_on UNUSEDSIGNAL */
@@ -310,9 +322,9 @@ module rp6502
         .clk(clk_sys),
         .a_addr(14'd0),
         .xram64k_a_rdata(xram_a_unused),
-        .b_addr(bus_addr[15:0]),
-        .b_wdata(bus_wbyte),
-        .b_we(bus_stb && bus_we && bus_sel_xram),
+        .b_addr(xr_busy ? xr_addr : bus_addr[15:0]),
+        .b_wdata(xr_busy ? xr_wdata : bus_wbyte),
+        .b_we(xr_busy ? xr_we : (bus_stb && bus_we && bus_sel_xram)),
         .xram64k_b_rdata(xram_b_rdata)
     );
 

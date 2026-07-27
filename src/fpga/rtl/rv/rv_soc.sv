@@ -45,6 +45,7 @@ module rv_soc #(
      * bus_rdy low withholds the strobe and stretches the phase, for slaves
      * whose port is arbitrated. */
     input logic bus_rdy,
+    output logic rv_soc_bus_pend,
     output logic rv_soc_bus_stb,
     output logic rv_soc_bus_we,
     output logic [31:0] rv_soc_bus_addr,
@@ -186,8 +187,11 @@ module rv_soc #(
 
     // The strobe is the wait-state cycle: captured address out, write data
     // straight off the held AHB data phase, reads answered next cycle.
+    /* pend has no rdy term; its own block keeps the scheduler from seeing
+     * a loop through the arbiter. */
+    always_comb rv_soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
-        rv_soc_bus_stb = dph_active && dph_ext && !dph_waited && bus_rdy;
+        rv_soc_bus_stb = rv_soc_bus_pend && bus_rdy;
         rv_soc_bus_we = rv_soc_bus_stb && dph_write;
         rv_soc_bus_addr = dph_addr;
         rv_soc_bus_wdata = hwdata;

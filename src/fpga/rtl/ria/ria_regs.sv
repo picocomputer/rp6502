@@ -13,6 +13,14 @@
  * Read data is combinational from pre-tick state; side effects land at the
  * enabled edge, the same discipline as via.sv.
  *
+ * RW0 and RW1 live at $FFE4-$FFEB: the data ports read and write XRAM at
+ * their address registers, post-incrementing by the signed step, per
+ * emu/sys/ria.c. The cells at $FFE4/$FFE8 are staging mirrors the engine
+ * keeps loaded from XRAM — a background refresh when the port is free,
+ * an urgent restage after every access — so the 6502's combinational read
+ * is the emulator's, and any writer to XRAM heals the stage within a few
+ * clocks, always before the next PHI2.
+ *
  * The XSTACK lives here too: 512 bytes plus the guard byte that is the
  * empty stack's top. A write to $FFEC pushes, a read pops, and cell $0C is
  * the top-of-stack mirror both sides maintain — hardware after the 6502's
@@ -60,6 +68,15 @@ module ria_regs (
     /* One pulse per frame from the raster; IRQB toward the 6502. */
     input logic vsync_pulse,
     output logic ria_regs_irq,
+
+    /* XRAM port B: the engine owns it while busy; the background refresh
+     * yields to the soft CPU. Reads land one clock after the address. */
+    output logic ria_regs_xr_busy,
+    output logic ria_regs_xr_we,
+    output logic [15:0] ria_regs_xr_addr,
+    output logic [7:0] ria_regs_xr_wdata,
+    input logic [7:0] xr_rdata,
+    input logic xr_cpu_want,
 
     /* The OS side: words 0-7 are the cells, plain memory the way the
      * firmware's REGS macros treat them, wide enough for REGSW and REGSL.
@@ -111,6 +128,34 @@ module ria_regs (
     logic [3:0] txf_w, txf_r;
     logic [4:0] txf_count;
     logic txf_pop;
+
+    /* The RW engine: one pending write-back, urgent restages, and the
+     * background alternator. Captures land one clock after their issue. */
+    logic xr_wr_pend;
+    logic [15:0] xr_wr_addr;
+    logic [7:0] xr_wr_byte;
+    logic xr_fill_pend0, xr_fill_pend1;
+    logic xr_bg_alt;
+    logic xr_cap0, xr_cap1;  // xr_rdata belongs to RW0/RW1 this clock
+
+    logic xr_bg_go, xr_issue_f0, xr_issue_f1;
+    always_comb begin
+        xr_bg_go = !xr_wr_pend && !xr_fill_pend0 && !xr_fill_pend1
+            && !xr_cpu_want;
+        xr_issue_f0 = !xr_wr_pend && (xr_fill_pend0 || (xr_bg_go && !xr_bg_alt));
+        xr_issue_f1 = !xr_wr_pend && !xr_fill_pend0
+            && (xr_fill_pend1 || (xr_bg_go && xr_bg_alt));
+        ria_regs_xr_busy = xr_wr_pend || xr_fill_pend0 || xr_fill_pend1
+            || xr_bg_go;
+        ria_regs_xr_we = xr_wr_pend;
+        ria_regs_xr_wdata = xr_wr_byte;
+        if (xr_wr_pend)
+            ria_regs_xr_addr = xr_wr_addr;
+        else if (xr_issue_f0)
+            ria_regs_xr_addr = {regs[5'h07], regs[5'h06]};
+        else
+            ria_regs_xr_addr = {regs[5'h0B], regs[5'h0A]};
+    end
 
     /* The XSTACK: 512 bytes, a zero guard at the top, and the pointer. */
     logic [7:0] xs[516];
@@ -207,6 +252,18 @@ module ria_regs (
                             ria_regs_tx_data <= data_i;
                             ria_regs_tx_valid <= 1'b1;
                         end
+                        5'h04: begin
+                            /* The byte goes to XRAM, never the cell; the
+                             * address steps past it. */
+                            {regs[5'h07], regs[5'h06]} <=
+                                {regs[5'h07], regs[5'h06]}
+                                + {{8{regs[5'h05][7]}}, regs[5'h05]};
+                        end
+                        5'h08: begin
+                            {regs[5'h0B], regs[5'h0A]} <=
+                                {regs[5'h0B], regs[5'h0A]}
+                                + {{8{regs[5'h09][7]}}, regs[5'h09]};
+                        end
                         5'h0C: begin
                             /* Push: the mirror is the byte just pushed. */
                             if (xsp != 10'd0)
@@ -230,6 +287,17 @@ module ria_regs (
                                 regs[0] <= regs[0] | RX_READY;
                                 regs[2] <= eff_rx_data;
                             end
+                        end
+                        5'h04: begin
+                            /* The staged byte answered; step the address. */
+                            {regs[5'h07], regs[5'h06]} <=
+                                {regs[5'h07], regs[5'h06]}
+                                + {{8{regs[5'h05][7]}}, regs[5'h05]};
+                        end
+                        5'h08: begin
+                            {regs[5'h0B], regs[5'h0A]} <=
+                                {regs[5'h0B], regs[5'h0A]}
+                                + {{8{regs[5'h09][7]}}, regs[5'h09]};
                         end
                         5'h0C: ;  /* pop: pointer and mirror move below */
                         5'h02: begin
@@ -262,6 +330,12 @@ module ria_regs (
             irq_pending <= pend_next;
             regs[5'h10] <= pend_next;
         end
+        /* The RW stages reload one clock after their issue; a same-edge
+         * 6502 or OS write is repaired by the restage that follows it. */
+        if (rst_n && xr_cap0)
+            regs[5'h04] <= xr_rdata;
+        if (rst_n && xr_cap1)
+            regs[5'h08] <= xr_rdata;
         /* A pop's mirror refill arrives from the RAM one clock after the
          * pointer moved, always between 6502 cycles; an OS write below still
          * outranks it. */
@@ -298,7 +372,43 @@ module ria_regs (
             xsp <= 10'd512;
             xs_fill <= 1'b0;
             xs_fill_at <= 10'd0;
+            xr_wr_pend <= 1'b0;
+            xr_wr_addr <= 16'h0000;
+            xr_wr_byte <= 8'h00;
+            xr_fill_pend0 <= 1'b0;
+            xr_fill_pend1 <= 1'b0;
+            xr_bg_alt <= 1'b0;
+            xr_cap0 <= 1'b0;
+            xr_cap1 <= 1'b0;
         end else begin
+            /* The engine: retire what issued this clock, then take the
+             * 6502's access. A write-back holds the pre-step address. */
+            xr_cap0 <= xr_issue_f0;
+            xr_cap1 <= xr_issue_f1;
+            if (xr_wr_pend)
+                xr_wr_pend <= 1'b0;
+            if (xr_issue_f0)
+                xr_fill_pend0 <= 1'b0;
+            if (xr_issue_f1)
+                xr_fill_pend1 <= 1'b0;
+            if (xr_bg_go)
+                xr_bg_alt <= !xr_bg_alt;
+            if (en && cs && rs == 5'h04) begin
+                if (we) begin
+                    xr_wr_pend <= 1'b1;
+                    xr_wr_addr <= {regs[5'h07], regs[5'h06]};
+                    xr_wr_byte <= data_i;
+                end
+                xr_fill_pend0 <= 1'b1;
+            end
+            if (en && cs && rs == 5'h08) begin
+                if (we) begin
+                    xr_wr_pend <= 1'b1;
+                    xr_wr_addr <= {regs[5'h0B], regs[5'h0A]};
+                    xr_wr_byte <= data_i;
+                end
+                xr_fill_pend1 <= 1'b1;
+            end
             /* The 6502's stack ops, and the pop's one-clock-late refill of
              * the top-of-stack mirror out of the RAM. */
             xs_fill <= 1'b0;

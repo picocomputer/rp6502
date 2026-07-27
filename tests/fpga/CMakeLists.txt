@@ -259,6 +259,22 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
+        # RW0/RW1 steps, wraps, and defaults against the oracle.
+        rp6502_add_test(rw
+            SOURCES test_rw.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 120)
+        add_dependencies(test_rw sw_bin cpu65_rom vid_font_rom)
+        verilate(test_rw
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
         # XRAM records through the staged loader, judged by the oracle.
         rp6502_add_test(xram
             SOURCES test_xram.cpp
