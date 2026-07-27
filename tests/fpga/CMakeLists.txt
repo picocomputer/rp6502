@@ -51,6 +51,7 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/mem/sram64k.sv
         ${RP6502_FPGA_RTL}/ria/ria_regs.sv
         ${RP6502_FPGA_RTL}/rv/rv_soc.sv
+        ${RP6502_FPGA_RTL}/vid/vid_timing.sv
         ${RP6502_FPGA_RTL}/core/rp6502.sv)
     set(RP6502_MACHINE_VERILATOR_ARGS
         -y ${RP6502_VENDOR}/hazard3/hdl

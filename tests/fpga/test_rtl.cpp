@@ -3,55 +3,71 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Verilated machine skeleton: reset behavior and the free-running scanline
- * counter that the video timing will be built on.
+ * The 640x480@60 raster: 800 clocks a line, 525 lines a frame, syncs
+ * active-low in their exact windows — h 656..751 of every line, v lines
+ * 490..491 — and active video precisely the 640x480 corner.
  */
 
 #include "tb_core.h"
 #include "utest.h"
 
-/* rp6502_pkg RP6502_V_TOTAL — 640x480@60 has 525 scanlines. */
+static const int TB_H_TOTAL = 800;
 static const int TB_V_TOTAL = 525;
 
-UTEST(rtl, reset_clears_scanline)
+UTEST(rtl, reset_clears_raster)
 {
     tb_core_init();
     tb_core_reset();
     ASSERT_EQ(tb_core_scanline(), 0);
+    ASSERT_EQ(tb_core_h(), 0);
     tb_core_free();
 }
 
-UTEST(rtl, scanline_advances_one_per_clock)
+UTEST(rtl, scanline_advances_once_per_line)
 {
     tb_core_init();
     tb_core_reset();
+    tb_core_clocks(TB_H_TOTAL - 1);
+    ASSERT_EQ(tb_core_scanline(), 0);
     tb_core_clocks(1);
     ASSERT_EQ(tb_core_scanline(), 1);
-    tb_core_clocks(1);
+    tb_core_clocks(TB_H_TOTAL);
     ASSERT_EQ(tb_core_scanline(), 2);
     tb_core_free();
 }
 
-UTEST(rtl, scanline_wraps_at_frame_end)
+UTEST(rtl, frame_wraps_after_525_lines)
 {
     tb_core_init();
     tb_core_reset();
-    tb_core_clocks(TB_V_TOTAL - 1);
+    tb_core_clocks((TB_V_TOTAL - 1) * TB_H_TOTAL);
     ASSERT_EQ(tb_core_scanline(), TB_V_TOTAL - 1);
-    tb_core_clocks(1);
+    tb_core_clocks(TB_H_TOTAL);
     ASSERT_EQ(tb_core_scanline(), 0);
     tb_core_free();
 }
 
-UTEST(rtl, scanline_stays_in_range_over_frames)
+UTEST(rtl, sync_and_de_windows_are_exact)
 {
     tb_core_init();
     tb_core_reset();
-    for (int i = 0; i < TB_V_TOTAL * 3; i++)
-    {
-        ASSERT_LT(tb_core_scanline(), TB_V_TOTAL);
-        tb_core_clocks(1);
-    }
+    /* One full frame, every pixel checked against the window math. */
+    for (int v = 0; v < TB_V_TOTAL; v++)
+        for (int h = 0; h < TB_H_TOTAL; h++)
+        {
+            ASSERT_EQ(tb_core_h(), h);
+            ASSERT_EQ(tb_core_scanline(), v);
+            bool hs_low = h >= 656 && h <= 751;
+            bool vs_low = v >= 490 && v <= 491;
+            bool de = h < 640 && v < 480;
+            ASSERT_EQ(tb_core_hsync(), !hs_low);
+            ASSERT_EQ(tb_core_vsync(), !vs_low);
+            ASSERT_EQ(tb_core_de(), de);
+            tb_core_clocks(1);
+        }
+    /* Exactly 420,000 clocks later the frame starts over. */
+    ASSERT_EQ(tb_core_scanline(), 0);
+    ASSERT_EQ(tb_core_h(), 0);
     tb_core_free();
 }
 

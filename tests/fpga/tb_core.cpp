@@ -7,6 +7,7 @@
 #include "tb_core.h"
 
 #include "Vrp6502.h"
+#include "Vrp6502___024root.h"
 #include "verilated.h"
 #include "verilated_fst_c.h"
 
@@ -84,4 +85,24 @@ void tb_core_clocks(int count)
 uint16_t tb_core_scanline()
 {
     return tb_core_dut->rp6502_scanline;
+}
+
+uint16_t tb_core_h()
+{
+    return tb_core_dut->rootp->rp6502__DOT__vid_h;
+}
+
+bool tb_core_hsync()
+{
+    return tb_core_dut->rootp->rp6502__DOT__vid_hsync;
+}
+
+bool tb_core_vsync()
+{
+    return tb_core_dut->rootp->rp6502__DOT__vid_vsync;
+}
+
+bool tb_core_de()
+{
+    return tb_core_dut->rootp->rp6502__DOT__vid_de;
 }

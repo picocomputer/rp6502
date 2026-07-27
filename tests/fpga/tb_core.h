@@ -32,4 +32,10 @@ void tb_core_clocks(int count);
 
 uint16_t tb_core_scanline();
 
+/* The raster as the beam sees it: pixel column, sync levels, active video. */
+uint16_t tb_core_h();
+bool tb_core_hsync();
+bool tb_core_vsync();
+bool tb_core_de();
+
 #endif /* _TESTS_FPGA_TB_CORE_H_ */

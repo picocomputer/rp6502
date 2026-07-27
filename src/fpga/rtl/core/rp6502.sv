@@ -258,13 +258,33 @@ module rp6502
             bus_hold <= cpu_din;
     end
 
-    /* The frame cadence the video system will grow from. */
-    always_ff @(posedge clk_sys or negedge rst_n)
-        if (!rst_n)
-            rp6502_scanline <= '0;
-        else if (rp6502_scanline == RP6502_SCANLINE_W'(RP6502_V_TOTAL - 1))
-            rp6502_scanline <= '0;
-        else
-            rp6502_scanline <= rp6502_scanline + 1'b1;
+    /* The raster: one clock per pixel in simulation, the pixel domain on
+     * hardware. The scanline port is the beam's line. */
+    logic [9:0] vid_h /*verilator public_flat_rd*/;
+    logic [9:0] vid_v /*verilator public_flat_rd*/;
+    logic vid_de /*verilator public_flat_rd*/;
+    logic vid_hsync /*verilator public_flat_rd*/;
+    logic vid_vsync /*verilator public_flat_rd*/;
+    logic vid_line_start, vid_frame_start, vid_vsync_pulse;
+    vid_timing vid_timing (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .vid_timing_h(vid_h),
+        .vid_timing_v(vid_v),
+        .vid_timing_de(vid_de),
+        .vid_timing_hsync(vid_hsync),
+        .vid_timing_vsync(vid_vsync),
+        .vid_timing_line_start(vid_line_start),
+        .vid_timing_frame_start(vid_frame_start),
+        .vid_timing_vsync_pulse(vid_vsync_pulse)
+    );
+    always_comb rp6502_scanline = vid_v;
+
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_vid;
+    always_comb unused_vid = ^{vid_h, vid_de, vid_hsync, vid_vsync,
+                               vid_line_start, vid_frame_start,
+                               vid_vsync_pulse};
+    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
