@@ -70,11 +70,53 @@ def split_top(args):
     return parts
 
 
+def strip_bus(src):
+    """What the cycle does to registers, with the bus statements removed."""
+    for name in ('_SAD', '_SA', '_SD'):
+        for a in macro_args(src, name):
+            src = src.replace('%s(%s);' % (name, a), '')
+            src = src.replace('%s(%s)' % (name, a), '')
+    for tok in ('_WR();', '_FETCH();', 'c->IR++;', 'c->IR++'):
+        src = src.replace(tok, '')
+    # collapse the shells left behind by removing the only statement in a branch
+    src = re.sub(r'\{\s*\}', '', src)
+    src = re.sub(r'else\s*(?=[};]|$)', '', src)
+    src = re.sub(r'\s+', '', src)
+    return src.strip(';')
+
+
+# Most of the operation tail is one shape repeated with a different register,
+# bit or flag — the things a microword carries as a field rather than a case.
+# Folding them shows how few distinct operations the datapath actually needs.
+FOLD = (
+    (r'>>\d\)&1', '>>BIT)&1'),                              # BBR/BBS bit select
+    (r'&=~0x[0-9A-F]{2}', '&=~BIT'),                        # RMB
+    (r'\|=0x[0-9A-F]{2}', '|=BIT'),                         # SMB
+    (r'_w65c02_(adc|sbc)\(', r'_w65c02_ADDSUB('),
+    (r'_w65c02_(asl|lsr|rol|ror)\(', r'_w65c02_SHIFT('),
+    (r'_w65c02_cmp\(c,c->[AXY],', '_w65c02_cmp(c,REG,'),
+    (r'c->P&W65C02_[NVCZ]F\)!=(?:0x[0-9A-F]+|0)', 'c->P&FLAG)!=VAL'),
+    (r'c->([AXY])=_GD\(\);_NZ\(c->\1\)', 'c->REG=_GD();_NZ(c->REG)'),
+    (r'c->A(\||&|\^)=_GD\(\);_NZ\(c->A\)', r'c->A LOGIC=_GD();_NZ(c->A)'),
+    (r'c->(P&=~|P\|=)W65C02_[CID]F', r'c->\1W65C02_FLAG'),
+    (r'c->A(\+\+|--);_NZ\(c->A\)', r'c->A STEP;_NZ(c->A)'),
+    (r'c->AD(\+\+|--);_NZ\(c->AD\)', r'c->AD STEP;_NZ(c->AD)'),
+    (r'\(\(\(c->AD\)\^\(c->AD\+c->[XY]\)\)&0xFF00\)', '((c->AD)^(c->AD+IDX))&0xFF00'),
+)
+
+
+def fold_op(s):
+    for pat, rep in FOLD:
+        s = re.sub(pat, rep, s)
+    return s
+
+
 class Tick:
     """The observable shape of one cycle, read out of the emitted C."""
 
     def __init__(self, src):
         self.src = src
+        self.op = strip_bus(src)
         self.addrs = macro_args(src, '_SA')
         self.data_out = macro_args(src, '_SD')
         for a in macro_args(src, '_SAD'):
@@ -189,7 +231,7 @@ def report(gen):
     nwrite = nhold = nskip = ncond = nfetch = 0
     total = 0
 
-    for op, (mnem, am), ts in opcodes(gen):
+    for _, _, ts in opcodes(gen):
         ticks[len(ts)] += 1
         for t in ts:
             total += 1
@@ -215,6 +257,16 @@ def report(gen):
     print('\ndata-out sources (%d distinct)' % len(douts))
     for d, n in douts.most_common():
         print('  %4d  %s' % (n, d))
+
+    ops, folded = Counter(), Counter()
+    for _, _, ts in opcodes(gen):
+        for t in ts:
+            ops[t.op] += 1
+            folded[fold_op(t.op)] += 1
+    print('\noperations: %d distinct, %d after folding register, bit and flag '
+          'selects' % (len(ops), len(folded)))
+    for o, n in folded.most_common():
+        print('  %4d  %s' % (n, o if o else '(none)'))
 
 
 def main():
