@@ -9,6 +9,7 @@
 #include "ria/sys/pix.h"
 #include "emu/sys/ria.h"
 #include "emu/sys/vga.h"
+#include "vga/modes/mode0.h"
 #include "vga/term/term.h"
 #include "vga/term/font.h"
 #include "vga/scanvideo/pixel_format.h"
@@ -172,7 +173,7 @@ bool vga_set_canvas(uint16_t canvas)
     if (canvas == vga_canvas_console)
     {
         uint16_t xregs[8] = {0};
-        term_prog(xregs); /* console term across the whole canvas */
+        mode0_prog(xregs); /* console term across the whole canvas */
     }
     return true;
 }

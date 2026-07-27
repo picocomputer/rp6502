@@ -7,8 +7,9 @@
 #ifndef _FPGA_SW_VID_H_
 #define _FPGA_SW_VID_H_
 
-/* Once per frame, publish the terminal's scanout state to the vid
- * registers: the resolved row bases, the cursor, the blink phase. */
+/* The terminal view over the scanout hardware: init programs the raster
+ * window; task publishes the model's scanout state once per frame. */
+void vid_init(void);
 void vid_task(void);
 
 #endif /* _FPGA_SW_VID_H_ */

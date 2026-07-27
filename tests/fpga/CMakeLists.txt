@@ -181,7 +181,7 @@ if(verilator_FOUND)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c
-            ${SW_SRC}/font.c ${SW_SRC}/mem.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
+            ${SW_SRC}/mem.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
             ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
             ${RP6502_SRC}/ria/api/api.c
             ${RP6502_SRC}/ria/api/std.c

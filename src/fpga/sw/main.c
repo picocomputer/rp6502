@@ -156,11 +156,7 @@ int main(void)
     std_init();
     rln_init();
     term_init();
-    {
-        /* Install the console the way the VGA chip's xreg path would. */
-        uint16_t xregs[5] = {0, 0, 0, 0, 0};
-        term_prog(xregs);
-    }
+    vid_init();
     print("boot: loading\n");
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
