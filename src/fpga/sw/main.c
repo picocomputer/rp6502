@@ -10,6 +10,7 @@
 
 #include "com.h"
 #include "mmio.h"
+#include "rom.h"
 #include "ria/api/api.h"
 #include "ria/api/std.h"
 #include "ria/main.h"
@@ -100,8 +101,6 @@ bool ria_active(void)
     return false;
 }
 
-static bool api_answered;
-
 const std_driver_t *main_std_drivers(size_t *count)
 {
     *count = 0;
@@ -110,7 +109,6 @@ const std_driver_t *main_std_drivers(size_t *count)
 
 bool main_api(uint8_t operation)
 {
-    api_answered = true;
     switch (operation)
     {
     case 0x14:
@@ -157,21 +155,42 @@ int main(void)
     rln_init();
     print("boot: loading\n");
 
-    for (uint32_t i = 0; i < sizeof boot_prog; i++)
-        SRAM[BOOT_ORG + i] = boot_prog[i];
-
-    /* Verify through the same window before trusting it. */
-    for (uint32_t i = 0; i < sizeof boot_prog; i++)
-        if (SRAM[BOOT_ORG + i] != boot_prog[i])
+    /* A staged .rp6502 outranks the built-in program: the loader parses
+     * it straight out of the platform's staging window. */
+    uint32_t slot = MMIO_SLOT;
+    bool staged = false;
+    if (slot)
+    {
+        staged = rom_load_staged(slot);
+        MMIO_SLOT = 0;
+        if (!staged)
         {
-            print("boot: verify failed\n");
+            print("rom: bad image\n");
             return 1;
         }
+        print("rom: staged\n");
+    }
 
-    /* Vectors live in the register cells; the run fan-out precedes the
-     * 6502's release, in the firmware's order. */
-    REGS_WIN[0x1C] = BOOT_ORG & 0xFF;
-    REGS_WIN[0x1D] = BOOT_ORG >> 8;
+    if (!staged)
+    {
+        for (uint32_t i = 0; i < sizeof boot_prog; i++)
+            SRAM[BOOT_ORG + i] = boot_prog[i];
+
+        /* Verify through the same window before trusting it. */
+        for (uint32_t i = 0; i < sizeof boot_prog; i++)
+            if (SRAM[BOOT_ORG + i] != boot_prog[i])
+            {
+                print("boot: verify failed\n");
+                return 1;
+            }
+
+        /* Vectors live in the register cells. */
+        REGS_WIN[0x1C] = BOOT_ORG & 0xFF;
+        REGS_WIN[0x1D] = BOOT_ORG >> 8;
+    }
+
+    /* The run fan-out precedes the 6502's release, in the firmware's
+     * order. */
     com_run();
     rln_run();
     api_run();
@@ -197,7 +216,7 @@ int main(void)
             moved = com_moved();
             quiet = 0;
         }
-        else if (api_answered && !API_BUSY && ++quiet > 2000)
+        else if (!API_BUSY && ++quiet > 2000)
         {
             break;
         }

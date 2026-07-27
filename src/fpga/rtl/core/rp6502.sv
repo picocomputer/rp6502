@@ -22,6 +22,9 @@
  *               +0x48 offers an RX byte toward the $FFE2 latch
  *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
  *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
+ *   0x60000000  staging, read-only: the platform answers with the byte at
+ *               rp6502_stage_addr — the APF data slot on the Pocket, the
+ *               bridge model in simulation
  */
 
 module rp6502
@@ -42,6 +45,11 @@ module rp6502
     output logic rp6502_rv_tx_valid,
     output logic rp6502_rv_halted,
     output logic [31:0] rp6502_rv_exit_code,
+
+    /* Staging window: address out at the strobe, byte answered by the
+     * platform before the next system clock. */
+    output logic [27:0] rp6502_stage_addr,
+    input logic [7:0] stage_rdata,
 
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline
 );
@@ -157,11 +165,12 @@ module rp6502
             bus_wbyte = bus_wdata[31:24];
     end
 
-    logic bus_sel_sram, bus_sel_regs, bus_sel_ctl;
+    logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage;
     always_comb begin
         bus_sel_sram = bus_addr[31:28] == 4'h1;
         bus_sel_regs = bus_addr[31:28] == 4'h2;
         bus_sel_ctl = bus_addr[31:28] == 4'h4;
+        bus_sel_stage = bus_addr[31:28] == 4'h6;
     end
 
     logic api_pending;
@@ -174,10 +183,13 @@ module rp6502
             cpu_run <= 1'b0;
             bus_rsel <= 2'd0;
             bus_ctl_api <= 1'b0;
+            rp6502_stage_addr <= '0;
         end else begin
             if (bus_stb) begin
-                bus_rsel <= bus_sel_regs ? 2'd1 : (bus_sel_ctl ? 2'd2 : 2'd0);
+                bus_rsel <= bus_sel_regs ? 2'd1
+                    : (bus_sel_ctl ? 2'd2 : (bus_sel_stage ? 2'd3 : 2'd0));
                 bus_ctl_api <= bus_addr[2];
+                rp6502_stage_addr <= bus_addr[27:0];
                 /* Captured at the strobe: ring reads advance their pointer
                  * there, so the answer must not be re-derived afterward. */
                 regs_b_q <= regs_b_rdata;
@@ -195,6 +207,7 @@ module rp6502
         case (bus_rsel)
             2'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
                 : {7'b0, cpu_run};
+            2'd3: bus_rbyte = stage_rdata;
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = bus_rsel == 2'd1 ? regs_b_q : {4{bus_rbyte}};

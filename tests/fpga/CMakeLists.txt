@@ -136,7 +136,7 @@ if(verilator_FOUND)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c ${SW_SRC}/mem.c
-            ${SW_SRC}/time.c ${SW_SRC}/trap.c ${SW_SRC}/vga.c
+            ${SW_SRC}/rom.c ${SW_SRC}/time.c ${SW_SRC}/trap.c ${SW_SRC}/vga.c
             ${RP6502_SRC}/ria/api/api.c
             ${RP6502_SRC}/ria/api/std.c
             ${RP6502_SRC}/ria/str/rln.c
@@ -170,6 +170,22 @@ if(verilator_FOUND)
             TIMEOUT 120)
         add_dependencies(test_boot sw_bin cpu65_rom)
         verilate(test_boot
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # The .rp6502 loader against the staged window, the testbench
+        # playing the platform bridge.
+        rp6502_add_test(rom
+            SOURCES test_rom.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 120)
+        add_dependencies(test_rom sw_bin cpu65_rom)
+        verilate(test_rom
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502
