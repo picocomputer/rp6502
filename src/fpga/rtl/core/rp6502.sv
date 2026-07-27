@@ -52,6 +52,10 @@ module rp6502
     output logic [27:0] rp6502_stage_addr,
     input logic [7:0] stage_rdata,
 
+    /* The composed picture, aligned with its data enable. */
+    output logic [15:0] rp6502_vid_pixel,
+    output logic rp6502_vid_de,
+
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline
 );
 
@@ -292,10 +296,15 @@ module rp6502
     );
     always_comb rp6502_scanline = vid_v;
 
+    logic [15:0] term_pix;
     vid_term vid_term (
         .clk(clk_sys),
         .rst_n(rst_n),
         .frame_start(vid_frame_start),
+        .h(vid_h),
+        .v(vid_v),
+        .line_start(vid_line_start),
+        .vid_term_pix(term_pix),
         .b_stb(bus_stb && bus_sel_vid),
         .b_we(bus_we),
         .b_addr(bus_addr[16:0]),
@@ -304,10 +313,18 @@ module rp6502
         .vid_term_b_rdata(vid_b_rdata)
     );
 
+    vid_compose vid_compose (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .de(vid_de),
+        .plane0(term_pix),
+        .vid_compose_pix(rp6502_vid_pixel),
+        .vid_compose_de(rp6502_vid_de)
+    );
+
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid;
-    always_comb unused_vid = ^{vid_h, vid_de, vid_hsync, vid_vsync,
-                               vid_line_start};
+    always_comb unused_vid = ^{vid_hsync, vid_vsync};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

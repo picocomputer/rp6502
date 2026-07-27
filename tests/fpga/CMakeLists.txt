@@ -78,7 +78,10 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/ria/ria_regs.sv
         ${RP6502_FPGA_RTL}/rv/rv_soc.sv
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
+        ${VID_FONT_PKG}
+        ${RP6502_FPGA_RTL}/vid/vid_font.sv
         ${RP6502_FPGA_RTL}/vid/vid_term.sv
+        ${RP6502_FPGA_RTL}/vid/vid_compose.sv
         ${RP6502_FPGA_RTL}/core/rp6502.sv)
     set(RP6502_MACHINE_VERILATOR_ARGS
         -y ${RP6502_VENDOR}/hazard3/hdl
@@ -232,6 +235,22 @@ if(verilator_FOUND)
             TIMEOUT 120)
         add_dependencies(test_compare sw_bin cpu65_rom)
         verilate(test_compare
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # The M3 frame test: one banner ROM, two machines, pixel-exact.
+        rp6502_add_test(banner
+            SOURCES test_banner.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 300)
+        add_dependencies(test_banner sw_bin cpu65_rom vid_font_rom)
+        verilate(test_banner
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502
