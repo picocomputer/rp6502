@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, openfpga]
     tags: ['v[0-9]*']
   pull_request:
     branches: [main]
@@ -346,6 +346,34 @@ jobs:
           name: emu-android-apk
           path: rp6502-emu.apk
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # FPGA simulation: verilate the machine and run it against the emu_core oracle.
+  # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
+  # with -Wall, so any RTL warning fails the build.
+  # ---------------------------------------------------------------------------
+  fpga-sim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Init simulation submodules
+        run: git submodule update --init --depth 1 vendor/chips vendor/sokol
+
+      - name: Install build dependencies + Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build verilator
+
+      - name: Configure & build simulation
+        run: |
+          set -euxo pipefail
+          cmake -S src/fpga -B build/fpga -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/fpga
+
+      - name: Run simulation tests
+        run: ctest --test-dir build/fpga --output-on-failure
 
   # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).

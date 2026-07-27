@@ -21,6 +21,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
+# emu_core alone, without the window, debugger, or tests. The FPGA simulation
+# links it as the reference oracle and needs none of the desktop stack.
+option(RP6502_EMU_CORE_ONLY "Build only the emu_core library" OFF)
+
 get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
@@ -186,6 +190,10 @@ else()
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
     target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
     target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(RP6502_EMU_CORE_ONLY)
+    return()
 endif()
 
 # The desktop window + audio stack. Windows/macOS/web/Android carry their own

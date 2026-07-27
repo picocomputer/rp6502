@@ -1,0 +1,31 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Testbench around the verilated rp6502 machine. Single instance, like the chip
+ * models in emu/sys — the machine is a singleton in a test process too.
+ *
+ * Set RP6502_FPGA_TRACE to a path to write an FST trace of the run.
+ */
+
+#ifndef _FPGA_SIM_TB_CORE_H_
+#define _FPGA_SIM_TB_CORE_H_
+
+#include <cstdint>
+
+/* Construct the model and hold it in reset. */
+void tb_core_init();
+
+/* Release the model and close any trace. */
+void tb_core_free();
+
+/* Assert reset for a few clocks, then release it. */
+void tb_core_reset();
+
+/* Advance count full clk_sys cycles. */
+void tb_core_clocks(int count);
+
+uint16_t tb_core_scanline();
+
+#endif /* _FPGA_SIM_TB_CORE_H_ */
