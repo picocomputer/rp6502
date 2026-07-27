@@ -20,6 +20,7 @@
 /* The machine, as mapped in rp6502.sv. Byte windows by design. */
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
+#define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define CPU_RUN (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 
@@ -104,14 +105,24 @@ int main(void)
     print("boot: running\n");
 
     /* The OS loop: the real api.c latches the op and dispatches through
-     * main_api until the handler finishes. */
+     * main_api, and the console drain forwards whatever the 6502 says —
+     * com.c in miniature. Quiet after the syscall means the work is done. */
+    uint32_t quiet = 0;
     for (uint32_t spins = 0; spins < 2000000u; spins++)
     {
         if (API_PENDING)
             API_PENDING = 0;
         api_task();
-        if (api_answered)
+        uint32_t v = UART_POP;
+        if (v & 0x100)
+        {
+            MMIO_CONSOLE = v & 0xFF;
+            quiet = 0;
+        }
+        else if (api_answered && ++quiet > 2000)
+        {
             break;
+        }
     }
     return 0;
 }

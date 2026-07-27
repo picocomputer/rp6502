@@ -42,12 +42,13 @@ module ria_regs (
     input logic [7:0] rx_data,
     output logic ria_regs_rx_taken,
 
-    /* The OS side: the soft CPU reads and writes the cells directly, the
-     * way the firmware's REGS() macros treat them as memory — including the
-     * 16- and 32-bit forms REGSW and REGSL, so the port is a word wide with
-     * byte lanes. Plain array access at the system clock, no side effects. */
+    /* The OS side: words 0-7 are the cells, plain memory the way the
+     * firmware's REGS macros treat them, wide enough for REGSW and REGSL.
+     * Word 16 pops the 6502's TX ring (bit 8 valid), word 18 offers an RX
+     * byte and reads back whether the offer slot is free. */
     input logic b_we,
-    input logic [2:0] b_word,
+    input logic b_re,
+    input logic [4:0] b_word,
     input logic [3:0] b_wstrb,
     input logic [31:0] b_wdata,
     output logic [31:0] ria_regs_b_rdata,
@@ -62,11 +63,27 @@ module ria_regs (
 
     logic [7:0] regs[32] /*verilator public_flat_rw*/;
 
+    /* The 6502's TX ring: pushed at $FFE1, drained by the OS. */
+    logic [7:0] txf[16];
+    logic [3:0] txf_w, txf_r;
+    logic [4:0] txf_count;
+    logic txf_pop;
+
+    /* The OS's RX offer, merged with the external one; external wins. */
+    logic os_rx_valid;
+    logic [7:0] os_rx_data;
+    logic eff_rx_valid;
+    logic [7:0] eff_rx_data;
+    always_comb begin
+        eff_rx_valid = rx_valid || os_rx_valid;
+        eff_rx_data = rx_valid ? rx_data : os_rx_data;
+    end
+
     /* Whether this access pulls the offered byte into the latch. */
     logic pull;
     always_comb begin
         pull = 1'b0;
-        if (cs && !we && rx_valid) begin
+        if (cs && !we && eff_rx_valid) begin
             if (rs == 5'h00 && (regs[0] & RX_READY) == 8'h00)
                 pull = 1'b1;
             if (rs == 5'h02)
@@ -78,7 +95,8 @@ module ria_regs (
         ria_regs_data = regs[rs];
         if (cs && !we) begin
             case (rs)
-                5'h00: ria_regs_data = regs[0] | TX_READY
+                5'h00: ria_regs_data = (regs[0] & ~TX_READY)
+                    | (txf_count < 5'd16 ? TX_READY : 8'h00)
                     | (pull ? RX_READY : 8'h00);
                 5'h02: ria_regs_data = regs[2];
                 default: ;
@@ -88,10 +106,19 @@ module ria_regs (
 
     /* Registered with the side effect it reports: the offered byte is taken
      * at the same edge that latches it, never a cycle before. */
-    always_comb ria_regs_b_rdata = {
-        regs[{b_word, 2'd3}], regs[{b_word, 2'd2}],
-        regs[{b_word, 2'd1}], regs[{b_word, 2'd0}]
-    };
+    always_comb begin
+        case (b_word)
+            5'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
+            5'd18: ria_regs_b_rdata = {31'd0, !os_rx_valid};
+            default: ria_regs_b_rdata = {
+                regs[{b_word[2:0], 2'd3}], regs[{b_word[2:0], 2'd2}],
+                regs[{b_word[2:0], 2'd1}], regs[{b_word[2:0], 2'd0}]
+            };
+        endcase
+    end
+
+    /* Popping is the strobed read of word 16 with a byte available. */
+    always_comb txf_pop = b_re && b_word == 5'd16 && txf_count != 5'd0;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -110,9 +137,11 @@ module ria_regs (
                 if (we) begin
                     case (rs)
                         5'h01: begin
+                            /* Push; a write while full drops, and TX_READY
+                             * told the program not to. The tap still pulses
+                             * for the testbench console. */
                             ria_regs_tx_data <= data_i;
                             ria_regs_tx_valid <= 1'b1;
-                            regs[0] <= regs[0] | TX_READY;
                         end
                         5'h0F: begin
                             /* The op lands and the trampoline blocks, one
@@ -127,15 +156,15 @@ module ria_regs (
                 end else begin
                     case (rs)
                         5'h00: begin
-                            regs[0] <= regs[0] | TX_READY
-                                | (pull ? RX_READY : 8'h00);
-                            if (pull)
-                                regs[2] <= rx_data;
+                            if (pull) begin
+                                regs[0] <= regs[0] | RX_READY;
+                                regs[2] <= eff_rx_data;
+                            end
                         end
                         5'h02: begin
                             /* Return the latch, then refill or empty it. */
                             if (pull) begin
-                                regs[2] <= rx_data;
+                                regs[2] <= eff_rx_data;
                                 regs[0] <= regs[0] | RX_READY;
                             end else begin
                                 regs[2] <= 8'h00;
@@ -155,15 +184,44 @@ module ria_regs (
         /* The OS side is plain shared memory at the system clock; it lands
          * regardless of the 6502's enable, and a same-cell collision goes to
          * the OS, as arbitrary as it is on the real dual-core part. */
-        if (rst_n && b_we) begin
+        if (rst_n && b_we && b_word < 5'd8) begin
             if (b_wstrb[0])
-                regs[{b_word, 2'd0}] <= b_wdata[7:0];
+                regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
             if (b_wstrb[1])
-                regs[{b_word, 2'd1}] <= b_wdata[15:8];
+                regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
             if (b_wstrb[2])
-                regs[{b_word, 2'd2}] <= b_wdata[23:16];
+                regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
             if (b_wstrb[3])
-                regs[{b_word, 2'd3}] <= b_wdata[31:24];
+                regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
+        end
+    end
+
+    /* The rings live at the system clock: the 6502 pushes on its enable, the
+     * OS pops and offers whenever its strobe lands. */
+    logic push_now;
+    always_comb push_now = en && cs && we && rs == 5'h01 && txf_count < 5'd16;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            txf_w <= 4'd0;
+            txf_r <= 4'd0;
+            txf_count <= 5'd0;
+            os_rx_valid <= 1'b0;
+            os_rx_data <= 8'h00;
+        end else begin
+            if (push_now) begin
+                txf[txf_w] <= data_i;
+                txf_w <= txf_w + 4'd1;
+            end
+            if (txf_pop)
+                txf_r <= txf_r + 4'd1;
+            txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
+            if (b_we && b_word == 5'd18 && !os_rx_valid) begin
+                os_rx_valid <= 1'b1;
+                os_rx_data <= b_wdata[7:0];
+            end else if (en && pull && !rx_valid) begin
+                os_rx_valid <= 1'b0;
+            end
         end
     end
 

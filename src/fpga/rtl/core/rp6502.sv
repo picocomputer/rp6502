@@ -17,7 +17,8 @@
  *
  * The soft CPU's window on the machine, byte-wide unless noted:
  *   0x10000000  the 6502's 64 KB
- *   0x20000000  the RIA register cells, one per byte address
+ *   0x20000000  the RIA register cells; +0x40 pops the 6502's TX ring,
+ *               +0x48 offers an RX byte toward the $FFE2 latch
  *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
  *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
  */
@@ -165,7 +166,7 @@ module rp6502
     logic api_pending;
     logic bus_ctl_api;
     logic [7:0] sram_b_rdata;
-    logic [31:0] regs_b_rdata;
+    logic [31:0] regs_b_rdata, regs_b_q;
     logic [1:0] bus_rsel;  // which target answers: 0 sram, 1 regs, 2 control
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
@@ -176,6 +177,9 @@ module rp6502
             if (bus_stb) begin
                 bus_rsel <= bus_sel_regs ? 2'd1 : (bus_sel_ctl ? 2'd2 : 2'd0);
                 bus_ctl_api <= bus_addr[2];
+                /* Captured at the strobe: ring reads advance their pointer
+                 * there, so the answer must not be re-derived afterward. */
+                regs_b_q <= regs_b_rdata;
             end
             if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
                 cpu_run <= bus_wbyte[0];
@@ -192,7 +196,7 @@ module rp6502
                 : {7'b0, cpu_run};
             default: bus_rbyte = sram_b_rdata;
         endcase
-        bus_rdata = bus_rsel == 2'd1 ? regs_b_rdata : {4{bus_rbyte}};
+        bus_rdata = bus_rsel == 2'd1 ? regs_b_q : {4{bus_rbyte}};
     end
 
     logic [7:0] ria_data;
@@ -211,7 +215,8 @@ module rp6502
         .rx_data(rx_data),
         .ria_regs_rx_taken(rp6502_rx_taken),
         .b_we(bus_stb && bus_we && bus_sel_regs),
-        .b_word(bus_addr[4:2]),
+        .b_re(bus_stb && !bus_we && bus_sel_regs),
+        .b_word(bus_addr[6:2]),
         .b_wstrb(bus_wstrb),
         .b_wdata(bus_wdata),
         .ria_regs_b_rdata(regs_b_rdata),
