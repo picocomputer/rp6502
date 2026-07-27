@@ -131,10 +131,15 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     bool has_drive = (strchr(first_arg, ':') != NULL);
     if (has_drive)
     {
-        // str_parse_string and str_abs_path share one static buffer, so
-        // copy first_arg out of it before calling str_abs_path.
-        strncpy(path, first_arg, sizeof(path) - 1);
-        path[sizeof(path) - 1] = '\0';
+        // NFC paths ignore the CWD: imply the leading '/' after the
+        // drive. This also copies first_arg out of the static buffer
+        // it shares with str_abs_path.
+        const char *colon = strchr(first_arg, ':');
+        const char *rest = colon + 1;
+        if (str_is_sep(*rest))
+            rest++;
+        snprintf(path, sizeof(path), "%.*s/%s",
+                 (int)(colon + 1 - first_arg), first_arg, rest);
         const char *abs = str_abs_path(path);
         if (!abs)
             goto fail;
