@@ -8,8 +8,37 @@
 
 #include "emu/emu/rom.h"
 #include "emu/main.h"
+#include "emu/sys/com.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
+
+#include <string.h>
+
+/* Console capture: everything the machine sends to the terminal, the
+ * stream the RTL machine's OS console is compared against. */
+static char oracle_tap_buf[65536];
+static size_t oracle_tap_len;
+
+static void oracle_tap(const char *buf, int len)
+{
+    if (len > 0 && oracle_tap_len + (size_t)len <= sizeof(oracle_tap_buf))
+    {
+        memcpy(oracle_tap_buf + oracle_tap_len, buf, (size_t)len);
+        oracle_tap_len += (size_t)len;
+    }
+}
+
+void oracle_tap_start(void)
+{
+    oracle_tap_len = 0;
+    com_set_tx_tap(oracle_tap);
+}
+
+const char *oracle_tap_data(size_t *len)
+{
+    *len = oracle_tap_len;
+    return oracle_tap_buf;
+}
 
 /* Sized for the largest canvas; every smaller canvas renders at its own stride. */
 static uint32_t oracle_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];

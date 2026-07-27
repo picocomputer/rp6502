@@ -12,6 +12,7 @@
 #define _TESTS_FPGA_ORACLE_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -32,6 +33,11 @@ extern "C"
     void oracle_canvas_size(int *width, int *height);
 
     unsigned long oracle_frame_count(void);
+
+    /* Console capture: arm before running, read back what the machine
+     * sent to the terminal — the RTL comparison stream. */
+    void oracle_tap_start(void);
+    const char *oracle_tap_data(size_t *len);
 
 #ifdef __cplusplus
 }

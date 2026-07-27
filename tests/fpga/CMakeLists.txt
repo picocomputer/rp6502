@@ -177,6 +177,23 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
+        # The M2 exit test: the same .rp6502 on the RTL machine and on
+        # emu_core, console streams compared byte for byte.
+        rp6502_add_test(compare
+            SOURCES test_compare.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 120)
+        add_dependencies(test_compare sw_bin cpu65_rom)
+        verilate(test_compare
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
         # The .rp6502 loader against the staged window, the testbench
         # playing the platform bridge.
         rp6502_add_test(rom
