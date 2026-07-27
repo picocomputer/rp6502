@@ -45,12 +45,13 @@ module rv_soc (
 
     // AHB5 master from the CPU. Address bits between the TCM window and the
     // MMIO page have no decode yet, and the bus never bursts.
-    logic [31:0] haddr;
-    logic hwrite;
-    logic [1:0] htrans;
-    logic [2:0] hsize;
-    logic hready;
-    logic [31:0] hwdata, hrdata;
+    logic [31:0] haddr /*verilator public_flat_rd*/;
+    logic hwrite /*verilator public_flat_rd*/;
+    logic [1:0] htrans /*verilator public_flat_rd*/;
+    logic [2:0] hsize /*verilator public_flat_rd*/;
+    logic hready /*verilator public_flat_rd*/;
+    logic [31:0] hwdata /*verilator public_flat_rd*/;
+    logic [31:0] hrdata /*verilator public_flat_rd*/;
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bits;
     always_comb unused_bits = ^{haddr[27:17], htrans[0], hsize[2]};
@@ -118,7 +119,11 @@ module rv_soc (
 
     // Address-phase capture; the data phase completes one cycle later,
     // or two for the system bus.
-    logic dph_active, dph_write, dph_mmio, dph_ext, dph_waited;
+    logic dph_active /*verilator public_flat_rd*/;
+    logic dph_write /*verilator public_flat_rd*/;
+    logic dph_mmio /*verilator public_flat_rd*/;
+    logic dph_ext /*verilator public_flat_rd*/;
+    logic dph_waited /*verilator public_flat_rd*/;
     logic [14:0] dph_word;  // TCM word index; strb carries the byte lanes
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
@@ -137,7 +142,7 @@ module rv_soc (
 
     logic [31:0] tcm[TCM_WORDS] /*verilator public_flat_rw*/;
 
-    logic [31:0] tcm_rdata;
+    logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
     logic [14:0] word_addr;
     always_comb word_addr = haddr[16:2];
 
@@ -178,9 +183,11 @@ module rv_soc (
     end
 
     // TCM read launches in the address phase; write lands in the data phase.
+    // The decode matters: an external-window write must not also land here,
+    // or the loader overwrites the firmware under its own feet.
     always_ff @(posedge clk) begin
         tcm_rdata <= tcm[word_addr];
-        if (dph_active && dph_write && !dph_mmio) begin
+        if (dph_active && dph_write && !dph_mmio && !dph_ext) begin
             if (dph_strb[0])
                 tcm[dph_word][7:0] <= hwdata[7:0];
             if (dph_strb[1])

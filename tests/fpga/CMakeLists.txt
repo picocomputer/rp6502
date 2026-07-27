@@ -134,15 +134,21 @@ if(verilator_FOUND)
     if(RISCV_GCC AND RISCV_OBJCOPY)
         set(SW_SRC ${RP6502_SRC}/fpga/sw)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
+        set(SW_SOURCES
+            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/mem.c ${SW_SRC}/trap.c
+            ${RP6502_SRC}/ria/api/api.c)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-                -O2 -ffreestanding -nostdlib -nostartfiles
+                -Os -ffreestanding -nostdlib -nostartfiles
+                -ffunction-sections -fdata-sections -Wl,--gc-sections
+                -isystem /usr/lib/picolibc/riscv64-unknown-elf/include
+                -I ${RP6502_SRC}
                 -Wl,-T,${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
                 -o ${CMAKE_CURRENT_BINARY_DIR}/sw.elf
-                ${SW_SRC}/crt0.S ${SW_SRC}/main.c
+                ${SW_SOURCES}
             COMMAND ${RISCV_OBJCOPY} -O binary
                 ${CMAKE_CURRENT_BINARY_DIR}/sw.elf ${SW_BIN}
-            DEPENDS ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/link.ld
+            DEPENDS ${SW_SOURCES} ${SW_SRC}/link.ld
             COMMENT "Cross-compiling the soft CPU firmware"
             VERBATIM)
         add_custom_target(sw_bin DEPENDS ${SW_BIN})

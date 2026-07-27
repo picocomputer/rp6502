@@ -73,8 +73,9 @@ UTEST(boot, firmware_boots_the_6502)
     ASSERT_EQ(dut->rp6502_rv_exit_code, 0u);
     ASSERT_STREQ(rv_out.c_str(), "boot: loading\nboot: running\napi: op\n");
     ASSERT_TRUE(stopped);
-    /* The trailing C is the machine's first syscall answering $42 + 1. */
-    ASSERT_STREQ(cpu_out.c_str(), "HELLO, WORLD!\r\nC");
+    /* CA is the machine's first real syscall: api.c answered $4143 through
+     * the trampoline, and the 6502 printed A then X. */
+    ASSERT_STREQ(cpu_out.c_str(), "HELLO, WORLD!\r\nCA");
 }
 
 UTEST_STATE();

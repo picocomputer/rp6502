@@ -139,11 +139,10 @@ module rp6502
         .bus_rdata(bus_rdata)
     );
 
-    /* Byte lane per sb/lb; the window is byte-wide by design, so the wide
-     * decode bits and the lane-zero strobe fold into the others. */
+    /* Byte lane per sb/lb for the byte-wide windows. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bus;
-    always_comb unused_bus = ^{bus_addr[27:16], bus_wstrb[0]};
+    always_comb unused_bus = ^{bus_addr[27:16]};
     /* verilator lint_on UNUSEDSIGNAL */
     logic [7:0] bus_wbyte;
     always_comb begin
@@ -165,7 +164,8 @@ module rp6502
 
     logic api_pending;
     logic bus_ctl_api;
-    logic [7:0] sram_b_rdata, regs_b_rdata;
+    logic [7:0] sram_b_rdata;
+    logic [31:0] regs_b_rdata;
     logic [1:0] bus_rsel;  // which target answers: 0 sram, 1 regs, 2 control
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
@@ -182,17 +182,17 @@ module rp6502
         end
     end
 
-    /* Reads answer one cycle after the strobe, the byte on every lane so
-     * the master's own extract picks the addressed one. */
+    /* Reads answer one cycle after the strobe. The register window is a
+     * true word; the byte-wide windows put their byte on every lane so the
+     * master's own extract picks the addressed one. */
     logic [7:0] bus_rbyte;
     always_comb begin
         case (bus_rsel)
-            2'd1: bus_rbyte = regs_b_rdata;
             2'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
                 : {7'b0, cpu_run};
             default: bus_rbyte = sram_b_rdata;
         endcase
-        bus_rdata = {4{bus_rbyte}};
+        bus_rdata = bus_rsel == 2'd1 ? regs_b_rdata : {4{bus_rbyte}};
     end
 
     logic [7:0] ria_data;
@@ -211,8 +211,9 @@ module rp6502
         .rx_data(rx_data),
         .ria_regs_rx_taken(rp6502_rx_taken),
         .b_we(bus_stb && bus_we && bus_sel_regs),
-        .b_rs(bus_addr[4:0]),
-        .b_wdata(bus_wbyte),
+        .b_word(bus_addr[4:2]),
+        .b_wstrb(bus_wstrb),
+        .b_wdata(bus_wdata),
         .ria_regs_b_rdata(regs_b_rdata),
         .ria_regs_api_pending(api_pending),
         .api_ack(bus_stb && bus_we && bus_sel_ctl && bus_addr[2])

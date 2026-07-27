@@ -40,4 +40,7 @@ SECTIONS
     } > TCM
 
     __stack_top = ORIGIN(TCM) + LENGTH(TCM);
+
+    /* The RIA register cells are hardware; REGS() indexes them here. */
+    PROVIDE(regs = 0x20000000);
 }

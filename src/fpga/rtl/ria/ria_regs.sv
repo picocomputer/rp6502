@@ -43,12 +43,14 @@ module ria_regs (
     output logic ria_regs_rx_taken,
 
     /* The OS side: the soft CPU reads and writes the cells directly, the
-     * way the firmware's REGS() macros treat them as memory. Plain array
-     * access at the system clock, no side effects. */
+     * way the firmware's REGS() macros treat them as memory — including the
+     * 16- and 32-bit forms REGSW and REGSL, so the port is a word wide with
+     * byte lanes. Plain array access at the system clock, no side effects. */
     input logic b_we,
-    input logic [4:0] b_rs,
-    input logic [7:0] b_wdata,
-    output logic [7:0] ria_regs_b_rdata,
+    input logic [2:0] b_word,
+    input logic [3:0] b_wstrb,
+    input logic [31:0] b_wdata,
+    output logic [31:0] ria_regs_b_rdata,
 
     /* A syscall is pending; the OS acknowledges. */
     output logic ria_regs_api_pending,
@@ -86,7 +88,10 @@ module ria_regs (
 
     /* Registered with the side effect it reports: the offered byte is taken
      * at the same edge that latches it, never a cycle before. */
-    always_comb ria_regs_b_rdata = regs[b_rs];
+    always_comb ria_regs_b_rdata = {
+        regs[{b_word, 2'd3}], regs[{b_word, 2'd2}],
+        regs[{b_word, 2'd1}], regs[{b_word, 2'd0}]
+    };
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -150,8 +155,16 @@ module ria_regs (
         /* The OS side is plain shared memory at the system clock; it lands
          * regardless of the 6502's enable, and a same-cell collision goes to
          * the OS, as arbitrary as it is on the real dual-core part. */
-        if (rst_n && b_we)
-            regs[b_rs] <= b_wdata;
+        if (rst_n && b_we) begin
+            if (b_wstrb[0])
+                regs[{b_word, 2'd0}] <= b_wdata[7:0];
+            if (b_wstrb[1])
+                regs[{b_word, 2'd1}] <= b_wdata[15:8];
+            if (b_wstrb[2])
+                regs[{b_word, 2'd2}] <= b_wdata[23:16];
+            if (b_wstrb[3])
+                regs[{b_word, 2'd3}] <= b_wdata[31:24];
+        end
     end
 
 endmodule
