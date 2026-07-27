@@ -52,8 +52,14 @@ module ria_regs (
     /* The OS side: words 0-7 are the cells, plain memory the way the
      * firmware's REGS macros treat them, wide enough for REGSW and REGSL.
      * Word 16 pops the 6502's TX ring (bit 8 valid), word 18 offers an RX
-     * byte and reads back whether the offer slot is free. Words 64-192 are
-     * the xstack bytes, word 200 the stack pointer. */
+     * byte and reads back bit 0, the offer slot free, and bit 1, the 6502
+     * asked for a byte and found none — emu/sys/ria.c pulls from the merged
+     * console sources lazily at the moment of the read, and this flag is
+     * that moment made visible, so the OS never commits a byte the console
+     * side still wants. A write with bit 9 set answers an ask with nothing,
+     * the way the emulator's empty pull simply returns: an ask is served
+     * exactly once, never remembered into a later byte's arrival. Words
+     * 64-192 are the xstack bytes, word 200 the stack pointer. */
     input logic b_we,
     input logic b_re,
     input logic [7:0] b_word,
@@ -86,6 +92,7 @@ module ria_regs (
     /* The OS's RX offer, merged with the external one; external wins. */
     logic os_rx_valid;
     logic [7:0] os_rx_data;
+    logic rx_req;
     logic eff_rx_valid;
     logic [7:0] eff_rx_data;
     always_comb begin
@@ -126,7 +133,7 @@ module ria_regs (
     always_comb begin
         case (b_word)
             8'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
-            8'd18: ria_regs_b_rdata = {31'd0, !os_rx_valid};
+            8'd18: ria_regs_b_rdata = {30'd0, rx_req, !os_rx_valid};
             8'd200: ria_regs_b_rdata = {22'd0, xsp};
             default: begin
                 if (b_word >= 8'd64 && b_word <= 8'd192)
@@ -245,6 +252,7 @@ module ria_regs (
             txf_count <= 5'd0;
             os_rx_valid <= 1'b0;
             os_rx_data <= 8'h00;
+            rx_req <= 1'b0;
             xsp <= 10'd512;
             xs_fill <= 1'b0;
             xs_fill_at <= 10'd0;
@@ -289,9 +297,20 @@ module ria_regs (
             if (txf_pop)
                 txf_r <= txf_r + 4'd1;
             txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
-            if (b_we && b_word == 8'd18 && !os_rx_valid) begin
+            /* An unanswered ask arms the request; a landed byte, whether
+             * pulled or offered, satisfies it. */
+            if (en && cs && !we && !pull
+                && ((rs == 5'h00 && (regs[0] & RX_READY) == 8'h00)
+                    || rs == 5'h02))
+                rx_req <= 1'b1;
+            if (en && pull)
+                rx_req <= 1'b0;
+            if (b_we && b_word == 8'd18 && b_wdata[9])
+                rx_req <= 1'b0;
+            else if (b_we && b_word == 8'd18 && !os_rx_valid) begin
                 os_rx_valid <= 1'b1;
                 os_rx_data <= b_wdata[7:0];
+                rx_req <= 1'b0;
             end else if (en && pull && !rx_valid) begin
                 os_rx_valid <= 1'b0;
             end

@@ -13,6 +13,10 @@
 
 #include "ria/sys/mem.h"
 
+/* No XRAM until the render side arrives; pix_ready() gates every path that
+ * would dereference this. */
+uint8_t *const xram = 0;
+
 void *memcpy(void *dst, const void *src, size_t n)
 {
     uint8_t *d = dst;

@@ -16,6 +16,9 @@
  *   +4  halt: write stops the simulation testbench, value is the exit code
  *   +8  keyboard in: one offered byte, bit 8 valid, popped by the read;
  *       the testbench fills it now, the APF input bridge will later
+ *   +16 microseconds since reset, low word; +20 high word. TICKS_PER_US
+ *       scales the system clock down (1 in simulation, the real ratio on
+ *       hardware); the firmware's time_us_64 reads hi-lo-hi
  *
  * Everything outside the TCM and the local page goes out the system bus,
  * with one wait state so the machine's single-cycle devices — SRAM port B,
@@ -24,7 +27,9 @@
  * which is all a 6502's memory wants.
  */
 
-module rv_soc (
+module rv_soc #(
+    parameter int TICKS_PER_US = 1
+) (
     input logic clk,
     input logic rst_n,
 
@@ -129,7 +134,7 @@ module rv_soc (
     logic [14:0] dph_word;  // TCM word index; strb carries the byte lanes
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
-    logic [3:0] mmio_reg;
+    logic [4:0] mmio_reg;
 
     always_comb hready = !(dph_active && dph_ext && !dph_waited);
 
@@ -167,7 +172,7 @@ module rv_soc (
             dph_word <= haddr[16:2];
             dph_addr <= haddr;
             dph_strb <= strb;
-            mmio_reg <= haddr[3:0];
+            mmio_reg <= haddr[4:0];
             dph_waited <= 1'b0;
         end else begin
             dph_waited <= 1'b1;
@@ -204,12 +209,30 @@ module rv_soc (
     logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
     logic mmio_kbd_valid /*verilator public_flat_rw*/;
 
+    logic [63:0] mtime_us;
+    logic [7:0] mtime_tick;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            mtime_us <= 64'd0;
+            mtime_tick <= '0;
+        end else if (mtime_tick == 8'(TICKS_PER_US - 1)) begin
+            mtime_tick <= '0;
+            mtime_us <= mtime_us + 64'd1;
+        end else begin
+            mtime_tick <= mtime_tick + 8'd1;
+        end
+    end
+
     always_comb begin
         if (dph_ext)
             hrdata = bus_rdata;
         else if (dph_mmio)
-            hrdata = mmio_reg == 4'h8
-                ? {23'd0, mmio_kbd_valid, mmio_kbd_data} : 32'h0;
+            case (mmio_reg)
+                5'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
+                5'h10: hrdata = mtime_us[31:0];
+                5'h14: hrdata = mtime_us[63:32];
+                default: hrdata = 32'h0;
+            endcase
         else
             hrdata = tcm_rdata;
     end
@@ -224,15 +247,15 @@ module rv_soc (
             mmio_kbd_data <= 8'h00;
         end else begin
             rv_soc_tx_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 4'h8)
+            if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h08)
                 mmio_kbd_valid <= 1'b0;
             if (dph_active && dph_write && dph_mmio) begin
                 case (mmio_reg)
-                    4'h0: begin
+                    5'h00: begin
                         rv_soc_tx_data <= hwdata[7:0];
                         rv_soc_tx_valid <= 1'b1;
                     end
-                    4'h4: begin
+                    5'h04: begin
                         rv_soc_halted <= 1'b1;
                         rv_soc_exit_code <= hwdata;
                     end

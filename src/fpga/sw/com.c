@@ -17,6 +17,7 @@
 #include "com.h"
 #include "mmio.h"
 
+#include <stdio.h>
 #include <string.h>
 
 #define RING_SIZE 512 /* power of two */
@@ -140,6 +141,20 @@ int com_putchar(int c)
     return (int)(unsigned char)c;
 }
 
+int com_printf(const char *fmt, ...)
+{
+    char buf[256];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    if (n <= 0)
+        return n;
+    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
+    com_crlf_write(buf, w);
+    return n;
+}
+
 /* The console never backpressures; the simulation sink is always ready. */
 
 bool com_putchar_ready(void)
@@ -198,16 +213,14 @@ void com_task(void)
         com_tx_write(&c, 1);
     }
 
-    /* The platform keyboard feeds the KBD ring. */
-    uint32_t k = MMIO_KBD;
-    if (k & 0x100)
-    {
-        ring_push(&kbd_ring, (uint8_t)k);
-        com_moved_count++;
-    }
-
-    /* Keep the $FFE2 offer slot topped up from the merged sources. */
-    if (RX_OFFER & 1)
+    /* Answer the 6502's ask for a byte, and only the ask — the lazy pull
+     * emu/sys/ria.c does at the moment of the read. Offering eagerly would
+     * commit bytes the console side's own readers still want; and an ask
+     * with nothing queued is answered with nothing, never remembered into
+     * a byte typed later. Served before the keyboard poll below so a byte
+     * can never arrive inside the same tick as an already-expired ask. */
+    uint32_t st = RX_OFFER;
+    if ((st & 3) == 3)
     {
         com_source_t src = COM_SOURCE_ANY;
         int c = com_getchar(&src);
@@ -216,5 +229,17 @@ void com_task(void)
             RX_OFFER = (uint32_t)c;
             com_moved_count++;
         }
+        else
+        {
+            RX_OFFER = 0x200;
+        }
+    }
+
+    /* The platform keyboard feeds the KBD ring. */
+    uint32_t k = MMIO_KBD;
+    if (k & 0x100)
+    {
+        ring_push(&kbd_ring, (uint8_t)k);
+        com_moved_count++;
     }
 }

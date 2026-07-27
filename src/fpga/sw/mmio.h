@@ -14,6 +14,8 @@
 
 #define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
 #define MMIO_KBD (*(volatile uint32_t *)0xF0000008u)
+#define MTIME_LO (*(volatile uint32_t *)0xF0000010u)
+#define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)

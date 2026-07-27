@@ -11,7 +11,9 @@
 #include "com.h"
 #include "mmio.h"
 #include "ria/api/api.h"
+#include "ria/api/std.h"
 #include "ria/main.h"
+#include "ria/str/rln.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/ria.h"
 
@@ -29,7 +31,7 @@ static void print(const char *s)
  * input back until a carriage return arrives, STP. */
 static const uint8_t boot_prog[] = {
     0xA2, 0x00,              /*       ldx #0          */
-    0xBD, 0x50, 0x02,        /* loop: lda msg,x       */
+    0xBD, 0x73, 0x02,        /* loop: lda msg,x       */
     0xF0, 0x0C,              /*       beq done        */
     0x2C, 0xE0, 0xFF,        /* wait: bit $FFE0       */
     0x10, 0xFB,              /*       bpl wait        */
@@ -64,7 +66,23 @@ static const uint8_t boot_prog[] = {
     0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
     0xC9, 0x0D,              /*       cmp #$0D        */
     0xD0, 0xEA,              /*       bne echo        */
-    0xDB,                    /*       stp             */
+    /* read a line from stdin — the genuine std/rln engine — and print it */
+    0xA9, 0x00,              /*       lda #0          */
+    0x8D, 0xF4, 0xFF,        /*       sta $FFF4       ; API_A = fd 0 */
+    0xA9, 0x00,              /*       lda #0          */
+    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       ; count hi */
+    0xA9, 0x20,              /*       lda #$20        */
+    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       ; count lo */
+    0xA9, 0x16,              /*       lda #$16        */
+    0x8D, 0xEF, 0xFF,        /*       sta $FFEF       ; op read_xstack */
+    0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
+    0xAA,                    /*       tax             ; bytes read */
+    0xF0, 0x09,              /*       beq rdone       */
+    0xAD, 0xEC, 0xFF,        /* rloop:lda $FFEC       */
+    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
+    0xCA,                    /*       dex             */
+    0xD0, 0xF7,              /*       bne rloop       */
+    0xDB,                    /* rdone:stp             */
     'H', 'E', 'L', 'L', 'O', ',', ' ',
     'W', 'O', 'R', 'L', 'D', '!', '\r', '\n', 0,
 };
@@ -84,11 +102,37 @@ bool ria_active(void)
 
 static bool api_answered;
 
+const std_driver_t *main_std_drivers(size_t *count)
+{
+    *count = 0;
+    return 0;
+}
+
 bool main_api(uint8_t operation)
 {
     api_answered = true;
     switch (operation)
     {
+    case 0x14:
+        return std_api_open();
+    case 0x15:
+        return std_api_close();
+    case 0x16:
+        return std_api_read_xstack();
+    case 0x18:
+        return std_api_write_xstack();
+    case 0x1A:
+        return std_api_lseek_cc65();
+    case 0x1D:
+        return std_api_lseek_llvm();
+    case 0x1E:
+        return std_api_syncfs();
+    case 0x30:
+        return rln_api_lastkey();
+    case 0x31:
+        return rln_api_peek();
+    case 0x32:
+        return rln_api_poke();
     case 0x42:
         return api_return_ax(0x4143);
     case 0x43:
@@ -105,7 +149,12 @@ bool main_api(uint8_t operation)
 
 int main(void)
 {
+    /* No str_init: it exists to apply a locale, and this machine has one
+     * locale and no S() callers — the whole localized chain is meant to
+     * collect under --gc-sections. */
     com_init();
+    std_init();
+    rln_init();
     print("boot: loading\n");
 
     for (uint32_t i = 0; i < sizeof boot_prog; i++)
@@ -119,31 +168,36 @@ int main(void)
             return 1;
         }
 
-    /* Vectors live in the register cells; RESB releases the 6502. */
+    /* Vectors live in the register cells; the run fan-out precedes the
+     * 6502's release, in the firmware's order. */
     REGS_WIN[0x1C] = BOOT_ORG & 0xFF;
     REGS_WIN[0x1D] = BOOT_ORG >> 8;
-    CPU_RUN = 1;
-
+    com_run();
+    rln_run();
     api_run();
+    CPU_RUN = 1;
     print("boot: running\n");
 
-    /* The OS loop: the real api.c latches the op and dispatches through
-     * main_api, and the manifold moves the console bytes. Quiet after the
-     * syscalls means the work is done — a simulation-only exit. */
+    /* The OS loop, in the firmware's task order with api last. The real
+     * api.c latches the op and dispatches through main_api; the manifold
+     * moves the console bytes. Quiet after the syscalls means the work is
+     * done — a simulation-only exit. */
     uint32_t quiet = 0;
     uint32_t moved = com_moved();
-    for (uint32_t spins = 0; spins < 2000000u; spins++)
+    for (uint32_t spins = 0; spins < 8000000u; spins++)
     {
         if (API_PENDING)
             API_PENDING = 0;
-        api_task();
+        std_task();
         com_task();
+        rln_task();
+        api_task();
         if (com_moved() != moved)
         {
             moved = com_moved();
             quiet = 0;
         }
-        else if (api_answered && ++quiet > 2000)
+        else if (api_answered && !API_BUSY && ++quiet > 2000)
         {
             break;
         }

@@ -136,16 +136,22 @@ if(verilator_FOUND)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c ${SW_SRC}/mem.c
-            ${SW_SRC}/trap.c
-            ${RP6502_SRC}/ria/api/api.c)
+            ${SW_SRC}/time.c ${SW_SRC}/trap.c ${SW_SRC}/vga.c
+            ${RP6502_SRC}/ria/api/api.c
+            ${RP6502_SRC}/ria/api/std.c
+            ${RP6502_SRC}/ria/str/rln.c
+            ${RP6502_SRC}/ria/str/str.c)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-                -Os -ffreestanding -nostdlib -nostartfiles
+                -Os -ffreestanding -nostartfiles
+                --specs=picolibc.specs
                 -ffunction-sections -fdata-sections -Wl,--gc-sections
-                -isystem /usr/lib/picolibc/riscv64-unknown-elf/include
                 -I ${RP6502_SRC}
+                -I ${SW_SRC}/shim
                 -I ${RP6502_SRC}/emu/host/pico
-                -Wl,-T,${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
+                -I ${RP6502_VENDOR}
+                "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
+                -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
                 -o ${CMAKE_CURRENT_BINARY_DIR}/sw.elf
                 ${SW_SOURCES}
             COMMAND ${RISCV_OBJCOPY} -O binary
