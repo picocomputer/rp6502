@@ -20,6 +20,14 @@
  * the bytes and the pointer through its window, the plain memory that
  * api_push_n and api_pop_n expect.
  *
+ * $FFE3 counts frames, 8-bit wrap, one increment per vsync pulse; a 6502
+ * write sticks until the next pulse increments over it. $FFF0 is the IRQ
+ * block, emulator semantics (emu/sys/ria.c, which is the oracle — the
+ * RP2350 firmware clears selectively by observed byte instead): reading
+ * returns the pending sources and acknowledges them all, writing sets the
+ * enable mask and acks the written bits, and IRQB asserts while a pending
+ * source is enabled. Bit 7 is vsync.
+ *
  * A write to $FFEF is a syscall: the hardware itself arms the BRA -2 block
  * at $FFF1 in the same cycle the op lands, so the 6502 can JSR into the
  * trampoline immediately and there is no window where it outruns the OS
@@ -49,6 +57,10 @@ module ria_regs (
     input logic [7:0] rx_data,
     output logic ria_regs_rx_taken,
 
+    /* One pulse per frame from the raster; IRQB toward the 6502. */
+    input logic vsync_pulse,
+    output logic ria_regs_irq,
+
     /* The OS side: words 0-7 are the cells, plain memory the way the
      * firmware's REGS macros treat them, wide enough for REGSW and REGSL.
      * Word 16 pops the 6502's TX ring (bit 8 valid), word 18 offers an RX
@@ -76,6 +88,23 @@ module ria_regs (
     localparam logic [7:0] RX_READY = 8'h40;
 
     logic [7:0] regs[32] /*verilator public_flat_rw*/;
+
+    /* The $FFF0 block; the regs cell only mirrors pending for reads. Acks
+     * resolve before this frame's pulse, so a pulse is never lost to a
+     * same-edge acknowledge. */
+    logic [7:0] irq_pending /*verilator public_flat_rd*/;
+    logic [7:0] irq_enabled /*verilator public_flat_rd*/;
+    logic [7:0] pend_next;
+    always_comb begin
+        pend_next = irq_pending;
+        if (en && cs && !we && rs == 5'h10)
+            pend_next = 8'h00;
+        if (en && cs && we && rs == 5'h10)
+            pend_next = pend_next & ~data_i;
+        if (vsync_pulse)
+            pend_next = pend_next | 8'h80;
+    end
+    always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
     /* The 6502's TX ring: pushed at $FFE1, drained by the OS. */
     logic [7:0] txf[16];
@@ -161,6 +190,8 @@ module ria_regs (
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= 1'b0;
             ria_regs_api_pending <= 1'b0;
+            irq_pending <= 8'h00;
+            irq_enabled <= 8'h00;
         end else if (en) begin
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= pull;
@@ -189,6 +220,7 @@ module ria_regs (
                             regs[5'h12] <= 8'hFE;
                             ria_regs_api_pending <= 1'b1;
                         end
+                        5'h10: ;  /* enable/ack handled above the case */
                         default: regs[rs] <= data_i;
                     endcase
                 end else begin
@@ -219,6 +251,16 @@ module ria_regs (
             ria_regs_rx_taken <= 1'b0;
             if (api_ack)
                 ria_regs_api_pending <= 1'b0;
+        end
+        /* The frame counter and the $FFF0 block land every clock: pending
+         * resolves through pend_next, its regs cell is only the mirror. */
+        if (rst_n) begin
+            if (vsync_pulse)
+                regs[5'h03] <= regs[5'h03] + 8'd1;
+            if (en && cs && we && rs == 5'h10)
+                irq_enabled <= data_i;
+            irq_pending <= pend_next;
+            regs[5'h10] <= pend_next;
         end
         /* A pop's mirror refill arrives from the RAM one clock after the
          * pointer moved, always between 6502 cycles; an OS write below still

@@ -86,6 +86,20 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
     )
 
+    # The frame counter and the vsync interrupt against the raster.
+    rp6502_add_test(vsync
+        SOURCES test_vsync.cpp
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+        TIMEOUT 120)
+    add_dependencies(test_vsync cpu65_rom)
+    verilate(test_vsync
+        SOURCES ${RP6502_MACHINE_SOURCES}
+        TOP_MODULE rp6502
+        PREFIX Vrp6502
+        INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+        VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+    )
+
     # --- The 65C02 in RTL, against the same suites as the emulator's C ---
     # tests/cpu holds both implementations to one set of evidence; this is the
     # RTL half. Fixture guards mirror tests/cpu's.

@@ -84,7 +84,7 @@ module rp6502
         .rst_n(rst_n && cpu_run),
         .en(phi2_en),
         .data_i(cpu_din),
-        .irq_i(via_irq),
+        .irq_i(via_irq || ria_irq),
         .nmi_i(1'b0),
         .rdy_i(1'b0),
         .res_i(1'b0),
@@ -115,6 +115,7 @@ module rp6502
         .b_rdata(sram_b_rdata)
     );
 
+    logic ria_irq;
     logic [7:0] via_data;
     via via (
         .clk(clk_sys),
@@ -228,6 +229,8 @@ module rp6502
         .rx_valid(rx_valid),
         .rx_data(rx_data),
         .ria_regs_rx_taken(rp6502_rx_taken),
+        .vsync_pulse(vid_vsync_pulse),
+        .ria_regs_irq(ria_irq),
         .b_we(bus_stb && bus_we && bus_sel_regs),
         .b_re(bus_stb && !bus_we && bus_sel_regs),
         .b_word(bus_addr[9:2]),
@@ -265,7 +268,8 @@ module rp6502
     logic vid_de /*verilator public_flat_rd*/;
     logic vid_hsync /*verilator public_flat_rd*/;
     logic vid_vsync /*verilator public_flat_rd*/;
-    logic vid_line_start, vid_frame_start, vid_vsync_pulse;
+    logic vid_line_start, vid_frame_start;
+    logic vid_vsync_pulse;
     vid_timing vid_timing (
         .clk(clk_sys),
         .rst_n(rst_n),
@@ -283,8 +287,7 @@ module rp6502
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid;
     always_comb unused_vid = ^{vid_h, vid_de, vid_hsync, vid_vsync,
-                               vid_line_start, vid_frame_start,
-                               vid_vsync_pulse};
+                               vid_line_start, vid_frame_start};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
