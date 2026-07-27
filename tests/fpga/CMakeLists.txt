@@ -118,6 +118,50 @@ if(verilator_FOUND)
         message(WARNING "CPU fixtures absent — cpu65 RTL conformance skipped.")
     endif()
 
+    # --- The soft CPU: Hazard3 boots the cross-compiled firmware ---
+    # Toolchain per README: apt install gcc-riscv64-unknown-elf.
+    find_program(RISCV_GCC riscv64-unknown-elf-gcc)
+    find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
+    if(RISCV_GCC AND RISCV_OBJCOPY)
+        set(SW_SRC ${RP6502_SRC}/fpga/sw)
+        set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
+        add_custom_command(OUTPUT ${SW_BIN}
+            COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
+                -O2 -ffreestanding -nostdlib -nostartfiles
+                -Wl,-T,${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
+                -o ${CMAKE_CURRENT_BINARY_DIR}/sw.elf
+                ${SW_SRC}/crt0.S ${SW_SRC}/main.c
+            COMMAND ${RISCV_OBJCOPY} -O binary
+                ${CMAKE_CURRENT_BINARY_DIR}/sw.elf ${SW_BIN}
+            DEPENDS ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/link.ld
+            COMMENT "Cross-compiling the soft CPU firmware"
+            VERBATIM)
+        add_custom_target(sw_bin DEPENDS ${SW_BIN})
+
+        rp6502_add_test(rvsoc
+            SOURCES test_rvsoc.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 120)
+        add_dependencies(test_rvsoc sw_bin)
+        verilate(test_rvsoc
+            SOURCES ${CMAKE_CURRENT_LIST_DIR}/hazard3.vlt
+                ${RP6502_FPGA_RTL}/rv/rv_soc.sv
+            TOP_MODULE rv_soc
+            PREFIX Vrvsoc
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3
+                -y ${RP6502_VENDOR}/hazard3/hdl
+                -y ${RP6502_VENDOR}/hazard3/hdl/arith
+                -y ${RP6502_VENDOR}/hazard3/hdl/debug/dm
+                -y ${RP6502_VENDOR}/hazard3/hdl/debug/dtm
+        )
+    else()
+        message(WARNING
+            "riscv64-unknown-elf-gcc not found — soft CPU tests skipped.\n"
+            "  sudo apt-get install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf")
+    endif()
+
     # --- The VIA in RTL, against chips/m6522.h in lockstep ---
     # T1/T2 timers and their interrupts are live machine features; see
     # emu/emu/via.c for the wiring this reproduces.
