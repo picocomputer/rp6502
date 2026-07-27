@@ -127,6 +127,14 @@ class Tick:
         self.fetch = '_FETCH()' in src
         self.skip = 'c->IR++' in src
         self.conditional = 'if(' in src
+        # Statement order: a few cycles read through AD while replacing it
+        # (the BRK vector, JMP (abs,X), the zero-page pointer high bytes), so
+        # their address uses the value from before this cycle's operation.
+        sa = min((src.find(m) for m in ('_SA(', '_SAD(') if m in src),
+                 default=-1)
+        ld = src.find('c->AD=_GD()')
+        self.ad_pre = (sa >= 0 and ld >= 0 and sa < ld
+                       and any('c->AD' in a for a in self.addrs))
 
     @property
     def holds_addr(self):
@@ -277,6 +285,50 @@ OP_MAP = {
 }
 
 
+# Which register, logic function, shift, flag, branch sense or bit an operation
+# acts on. The C bakes these into each opcode's statement; the microword carries
+# them as a select so the datapath has one implementation of each operation.
+# Meaning depends on the op: SEL_A/X/Y for LOAD and CMP, SEL_OR/AND/EOR for
+# LOGIC, and so on. Branches encode flag and sense; the bit ops their bit index.
+SEL = ('NONE', 'A', 'X', 'Y', 'OR', 'AND', 'EOR', 'ADC', 'SBC',
+       'ASL', 'LSR', 'ROL', 'ROR', 'C', 'I', 'D', 'INC', 'DEC',
+       'B0', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7',
+       'N_CLR', 'N_SET', 'V_CLR', 'V_SET', 'C_CLR', 'C_SET', 'Z_CLR', 'Z_SET')
+
+SEL_RULES = (
+    # (ops the rule serves, regex over the raw statement, sel from the match)
+    (('LOAD',), r'c->([AXY])=_GD\(\)', lambda m: m.group(1)),
+    (('CMP',), r'_w65c02_cmp\(c,c->([AXY]),', lambda m: m.group(1)),
+    (('LOGIC',), r'c->A([|&^])=', lambda m: {'|': 'OR', '&': 'AND', '^': 'EOR'}[m.group(1)]),
+    (('ADDSUB_BINARY', 'ADDSUB_DECIMAL'), r'_w65c02_(adc|sbc)\(',
+     lambda m: m.group(1).upper()),
+    (('SHIFT_A', 'SHIFT_AD'), r'_w65c02_(asl|lsr|rol|ror)\(',
+     lambda m: m.group(1).upper()),
+    (('FLAG_CLEAR', 'FLAG_SET'), r'c->P(?:&=~|\|=)W65C02_([CID])F',
+     lambda m: m.group(1)),
+    (('A_STEP', 'AD_STEP'), r'c->AD?(\+\+|--)',
+     lambda m: 'INC' if m.group(1) == '++' else 'DEC'),
+    (('BRANCH_TEST',), r'\(c->P&W65C02_([NVCZ])F\)!=(0x[0-9A-F]+|0)\b',
+     lambda m: '%s_%s' % (m.group(1), 'CLR' if m.group(2) == '0' else 'SET')),
+    (('BIT_SELECT',), r'>>(\d)\)&1', lambda m: 'B' + m.group(1)),
+    (('RMB',), r'&=~0x([0-9A-F]{2})',
+     lambda m: 'B%d' % (int(m.group(1), 16).bit_length() - 1)),
+    (('SMB',), r'\|=0x([0-9A-F]{2})',
+     lambda m: 'B%d' % (int(m.group(1), 16).bit_length() - 1)),
+)
+
+
+def tick_sel(opname, raw):
+    for ops, pat, fn in SEL_RULES:
+        if opname in ops:
+            m = re.search(pat, raw)
+            assert m, '%s did not match its own rule: %s' % (opname, raw)
+            sel = fn(m)
+            assert sel in SEL, sel
+            return sel
+    return 'NONE'
+
+
 def check_vocabulary(gen):
     """Every address and data expression the C emits must be one we model."""
     for name, (lo, off, hi, post) in ADDR_MAP.items():
@@ -402,6 +454,7 @@ def emit(gen, out):
     lines.append(enum_decl('post', POST, bits(len(POST))))
     lines.append(enum_decl('dout', douts, bits(len(douts))))
     lines.append(enum_decl('op', ops, bits(len(ops))))
+    lines.append(enum_decl('sel', SEL, bits(len(SEL))))
 
     lines.append('''
     typedef struct packed {
@@ -416,6 +469,10 @@ def emit(gen, out):
         cpu65_post_t xpost;
         cpu65_dout_t dout;
         cpu65_op_t   op;
+        // Which register, function, flag, sense or bit the operation acts on.
+        cpu65_sel_t  sel;
+        // The address reads through AD from before this cycle's operation.
+        logic        ad_pre;
         logic        wr;
         // Gated by the operation's condition where it has one.
         logic        fetch;
@@ -436,15 +493,23 @@ def emit(gen, out):
         for t, tick in enumerate(ts):
             a = tick.addrs[0] if tick.addrs else None
             x = tick.addrs[1] if len(tick.addrs) > 1 else None
+            opname = OP_MAP[fold_op(tick.op)]
+            # Two addresses appear only where an indexed read decides between
+            # the target and a dummy; its index register rides in the primary.
+            if x is not None:
+                assert opname == 'AD_HI_INDEX', tick.src
+                assert ADDR_MAP[a][1] in ('X', 'Y'), tick.src
             prim = addr_fields(a) if a else hold
             alt = addr_fields(x) if x else prim
             dout = DATA_MAP[tick.data_out[0]] if tick.data_out else 'NONE'
             lines.append(
-                "        11'h%03X: return '{%s, %s, DOUT_%s, OP_%s, 1'b%d, 1'b%d, 1'b%d};\n"
-                % ((op << 3) | t, prim, alt, dout, OP_MAP[fold_op(tick.op)],
+                "        11'h%03X: return '{%s, %s, DOUT_%s, OP_%s, SEL_%s, "
+                "1'b%d, 1'b%d, 1'b%d, 1'b%d};\n"
+                % ((op << 3) | t, prim, alt, dout, opname,
+                   tick_sel(opname, tick.op), tick.ad_pre,
                    tick.write, tick.fetch, tick.skip))
-    lines.append("        default: return '{%s, %s, DOUT_NONE, OP_NONE, "
-                 "1'b0, 1'b0, 1'b0};\n" % (hold, hold))
+    lines.append("        default: return '{%s, %s, DOUT_NONE, OP_NONE, SEL_NONE, "
+                 "1'b0, 1'b0, 1'b0, 1'b0};\n" % (hold, hold))
     lines.append('        endcase\n    endfunction\n\nendpackage\n')
 
     with open(out, 'w') as f:

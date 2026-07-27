@@ -31,6 +31,9 @@ if(EXISTS ${SSTESTS})
         DEFS VECTORS="${VECTORS}"
         TIMEOUT 300)
     add_dependencies(test_vectors cpu_vectors)
+
+    # The FPGA build points its RTL at the same encoded vectors.
+    set(RP6502_CPU_VECTORS ${VECTORS} PARENT_SCOPE)
 else()
     message(WARNING
         "SingleStepTests vectors absent — per-cycle conformance skipped.\n"
