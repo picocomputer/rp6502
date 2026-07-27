@@ -11,7 +11,6 @@
  * vectors land in the register cells with the SRAM keeping the shadow, and
  * both reset vector bytes must arrive or the image is rejected.
  *
- * XRAM records are refused until the render side brings the XRAM.
  */
 
 #include "mmio.h"
@@ -147,8 +146,11 @@ bool rom_load_staged(uint32_t len)
         if (!parse_u32(&p, &addr) || !parse_u32(&p, &reclen) ||
             !parse_u32(&p, &crc) || !parse_end(p))
             return false;
-        if (addr > 0xFFFF || reclen == 0 || reclen > 0x10000 - addr)
-            return false; /* XRAM records wait for the render side */
+        /* The emulator's record rule verbatim: RAM below 0x10000, XRAM
+         * above, and a record never straddles the boundary. */
+        if (addr > 0x1FFFF || reclen == 0 || reclen > 0x20000 - addr ||
+            (addr < 0x10000 && reclen > 0x10000 - addr))
+            return false;
         if (rom_end - rom_pos < reclen)
             return false;
         uint32_t c = 0xFFFFFFFFu;
@@ -157,11 +159,13 @@ bool rom_load_staged(uint32_t len)
             uint32_t a = addr + i;
             uint8_t b = STAGE[rom_pos++];
             c = rom_crc32(c, b);
+            if (a > 0xFFFF)
+                XRAM_WIN[a - 0x10000] = b;
             /* A load never writes the RIA window's low page; the vectors
              * land in the cells, the SRAM keeps the shadow. */
-            if (a < 0xFF00 || a >= 0xFFFA)
+            else if (a < 0xFF00 || a >= 0xFFFA)
                 SRAM[a] = b;
-            if (a >= 0xFFFA)
+            if (a >= 0xFFFA && a <= 0xFFFF)
                 REGS_WIN[a & 0x1F] = b;
         }
         if ((c ^ 0xFFFFFFFFu) != crc)

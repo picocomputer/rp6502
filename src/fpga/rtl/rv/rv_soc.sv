@@ -41,7 +41,10 @@ module rv_soc #(
     output logic rv_soc_halted,
     output logic [31:0] rv_soc_exit_code,
 
-    /* System bus: one strobe per access during the stretched data phase. */
+    /* System bus: one strobe per access during the stretched data phase;
+     * bus_rdy low withholds the strobe and stretches the phase, for slaves
+     * whose port is arbitrated. */
+    input logic bus_rdy,
     output logic rv_soc_bus_stb,
     output logic rv_soc_bus_we,
     output logic [31:0] rv_soc_bus_addr,
@@ -176,7 +179,7 @@ module rv_soc #(
             dph_strb <= strb;
             mmio_reg <= haddr[4:0];
             dph_waited <= 1'b0;
-        end else begin
+        end else if (rv_soc_bus_stb) begin
             dph_waited <= 1'b1;
         end
     end
@@ -184,7 +187,7 @@ module rv_soc #(
     // The strobe is the wait-state cycle: captured address out, write data
     // straight off the held AHB data phase, reads answered next cycle.
     always_comb begin
-        rv_soc_bus_stb = dph_active && dph_ext && !dph_waited;
+        rv_soc_bus_stb = dph_active && dph_ext && !dph_waited && bus_rdy;
         rv_soc_bus_we = rv_soc_bus_stb && dph_write;
         rv_soc_bus_addr = dph_addr;
         rv_soc_bus_wdata = hwdata;

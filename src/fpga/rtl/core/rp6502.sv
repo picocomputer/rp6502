@@ -17,6 +17,7 @@
  *
  * The soft CPU's window on the machine, byte-wide unless noted:
  *   0x10000000  the 6502's 64 KB
+ *   0x30000000  the 64 KB XRAM
  *   0x20000000  the RIA register cells; +0x40 pops the 6502's TX ring,
  *               +0x100 the xstack bytes, +0x320 the xstack pointer,
  *               +0x48 offers an RX byte toward the $FFE2 latch
@@ -147,6 +148,7 @@ module rp6502
         .rv_soc_tx_valid(rp6502_rv_tx_valid),
         .rv_soc_halted(rp6502_rv_halted),
         .rv_soc_exit_code(rp6502_rv_exit_code),
+        .bus_rdy(1'b1),
         .rv_soc_bus_stb(bus_stb),
         .rv_soc_bus_we(bus_we),
         .rv_soc_bus_addr(bus_addr),
@@ -172,9 +174,10 @@ module rp6502
     end
 
     logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage,
-        bus_sel_vid;
+        bus_sel_vid, bus_sel_xram;
     always_comb begin
         bus_sel_sram = bus_addr[31:28] == 4'h1;
+        bus_sel_xram = bus_addr[31:28] == 4'h3;
         bus_sel_regs = bus_addr[31:28] == 4'h2;
         bus_sel_ctl = bus_addr[31:28] == 4'h4;
         bus_sel_stage = bus_addr[31:28] == 4'h6;
@@ -199,7 +202,8 @@ module rp6502
                 bus_rsel <= bus_sel_regs ? 3'd1
                     : (bus_sel_ctl ? 3'd2
                     : (bus_sel_stage ? 3'd3
-                    : (bus_sel_vid ? 3'd4 : 3'd0)));
+                    : (bus_sel_vid ? 3'd4
+                    : (bus_sel_xram ? 3'd5 : 3'd0))));
                 bus_ctl_api <= bus_addr[2];
                 rp6502_stage_addr <= bus_addr[27:0];
                 /* Captured at the strobe: ring reads advance their pointer
@@ -220,6 +224,7 @@ module rp6502
             3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
                 : {7'b0, cpu_run};
             3'd3: bus_rbyte = stage_rdata;
+            3'd5: bus_rbyte = xram_b_rdata;
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q
@@ -295,6 +300,21 @@ module rp6502
         .vid_timing_vsync_pulse(vid_vsync_pulse)
     );
     always_comb rp6502_scanline = vid_v;
+
+    /* The XRAM; port A idles until the mode engines arrive. */
+    logic [7:0] xram_b_rdata;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [31:0] xram_a_unused;
+    /* verilator lint_on UNUSEDSIGNAL */
+    xram64k xram (
+        .clk(clk_sys),
+        .a_addr(14'd0),
+        .xram64k_a_rdata(xram_a_unused),
+        .b_addr(bus_addr[15:0]),
+        .b_wdata(bus_wbyte),
+        .b_we(bus_stb && bus_we && bus_sel_xram),
+        .xram64k_b_rdata(xram_b_rdata)
+    );
 
     logic [15:0] term_pix;
     vid_term vid_term (

@@ -19,6 +19,7 @@
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
+#define XRAM_WIN ((volatile uint8_t *)0x30000000u)
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* The terminal cell window is where the linker places term.c's screen

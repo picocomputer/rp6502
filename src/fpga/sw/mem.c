@@ -13,9 +13,8 @@
 
 #include "ria/sys/mem.h"
 
-/* No XRAM until the render side arrives; pix_ready() gates every path that
- * would dereference this. */
-uint8_t *const xram = 0;
+/* The XRAM is hardware behind its window, like the register cells. */
+uint8_t *const xram = (uint8_t *)0x30000000u;
 
 void *memcpy(void *dst, const void *src, size_t n)
 {

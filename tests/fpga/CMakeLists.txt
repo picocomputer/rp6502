@@ -75,6 +75,7 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/cpu65/via.sv
         ${RP6502_FPGA_RTL}/cpu65/phi2_div.sv
         ${RP6502_FPGA_RTL}/mem/sram64k.sv
+        ${RP6502_FPGA_RTL}/mem/xram64k.sv
         ${RP6502_FPGA_RTL}/ria/ria_regs.sv
         ${RP6502_FPGA_RTL}/rv/rv_soc.sv
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
@@ -251,6 +252,22 @@ if(verilator_FOUND)
             TIMEOUT 300)
         add_dependencies(test_banner sw_bin cpu65_rom vid_font_rom)
         verilate(test_banner
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # XRAM records through the staged loader, judged by the oracle.
+        rp6502_add_test(xram
+            SOURCES test_xram.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 120)
+        add_dependencies(test_xram sw_bin cpu65_rom vid_font_rom)
+        verilate(test_xram
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502
