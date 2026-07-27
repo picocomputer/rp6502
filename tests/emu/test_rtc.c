@@ -72,7 +72,7 @@ UTEST(rtc, prints_fixed_timestamps)
     tzset(); /* adopt the TZ live; main_init's one tzset ran with the host default */
     cap_len = 0;
     cap[0] = 0;
-    ASSERT_TRUE(emu_restart(RTC_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     com_set_tx_tap(tap);
     run_frames(120);
     com_set_tx_tap(NULL);
@@ -139,7 +139,7 @@ UTEST(rtc, code_page_drives_oem_mapping)
  * font (untouched by exec) and the code page would desync. */
 UTEST(rtc, exec_preserves_code_page)
 {
-    ASSERT_TRUE(emu_restart(RTC_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     oem_set_code_page_run(850); /* a guest program changed the run page */
     main_stop();                /* the exec-reload path: stop + (load) + run */
     main_run();
@@ -157,7 +157,7 @@ UTEST(rtc, settime_persists_across_restart)
     clk_api_time_set();
     ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0);
 
-    ASSERT_TRUE(emu_restart(RTC_ROM)); /* main_stop + main_run */
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* main_stop + main_run */
 
     xstack_ptr = XSTACK_SIZE;
     clk_api_time_get();

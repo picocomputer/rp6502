@@ -17,8 +17,8 @@
 
 #include <string.h>
 
-#ifndef DW5_ELF
-#define DW5_ELF "dwtest.elf"
+#ifndef TEST_FIXTURE
+#define TEST_FIXTURE "dwtest.elf"
 #endif
 
 /* soft stack pointer RS0 = rc0:rc1 at $00:$01; report $9000 so DW_OP_fbreg
@@ -40,7 +40,7 @@ static const dwarf_var_t *find(const dwarf_var_t *v, int n, const char *name)
 
 UTEST(dwarf5, info_loads)
 {
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
+    dwarf_info_t *di = dwarf_info_load(TEST_FIXTURE);
     ASSERT_TRUE(di != NULL);
     dwarf_info_free(di);
 }
@@ -49,7 +49,7 @@ UTEST(dwarf5, info_loads)
  * addresses (matching the linker's placement) and the strx-named types. */
 UTEST(dwarf5, globals_addrx)
 {
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
+    dwarf_info_t *di = dwarf_info_load(TEST_FIXTURE);
     ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
@@ -80,7 +80,7 @@ UTEST(dwarf5, globals_addrx)
 
 UTEST(dwarf5, array_and_struct)
 {
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
+    dwarf_info_t *di = dwarf_info_load(TEST_FIXTURE);
     ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
@@ -112,7 +112,7 @@ UTEST(dwarf5, array_and_struct)
 /* Enum type: enumerator names resolve by value; an unlisted value is NULL. */
 UTEST(dwarf5, enum_values)
 {
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
+    dwarf_info_t *di = dwarf_info_load(TEST_FIXTURE);
     ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
@@ -133,7 +133,7 @@ UTEST(dwarf5, enum_values)
 /* Pointer types: char * pointee is a 1-byte base; Rect * pointee is a struct. */
 UTEST(dwarf5, pointer_type)
 {
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
+    dwarf_info_t *di = dwarf_info_load(TEST_FIXTURE);
     ASSERT_TRUE(di != NULL);
     dwarf_var_t g[64];
     int n = dwarf_info_globals(di, g, 64);
@@ -156,7 +156,7 @@ UTEST(dwarf5, pointer_type)
  * fbreg locals of `area` resolve to frame_base + offset. */
 UTEST(dwarf5, frame_base_and_locals)
 {
-    dwarf_info_t *di = dwarf_info_load(DW5_ELF);
+    dwarf_info_t *di = dwarf_info_load(TEST_FIXTURE);
     ASSERT_TRUE(di != NULL);
     uint16_t fb = 0;
     ASSERT_TRUE(dwarf_info_frame_base(di, 0x0660, fake_mem, &fb)); /* inside area */
@@ -183,7 +183,7 @@ UTEST(dwarf5, frame_base_and_locals)
 /* v5 line program: address<->source, function names, breakpoint binding. */
 UTEST(dwarf5, line_mapping)
 {
-    dwarf_line_t *dl = dwarf_line_load(DW5_ELF);
+    dwarf_line_t *dl = dwarf_line_load(TEST_FIXTURE);
     ASSERT_TRUE(dl != NULL);
 
     const char *file = NULL;

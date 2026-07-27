@@ -40,7 +40,7 @@ static void run_frames(int n)
  * tile renderer drew onto its 320x240 canvas (not the terminal). */
 UTEST(mode2, renders_tilemap_on_320x240_canvas)
 {
-    ASSERT_TRUE(emu_restart(MODE2_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run_frames(20);
 
@@ -68,7 +68,7 @@ UTEST(mode2, renders_tilemap_on_320x240_canvas)
  * completion. */
 UTEST(mode2, keyboard_presses_exit)
 {
-    ASSERT_TRUE(emu_restart(MODE2_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run_frames(20);
     ASSERT_FALSE(cpu_halted()); /* scrolling, no key down */
@@ -94,7 +94,7 @@ UTEST(mode2, keyboard_presses_exit)
  * calls main_stop, and the following frame's vga_task performs the reset. */
 UTEST(mode2, stop_resets_canvas_to_console)
 {
-    ASSERT_TRUE(emu_restart(MODE2_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run_frames(20);
     ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240); /* gfx canvas active */

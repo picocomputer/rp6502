@@ -15,8 +15,8 @@
 
 #include <string.h>
 
-#ifndef DW5_ELF
-#define DW5_ELF "dwtest.elf"
+#ifndef TEST_FIXTURE
+#define TEST_FIXTURE "dwtest.elf"
 #endif
 
 static uint8_t g_mem[0x10000];
@@ -24,7 +24,7 @@ static uint8_t rd(uint16_t a) { return g_mem[a]; }
 
 UTEST(dwarf_frame, loads)
 {
-    dwarf_frame_t *df = dwarf_frame_load(DW5_ELF);
+    dwarf_frame_t *df = dwarf_frame_load(TEST_FIXTURE);
     ASSERT_TRUE(df != NULL);
     ASSERT_TRUE(dwarf_frame_has(df, 0x0640));  /* inside area */
     ASSERT_FALSE(dwarf_frame_has(df, 0x0010)); /* below .text */
@@ -37,7 +37,7 @@ UTEST(dwarf_frame, loads)
  * CFA. Put a call site (0x0400, in measure) at 0x1FA. */
 UTEST(dwarf_frame, unwind_area)
 {
-    dwarf_frame_t *df = dwarf_frame_load(DW5_ELF);
+    dwarf_frame_t *df = dwarf_frame_load(TEST_FIXTURE);
     ASSERT_TRUE(df != NULL);
     memset(g_mem, 0, sizeof g_mem);
     g_mem[0x1FA] = 0x00;
@@ -55,7 +55,7 @@ UTEST(dwarf_frame, unwind_area)
  * function, which stops the walk (never fabricate a frame). */
 UTEST(dwarf_frame, unwind_terminates)
 {
-    dwarf_frame_t *df = dwarf_frame_load(DW5_ELF);
+    dwarf_frame_t *df = dwarf_frame_load(TEST_FIXTURE);
     ASSERT_TRUE(df != NULL);
     memset(g_mem, 0, sizeof g_mem);
     dwarf_unwind_t u = dwarf_frame_step(df, 0x0400, 0x01FB, 0x900E, rd); /* in measure */

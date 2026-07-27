@@ -24,7 +24,7 @@ static uint16_t entry_pc(void)
 
 static bool load(void)
 {
-    return emu_restart(ADVENTURE_ROM);
+    return emu_restart(TEST_FIXTURE);
 }
 
 /* Push CR-terminated keystrokes to stdin, as the line editor consumes them. */

@@ -9,7 +9,6 @@
 
 #include "tb_core.h"
 #include "utest.h"
-#include "verilated.h"
 
 /* rp6502_pkg RP6502_V_TOTAL — 640x480@60 has 525 scanlines. */
 static const int TB_V_TOTAL = 525;
@@ -60,6 +59,6 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    Verilated::commandArgs(argc, const_cast<char **>(argv));
+    tb_core_args(argc, argv);
     return utest_main(argc, argv);
 }

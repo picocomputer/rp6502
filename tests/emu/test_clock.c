@@ -25,14 +25,14 @@ static void run_frames(int n)
  * through a program restart — so time is measured as a delta. */
 UTEST(clock, run_time_is_exact_and_reproducible)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     uint64_t t0 = time_us_64();
     run_frames(60);
     ASSERT_EQ(time_us_64() - t0, 1000000ull); /* 60 frames = exactly 1 s */
 
     /* A program restart does not reset the clock; each frame adds the same fixed
      * quantum, so 6 more frames add exactly 100 ms. */
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     run_frames(6);
     ASSERT_EQ(time_us_64() - t0, 1100000ull);
 }
@@ -41,7 +41,7 @@ UTEST(clock, run_time_is_exact_and_reproducible)
  * quarter of the instructions but the same wall time elapses. */
 UTEST(clock, time_is_phi2_independent)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     cpu_set_phi2_khz_run(2000);
     uint64_t t0 = time_us_64();
     run_frames(60);

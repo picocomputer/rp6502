@@ -55,7 +55,7 @@ UTEST(dir, lists_directory)
     ASSERT_TRUE(fs_mkdir(sub));
 
     ASSERT_TRUE(fs_chdir(d)); /* the program lists "" = the cwd */
-    ASSERT_TRUE(emu_restart(DIR_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     cap_len = 0;
     cap[0] = 0;
     com_set_tx_tap(tap);

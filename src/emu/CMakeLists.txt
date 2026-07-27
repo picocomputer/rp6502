@@ -366,5 +366,5 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(${RP6502_ROOT}/tests tests)
+    add_subdirectory(${RP6502_ROOT}/tests/emu tests)
 endif()

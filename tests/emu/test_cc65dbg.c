@@ -18,8 +18,8 @@
 
 #include <string.h>
 
-#ifndef CC65_DBG
-#define CC65_DBG "cc65.dbg"
+#ifndef TEST_FIXTURE
+#define TEST_FIXTURE "cc65.dbg"
 #endif
 
 /* c_sp ($00) -> $0500, so auto locals resolve to c_sp + offs. */
@@ -32,14 +32,14 @@ static uint8_t fake_mem(uint16_t a)
 
 UTEST(cc65dbg, loads)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     ASSERT_TRUE(db != NULL);
     cc65dbg_free(db);
 }
 
 UTEST(cc65dbg, addr_to_src)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     ASSERT_TRUE(db != NULL);
     const char *file = NULL;
     int line = 0;
@@ -57,7 +57,7 @@ UTEST(cc65dbg, addr_to_src)
 
 UTEST(cc65dbg, src_to_addr_basename)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     uint16_t addr = 0;
     int bound = 0;
     ASSERT_TRUE(cc65dbg_src_to_addr(db, "main.c", 10, &addr, &bound));
@@ -71,7 +71,7 @@ UTEST(cc65dbg, src_to_addr_basename)
 
 UTEST(cc65dbg, addr_to_func)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     const char *fn = cc65dbg_addr_to_func(db, 0x0250);
     ASSERT_TRUE(fn != NULL);
     ASSERT_TRUE(strcmp(fn, "main") == 0); /* leading '_' stripped */
@@ -84,7 +84,7 @@ UTEST(cc65dbg, addr_to_func)
 /* A type=0 (asm) line on the same span must not shadow the C line. */
 UTEST(cc65dbg, ignores_non_c_lines)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     const char *file = NULL;
     int line = 0;
     cc65dbg_addr_to_src(db, 0x0239, &file, &line);
@@ -98,7 +98,7 @@ UTEST(cc65dbg, ignores_non_c_lines)
  * j@offs-4, so frame_size=4, frame base = $0500 + 4 = $0504. */
 UTEST(cc65dbg, locals_frame_base)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     ASSERT_EQ((int)cc65dbg_frame_size(db, 0x0240), 4); /* deepest auto j@-4 */
     uint16_t base = 0;
     ASSERT_TRUE(cc65dbg_frame_base(db, 0x0240, fake_mem, &base));
@@ -135,7 +135,7 @@ UTEST(cc65dbg, locals_frame_base)
 
 UTEST(cc65dbg, globals_via_import_chain)
 {
-    cc65dbg_t *db = cc65dbg_load(CC65_DBG);
+    cc65dbg_t *db = cc65dbg_load(TEST_FIXTURE);
     cc65var_t v[16];
     int n = cc65dbg_globals(db, v, 16);
     /* `gcounter` is recorded twice (its DATA label + the extern csym importing

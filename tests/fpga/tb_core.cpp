@@ -28,6 +28,11 @@ static void tb_core_edge(int level)
     tb_core_time++;
 }
 
+void tb_core_args(int argc, const char *const argv[])
+{
+    Verilated::commandArgs(argc, const_cast<char **>(argv));
+}
+
 void tb_core_init()
 {
     tb_core_dut = new Vrp6502;

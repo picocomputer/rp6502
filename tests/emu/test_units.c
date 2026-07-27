@@ -31,7 +31,7 @@ UTEST(crc32, known_vectors)
 UTEST(rom, loads)
 {
     memset(ram, 0, 0x10000);
-    ASSERT_TRUE(rom_load(ADVENTURE_ROM));
+    ASSERT_TRUE(rom_load(TEST_FIXTURE));
     /* the loader places code at the $0200 entry and points the reset vector
      * there ($FFFC/$FFFD -> $0200). */
     ASSERT_EQ(ram[0xFFFC], 0x00);

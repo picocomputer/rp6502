@@ -27,7 +27,7 @@ UTEST(oracle, frames_advance)
 
 UTEST(oracle, runs_a_rom_and_renders_pixels)
 {
-    ASSERT_TRUE(oracle_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(oracle_restart(TEST_FIXTURE));
     oracle_run_frames(30);
 
     int width = 0, height = 0;

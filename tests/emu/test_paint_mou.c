@@ -36,7 +36,7 @@ static void run(int n)
 
 UTEST(paint, via_irq_moves_pointer)
 {
-    ASSERT_TRUE(emu_restart(PAINT_MOU_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the mouse, arm VIA T1 */
 

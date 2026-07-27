@@ -68,7 +68,7 @@ UTEST(drive, rom_resolve_and_load)
     /* A real MSC0: file with the same basename — the install must NOT shadow it. */
     make_file("adventure.rp6502", "NOT THE ROM", 11);
 
-    ASSERT_TRUE(rom_install(ADVENTURE_ROM)); /* ":adventure.rp6502" -> ADVENTURE_ROM */
+    ASSERT_TRUE(rom_install(TEST_FIXTURE)); /* ":adventure.rp6502" -> TEST_FIXTURE */
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
@@ -80,9 +80,9 @@ UTEST(drive, rom_resolve_and_load)
      * case-insensitively like the firmware. */
     char host[MSC_MAX_PATH];
     ASSERT_TRUE(rom_resolve(":adventure.rp6502", host, sizeof(host)));
-    ASSERT_STREQ(host, ADVENTURE_ROM);
+    ASSERT_STREQ(host, TEST_FIXTURE);
     ASSERT_TRUE(rom_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
-    ASSERT_STREQ(host, ADVENTURE_ROM);
+    ASSERT_STREQ(host, TEST_FIXTURE);
     ASSERT_TRUE(rom_resolve(":second.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, second);
     /* An uninstalled or empty ":name" does not resolve. */
@@ -112,7 +112,7 @@ UTEST(drive, rom_resolve_and_load)
 UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
 {
     ASSERT_TRUE(fresh());
-    ASSERT_TRUE(rom_install(ADVENTURE_ROM)); /* ":adventure.rp6502" */
+    ASSERT_TRUE(rom_install(TEST_FIXTURE)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
     msc_api_stat();

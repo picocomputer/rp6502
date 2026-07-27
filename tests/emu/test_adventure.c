@@ -39,7 +39,7 @@ static bool boot(const char *input)
 {
     cap_len = 0;
     cap[0] = 0;
-    if (!emu_restart(ADVENTURE_ROM))
+    if (!emu_restart(TEST_FIXTURE))
         return false;
     com_set_tx_tap(tap);
     if (input)

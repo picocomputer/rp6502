@@ -93,7 +93,7 @@ UTEST(gamepad, xram_mirror)
 UTEST(gamepad, connected_pad_renders)
 {
     pad_stop();
-    ASSERT_TRUE(emu_restart(GAMEPAD_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     run(20); /* the ROM maps the pad block and draws four empty slots */
 
     cap_reset();
@@ -120,7 +120,7 @@ UTEST(gamepad, connected_pad_renders)
 UTEST(gamepad, disconnected_pad_ignored)
 {
     pad_stop();
-    ASSERT_TRUE(emu_restart(GAMEPAD_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     run(20);
 
     /* No pad_connect: the press rides an unplugged controller. */

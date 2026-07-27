@@ -25,7 +25,7 @@
  * the program enabled the $FFF0 IRQ) asserts the CPU's IRQ line until read. */
 UTEST(features, sigint_irq)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ASSERT_FALSE(ria_irq_asserted()); /* idle at boot */
 
@@ -59,7 +59,7 @@ UTEST(features, sigint_irq)
  * one-cycle-early deassert. */
 UTEST(features, ria_tick_holds_irq_through_ack)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ria_reg_write(0xFFF0, 0x40); /* enable SIGINT (the write acks it too) */
     com_kbd_push_byte(0x03);
@@ -76,7 +76,7 @@ UTEST(features, ria_tick_holds_irq_through_ack)
  * chain ends when the shell itself exits. */
 UTEST(features, launcher_chain)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* A shell starts and registers itself as the launcher. */
     pro_set_argv("MSC0:/shell.rp6502", 0, NULL);
@@ -110,7 +110,7 @@ UTEST(features, launcher_chain)
  * the RIA_OP_ARGV blob (offset table + {0,0} + packed strings). */
 UTEST(features, empty_args_kept)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     char *args[] = {"", "x", ""};
     ASSERT_TRUE(pro_set_argv("MSC0:/a.rp6502", 3, args));
@@ -150,7 +150,7 @@ static bool pumped_audio(int frames)
  * teletype bell, and the enable flag gates that ring end to end. */
 UTEST(features, teletype_bell)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ASSERT_EQ(aud_rate(), 24000); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
@@ -170,7 +170,7 @@ UTEST(features, teletype_bell)
  * generates no samples at all — not even for a rung bell. */
 UTEST(features, audio_disable)
 {
-    ASSERT_TRUE(emu_restart(ADVENTURE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     ASSERT_EQ(aud_rate(), 24000); /* enabled by default */
 
     aud_set_enabled(false);

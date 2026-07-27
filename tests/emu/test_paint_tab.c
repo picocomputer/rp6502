@@ -34,7 +34,7 @@ static void run(int n)
 
 UTEST(paint_tab, absolute_pointer_moves)
 {
-    ASSERT_TRUE(emu_restart(PAINT_TAB_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the tablet */
 

@@ -8,8 +8,8 @@
  * the verilated core, then compare console bytes, framebuffers or audio.
  */
 
-#ifndef _FPGA_SIM_ORACLE_H_
-#define _FPGA_SIM_ORACLE_H_
+#ifndef _TESTS_FPGA_ORACLE_H_
+#define _TESTS_FPGA_ORACLE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -37,4 +37,4 @@ extern "C"
 }
 #endif
 
-#endif /* _FPGA_SIM_ORACLE_H_ */
+#endif /* _TESTS_FPGA_ORACLE_H_ */

@@ -45,7 +45,7 @@ static void pump(int n, float *peak, double *energy, long *frames)
  * samples); once it plays, samples appear at the PSG's fixed 24 kHz. */
 UTEST(furelise, plays_psg_audio)
 {
-    ASSERT_TRUE(emu_restart(FURELISE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     /* The standing BEL device runs at boot (firmware: aud_init installs it),
      * silent until ezpsg_init swaps in the PSG — also 24 kHz. */
     ASSERT_EQ(aud_rate(), 24000);
@@ -71,7 +71,7 @@ UTEST(furelise, plays_psg_audio)
  * drains the ring. */
 UTEST(furelise, reset_silences)
 {
-    ASSERT_TRUE(emu_restart(FURELISE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     float peak = 0.0f;
     double energy = 0.0;
@@ -94,7 +94,7 @@ UTEST(furelise, reset_silences)
 UTEST(furelise, umlaut_renders)
 {
     static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-    ASSERT_TRUE(emu_restart(FURELISE_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     for (int i = 0; i < 8; i++)
         sys_run_frame(); /* prints the title; the lazy-clear render needs frames */

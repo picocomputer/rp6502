@@ -11,8 +11,10 @@ and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
 ## Layout
 
     rtl/core/       the machine, independent of the FPGA platform
-    sim/            Verilator testbench + the emu_core reference oracle
     platform/       per-host wrappers (Pocket APF, MiSTer), Quartus projects
+
+Tests live with every other test, in `tests/fpga` — the Verilator testbench and
+the emu_core reference oracle.
 
 ## Building the simulation
 
@@ -29,4 +31,4 @@ Without Verilator only the oracle tests build; CMake warns and continues.
 
 Set `RP6502_FPGA_TRACE` to a path to capture an FST trace, viewable in gtkwave:
 
-    RP6502_FPGA_TRACE=rtl.fst ./build/fpga/sim/test_rtl
+    RP6502_FPGA_TRACE=rtl.fst ./build/fpga/tests/test_rtl

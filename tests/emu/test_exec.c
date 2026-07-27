@@ -39,14 +39,14 @@ UTEST(exec, reexecs_self_with_arg)
 {
     cap_len = 0;
     cap[0] = 0;
-    ASSERT_TRUE(emu_restart(EXEC_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* Seed argv[0] = the ROM's own MSC0: path, exactly as main.c does, so the
      * program can re-exec itself. chdir into the ROM's directory (like launching
      * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
      * MSC0: path and round-trips through the exec resolver. */
     char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH], dir[MSC_MAX_PATH];
-    ASSERT_TRUE(fs_realpath(EXEC_ROM, abs, sizeof(abs)));
+    ASSERT_TRUE(fs_realpath(TEST_FIXTURE, abs, sizeof(abs)));
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
@@ -71,13 +71,13 @@ UTEST(exec, boot_args_reach_program)
 {
     cap_len = 0;
     cap[0] = 0;
-    ASSERT_TRUE(emu_restart(EXEC_ROM));
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* Boot args (the CLI's `exec.rp6502 -- Foo`): pro_set_argv resolves the raw
      * host path to MSC0: form itself. argc==2 at startup, so the program prints
      * its argv and wins on the first run, without the re-exec. */
     char *args[] = {"Foo"};
-    ASSERT_TRUE(pro_set_argv(EXEC_ROM, 1, args));
+    ASSERT_TRUE(pro_set_argv(TEST_FIXTURE, 1, args));
 
     com_set_tx_tap(tap);
     run_frames(90);

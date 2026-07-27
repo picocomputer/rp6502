@@ -9,10 +9,14 @@
  * Set RP6502_FPGA_TRACE to a path to write an FST trace of the run.
  */
 
-#ifndef _FPGA_SIM_TB_CORE_H_
-#define _FPGA_SIM_TB_CORE_H_
+#ifndef _TESTS_FPGA_TB_CORE_H_
+#define _TESTS_FPGA_TB_CORE_H_
 
 #include <cstdint>
+
+/* Hand argv to Verilator (plusargs). Tests never include verilated.h itself —
+ * it and utest.h both define __STDC_FORMAT_MACROS. */
+void tb_core_args(int argc, const char *const argv[]);
 
 /* Construct the model and hold it in reset. */
 void tb_core_init();
@@ -28,4 +32,4 @@ void tb_core_clocks(int count);
 
 uint16_t tb_core_scanline();
 
-#endif /* _FPGA_SIM_TB_CORE_H_ */
+#endif /* _TESTS_FPGA_TB_CORE_H_ */
