@@ -52,6 +52,7 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/ria/ria_regs.sv
         ${RP6502_FPGA_RTL}/rv/rv_soc.sv
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
+        ${RP6502_FPGA_RTL}/vid/vid_term.sv
         ${RP6502_FPGA_RTL}/core/rp6502.sv)
     set(RP6502_MACHINE_VERILATOR_ARGS
         -y ${RP6502_VENDOR}/hazard3/hdl
@@ -150,12 +151,15 @@ if(verilator_FOUND)
         set(SW_SRC ${RP6502_SRC}/fpga/sw)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
-            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c ${SW_SRC}/mem.c
-            ${SW_SRC}/rom.c ${SW_SRC}/time.c ${SW_SRC}/trap.c ${SW_SRC}/vga.c
+            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c
+            ${SW_SRC}/font.c ${SW_SRC}/mem.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
+            ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
             ${RP6502_SRC}/ria/api/api.c
             ${RP6502_SRC}/ria/api/std.c
             ${RP6502_SRC}/ria/str/rln.c
-            ${RP6502_SRC}/ria/str/str.c)
+            ${RP6502_SRC}/ria/str/str.c
+            ${RP6502_SRC}/vga/term/color.c
+            ${RP6502_SRC}/vga/term/term.c)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
                 -Os -ffreestanding -nostartfiles

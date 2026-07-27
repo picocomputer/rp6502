@@ -112,6 +112,19 @@ UTEST(boot, firmware_boots_the_6502)
     ASSERT_TRUE(strstr(rv_out.c_str(), "boot: running") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "HELLO, WORLD!\r\nCADBHI\r") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "OK") != NULL);
+
+    /* The terminal saw the same stream: term.c ran the ANSI engine on the
+     * soft CPU and its cell writes landed in the vid BRAM through the
+     * linker's window. Row 0's published base points at cells whose glyph
+     * bytes spell the machine's first line, 8-byte term_data_t stride. */
+    uint32_t row0 = dut->rootp->rp6502__DOT__vid_term__DOT__row_shadow[0];
+    const char *line0 = "HELLO, WORLD!";
+    for (size_t i = 0; line0[i]; i++)
+    {
+        uint32_t w =
+            dut->rootp->rp6502__DOT__vid_term__DOT__cells[(row0 >> 2) + 2 * i];
+        ASSERT_EQ((char)(w & 0xFF), line0[i]);
+    }
 }
 
 UTEST_STATE();

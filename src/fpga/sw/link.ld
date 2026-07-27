@@ -10,6 +10,7 @@
 MEMORY
 {
     TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 128K
+    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
 }
 
 ENTRY(_start)
@@ -29,6 +30,16 @@ SECTIONS
         *(.sdata*)
         . = ALIGN(4);
     } > TCM
+
+    /* term.c's four screen buffers land behind the vid window, where the
+     * hardware is the memory; claimed here so the .bss glob below cannot.
+     * NOLOAD: BRAM powers up zero, nothing to copy or clear. */
+    .vidcells (NOLOAD) : {
+        *(.bss.term40_pri_mem*)
+        *(.bss.term40_alt_mem*)
+        *(.bss.term80_pri_mem*)
+        *(.bss.term80_alt_mem*)
+    } > VIDCELLS
 
     .bss : {
         __bss_start = .;

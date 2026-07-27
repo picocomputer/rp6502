@@ -111,12 +111,28 @@ int com_peekchar(com_source_t src)
 }
 
 /* The single console sink: every terminal-bound byte passes here exactly
- * once, after any CRLF translation, where the BEL scan will live. */
+ * once, after any CRLF translation, where the BEL scan will live. The
+ * terminal wire is term.c's captured stdio driver. */
+static void (*com_term_out)(const char *buf, int len);
+
+void com_set_term_out(void (*out_chars)(const char *buf, int len))
+{
+    com_term_out = out_chars;
+}
+
 static void com_tx_write(const char *buf, int len)
 {
     for (int i = 0; i < len; i++)
         MMIO_CONSOLE = (uint8_t)buf[i];
+    if (com_term_out)
+        com_term_out(buf, len);
     com_moved_count += (uint32_t)len;
+}
+
+void com_in_write_reply(const char *s, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        ring_push(&uart_ring, (uint8_t)s[i]);
 }
 
 /* CRLF expansion above the sink, the pico-SDK translation the shared

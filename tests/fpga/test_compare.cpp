@@ -134,7 +134,7 @@ UTEST(compare, syscall_rom_matches_oracle)
 
     std::string rv_out;
     bool stopped = false;
-    for (int i = 0; i < 800000; i++)
+    for (int i = 0; i < 4000000; i++)
     {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;

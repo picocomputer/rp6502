@@ -22,6 +22,7 @@
  *               +0x48 offers an RX byte toward the $FFE2 latch
  *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
  *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
+ *   0x50000000  the terminal cell memory and scanout registers, word-wide
  *   0x60000000  staging, read-only: the platform answers with the byte at
  *               rp6502_stage_addr — the APF data slot on the Pocket, the
  *               bridge model in simulation
@@ -166,29 +167,35 @@ module rp6502
             bus_wbyte = bus_wdata[31:24];
     end
 
-    logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage;
+    logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage,
+        bus_sel_vid;
     always_comb begin
         bus_sel_sram = bus_addr[31:28] == 4'h1;
         bus_sel_regs = bus_addr[31:28] == 4'h2;
         bus_sel_ctl = bus_addr[31:28] == 4'h4;
         bus_sel_stage = bus_addr[31:28] == 4'h6;
+        bus_sel_vid = bus_addr[31:28] == 4'h5;
     end
 
     logic api_pending;
     logic bus_ctl_api;
     logic [7:0] sram_b_rdata;
     logic [31:0] regs_b_rdata, regs_b_q;
-    logic [1:0] bus_rsel;  // which target answers: 0 sram, 1 regs, 2 control
+    logic [31:0] vid_b_rdata;
+    // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid.
+    logic [2:0] bus_rsel;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
             cpu_run <= 1'b0;
-            bus_rsel <= 2'd0;
+            bus_rsel <= 3'd0;
             bus_ctl_api <= 1'b0;
             rp6502_stage_addr <= '0;
         end else begin
             if (bus_stb) begin
-                bus_rsel <= bus_sel_regs ? 2'd1
-                    : (bus_sel_ctl ? 2'd2 : (bus_sel_stage ? 2'd3 : 2'd0));
+                bus_rsel <= bus_sel_regs ? 3'd1
+                    : (bus_sel_ctl ? 3'd2
+                    : (bus_sel_stage ? 3'd3
+                    : (bus_sel_vid ? 3'd4 : 3'd0)));
                 bus_ctl_api <= bus_addr[2];
                 rp6502_stage_addr <= bus_addr[27:0];
                 /* Captured at the strobe: ring reads advance their pointer
@@ -206,12 +213,13 @@ module rp6502
     logic [7:0] bus_rbyte;
     always_comb begin
         case (bus_rsel)
-            2'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
+            3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
                 : {7'b0, cpu_run};
-            2'd3: bus_rbyte = stage_rdata;
+            3'd3: bus_rbyte = stage_rdata;
             default: bus_rbyte = sram_b_rdata;
         endcase
-        bus_rdata = bus_rsel == 2'd1 ? regs_b_q : {4{bus_rbyte}};
+        bus_rdata = bus_rsel == 3'd1 ? regs_b_q
+            : (bus_rsel == 3'd4 ? vid_b_rdata : {4{bus_rbyte}});
     end
 
     logic [7:0] ria_data;
@@ -284,10 +292,22 @@ module rp6502
     );
     always_comb rp6502_scanline = vid_v;
 
+    vid_term vid_term (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .frame_start(vid_frame_start),
+        .b_stb(bus_stb && bus_sel_vid),
+        .b_we(bus_we),
+        .b_addr(bus_addr[16:0]),
+        .b_wstrb(bus_wstrb),
+        .b_wdata(bus_wdata),
+        .vid_term_b_rdata(vid_b_rdata)
+    );
+
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid;
     always_comb unused_vid = ^{vid_h, vid_de, vid_hsync, vid_vsync,
-                               vid_line_start, vid_frame_start};
+                               vid_line_start};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

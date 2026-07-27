@@ -2850,6 +2850,24 @@ void term_RIS_no_clear(void)
     term_out_RIS_no_clear(&term_80);
 }
 
+void term_scanout(term_scanout_t *out)
+{
+    int16_t height = vga_canvas_height();
+    term_state_t *term =
+        (height == 180 || height == 240) ? &term_40 : &term_80;
+    out->width = term->width;
+    out->height = term->height;
+    for (uint8_t y = 0; y < term->height; y++)
+        out->row[y] = term_row_ptr(term, y);
+    out->cursor_x = term->cur->x;
+    out->cursor_y = term->cur->y;
+    out->cursor_style = term->cursor_style;
+    out->cursor_enabled = term->cursor_enabled;
+    out->cursor_lit = term->cursor_lit;
+    out->cursor_color = term->cursor_color;
+    out->blink_phase = term->cell_blink_phase;
+}
+
 bool term_prog(uint16_t *xregs)
 {
     int16_t plane = xregs[2];

@@ -41,6 +41,21 @@ static void trap_spin(uint32_t cause, uint32_t epc, uint32_t addr)
         ;
 }
 
+/* picolibc's assert lands here; narrate and spin, same as a trap. */
+void __assert_func(const char *file, int line, const char *func,
+                   const char *expr)
+{
+    (void)func;
+    (void)expr;
+    TRAP_CONSOLE = '!';
+    for (const char *s = file; *s; s++)
+        TRAP_CONSOLE = (uint8_t)*s;
+    TRAP_CONSOLE = ':';
+    trap_hex((uint32_t)line);
+    for (;;)
+        ;
+}
+
 /* Saved x1..x31 in order, laid down by the entry stub in crt0. */
 typedef struct
 {

@@ -11,12 +11,14 @@
 #include "com.h"
 #include "mmio.h"
 #include "rom.h"
+#include "vid.h"
 #include "ria/api/api.h"
 #include "ria/api/std.h"
 #include "ria/main.h"
 #include "ria/str/rln.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/ria.h"
+#include "vga/term/term.h"
 
 #include <stdint.h>
 
@@ -153,6 +155,12 @@ int main(void)
     com_init();
     std_init();
     rln_init();
+    term_init();
+    {
+        /* Install the console the way the VGA chip's xreg path would. */
+        uint16_t xregs[5] = {0, 0, 0, 0, 0};
+        term_prog(xregs);
+    }
     print("boot: loading\n");
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
@@ -210,6 +218,8 @@ int main(void)
         std_task();
         com_task();
         rln_task();
+        term_task();
+        vid_task();
         api_task();
         if (com_moved() != moved)
         {
