@@ -1,5 +1,13 @@
 include(${CMAKE_CURRENT_LIST_DIR}/../rp6502_tests.cmake)
 
+# --- The generator agrees with the C it generates from ---
+# cpu65's decode tables come from vendor/chips_rp6502, so an upstream change to
+# the addressing or the cycle sequences has to be modelled here before it can
+# reach the RTL. The generator fails on anything it does not recognise.
+add_test(NAME cpu65_gen
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/fpga/codegen/cpu65_gen.py --report)
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.

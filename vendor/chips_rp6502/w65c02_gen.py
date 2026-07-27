@@ -12,14 +12,22 @@
 #   source, SingleStepTests/ProcessorTests, is archived and predates the July
 #   2024 correction.
 #-------------------------------------------------------------------------------
+import importlib.util
 import os
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-VENDOR_CODEGEN = os.path.join(HERE, '..', 'chips', 'codegen')
-sys.path.insert(0, os.path.abspath(VENDOR_CODEGEN))
+VENDOR_CODEGEN = os.path.abspath(os.path.join(HERE, '..', 'chips', 'codegen'))
 
-import w65c02_gen as up
+# Loaded by path under a name of its own: this file shares the vendored file's
+# name, so a plain import would find itself. src/fpga/codegen imports this to
+# generate RTL from the same corrected tables.
+sys.path.insert(0, VENDOR_CODEGEN)  # for the vendored generator's own imports
+_spec = importlib.util.spec_from_file_location(
+    'w65c02_gen_vendored', os.path.join(VENDOR_CODEGEN, 'w65c02_gen.py'))
+up = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = up
+_spec.loader.exec_module(up)
 
 #-------------------------------------------------------------------------------
 #   Read the zero page byte, re-read it with the address held, fetch the
