@@ -24,4 +24,7 @@ set(RP6502_EMU_CORE_ONLY ON CACHE BOOL "" FORCE)
 add_subdirectory(${RP6502_SRC}/emu emu)
 
 enable_testing()
+# Both CPU implementations answer the same conformance vectors, so this build
+# runs the C reference alongside the RTL rather than trusting them separately.
+add_subdirectory(${RP6502_ROOT}/tests/cpu tests_cpu)
 add_subdirectory(${RP6502_ROOT}/tests/fpga tests)

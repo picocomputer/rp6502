@@ -366,6 +366,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build verilator
 
+      # Blobless sparse clone of one directory; the full repo is 4.8 GB.
+      - name: Fetch SingleStepTests CPU vectors
+        run: python3 tests/cpu/vectors.py
+
       - name: Configure & build simulation
         run: |
           set -euxo pipefail

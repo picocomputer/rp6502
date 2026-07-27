@@ -1,5 +1,6 @@
 /build/
 /.venv/
+/vendor/65x02/
 src/emu/host/android/build/
 src/emu/host/android/.gradle/
 src/emu/host/android/.idea/

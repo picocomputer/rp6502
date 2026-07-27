@@ -368,4 +368,7 @@ endif()
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
     add_subdirectory(${RP6502_ROOT}/tests/emu tests)
+    # The CPU the emulator runs is also the FPGA core's reference, so its
+    # conformance suite belongs to both; src/fpga builds the RTL half.
+    add_subdirectory(${RP6502_ROOT}/tests/cpu tests_cpu)
 endif()
