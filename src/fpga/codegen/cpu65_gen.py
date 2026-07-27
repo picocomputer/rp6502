@@ -153,7 +153,7 @@ def opcodes(gen):
 # Spelling each of the emitted expressions out by hand keeps this honest: an
 # expression the map does not know is a hard error, so an upstream change to the
 # addressing cannot slip into the RTL unnoticed.
-LO = ('PC', 'AD', 'S', 'GD', 'ZERO', 'HOLD')
+LO = ('PC', 'AD', 'S', 'GD', 'ZERO', 'CONST_7F', 'HOLD')
 OFF = ('0', '1', 'X', 'Y', 'M1', 'M2')
 HI = ('CARRY', 'ZP', 'STACK', 'PC', 'AD', 'GD', 'ZERO', 'HOLD')
 POST = ('NONE', 'PC_INC', 'AD_INC', 'S_INC', 'S_DEC')
@@ -185,8 +185,10 @@ ADDR_MAP = {
     # the JMP (abs) pointer that wraps inside its own page
     '(c->PC&0xFF00)|(c->AD&0x00FF)': ('AD', '0', 'PC', 'NONE'),
     '(c->AD&0xFF00)|((c->AD+1)&0x00FF)': ('AD', '1', 'AD', 'NONE'),
-    # ADC/SBC immediate spend their decimal cycle on a fixed internal address
-    '0x007F': ('ZERO', '0', 'ZERO', 'NONE'),
+    # ADC/SBC immediate have no effective address, so their decimal cycle
+    # reads whatever the part drives internally. Two distinct constants: the
+    # vectors show $007F for ADC and $0000 for SBC.
+    '0x007F': ('CONST_7F', '0', 'ZERO', 'NONE'),
     '0x0000': ('ZERO', '0', 'ZERO', 'NONE'),
     # the bus holds what the previous cycle drove
     '_GA()': ('HOLD', '0', 'HOLD', 'NONE'),
