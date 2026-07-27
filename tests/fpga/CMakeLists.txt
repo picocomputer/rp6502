@@ -81,6 +81,7 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
         ${VID_FONT_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
+        ${RP6502_FPGA_RTL}/vid/vid_prog.sv
         ${RP6502_FPGA_RTL}/vid/vid_term.sv
         ${RP6502_FPGA_RTL}/vid/vid_compose.sv
         ${RP6502_FPGA_RTL}/core/rp6502.sv)

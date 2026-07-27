@@ -23,7 +23,8 @@
  *               +0x48 offers an RX byte toward the $FFE2 latch
  *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
  *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
- *   0x50000000  the terminal cell memory and scanout registers, word-wide
+ *   0x50000000  the terminal cell memory and scanout registers, word-wide;
+ *               +0x20000 the scanline program, canvas, and vsync line
  *   0x60000000  staging, read-only: the platform answers with the byte at
  *               rp6502_stage_addr — the APF data slot on the Pocket, the
  *               bridge model in simulation
@@ -186,7 +187,7 @@ module rp6502
     end
 
     logic api_pending;
-    logic bus_ctl_api;
+    logic bus_ctl_api, bus_vid_prog;
     logic [7:0] sram_b_rdata;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
@@ -197,6 +198,7 @@ module rp6502
             cpu_run <= 1'b0;
             bus_rsel <= 3'd0;
             bus_ctl_api <= 1'b0;
+            bus_vid_prog <= 1'b0;
             rp6502_stage_addr <= '0;
         end else begin
             if (bus_stb) begin
@@ -206,6 +208,7 @@ module rp6502
                     : (bus_sel_vid ? 3'd4
                     : (bus_sel_xram ? 3'd5 : 3'd0))));
                 bus_ctl_api <= bus_addr[2];
+                bus_vid_prog <= bus_addr[17];
                 rp6502_stage_addr <= bus_addr[27:0];
                 /* Captured at the strobe: ring reads advance their pointer
                  * there, so the answer must not be re-derived afterward. */
@@ -229,7 +232,9 @@ module rp6502
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q
-            : (bus_rsel == 3'd4 ? vid_b_rdata : {4{bus_rbyte}});
+            : (bus_rsel == 3'd4
+               ? (bus_vid_prog ? vid_prog_b_rdata : vid_b_rdata)
+               : {4{bus_rbyte}});
     end
 
     logic [7:0] ria_data;
@@ -247,7 +252,7 @@ module rp6502
         .rx_valid(rx_valid),
         .rx_data(rx_data),
         .ria_regs_rx_taken(rp6502_rx_taken),
-        .vsync_pulse(vid_vsync_pulse),
+        .vsync_pulse(prog_vsync_pulse),
         .ria_regs_irq(ria_irq),
         .ria_regs_xr_busy(xr_busy),
         .ria_regs_xr_we(xr_we),
@@ -294,6 +299,7 @@ module rp6502
     logic vid_vsync /*verilator public_flat_rd*/;
     logic vid_line_start, vid_frame_start;
     logic vid_vsync_pulse;
+    logic prog_vsync_pulse;
     vid_timing vid_timing (
         .clk(clk_sys),
         .rst_n(rst_n),
@@ -328,6 +334,44 @@ module rp6502
         .xram64k_b_rdata(xram_b_rdata)
     );
 
+    logic [31:0] vid_prog_b_rdata;
+    logic [8:0] unused_p_line;
+    logic [1:0] unused_p_plane;
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic [31:0] unused_p_entry;
+    logic [15:0] unused_p_config;
+    logic unused_prog_geo;
+    /* verilator lint_on UNUSEDSIGNAL */
+    logic [2:0] vid_canvas;
+    logic vid_console, vid_x_shift, vid_y_shift;
+    logic [9:0] vid_y_offset;
+    always_comb unused_p_line = 9'd0;
+    always_comb unused_p_plane = 2'd0;
+    always_comb unused_prog_geo = ^{vid_canvas, vid_console, vid_x_shift,
+                                    vid_y_shift, vid_y_offset};
+    vid_prog vid_prog (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .frame_start(vid_frame_start),
+        .v(vid_v),
+        .vid_prog_vsync_pulse(prog_vsync_pulse),
+        .h(vid_h),
+        .vid_prog_canvas(vid_canvas),
+        .vid_prog_console(vid_console),
+        .vid_prog_x_shift(vid_x_shift),
+        .vid_prog_y_shift(vid_y_shift),
+        .vid_prog_y_offset(vid_y_offset),
+        .p_line(unused_p_line),
+        .p_plane(unused_p_plane),
+        .vid_prog_p_entry(unused_p_entry),
+        .vid_prog_p_config(unused_p_config),
+        .b_stb(bus_stb && bus_sel_vid && bus_addr[17]),
+        .b_we(bus_we),
+        .b_addr(bus_addr[14:0]),
+        .b_wdata(bus_wdata),
+        .vid_prog_b_rdata(vid_prog_b_rdata)
+    );
+
     logic [15:0] term_pix;
     vid_term vid_term (
         .clk(clk_sys),
@@ -337,7 +381,7 @@ module rp6502
         .v(vid_v),
         .line_start(vid_line_start),
         .vid_term_pix(term_pix),
-        .b_stb(bus_stb && bus_sel_vid),
+        .b_stb(bus_stb && bus_sel_vid && !bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[16:0]),
         .b_wstrb(bus_wstrb),
@@ -356,7 +400,7 @@ module rp6502
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid;
-    always_comb unused_vid = ^{vid_hsync, vid_vsync};
+    always_comb unused_vid = ^{vid_hsync, vid_vsync, vid_vsync_pulse};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

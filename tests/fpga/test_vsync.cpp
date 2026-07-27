@@ -107,6 +107,50 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
     ASSERT_EQ((uint8_t)out[5], 'Q');
 }
 
+UTEST(vsync, movable_line_keeps_the_cadence)
+{
+    /* The vsync line is the highest programmed scanline once a mode
+     * shrinks the picture; moving it shifts the phase, never the rate. */
+    static const uint8_t prog[] = {
+        0xA0, 0x04,
+        0xAE, 0xE3, 0xFF,
+        0xEC, 0xE3, 0xFF,
+        0xF0, 0xFB,
+        0xAE, 0xE3, 0xFF,
+        0x8E, 0xE1, 0xFF,
+        0x88,
+        0xD0, 0xF2,
+        0xDB,
+    };
+    auto *r = dut->rootp;
+    machine_reset();
+    r->rp6502__DOT__vid_prog__DOT__vsync_shadow = 240;
+    for (size_t i = 0; i < 0x10000; i++)
+        r->rp6502__DOT__sram__DOT__mem[i] = 0;
+    for (size_t i = 0; i < sizeof prog; i++)
+        r->rp6502__DOT__sram__DOT__mem[0x0200 + i] = prog[i];
+    r->rp6502__DOT__ria__DOT__regs[0x1C] = 0x00;
+    r->rp6502__DOT__ria__DOT__regs[0x1D] = 0x02;
+
+    std::vector<uint64_t> at;
+    for (uint64_t i = 0; i < 3000000; i++)
+    {
+        clock_cycle();
+        if (dut->rp6502_tx_valid)
+            at.push_back(i);
+        if (r->rp6502__DOT__cpu__DOT__stop_flag)
+            break;
+    }
+    ASSERT_TRUE(r->rp6502__DOT__cpu__DOT__stop_flag);
+    ASSERT_EQ(at.size(), (size_t)4);
+    for (int i = 1; i < 4; i++)
+    {
+        int64_t delta = (int64_t)(at[i] - at[i - 1]);
+        ASSERT_GT(delta, 420000 - 64);
+        ASSERT_LT(delta, 420000 + 64);
+    }
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])
