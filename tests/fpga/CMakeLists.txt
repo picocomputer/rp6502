@@ -116,6 +116,8 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/ria/ria_regs.sv
         ${RP6502_FPGA_RTL}/rv/rv_soc.sv
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
+        ${AUD_SINE_PKG}
+        ${RP6502_FPGA_RTL}/aud/aud_psg.sv
         ${VID_FONT_PKG}
         ${VID_PALETTE_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
@@ -227,8 +229,9 @@ if(verilator_FOUND)
         set(SW_SRC ${RP6502_SRC}/fpga/sw)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
-            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c
-            ${SW_SRC}/kbd.c ${SW_SRC}/mem.c ${SW_SRC}/pix.c
+            ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c
+            ${SW_SRC}/com.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
+            ${SW_SRC}/pix.c
             ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
             ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
             ${RP6502_SRC}/ria/api/api.c
@@ -498,6 +501,22 @@ if(verilator_FOUND)
             "riscv64-unknown-elf-gcc not found — soft CPU tests skipped.\n"
             "  sudo apt-get install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf")
     endif()
+
+    # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
+    # The bit-exact audio proof: the vendored DSP over flat shims and the
+    # verilated engine consume the same XRAM image and gate schedule.
+    rp6502_add_test(psg
+        SOURCES test_psg.cpp psg_shim.c ${RP6502_SRC}/ria/aud/psg.c
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${CMAKE_CURRENT_BINARY_DIR}
+            ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico
+        TIMEOUT 300)
+    add_dependencies(test_psg aud_sine_rom)
+    verilate(test_psg
+        SOURCES ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_psg.sv
+        TOP_MODULE aud_psg
+        PREFIX Vaud_psg
+        VERILATOR_ARGS -Wall --assert -O3 -GTICKS_PER_SAMPLE=1200
+    )
 
     # --- The VIA in RTL, against chips/m6522.h in lockstep ---
     # T1/T2 timers and their interrupts are live machine features; see

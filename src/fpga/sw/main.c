@@ -8,6 +8,7 @@
  * memory, write its vectors into the register cells, and release its reset.
  */
 
+#include "aud.h"
 #include "com.h"
 #include "kbd.h"
 #include "main.h"
@@ -116,9 +117,11 @@ bool ria_active(void)
 
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
 {
-    /* HID report blocks; the other devices arrive with their engines. */
+    /* HID report blocks and audio; the rest arrive with their engines. */
     if (channel == 0 && address == 0)
         return kbd_set_xram(word);
+    if (channel == 1 && address == 0)
+        return aud_psg_xreg(word);
     return false;
 }
 

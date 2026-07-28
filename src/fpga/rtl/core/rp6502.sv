@@ -58,6 +58,11 @@ module rp6502
     output logic [15:0] rp6502_vid_pixel,
     output logic rp6502_vid_de,
 
+    /* One stereo sample per PSG tick, 10-bit PWM levels. */
+    output logic [9:0] rp6502_aud_l,
+    output logic [9:0] rp6502_aud_r,
+    output logic rp6502_aud_valid,
+
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline
 );
 
@@ -178,7 +183,7 @@ module rp6502
     end
 
     logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage,
-        bus_sel_vid, bus_sel_xram;
+        bus_sel_vid, bus_sel_xram, bus_sel_aud;
     always_comb begin
         bus_sel_sram = bus_addr[31:28] == 4'h1;
         bus_sel_xram = bus_addr[31:28] == 4'h3;
@@ -186,6 +191,7 @@ module rp6502
         bus_sel_ctl = bus_addr[31:28] == 4'h4;
         bus_sel_stage = bus_addr[31:28] == 4'h6;
         bus_sel_vid = bus_addr[31:28] == 4'h5;
+        bus_sel_aud = bus_addr[31:28] == 4'h7;
     end
 
     logic api_pending;
@@ -327,29 +333,31 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    /* Three fills and the sprite stage share port A; four requesters
-     * make the rotor's two-bit wrap the modulus itself. */
-    logic [3:0] ma_req;
-    logic [13:0] ma_addr[4];
-    logic [1:0] a_rotor, a_sel;
+    /* Three fills, the sprite stage, and the PSG share port A; the
+     * scan folds mod five in wider bits. */
+    logic [4:0] ma_req;
+    logic [13:0] ma_addr[5];
+    logic [2:0] a_rotor, a_sel;
     logic a_any;
     always_comb begin
         a_sel = a_rotor;
         a_any = 1'b0;
-        for (int i = 0; i < 4; i++) begin
-            logic [1:0] cand;
-            cand = a_rotor + 2'(i);
-            if (!a_any && ma_req[cand]) begin
-                a_sel = cand;
+        for (int i = 0; i < 5; i++) begin
+            logic [3:0] cand;
+            cand = {1'b0, a_rotor} + 4'(i);
+            if (cand >= 4'd5)
+                cand = cand - 4'd5;
+            if (!a_any && ma_req[cand[2:0]]) begin
+                a_sel = cand[2:0];
                 a_any = 1'b1;
             end
         end
     end
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n)
-            a_rotor <= 2'd0;
+            a_rotor <= 3'd0;
         else if (a_any)
-            a_rotor <= a_sel + 2'd1;
+            a_rotor <= a_sel == 3'd4 ? 3'd0 : a_sel + 3'd1;
     end
     xram64k xram (
         .clk(clk_sys),
@@ -458,7 +466,7 @@ module rp6502
                 .p_config(pm_config),
                 .vid_mode_a_req(ma_req[gi]),
                 .vid_mode_a_addr(ma_addr[gi]),
-                .a_gnt(a_any && a_sel == 2'(gi)),
+                .a_gnt(a_any && a_sel == 3'(gi)),
                 .a_rdata(xram_a_rdata),
                 .vid_mode_pix(m_pix[gi]),
                 .vid_mode_filled(m_filled[gi]),
@@ -496,9 +504,26 @@ module rp6502
         .vid_sprite_overrun(sp_overrun),
         .vid_sprite_a_req(ma_req[3]),
         .vid_sprite_a_addr(ma_addr[3]),
-        .a_gnt(a_any && a_sel == 2'd3),
+        .a_gnt(a_any && a_sel == 3'd3),
         .a_rdata(xram_a_rdata),
         .ov_clear(sp_ov_clear)
+    );
+
+    aud_psg aud_psg (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .xaddr_we(bus_stb && bus_we && bus_sel_aud),
+        .xaddr_wdata(bus_wdata[15:0]),
+        .aud_psg_a_req(ma_req[4]),
+        .aud_psg_a_addr(ma_addr[4]),
+        .a_gnt(a_any && a_sel == 3'd4),
+        .a_rdata(xram_a_rdata),
+        .q_we(xr_busy && xr_we),
+        .q_addr(xr_addr),
+        .q_val(xr_wdata),
+        .aud_psg_l(rp6502_aud_l),
+        .aud_psg_r(rp6502_aud_r),
+        .aud_psg_valid(rp6502_aud_valid)
     );
 
     /* The 180- and 360-line canvases sit under a 60-line letterbox. */
