@@ -11,12 +11,19 @@
  * attack, decay, the sustain quirks, and release, pan extremes with
  * the truncating division and the mute, the halfword-aligned block,
  * and the gate queue's 32-per-sample drain and drop-when-full ring.
+ * The bell rings on both sides too — the real bel.c against aud_bel —
+ * first standing alone with the pointer parked, then under the song.
  */
 
 #include "Vaud_psg.h"
 
 #include "psg_shim.h"
 #include "utest.h"
+
+extern "C"
+{
+#include "ria/aud/bel.h"
+}
 
 #include <cstdio>
 #include <cstring>
@@ -89,6 +96,15 @@ static void run_lockstep(int *utest_result, int n)
     }
 }
 
+/* One teletype bell on both machines. */
+static void bel_ring()
+{
+    bel_add(&bel_teletype);
+    dut->bel_strike = 1;
+    clock_cycle();
+    dut->bel_strike = 0;
+}
+
 static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
                    uint8_t va, uint8_t vd, uint8_t wr, uint8_t pan_gate)
 {
@@ -106,6 +122,24 @@ static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
 UTEST(psg, lockstep_bit_exact)
 {
     shim_init();
+    bel_setup();
+
+    /* The standing bell, the machine as aud_init leaves it: parked
+     * pointer, silence, then one teletype bell through attack, decay,
+     * sustain, the 20 ms release, out to the 800 ms end. */
+    run_lockstep(utest_result, 30);
+    bel_ring();
+    run_lockstep(utest_result, 19300);
+
+    /* Three queued bells restrike at 100 ms strides; ten more flood
+     * the ring of eight, the drops matched, the last rings out. */
+    bel_ring();
+    bel_ring();
+    bel_ring();
+    run_lockstep(utest_result, 5000);
+    for (int i = 0; i < 10; i++)
+        bel_ring();
+    run_lockstep(utest_result, 36000);
 
     /* Every wave across the channels at a word-aligned block. */
     const uint16_t base = 0x8000;
@@ -131,6 +165,10 @@ UTEST(psg, lockstep_bit_exact)
                                                                 : 0x00)));
         run_lockstep(utest_result, 400);
     }
+
+    /* A bell under the full mix: mixed after the channel shift, it
+     * rides the handler switch and the reprogram below unbroken. */
+    bel_ring();
     run_lockstep(utest_result, 3000);
 
     /* Gates down: release to the floor. */

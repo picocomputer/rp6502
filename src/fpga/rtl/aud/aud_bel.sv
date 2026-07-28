@@ -1,0 +1,185 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * The bell of ria/aud/bel.c, reduced to the one sound this machine can
+ * ring: bel_teletype, struck by the console's BEL scan. Every derived
+ * rate in the C is a function of the preset and the fixed 24 kHz, so
+ * the divider, the tables, and the millisecond thresholds all collapse
+ * to constants — the triangle's grit window, the 8 ms attack to -5,
+ * the 6 ms decay to -6, the 750 ms release, restrike at 100 ms, release
+ * at 20 ms, end at 800 ms. The queue of eight becomes an occupancy
+ * counter, since every entry is the same sound. One step per sample
+ * walks the C's exact order: elapsed time first, restrike skipping the
+ * release and end checks, generate from the advanced phase, envelope,
+ * then the output under the fresh volume.
+ */
+
+module aud_bel (
+    input logic clk,
+    input logic rst_n,
+
+    /* bel_add(&bel_teletype): drop when the ring is full. */
+    input logic strike,
+
+    /* One bel_sample(24000): advance and register the output. */
+    input logic step,
+
+    output logic signed [15:0] aud_bel_out
+);
+
+    localparam logic [31:0] PHASE_INC = 32'd104988089;  /* 1760 Hz */
+    localparam logic [7:0] DUTY_HALF = 8'd107;          /* 215 >> 1 */
+    localparam logic [31:0] ATK_RATE = 32'd87381;       /* 8 ms */
+    localparam logic [31:0] ATK_TARGET = 32'd102 << 16; /* -5 vol */
+    localparam logic [31:0] DEC_RATE = 32'd116508;      /* 6 ms */
+    localparam logic [31:0] DEC_TARGET = 32'd86 << 16;  /* -6 vol */
+    localparam logic [31:0] REL_RATE = 32'd932;         /* 750 ms */
+    localparam logic [14:0] RESTRIKE_AT = 15'd2400;     /* 100 ms */
+    localparam logic [14:0] RELEASE_AT = 15'd480;       /* 20 ms */
+    localparam logic [14:0] END_AT = 15'd19200;         /* 800 ms */
+
+    localparam logic [1:0] ADSR_RELEASE = 2'd0;
+    localparam logic [1:0] ADSR_ATTACK = 2'd1;
+    localparam logic [1:0] ADSR_DECAY = 2'd2;
+    localparam logic [1:0] ADSR_SUSTAIN = 2'd3;
+
+    logic active;
+    logic [2:0] count;
+    logic [1:0] adsr;
+    logic [31:0] vol;
+    logic [31:0] phase;
+    logic [14:0] elapsed;
+
+    logic n_active;
+    logic [2:0] n_count;
+    logic [1:0] n_adsr;
+    logic [31:0] n_vol;
+    logic [31:0] n_phase;
+    logic [14:0] n_elapsed;
+    logic signed [15:0] n_out;
+
+    logic gen;
+    logic [31:0] phase_n;
+    logic [7:0] ph;
+    logic signed [7:0] wave;
+
+    always_comb begin
+        n_active = active;
+        n_count = count;
+        n_adsr = adsr;
+        n_vol = vol;
+        n_phase = phase;
+        n_elapsed = elapsed;
+        n_out = aud_bel_out;
+        gen = 1'b0;
+        phase_n = phase;
+        ph = '0;
+        wave = '0;
+
+        if (step) begin
+            if (!active)
+                n_out = '0;
+            else begin
+                gen = 1'b1;
+                n_elapsed = elapsed + 15'd1;
+                if (n_elapsed >= RESTRIKE_AT && count >= 3'd2) begin
+                    n_count = count - 3'd1;
+                    n_adsr = ADSR_ATTACK;
+                    n_vol = '0;
+                    n_elapsed = '0;
+                end else begin
+                    if (n_elapsed >= RELEASE_AT && adsr != ADSR_RELEASE)
+                        n_adsr = ADSR_RELEASE;
+                    /* The C's end-with-queue advance is unreachable
+                     * here: with a second sound queued, restrike at
+                     * 2,400 always fires before end at 19,200. */
+                    if (n_elapsed >= END_AT) begin
+                        n_count = count - 3'd1;
+                        n_active = 1'b0;
+                        n_out = '0;
+                        gen = 1'b0;
+                    end
+                end
+            end
+
+            if (gen) begin
+                phase_n = n_phase + PHASE_INC;
+                n_phase = phase_n;
+                ph = phase_n[31:24];
+
+                /* The teletype's triangle, duty 215. */
+                if (ph < 8'd128 - DUTY_HALF || ph >= 8'd128 + DUTY_HALF)
+                    wave = -8'sd127;
+                else if (ph >= 8'd128)
+                    wave = 8'(8'sd127 - $signed(phase_n[30:23]));
+                else
+                    wave = 8'($signed(phase_n[30:23]) - 8'sd128);
+
+                case (n_adsr)
+                    ADSR_ATTACK: begin
+                        n_vol = n_vol + ATK_RATE;
+                        if (n_vol >= ATK_TARGET) begin
+                            n_vol = ATK_TARGET;
+                            n_adsr = ADSR_DECAY;
+                        end
+                    end
+                    ADSR_DECAY: begin
+                        if (n_vol <= DEC_RATE)
+                            n_vol = '0;
+                        else
+                            n_vol = n_vol - DEC_RATE;
+                        if (n_vol <= DEC_TARGET) begin
+                            n_adsr = ADSR_SUSTAIN;
+                            n_vol = DEC_TARGET;
+                        end
+                    end
+                    ADSR_SUSTAIN: n_vol = DEC_TARGET;
+                    default: begin  /* release */
+                        if (n_vol <= REL_RATE)
+                            n_vol = '0;
+                        else
+                            n_vol = n_vol - REL_RATE;
+                    end
+                endcase
+
+                n_out = 16'(17'(($signed(wave)
+                    * $signed({1'b0, n_vol[24:16]})) >>> 8) <<< 2);
+            end
+        end
+
+        /* bel_add lands after the sample boundary, the C's task order. */
+        if (strike && n_count != 3'd7) begin
+            n_count = n_count + 3'd1;
+            if (!n_active) begin
+                n_active = 1'b1;
+                n_adsr = ADSR_ATTACK;
+                n_vol = '0;
+                n_phase = '0;
+                n_elapsed = '0;
+            end
+        end
+    end
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            active <= 1'b0;
+            count <= '0;
+            adsr <= ADSR_RELEASE;
+            vol <= '0;
+            phase <= '0;
+            elapsed <= '0;
+            aud_bel_out <= '0;
+        end else begin
+            active <= n_active;
+            count <= n_count;
+            adsr <= n_adsr;
+            vol <= n_vol;
+            phase <= n_phase;
+            elapsed <= n_elapsed;
+            aud_bel_out <= n_out;
+        end
+    end
+
+endmodule

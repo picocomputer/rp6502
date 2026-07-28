@@ -118,6 +118,7 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
         ${AUD_SINE_PKG}
         ${RP6502_FPGA_RTL}/aud/aud_psg.sv
+        ${RP6502_FPGA_RTL}/aud/aud_bel.sv
         ${VID_FONT_PKG}
         ${VID_PALETTE_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
@@ -523,13 +524,15 @@ if(verilator_FOUND)
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
     rp6502_add_test(psg
-        SOURCES test_psg.cpp psg_shim.c ${RP6502_SRC}/ria/aud/psg.c
+        SOURCES test_psg.cpp psg_shim.c
+            ${RP6502_SRC}/ria/aud/psg.c ${RP6502_SRC}/ria/aud/bel.c
         INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${CMAKE_CURRENT_BINARY_DIR}
             ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico
         TIMEOUT 300)
     add_dependencies(test_psg aud_sine_rom)
     verilate(test_psg
         SOURCES ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_psg.sv
+            ${RP6502_FPGA_RTL}/aud/aud_bel.sv
         TOP_MODULE aud_psg
         PREFIX Vaud_psg
         VERILATOR_ARGS -Wall --assert -O3 -GTICKS_PER_SAMPLE=1200

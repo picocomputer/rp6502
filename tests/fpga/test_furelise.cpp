@@ -13,7 +13,9 @@
  * config fetch, and the 24 kHz sample grid against the 60 Hz frame.
  * The sample streams aren't compared to the emulator because it batches
  * a frame of samples after each frame's CPU run, so gate edges land at
- * different sample indices than the interleaved RTL.
+ * different sample indices than the interleaved RTL. The second case
+ * rings the console bell end to end: a typed ^G through the 6502's
+ * echo loop, the sw's BEL scan at the sink, and the standing bell.
  */
 
 #include "Vrp6502.h"
@@ -102,20 +104,22 @@ UTEST(furelise, plays_psg_audio)
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
 
-    /* Boot and load until ezpsg_init lands the block pointer — the
-     * first sample walk marks the PSG live. */
+    /* The standing bell walks from reset: the free-running 4,200-clock
+     * grid lays exactly 400 samples into each 1,680,000-clock frame,
+     * silent until the song. Boot and load until the first note. */
+    run_frame();
     int onset = -1;
     for (int i = 0; i < 150 && onset < 0; i++)
     {
         g_valids = 0;
+        g_energy = 0;
         run_frame();
-        if (g_valids > 0)
+        ASSERT_EQ(g_valids, 400);
+        if (g_energy > 0)
             onset = i;
     }
     ASSERT_GE(onset, 0);
 
-    /* From the next frame boundary the free-running 4,200-clock grid
-     * lays exactly 400 samples into each 1,680,000-clock frame. */
     g_energy = 0;
     g_peak = 0;
     for (int i = 0; i < 90; i++)
@@ -131,6 +135,33 @@ UTEST(furelise, plays_psg_audio)
     ASSERT_GT(g_energy, 100000);
     ASSERT_FALSE(dut->rp6502_rv_halted);
     ASSERT_EQ(dut->rootp->rp6502__DOT__cpu_run, 1);
+}
+
+/* No ROM staged: the built-in echo program. A typed ^G comes back out
+ * the console sink, where the BEL scan strikes the teletype bell. */
+UTEST(furelise, console_bel_rings)
+{
+    dut->rst_n = 0;
+    for (int i = 0; i < 4; i++)
+        clock_cycle();
+    dut->rst_n = 1;
+
+    g_energy = 0;
+    for (int i = 0; i < 8; i++)
+        run_frame();
+    ASSERT_EQ(g_energy, 0);
+
+    dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_data = 0x07;
+    dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid = 1;
+
+    g_peak = 0;
+    for (int i = 0; i < 5; i++)
+    {
+        g_valids = 0;
+        run_frame();
+        ASSERT_EQ(g_valids, 400);
+    }
+    ASSERT_GT(g_peak, 32);
 }
 
 UTEST_STATE();

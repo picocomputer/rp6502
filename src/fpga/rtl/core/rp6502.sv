@@ -512,8 +512,9 @@ module rp6502
     aud_psg aud_psg (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .xaddr_we(bus_stb && bus_we && bus_sel_aud),
+        .xaddr_we(bus_stb && bus_we && bus_sel_aud && !bus_addr[2]),
         .xaddr_wdata(bus_wdata[15:0]),
+        .bel_strike(bus_stb && bus_we && bus_sel_aud && bus_addr[2]),
         .aud_psg_a_req(ma_req[4]),
         .aud_psg_a_addr(ma_addr[4]),
         .a_gnt(a_any && a_sel == 3'd4),

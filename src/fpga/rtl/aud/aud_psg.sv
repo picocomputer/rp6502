@@ -12,7 +12,11 @@
  * 2^32 * freq by 72000 through a restoring divider because the oracle
  * divides, and every accumulator wraps at the C's own width. Gates
  * arrive from the RW engine's write snoop; the queue drops new entries
- * when full, like the firmware's ring.
+ * when full, like the firmware's ring. The bell rides the same grid the
+ * way the C rides the handler: struck from the console, stepped once
+ * per sample, mixed under the channels after their shift — and when the
+ * pointer is parked the walk still runs, the standing bell alone, as
+ * aud_init leaves the firmware.
  */
 
 module aud_psg
@@ -37,6 +41,9 @@ module aud_psg
     input logic q_we,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
+
+    /* The console's BEL scan: one teletype bell per pulse. */
+    input logic bel_strike,
 
     /* One stereo sample per tick, PWM levels centered at 512. */
     output logic [9:0] aud_psg_l,
@@ -80,6 +87,12 @@ module aud_psg
     logic enabled;
     always_comb enabled = xaddr != 16'hFFFF;
 
+    /* The handler reads the pointer once at entry — psg_xreg can't
+     * interleave with the ISR — so a walk keeps the pointer and flavor
+     * it started with. */
+    logic walk_psg;
+    logic [15:0] walk_xaddr;
+
     /* Channel state, the C's exactly. */
     logic signed [7:0] ch_sample[8];
     logic [1:0] ch_adsr[8];
@@ -91,7 +104,7 @@ module aud_psg
     /* The 64 config bytes, gathered fresh each sample. */
     logic [543:0] gather;
     logic [511:0] cview;
-    always_comb cview = 512'(gather >> {xaddr[1], 4'b0000});
+    always_comb cview = 512'(gather >> {walk_xaddr[1], 4'b0000});
     logic [63:0] cf;
     logic [2:0] ch;
     always_comb cf = cview[{3'(ch), 6'd0}+:64];
@@ -116,13 +129,24 @@ module aud_psg
     end
 
     typedef enum logic [2:0] {
-        P_IDLE, P_FETCH, P_MIX, P_OUT, P_DIV, P_STEP, P_DRAIN
+        P_IDLE, P_FETCH, P_MIX, P_BEL, P_OUT, P_DIV, P_STEP, P_DRAIN
     } state_t;
     state_t state;
 
+    logic bel_step;
+    always_comb bel_step = state == P_BEL;
+    logic signed [15:0] bel_out;
+    aud_bel bel (
+        .clk(clk),
+        .rst_n(rst_n),
+        .strike(bel_strike),
+        .step(bel_step),
+        .aud_bel_out(bel_out)
+    );
+
     logic [12:0] tickctr;
     logic [4:0] fw_i, fw_c, fw_n;
-    always_comb fw_n = xaddr[1] ? 5'd17 : 5'd16;
+    always_comb fw_n = walk_xaddr[1] ? 5'd17 : 5'd16;
     logic gnt_d;
 
     /* The output mix accumulates in the C's int16. */
@@ -232,12 +256,12 @@ module aud_psg
     logic [15:0] q_ent;
     always_comb q_ent = queue[8'(q_tail + 8'd1)];
     logic [15:0] q_offset;
-    always_comb q_offset = {xaddr[15:8], q_ent[15:8]} - xaddr;
+    always_comb q_offset = {walk_xaddr[15:8], q_ent[15:8]} - walk_xaddr;
     logic [4:0] drained;
 
     always_comb begin
         aud_psg_a_req = state == P_FETCH && {1'b0, fw_i} < {1'b0, fw_n};
-        aud_psg_a_addr = xaddr[15:2] + {9'd0, fw_i};
+        aud_psg_a_addr = walk_xaddr[15:2] + {9'd0, fw_i};
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -260,6 +284,8 @@ module aud_psg
             fw_i <= '0;
             fw_c <= '0;
             gnt_d <= 1'b0;
+            walk_psg <= 1'b0;
+            walk_xaddr <= 16'hFFFF;
             mix_l <= '0;
             mix_r <= '0;
             div_q <= '0;
@@ -297,11 +323,16 @@ module aud_psg
 
             case (state)
                 P_IDLE: begin
-                    if (tickctr == 13'd0 && enabled) begin
-                        fw_i <= '0;
-                        fw_c <= '0;
-                        gather <= '0;
-                        state <= P_FETCH;
+                    if (tickctr == 13'd0) begin
+                        walk_psg <= enabled;
+                        walk_xaddr <= xaddr;
+                        if (enabled) begin
+                            fw_i <= '0;
+                            fw_c <= '0;
+                            gather <= '0;
+                            state <= P_FETCH;
+                        end else
+                            state <= P_BEL;
                     end
                 end
                 P_FETCH: begin
@@ -327,16 +358,25 @@ module aud_psg
                     end
                     ch <= ch + 3'd1;
                     if (ch == 3'd7)
-                        state <= P_OUT;
+                        state <= P_BEL;
                 end
+                P_BEL: state <= P_OUT;
                 P_OUT: begin
-                    aud_psg_l <= clamped(mix_l);
-                    aud_psg_r <= clamped(mix_r);
-                    ch <= '0;
-                    div_q <= {cf_freq, 32'd0};
-                    div_rem <= '0;
-                    div_i <= '0;
-                    state <= P_DIV;
+                    if (walk_psg) begin
+                        aud_psg_l <= clamped(16'(16'(mix_l <<< 2) + bel_out));
+                        aud_psg_r <= clamped(16'(16'(mix_r <<< 2) + bel_out));
+                        ch <= '0;
+                        div_q <= {cf_freq, 32'd0};
+                        div_rem <= '0;
+                        div_i <= '0;
+                        state <= P_DIV;
+                    end else begin
+                        /* The standing bell, bel_irq_handler's output. */
+                        aud_psg_l <= clamped(bel_out);
+                        aud_psg_r <= clamped(bel_out);
+                        aud_psg_valid <= 1'b1;
+                        state <= P_IDLE;
+                    end
                 end
                 P_DIV: begin
                     div_q <= {div_q[46:0], div_ge};
@@ -395,9 +435,7 @@ module aud_psg
         end
     end
 
-    function automatic logic [9:0] clamped(logic signed [15:0] x);
-        logic signed [15:0] s;
-        s = 16'(x <<< 2);
+    function automatic logic [9:0] clamped(logic signed [15:0] s);
         if (s < -16'sd512)
             s = -16'sd512;
         if (s > 16'sd511)

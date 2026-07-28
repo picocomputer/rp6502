@@ -6,7 +6,8 @@
  * The seams psg.c stands on, provided flat so the lockstep test runs
  * the vendored DSP against the verilated engine with no emulator in
  * between: XRAM and its write-notify queue with the RW engine's push
- * (emu/sys/ria.c's), the sample output capture, and a silent bell.
+ * (emu/sys/ria.c's), and the sample output capture. The bell is the
+ * real bel.c, linked whole.
  */
 
 #include "psg_shim.h"
@@ -42,12 +43,6 @@ void aud_out(uint16_t left, uint16_t right)
 }
 
 void aud_clear_irq(void) {}
-
-int16_t bel_sample(uint32_t rate)
-{
-    (void)rate;
-    return 0;
-}
 
 void shim_init(void)
 {

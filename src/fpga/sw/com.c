@@ -11,7 +11,7 @@
  * topped up — the greedy latch refill emu/sys/ria.c does on demand.
  *
  * The console sink is the simulation console until the terminal arrives;
- * the BEL flag is kept for the shared setters, the scan waits for audio.
+ * the BEL scan at the sink rings the platform bell.
  */
 
 #include "com.h"
@@ -111,8 +111,8 @@ int com_peekchar(com_source_t src)
 }
 
 /* The single console sink: every terminal-bound byte passes here exactly
- * once, after any CRLF translation, where the BEL scan will live. The
- * terminal wire is term.c's captured stdio driver. */
+ * once, after any CRLF translation, under the BEL scan. The terminal
+ * wire is term.c's captured stdio driver. */
 static void (*com_term_out)(const char *buf, int len);
 
 void com_set_term_out(void (*out_chars)(const char *buf, int len))
@@ -123,7 +123,11 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
 static void com_tx_write(const char *buf, int len)
 {
     for (int i = 0; i < len; i++)
+    {
         MMIO_CONSOLE = (uint8_t)buf[i];
+        if (buf[i] == '\a' && com_bel_enabled)
+            AUD_BEL_STRIKE = 1;
+    }
     if (com_term_out)
         com_term_out(buf, len);
     com_moved_count += (uint32_t)len;

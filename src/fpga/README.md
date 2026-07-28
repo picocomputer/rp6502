@@ -8,6 +8,14 @@ The 6502, VIA, video renderers and audio are RTL. A Hazard3 soft RISC-V runs a
 trimmed build of the real `src/ria` firmware C for the OS layer — syscalls, HID
 and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
 
+## Audio
+
+The PSG and the bell are RTL, proven bit-exact against `ria/aud/psg.c` and
+`ria/aud/bel.c` in lockstep. OPL2 is not ported: no permissively licensed RTL
+implementation exists (JTOPL2 is GPL-3, opl3_fpga is LGPL-3), and emu8950 on
+the soft CPU needs several times more cycles than the whole core has. Programs
+that select the OPL get an xreg failure, the signal for an absent device.
+
 ## Layout
 
     rtl/core/       the machine, independent of the FPGA platform
