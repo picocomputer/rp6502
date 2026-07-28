@@ -147,7 +147,7 @@ UTEST(rw, steps_wraps_and_defaults_match_the_oracle)
 
     std::string cpu_out;
     bool stopped = false;
-    for (int i = 0; i < 4000000; i++)
+    for (int i = 0; i < 16000000; i++)
     {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;

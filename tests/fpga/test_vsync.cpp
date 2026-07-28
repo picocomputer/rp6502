@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The frame counter and the vsync interrupt, emulator semantics: $FFE3
- * increments once per frame, exactly 420,000 clocks apart; $FFF0 bit 7
+ * increments once per frame, exactly 1,680,000 clocks apart; $FFF0 bit 7
  * enables the vsync IRQ, a read returns the pending sources and acks them
  * all. The program counts four frames by polling, then sleeps in WAI until
  * the interrupt delivers the fifth.
@@ -78,7 +78,7 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
 
     std::string out;
     std::vector<uint64_t> at;
-    for (uint64_t i = 0; i < 3000000; i++)
+    for (uint64_t i = 0; i < 16000000; i++)
     {
         clock_cycle();
         if (dut->rp6502_tx_valid)
@@ -99,8 +99,8 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
     for (int i = 1; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
-        ASSERT_GT(delta, 420000 - 64);
-        ASSERT_LT(delta, 420000 + 64);
+        ASSERT_GT(delta, 1680000 - 256);
+        ASSERT_LT(delta, 1680000 + 256);
     }
     /* The interrupt: the handler read $FFF0 pending (bit 7) and acked. */
     ASSERT_EQ((uint8_t)out[4], 0x80);
@@ -133,7 +133,7 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     r->rp6502__DOT__ria__DOT__regs[0x1D] = 0x02;
 
     std::vector<uint64_t> at;
-    for (uint64_t i = 0; i < 3000000; i++)
+    for (uint64_t i = 0; i < 16000000; i++)
     {
         clock_cycle();
         if (dut->rp6502_tx_valid)
@@ -146,8 +146,8 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     for (int i = 1; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
-        ASSERT_GT(delta, 420000 - 64);
-        ASSERT_LT(delta, 420000 + 64);
+        ASSERT_GT(delta, 1680000 - 256);
+        ASSERT_LT(delta, 1680000 + 256);
     }
 }
 

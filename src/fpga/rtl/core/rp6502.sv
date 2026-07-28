@@ -66,7 +66,7 @@ module rp6502
     phi2_div phi2_div (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .div_int(16'd4),
+        .div_int(16'd16),
         .div_frac(8'd0),
         .phi2_div_en(phi2_en)
     );
@@ -302,11 +302,14 @@ module rp6502
     logic vid_line_start, vid_frame_start;
     logic vid_vsync_pulse;
     logic prog_vsync_pulse;
+    logic vid_px_first, vid_px_last;
     vid_timing vid_timing (
         .clk(clk_sys),
         .rst_n(rst_n),
         .vid_timing_h(vid_h),
         .vid_timing_v(vid_v),
+        .vid_timing_px_first(vid_px_first),
+        .vid_timing_px_last(vid_px_last),
         .vid_timing_de(vid_de),
         .vid_timing_hsync(vid_hsync),
         .vid_timing_vsync(vid_vsync),
@@ -324,22 +327,20 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    logic [2:0] ma_req;
-    logic [13:0] ma_addr[3];
+    /* Three fills and the sprite stage share port A; four requesters
+     * make the rotor's two-bit wrap the modulus itself. */
+    logic [3:0] ma_req;
+    logic [13:0] ma_addr[4];
     logic [1:0] a_rotor, a_sel;
     logic a_any;
     always_comb begin
         a_sel = a_rotor;
         a_any = 1'b0;
-        for (int i = 0; i < 3; i++) begin
-            /* Mod-3 in three bits: two-bit addition folds 4 onto 0 and
-             * skips a plane. */
-            logic [2:0] cand;
-            cand = {1'b0, a_rotor} + 3'(i);
-            if (cand >= 3'd3)
-                cand = cand - 3'd3;
-            if (!a_any && ma_req[cand[1:0]]) begin
-                a_sel = cand[1:0];
+        for (int i = 0; i < 4; i++) begin
+            logic [1:0] cand;
+            cand = a_rotor + 2'(i);
+            if (!a_any && ma_req[cand]) begin
+                a_sel = cand;
                 a_any = 1'b1;
             end
         end
@@ -348,7 +349,7 @@ module rp6502
         if (!rst_n)
             a_rotor <= 2'd0;
         else if (a_any)
-            a_rotor <= a_sel == 2'd2 ? 2'd0 : a_sel + 2'd1;
+            a_rotor <= a_sel + 2'd1;
     end
     xram64k xram (
         .clk(clk_sys),
@@ -387,6 +388,7 @@ module rp6502
         .rst_n(rst_n),
         .frame_start(vid_frame_start),
         .v(vid_v),
+        .px_first(vid_px_first),
         .vid_prog_vsync_pulse(prog_vsync_pulse),
         .h(vid_h),
         .vid_prog_canvas(vid_canvas),
@@ -398,6 +400,8 @@ module rp6502
         .p_plane(p_rotor),
         .vid_prog_p_entry(pm_entry),
         .vid_prog_p_config(pm_config),
+        .s_idx(sp_s_idx),
+        .vid_prog_s_data(sp_s_data),
         .b_stb(bus_stb && bus_sel_vid && bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[15:0]),
@@ -412,6 +416,7 @@ module rp6502
         .frame_start(vid_frame_start),
         .h(vid_h),
         .v(vid_v),
+        .px_last(vid_px_last),
         .line_start(vid_line_start),
         .vid_term_pix(term_pix),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[17]),
@@ -424,6 +429,13 @@ module rp6502
 
     logic [15:0] m_pix[3];
     logic [2:0] m_filled;
+    logic [2:0] m_busy, m_rnew, m_rfilled;
+    logic [12:0] sp_s_idx;
+    logic [31:0] sp_s_data;
+    logic [1:0] sp_plane;
+    logic sp_we, sp_force;
+    logic [9:0] sp_addr;
+    logic [15:0] sp_data;
     generate
         for (genvar gi = 0; gi < 3; gi++) begin : gen_mode
             vid_mode vid_mode (
@@ -431,6 +443,7 @@ module rp6502
                 .rst_n(rst_n),
                 .v(vid_v),
                 .h(vid_h),
+                .px_last(vid_px_last),
                 .line_start(vid_line_start),
                 .console(vid_console),
                 .x_shift(vid_x_shift),
@@ -445,10 +458,43 @@ module rp6502
                 .a_gnt(a_any && a_sel == 2'(gi)),
                 .a_rdata(xram_a_rdata),
                 .vid_mode_pix(m_pix[gi]),
-                .vid_mode_filled(m_filled[gi])
+                .vid_mode_filled(m_filled[gi]),
+                .vid_mode_busy(m_busy[gi]),
+                .vid_mode_rnew(m_rnew[gi]),
+                .vid_mode_rfilled(m_rfilled[gi]),
+                .sp_we(sp_we && sp_plane == 2'(gi)),
+                .sp_addr(sp_addr),
+                .sp_data(sp_data),
+                .sp_force(sp_force && sp_plane == 2'(gi))
             );
         end
     endgenerate
+
+    vid_sprite vid_sprite (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .v(vid_v),
+        .h(vid_h),
+        .line_start(vid_line_start),
+        .console(vid_console),
+        .x_shift(vid_x_shift),
+        .y_shift(vid_y_shift),
+        .y_offset(vid_y_offset),
+        .vid_sprite_s_idx(sp_s_idx),
+        .s_data(sp_s_data),
+        .busy(m_busy),
+        .rnew(m_rnew),
+        .rfilled(m_rfilled),
+        .vid_sprite_plane(sp_plane),
+        .vid_sprite_we(sp_we),
+        .vid_sprite_addr(sp_addr),
+        .vid_sprite_data(sp_data),
+        .vid_sprite_force(sp_force),
+        .vid_sprite_a_req(ma_req[3]),
+        .vid_sprite_a_addr(ma_addr[3]),
+        .a_gnt(a_any && a_sel == 2'd3),
+        .a_rdata(xram_a_rdata)
+    );
 
     /* The 180- and 360-line canvases sit under a 60-line letterbox. */
     logic vid_letterbox;

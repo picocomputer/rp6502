@@ -26,6 +26,7 @@ module vid_mode (
 
     input logic [9:0] v,
     input logic [9:0] h,
+    input logic px_last,
     input logic line_start,
 
     /* Latched canvas geometry from vid_prog. On the console canvas the
@@ -53,7 +54,18 @@ module vid_mode (
     /* The beam side: this plane's pixel at h, and whether the line
      * filled at all. */
     output logic [15:0] vid_mode_pix,
-    output logic vid_mode_filled
+    output logic vid_mode_filled,
+
+    /* The sprite stage: the fill's outcome for the line in progress,
+     * writes into the working bank after the fill, and the claim that
+     * turns a zeroed bank into a filled layer. */
+    output logic vid_mode_busy,
+    output logic vid_mode_rnew,
+    output logic vid_mode_rfilled,
+    input logic sp_we,
+    input logic [9:0] sp_addr,
+    input logic [15:0] sp_data,
+    input logic sp_force
 );
 
     logic [15:0] linebuf[2][640];
@@ -61,27 +73,30 @@ module vid_mode (
     logic filled_q[2] /*verilator public_flat_rd*/;
     logic flip_next;
 
-    /* The beam reads one ahead of itself. The bank flip lands at the end
-     * of h==0, so the reads issued at the ends of h==799 and h==0 — for
-     * pixels 0 and 1 — still see a fresh line under its write-side label;
-     * a repeat line never flips and reads the held bank throughout. */
+    /* The beam reads one ahead of itself, on each pixel's last tick. The
+     * bank flip lands on h==0's first tick, so only the pixel-0 read at
+     * the end of h==799 still sees the fresh line under its write-side
+     * label; a repeat line never flips and reads the held bank. */
     logic [9:0] rd_next;
     always_comb rd_next = x_shift
         ? {1'b0, 9'((h + 10'd1) >> 1)} : h + 10'd1;
     always_ff @(posedge clk) begin
-        if (h == 10'd799)
-            vid_mode_pix <= linebuf[flip_next ? wr_bank : !wr_bank][10'd0];
-        else if (h == 10'd0)
-            vid_mode_pix <= linebuf[flip_next ? wr_bank : !wr_bank][rd_next];
-        else if (h < 10'd639)
-            vid_mode_pix <= linebuf[!wr_bank][rd_next];
-        else
-            vid_mode_pix <= 16'h0000;
+        if (px_last) begin
+            if (h == 10'd799)
+                vid_mode_pix <= linebuf[flip_next ? wr_bank : !wr_bank][10'd0];
+            else if (h < 10'd639)
+                vid_mode_pix <= linebuf[!wr_bank][rd_next];
+            else
+                vid_mode_pix <= 16'h0000;
+        end
     end
     /* Same nuance as the pixel path: during h==0 a pending flip's fresh
      * bank is still labeled write-side. Elsewhere the flip has landed. */
     always_comb vid_mode_filled =
         filled_q[(h == 10'd0 && flip_next) ? wr_bank : !wr_bank];
+
+    always_comb vid_mode_rnew = flip_next;
+    always_comb vid_mode_rfilled = filled_q[wr_bank];
 
     /* Target line: the canvas row it maps to, and whether this raster
      * line starts that row's render. */
@@ -96,6 +111,7 @@ module vid_mode (
     logic [8:0] t_row;
     always_comb t_row = y_shift ? t_cv[9:1] : t_cv[8:0];
     always_comb vid_mode_p_line = t_row;
+    always_comb vid_mode_busy = state != S_IDLE;
 
     typedef enum logic [2:0] {
         S_IDLE, S_PROG, S_PROG_W, S_CFG, S_MODE, S_BLANK
@@ -245,12 +261,15 @@ module vid_mode (
         end
     end
 
-    /* The write bank: the pipeline's pixels, or the plane's own blank. */
+    /* The write bank: the pipeline's pixels, the plane's own blank, or
+     * the sprite stage painting after the fill went idle. */
     always_ff @(posedge clk) begin
         if (state == S_MODE && sub_px_we)
             linebuf[wr_bank][sub_px_addr] <= sub_px_data;
         else if (state == S_BLANK)
             linebuf[wr_bank][px] <= 16'h0000;
+        else if (sp_we)
+            linebuf[wr_bank][sp_addr] <= sp_data;
     end
 
     logic gnt_d;
@@ -280,6 +299,10 @@ module vid_mode (
             m3_start <= 1'b0;
             m2_start <= 1'b0;
             m1_start <= 1'b0;
+            if (sp_force) begin
+                flip_next <= 1'b1;
+                filled_q[wr_bank] <= 1'b1;
+            end
             /* The beam's true deadline: the next line's pixel 0 is read
              * during h==799, so the flip must have landed before it. A
              * completion during h==799 would silently scan a stale first

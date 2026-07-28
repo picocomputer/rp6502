@@ -27,6 +27,7 @@ module vid_prog (
     input logic frame_start,
 
     input logic [9:0] v,
+    input logic px_first,
     output logic vid_prog_vsync_pulse,
     input logic [9:0] h,
 
@@ -42,6 +43,10 @@ module vid_prog (
     input logic [1:0] p_plane,
     output logic [31:0] vid_prog_p_entry,
     output logic [15:0] vid_prog_p_config,
+
+    /* Sprite stage read port: any word, registered. */
+    input logic [12:0] s_idx,
+    output logic [31:0] vid_prog_s_data,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
      * then bit 15 the registers — 0 canvas, 1 vsync line. */
@@ -97,12 +102,13 @@ module vid_prog (
         vid_prog_y_shift = vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2;
         vid_prog_y_offset = (vid_prog_canvas == 3'd2
                              || vid_prog_canvas == 3'd4) ? 10'd60 : 10'd0;
-        vid_prog_vsync_pulse = h == 10'd0 && v == vsync_q;
+        vid_prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
     end
 
     always_ff @(posedge clk) begin
         vid_prog_p_entry <= prog[{p_line, p_plane, 2'b00}];
         vid_prog_p_config <= prog[{p_line, p_plane, 2'b01}][15:0];
+        vid_prog_s_data <= prog[s_idx];
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

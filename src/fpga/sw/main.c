@@ -296,8 +296,10 @@ int main(void)
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the manifold
      * moves the console bytes. Quiet with the 6502 stopped or halted
-     * means the work is done — a simulation-only exit. */
+     * means the work is done — a simulation-only exit, counted in vid
+     * frames so the last frame's snapshot has landed before the halt. */
     uint32_t quiet = 0;
+    uint32_t vframe = VID_FRAME;
     uint32_t moved = com_moved();
     for (uint32_t spins = 0; spins < 8000000u; spins++)
     {
@@ -329,9 +331,11 @@ int main(void)
             moved = com_moved();
             quiet = 0;
         }
-        else if (!API_BUSY && (CPU_RUN & 3) != 1 && ++quiet > 2000)
+        else if (VID_FRAME != vframe)
         {
-            break;
+            vframe = VID_FRAME;
+            if (!API_BUSY && (CPU_RUN & 3) != 1 && ++quiet > 2)
+                break;
         }
     }
     return 0;

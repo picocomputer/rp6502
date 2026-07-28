@@ -105,6 +105,8 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/vid/vid_mode1.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode2.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode3.sv
+        ${RP6502_FPGA_RTL}/vid/vid_mode5.sv
+        ${RP6502_FPGA_RTL}/vid/vid_sprite.sv
         ${RP6502_FPGA_RTL}/vid/vid_prog.sv
         ${RP6502_FPGA_RTL}/vid/vid_term.sv
         ${RP6502_FPGA_RTL}/vid/vid_compose.sv

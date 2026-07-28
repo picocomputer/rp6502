@@ -67,7 +67,7 @@ UTEST(boot, firmware_boots_the_6502)
 
     std::string rv_out, cpu_out;
     bool stopped = false;
-    for (int i = 0; i < 4000000; i++)
+    for (int i = 0; i < 16000000; i++)
     {
         if (!dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid)
         {

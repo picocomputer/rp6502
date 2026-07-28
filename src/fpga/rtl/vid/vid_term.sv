@@ -29,6 +29,7 @@ module vid_term (
      * ping-pong line buffer the beam reads behind it. */
     input logic [9:0] h,
     input logic [9:0] v,
+    input logic px_last,
     input logic line_start,
     output logic [15:0] vid_term_pix,
 
@@ -361,19 +362,19 @@ module vid_term (
         && px[9:3] == cur_cx
         && (cur_style == 3'd5 || cur_style == 3'd6);
 
-    /* The beam reads one position ahead of itself. The bank toggle lands
-     * at the end of h==0, so the reads for pixels 0 and 1 — issued at the
-     * ends of h==799 and h==0 — still see the line under its write-side
-     * label. */
+    /* The beam reads one position ahead of itself, on each pixel's last
+     * tick. The bank toggle lands on h==0's first tick, so only the
+     * pixel-0 read at the end of h==799 still sees the line under its
+     * write-side label. */
     always_ff @(posedge clk) begin
-        if (h == 10'd799)
-            vid_term_pix <= linebuf[wr_bank][10'd0];
-        else if (h == 10'd0)
-            vid_term_pix <= linebuf[wr_bank][10'd1];
-        else if (h < 10'd639)
-            vid_term_pix <= linebuf[!wr_bank][h + 10'd1];
-        else
-            vid_term_pix <= 16'h0000;
+        if (px_last) begin
+            if (h == 10'd799)
+                vid_term_pix <= linebuf[wr_bank][10'd0];
+            else if (h < 10'd639)
+                vid_term_pix <= linebuf[!wr_bank][h + 10'd1];
+            else
+                vid_term_pix <= 16'h0000;
+        end
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

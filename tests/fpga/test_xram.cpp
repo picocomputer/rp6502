@@ -83,7 +83,7 @@ static bool rtl_boot(const std::vector<uint8_t> &rom, std::string *rv_out)
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
     rv_out->clear();
-    for (int i = 0; i < 4000000; i++)
+    for (int i = 0; i < 16000000; i++)
     {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;
