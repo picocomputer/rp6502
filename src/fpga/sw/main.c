@@ -359,8 +359,10 @@ int main(void)
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the manifold
      * moves the console bytes. Quiet with the 6502 stopped or halted
-     * means the work is done — a simulation-only exit, counted in vid
-     * frames so the last frame's snapshot has landed before the halt. */
+     * means the work is done — a simulation-only exit, taken one vid
+     * frame after the last console byte so the tasks have pushed the
+     * final snapshot; the tests capture their own frames afterward,
+     * with the video still running. */
     uint32_t quiet = 0;
     uint32_t vframe = VID_FRAME;
     uint32_t moved = com_moved();
@@ -397,7 +399,7 @@ int main(void)
         else if (VID_FRAME != vframe)
         {
             vframe = VID_FRAME;
-            if (!API_BUSY && (CPU_RUN & 3) != 1 && ++quiet > 2)
+            if (!API_BUSY && (CPU_RUN & 3) != 1 && ++quiet > 0)
                 break;
         }
     }

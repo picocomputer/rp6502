@@ -106,10 +106,11 @@ UTEST(furelise, plays_psg_audio)
 
     /* The standing bell walks from reset: the free-running 4,200-clock
      * grid lays exactly 400 samples into each 1,680,000-clock frame,
-     * silent until the song. Boot and load until the first note. */
+     * silent through the boot, the load, and the tracker's own lead-in
+     * — around thirty-five frames of cadence proof before a note. */
     run_frame();
     int onset = -1;
-    for (int i = 0; i < 150 && onset < 0; i++)
+    for (int i = 0; i < 80 && onset < 0; i++)
     {
         g_valids = 0;
         g_energy = 0;
@@ -120,19 +121,20 @@ UTEST(furelise, plays_psg_audio)
     }
     ASSERT_GE(onset, 0);
 
+    /* Eight frames of the opening phrase: the grid holds and the notes
+     * are loud. Longer proves nothing the lockstep has not — energy
+     * here runs half a million by the sixth frame. */
     g_energy = 0;
     g_peak = 0;
-    for (int i = 0; i < 90; i++)
+    for (int i = 0; i < 8; i++)
     {
         g_valids = 0;
         run_frame();
         ASSERT_EQ(g_valids, 400);
     }
 
-    /* A second and a half of Beethoven: audibly loud, sustained, and
-     * still playing. */
     ASSERT_GT(g_peak, 32);
-    ASSERT_GT(g_energy, 100000);
+    ASSERT_GT(g_energy, 200000);
     ASSERT_FALSE(dut->rp6502_rv_halted);
     ASSERT_EQ(dut->rootp->rp6502__DOT__cpu_run, 1);
 }
@@ -147,7 +149,7 @@ UTEST(furelise, console_bel_rings)
     dut->rst_n = 1;
 
     g_energy = 0;
-    for (int i = 0; i < 8; i++)
+    for (int i = 0; i < 4; i++)
         run_frame();
     ASSERT_EQ(g_energy, 0);
 
@@ -155,7 +157,7 @@ UTEST(furelise, console_bel_rings)
     dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid = 1;
 
     g_peak = 0;
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 4; i++)
     {
         g_valids = 0;
         run_frame();

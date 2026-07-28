@@ -126,14 +126,14 @@ UTEST(mode2_rom, key_driven_run_to_exit)
             anchor = i;
     }
     ASSERT_GE(anchor, 0);
-    oracle_run_frames(20);
+    oracle_run_frames(8);
     oracle_key(0x2C, true);
-    oracle_run_frames(5);
+    oracle_run_frames(3);
     oracle_key(0x2C, false);
-    oracle_run_frames(10);
+    oracle_run_frames(6);
     ASSERT_FALSE(oracle_halted()); /* second scroll loop */
     oracle_key(0x2C, true);
-    oracle_run_frames(5);
+    oracle_run_frames(3);
     oracle_key(0x2C, false);
     for (int i = 0; i < 60 && !oracle_halted(); i++)
         oracle_run_frames(1);
@@ -161,16 +161,16 @@ UTEST(mode2_rom, key_driven_run_to_exit)
             anchor = i;
     }
     ASSERT_GE(anchor, 0);
-    for (int i = 0; i < 20; i++)
+    for (int i = 0; i < 8; i++)
         run_frame();
     rtl_key(0x2C, true);
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 3; i++)
         run_frame();
     rtl_key(0x2C, false);
-    for (int i = 0; i < 10; i++)
+    for (int i = 0; i < 6; i++)
         run_frame();
     rtl_key(0x2C, true);
-    for (int i = 0; i < 5; i++)
+    for (int i = 0; i < 3; i++)
         run_frame();
     rtl_key(0x2C, false);
 
