@@ -228,4 +228,9 @@ UTEST(vidmodes, mode4a_clip)
     run_case(utest_result, "mode4a_clip", 640, 480);
 }
 
+UTEST(vidmodes, sprite_stress)
+{
+    run_case(utest_result, "sprite_stress", 640, 480);
+}
+
 UTEST_MAIN_EMU()

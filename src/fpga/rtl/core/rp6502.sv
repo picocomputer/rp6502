@@ -402,6 +402,8 @@ module rp6502
         .vid_prog_p_config(pm_config),
         .s_idx(sp_s_idx),
         .vid_prog_s_data(sp_s_data),
+        .sp_overrun(sp_overrun),
+        .vid_prog_ov_clear(sp_ov_clear),
         .b_stb(bus_stb && bus_sel_vid && bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[15:0]),
@@ -433,7 +435,8 @@ module rp6502
     logic [12:0] sp_s_idx;
     logic [31:0] sp_s_data;
     logic [1:0] sp_plane;
-    logic sp_we, sp_force;
+    logic sp_we, sp_force, sp_ov_clear;
+    logic [15:0] sp_overrun;
     logic [9:0] sp_addr;
     logic [15:0] sp_data;
     generate
@@ -490,10 +493,12 @@ module rp6502
         .vid_sprite_addr(sp_addr),
         .vid_sprite_data(sp_data),
         .vid_sprite_force(sp_force),
+        .vid_sprite_overrun(sp_overrun),
         .vid_sprite_a_req(ma_req[3]),
         .vid_sprite_a_addr(ma_addr[3]),
         .a_gnt(a_any && a_sel == 2'd3),
-        .a_rdata(xram_a_rdata)
+        .a_rdata(xram_a_rdata),
+        .ov_clear(sp_ov_clear)
     );
 
     /* The 180- and 360-line canvases sit under a 60-line letterbox. */

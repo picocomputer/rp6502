@@ -170,6 +170,15 @@ UTEST(mode5, bpp8_64x64_plane1_320x180)
     run_case(utest_result, "mode5_64x64");
 }
 
+/* Every engine at once at the documented budget: the picture stays
+ * pixel-exact and no line ever loses its race. */
+UTEST(mode5, stress_budget_no_overrun_640x480)
+{
+    run_case(utest_result, "sprite_stress");
+    ASSERT_EQ(dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun,
+              0);
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

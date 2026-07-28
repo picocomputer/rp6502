@@ -40,6 +40,7 @@
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
+#define VID_OVERRUN (*(volatile uint32_t *)0x50028008u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)

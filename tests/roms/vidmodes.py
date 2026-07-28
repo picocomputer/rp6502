@@ -360,6 +360,37 @@ mode4a("mode4a_rot", 1, 0, 5, [
     ((0x080, 0, 0, 0, 0x080, 0), 150, 80, 1),
     ((0x200, 0, 0x300, 0, 0x200, 0x300), 240, 100, 0),
 ])
+def stress(name):
+    # Every engine at once on the wide canvas: a wrapped full-width
+    # bitmap fill under six 64-pixel sprites and four paletted ones,
+    # text on top — the documented budget, at which the overrun counter
+    # must hold zero.
+    cfg3 = bytearray((0, 1)) + le16(0, 0, 640, 24, 0x8000, 0xFFFF)
+    bm = bytes((i * 13 + 7) & 0xFF for i in range(640 * 24))
+    m4c = bytearray()
+    for i in range(6):
+        m4c += le16(i * 100, 20 + i, 0x4000) + bytes((6, 0))
+    m5c = bytearray()
+    for i in range(4):
+        m5c += le16(50 + i * 150, 30 + i * 8, 0x6000, 0x0200)
+    cfg1 = bytearray((0, 0)) + le16(250, 100, 12, 4, 0x0300, 0xFFFF,
+                                    0xFFFF)
+    cells = bytes(ord("A") + i % 60 for i in range(48))
+    rom(name, 3,
+        [(3, 3, 0x01A0, 0, 0, 0),
+         (4, 0, 0x0100, 6, 0, 0, 0),
+         (5, 18, 0x0140, 4, 1, 0, 0),
+         (1, 0, 0x01C0, 2, 0, 0)],
+        [(0x0100, m4c), (0x0140, m5c), (0x01A0, cfg3), (0x01C0, cfg1),
+         (0x0200, le16(0, *((0x0020 | (i * 2657))
+                            for i in range(1, 16)))),
+         (0x0300, cells),
+         (0x4000, le16(*(((t * 13 + 5) & 0xFFFF)
+                         for t in range(64 * 64)))),
+         (0x6000, bytes((t * 7 + 3) & 0xFF for t in range(512))),
+         (0x8000, bm)])
+
+
 mode4a("mode4a_clip", 3, 0, 4, [
     ((0x100, 0, 0, 0, 0x100, 0), -7, 30, 0),
     ((0x100, 0, 0, 0, 0x100, 0), 630, 90, 1),
@@ -368,3 +399,4 @@ mode4a("mode4a_clip", 3, 0, 4, [
         (0x01A0, bytearray((0, 0)) + le16(10, 20, 120, 100, 0x2000, 0xFFFF)),
         (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(120 * 100))),
 ])
+stress("sprite_stress")

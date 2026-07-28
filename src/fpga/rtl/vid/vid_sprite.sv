@@ -43,11 +43,16 @@ module vid_sprite (
     output logic [15:0] vid_sprite_data,
     output logic vid_sprite_force,
 
+    /* Lost races: a line whose sprites missed the beam counts here and
+     * shows its partial paint, the way hardware racing the beam does. */
+    output logic [15:0] vid_sprite_overrun /*verilator public_flat_rd*/,
+
     /* XRAM port A, one rotor slot. */
     output logic vid_sprite_a_req,
     output logic [13:0] vid_sprite_a_addr,
     input logic a_gnt,
-    input logic [31:0] a_rdata
+    input logic [31:0] a_rdata,
+    input logic ov_clear
 );
 
     /* Target line, the fills' own derivation. */
@@ -191,14 +196,19 @@ module vid_sprite (
             m4_start <= 1'b0;
             m5_start <= 1'b0;
             vid_sprite_force <= 1'b0;
+            vid_sprite_overrun <= '0;
         end else begin
             m4_start <= 1'b0;
             m5_start <= 1'b0;
             vid_sprite_force <= 1'b0;
-            /* The same deadline the fills answer to. */
-            if (h == 10'd799 && state != SP_IDLE)
-                $fatal(1, "vid_sprite underrun st=%0d p=%0d fg=%0d e=%08X",
-                       state, p, fg, slot_entry[p]);
+            if (ov_clear)
+                vid_sprite_overrun <= '0;
+            if (h == 10'd799 && state != SP_IDLE) begin
+                vid_sprite_overrun <= (ov_clear ? 16'd0
+                                                : vid_sprite_overrun)
+                    + 16'd1;
+                state <= SP_IDLE;
+            end
             if (line_start) begin
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
                 s_n <= '0;

@@ -209,8 +209,8 @@ module vid_mode5
             gnt_d <= a_gnt;
             vid_mode5_done <= 1'b0;
             if (abort_i) begin
-                if (state != M5_IDLE)
-                    $fatal(1, "vid_mode5 underrun");
+                /* A lost race: the scaffold counted it; drop the line. */
+                state <= M5_IDLE;
             end else if (start) begin
                 idx <= '0;
                 dcache_v <= 1'b0;

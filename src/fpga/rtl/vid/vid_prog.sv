@@ -48,8 +48,13 @@ module vid_prog (
     input logic [12:0] s_idx,
     output logic [31:0] vid_prog_s_data,
 
+    /* The sprite stage's lost-race count; a write clears it. */
+    input logic [15:0] sp_overrun,
+    output logic vid_prog_ov_clear,
+
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
-     * then bit 15 the registers — 0 canvas, 1 vsync line. */
+     * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
+     * overrun count. */
     input logic b_stb,
     input logic b_we,
     input logic [15:0] b_addr,
@@ -70,8 +75,10 @@ module vid_prog (
                 if (b_we)
                     prog[b_addr[14:2]] <= b_wdata;
             end else begin
-                vid_prog_b_rdata <= b_addr[2]
-                    ? {22'd0, vsync_shadow} : {29'd0, canvas_shadow};
+                vid_prog_b_rdata <= b_addr[3]
+                    ? {16'd0, sp_overrun}
+                    : (b_addr[2] ? {22'd0, vsync_shadow}
+                                 : {29'd0, canvas_shadow});
             end
         end
     end
@@ -95,6 +102,9 @@ module vid_prog (
             end
         end
     end
+
+    always_comb vid_prog_ov_clear = b_stb && b_we && b_addr[15]
+        && b_addr[3];
 
     always_comb begin
         vid_prog_console = vid_prog_canvas == 3'd0;
