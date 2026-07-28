@@ -83,8 +83,10 @@ def main():
     color_256 = parse_array(text, "const uint16_t color_256", 256)
     if args.emit_sv:
         out = [HEADER, "package vid_palette_pkg;", "",
+               "    /* verilator lint_off UNUSEDPARAM */", "",
                sv_array("VID_COLOR_2", color_2), "",
                sv_array("VID_COLOR_256", color_256), "",
+               "    /* verilator lint_on UNUSEDPARAM */", "",
                "endpackage", ""]
         Path(args.emit_sv).write_text("\n".join(out))
     if args.emit_h:

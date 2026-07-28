@@ -61,11 +61,16 @@ def build_tables():
     ascii16 = parse_array(text, "FONT16_ASCII")
     cp437_16 = parse_array(text, "FONT16_CP437")
     italic_src = parse_array(text, "FONT16_ASCII_ITALIC")
+    ascii8 = parse_array(text, "FONT8_ASCII")
+    cp437_8 = parse_array(text, "FONT8_CP437")
     dec_map = parse_dec_map(text)
-    for name, arr in (("FONT16_ASCII", ascii16), ("FONT16_CP437", cp437_16),
-                      ("FONT16_ASCII_ITALIC", italic_src)):
-        if len(arr) != 2048:
-            sys.exit(f"vid_font_gen: {name} has {len(arr)} bytes, want 2048")
+    for name, arr, want in (("FONT16_ASCII", ascii16, 2048),
+                            ("FONT16_CP437", cp437_16, 2048),
+                            ("FONT16_ASCII_ITALIC", italic_src, 2048),
+                            ("FONT8_ASCII", ascii8, 1024),
+                            ("FONT8_CP437", cp437_8, 1024)):
+        if len(arr) != want:
+            sys.exit(f"vid_font_gen: {name} has {len(arr)} bytes, want {want}")
 
     # font16, glyph-major: ASCII low half, CP437 high half.
     font16 = [0] * 4096
@@ -93,7 +98,15 @@ def build_tables():
         for code in range(128):
             italic16[code * 16 + row] = italic_src[row * 128 + code]
 
-    return font16, dec16, italic16
+    # font8, same build as font16 at half height, for the mode 1 cells.
+    font8 = [0] * 2048
+    for row in range(8):
+        for code in range(128):
+            font8[code * 8 + row] = ascii8[row * 128 + code]
+        for code in range(128, 256):
+            font8[code * 8 + row] = cp437_8[row * 128 + (code - 128)]
+
+    return font16, dec16, italic16, font8
 
 
 def sv_array(name, data):
@@ -132,12 +145,15 @@ def main():
     ap.add_argument("--emit-sv", metavar="FILE")
     ap.add_argument("--emit-h", metavar="FILE")
     args = ap.parse_args()
-    font16, dec16, italic16 = build_tables()
+    font16, dec16, italic16, font8 = build_tables()
     if args.emit_sv:
         out = [HEADER, "package vid_font_pkg;", "",
+               "    /* verilator lint_off UNUSEDPARAM */", "",
                sv_array("VID_FONT16", font16), "",
                sv_array("VID_FONT_DEC16", dec16), "",
                sv_array("VID_ITALIC16", italic16), "",
+               sv_array("VID_FONT8", font8), "",
+               "    /* verilator lint_on UNUSEDPARAM */", "",
                "endpackage", ""]
         Path(args.emit_sv).write_text("\n".join(out))
     if args.emit_h:
@@ -147,6 +163,7 @@ def main():
                c_array("VID_FONT16", font16), "",
                c_array("VID_FONT_DEC16", dec16), "",
                c_array("VID_ITALIC16", italic16), "",
+               c_array("VID_FONT8", font8), "",
                "#endif /* _VID_FONT_TABLES_H_ */", ""]
         Path(args.emit_h).write_text("\n".join(out))
 

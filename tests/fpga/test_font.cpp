@@ -31,6 +31,9 @@ UTEST(font, generated_rom_matches_font_init)
         for (int row = 0; row < 16; row++)
             ASSERT_EQ(VID_ITALIC16[code * 16 + row],
                       italic16[row * 128 + code]);
+    for (int code = 0; code < 256; code++)
+        for (int row = 0; row < 8; row++)
+            ASSERT_EQ(VID_FONT8[code * 8 + row], font8[row * 256 + code]);
 }
 
 UTEST(font, generated_palettes_match_color_c)
