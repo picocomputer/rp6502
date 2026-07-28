@@ -1,0 +1,112 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Bench top: pocket_core with the behavioral SDRAM behind its pads.
+ */
+
+module tb_pocket (
+    input logic clk_74a,
+    input logic clk_sys,
+    input logic clk_vid,
+    input logic rst_n,
+    input logic arst_n,
+
+    input logic bridge_wr,
+    input logic [31:0] bridge_addr,
+    input logic [31:0] bridge_wr_data,
+    input logic dataslot_allcomplete,
+    input logic reset_n,
+    output logic [9:0] tb_pocket_dt_addr,
+    input logic [31:0] datatable_q,
+    input logic [31:0] cont1_key,
+
+    output logic [23:0] tb_pocket_rgb,
+    output logic tb_pocket_de,
+    output logic tb_pocket_skip,
+    output logic tb_pocket_vs,
+    output logic tb_pocket_hs,
+
+    output logic tb_pocket_mclk,
+    output logic tb_pocket_dac,
+    output logic tb_pocket_lrck,
+
+    output logic tb_pocket_ready,
+    output logic [7:0] tb_pocket_tx_data,
+    output logic tb_pocket_tx_valid,
+    output logic [7:0] tb_pocket_rv_tx_data,
+    output logic tb_pocket_rv_tx_valid,
+    output logic tb_pocket_rv_halted
+);
+
+    logic cke;
+    logic [12:0] a;
+    logic [1:0] ba;
+    logic [1:0] dqm;
+    logic ras_n, cas_n, we_n;
+    logic [15:0] dq_c2m, dq_m2c;
+    logic dq_oe;
+    logic [31:0] refreshes;
+
+    pocket_core core (
+        .clk_74a(clk_74a),
+        .clk_sys(clk_sys),
+        .clk_vid(clk_vid),
+        .rst_n(rst_n),
+        .arst_n(arst_n),
+        .bridge_wr(bridge_wr),
+        .bridge_addr(bridge_addr),
+        .bridge_wr_data(bridge_wr_data),
+        .dataslot_allcomplete(dataslot_allcomplete),
+        .reset_n(reset_n),
+        .pocket_core_dt_addr(tb_pocket_dt_addr),
+        .datatable_q(datatable_q),
+        .cont1_key(cont1_key),
+        .pocket_core_rgb(tb_pocket_rgb),
+        .pocket_core_de(tb_pocket_de),
+        .pocket_core_skip(tb_pocket_skip),
+        .pocket_core_vs(tb_pocket_vs),
+        .pocket_core_hs(tb_pocket_hs),
+        .pocket_core_mclk(tb_pocket_mclk),
+        .pocket_core_dac(tb_pocket_dac),
+        .pocket_core_lrck(tb_pocket_lrck),
+        .dram_cke(cke),
+        .dram_a(a),
+        .dram_ba(ba),
+        .dram_dqm(dqm),
+        .dram_ras_n(ras_n),
+        .dram_cas_n(cas_n),
+        .dram_we_n(we_n),
+        .dram_dq_out(dq_c2m),
+        .dram_dq_oe(dq_oe),
+        .dram_dq_in(dq_m2c),
+        .pocket_core_ready(tb_pocket_ready),
+        .pocket_core_tx_data(tb_pocket_tx_data),
+        .pocket_core_tx_valid(tb_pocket_tx_valid),
+        .pocket_core_rv_tx_data(tb_pocket_rv_tx_data),
+        .pocket_core_rv_tx_valid(tb_pocket_rv_tx_valid),
+        .pocket_core_rv_halted(tb_pocket_rv_halted)
+    );
+
+    sdram_model chip (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .cke(cke),
+        .a(a),
+        .ba(ba),
+        .ras_n(ras_n),
+        .cas_n(cas_n),
+        .we_n(we_n),
+        .dq_in(dq_c2m),
+        .dq_oe(dq_oe),
+        .dq_out(dq_m2c),
+        .sdram_model_refreshes(refreshes)
+    );
+
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_tb_pocket;
+    always_comb unused_tb_pocket = ^{dqm, refreshes};
+    /* verilator lint_on UNUSEDSIGNAL */
+
+endmodule

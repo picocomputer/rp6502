@@ -583,6 +583,34 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3
     )
 
+    # --- The whole Pocket stack, frame-exact against the oracle ---
+    if(RISCV_GCC AND RISCV_OBJCOPY)
+        rp6502_add_test(pocket
+            SOURCES test_pocket.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            FIXTURE mode3_8bpp.rp6502
+            TIMEOUT 600)
+        add_dependencies(test_pocket sw_bin cpu65_rom vid_font_rom
+            vid_palette_rom)
+        verilate(test_pocket
+            SOURCES ${RP6502_MACHINE_SOURCES}
+                ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+                ${RP6502_FPGA_POCKET}/pocket_video.sv
+                ${RP6502_FPGA_POCKET}/pocket_i2s.sv
+                ${RP6502_FPGA_POCKET}/pocket_sdram.sv
+                ${RP6502_FPGA_POCKET}/pocket_bridge.sv
+                ${RP6502_FPGA_POCKET}/pocket_core.sv
+                ${CMAKE_CURRENT_LIST_DIR}/sdram_model.sv
+                ${CMAKE_CURRENT_LIST_DIR}/tb_pocket.sv
+            TOP_MODULE tb_pocket
+            PREFIX Vtb_pocket
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+    endif()
+
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
