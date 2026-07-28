@@ -59,10 +59,23 @@ module vid_term (
     logic [31:0] prog_shadow /*verilator public_flat_rd*/;
     logic [31:0] frame_count /*verilator public_flat_rd*/;
 
+    /* The scanout read stands alone and unreset: a block RAM's output
+     * register has no asynchronous clear, and a read inside the
+     * pipeline's reset would keep the cells out of memory entirely. */
+    always_ff @(posedge clk)
+        fetch_q <= cells[fetch_word];
+
+    /* Same rule as the line buffer: the cells' output register carries
+     * the cells and nothing else, and the registers answer beside it. */
+    logic [31:0] cells_q, regs_q;
+    logic sel_cells;
+    always_comb vid_term_b_rdata = sel_cells ? cells_q : regs_q;
+
     always_ff @(posedge clk) begin
         if (b_stb) begin
+            cells_q <= cells[cell_idx];
+            sel_cells <= !b_addr[16];
             if (!b_addr[16]) begin
-                vid_term_b_rdata <= cells[cell_idx];
                 if (b_we) begin
                     if (b_wstrb[0])
                         cells[cell_idx][7:0] <= b_wdata[7:0];
@@ -75,13 +88,12 @@ module vid_term (
                 end
             end else begin
                 case (b_addr[7:2])
-                    6'd32: vid_term_b_rdata <= cursor_shadow;
-                    6'd33: vid_term_b_rdata <= {16'd0, cursor_color_shadow};
-                    6'd34: vid_term_b_rdata <= {30'd0, blink_shadow};
-                    6'd35: vid_term_b_rdata <= prog_shadow;
-                    6'd40: vid_term_b_rdata <= frame_count;
-                    default: vid_term_b_rdata <=
-                        {16'd0, row_shadow[b_addr[6:2]]};
+                    6'd32: regs_q <= cursor_shadow;
+                    6'd33: regs_q <= {16'd0, cursor_color_shadow};
+                    6'd34: regs_q <= {30'd0, blink_shadow};
+                    6'd35: regs_q <= prog_shadow;
+                    6'd40: regs_q <= frame_count;
+                    default: regs_q <= {16'd0, row_shadow[b_addr[6:2]]};
                 endcase
             end
         end
@@ -147,7 +159,22 @@ module vid_term (
      * beam's next line into the write bank. Steady state is eight clocks a
      * cell — the two cell words and the font byte fetch under the previous
      * cell's pixel writes — well inside the 800-clock line. */
-    logic [15:0] linebuf[2][640];
+    /* Two banks in one array: the bank rides in the address, because a
+     * bank index outside it reads both halves and muxes — an
+     * asynchronous read, and no block RAM at all. */
+    (* ramstyle = "no_rw_check" *)
+    logic [15:0] linebuf[2048];
+
+    /* The write travels to its own unreset block: a block RAM has no
+     * asynchronous clear, and a port inside the pipeline's reset keeps
+     * the whole buffer out of memory. */
+    logic lb_we;
+    logic lb_bank;
+    logic [9:0] lb_addr;
+    logic [15:0] lb_data;
+    always_ff @(posedge clk)
+        if (lb_we)
+            linebuf[{lb_bank, lb_addr}] <= lb_data;
     logic wr_bank;
     logic [9:0] t;  // the target line
     logic t_active;
@@ -266,7 +293,7 @@ module vid_term (
             bg_r <= '0;
             shreg <= '0;
         end else begin
-            fetch_q <= cells[fetch_word];
+            lb_we <= 1'b0;
             if (line_start) begin
                 wr_bank <= !wr_bank;
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
@@ -327,13 +354,14 @@ module vid_term (
                     /* Steady state: eight pixel writes for this cell while
                      * the next cell's words and font byte arrive. */
                     default: begin
-                        if (t_active)
-                            linebuf[wr_bank][px] <=
-                                (cur_bar_out && px[2:0] < 3'd2)
-                                    ? cursor_color_q
-                                    : (shreg[7] ? fg_r : bg_r);
-                        else
-                            linebuf[wr_bank][px] <= 16'h0000;
+                        lb_we <= 1'b1;
+                        lb_bank <= wr_bank;
+                        lb_addr <= px;
+                        lb_data <= t_active
+                            ? ((cur_bar_out && px[2:0] < 3'd2)
+                                   ? cursor_color_q
+                                   : (shreg[7] ? fg_r : bg_r))
+                            : 16'h0000;
                         shreg <= {shreg[6:0], 1'b0};
                         px <= px + 10'd1;
                         case (px[2:0])
@@ -370,16 +398,24 @@ module vid_term (
      * tick. The bank toggle lands on h==0's first tick, so only the
      * pixel-0 read at the end of h==799 still sees the line under its
      * write-side label. */
+    logic [10:0] lb_rd;
+    always_comb lb_rd = h == 10'd799
+        ? {wr_bank, 10'd0}
+        : {!wr_bank, 10'(h + 10'd1)};
+
+    /* The buffer's output register carries nothing but the buffer: a
+     * branch that hands it a constant instead makes the fabric read
+     * combinationally and mux, and the whole line buffer leaves
+     * memory. The blanking rides alongside and mixes after. */
+    logic [15:0] lb_q;
+    logic lb_blank;
     always_ff @(posedge clk) begin
         if (px_last) begin
-            if (h == 10'd799)
-                vid_term_pix <= linebuf[wr_bank][10'd0];
-            else if (h < 10'd639)
-                vid_term_pix <= linebuf[!wr_bank][h + 10'd1];
-            else
-                vid_term_pix <= 16'h0000;
+            lb_q <= linebuf[lb_rd];
+            lb_blank <= !(h == 10'd799 || h < 10'd639);
         end
     end
+    always_comb vid_term_pix = lb_blank ? 16'h0000 : lb_q;
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_term;

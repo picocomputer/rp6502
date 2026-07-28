@@ -68,7 +68,11 @@ module vid_mode (
     input logic sp_force
 );
 
-    logic [15:0] linebuf[2][640];
+    /* The bank rides inside the address and the output register
+     * carries only the buffer; either one broken keeps the whole line
+     * out of block memory. */
+    (* ramstyle = "no_rw_check" *)
+    logic [15:0] linebuf[2048];
     logic wr_bank;
     logic filled_q[2] /*verilator public_flat_rd*/;
     logic flip_next;
@@ -80,16 +84,20 @@ module vid_mode (
     logic [9:0] rd_next;
     always_comb rd_next = x_shift
         ? {1'b0, 9'((h + 10'd1) >> 1)} : h + 10'd1;
+    logic [10:0] lb_rd;
+    always_comb lb_rd = h == 10'd799
+        ? {flip_next ? wr_bank : !wr_bank, 10'd0}
+        : {!wr_bank, rd_next};
+
+    logic [15:0] lb_q;
+    logic lb_blank;
     always_ff @(posedge clk) begin
         if (px_last) begin
-            if (h == 10'd799)
-                vid_mode_pix <= linebuf[flip_next ? wr_bank : !wr_bank][10'd0];
-            else if (h < 10'd639)
-                vid_mode_pix <= linebuf[!wr_bank][rd_next];
-            else
-                vid_mode_pix <= 16'h0000;
+            lb_q <= linebuf[lb_rd];
+            lb_blank <= !(h == 10'd799 || h < 10'd639);
         end
     end
+    always_comb vid_mode_pix = lb_blank ? 16'h0000 : lb_q;
     /* The flip lands on h==0's first tick, so everywhere the beam shows
      * pixels the displayed line is the read-side bank — and flip_next
      * already belongs to the line being rendered. */
@@ -265,11 +273,11 @@ module vid_mode (
      * the sprite stage painting after the fill went idle. */
     always_ff @(posedge clk) begin
         if (state == S_MODE && sub_px_we)
-            linebuf[wr_bank][sub_px_addr] <= sub_px_data;
+            linebuf[{wr_bank, sub_px_addr}] <= sub_px_data;
         else if (state == S_BLANK)
-            linebuf[wr_bank][px] <= 16'h0000;
+            linebuf[{wr_bank, px}] <= 16'h0000;
         else if (sp_we)
-            linebuf[wr_bank][sp_addr] <= sp_data;
+            linebuf[{wr_bank, sp_addr}] <= sp_data;
     end
 
     logic gnt_d;

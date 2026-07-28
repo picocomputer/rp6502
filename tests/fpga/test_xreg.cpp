@@ -235,22 +235,22 @@ UTEST(xreg, dispatch_matches_the_oracle)
      * plane 0 with the config pointer, nothing at 240. */
     auto *r = dut->rootp;
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__canvas_shadow, 1);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[0],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[0],
               0x80000000u | (3u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[1], 0x1000u);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[239 * 16],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_c[0], 0x1000);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[239 * 4],
               0x80000000u | (3u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[240 * 16], 0u);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[240 * 4], 0u);
 
     /* The sprite slots: mode 4 plane 1, mode 5 plane 2, count over
      * config in the second word. */
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 1 * 4 + 2],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_e[100 * 4 + 1],
               0x80000000u | (4u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 1 * 4 + 3],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_c[100 * 4 + 1],
               (3u << 16) | 0x2000u);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 2 * 4 + 2],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_e[100 * 4 + 2],
               0x80000000u | (5u << 16) | 10u);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 2 * 4 + 3],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_c[100 * 4 + 2],
               (2u << 16) | 0x3000u);
 }
 

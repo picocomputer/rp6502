@@ -11,6 +11,17 @@
  * author and every validation happens in its C, so the table is trusted
  * the way the fill functions trust their options.
  *
+ * The table lives as four arrays, one per word of a slot pair, because
+ * a block RAM has two ports and this table has four readers: the bus,
+ * the walk's entry and config, and the sprite stage. Split by word each
+ * array has exactly one writer and one reader, which is what the fabric
+ * can build; kept whole it becomes a quarter of a million registers.
+ * The soft CPU never reads the table back — vga.c only writes it — so
+ * the bus side is write-only and the read port answers the registers
+ * alone. The config word is sixteen bits wide because that is all a
+ * config pointer is, which makes the split cost less memory than the
+ * single table did.
+ *
  * The canvas and the vsync line are shadows: the canvas latches where
  * the render takes the frame's first row, the vsync line at the beam's
  * own boundary. The vsync line is where the oracle counts the frame —
@@ -64,8 +75,19 @@ module vid_prog (
     output logic [31:0] vid_prog_b_rdata
 );
 
+    /* Indexed by {line, plane}; the word within the pair picks the
+     * array. w0/w1 are the fill slot, w2/w3 the sprite slot. */
     (* ramstyle = "no_rw_check" *)
-    logic [31:0] prog[8192] /*verilator public_flat_rw*/;
+    logic [31:0] fill_e[2048] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [15:0] fill_c[2048] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [31:0] spr_e[2048] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [31:0] spr_c[2048] /*verilator public_flat_rw*/;
+
+    logic [10:0] b_idx;
+    always_comb b_idx = b_addr[14:4];
 
     logic [2:0] canvas_shadow /*verilator public_flat_rd*/;
     logic [9:0] vsync_shadow /*verilator public_flat_rw*/;
@@ -74,9 +96,17 @@ module vid_prog (
     always_ff @(posedge clk) begin
         if (b_stb) begin
             if (!b_addr[15]) begin
-                vid_prog_b_rdata <= prog[b_addr[14:2]];
-                if (b_we)
-                    prog[b_addr[14:2]] <= b_wdata;
+                vid_prog_b_rdata <= 32'd0;
+                if (b_we) begin
+                    if (!b_addr[3] && !b_addr[2])
+                        fill_e[b_idx] <= b_wdata;
+                    if (!b_addr[3] && b_addr[2])
+                        fill_c[b_idx] <= b_wdata[15:0];
+                    if (b_addr[3] && !b_addr[2])
+                        spr_e[b_idx] <= b_wdata;
+                    if (b_addr[3] && b_addr[2])
+                        spr_c[b_idx] <= b_wdata;
+                end
             end else begin
                 vid_prog_b_rdata <= b_addr[3]
                     ? {16'd0, sp_overrun}
@@ -122,15 +152,23 @@ module vid_prog (
         vid_prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
     end
 
+    /* The sprite stage only ever asks for words 2 and 3 — its index
+     * carries a hard 1 in the word's high bit — so its two arrays
+     * answer together and the low bit picks between them. */
+    logic [31:0] s_e_q, s_c_q;
+    logic s_half_q;
     always_ff @(posedge clk) begin
-        vid_prog_p_entry <= prog[{p_line, p_plane, 2'b00}];
-        vid_prog_p_config <= prog[{p_line, p_plane, 2'b01}][15:0];
-        vid_prog_s_data <= prog[s_idx];
+        vid_prog_p_entry <= fill_e[{p_line, p_plane}];
+        vid_prog_p_config <= fill_c[{p_line, p_plane}];
+        s_e_q <= spr_e[s_idx[12:2]];
+        s_c_q <= spr_c[s_idx[12:2]];
+        s_half_q <= s_idx[0];
     end
+    always_comb vid_prog_s_data = s_half_q ? s_c_q : s_e_q;
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_prog;
-    always_comb unused_vid_prog = ^{b_addr[1:0]};
+    always_comb unused_vid_prog = ^{b_addr[1:0], b_wdata[31:16], s_idx[1]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
