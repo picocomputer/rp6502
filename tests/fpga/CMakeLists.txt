@@ -531,6 +531,18 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3
     )
 
+    # --- The scaler-side raster from a replayed beam ---
+    rp6502_add_test(pvideo
+        SOURCES test_pvideo.cpp
+        TIMEOUT 120)
+    verilate(test_pvideo
+        SOURCES ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+            ${RP6502_FPGA_POCKET}/pocket_video.sv
+        TOP_MODULE pocket_video
+        PREFIX Vpocket_video
+        VERILATOR_ARGS -Wall --assert -O3
+    )
+
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
