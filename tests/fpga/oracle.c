@@ -6,9 +6,13 @@
 
 #include "oracle.h"
 
+#include "emu/app/rand.h"
 #include "emu/emu/rom.h"
+#include "emu/hid/kbd.h"
 #include "emu/main.h"
 #include "emu/sys/com.h"
+#include "emu/sys/cpu.h"
+#include "emu/sys/mem.h"
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 
@@ -77,4 +81,24 @@ void oracle_canvas_size(int *width, int *height)
 unsigned long oracle_frame_count(void)
 {
     return sys_frame_count();
+}
+
+void oracle_key(uint8_t hid_keycode, bool down)
+{
+    kbd_hid_set(hid_keycode, down);
+}
+
+bool oracle_halted(void)
+{
+    return cpu_halted();
+}
+
+void oracle_seed(uint64_t seed)
+{
+    rand_set_seed(seed);
+}
+
+uint8_t oracle_xram(uint16_t addr)
+{
+    return xram[addr];
 }

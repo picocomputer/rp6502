@@ -9,6 +9,7 @@
  */
 
 #include "com.h"
+#include "kbd.h"
 #include "main.h"
 #include "mmio.h"
 #include "rom.h"
@@ -25,6 +26,8 @@
 #include "vga/modes/mode2.h"
 #include "vga/modes/mode3.h"
 #include "vga/term/term.h"
+
+#include <pico/rand.h>
 
 #include <stdint.h>
 
@@ -111,10 +114,9 @@ bool ria_active(void)
 
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
 {
-    /* HID report blocks and audio arrive with their devices. */
-    (void)channel;
-    (void)address;
-    (void)word;
+    /* HID report blocks; the other devices arrive with their engines. */
+    if (channel == 0 && address == 0)
+        return kbd_set_xram(word);
     return false;
 }
 
@@ -176,6 +178,23 @@ bool main_api(uint8_t operation)
     {
     case 0x01:
         return pix_api_xreg();
+    case 0x04:
+        return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+    case 0x06:
+        if (!api_set_errno_opt(API_A))
+            return api_return_errno(API_EINVAL);
+        return api_return_ax(0);
+    case 0x0A:
+        /* Attributes grow with their engines; these two exist now. */
+        switch (API_A)
+        {
+        case 0x00:
+            return api_return_axsreg(api_get_errno_opt());
+        case 0x04:
+            return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+        default:
+            return api_return_errno(API_EINVAL);
+        }
     case 0x14:
         return std_api_open();
     case 0x15:
@@ -266,14 +285,29 @@ int main(void)
 
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the manifold
-     * moves the console bytes. Quiet after the syscalls means the work is
-     * done — a simulation-only exit. */
+     * moves the console bytes. Quiet with the 6502 stopped or halted
+     * means the work is done — a simulation-only exit. */
     uint32_t quiet = 0;
     uint32_t moved = com_moved();
     for (uint32_t spins = 0; spins < 8000000u; spins++)
     {
         if (API_PENDING)
+        {
+            /* ZXSTACK and EXIT run inside the $FFEF write on the RIA
+             * and the emulator; here the pending strobe is that write. */
             API_PENDING = 0;
+            if (API_OP == 0x00)
+            {
+                xstack_ptr = XSTACK_SIZE;
+                api_return_ax(0);
+            }
+            else if (API_OP == 0xFF)
+            {
+                CPU_RUN = 0;
+                api_return_ax(0);
+            }
+        }
+        kbd_task();
         std_task();
         com_task();
         rln_task();
@@ -285,7 +319,7 @@ int main(void)
             moved = com_moved();
             quiet = 0;
         }
-        else if (!API_BUSY && ++quiet > 2000)
+        else if (!API_BUSY && (CPU_RUN & 3) != 1 && ++quiet > 2000)
         {
             break;
         }

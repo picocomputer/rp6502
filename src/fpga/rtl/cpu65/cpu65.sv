@@ -32,7 +32,8 @@ module cpu65
     output logic [15:0] cpu65_addr,
     output logic [7:0] cpu65_data,
     output logic cpu65_we,
-    output logic cpu65_sync
+    output logic cpu65_sync,
+    output logic cpu65_stp
 );
 
     // P flag bits
@@ -65,6 +66,7 @@ module cpu65
     logic brk_res /*verilator public_flat_rw*/;
     logic wait_flag /*verilator public_flat_rw*/;
     logic stop_flag /*verilator public_flat_rw*/;
+    always_comb cpu65_stp = stop_flag;
     logic nmi_prev /*verilator public_flat_rw*/;
     // The power-on one-shot only: the C model comes out of init with RES
     // pending for its first SYNC. At runtime RES is a level sampled at SYNC,

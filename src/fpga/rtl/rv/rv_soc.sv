@@ -21,6 +21,9 @@
  *       hardware); the firmware's time_us_64 reads hi-lo-hi
  *   +24 staged ROM length in bytes: the platform sets it after filling
  *       the staging window, the firmware writes 0 once consumed
+ *   +28 HID key event: bit 9 valid, bit 8 down, low byte the HID
+ *       keycode; popped by the read; the testbench fills it now, the
+ *       APF input bridge will later
  *
  * Everything outside the TCM and the local page goes out the system bus,
  * with one wait state so the machine's single-cycle devices — SRAM port B,
@@ -217,6 +220,8 @@ module rv_soc #(
 
     logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
     logic mmio_kbd_valid /*verilator public_flat_rw*/;
+    logic [8:0] mmio_key_data /*verilator public_flat_rw*/;
+    logic mmio_key_valid /*verilator public_flat_rw*/;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
     logic [63:0] mtime_us;
@@ -242,6 +247,7 @@ module rv_soc #(
                 5'h10: hrdata = mtime_us[31:0];
                 5'h14: hrdata = mtime_us[63:32];
                 5'h18: hrdata = mmio_slot_len;
+                5'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
                 default: hrdata = 32'h0;
             endcase
         else
@@ -256,11 +262,15 @@ module rv_soc #(
             rv_soc_exit_code <= 32'h0;
             mmio_kbd_valid <= 1'b0;
             mmio_kbd_data <= 8'h00;
+            mmio_key_valid <= 1'b0;
+            mmio_key_data <= 9'h000;
             mmio_slot_len <= 32'h0;
         end else begin
             rv_soc_tx_valid <= 1'b0;
             if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h08)
                 mmio_kbd_valid <= 1'b0;
+            if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h1C)
+                mmio_key_valid <= 1'b0;
             if (dph_active && dph_write && dph_mmio) begin
                 case (mmio_reg)
                     5'h00: begin

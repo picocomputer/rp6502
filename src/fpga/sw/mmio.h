@@ -17,6 +17,7 @@
 #define MTIME_LO (*(volatile uint32_t *)0xF0000010u)
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
+#define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)

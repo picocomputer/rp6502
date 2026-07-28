@@ -34,6 +34,15 @@ extern "C"
 
     unsigned long oracle_frame_count(void);
 
+    /* HID keyboard event and the EXIT-halt state, for interactive ROMs. */
+    void oracle_key(uint8_t hid_keycode, bool down);
+    bool oracle_halted(void);
+
+    /* Pin the entropy stream to the RTL firmware's, and peek XRAM — the
+     * anchor a test synchronizes both machines' key timing against. */
+    void oracle_seed(uint64_t seed);
+    uint8_t oracle_xram(uint16_t addr);
+
     /* Console capture: arm before running, read back what the machine
      * sent to the terminal — the RTL comparison stream. */
     void oracle_tap_start(void);

@@ -207,9 +207,9 @@ if(verilator_FOUND)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c
-            ${SW_SRC}/mem.c ${SW_SRC}/pix.c ${SW_SRC}/rom.c
-            ${SW_SRC}/time.c ${SW_SRC}/trap.c ${SW_SRC}/vga.c
-            ${SW_SRC}/vid.c
+            ${SW_SRC}/kbd.c ${SW_SRC}/mem.c ${SW_SRC}/pix.c
+            ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
+            ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
             ${RP6502_SRC}/ria/api/api.c
             ${RP6502_SRC}/ria/api/std.c
             ${RP6502_SRC}/ria/str/rln.c
@@ -363,6 +363,24 @@ if(verilator_FOUND)
             TIMEOUT 300)
         add_dependencies(test_mode3 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode3
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # The real mode2.rp6502 run to its EXIT by injected key events,
+        # final frame pixel-exact vs the oracle.
+        rp6502_add_test(mode2_rom
+            SOURCES test_mode2_rom.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            FIXTURE mode2.rp6502
+            TIMEOUT 600)
+        add_dependencies(test_mode2_rom sw_bin cpu65_rom vid_font_rom vid_palette_rom)
+        verilate(test_mode2_rom
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502

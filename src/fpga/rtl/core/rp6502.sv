@@ -85,6 +85,7 @@ module rp6502
 
     /* The 6502 runs when the OS says so; cpu_run is its inverted RESB. */
     logic cpu_run /*verilator public_flat_rw*/;
+    logic cpu_stp;
 
     cpu65 cpu (
         .clk(clk_sys),
@@ -98,7 +99,8 @@ module rp6502
         .cpu65_addr(cpu_addr),
         .cpu65_data(cpu_dout),
         .cpu65_we(cpu_we),
-        .cpu65_sync(cpu_sync)
+        .cpu65_sync(cpu_sync),
+        .cpu65_stp(cpu_stp)
     );
 
     logic sel_via, sel_ria, sel_open;
@@ -226,7 +228,7 @@ module rp6502
     always_comb begin
         case (bus_rsel)
             3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
-                : {7'b0, cpu_run};
+                : {6'b0, cpu_stp, cpu_run};
             3'd3: bus_rbyte = stage_rdata;
             3'd5: bus_rbyte = xram_b_rdata;
             default: bus_rbyte = sram_b_rdata;
