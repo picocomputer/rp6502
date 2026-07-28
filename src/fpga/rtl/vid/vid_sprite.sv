@@ -82,7 +82,7 @@ module vid_sprite (
     logic [1:0] fg;
     logic [9:0] clr;
 
-    /* The mode 5 engine; mode 4 joins it here. */
+    /* The two sprite engines; the slot's mode bits pick one. */
     logic m5_start;
     logic m5_a_req;
     logic [13:0] m5_a_addr;
@@ -109,15 +109,43 @@ module vid_sprite (
         .vid_mode5_px_data(m5_px_data),
         .vid_mode5_done(m5_done)
     );
+    logic m4_start;
+    logic m4_a_req;
+    logic [13:0] m4_a_addr;
+    logic m4_px_we;
+    logic [9:0] m4_px_addr;
+    logic [15:0] m4_px_data;
+    logic m4_done;
+    vid_mode4 vid_mode4 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(m4_start),
+        .abort_i(line_start),
+        .cfg(slot_cfg[p][15:0]),
+        .length(slot_cfg[p][31:16]),
+        .t_row(t_row),
+        .cw(cw),
+        .vid_mode4_a_req(m4_a_req),
+        .vid_mode4_a_addr(m4_a_addr),
+        .a_gnt(a_gnt),
+        .a_rdata(a_rdata),
+        .vid_mode4_px_we(m4_px_we),
+        .vid_mode4_px_addr(m4_px_addr),
+        .vid_mode4_px_data(m4_px_data),
+        .vid_mode4_done(m4_done)
+    );
+
+    logic sp_is4;
+    always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
 
     always_comb begin
-        vid_sprite_a_req = state == SP_RUN && m5_a_req;
-        vid_sprite_a_addr = m5_a_addr;
+        vid_sprite_a_req = state == SP_RUN && (sp_is4 ? m4_a_req : m5_a_req);
+        vid_sprite_a_addr = sp_is4 ? m4_a_addr : m5_a_addr;
     end
 
     logic sp_en;
     always_comb sp_en = slot_entry[p][31]
-        && slot_entry[p][18:16] == 3'd5;
+        && (slot_entry[p][18:16] == 3'd5 || sp_is4);
 
     always_comb begin
         vid_sprite_plane = state == SP_CLEAR ? p : fg;
@@ -127,9 +155,9 @@ module vid_sprite (
         if (state == SP_CLEAR)
             vid_sprite_we = 1'b1;
         else if (state == SP_RUN) begin
-            vid_sprite_we = m5_px_we;
-            vid_sprite_addr = m5_px_addr;
-            vid_sprite_data = m5_px_data;
+            vid_sprite_we = sp_is4 ? m4_px_we : m5_px_we;
+            vid_sprite_addr = sp_is4 ? m4_px_addr : m5_px_addr;
+            vid_sprite_data = sp_is4 ? m4_px_data : m5_px_data;
         end
     end
 
@@ -159,14 +187,17 @@ module vid_sprite (
             fg_v <= 1'b0;
             fg <= '0;
             clr <= '0;
+            m4_start <= 1'b0;
             m5_start <= 1'b0;
             vid_sprite_force <= 1'b0;
         end else begin
+            m4_start <= 1'b0;
             m5_start <= 1'b0;
             vid_sprite_force <= 1'b0;
             /* The same deadline the fills answer to. */
             if (h == 10'd799 && state != SP_IDLE)
-                $fatal(1, "vid_sprite underrun");
+                $fatal(1, "vid_sprite underrun st=%0d p=%0d fg=%0d e=%08X",
+                       state, p, fg, slot_entry[p]);
             if (line_start) begin
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
                 s_n <= '0;
@@ -211,7 +242,10 @@ module vid_sprite (
                             clr <= '0;
                             state <= SP_CLEAR;
                         end else begin
-                            m5_start <= 1'b1;
+                            if (sp_is4)
+                                m4_start <= 1'b1;
+                            else
+                                m5_start <= 1'b1;
                             state <= SP_RUN;
                         end
                     end
@@ -221,12 +255,15 @@ module vid_sprite (
                             vid_sprite_force <= 1'b1;
                             fg_v <= 1'b1;
                             fg <= p;
-                            m5_start <= 1'b1;
+                            if (sp_is4)
+                                m4_start <= 1'b1;
+                            else
+                                m5_start <= 1'b1;
                             state <= SP_RUN;
                         end
                     end
                     SP_RUN: begin
-                        if (m5_done)
+                        if (sp_is4 ? m4_done : m5_done)
                             next_plane();
                     end
                     default: state <= SP_IDLE;

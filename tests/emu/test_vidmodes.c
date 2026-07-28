@@ -193,4 +193,24 @@ UTEST(vidmodes, mode5_64x64)
     run_case(utest_result, "mode5_64x64", 320, 180);
 }
 
+UTEST(vidmodes, mode4_8)
+{
+    run_case(utest_result, "mode4_8", 320, 240);
+}
+
+UTEST(vidmodes, mode4_meta16)
+{
+    run_case(utest_result, "mode4_meta16", 320, 240);
+}
+
+UTEST(vidmodes, mode4_32)
+{
+    run_case(utest_result, "mode4_32", 640, 480);
+}
+
+UTEST(vidmodes, mode4_64)
+{
+    run_case(utest_result, "mode4_64", 320, 180);
+}
+
 UTEST_MAIN_EMU()

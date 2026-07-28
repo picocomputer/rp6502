@@ -180,6 +180,36 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
         chunks)
 
 
+def mode4(name, canvas, plane, log_size, sprites,
+          extra_progs=(), extra_chunks=()):
+    # sprites: (x, y, image_index, has_metadata). Every image carries a
+    # metadata block — a word per row, sparse spans on even rows and
+    # continuous full rows on odd — read only by the sprites that ask.
+    size = 1 << log_size
+    stride = size * size * 2 + size * 4
+    img_base = 0x4000
+    cfg = bytearray()
+    for x, y, im, meta in sprites:
+        cfg += le16(x, y, img_base + im * stride)
+        cfg += bytes((log_size, 1 if meta else 0))
+    chunks = [(0x0100, cfg)]
+    for im in range(max(s[2] for s in sprites) + 1):
+        img = le16(*(((im * 47 + t * 13 + 5) & 0xFFFF)
+                     for t in range(size * size)))
+        meta = bytearray()
+        for r in range(size):
+            if r & 1:
+                word = (1 << 31) | size
+            else:
+                word = (2 << 16) | (size - 2)
+            meta += word.to_bytes(4, "little")
+        chunks.append((img_base + im * stride, img + meta))
+    chunks += list(extra_chunks)
+    rom(name, canvas,
+        list(extra_progs) + [(4, 0, 0x0100, len(sprites), plane, 0, 0)],
+        chunks)
+
+
 def composite(name):
     # Plane 0: a mode 3 8bpp bitmap, the opaque base. Plane 1: mode 2
     # 1bpp tiles over it, color_2's transparent zero showing the base
@@ -255,18 +285,45 @@ mode5("mode5_8x8", 1, 3, 0, [
 ])
 mode5("mode5_16x16", 1, 9, 0, [
     (30, 40, 0, 0), (60, 50, 1, "half"), (90, 60, 0, 0),
-], extra_progs=[(3, 3, 0x0110, 0, 0, 0)],
+], extra_progs=[(3, 3, 0x01A0, 0, 0, 0)],
     extra_chunks=[
-        (0x0110, bytearray((0, 0)) + le16(20, 30, 80, 60, 0x2000, 0xFFFF)),
+        (0x01A0, bytearray((0, 0)) + le16(20, 30, 80, 60, 0x2000, 0xFFFF)),
         (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(80 * 60))),
 ])
 mode5("mode5_32x32", 3, 18, 0, [
     (50, 50, 0, 0), (300, 120, 1, 1), (620, 200, 0, 0),
 ], n_pals=2,
-    extra_progs=[(1, 0, 0x0110, 2, 0, 0)],
+    extra_progs=[(1, 0, 0x01A0, 2, 0, 0)],
     extra_chunks=[
-        (0x0110, bytearray((0, 0))
+        (0x01A0, bytearray((0, 0))
          + le16(250, 100, 12, 4, 0x2000, 0xFFFF, 0xFFFF)),
         (0x2000, bytes(ord("A") + i % 60 for i in range(12 * 4))),
 ])
 mode5("mode5_64x64", 2, 27, 1, [(-20, 100, 0, 0), (280, 150, 0, 0)])
+
+# Mode 4: raw sixteen-bit sprites — alpha-gated texels, opacity
+# metadata's narrowed and continuous rows, clips off every edge, the
+# same foreground walk from sprite-only, over-fill, and cross-plane
+# slots.
+mode4("mode4_8", 1, 0, 3, [
+    (12, 22, 0, False), (16, 26, 1, False),
+    (-5, 70, 0, False), (315, 100, 1, False),
+    (150, -3, 0, False), (90, 234, 1, False),
+    (500, 10, 0, False),
+])
+mode4("mode4_meta16", 1, 0, 4, [
+    (30, 40, 0, True), (70, 60, 1, True), (-6, 90, 0, True),
+], extra_progs=[(3, 3, 0x01A0, 0, 0, 0)],
+    extra_chunks=[
+        (0x01A0, bytearray((0, 0)) + le16(20, 30, 80, 60, 0x2000, 0xFFFF)),
+        (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(80 * 60))),
+])
+mode4("mode4_32", 3, 1, 5, [
+    (100, 80, 0, True), (620, 300, 1, False),
+], extra_progs=[(3, 2, 0x01A0, 0, 0, 0)],
+    extra_chunks=[
+        (0x01A0, bytearray((0, 0)) + le16(60, 40, 200, 150, 0x2000, 0xFFFF)),
+        (0x2000, bytes((i * 13 + 7) & 0xFF
+                       for i in range((200 * 4 + 7) // 8 * 150))),
+])
+mode4("mode4_64", 2, 2, 6, [(-30, 60, 0, False), (270, 120, 0, True)])
