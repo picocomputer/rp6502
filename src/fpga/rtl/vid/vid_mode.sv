@@ -280,10 +280,13 @@ module vid_mode (
             m3_start <= 1'b0;
             m2_start <= 1'b0;
             m1_start <= 1'b0;
+            /* The beam's true deadline: the next line's pixel 0 is read
+             * during h==799, so the flip must have landed before it. A
+             * completion during h==799 would silently scan a stale first
+             * pixel; the pipelines' own aborts fire later. */
+            if (h == 10'd799 && state != S_IDLE)
+                $fatal(1, "vid_mode underrun");
             if (line_start) begin
-                /* The beam's deadline; the pipelines assert their own. */
-                if (state == S_BLANK && px != cw)
-                    $fatal(1, "vid_mode underrun");
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
                 if (flip_next)
                     wr_bank <= !wr_bank;

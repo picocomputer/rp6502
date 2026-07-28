@@ -127,7 +127,7 @@ static void run_case(int *utest_result, const char *name)
     ASSERT_EQ(memcmp(fb[0], fb[1], sizeof(fb[0])), 0);
 
     int xs = ow == 320 ? 1 : 0;
-    int ys = oh == 480 ? 0 : 1;
+    int ys = (oh == 240 || oh == 180) ? 1 : 0;
     int yo = (oh == 180 || oh == 360) ? 60 : 0;
     int diffs = 0;
     for (int y = 0; y < 480; y++)
@@ -173,6 +173,26 @@ UTEST(mode2, bpp8_16px_wrap_320x180)
 UTEST(mode2, composite_three_planes_320x240)
 {
     run_case(utest_result, "mode2_composite");
+}
+
+UTEST(mode2, bpp2_16px_both_trims_320x240)
+{
+    run_case(utest_result, "mode2_16trim");
+}
+
+UTEST(mode2, bpp4_8px_xtrim_640x480)
+{
+    run_case(utest_result, "mode2_trimx");
+}
+
+UTEST(mode2, bpp8_8px_xtrim_320x180)
+{
+    run_case(utest_result, "mode2_trimx8");
+}
+
+UTEST(mode2, bpp1_8px_ytrim_320x180)
+{
+    run_case(utest_result, "mode2_trimy");
 }
 
 UTEST_STATE();

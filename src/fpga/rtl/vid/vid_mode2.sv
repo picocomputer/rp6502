@@ -81,15 +81,16 @@ module vid_mode2
         row_bytes = 5'((8'({3'd0, eff_w} << bpp_log) + 8'd7) >> 3);
     end
 
-    logic [19:0] width_px, height_px;
+    /* The oracle computes these in int16, overflow and all. */
+    logic [15:0] width_px, height_px;
     always_comb begin
-        width_px = 20'(20'(cf_width[14:0]) * 20'({15'd0, eff_w}));
-        height_px = 20'(20'(cf_height[14:0]) * 20'({15'd0, tile_h}));
+        width_px = 16'(16'(cf_width) * 16'({11'd0, eff_w}));
+        height_px = 16'(16'(cf_height) * 16'({11'd0, tile_h}));
     end
     logic signed [20:0] win_w_s, height_px_s;
     always_comb begin
-        win_w_s = $signed({1'b0, width_px});
-        height_px_s = $signed({1'b0, height_px});
+        win_w_s = $signed({{5{width_px[15]}}, width_px});
+        height_px_s = $signed({{5{height_px[15]}}, height_px});
     end
 
     typedef enum logic [3:0] {
@@ -103,6 +104,11 @@ module vid_mode2
     logic [16:0] row_base;
     logic signed [20:0] col;
     logic [9:0] px /*verilator public_flat_rd*/;
+
+    /* int16 like the oracle: ±32768 wraps before the fold sees it. */
+    logic [15:0] row16, col16;
+    always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
+    always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
     /* The restoring divider for trimmed geometry: twenty steps resolve a
      * quotient the shift path cannot. */
@@ -127,7 +133,11 @@ module vid_mode2
     logic [8:0] pal_n;
     logic [8:0] pal_words;
     always_comb pal_words = 9'd1 << ((5'd1 << bpp_log) - 5'd1);
-    logic [6:0] pal_w;
+    /* A halfword-aligned palette straddles one more word, entry 0 in the
+     * first word's high half. */
+    logic [8:0] pal_fetch;
+    always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
+    logic [7:0] pal_w;
 
     /* The tile prefetcher: the next tile's map byte, then its row bytes —
      * up to sixteen across five words — gather while the current tile's
@@ -185,7 +195,7 @@ module vid_mode2
         vid_mode2_a_addr = taddr[15:2] + {11'd0, fw_i};
         case (state)
             S2_PAL: begin
-                vid_mode2_a_req = pal_xram && pal_n < pal_words;
+                vid_mode2_a_req = pal_xram && pal_n < pal_fetch;
                 vid_mode2_a_addr = cf_palette[15:2] + {5'd0, pal_n};
             end
             S2_RUN: begin
@@ -255,9 +265,8 @@ module vid_mode2
                            px, col, state, fstate, nxt_v, cur_v, fetch_tile,
                            fw_i, fw_c, fw_n, taddr, tile_id);
             end else if (start) begin
-                row <= 21'($signed({12'd0, t_row})
-                           - $signed({{5{cf_y_pos[15]}}, cf_y_pos}));
-                col <= -$signed({{5{cf_x_pos[15]}}, cf_x_pos});
+                row <= $signed({{5{row16[15]}}, row16});
+                col <= $signed({{5{col16[15]}}, col16});
                 px <= '0;
                 cur_v <= 1'b0;
                 nxt_v <= 1'b0;
@@ -270,8 +279,9 @@ module vid_mode2
                     S2_WRAP: begin
                         /* Iterative wraparound; sane configs settle in a
                          * step or two, and the beam's deadline bounds the
-                         * pathological ones. */
-                        if (cf_width < 16'sd1 || cf_height < 16'sd1)
+                         * pathological ones. The oracle rejects on the
+                         * int16 height, not the tile count. */
+                        if (cf_width < 16'sd1 || height_px_s < 21'sd1)
                             state <= S2_BLANK;
                         else if (cf_y_wrap && row < 0)
                             row <= row + height_px_s;
@@ -356,10 +366,21 @@ module vid_mode2
                             if (a_gnt)
                                 pal_n <= pal_n + 9'd1;
                             if (gnt_d) begin
-                                palram[{pal_w, 1'b0}] <= a_rdata[15:0];
-                                palram[{pal_w, 1'b1}] <= a_rdata[31:16];
-                                pal_w <= pal_w + 7'd1;
-                                if ({2'd0, pal_w} == pal_words - 9'd1)
+                                if (!cf_palette[1]) begin
+                                    palram[{pal_w[6:0], 1'b0}]
+                                        <= a_rdata[15:0];
+                                    palram[{pal_w[6:0], 1'b1}]
+                                        <= a_rdata[31:16];
+                                end else begin
+                                    if (pal_w != 8'd0)
+                                        palram[{7'(pal_w - 8'd1), 1'b1}]
+                                            <= a_rdata[15:0];
+                                    if ({1'b0, pal_w} != pal_words)
+                                        palram[{pal_w[6:0], 1'b0}]
+                                            <= a_rdata[31:16];
+                                end
+                                pal_w <= pal_w + 8'd1;
+                                if ({1'b0, pal_w} == pal_fetch - 9'd1)
                                 begin
                                     state <= S2_RUN;
                                     fstate <= F2_IDLE;

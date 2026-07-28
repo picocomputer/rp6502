@@ -72,8 +72,9 @@ module vid_mode1
             default: begin cell_size = 3'd6; pal_bpp = 4'd0; end
         endcase
     end
-    logic [16:0] width_px;
-    always_comb width_px = {6'd0, cf_wchars[10:0]} << 3;
+    /* The oracle computes these in int16, overflow and all. */
+    logic [15:0] width_px;
+    always_comb width_px = 16'(cf_wchars) << 3;
 
     typedef enum logic [2:0] {
         S1_IDLE, S1_WRAP, S1_ADDR, S1_PAL, S1_RUN, S1_BLANK
@@ -88,12 +89,21 @@ module vid_mode1
     logic signed [16:0] col;
     logic [9:0] px /*verilator public_flat_rd*/;
 
+    /* int16 like the oracle: ±32768 wraps before the fold sees it. */
+    logic [15:0] row16, col16;
+    always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
+    always_comb col16 = 16'd0 - 16'(cf_x_pos);
+
     logic [15:0] palram[256];
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
     always_comb pal_words = 9'd1 << (pal_bpp - 4'd1);
-    logic [6:0] pal_w;
+    /* A halfword-aligned palette straddles one more word, entry 0 in the
+     * first word's high half. */
+    logic [8:0] pal_fetch;
+    always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
+    logic [7:0] pal_w;
 
     logic font_xram;
     always_comb font_xram = {1'b0, cf_font}
@@ -162,7 +172,7 @@ module vid_mode1
         : VID_FONT8[{g_glyph, scanrow[2:0]}];
 
     logic signed [17:0] win_w;
-    always_comb win_w = $signed({1'b0, width_px});
+    always_comb win_w = $signed({{2{width_px[15]}}, width_px});
     logic in_window;
     always_comb in_window = col >= 0 && 18'(col) < win_w;
 
@@ -172,7 +182,7 @@ module vid_mode1
         case (state)
             S1_PAL: begin
                 vid_mode1_a_req = pal_xram && pal_bpp != 4'd0
-                    && pal_n < pal_words;
+                    && pal_n < pal_fetch;
                 vid_mode1_a_addr = cf_palette[15:2] + {5'd0, pal_n};
             end
             S1_RUN: begin
@@ -247,11 +257,10 @@ module vid_mode1
                 if (state != S1_IDLE)
                     $fatal(1, "vid_mode1 underrun px=%0d col=%0d st=%0d f=%0d nxt=%0d cur=%0d fc=%0d", px, col, state, fstate, nxt_v, cur_v, fetch_col);
             end else if (start) begin
-                row <= $signed({7'd0, t_row})
-                    - $signed({cf_y_pos[15], cf_y_pos});
+                row <= $signed({row16[15], row16});
                 sizeof_row <= 20'(17'(cf_wchars[15:0])
                                   * {14'd0, cell_size});
-                col <= -$signed({cf_x_pos[15], cf_x_pos});
+                col <= $signed({col16[15], col16});
                 px <= '0;
                 cur_v <= 1'b0;
                 nxt_v <= 1'b0;
@@ -262,7 +271,9 @@ module vid_mode1
                 case (state)
                     S1_IDLE: ;
                     S1_WRAP: begin
-                        if (cf_wchars < 16'sd1 || cf_hchars < 16'sd1)
+                        /* The oracle rejects on the int16 height, not the
+                         * char count. */
+                        if (cf_wchars < 16'sd1 || height_px_s < 18'sd1)
                             state <= S1_BLANK;
                         else if (cf_y_wrap && row < 0)
                             row <= 17'(18'(row) + height_px_s);
@@ -306,10 +317,21 @@ module vid_mode1
                             if (a_gnt)
                                 pal_n <= pal_n + 9'd1;
                             if (gnt_d) begin
-                                palram[{pal_w, 1'b0}] <= a_rdata[15:0];
-                                palram[{pal_w, 1'b1}] <= a_rdata[31:16];
-                                pal_w <= pal_w + 7'd1;
-                                if ({2'd0, pal_w} == pal_words - 9'd1)
+                                if (!cf_palette[1]) begin
+                                    palram[{pal_w[6:0], 1'b0}]
+                                        <= a_rdata[15:0];
+                                    palram[{pal_w[6:0], 1'b1}]
+                                        <= a_rdata[31:16];
+                                end else begin
+                                    if (pal_w != 8'd0)
+                                        palram[{7'(pal_w - 8'd1), 1'b1}]
+                                            <= a_rdata[15:0];
+                                    if ({1'b0, pal_w} != pal_words)
+                                        palram[{pal_w[6:0], 1'b0}]
+                                            <= a_rdata[31:16];
+                                end
+                                pal_w <= pal_w + 8'd1;
+                                if ({1'b0, pal_w} == pal_fetch - 9'd1)
                                 begin
                                     state <= S1_RUN;
                                     fstate <= F_IDLE;
@@ -424,11 +446,10 @@ module vid_mode1
         end
     end
 
-    logic [16:0] height_px;
-    always_comb height_px = {5'd0, cf_hchars[11:0]}
-        << (fh16 ? 4'd4 : 4'd3);
+    logic [15:0] height_px;
+    always_comb height_px = 16'(cf_hchars) << (fh16 ? 4'd4 : 4'd3);
     logic signed [17:0] height_px_s;
-    always_comb height_px_s = $signed({1'b0, height_px});
+    always_comb height_px_s = $signed({{2{height_px[15]}}, height_px});
 
     /* The next cell the fetcher gathers, advanced on every handoff. */
     logic [15:0] fetch_col;

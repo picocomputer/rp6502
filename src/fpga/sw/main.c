@@ -163,7 +163,9 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
         }
         return true;
     }
-    return false;
+    /* Channels 1-14 reach external bus devices with no ACK; none exist,
+     * so a no-op success — the emulator's rule. */
+    return true;
 }
 
 const std_driver_t *main_std_drivers(size_t *count)

@@ -92,8 +92,7 @@ module vid_prog (
     always_comb begin
         vid_prog_console = vid_prog_canvas == 3'd0;
         vid_prog_x_shift = vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2;
-        vid_prog_y_shift = vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2
-            || vid_prog_canvas == 3'd4;
+        vid_prog_y_shift = vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2;
         vid_prog_y_offset = (vid_prog_canvas == 3'd2
                              || vid_prog_canvas == 3'd4) ? 10'd60 : 10'd0;
         vid_prog_vsync_pulse = h == 10'd0 && v == vsync_q;

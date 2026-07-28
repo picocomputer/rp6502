@@ -43,7 +43,10 @@ static void run_case(int *utest_result, const char *name, int width, int height)
         if (fb[i] == 0xFF000000u)
             n_black++;
     ASSERT_LT(n_black, total); /* the plane drew */
-    ASSERT_GT(n_black, (size_t)0); /* on a black canvas around it */
+    /* A wraparound window tiles the whole canvas; every other window
+     * leaves black around itself. */
+    if (!strstr(name, "wrap"))
+        ASSERT_GT(n_black, (size_t)0);
 
     memcpy(settled, fb, total * sizeof(uint32_t));
     run_frames(5);
@@ -118,6 +121,56 @@ UTEST(vidmodes, mode2_8bpp16wrap)
 UTEST(vidmodes, mode2_composite)
 {
     run_case(utest_result, "mode2_composite", 320, 240);
+}
+
+UTEST(vidmodes, mode3_2bpp)
+{
+    run_case(utest_result, "mode3_2bpp", 320, 240);
+}
+
+UTEST(vidmodes, mode3_4bpp)
+{
+    run_case(utest_result, "mode3_4bpp", 640, 480);
+}
+
+UTEST(vidmodes, mode3_1bppr)
+{
+    run_case(utest_result, "mode3_1bppr", 320, 180);
+}
+
+UTEST(vidmodes, mode3_2bppr)
+{
+    run_case(utest_result, "mode3_2bppr", 640, 360);
+}
+
+UTEST(vidmodes, mode3_wrap)
+{
+    run_case(utest_result, "mode3_wrap", 320, 240);
+}
+
+UTEST(vidmodes, mode1_wrap)
+{
+    run_case(utest_result, "mode1_wrap", 320, 240);
+}
+
+UTEST(vidmodes, mode2_16trim)
+{
+    run_case(utest_result, "mode2_16trim", 320, 240);
+}
+
+UTEST(vidmodes, mode2_trimx)
+{
+    run_case(utest_result, "mode2_trimx", 640, 480);
+}
+
+UTEST(vidmodes, mode2_trimx8)
+{
+    run_case(utest_result, "mode2_trimx8", 320, 180);
+}
+
+UTEST(vidmodes, mode2_trimy)
+{
+    run_case(utest_result, "mode2_trimy", 320, 180);
 }
 
 UTEST_MAIN_EMU()

@@ -85,14 +85,24 @@ module vid_mode3
     logic signed [16:0] col;
     logic [9:0] px /*verilator public_flat_rd*/;
 
+    /* The oracle stores these in int16, so ±32768 wraps before the
+     * wraparound fold sees it. */
+    logic [15:0] row16, col16;
+    always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
+    always_comb col16 = 16'd0 - 16'(cf_x_pos);
+
     /* Palette: XRAM snapshot or the builtin ROM at emission. */
     logic [15:0] palram[256];
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
-    /* Entry pairs per word: 2^(bpp-1) words carry the 2^bpp entries. */
+    /* Entry pairs per word: 2^(bpp-1) words carry the 2^bpp entries. A
+     * halfword-aligned palette straddles one more word, entry 0 in the
+     * first word's high half. */
     always_comb pal_words = 9'd1 << ((5'd1 << bpp_log) - 5'd1);
-    logic [6:0] pal_w;
+    logic [8:0] pal_fetch;
+    always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
+    logic [7:0] pal_w;
 
     /* The fetch pipeline: two words in flight or banked; issue counts on
      * grant, capture the clock after. */
@@ -150,7 +160,7 @@ module vid_mode3
         case (state)
             S3_PAL: begin
                 vid_mode3_a_req = pal_xram && bpp_log != 3'd4
-                    && pal_n < pal_words;
+                    && pal_n < pal_fetch;
                 vid_mode3_a_addr = cf_palette[15:2] + {5'd0, pal_n};
             end
             S3_RUN: vid_mode3_a_req = primed && in_window
@@ -207,10 +217,9 @@ module vid_mode3
                 if (state != S3_IDLE)
                     $fatal(1, "vid_mode3 underrun");
             end else if (start) begin
-                row <= $signed({7'd0, t_row})
-                    - $signed({cf_y_pos[15], cf_y_pos});
+                row <= $signed({row16[15], row16});
                 sizeof_row <= ((20'(cf_width) << bpp_log) + 20'd7) >> 3;
-                col <= -$signed({cf_x_pos[15], cf_x_pos});
+                col <= $signed({col16[15], col16});
                 px <= '0;
                 state <= S3_WRAP;
             end else begin
@@ -269,10 +278,21 @@ module vid_mode3
                             if (a_gnt)
                                 pal_n <= pal_n + 9'd1;
                             if (gnt_d) begin
-                                palram[{pal_w, 1'b0}] <= a_rdata[15:0];
-                                palram[{pal_w, 1'b1}] <= a_rdata[31:16];
-                                pal_w <= pal_w + 7'd1;
-                                if ({2'd0, pal_w} == pal_words - 9'd1)
+                                if (!cf_palette[1]) begin
+                                    palram[{pal_w[6:0], 1'b0}]
+                                        <= a_rdata[15:0];
+                                    palram[{pal_w[6:0], 1'b1}]
+                                        <= a_rdata[31:16];
+                                end else begin
+                                    if (pal_w != 8'd0)
+                                        palram[{7'(pal_w - 8'd1), 1'b1}]
+                                            <= a_rdata[15:0];
+                                    if ({1'b0, pal_w} != pal_words)
+                                        palram[{pal_w[6:0], 1'b0}]
+                                            <= a_rdata[31:16];
+                                end
+                                pal_w <= pal_w + 8'd1;
+                                if ({1'b0, pal_w} == pal_fetch - 9'd1)
                                 begin
                                     state <= S3_RUN;
                                     primed <= 1'b0;

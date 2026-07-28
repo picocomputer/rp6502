@@ -72,27 +72,32 @@ def le16(*vals):
     return b
 
 
-def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal):
-    pal_ptr = 0x0200 if xram_pal else 0xFFFF
+def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal,
+          x_wrap=False, y_wrap=False, config_ptr=0x0100, pal_ptr=0x0200):
+    if not xram_pal:
+        pal_ptr = 0xFFFF
     data_ptr = 0x0800
-    cfg = bytearray((0, 0)) + le16(x, y, w, h, data_ptr, pal_ptr)
+    cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
+        + le16(x, y, w, h, data_ptr, pal_ptr)
     bm = bytes((i * 13 + 7) & 0xFF
                for i in range(((w * bpp + 7) // 8) * h))
-    chunks = [(0x0100, cfg), (data_ptr, bm)]
+    chunks = [(config_ptr, cfg), (data_ptr, bm)]
     if xram_pal:
-        chunks.append((0x0200, le16(*((0x0020 | (i * 2657))
-                                      for i in range(1 << bpp)))))
-    rom(name, canvas, [(3, attr, 0x0100, 0)], chunks)
+        chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
+                                       for i in range(1 << bpp)))))
+    rom(name, canvas, [(3, attr, config_ptr, 0)], chunks)
 
 
-def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font):
+def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
+          x_wrap=False, y_wrap=False, pal_ptr=0x0200):
     fmt = attr & 7
     fh = 16 if attr & 8 else 8
-    pal_ptr = 0x0200 if xram_pal else 0xFFFF
+    if not xram_pal:
+        pal_ptr = 0xFFFF
     font_ptr = 0x4000 if xram_font else 0xFFFF
     data_ptr = 0x0800
-    cfg = bytearray((0, 0)) + le16(x, y, wchars, hchars, data_ptr, pal_ptr,
-                                   font_ptr)
+    cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
+        + le16(x, y, wchars, hchars, data_ptr, pal_ptr, font_ptr)
     cells = bytearray()
     for i in range(wchars * hchars):
         glyph = ord("A") + i % 60
@@ -109,19 +114,21 @@ def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font):
     chunks = [(0x0100, cfg), (data_ptr, cells)]
     if xram_pal:
         entries = 2 if fmt == 0 else (256 if fmt == 3 else 16)
-        chunks.append((0x0200, le16(*((0x0020 | (i * 2657 + 5))
-                                      for i in range(entries)))))
+        chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657 + 5))
+                                       for i in range(entries)))))
     if xram_font:
         chunks.append((0x4000, bytes((i * 7 + 3) & 0xFF
                                      for i in range(256 * fh))))
     rom(name, canvas, [(1, attr, 0x0100, 0)], chunks)
 
 
-def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal):
+def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
+          pal_ptr=0x0200):
     bpp = 1 << (attr & 3)
     tile_size = 16 if attr & 8 else 8
     n_tiles = 6
-    pal_ptr = 0x0200 if xram_pal else 0xFFFF
+    if not xram_pal:
+        pal_ptr = 0xFFFF
     data_ptr = 0x0800
     tile_ptr = 0x4000
     cfg = bytearray((1 if x_wrap else 0, 1 if y_wrap else 0)) \
@@ -132,7 +139,7 @@ def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal):
                   for t in range(n_tiles * mem_size))
     chunks = [(0x0100, cfg), (data_ptr, tmap), (tile_ptr, tiles)]
     if xram_pal:
-        chunks.append((0x0200, le16(*((0x0020 | (i * 2657))
+        chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
                                       for i in range(1 << bpp)))))
     rom(name, canvas, [(2, attr, 0x0100, 0)], chunks)
 
@@ -163,15 +170,36 @@ mode3("mode3_8bpp", 3, 3, 8, 64, 64, 10, 20, True)
 mode3("mode3_1bpp", 1, 0, 1, 64, 48, 5, 7, False)
 mode3("mode3_4bppr", 2, 10, 4, 40, 30, 0, 0, False)
 mode3("mode3_16bpp", 4, 4, 16, 32, 16, 100, 50, False)
+# The rest of the depth matrix, a halfword-aligned config and palette,
+# content below row 180 on the undoubled 640x360 canvas, wraparound with
+# negative positions, and both pointers at their exact XRAM bounds.
+mode3("mode3_2bpp", 1, 1, 2, 80, 60, 3, 5, True,
+      config_ptr=0x0102, pal_ptr=0x0202)
+mode3("mode3_4bpp", 3, 2, 4, 100, 80, 17, 9, False)
+mode3("mode3_1bppr", 2, 8, 1, 64, 40, 7, 3, False)
+mode3("mode3_2bppr", 4, 9, 2, 90, 50, 30, 200, False, config_ptr=0xFFF2)
+mode3("mode3_wrap", 1, 3, 8, 50, 40, -37, -23, True,
+      x_wrap=True, y_wrap=True, config_ptr=0xFDE2, pal_ptr=0xFE00)
 
 mode1("mode1_1bpp8x8", 3, 0, 30, 12, 4, 6, False, False)
 mode1("mode1_4bpp8x16", 1, 10, 20, 8, 8, 5, True, False)
 mode1("mode1_4bppr8x8", 2, 1, 24, 10, 0, 0, False, False)
 mode1("mode1_8bpp8x8", 1, 3, 16, 9, 3, 2, True, True)
 mode1("mode1_16bpp8x16", 4, 12, 12, 6, 40, 30, False, False)
+# Wraparound with a mid-cell window entry, halfword-aligned palette.
+mode1("mode1_wrap", 1, 0, 20, 6, -13, -9, True,
+      False, x_wrap=True, y_wrap=True, pal_ptr=0x0202)
 
 mode2("mode2_1bpp8", 3, 0x000, 60, 40, 80, 60, False, False, False)
 mode2("mode2_2bpp16", 1, 0x009, 12, 8, -15, -10, False, False, True)
 mode2("mode2_4bpp8trim", 1, 0x232, 20, 10, -7, -9, False, False, True)
 mode2("mode2_8bpp16wrap", 2, 0x00B, 12, 8, 60, 20, True, True, True)
+# Trim across the rest of the matrix: 16px tiles trimmed on both axes
+# with a halfword-aligned palette, x-only at 4bpp, x-only at 8bpp, and
+# y-only at 1bpp.
+mode2("mode2_16trim", 1, 0x359, 10, 6, 4, 2, False, False, True,
+      pal_ptr=0x0206)
+mode2("mode2_trimx", 3, 0x022, 30, 12, 12, 20, False, False, True)
+mode2("mode2_trimx8", 2, 0x013, 20, 8, 100, 50, False, False, True)
+mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 composite("mode2_composite")

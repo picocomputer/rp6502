@@ -25,6 +25,7 @@
  * matches the oracle's. */
 bool vid_mode0_prog(uint16_t *xregs)
 {
+    int16_t plane = (int16_t)xregs[2];
     int16_t scanline_begin = (int16_t)xregs[3];
     int16_t scanline_end = (int16_t)xregs[4];
     int16_t height = vga_canvas_height();
@@ -40,6 +41,10 @@ bool vid_mode0_prog(uint16_t *xregs)
     int16_t scanline_count = (int16_t)(scanline_end - scanline_begin);
     bool use_40 = height == 180 || height == 240;
     if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
+        return false;
+    /* vga_prog_valid's checks, in the oracle's order. */
+    if (plane < 0 || plane >= 3 || scanline_begin < 0 ||
+        scanline_end > height || scanline_count < 1)
         return false;
     if (use_40)
         term_set_height(40, (uint8_t)(scanline_count / 8));
