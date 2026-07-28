@@ -45,6 +45,25 @@ add_custom_command(OUTPUT ${VID_FONT_PKG} ${VID_FONT_H}
     VERBATIM)
 add_custom_target(vid_font_rom ALL DEPENDS ${VID_FONT_PKG} ${VID_FONT_H})
 
+# The builtin palettes ride the same way, from vga/term/color.c.
+set(VID_PALETTE_GEN ${RP6502_SRC}/fpga/codegen/vid_palette_gen.py)
+set(VID_PALETTE_PKG ${CMAKE_CURRENT_BINARY_DIR}/vid_palette_pkg.sv)
+set(VID_PALETTE_H ${CMAKE_CURRENT_BINARY_DIR}/vid_palette_tables.h)
+execute_process(
+    COMMAND python3 ${VID_PALETTE_GEN}
+        --emit-sv ${VID_PALETTE_PKG} --emit-h ${VID_PALETTE_H}
+    RESULT_VARIABLE VID_PALETTE_GEN_RC)
+if(VID_PALETTE_GEN_RC)
+    message(FATAL_ERROR "vid_palette_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${VID_PALETTE_PKG} ${VID_PALETTE_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${VID_PALETTE_GEN}
+        --emit-sv ${VID_PALETTE_PKG} --emit-h ${VID_PALETTE_H}
+    DEPENDS ${VID_PALETTE_GEN} ${RP6502_SRC}/vga/term/color.c
+    COMMENT "Generating the vid palette ROM"
+    VERBATIM)
+add_custom_target(vid_palette_rom ALL DEPENDS ${VID_PALETTE_PKG} ${VID_PALETTE_H})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -60,7 +79,7 @@ rp6502_add_test(font
     SOURCES test_font.cpp
     INCLUDES ${CMAKE_CURRENT_BINARY_DIR}
     LIBS fpga_oracle)
-add_dependencies(test_font vid_font_rom)
+add_dependencies(test_font vid_font_rom vid_palette_rom)
 
 # --- The verilated machine ---
 # Platform wrappers under src/fpga/platform are not verilated; the simulation
@@ -80,7 +99,9 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/rv/rv_soc.sv
         ${RP6502_FPGA_RTL}/vid/vid_timing.sv
         ${VID_FONT_PKG}
+        ${VID_PALETTE_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
+        ${RP6502_FPGA_RTL}/vid/vid_mode.sv
         ${RP6502_FPGA_RTL}/vid/vid_prog.sv
         ${RP6502_FPGA_RTL}/vid/vid_term.sv
         ${RP6502_FPGA_RTL}/vid/vid_compose.sv
@@ -290,6 +311,22 @@ if(verilator_FOUND)
             TIMEOUT 120)
         add_dependencies(test_xreg sw_bin cpu65_rom vid_font_rom)
         verilate(test_xreg
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # Mode 3 bitmaps, per depth per canvas, pixel-exact vs the oracle.
+        rp6502_add_test(mode3
+            SOURCES test_mode3.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 300)
+        add_dependencies(test_mode3 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
+        verilate(test_mode3
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502

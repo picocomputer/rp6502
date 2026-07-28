@@ -314,20 +314,41 @@ module rp6502
     );
     always_comb rp6502_scanline = vid_v;
 
-    /* The XRAM; port A idles until the mode engines arrive. Port B is the
-     * RW engine's while busy — the soft CPU's strobe waits — and the
-     * engine's background refresh yields to the soft CPU in turn. */
+    /* The XRAM. Port A rotates among the requesting mode engines; port B
+     * is the RW engine's while busy — the soft CPU's strobe waits — and
+     * the engine's background refresh yields to the soft CPU in turn. */
     logic [7:0] xram_b_rdata;
     logic xr_busy, xr_we;
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic [31:0] xram_a_unused;
-    /* verilator lint_on UNUSEDSIGNAL */
+    logic [31:0] xram_a_rdata;
+    logic [2:0] ma_req;
+    logic [13:0] ma_addr[3];
+    logic [1:0] a_rotor, a_sel;
+    logic a_any;
+    always_comb begin
+        a_sel = a_rotor;
+        a_any = 1'b0;
+        for (int i = 0; i < 3; i++) begin
+            logic [1:0] cand;
+            cand = a_rotor + 2'(i);
+            cand = cand == 2'd3 ? 2'd0 : cand;
+            if (!a_any && ma_req[cand]) begin
+                a_sel = cand;
+                a_any = 1'b1;
+            end
+        end
+    end
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            a_rotor <= 2'd0;
+        else if (a_any)
+            a_rotor <= a_sel == 2'd2 ? 2'd0 : a_sel + 2'd1;
+    end
     xram64k xram (
         .clk(clk_sys),
-        .a_addr(14'd0),
-        .xram64k_a_rdata(xram_a_unused),
+        .a_addr(ma_addr[a_sel]),
+        .xram64k_a_rdata(xram_a_rdata),
         .b_addr(xr_busy ? xr_addr : bus_addr[15:0]),
         .b_wdata(xr_busy ? xr_wdata : bus_wbyte),
         .b_we(xr_busy ? xr_we : (bus_stb && bus_we && bus_sel_xram)),
@@ -335,20 +356,27 @@ module rp6502
     );
 
     logic [31:0] vid_prog_b_rdata;
-    logic [8:0] unused_p_line;
-    logic [1:0] unused_p_plane;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic [31:0] unused_p_entry;
-    logic [15:0] unused_p_config;
-    logic unused_prog_geo;
-    /* verilator lint_on UNUSEDSIGNAL */
     logic [2:0] vid_canvas;
     logic vid_console, vid_x_shift, vid_y_shift;
     logic [9:0] vid_y_offset;
-    always_comb unused_p_line = 9'd0;
-    always_comb unused_p_plane = 2'd0;
-    always_comb unused_prog_geo = ^{vid_canvas, vid_console, vid_x_shift,
-                                    vid_y_shift, vid_y_offset};
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_prog_geo;
+    /* verilator lint_on UNUSEDSIGNAL */
+    always_comb unused_prog_geo = ^{vid_canvas};
+
+    /* The prog read port rotates through the planes; each engine waits
+     * for its slot and captures the entry the clock after. */
+    logic [1:0] p_rotor;
+    logic [8:0] pm_line[3];
+    logic [31:0] pm_entry;
+    logic [15:0] pm_config;
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            p_rotor <= 2'd0;
+        else
+            p_rotor <= p_rotor == 2'd2 ? 2'd0 : p_rotor + 2'd1;
+    end
+
     vid_prog vid_prog (
         .clk(clk_sys),
         .rst_n(rst_n),
@@ -361,10 +389,10 @@ module rp6502
         .vid_prog_x_shift(vid_x_shift),
         .vid_prog_y_shift(vid_y_shift),
         .vid_prog_y_offset(vid_y_offset),
-        .p_line(unused_p_line),
-        .p_plane(unused_p_plane),
-        .vid_prog_p_entry(unused_p_entry),
-        .vid_prog_p_config(unused_p_config),
+        .p_line(pm_line[p_rotor]),
+        .p_plane(p_rotor),
+        .vid_prog_p_entry(pm_entry),
+        .vid_prog_p_config(pm_config),
         .b_stb(bus_stb && bus_sel_vid && bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[14:0]),
@@ -389,11 +417,51 @@ module rp6502
         .vid_term_b_rdata(vid_b_rdata)
     );
 
+    logic [15:0] m_pix[3];
+    logic [2:0] m_filled;
+    generate
+        for (genvar gi = 0; gi < 3; gi++) begin : gen_mode
+            vid_mode vid_mode (
+                .clk(clk_sys),
+                .rst_n(rst_n),
+                .v(vid_v),
+                .h(vid_h),
+                .line_start(vid_line_start),
+                .x_shift(vid_x_shift),
+                .y_shift(vid_y_shift),
+                .y_offset(vid_y_offset),
+                .vid_mode_p_line(pm_line[gi]),
+                .p_gnt(p_rotor == 2'(gi)),
+                .p_entry(pm_entry),
+                .p_config(pm_config),
+                .vid_mode_a_req(ma_req[gi]),
+                .vid_mode_a_addr(ma_addr[gi]),
+                .a_gnt(a_any && a_sel == 2'(gi)),
+                .a_rdata(xram_a_rdata),
+                .vid_mode_pix(m_pix[gi]),
+                .vid_mode_filled(m_filled[gi])
+            );
+        end
+    endgenerate
+
+    /* The 180- and 360-line canvases sit under a 60-line letterbox. */
+    logic vid_letterbox;
+    always_comb vid_letterbox = vid_y_offset != 10'd0
+        && (vid_v < 10'd60 || vid_v >= 10'd420);
+
     vid_compose vid_compose (
         .clk(clk_sys),
         .rst_n(rst_n),
         .de(vid_de),
-        .plane0(term_pix),
+        .console(vid_console),
+        .letterbox(vid_letterbox),
+        .term_pix(term_pix),
+        .p0_pix(m_pix[0]),
+        .p0_filled(m_filled[0]),
+        .p1_pix(m_pix[1]),
+        .p1_filled(m_filled[1]),
+        .p2_pix(m_pix[2]),
+        .p2_filled(m_filled[2]),
         .vid_compose_pix(rp6502_vid_pixel),
         .vid_compose_de(rp6502_vid_de)
     );
