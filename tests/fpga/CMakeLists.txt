@@ -8,6 +8,11 @@ set(CPU65_GEN ${RP6502_SRC}/fpga/codegen/cpu65_gen.py)
 add_test(NAME cpu65_gen
     COMMAND ${CMAKE_COMMAND} -E env python3 ${CPU65_GEN} --report)
 
+# The bitstream byte-reversal for the Pocket's rbf_r, an involution.
+add_test(NAME rbf_r
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/fpga/codegen/rbf_r_gen.py --check)
+
 # The generated decode table is built, not committed. verilate() reads its
 # sources at configure time, so the table is generated here as well as by the
 # build-time rule that keeps it fresh when the generator changes.
