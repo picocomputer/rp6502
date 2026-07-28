@@ -568,6 +568,21 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3
     )
 
+    # --- The bridge chain, played like the host ---
+    rp6502_add_test(pbridge
+        SOURCES test_pbridge.cpp
+        TIMEOUT 300)
+    verilate(test_pbridge
+        SOURCES ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+            ${RP6502_FPGA_POCKET}/pocket_sdram.sv
+            ${RP6502_FPGA_POCKET}/pocket_bridge.sv
+            ${CMAKE_CURRENT_LIST_DIR}/sdram_model.sv
+            ${CMAKE_CURRENT_LIST_DIR}/tb_pbridge.sv
+        TOP_MODULE tb_pbridge
+        PREFIX Vtb_pbridge
+        VERILATOR_ARGS -Wall --assert -O3
+    )
+
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
