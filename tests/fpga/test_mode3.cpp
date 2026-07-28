@@ -229,7 +229,7 @@ static void run_case(int *utest_result,
                         (int)r->rp6502__DOT__vid_h,
                         (int)r->rp6502__DOT__gen_mode__BRA__0__KET____DOT__vid_mode__DOT__state,
                         r->rp6502__DOT__gen_mode__BRA__0__KET____DOT__vid_mode__DOT__attr,
-                        (int)r->rp6502__DOT__gen_mode__BRA__0__KET____DOT__vid_mode__DOT__px,
+                        (int)r->rp6502__DOT__gen_mode__BRA__0__KET____DOT__vid_mode__DOT__vid_mode3__DOT__px,
                         (int)r->rp6502__DOT__gen_mode__BRA__0__KET____DOT__vid_mode__DOT__filled_q[0],
                         (int)r->rp6502__DOT__gen_mode__BRA__0__KET____DOT__vid_mode__DOT__filled_q[1]);
         }

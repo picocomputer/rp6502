@@ -102,6 +102,7 @@ if(verilator_FOUND)
         ${VID_PALETTE_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode.sv
+        ${RP6502_FPGA_RTL}/vid/vid_mode3.sv
         ${RP6502_FPGA_RTL}/vid/vid_prog.sv
         ${RP6502_FPGA_RTL}/vid/vid_term.sv
         ${RP6502_FPGA_RTL}/vid/vid_compose.sv
