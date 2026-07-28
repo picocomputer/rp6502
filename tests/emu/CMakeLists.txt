@@ -72,6 +72,11 @@ rp6502_add_test(rtc LIBS emu_core FIXTURE rtc.rp6502 TIMEOUT 60)
 # pipeline). mode2: tiled renderer + xreg + keyboard bitmap. ---
 rp6502_add_test(mode2 LIBS emu_core FIXTURE mode2.rp6502 TIMEOUT 60)
 
+# --- The video-mode corpus (mode 1 and mode 3, every depth and canvas).
+# The FPGA suite runs these same ROMs and demands pixel equality. ---
+rp6502_add_test(vidmodes LIBS emu_core
+    DEFS ROMS_DIR="${RP6502_TEST_ROMS}" TIMEOUT 120)
+
 # --- Audio (PSG via the ezpsg Fur Elise tracker) ---
 rp6502_add_test(furelise LIBS emu_core FIXTURE furelise.rp6502 TIMEOUT 60)
 

@@ -28,7 +28,10 @@ module vid_mode (
     input logic [9:0] h,
     input logic line_start,
 
-    /* Latched canvas geometry from vid_prog. */
+    /* Latched canvas geometry from vid_prog. On the console canvas the
+     * planes idle — the oracle's fill guard — which also shields the
+     * unreset prog BRAM across a warm reset. */
+    input logic console,
     input logic x_shift,
     input logic y_shift,
     input logic [9:0] y_offset,
@@ -87,7 +90,7 @@ module vid_mode (
     logic render_now;
     always_comb begin
         t_cv = t - y_offset;
-        render_now = t >= y_offset && t < 10'd480
+        render_now = !console && t >= y_offset && t < 10'd480
             && !(y_shift && t_cv[0]);
     end
     logic [8:0] t_row;
@@ -116,6 +119,7 @@ module vid_mode (
     always_comb cw = x_shift ? 10'd320 : 10'd640;
 
     /* The mode pipelines; the prog entry's mode bits pick one. */
+    logic [2:0] mode_q;
     logic m3_start;
     logic m3_a_req;
     logic [13:0] m3_a_addr;
@@ -123,11 +127,37 @@ module vid_mode (
     logic [9:0] m3_px_addr;
     logic [15:0] m3_px_data;
     logic m3_done, m3_filled;
+    logic m1_start;
+    logic m1_a_req;
+    logic [13:0] m1_a_addr;
+    logic m1_px_we;
+    logic [9:0] m1_px_addr;
+    logic [15:0] m1_px_data;
+    logic m1_done, m1_filled;
+    vid_mode1 vid_mode1 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(m1_start),
+        .abort_i(line_start),
+        .attr(attr),
+        .cfgw(cfgw[127:0]),
+        .t_row(t_row),
+        .cw(cw),
+        .vid_mode1_a_req(m1_a_req),
+        .vid_mode1_a_addr(m1_a_addr),
+        .a_gnt(a_gnt),
+        .a_rdata(a_rdata),
+        .vid_mode1_px_we(m1_px_we),
+        .vid_mode1_px_addr(m1_px_addr),
+        .vid_mode1_px_data(m1_px_data),
+        .vid_mode1_done(m1_done),
+        .vid_mode1_filled(m1_filled)
+    );
     vid_mode3 vid_mode3 (
         .clk(clk),
         .rst_n(rst_n),
         .start(m3_start),
-        .abort(line_start),
+        .abort_i(line_start),
         .attr(attr),
         .cfgw(cfgw[111:0]),
         .t_row(t_row),
@@ -143,21 +173,48 @@ module vid_mode (
         .vid_mode3_filled(m3_filled)
     );
 
+    /* The running pipeline's channel, pixel port, and completion. */
+    logic sub_a_req;
+    logic [13:0] sub_a_addr;
+    logic sub_px_we;
+    logic [9:0] sub_px_addr;
+    logic [15:0] sub_px_data;
+    logic sub_done, sub_filled;
+    always_comb begin
+        if (mode_q == 3'd1) begin
+            sub_a_req = m1_a_req;
+            sub_a_addr = m1_a_addr;
+            sub_px_we = m1_px_we;
+            sub_px_addr = m1_px_addr;
+            sub_px_data = m1_px_data;
+            sub_done = m1_done;
+            sub_filled = m1_filled;
+        end else begin
+            sub_a_req = m3_a_req;
+            sub_a_addr = m3_a_addr;
+            sub_px_we = m3_px_we;
+            sub_px_addr = m3_px_addr;
+            sub_px_data = m3_px_data;
+            sub_done = m3_done;
+            sub_filled = m3_filled;
+        end
+    end
+
     /* The XRAM channel: the plane's own config fetch, or the pipeline's. */
     always_comb begin
         if (state == S_CFG) begin
             vid_mode_a_req = cfg_i < 3'd5;
             vid_mode_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
         end else begin
-            vid_mode_a_req = state == S_MODE && m3_a_req;
-            vid_mode_a_addr = m3_a_addr;
+            vid_mode_a_req = state == S_MODE && sub_a_req;
+            vid_mode_a_addr = sub_a_addr;
         end
     end
 
     /* The write bank: the pipeline's pixels, or the plane's own blank. */
     always_ff @(posedge clk) begin
-        if (state == S_MODE && m3_px_we)
-            linebuf[wr_bank][m3_px_addr] <= m3_px_data;
+        if (state == S_MODE && sub_px_we)
+            linebuf[wr_bank][sub_px_addr] <= sub_px_data;
         else if (state == S_BLANK)
             linebuf[wr_bank][px] <= 16'h0000;
     end
@@ -180,10 +237,13 @@ module vid_mode (
             cfg_c <= '0;
             px <= '0;
             m3_start <= 1'b0;
+            m1_start <= 1'b0;
+            mode_q <= '0;
             gnt_d <= 1'b0;
         end else begin
             gnt_d <= a_gnt;
             m3_start <= 1'b0;
+            m1_start <= 1'b0;
             if (line_start) begin
                 /* The beam's deadline; the pipelines assert their own. */
                 if (state == S_BLANK && px != cw)
@@ -207,7 +267,9 @@ module vid_mode (
                     S_PROG_W: begin
                         attr <= p_entry[15:0];
                         config_ptr <= p_config;
-                        if (!p_entry[31] || p_entry[18:16] != 3'd3) begin
+                        mode_q <= p_entry[18:16];
+                        if (!p_entry[31] || (p_entry[18:16] != 3'd3
+                                             && p_entry[18:16] != 3'd1)) begin
                             /* Nothing programmed, or a mode whose
                              * pipeline is not built yet. */
                             state <= S_BLANK;
@@ -228,14 +290,17 @@ module vid_mode (
                             cfg[cfg_c] <= a_rdata;
                             cfg_c <= cfg_c + 3'd1;
                             if (cfg_c == 3'd4) begin
-                                m3_start <= 1'b1;
+                                if (mode_q == 3'd1)
+                                    m1_start <= 1'b1;
+                                else
+                                    m3_start <= 1'b1;
                                 state <= S_MODE;
                             end
                         end
                     end
                     S_MODE: begin
-                        if (m3_done) begin
-                            filled_q[wr_bank] <= m3_filled;
+                        if (sub_done) begin
+                            filled_q[wr_bank] <= sub_filled;
                             flip_next <= 1'b1;
                             state <= S_IDLE;
                         end
@@ -253,7 +318,7 @@ module vid_mode (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode;
-    always_comb unused_vid_mode = ^{t_cv, p_entry[30:19], cfgw[143:112],
+    always_comb unused_vid_mode = ^{t_cv, p_entry[30:19], cfgw[143:128],
                                     config_ptr[0]};
     /* verilator lint_on UNUSEDSIGNAL */
 

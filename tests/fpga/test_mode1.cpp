@@ -3,13 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 3 bitmaps against the oracle, one canvas geometry and depth at a
- * time. The ROMs come from tests/roms — the corpus vidmodes.py generates
- * and the emulator suite also boots — so both machines run the identical
- * file and settle. The oracle renders canvas-native; the RTL does the
- * doubling and letterboxing itself, so the comparison maps rtl(x, y) onto
- * oracle(x >> xs, (y - yo) >> ys) inside the picture and demands opaque
- * black outside it.
+ * Mode 1 character cells against the oracle, one format at a time: bare
+ * glyphs, packed and reversed nibble colors, byte-indexed colors, raw
+ * sixteen-bit colors — through both font heights, the builtin ROM and an
+ * XRAM font, builtin and XRAM palettes. The ROMs come from tests/roms —
+ * the corpus vidmodes.py generates and the emulator suite also boots — so
+ * both machines run the identical file and settle. The comparison maps
+ * the RTL's doubled and letterboxed raster onto the oracle's
+ * canvas-native frame.
  */
 
 #include "Vrp6502.h"
@@ -140,7 +141,7 @@ static void run_case(int *utest_result, const char *name)
                 want = ofb[(size_t)cy * ow + (x >> xs)];
             if (fb[0][(size_t)y * 640 + x] != want)
             {
-                if (getenv("MODE3_DEBUG") && diffs < 20)
+                if (getenv("MODE1_DEBUG") && diffs < 12)
                     fprintf(stderr, "%s diff x=%d y=%d rtl=%08X want=%08X\n",
                             name, x, y, fb[0][(size_t)y * 640 + x], want);
                 diffs++;
@@ -149,24 +150,29 @@ static void run_case(int *utest_result, const char *name)
     ASSERT_EQ(diffs, 0);
 }
 
-UTEST(mode3, bpp8_xram_palette_640x480)
+UTEST(mode1, bpp1_8x8_builtin_640x480)
 {
-    run_case(utest_result, "mode3_8bpp");
+    run_case(utest_result, "mode1_1bpp8x8");
 }
 
-UTEST(mode3, bpp1_builtin_320x240)
+UTEST(mode1, bpp4_8x16_xram_palette_320x240)
 {
-    run_case(utest_result, "mode3_1bpp");
+    run_case(utest_result, "mode1_4bpp8x16");
 }
 
-UTEST(mode3, bpp4_reversed_320x180)
+UTEST(mode1, bpp4r_8x8_builtin_320x180)
 {
-    run_case(utest_result, "mode3_4bppr");
+    run_case(utest_result, "mode1_4bppr8x8");
 }
 
-UTEST(mode3, bpp16_640x360)
+UTEST(mode1, bpp8_8x8_xram_font_320x240)
 {
-    run_case(utest_result, "mode3_16bpp");
+    run_case(utest_result, "mode1_8bpp8x8");
+}
+
+UTEST(mode1, bpp16_8x16_640x360)
+{
+    run_case(utest_result, "mode1_16bpp8x16");
 }
 
 UTEST_STATE();

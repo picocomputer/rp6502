@@ -1,0 +1,98 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Boots every mini-ROM in the tests/roms video-mode corpus: each one
+ * programs a canvas and one mode 1 or mode 3 plane, then stops. Asserts
+ * the canvas took, the plane drew something, and the picture settled.
+ * The FPGA suite runs these same files against the RTL machine and
+ * demands pixel equality with this renderer, so together the two suites
+ * pin both implementations to one corpus.
+ */
+
+#include "emu/sys/vga.h"
+#include "emu_boot.h"
+
+#include <string.h>
+
+static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
+static uint32_t settled[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
+
+static void run_frames(int n)
+{
+    for (int i = 0; i < n; i++)
+        sys_run_frame();
+}
+
+static void run_case(int *utest_result, const char *name, int width, int height)
+{
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
+    ASSERT_TRUE(emu_restart(path));
+    vga_set_framebuffer(fb);
+    run_frames(20);
+
+    int cw, ch;
+    vga_canvas_size(&cw, &ch);
+    ASSERT_EQ(cw, width);
+    ASSERT_EQ(ch, height);
+
+    size_t total = (size_t)cw * ch, n_black = 0;
+    for (size_t i = 0; i < total; i++)
+        if (fb[i] == 0xFF000000u)
+            n_black++;
+    ASSERT_LT(n_black, total); /* the plane drew */
+    ASSERT_GT(n_black, (size_t)0); /* on a black canvas around it */
+
+    memcpy(settled, fb, total * sizeof(uint32_t));
+    run_frames(5);
+    ASSERT_EQ(memcmp(settled, fb, total * sizeof(uint32_t)), 0);
+}
+
+UTEST(vidmodes, mode3_8bpp)
+{
+    run_case(utest_result, "mode3_8bpp", 640, 480);
+}
+
+UTEST(vidmodes, mode3_1bpp)
+{
+    run_case(utest_result, "mode3_1bpp", 320, 240);
+}
+
+UTEST(vidmodes, mode3_4bppr)
+{
+    run_case(utest_result, "mode3_4bppr", 320, 180);
+}
+
+UTEST(vidmodes, mode3_16bpp)
+{
+    run_case(utest_result, "mode3_16bpp", 640, 360);
+}
+
+UTEST(vidmodes, mode1_1bpp8x8)
+{
+    run_case(utest_result, "mode1_1bpp8x8", 640, 480);
+}
+
+UTEST(vidmodes, mode1_4bpp8x16)
+{
+    run_case(utest_result, "mode1_4bpp8x16", 320, 240);
+}
+
+UTEST(vidmodes, mode1_4bppr8x8)
+{
+    run_case(utest_result, "mode1_4bppr8x8", 320, 180);
+}
+
+UTEST(vidmodes, mode1_8bpp8x8)
+{
+    run_case(utest_result, "mode1_8bpp8x8", 320, 240);
+}
+
+UTEST(vidmodes, mode1_16bpp8x16)
+{
+    run_case(utest_result, "mode1_16bpp8x16", 640, 360);
+}
+
+UTEST_MAIN_EMU()

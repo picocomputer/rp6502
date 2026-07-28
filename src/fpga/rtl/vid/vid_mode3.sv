@@ -10,7 +10,7 @@
  * order, normal and reversed. The plane engine starts it with the config
  * view in hand; it owns the XRAM channel and the pixel port until done.
  * The emitter may stall while the fetch pipeline primes or a wrap rewinds
- * it — only the beam's deadline matters, and an abort while busy is the
+ * it — only the beam's deadline matters, and an abort_i while busy is the
  * underrun.
  */
 
@@ -20,10 +20,10 @@ module vid_mode3
     input logic clk,
     input logic rst_n,
 
-    /* One line of work: start when the config view is valid; abort is
+    /* One line of work: start when the config view is valid; abort_i is
      * the next line's deadline. */
     input logic start,
-    input logic abort,
+    input logic abort_i,
     input logic [15:0] attr,
     input logic [111:0] cfgw,
     input logic [8:0] t_row,
@@ -203,7 +203,7 @@ module vid_mode3
         end else begin
             gnt_d <= a_gnt;
             vid_mode3_done <= 1'b0;
-            if (abort) begin
+            if (abort_i) begin
                 if (state != S3_IDLE)
                     $fatal(1, "vid_mode3 underrun");
             end else if (start) begin

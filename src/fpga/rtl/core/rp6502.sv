@@ -427,6 +427,7 @@ module rp6502
                 .v(vid_v),
                 .h(vid_h),
                 .line_start(vid_line_start),
+                .console(vid_console),
                 .x_shift(vid_x_shift),
                 .y_shift(vid_y_shift),
                 .y_offset(vid_y_offset),
