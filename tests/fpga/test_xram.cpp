@@ -131,9 +131,9 @@ UTEST(xram, records_load_and_match_the_oracle)
     rom_record(rom, 0x10040, pat1, sizeof(pat1));
     rom_record(rom, 0x1FF01, pat2, sizeof(pat2));
 
-    write_rom("test_xram.rp6502", rom);
+    write_rom(TEST_SCRATCH "/test_xram.rp6502", rom);
     oracle_init();
-    ASSERT_TRUE(oracle_restart("test_xram.rp6502"));
+    ASSERT_TRUE(oracle_restart(TEST_SCRATCH "/test_xram.rp6502"));
 
     std::string rv_out;
     ASSERT_TRUE(rtl_boot(rom, &rv_out));
@@ -157,16 +157,16 @@ UTEST(xram, straddle_and_overrun_reject_like_the_oracle)
 
     std::vector<uint8_t> straddle = rom_shell();
     rom_record(straddle, 0xFFF0, junk, sizeof(junk));
-    write_rom("test_xram_straddle.rp6502", straddle);
-    ASSERT_FALSE(oracle_restart("test_xram_straddle.rp6502"));
+    write_rom(TEST_SCRATCH "/test_xram_straddle.rp6502", straddle);
+    ASSERT_FALSE(oracle_restart(TEST_SCRATCH "/test_xram_straddle.rp6502"));
     std::string rv_out;
     ASSERT_FALSE(rtl_boot(straddle, &rv_out));
     ASSERT_TRUE(strstr(rv_out.c_str(), "rom: bad image") != NULL);
 
     std::vector<uint8_t> overrun = rom_shell();
     rom_record(overrun, 0x1FFF0, junk, sizeof(junk));
-    write_rom("test_xram_overrun.rp6502", overrun);
-    ASSERT_FALSE(oracle_restart("test_xram_overrun.rp6502"));
+    write_rom(TEST_SCRATCH "/test_xram_overrun.rp6502", overrun);
+    ASSERT_FALSE(oracle_restart(TEST_SCRATCH "/test_xram_overrun.rp6502"));
     ASSERT_FALSE(rtl_boot(overrun, &rv_out));
     ASSERT_TRUE(strstr(rv_out.c_str(), "rom: bad image") != NULL);
 }

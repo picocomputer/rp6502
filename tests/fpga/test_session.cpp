@@ -176,7 +176,7 @@ UTEST(session, scripted_frame_matches_oracle)
     rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
     /* Oracle side. */
-    const char *path = "test_session.rp6502";
+    const char *path = TEST_SCRATCH "/test_session.rp6502";
     FILE *f = fopen(path, "wb");
     ASSERT_TRUE(f != NULL);
     fwrite(rom.data(), 1, rom.size(), f);

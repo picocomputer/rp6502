@@ -120,13 +120,13 @@ UTEST(rw, steps_wraps_and_defaults_match_the_oracle)
     rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
     /* Oracle side, console tapped. */
-    FILE *f = fopen("test_rw.rp6502", "wb");
+    FILE *f = fopen(TEST_SCRATCH "/test_rw.rp6502", "wb");
     ASSERT_TRUE(f != NULL);
     fwrite(rom.data(), 1, rom.size(), f);
     fclose(f);
     oracle_init();
     oracle_tap_start();
-    ASSERT_TRUE(oracle_restart("test_rw.rp6502"));
+    ASSERT_TRUE(oracle_restart(TEST_SCRATCH "/test_rw.rp6502"));
     oracle_run_frames(30);
     size_t tap_len;
     const char *tap = oracle_tap_data(&tap_len);

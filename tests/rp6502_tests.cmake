@@ -10,7 +10,8 @@ set(RP6502_TEST_ROMS ${CMAKE_CURRENT_LIST_DIR}/roms)
 #
 # Builds test_<name> from test_<name>.c unless SOURCES says otherwise, and
 # registers it as CTest <name>. FIXTURE becomes TEST_FIXTURE, the absolute path
-# a test opens — every test uses at most one.
+# a test opens — every test uses at most one. TEST_SCRATCH is where a test
+# writes throwaway files, so a run from any directory never litters the tree.
 function(rp6502_add_test name)
     cmake_parse_arguments(T "" "FIXTURE;TIMEOUT" "SOURCES;LIBS;INCLUDES;DEFS" ${ARGN})
 
@@ -24,6 +25,7 @@ function(rp6502_add_test name)
     if(T_LIBS)
         target_link_libraries(test_${name} PRIVATE ${T_LIBS})
     endif()
+    list(APPEND T_DEFS TEST_SCRATCH="${CMAKE_CURRENT_BINARY_DIR}")
     if(T_FIXTURE)
         list(APPEND T_DEFS TEST_FIXTURE="${RP6502_TEST_ROMS}/${T_FIXTURE}")
     endif()

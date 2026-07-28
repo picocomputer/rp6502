@@ -106,7 +106,7 @@ UTEST(compare, syscall_rom_matches_oracle)
     rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
     /* The oracle side: the same image from a file, console tapped. */
-    const char *path = "test_compare.rp6502";
+    const char *path = TEST_SCRATCH "/test_compare.rp6502";
     FILE *f = fopen(path, "wb");
     ASSERT_TRUE(f != NULL);
     fwrite(rom.data(), 1, rom.size(), f);

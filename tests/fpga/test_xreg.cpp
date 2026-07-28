@@ -114,13 +114,13 @@ UTEST(xreg, dispatch_matches_the_oracle)
     rom_record(rom, 0x0300, p.data(), p.size());
     rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
-    FILE *f = fopen("test_xreg.rp6502", "wb");
+    FILE *f = fopen(TEST_SCRATCH "/test_xreg.rp6502", "wb");
     ASSERT_TRUE(f != NULL);
     fwrite(rom.data(), 1, rom.size(), f);
     fclose(f);
     oracle_init();
     oracle_tap_start();
-    ASSERT_TRUE(oracle_restart("test_xreg.rp6502"));
+    ASSERT_TRUE(oracle_restart(TEST_SCRATCH "/test_xreg.rp6502"));
     oracle_run_frames(30);
     int ow = 0, oh = 0;
     oracle_canvas_size(&ow, &oh);
