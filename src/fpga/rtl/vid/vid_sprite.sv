@@ -204,12 +204,13 @@ module vid_sprite (
             if (ov_clear)
                 vid_sprite_overrun <= '0;
             if (h == 10'd799 && state != SP_IDLE) begin
+                /* The lost race: count it once and drop the line; the
+                 * engines die at the next line_start. */
                 vid_sprite_overrun <= (ov_clear ? 16'd0
                                                 : vid_sprite_overrun)
                     + 16'd1;
                 state <= SP_IDLE;
-            end
-            if (line_start) begin
+            end else if (line_start) begin
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
                 s_n <= '0;
                 s_cap_v <= 1'b0;

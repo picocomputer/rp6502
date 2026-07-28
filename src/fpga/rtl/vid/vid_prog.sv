@@ -11,10 +11,12 @@
  * author and every validation happens in its C, so the table is trusted
  * the way the fill functions trust their options.
  *
- * The canvas and the vsync line are shadows latched at frame start. The
- * vsync line is where the oracle counts the frame — the highest programmed
- * scanline, mid-frame once a mode programs fewer lines than the raster —
- * and it resets to 480 so the console machine keeps its M3 cadence.
+ * The canvas and the vsync line are shadows: the canvas latches where
+ * the render takes the frame's first row, the vsync line at the beam's
+ * own boundary. The vsync line is where the oracle counts the frame —
+ * the highest programmed scanline, mid-frame once a mode programs fewer
+ * lines than the raster — and it resets to 480 so the console machine
+ * keeps its M3 cadence.
  *
  * Geometry decodes from the canvas per the VGA side's view table: 320-wide
  * canvases double each pixel, 240/180-line canvases double each line, and
@@ -90,16 +92,20 @@ module vid_prog (
             vsync_q <= 10'd480;
             vid_prog_canvas <= 3'd0;
         end else begin
-            if (b_stb && b_we && b_addr[15]) begin
+            if (b_stb && b_we && b_addr[15] && !b_addr[3]) begin
                 if (b_addr[2])
                     vsync_shadow <= b_wdata[9:0];
                 else
                     canvas_shadow <= b_wdata[2:0];
             end
-            if (frame_start) begin
-                vsync_q <= vsync_shadow;
+            /* The canvas is a render latch: it fires one raster line
+             * before the beam's frame, where the engines take row 0, so
+             * row 0 sees the same canvas as every other row. The vsync
+             * line paces the beam and latches at the beam's boundary. */
+            if (h == 10'd0 && px_first && v == 10'd524)
                 vid_prog_canvas <= canvas_shadow;
-            end
+            if (frame_start)
+                vsync_q <= vsync_shadow;
         end
     end
 

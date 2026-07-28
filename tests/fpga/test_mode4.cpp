@@ -183,6 +183,16 @@ UTEST(mode4, affine_clips_over_fill_640x480)
     run_case(utest_result, "mode4a_clip");
 }
 
+UTEST(mode4, log_range_halfword_descs_320x240)
+{
+    run_case(utest_result, "mode4_sizes");
+}
+
+UTEST(mode4, affine_small_and_large_320x240)
+{
+    run_case(utest_result, "mode4a_sizes");
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

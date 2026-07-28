@@ -86,6 +86,18 @@ module vid_mode4 (
     always_comb size = d_log[7:3] == 5'd0 ? 8'(8'd1 << d_log[2:0]) : 8'd0;
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
+    /* The oracle computes byte_size in wrapping thirty-two bits, so a
+     * plain sprite with log 16..31 and no metadata wraps to zero and
+     * passes both guards; its zero row is defined C and renders the
+     * canvas width. Deeper rows read past XRAM on the host — the RTL
+     * re-reads row zero instead. */
+    logic log_wrap;
+    always_comb log_wrap = !affine && !d_meta
+        && d_log >= 8'd16 && d_log < 8'd32;
+    logic signed [17:0] size_x_eff;
+    always_comb size_x_eff = log_wrap
+        ? 18'($signed({8'd0, cw})) - 18'(x_start)
+        : size_x0;
     logic [16:0] img_bytes;
     always_comb img_bytes = 17'(17'd2 << {13'd0, d_log[2:0], 1'b0});
     logic [17:0] byte_size;
@@ -289,19 +301,22 @@ module vid_mode4 (
                     end
                     M4_JUDGE: begin
                         tex_x <= tex_offs_x0;
-                        span_end <= tex_offs_x0 + 17'(size_x0[16:0]);
+                        span_end <= tex_offs_x0 + 17'(size_x_eff[16:0]);
                         meta_cont <= 1'b0;
-                        row_texel <= 17'(17'(tex_offs_y[6:0])
-                                         << d_log[2:0]);
+                        row_texel <= log_wrap ? 17'd0
+                            : 17'(17'(tex_offs_y[6:0]) << d_log[2:0]);
                         px_i <= tex_offs_x0;
                         dst <= 10'(x_start);
                         fw_i <= '0;
-                        if (log_big
-                            || byte_size > 18'h10000
-                            || {2'b0, d_sptr} > 18'h10000 - byte_size
-                            || tex_offs_y < 0
-                            || tex_offs_y >= 17'($signed({9'd0, size}))
-                            || size_x0 < 18'sd1)
+                        if (log_wrap
+                            ? (tex_offs_y < 0 || size_x_eff < 18'sd1)
+                            : (log_big
+                               || byte_size > 18'h10000
+                               || {2'b0, d_sptr} > 18'h10000 - byte_size
+                               || tex_offs_y < 0
+                               || tex_offs_y
+                                   >= 17'($signed({9'd0, size}))
+                               || size_x0 < 18'sd1))
                             next_sprite();
                         else if (affine)
                             state <= M4_ASETUP;

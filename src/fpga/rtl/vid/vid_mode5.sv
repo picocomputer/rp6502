@@ -40,20 +40,21 @@ module vid_mode5
     output logic vid_mode5_done
 );
 
-    /* attr[4:3] the square's size, attr[1:0] the depth. */
+    /* attr[5:3] the square's size — eight through five hundred twelve —
+     * attr[1:0] the depth; the prog validated the pairing. */
     logic [1:0] bpp_log;
-    logic [2:0] size_log;
+    logic [3:0] size_log;
     always_comb begin
         bpp_log = attr[1:0];
-        size_log = 3'd3 + {1'b0, attr[4:3]};
+        size_log = 4'd3 + {1'b0, attr[5:3]};
     end
-    logic [6:0] size;
-    always_comb size = 7'(7'd1 << size_log);
-    logic [6:0] bytes_per_row;
-    always_comb bytes_per_row = 7'(10'({3'd0, size} << bpp_log) >> 3);
-    logic [12:0] data_size;
+    logic [9:0] size;
+    always_comb size = 10'(10'd1 << size_log);
+    logic [9:0] bytes_per_row;
+    always_comb bytes_per_row = 10'(13'({3'd0, size} << bpp_log) >> 3);
+    logic [16:0] data_size;
     always_comb data_size =
-        13'(13'({6'd0, size}) * 13'({6'd0, bytes_per_row}));
+        17'(17'({7'd0, size}) * 17'({7'd0, bytes_per_row}));
 
     typedef enum logic [2:0] {
         M5_IDLE, M5_DESC, M5_JUDGE, M5_PIX, M5_PAL, M5_NEXT
@@ -91,8 +92,8 @@ module vid_mode5
     logic signed [17:0] clip_end;
     logic signed [15:0] clip_size_x;
     always_comb begin
-        clip_size_x = d_x < 0 ? 16'($signed({9'd0, size} + 16'(d_x)))
-                              : $signed({9'd0, size});
+        clip_size_x = d_x < 0 ? 16'($signed({6'd0, size} + 16'(d_x)))
+                              : $signed({6'd0, size});
         clip_end = (d_x < 0 ? 18'sd0 : 18'(d_x)) + 18'(clip_size_x);
         if (clip_end > 18'($signed({8'd0, cw})))
             clip_size_x = 16'($signed({6'd0, cw})
@@ -252,15 +253,14 @@ module vid_mode5
                                 <= 17'h10000
                                     - (17'd2 << {12'd0, 5'd1 << bpp_log});
                         row_addr <= {1'b0, d_sptr}
-                            + 17'(17'({11'd0, tex_y[5:0]})
-                                  * 17'({10'd0, bytes_per_row}));
+                            + 17'(17'({8'd0, tex_y[8:0]})
+                                  * 17'({7'd0, bytes_per_row}));
                         px_i <= d_x < 0 ? -d_x : 16'sd0;
                         dst <= d_x < 0 ? 10'd0 : d_x[9:0];
                         fw_i <= '0;
-                        if (tex_y >= {9'd0, size}
+                        if (tex_y >= {6'd0, size}
                             || clip_size_x < 16'sd1
-                            || {1'b0, d_sptr} > 17'h10000
-                                - {4'd0, data_size})
+                            || {1'b0, d_sptr} > 17'h10000 - data_size)
                             next_sprite();
                         else
                             state <= M5_PIX;
@@ -301,8 +301,8 @@ module vid_mode5
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode5;
-    always_comb unused_vid_mode5 = ^{attr[15:5], attr[2], gather,
-                                     daddr[16], tex_y[15:6],
+    always_comb unused_vid_mode5 = ^{attr[15:6], attr[2], gather,
+                                     daddr[16], tex_y[15:9],
                                      pal_addr[16], pal_addr[0],
                                      pix_byte_addr[16],
                                      idx[15:13], dview};

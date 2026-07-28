@@ -67,8 +67,8 @@ module vid_timing
         vid_timing_vsync = !(vid_timing_v >= 10'(RP6502_V_ACTIVE + RP6502_V_FP)
             && vid_timing_v < 10'(RP6502_V_ACTIVE + RP6502_V_FP + RP6502_V_SYNC));
         vid_timing_line_start = vid_timing_h == 10'd0 && tick == 2'd0;
-        vid_timing_frame_start = vid_timing_h == 10'd0 && vid_timing_v == 10'd0
-            && tick == 2'd0;
+        vid_timing_frame_start = vid_timing_h == 10'd0
+            && vid_timing_v == 10'd0 && tick == 2'd0;
         vid_timing_vsync_pulse = vid_timing_h == 10'd0
             && vid_timing_v == 10'(RP6502_V_ACTIVE) && tick == 2'd0;
     end

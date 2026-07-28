@@ -233,4 +233,29 @@ UTEST(vidmodes, sprite_stress)
     run_case(utest_result, "sprite_stress", 640, 480);
 }
 
+UTEST(vidmodes, mode5_1bpp128)
+{
+    run_case(utest_result, "mode5_1bpp128", 320, 240);
+}
+
+UTEST(vidmodes, mode5_4bpp256)
+{
+    run_case(utest_result, "mode5_4bpp256", 640, 480);
+}
+
+UTEST(vidmodes, mode4_sizes)
+{
+    run_case(utest_result, "mode4_sizes", 320, 240);
+}
+
+UTEST(vidmodes, mode4a_sizes)
+{
+    run_case(utest_result, "mode4a_sizes", 320, 240);
+}
+
+UTEST(vidmodes, sprite_overrun_rom)
+{
+    run_case(utest_result, "sprite_overrun", 320, 240);
+}
+
 UTEST_MAIN_EMU()

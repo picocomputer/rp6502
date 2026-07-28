@@ -114,8 +114,11 @@ module vid_term (
         end
     end
 
-    /* Scanout state, latched at frame start so a mid-frame publish never
-     * tears. */
+    /* Scanout state, latched one raster line before the beam's frame —
+     * where the render takes row 0 — so a mid-frame publish never tears
+     * and row 0 sees the same state as every other row. */
+    logic frame_render;
+    always_comb frame_render = line_start && v == 10'd524;
     logic [15:0] row_base[32];
     logic [31:0] cursor_q;
     logic [15:0] cursor_color_q;
@@ -129,7 +132,7 @@ module vid_term (
             cursor_color_q <= 16'h0;
             blink_q <= 2'h0;
             prog_q <= 32'h0;
-        end else if (frame_start) begin
+        end else if (frame_render) begin
             for (int i = 0; i < 32; i++)
                 row_base[i] <= row_shadow[i];
             cursor_q <= cursor_shadow;

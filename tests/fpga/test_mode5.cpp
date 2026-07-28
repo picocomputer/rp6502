@@ -179,6 +179,59 @@ UTEST(mode5, stress_budget_no_overrun_640x480)
               0);
 }
 
+UTEST(mode5, bpp1_128_halfword_descs_320x240)
+{
+    run_case(utest_result, "mode5_1bpp128");
+}
+
+UTEST(mode5, bpp4_256_640x480)
+{
+    run_case(utest_result, "mode5_4bpp256");
+}
+
+/* A slot built to lose its race: the counter reports it, the machine
+ * keeps its cadence, and the partial paint settles. Only the counter
+ * and settling are asserted — the oracle has no deadline to lose. */
+UTEST(mode5, overrun_counts_lost_races_320x240)
+{
+    std::string path = std::string(ROMS_DIR "/sprite_overrun.rp6502");
+    FILE *f = fopen(path.c_str(), "rb");
+    ASSERT_TRUE(f != NULL);
+    std::vector<uint8_t> rom;
+    uint8_t buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+        rom.insert(rom.end(), buf, buf + n);
+    fclose(f);
+
+    ASSERT_TRUE(load_firmware(SW_BIN));
+    dut->rst_n = 0;
+    for (int i = 0; i < 4; i++)
+        clock_cycle();
+    dut->rst_n = 1;
+    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+
+    bool stopped = false;
+    for (int i = 0; i < 16000000; i++)
+    {
+        uint32_t a = dut->rp6502_stage_addr;
+        dut->stage_rdata = a < rom.size() ? rom[a] : 0;
+        clock_cycle();
+        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
+        if (dut->rp6502_rv_halted && stopped)
+            break;
+    }
+    ASSERT_TRUE(dut->rp6502_rv_halted);
+    ASSERT_TRUE(stopped);
+
+    static uint32_t fb[2][640 * 480];
+    capture_frame(fb[0]);
+    uint16_t over = dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun;
+    capture_frame(fb[1]);
+    ASSERT_EQ(memcmp(fb[0], fb[1], sizeof(fb[0])), 0);
+    ASSERT_GT(over, 0);
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

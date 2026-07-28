@@ -145,12 +145,12 @@ def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
 
 
 def mode5(name, canvas, attr, plane, sprites, n_pals=1,
-          extra_progs=(), extra_chunks=()):
+          extra_progs=(), extra_chunks=(), desc_ptr=0x0100):
     # sprites: (x, y, image_index, palette) with palette an index, None
     # for the builtin, 'odd' for a misaligned pointer that falls back to
     # the builtin, or 'half' for a halfword-aligned read into the pool.
     bpp = 1 << (attr & 3)
-    size = 8 << ((attr >> 3) & 3)
+    size = 8 << ((attr >> 3) & 7)
     dsize = size * (size * bpp // 8)
     img_base = 0x4000
     pal_base = 0x0200
@@ -165,7 +165,7 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
         else:
             pptr = pal_base + ps * 0x400
         cfg += le16(x, y, img_base + im * dsize, pptr)
-    chunks = [(0x0100, cfg)]
+    chunks = [(desc_ptr, cfg)]
     for im in range(max(s[2] for s in sprites) + 1):
         chunks.append((img_base + im * dsize,
                        bytes((im * 47 + t * 13 + 5) & 0xFF
@@ -176,7 +176,8 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
                                  for i in range(1, 1 << bpp)))))
     chunks += list(extra_chunks)
     rom(name, canvas,
-        list(extra_progs) + [(5, attr, 0x0100, len(sprites), plane, 0, 0)],
+        list(extra_progs)
+        + [(5, attr, desc_ptr, len(sprites), plane, 0, 0)],
         chunks)
 
 
@@ -400,3 +401,40 @@ mode4a("mode4a_clip", 3, 0, 4, [
         (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(120 * 100))),
 ])
 stress("sprite_stress")
+
+# The review's dark paths: mode 5 at 1bpp and the big squares, halfword
+# descriptor arrays in every engine, the whole mode 4 log range with the
+# defined row of the 32-bit-wrap sizes, small and large affine squares,
+# and a slot built to lose its race so the overrun counter shows it.
+mode5("mode5_1bpp128", 1, 32, 0, [
+    (10, 40, 0, 0), (200, -30, 0, 0), (-60, 100, 0, None),
+], desc_ptr=0x0102)
+mode5("mode5_4bpp256", 3, 42, 0, [(30, -60, 0, 0)])
+
+d = bytearray()
+d += le16(5, 5, 0x1000) + bytes((0, 0))
+d += le16(6, 6, 0x1000) + bytes((0, 0))
+d += le16(7, 7, 0x1000) + bytes((0, 0))
+d += le16(100, 30, 0x4000) + bytes((7, 1))
+d += le16(0, 239, 0x2000) + bytes((16, 0))
+m7 = le16(*(((t * 13 + 5) & 0xFFFF) for t in range(128 * 128)))
+m7meta = bytearray()
+for r in range(128):
+    m7meta += (((1 << 31) | 128) if r & 1
+               else ((2 << 16) | 126)).to_bytes(4, "little")
+rom("mode4_sizes", 1, [(4, 0, 0x0102, 5, 0, 0, 0)],
+    [(0x0102, d),
+     (0x1000, le16(0x1234 | 0x20, 0x0FF5)),
+     (0x2000, le16(*(((t * 11 + 9) & 0xFFFF) for t in range(640)))),
+     (0x4000, m7 + m7meta)])
+
+d = bytearray()
+d += le16(0x100, 0, 0, 0, 0x100, 0) + le16(30, 40, 0x1000)     + bytes((3, 0))
+d += le16(0x080, 0, 0, 0, 0x080, 0) + le16(100, 60, 0x4000)     + bytes((6, 0))
+rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
+    [(0x0102, d),
+     (0x1000, le16(*(((t * 13 + 5) & 0xFFFF) for t in range(64)))),
+     (0x4000, le16(*(((t * 7 + 3) & 0xFFFF) for t in range(4096))))])
+
+mode5("sprite_overrun", 1, 27, 0,
+      [(i * 12, 40, 0, 0) for i in range(24)])
