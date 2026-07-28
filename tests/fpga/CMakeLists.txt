@@ -64,6 +64,24 @@ add_custom_command(OUTPUT ${VID_PALETTE_PKG} ${VID_PALETTE_H}
     VERBATIM)
 add_custom_target(vid_palette_rom ALL DEPENDS ${VID_PALETTE_PKG} ${VID_PALETTE_H})
 
+# The PSG's sine table, from aud_init's runtime formula.
+set(AUD_SINE_GEN ${RP6502_SRC}/fpga/codegen/aud_sine_gen.py)
+set(AUD_SINE_PKG ${CMAKE_CURRENT_BINARY_DIR}/aud_sine_pkg.sv)
+set(AUD_SINE_H ${CMAKE_CURRENT_BINARY_DIR}/aud_sine_tables.h)
+execute_process(
+    COMMAND python3 ${AUD_SINE_GEN} --emit-sv ${AUD_SINE_PKG} --emit-h ${AUD_SINE_H}
+    RESULT_VARIABLE AUD_SINE_GEN_RC)
+if(AUD_SINE_GEN_RC)
+    message(FATAL_ERROR "aud_sine_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${AUD_SINE_PKG} ${AUD_SINE_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${AUD_SINE_GEN}
+        --emit-sv ${AUD_SINE_PKG} --emit-h ${AUD_SINE_H}
+    DEPENDS ${AUD_SINE_GEN}
+    COMMENT "Generating the aud sine ROM"
+    VERBATIM)
+add_custom_target(aud_sine_rom ALL DEPENDS ${AUD_SINE_PKG} ${AUD_SINE_H})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -77,9 +95,9 @@ rp6502_add_test(oracle
 
 rp6502_add_test(font
     SOURCES test_font.cpp
-    INCLUDES ${CMAKE_CURRENT_BINARY_DIR}
+    INCLUDES ${CMAKE_CURRENT_BINARY_DIR} ${RP6502_SRC}
     LIBS fpga_oracle)
-add_dependencies(test_font vid_font_rom vid_palette_rom)
+add_dependencies(test_font vid_font_rom vid_palette_rom aud_sine_rom)
 
 # --- The verilated machine ---
 # Platform wrappers under src/fpga/platform are not verilated; the simulation
