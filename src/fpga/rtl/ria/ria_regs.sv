@@ -157,12 +157,29 @@ module ria_regs (
             ria_regs_xr_addr = {regs[5'h0B], regs[5'h0A]};
     end
 
-    /* The XSTACK: 512 bytes, a zero guard at the top, and the pointer. */
-    /* Read where it is used, so it wants LUT RAM: a block RAM
-     * cannot answer without a clock and a register file this
-     * wide does not fit. */
+    /* The XSTACK: 512 bytes, a zero guard at the top, and the pointer.
+     * LUT RAM is one write port and one asynchronous read port, so the
+     * bytes are one array per lane, and the set exists twice because
+     * the OS's word read and the pop's mirror refill are two readers.
+     * The guard word stays registers: the arrays keep a clean 128 deep
+     * and the refill wants only its low byte. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [7:0] xs[516];
+    logic [7:0] xs0[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xs1[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xs2[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xs3[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xm0[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xm1[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xm2[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] xm3[128];
+    logic [31:0] xs_guard;
     logic [9:0] xsp;
     logic xs_fill;  // a pop's mirror refill lands one clock later
     logic [9:0] xs_fill_at;
@@ -205,8 +222,80 @@ module ria_regs (
 
     /* Registered with the side effect it reports: the offered byte is taken
      * at the same edge that latches it, never a cycle before. */
-    logic [9:0] xs_byte;
-    always_comb xs_byte = {b_word - 8'd64, 2'b00};
+    /* Window word 64 is xstack byte 0; word 192 is the guard, the only
+     * index inside the window with bit 7 set. */
+    logic [7:0] xs_word;
+    logic xs_win;
+    always_comb begin
+        xs_word = b_word - 8'd64;
+        xs_win = b_word >= 8'd64 && b_word <= 8'd192;
+    end
+
+    /* One write port per lane, the 6502's push and the OS's word
+     * sharing it the way the register cells share theirs. */
+    logic xs_push;
+    logic [8:0] xs_push_at;
+    logic [3:0] xs_os_lane, xs_we;
+    logic [6:0] xs_waddr0, xs_waddr1, xs_waddr2, xs_waddr3;
+    logic [7:0] xs_wdat0, xs_wdat1, xs_wdat2, xs_wdat3;
+    always_comb begin
+        xs_push = en && cs && we && rs == 5'h0C && xsp != 10'd0;
+        xs_push_at = 9'(xsp - 10'd1);
+        xs_os_lane = {4{b_we && xs_win && !xs_word[7]}} & b_wstrb;
+        xs_we = xs_os_lane | ({3'd0, xs_push} << xs_push_at[1:0]);
+        xs_waddr0 = xs_os_lane[0] ? xs_word[6:0] : xs_push_at[8:2];
+        xs_waddr1 = xs_os_lane[1] ? xs_word[6:0] : xs_push_at[8:2];
+        xs_waddr2 = xs_os_lane[2] ? xs_word[6:0] : xs_push_at[8:2];
+        xs_waddr3 = xs_os_lane[3] ? xs_word[6:0] : xs_push_at[8:2];
+        xs_wdat0 = xs_os_lane[0] ? b_wdata[7:0] : data_i;
+        xs_wdat1 = xs_os_lane[1] ? b_wdata[15:8] : data_i;
+        xs_wdat2 = xs_os_lane[2] ? b_wdata[23:16] : data_i;
+        xs_wdat3 = xs_os_lane[3] ? b_wdata[31:24] : data_i;
+    end
+
+    /* The pop's refill reads the mirror copy at the new top. */
+    logic [7:0] xs_fill_byte;
+    always_comb begin
+        case (xs_fill_at[1:0])
+            2'd0: xs_fill_byte = xm0[xs_fill_at[8:2]];
+            2'd1: xs_fill_byte = xm1[xs_fill_at[8:2]];
+            2'd2: xs_fill_byte = xm2[xs_fill_at[8:2]];
+            default: xs_fill_byte = xm3[xs_fill_at[8:2]];
+        endcase
+        if (xs_fill_at[9])
+            xs_fill_byte = xs_guard[7:0];
+    end
+
+    /* Outside the reset: an array an asynchronous reset can reach
+     * infers as flip-flops, never as memory. */
+    always_ff @(posedge clk) begin
+        if (xs_we[0]) begin
+            xs0[xs_waddr0] <= xs_wdat0;
+            xm0[xs_waddr0] <= xs_wdat0;
+        end
+        if (xs_we[1]) begin
+            xs1[xs_waddr1] <= xs_wdat1;
+            xm1[xs_waddr1] <= xs_wdat1;
+        end
+        if (xs_we[2]) begin
+            xs2[xs_waddr2] <= xs_wdat2;
+            xm2[xs_waddr2] <= xs_wdat2;
+        end
+        if (xs_we[3]) begin
+            xs3[xs_waddr3] <= xs_wdat3;
+            xm3[xs_waddr3] <= xs_wdat3;
+        end
+        if (b_we && xs_win && xs_word[7]) begin
+            if (b_wstrb[0])
+                xs_guard[7:0] <= b_wdata[7:0];
+            if (b_wstrb[1])
+                xs_guard[15:8] <= b_wdata[15:8];
+            if (b_wstrb[2])
+                xs_guard[23:16] <= b_wdata[23:16];
+            if (b_wstrb[3])
+                xs_guard[31:24] <= b_wdata[31:24];
+        end
+    end
 
     always_comb begin
         case (b_word)
@@ -214,10 +303,10 @@ module ria_regs (
             8'd18: ria_regs_b_rdata = {30'd0, rx_req, !os_rx_valid};
             8'd200: ria_regs_b_rdata = {22'd0, xsp};
             default: begin
-                if (b_word >= 8'd64 && b_word <= 8'd192)
-                    ria_regs_b_rdata = {
-                        xs[xs_byte+10'd3], xs[xs_byte+10'd2],
-                        xs[xs_byte+10'd1], xs[xs_byte+10'd0]
+                if (xs_win)
+                    ria_regs_b_rdata = xs_word[7] ? xs_guard : {
+                        xs3[xs_word[6:0]], xs2[xs_word[6:0]],
+                        xs1[xs_word[6:0]], xs0[xs_word[6:0]]
                     };
                 else
                     ria_regs_b_rdata = {
@@ -344,7 +433,7 @@ module ria_regs (
              * pointer moved, always between 6502 cycles; an OS write below still
              * outranks it. */
             if (xs_fill)
-                regs[5'h0C] <= xs[xs_fill_at];
+                regs[5'h0C] <= xs_fill_byte;
             /* The OS side is plain shared memory at the system clock; it lands
              * regardless of the 6502's enable, and a same-cell collision goes to
              * the OS, as arbitrary as it is on the real dual-core part. */
@@ -419,10 +508,8 @@ module ria_regs (
             xs_fill <= 1'b0;
             if (en && cs && rs == 5'h0C) begin
                 if (we) begin
-                    if (xsp != 10'd0) begin
-                        xs[xsp-10'd1] <= data_i;
+                    if (xsp != 10'd0)
                         xsp <= xsp - 10'd1;
-                    end
                 end else begin
                     if (xsp != 10'd512) begin
                         xsp <= xsp + 10'd1;
@@ -434,17 +521,8 @@ module ria_regs (
                     end
                 end
             end
-            /* OS writes: xstack bytes by lane, or the pointer. */
-            if (b_we && b_word >= 8'd64 && b_word <= 8'd192) begin
-                if (b_wstrb[0])
-                    xs[xs_byte+10'd0] <= b_wdata[7:0];
-                if (b_wstrb[1])
-                    xs[xs_byte+10'd1] <= b_wdata[15:8];
-                if (b_wstrb[2])
-                    xs[xs_byte+10'd2] <= b_wdata[23:16];
-                if (b_wstrb[3])
-                    xs[xs_byte+10'd3] <= b_wdata[31:24];
-            end
+            /* The xstack bytes land in their own block above; the
+             * pointer is the OS's other door. */
             if (b_we && b_word == 8'd200)
                 xsp <= b_wdata[9:0];
             if (push_now) begin
