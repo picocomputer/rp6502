@@ -476,8 +476,9 @@ module rp6502
     logic [15:0] sp_overrun;
     logic [9:0] sp_addr;
     logic [15:0] sp_data;
+    genvar gi;
     generate
-        for (genvar gi = 0; gi < 3; gi++) begin : gen_mode
+        for (gi = 0; gi < 3; gi++) begin : gen_mode
             vid_mode vid_mode (
                 .clk(clk_sys),
                 .rst_n(rst_n),

@@ -64,6 +64,7 @@ module vid_prog (
     output logic [31:0] vid_prog_b_rdata
 );
 
+    (* ramstyle = "no_rw_check" *)
     logic [31:0] prog[8192] /*verilator public_flat_rw*/;
 
     logic [2:0] canvas_shadow /*verilator public_flat_rd*/;

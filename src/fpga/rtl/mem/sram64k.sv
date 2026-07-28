@@ -23,6 +23,10 @@ module sram64k (
     output logic [7:0] b_rdata
 );
 
+    /* The mixed-port collision is undefined here as it is on the
+     * real dual-core part; without this the fitter builds the whole
+     * 64 KB out of registers. */
+    (* ramstyle = "no_rw_check" *)
     logic [7:0] mem[65536] /*verilator public_flat_rw*/;
 
     always_ff @(posedge clk) begin

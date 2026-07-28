@@ -43,6 +43,7 @@ module vid_term (
     output logic [31:0] vid_term_b_rdata
 );
 
+    (* ramstyle = "no_rw_check" *)
     logic [31:0] cells[15360] /*verilator public_flat_rw*/;
 
     logic [13:0] cell_idx;

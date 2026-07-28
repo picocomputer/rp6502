@@ -237,122 +237,123 @@ module ria_regs (
             ria_regs_api_pending <= 1'b0;
             irq_pending <= 8'h00;
             irq_enabled <= 8'h00;
-        end else if (en) begin
-            ria_regs_tx_valid <= 1'b0;
-            ria_regs_rx_taken <= pull;
-            if (api_ack)
-                ria_regs_api_pending <= 1'b0;
-            if (cs) begin
-                if (we) begin
-                    case (rs)
-                        5'h01: begin
-                            /* Push; a write while full drops, and TX_READY
-                             * told the program not to. The tap still pulses
-                             * for the testbench console. */
-                            ria_regs_tx_data <= data_i;
-                            ria_regs_tx_valid <= 1'b1;
-                        end
-                        5'h04: begin
-                            /* The byte goes to XRAM, never the cell; the
-                             * address steps past it. */
-                            {regs[5'h07], regs[5'h06]} <=
-                                {regs[5'h07], regs[5'h06]}
-                                + {{8{regs[5'h05][7]}}, regs[5'h05]};
-                        end
-                        5'h08: begin
-                            {regs[5'h0B], regs[5'h0A]} <=
-                                {regs[5'h0B], regs[5'h0A]}
-                                + {{8{regs[5'h09][7]}}, regs[5'h09]};
-                        end
-                        5'h0C: begin
-                            /* Push: the mirror is the byte just pushed. */
-                            if (xsp != 10'd0)
-                                regs[5'h0C] <= data_i;
-                        end
-                        5'h0F: begin
-                            /* The op lands and the trampoline blocks, one
-                             * indivisible cycle. */
-                            regs[5'h0F] <= data_i;
-                            regs[5'h11] <= 8'h80;
-                            regs[5'h12] <= 8'hFE;
-                            ria_regs_api_pending <= 1'b1;
-                        end
-                        5'h10: ;  /* enable/ack handled above the case */
-                        default: regs[rs] <= data_i;
-                    endcase
-                end else begin
-                    case (rs)
-                        5'h00: begin
-                            if (pull) begin
-                                regs[0] <= regs[0] | RX_READY;
-                                regs[2] <= eff_rx_data;
-                            end
-                        end
-                        5'h04: begin
-                            /* The staged byte answered; step the address. */
-                            {regs[5'h07], regs[5'h06]} <=
-                                {regs[5'h07], regs[5'h06]}
-                                + {{8{regs[5'h05][7]}}, regs[5'h05]};
-                        end
-                        5'h08: begin
-                            {regs[5'h0B], regs[5'h0A]} <=
-                                {regs[5'h0B], regs[5'h0A]}
-                                + {{8{regs[5'h09][7]}}, regs[5'h09]};
-                        end
-                        5'h0C: ;  /* pop: pointer and mirror move below */
-                        5'h02: begin
-                            /* Return the latch, then refill or empty it. */
-                            if (pull) begin
-                                regs[2] <= eff_rx_data;
-                                regs[0] <= regs[0] | RX_READY;
-                            end else begin
-                                regs[2] <= 8'h00;
-                                regs[0] <= regs[0] & ~RX_READY;
-                            end
-                        end
-                        default: ;
-                    endcase
-                end
-            end
         end else begin
-            ria_regs_tx_valid <= 1'b0;
-            ria_regs_rx_taken <= 1'b0;
-            if (api_ack)
-                ria_regs_api_pending <= 1'b0;
-        end
-        /* The frame counter and the $FFF0 block land every clock: pending
-         * resolves through pend_next, its regs cell is only the mirror. */
-        if (rst_n) begin
-            if (vsync_pulse)
-                regs[5'h03] <= regs[5'h03] + 8'd1;
-            if (en && cs && we && rs == 5'h10)
-                irq_enabled <= data_i;
-            irq_pending <= pend_next;
-            regs[5'h10] <= pend_next;
-        end
-        /* The RW stages reload one clock after their issue; a same-edge
-         * 6502 or OS write is repaired by the restage that follows it. */
-        if (rst_n && xr_cap0)
-            regs[5'h04] <= xr_rdata;
-        if (rst_n && xr_cap1)
-            regs[5'h08] <= xr_rdata;
-        /* A pop's mirror refill arrives from the RAM one clock after the
-         * pointer moved, always between 6502 cycles; an OS write below still
-         * outranks it. */
-        if (rst_n && xs_fill)
-            regs[5'h0C] <= xs[xs_fill_at];
-        /* The OS side is plain shared memory at the system clock; it lands
-         * regardless of the 6502's enable, and a same-cell collision goes to
-         * the OS, as arbitrary as it is on the real dual-core part. */
-        if (rst_n && b_we && b_word < 8'd8) begin
-            if (b_wstrb[0])
-                regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
-            if (b_wstrb[1])
-                regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
-            if (b_wstrb[2])
-                regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
-            if (b_wstrb[3])
-                regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
+            if (en) begin
+                ria_regs_tx_valid <= 1'b0;
+                ria_regs_rx_taken <= pull;
+                if (api_ack)
+                    ria_regs_api_pending <= 1'b0;
+                if (cs) begin
+                    if (we) begin
+                        case (rs)
+                            5'h01: begin
+                                /* Push; a write while full drops, and TX_READY
+                                 * told the program not to. The tap still pulses
+                                 * for the testbench console. */
+                                ria_regs_tx_data <= data_i;
+                                ria_regs_tx_valid <= 1'b1;
+                            end
+                            5'h04: begin
+                                /* The byte goes to XRAM, never the cell; the
+                                 * address steps past it. */
+                                {regs[5'h07], regs[5'h06]} <=
+                                    {regs[5'h07], regs[5'h06]}
+                                    + {{8{regs[5'h05][7]}}, regs[5'h05]};
+                            end
+                            5'h08: begin
+                                {regs[5'h0B], regs[5'h0A]} <=
+                                    {regs[5'h0B], regs[5'h0A]}
+                                    + {{8{regs[5'h09][7]}}, regs[5'h09]};
+                            end
+                            5'h0C: begin
+                                /* Push: the mirror is the byte just pushed. */
+                                if (xsp != 10'd0)
+                                    regs[5'h0C] <= data_i;
+                            end
+                            5'h0F: begin
+                                /* The op lands and the trampoline blocks, one
+                                 * indivisible cycle. */
+                                regs[5'h0F] <= data_i;
+                                regs[5'h11] <= 8'h80;
+                                regs[5'h12] <= 8'hFE;
+                                ria_regs_api_pending <= 1'b1;
+                            end
+                            5'h10: ;  /* enable/ack handled above the case */
+                            default: regs[rs] <= data_i;
+                        endcase
+                    end else begin
+                        case (rs)
+                            5'h00: begin
+                                if (pull) begin
+                                    regs[0] <= regs[0] | RX_READY;
+                                    regs[2] <= eff_rx_data;
+                                end
+                            end
+                            5'h04: begin
+                                /* The staged byte answered; step the address. */
+                                {regs[5'h07], regs[5'h06]} <=
+                                    {regs[5'h07], regs[5'h06]}
+                                    + {{8{regs[5'h05][7]}}, regs[5'h05]};
+                            end
+                            5'h08: begin
+                                {regs[5'h0B], regs[5'h0A]} <=
+                                    {regs[5'h0B], regs[5'h0A]}
+                                    + {{8{regs[5'h09][7]}}, regs[5'h09]};
+                            end
+                            5'h0C: ;  /* pop: pointer and mirror move below */
+                            5'h02: begin
+                                /* Return the latch, then refill or empty it. */
+                                if (pull) begin
+                                    regs[2] <= eff_rx_data;
+                                    regs[0] <= regs[0] | RX_READY;
+                                end else begin
+                                    regs[2] <= 8'h00;
+                                    regs[0] <= regs[0] & ~RX_READY;
+                                end
+                            end
+                            default: ;
+                        endcase
+                    end
+                end
+            end else begin
+                ria_regs_tx_valid <= 1'b0;
+                ria_regs_rx_taken <= 1'b0;
+                if (api_ack)
+                    ria_regs_api_pending <= 1'b0;
+            end
+            /* The frame counter and the $FFF0 block land every
+             * clock: pending resolves through pend_next, its
+             * regs cell is only the mirror. */
+                if (vsync_pulse)
+                    regs[5'h03] <= regs[5'h03] + 8'd1;
+                if (en && cs && we && rs == 5'h10)
+                    irq_enabled <= data_i;
+                irq_pending <= pend_next;
+                regs[5'h10] <= pend_next;
+            /* The RW stages reload one clock after their issue; a same-edge
+             * 6502 or OS write is repaired by the restage that follows it. */
+            if (xr_cap0)
+                regs[5'h04] <= xr_rdata;
+            if (xr_cap1)
+                regs[5'h08] <= xr_rdata;
+            /* A pop's mirror refill arrives from the RAM one clock after the
+             * pointer moved, always between 6502 cycles; an OS write below still
+             * outranks it. */
+            if (xs_fill)
+                regs[5'h0C] <= xs[xs_fill_at];
+            /* The OS side is plain shared memory at the system clock; it lands
+             * regardless of the 6502's enable, and a same-cell collision goes to
+             * the OS, as arbitrary as it is on the real dual-core part. */
+            if (b_we && b_word < 8'd8) begin
+                if (b_wstrb[0])
+                    regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
+                if (b_wstrb[1])
+                    regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
+                if (b_wstrb[2])
+                    regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
+                if (b_wstrb[3])
+                    regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
+            end
         end
     end
 

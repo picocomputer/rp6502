@@ -167,6 +167,7 @@ module rv_soc #(
         endcase
     end
 
+    (* ramstyle = "no_rw_check" *)
     logic [31:0] tcm[TCM_WORDS] /*verilator public_flat_rw*/;
 
     generate

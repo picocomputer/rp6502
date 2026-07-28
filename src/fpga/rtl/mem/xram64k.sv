@@ -23,6 +23,7 @@ module xram64k (
     output logic [7:0] xram64k_b_rdata
 );
 
+    (* ramstyle = "no_rw_check" *)
     logic [31:0] mem[16384] /*verilator public_flat_rw*/;
 
     always_ff @(posedge clk) begin
