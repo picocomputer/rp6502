@@ -17,6 +17,7 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 set(RP6502_FPGA_RTL ${CMAKE_CURRENT_LIST_DIR}/rtl)
+set(RP6502_FPGA_POCKET ${CMAKE_CURRENT_LIST_DIR}/platform/pocket/core)
 
 # emu_core is the reference oracle. Core-only: no window, debugger or its own
 # tests, so the simulation needs none of the desktop dev stack.

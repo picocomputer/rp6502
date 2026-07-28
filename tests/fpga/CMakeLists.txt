@@ -520,6 +520,17 @@ if(verilator_FOUND)
             "  sudo apt-get install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf")
     endif()
 
+    # --- The platform FIFO under hostile clocking ---
+    rp6502_add_test(fifo
+        SOURCES test_fifo.cpp
+        TIMEOUT 120)
+    verilate(test_fifo
+        SOURCES ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+        TOP_MODULE pocket_fifo
+        PREFIX Vpocket_fifo
+        VERILATOR_ARGS -Wall --assert -O3
+    )
+
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
