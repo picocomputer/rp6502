@@ -210,6 +210,29 @@ def mode4(name, canvas, plane, log_size, sprites,
         chunks)
 
 
+def mode4a(name, canvas, plane, log_size, sprites,
+           extra_progs=(), extra_chunks=()):
+    # sprites: (transform, x, y, image_index) — transform the six 8.8
+    # matrix words {a00, a01, b0, a10, a11, b1}.
+    size = 1 << log_size
+    stride = size * size * 2
+    img_base = 0x4000
+    cfg = bytearray()
+    for tr, x, y, im in sprites:
+        cfg += le16(*tr)
+        cfg += le16(x, y, img_base + im * stride)
+        cfg += bytes((log_size, 0))
+    chunks = [(0x0100, cfg)]
+    for im in range(max(s[3] for s in sprites) + 1):
+        chunks.append((img_base + im * stride,
+                       le16(*(((im * 47 + t * 13 + 5) & 0xFFFF)
+                              for t in range(size * size)))))
+    chunks += list(extra_chunks)
+    rom(name, canvas,
+        list(extra_progs) + [(4, 1, 0x0100, len(sprites), plane, 0, 0)],
+        chunks)
+
+
 def composite(name):
     # Plane 0: a mode 3 8bpp bitmap, the opaque base. Plane 1: mode 2
     # 1bpp tiles over it, color_2's transparent zero showing the base
@@ -327,3 +350,21 @@ mode4("mode4_32", 3, 1, 5, [
                        for i in range((200 * 4 + 7) // 8 * 150))),
 ])
 mode4("mode4_64", 2, 2, 6, [(-30, 60, 0, False), (270, 120, 0, True)])
+# Affine: identity's off-by-one sampling, rotation and scale driving
+# the out-of-texture mask, clips both sides, over a fill and without.
+mode4a("mode4a_id", 1, 0, 4, [
+    ((0x100, 0, 0, 0, 0x100, 0), 40, 50, 0),
+])
+mode4a("mode4a_rot", 1, 0, 5, [
+    ((0x0DD, 0x080, 0x300, -0x080 & 0xFFFF, 0x0DD, 0x200), 60, 60, 0),
+    ((0x080, 0, 0, 0, 0x080, 0), 150, 80, 1),
+    ((0x200, 0, 0x300, 0, 0x200, 0x300), 240, 100, 0),
+])
+mode4a("mode4a_clip", 3, 0, 4, [
+    ((0x100, 0, 0, 0, 0x100, 0), -7, 30, 0),
+    ((0x100, 0, 0, 0, 0x100, 0), 630, 90, 1),
+], extra_progs=[(3, 3, 0x01A0, 0, 0, 0)],
+    extra_chunks=[
+        (0x01A0, bytearray((0, 0)) + le16(10, 20, 120, 100, 0x2000, 0xFFFF)),
+        (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(120 * 100))),
+])

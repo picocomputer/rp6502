@@ -168,6 +168,21 @@ UTEST(mode4, log6_plane2_320x180)
     run_case(utest_result, "mode4_64");
 }
 
+UTEST(mode4, affine_identity_320x240)
+{
+    run_case(utest_result, "mode4a_id");
+}
+
+UTEST(mode4, affine_rotate_scale_320x240)
+{
+    run_case(utest_result, "mode4a_rot");
+}
+
+UTEST(mode4, affine_clips_over_fill_640x480)
+{
+    run_case(utest_result, "mode4a_clip");
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

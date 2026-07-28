@@ -213,4 +213,19 @@ UTEST(vidmodes, mode4_64)
     run_case(utest_result, "mode4_64", 320, 180);
 }
 
+UTEST(vidmodes, mode4a_id)
+{
+    run_case(utest_result, "mode4a_id", 320, 240);
+}
+
+UTEST(vidmodes, mode4a_rot)
+{
+    run_case(utest_result, "mode4a_rot", 320, 240);
+}
+
+UTEST(vidmodes, mode4a_clip)
+{
+    run_case(utest_result, "mode4a_clip", 640, 480);
+}
+
 UTEST_MAIN_EMU()

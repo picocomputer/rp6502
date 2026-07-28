@@ -121,6 +121,7 @@ module vid_sprite (
         .rst_n(rst_n),
         .start(m4_start),
         .abort_i(line_start),
+        .attr(slot_entry[p][15:0]),
         .cfg(slot_cfg[p][15:0]),
         .length(slot_cfg[p][31:16]),
         .t_row(t_row),
