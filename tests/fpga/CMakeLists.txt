@@ -183,13 +183,18 @@ if(verilator_FOUND)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/com.c
-            ${SW_SRC}/mem.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-            ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+            ${SW_SRC}/mem.c ${SW_SRC}/pix.c ${SW_SRC}/rom.c
+            ${SW_SRC}/time.c ${SW_SRC}/trap.c ${SW_SRC}/vga.c
+            ${SW_SRC}/vid.c
             ${RP6502_SRC}/ria/api/api.c
             ${RP6502_SRC}/ria/api/std.c
             ${RP6502_SRC}/ria/str/rln.c
             ${RP6502_SRC}/ria/str/str.c
+            ${RP6502_SRC}/vga/modes/mode1.c
+            ${RP6502_SRC}/vga/modes/mode2.c
+            ${RP6502_SRC}/vga/modes/mode3.c
             ${RP6502_SRC}/vga/term/color.c
+            ${RP6502_SRC}/vga/term/font.c
             ${RP6502_SRC}/vga/term/term.c)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
@@ -269,6 +274,22 @@ if(verilator_FOUND)
             TIMEOUT 120)
         add_dependencies(test_rw sw_bin cpu65_rom vid_font_rom)
         verilate(test_rw
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # Op 0x01 dispatch against the oracle, and the RTL program it lands.
+        rp6502_add_test(xreg
+            SOURCES test_xreg.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}"
+            TIMEOUT 120)
+        add_dependencies(test_xreg sw_bin cpu65_rom vid_font_rom)
+        verilate(test_xreg
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502

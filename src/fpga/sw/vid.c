@@ -12,16 +12,47 @@
  */
 
 #include "mmio.h"
+#include "vga.h"
 #include "vid.h"
 
 #include "vga/term/term.h"
 
 #include <stdint.h>
 
+/* mode0_prog over this machine's view: same defaults and validation, the
+ * raster window landing in the scanout register instead of a prog entry.
+ * Rendering the terminal on a graphics canvas is deferred; the ACK still
+ * matches the oracle's. */
+bool vid_mode0_prog(uint16_t *xregs)
+{
+    int16_t scanline_begin = (int16_t)xregs[3];
+    int16_t scanline_end = (int16_t)xregs[4];
+    int16_t height = vga_canvas_height();
+    if (!scanline_begin && !scanline_end)
+    {
+        if (height == 180)
+            scanline_begin = 2, scanline_end = 178;
+        if (height == 360)
+            scanline_begin = 4, scanline_end = 356;
+    }
+    if (!scanline_end)
+        scanline_end = height;
+    int16_t scanline_count = (int16_t)(scanline_end - scanline_begin);
+    bool use_40 = height == 180 || height == 240;
+    if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
+        return false;
+    if (use_40)
+        term_set_height(40, (uint8_t)(scanline_count / 8));
+    else
+        term_set_height(80, (uint8_t)(scanline_count / 16));
+    VID_PROG = 0x80000000u | ((uint32_t)(uint16_t)scanline_end << 16)
+               | (uint16_t)scanline_begin;
+    return true;
+}
+
 void vid_init(void)
 {
-    term_set_height(80, 30);
-    VID_PROG = 0x80000000u | ((uint32_t)480 << 16);
+    vga_set_canvas(0);
 }
 
 void vid_task(void)

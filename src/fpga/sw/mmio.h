@@ -30,6 +30,13 @@
 #define VID_BLINK (*(volatile uint32_t *)0x50010088u)
 #define VID_PROG (*(volatile uint32_t *)0x5001008Cu)
 #define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
+
+/* The scanline program: per line per plane, the enable/mode/attr word and
+ * the config pointer, then the canvas and vsync-line registers. */
+#define VID_XPROG(line, plane, w) \
+    (((volatile uint32_t *)0x50020000u)[(line) * 8 + (plane) * 2 + (w)])
+#define VID_CANVAS (*(volatile uint32_t *)0x50024000u)
+#define VID_VSYNC_LINE (*(volatile uint32_t *)0x50024004u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)

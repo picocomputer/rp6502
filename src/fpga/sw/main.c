@@ -9,15 +9,21 @@
  */
 
 #include "com.h"
+#include "main.h"
 #include "mmio.h"
 #include "rom.h"
+#include "vga.h"
 #include "vid.h"
 #include "ria/api/api.h"
 #include "ria/api/std.h"
 #include "ria/main.h"
 #include "ria/str/rln.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
+#include "vga/modes/mode1.h"
+#include "vga/modes/mode2.h"
+#include "vga/modes/mode3.h"
 #include "vga/term/term.h"
 
 #include <stdint.h>
@@ -103,6 +109,61 @@ bool ria_active(void)
     return false;
 }
 
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
+{
+    /* HID report blocks and audio arrive with their devices. */
+    (void)channel;
+    (void)address;
+    (void)word;
+    return false;
+}
+
+/* The VGA mode-xreg accumulator, the emulator's 16 slots. */
+static uint16_t main_xregs[16];
+
+bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
+{
+    if (channel == 0)
+    {
+        main_xregs[address & 0x0F] = word;
+        if (address == 0)
+        {
+            bool ok = vga_set_canvas(word);
+            for (int i = 0; i < 16; i++)
+                main_xregs[i] = 0;
+            return ok;
+        }
+        if (address == 1)
+        {
+            bool ok;
+            vga_prog_mode((uint8_t)word, main_xregs[2]);
+            switch (word)
+            {
+            case 0:
+                ok = vid_mode0_prog(main_xregs);
+                break;
+            case 1:
+                ok = mode1_prog(main_xregs);
+                break;
+            case 2:
+                ok = mode2_prog(main_xregs);
+                break;
+            case 3:
+                ok = mode3_prog(main_xregs);
+                break;
+            default:
+                ok = false; /* sprites come with the mode 4/5 engines */
+                break;
+            }
+            for (int i = 0; i < 16; i++)
+                main_xregs[i] = 0;
+            return ok;
+        }
+        return true;
+    }
+    return false;
+}
+
 const std_driver_t *main_std_drivers(size_t *count)
 {
     *count = 0;
@@ -113,6 +174,8 @@ bool main_api(uint8_t operation)
 {
     switch (operation)
     {
+    case 0x01:
+        return pix_api_xreg();
     case 0x14:
         return std_api_open();
     case 0x15:

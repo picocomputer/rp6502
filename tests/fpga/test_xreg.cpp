@@ -1,0 +1,192 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Op 0x01 plumbing without pixels: the error paths — misaligned stack, bad
+ * device, the RIA-private VGA control channel — then a canvas switch and a
+ * full mode 3 program, byte-exact on the console against the oracle and
+ * structurally against the RTL's canvas and scanline program.
+ */
+
+#include "Vrp6502.h"
+#include "Vrp6502___024root.h"
+
+#include "oracle.h"
+#include "utest.h"
+
+#include <cstdio>
+#include <cstring>
+#include <string>
+#include <vector>
+
+static Vrp6502 *dut;
+
+static bool load_firmware(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return false;
+    auto &tcm = dut->rootp->rp6502__DOT__rv__DOT__tcm;
+    for (size_t i = 0; i < 32768; i++)
+        tcm[i] = 0;
+    uint8_t buf[4];
+    size_t word = 0, n;
+    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
+    {
+        uint32_t v = 0;
+        for (size_t i = 0; i < n; i++)
+            v |= (uint32_t)buf[i] << (8 * i);
+        tcm[word++] = v;
+    }
+    fclose(f);
+    return true;
+}
+
+static uint32_t crc32_buf(const uint8_t *p, size_t n)
+{
+    uint32_t crc = 0xFFFFFFFFu;
+    while (n--)
+    {
+        crc ^= *p++;
+        for (int k = 0; k < 8; k++)
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
+    }
+    return crc ^ 0xFFFFFFFFu;
+}
+
+static void rom_record(std::vector<uint8_t> &rom, uint32_t addr,
+                       const uint8_t *data, size_t len)
+{
+    char line[64];
+    snprintf(line, sizeof(line), "$%05X $%zX $%08X\n",
+             addr, len, crc32_buf(data, len));
+    rom.insert(rom.end(), line, line + strlen(line));
+    rom.insert(rom.end(), data, data + len);
+}
+
+UTEST(xreg, dispatch_matches_the_oracle)
+{
+    std::vector<uint8_t> p;
+    auto lda = [&](uint8_t v) { p.insert(p.end(), {0xA9, v}); };
+    auto sta = [&](uint16_t a) {
+        p.insert(p.end(), {0x8D, (uint8_t)a, (uint8_t)(a >> 8)});
+    };
+    auto ldaa = [&](uint16_t a) {
+        p.insert(p.end(), {0xAD, (uint8_t)a, (uint8_t)(a >> 8)});
+    };
+    auto push = [&](uint8_t v) { lda(v); sta(0xFFEC); };
+    auto pushw = [&](uint16_t w) { push((uint8_t)(w >> 8)); push((uint8_t)w); };
+    auto op1 = [&]() {
+        lda(0x01);
+        sta(0xFFEF);
+        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
+        sta(0xFFE1);                           /* print A */
+        p.insert(p.end(), {0x8E, 0xE1, 0xFF}); /* print X */
+        ldaa(0xFFED);
+        sta(0xFFE1);
+        ldaa(0xFFEE);
+        sta(0xFFE1);
+    };
+
+    /* VGA control channel: RIA-private, EACCES. */
+    push(1); push(15); push(0); pushw(0);
+    op1();
+    /* Device 8: EINVAL. */
+    push(8); push(0); push(0); pushw(0);
+    op1();
+    /* Misaligned stack: an extra byte, EINVAL. */
+    push(1); push(0); push(0); pushw(0); push(0xAA);
+    op1();
+    /* Canvas 1, 320x240. */
+    push(1); push(0); push(0); pushw(1);
+    op1();
+    /* Mode 3, 1bpp, config at $1000, plane 0, whole canvas. */
+    push(1); push(0); push(1);
+    pushw(3); pushw(0); pushw(0x1000); pushw(0); pushw(0); pushw(0);
+    op1();
+    p.push_back(0xDB);
+
+    static const uint8_t vectors[] = {0x00, 0x03};
+    std::vector<uint8_t> rom;
+    const char magic[] = "#!RP6502\n";
+    rom.insert(rom.end(), magic, magic + strlen(magic));
+    rom_record(rom, 0x0300, p.data(), p.size());
+    rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
+
+    FILE *f = fopen("test_xreg.rp6502", "wb");
+    ASSERT_TRUE(f != NULL);
+    fwrite(rom.data(), 1, rom.size(), f);
+    fclose(f);
+    oracle_init();
+    oracle_tap_start();
+    ASSERT_TRUE(oracle_restart("test_xreg.rp6502"));
+    oracle_run_frames(30);
+    int ow = 0, oh = 0;
+    oracle_canvas_size(&ow, &oh);
+    ASSERT_EQ(ow, 320);
+    ASSERT_EQ(oh, 240);
+    size_t tap_len;
+    const char *tap = oracle_tap_data(&tap_len);
+    std::string oracle_out(tap, tap_len);
+
+    ASSERT_TRUE(load_firmware(SW_BIN));
+    dut->rst_n = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        dut->clk_sys = 1;
+        dut->eval();
+        dut->clk_sys = 0;
+        dut->eval();
+    }
+    dut->rst_n = 1;
+    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+
+    std::string cpu_out;
+    bool stopped = false;
+    for (int i = 0; i < 8000000; i++)
+    {
+        uint32_t a = dut->rp6502_stage_addr;
+        dut->stage_rdata = a < rom.size() ? rom[a] : 0;
+        dut->clk_sys = 1;
+        dut->eval();
+        dut->clk_sys = 0;
+        dut->eval();
+        if (dut->rp6502_tx_valid)
+            cpu_out.push_back((char)dut->rp6502_tx_data);
+        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
+        if (dut->rp6502_rv_halted && stopped)
+            break;
+    }
+    ASSERT_TRUE(dut->rp6502_rv_halted);
+    ASSERT_TRUE(stopped);
+
+    /* Five results, four bytes each, identical on both machines. */
+    ASSERT_EQ(cpu_out.size(), (size_t)20);
+    ASSERT_TRUE(oracle_out.size() >= cpu_out.size());
+    ASSERT_EQ(memcmp(oracle_out.data() + oracle_out.size() - cpu_out.size(),
+                     cpu_out.data(), cpu_out.size()), 0);
+
+    /* The RTL landed it: canvas 1, mode 3 entries across [0, 240) on
+     * plane 0 with the config pointer, nothing at 240. */
+    auto *r = dut->rootp;
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__canvas_shadow, 1);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[0],
+              0x80000000u | (3u << 16));
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[1], 0x1000u);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[239 * 8],
+              0x80000000u | (3u << 16));
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[240 * 8], 0u);
+}
+
+UTEST_STATE();
+
+int main(int argc, const char *const argv[])
+{
+    Verilated::commandArgs(argc, const_cast<char **>(argv));
+    dut = new Vrp6502;
+    int rc = utest_main(argc, argv);
+    dut->final();
+    delete dut;
+    return rc;
+}
