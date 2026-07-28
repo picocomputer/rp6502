@@ -8,10 +8,12 @@
  * the semantic reference): MCLK 12.288 MHz from a fractional
  * accumulator on the 74.25 MHz clock, SCLK a quarter of it, LRCK at
  * 48 kHz over 64 SCLK, the word reloaded each frame at the low-to-high
- * boundary, sixteen bits MSB-first per channel and zeros behind them.
- * The 24 to 48 kHz doubling falls out of the reload: each sample is
- * simply the latest one twice. Our samples arrive 10-bit unsigned
- * centered at 512 and leave as true signed 16-bit, centered at zero.
+ * boundary, sixteen bits MSB-first per channel and zeros behind them
+ * — right in the high half, so the LRCK-high slot carries the right
+ * sample exactly as the reference transmits it. The 24 to 48 kHz
+ * doubling falls out of the reload: each sample is simply the latest
+ * one twice. Our samples arrive 10-bit unsigned centered at 512 and
+ * leave as true signed 16-bit, centered at zero.
  */
 
 module pocket_i2s (
@@ -48,7 +50,7 @@ module pocket_i2s (
         .wclk(clk_sys),
         .wrst_n(rst_n),
         .w_stb(aud_valid && !fifo_full),
-        .w_data({s_l, s_r}),
+        .w_data({s_r, s_l}),
         .pocket_fifo_full(fifo_full),
         .rclk(clk_74a),
         .rrst_n(arst_n),

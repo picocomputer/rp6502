@@ -47,6 +47,7 @@ module rv_soc #(
     input logic [31:0] slot_len,
     input logic key_set,
     input logic [8:0] key_code,
+    output logic rv_soc_key_pending,
 
     output logic [7:0] rv_soc_tx_data,
     output logic rv_soc_tx_valid,
@@ -238,6 +239,7 @@ module rv_soc #(
     logic mmio_kbd_valid /*verilator public_flat_rw*/;
     logic [8:0] mmio_key_data /*verilator public_flat_rw*/;
     logic mmio_key_valid /*verilator public_flat_rw*/;
+    always_comb rv_soc_key_pending = mmio_key_valid;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
     logic [63:0] mtime_us;

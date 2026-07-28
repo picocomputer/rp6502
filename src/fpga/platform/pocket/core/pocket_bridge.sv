@@ -13,8 +13,13 @@
  * the machine's own reset clears the register it lands in. A host
  * re-reset re-posts it the same way. Controller buttons cross whole,
  * then leave as HID key events — dpad to arrows, A to Enter, B to
- * Escape, select to Tab, start to Enter — paced far apart enough for
- * the firmware's poll to catch every edge.
+ * Escape, select to Tab, start to Enter — posted only into an empty
+ * mailbox, so nothing is ever lost under a slow poll, and only while
+ * the machine runs: across a reset the tracker clears, and a button
+ * held through boot delivers itself the moment the firmware can
+ * hear it. Completion arrives as a level from the bridge command
+ * block — it clears only at the next slot request — so the settle
+ * fires on its edge.
  */
 
 module pocket_bridge (
@@ -34,6 +39,7 @@ module pocket_bridge (
     input logic clk_sys,
     input logic rst_n,
     input logic sdram_ready,
+    input logic key_busy,
     input logic w_take,
     output logic pocket_bridge_w_avail,
     output logic [24:0] pocket_bridge_w_addr,
@@ -108,6 +114,7 @@ module pocket_bridge (
      * Completion or a host reset-exit rereads the table; the size is
      * quasi-static behind its toggle. Word 1 carries slot 0's size. */
     logic reset_n_q;
+    logic allcomplete_q;
     logic [1:0] dt_read;
     logic [31:0] slot_size;
     logic settle_t;
@@ -115,13 +122,16 @@ module pocket_bridge (
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             reset_n_q <= 1'b0;
+            allcomplete_q <= 1'b0;
             dt_read <= '0;
             slot_size <= '0;
             settle_t <= 1'b0;
         end else begin
             reset_n_q <= reset_n;
+            allcomplete_q <= dataslot_allcomplete;
             dt_read <= {dt_read[0], 1'b0};
-            if (dataslot_allcomplete || (reset_n && !reset_n_q))
+            if ((dataslot_allcomplete && !allcomplete_q)
+                || (reset_n && !reset_n_q))
                 dt_read[0] <= 1'b1;
             if (dt_read[1]) begin
                 slot_size <= datatable_q;
@@ -187,7 +197,7 @@ module pocket_bridge (
 
     logic [31:0] keys_s1, keys_s2;
     logic [KEYS-1:0] reported;
-    logic [11:0] pace;
+    logic [4:0] pace;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
             keys_s1 <= '0;
@@ -200,16 +210,21 @@ module pocket_bridge (
             keys_s1 <= cont1_key;
             keys_s2 <= keys_s1;
             pocket_bridge_key_set <= 1'b0;
-            if (pace != '0) begin
-                pace <= pace - 12'd1;
-            end else begin
+            if (!pocket_bridge_run) begin
+                /* No mailbox to hear an edge: the tracker clears, and
+                 * whatever is held at release delivers itself then. */
+                reported <= '0;
+                pace <= 5'h1F;
+            end else if (pace != '0) begin
+                pace <= pace - 5'd1;
+            end else if (!key_busy) begin
                 for (int k = 0; k < KEYS; k++) begin
                     if (keys_s2[BTN[k]] != reported[k]) begin
                         reported[k] <= keys_s2[BTN[k]];
                         pocket_bridge_key_code <=
                             {keys_s2[BTN[k]], HID[k]};
                         pocket_bridge_key_set <= 1'b1;
-                        pace <= 12'hFFF;
+                        pace <= 5'h1F;
                         break;
                     end
                 end

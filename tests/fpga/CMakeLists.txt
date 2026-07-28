@@ -589,8 +589,7 @@ if(verilator_FOUND)
             SOURCES test_pocket.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
-            FIXTURE mode3_8bpp.rp6502
+            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 600)
         add_dependencies(test_pocket sw_bin cpu65_rom vid_font_rom
             vid_palette_rom)

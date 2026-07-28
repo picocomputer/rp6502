@@ -159,9 +159,8 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
                            >> (24 - 8 * ((i - 992) % 4)));
 
     ASSERT_EQ((int)dut->tb_pbridge_run, 0);
+    /* Completion holds as a level, the bridge command block's way. */
     dut->dataslot_allcomplete = 1;
-    a_cycles(1);
-    dut->dataslot_allcomplete = 0;
     a_cycles(20);
     ASSERT_EQ((int)dut->tb_pbridge_run, 0); /* still in host reset */
 
@@ -204,17 +203,21 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
         ASSERT_EQ(g_slot_lens[i], (uint32_t)img.size());
     size_t posts_rereset = g_slot_sets.size();
 
-    /* A reload: new image, new length, the full host order again. */
+    /* A reload: new image, new length, the full host order again.
+     * The next slot request drops the completion level; a button held
+     * through the whole reload must deliver itself at the release. */
     dut->reset_n = 0;
+    dut->dataslot_allcomplete = 0;
+    g_keys.clear();
+    dut->cont1_key = 1u << 15; /* start, held from here */
     a_cycles(10);
     std::vector<uint8_t> img2(400);
     for (size_t i = 0; i < img2.size(); i++)
         img2[i] = (uint8_t)(200 - i);
     dut->datatable_q = (uint32_t)img2.size();
     host_stream(img2, 88);
+    ASSERT_EQ((int)g_keys.size(), 0); /* no mailbox, no events */
     dut->dataslot_allcomplete = 1;
-    a_cycles(1);
-    dut->dataslot_allcomplete = 0;
     dut->reset_n = 1;
     a_cycles(30);
     ASSERT_EQ((int)dut->tb_pbridge_run, 1);
@@ -224,21 +227,42 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
         ASSERT_EQ(stage_read(h),
                   (uint16_t)(img2[h * 2] | (img2[h * 2 + 1] << 8)));
 
-    /* Controller edges: two pressed together leave as two paced
-     * events; releases follow the same way. */
+    /* The held button delivered itself once the machine could hear. */
+    ASSERT_EQ((int)g_keys.size(), 1);
+    ASSERT_EQ(g_keys[0].code, 0x128); /* start pressed, maps Enter */
+    dut->cont1_key = 0;
+    advance_to(s_next + 165L * 200);
+    ASSERT_EQ((int)g_keys.size(), 2);
+    ASSERT_EQ(g_keys[1].code, 0x028);
+
+    /* Controller edges: two pressed together leave as two events in
+     * table order, spaced by the posting floor. */
     g_keys.clear();
     dut->cont1_key = (1u << 1) | (1u << 4); /* down + A */
-    advance_to(s_next + 165L * 12000);
+    advance_to(s_next + 165L * 200);
     dut->cont1_key = 0;
-    advance_to(s_next + 165L * 12000);
+    advance_to(s_next + 165L * 200);
 
     ASSERT_EQ((int)g_keys.size(), 4);
     ASSERT_EQ(g_keys[0].code, 0x151); /* down pressed  */
     ASSERT_EQ(g_keys[1].code, 0x128); /* A pressed     */
     ASSERT_EQ(g_keys[2].code, 0x051); /* down released */
     ASSERT_EQ(g_keys[3].code, 0x028); /* A released    */
-    ASSERT_GE(g_keys[1].at - g_keys[0].at, 4096L);
-    ASSERT_GE(g_keys[3].at - g_keys[2].at, 4096L);
+    ASSERT_GE(g_keys[1].at - g_keys[0].at, 32L);
+    ASSERT_GE(g_keys[3].at - g_keys[2].at, 32L);
+
+    /* A full mailbox blocks the post; nothing is lost waiting. */
+    g_keys.clear();
+    dut->key_busy = 1;
+    dut->cont1_key = 1u << 2; /* left */
+    advance_to(s_next + 165L * 500);
+    ASSERT_EQ((int)g_keys.size(), 0);
+    dut->key_busy = 0;
+    advance_to(s_next + 165L * 200);
+    ASSERT_EQ((int)g_keys.size(), 1);
+    ASSERT_EQ(g_keys[0].code, 0x150); /* left pressed, kept whole */
+    dut->cont1_key = 0;
+    advance_to(s_next + 165L * 200);
 }
 
 UTEST_STATE();

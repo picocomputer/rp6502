@@ -7,8 +7,9 @@
  * samples on the machine clock at the true 165:224 ratio against
  * 74.25 MHz, reconstructs SCLK from the MCLK port, samples the data
  * line on rising edges, and rebuilds each channel word. The frames
- * must run 64 SCLK with sixteen active bits MSB-first, left under
- * LRCK high; deduplicated, the stream must equal the fed sequence
+ * must run 64 SCLK with sixteen active bits MSB-first, right under
+ * LRCK high as the shipped cores transmit; deduplicated, the stream
+ * must equal the fed sequence
  * through the signed conversion, every sample heard exactly twice.
  */
 
@@ -112,12 +113,12 @@ UTEST(pi2s, frames_and_samples_exact)
                     if (bit_in_half >= 0)
                     {
                         ASSERT_EQ(bit_in_half, 31);
-                        /* The finished half: left under LRCK high,
-                         * right under low. */
+                        /* The finished half: right under LRCK high,
+                         * left under low — the reference's slots. */
                         if (lrck_q)
-                            dec_l.push_back((int16_t)word);
-                        else
                             dec_r.push_back((int16_t)word);
+                        else
+                            dec_l.push_back((int16_t)word);
                     }
                     bit_in_half = 0;
                     word = 0;

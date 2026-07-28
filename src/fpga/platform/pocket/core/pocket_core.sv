@@ -73,6 +73,7 @@ module pocket_core (
     logic slot_set, key_set;
     logic [31:0] slot_len;
     logic [8:0] key_code;
+    logic key_pending;
 
     logic w_avail, w_take;
     logic [24:0] w_addr;
@@ -100,7 +101,8 @@ module pocket_core (
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
         .pocket_bridge_key_set(key_set),
-        .pocket_bridge_key_code(key_code)
+        .pocket_bridge_key_code(key_code),
+        .key_busy(key_pending)
     );
 
     /* Staging: the machine's byte fetch against the halfword store. */
@@ -167,6 +169,7 @@ module pocket_core (
         .slot_len(slot_len),
         .key_set(key_set),
         .key_code(key_code),
+        .rp6502_key_pending(key_pending),
         .rp6502_vid_pixel(vid_pixel),
         .rp6502_vid_de(vid_de),
         .rp6502_aud_l(aud_l),
@@ -191,9 +194,12 @@ module pocket_core (
         .pocket_video_hs(pocket_core_hs)
     );
 
+    /* The I2S keeps the platform reset: both FIFO sides stay one
+     * family, and a machine reset just stops the pushes — the shifter
+     * repeats the last sample, flat, until the reboot resumes. */
     pocket_i2s i2s (
         .clk_sys(clk_sys),
-        .rst_n(mrst_n),
+        .rst_n(rst_n),
         .aud_l(aud_l),
         .aud_r(aud_r),
         .aud_valid(aud_valid),

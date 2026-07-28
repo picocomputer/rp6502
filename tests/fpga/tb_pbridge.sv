@@ -21,6 +21,7 @@ module tb_pbridge (
 
     input logic clk_sys,
     input logic rst_n,
+    input logic key_busy,
     output logic tb_pbridge_run,
     output logic tb_pbridge_slot_set,
     output logic [31:0] tb_pbridge_slot_len,
@@ -51,6 +52,7 @@ module tb_pbridge (
         .cont1_key(cont1_key),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
+        .key_busy(key_busy),
         .sdram_ready(tb_pbridge_ready),
         .w_take(w_take),
         .pocket_bridge_w_avail(w_avail),

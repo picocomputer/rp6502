@@ -64,6 +64,7 @@ module rp6502
     input logic [31:0] slot_len,
     input logic key_set,
     input logic [8:0] key_code,
+    output logic rp6502_key_pending,
 
     /* The composed picture, aligned with its data enable. */
     output logic [15:0] rp6502_vid_pixel,
@@ -172,6 +173,7 @@ module rp6502
         .slot_len(slot_len),
         .key_set(key_set),
         .key_code(key_code),
+        .rv_soc_key_pending(rp6502_key_pending),
         .bus_rdy(!(bus_sel_xram && xr_busy)
                  && !(bus_sel_stage && stage_stall)),
         .rv_soc_bus_pend(bus_pend),
