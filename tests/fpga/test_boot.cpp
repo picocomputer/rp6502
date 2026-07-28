@@ -14,6 +14,7 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -66,9 +67,7 @@ UTEST(boot, firmware_boots_the_6502)
     size_t typed_at = 0, typed2_at = 0;
 
     std::string rv_out, cpu_out;
-    bool stopped = false;
-    for (int i = 0; i < 16000000; i++)
-    {
+    ASSERT_TRUE(tb_quiet(dut, [&] {
         if (!dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid)
         {
             if (typed[typed_at])
@@ -90,14 +89,7 @@ UTEST(boot, firmware_boots_the_6502)
             rv_out.push_back((char)dut->rp6502_rv_tx_data);
         if (dut->rp6502_tx_valid)
             cpu_out.push_back((char)dut->rp6502_tx_data);
-        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
-        if (dut->rp6502_rv_halted && stopped)
-            break;
-    }
-
-    ASSERT_TRUE(dut->rp6502_rv_halted);
-    ASSERT_EQ(dut->rp6502_rv_exit_code, 0u);
-    ASSERT_TRUE(stopped);
+    }));
     /* CA is the machine's first real syscall: api.c answered $4143 through
      * the trampoline, and the 6502 printed A then X. DB is the second, the
      * uint16 $4243 pushed on the xstack coming back incremented. HI\r is

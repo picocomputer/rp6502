@@ -17,6 +17,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -88,16 +89,27 @@ static void clock_cycle()
     dut->eval();
 }
 
+/* Capture a frame. The firmware runs forever, stepping the blink phase
+ * on its own timer, so a phase under test has to be held down for the
+ * whole frame rather than merely written before it. */
+static int pinned_blink = -1;
+
 static void capture_frame(uint32_t *fb)
 {
+    auto ck = [] {
+        if (pinned_blink >= 0)
+            dut->rootp->rp6502__DOT__vid_term__DOT__blink_shadow =
+                (uint8_t)pinned_blink;
+        clock_cycle();
+    };
     while (dut->rp6502_scanline != 524)
-        clock_cycle();
+        ck();
     while (dut->rp6502_scanline != 0)
-        clock_cycle();
+        ck();
     size_t at = 0;
     while (at < 640 * 480)
     {
-        clock_cycle();
+        ck();
         if (dut->rp6502_vid_de)
             fb[at++] = rgba8(dut->rp6502_vid_pixel);
     }
@@ -194,18 +206,11 @@ UTEST(session, scripted_frame_matches_oracle)
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
 
-    bool stopped = false;
-    for (int i = 0; i < 12000000; i++)
-    {
+    ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;
         clock_cycle();
-        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
-        if (dut->rp6502_rv_halted && stopped)
-            break;
-    }
-    ASSERT_TRUE(dut->rp6502_rv_halted);
-    ASSERT_TRUE(stopped);
+    }));
 
     static uint32_t fb[2][640 * 480];
     capture_frame(fb[0]);
@@ -237,14 +242,15 @@ UTEST(session, scripted_frame_matches_oracle)
         (seed & 0xFFFF0000u) | 0x0200u | 'B';
     r->rp6502__DOT__vid_term__DOT__cells[(base >> 2) + 1] = bgw;
 
-    /* The firmware's own phase advanced during the run; pin it lit. */
+    /* The firmware keeps advancing its own phase, so hold ours. */
     static uint32_t on[640 * 480], off[640 * 480];
-    r->rp6502__DOT__vid_term__DOT__blink_shadow = 0;
+    pinned_blink = 0;
     capture_frame(on);  /* latch */
     capture_frame(on);
-    r->rp6502__DOT__vid_term__DOT__blink_shadow = 2;
+    pinned_blink = 2;
     capture_frame(off);  /* latch */
     capture_frame(off);
+    pinned_blink = -1;
     if (getenv("SESSION_DEBUG"))
     {
         fprintf(stderr, "base=%04X w0=%08X w1=%08X\n", base,

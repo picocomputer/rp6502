@@ -13,6 +13,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include "ria/sys/mem.h"
@@ -83,20 +84,22 @@ static bool rtl_boot(const std::vector<uint8_t> &rom, std::string *rv_out)
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
     rv_out->clear();
-    for (int i = 0; i < 16000000; i++)
-    {
+    /* A rejected image leaves the 6502 in reset; the firmware says so
+     * and keeps serving the console. Booted means the program ran. */
+    bool ever_ran = false;
+    bool quiet = tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;
         dut->clk_sys = 1;
         dut->eval();
         dut->clk_sys = 0;
         dut->eval();
+        if (dut->rootp->rp6502__DOT__cpu_run)
+            ever_ran = true;
         if (dut->rp6502_rv_tx_valid)
             rv_out->push_back((char)dut->rp6502_rv_tx_data);
-        if (dut->rp6502_rv_halted)
-            break;
-    }
-    return dut->rp6502_rv_halted && dut->rp6502_rv_exit_code == 0;
+    });
+    return quiet && ever_ran;
 }
 
 static const uint8_t prog_stp[] = {0xDB};

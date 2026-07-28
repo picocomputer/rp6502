@@ -21,6 +21,7 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -135,7 +136,6 @@ UTEST(furelise, plays_psg_audio)
 
     ASSERT_GT(g_peak, 32);
     ASSERT_GT(g_energy, 200000);
-    ASSERT_FALSE(dut->rp6502_rv_halted);
     ASSERT_EQ(dut->rootp->rp6502__DOT__cpu_run, 1);
 }
 

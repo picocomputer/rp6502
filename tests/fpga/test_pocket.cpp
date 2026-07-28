@@ -24,6 +24,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 static Vtb_pocket *dut;
@@ -91,6 +92,53 @@ static bool load_firmware(const char *path)
     }
     fclose(f);
     return true;
+}
+
+/* The run is over when the 6502 has stopped and a frame passes with no
+ * console byte — the same judgment tb_quiet makes for the bare machine,
+ * spelled here against the assembled core's own port names. Counts key
+ * deliveries on the way when the caller wants them. */
+static bool run_until_quiet(long *presses = nullptr)
+{
+    long frames = 0;
+    const long flimit = 600;
+    long budget = flimit * 1700000L;
+    bool moved = false;
+    bool spoke = false;
+    int prev = dut->tb_pocket_vs;
+    while (frames < flimit && budget-- > 0)
+    {
+        long sys_before = g_sys;
+        tick();
+        if (g_sys == sys_before)
+            continue;
+        if (presses && dut->rootp->tb_pocket__DOT__core__DOT__key_set)
+            (*presses)++;
+        if (dut->tb_pocket_tx_valid || dut->tb_pocket_rv_tx_valid)
+            moved = spoke = true;
+        int vs = dut->tb_pocket_vs;
+        bool frame_edge = vs && !prev;
+        prev = vs;
+        if (!frame_edge)
+            continue;
+        frames++;
+        auto *r = dut->rootp;
+        bool stopped =
+            r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag != 0
+            || !r->tb_pocket__DOT__core__DOT__machine__DOT__cpu_run;
+        if (spoke && stopped && !moved)
+            return true;
+        moved = false;
+    }
+    if (getenv("POCKET_DEBUG"))
+        fprintf(stderr, "quiet gave up: frames=%ld spoke=%d run=%d "
+                "cpu_run=%d stop=%d\n", frames, (int)spoke,
+                (int)dut->rootp->tb_pocket__DOT__core__DOT__run,
+                (int)dut->rootp
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__cpu_run,
+                (int)dut->rootp
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag);
+    return false;
 }
 
 /* Capture one full decoded frame off the scaler interface: sample on
@@ -167,9 +215,13 @@ static void host_load(const std::vector<uint8_t> &rom)
     dut->dataslot_allcomplete = 1;
 }
 
-/* Run to the program's halt, then compare the settled scaler frame
- * against the oracle for the same file. */
-static void run_and_compare(int *utest_result, const char *name)
+/* Compare the settled scaler frame against the oracle for the same
+ * file. `wait` is false when the caller already ran the machine to
+ * quiet — the judgment can only be made once per run, since a
+ * finished machine and one that has not started look alike from
+ * outside. */
+static void run_and_compare(int *utest_result, const char *name,
+                            bool wait = true)
 {
     ASSERT_TRUE(oracle_restart(
         (std::string(ROMS_DIR "/") + name + ".rp6502").c_str()));
@@ -178,15 +230,8 @@ static void run_and_compare(int *utest_result, const char *name)
     oracle_canvas_size(&ow, &oh);
     const uint32_t *ofb = oracle_framebuffer();
 
-    bool stopped = false;
-    for (long i = 0; i < 60000000 && !stopped; i++)
-    {
-        tick();
-        stopped = dut->tb_pocket_rv_halted
-            && dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag
-                   != 0;
-    }
-    ASSERT_TRUE(stopped);
+    if (wait)
+        ASSERT_TRUE(run_until_quiet());
 
     static uint32_t fb[2][640 * 480];
     capture_frame(fb[0]);
@@ -301,20 +346,7 @@ UTEST(pocket, reload_with_a_button_held)
     /* Count deliveries into the machine's mailbox on the way. */
     long presses = 0;
     {
-        bool stopped = false;
-        for (long i = 0; i < 60000000 && !stopped; i++)
-        {
-            long sys_before = g_sys;
-            tick();
-            if (g_sys != sys_before
-                && dut->rootp->tb_pocket__DOT__core__DOT__key_set)
-                presses++;
-            stopped = dut->tb_pocket_rv_halted
-                && dut->rootp
-                       ->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag
-                   != 0;
-        }
-        ASSERT_TRUE(stopped);
+        ASSERT_TRUE(run_until_quiet(&presses));
     }
 
     /* The held press delivered itself exactly once after the reboot;
@@ -332,7 +364,7 @@ UTEST(pocket, reload_with_a_button_held)
     ASSERT_EQ(presses, 2L);
 
     /* And the scaler re-armed on the new machine's frame. */
-    run_and_compare(utest_result, "mode3_1bpp");
+    run_and_compare(utest_result, "mode3_1bpp", false);
 }
 
 UTEST_STATE();

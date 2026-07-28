@@ -16,6 +16,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -107,18 +108,11 @@ static void run_case(int *utest_result, const char *name)
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
 
-    bool stopped = false;
-    for (int i = 0; i < 8000000; i++)
-    {
+    ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;
         clock_cycle();
-        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
-        if (dut->rp6502_rv_halted && stopped)
-            break;
-    }
-    ASSERT_TRUE(dut->rp6502_rv_halted);
-    ASSERT_TRUE(stopped);
+    }));
 
     static uint32_t fb[2][640 * 480];
     capture_frame(fb[0]);

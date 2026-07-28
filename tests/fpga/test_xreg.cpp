@@ -16,6 +16,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -200,11 +201,9 @@ UTEST(xreg, dispatch_matches_the_oracle)
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
 
     std::string cpu_out;
-    bool stopped = false;
     int strikes = 0;
     uint8_t bel_count_prev = 0;
-    for (int i = 0; i < 8000000; i++)
-    {
+    ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;
         dut->clk_sys = 1;
@@ -217,12 +216,7 @@ UTEST(xreg, dispatch_matches_the_oracle)
         if (bel_count_prev == 0 && bc != 0)
             strikes++;
         bel_count_prev = bc;
-        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
-        if (dut->rp6502_rv_halted && stopped)
-            break;
-    }
-    ASSERT_TRUE(dut->rp6502_rv_halted);
-    ASSERT_TRUE(stopped);
+    }));
 
     /* Eighteen results, four bytes each, plus the two BEL characters,
      * identical on both machines. */

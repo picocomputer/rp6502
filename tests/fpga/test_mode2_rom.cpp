@@ -17,6 +17,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -174,13 +175,7 @@ UTEST(mode2_rom, key_driven_run_to_exit)
         run_frame();
     rtl_key(0x2C, false);
 
-    bool done = false;
-    for (int i = 0; i < 40000000 && !done; i++)
-    {
-        clock_cycle();
-        done = dut->rp6502_rv_halted && !dut->rootp->rp6502__DOT__cpu_run;
-    }
-    ASSERT_TRUE(done);
+    ASSERT_TRUE(tb_quiet(dut, [&] { clock_cycle(); }));
 
     static uint32_t fb[2][640 * 480];
     capture_frame(fb[0]);

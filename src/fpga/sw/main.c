@@ -318,19 +318,16 @@ int main(void)
      * it straight out of the platform's staging window. */
     uint32_t slot = MMIO_SLOT;
     bool staged = false;
+    bool runnable = true;
     if (slot)
     {
         staged = rom_load_staged(slot);
         MMIO_SLOT = 0;
-        if (!staged)
-        {
-            print("rom: bad image\n");
-            return 1;
-        }
-        print("rom: staged\n");
+        print(staged ? "rom: staged\n" : "rom: bad image\n");
+        runnable = staged;
     }
 
-    if (!staged)
+    if (runnable && !staged)
     {
         for (uint32_t i = 0; i < sizeof boot_prog; i++)
             SRAM[BOOT_ORG + i] = boot_prog[i];
@@ -340,7 +337,8 @@ int main(void)
             if (SRAM[BOOT_ORG + i] != boot_prog[i])
             {
                 print("boot: verify failed\n");
-                return 1;
+                runnable = false;
+                break;
             }
 
         /* Vectors live in the register cells. */
@@ -353,20 +351,18 @@ int main(void)
     com_run();
     rln_run();
     api_run();
-    CPU_RUN = 1;
-    print("boot: running\n");
+    if (runnable)
+    {
+        CPU_RUN = 1;
+        print("boot: running\n");
+    }
 
     /* The OS loop, in the firmware's task order with api last. The real
-     * api.c latches the op and dispatches through main_api; the manifold
-     * moves the console bytes. Quiet with the 6502 stopped or halted
-     * means the work is done — a simulation-only exit, taken one vid
-     * frame after the last console byte so the tasks have pushed the
-     * final snapshot; the tests capture their own frames afterward,
-     * with the video still running. */
-    uint32_t quiet = 0;
-    uint32_t vframe = VID_FRAME;
-    uint32_t moved = com_moved();
-    for (uint32_t spins = 0; spins < 8000000u; spins++)
+     * api.c latches the op and dispatches through main_api; the
+     * manifold moves the console bytes. It never ends: a machine's
+     * firmware has nowhere to return to, and the simulation decides
+     * for itself when a run is over. */
+    for (;;)
     {
         if (API_PENDING)
         {
@@ -391,17 +387,5 @@ int main(void)
         term_task();
         vid_task();
         api_task();
-        if (com_moved() != moved)
-        {
-            moved = com_moved();
-            quiet = 0;
-        }
-        else if (VID_FRAME != vframe)
-        {
-            vframe = VID_FRAME;
-            if (!API_BUSY && (CPU_RUN & 3) != 1 && ++quiet > 0)
-                break;
-        }
     }
-    return 0;
 }

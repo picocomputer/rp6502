@@ -15,6 +15,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -142,22 +143,14 @@ UTEST(banner, frame_matches_oracle)
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
 
-    bool stopped = false;
-    int i = 0;
-    for (; i < 8000000; i++)
-    {
+    ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = a < rom.size() ? rom[a] : 0;
         dut->clk_sys = 1;
         dut->eval();
         dut->clk_sys = 0;
         dut->eval();
-        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
-        if (dut->rp6502_rv_halted && stopped)
-            break;
-    }
-    ASSERT_TRUE(dut->rp6502_rv_halted);
-    ASSERT_TRUE(stopped);
+    }));
 
     /* Capture two whole frames off the pixel stream and demand they are
      * identical (settled) before comparing against the oracle. */

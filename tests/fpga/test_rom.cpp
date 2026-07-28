@@ -16,6 +16,7 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
+#include "tb_quiet.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -127,10 +128,8 @@ static void run_staged(int *utest_result, bool slot_by_port,
             (uint32_t)rom.size();
 
     std::string rv_out, cpu_out;
-    bool stopped = false;
     int stalled = 0;
-    for (int i = 0; i < 64000000; i++)
-    {
+    bool quiet = tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         if (stall_cycles && dut->rp6502_stage_pend)
         {
@@ -163,18 +162,12 @@ static void run_staged(int *utest_result, bool slot_by_port,
             rv_out.push_back((char)dut->rp6502_rv_tx_data);
         if (dut->rp6502_tx_valid)
             cpu_out.push_back((char)dut->rp6502_tx_data);
-        stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
-        if (dut->rp6502_rv_halted && stopped)
-            break;
-    }
+    });
 
     if (getenv("BOOT_DEBUG"))
-        fprintf(stderr, "cpu_out=[%s]\nrv_out=[%s]\nhalted=%d stopped=%d\n",
-                cpu_out.c_str(), rv_out.c_str(),
-                (int)dut->rp6502_rv_halted, (int)stopped);
-    ASSERT_TRUE(dut->rp6502_rv_halted);
-    ASSERT_EQ(dut->rp6502_rv_exit_code, 0u);
-    ASSERT_TRUE(stopped);
+        fprintf(stderr, "cpu_out=[%s]\nrv_out=[%s]\nquiet=%d\n",
+                cpu_out.c_str(), rv_out.c_str(), (int)quiet);
+    ASSERT_TRUE(quiet);
     ASSERT_STREQ(cpu_out.c_str(), "RP");
     ASSERT_TRUE(strstr(rv_out.c_str(), "rom: staged") != NULL);
 }
