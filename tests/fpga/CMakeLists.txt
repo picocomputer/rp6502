@@ -555,6 +555,19 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3
     )
 
+    # --- The staging SDRAM controller against a behavioral chip ---
+    rp6502_add_test(psdram
+        SOURCES test_psdram.cpp
+        TIMEOUT 300)
+    verilate(test_psdram
+        SOURCES ${RP6502_FPGA_POCKET}/pocket_sdram.sv
+            ${CMAKE_CURRENT_LIST_DIR}/sdram_model.sv
+            ${CMAKE_CURRENT_LIST_DIR}/tb_psdram.sv
+        TOP_MODULE tb_psdram
+        PREFIX Vtb_psdram
+        VERILATOR_ARGS -Wall --assert -O3
+    )
+
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
