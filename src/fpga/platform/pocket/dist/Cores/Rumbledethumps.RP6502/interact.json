@@ -1,0 +1,16 @@
+{
+    "interact": {
+        "magic": "APF_VER_1",
+        "variables": [
+            {
+                "name": "Reset 6502",
+                "id": 1,
+                "type": "action",
+                "enabled": true,
+                "address": "0x10000000",
+                "value": 1
+            }
+        ],
+        "messages": []
+    }
+}

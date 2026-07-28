@@ -251,6 +251,27 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     ASSERT_GE(g_keys[1].at - g_keys[0].at, 32L);
     ASSERT_GE(g_keys[3].at - g_keys[2].at, 32L);
 
+    /* The interact "Reset 6502" action: one bridge write into the
+     * 0x1 window reboots the machine — run dips, rises, and the slot
+     * posts again with the same length. */
+    size_t posts_before = g_slot_sets.size();
+    dut->bridge_wr = 1;
+    dut->bridge_addr = 0x10000000u;
+    dut->bridge_wr_data = 1;
+    a_cycles(1);
+    dut->bridge_wr = 0;
+    bool dipped = false;
+    for (int i = 0; i < 2000 && !dipped; i++)
+    {
+        advance_to(s_next);
+        dipped = !dut->tb_pbridge_run;
+    }
+    ASSERT_TRUE(dipped);
+    advance_to(s_next + 165L * 400);
+    ASSERT_EQ((int)dut->tb_pbridge_run, 1);
+    ASSERT_GT(g_slot_sets.size(), posts_before);
+    ASSERT_EQ(g_slot_lens.back(), (uint32_t)img2.size());
+
     /* A full mailbox blocks the post; nothing is lost waiting. */
     g_keys.clear();
     dut->key_busy = 1;

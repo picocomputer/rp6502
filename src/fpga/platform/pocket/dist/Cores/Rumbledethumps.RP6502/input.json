@@ -1,0 +1,16 @@
+{
+    "input": {
+        "magic": "APF_VER_1",
+        "controllers": [
+            {
+                "type": "default",
+                "mappings": [
+                    { "id": 0, "name": "Enter", "key": "pad_btn_a" },
+                    { "id": 1, "name": "Escape", "key": "pad_btn_b" },
+                    { "id": 2, "name": "Tab", "key": "pad_btn_select" },
+                    { "id": 3, "name": "Enter", "key": "pad_btn_start" }
+                ]
+            }
+        ]
+    }
+}

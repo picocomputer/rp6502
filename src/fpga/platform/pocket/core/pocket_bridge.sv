@@ -19,7 +19,10 @@
  * held through boot delivers itself the moment the firmware can
  * hear it. Completion arrives as a level from the bridge command
  * block — it clears only at the next slot request — so the settle
- * fires on its edge.
+ * fires on its edge. A write into the 0x1 window — the interact
+ * menu's "Reset 6502" action — dips the run gate for a moment: the
+ * machine reboots and reloads the ROM still staged in the SDRAM,
+ * the monitor-less machine's reset button.
  */
 
 module pocket_bridge (
@@ -60,6 +63,15 @@ module pocket_bridge (
     logic [40:0] wf_wdata;
     logic slot_wr;
     always_comb slot_wr = bridge_wr && bridge_addr[31:28] == 4'h0;
+
+    /* The interact action, crossed as a toggle. */
+    logic urst_t;
+    always_ff @(posedge clk_74a or negedge arst_n) begin
+        if (!arst_n)
+            urst_t <= 1'b0;
+        else if (bridge_wr && bridge_addr[31:28] == 4'h1)
+            urst_t <= !urst_t;
+    end
 
     always_comb begin
         wf_stb = slot_wr || pend_second;
@@ -143,6 +155,8 @@ module pocket_bridge (
     /* --- The machine's release and the posting, clk_sys side. --- */
     logic settle_t1, settle_t2, settle_t3;
     logic reset_n_s1, reset_n_s2;
+    logic urst_t1, urst_t2, urst_t3;
+    logic [7:0] urst_cnt;
     logic settled;
     logic run_q;
     logic [3:0] post;
@@ -153,6 +167,10 @@ module pocket_bridge (
             settle_t3 <= 1'b0;
             reset_n_s1 <= 1'b0;
             reset_n_s2 <= 1'b0;
+            urst_t1 <= 1'b0;
+            urst_t2 <= 1'b0;
+            urst_t3 <= 1'b0;
+            urst_cnt <= '0;
             settled <= 1'b0;
             run_q <= 1'b0;
             post <= '0;
@@ -164,6 +182,13 @@ module pocket_bridge (
             settle_t3 <= settle_t2;
             reset_n_s1 <= reset_n;
             reset_n_s2 <= reset_n_s1;
+            urst_t1 <= urst_t;
+            urst_t2 <= urst_t1;
+            urst_t3 <= urst_t2;
+            if (urst_t2 != urst_t3)
+                urst_cnt <= 8'hFF;
+            else if (urst_cnt != '0)
+                urst_cnt <= urst_cnt - 8'd1;
             run_q <= pocket_bridge_run;
             pocket_bridge_slot_set <= 1'b0;
             post <= {post[2:0], 1'b0};
@@ -180,7 +205,8 @@ module pocket_bridge (
                 pocket_bridge_slot_set <= 1'b1;
         end
     end
-    always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready;
+    always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready
+        && urst_cnt == '0;
 
     /* --- Buttons to key events, clk_sys side. ---
      * The bitmap crosses whole (buttons are slow); each mapped edge
