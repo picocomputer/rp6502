@@ -49,10 +49,21 @@ module rp6502
     output logic rp6502_rv_halted,
     output logic [31:0] rp6502_rv_exit_code,
 
-    /* Staging window: address out at the strobe, byte answered by the
-     * platform before the next system clock. */
+    /* Staging window: the address holds from the pending request; a
+     * combinational platform answers the byte before the next system
+     * clock, a slow one holds stage_stall until its byte stands on
+     * stage_rdata — the strobe waits. */
     output logic [27:0] rp6502_stage_addr,
+    output logic rp6502_stage_pend,
+    input logic stage_stall,
     input logic [7:0] stage_rdata,
+
+    /* Platform sidebands into the soft CPU's registers: the staged slot
+     * length after a load, key events off the platform inputs. */
+    input logic slot_set,
+    input logic [31:0] slot_len,
+    input logic key_set,
+    input logic [8:0] key_code,
 
     /* The composed picture, aligned with its data enable. */
     output logic [15:0] rp6502_vid_pixel,
@@ -63,7 +74,8 @@ module rp6502
     output logic [9:0] rp6502_aud_r,
     output logic rp6502_aud_valid,
 
-    output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline
+    output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline,
+    output logic rp6502_vid_frame
 );
 
     /* PHI2, fixed until the soft CPU programs it. */
@@ -156,7 +168,12 @@ module rp6502
         .rv_soc_tx_valid(rp6502_rv_tx_valid),
         .rv_soc_halted(rp6502_rv_halted),
         .rv_soc_exit_code(rp6502_rv_exit_code),
-        .bus_rdy(!(bus_sel_xram && xr_busy)),
+        .slot_set(slot_set),
+        .slot_len(slot_len),
+        .key_set(key_set),
+        .key_code(key_code),
+        .bus_rdy(!(bus_sel_xram && xr_busy)
+                 && !(bus_sel_stage && stage_stall)),
         .rv_soc_bus_pend(bus_pend),
         .rv_soc_bus_stb(bus_stb),
         .rv_soc_bus_we(bus_we),
@@ -194,6 +211,15 @@ module rp6502
         bus_sel_aud = bus_addr[31:28] == 4'h7;
     end
 
+    /* The pending request shows the address early for a slow platform;
+     * the strobe-captured register holds it through the answer cycle. */
+    logic [27:0] stage_addr_q;
+    always_comb begin
+        rp6502_stage_pend = bus_pend && bus_sel_stage;
+        rp6502_stage_addr = rp6502_stage_pend ? bus_addr[27:0]
+                                              : stage_addr_q;
+    end
+
     logic api_pending;
     logic bus_ctl_api, bus_vid_prog;
     logic [7:0] sram_b_rdata;
@@ -207,7 +233,7 @@ module rp6502
             bus_rsel <= 3'd0;
             bus_ctl_api <= 1'b0;
             bus_vid_prog <= 1'b0;
-            rp6502_stage_addr <= '0;
+            stage_addr_q <= '0;
         end else begin
             if (bus_stb) begin
                 bus_rsel <= bus_sel_regs ? 3'd1
@@ -217,7 +243,7 @@ module rp6502
                     : (bus_sel_xram ? 3'd5 : 3'd0))));
                 bus_ctl_api <= bus_addr[2];
                 bus_vid_prog <= bus_addr[17];
-                rp6502_stage_addr <= bus_addr[27:0];
+                stage_addr_q <= bus_addr[27:0];
                 /* Captured at the strobe: ring reads advance their pointer
                  * there, so the answer must not be re-derived afterward. */
                 regs_b_q <= regs_b_rdata;
@@ -306,6 +332,7 @@ module rp6502
     logic vid_hsync /*verilator public_flat_rd*/;
     logic vid_vsync /*verilator public_flat_rd*/;
     logic vid_line_start, vid_frame_start;
+    always_comb rp6502_vid_frame = vid_frame_start;
     logic vid_vsync_pulse;
     logic prog_vsync_pulse;
     logic vid_px_first, vid_px_last;

@@ -16,9 +16,10 @@
  *   +4  halt: write stops the simulation testbench, value is the exit code
  *   +8  keyboard in: one offered byte, bit 8 valid, popped by the read;
  *       the testbench fills it now, the APF input bridge will later
- *   +16 microseconds since reset, low word; +20 high word. TICKS_PER_US
- *       scales the system clock down (1 in simulation, the real ratio on
- *       hardware); the firmware's time_us_64 reads hi-lo-hi
+ *   +16 microseconds since reset, low word; +20 high word. The tick is
+ *       a fractional accumulator, MTIME_ADD per clock wrapping at
+ *       MTIME_WRAP (1/1 in simulation; 10/1008 at the Pocket's
+ *       100.8 MHz); the firmware's time_us_64 reads hi-lo-hi
  *   +24 staged ROM length in bytes: the platform sets it after filling
  *       the staging window, the firmware writes 0 once consumed
  *   +28 HID key event: bit 9 valid, bit 8 down, low byte the HID
@@ -33,10 +34,19 @@
  */
 
 module rv_soc #(
-    parameter int TICKS_PER_US = 1
+    parameter int MTIME_ADD = 1,
+    parameter int MTIME_WRAP = 1,
+    parameter TCM_INIT_FILE = ""
 ) (
     input logic clk,
     input logic rst_n,
+
+    /* Platform sidebands: the APF bridge posts the slot length and key
+     * events the way the testbenches poke them. */
+    input logic slot_set,
+    input logic [31:0] slot_len,
+    input logic key_set,
+    input logic [8:0] key_code,
 
     output logic [7:0] rv_soc_tx_data,
     output logic rv_soc_tx_valid,
@@ -158,6 +168,12 @@ module rv_soc #(
 
     logic [31:0] tcm[TCM_WORDS] /*verilator public_flat_rw*/;
 
+    generate
+        if (TCM_INIT_FILE != "") begin : tcm_init
+            initial $readmemh(TCM_INIT_FILE, tcm);
+        end
+    endgenerate
+
     logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
     logic [14:0] word_addr;
     always_comb word_addr = haddr[16:2];
@@ -225,16 +241,18 @@ module rv_soc #(
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
     logic [63:0] mtime_us;
-    logic [7:0] mtime_tick;
+    logic [15:0] mtime_acc;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             mtime_us <= 64'd0;
-            mtime_tick <= '0;
-        end else if (mtime_tick == 8'(TICKS_PER_US - 1)) begin
-            mtime_tick <= '0;
+            mtime_acc <= '0;
+        end else if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
+        begin
+            mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
+                             - 32'(MTIME_WRAP));
             mtime_us <= mtime_us + 64'd1;
         end else begin
-            mtime_tick <= mtime_tick + 8'd1;
+            mtime_acc <= mtime_acc + 16'(MTIME_ADD);
         end
     end
 
@@ -271,6 +289,12 @@ module rv_soc #(
                 mmio_kbd_valid <= 1'b0;
             if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h1C)
                 mmio_key_valid <= 1'b0;
+            if (slot_set)
+                mmio_slot_len <= slot_len;
+            if (key_set) begin
+                mmio_key_data <= key_code;
+                mmio_key_valid <= 1'b1;
+            end
             if (dph_active && dph_write && dph_mmio) begin
                 case (mmio_reg)
                     5'h00: begin
