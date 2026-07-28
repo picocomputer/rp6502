@@ -95,4 +95,29 @@ UTEST(vidmodes, mode1_16bpp8x16)
     run_case(utest_result, "mode1_16bpp8x16", 640, 360);
 }
 
+UTEST(vidmodes, mode2_1bpp8)
+{
+    run_case(utest_result, "mode2_1bpp8", 640, 480);
+}
+
+UTEST(vidmodes, mode2_2bpp16)
+{
+    run_case(utest_result, "mode2_2bpp16", 320, 240);
+}
+
+UTEST(vidmodes, mode2_4bpp8trim)
+{
+    run_case(utest_result, "mode2_4bpp8trim", 320, 240);
+}
+
+UTEST(vidmodes, mode2_8bpp16wrap)
+{
+    run_case(utest_result, "mode2_8bpp16wrap", 320, 180);
+}
+
+UTEST(vidmodes, mode2_composite)
+{
+    run_case(utest_result, "mode2_composite", 320, 240);
+}
+
 UTEST_MAIN_EMU()

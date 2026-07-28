@@ -330,11 +330,14 @@ module rp6502
         a_sel = a_rotor;
         a_any = 1'b0;
         for (int i = 0; i < 3; i++) begin
-            logic [1:0] cand;
-            cand = a_rotor + 2'(i);
-            cand = cand == 2'd3 ? 2'd0 : cand;
-            if (!a_any && ma_req[cand]) begin
-                a_sel = cand;
+            /* Mod-3 in three bits: two-bit addition folds 4 onto 0 and
+             * skips a plane. */
+            logic [2:0] cand;
+            cand = {1'b0, a_rotor} + 3'(i);
+            if (cand >= 3'd3)
+                cand = cand - 3'd3;
+            if (!a_any && ma_req[cand[1:0]]) begin
+                a_sel = cand[1:0];
                 a_any = 1'b1;
             end
         end

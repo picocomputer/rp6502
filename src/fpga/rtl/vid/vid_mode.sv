@@ -134,6 +134,13 @@ module vid_mode (
     logic [9:0] m1_px_addr;
     logic [15:0] m1_px_data;
     logic m1_done, m1_filled;
+    logic m2_start;
+    logic m2_a_req;
+    logic [13:0] m2_a_addr;
+    logic m2_px_we;
+    logic [9:0] m2_px_addr;
+    logic [15:0] m2_px_data;
+    logic m2_done, m2_filled;
     vid_mode1 vid_mode1 (
         .clk(clk),
         .rst_n(rst_n),
@@ -152,6 +159,25 @@ module vid_mode (
         .vid_mode1_px_data(m1_px_data),
         .vid_mode1_done(m1_done),
         .vid_mode1_filled(m1_filled)
+    );
+    vid_mode2 vid_mode2 (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(m2_start),
+        .abort_i(line_start),
+        .attr(attr),
+        .cfgw(cfgw[127:0]),
+        .t_row(t_row),
+        .cw(cw),
+        .vid_mode2_a_req(m2_a_req),
+        .vid_mode2_a_addr(m2_a_addr),
+        .a_gnt(a_gnt),
+        .a_rdata(a_rdata),
+        .vid_mode2_px_we(m2_px_we),
+        .vid_mode2_px_addr(m2_px_addr),
+        .vid_mode2_px_data(m2_px_data),
+        .vid_mode2_done(m2_done),
+        .vid_mode2_filled(m2_filled)
     );
     vid_mode3 vid_mode3 (
         .clk(clk),
@@ -189,6 +215,14 @@ module vid_mode (
             sub_px_data = m1_px_data;
             sub_done = m1_done;
             sub_filled = m1_filled;
+        end else if (mode_q == 3'd2) begin
+            sub_a_req = m2_a_req;
+            sub_a_addr = m2_a_addr;
+            sub_px_we = m2_px_we;
+            sub_px_addr = m2_px_addr;
+            sub_px_data = m2_px_data;
+            sub_done = m2_done;
+            sub_filled = m2_filled;
         end else begin
             sub_a_req = m3_a_req;
             sub_a_addr = m3_a_addr;
@@ -237,12 +271,14 @@ module vid_mode (
             cfg_c <= '0;
             px <= '0;
             m3_start <= 1'b0;
+            m2_start <= 1'b0;
             m1_start <= 1'b0;
             mode_q <= '0;
             gnt_d <= 1'b0;
         end else begin
             gnt_d <= a_gnt;
             m3_start <= 1'b0;
+            m2_start <= 1'b0;
             m1_start <= 1'b0;
             if (line_start) begin
                 /* The beam's deadline; the pipelines assert their own. */
@@ -268,8 +304,8 @@ module vid_mode (
                         attr <= p_entry[15:0];
                         config_ptr <= p_config;
                         mode_q <= p_entry[18:16];
-                        if (!p_entry[31] || (p_entry[18:16] != 3'd3
-                                             && p_entry[18:16] != 3'd1)) begin
+                        if (!p_entry[31] || p_entry[18:16] == 3'd0
+                            || p_entry[18:16] > 3'd3) begin
                             /* Nothing programmed, or a mode whose
                              * pipeline is not built yet. */
                             state <= S_BLANK;
@@ -292,6 +328,8 @@ module vid_mode (
                             if (cfg_c == 3'd4) begin
                                 if (mode_q == 3'd1)
                                     m1_start <= 1'b1;
+                                else if (mode_q == 3'd2)
+                                    m2_start <= 1'b1;
                                 else
                                     m3_start <= 1'b1;
                                 state <= S_MODE;

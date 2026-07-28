@@ -103,6 +103,7 @@ if(verilator_FOUND)
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode1.sv
+        ${RP6502_FPGA_RTL}/vid/vid_mode2.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode3.sv
         ${RP6502_FPGA_RTL}/vid/vid_prog.sv
         ${RP6502_FPGA_RTL}/vid/vid_term.sv
@@ -329,6 +330,23 @@ if(verilator_FOUND)
             TIMEOUT 300)
         add_dependencies(test_mode1 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode1
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # Mode 2 tile maps, per depth per tile size, trims, wraps, and the
+        # composite stacking all three planes, pixel-exact vs the oracle.
+        rp6502_add_test(mode2
+            SOURCES test_mode2.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            TIMEOUT 300)
+        add_dependencies(test_mode2 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
+        verilate(test_mode2
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502
