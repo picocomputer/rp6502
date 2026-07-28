@@ -131,8 +131,13 @@ module vid_mode2
     /* Read where it is used, so it wants LUT RAM: a block RAM
      * cannot answer without a clock and a register file this
      * wide does not fit. */
+    /* LUT RAM carries one write, and every word of the load carries
+     * one even entry and one odd one however the palette is aligned —
+     * so the parity split gives each array a single port. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] palram[256];
+    logic [15:0] pal_even[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [15:0] pal_odd[128];
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
@@ -187,8 +192,33 @@ module vid_mode2
             default: pix_idx = cur_byte;
         endcase
     end
+    /* The load's write port, outside the pipeline's reset so it can be
+     * memory at all; the conditions are the state machine's own. */
+    logic pal_ld;
+    always_comb pal_ld = !abort_i && !start && state == S2_PAL
+        && pal_xram && gnt_d;
+    logic pal_we_e, pal_we_o;
+    logic [6:0] pal_wa_o;
+    logic [15:0] pal_wd_e, pal_wd_o;
+    always_comb begin
+        pal_we_e = pal_ld && (!cf_palette[1] || {1'b0, pal_w} != pal_words);
+        pal_we_o = pal_ld && (!cf_palette[1] || pal_w != 8'd0);
+        pal_wa_o = cf_palette[1] ? 7'(pal_w - 8'd1) : pal_w[6:0];
+        pal_wd_e = cf_palette[1] ? a_rdata[31:16] : a_rdata[15:0];
+        pal_wd_o = cf_palette[1] ? a_rdata[15:0] : a_rdata[31:16];
+    end
+    always_ff @(posedge clk) begin
+        if (pal_we_e)
+            pal_even[pal_w[6:0]] <= pal_wd_e;
+        if (pal_we_o)
+            pal_odd[pal_wa_o] <= pal_wd_o;
+    end
+
+    logic [15:0] pal_ram;
+    always_comb pal_ram = pix_idx[0] ? pal_odd[pix_idx[7:1]]
+                                     : pal_even[pix_idx[7:1]];
     logic [15:0] pal_out;
-    always_comb pal_out = pal_xram ? palram[pix_idx]
+    always_comb pal_out = pal_xram ? pal_ram
         : (bpp_log == 2'd0 ? VID_COLOR_2[pix_idx[0]] : VID_COLOR_256[pix_idx]);
 
     logic in_window;
@@ -370,19 +400,6 @@ module vid_mode2
                             if (a_gnt)
                                 pal_n <= pal_n + 9'd1;
                             if (gnt_d) begin
-                                if (!cf_palette[1]) begin
-                                    palram[{pal_w[6:0], 1'b0}]
-                                        <= a_rdata[15:0];
-                                    palram[{pal_w[6:0], 1'b1}]
-                                        <= a_rdata[31:16];
-                                end else begin
-                                    if (pal_w != 8'd0)
-                                        palram[{7'(pal_w - 8'd1), 1'b1}]
-                                            <= a_rdata[15:0];
-                                    if ({1'b0, pal_w} != pal_words)
-                                        palram[{pal_w[6:0], 1'b0}]
-                                            <= a_rdata[31:16];
-                                end
                                 pal_w <= pal_w + 8'd1;
                                 if ({1'b0, pal_w} == pal_fetch - 9'd1)
                                 begin

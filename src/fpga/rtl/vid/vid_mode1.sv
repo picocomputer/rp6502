@@ -96,8 +96,18 @@ module vid_mode1
     /* Read where it is used, so it wants LUT RAM: a block RAM
      * cannot answer without a clock and a register file this
      * wide does not fit. */
+    /* LUT RAM carries one write and one read, and this engine reads a
+     * foreground and a background entry at once — so the palette is
+     * four arrays: the parity split that gives each a single write,
+     * doubled so each reader has its own port. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] palram[256];
+    logic [15:0] pal_fg_even[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [15:0] pal_fg_odd[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [15:0] pal_bg_even[128];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [15:0] pal_bg_odd[128];
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
@@ -146,6 +156,32 @@ module vid_mode1
         g_bg16 = gview[47:32];
     end
 
+    /* The load's write port, outside the pipeline's reset so it can be
+     * memory at all; both readers' copies take the same words. */
+    logic pal_ld;
+    always_comb pal_ld = !abort_i && !start && state == S1_PAL
+        && pal_xram && pal_bpp != 4'd0 && gnt_d;
+    logic pal_we_e, pal_we_o;
+    logic [6:0] pal_wa_o;
+    logic [15:0] pal_wd_e, pal_wd_o;
+    always_comb begin
+        pal_we_e = pal_ld && (!cf_palette[1] || {1'b0, pal_w} != pal_words);
+        pal_we_o = pal_ld && (!cf_palette[1] || pal_w != 8'd0);
+        pal_wa_o = cf_palette[1] ? 7'(pal_w - 8'd1) : pal_w[6:0];
+        pal_wd_e = cf_palette[1] ? a_rdata[31:16] : a_rdata[15:0];
+        pal_wd_o = cf_palette[1] ? a_rdata[15:0] : a_rdata[31:16];
+    end
+    always_ff @(posedge clk) begin
+        if (pal_we_e) begin
+            pal_fg_even[pal_w[6:0]] <= pal_wd_e;
+            pal_bg_even[pal_w[6:0]] <= pal_wd_e;
+        end
+        if (pal_we_o) begin
+            pal_fg_odd[pal_wa_o] <= pal_wd_o;
+            pal_bg_odd[pal_wa_o] <= pal_wd_o;
+        end
+    end
+
     logic [15:0] pal_fg, pal_bg;
     logic [7:0] fg_idx, bg_idx;
     always_comb begin
@@ -156,8 +192,10 @@ module vid_mode1
             default: begin fg_idx = g_b1; bg_idx = g_b2; end
         endcase
         if (pal_xram) begin
-            pal_fg = palram[fg_idx];
-            pal_bg = palram[bg_idx];
+            pal_fg = fg_idx[0] ? pal_fg_odd[fg_idx[7:1]]
+                               : pal_fg_even[fg_idx[7:1]];
+            pal_bg = bg_idx[0] ? pal_bg_odd[bg_idx[7:1]]
+                               : pal_bg_even[bg_idx[7:1]];
         end else if (pal_bpp == 4'd1) begin
             pal_fg = VID_COLOR_2[fg_idx[0]];
             pal_bg = VID_COLOR_2[bg_idx[0]];
@@ -320,19 +358,6 @@ module vid_mode1
                             if (a_gnt)
                                 pal_n <= pal_n + 9'd1;
                             if (gnt_d) begin
-                                if (!cf_palette[1]) begin
-                                    palram[{pal_w[6:0], 1'b0}]
-                                        <= a_rdata[15:0];
-                                    palram[{pal_w[6:0], 1'b1}]
-                                        <= a_rdata[31:16];
-                                end else begin
-                                    if (pal_w != 8'd0)
-                                        palram[{7'(pal_w - 8'd1), 1'b1}]
-                                            <= a_rdata[15:0];
-                                    if ({1'b0, pal_w} != pal_words)
-                                        palram[{pal_w[6:0], 1'b0}]
-                                            <= a_rdata[31:16];
-                                end
                                 pal_w <= pal_w + 8'd1;
                                 if ({1'b0, pal_w} == pal_fetch - 9'd1)
                                 begin

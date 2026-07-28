@@ -380,7 +380,7 @@ jobs:
           cmake --build build/fpga
 
       - name: Run simulation tests
-        run: ctest --test-dir build/fpga --output-on-failure
+        run: ctest --test-dir build/fpga --output-on-failure --parallel $(nproc)
 
   # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).
