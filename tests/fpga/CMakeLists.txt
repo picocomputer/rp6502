@@ -358,6 +358,23 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
+        # Mode 5 sprites: the foreground walk across planes, clips,
+        # per-sprite palettes, pixel-exact vs the oracle.
+        rp6502_add_test(mode5
+            SOURCES test_mode5.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            LIBS fpga_oracle
+            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            TIMEOUT 300)
+        add_dependencies(test_mode5 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
+        verilate(test_mode5
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
         # Mode 3 bitmaps, per depth per canvas, pixel-exact vs the oracle.
         rp6502_add_test(mode3
             SOURCES test_mode3.cpp

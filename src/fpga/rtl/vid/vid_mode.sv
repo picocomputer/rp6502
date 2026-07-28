@@ -90,10 +90,10 @@ module vid_mode (
                 vid_mode_pix <= 16'h0000;
         end
     end
-    /* Same nuance as the pixel path: during h==0 a pending flip's fresh
-     * bank is still labeled write-side. Elsewhere the flip has landed. */
-    always_comb vid_mode_filled =
-        filled_q[(h == 10'd0 && flip_next) ? wr_bank : !wr_bank];
+    /* The flip lands on h==0's first tick, so everywhere the beam shows
+     * pixels the displayed line is the read-side bank — and flip_next
+     * already belongs to the line being rendered. */
+    always_comb vid_mode_filled = filled_q[!wr_bank];
 
     always_comb vid_mode_rnew = flip_next;
     always_comb vid_mode_rfilled = filled_q[wr_bank];

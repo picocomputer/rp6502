@@ -173,4 +173,24 @@ UTEST(vidmodes, mode2_trimy)
     run_case(utest_result, "mode2_trimy", 320, 180);
 }
 
+UTEST(vidmodes, mode5_8x8)
+{
+    run_case(utest_result, "mode5_8x8", 320, 240);
+}
+
+UTEST(vidmodes, mode5_16x16)
+{
+    run_case(utest_result, "mode5_16x16", 320, 240);
+}
+
+UTEST(vidmodes, mode5_32x32)
+{
+    run_case(utest_result, "mode5_32x32", 640, 480);
+}
+
+UTEST(vidmodes, mode5_64x64)
+{
+    run_case(utest_result, "mode5_64x64", 320, 180);
+}
+
 UTEST_MAIN_EMU()

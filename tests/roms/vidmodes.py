@@ -47,10 +47,10 @@ def prog(canvas, progs):
 
     push(1), push(0), push(0), pushw(canvas)
     op1()
-    for mode, attr, config_ptr, plane in progs:
+    for words in progs:
         push(1), push(0), push(1)
-        pushw(mode), pushw(attr), pushw(config_ptr)
-        pushw(plane), pushw(0), pushw(0)  # whole canvas
+        for w in words:
+            pushw(w)
         op1()
     p.append(0xDB)
     return p
@@ -85,7 +85,7 @@ def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal,
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
                                        for i in range(1 << bpp)))))
-    rom(name, canvas, [(3, attr, config_ptr, 0)], chunks)
+    rom(name, canvas, [(3, attr, config_ptr, 0, 0, 0)], chunks)
 
 
 def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
@@ -119,7 +119,7 @@ def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
     if xram_font:
         chunks.append((0x4000, bytes((i * 7 + 3) & 0xFF
                                      for i in range(256 * fh))))
-    rom(name, canvas, [(1, attr, 0x0100, 0)], chunks)
+    rom(name, canvas, [(1, attr, 0x0100, 0, 0, 0)], chunks)
 
 
 def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
@@ -141,7 +141,43 @@ def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
     if xram_pal:
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657))
                                       for i in range(1 << bpp)))))
-    rom(name, canvas, [(2, attr, 0x0100, 0)], chunks)
+    rom(name, canvas, [(2, attr, 0x0100, 0, 0, 0)], chunks)
+
+
+def mode5(name, canvas, attr, plane, sprites, n_pals=1,
+          extra_progs=(), extra_chunks=()):
+    # sprites: (x, y, image_index, palette) with palette an index, None
+    # for the builtin, 'odd' for a misaligned pointer that falls back to
+    # the builtin, or 'half' for a halfword-aligned read into the pool.
+    bpp = 1 << (attr & 3)
+    size = 8 << ((attr >> 3) & 3)
+    dsize = size * (size * bpp // 8)
+    img_base = 0x4000
+    pal_base = 0x0200
+    cfg = bytearray()
+    for x, y, im, ps in sprites:
+        if ps is None:
+            pptr = 0xFFFF
+        elif ps == "odd":
+            pptr = pal_base + 1
+        elif ps == "half":
+            pptr = pal_base + 2
+        else:
+            pptr = pal_base + ps * 0x400
+        cfg += le16(x, y, img_base + im * dsize, pptr)
+    chunks = [(0x0100, cfg)]
+    for im in range(max(s[2] for s in sprites) + 1):
+        chunks.append((img_base + im * dsize,
+                       bytes((im * 47 + t * 13 + 5) & 0xFF
+                             for t in range(dsize))))
+    for pn in range(n_pals):
+        chunks.append((pal_base + pn * 0x400,
+                       le16(0, *((0x0020 | ((i * 2657 + pn * 97) & 0xFFFF))
+                                 for i in range(1, 1 << bpp)))))
+    chunks += list(extra_chunks)
+    rom(name, canvas,
+        list(extra_progs) + [(5, attr, 0x0100, len(sprites), plane, 0, 0)],
+        chunks)
 
 
 def composite(name):
@@ -161,7 +197,8 @@ def composite(name):
         cells.append(i & 0xFF)  # reserved, ignored
         cells += le16(0x0020 | (i * 3141), (i * 2718 + 9) & 0xFFDF)
     rom(name, 1,
-        [(3, 3, 0x0100, 0), (2, 0, 0x0110, 1), (1, 12, 0x0120, 2)],
+        [(3, 3, 0x0100, 0, 0, 0), (2, 0, 0x0110, 1, 0, 0),
+         (1, 12, 0x0120, 2, 0, 0)],
         [(0x0100, cfg3), (0x0110, cfg2), (0x0120, cfg1),
          (0x0800, bm), (0x6000, tmap), (0x6100, tiles), (0x6800, cells)])
 
@@ -203,3 +240,33 @@ mode2("mode2_trimx", 3, 0x022, 30, 12, 12, 20, False, False, True)
 mode2("mode2_trimx8", 2, 0x013, 20, 8, 100, 50, False, False, True)
 mode2("mode2_trimy", 2, 0x500, 24, 14, 6, 1, False, False, False)
 composite("mode2_composite")
+
+# Mode 5: a sprite-only plane (the zeroed claimed layer), sprites over a
+# fill on the same plane, sprites under a text plane above, and the big
+# squares on the letterboxed canvas from a non-zero plane — with clips
+# off every edge, overlap, an offscreen skip, per-sprite palettes, the
+# odd-pointer builtin fallback, and a halfword-aligned palette read.
+mode5("mode5_8x8", 1, 3, 0, [
+    (10, 20, 0, 0), (14, 24, 1, 0),
+    (-3, 60, 0, 0), (314, 90, 1, 0),
+    (100, -4, 0, 0), (200, 236, 1, 0),
+    (400, 50, 0, None),
+    (40, 100, 0, "odd"),
+])
+mode5("mode5_16x16", 1, 9, 0, [
+    (30, 40, 0, 0), (60, 50, 1, "half"), (90, 60, 0, 0),
+], extra_progs=[(3, 3, 0x0110, 0, 0, 0)],
+    extra_chunks=[
+        (0x0110, bytearray((0, 0)) + le16(20, 30, 80, 60, 0x2000, 0xFFFF)),
+        (0x2000, bytes((i * 13 + 7) & 0xFF for i in range(80 * 60))),
+])
+mode5("mode5_32x32", 3, 18, 0, [
+    (50, 50, 0, 0), (300, 120, 1, 1), (620, 200, 0, 0),
+], n_pals=2,
+    extra_progs=[(1, 0, 0x0110, 2, 0, 0)],
+    extra_chunks=[
+        (0x0110, bytearray((0, 0))
+         + le16(250, 100, 12, 4, 0x2000, 0xFFFF, 0xFFFF)),
+        (0x2000, bytes(ord("A") + i % 60 for i in range(12 * 4))),
+])
+mode5("mode5_64x64", 2, 27, 1, [(-20, 100, 0, 0), (280, 150, 0, 0)])
