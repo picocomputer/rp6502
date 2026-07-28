@@ -1,0 +1,171 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * pocket_i2s decoded like the codec hears it: the bench feeds 24 kHz
+ * samples on the machine clock at the true 165:224 ratio against
+ * 74.25 MHz, reconstructs SCLK from the MCLK port, samples the data
+ * line on rising edges, and rebuilds each channel word. The frames
+ * must run 64 SCLK with sixteen active bits MSB-first, left under
+ * LRCK high; deduplicated, the stream must equal the fed sequence
+ * through the signed conversion, every sample heard exactly twice.
+ */
+
+#include "Vpocket_i2s.h"
+
+#include "utest.h"
+
+#include <vector>
+
+static Vpocket_i2s *dut;
+
+UTEST(pi2s, frames_and_samples_exact)
+{
+    dut->rst_n = 0;
+    dut->arst_n = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        dut->clk_sys = 1;
+        dut->clk_74a = 1;
+        dut->eval();
+        dut->clk_sys = 0;
+        dut->clk_74a = 0;
+        dut->eval();
+    }
+    dut->rst_n = 1;
+    dut->arst_n = 1;
+
+    /* Fed and decoded streams, as signed left/right pairs. */
+    std::vector<int32_t> fed_l, fed_r, dec_l, dec_r;
+
+    /* Decoder state. */
+    int mclk_q = 0, sdiv = 0, sclk_q = 0;
+    int lrck_q = 0, bit_in_half = -1;
+    uint32_t word = 0;
+    long sclk_falls_per_frame = 0;
+
+    /* Machine-side sample cadence: one sample per 4200 clk_sys. */
+    long sample_clk = 0;
+    int sample_idx = 0;
+
+    /* clk_sys period 165, clk_74a period 224 — the true ratio. */
+    long wnext = 165, anext = 224;
+    const long T_END = 165L * 4200 * 40; /* 40 samples' worth */
+
+    for (long t = 0; t < T_END; t++)
+    {
+        bool wedge = t == wnext;
+        bool aedge = t == anext;
+        if (!wedge && !aedge)
+            continue;
+
+        if (wedge)
+        {
+            dut->aud_valid = 0;
+            if (++sample_clk == 4200)
+            {
+                sample_clk = 0;
+                /* Distinct consecutive values, extremes included. */
+                int l = (sample_idx * 37 + 1) & 0x3FF;
+                int r = 1023 - ((sample_idx * 61) & 0x3FF);
+                if (sample_idx == 5)
+                    l = 0;
+                if (sample_idx == 6)
+                    l = 1023;
+                dut->aud_l = (uint16_t)l;
+                dut->aud_r = (uint16_t)r;
+                dut->aud_valid = 1;
+                fed_l.push_back((int16_t)((l - 512) << 6));
+                fed_r.push_back((int16_t)((r - 512) << 6));
+                sample_idx++;
+            }
+            dut->clk_sys = 1;
+            dut->eval();
+            dut->clk_sys = 0;
+            dut->eval();
+            wnext += 165;
+        }
+
+        if (aedge)
+        {
+            dut->clk_74a = 1;
+            dut->eval();
+            dut->clk_74a = 0;
+            dut->eval();
+            anext += 224;
+
+            /* Reconstruct SCLK the way the codec does, from MCLK. */
+            int m = dut->pocket_i2s_mclk;
+            if (m && !mclk_q)
+                sdiv = (sdiv + 1) & 3;
+            mclk_q = m;
+            int sclk = sdiv >> 1;
+            if (sclk && !sclk_q)
+            {
+                /* Rising edge: the launched bit is stable. The MSB
+                 * rides one SCLK behind the LRCK edge — the I2S delay
+                 * — so the edge rise itself carries a dummy zero. */
+                int lr = dut->pocket_i2s_lrck;
+                if (lr != lrck_q)
+                {
+                    if (bit_in_half >= 0)
+                    {
+                        ASSERT_EQ(bit_in_half, 31);
+                        /* The finished half: left under LRCK high,
+                         * right under low. */
+                        if (lrck_q)
+                            dec_l.push_back((int16_t)word);
+                        else
+                            dec_r.push_back((int16_t)word);
+                    }
+                    bit_in_half = 0;
+                    word = 0;
+                    lrck_q = lr;
+                    ASSERT_EQ(dut->pocket_i2s_dac, 0);
+                }
+                else if (bit_in_half >= 0)
+                {
+                    bit_in_half++;
+                    if (bit_in_half <= 16)
+                        word = (word << 1) | (uint32_t)dut->pocket_i2s_dac;
+                    else
+                        ASSERT_EQ(dut->pocket_i2s_dac, 0);
+                    sclk_falls_per_frame++;
+                }
+            }
+            sclk_q = sclk;
+        }
+    }
+
+    /* Deduplicate: every fed sample must be heard exactly twice, in
+     * order, after the silent start-up frames. */
+    auto check = [&](std::vector<int32_t> &dec, std::vector<int32_t> &fed) {
+        size_t d = 0;
+        while (d < dec.size() && dec[d] == 0 && (fed.empty() || fed[0] != 0))
+            d++;
+        size_t f = 0;
+        while (d + 1 < dec.size() && f < fed.size())
+        {
+            ASSERT_EQ(dec[d], fed[f]);
+            ASSERT_EQ(dec[d + 1], fed[f]);
+            d += 2;
+            f++;
+        }
+        ASSERT_GT(f, (size_t)30); /* nearly all 40 heard, twice each */
+    };
+    check(dec_l, fed_l);
+    check(dec_r, fed_r);
+}
+
+UTEST_STATE();
+
+int main(int argc, const char *const argv[])
+{
+    Verilated::commandArgs(argc, const_cast<char **>(argv));
+    dut = new Vpocket_i2s;
+    int rc = utest_main(argc, argv);
+    dut->final();
+    delete dut;
+    return rc;
+}

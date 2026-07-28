@@ -543,6 +543,18 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3
     )
 
+    # --- The codec-side I2S from replayed samples ---
+    rp6502_add_test(pi2s
+        SOURCES test_pi2s.cpp
+        TIMEOUT 120)
+    verilate(test_pi2s
+        SOURCES ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+            ${RP6502_FPGA_POCKET}/pocket_i2s.sv
+        TOP_MODULE pocket_i2s
+        PREFIX Vpocket_i2s
+        VERILATOR_ARGS -Wall --assert -O3
+    )
+
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
