@@ -6,7 +6,10 @@
  * Op 0x01 plumbing without pixels: the error paths — misaligned stack, bad
  * device, the RIA-private VGA control channel — then a canvas switch and a
  * full mode 3 program, byte-exact on the console against the oracle and
- * structurally against the RTL's canvas and scanline program.
+ * structurally against the RTL's canvas and scanline program. The PSG
+ * pointer runs the soft CPU's validation both ways, and ATR_BEL mutes
+ * and unmutes the teletype bell around two rung BELs — the strike must
+ * land exactly once.
  */
 
 #include "Vrp6502.h"
@@ -120,6 +123,45 @@ UTEST(xreg, dispatch_matches_the_oracle)
     pushw(5); pushw(10); pushw(0x3000); pushw(2); pushw(2);
     pushw(0); pushw(0);
     op1();
+
+    /* The PSG pointer through the soft CPU's validation: an accept,
+     * the three rejects, then a working pointer left standing. */
+    push(0); push(1); push(0); pushw(0x9000);
+    op1();
+    push(0); push(1); push(0); pushw(0x9001); /* odd */
+    op1();
+    push(0); push(1); push(0); pushw(0xFFC2); /* over the bound */
+    op1();
+    push(0); push(1); push(0); pushw(0x90C2); /* crosses its page */
+    op1();
+    push(0); push(1); push(0); pushw(0x8000);
+    op1();
+
+    /* ATR_BEL: read the default, mute, ring silently, reject a bad
+     * value, unmute, ring for real. */
+    auto opn = [&](uint8_t op, uint8_t a) {
+        lda(a);
+        sta(0xFFF4);
+        lda(op);
+        sta(0xFFEF);
+        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
+        sta(0xFFE1);
+        p.insert(p.end(), {0x8E, 0xE1, 0xFF});
+        ldaa(0xFFED);
+        sta(0xFFE1);
+        ldaa(0xFFEE);
+        sta(0xFFE1);
+    };
+    opn(0x0A, 5);
+    push(0); push(0); push(0); push(0);
+    opn(0x0B, 5);
+    opn(0x0A, 5);
+    lda(0x07); sta(0xFFE1); /* BEL, muted */
+    push(0); push(0); push(0); push(2); /* out of range */
+    opn(0x0B, 5);
+    push(0); push(0); push(0); push(1);
+    opn(0x0B, 5);
+    lda(0x07); sta(0xFFE1); /* BEL, rings */
     p.push_back(0xDB);
 
     static const uint8_t vectors[] = {0x00, 0x03};
@@ -159,6 +201,8 @@ UTEST(xreg, dispatch_matches_the_oracle)
 
     std::string cpu_out;
     bool stopped = false;
+    int strikes = 0;
+    uint8_t bel_count_prev = 0;
     for (int i = 0; i < 8000000; i++)
     {
         uint32_t a = dut->rp6502_stage_addr;
@@ -169,6 +213,10 @@ UTEST(xreg, dispatch_matches_the_oracle)
         dut->eval();
         if (dut->rp6502_tx_valid)
             cpu_out.push_back((char)dut->rp6502_tx_data);
+        uint8_t bc = dut->rootp->rp6502__DOT__aud_psg__DOT__bel__DOT__count;
+        if (bel_count_prev == 0 && bc != 0)
+            strikes++;
+        bel_count_prev = bc;
         stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0;
         if (dut->rp6502_rv_halted && stopped)
             break;
@@ -176,8 +224,15 @@ UTEST(xreg, dispatch_matches_the_oracle)
     ASSERT_TRUE(dut->rp6502_rv_halted);
     ASSERT_TRUE(stopped);
 
-    /* Eight results, four bytes each, identical on both machines. */
-    ASSERT_EQ(cpu_out.size(), (size_t)32);
+    /* Eighteen results, four bytes each, plus the two BEL characters,
+     * identical on both machines. */
+    ASSERT_EQ(cpu_out.size(), (size_t)(18 * 4 + 2));
+
+    /* The muted BEL never struck; the unmuted one did. */
+    ASSERT_EQ(strikes, 1);
+
+    /* The device register holds the last accepted pointer. */
+    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0x8000);
     ASSERT_TRUE(oracle_out.size() >= cpu_out.size());
     ASSERT_EQ(memcmp(oracle_out.data() + oracle_out.size() - cpu_out.size(),
                      cpu_out.data(), cpu_out.size()), 0);

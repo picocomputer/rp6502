@@ -87,6 +87,12 @@ module aud_psg
     logic enabled;
     always_comb enabled = xaddr != 16'hFFFF;
 
+    /* psg_xreg cannot preempt the ISR, so a device-register write holds
+     * here and takes effect at the next walk boundary; a write landing
+     * mid-walk must not tear the in-flight sample's state. */
+    logic xreg_pend;
+    logic [15:0] xreg_word;
+
     /* The handler reads the pointer once at entry — psg_xreg can't
      * interleave with the ISR — so a walk keeps the pointer and flavor
      * it started with. */
@@ -267,6 +273,8 @@ module aud_psg
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             xaddr <= 16'hFFFF;
+            xreg_pend <= 1'b0;
+            xreg_word <= 16'hFFFF;
             for (int i = 0; i < 8; i++) begin
                 ch_sample[i] <= '0;
                 ch_adsr[i] <= ADSR_RELEASE;
@@ -308,25 +316,28 @@ module aud_psg
             else
                 tickctr <= tickctr + 13'd1;
 
-            if (xaddr_we) begin
-                /* psg_xreg: the pointer lands, the envelopes and noise
-                 * reset, the queue empties; the phase persists. */
-                xaddr <= xaddr_wdata;
-                for (int i = 0; i < 8; i++) begin
-                    ch_noise1[i] <= 32'h67452301;
-                    ch_noise2[i] <= 32'hEFCDAB89;
-                    ch_vol[i] <= '0;
-                    ch_adsr[i] <= ADSR_RELEASE;
-                end
-                q_tail <= q_head;
-            end
-
             case (state)
                 P_IDLE: begin
+                    if (xreg_pend) begin
+                        /* psg_xreg at the boundary: the pointer lands,
+                         * the envelopes and noise reset, the queue
+                         * empties; the phase persists. */
+                        xreg_pend <= 1'b0;
+                        xaddr <= xreg_word;
+                        for (int i = 0; i < 8; i++) begin
+                            ch_noise1[i] <= 32'h67452301;
+                            ch_noise2[i] <= 32'hEFCDAB89;
+                            ch_vol[i] <= '0;
+                            ch_adsr[i] <= ADSR_RELEASE;
+                        end
+                        q_tail <= q_head;
+                    end
                     if (tickctr == 13'd0) begin
-                        walk_psg <= enabled;
-                        walk_xaddr <= xaddr;
-                        if (enabled) begin
+                        walk_psg <= xreg_pend ? xreg_word != 16'hFFFF
+                                              : enabled;
+                        walk_xaddr <= xreg_pend ? xreg_word : xaddr;
+                        if (xreg_pend ? xreg_word != 16'hFFFF : enabled)
+                        begin
                             fw_i <= '0;
                             fw_c <= '0;
                             gather <= '0;
@@ -432,6 +443,13 @@ module aud_psg
                 end
                 default: state <= P_IDLE;
             endcase
+
+            /* After the case, so a write on an apply clock is kept for
+             * the next boundary instead of vanishing under the clear. */
+            if (xaddr_we) begin
+                xreg_pend <= 1'b1;
+                xreg_word <= xaddr_wdata;
+            end
         end
     end
 

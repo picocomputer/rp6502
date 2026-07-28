@@ -198,16 +198,76 @@ bool main_api(uint8_t operation)
             return api_return_errno(API_EINVAL);
         return api_return_ax(0);
     case 0x0A:
-        /* Attributes grow with their engines; these two exist now. */
+        /* Attributes grow with their engines; these exist now. */
         switch (API_A)
         {
         case 0x00:
             return api_return_axsreg(api_get_errno_opt());
+        case 0x03:
+            return api_return_axsreg(rln_get_max_length());
         case 0x04:
             return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+        case 0x05:
+            return api_return_axsreg(com_get_bel());
+        case 0x09:
+            return api_return_axsreg(rln_get_caps());
+        case 0x0A:
+            return api_return_axsreg(rln_get_term_width());
+        case 0x0B:
+            return api_return_axsreg(rln_get_term_height());
+        case 0x0C:
+            return api_return_axsreg(rln_get_suppress_nl());
         default:
             return api_return_errno(API_EINVAL);
         }
+    case 0x0B:
+    {
+        uint32_t value;
+        if (!api_pop_uint32_end(&value))
+            return api_return_errno(API_EINVAL);
+        if (value > 0x7FFFFFFF)
+            return api_return_errno(API_EINVAL);
+        switch (API_A)
+        {
+        case 0x00:
+            if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
+                return api_return_errno(API_EINVAL);
+            break;
+        case 0x03:
+            if (value > UINT8_MAX)
+                return api_return_errno(API_EINVAL);
+            rln_set_max_length((uint8_t)value);
+            break;
+        case 0x05:
+            if (value > 1)
+                return api_return_errno(API_EINVAL);
+            com_set_bel(value);
+            break;
+        case 0x09:
+            if (value > 2)
+                return api_return_errno(API_EINVAL);
+            rln_set_caps((uint8_t)value);
+            break;
+        case 0x0A:
+            if (value > UINT16_MAX)
+                return api_return_errno(API_EINVAL);
+            rln_set_term_width((uint16_t)value);
+            break;
+        case 0x0B:
+            if (value > UINT16_MAX)
+                return api_return_errno(API_EINVAL);
+            rln_set_term_height((uint16_t)value);
+            break;
+        case 0x0C:
+            if (value > 1)
+                return api_return_errno(API_EINVAL);
+            rln_set_suppress_nl((uint8_t)value);
+            break;
+        default:
+            return api_return_errno(API_EINVAL);
+        }
+        return api_return_ax(0);
+    }
     case 0x14:
         return std_api_open();
     case 0x15:
