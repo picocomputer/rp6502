@@ -15,6 +15,7 @@
 #include "Vrp6502___024root.h"
 
 #include "tb_quiet.h"
+#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -23,25 +24,34 @@
 
 static Vrp6502 *dut;
 
+/* The terminal's cells live as four byte-lane arrays so the fabric can
+ * hold them in memory; a whole cell is those lanes stacked. */
+template <typename Root>
+static uint32_t term_cell(Root *r, size_t i)
+{
+    return (uint32_t)r->rp6502__DOT__vid_term__DOT__cell0[i]
+        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell1[i] << 8)
+        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell2[i] << 16)
+        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell3[i] << 24);
+}
+
+template <typename Root>
+static void term_cell_set(Root *r, size_t i, uint32_t v)
+{
+    r->rp6502__DOT__vid_term__DOT__cell0[i] = (uint8_t)v;
+    r->rp6502__DOT__vid_term__DOT__cell1[i] = (uint8_t)(v >> 8);
+    r->rp6502__DOT__vid_term__DOT__cell2[i] = (uint8_t)(v >> 16);
+    r->rp6502__DOT__vid_term__DOT__cell3[i] = (uint8_t)(v >> 24);
+}
+
+
 static bool load_firmware(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return false;
-    auto &tcm = dut->rootp->rp6502__DOT__rv__DOT__tcm;
-    for (size_t i = 0; i < 32768; i++)
-        tcm[i] = 0;
-    uint8_t buf[4];
-    size_t word = 0, n;
-    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
-    {
-        uint32_t v = 0;
-        for (size_t i = 0; i < n; i++)
-            v |= (uint32_t)buf[i] << (8 * i);
-        tcm[word++] = v;
-    }
-    fclose(f);
-    return true;
+    auto *r = dut->rootp;
+    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
+                       r->rp6502__DOT__rv__DOT__tcm1,
+                       r->rp6502__DOT__rv__DOT__tcm2,
+                       r->rp6502__DOT__rv__DOT__tcm3, path);
 }
 
 UTEST(boot, firmware_boots_the_6502)
@@ -113,8 +123,7 @@ UTEST(boot, firmware_boots_the_6502)
     const char *line0 = "HELLO, WORLD!";
     for (size_t i = 0; line0[i]; i++)
     {
-        uint32_t w =
-            dut->rootp->rp6502__DOT__vid_term__DOT__cells[(row0 >> 2) + 2 * i];
+        uint32_t w = term_cell(dut->rootp, (row0 >> 2) + 2 * i);
         ASSERT_EQ((char)(w & 0xFF), line0[i]);
     }
 }

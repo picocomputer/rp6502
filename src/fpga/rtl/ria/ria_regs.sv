@@ -158,6 +158,10 @@ module ria_regs (
     end
 
     /* The XSTACK: 512 bytes, a zero guard at the top, and the pointer. */
+    /* Read where it is used, so it wants LUT RAM: a block RAM
+     * cannot answer without a clock and a register file this
+     * wide does not fit. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] xs[516];
     logic [9:0] xsp;
     logic xs_fill;  // a pop's mirror refill lands one clock later

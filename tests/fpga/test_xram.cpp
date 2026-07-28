@@ -14,6 +14,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_tcm.h"
 #include "utest.h"
 
 #include "ria/sys/mem.h"
@@ -27,23 +28,11 @@ static Vrp6502 *dut;
 
 static bool load_firmware(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return false;
-    auto &tcm = dut->rootp->rp6502__DOT__rv__DOT__tcm;
-    for (size_t i = 0; i < 32768; i++)
-        tcm[i] = 0;
-    uint8_t buf[4];
-    size_t word = 0, n;
-    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
-    {
-        uint32_t v = 0;
-        for (size_t i = 0; i < n; i++)
-            v |= (uint32_t)buf[i] << (8 * i);
-        tcm[word++] = v;
-    }
-    fclose(f);
-    return true;
+    auto *r = dut->rootp;
+    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
+                       r->rp6502__DOT__rv__DOT__tcm1,
+                       r->rp6502__DOT__rv__DOT__tcm2,
+                       r->rp6502__DOT__rv__DOT__tcm3, path);
 }
 
 static uint32_t crc32_buf(const uint8_t *p, size_t n)
@@ -143,11 +132,15 @@ UTEST(xram, records_load_and_match_the_oracle)
     ASSERT_TRUE(strstr(rv_out.c_str(), "rom: staged") != NULL);
 
     /* Every XRAM byte identical, LE words on the RTL side. */
-    auto &mem = dut->rootp->rp6502__DOT__xram__DOT__mem;
+    auto *r = dut->rootp;
     int diffs = 0;
     for (uint32_t a = 0; a < 0x10000; a++)
     {
-        uint8_t rtl = (uint8_t)(mem[a >> 2] >> (8 * (a & 3)));
+        size_t wi = a >> 2;
+        uint8_t rtl = (a & 3) == 0 ? r->rp6502__DOT__xram__DOT__mem0[wi]
+            : (a & 3) == 1 ? r->rp6502__DOT__xram__DOT__mem1[wi]
+            : (a & 3) == 2 ? r->rp6502__DOT__xram__DOT__mem2[wi]
+                           : r->rp6502__DOT__xram__DOT__mem3[wi];
         if (rtl != xram[a])
             diffs++;
     }

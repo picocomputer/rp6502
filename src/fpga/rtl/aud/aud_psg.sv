@@ -126,6 +126,10 @@ module aud_psg
     end
 
     /* The gate queue: the firmware's 256-entry ring, drop when full. */
+    /* Read where it is used, so it wants LUT RAM: a block RAM
+     * cannot answer without a clock and a register file this
+     * wide does not fit. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [15:0] queue[256];
     logic [7:0] q_head, q_tail;
     always_ff @(posedge clk) begin

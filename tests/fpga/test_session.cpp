@@ -18,6 +18,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -27,25 +28,34 @@
 
 static Vrp6502 *dut;
 
+/* The terminal's cells live as four byte-lane arrays so the fabric can
+ * hold them in memory; a whole cell is those lanes stacked. */
+template <typename Root>
+static uint32_t term_cell(Root *r, size_t i)
+{
+    return (uint32_t)r->rp6502__DOT__vid_term__DOT__cell0[i]
+        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell1[i] << 8)
+        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell2[i] << 16)
+        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell3[i] << 24);
+}
+
+template <typename Root>
+static void term_cell_set(Root *r, size_t i, uint32_t v)
+{
+    r->rp6502__DOT__vid_term__DOT__cell0[i] = (uint8_t)v;
+    r->rp6502__DOT__vid_term__DOT__cell1[i] = (uint8_t)(v >> 8);
+    r->rp6502__DOT__vid_term__DOT__cell2[i] = (uint8_t)(v >> 16);
+    r->rp6502__DOT__vid_term__DOT__cell3[i] = (uint8_t)(v >> 24);
+}
+
+
 static bool load_firmware(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return false;
-    auto &tcm = dut->rootp->rp6502__DOT__rv__DOT__tcm;
-    for (size_t i = 0; i < 32768; i++)
-        tcm[i] = 0;
-    uint8_t buf[4];
-    size_t word = 0, n;
-    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
-    {
-        uint32_t v = 0;
-        for (size_t i = 0; i < n; i++)
-            v |= (uint32_t)buf[i] << (8 * i);
-        tcm[word++] = v;
-    }
-    fclose(f);
-    return true;
+    auto *r = dut->rootp;
+    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
+                       r->rp6502__DOT__rv__DOT__tcm1,
+                       r->rp6502__DOT__rv__DOT__tcm2,
+                       r->rp6502__DOT__rv__DOT__tcm3, path);
 }
 
 static uint32_t crc32_buf(const uint8_t *p, size_t n)
@@ -233,14 +243,13 @@ UTEST(session, scripted_frame_matches_oracle)
      * its background. */
     auto *r = dut->rootp;
     uint32_t base = r->rp6502__DOT__vid_term__DOT__row_shadow[25];
-    uint32_t seed = r->rp6502__DOT__vid_term__DOT__cells[
-        r->rp6502__DOT__vid_term__DOT__row_shadow[0] >> 2];
-    uint32_t bgw = r->rp6502__DOT__vid_term__DOT__cells[
-        (r->rp6502__DOT__vid_term__DOT__row_shadow[0] >> 2) + 1];
+    uint32_t seed = term_cell(
+        r, r->rp6502__DOT__vid_term__DOT__row_shadow[0] >> 2);
+    uint32_t bgw = term_cell(
+        r, (r->rp6502__DOT__vid_term__DOT__row_shadow[0] >> 2) + 1);
     /* {fg from a real cell, ATTR_BLINK, 'B'} over the same background. */
-    r->rp6502__DOT__vid_term__DOT__cells[base >> 2] =
-        (seed & 0xFFFF0000u) | 0x0200u | 'B';
-    r->rp6502__DOT__vid_term__DOT__cells[(base >> 2) + 1] = bgw;
+    term_cell_set(r, base >> 2, (seed & 0xFFFF0000u) | 0x0200u | 'B');
+    term_cell_set(r, (base >> 2) + 1, bgw);
 
     /* The firmware keeps advancing its own phase, so hold ours. */
     static uint32_t on[640 * 480], off[640 * 480];
@@ -254,8 +263,7 @@ UTEST(session, scripted_frame_matches_oracle)
     if (getenv("SESSION_DEBUG"))
     {
         fprintf(stderr, "base=%04X w0=%08X w1=%08X\n", base,
-                r->rp6502__DOT__vid_term__DOT__cells[base >> 2],
-                r->rp6502__DOT__vid_term__DOT__cells[(base >> 2) + 1]);
+                term_cell(r, base >> 2), term_cell(r, (base >> 2) + 1));
         for (int y = 25 * 16; y < 25 * 16 + 4; y++)
             fprintf(stderr, "y=%d on=%08X %08X off=%08X %08X\n", y,
                     on[y * 640 + 2], on[y * 640 + 3],

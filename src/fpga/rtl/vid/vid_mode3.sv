@@ -92,6 +92,10 @@ module vid_mode3
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
     /* Palette: XRAM snapshot or the builtin ROM at emission. */
+    /* Read where it is used, so it wants LUT RAM: a block RAM
+     * cannot answer without a clock and a register file this
+     * wide does not fit. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [15:0] palram[256];
     logic pal_xram;
     logic [8:0] pal_n;

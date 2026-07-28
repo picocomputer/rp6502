@@ -18,6 +18,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -29,23 +30,11 @@ static std::vector<uint8_t> rom;
 
 static bool load_firmware(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return false;
-    auto &tcm = dut->rootp->rp6502__DOT__rv__DOT__tcm;
-    for (size_t i = 0; i < 32768; i++)
-        tcm[i] = 0;
-    uint8_t buf[4];
-    size_t word = 0, n;
-    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
-    {
-        uint32_t v = 0;
-        for (size_t i = 0; i < n; i++)
-            v |= (uint32_t)buf[i] << (8 * i);
-        tcm[word++] = v;
-    }
-    fclose(f);
-    return true;
+    auto *r = dut->rootp;
+    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
+                       r->rp6502__DOT__rv__DOT__tcm1,
+                       r->rp6502__DOT__rv__DOT__tcm2,
+                       r->rp6502__DOT__rv__DOT__tcm3, path);
 }
 
 static uint32_t rgba8(uint16_t px)
@@ -91,7 +80,12 @@ static void capture_frame(uint32_t *fb)
 
 static uint8_t rtl_xram(uint16_t addr)
 {
-    uint32_t w = dut->rootp->rp6502__DOT__xram__DOT__mem[addr >> 2];
+    auto *r = dut->rootp;
+    size_t wi = addr >> 2;
+    uint32_t w = (uint32_t)r->rp6502__DOT__xram__DOT__mem0[wi]
+        | ((uint32_t)r->rp6502__DOT__xram__DOT__mem1[wi] << 8)
+        | ((uint32_t)r->rp6502__DOT__xram__DOT__mem2[wi] << 16)
+        | ((uint32_t)r->rp6502__DOT__xram__DOT__mem3[wi] << 24);
     return (uint8_t)(w >> ((addr & 3) * 8));
 }
 

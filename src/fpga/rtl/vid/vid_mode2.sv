@@ -128,6 +128,10 @@ module vid_mode2
         div_rem_n = div_ge ? div_t - {1'b0, div_den} : div_t;
     end
 
+    /* Read where it is used, so it wants LUT RAM: a block RAM
+     * cannot answer without a clock and a register file this
+     * wide does not fit. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [15:0] palram[256];
     logic pal_xram;
     logic [8:0] pal_n;

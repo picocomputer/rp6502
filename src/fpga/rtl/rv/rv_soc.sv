@@ -167,12 +167,26 @@ module rv_soc #(
         endcase
     end
 
+    /* One array per byte lane. A byte-enabled write keeps a dual-port
+     * RAM from being inferred at all, and a megabit of code memory
+     * built from flip-flops does not fit in any device made. */
     (* ramstyle = "no_rw_check" *)
-    logic [31:0] tcm[TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm0[TCM_WORDS] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] tcm1[TCM_WORDS] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] tcm2[TCM_WORDS] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] tcm3[TCM_WORDS] /*verilator public_flat_rw*/;
 
     generate
         if (TCM_INIT_FILE != "") begin : tcm_init
-            initial $readmemh(TCM_INIT_FILE, tcm);
+            initial begin
+                $readmemh({TCM_INIT_FILE, ".0"}, tcm0);
+                $readmemh({TCM_INIT_FILE, ".1"}, tcm1);
+                $readmemh({TCM_INIT_FILE, ".2"}, tcm2);
+                $readmemh({TCM_INIT_FILE, ".3"}, tcm3);
+            end
         end
     endgenerate
 
@@ -223,16 +237,17 @@ module rv_soc #(
     // The decode matters: an external-window write must not also land here,
     // or the loader overwrites the firmware under its own feet.
     always_ff @(posedge clk) begin
-        tcm_rdata <= tcm[word_addr];
+        tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
+                      tcm1[word_addr], tcm0[word_addr]};
         if (dph_active && dph_write && !dph_mmio && !dph_ext) begin
             if (dph_strb[0])
-                tcm[dph_word][7:0] <= hwdata[7:0];
+                tcm0[dph_word] <= hwdata[7:0];
             if (dph_strb[1])
-                tcm[dph_word][15:8] <= hwdata[15:8];
+                tcm1[dph_word] <= hwdata[15:8];
             if (dph_strb[2])
-                tcm[dph_word][23:16] <= hwdata[23:16];
+                tcm2[dph_word] <= hwdata[23:16];
             if (dph_strb[3])
-                tcm[dph_word][31:24] <= hwdata[31:24];
+                tcm3[dph_word] <= hwdata[31:24];
         end
     end
 

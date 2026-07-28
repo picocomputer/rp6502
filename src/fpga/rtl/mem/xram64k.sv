@@ -23,19 +23,38 @@ module xram64k (
     output logic [7:0] xram64k_b_rdata
 );
 
+    /* One array per byte lane. The byte side writes a lane at a time,
+     * and a dynamic part-select into a wide word is something no block
+     * RAM can be built from — the lanes make each write whole. */
     (* ramstyle = "no_rw_check" *)
-    logic [31:0] mem[16384] /*verilator public_flat_rw*/;
+    logic [7:0] mem0[16384] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] mem1[16384] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] mem2[16384] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] mem3[16384] /*verilator public_flat_rw*/;
 
     always_ff @(posedge clk) begin
-        xram64k_a_rdata <= mem[a_addr];
+        xram64k_a_rdata <= {mem3[a_addr], mem2[a_addr],
+                            mem1[a_addr], mem0[a_addr]};
     end
+
+    logic [13:0] b_word;
+    always_comb b_word = b_addr[15:2];
 
     logic [31:0] b_q;
     logic [1:0] b_lane;
     always_ff @(posedge clk) begin
-        if (b_we)
-            mem[b_addr[15:2]][8*b_addr[1:0]+:8] <= b_wdata;
-        b_q <= mem[b_addr[15:2]];
+        if (b_we && b_addr[1:0] == 2'd0)
+            mem0[b_word] <= b_wdata;
+        if (b_we && b_addr[1:0] == 2'd1)
+            mem1[b_word] <= b_wdata;
+        if (b_we && b_addr[1:0] == 2'd2)
+            mem2[b_word] <= b_wdata;
+        if (b_we && b_addr[1:0] == 2'd3)
+            mem3[b_word] <= b_wdata;
+        b_q <= {mem3[b_word], mem2[b_word], mem1[b_word], mem0[b_word]};
         b_lane <= b_addr[1:0];
     end
     always_comb xram64k_b_rdata = b_q[8*b_lane+:8];

@@ -20,6 +20,7 @@
 #include "Vtb_pocket___024root.h"
 
 #include "oracle.h"
+#include "tb_tcm.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -74,24 +75,12 @@ static void a_edge()
 
 static bool load_firmware(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return false;
-    auto &tcm =
-        dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm;
-    for (size_t i = 0; i < 32768; i++)
-        tcm[i] = 0;
-    uint8_t buf[4];
-    size_t word = 0, n;
-    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
-    {
-        uint32_t v = 0;
-        for (size_t i = 0; i < n; i++)
-            v |= (uint32_t)buf[i] << (8 * i);
-        tcm[word++] = v;
-    }
-    fclose(f);
-    return true;
+    auto *r = dut->rootp;
+    return tb_load_tcm(
+        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
+        r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3, path);
 }
 
 /* The run is over when the 6502 has stopped and a frame passes with no

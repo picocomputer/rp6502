@@ -43,8 +43,18 @@ module vid_term (
     output logic [31:0] vid_term_b_rdata
 );
 
+    /* One array per byte lane. A byte-enabled write is what keeps a
+     * true dual-port RAM from being inferred at all, and the lanes cost
+     * exactly the same bits while each carries a plain whole-word write
+     * and two plain reads. */
     (* ramstyle = "no_rw_check" *)
-    logic [31:0] cells[15360] /*verilator public_flat_rw*/;
+    logic [7:0] cell0[15360] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] cell1[15360] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] cell2[15360] /*verilator public_flat_rw*/;
+    (* ramstyle = "no_rw_check" *)
+    logic [7:0] cell3[15360] /*verilator public_flat_rw*/;
 
     logic [13:0] cell_idx;
     always_comb cell_idx = b_addr[15:2];
@@ -63,7 +73,8 @@ module vid_term (
      * register has no asynchronous clear, and a read inside the
      * pipeline's reset would keep the cells out of memory entirely. */
     always_ff @(posedge clk)
-        fetch_q <= cells[fetch_word];
+        fetch_q <= {cell3[fetch_word], cell2[fetch_word],
+                    cell1[fetch_word], cell0[fetch_word]};
 
     /* Same rule as the line buffer: the cells' output register carries
      * the cells and nothing else, and the registers answer beside it. */
@@ -73,18 +84,19 @@ module vid_term (
 
     always_ff @(posedge clk) begin
         if (b_stb) begin
-            cells_q <= cells[cell_idx];
+            cells_q <= {cell3[cell_idx], cell2[cell_idx],
+                        cell1[cell_idx], cell0[cell_idx]};
             sel_cells <= !b_addr[16];
             if (!b_addr[16]) begin
                 if (b_we) begin
                     if (b_wstrb[0])
-                        cells[cell_idx][7:0] <= b_wdata[7:0];
+                        cell0[cell_idx] <= b_wdata[7:0];
                     if (b_wstrb[1])
-                        cells[cell_idx][15:8] <= b_wdata[15:8];
+                        cell1[cell_idx] <= b_wdata[15:8];
                     if (b_wstrb[2])
-                        cells[cell_idx][23:16] <= b_wdata[23:16];
+                        cell2[cell_idx] <= b_wdata[23:16];
                     if (b_wstrb[3])
-                        cells[cell_idx][31:24] <= b_wdata[31:24];
+                        cell3[cell_idx] <= b_wdata[31:24];
                 end
             end else begin
                 case (b_addr[7:2])
