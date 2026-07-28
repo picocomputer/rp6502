@@ -105,6 +105,21 @@ UTEST(xreg, dispatch_matches_the_oracle)
     push(1); push(0); push(1);
     pushw(3); pushw(0); pushw(0x1000); pushw(0); pushw(0); pushw(0);
     op1();
+    /* Mode 4 plain sprites: 3 descriptors at $2000 on plane 1. */
+    push(1); push(0); push(1);
+    pushw(4); pushw(0); pushw(0x2000); pushw(3); pushw(1);
+    pushw(0); pushw(0);
+    op1();
+    /* Mode 4 attribute 2: no such engine, EINVAL. */
+    push(1); push(0); push(1);
+    pushw(4); pushw(2); pushw(0x2000); pushw(3); pushw(1);
+    pushw(0); pushw(0);
+    op1();
+    /* Mode 5 4bpp 16x16: 2 descriptors at $3000 on plane 2. */
+    push(1); push(0); push(1);
+    pushw(5); pushw(10); pushw(0x3000); pushw(2); pushw(2);
+    pushw(0); pushw(0);
+    op1();
     p.push_back(0xDB);
 
     static const uint8_t vectors[] = {0x00, 0x03};
@@ -161,8 +176,8 @@ UTEST(xreg, dispatch_matches_the_oracle)
     ASSERT_TRUE(dut->rp6502_rv_halted);
     ASSERT_TRUE(stopped);
 
-    /* Five results, four bytes each, identical on both machines. */
-    ASSERT_EQ(cpu_out.size(), (size_t)20);
+    /* Eight results, four bytes each, identical on both machines. */
+    ASSERT_EQ(cpu_out.size(), (size_t)32);
     ASSERT_TRUE(oracle_out.size() >= cpu_out.size());
     ASSERT_EQ(memcmp(oracle_out.data() + oracle_out.size() - cpu_out.size(),
                      cpu_out.data(), cpu_out.size()), 0);
@@ -174,9 +189,20 @@ UTEST(xreg, dispatch_matches_the_oracle)
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[0],
               0x80000000u | (3u << 16));
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[1], 0x1000u);
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[239 * 8],
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[239 * 16],
               0x80000000u | (3u << 16));
-    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[240 * 8], 0u);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[240 * 16], 0u);
+
+    /* The sprite slots: mode 4 plane 1, mode 5 plane 2, count over
+     * config in the second word. */
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 1 * 4 + 2],
+              0x80000000u | (4u << 16));
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 1 * 4 + 3],
+              (3u << 16) | 0x2000u);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 2 * 4 + 2],
+              0x80000000u | (5u << 16) | 10u);
+    ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__prog[100 * 16 + 2 * 4 + 3],
+              (2u << 16) | 0x3000u);
 }
 
 UTEST_STATE();

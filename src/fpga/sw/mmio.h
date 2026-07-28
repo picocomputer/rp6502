@@ -32,12 +32,14 @@
 #define VID_PROG (*(volatile uint32_t *)0x5001008Cu)
 #define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
 
-/* The scanline program: per line per plane, the enable/mode/attr word and
- * the config pointer, then the canvas and vsync-line registers. */
+/* The scanline program: per line per plane, the fill slot's
+ * enable/mode/attr word and config pointer, then the sprite slot's
+ * matching word and its count-over-config word; the canvas and
+ * vsync-line registers sit above the table. */
 #define VID_XPROG(line, plane, w) \
-    (((volatile uint32_t *)0x50020000u)[(line) * 8 + (plane) * 2 + (w)])
-#define VID_CANVAS (*(volatile uint32_t *)0x50024000u)
-#define VID_VSYNC_LINE (*(volatile uint32_t *)0x50024004u)
+    (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
+#define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
+#define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)

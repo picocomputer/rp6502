@@ -400,7 +400,7 @@ module rp6502
         .vid_prog_p_config(pm_config),
         .b_stb(bus_stb && bus_sel_vid && bus_addr[17]),
         .b_we(bus_we),
-        .b_addr(bus_addr[14:0]),
+        .b_addr(bus_addr[15:0]),
         .b_wdata(bus_wdata),
         .vid_prog_b_rdata(vid_prog_b_rdata)
     );

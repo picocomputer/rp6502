@@ -217,6 +217,8 @@ if(verilator_FOUND)
             ${RP6502_SRC}/vga/modes/mode1.c
             ${RP6502_SRC}/vga/modes/mode2.c
             ${RP6502_SRC}/vga/modes/mode3.c
+            ${RP6502_SRC}/vga/modes/mode4.c
+            ${RP6502_SRC}/vga/modes/mode5.c
             ${RP6502_SRC}/vga/term/color.c
             ${RP6502_SRC}/vga/term/font.c
             ${RP6502_SRC}/vga/term/term.c)

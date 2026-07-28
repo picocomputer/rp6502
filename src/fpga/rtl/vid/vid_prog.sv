@@ -4,10 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The scanline program: the RTL image of the VGA side's prog table, minus
- * the function pointers — per scanline per plane, an enable, the mode, the
- * attribute word, and the config pointer into XRAM. The soft CPU is the
- * sole author and every validation happens in its C, so the table is
- * trusted the way the fill functions trust their options.
+ * the function pointers — per scanline per plane, a fill slot and a
+ * sprite slot. The fill slot is an enable/mode/attr word and the config
+ * pointer; the sprite slot the same word shape, its second word packing
+ * the sprite count over the config pointer. The soft CPU is the sole
+ * author and every validation happens in its C, so the table is trusted
+ * the way the fill functions trust their options.
  *
  * The canvas and the vsync line are shadows latched at frame start. The
  * vsync line is where the oracle counts the frame — the highest programmed
@@ -41,16 +43,16 @@ module vid_prog (
     output logic [31:0] vid_prog_p_entry,
     output logic [15:0] vid_prog_p_config,
 
-    /* The soft CPU: words 0-4095 the table at line*8 + plane*2 + word,
-     * then bit 14 the registers — 0 canvas, 1 vsync line. */
+    /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
+     * then bit 15 the registers — 0 canvas, 1 vsync line. */
     input logic b_stb,
     input logic b_we,
-    input logic [14:0] b_addr,
+    input logic [15:0] b_addr,
     input logic [31:0] b_wdata,
     output logic [31:0] vid_prog_b_rdata
 );
 
-    logic [31:0] prog[4096] /*verilator public_flat_rw*/;
+    logic [31:0] prog[8192] /*verilator public_flat_rw*/;
 
     logic [2:0] canvas_shadow /*verilator public_flat_rd*/;
     logic [9:0] vsync_shadow /*verilator public_flat_rw*/;
@@ -58,10 +60,10 @@ module vid_prog (
 
     always_ff @(posedge clk) begin
         if (b_stb) begin
-            if (!b_addr[14]) begin
-                vid_prog_b_rdata <= prog[b_addr[13:2]];
+            if (!b_addr[15]) begin
+                vid_prog_b_rdata <= prog[b_addr[14:2]];
                 if (b_we)
-                    prog[b_addr[13:2]] <= b_wdata;
+                    prog[b_addr[14:2]] <= b_wdata;
             end else begin
                 vid_prog_b_rdata <= b_addr[2]
                     ? {22'd0, vsync_shadow} : {29'd0, canvas_shadow};
@@ -76,7 +78,7 @@ module vid_prog (
             vsync_q <= 10'd480;
             vid_prog_canvas <= 3'd0;
         end else begin
-            if (b_stb && b_we && b_addr[14]) begin
+            if (b_stb && b_we && b_addr[15]) begin
                 if (b_addr[2])
                     vsync_shadow <= b_wdata[9:0];
                 else
@@ -99,8 +101,8 @@ module vid_prog (
     end
 
     always_ff @(posedge clk) begin
-        vid_prog_p_entry <= prog[{p_line, p_plane, 1'b0}];
-        vid_prog_p_config <= prog[{p_line, p_plane, 1'b1}][15:0];
+        vid_prog_p_entry <= prog[{p_line, p_plane, 2'b00}];
+        vid_prog_p_config <= prog[{p_line, p_plane, 2'b01}][15:0];
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

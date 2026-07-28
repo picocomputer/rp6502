@@ -100,6 +100,25 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
     return true;
 }
 
+bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
+                     uint16_t config_ptr, uint16_t length,
+                     void (*sprite_fn)(int16_t, int16_t, uint16_t *,
+                                       uint16_t, uint16_t))
+{
+    (void)sprite_fn;
+    if (vga_canvas_code == vga_canvas_console)
+        return false;
+    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
+        return false;
+    for (int16_t i = scanline_begin; i < scanline_end; i++)
+    {
+        VID_XPROG(i, plane, 2) = 0x80000000u
+            | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
+        VID_XPROG(i, plane, 3) = ((uint32_t)length << 16) | config_ptr;
+    }
+    return true;
+}
+
 bool vga_set_canvas(uint16_t canvas)
 {
     switch (canvas)
@@ -123,10 +142,8 @@ bool vga_set_canvas(uint16_t canvas)
     vga_canvas_code = (vga_canvas_t)canvas;
     for (int16_t i = 0; i < 512; i++)
         for (int16_t p = 0; p < 3; p++)
-        {
-            VID_XPROG(i, p, 0) = 0;
-            VID_XPROG(i, p, 1) = 0;
-        }
+            for (int16_t w = 0; w < 4; w++)
+                VID_XPROG(i, p, w) = 0;
     vga_highest_scanline = 0;
     VID_CANVAS = canvas;
     if (canvas == vga_canvas_console)

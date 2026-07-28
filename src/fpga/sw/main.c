@@ -25,6 +25,8 @@
 #include "vga/modes/mode1.h"
 #include "vga/modes/mode2.h"
 #include "vga/modes/mode3.h"
+#include "vga/modes/mode4.h"
+#include "vga/modes/mode5.h"
 #include "vga/term/term.h"
 
 #include <pico/rand.h>
@@ -153,8 +155,14 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
             case 3:
                 ok = mode3_prog(main_xregs);
                 break;
+            case 4:
+                ok = mode4_prog(main_xregs);
+                break;
+            case 5:
+                ok = mode5_prog(main_xregs);
+                break;
             default:
-                ok = false; /* sprites come with the mode 4/5 engines */
+                ok = false;
                 break;
             }
             for (int i = 0; i < 16; i++)
