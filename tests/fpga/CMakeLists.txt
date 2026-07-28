@@ -481,6 +481,23 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
+        # furelise.rp6502 playing on the whole machine: xreg dispatch,
+        # gate snoop, rotor fetch, and the 24 kHz grid against 60 Hz.
+        rp6502_add_test(furelise
+            SOURCES test_furelise.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}"
+            FIXTURE furelise.rp6502
+            TIMEOUT 600)
+        add_dependencies(test_furelise sw_bin cpu65_rom vid_font_rom)
+        verilate(test_furelise
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
         # The .rp6502 loader against the staged window, the testbench
         # playing the platform bridge.
         rp6502_add_test(rom
