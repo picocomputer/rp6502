@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 640x480@60 raster at the four-clock render tick: 3,200 clocks a
+ * The 640x480@60 raster at the two-clock render tick: 3,200 clocks a
  * line, 525 lines a frame, syncs active-low in their exact windows — h
  * 656..751 of every line, v lines 490..491 — and de strobing once per
  * visible pixel, on its final tick.
@@ -12,7 +12,7 @@
 #include "tb_core.h"
 #include "utest.h"
 
-static const int TB_PX = 4;
+static const int TB_PX = 2;
 static const int TB_H_TOTAL = 800;
 static const int TB_V_TOTAL = 525;
 

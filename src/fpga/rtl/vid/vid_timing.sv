@@ -34,7 +34,7 @@ module vid_timing
     output logic vid_timing_vsync_pulse
 );
 
-    logic [1:0] tick;
+    logic tick;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -42,8 +42,8 @@ module vid_timing
             vid_timing_h <= '0;
             vid_timing_v <= '0;
         end else begin
-            tick <= tick + 2'd1;
-            if (tick == 2'd3) begin
+            tick <= tick + 1'd1;
+            if (tick == 1'd1) begin
                 if (vid_timing_h == 10'(RP6502_H_TOTAL - 1)) begin
                     vid_timing_h <= '0;
                     if (vid_timing_v == 10'(RP6502_V_TOTAL - 1))
@@ -58,19 +58,19 @@ module vid_timing
     end
 
     always_comb begin
-        vid_timing_px_first = tick == 2'd0;
-        vid_timing_px_last = tick == 2'd3;
+        vid_timing_px_first = tick == 1'd0;
+        vid_timing_px_last = tick == 1'd1;
         vid_timing_de = vid_timing_h < 10'(RP6502_H_ACTIVE)
-            && vid_timing_v < 10'(RP6502_V_ACTIVE) && tick == 2'd3;
+            && vid_timing_v < 10'(RP6502_V_ACTIVE) && tick == 1'd1;
         vid_timing_hsync = !(vid_timing_h >= 10'(RP6502_H_ACTIVE + RP6502_H_FP)
             && vid_timing_h < 10'(RP6502_H_ACTIVE + RP6502_H_FP + RP6502_H_SYNC));
         vid_timing_vsync = !(vid_timing_v >= 10'(RP6502_V_ACTIVE + RP6502_V_FP)
             && vid_timing_v < 10'(RP6502_V_ACTIVE + RP6502_V_FP + RP6502_V_SYNC));
-        vid_timing_line_start = vid_timing_h == 10'd0 && tick == 2'd0;
+        vid_timing_line_start = vid_timing_h == 10'd0 && tick == 1'd0;
         vid_timing_frame_start = vid_timing_h == 10'd0
-            && vid_timing_v == 10'd0 && tick == 2'd0;
+            && vid_timing_v == 10'd0 && tick == 1'd0;
         vid_timing_vsync_pulse = vid_timing_h == 10'd0
-            && vid_timing_v == 10'(RP6502_V_ACTIVE) && tick == 2'd0;
+            && vid_timing_v == 10'(RP6502_V_ACTIVE) && tick == 1'd0;
     end
 
 endmodule

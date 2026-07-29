@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * pocket_video against a replayed machine: the testbench emits the
- * beam's exact cadence — one de strobe per four system clocks, 640 per
- * line across 3,200 clocks, 480 lines then blanking, a frame pulse at
+ * beam's exact cadence — one de strobe per two system clocks, 640 per
+ * line across 1,600 clocks, 480 lines then blanking, a frame pulse at
  * each origin — and decodes the scaler-side raster it gets back. Every
  * frame must carry one vs, a hs on all 525 lines never coincident with
  * vs, exactly 640x480 de pixels whose RGB888 replicate the RGB555
@@ -61,21 +61,21 @@ UTEST(pvideo, raster_and_pixels_exact)
     {
         for (int line = 0; line < 525; line++)
         {
-            for (int c = 0; c < 3200; c++)
+            for (int c = 0; c < 1600; c++)
             {
                 /* Machine side, one clk_sys. */
                 dut->vid_frame = line == 0 && c == 0;
-                bool de = line < 480 && c < 2560 && (c & 3) == 3;
+                bool de = line < 480 && c < 1280 && (c & 1) == 1;
                 dut->vid_de = de;
                 if (de)
-                    dut->vid_pixel = pattern(f, c >> 2, line);
+                    dut->vid_pixel = pattern(f, c >> 1, line);
                 dut->clk_sys = 1;
-                if ((c & 3) == 0)
+                if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
 
                 /* Scaler side, sampled on its rising edge. */
-                if ((c & 3) == 0)
+                if ((c & 1) == 0)
                 {
                     if (dut->pocket_video_vs)
                     {
@@ -121,7 +121,7 @@ UTEST(pvideo, raster_and_pixels_exact)
                 }
 
                 dut->clk_sys = 0;
-                if ((c & 3) == 0)
+                if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();
                 if (de)

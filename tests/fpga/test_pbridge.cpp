@@ -23,7 +23,7 @@ static long g_t;
 static long g_sys_edges;
 static long a_next, s_next;
 
-/* Advance interleaved clocks to time t: clk_sys period 165, clk_74a
+/* Advance interleaved clocks to time t: clk_sys period 330, clk_74a
  * period 224 — the true ratio. Records key events as they pass. */
 struct KeyEv
 {
@@ -57,7 +57,7 @@ static void advance_to(long t_end)
         if (sedge)
         {
             dut->clk_sys = 0;
-            s_next += 165;
+            s_next += 330;
             g_sys_edges++;
             if (dut->tb_pbridge_key_set)
                 g_keys.push_back({(int)dut->tb_pbridge_key_code,
@@ -129,7 +129,7 @@ static uint16_t stage_read(uint32_t half_addr)
 UTEST(pbridge, boot_verify_rereset_reload_keys)
 {
     a_next = 224;
-    s_next = 165;
+    s_next = 330;
     dut->rst_n = 0;
     dut->arst_n = 0;
     dut->reset_n = 0;
@@ -231,7 +231,7 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     ASSERT_EQ((int)g_keys.size(), 1);
     ASSERT_EQ(g_keys[0].code, 0x128); /* start pressed, maps Enter */
     dut->cont1_key = 0;
-    advance_to(s_next + 165L * 200);
+    advance_to(s_next + 330L * 200);
     ASSERT_EQ((int)g_keys.size(), 2);
     ASSERT_EQ(g_keys[1].code, 0x028);
 
@@ -239,9 +239,9 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
      * table order, spaced by the posting floor. */
     g_keys.clear();
     dut->cont1_key = (1u << 1) | (1u << 4); /* down + A */
-    advance_to(s_next + 165L * 200);
+    advance_to(s_next + 330L * 200);
     dut->cont1_key = 0;
-    advance_to(s_next + 165L * 200);
+    advance_to(s_next + 330L * 200);
 
     ASSERT_EQ((int)g_keys.size(), 4);
     ASSERT_EQ(g_keys[0].code, 0x151); /* down pressed  */
@@ -267,7 +267,7 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
         dipped = !dut->tb_pbridge_run;
     }
     ASSERT_TRUE(dipped);
-    advance_to(s_next + 165L * 400);
+    advance_to(s_next + 330L * 400);
     ASSERT_EQ((int)dut->tb_pbridge_run, 1);
     ASSERT_GT(g_slot_sets.size(), posts_before);
     ASSERT_EQ(g_slot_lens.back(), (uint32_t)img2.size());
@@ -276,14 +276,14 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     g_keys.clear();
     dut->key_busy = 1;
     dut->cont1_key = 1u << 2; /* left */
-    advance_to(s_next + 165L * 500);
+    advance_to(s_next + 330L * 500);
     ASSERT_EQ((int)g_keys.size(), 0);
     dut->key_busy = 0;
-    advance_to(s_next + 165L * 200);
+    advance_to(s_next + 330L * 200);
     ASSERT_EQ((int)g_keys.size(), 1);
     ASSERT_EQ(g_keys[0].code, 0x150); /* left pressed, kept whole */
     dut->cont1_key = 0;
-    advance_to(s_next + 165L * 200);
+    advance_to(s_next + 330L * 200);
 }
 
 UTEST_STATE();

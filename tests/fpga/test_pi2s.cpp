@@ -46,13 +46,13 @@ UTEST(pi2s, frames_and_samples_exact)
     uint32_t word = 0;
     long sclk_falls_per_frame = 0;
 
-    /* Machine-side sample cadence: one sample per 4200 clk_sys. */
+    /* Machine-side sample cadence: one sample per 2100 clk_sys. */
     long sample_clk = 0;
     int sample_idx = 0;
 
-    /* clk_sys period 165, clk_74a period 224 — the true ratio. */
-    long wnext = 165, anext = 224;
-    const long T_END = 165L * 4200 * 40; /* 40 samples' worth */
+    /* clk_sys period 330, clk_74a period 224 — the true ratio. */
+    long wnext = 330, anext = 224;
+    const long T_END = 330L * 2100 * 40; /* 40 samples' worth */
 
     for (long t = 0; t < T_END; t++)
     {
@@ -64,7 +64,7 @@ UTEST(pi2s, frames_and_samples_exact)
         if (wedge)
         {
             dut->aud_valid = 0;
-            if (++sample_clk == 4200)
+            if (++sample_clk == 2100)
             {
                 sample_clk = 0;
                 /* Distinct consecutive values, extremes included. */
@@ -85,7 +85,7 @@ UTEST(pi2s, frames_and_samples_exact)
             dut->eval();
             dut->clk_sys = 0;
             dut->eval();
-            wnext += 165;
+            wnext += 330;
         }
 
         if (aedge)

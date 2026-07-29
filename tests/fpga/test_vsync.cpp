@@ -99,8 +99,8 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
     for (int i = 1; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
-        ASSERT_GT(delta, 1680000 - 256);
-        ASSERT_LT(delta, 1680000 + 256);
+        ASSERT_GT(delta, 840000 - 256);
+        ASSERT_LT(delta, 840000 + 256);
     }
     /* The interrupt: the handler read $FFF0 pending (bit 7) and acked. */
     ASSERT_EQ((uint8_t)out[4], 0x80);
@@ -146,8 +146,8 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     for (int i = 1; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
-        ASSERT_GT(delta, 1680000 - 256);
-        ASSERT_LT(delta, 1680000 + 256);
+        ASSERT_GT(delta, 840000 - 256);
+        ASSERT_LT(delta, 840000 + 256);
     }
 }
 

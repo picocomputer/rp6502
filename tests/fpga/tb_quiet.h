@@ -31,10 +31,13 @@
 #define _TESTS_FPGA_TB_QUIET_H_
 
 template <typename Dut, typename Cycle>
-static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 600)
+static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
 {
     /* Bounded in clocks, not frames: a machine that never paints must
-     * fail the run rather than spin the test forever. */
+     * fail the run rather than spin the test forever. Twenty frames is
+     * a third of a second of machine time and far more than any fixture
+     * needs — the bound exists to fail fast, and a bound nobody can
+     * afford to wait for is not a bound. */
     long budget = frame_limit * 1700000L;
     long frames = 0;
     bool moved = false;

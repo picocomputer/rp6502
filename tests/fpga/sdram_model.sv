@@ -25,7 +25,7 @@ module sdram_model (
     output logic [31:0] sdram_model_refreshes
 );
 
-    logic [15:0] mem[1 << 25];
+    logic [15:0] mem[1 << 25] /*verilator public_flat_rw*/;
 
     logic [12:0] row[4];
     logic row_open[4];

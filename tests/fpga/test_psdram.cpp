@@ -125,10 +125,10 @@ UTEST(psdram, load_soak_and_refresh)
     for (uint32_t i = 0; i < 3000; i += 37)
         ASSERT_EQ(rd(0x7FF400u + i), ref[0x7FF400u + i]);
 
-    /* Refresh cadence: at least one per 1,008 clocks on average
-     * (7.7 us at 100.8 MHz is one per 780). */
+    /* Refresh cadence: at least one per 504 clocks on average
+     * (7.7 us at 50.4 MHz is one per 390). */
     long elapsed = g_clocks - soak_start;
-    ASSERT_GT((long)dut->tb_psdram_refreshes, elapsed / 1008);
+    ASSERT_GT((long)dut->tb_psdram_refreshes, elapsed / 504);
 }
 
 UTEST_STATE();

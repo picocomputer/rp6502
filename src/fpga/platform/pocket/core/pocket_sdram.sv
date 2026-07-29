@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The staging store: the Pocket's 64 MB SDR SDRAM under a plain
- * correctness-first controller at 100.8 MHz — CL2, single beats with
+ * correctness-first controller at 50.4 MHz — CL2, single beats with
  * auto-precharge, one op in flight, refresh on a due counter. The
  * loader's halfword writes pull from the bridge and win the bus only
  * when no read is pending; the staging read serves-and-holds, so the
@@ -46,11 +46,11 @@ module pocket_sdram (
     input logic [15:0] dram_dq_in
 );
 
-    /* 200 us at 100.8 MHz, then the JEDEC wake: precharge all, two
+    /* 200 us at 50.4 MHz, then the JEDEC wake: precharge all, two
      * refreshes, mode register CL2 burst-1. */
-    localparam int INIT_WAIT = 20200;
+    localparam int INIT_WAIT = 10100;
     localparam logic [12:0] MODE_CL2_BL1 = 13'b000_0_00_010_0_000;
-    localparam int REFRESH_EVERY = 780; /* 7.7 us, 8192 rows in 64 ms */
+    localparam int REFRESH_EVERY = 390; /* 7.7 us, 8192 rows in 64 ms */
 
     typedef enum logic [3:0] {
         S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS,

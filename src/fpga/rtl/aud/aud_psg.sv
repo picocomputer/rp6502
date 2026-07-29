@@ -22,7 +22,7 @@
 module aud_psg
     import aud_sine_pkg::*;
 #(
-    parameter int TICKS_PER_SAMPLE = 4200
+    parameter int TICKS_PER_SAMPLE = 2100
 ) (
     input logic clk,
     input logic rst_n,

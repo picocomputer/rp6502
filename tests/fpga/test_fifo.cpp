@@ -129,8 +129,8 @@ UTEST(fifo, nearly_equal_clocks)
 
 UTEST(fifo, true_pocket_ratio)
 {
-    /* 74.25 MHz against 100.8 MHz is 165:224 — periods 224 and 165. */
-    run_scenario(utest_result, 224, 165, 0xC0FFEE04u);
+    /* 74.25 MHz against 50.4 MHz is 330:224 — periods 224 and 330. */
+    run_scenario(utest_result, 224, 330, 0xC0FFEE04u);
 }
 
 UTEST_STATE();
