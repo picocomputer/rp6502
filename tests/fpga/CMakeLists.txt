@@ -804,8 +804,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
         COMMAND ${CMAKE_COMMAND} -E echo
             "package: ${PKG_DIR} - still needs icon.bin and Platforms/_images"
-        DEPENDS bitstream vid_font_rom
-        COMMENT "Assembling the Pocket core package"
+        DEPENDS vid_font_rom
+        COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
 
     add_custom_target(bitstream

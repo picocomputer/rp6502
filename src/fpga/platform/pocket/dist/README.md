@@ -17,5 +17,8 @@ Everything the SD card needs except the binaries:
   platform image byte format is not publicly documented, so the converter
   is authoritative.
 
-Zip the three top directories at the archive root as
+`cmake --build build/fpga --target bitstream` then `--target package`
+assembles everything above except the two images into
+`build/fpga/tests/package`. Drop `icon.bin` and `Platforms/_images` in
+beside it, then zip the three top directories at the archive root as
 `Rumbledethumps.RP6502_<version>_<date>.zip`.
