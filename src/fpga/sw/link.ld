@@ -3,17 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One RAM: the 64 KB tightly-coupled memory at zero, code first because the
+ * One RAM: the 48 KB tightly-coupled memory at zero, code first because the
  * reset vector is address zero. The stack grows down from the top. The size
- * is a block-memory decision as much as a software one: the fabric allocates
- * a power-of-two depth, so 64 KB costs 64 M10Ks and anything larger costs
- * 128 — half the device's block memory for code the machine barely uses.
- * The firmware and its non-video bss come to 36 KB, so the rest is stack.
+ * is a block-memory decision as much as a software one: each byte lane costs
+ * one block memory per 1024 words, so 48 KB is forty-eight of them against
+ * sixty-four for the 64 KB this used to be — a fifth of the device's block
+ * memory, for a firmware that ends at 36 KB and a stack that has never
+ * needed the twenty-nine KB the rest of it was.
  */
 
 MEMORY
 {
-    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
+    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 48K
     VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
 }
 
