@@ -82,3 +82,39 @@ The same comparison applies to mode 1 and mode 2, whose windows can be narrow
 enough that mode 3's unconditional load is the wrong trade for them too.
 
 Worth doing when the render needs the clocks. It does not today.
+
+## Unfinished: the soft CPU's own clock
+
+Hazard3's frontend is the only block that cannot make 50.4 MHz — it wants
+about 23 ns and has 19.8. Everything else on the fabric closes. The intended
+answer is to run it at 25.2, half the machine, which it has room for several
+times over.
+
+The domain crossing itself is exactly 2:1 and edge aligned, so nothing about
+it is asynchronous, but a pulse changes width in each direction and three
+places care:
+
+- `bus_stb` is one soft-CPU clock, which is two of the machine's. The slave
+  acts on the level, and acting twice pops a console ring twice and loses the
+  byte between. Narrow it to its rising edge.
+- `rv_soc_tx_valid` reaches a top-level port that testbenches count characters
+  on. Same treatment, or every character counts twice.
+- `slot_set` and `key_set` are one machine clock wide going the other way, and
+  a pulse that narrow can fall between two soft-CPU edges and never be seen.
+  Held for two it always spans one, and both land a value the far side is
+  holding anyway, so being seen twice is harmless.
+
+All three were written and work. What does not work is the staged ROM load
+through the real SDRAM: at half rate the loader reports `rom: bad image`,
+where at full rate with the same adaptations it reports `rom: staged`. The
+bare machine, whose staging window is served by the testbench with no
+latency, loads correctly at half rate — so it is the pocket_sdram handshake
+that minds a master slower than the bus, not the crossing.
+
+`pocket_sdram_rvalid` is already qualified by the address it holds, so the
+obvious stale-hold race is not the answer, and the next person should start
+by watching `stage_pend`, `stage_rvalid` and `stage_stall` across one byte
+fetch with the divider in.
+
+Reproduce by dividing clk_sys by two into `rv_soc`'s clock in rp6502.sv and
+running test_pocket with POCKET_DEBUG=1.
