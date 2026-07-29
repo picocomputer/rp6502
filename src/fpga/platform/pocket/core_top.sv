@@ -537,9 +537,15 @@ pocket_pll pll (
 // pad so it leaves with the same delay as everything beside it.
 assign dram_clk = clk_dram;
 
-// Held in reset until the host has finished with us and the PLL has
-// settled, crossed into each domain it gates.
-wire core_rst_n_74 = reset_n & pll_locked_s;
+// Out of reset as soon as the clocks are good, and not one moment
+// later. reset_n is the host's run gate, not a reset: it goes high
+// after the data slots have been streamed, and the bridge has to be
+// awake through that stream to put them in the memory. Gating the
+// core's reset on it means the whole image is written into a core that
+// is holding its own write queue clear, and the machine wakes to an
+// empty store. reset_n reaches pocket_core on its own port for the job
+// it actually has.
+wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
