@@ -208,7 +208,7 @@ module vid_term (
     logic [6:0] rescol;  // the cell being resolved, one ahead of px
     logic [9:0] px;    // write pointer into the line
     logic [3:0] step;
-    logic run;
+    logic run /*verilator public_flat_rd*/;
 
     /* Cell words: {fg, attr, code} and {ul, bg} of the cell being
      * resolved while its predecessor shifts out. */

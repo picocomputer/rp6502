@@ -128,7 +128,7 @@ module vid_mode (
     always_comb vid_mode_busy = state != S_IDLE;
 
     typedef enum logic [2:0] {
-        S_IDLE, S_PROG, S_PROG_W, S_CFG, S_MODE, S_BLANK
+        S_IDLE, S_PROG, S_PROG_W, S_CFG, S_MODE
     } state_t;
     state_t state /*verilator public_flat_rd*/;
 
@@ -148,7 +148,6 @@ module vid_mode (
     logic [2:0] cfg_i, cfg_c;
     logic [143:0] cfgw;
 
-    logic [9:0] px;
     logic [9:0] cw;
     always_comb cw = x_shift ? 10'd320 : 10'd640;
 
@@ -283,13 +282,11 @@ module vid_mode (
         end
     end
 
-    /* The write bank: the pipeline's pixels, the plane's own blank, or
-     * the sprite stage painting after the fill went idle. */
+    /* The write bank: the pipeline's pixels, or the sprite stage
+     * painting after the fill went idle. */
     always_ff @(posedge clk) begin
         if (state == S_MODE && sub_px_we)
             linebuf[{wr_bank, sub_px_addr}] <= sub_px_data;
-        else if (state == S_BLANK)
-            linebuf[{wr_bank, px}] <= 16'h0000;
         else if (sp_we)
             linebuf[{wr_bank, sp_addr}] <= sp_data;
     end
@@ -309,7 +306,6 @@ module vid_mode (
             cfgw <= '0;
             cfg_i <= '0;
             cfg_c <= '0;
-            px <= '0;
             m3_start <= 1'b0;
             m2_start <= 1'b0;
             m1_start <= 1'b0;
@@ -354,9 +350,17 @@ module vid_mode (
                         if (!p_entry[31] || p_entry[18:16] == 3'd0
                             || p_entry[18:16] > 3'd3) begin
                             /* Nothing programmed, or a mode whose
-                             * pipeline is not built yet. */
-                            state <= S_BLANK;
-                            px <= '0;
+                             * pipeline is not built yet. The buffer is
+                             * marked unfilled and vid_compose skips an
+                             * unfilled plane, so there is nothing to
+                             * write: this used to walk the whole line
+                             * putting zeros into a buffer no one would
+                             * read, six hundred and forty clocks an
+                             * idle plane, every line. The one reader
+                             * that would care is the sprite stage
+                             * painting a plane that never filled, and
+                             * it clears the buffer itself. */
+                            state <= S_IDLE;
                             flip_next <= 1'b1;
                             filled_q[wr_bank] <= 1'b0;
                         end else begin
@@ -404,11 +408,6 @@ module vid_mode (
                             flip_next <= 1'b1;
                             state <= S_IDLE;
                         end
-                    end
-                    S_BLANK: begin
-                        px <= px + 10'd1;
-                        if (px == cw - 10'd1)
-                            state <= S_IDLE;
                     end
                     default: state <= S_IDLE;
                 endcase

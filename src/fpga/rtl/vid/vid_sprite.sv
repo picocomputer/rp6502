@@ -172,7 +172,7 @@ module vid_sprite (
             state <= SP_IDLE;
         else begin
             p <= p + 2'd1;
-            state <= SP_PLAN;
+            state <= SP_WAIT;
         end
     endtask
 
@@ -240,7 +240,21 @@ module vid_sprite (
                         end
                     end
                     SP_WAIT: begin
-                        if (busy == 3'b000)
+                        /* This plane's fill, not everyone's. The three
+                         * line buffers are separate and the merge is
+                         * vid_compose's job at scanout, so a plane's
+                         * sprites need only the plane they land in —
+                         * plane 1's fill covering plane 0's sprite
+                         * happens later, by alpha, not by ordering
+                         * here. Waiting for all three made the sprite
+                         * stage idle through the slowest fill.
+                         *
+                         * Narrow is safe even for a plane with sprites
+                         * and no fill of its own: those composite onto
+                         * fg, and fg is only ever set from an earlier
+                         * step of an ascending walk, so that plane has
+                         * already been waited for. */
+                        if (!busy[p])
                             state <= SP_PLAN;
                     end
                     SP_PLAN: begin

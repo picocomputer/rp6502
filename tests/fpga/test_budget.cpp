@@ -11,15 +11,22 @@
  * "all of it and more".
  *
  * So count. From each line's boundary to the clock where all three
- * planes and the sprite stage have gone idle, over the heaviest
- * fixtures the suite owns. The number decides whether the machine can
- * run at half the clock, where the timing analyser says every block but
- * the soft CPU closes: at 50.4 MHz the same line is sixteen hundred
- * clocks, and the engines would need to fit in that.
+ * planes and the sprite stage have gone idle, across every fixture the
+ * corpus has that loads the render heavily. The number decides whether
+ * the machine can run at half the clock, where the analyser says every
+ * block but the soft CPU closes: the same line is then 2*799 clocks
+ * rather than 4*799.
  *
- * This measures; it does not judge. The assertion is only against
- * today's deadline, so the test earns its place as an overrun guard
- * whatever we decide about the clock.
+ * Read the numbers as a floor, not a budget. The 6502 is stopped and
+ * the PSG silent in every fixture here — neither takes a port A slot
+ * that a running machine would — and no fixture puts a heavy sprite
+ * load over mode 3's XRAM-palette prologue, which is legal and would
+ * be worse than anything measured.
+ *
+ * The deadline is the beam's, at h == 799: the next line's pixel zero
+ * is read then, so the flip must already have landed. Anything at or
+ * past it has lost the race, which is what sprite_overrun exists to
+ * demonstrate.
  */
 
 #include "Vrp6502.h"
@@ -41,8 +48,11 @@ static Vrp6502 *dut;
 #define PLANE_STATE(n) \
     dut->rootp->rp6502__DOT__gen_mode__BRA__##n##__KET____DOT__vid_mode__DOT__state
 
-/* Clocks per scanline today: 800 pixels at four clocks each. */
+/* A scanline is 800 pixels at four clocks; the deadline is the last of
+ * them, not the end of the line. At half the clock it is 2 * 799. */
 static const long LINE_CLOCKS = 3200;
+static const long LINE_DEADLINE = 4 * 799;
+static const long HALF_DEADLINE = 2 * 799;
 
 /* The sprite stage waits for every plane to finish before it plans
  * (vid_sprite.sv SP_WAIT), so a line is strictly the planes and then
@@ -60,6 +70,16 @@ struct budget_t
     long grants_at_worst;
     long grants_planes;    /* to requesters 0-2, the three fills */
     long grants_sprite;    /* to requester 3, the sprite stage */
+    /* The terminal renders every line whatever the canvas — vid_term
+     * raises run at every line_start — and it neither shares the XRAM
+     * nor waits for the planes, so its cost is concurrent, not added.
+     * It still has to fit the line on its own. */
+    long worst_term;
+    /* Where the line's clocks go: each plane's own finish, and the
+     * sprite stage's time by state. SP_IDLE=0 SLOT=1 WAIT=2 PLAN=3
+     * CLEAR=4 RUN=5. */
+    long plane_done[3];
+    long sp_state[6];
     long lines;
 };
 
@@ -87,6 +107,14 @@ static void measure_frame(budget_t *b)
     b->planes_at_worst = 0;
     b->sprite_at_worst = 0;
     b->worst_planes = 0;
+    b->grants_at_worst = 0;
+    b->grants_planes = 0;
+    b->grants_sprite = 0;
+    b->worst_term = 0;
+    for (int i = 0; i < 3; i++)
+        b->plane_done[i] = 0;
+    for (int i = 0; i < 6; i++)
+        b->sp_state[i] = 0;
     b->lines = 0;
 
     /* Start at a line boundary so the first count is whole. */
@@ -98,7 +126,9 @@ static void measure_frame(budget_t *b)
     {
         prev = dut->rp6502_scanline;
         long clocks = 0, busy_until = 0, planes_until = 0;
-        long grants = 0, g_planes = 0, g_sprite = 0;
+        long grants = 0, g_planes = 0, g_sprite = 0, term_until = 0;
+        long pdone[3] = {0, 0, 0};
+        long spst[6] = {0, 0, 0, 0, 0, 0};
         while (dut->rp6502_scanline == prev)
         {
             clock_cycle();
@@ -108,6 +138,12 @@ static void measure_frame(budget_t *b)
             if (PLANE_STATE(0) != 0 || PLANE_STATE(1) != 0
                 || PLANE_STATE(2) != 0)
                 planes_until = clocks;
+            if (PLANE_STATE(0) != 0) pdone[0] = clocks;
+            if (PLANE_STATE(1) != 0) pdone[1] = clocks;
+            if (PLANE_STATE(2) != 0) pdone[2] = clocks;
+            spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 7]++;
+            if (dut->rootp->rp6502__DOT__vid_term__DOT__run)
+                term_until = clocks;
             if (dut->rootp->rp6502__DOT__a_any)
             {
                 grants++;
@@ -119,6 +155,8 @@ static void measure_frame(budget_t *b)
             }
         }
         b->lines++;
+        if (term_until > b->worst_term)
+            b->worst_term = term_until;
         if (planes_until > b->worst_planes)
             b->worst_planes = planes_until;
         if (busy_until > b->worst)
@@ -130,15 +168,21 @@ static void measure_frame(budget_t *b)
             b->grants_at_worst = grants;
             b->grants_planes = g_planes;
             b->grants_sprite = g_sprite;
+            for (int i = 0; i < 3; i++)
+                b->plane_done[i] = pdone[i];
+            for (int i = 0; i < 6; i++)
+                b->sp_state[i] = spst[i];
         }
     }
 }
 
-static void run_case(int *utest_result, const char *name)
+static void run_case(int *utest_result, const char *name,
+                     budget_t *out)
 {
     std::string path = std::string(ROMS_DIR "/") + name + ".rp6502";
     FILE *f = fopen(path.c_str(), "rb");
     ASSERT_TRUE(f != NULL);
+    budget_t b;
     std::vector<uint8_t> rom;
     uint8_t buf[4096];
     size_t n;
@@ -163,7 +207,6 @@ static void run_case(int *utest_result, const char *name)
     }));
 
     /* Two frames: the first can begin mid-line, the second is clean. */
-    budget_t b;
     measure_frame(&b);
     measure_frame(&b);
 
@@ -172,32 +215,63 @@ static void run_case(int *utest_result, const char *name)
            "   |  at half the clock %4ld/1600 = %3ld%%%s\n",
            name, b.worst, LINE_CLOCKS, b.worst * 100 / LINE_CLOCKS,
            b.worst_line, b.planes_at_worst, b.sprite_at_worst,
-           b.worst, b.worst * 100 / 1600,
-           b.worst > 1600 ? "  OVER" : "");
+           b.worst, b.worst * 100 / HALF_DEADLINE,
+           b.worst >= HALF_DEADLINE ? "  OVER" : "");
     printf("  %-18s   port A carried %4ld words in those %4ld clocks"
            " (%2ld%% busy) — planes %4ld, sprites %4ld\n",
            name, b.grants_at_worst, b.worst,
            b.worst ? b.grants_at_worst * 100 / b.worst : 0,
            b.grants_planes, b.grants_sprite);
+    printf("  %-18s   terminal %4ld clocks a line, every line, "
+           "concurrent with all of it\n", name, b.worst_term);
+    printf("  %-18s   planes done at %4ld %4ld %4ld  |  sprite stage: "
+           "slot %3ld wait %4ld plan %3ld clear %4ld run %4ld\n",
+           name, b.plane_done[0], b.plane_done[1], b.plane_done[2],
+           b.sp_state[1], b.sp_state[2], b.sp_state[3], b.sp_state[4],
+           b.sp_state[5]);
     fflush(stdout);
 
     ASSERT_EQ(b.lines, 525);
-    /* Today's deadline. The engines assert on their own underrun, so
-     * this is belt and braces — but it is the number this test is
-     * really about, and it should never silently creep. */
-    ASSERT_LT(b.worst, LINE_CLOCKS);
+    *out = b;
+}
+
+static void expect_in_budget(int *utest_result, const char *name)
+{
+    budget_t b;
+    run_case(utest_result, name, &b);
+    /* The beam's deadline, not the end of the line: a fill that lands
+     * on clock 3196 has already lost. */
+    ASSERT_LT(b.worst, LINE_DEADLINE);
+    ASSERT_EQ(dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun,
+              0);
 }
 
 UTEST(budget, sprite_stress_the_documented_budget)
 {
-    run_case(utest_result, "sprite_stress");
+    expect_in_budget(utest_result, "sprite_stress");
 }
 
-UTEST(budget, mode4_cross_plane_640x480) { run_case(utest_result, "mode4_32"); }
-UTEST(budget, mode5_4bpp_256_640x480) { run_case(utest_result, "mode5_4bpp256"); }
-UTEST(budget, mode3_8bpp_640x480) { run_case(utest_result, "mode3_8bpp"); }
-UTEST(budget, mode1_16bpp_8x16) { run_case(utest_result, "mode1_16bpp8x16"); }
-UTEST(budget, mode2_composite) { run_case(utest_result, "mode2_composite"); }
+UTEST(budget, mode4_cross_plane_640x480) { expect_in_budget(utest_result, "mode4_32"); }
+UTEST(budget, mode5_4bpp_256_640x480) { expect_in_budget(utest_result, "mode5_4bpp256"); }
+UTEST(budget, mode3_8bpp_640x480) { expect_in_budget(utest_result, "mode3_8bpp"); }
+UTEST(budget, mode1_16bpp_8x16) { expect_in_budget(utest_result, "mode1_16bpp8x16"); }
+UTEST(budget, mode2_composite) { expect_in_budget(utest_result, "mode2_composite"); }
+
+/* The heavier fixtures the first cut of this test left out. */
+UTEST(budget, mode5_32x32) { expect_in_budget(utest_result, "mode5_32x32"); }
+UTEST(budget, mode4_sizes) { expect_in_budget(utest_result, "mode4_sizes"); }
+UTEST(budget, mode4a_clip) { expect_in_budget(utest_result, "mode4a_clip"); }
+
+/* Built to lose its race, and it does: this is the one fixture that
+ * proves the deadline is real and that the counter reports it. */
+UTEST(budget, sprite_overrun_loses_on_purpose)
+{
+    budget_t b;
+    run_case(utest_result, "sprite_overrun", &b);
+    ASSERT_GE(b.worst, LINE_DEADLINE);
+    ASSERT_GT(dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun,
+              0);
+}
 
 UTEST_STATE();
 
