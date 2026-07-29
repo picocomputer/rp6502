@@ -443,8 +443,14 @@ module vid_mode2
                                 if (a_gnt)
                                     fw_i <= fw_i + 3'd1;
                                 if (gnt_d) begin
-                                    gather <= gather
-                                        | (160'(a_rdata) << {fw_c, 5'd0});
+                                    case (fw_c)
+                                        3'd0: gather[31:0] <= a_rdata;
+                                        3'd1: gather[63:32] <= a_rdata;
+                                        3'd2: gather[95:64] <= a_rdata;
+                                        3'd3: gather[127:96] <= a_rdata;
+                                        3'd4: gather[159:128] <= a_rdata;
+                                        default: ;
+                                    endcase
                                     fw_c <= fw_c + 3'd1;
                                     if (fw_c + 3'd1 == fw_n)
                                         fstate <= F2_READY;

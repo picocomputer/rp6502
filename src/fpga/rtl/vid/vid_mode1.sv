@@ -391,8 +391,12 @@ module vid_mode1
                                 if (a_gnt)
                                     fw_i <= fw_i + 2'd1;
                                 if (gnt_d) begin
-                                    gather <= gather
-                                        | (96'(a_rdata) << {fw_c, 5'd0});
+                                    case (fw_c)
+                                        2'd0: gather[31:0] <= a_rdata;
+                                        2'd1: gather[63:32] <= a_rdata;
+                                        2'd2: gather[95:64] <= a_rdata;
+                                        default: ;
+                                    endcase
                                     fw_c <= fw_c + 2'd1;
                                     if (fw_c + 2'd1 == fw_n) begin
                                         fw_i <= '0;

@@ -354,7 +354,26 @@ module aud_psg
                     if (a_gnt)
                         fw_i <= fw_i + 5'd1;
                     if (gnt_d) begin
-                        gather <= gather | (544'(a_rdata) << {fw_c, 5'd0});
+                        case (fw_c)
+                            5'd0: gather[31:0] <= a_rdata;
+                            5'd1: gather[63:32] <= a_rdata;
+                            5'd2: gather[95:64] <= a_rdata;
+                            5'd3: gather[127:96] <= a_rdata;
+                            5'd4: gather[159:128] <= a_rdata;
+                            5'd5: gather[191:160] <= a_rdata;
+                            5'd6: gather[223:192] <= a_rdata;
+                            5'd7: gather[255:224] <= a_rdata;
+                            5'd8: gather[287:256] <= a_rdata;
+                            5'd9: gather[319:288] <= a_rdata;
+                            5'd10: gather[351:320] <= a_rdata;
+                            5'd11: gather[383:352] <= a_rdata;
+                            5'd12: gather[415:384] <= a_rdata;
+                            5'd13: gather[447:416] <= a_rdata;
+                            5'd14: gather[479:448] <= a_rdata;
+                            5'd15: gather[511:480] <= a_rdata;
+                            5'd16: gather[543:512] <= a_rdata;
+                            default: ;
+                        endcase
                         fw_c <= fw_c + 5'd1;
                         if (fw_c + 5'd1 == fw_n) begin
                             ch <= '0;
