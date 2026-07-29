@@ -87,11 +87,12 @@ module vid_mode2
         width_px = 16'(16'(cf_width) * 16'({11'd0, eff_w}));
         height_px = 16'(16'(cf_height) * 16'({11'd0, tile_h}));
     end
+    /* The window's extent in pixels: a product of two config fields,
+     * constant for the whole line, and read by the emitter's window
+     * test on every clock of it. Latched at the start so that test is a
+     * compare against a register rather than against a multiply — the
+     * DSP was six nanoseconds into a path with nine to spend. */
     logic signed [20:0] win_w_s, height_px_s;
-    always_comb begin
-        win_w_s = $signed({{5{width_px[15]}}, width_px});
-        height_px_s = $signed({{5{height_px[15]}}, height_px});
-    end
 
     typedef enum logic [3:0] {
         S2_IDLE, S2_WRAP, S2_DIVY, S2_ADDR, S2_DIVX, S2_PAL, S2_RUN, S2_BLANK
@@ -267,6 +268,8 @@ module vid_mode2
             row_base <= '0;
             col <= '0;
             px <= '0;
+            win_w_s <= '0;
+            height_px_s <= '0;
             div_q <= '0;
             div_rem <= '0;
             div_i <= '0;
@@ -301,6 +304,8 @@ module vid_mode2
             end else if (start) begin
                 row <= $signed({{5{row16[15]}}, row16});
                 col <= $signed({{5{col16[15]}}, col16});
+                win_w_s <= $signed({{5{width_px[15]}}, width_px});
+                height_px_s <= $signed({{5{height_px[15]}}, height_px});
                 px <= '0;
                 cur_v <= 1'b0;
                 nxt_v <= 1'b0;

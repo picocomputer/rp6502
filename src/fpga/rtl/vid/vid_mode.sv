@@ -136,13 +136,17 @@ module vid_mode (
     logic [15:0] config_ptr /*verilator public_flat_rd*/;
 
     /* Five fetched words hold any mode's config — mode 1's 16 bytes from
-     * a halfword-aligned pointer span them all; the shifted view hands
-     * each pipeline its bytes at fixed offsets. */
-    logic [31:0] cfg[5];
+     * a halfword-aligned pointer span them all, and every pipeline reads
+     * its bytes at fixed offsets from here.
+     *
+     * The words land already aligned. The halfword offset is settled in
+     * S_PROG_W, a state before the first read is even issued, so the
+     * shift belongs on the capture rather than in front of every
+     * pipeline's arithmetic — where it was one register bit driving a
+     * hundred and ninety-four loads, and the first hop of the worst
+     * path in six different blocks. */
     logic [2:0] cfg_i, cfg_c;
     logic [143:0] cfgw;
-    always_comb cfgw = 144'({cfg[4], cfg[3], cfg[2], cfg[1], cfg[0]}
-                            >> {config_ptr[1], 4'b0000});
 
     logic [9:0] px;
     logic [9:0] cw;
@@ -302,8 +306,7 @@ module vid_mode (
             t <= '0;
             attr <= '0;
             config_ptr <= '0;
-            for (int i = 0; i < 5; i++)
-                cfg[i] <= '0;
+            cfgw <= '0;
             cfg_i <= '0;
             cfg_c <= '0;
             px <= '0;
@@ -367,7 +370,22 @@ module vid_mode (
                         if (a_gnt)
                             cfg_i <= cfg_i + 3'd1;
                         if (gnt_d) begin
-                            cfg[cfg_c] <= a_rdata;
+                            if (config_ptr[1])
+                                case (cfg_c)
+                                    3'd0: cfgw[15:0] <= a_rdata[31:16];
+                                    3'd1: cfgw[47:16] <= a_rdata;
+                                    3'd2: cfgw[79:48] <= a_rdata;
+                                    3'd3: cfgw[111:80] <= a_rdata;
+                                    default: cfgw[143:112] <= a_rdata;
+                                endcase
+                            else
+                                case (cfg_c)
+                                    3'd0: cfgw[31:0] <= a_rdata;
+                                    3'd1: cfgw[63:32] <= a_rdata;
+                                    3'd2: cfgw[95:64] <= a_rdata;
+                                    3'd3: cfgw[127:96] <= a_rdata;
+                                    default: cfgw[143:128] <= a_rdata[15:0];
+                                endcase
                             cfg_c <= cfg_c + 3'd1;
                             if (cfg_c == 3'd4) begin
                                 if (mode_q == 3'd1)
