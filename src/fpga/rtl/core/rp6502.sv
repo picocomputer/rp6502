@@ -410,19 +410,30 @@ module rp6502
     logic [13:0] ma_addr[5];
     logic [2:0] a_rotor, a_sel;
     logic a_any;
+    /* The pick, for every rotor position at once. Scanning from the
+     * live rotor made each candidate depend on the one before it — an
+     * adder, a wrap and a priority step per requester, five deep, in
+     * front of the address mux and of every requester's grant. Solved
+     * for all five positions the answer is one function of the five
+     * request bits, and the rotor only chooses between the answers,
+     * arriving from a register while they settle. Same truth table:
+     * the lowest offset with a request still wins, because the loop
+     * counts down and the last assignment stands. */
+    logic [2:0] sel_at[5];
+    logic any_at[5];
     always_comb begin
-        a_sel = a_rotor;
-        a_any = 1'b0;
-        for (int i = 0; i < 5; i++) begin
-            logic [3:0] cand;
-            cand = {1'b0, a_rotor} + 4'(i);
-            if (cand >= 4'd5)
-                cand = cand - 4'd5;
-            if (!a_any && ma_req[cand[2:0]]) begin
-                a_sel = cand[2:0];
-                a_any = 1'b1;
+        for (int r = 0; r < 5; r++) begin
+            sel_at[r] = 3'(r);
+            any_at[r] = 1'b0;
+            for (int i = 4; i >= 0; i--) begin
+                if (ma_req[(r + i) % 5]) begin
+                    sel_at[r] = 3'((r + i) % 5);
+                    any_at[r] = 1'b1;
+                end
             end
         end
+        a_sel = sel_at[a_rotor];
+        a_any = any_at[a_rotor];
     end
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n)
