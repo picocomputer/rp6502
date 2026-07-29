@@ -212,10 +212,10 @@ static void run_case(int *utest_result, const char *name,
 
     printf("  %-18s worst %4ld of %ld (%2ld%%) on line %3d"
            "  =  planes %4ld + sprites %4ld"
-           "   |  at half the clock %4ld/1600 = %3ld%%%s\n",
+           "   |  at half the clock %4ld/%ld = %3ld%%%s\n",
            name, b.worst, LINE_CLOCKS, b.worst * 100 / LINE_CLOCKS,
            b.worst_line, b.planes_at_worst, b.sprite_at_worst,
-           b.worst, b.worst * 100 / HALF_DEADLINE,
+           b.worst, HALF_DEADLINE, b.worst * 100 / HALF_DEADLINE,
            b.worst >= HALF_DEADLINE ? "  OVER" : "");
     printf("  %-18s   port A carried %4ld words in those %4ld clocks"
            " (%2ld%% busy) — planes %4ld, sprites %4ld\n",

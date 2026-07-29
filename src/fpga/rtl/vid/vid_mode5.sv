@@ -105,9 +105,20 @@ module vid_mode5
     logic [16:0] row_addr;
 
     /* One cached XRAM word feeds the index bytes. */
+    /* One word carries four texels at eight bits and eight at four, so
+     * the walk has clocks to spare between misses. The spare one asks
+     * for the next word — see vid_mode4, same shape, same reason. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
+    logic dhit_c, pre_hit;
+    logic [31:0] hit_data;
+    logic [31:0] pre_data;
+    logic [13:0] pre_word;
+    logic pre_v;
+    logic pre_pend;
+    logic [13:0] pre_next;
+    logic pre_want;
     logic signed [15:0] px_i;   /* pixel within the sprite row */
     logic [9:0] dst;
 
@@ -115,7 +126,7 @@ module vid_mode5
     always_comb pix_byte_addr = row_addr
         + {4'd0, 13'(16'(px_i) << bpp_log) >> 3};
     logic [7:0] cur_byte;
-    always_comb cur_byte = dcache[{pix_byte_addr[1:0], 3'b000}+:8];
+    always_comb cur_byte = hit_data[{pix_byte_addr[1:0], 3'b000}+:8];
     logic [2:0] bit_off;
     always_comb bit_off = 3'(16'(px_i) << bpp_log);
     logic [7:0] pix_idx;
@@ -136,7 +147,16 @@ module vid_mode5
                            : VID_COLOR_256[pix_idx]);
 
     logic dhit;
-    always_comb dhit = dcache_v && dcache_word == pix_byte_addr[15:2];
+    always_comb begin
+        dhit_c = dcache_v && dcache_word == pix_byte_addr[15:2];
+        pre_hit = state == M5_PIX && pre_v
+            && pre_word == pix_byte_addr[15:2];
+        dhit = dhit_c || pre_hit;
+        hit_data = dhit_c ? dcache : pre_data;
+        pre_next = (pre_hit ? pre_word : dcache_word) + 14'd1;
+        pre_want = state == M5_PIX && dhit && dcache_v && !pal_xram
+            && !pre_v && !pre_pend;
+    end
 
     always_comb begin
         vid_mode5_a_req = 1'b0;
@@ -150,6 +170,9 @@ module vid_mode5
                 end else if (pal_xram) begin
                     vid_mode5_a_req = fw_i == 3'd0;
                     vid_mode5_a_addr = pal_addr[15:2];
+                end else if (pre_want) begin
+                    vid_mode5_a_req = 1'b1;
+                    vid_mode5_a_addr = pre_next;
                 end
             end
             default: ;
@@ -203,6 +226,10 @@ module vid_mode5
             dcache <= '0;
             dcache_word <= '0;
             dcache_v <= 1'b0;
+            pre_data <= '0;
+            pre_word <= '0;
+            pre_v <= 1'b0;
+            pre_pend <= 1'b0;
             px_i <= '0;
             dst <= '0;
             vid_mode5_done <= 1'b0;
@@ -215,6 +242,8 @@ module vid_mode5
             end else if (start) begin
                 idx <= '0;
                 dcache_v <= 1'b0;
+                pre_v <= 1'b0;
+                pre_pend <= 1'b0;
                 if (length == 16'd0) begin
                     vid_mode5_done <= 1'b1;
                     state <= M5_IDLE;
@@ -224,7 +253,10 @@ module vid_mode5
                 case (state)
                     M5_IDLE: ;
                     M5_NEXT: begin
-                        /* Aim the gather at descriptor idx. */
+                        /* Aim the gather at descriptor idx. Whatever was
+                         * read ahead belonged to the sprite before. */
+                        pre_v <= 1'b0;
+                        pre_pend <= 1'b0;
                         lane <= daddr_lane;
                         fw_i <= '0;
                         fw_c <= '0;
@@ -270,14 +302,28 @@ module vid_mode5
                             state <= M5_PIX;
                     end
                     M5_PIX: begin
+                        if (pre_pend && gnt_d) begin
+                            pre_data <= a_rdata;
+                            pre_v <= 1'b1;
+                            pre_pend <= 1'b0;
+                        end else if (pre_want && a_gnt) begin
+                            pre_word <= pre_next;
+                            pre_pend <= 1'b1;
+                        end
+                        if (pre_hit) begin
+                            dcache <= pre_data;
+                            dcache_word <= pre_word;
+                            dcache_v <= 1'b1;
+                            pre_v <= 1'b0;
+                        end
                         if (!dhit) begin
                             /* The index word misses; refetch. */
-                            if (a_gnt) begin
+                            if (a_gnt && !pre_want) begin
                                 fw_i <= 3'd1;
                                 dcache_word <= pix_byte_addr[15:2];
                                 dcache_v <= 1'b0;
                             end
-                            if (gnt_d) begin
+                            if (gnt_d && !pre_pend) begin
                                 dcache <= a_rdata;
                                 dcache_v <= 1'b1;
                                 fw_i <= '0;

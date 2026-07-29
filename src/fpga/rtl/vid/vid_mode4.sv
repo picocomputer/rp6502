@@ -147,10 +147,21 @@ module vid_mode4 (
     always_comb meta_addr = {1'b0, d_sptr} + img_bytes[16:0]
         + {8'd0, tex_offs_y[6:0], 2'b00};
 
-    /* One cached XRAM word carries two texels. */
+    /* One cached XRAM word carries two texels, so the plain walk spends
+     * one clock emitting each and has the other free. It used to sit
+     * idle: a miss cost a clock for the grant and a clock for the data
+     * before either texel could be emitted, which is two clocks a texel
+     * with the memory idle for most of them. The spare clock now asks
+     * for the next word, and the walk crosses a word boundary without
+     * stopping. Only the plain path prefetches — the affine walk's
+     * addresses are not sequential, and it keeps the fetch it had. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
+    logic [31:0] pre_data;
+    logic [13:0] pre_word;
+    logic pre_v;     /* the next word is here */
+    logic pre_pend;  /* ...or it has been asked for */
     logic signed [16:0] px_i;
     logic [9:0] dst;
 
@@ -207,13 +218,33 @@ module vid_mode4 (
                 + {{8{d_t[5][15]}}, d_t[5], 8'd0};
     end
 
+    /* The word after the one in hand. The walk is a byte at a time
+     * through a sequential texture, so this is simply the next. */
+    logic [13:0] pre_next;
+    logic pre_want;
     logic [17:0] cur_byte_addr;
     always_comb cur_byte_addr =
         state == M4_APOP ? af_byte_addr : tex_byte_addr;
+    /* The word in hand, or the one that arrived early. A prefetch hit
+     * emits and promotes in the same clock — promoting first and
+     * emitting after would give the boundary back the clock the
+     * prefetch was there to save. */
+    logic dhit, pre_hit, hit_any;
+    always_comb begin
+        dhit = dcache_v && dcache_word == cur_byte_addr[15:2];
+        pre_hit = state == M4_PIX && pre_v
+            && pre_word == cur_byte_addr[15:2];
+        hit_any = dhit || pre_hit;
+    end
+    logic [31:0] hit_data;
+    always_comb hit_data = dhit ? dcache : pre_data;
     logic [15:0] texel;
-    always_comb texel = cur_byte_addr[1] ? dcache[31:16] : dcache[15:0];
-    logic dhit;
-    always_comb dhit = dcache_v && dcache_word == cur_byte_addr[15:2];
+    always_comb texel = cur_byte_addr[1] ? hit_data[31:16]
+                                         : hit_data[15:0];
+    /* The word after the one being emitted from. */
+    always_comb pre_next = (pre_hit ? pre_word : dcache_word) + 14'd1;
+    always_comb pre_want = state == M4_PIX && hit_any && dcache_v
+        && !pre_v && !pre_pend;
 
     always_comb begin
         vid_mode4_a_req = 1'b0;
@@ -225,9 +256,13 @@ module vid_mode4 (
                 vid_mode4_a_addr = meta_addr[15:2];
             end
             M4_PIX: begin
-                if (!dhit) begin
+                if (!dhit && !(pre_v && pre_word == cur_byte_addr[15:2]))
+                begin
                     vid_mode4_a_req = fw_i == 3'd0;
                     vid_mode4_a_addr = tex_byte_addr[15:2];
+                end else if (pre_want) begin
+                    vid_mode4_a_req = 1'b1;
+                    vid_mode4_a_addr = pre_next;
                 end
             end
             M4_APOP: begin
@@ -244,7 +279,7 @@ module vid_mode4 (
         vid_mode4_px_we = 1'b0;
         vid_mode4_px_addr = dst;
         vid_mode4_px_data = texel;
-        if (state == M4_PIX && dhit && px_i < span_end)
+        if (state == M4_PIX && hit_any && px_i < span_end)
             vid_mode4_px_we = meta_cont || texel[5];
         else if (state == M4_APOP && !af_over && dhit
                  && af_left != 17'd0)
@@ -252,6 +287,9 @@ module vid_mode4 (
     end
 
     task automatic next_sprite();
+        /* Whatever was read ahead belonged to the sprite just finished. */
+        pre_v <= 1'b0;
+        pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
             vid_mode4_done <= 1'b1;
             state <= M4_IDLE;
@@ -296,6 +334,10 @@ module vid_mode4 (
             dcache <= '0;
             dcache_word <= '0;
             dcache_v <= 1'b0;
+            pre_data <= '0;
+            pre_word <= '0;
+            pre_v <= 1'b0;
+            pre_pend <= 1'b0;
             px_i <= '0;
             dst <= '0;
             af_u <= '0;
@@ -311,6 +353,8 @@ module vid_mode4 (
             end else if (start) begin
                 idx <= '0;
                 dcache_v <= 1'b0;
+                pre_v <= 1'b0;
+                pre_pend <= 1'b0;
                 if (length == 16'd0) begin
                     vid_mode4_done <= 1'b1;
                     state <= M4_IDLE;
@@ -436,20 +480,38 @@ module vid_mode4 (
                         end
                     end
                     M4_PIX: begin
+                        /* The prefetch's own answer, told apart from
+                         * the miss fetch's by which one is pending —
+                         * only ever one is outstanding, because the
+                         * request logic asks for one or the other. */
+                        if (pre_pend && gnt_d) begin
+                            pre_data <= a_rdata;
+                            pre_v <= 1'b1;
+                            pre_pend <= 1'b0;
+                        end else if (pre_want && a_gnt) begin
+                            pre_word <= pre_next;
+                            pre_pend <= 1'b1;
+                        end
                         if (px_i >= span_end)
                             next_sprite();
-                        else if (!dhit) begin
-                            if (a_gnt) begin
+                        else if (!hit_any) begin
+                            if (a_gnt && !pre_want) begin
                                 fw_i <= 3'd1;
                                 dcache_word <= tex_byte_addr[15:2];
                                 dcache_v <= 1'b0;
                             end
-                            if (gnt_d) begin
+                            if (gnt_d && !pre_pend) begin
                                 dcache <= a_rdata;
                                 dcache_v <= 1'b1;
                                 fw_i <= '0;
                             end
                         end else begin
+                            if (pre_hit) begin
+                                dcache <= pre_data;
+                                dcache_word <= pre_word;
+                                dcache_v <= 1'b1;
+                                pre_v <= 1'b0;
+                            end
                             px_i <= px_i + 17'sd1;
                             dst <= dst + 10'd1;
                         end

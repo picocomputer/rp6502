@@ -172,7 +172,8 @@ module vid_sprite (
             state <= SP_IDLE;
         else begin
             p <= p + 2'd1;
-            state <= SP_WAIT;
+            /* Only stop if there is something to wait for. */
+            state <= busy[p + 2'd1] ? SP_WAIT : SP_PLAN;
         end
     endtask
 
@@ -234,7 +235,7 @@ module vid_sprite (
                                 if (s_cap == 3'd5) begin
                                     p <= '0;
                                     fg_v <= 1'b0;
-                                    state <= SP_WAIT;
+                                    state <= busy[0] ? SP_WAIT : SP_PLAN;
                                 end
                             end
                         end
