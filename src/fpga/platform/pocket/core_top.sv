@@ -515,9 +515,10 @@ core_bridge_cmd icb (
 // the machine
 // ---------------------------------------------------------------------
 
-wire clk_sys;      // 100.8 MHz, the machine
+wire clk_sys;      //  50.4 MHz, the machine
 wire clk_vid;      //  25.2 MHz, the beam
-wire clk_dram;     // 100.8 MHz, phase shifted, out to the chip
+wire clk_dram;     //  50.4 MHz, half a period late, to the chip
+wire clk_vid_90;   // 25.2 MHz, a quarter period on, for the scaler
 wire pll_locked;
 wire pll_locked_s;
 synch_3 s_pll (pll_locked, pll_locked_s, clk_74a);
@@ -528,6 +529,7 @@ pocket_pll pll (
     .clk_sys  ( clk_sys ),
     .clk_vid  ( clk_vid ),
     .clk_dram ( clk_dram ),
+    .clk_vid_90 ( clk_vid_90 ),
     .locked   ( pll_locked )
 );
 
@@ -591,6 +593,6 @@ pocket_core core (
 );
 
 assign video_rgb_clock = clk_vid;
-assign video_rgb_clock_90 = clk_vid;
+assign video_rgb_clock_90 = clk_vid_90;
 
 endmodule
