@@ -786,6 +786,28 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     file(WRITE ${BS_QSF} "${BS_QSF_TEXT}\n")
     file(WRITE ${BS_DIR}/rp6502.qpf "PROJECT_REVISION = \"rp6502\"\n")
     find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+    # Everything the SD card needs, assembled. The JSONs and the tree
+    # come from dist/ as they are; the bitstream and the glyph asset are
+    # built. The two images are not here — they need artwork and
+    # agg23's converter, and dist/README.md says so.
+    set(PKG_DIR ${CMAKE_CURRENT_BINARY_DIR}/package)
+    set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
+    add_custom_target(package
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
+        COMMAND ${CMAKE_COMMAND} -E rm -f ${PKG_DIR}/README.md
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${PKG_DIR}/Assets/rp6502/common
+        COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
+            ${PKG_DIR}/Assets/rp6502/common/fonts.bin
+        COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
+            ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
+        COMMAND ${CMAKE_COMMAND} -E echo
+            "package: ${PKG_DIR} - still needs icon.bin and Platforms/_images"
+        DEPENDS bitstream vid_font_rom
+        COMMENT "Assembling the Pocket core package"
+        VERBATIM)
+
     add_custom_target(bitstream
         COMMAND ${QUARTUS_MAP} rp6502
         COMMAND ${QUARTUS_FIT} rp6502

@@ -16,7 +16,7 @@
 # and a multicycle written on the strength of a sample rate would be a
 # constraint that lies.
 
-create_clock -name clk_sys -period 9.921 [get_ports clk_sys]
+create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
 derive_clock_uncertainty
 
 # The machine's ports are testbench-facing; the platform owns the pads.

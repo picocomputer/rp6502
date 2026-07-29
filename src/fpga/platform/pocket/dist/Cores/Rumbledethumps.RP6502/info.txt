@@ -1,6 +1,6 @@
 Picocomputer 6502
 
-* W65C02 at 8 MHz with VIA, VGA, and PSG audio
+* W65C02 with VIA, VGA, and PSG audio
 * Load .rp6502 ROMs from Assets/rp6502/common
 * Dpad maps to arrows, A/Start to Enter, B to Escape, Select to Tab
 * https://picocomputer.github.io

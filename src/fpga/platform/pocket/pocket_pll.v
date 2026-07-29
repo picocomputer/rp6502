@@ -7,9 +7,9 @@
  * the crossings between them are ratios rather than domains.
  *
  *   74.25 MHz in, multiplied by 448 over 33, is 1008 MHz exactly
- *     / 10  ->  100.8 MHz   the machine
+ *     / 20  ->   50.4 MHz   the machine
  *     / 40  ->   25.2 MHz   the beam, and the scaler's sample clock
- *     / 10  ->  100.8 MHz   phase shifted, out to the memory chip
+ *     / 20  ->   50.4 MHz   phase shifted, out to the memory chip
  *
  * 25.2 MHz rather than 25.175 is the machine's own choice, not a
  * rounding: the RP2350 runs the CEA variant of 640x480 at exactly sixty
@@ -27,14 +27,14 @@
 module pocket_pll (
     input  wire refclk,
     input  wire rst,
-    output wire clk_sys,   // 100.8 MHz
+    output wire clk_sys,   //  50.4 MHz
     output wire clk_vid,   //  25.2 MHz
-    output wire clk_dram,  // 100.8 MHz, half a period late
+    output wire clk_dram,  //  50.4 MHz, half a period late
     output wire locked
 );
 
-    /* 180 degrees of a 100.8 MHz period. */
-    localparam DRAM_SHIFT = "4960 ps";
+    /* 180 degrees of a 50.4 MHz period. */
+    localparam DRAM_SHIFT = "9920 ps";
 
     wire [4:0] outclk;
     assign clk_sys  = outclk[0];
@@ -46,13 +46,13 @@ module pocket_pll (
         .reference_clock_frequency("74.25 MHz"),
         .operation_mode("normal"),
         .number_of_clocks(3),
-        .output_clock_frequency0("100.800000 MHz"),
+        .output_clock_frequency0("50.400000 MHz"),
         .phase_shift0("0 ps"),
         .duty_cycle0(50),
         .output_clock_frequency1("25.200000 MHz"),
         .phase_shift1("0 ps"),
         .duty_cycle1(50),
-        .output_clock_frequency2("100.800000 MHz"),
+        .output_clock_frequency2("50.400000 MHz"),
         .phase_shift2(DRAM_SHIFT),
         .duty_cycle2(50),
         .output_clock_frequency3("0 MHz"),
