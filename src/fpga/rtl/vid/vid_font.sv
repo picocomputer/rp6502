@@ -4,18 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The font store: four faces the terminal and the mode 1 cells read a
- * byte at a time, and the soft CPU owns. font16 and font8 are writable
- * because a code page rewrites their high halves; italic is ASCII only
- * and the DEC graphics never change, so those two ship in the
- * bitstream and stay read-only.
+ * byte at a time, and the soft CPU owns. Nothing here is built into the
+ * bitstream — the store comes up blank and the firmware fills it from
+ * the font asset beside the core, which is what lets seventeen code
+ * pages exist without seventeen code pages of code memory. Blank is
+ * also the honest power-up: an initial image would render a terminal
+ * even with the firmware's stores misaddressed, and every frame test
+ * would pass while nothing worked.
  *
  * Every face is addressed row-major with font.c's own stride, so the
- * hardware image is the C image and the firmware fills the store with
- * the copies font_set_code_page already makes. The writable faces come
- * up blank on purpose: an initial image would render a terminal even
- * with the firmware's stores misaddressed, and every frame test would
- * pass while nothing worked. The read address carries the face in its
- * top two bits:
+ * hardware image is the C image and the firmware's copy is the memcpy
+ * font_set_code_page already makes. The read address carries the face
+ * in its top two bits:
  *
  *   0  font16    {2'b00, row[3:0], code[7:0]}         4096 B
  *   1  font8     {2'b01, 1'b0, row[2:0], code[7:0]}   2048 B
@@ -30,9 +30,7 @@
  * across the faces, which is logic rather than memory.
  */
 
-module vid_font
-    import vid_font_pkg::*;
-(
+module vid_font (
     input logic clk,
 
     /* One byte, one clock behind the address. */
@@ -49,8 +47,8 @@ module vid_font
 
     logic [31:0] f16[1024] /*verilator public_flat_rd*/;
     logic [31:0] f8[512] /*verilator public_flat_rd*/;
-    logic [31:0] ital[512] = VID_ITALIC16_W;
-    logic [31:0] dec[128] = VID_FONT_DEC16_W;
+    logic [31:0] ital[512] /*verilator public_flat_rd*/;
+    logic [31:0] dec[128] /*verilator public_flat_rd*/;
 
     logic [1:0] w_face;
     always_comb w_face = w_addr[13:12];
@@ -60,6 +58,10 @@ module vid_font
             f16[w_addr[11:2]] <= w_data;
         if (w_stb && w_face == 2'd1)
             f8[w_addr[10:2]] <= w_data;
+        if (w_stb && w_face == 2'd2)
+            ital[w_addr[10:2]] <= w_data;
+        if (w_stb && w_face == 2'd3)
+            dec[w_addr[8:2]] <= w_data;
     end
 
     logic [31:0] q16, q8, q_ital, q_dec;

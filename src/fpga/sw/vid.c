@@ -11,11 +11,11 @@
  * latency, never a tear.
  */
 
+#include "font.h"
 #include "mmio.h"
 #include "vga.h"
 #include "vid.h"
 
-#include "vga/term/font.h"
 #include "vga/term/term.h"
 
 #include <stdint.h>
@@ -56,37 +56,9 @@ bool vid_mode0_prog(uint16_t *xregs)
     return true;
 }
 
-/* The glyphs are the video device's memory here, not a table built into
- * the fabric, so the firmware stores them the way font.c builds them. A
- * code page rewrites only the high half of each row, but a whole face is
- * fifteen hundred words and this runs once per change. Stores are whole
- * words because byte lanes are what stop the fabric inferring a block
- * RAM at all. */
-static void vid_font_store(void)
-{
-    const uint32_t *src16 = (const uint32_t *)(const void *)font16;
-    const uint32_t *src8 = (const uint32_t *)(const void *)font8;
-    for (unsigned i = 0; i < sizeof(font16) / 4; i++)
-        VID_FONT16[i] = src16[i];
-    for (unsigned i = 0; i < sizeof(font8) / 4; i++)
-        VID_FONT8[i] = src8[i];
-}
-
-void vid_set_code_page(uint16_t cp)
-{
-    font_set_code_page(cp);
-    vid_font_store();
-}
-
-uint16_t vid_get_code_page(void)
-{
-    return font_get_code_page();
-}
-
 void vid_init(void)
 {
     font_init();
-    vid_font_store();
     vga_set_canvas(0);
 }
 

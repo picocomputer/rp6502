@@ -7,9 +7,20 @@
                 "id": 0,
                 "required": false,
                 "parameters": "0x241",
-                "extensions": ["rp6502"],
-                "size_maximum": "0x04000000",
+                "extensions": [
+                    "rp6502"
+                ],
+                "size_maximum": "0x03FF0000",
                 "address": "0x00000000"
+            },
+            {
+                "name": "Fonts",
+                "id": 1,
+                "required": true,
+                "parameters": "0x0",
+                "filename": "fonts.bin",
+                "size_maximum": "0x00010000",
+                "address": "0x03FF0000"
             }
         ]
     }

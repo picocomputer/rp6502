@@ -17,6 +17,7 @@
 #include "Vrp6502___024root.h"
 
 #include "tb_quiet.h"
+#include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
 
@@ -132,13 +133,13 @@ static void run_staged(int *utest_result, bool slot_by_port,
             else
             {
                 dut->stage_stall = 0;
-                dut->stage_rdata = a < rom.size() ? rom[a] : 0;
+                dut->stage_rdata = tb_stage(rom, a);
             }
         }
         else
         {
             dut->stage_stall = 0;
-            dut->stage_rdata = a < rom.size() ? rom[a] : 0;
+            dut->stage_rdata = tb_stage(rom, a);
             stalled = 0;
         }
         dut->clk_sys = 1;

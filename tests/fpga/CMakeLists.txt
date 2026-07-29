@@ -30,25 +30,31 @@ add_custom_command(OUTPUT ${CPU65_ROM}
     VERBATIM)
 add_custom_target(cpu65_rom ALL DEPENDS ${CPU65_ROM})
 
-# The font ROM comes from vga/term/font.c the same way: generated at
-# configure time for verilate(), kept fresh by the build-time rule, and
-# checked byte for byte against font_init's runtime tables by test_font.
+# The font asset comes from vga/term/font.c: the image the firmware
+# copies into the store, an offsets header for it, and the tables
+# test_font checks byte for byte against font_init's runtime image.
+# Generated at configure time so the sim can compile against it, kept
+# fresh by the build-time rule.
 set(VID_FONT_GEN ${RP6502_SRC}/fpga/codegen/vid_font_gen.py)
-set(VID_FONT_PKG ${CMAKE_CURRENT_BINARY_DIR}/vid_font_pkg.sv)
+set(VID_FONT_BIN ${CMAKE_CURRENT_BINARY_DIR}/fonts.bin)
 set(VID_FONT_H ${CMAKE_CURRENT_BINARY_DIR}/vid_font_tables.h)
+set(VID_FONT_ASSET_H ${CMAKE_CURRENT_BINARY_DIR}/vid_font_asset.h)
 execute_process(
-    COMMAND python3 ${VID_FONT_GEN} --emit-sv ${VID_FONT_PKG} --emit-h ${VID_FONT_H}
+    COMMAND python3 ${VID_FONT_GEN} --emit-bin ${VID_FONT_BIN}
+        --emit-h ${VID_FONT_H} --emit-asset-h ${VID_FONT_ASSET_H}
     RESULT_VARIABLE VID_FONT_GEN_RC)
 if(VID_FONT_GEN_RC)
     message(FATAL_ERROR "vid_font_gen.py failed")
 endif()
-add_custom_command(OUTPUT ${VID_FONT_PKG} ${VID_FONT_H}
+add_custom_command(OUTPUT ${VID_FONT_BIN} ${VID_FONT_H} ${VID_FONT_ASSET_H}
     COMMAND ${CMAKE_COMMAND} -E env python3 ${VID_FONT_GEN}
-        --emit-sv ${VID_FONT_PKG} --emit-h ${VID_FONT_H}
+        --emit-bin ${VID_FONT_BIN} --emit-h ${VID_FONT_H}
+        --emit-asset-h ${VID_FONT_ASSET_H}
     DEPENDS ${VID_FONT_GEN} ${RP6502_SRC}/vga/term/font.c
-    COMMENT "Generating the vid_font ROM"
+    COMMENT "Generating the font asset"
     VERBATIM)
-add_custom_target(vid_font_rom ALL DEPENDS ${VID_FONT_PKG} ${VID_FONT_H})
+add_custom_target(vid_font_rom ALL DEPENDS ${VID_FONT_BIN} ${VID_FONT_H}
+    ${VID_FONT_ASSET_H})
 
 # The builtin palettes ride the same way, from vga/term/color.c.
 set(VID_PALETTE_GEN ${RP6502_SRC}/fpga/codegen/vid_palette_gen.py)
@@ -124,7 +130,6 @@ if(verilator_FOUND)
         ${AUD_SINE_PKG}
         ${RP6502_FPGA_RTL}/aud/aud_psg.sv
         ${RP6502_FPGA_RTL}/aud/aud_bel.sv
-        ${VID_FONT_PKG}
         ${VID_PALETTE_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode.sv
@@ -239,7 +244,7 @@ if(verilator_FOUND)
         file(GLOB SW_HEADERS ${RP6502_SRC}/fpga/sw/*.h)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c
-            ${SW_SRC}/com.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
+            ${SW_SRC}/com.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
             ${SW_SRC}/pix.c
             ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
             ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
@@ -253,7 +258,6 @@ if(verilator_FOUND)
             ${RP6502_SRC}/vga/modes/mode4.c
             ${RP6502_SRC}/vga/modes/mode5.c
             ${RP6502_SRC}/vga/term/color.c
-            ${RP6502_SRC}/vga/term/font.c
             ${RP6502_SRC}/vga/term/term.c)
         add_custom_command(OUTPUT ${SW_BIN}
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
@@ -262,6 +266,7 @@ if(verilator_FOUND)
                 -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
                 -I ${RP6502_SRC}
                 -I ${SW_SRC}/shim
+                -I ${CMAKE_CURRENT_BINARY_DIR}
                 -I ${RP6502_SRC}/emu/host/pico
                 -I ${RP6502_VENDOR}
                 "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
@@ -270,7 +275,8 @@ if(verilator_FOUND)
                 ${SW_SOURCES}
             COMMAND ${RISCV_OBJCOPY} -O binary
                 ${CMAKE_CURRENT_BINARY_DIR}/sw.elf ${SW_BIN}
-            DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
+            DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${VID_FONT_ASSET_H}
+                ${SW_SRC}/link.ld
             COMMENT "Cross-compiling the soft CPU firmware"
             VERBATIM)
         add_custom_target(sw_bin DEPENDS ${SW_BIN})
@@ -280,7 +286,7 @@ if(verilator_FOUND)
         rp6502_add_test(boot
             SOURCES test_boot.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 120)
         add_dependencies(test_boot sw_bin cpu65_rom)
         verilate(test_boot
@@ -297,7 +303,7 @@ if(verilator_FOUND)
             SOURCES test_compare.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 120)
         add_dependencies(test_compare sw_bin cpu65_rom)
         verilate(test_compare
@@ -313,7 +319,7 @@ if(verilator_FOUND)
             SOURCES test_banner.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 300)
         add_dependencies(test_banner sw_bin cpu65_rom vid_font_rom)
         verilate(test_banner
@@ -329,7 +335,7 @@ if(verilator_FOUND)
             SOURCES test_rw.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 120)
         add_dependencies(test_rw sw_bin cpu65_rom vid_font_rom)
         verilate(test_rw
@@ -345,7 +351,7 @@ if(verilator_FOUND)
             SOURCES test_xreg.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 120)
         add_dependencies(test_xreg sw_bin cpu65_rom vid_font_rom)
         verilate(test_xreg
@@ -361,7 +367,7 @@ if(verilator_FOUND)
             SOURCES test_mode1.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 300)
         add_dependencies(test_mode1 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode1
@@ -378,7 +384,7 @@ if(verilator_FOUND)
             SOURCES test_mode2.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 300)
         add_dependencies(test_mode2 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode2
@@ -395,7 +401,7 @@ if(verilator_FOUND)
             SOURCES test_mode4.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 300)
         add_dependencies(test_mode4 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode4
@@ -412,7 +418,7 @@ if(verilator_FOUND)
             SOURCES test_mode5.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 300)
         add_dependencies(test_mode5 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode5
@@ -428,7 +434,7 @@ if(verilator_FOUND)
             SOURCES test_mode3.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 300)
         add_dependencies(test_mode3 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode3
@@ -444,7 +450,7 @@ if(verilator_FOUND)
             SOURCES test_xram.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 120)
         add_dependencies(test_xram sw_bin cpu65_rom vid_font_rom)
         verilate(test_xram
@@ -461,7 +467,7 @@ if(verilator_FOUND)
             SOURCES test_session.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 300)
         add_dependencies(test_session sw_bin cpu65_rom vid_font_rom)
         verilate(test_session
@@ -487,7 +493,7 @@ if(verilator_FOUND)
         rp6502_add_test(rom
             SOURCES test_rom.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
-            DEFS SW_BIN="${SW_BIN}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             TIMEOUT 120)
         add_dependencies(test_rom sw_bin cpu65_rom)
         verilate(test_rom
@@ -497,6 +503,21 @@ if(verilator_FOUND)
             INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
+        rp6502_add_test(fontstore
+            SOURCES test_fontstore.cpp
+            LIBS fpga_oracle
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
+            TIMEOUT 300)
+        add_dependencies(test_fontstore sw_bin cpu65_rom vid_font_rom)
+        verilate(test_fontstore
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
     else()
         message(WARNING
             "riscv64-unknown-elf-gcc not found — soft CPU tests skipped.\n"
@@ -572,7 +593,7 @@ if(verilator_FOUND)
             SOURCES test_pocket.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
             TIMEOUT 600)
         add_dependencies(test_pocket sw_bin cpu65_rom vid_font_rom
             vid_palette_rom)

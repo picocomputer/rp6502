@@ -3,14 +3,19 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Generates the vid_font ROM tables from src/vga/term/font.c, replicating
-# font_init exactly: font16 is ASCII low half plus the CP437 high half
-# (font_set_code_page(437) at boot), font_dec_16 is the DEC Special
-# Graphics table built from dec_glyph_map, italic16 is the ASCII italic
-# face verbatim. The C arrays are row-major with a 128-byte stride; the
-# ROMs are glyph-major, addressed {code, scanrow}, which is how the
-# scanout fetches. The parity test compares every byte against the
-# tables emu_core builds at runtime, so drift here cannot hide.
+# Builds the font asset from src/vga/term/font.c. The glyphs are the video
+# device's memory, not the firmware's: nothing on the soft CPU reads a
+# glyph, it only moves them, so font.c's tables never need to be linked
+# into a 64 KB code memory that cannot hold seventeen code pages anyway.
+# They ship beside the core and reach the store by copy.
+#
+# The image replicates font_init exactly — ASCII low halves, the DEC
+# Special Graphics table built from dec_glyph_map, the italic face
+# verbatim — and then carries every code page's high halves after it, in
+# the same row-major order font_set_code_page's memcpys use. So the
+# firmware's copy is that memcpy with a different destination, and the
+# parity test can compare the asset against the tables emu_core builds at
+# runtime, where drift cannot hide.
 
 import argparse
 import re
@@ -21,6 +26,19 @@ FONT_C = Path(__file__).resolve().parents[3] / "src/vga/term/font.c"
 
 DEC_MAP_BLANK = 0xFFFF
 DEC_MAP_ASCII = 0x10000
+
+# The store's four faces, in asset order: offset and length.
+OFF_FONT16 = 0x0000
+OFF_FONT8 = 0x1000
+OFF_ITALIC16 = 0x1800
+OFF_DEC16 = 0x2000
+OFF_PAGES = 0x2400
+
+# One code page: sixteen 128-byte rows of font16's high half, then eight
+# of font8's.
+PAGE_16 = 16 * 128
+PAGE_8 = 8 * 128
+PAGE_STRIDE = PAGE_16 + PAGE_8
 
 
 def parse_array(text, name):
@@ -56,33 +74,48 @@ def parse_dec_map(text):
     return entries
 
 
+def code_pages(text):
+    """Every page font_set_code_page accepts, in font.c's own order."""
+    pages = []
+    for cp in re.findall(r"FONT16_CP(\d+)\b", text):
+        cp = int(cp)
+        if cp not in pages:
+            pages.append(cp)
+    for cp in pages:
+        for name, want in ((f"FONT16_CP{cp}", 2048), (f"FONT8_CP{cp}", 1024)):
+            if len(parse_array(text, name)) != want:
+                sys.exit(f"vid_font_gen: {name} is not {want} bytes")
+    return pages
+
+
 def build_tables():
     text = FONT_C.read_text()
     ascii16 = parse_array(text, "FONT16_ASCII")
     cp437_16 = parse_array(text, "FONT16_CP437")
     italic_src = parse_array(text, "FONT16_ASCII_ITALIC")
     ascii8 = parse_array(text, "FONT8_ASCII")
-    cp437_8 = parse_array(text, "FONT8_CP437")
-    dec_map = parse_dec_map(text)
     for name, arr, want in (("FONT16_ASCII", ascii16, 2048),
-                            ("FONT16_CP437", cp437_16, 2048),
                             ("FONT16_ASCII_ITALIC", italic_src, 2048),
-                            ("FONT8_ASCII", ascii8, 1024),
-                            ("FONT8_CP437", cp437_8, 1024)):
+                            ("FONT8_ASCII", ascii8, 1024)):
         if len(arr) != want:
             sys.exit(f"vid_font_gen: {name} has {len(arr)} bytes, want {want}")
+    dec_map = parse_dec_map(text)
 
-    # font16, row-major with a 256-byte stride, exactly as font.c keeps
-    # its live table: the hardware image is the C image, so the firmware
-    # writes the store with the memcpys it already has.
+    # font16 and font8, row-major with a 256-byte stride exactly as font.c
+    # keeps its live tables, high halves blank: this is the image at the
+    # end of font_init and before its font_set_code_page(437).
     font16 = [0] * 4096
     for row in range(16):
         for code in range(128):
             font16[row * 256 + code] = ascii16[row * 128 + code]
-        for code in range(128, 256):
-            font16[row * 256 + code] = cp437_16[row * 128 + (code - 128)]
+    font8 = [0] * 2048
+    for row in range(8):
+        for code in range(128):
+            font8[row * 256 + code] = ascii8[row * 128 + code]
 
     # font_dec_16, row-major over the 0x5F..0x7E window, 32-byte stride.
+    # It draws from CP437 whatever page is loaded, the way font.c builds
+    # it before any code page is applied.
     dec16 = [0] * 512
     for row in range(16):
         for idx in range(0x20):
@@ -100,41 +133,25 @@ def build_tables():
         for code in range(128):
             italic16[row * 128 + code] = italic_src[row * 128 + code]
 
-    # font8, same build as font16 at half height, row-major with the same
-    # 256-byte stride font.c uses, for the mode 1 cells and the 320-wide
-    # console.
-    font8 = [0] * 2048
-    for row in range(8):
-        for code in range(128):
-            font8[row * 256 + code] = ascii8[row * 128 + code]
-        for code in range(128, 256):
-            font8[row * 256 + code] = cp437_8[row * 128 + (code - 128)]
-
-    return font16, dec16, italic16, font8
+    pages = code_pages(text)
+    highs = []
+    for cp in pages:
+        highs.append((parse_array(text, f"FONT16_CP{cp}"),
+                      parse_array(text, f"FONT8_CP{cp}")))
+    return font16, dec16, italic16, font8, pages, highs
 
 
-def sv_array(name, data):
-    lines = [f"    localparam logic [7:0] {name} [{len(data)}] = '{{"]
-    for i in range(0, len(data), 16):
-        row = ", ".join(f"8'h{b:02X}" for b in data[i:i + 16])
-        sep = "," if i + 16 < len(data) else ""
-        lines.append(f"        {row}{sep}")
-    lines.append("    };")
-    return "\n".join(lines)
-
-
-def sv_word_array(name, data):
-    """The store holds each face a word wide, so the bitstream image is
-    packed the same way: byte n lands in word n >> 2, lane n & 3."""
-    words = [int.from_bytes(bytes(data[i:i + 4]), "little")
-             for i in range(0, len(data), 4)]
-    lines = [f"    localparam logic [31:0] {name} [{len(words)}] = '{{"]
-    for i in range(0, len(words), 8):
-        row = ", ".join(f"32'h{w:08X}" for w in words[i:i + 8])
-        sep = "," if i + 8 < len(words) else ""
-        lines.append(f"        {row}{sep}")
-    lines.append("    };")
-    return "\n".join(lines)
+def build_asset(font16, dec16, italic16, font8, highs):
+    img = bytearray(OFF_PAGES + PAGE_STRIDE * len(highs))
+    img[OFF_FONT16:OFF_FONT16 + 4096] = bytes(font16)
+    img[OFF_FONT8:OFF_FONT8 + 2048] = bytes(font8)
+    img[OFF_ITALIC16:OFF_ITALIC16 + 2048] = bytes(italic16)
+    img[OFF_DEC16:OFF_DEC16 + 512] = bytes(dec16)
+    for i, (hi16, hi8) in enumerate(highs):
+        at = OFF_PAGES + PAGE_STRIDE * i
+        img[at:at + PAGE_16] = bytes(hi16)
+        img[at + PAGE_16:at + PAGE_STRIDE] = bytes(hi8)
+    return bytes(img)
 
 
 def c_array(name, data):
@@ -153,33 +170,62 @@ HEADER = """\
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Generated by vid_font_gen.py from src/vga/term/font.c - do not edit.
- * Glyph-major: byte at [code * 16 + scanrow].
  */
 """
 
 
+def emit_firmware_header(path, pages):
+    out = [HEADER,
+           "#ifndef _VID_FONT_ASSET_H_", "#define _VID_FONT_ASSET_H_", "",
+           "#include <stdint.h>", "",
+           "/* Offsets into the font asset, and the code pages it carries",
+           " * in the order their high halves follow the base image. */",
+           f"#define VID_FONT_OFF_FONT16 0x{OFF_FONT16:04X}",
+           f"#define VID_FONT_OFF_FONT8 0x{OFF_FONT8:04X}",
+           f"#define VID_FONT_OFF_ITALIC16 0x{OFF_ITALIC16:04X}",
+           f"#define VID_FONT_OFF_DEC16 0x{OFF_DEC16:04X}",
+           f"#define VID_FONT_OFF_PAGES 0x{OFF_PAGES:04X}",
+           f"#define VID_FONT_PAGE_16 {PAGE_16}",
+           f"#define VID_FONT_PAGE_8 {PAGE_8}",
+           f"#define VID_FONT_PAGE_STRIDE {PAGE_STRIDE}", "",
+           f"#define VID_FONT_PAGE_COUNT {len(pages)}",
+           "static const uint16_t VID_FONT_PAGES[VID_FONT_PAGE_COUNT] = {",
+           "    " + ", ".join(str(cp) for cp in pages) + ",",
+           "};", "",
+           "#endif /* _VID_FONT_ASSET_H_ */", ""]
+    Path(path).write_text("\n".join(out))
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--emit-sv", metavar="FILE")
+    ap.add_argument("--emit-bin", metavar="FILE")
     ap.add_argument("--emit-h", metavar="FILE")
+    ap.add_argument("--emit-asset-h", metavar="FILE")
     args = ap.parse_args()
-    font16, dec16, italic16, font8 = build_tables()
-    if args.emit_sv:
-        out = [HEADER, "package vid_font_pkg;", "",
-               "    /* verilator lint_off UNUSEDPARAM */", "",
-               sv_word_array("VID_FONT_DEC16_W", dec16), "",
-               sv_word_array("VID_ITALIC16_W", italic16), "",
-               "    /* verilator lint_on UNUSEDPARAM */", "",
-               "endpackage", ""]
-        Path(args.emit_sv).write_text("\n".join(out))
+    font16, dec16, italic16, font8, pages, highs = build_tables()
+    if args.emit_bin:
+        Path(args.emit_bin).write_bytes(
+            build_asset(font16, dec16, italic16, font8, highs))
+    if args.emit_asset_h:
+        emit_firmware_header(args.emit_asset_h, pages)
     if args.emit_h:
+        # The 437 image the parity test wants: emu_core's font_init ends
+        # with that page applied, so the test compares like for like.
+        cp437 = pages.index(437)
+        hi16, hi8 = highs[cp437]
+        f16 = list(font16)
+        f8 = list(font8)
+        for row in range(16):
+            f16[row * 256 + 128:row * 256 + 256] = hi16[row * 128:row * 128 + 128]
+        for row in range(8):
+            f8[row * 256 + 128:row * 256 + 256] = hi8[row * 128:row * 128 + 128]
         out = [HEADER,
                "#ifndef _VID_FONT_TABLES_H_", "#define _VID_FONT_TABLES_H_",
                "", "#include <stdint.h>", "",
-               c_array("VID_FONT16", font16), "",
+               c_array("VID_FONT16", f16), "",
                c_array("VID_FONT_DEC16", dec16), "",
                c_array("VID_ITALIC16", italic16), "",
-               c_array("VID_FONT8", font8), "",
+               c_array("VID_FONT8", f8), "",
                "#endif /* _VID_FONT_TABLES_H_ */", ""]
         Path(args.emit_h).write_text("\n".join(out))
 

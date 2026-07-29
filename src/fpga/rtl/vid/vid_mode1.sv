@@ -15,7 +15,7 @@
  */
 
 module vid_mode1
-    import vid_palette_pkg::*, vid_font_pkg::*;
+    import vid_palette_pkg::*;
 (
     input logic clk,
     input logic rst_n,

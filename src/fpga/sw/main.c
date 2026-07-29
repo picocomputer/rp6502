@@ -10,6 +10,7 @@
 
 #include "aud.h"
 #include "com.h"
+#include "font.h"
 #include "kbd.h"
 #include "main.h"
 #include "mmio.h"
@@ -191,6 +192,13 @@ bool main_api(uint8_t operation)
     {
     case 0x01:
         return pix_api_xreg();
+    case 0x03:
+        /* atr_api_code_page's shape. With no filesystem the code page is
+         * the glyphs alone; the OEM conversion the string layer wants
+         * arrives with its tables. */
+        if (API_AX)
+            font_set_code_page(API_AX);
+        return api_return_ax(font_get_code_page());
     case 0x04:
         return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
     case 0x06:

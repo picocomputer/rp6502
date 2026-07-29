@@ -16,6 +16,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
 
@@ -138,7 +139,7 @@ UTEST(rw, steps_wraps_and_defaults_match_the_oracle)
     std::string cpu_out;
     ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
-        dut->stage_rdata = a < rom.size() ? rom[a] : 0;
+        dut->stage_rdata = tb_stage(rom, a);
         dut->clk_sys = 1;
         dut->eval();
         dut->clk_sys = 0;

@@ -22,6 +22,7 @@
 #include "Vrp6502___024root.h"
 
 #include "tb_quiet.h"
+#include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
 
@@ -47,7 +48,7 @@ static bool load_firmware(const char *path)
 static void clock_cycle()
 {
     uint32_t a = dut->rp6502_stage_addr;
-    dut->stage_rdata = a < rom.size() ? rom[a] : 0;
+    dut->stage_rdata = tb_stage(rom, a);
     dut->clk_sys = 1;
     dut->eval();
     dut->clk_sys = 0;

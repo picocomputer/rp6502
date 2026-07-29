@@ -20,6 +20,11 @@
 #include "Vtb_pocket___024root.h"
 
 #include "oracle.h"
+extern "C" {
+#include "vga/term/font.h"
+}
+
+#include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
 
@@ -179,28 +184,38 @@ static std::vector<uint8_t> read_rom(const char *name)
     return rom;
 }
 
-/* Host slot load: the next request drops the completion level, the
- * stream lands, completion returns and stays. */
-static void host_load(const std::vector<uint8_t> &rom)
+/* One slot's bytes over the bridge. The slot's own bridge address is
+ * where it lands in the SDRAM, which is the whole of the platform's
+ * part in this: the font asset is a second slot and needs no more
+ * hardware than a different address in data.json. */
+static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
 {
-    dut->dataslot_allcomplete = 0;
-    dut->datatable_q = (uint32_t)rom.size();
-    for (size_t i = 0; i < rom.size(); i += 4)
+    for (size_t i = 0; i < data.size(); i += 4)
     {
         uint32_t w = 0;
         for (size_t k = 0; k < 4; k++)
         {
-            uint8_t b = i + k < rom.size() ? rom[i + k] : 0;
+            uint8_t b = i + k < data.size() ? data[i + k] : 0;
             w |= (uint32_t)b << (24 - 8 * k);
         }
         dut->bridge_wr = 1;
-        dut->bridge_addr = (uint32_t)i;
+        dut->bridge_addr = base + (uint32_t)i;
         dut->bridge_wr_data = w;
         a_edge();
         dut->bridge_wr = 0;
         for (int k = 0; k < 39; k++)
             a_edge();
     }
+}
+
+/* Host slot load: the next request drops the completion level, the
+ * stream lands, completion returns and stays. Word 1 of the data table
+ * is slot 0's size, so only the ROM's is posted. */
+static void host_load(const std::vector<uint8_t> &rom)
+{
+    dut->dataslot_allcomplete = 0;
+    dut->datatable_q = (uint32_t)rom.size();
+    host_stream(rom, 0);
     dut->dataslot_allcomplete = 1;
 }
 
@@ -268,6 +283,10 @@ static void power_on(int *utest_result)
     while (!dut->tb_pocket_ready && guard++ < 60000)
         tick();
     ASSERT_TRUE(dut->tb_pocket_ready);
+    /* The core's own asset, loaded once before the machine runs and
+     * never reloaded: the glyphs are hardware here, and the firmware
+     * copies them out of the staging store at every boot. */
+    host_stream(tb_stage_fonts(), TB_STAGE_FONT_BASE);
 }
 
 static void run_case(int *utest_result, const char *name)
@@ -283,6 +302,15 @@ static void run_case(int *utest_result, const char *name)
 UTEST(pocket, canvas3_640x480)
 {
     run_case(utest_result, "mode3_8bpp");
+
+    /* The asset made the whole trip: host bridge to SDRAM to the
+     * firmware's copy to the store the scanout reads. */
+    auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__vid_font__DOT__f16;
+    for (size_t i = 0; i < 4096; i += 4)
+        ASSERT_EQ(f16[i / 4],
+                  (uint32_t)font16[i] | ((uint32_t)font16[i + 1] << 8)
+                      | ((uint32_t)font16[i + 2] << 16)
+                      | ((uint32_t)font16[i + 3] << 24));
 
     /* The codec side is alive: LRCK ticks at audio rate. */
     int lrck_flips = 0;

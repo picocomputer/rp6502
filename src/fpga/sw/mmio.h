@@ -23,6 +23,10 @@
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
+/* The font asset sits in the last 64 KB of the staging store, above any
+ * ROM the loader will ever be handed. */
+#define FONTS ((volatile const uint8_t *)0x63FF0000u)
+
 /* The terminal cell window is where the linker places term.c's screen
  * buffers; the register bank above it is the scanout seam. */
 #define VID_ROW(i) (((volatile uint32_t *)0x50010000u)[i])
@@ -39,11 +43,12 @@
 #define VID_XPROG(line, plane, w) \
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
 /* The font store, a word at a time — byte lanes are what stop the fabric
- * inferring a block RAM, so every write is aligned and whole. Face 0 is
- * font16 at +0, face 1 font8 at +0x1000; the read-only faces above them
- * ignore writes. */
+ * inferring a block RAM, so every write is aligned and whole. One face
+ * per 4 KB, in the store's own order. */
 #define VID_FONT16 ((volatile uint32_t *)0x50040000u)
 #define VID_FONT8 ((volatile uint32_t *)0x50041000u)
+#define VID_ITALIC16 ((volatile uint32_t *)0x50042000u)
+#define VID_FONT_DEC16 ((volatile uint32_t *)0x50043000u)
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
 #define VID_OVERRUN (*(volatile uint32_t *)0x50028008u)
