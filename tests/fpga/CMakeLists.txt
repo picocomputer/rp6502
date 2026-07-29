@@ -503,6 +503,22 @@ if(verilator_FOUND)
             INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
+        rp6502_add_test(budget
+            SOURCES test_budget.cpp
+            LIBS fpga_oracle
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
+                ROMS_DIR="${RP6502_TEST_ROMS}"
+            TIMEOUT 600)
+        add_dependencies(test_budget sw_bin cpu65_rom vid_font_rom vid_palette_rom)
+        verilate(test_budget
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
         rp6502_add_test(fontstore
             SOURCES test_fontstore.cpp
             LIBS fpga_oracle
