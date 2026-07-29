@@ -16,7 +16,9 @@
 /* The XRAM is hardware behind its window, like the register cells. */
 uint8_t *const xram = (uint8_t *)0x30000000u;
 
-void *memcpy(void *dst, const void *src, size_t n)
+/* Link-time code generation emits calls to these after it has decided
+ * what to keep, so they must outlive their callers. */
+__attribute__((used)) void *memcpy(void *dst, const void *src, size_t n)
 {
     uint8_t *d = dst;
     const uint8_t *s = src;
@@ -25,7 +27,7 @@ void *memcpy(void *dst, const void *src, size_t n)
     return dst;
 }
 
-void *memset(void *dst, int value, size_t n)
+__attribute__((used)) void *memset(void *dst, int value, size_t n)
 {
     uint8_t *d = dst;
     while (n--)

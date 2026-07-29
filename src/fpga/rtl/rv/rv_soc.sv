@@ -68,7 +68,8 @@ module rv_soc #(
     input logic [31:0] bus_rdata
 );
 
-    localparam int TCM_WORDS = 32768;  // 128 KB
+    localparam int TCM_WORDS = 16384;  // 64 KB
+    localparam int TCM_AW = $clog2(TCM_WORDS);
 
     // AHB5 master from the CPU. Address bits between the TCM window and the
     // MMIO page have no decode yet, and the bus never bursts.
@@ -151,7 +152,7 @@ module rv_soc #(
     logic dph_mmio /*verilator public_flat_rd*/;
     logic dph_ext /*verilator public_flat_rd*/;
     logic dph_waited /*verilator public_flat_rd*/;
-    logic [14:0] dph_word;  // TCM word index; strb carries the byte lanes
+    logic [TCM_AW-1:0] dph_word;  // TCM word; strb carries the lanes
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [4:0] mmio_reg;
@@ -191,8 +192,8 @@ module rv_soc #(
     endgenerate
 
     logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
-    logic [14:0] word_addr;
-    always_comb word_addr = haddr[16:2];
+    logic [TCM_AW-1:0] word_addr;
+    always_comb word_addr = haddr[TCM_AW+1:2];
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -210,7 +211,7 @@ module rv_soc #(
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
             dph_ext <= haddr[31:28] != 4'h0 && haddr[31:28] != 4'hF;
-            dph_word <= haddr[16:2];
+            dph_word <= haddr[TCM_AW+1:2];
             dph_addr <= haddr;
             dph_strb <= strb;
             mmio_reg <= haddr[4:0];

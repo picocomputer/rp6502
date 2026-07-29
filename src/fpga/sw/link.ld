@@ -3,15 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One RAM: the 128 KB tightly-coupled memory at zero, code first because the
- * reset vector is address zero. The stack grows down from the top. Sizing it
- * down buys no block memory on the Pocket — the fabric allocates a
- * power-of-two depth, so anything above 64 KB costs the same 128 M10Ks.
+ * One RAM: the 64 KB tightly-coupled memory at zero, code first because the
+ * reset vector is address zero. The stack grows down from the top. The size
+ * is a block-memory decision as much as a software one: the fabric allocates
+ * a power-of-two depth, so 64 KB costs 64 M10Ks and anything larger costs
+ * 128 — half the device's block memory for code the machine barely uses.
+ * The firmware and its non-video bss come to 36 KB, so the rest is stack.
  */
 
 MEMORY
 {
-    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 128K
+    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
     VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
 }
 

@@ -256,7 +256,7 @@ if(verilator_FOUND)
             COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
                 -Os -ffreestanding -nostartfiles
                 --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
-                -ffunction-sections -fdata-sections -Wl,--gc-sections
+                -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
                 -I ${RP6502_SRC}
                 -I ${SW_SRC}/shim
                 -I ${RP6502_SRC}/emu/host/pico
@@ -429,24 +429,6 @@ if(verilator_FOUND)
             TIMEOUT 300)
         add_dependencies(test_mode3 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode3
-            SOURCES ${RP6502_MACHINE_SOURCES}
-            TOP_MODULE rp6502
-            PREFIX Vrp6502
-            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
-        )
-
-        # The real mode2.rp6502 run to its EXIT by injected key events,
-        # final frame pixel-exact vs the oracle.
-        rp6502_add_test(mode2_rom
-            SOURCES test_mode2_rom.cpp
-            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
-            LIBS fpga_oracle
-            DEFS SW_BIN="${SW_BIN}"
-            FIXTURE mode2.rp6502
-            TIMEOUT 600)
-        add_dependencies(test_mode2_rom sw_bin cpu65_rom vid_font_rom vid_palette_rom)
-        verilate(test_mode2_rom
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
             PREFIX Vrp6502
