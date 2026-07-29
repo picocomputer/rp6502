@@ -22,11 +22,12 @@ static bool tb_load_tcm(Lane &t0, Lane &t1, Lane &t2, Lane &t3,
     FILE *f = fopen(path, "rb");
     if (!f)
         return false;
-    for (size_t i = 0; i < 32768; i++)
+    const size_t words = sizeof(t0) / sizeof(t0[0]);
+    for (size_t i = 0; i < words; i++)
         t0[i] = t1[i] = t2[i] = t3[i] = 0;
     uint8_t buf[4];
     size_t word = 0, n;
-    while ((n = fread(buf, 1, 4, f)) > 0 && word < 32768)
+    while ((n = fread(buf, 1, 4, f)) > 0 && word < words)
     {
         t0[word] = n > 0 ? buf[0] : 0;
         t1[word] = n > 1 ? buf[1] : 0;

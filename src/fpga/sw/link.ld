@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * One RAM: the 128 KB tightly-coupled memory at zero, code first because the
- * reset vector is address zero. The stack grows down from the top.
+ * reset vector is address zero. The stack grows down from the top. Sizing it
+ * down buys no block memory on the Pocket — the fabric allocates a
+ * power-of-two depth, so anything above 64 KB costs the same 128 M10Ks.
  */
 
 MEMORY
