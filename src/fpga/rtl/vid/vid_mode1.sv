@@ -32,6 +32,12 @@ module vid_mode1
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
+    /* The font store, when the cell font is the built-in one. */
+    output logic vid_mode1_f_req,
+    output logic [13:0] vid_mode1_f_addr,
+    input logic f_gnt,
+    input logic [7:0] f_data,
+
     output logic vid_mode1_px_we,
     output logic [9:0] vid_mode1_px_addr,
     output logic [15:0] vid_mode1_px_data,
@@ -205,12 +211,28 @@ module vid_mode1
         end
     end
 
-    /* The font byte: gathered from XRAM, or the builtin ROM by glyph. */
+    /* The font byte: gathered from XRAM, or fetched from the store the
+     * soft CPU owns. Both arrive through F_FONT, so the built-in path
+     * is the one the XRAM fixtures already exercise. */
     logic [7:0] font_gather;
-    logic [7:0] builtin_bits;
-    always_comb builtin_bits = fh16
-        ? VID_FONT16[{g_glyph, scanrow}]
-        : VID_FONT8[{g_glyph, scanrow[2:0]}];
+    always_comb vid_mode1_f_addr = fh16
+        ? {2'b00, scanrow, g_glyph}
+        : {2'b01, 1'b0, scanrow[2:0], g_glyph};
+    always_comb vid_mode1_f_req = state == S1_RUN && fstate == F_FONT
+        && !font_xram && fw_i == 2'd0;
+
+    /* One channel or the other; font_xram holds for the whole line, so
+     * the choice cannot move across a grant. */
+    logic f_gnt_d;
+    logic fnt_gnt, fnt_gnt_d;
+    logic [7:0] fnt_byte;
+    always_comb begin
+        fnt_gnt = font_xram ? a_gnt : f_gnt;
+        fnt_gnt_d = font_xram ? gnt_d : f_gnt_d;
+        fnt_byte = font_xram
+            ? a_rdata[{font_line_byte, 3'b000}+:8]
+            : f_data;
+    end
 
     logic signed [17:0] win_w;
     always_comb win_w = $signed({{2{width_px[15]}}, width_px});
@@ -280,6 +302,7 @@ module vid_mode1
             fw_n <= '0;
             gather <= '0;
             gnt_d <= 1'b0;
+            f_gnt_d <= 1'b0;
             nxt_v <= 1'b0;
             nxt_bits <= '0;
             nxt_fg <= '0;
@@ -293,6 +316,7 @@ module vid_mode1
             vid_mode1_filled <= 1'b0;
         end else begin
             gnt_d <= a_gnt;
+            f_gnt_d <= f_gnt;
             vid_mode1_done <= 1'b0;
             if (abort_i) begin
                 if (state != S1_IDLE)
@@ -400,24 +424,21 @@ module vid_mode1
                                     fw_c <= fw_c + 2'd1;
                                     if (fw_c + 2'd1 == fw_n) begin
                                         fw_i <= '0;
-                                        fstate <= font_xram
-                                            ? F_FONT : F_READY;
+                                        fstate <= F_FONT;
                                     end
                                 end
                             end
                             F_FONT: begin
-                                if (a_gnt)
+                                if (fnt_gnt)
                                     fw_i <= 2'd1;
-                                if (gnt_d) begin
-                                    font_gather <= a_rdata[
-                                        {font_line_byte, 3'b000}+:8];
+                                if (fnt_gnt_d) begin
+                                    font_gather <= fnt_byte;
                                     fstate <= F_READY;
                                 end
                             end
                             F_READY: begin
                                 if (!nxt_v) begin
-                                    nxt_bits <= font_xram
-                                        ? font_gather : builtin_bits;
+                                    nxt_bits <= font_gather;
                                     nxt_fg <= fmt == 3'd4 ? g_fg16 : pal_fg;
                                     nxt_bg <= fmt == 3'd4 ? g_bg16 : pal_bg;
                                     nxt_v <= 1'b1;

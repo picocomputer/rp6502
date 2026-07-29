@@ -33,6 +33,12 @@ module vid_term (
     input logic line_start,
     output logic [15:0] vid_term_pix,
 
+    /* The font store, shared with the plane engines. */
+    output logic vid_term_f_req,
+    output logic [13:0] vid_term_f_addr,
+    input logic f_gnt,
+    input logic [7:0] f_data,
+
     /* The soft CPU's window: bit 16 low is cell memory, word-wide with
      * byte lanes; bit 16 high is the register bank. */
     input logic b_stb,
@@ -217,6 +223,7 @@ module vid_term (
     logic [1:0] font_sel;
     logic [7:0] font_code;
     logic [7:0] font_bits;
+
     always_comb begin
         if (w0_n[14])  /* ATTR_DEC */
             font_sel = 2'd1;
@@ -226,13 +233,30 @@ module vid_term (
             font_sel = 2'd0;
         font_code = font_sel == 2'd1 ? w0_n[7:0] - 8'h5F : w0_n[7:0];
     end
-    vid_font vid_font (
-        .clk(clk),
-        .sel(font_sel),
-        .code(font_code),
-        .row(scanrow),
-        .vid_font_bits(font_bits)
-    );
+    /* The store lives at the top with the other shared memories; the
+     * face rides in the address, row-major with font.c's own strides.
+     * The cell's word lands seven clocks before its glyph is needed, so
+     * the request stands and the byte is simply there in time. */
+    always_comb begin
+        case (font_sel)
+            2'd1: vid_term_f_addr = {2'b11, 3'b000, scanrow, font_code[4:0]};
+            2'd2: vid_term_f_addr = {2'b10, 1'b0, scanrow, font_code[6:0]};
+            default: vid_term_f_addr = {2'b00, scanrow, font_code};
+        endcase
+        vid_term_f_req = run;
+    end
+
+    /* The store answers the clock after its grant, which is the clock
+     * the resolve wants it — so the arriving byte passes straight
+     * through and only the gaps come from the hold. */
+    logic f_gnt_d;
+    logic [7:0] font_hold;
+    always_ff @(posedge clk) begin
+        f_gnt_d <= f_gnt;
+        if (f_gnt_d)
+            font_hold <= f_data;
+    end
+    always_comb font_bits = f_gnt_d ? f_data : font_hold;
 
     always_comb begin
         scanrow = term_line[3:0];

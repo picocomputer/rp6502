@@ -22,22 +22,20 @@
 #include "ria/aud/aud.h"
 
 
+/* The store is addressed the way font.c lays its tables out, so the
+ * bitstream image and the firmware's are the same bytes in the same
+ * order — which is what lets font_set_code_page's copies write the
+ * store directly, and makes this a byte-for-byte comparison. */
 UTEST(font, generated_rom_matches_font_init)
 {
-    for (int code = 0; code < 256; code++)
-        for (int row = 0; row < 16; row++)
-            ASSERT_EQ(VID_FONT16[code * 16 + row], font16[row * 256 + code]);
-    for (int idx = 0; idx < 0x20; idx++)
-        for (int row = 0; row < 16; row++)
-            ASSERT_EQ(VID_FONT_DEC16[idx * 16 + row],
-                      font_dec_16[row * 32 + idx]);
-    for (int code = 0; code < 128; code++)
-        for (int row = 0; row < 16; row++)
-            ASSERT_EQ(VID_ITALIC16[code * 16 + row],
-                      italic16[row * 128 + code]);
-    for (int code = 0; code < 256; code++)
-        for (int row = 0; row < 8; row++)
-            ASSERT_EQ(VID_FONT8[code * 8 + row], font8[row * 256 + code]);
+    for (int i = 0; i < 4096; i++)
+        ASSERT_EQ(VID_FONT16[i], font16[i]);
+    for (int i = 0; i < 512; i++)
+        ASSERT_EQ(VID_FONT_DEC16[i], font_dec_16[i]);
+    for (int i = 0; i < 2048; i++)
+        ASSERT_EQ(VID_ITALIC16[i], italic16[i]);
+    for (int i = 0; i < 2048; i++)
+        ASSERT_EQ(VID_FONT8[i], font8[i]);
 }
 
 UTEST(font, generated_palettes_match_color_c)

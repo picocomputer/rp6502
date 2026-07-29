@@ -72,15 +72,17 @@ def build_tables():
         if len(arr) != want:
             sys.exit(f"vid_font_gen: {name} has {len(arr)} bytes, want {want}")
 
-    # font16, glyph-major: ASCII low half, CP437 high half.
+    # font16, row-major with a 256-byte stride, exactly as font.c keeps
+    # its live table: the hardware image is the C image, so the firmware
+    # writes the store with the memcpys it already has.
     font16 = [0] * 4096
     for row in range(16):
         for code in range(128):
-            font16[code * 16 + row] = ascii16[row * 128 + code]
+            font16[row * 256 + code] = ascii16[row * 128 + code]
         for code in range(128, 256):
-            font16[code * 16 + row] = cp437_16[row * 128 + (code - 128)]
+            font16[row * 256 + code] = cp437_16[row * 128 + (code - 128)]
 
-    # font_dec_16, glyph-major over the 0x5F..0x7E window.
+    # font_dec_16, row-major over the 0x5F..0x7E window, 32-byte stride.
     dec16 = [0] * 512
     for row in range(16):
         for idx in range(0x20):
@@ -88,23 +90,25 @@ def build_tables():
             if m == DEC_MAP_BLANK:
                 continue
             if m & DEC_MAP_ASCII:
-                dec16[idx * 16 + row] = ascii16[row * 128 + (m & 0xFF)]
+                dec16[row * 32 + idx] = ascii16[row * 128 + (m & 0xFF)]
             else:
-                dec16[idx * 16 + row] = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
+                dec16[row * 32 + idx] = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
 
-    # italic16, glyph-major, low half only.
+    # italic16, row-major, 128-byte stride, low half only.
     italic16 = [0] * 2048
     for row in range(16):
         for code in range(128):
-            italic16[code * 16 + row] = italic_src[row * 128 + code]
+            italic16[row * 128 + code] = italic_src[row * 128 + code]
 
-    # font8, same build as font16 at half height, for the mode 1 cells.
+    # font8, same build as font16 at half height, row-major with the same
+    # 256-byte stride font.c uses, for the mode 1 cells and the 320-wide
+    # console.
     font8 = [0] * 2048
     for row in range(8):
         for code in range(128):
-            font8[code * 8 + row] = ascii8[row * 128 + code]
+            font8[row * 256 + code] = ascii8[row * 128 + code]
         for code in range(128, 256):
-            font8[code * 8 + row] = cp437_8[row * 128 + (code - 128)]
+            font8[row * 256 + code] = cp437_8[row * 128 + (code - 128)]
 
     return font16, dec16, italic16, font8
 
@@ -114,6 +118,20 @@ def sv_array(name, data):
     for i in range(0, len(data), 16):
         row = ", ".join(f"8'h{b:02X}" for b in data[i:i + 16])
         sep = "," if i + 16 < len(data) else ""
+        lines.append(f"        {row}{sep}")
+    lines.append("    };")
+    return "\n".join(lines)
+
+
+def sv_word_array(name, data):
+    """The store holds each face a word wide, so the bitstream image is
+    packed the same way: byte n lands in word n >> 2, lane n & 3."""
+    words = [int.from_bytes(bytes(data[i:i + 4]), "little")
+             for i in range(0, len(data), 4)]
+    lines = [f"    localparam logic [31:0] {name} [{len(words)}] = '{{"]
+    for i in range(0, len(words), 8):
+        row = ", ".join(f"32'h{w:08X}" for w in words[i:i + 8])
+        sep = "," if i + 8 < len(words) else ""
         lines.append(f"        {row}{sep}")
     lines.append("    };")
     return "\n".join(lines)
@@ -149,10 +167,10 @@ def main():
     if args.emit_sv:
         out = [HEADER, "package vid_font_pkg;", "",
                "    /* verilator lint_off UNUSEDPARAM */", "",
-               sv_array("VID_FONT16", font16), "",
-               sv_array("VID_FONT_DEC16", dec16), "",
-               sv_array("VID_ITALIC16", italic16), "",
-               sv_array("VID_FONT8", font8), "",
+               sv_word_array("VID_FONT16_W", font16), "",
+               sv_word_array("VID_FONT_DEC16_W", dec16), "",
+               sv_word_array("VID_ITALIC16_W", italic16), "",
+               sv_word_array("VID_FONT8_W", font8), "",
                "    /* verilator lint_on UNUSEDPARAM */", "",
                "endpackage", ""]
         Path(args.emit_sv).write_text("\n".join(out))

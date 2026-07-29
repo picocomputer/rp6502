@@ -362,6 +362,45 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
+    /* The font store: the terminal and the three plane engines read a
+     * byte each per character cell, so one port is eight times what
+     * they ask for. The terminal and the planes never read together —
+     * a plane renders only off the console canvas — so the rotor is
+     * fairness between the planes more than arbitration. Mod four, so
+     * the wrap is free. */
+    logic [3:0] mf_req;
+    logic [13:0] mf_addr[4];
+    logic [1:0] f_rotor, f_sel;
+    logic f_any;
+    always_comb begin
+        f_sel = f_rotor;
+        f_any = 1'b0;
+        for (int i = 0; i < 4; i++) begin
+            logic [1:0] cand;
+            cand = f_rotor + 2'(i);
+            if (!f_any && mf_req[cand]) begin
+                f_sel = cand;
+                f_any = 1'b1;
+            end
+        end
+    end
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            f_rotor <= 2'd0;
+        else if (f_any)
+            f_rotor <= f_sel + 2'd1;
+    end
+
+    logic [7:0] font_bits;
+    vid_font vid_font (
+        .clk(clk_sys),
+        .addr(mf_addr[f_sel]),
+        .vid_font_bits(font_bits),
+        .w_stb(bus_stb && bus_we && bus_sel_vid && bus_addr[18]),
+        .w_addr(bus_addr[13:0]),
+        .w_data(bus_wdata)
+    );
+
     /* Three fills, the sprite stage, and the PSG share port A; the
      * scan folds mod five in wider bits. */
     logic [4:0] ma_req;
@@ -458,6 +497,10 @@ module rp6502
         .px_last(vid_px_last),
         .line_start(vid_line_start),
         .vid_term_pix(term_pix),
+        .vid_term_f_req(mf_req[3]),
+        .vid_term_f_addr(mf_addr[3]),
+        .f_gnt(f_any && f_sel == 2'd3),
+        .f_data(font_bits),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[16:0]),
@@ -496,6 +539,10 @@ module rp6502
                 .p_config(pm_config),
                 .vid_mode_a_req(ma_req[gi]),
                 .vid_mode_a_addr(ma_addr[gi]),
+                .vid_mode_f_req(mf_req[gi]),
+                .vid_mode_f_addr(mf_addr[gi]),
+                .f_gnt(f_any && f_sel == 2'(gi)),
+                .f_data(font_bits),
                 .a_gnt(a_any && a_sel == 3'(gi)),
                 .a_rdata(xram_a_rdata),
                 .vid_mode_pix(m_pix[gi]),

@@ -49,6 +49,12 @@ module vid_mode (
     output logic vid_mode_a_req,
     output logic [13:0] vid_mode_a_addr,
     input logic a_gnt,
+
+    /* The font store, for mode 1's built-in glyphs. */
+    output logic vid_mode_f_req,
+    output logic [13:0] vid_mode_f_addr,
+    input logic f_gnt,
+    input logic [7:0] f_data,
     input logic [31:0] a_rdata,
 
     /* The beam side: this plane's pixel at h, and whether the line
@@ -178,6 +184,10 @@ module vid_mode (
         .vid_mode1_a_addr(m1_a_addr),
         .a_gnt(a_gnt),
         .a_rdata(a_rdata),
+        .vid_mode1_f_req(vid_mode_f_req),
+        .vid_mode1_f_addr(vid_mode_f_addr),
+        .f_gnt(f_gnt),
+        .f_data(f_data),
         .vid_mode1_px_we(m1_px_we),
         .vid_mode1_px_addr(m1_px_addr),
         .vid_mode1_px_data(m1_px_data),
