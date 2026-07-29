@@ -180,19 +180,31 @@ module vid_mode4 (
     end
 
     /* The span's first sample, one past its end — four fixed-point
-     * multiplies, every term wrapping mod 2^32 like the oracle's. */
+     * multiplies, every term wrapping mod 2^32 like the oracle's.
+     *
+     * Each term was written the way the oracle computes it, a
+     * sign-extended (t << 8) against a sign-extended k in thirty-two
+     * bits. But (t << 8) * k and (t * k) << 8 agree on their low
+     * thirty-two bits — the shift only moves the product — and the
+     * second is a sixteen-by-eighteen multiply the fabric has a DSP
+     * for, rather than a thirty-two square one it has to build out of
+     * four and a carry tree. Twenty-four bits of each product survive
+     * the shift, which is why the slice is exact and not a rounding. */
+    logic signed [17:0] kx;
+    always_comb kx = 18'(tex_offs_x0) + size_x0;
+    logic signed [23:0] pu_x, pu_y, pv_x, pv_y;
+    always_comb begin
+        pu_x = 24'(d_t[0] * kx);
+        pu_y = 24'(d_t[1] * tex_offs_y);
+        pv_x = 24'(d_t[3] * kx);
+        pv_y = 24'(d_t[4] * tex_offs_y);
+    end
     logic signed [31:0] af_u0, af_v0;
     always_comb begin
-        logic signed [17:0] kx;
-        kx = 18'(tex_offs_x0) + size_x0;
-        af_u0 = 32'(32'({{8{d_t[0][15]}}, d_t[0], 8'd0}) * 32'(kx)
-                    + 32'({{8{d_t[1][15]}}, d_t[1], 8'd0})
-                      * 32'(tex_offs_y)
-                    + 32'({{8{d_t[2][15]}}, d_t[2], 8'd0}));
-        af_v0 = 32'(32'({{8{d_t[3][15]}}, d_t[3], 8'd0}) * 32'(kx)
-                    + 32'({{8{d_t[4][15]}}, d_t[4], 8'd0})
-                      * 32'(tex_offs_y)
-                    + 32'({{8{d_t[5][15]}}, d_t[5], 8'd0}));
+        af_u0 = 32'({pu_x, 8'd0}) + 32'({pu_y, 8'd0})
+                + {{8{d_t[2][15]}}, d_t[2], 8'd0};
+        af_v0 = 32'({pv_x, 8'd0}) + 32'({pv_y, 8'd0})
+                + {{8{d_t[5][15]}}, d_t[5], 8'd0};
     end
 
     logic [17:0] cur_byte_addr;
