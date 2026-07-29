@@ -707,4 +707,45 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Synthesizing the machine for the Pocket's Cyclone V"
         VERBATIM)
+
+    # And the same again with the Pocket's own layer on top, which is
+    # what actually has to fit: the machine alone leaves out the bridge,
+    # the SDRAM controller, the I2S and the video crossing. The ports
+    # are virtual because pocket_core presents more signals than the
+    # package has pins — Analogue's core_top is what binds them to pads,
+    # and it is not vendored yet.
+    set(PSYNTH_DIR ${CMAKE_CURRENT_BINARY_DIR}/synth_pocket)
+    set(PSYNTH_QSF ${PSYNTH_DIR}/pocket.qsf)
+    set(PSYNTH_LINES
+        "set_global_assignment -name FAMILY \"Cyclone V\""
+        "set_global_assignment -name DEVICE 5CEBA4F23C8"
+        "set_global_assignment -name TOP_LEVEL_ENTITY pocket_core"
+        "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
+        "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
+        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
+        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
+        "set_instance_assignment -name VIRTUAL_PIN ON -to *")
+    foreach(src ${RP6502_MACHINE_SOURCES})
+        if(src MATCHES "\\.sv$")
+            list(APPEND PSYNTH_LINES
+                "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
+        endif()
+    endforeach()
+    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
+            pocket_bridge pocket_core)
+        list(APPEND PSYNTH_LINES
+            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
+    endforeach()
+    string(REPLACE ";" "\n" PSYNTH_QSF_TEXT "${PSYNTH_LINES}")
+    file(MAKE_DIRECTORY ${PSYNTH_DIR})
+    file(WRITE ${PSYNTH_QSF} "${PSYNTH_QSF_TEXT}\n")
+    file(WRITE ${PSYNTH_DIR}/pocket.qpf "PROJECT_REVISION = \"pocket\"\n")
+    add_custom_target(synth_pocket
+        COMMAND ${QUARTUS_MAP} pocket
+        COMMAND ${QUARTUS_FIT} pocket
+        COMMAND ${QUARTUS_STA} pocket
+        WORKING_DIRECTORY ${PSYNTH_DIR}
+        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
+        COMMENT "Synthesizing the whole Pocket core"
+        VERBATIM)
 endif()
