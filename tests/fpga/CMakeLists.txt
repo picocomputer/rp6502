@@ -740,6 +740,62 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     file(MAKE_DIRECTORY ${PSYNTH_DIR})
     file(WRITE ${PSYNTH_QSF} "${PSYNTH_QSF_TEXT}\n")
     file(WRITE ${PSYNTH_DIR}/pocket.qpf "PROJECT_REVISION = \"pocket\"\n")
+    # The real thing: Analogue's framework on top, their pin assignments,
+    # their apf_top as the root, and a bitstream at the end of it. The
+    # pins and device come from the vendored project verbatim — only its
+    # own source list is dropped, because those files are what we
+    # replace.
+    set(BS_DIR ${CMAKE_CURRENT_BINARY_DIR}/bitstream)
+    set(BS_QSF ${BS_DIR}/rp6502.qsf)
+    set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
+    file(MAKE_DIRECTORY ${BS_DIR})
+    file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
+    set(BS_LINES "")
+    foreach(line ${BS_TEMPLATE})
+        if(NOT line MATCHES "_FILE|SEARCH_PATH|SIGNALTAP")
+            list(APPEND BS_LINES "${line}")
+        endif()
+    endforeach()
+    list(APPEND BS_LINES
+        "set_global_assignment -name GENERATE_RBF_FILE ON"
+        "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
+        "set_global_assignment -name VERILOG_FILE ${APF}/core/core_bridge_cmd.v"
+        "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
+        "set_global_assignment -name SDC_FILE ${APF}/core/core_constraints.sdc"
+        "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/core_top.sv"
+        "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/pocket_pll.v"
+        "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
+        "set_global_assignment -name SDC_FILE ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc"
+        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
+        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith")
+    foreach(src ${RP6502_MACHINE_SOURCES})
+        if(src MATCHES "\\.sv$")
+            list(APPEND BS_LINES
+                "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
+        endif()
+    endforeach()
+    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
+            pocket_bridge pocket_core)
+        list(APPEND BS_LINES
+            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
+    endforeach()
+    string(REPLACE ";" "\n" BS_QSF_TEXT "${BS_LINES}")
+    file(WRITE ${BS_QSF} "${BS_QSF_TEXT}\n")
+    file(WRITE ${BS_DIR}/rp6502.qpf "PROJECT_REVISION = \"rp6502\"\n")
+    find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+    add_custom_target(bitstream
+        COMMAND ${QUARTUS_MAP} rp6502
+        COMMAND ${QUARTUS_FIT} rp6502
+        COMMAND ${QUARTUS_ASM} rp6502
+        COMMAND ${QUARTUS_STA} rp6502
+        COMMAND python3 ${RP6502_SRC}/fpga/codegen/rbf_r_gen.py
+            ${BS_DIR}/output_files/rp6502.rbf
+            ${BS_DIR}/bitstream.rbf_r
+        WORKING_DIRECTORY ${BS_DIR}
+        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
+        COMMENT "Building the Pocket bitstream"
+        VERBATIM)
+
     add_custom_target(synth_pocket
         COMMAND ${QUARTUS_MAP} pocket
         COMMAND ${QUARTUS_FIT} pocket
