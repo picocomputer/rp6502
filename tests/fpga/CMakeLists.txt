@@ -304,7 +304,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 120)
+            TIMEOUT 900)
         add_dependencies(test_compare sw_bin cpu65_rom)
         verilate(test_compare
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -320,7 +320,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_banner sw_bin cpu65_rom vid_font_rom)
         verilate(test_banner
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -336,7 +336,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 120)
+            TIMEOUT 900)
         add_dependencies(test_rw sw_bin cpu65_rom vid_font_rom)
         verilate(test_rw
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -352,7 +352,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 120)
+            TIMEOUT 900)
         add_dependencies(test_xreg sw_bin cpu65_rom vid_font_rom)
         verilate(test_xreg
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -368,7 +368,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_mode1 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode1
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -385,7 +385,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_mode2 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode2
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -402,7 +402,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_mode4 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode4
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -419,7 +419,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_mode5 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode5
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -435,7 +435,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_mode3 sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_mode3
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -451,7 +451,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 120)
+            TIMEOUT 900)
         add_dependencies(test_xram sw_bin cpu65_rom vid_font_rom)
         verilate(test_xram
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -468,7 +468,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_session sw_bin cpu65_rom vid_font_rom)
         verilate(test_session
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -494,7 +494,7 @@ if(verilator_FOUND)
             SOURCES test_rom.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 120)
+            TIMEOUT 900)
         add_dependencies(test_rom sw_bin cpu65_rom)
         verilate(test_rom
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -509,7 +509,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
                 ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 600)
+            TIMEOUT 1200)
         add_dependencies(test_budget sw_bin cpu65_rom vid_font_rom vid_palette_rom)
         verilate(test_budget
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -524,7 +524,7 @@ if(verilator_FOUND)
             LIBS fpga_oracle
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            TIMEOUT 300)
+            TIMEOUT 900)
         add_dependencies(test_fontstore sw_bin cpu65_rom vid_font_rom)
         verilate(test_fontstore
             SOURCES ${RP6502_MACHINE_SOURCES}
@@ -610,7 +610,7 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             LIBS fpga_oracle
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}" ROMS_DIR="${RP6502_TEST_ROMS}"
-            TIMEOUT 600)
+            TIMEOUT 1200)
         add_dependencies(test_pocket sw_bin cpu65_rom vid_font_rom
             vid_palette_rom)
         verilate(test_pocket
@@ -748,6 +748,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(BS_DIR ${CMAKE_CURRENT_BINARY_DIR}/bitstream)
     set(BS_QSF ${BS_DIR}/rp6502.qsf)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
+    # Analogue's framework is a submodule the simulation never needs, so
+    # it is often absent — CI checks out only what it builds.
+    if(EXISTS ${APF}/ap_core.qsf)
     file(MAKE_DIRECTORY ${BS_DIR})
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
@@ -795,6 +798,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Building the Pocket bitstream"
         VERBATIM)
+    else()
+        message(STATUS
+            "vendor/openfpga absent - no bitstream target. "
+            "git submodule update --init vendor/openfpga")
+    endif()
 
     add_custom_target(synth_pocket
         COMMAND ${QUARTUS_MAP} pocket

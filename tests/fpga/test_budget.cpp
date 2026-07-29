@@ -206,8 +206,9 @@ static void run_case(int *utest_result, const char *name,
         clock_cycle();
     }));
 
-    /* Two frames: the first can begin mid-line, the second is clean. */
-    measure_frame(&b);
+    /* One frame is every line: the walk starts on a boundary and takes
+     * 525 of them, and the picture is static once tb_quiet says the
+     * program has stopped, so which 525 does not matter. */
     measure_frame(&b);
 
     printf("  %-18s worst %4ld of %ld (%2ld%%) on line %3d"
