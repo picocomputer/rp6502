@@ -43,7 +43,7 @@ module vid_mode4 (
     always_comb affine = attr[0];
 
     typedef enum logic [3:0] {
-        M4_IDLE, M4_NEXT, M4_DESC, M4_JUDGE, M4_META, M4_PIX,
+        M4_IDLE, M4_NEXT, M4_DESC, M4_DECODE, M4_JUDGE, M4_META, M4_PIX,
         M4_ASETUP, M4_APOP
     } state_t;
     state_t state;
@@ -65,20 +65,35 @@ module vid_mode4 (
     logic gnt_d;
     logic [159:0] dview;
     always_comb dview = 160'(gather >> {lane, 3'b000});
+    logic signed [15:0] dc_x, dc_y;
+    logic [15:0] dc_sptr;
+    logic [7:0] dc_log;
+    logic dc_meta;
+    logic signed [15:0] dc_t[6];
+    always_comb begin
+        for (int j = 0; j < 6; j++)
+            dc_t[j] = dview[16 * j+:16];
+        dc_x = affine ? dview[111:96] : dview[15:0];
+        dc_y = affine ? dview[127:112] : dview[31:16];
+        dc_sptr = affine ? dview[143:128] : dview[47:32];
+        dc_log = affine ? dview[151:144] : dview[55:48];
+        dc_meta = (affine ? dview[159:152] : dview[63:56]) != 8'h00;
+    end
+
+    /* The descriptor, once, into registers. Everything downstream of
+     * here — the guard arithmetic, the texel address, the affine setup
+     * — used to hang off the gathered words through the lane select,
+     * which put the whole descriptor decode and the address adder in
+     * one clock and made this the longest path in the machine. It also
+     * reached further than it looks: the sprite's address and request
+     * are what the XRAM arbiter selects on, so every other engine's
+     * grant arrived through this cone too. M4_DECODE costs one clock
+     * per descriptor against three thousand two hundred in a line. */
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr;
     logic [7:0] d_log;
     logic d_meta;
     logic signed [15:0] d_t[6];
-    always_comb begin
-        for (int j = 0; j < 6; j++)
-            d_t[j] = dview[16 * j+:16];
-        d_x = affine ? dview[111:96] : dview[15:0];
-        d_y = affine ? dview[127:112] : dview[31:16];
-        d_sptr = affine ? dview[143:128] : dview[47:32];
-        d_log = affine ? dview[151:144] : dview[55:48];
-        d_meta = (affine ? dview[159:152] : dview[63:56]) != 8'h00;
-    end
 
     /* The square's geometry; log sizes past seven cannot fit XRAM and
      * skip on the size test exactly as the oracle's arithmetic does. */
@@ -244,6 +259,13 @@ module vid_mode4 (
             idx <= '0;
             gather <= '0;
             lane <= '0;
+            d_x <= '0;
+            d_y <= '0;
+            d_sptr <= '0;
+            d_log <= '0;
+            d_meta <= 1'b0;
+            for (int j = 0; j < 6; j++)
+                d_t[j] <= '0;
             fw_i <= '0;
             fw_c <= '0;
             fw_n <= '0;
@@ -303,8 +325,18 @@ module vid_mode4 (
                             endcase
                             fw_c <= fw_c + 3'd1;
                             if (fw_c + 3'd1 == fw_n)
-                                state <= M4_JUDGE;
+                                state <= M4_DECODE;
                         end
+                    end
+                    M4_DECODE: begin
+                        d_x <= dc_x;
+                        d_y <= dc_y;
+                        d_sptr <= dc_sptr;
+                        d_log <= dc_log;
+                        d_meta <= dc_meta;
+                        for (int j = 0; j < 6; j++)
+                            d_t[j] <= dc_t[j];
+                        state <= M4_JUDGE;
                     end
                     M4_JUDGE: begin
                         tex_x <= tex_offs_x0;
