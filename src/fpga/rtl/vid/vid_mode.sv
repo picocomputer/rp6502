@@ -68,6 +68,11 @@ module vid_mode (
     output logic vid_mode_busy,
     output logic vid_mode_rnew,
     output logic vid_mode_rfilled,
+    /* One pulse for a fill that did not finish before the beam wanted
+     * it. The simulation stops on this; hardware cannot, so it counts
+     * instead — otherwise a plane that misses its deadline simply
+     * re-scans the line before it, with nothing to say so. */
+    output logic vid_mode_underrun,
     input logic sp_we,
     input logic [9:0] sp_addr,
     input logic [15:0] sp_data,
@@ -299,6 +304,7 @@ module vid_mode (
             filled_q[0] <= 1'b0;
             filled_q[1] <= 1'b0;
             flip_next <= 1'b0;
+            vid_mode_underrun <= 1'b0;
             state <= S_IDLE;
             t <= '0;
             attr <= '0;
@@ -324,8 +330,11 @@ module vid_mode (
              * during h==799, so the flip must have landed before it. A
              * completion during h==799 would silently scan a stale first
              * pixel; the pipelines' own aborts fire later. */
+            vid_mode_underrun <= h == 10'd799 && state != S_IDLE;
+`ifndef SYNTHESIS
             if (h == 10'd799 && state != S_IDLE)
                 $fatal(1, "vid_mode underrun");
+`endif
             if (line_start) begin
                 t <= v == 10'd524 ? 10'd0 : v + 10'd1;
                 if (flip_next)

@@ -61,8 +61,10 @@ module vid_prog (
     input logic [12:0] s_idx,
     output logic [31:0] vid_prog_s_data,
 
-    /* The sprite stage's lost-race count; a write clears it. */
+    /* The render's lost races: the sprite stage's in the low half, the
+     * planes' missed fills in the high. A write clears both. */
     input logic [15:0] sp_overrun,
+    input logic [15:0] plane_underrun,
     output logic vid_prog_ov_clear,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
@@ -109,7 +111,7 @@ module vid_prog (
                 end
             end else begin
                 vid_prog_b_rdata <= b_addr[3]
-                    ? {16'd0, sp_overrun}
+                    ? {plane_underrun, sp_overrun}
                     : (b_addr[2] ? {22'd0, vsync_shadow}
                                  : {29'd0, canvas_shadow});
             end

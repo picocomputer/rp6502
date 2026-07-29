@@ -493,6 +493,7 @@ module rp6502
         .s_idx(sp_s_idx),
         .vid_prog_s_data(sp_s_data),
         .sp_overrun(sp_overrun),
+        .plane_underrun(plane_underrun),
         .vid_prog_ov_clear(sp_ov_clear),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && bus_addr[17]),
@@ -527,12 +528,24 @@ module rp6502
 
     logic [15:0] m_pix[3];
     logic [2:0] m_filled;
-    logic [2:0] m_busy, m_rnew, m_rfilled;
+    logic [2:0] m_busy, m_rnew, m_rfilled, m_underrun;
     logic [12:0] sp_s_idx;
     logic [31:0] sp_s_data;
     logic [1:0] sp_plane;
     logic sp_we, sp_force, sp_ov_clear;
     logic [15:0] sp_overrun;
+    /* Lines a plane failed to fill in time, counted beside the sprite
+     * stage's lost races and cleared with them. Saturating, because a
+     * count that wraps to zero reads as a healthy machine. */
+    logic [15:0] plane_underrun;
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            plane_underrun <= '0;
+        else if (sp_ov_clear)
+            plane_underrun <= '0;
+        else if (|m_underrun && plane_underrun != 16'hFFFF)
+            plane_underrun <= plane_underrun + 16'd1;
+    end
     logic [9:0] sp_addr;
     logic [15:0] sp_data;
     genvar gi;
@@ -566,6 +579,7 @@ module rp6502
                 .vid_mode_busy(m_busy[gi]),
                 .vid_mode_rnew(m_rnew[gi]),
                 .vid_mode_rfilled(m_rfilled[gi]),
+                .vid_mode_underrun(m_underrun[gi]),
                 .sp_we(sp_we && sp_plane == 2'(gi)),
                 .sp_addr(sp_addr),
                 .sp_data(sp_data),

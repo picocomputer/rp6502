@@ -51,6 +51,8 @@
 #define VID_FONT_DEC16 ((volatile uint32_t *)0x50043000u)
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
+/* The render's lost races: sprite slots in the low half, plane fills
+ * that missed the beam in the high. A write clears both. */
 #define VID_OVERRUN (*(volatile uint32_t *)0x50028008u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
