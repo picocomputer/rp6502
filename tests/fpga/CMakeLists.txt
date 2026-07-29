@@ -234,6 +234,9 @@ if(verilator_FOUND)
     if(RISCV_GCC AND RISCV_OBJCOPY)
         set(SW_SRC ${RP6502_SRC}/fpga/sw)
         set(SW_BIN ${CMAKE_CURRENT_BINARY_DIR}/sw.bin)
+        # The firmware's own headers carry the hardware's addresses, so a
+        # window that moves has to rebuild the image that writes to it.
+        file(GLOB SW_HEADERS ${RP6502_SRC}/fpga/sw/*.h)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c
             ${SW_SRC}/com.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
@@ -267,7 +270,7 @@ if(verilator_FOUND)
                 ${SW_SOURCES}
             COMMAND ${RISCV_OBJCOPY} -O binary
                 ${CMAKE_CURRENT_BINARY_DIR}/sw.elf ${SW_BIN}
-            DEPENDS ${SW_SOURCES} ${SW_SRC}/link.ld
+            DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
             COMMENT "Cross-compiling the soft CPU firmware"
             VERBATIM)
         add_custom_target(sw_bin DEPENDS ${SW_BIN})

@@ -362,7 +362,10 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    /* The font store: the terminal and the three plane engines read a
+    /* Bit 18 of the video window is the font store, above the terminal
+     * at bit 17's clear half and the scanline program at its set one.
+     *
+     * The font store: the terminal and the three plane engines read a
      * byte each per character cell, so one port is eight times what
      * they ask for. The terminal and the planes never read together —
      * a plane renders only off the console canvas — so the rotor is
@@ -480,7 +483,8 @@ module rp6502
         .vid_prog_s_data(sp_s_data),
         .sp_overrun(sp_overrun),
         .vid_prog_ov_clear(sp_ov_clear),
-        .b_stb(bus_stb && bus_sel_vid && bus_addr[17]),
+        .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
+               && bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[15:0]),
         .b_wdata(bus_wdata),
@@ -501,7 +505,8 @@ module rp6502
         .vid_term_f_addr(mf_addr[3]),
         .f_gnt(f_any && f_sel == 2'd3),
         .f_data(font_bits),
-        .b_stb(bus_stb && bus_sel_vid && !bus_addr[17]),
+        .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
+               && !bus_addr[17]),
         .b_we(bus_we),
         .b_addr(bus_addr[16:0]),
         .b_wstrb(bus_wstrb),

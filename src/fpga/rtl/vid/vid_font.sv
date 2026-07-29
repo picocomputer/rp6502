@@ -11,8 +11,11 @@
  *
  * Every face is addressed row-major with font.c's own stride, so the
  * hardware image is the C image and the firmware fills the store with
- * the copies font_set_code_page already makes. The read address
- * carries the face in its top two bits:
+ * the copies font_set_code_page already makes. The writable faces come
+ * up blank on purpose: an initial image would render a terminal even
+ * with the firmware's stores misaddressed, and every frame test would
+ * pass while nothing worked. The read address carries the face in its
+ * top two bits:
  *
  *   0  font16    {2'b00, row[3:0], code[7:0]}         4096 B
  *   1  font8     {2'b01, 1'b0, row[2:0], code[7:0]}   2048 B
@@ -44,15 +47,10 @@ module vid_font
     input logic [31:0] w_data
 );
 
-    logic [31:0] f16[1024];
-    logic [31:0] f8[512];
+    logic [31:0] f16[1024] /*verilator public_flat_rd*/;
+    logic [31:0] f8[512] /*verilator public_flat_rd*/;
     logic [31:0] ital[512] = VID_ITALIC16_W;
     logic [31:0] dec[128] = VID_FONT_DEC16_W;
-
-    /* The writable faces come up holding the boot code page so the
-     * terminal has glyphs before the firmware's first store. */
-    initial f16 = VID_FONT16_W;
-    initial f8 = VID_FONT8_W;
 
     logic [1:0] w_face;
     always_comb w_face = w_addr[13:12];

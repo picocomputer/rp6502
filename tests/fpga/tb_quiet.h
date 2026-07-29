@@ -9,12 +9,18 @@
  * the program has stopped and the console has gone still, and this is
  * where that judgment belongs.
  *
- * Quiet means the firmware has spoken at least once, the 6502 is
- * stopped or halted, and a whole frame has passed with no console
- * byte moving. The first clause matters: a machine fresh out of reset
- * has a stopped 6502 and a silent console, and is not finished — it
- * has not started. The caller supplies the clock, because every test
- * feeds the staging window and captures console output its own way.
+ * Quiet means the 6502 is stopped or halted, a whole frame has passed
+ * with no console byte moving, and the firmware has got as far as
+ * running a program or refusing one. That last clause matters: a
+ * machine that has not started looks exactly like one that has
+ * finished, and waiting for the firmware to speak is not enough — it
+ * announces the load before performing it, so a load longer than a
+ * frame reads as a finished run and the test captures the boot
+ * console. The firmware clears the staging length when it is done with
+ * the image, accepted or not, which is the event to wait for; a test
+ * that stages nothing has only the 6502 to go by. The caller supplies
+ * the clock, because every test feeds the staging window and captures
+ * console output its own way.
  *
  * The halt line is now an alarm rather than a finish line: only a
  * firmware that fell off the end of main can raise it, so a run that
@@ -32,7 +38,11 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 600)
     long budget = frame_limit * 1700000L;
     long frames = 0;
     bool moved = false;
-    bool spoke = false;
+    bool ran = false;
+    /* An image waiting in the staging window; the firmware clears the
+     * length when it is done with it, run or refused. */
+    bool had_image = dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len != 0;
+    bool pending = had_image;
     uint16_t prev = dut->rp6502_scanline;
     while (frames < frame_limit && budget-- > 0)
     {
@@ -40,7 +50,11 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 600)
         if (dut->rp6502_rv_halted)
             return false;
         if (dut->rp6502_tx_valid || dut->rp6502_rv_tx_valid)
-            moved = spoke = true;
+            moved = true;
+        if (dut->rootp->rp6502__DOT__cpu_run)
+            ran = true;
+        if (pending && !dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len)
+            pending = false;
         uint16_t sl = dut->rp6502_scanline;
         bool frame_edge = sl == 0 && prev != 0;
         prev = sl;
@@ -49,7 +63,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 600)
         frames++;
         bool stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0
             || !dut->rootp->rp6502__DOT__cpu_run;
-        if (spoke && stopped && !moved)
+        if (!pending && (ran || had_image) && stopped && !moved)
             return true;
         moved = false;
     }

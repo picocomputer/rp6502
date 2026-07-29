@@ -167,10 +167,8 @@ def main():
     if args.emit_sv:
         out = [HEADER, "package vid_font_pkg;", "",
                "    /* verilator lint_off UNUSEDPARAM */", "",
-               sv_word_array("VID_FONT16_W", font16), "",
                sv_word_array("VID_FONT_DEC16_W", dec16), "",
                sv_word_array("VID_ITALIC16_W", italic16), "",
-               sv_word_array("VID_FONT8_W", font8), "",
                "    /* verilator lint_on UNUSEDPARAM */", "",
                "endpackage", ""]
         Path(args.emit_sv).write_text("\n".join(out))

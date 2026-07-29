@@ -38,6 +38,12 @@
  * vsync-line registers sit above the table. */
 #define VID_XPROG(line, plane, w) \
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
+/* The font store, a word at a time — byte lanes are what stop the fabric
+ * inferring a block RAM, so every write is aligned and whole. Face 0 is
+ * font16 at +0, face 1 font8 at +0x1000; the read-only faces above them
+ * ignore writes. */
+#define VID_FONT16 ((volatile uint32_t *)0x50040000u)
+#define VID_FONT8 ((volatile uint32_t *)0x50041000u)
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
 #define VID_OVERRUN (*(volatile uint32_t *)0x50028008u)

@@ -3781,6 +3781,11 @@ void font_init(void)
     font_set_code_page(437);
 }
 
+uint16_t font_get_code_page(void)
+{
+    return font_code_page;
+}
+
 void font_set_code_page(uint16_t cp)
 {
     const uint8_t *font8hi = NULL;
