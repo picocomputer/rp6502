@@ -96,9 +96,14 @@ module vid_mode4 (
     logic signed [15:0] d_t[6];
 
     /* The square's geometry; log sizes past seven cannot fit XRAM and
-     * skip on the size test exactly as the oracle's arithmetic does. */
+     * skip on the size test exactly as the oracle's arithmetic does.
+     * These are the shifts d_log used to drive, kept as registers
+     * rather than recomputed: every one of them stood in front of the
+     * address adder, so a variable shift and an add had to happen
+     * between a register and the XRAM's address port. */
     logic [7:0] size;
-    always_comb size = d_log[7:3] == 5'd0 ? 8'(8'd1 << d_log[2:0]) : 8'd0;
+    logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
+    logic [31:0] d_over;  /* the affine walk's out-of-square mask */
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
     /* The oracle computes byte_size in wrapping thirty-two bits, so a
@@ -114,7 +119,6 @@ module vid_mode4 (
         ? 18'($signed({8'd0, cw})) - 18'(x_start)
         : size_x0;
     logic [16:0] img_bytes;
-    always_comb img_bytes = 17'(17'd2 << {13'd0, d_log[2:0], 1'b0});
     logic [17:0] byte_size;
     always_comb byte_size = {1'b0, img_bytes}
         + (d_meta ? 18'({size, 2'b00}) : 18'd0);
@@ -164,13 +168,12 @@ module vid_mode4 (
     logic [31:0] af_u, af_v;
     logic [16:0] af_left;   /* pops remaining */
     logic af_over;
-    always_comb af_over =
-        ((af_u | af_v) & (32'hFFFF0000 << d_log[2:0])) != 32'd0;
+    always_comb af_over = ((af_u | af_v) & d_over) != 32'd0;
     logic [17:0] af_byte_addr;
     always_comb begin
         logic [6:0] ui, vi;
-        ui = 7'(af_u[22:16] & 7'((8'd1 << d_log[2:0]) - 8'd1));
-        vi = 7'(af_v[22:16] & 7'((8'd1 << d_log[2:0]) - 8'd1));
+        ui = af_u[22:16] & d_mask;
+        vi = af_v[22:16] & d_mask;
         af_byte_addr = {2'b0, d_sptr}
             + {10'd0, ui, 1'b0}
             + (18'({11'd0, vi}) << (d_log[2:0] + 4'd1));
@@ -264,6 +267,10 @@ module vid_mode4 (
             d_sptr <= '0;
             d_log <= '0;
             d_meta <= 1'b0;
+            size <= '0;
+            img_bytes <= '0;
+            d_mask <= '0;
+            d_over <= '0;
             for (int j = 0; j < 6; j++)
                 d_t[j] <= '0;
             fw_i <= '0;
@@ -334,6 +341,11 @@ module vid_mode4 (
                         d_sptr <= dc_sptr;
                         d_log <= dc_log;
                         d_meta <= dc_meta;
+                        size <= dc_log[7:3] == 5'd0
+                            ? 8'(8'd1 << dc_log[2:0]) : 8'd0;
+                        img_bytes <= 17'(17'd2 << {13'd0, dc_log[2:0], 1'b0});
+                        d_mask <= 7'((8'd1 << dc_log[2:0]) - 8'd1);
+                        d_over <= 32'hFFFF0000 << dc_log[2:0];
                         for (int j = 0; j < 6; j++)
                             d_t[j] <= dc_t[j];
                         state <= M4_JUDGE;
