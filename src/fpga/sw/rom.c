@@ -11,6 +11,14 @@
  * vectors land in the register cells with the SRAM keeping the shadow, and
  * both reset vector bytes must arrive or the image is rejected.
  *
+ * Suspend, for whoever tries it: this file is the reason it is not a
+ * flag flip. STAGE is the SDRAM, and a ROM with bundled assets keeps
+ * reading it for as long as the program runs — a load is not a copy
+ * that finishes. If the Pocket cuts power to the SDRAM while asleep,
+ * the reads after waking return whatever survived, and the program
+ * will not know. Anything that turns sleep on has to restage the slot
+ * before the machine runs again, or prove the store persists. The same
+ * goes for the fonts, which live in the last 64 KB of the same store.
  */
 
 #include "mmio.h"

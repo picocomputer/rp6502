@@ -114,8 +114,6 @@ static bool run_until_quiet(long *presses = nullptr)
         tick();
         if (g_sys == sys_before)
             continue;
-        if (presses && dut->rootp->tb_pocket__DOT__core__DOT__key_set)
-            (*presses)++;
 
         if (dut->tb_pocket_tx_valid || dut->tb_pocket_rv_tx_valid)
             moved = true;
@@ -376,25 +374,16 @@ UTEST(pocket, reload_with_a_button_held)
     host_load(second);
     dut->reset_n = 1;
 
-    /* Count deliveries into the machine's mailbox on the way. */
-    long presses = 0;
-    {
-        ASSERT_TRUE(run_until_quiet(&presses));
-    }
+    ASSERT_TRUE(run_until_quiet(nullptr));
 
-    /* The held press delivered itself exactly once after the reboot;
-     * the release follows. */
-    ASSERT_EQ(presses, 1L);
+    /* The pad is state, so a button held across a reboot is simply
+     * still held on the other side — there is no delivery to count
+     * and no edge to miss while the machine was away. */
+    ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__pad_key, 1u << 4);
     dut->cont1_key = 0;
     for (int i = 0; i < 4000; i++)
-    {
-        long sys_before = g_sys;
         tick();
-        if (g_sys != sys_before
-            && dut->rootp->tb_pocket__DOT__core__DOT__key_set)
-            presses++;
-    }
-    ASSERT_EQ(presses, 2L);
+    ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__pad_key, 0u);
 
     /* And the scaler re-armed on the new machine's frame. */
     run_and_compare(utest_result, "mode3_1bpp", false);

@@ -19,6 +19,15 @@
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
 #define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
+/* The controller and the dock's keyboard, as they stand. State, not
+ * events: a pad's release is the absence of a bit, and a keyboard
+ * report is a set whose order APF does not promise. */
+#define MMIO_PAD_KEY (*(volatile uint32_t *)0xF0000020u)
+#define MMIO_PAD_JOY (*(volatile uint32_t *)0xF0000024u)
+#define MMIO_PAD_TRIG (*(volatile uint32_t *)0xF0000028u)
+#define MMIO_KBD_KEY (*(volatile uint32_t *)0xF000002Cu)
+#define MMIO_KBD_JOY (*(volatile uint32_t *)0xF0000030u)
+#define MMIO_KBD_TRIG (*(volatile uint32_t *)0xF0000034u)
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)

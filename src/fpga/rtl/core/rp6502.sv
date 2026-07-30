@@ -75,6 +75,12 @@ module rp6502
     input logic [31:0] slot_len,
     input logic key_set,
     input logic [8:0] key_code,
+    input logic [31:0] pad_key,
+    input logic [31:0] pad_joy,
+    input logic [15:0] pad_trig,
+    input logic [31:0] kbd_key,
+    input logic [31:0] kbd_joy,
+    input logic [15:0] kbd_trig,
     output logic rp6502_key_pending,
 
     /* The composed picture, aligned with its data enable. */
@@ -225,6 +231,12 @@ module rp6502
         .slot_set(slot_set || slot_set_q),
         .slot_len(slot_len),
         .key_set(key_set || key_set_q),
+        .pad_key(pad_key),
+        .pad_joy(pad_joy),
+        .pad_trig(pad_trig),
+        .kbd_key(kbd_key),
+        .kbd_joy(kbd_joy),
+        .kbd_trig(kbd_trig),
         .key_code(key_code),
         .rv_soc_key_pending(rp6502_key_pending),
         .bus_rdy(!(bus_sel_xram && xr_busy)

@@ -25,6 +25,14 @@
  *   +28 HID key event: bit 9 valid, bit 8 down, low byte the HID
  *       keycode; popped by the read; the testbench fills it now, the
  *       APF input bridge will later
+ *   +32 the controller, three words: buttons and type, then the two
+ *       analog sticks, then the two triggers. Levels, not events —
+ *       a pad is a thing that is, where a key is a thing that
+ *       happened, and the two want different plumbing
+ *   +44 the dock's keyboard, three words: modifiers, then four scan
+ *       codes, then the last two. APF says the order codes appear in
+ *       is implementation-dependent, so this is a set and the
+ *       firmware rebuilds its bitmap from the whole of it
  *
  * Everything outside the TCM and the local page goes out the system bus,
  * with one wait state so the machine's single-cycle devices — SRAM port B,
@@ -47,6 +55,17 @@ module rv_soc #(
     input logic [31:0] slot_len,
     input logic key_set,
     input logic [8:0] key_code,
+    /* The controller, as it stands. Already synchronized; a level does
+     * not need a mailbox and would be wrong in one. */
+    input logic [31:0] pad_key,
+    input logic [31:0] pad_joy,
+    input logic [15:0] pad_trig,
+    /* The dock's keyboard: six scan codes across joy and trig, the
+     * modifiers in key. A report, not events — which is what a USB
+     * keyboard sends, and what the firmware rebuilds its bitmap from. */
+    input logic [31:0] kbd_key,
+    input logic [31:0] kbd_joy,
+    input logic [15:0] kbd_trig,
     output logic rv_soc_key_pending,
 
     output logic [7:0] rv_soc_tx_data,
@@ -157,7 +176,7 @@ module rv_soc #(
     logic [TCM_AW-1:0] dph_word;  // TCM word; strb carries the lanes
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
-    logic [4:0] mmio_reg;
+    logic [6:0] mmio_reg;
 
     always_comb hready = !(dph_active && dph_ext && !dph_waited);
 
@@ -216,7 +235,7 @@ module rv_soc #(
             dph_word <= haddr[TCM_AW+1:2];
             dph_addr <= haddr;
             dph_strb <= strb;
-            mmio_reg <= haddr[4:0];
+            mmio_reg <= haddr[6:0];
             dph_waited <= 1'b0;
         end else if (rv_soc_bus_stb) begin
             dph_waited <= 1'b1;
@@ -282,12 +301,18 @@ module rv_soc #(
             hrdata = bus_rdata;
         else if (dph_mmio)
             case (mmio_reg)
-                5'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
-                5'h0C: hrdata = {16'd0, rv_soc_phi2_khz};
-                5'h10: hrdata = mtime_us[31:0];
-                5'h14: hrdata = mtime_us[63:32];
-                5'h18: hrdata = mmio_slot_len;
-                5'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
+                7'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
+                7'h0C: hrdata = {16'd0, rv_soc_phi2_khz};
+                7'h10: hrdata = mtime_us[31:0];
+                7'h14: hrdata = mtime_us[63:32];
+                7'h18: hrdata = mmio_slot_len;
+                7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
+                7'h20: hrdata = pad_key;
+                7'h24: hrdata = pad_joy;
+                7'h28: hrdata = {16'd0, pad_trig};
+                7'h2C: hrdata = kbd_key;
+                7'h30: hrdata = kbd_joy;
+                7'h34: hrdata = {16'd0, kbd_trig};
                 default: hrdata = 32'h0;
             endcase
         else
@@ -310,9 +335,9 @@ module rv_soc #(
             rv_soc_phi2_khz <= 16'd8000;
         end else begin
             rv_soc_tx_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h08)
+            if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h08)
                 mmio_kbd_valid <= 1'b0;
-            if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h1C)
+            if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h1C)
                 mmio_key_valid <= 1'b0;
             if (slot_set)
                 mmio_slot_len <= slot_len;
@@ -322,16 +347,16 @@ module rv_soc #(
             end
             if (dph_active && dph_write && dph_mmio) begin
                 case (mmio_reg)
-                    5'h00: begin
+                    7'h00: begin
                         rv_soc_tx_data <= hwdata[7:0];
                         rv_soc_tx_valid <= 1'b1;
                     end
-                    5'h04: begin
+                    7'h04: begin
                         rv_soc_halted <= 1'b1;
                         rv_soc_exit_code <= hwdata;
                     end
-                    5'h0C: rv_soc_phi2_khz <= hwdata[15:0];
-                    5'h18: mmio_slot_len <= hwdata;
+                    7'h0C: rv_soc_phi2_khz <= hwdata[15:0];
+                    7'h18: mmio_slot_len <= hwdata;
                     default: ;
                 endcase
             end

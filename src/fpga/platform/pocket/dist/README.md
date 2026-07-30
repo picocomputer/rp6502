@@ -23,6 +23,29 @@ Everything the SD card needs except the binaries:
   reference images in the core-template submodule and requires byte
   equality, which is what proves the rotation goes the right way.
 
+## Suspend
+
+`core.json` says `"sleep_supported": false`, and it stays false until
+someone does the work below rather than because the flag is hard to
+change.
+
+The machine has no state worth saving and no way to save it: everything
+it is lives in the fabric, and there is no nonvolatile slot to put it
+in. That part is fine — waking to a reset machine is what a computer
+with a power switch does.
+
+What is not fine is the staged ROM. `src/fpga/sw/rom.c` reads assets
+straight out of the SDRAM staging window for as long as the program
+runs, and the glyphs sit in the last 64 KB of the same store. A load
+does not finish; it keeps going. So sleep is only safe if either the
+SDRAM is still being refreshed while the Pocket is asleep, or the core
+restages the slot on waking before it lets the machine run. Neither is
+established here, and the first is not ours to decide.
+
+Whoever picks this up: prove which of the two it is first, because a
+core that wakes reading a store nobody refreshed will not fail loudly
+— it will read plausible rubbish and hand it to a running program.
+
 ## Reading the console
 
 The machine's console — the 6502's `$FFE1` writes and the soft CPU's own

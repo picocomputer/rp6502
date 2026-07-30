@@ -11,13 +11,11 @@
  * rises only with the SDRAM awake and the slot settled, and the
  * length posts through the sideband two clocks after the rise, since
  * the machine's own reset clears the register it lands in. A host
- * re-reset re-posts it the same way. Controller buttons cross whole,
- * then leave as HID key events — dpad to arrows, A to Enter, B to
- * Escape, select to Tab, start to Enter — posted only into an empty
- * mailbox, so nothing is ever lost under a slow poll, and only while
- * the machine runs: across a reset the tracker clears, and a button
- * held through boot delivers itself the moment the firmware can
- * hear it. Completion arrives as a level from the bridge command
+ * re-reset re-posts it the same way. The controller and the dock's
+ * keyboard cross whole, as state, and go no further: the machine has
+ * had a gamepad and a keyboard since it was designed, so neither has
+ * to pretend to be the other. Completion arrives as a level from the
+ * bridge command
  * block — it clears only at the next slot request — so the settle
  * fires on its edge. A write into the 0x1 window — the interact
  * menu's "Reset 6502" action — dips the run gate for a moment: the
@@ -37,12 +35,16 @@ module pocket_bridge (
     output logic [9:0] pocket_bridge_dt_addr,
     input logic [31:0] datatable_q,
     input logic [31:0] cont1_key,
+    input logic [31:0] cont1_joy,
+    input logic [15:0] cont1_trig,
+    input logic [31:0] cont3_key,
+    input logic [31:0] cont3_joy,
+    input logic [15:0] cont3_trig,
 
     /* The machine's domain. */
     input logic clk_sys,
     input logic rst_n,
     input logic sdram_ready,
-    input logic key_busy,
     input logic w_take,
     output logic pocket_bridge_w_avail,
     output logic [24:0] pocket_bridge_w_addr,
@@ -50,8 +52,12 @@ module pocket_bridge (
     output logic pocket_bridge_run,
     output logic pocket_bridge_slot_set,
     output logic [31:0] pocket_bridge_slot_len,
-    output logic pocket_bridge_key_set,
-    output logic [8:0] pocket_bridge_key_code
+    output logic [31:0] pocket_bridge_pad_key,
+    output logic [31:0] pocket_bridge_pad_joy,
+    output logic [15:0] pocket_bridge_pad_trig,
+    output logic [31:0] pocket_bridge_kbd_key,
+    output logic [31:0] pocket_bridge_kbd_joy,
+    output logic [15:0] pocket_bridge_kbd_trig
 );
 
     /* --- Slot words into halfword writes, clk_74a side. --- */
@@ -208,57 +214,50 @@ module pocket_bridge (
     always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready
         && urst_cnt == '0;
 
-    /* --- Buttons to key events, clk_sys side. ---
-     * The bitmap crosses whole (buttons are slow); each mapped edge
-     * leaves as one press or release, paced 4,096 clocks apart so the
-     * firmware's poll never loses one under another. */
-    localparam int KEYS = 12;
-    localparam logic [4:0] BTN[KEYS] = '{
-        5'd0, 5'd1, 5'd2, 5'd3, 5'd4, 5'd5,
-        5'd6, 5'd7, 5'd8, 5'd9, 5'd14, 5'd15
-    };
-    localparam logic [7:0] HID[KEYS] = '{
-        8'h52, 8'h51, 8'h50, 8'h4F, /* up down left right */
-        8'h28, 8'h29,               /* a enter, b escape */
-        8'h2C, 8'h2A,               /* x space, y backspace */
-        8'h4B, 8'h4E,               /* l pgup, r pgdn */
-        8'h2B, 8'h28                /* select tab, start enter */
-    };
-
-    logic [31:0] keys_s1, keys_s2;
-    logic [KEYS-1:0] reported;
-    logic [4:0] pace;
+    /* --- The controller, and the dock's keyboard. ---
+     *
+     * The pad crosses as state, because state is what it is: a level
+     * needs no mailbox and would be wrong in one, losing the release
+     * that a game reads as a held button. Whole words cross on two
+     * flops the way the buttons always did, and land only when two
+     * consecutive samples agree, so a word never carries half of one
+     * poll and half of the next. APF repolls every 882 us, which is
+     * hundreds of machine clocks between changes, so agreeing costs
+     * nothing and tearing an axis would be visible.
+     *
+     * Nothing here turns a button into a key any more. The machine has
+     * had a gamepad since it was designed and did not need the pad to
+     * pretend; the keys below are the dock's own keyboard, arriving as
+     * scan codes on the third slot the way APF sends them. */
+    logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2, kk_s1, kk_s2, kj_s1, kj_s2;
+    logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
-            keys_s1 <= '0;
-            keys_s2 <= '0;
-            reported <= '0;
-            pace <= '0;
-            pocket_bridge_key_set <= 1'b0;
-            pocket_bridge_key_code <= '0;
+            pk_s1 <= '0; pk_s2 <= '0;
+            pj_s1 <= '0; pj_s2 <= '0;
+            pt_s1 <= '0; pt_s2 <= '0;
+            kk_s1 <= '0; kk_s2 <= '0;
+            kj_s1 <= '0; kj_s2 <= '0;
+            kt_s1 <= '0; kt_s2 <= '0;
+            pocket_bridge_pad_key <= '0;
+            pocket_bridge_pad_joy <= '0;
+            pocket_bridge_pad_trig <= '0;
+            pocket_bridge_kbd_key <= '0;
+            pocket_bridge_kbd_joy <= '0;
+            pocket_bridge_kbd_trig <= '0;
         end else begin
-            keys_s1 <= cont1_key;
-            keys_s2 <= keys_s1;
-            pocket_bridge_key_set <= 1'b0;
-            if (!pocket_bridge_run) begin
-                /* No mailbox to hear an edge: the tracker clears, and
-                 * whatever is held at release delivers itself then. */
-                reported <= '0;
-                pace <= 5'h1F;
-            end else if (pace != '0) begin
-                pace <= pace - 5'd1;
-            end else if (!key_busy) begin
-                for (int k = 0; k < KEYS; k++) begin
-                    if (keys_s2[BTN[k]] != reported[k]) begin
-                        reported[k] <= keys_s2[BTN[k]];
-                        pocket_bridge_key_code <=
-                            {keys_s2[BTN[k]], HID[k]};
-                        pocket_bridge_key_set <= 1'b1;
-                        pace <= 5'h1F;
-                        break;
-                    end
-                end
-            end
+            pk_s1 <= cont1_key;  pk_s2 <= pk_s1;
+            pj_s1 <= cont1_joy;  pj_s2 <= pj_s1;
+            pt_s1 <= cont1_trig; pt_s2 <= pt_s1;
+            kk_s1 <= cont3_key;  kk_s2 <= kk_s1;
+            kj_s1 <= cont3_joy;  kj_s2 <= kj_s1;
+            kt_s1 <= cont3_trig; kt_s2 <= kt_s1;
+            if (pk_s1 == pk_s2) pocket_bridge_pad_key <= pk_s2;
+            if (pj_s1 == pj_s2) pocket_bridge_pad_joy <= pj_s2;
+            if (pt_s1 == pt_s2) pocket_bridge_pad_trig <= pt_s2;
+            if (kk_s1 == kk_s2) pocket_bridge_kbd_key <= kk_s2;
+            if (kj_s1 == kj_s2) pocket_bridge_kbd_joy <= kj_s2;
+            if (kt_s1 == kt_s2) pocket_bridge_kbd_trig <= kt_s2;
         end
     end
 

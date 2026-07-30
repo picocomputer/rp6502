@@ -47,8 +47,8 @@ def decode(data: bytes, width: int, height: int) -> np.ndarray:
 
 
 def fit(src: Image.Image, width: int, height: int,
-        invert: bool = False) -> np.ndarray:
-    """Whole picture, aspect kept, centred on the field the marks sit on."""
+        invert: bool = False, left: bool = False) -> np.ndarray:
+    """Whole picture, aspect kept, on the field the marks sit on."""
     gray = src.convert("L")
     if invert:
         gray = Image.eval(gray, lambda v: 255 - v)
@@ -56,8 +56,8 @@ def fit(src: Image.Image, width: int, height: int,
     w = max(1, round(gray.width * scale))
     h = max(1, round(gray.height * scale))
     gray = gray.resize((w, h), Image.LANCZOS)
-    field = Image.new("L", (width, height), 255)
-    field.paste(gray, ((width - w) // 2, (height - h) // 2))
+    field = Image.new("L", (width, height), 0 if invert else 255)
+    field.paste(gray, (0 if left else (width - w) // 2, (height - h) // 2))
     return np.asarray(field, dtype=np.uint8)
 
 
@@ -89,15 +89,16 @@ def main() -> int:
     if args and args[0] == "--selftest":
         return selftest(Path(args[1]))
     invert = "--invert" in args
-    args = [a for a in args if a != "--invert"]
+    left = "--left" in args
+    args = [a for a in args if a not in ("--invert", "--left")]
     if len(args) != 4:
-        print("usage: pocket_image_gen.py [--invert] <src.png> <out.bin> "
-              "<w> <h>\n"
+        print("usage: pocket_image_gen.py [--invert] [--left] <src.png> "
+              "<out.bin> <w> <h>\n"
               "       pocket_image_gen.py --selftest <core-template dir>",
               file=sys.stderr)
         return 2
     width, height = int(args[2]), int(args[3])
-    data = encode(fit(Image.open(args[0]), width, height, invert))
+    data = encode(fit(Image.open(args[0]), width, height, invert, left))
     Path(args[1]).write_bytes(data)
     print(f"{args[1]}: {width}x{height}, {len(data)} bytes")
     return 0

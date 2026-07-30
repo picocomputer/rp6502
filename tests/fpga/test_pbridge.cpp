@@ -59,8 +59,8 @@ static void advance_to(long t_end)
             dut->clk_sys = 0;
             s_next += 330;
             g_sys_edges++;
-            if (dut->tb_pbridge_key_set)
-                g_keys.push_back({(int)dut->tb_pbridge_key_code,
+            if (false)
+                g_keys.push_back({0,
                                   g_sys_edges});
             if (dut->tb_pbridge_slot_set)
             {
@@ -208,7 +208,6 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
      * through the whole reload must deliver itself at the release. */
     dut->reset_n = 0;
     dut->dataslot_allcomplete = 0;
-    g_keys.clear();
     dut->cont1_key = 1u << 15; /* start, held from here */
     a_cycles(10);
     std::vector<uint8_t> img2(400);
@@ -216,7 +215,6 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
         img2[i] = (uint8_t)(200 - i);
     dut->datatable_q = (uint32_t)img2.size();
     host_stream(img2, 88);
-    ASSERT_EQ((int)g_keys.size(), 0); /* no mailbox, no events */
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;
     a_cycles(30);
@@ -227,29 +225,40 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
         ASSERT_EQ(stage_read(h),
                   (uint16_t)(img2[h * 2] | (img2[h * 2 + 1] << 8)));
 
-    /* The held button delivered itself once the machine could hear. */
-    ASSERT_EQ((int)g_keys.size(), 1);
-    ASSERT_EQ(g_keys[0].code, 0x128); /* start pressed, maps Enter */
+    /* The pad crosses as state, so the held button simply stands
+     * there — no event, nothing to miss, and nothing to deliver late.
+     * A release is the absence of the bit, which is the whole reason
+     * a pad must not go through the key mailbox. */
+    ASSERT_EQ(dut->tb_pbridge_pad_key, 1u << 15);
     dut->cont1_key = 0;
     advance_to(s_next + 330L * 200);
-    ASSERT_EQ((int)g_keys.size(), 2);
-    ASSERT_EQ(g_keys[1].code, 0x028);
+    ASSERT_EQ(dut->tb_pbridge_pad_key, 0u);
 
-    /* Controller edges: two pressed together leave as two events in
-     * table order, spaced by the posting floor. */
-    g_keys.clear();
+    /* Two at once are one word, not two events in some order. The
+     * analog words carry across whole, and only when two consecutive
+     * samples agree, so an axis never shows half of one poll. */
     dut->cont1_key = (1u << 1) | (1u << 4); /* down + A */
+    dut->cont1_joy = 0x20C04080u;
+    dut->cont1_trig = 0x1234;
     advance_to(s_next + 330L * 200);
-    dut->cont1_key = 0;
-    advance_to(s_next + 330L * 200);
+    ASSERT_EQ(dut->tb_pbridge_pad_key, (1u << 1) | (1u << 4));
+    ASSERT_EQ(dut->tb_pbridge_pad_joy, 0x20C04080u);
+    ASSERT_EQ((int)dut->tb_pbridge_pad_trig, 0x1234);
 
-    ASSERT_EQ((int)g_keys.size(), 4);
-    ASSERT_EQ(g_keys[0].code, 0x151); /* down pressed  */
-    ASSERT_EQ(g_keys[1].code, 0x128); /* A pressed     */
-    ASSERT_EQ(g_keys[2].code, 0x051); /* down released */
-    ASSERT_EQ(g_keys[3].code, 0x028); /* A released    */
-    ASSERT_GE(g_keys[1].at - g_keys[0].at, 32L);
-    ASSERT_GE(g_keys[3].at - g_keys[2].at, 32L);
+    /* The dock's keyboard is its own slot and does not touch the pad. */
+    dut->cont3_key = 0x40000002u; /* type 4, left-shift held */
+    dut->cont3_joy = 0x04050607u;
+    dut->cont3_trig = 0x0809;
+    advance_to(s_next + 330L * 200);
+    ASSERT_EQ(dut->tb_pbridge_kbd_key, 0x40000002u);
+    ASSERT_EQ(dut->tb_pbridge_kbd_joy, 0x04050607u);
+    ASSERT_EQ((int)dut->tb_pbridge_kbd_trig, 0x0809);
+    ASSERT_EQ(dut->tb_pbridge_pad_key, (1u << 1) | (1u << 4));
+
+    dut->cont1_key = 0;
+    dut->cont1_joy = 0;
+    dut->cont1_trig = 0;
+    advance_to(s_next + 330L * 200);
 
     /* The interact "Reset 6502" action: one bridge write into the
      * 0x1 window reboots the machine — run dips, rises, and the slot
@@ -272,16 +281,11 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     ASSERT_GT(g_slot_sets.size(), posts_before);
     ASSERT_EQ(g_slot_lens.back(), (uint32_t)img2.size());
 
-    /* A full mailbox blocks the post; nothing is lost waiting. */
-    g_keys.clear();
-    dut->key_busy = 1;
+    /* There is no mailbox to fill and nothing to pace against: state
+     * that stands is state the firmware reads whenever it looks. */
     dut->cont1_key = 1u << 2; /* left */
     advance_to(s_next + 330L * 500);
-    ASSERT_EQ((int)g_keys.size(), 0);
-    dut->key_busy = 0;
-    advance_to(s_next + 330L * 200);
-    ASSERT_EQ((int)g_keys.size(), 1);
-    ASSERT_EQ(g_keys[0].code, 0x150); /* left pressed, kept whole */
+    ASSERT_EQ(dut->tb_pbridge_pad_key, 1u << 2);
     dut->cont1_key = 0;
     advance_to(s_next + 330L * 200);
 }

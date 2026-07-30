@@ -578,6 +578,11 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .datatable_q          ( datatable_q ),
 
     .cont1_key ( cont1_key ),
+    .cont1_joy ( cont1_joy ),
+    .cont1_trig ( cont1_trig ),
+    .cont3_key ( cont3_key ),
+    .cont3_joy ( cont3_joy ),
+    .cont3_trig ( cont3_trig ),
 
     .pocket_core_rgb  ( m_rgb ),
     .pocket_core_de   ( m_de ),

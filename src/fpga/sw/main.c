@@ -14,6 +14,7 @@
 #include "kbd.h"
 #include "main.h"
 #include "mmio.h"
+#include "pad.h"
 #include "rom.h"
 #include "vga.h"
 #include "vid.h"
@@ -115,6 +116,8 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
     /* HID report blocks and audio; the rest arrive with their engines. */
     if (channel == 0 && address == 0)
         return kbd_set_xram(word);
+    if (channel == 0 && address == 2)
+        return pad_set_xram(word);
     if (channel == 1 && address == 0)
         return aud_psg_xreg(word);
     return false;
@@ -311,6 +314,11 @@ bool main_api(uint8_t operation)
         return api_return_ax(val + 1);
     }
     default:
+        /* The filesystem calls land here: no directory to open, no file
+         * to seek. If sleep is ever supported, look again at what a
+         * stub like this owes a program that was mid-anything when the
+         * lid closed - and at src/fpga/sw/rom.c, which is still reading
+         * the staging store long after a load looks finished. */
         return api_return_errno(API_ENOSYS);
     }
 }
@@ -402,6 +410,7 @@ int main(void)
             }
         }
         kbd_task();
+        pad_task();
         std_task();
         com_task();
         rln_task();

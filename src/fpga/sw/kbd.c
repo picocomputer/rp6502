@@ -3,12 +3,19 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The HID keyboard bitmap of ria/hid/kbd.c, fed by the platform's key
- * events instead of TinyUSB reports. A program maps the 256-bit bitmap
- * into XRAM through the device-0 xreg; each key event flips its bit and
- * rewrites the block. Word 0's low bits are reserved: bit 0 says no keys
- * are pressed, bits 1-3 mirror the lock LEDs — no lock handling here, so
- * they stay clear.
+ * The HID keyboard bitmap of ria/hid/kbd.c, fed by the dock's keyboard
+ * instead of TinyUSB. A program maps the 256-bit bitmap into XRAM
+ * through the device-0 xreg. Word 0's low bits are reserved: bit 0 says
+ * no keys are pressed, bits 1-3 mirror the lock LEDs — no lock handling
+ * here, so they stay clear.
+ *
+ * APF hands over a report, not events: up to six scan codes and the
+ * modifiers, and it says plainly that "the order in which scan codes
+ * appear in the registers is implementation-dependent". So the six are
+ * a set and the bitmap is rebuilt from the whole of it every poll —
+ * which is what a USB keyboard sends anyway. Watching for edges in a
+ * set whose order is not promised would invent releases every time a
+ * key changed slots.
  */
 
 #include "kbd.h"
@@ -43,19 +50,35 @@ bool kbd_set_xram(uint16_t addr)
     return true;
 }
 
+static void kbd_press(uint8_t code)
+{
+    /* Keycodes 0-3 are reserved; their bits in word 0 are the flags. */
+    if (code >= 4)
+        kbd_keys[code >> 5] |= 1u << (code & 31);
+}
+
 void kbd_task(void)
 {
-    uint32_t k = MMIO_HIDKEY;
-    if (!(k & 0x200))
-        return;
-    uint8_t code = k & 0xFF;
-    /* Keycodes 0-3 are reserved; their bits in word 0 are the flags. */
-    if (code < 4)
-        return;
-    if (k & 0x100)
-        kbd_keys[code >> 5] |= 1u << (code & 31);
-    else
-        kbd_keys[code >> 5] &= ~(1u << (code & 31));
+    uint32_t mod = MMIO_KBD_KEY;
+    uint32_t codes = MMIO_KBD_JOY;
+    uint32_t more = MMIO_KBD_TRIG;
+
+    memset(kbd_keys, 0, sizeof(kbd_keys));
+    /* Type 4 is the dock's keyboard; anything else is not one, and its
+     * words mean something else entirely. */
+    if ((mod >> 28) == 4) {
+        kbd_press((uint8_t)(codes >> 24));
+        kbd_press((uint8_t)(codes >> 16));
+        kbd_press((uint8_t)(codes >> 8));
+        kbd_press((uint8_t)codes);
+        kbd_press((uint8_t)(more >> 8));
+        kbd_press((uint8_t)more);
+        /* The eight standard modifiers are keycodes 0xE0 to 0xE7, in
+         * the order the HID report byte packs them. */
+        for (int i = 0; i < 8; i++)
+            if (mod & (1u << i))
+                kbd_press((uint8_t)(0xE0 + i));
+    }
     kbd_write_xram();
 }
 

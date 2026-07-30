@@ -36,6 +36,13 @@ module pocket_core #(
     output logic [9:0] pocket_core_dt_addr,
     input logic [31:0] datatable_q,
     input logic [31:0] cont1_key,
+    input logic [31:0] cont1_joy,
+    input logic [15:0] cont1_trig,
+    /* The dock puts its keyboard on the third slot: six scan codes
+     * across joy and trig, the modifiers in key. */
+    input logic [31:0] cont3_key,
+    input logic [31:0] cont3_joy,
+    input logic [15:0] cont3_trig,
 
     /* The scaler. */
     output logic [23:0] pocket_core_rgb,
@@ -74,10 +81,16 @@ module pocket_core #(
     logic mrst_n;
     always_comb mrst_n = rst_n && run;
 
-    logic slot_set, key_set;
-    logic [31:0] slot_len;
-    logic [8:0] key_code;
+    logic slot_set;
+    /* The Pocket sends no key events; its keyboard arrives as a report
+     * and its pad as state. The machine's event mailbox stays for the
+     * testbenches, which is the only thing that fills it. */
+    /* The machine still offers its key mailbox; nothing on the Pocket
+     * fills it, so nothing here reads whether it is full. */
     logic key_pending;
+    logic [31:0] pad_key, pad_joy, kbd_key, kbd_joy;
+    logic [15:0] pad_trig, kbd_trig;
+    logic [31:0] slot_len;
 
     logic w_avail, w_take;
     logic [24:0] w_addr;
@@ -94,6 +107,11 @@ module pocket_core #(
         .pocket_bridge_dt_addr(pocket_core_dt_addr),
         .datatable_q(datatable_q),
         .cont1_key(cont1_key),
+        .cont1_joy(cont1_joy),
+        .cont1_trig(cont1_trig),
+        .cont3_key(cont3_key),
+        .cont3_joy(cont3_joy),
+        .cont3_trig(cont3_trig),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sdram_ready(pocket_core_ready),
@@ -104,9 +122,12 @@ module pocket_core #(
         .pocket_bridge_run(run),
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
-        .pocket_bridge_key_set(key_set),
-        .pocket_bridge_key_code(key_code),
-        .key_busy(key_pending)
+        .pocket_bridge_pad_key(pad_key),
+        .pocket_bridge_pad_joy(pad_joy),
+        .pocket_bridge_pad_trig(pad_trig),
+        .pocket_bridge_kbd_key(kbd_key),
+        .pocket_bridge_kbd_joy(kbd_joy),
+        .pocket_bridge_kbd_trig(kbd_trig)
     );
 
     /* Staging: the machine's byte fetch against the halfword store. */
@@ -172,8 +193,14 @@ module pocket_core #(
         .stage_rdata(stage_rdata),
         .slot_set(slot_set),
         .slot_len(slot_len),
-        .key_set(key_set),
-        .key_code(key_code),
+        .key_set(1'b0),
+        .key_code(9'd0),
+        .pad_key(pad_key),
+        .pad_joy(pad_joy),
+        .pad_trig(pad_trig),
+        .kbd_key(kbd_key),
+        .kbd_joy(kbd_joy),
+        .kbd_trig(kbd_trig),
         .rp6502_key_pending(key_pending),
         .rp6502_vid_pixel(vid_pixel),
         .rp6502_vid_de(vid_de),
@@ -216,6 +243,8 @@ module pocket_core #(
     );
 
     /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_pocket_core_key;
+    always_comb unused_pocket_core_key = key_pending;
     logic unused_pocket_core;
     always_comb unused_pocket_core = ^{rx_taken, rv_exit_code, scanline,
                                        stage_addr[27:26]};
