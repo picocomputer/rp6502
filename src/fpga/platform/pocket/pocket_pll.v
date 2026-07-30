@@ -32,6 +32,18 @@ module pocket_pll (
     output wire clk_vid,   //  25.2 MHz
     output wire clk_dram,  //  50.4 MHz, half a period late
     output wire clk_vid_90,//  25.2 MHz, a quarter period late
+    /* The soft CPU's own clock. Half the machine's and rising with it,
+     * which is the whole point of taking it from here: a toggle in the
+     * fabric rises after the machine's registers have settled at the
+     * same edge, and a master clocked that late reads a ready the
+     * machine has not published yet.
+     *
+     * It asks for its own counter and Quartus merges it with the pixel
+     * clock's, the two being the same frequency and phase. Asking
+     * anyway says which of them the soft CPU is entitled to: the pixel
+     * clock's phase belongs to the scaler and may move for the scaler's
+     * reasons, and this one may not move at all. */
+    output wire clk_rv,    //  25.2 MHz, rising with clk_sys
     output wire locked
 );
 
@@ -47,12 +59,13 @@ module pocket_pll (
     assign clk_vid  = outclk[1];
     assign clk_dram = outclk[2];
     assign clk_vid_90 = outclk[3];
+    assign clk_rv   = outclk[4];
 
     altera_pll #(
         .fractional_vco_multiplier("true"),
         .reference_clock_frequency("74.25 MHz"),
         .operation_mode("normal"),
-        .number_of_clocks(4),
+        .number_of_clocks(5),
         .output_clock_frequency0("50.400000 MHz"),
         .phase_shift0("0 ps"),
         .duty_cycle0(50),
@@ -65,7 +78,7 @@ module pocket_pll (
         .output_clock_frequency3("25.200000 MHz"),
         .phase_shift3(VID_SHIFT),
         .duty_cycle3(50),
-        .output_clock_frequency4("0 MHz"),
+        .output_clock_frequency4("25.200000 MHz"),
         .phase_shift4("0 ps"),
         .duty_cycle4(50),
         .pll_type("General"),

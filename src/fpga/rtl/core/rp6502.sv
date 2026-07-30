@@ -40,6 +40,11 @@ module rp6502
     parameter int SYS_KHZ = 50400
 ) (
     input logic clk_sys,
+    /* The soft CPU's clock: half clk_sys and rising with it. Made
+     * outside, because a divider made here rises after this module's
+     * own registers have settled at the same edge, and a master clocked
+     * that late reads a ready the machine has not published. */
+    input logic clk_rv,
     input logic rst_n,
 
     /* Console: TX bytes out of $FFE1, RX bytes offered toward $FFE2. */
@@ -162,8 +167,40 @@ module rp6502
         .via_irq(via_irq)
     );
 
-    /* The soft CPU and its window on the machine. */
+    /* The soft CPU and its window on the machine.
+     *
+     * Its clock is half this one, so every level it drives stands for
+     * two machine clocks and every pulse the machine sends can fall
+     * between two of its edges. Three signals care, and all three are
+     * fixed here rather than in rv_soc, which does not know it is being
+     * clocked slowly.
+     *
+     * The strobe and the console valid are levels the machine must act
+     * on exactly once: narrowed to their first machine clock. Going the
+     * other way, slot_set and key_set are one machine clock wide and
+     * would fall between the soft CPU's edges: held for two, which
+     * always spans one, and both carry a value the far side is holding
+     * anyway, so arriving twice costs nothing. */
+    logic bus_stb_raw, bus_stb_q;
+    logic rv_tx_valid_raw, rv_tx_valid_q;
+    logic slot_set_q, key_set_q;
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n) begin
+            bus_stb_q <= 1'b0;
+            rv_tx_valid_q <= 1'b0;
+            slot_set_q <= 1'b0;
+            key_set_q <= 1'b0;
+        end else begin
+            bus_stb_q <= bus_stb_raw;
+            rv_tx_valid_q <= rv_tx_valid_raw;
+            slot_set_q <= slot_set;
+            key_set_q <= key_set;
+        end
+    end
+    always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
+
     logic bus_stb, bus_we, bus_pend;
+    always_comb bus_stb = bus_stb_raw && !bus_stb_q;
     logic [31:0] bus_addr, bus_wdata;
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
@@ -178,22 +215,22 @@ module rp6502
         .MTIME_WRAP(SYS_KHZ / 100),
         .TCM_INIT_FILE(TCM_INIT_FILE)
     ) rv (
-        .clk(clk_sys),
+        .clk(clk_rv),
         .rst_n(rst_n),
         .rv_soc_phi2_khz(phi2_khz),
         .rv_soc_tx_data(rp6502_rv_tx_data),
-        .rv_soc_tx_valid(rp6502_rv_tx_valid),
+        .rv_soc_tx_valid(rv_tx_valid_raw),
         .rv_soc_halted(rp6502_rv_halted),
         .rv_soc_exit_code(rp6502_rv_exit_code),
-        .slot_set(slot_set),
+        .slot_set(slot_set || slot_set_q),
         .slot_len(slot_len),
-        .key_set(key_set),
+        .key_set(key_set || key_set_q),
         .key_code(key_code),
         .rv_soc_key_pending(rp6502_key_pending),
         .bus_rdy(!(bus_sel_xram && xr_busy)
                  && !(bus_sel_stage && stage_stall)),
         .rv_soc_bus_pend(bus_pend),
-        .rv_soc_bus_stb(bus_stb),
+        .rv_soc_bus_stb(bus_stb_raw),
         .rv_soc_bus_we(bus_we),
         .rv_soc_bus_addr(bus_addr),
         .rv_soc_bus_wdata(bus_wdata),

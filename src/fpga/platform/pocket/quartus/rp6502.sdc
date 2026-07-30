@@ -19,6 +19,13 @@
 # constraint that lies.
 
 create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
+# The soft CPU's, half clk_sys and rising with it. Declared against the
+# same waveform rather than as an independent clock, because that is
+# what the PLL makes and what the crossings are written against: the
+# analyzer must see the two as one synchronous group, not as a domain
+# crossing it should cut.
+create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
+    [get_ports clk_rv]
 derive_clock_uncertainty
 
 # The machine's ports are testbench-facing; the platform owns the pads.

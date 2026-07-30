@@ -30,6 +30,8 @@
 #include <vector>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 static std::vector<uint8_t> rom;
 
 static long g_valids;
@@ -49,8 +51,11 @@ static void clock_cycle()
 {
     uint32_t a = dut->rp6502_stage_addr;
     dut->stage_rdata = tb_stage(rom, a);
+    rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
     dut->clk_sys = 1;
     dut->eval();
+    dut->clk_rv = 0;
     dut->clk_sys = 0;
     dut->eval();
     if (dut->rp6502_aud_valid)

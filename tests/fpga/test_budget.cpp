@@ -44,6 +44,8 @@
 #include <vector>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 
 #define PLANE_STATE(n) \
     dut->rootp->rp6502__DOT__gen_mode__BRA__##n##__KET____DOT__vid_mode__DOT__state
@@ -84,8 +86,11 @@ struct budget_t
 
 static void clock_cycle()
 {
+    rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
     dut->clk_sys = 1;
     dut->eval();
+    dut->clk_rv = 0;
     dut->clk_sys = 0;
     dut->eval();
 }

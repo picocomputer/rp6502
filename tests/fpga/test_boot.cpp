@@ -23,6 +23,8 @@
 #include <string>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 
 /* The terminal's cells live as four byte-lane arrays so the fabric can
  * hold them in memory; a whole cell is those lanes stacked. */
@@ -61,9 +63,12 @@ UTEST(boot, firmware_boots_the_6502)
     dut->rst_n = 0;
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
     }
     dut->rst_n = 1;
@@ -91,9 +96,12 @@ UTEST(boot, firmware_boots_the_6502)
                 dut->rootp->rp6502__DOT__rv__DOT__mmio_kbd_valid = 1;
             }
         }
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
         if (dut->rp6502_rv_tx_valid)
             rv_out.push_back((char)dut->rp6502_rv_tx_data);

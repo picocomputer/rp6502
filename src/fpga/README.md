@@ -83,20 +83,36 @@ enough that mode 3's unconditional load is the wrong trade for them too.
 
 Worth doing when the render needs the clocks. It does not today.
 
-## Unfinished: the soft CPU's own clock
+## The soft CPU's own clock
 
 Hazard3's frontend is the only block that cannot make 50.4 MHz — it wants
-about 23 ns and has 19.8. Everything else on the fabric closes. The intended
-answer is to run it at 25.2, half the machine, which it has room for several
-times over.
+about 23 ns and has 19.8. Everything else on the fabric closes. So it runs at
+25.2, half the machine, on `clk_rv`.
 
-The domain crossing itself is exactly 2:1 and edge aligned, so nothing about
-it is asynchronous, but a pulse changes width in each direction and three
-places care:
+That clock comes from the PLL and not from a divider here, and the difference
+is the whole story of why this took a second attempt. A toggle flop clocked on
+`posedge clk_sys` produces a half-rate clock whose edge lands *after* this
+module's own registers have settled at the same machine edge. A master clocked
+that late samples a `bus_rdy` the machine has not published yet: it sets
+`dph_waited` and retires the access in the very machine cycle the strobe first
+went high, so `bus_stb` is never 1 at any machine edge and `bus_rsel`,
+`stage_addr_q` and `regs_b_q` never latch. The read returns whatever the
+previous window was driving.
+
+Only accesses that *stall* are affected, because only they have a `bus_rdy`
+that starts low and rises later — which is every even byte of the staged ROM,
+the odd one being served from the held halfword with the ready already up. So
+half the image came back as the previous window's data, `#!RP6502` failed to
+compare, and the loader said `rom: bad image`. The bare machine escaped it
+because its staging window never stalls. That is why this looked for a long
+time like a `pocket_sdram` fault. It was not; the controller was always right.
+
+The ratio is exactly 2:1 and edge aligned, so nothing here is asynchronous,
+but a pulse still changes width in each direction and three places care:
 
 - `bus_stb` is one soft-CPU clock, which is two of the machine's. The slave
   acts on the level, and acting twice pops a console ring twice and loses the
-  byte between. Narrow it to its rising edge.
+  byte between. Narrowed to its rising edge.
 - `rv_soc_tx_valid` reaches a top-level port that testbenches count characters
   on. Same treatment, or every character counts twice.
 - `slot_set` and `key_set` are one machine clock wide going the other way, and
@@ -104,17 +120,11 @@ places care:
   Held for two it always spans one, and both land a value the far side is
   holding anyway, so being seen twice is harmless.
 
-All three were written and work. What does not work is the staged ROM load
-through the real SDRAM: at half rate the loader reports `rom: bad image`,
-where at full rate with the same adaptations it reports `rom: staged`. The
-bare machine, whose staging window is served by the testbench with no
-latency, loads correctly at half rate — so it is the pocket_sdram handshake
-that minds a master slower than the bus, not the crossing.
+A testbench that drives `clk_rv` must rise it *with* `clk_sys`, never off a
+flop, or it models the bug rather than the machine. It must also eval once
+with both clocks low before the first edge: Verilator seeds its
+previous-clock values inside the first `eval`, so an edge raised before that
+is swallowed, and `rv_soc`'s asynchronous reset can miss its only window.
+`tb_core.cpp` does this; two hand-rolled harnesses did not, and their first
+subtest ran with the soft CPU's registers still at zero.
 
-`pocket_sdram_rvalid` is already qualified by the address it holds, so the
-obvious stale-hold race is not the answer, and the next person should start
-by watching `stage_pend`, `stage_rvalid` and `stage_stall` across one byte
-fetch with the divider in.
-
-Reproduce by dividing clk_sys by two into `rv_soc`'s clock in rp6502.sv and
-running test_pocket with POCKET_DEBUG=1.

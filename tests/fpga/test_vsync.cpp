@@ -20,11 +20,16 @@
 #include <vector>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 
 static void clock_cycle()
 {
+    rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
     dut->clk_sys = 1;
     dut->eval();
+    dut->clk_rv = 0;
     dut->clk_sys = 0;
     dut->eval();
 }
@@ -157,6 +162,14 @@ int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vrp6502;
+    /* Verilator seeds its edge detectors from the first eval, so a model
+     * first evaluated with a clock already high never sees that edge.
+     * clk_rv rises once in the two cycles reset is held, and losing it
+     * loses the soft CPU's asynchronous reset with it. */
+    dut->clk_sys = 0;
+    dut->clk_rv = 0;
+    dut->rst_n = 0;
+    dut->eval();
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

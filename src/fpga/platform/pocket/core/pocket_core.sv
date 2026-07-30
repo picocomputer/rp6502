@@ -21,6 +21,8 @@ module pocket_core #(
     /* Clocks and the platform reset. */
     input logic clk_74a,
     input logic clk_sys,
+    /* Half clk_sys, rising with it; see pocket_pll. */
+    input logic clk_rv,
     input logic clk_vid,
     input logic rst_n,
     input logic arst_n,
@@ -153,6 +155,7 @@ module pocket_core #(
 
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE)) machine (
         .clk_sys(clk_sys),
+        .clk_rv(clk_rv),
         .rst_n(mrst_n),
         .rp6502_tx_data(pocket_core_tx_data),
         .rp6502_tx_valid(pocket_core_tx_valid),

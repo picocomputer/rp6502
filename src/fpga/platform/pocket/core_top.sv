@@ -528,6 +528,7 @@ wire clk_sys;      //  50.4 MHz, the machine
 wire clk_vid;      //  25.2 MHz, the beam
 wire clk_dram;     //  50.4 MHz, half a period late, to the chip
 wire clk_vid_90;   // 25.2 MHz, a quarter period on, for the scaler
+wire clk_rv;       // 25.2 MHz, rising with clk_sys, the soft CPU's
 wire pll_locked;
 wire pll_locked_s;
 synch_3 s_pll (pll_locked, pll_locked_s, clk_74a);
@@ -539,6 +540,7 @@ pocket_pll pll (
     .clk_vid  ( clk_vid ),
     .clk_dram ( clk_dram ),
     .clk_vid_90 ( clk_vid_90 ),
+    .clk_rv   ( clk_rv ),
     .locked   ( pll_locked )
 );
 
@@ -561,6 +563,7 @@ synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
+    .clk_rv   ( clk_rv ),
     .clk_vid  ( clk_vid ),
     .rst_n    ( core_rst_n_sys ),
     .arst_n   ( core_rst_n_74 ),

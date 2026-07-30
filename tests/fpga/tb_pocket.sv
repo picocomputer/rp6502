@@ -9,6 +9,8 @@
 module tb_pocket (
     input logic clk_74a,
     input logic clk_sys,
+    /* Half clk_sys and rising with it, as the PLL makes it. */
+    input logic clk_rv,
     input logic clk_vid,
     input logic rst_n,
     input logic arst_n,
@@ -52,6 +54,7 @@ module tb_pocket (
     pocket_core core (
         .clk_74a(clk_74a),
         .clk_sys(clk_sys),
+        .clk_rv(clk_rv),
         .clk_vid(clk_vid),
         .rst_n(rst_n),
         .arst_n(arst_n),

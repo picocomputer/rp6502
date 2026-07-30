@@ -28,6 +28,8 @@
 #include <vector>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 
 /* The terminal's cells live as four byte-lane arrays so the fabric can
  * hold them in memory; a whole cell is those lanes stacked. */
@@ -94,8 +96,11 @@ static uint32_t rgba8(uint16_t px)
 
 static void clock_cycle()
 {
+    rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
     dut->clk_sys = 1;
     dut->eval();
+    dut->clk_rv = 0;
     dut->clk_sys = 0;
     dut->eval();
 }

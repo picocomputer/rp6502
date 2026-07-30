@@ -25,6 +25,8 @@
 #include <vector>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 
 static bool load_firmware(const char *path)
 {
@@ -115,9 +117,12 @@ UTEST(compare, syscall_rom_matches_oracle)
     dut->rst_n = 0;
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
     }
     dut->rst_n = 1;
@@ -127,9 +132,12 @@ UTEST(compare, syscall_rom_matches_oracle)
     ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = tb_stage(rom, a);
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
         if (dut->rp6502_rv_tx_valid)
             rv_out.push_back((char)dut->rp6502_rv_tx_data);

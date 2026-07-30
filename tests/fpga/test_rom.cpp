@@ -27,6 +27,8 @@
 #include <vector>
 
 static Vrp6502 *dut;
+/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
+static bool rv_phase;
 
 static bool load_firmware(const char *path)
 {
@@ -96,9 +98,12 @@ static void run_staged(int *utest_result, bool slot_by_port,
     dut->rst_n = 0;
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
     }
     dut->rst_n = 1;
@@ -107,9 +112,12 @@ static void run_staged(int *utest_result, bool slot_by_port,
     {
         dut->slot_len = (uint32_t)rom.size();
         dut->slot_set = 1;
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
         dut->slot_set = 0;
     }
@@ -142,9 +150,12 @@ static void run_staged(int *utest_result, bool slot_by_port,
             dut->stage_rdata = tb_stage(rom, a);
             stalled = 0;
         }
-        dut->clk_sys = 1;
+        rv_phase = !rv_phase;
+    dut->clk_rv = rv_phase;
+    dut->clk_sys = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_rv = 0;
+    dut->clk_sys = 0;
         dut->eval();
         if (!dut->rp6502_stage_pend)
             stalled = 0;

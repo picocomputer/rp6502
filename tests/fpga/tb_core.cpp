@@ -20,9 +20,18 @@ static uint64_t tb_core_time;
 /* Verilator drives $time from this. */
 double sc_time_stamp() { return (double)tb_core_time; }
 
+/* The soft CPU's clock is half the machine's and rises with it, the way
+ * the PLL makes it. Driving it as a divider registered off clk_sys
+ * would put its edge after the machine's own — which is the bug that
+ * kept the soft CPU at full rate, so the model has to be honest. */
+static int tb_core_rv_phase;
+
 static void tb_core_edge(int level)
 {
+    if (level)
+        tb_core_rv_phase = !tb_core_rv_phase;
     tb_core_dut->clk_sys = level;
+    tb_core_dut->clk_rv = level && tb_core_rv_phase;
     tb_core_dut->eval();
     if (tb_core_trace)
         tb_core_trace->dump(tb_core_time);
@@ -47,7 +56,9 @@ void tb_core_init()
         tb_core_trace->open(path);
     }
 
+    tb_core_rv_phase = 0;
     tb_core_dut->clk_sys = 0;
+    tb_core_dut->clk_rv = 0;
     tb_core_dut->rst_n = 0;
     tb_core_dut->eval();
 }
