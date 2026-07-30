@@ -40,6 +40,9 @@ module pocket_bridge (
     input logic [31:0] cont3_key,
     input logic [31:0] cont3_joy,
     input logic [15:0] cont3_trig,
+    input logic [31:0] cont4_key,
+    input logic [31:0] cont4_joy,
+    input logic [15:0] cont4_trig,
 
     /* The machine's domain. */
     input logic clk_sys,
@@ -57,7 +60,10 @@ module pocket_bridge (
     output logic [15:0] pocket_bridge_pad_trig,
     output logic [31:0] pocket_bridge_kbd_key,
     output logic [31:0] pocket_bridge_kbd_joy,
-    output logic [15:0] pocket_bridge_kbd_trig
+    output logic [15:0] pocket_bridge_kbd_trig,
+    output logic [31:0] pocket_bridge_mou_key,
+    output logic [31:0] pocket_bridge_mou_joy,
+    output logic [15:0] pocket_bridge_mou_trig
 );
 
     /* --- Slot words into halfword writes, clk_74a side. --- */
@@ -230,7 +236,8 @@ module pocket_bridge (
      * pretend; the keys below are the dock's own keyboard, arriving as
      * scan codes on the third slot the way APF sends them. */
     logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2, kk_s1, kk_s2, kj_s1, kj_s2;
-    logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2;
+    logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
+    logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
             pk_s1 <= '0; pk_s2 <= '0;
@@ -239,6 +246,12 @@ module pocket_bridge (
             kk_s1 <= '0; kk_s2 <= '0;
             kj_s1 <= '0; kj_s2 <= '0;
             kt_s1 <= '0; kt_s2 <= '0;
+            mk_s1 <= '0; mk_s2 <= '0;
+            mj_s1 <= '0; mj_s2 <= '0;
+            mt_s1 <= '0; mt_s2 <= '0;
+            pocket_bridge_mou_key <= '0;
+            pocket_bridge_mou_joy <= '0;
+            pocket_bridge_mou_trig <= '0;
             pocket_bridge_pad_key <= '0;
             pocket_bridge_pad_joy <= '0;
             pocket_bridge_pad_trig <= '0;
@@ -258,6 +271,12 @@ module pocket_bridge (
             if (kk_s1 == kk_s2) pocket_bridge_kbd_key <= kk_s2;
             if (kj_s1 == kj_s2) pocket_bridge_kbd_joy <= kj_s2;
             if (kt_s1 == kt_s2) pocket_bridge_kbd_trig <= kt_s2;
+            mk_s1 <= cont4_key;  mk_s2 <= mk_s1;
+            mj_s1 <= cont4_joy;  mj_s2 <= mj_s1;
+            mt_s1 <= cont4_trig; mt_s2 <= mt_s1;
+            if (mk_s1 == mk_s2) pocket_bridge_mou_key <= mk_s2;
+            if (mj_s1 == mj_s2) pocket_bridge_mou_joy <= mj_s2;
+            if (mt_s1 == mt_s2) pocket_bridge_mou_trig <= mt_s2;
         end
     end
 

@@ -81,6 +81,9 @@ module rp6502
     input logic [31:0] kbd_key,
     input logic [31:0] kbd_joy,
     input logic [15:0] kbd_trig,
+    input logic [31:0] mou_key,
+    input logic [31:0] mou_joy,
+    input logic [15:0] mou_trig,
     output logic rp6502_key_pending,
 
     /* The composed picture, aligned with its data enable. */
@@ -237,6 +240,9 @@ module rp6502
         .kbd_key(kbd_key),
         .kbd_joy(kbd_joy),
         .kbd_trig(kbd_trig),
+        .mou_key(mou_key),
+        .mou_joy(mou_joy),
+        .mou_trig(mou_trig),
         .key_code(key_code),
         .rv_soc_key_pending(rp6502_key_pending),
         .bus_rdy(!(bus_sel_xram && xr_busy)

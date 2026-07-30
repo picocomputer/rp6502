@@ -23,6 +23,9 @@ module tb_pbridge (
     input logic [31:0] cont3_key,
     input logic [31:0] cont3_joy,
     input logic [15:0] cont3_trig,
+    input logic [31:0] cont4_key,
+    input logic [31:0] cont4_joy,
+    input logic [15:0] cont4_trig,
 
     input logic clk_sys,
     input logic rst_n,
@@ -35,6 +38,9 @@ module tb_pbridge (
     output logic [31:0] tb_pbridge_kbd_key,
     output logic [31:0] tb_pbridge_kbd_joy,
     output logic [15:0] tb_pbridge_kbd_trig,
+    output logic [31:0] tb_pbridge_mou_key,
+    output logic [31:0] tb_pbridge_mou_joy,
+    output logic [15:0] tb_pbridge_mou_trig,
     output logic tb_pbridge_ready,
 
     input logic rd_pend,
@@ -63,6 +69,9 @@ module tb_pbridge (
         .cont3_key(cont3_key),
         .cont3_joy(cont3_joy),
         .cont3_trig(cont3_trig),
+        .cont4_key(cont4_key),
+        .cont4_joy(cont4_joy),
+        .cont4_trig(cont4_trig),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sdram_ready(tb_pbridge_ready),
@@ -78,7 +87,10 @@ module tb_pbridge (
         .pocket_bridge_pad_trig(tb_pbridge_pad_trig),
         .pocket_bridge_kbd_key(tb_pbridge_kbd_key),
         .pocket_bridge_kbd_joy(tb_pbridge_kbd_joy),
-        .pocket_bridge_kbd_trig(tb_pbridge_kbd_trig)
+        .pocket_bridge_kbd_trig(tb_pbridge_kbd_trig),
+        .pocket_bridge_mou_key(tb_pbridge_mou_key),
+        .pocket_bridge_mou_joy(tb_pbridge_mou_joy),
+        .pocket_bridge_mou_trig(tb_pbridge_mou_trig)
     );
 
     logic cke;

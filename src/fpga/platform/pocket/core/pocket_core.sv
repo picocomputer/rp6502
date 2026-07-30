@@ -43,6 +43,11 @@ module pocket_core #(
     input logic [31:0] cont3_key,
     input logic [31:0] cont3_joy,
     input logic [15:0] cont3_trig,
+    /* The dock puts its mouse on the fourth: a report counter, the
+     * buttons, and the two relative movements. */
+    input logic [31:0] cont4_key,
+    input logic [31:0] cont4_joy,
+    input logic [15:0] cont4_trig,
 
     /* The scaler. */
     output logic [23:0] pocket_core_rgb,
@@ -88,8 +93,8 @@ module pocket_core #(
     /* The machine still offers its key mailbox; nothing on the Pocket
      * fills it, so nothing here reads whether it is full. */
     logic key_pending;
-    logic [31:0] pad_key, pad_joy, kbd_key, kbd_joy;
-    logic [15:0] pad_trig, kbd_trig;
+    logic [31:0] pad_key, pad_joy, kbd_key, kbd_joy, mou_key, mou_joy;
+    logic [15:0] pad_trig, kbd_trig, mou_trig;
     logic [31:0] slot_len;
 
     logic w_avail, w_take;
@@ -112,6 +117,9 @@ module pocket_core #(
         .cont3_key(cont3_key),
         .cont3_joy(cont3_joy),
         .cont3_trig(cont3_trig),
+        .cont4_key(cont4_key),
+        .cont4_joy(cont4_joy),
+        .cont4_trig(cont4_trig),
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sdram_ready(pocket_core_ready),
@@ -127,7 +135,10 @@ module pocket_core #(
         .pocket_bridge_pad_trig(pad_trig),
         .pocket_bridge_kbd_key(kbd_key),
         .pocket_bridge_kbd_joy(kbd_joy),
-        .pocket_bridge_kbd_trig(kbd_trig)
+        .pocket_bridge_kbd_trig(kbd_trig),
+        .pocket_bridge_mou_key(mou_key),
+        .pocket_bridge_mou_joy(mou_joy),
+        .pocket_bridge_mou_trig(mou_trig)
     );
 
     /* Staging: the machine's byte fetch against the halfword store. */
@@ -201,6 +212,9 @@ module pocket_core #(
         .kbd_key(kbd_key),
         .kbd_joy(kbd_joy),
         .kbd_trig(kbd_trig),
+        .mou_key(mou_key),
+        .mou_joy(mou_joy),
+        .mou_trig(mou_trig),
         .rp6502_key_pending(key_pending),
         .rp6502_vid_pixel(vid_pixel),
         .rp6502_vid_de(vid_de),

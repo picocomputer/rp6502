@@ -66,6 +66,12 @@ module rv_soc #(
     input logic [31:0] kbd_key,
     input logic [31:0] kbd_joy,
     input logic [15:0] kbd_trig,
+    /* The dock's mouse: a report counter, the buttons, and two relative
+     * movements. The counter is how a new report is told from a still
+     * hand, deltas being the same zero either way. */
+    input logic [31:0] mou_key,
+    input logic [31:0] mou_joy,
+    input logic [15:0] mou_trig,
     output logic rv_soc_key_pending,
 
     output logic [7:0] rv_soc_tx_data,
@@ -313,6 +319,9 @@ module rv_soc #(
                 7'h2C: hrdata = kbd_key;
                 7'h30: hrdata = kbd_joy;
                 7'h34: hrdata = {16'd0, kbd_trig};
+                7'h38: hrdata = mou_key;
+                7'h3C: hrdata = mou_joy;
+                7'h40: hrdata = {16'd0, mou_trig};
                 default: hrdata = 32'h0;
             endcase
         else

@@ -28,6 +28,9 @@
 #define MMIO_KBD_KEY (*(volatile uint32_t *)0xF000002Cu)
 #define MMIO_KBD_JOY (*(volatile uint32_t *)0xF0000030u)
 #define MMIO_KBD_TRIG (*(volatile uint32_t *)0xF0000034u)
+#define MMIO_MOU_KEY (*(volatile uint32_t *)0xF0000038u)
+#define MMIO_MOU_JOY (*(volatile uint32_t *)0xF000003Cu)
+#define MMIO_MOU_TRIG (*(volatile uint32_t *)0xF0000040u)
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)

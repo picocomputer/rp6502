@@ -14,6 +14,7 @@
 #include "kbd.h"
 #include "main.h"
 #include "mmio.h"
+#include "mou.h"
 #include "pad.h"
 #include "rom.h"
 #include "vga.h"
@@ -116,6 +117,8 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
     /* HID report blocks and audio; the rest arrive with their engines. */
     if (channel == 0 && address == 0)
         return kbd_set_xram(word);
+    if (channel == 0 && address == 1)
+        return mou_set_xram(word);
     if (channel == 0 && address == 2)
         return pad_set_xram(word);
     if (channel == 1 && address == 0)
@@ -411,6 +414,7 @@ int main(void)
         }
         kbd_task();
         pad_task();
+        mou_task();
         std_task();
         com_task();
         rln_task();
