@@ -15,10 +15,11 @@
  * before a hang is the one worth having and it is exactly the one that
  * would otherwise sit in the packer.
  *
- * One event is a round trip through the host, so this is slow, and the
- * queue in front of it is a kilobyte for that reason. It still drops
- * when the host falls far enough behind; a log that stalls the machine
- * it is logging would report on a machine that no longer exists.
+ * One event is a round trip through the host, so this is slow, and it
+ * drops when the console outruns it. The queue is sized for the boot
+ * narration rather than for a running program's output, because no
+ * queue that fits is big enough for the second and a log that stalled
+ * the machine would report on a machine that no longer exists.
  */
 
 module pocket_dbglog #(
@@ -47,7 +48,7 @@ module pocket_dbglog #(
 
     pocket_fifo #(
         .WIDTH(8),
-        .DEPTH_LOG2(10)
+        .DEPTH_LOG2(7)
     ) q (
         .wclk(clk_sys),
         .wrst_n(rst_n),
@@ -63,7 +64,10 @@ module pocket_dbglog #(
 
     /* The bridge holds its done high from one command until the next is
      * issued, so an edge is the only thing worth believing: arm, watch
-     * it fall, then watch it rise. */
+     * it fall, then watch it rise. It always rises — the bridge times
+     * out an unanswered command itself — so there is nothing to give up
+     * on here, and a second deadline racing that one would only let go
+     * of a word the bridge is still about to send. */
     localparam logic [1:0] S_FILL = 2'd0;
     localparam logic [1:0] S_ARM = 2'd1;
     localparam logic [1:0] S_WAIT = 2'd2;
@@ -71,8 +75,6 @@ module pocket_dbglog #(
     logic [1:0] state;
     logic [1:0] count;
     logic [$clog2(FLUSH_TICKS)-1:0] quiet;
-    /* About 226 ms at 74.25 MHz before an unanswered event is dropped. */
-    logic [23:0] stall;
 
     always_comb take = !fifo_empty && state == S_FILL;
 
@@ -88,24 +90,14 @@ module pocket_dbglog #(
             state <= S_FILL;
             count <= '0;
             quiet <= '0;
-            stall <= '0;
-        end else if (state != S_FILL && &stall) begin
-            /* The host answers target commands only once it is minded
-             * to. An event posted before then must not take the log
-             * down with it — the interesting bytes come later. */
-            pocket_dbglog_event <= 1'b0;
-            state <= S_FILL;
         end else
             case (state)
-                S_ARM: begin
-                    stall <= stall + 1'b1;
-                    if (!target_debug_done) state <= S_WAIT;
-                end
+                S_ARM: if (!target_debug_done) state <= S_WAIT;
                 S_WAIT:
                 if (target_debug_done) begin
                     pocket_dbglog_event <= 1'b0;
                     state <= S_FILL;
-                end else stall <= stall + 1'b1;
+                end
                 default:
                 if (take) begin
                     pocket_dbglog_id <= {pocket_dbglog_id[23:0], byte_out};
@@ -113,7 +105,6 @@ module pocket_dbglog #(
                     if (count == 2'd3) begin
                         count <= '0;
                         pocket_dbglog_event <= 1'b1;
-                        stall <= '0;
                         state <= S_ARM;
                     end else count <= count + 2'd1;
                 end else if (count != 2'd0) begin
@@ -122,7 +113,6 @@ module pocket_dbglog #(
                         count <= '0;
                         quiet <= '0;
                         pocket_dbglog_event <= 1'b1;
-                        stall <= '0;
                         state <= S_ARM;
                     end else quiet <= quiet + 1'b1;
                 end

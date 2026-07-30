@@ -750,7 +750,15 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
     # Analogue's framework is a submodule the simulation never needs, so
     # it is often absent — CI checks out only what it builds.
-    if(EXISTS ${APF}/ap_core.qsf)
+    # The array the firmware is loaded into is sized in the RTL, so read
+    # the size from there rather than keeping a second copy in step.
+    file(STRINGS ${RP6502_SRC}/fpga/rtl/rv/rv_soc.sv TCM_WORDS_LINE
+        REGEX "localparam int TCM_WORDS")
+    string(REGEX MATCH "[0-9]+" TCM_WORDS "${TCM_WORDS_LINE}")
+
+    # No firmware, no bitstream. A bitstream without it boots to a soft
+    # CPU fetching zeros, which looks like dead hardware and is not.
+    if(EXISTS ${APF}/ap_core.qsf AND SW_BIN)
     file(MAKE_DIRECTORY ${BS_DIR})
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
@@ -759,11 +767,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             list(APPEND BS_LINES "${line}")
         endif()
     endforeach()
-    if(NOT SW_BIN)
-        message(FATAL_ERROR
-            "no RISC-V toolchain - a bitstream without firmware boots to "
-            "a soft CPU fetching zeros. apt install gcc-riscv64-unknown-elf")
-    endif()
     list(APPEND BS_LINES
         "set_global_assignment -name GENERATE_RBF_FILE ON"
         "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
@@ -820,7 +823,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # CPU came up fetching zeros.
     add_custom_target(bitstream
         COMMAND python3 ${RP6502_SRC}/fpga/codegen/rv_tcm_gen.py
-            ${SW_BIN} ${BS_DIR}/sw 12288
+            ${SW_BIN} ${BS_DIR}/sw ${TCM_WORDS}
         COMMAND ${QUARTUS_MAP} rp6502
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_ASM} rp6502
@@ -832,10 +835,14 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS sw_bin cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Building the Pocket bitstream"
         VERBATIM)
-    else()
+    elseif(NOT EXISTS ${APF}/ap_core.qsf)
         message(STATUS
             "vendor/openfpga absent - no bitstream target. "
             "git submodule update --init vendor/openfpga")
+    else()
+        message(STATUS
+            "no RISC-V toolchain - no bitstream target. "
+            "apt install gcc-riscv64-unknown-elf")
     endif()
 
     add_custom_target(synth_pocket

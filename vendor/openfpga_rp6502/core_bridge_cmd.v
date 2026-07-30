@@ -90,8 +90,12 @@ input   wire    [31:0]  target_dataslot_length,
 
 // rp6502: target command 0x0152, Debug Event Log. The upstream file
 // carries the four data-slot commands only. Rising edge triggered like
-// its siblings; done pulses when APF acknowledges, so a producer can
-// pace itself against the host instead of guessing.
+// its siblings. target_debug_done goes high when the command retires
+// and stays high until the next one is dispatched, the same level-held
+// shape as target_dataslot_done - so a producer pacing itself against
+// it must wait for the fall before believing the rise. It always
+// retires: an unanswered command times out below rather than parking
+// the state machine that also serves the data slots.
 input   wire            target_debug_event,
 input   wire    [31:0]  target_debug_id,
 output  reg             target_debug_done,
