@@ -93,6 +93,28 @@ add_custom_command(OUTPUT ${AUD_SINE_PKG} ${AUD_SINE_H}
     VERBATIM)
 add_custom_target(aud_sine_rom ALL DEPENDS ${AUD_SINE_PKG} ${AUD_SINE_H})
 
+# Two audio programs that make one note and leave the console alone, so
+# the machine's own diagnostics stay readable while a device is driven.
+# test_aud runs these same files, which is what keeps a note that sounds
+# on hardware and a note the simulation asserts from drifting apart.
+set(AUD_ROM_GEN ${RP6502_SRC}/fpga/codegen/aud_rom_gen.py)
+set(AUD_ROM_PSG ${CMAKE_CURRENT_BINARY_DIR}/psg.rp6502)
+set(AUD_ROM_OPL ${CMAKE_CURRENT_BINARY_DIR}/opl.rp6502)
+execute_process(
+    COMMAND python3 ${AUD_ROM_GEN} --emit-psg ${AUD_ROM_PSG}
+        --emit-opl ${AUD_ROM_OPL}
+    RESULT_VARIABLE AUD_ROM_GEN_RC)
+if(AUD_ROM_GEN_RC)
+    message(FATAL_ERROR "aud_rom_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${AUD_ROM_PSG} ${AUD_ROM_OPL}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${AUD_ROM_GEN}
+        --emit-psg ${AUD_ROM_PSG} --emit-opl ${AUD_ROM_OPL}
+    DEPENDS ${AUD_ROM_GEN}
+    COMMENT "Generating the audio bring-up ROMs"
+    VERBATIM)
+add_custom_target(aud_roms ALL DEPENDS ${AUD_ROM_PSG} ${AUD_ROM_OPL})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -539,8 +561,9 @@ if(verilator_FOUND)
             SOURCES test_aud.cpp
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
+                AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
             TIMEOUT 600)
-        add_dependencies(test_aud sw_bin cpu65_rom)
+        add_dependencies(test_aud sw_bin cpu65_rom aud_roms)
         verilate(test_aud
             SOURCES ${RP6502_MACHINE_SOURCES}
             TOP_MODULE rp6502
@@ -896,6 +919,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common
         COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
+        # The bring-up notes go with the card, because the machine's own
+        # console is where its diagnostics land and every real program
+        # takes the screen before you can read them.
+        COMMAND ${CMAKE_COMMAND} -E copy ${AUD_ROM_PSG}
+            ${PKG_DIR}/Assets/rp6502/common/psg.rp6502
+        COMMAND ${CMAKE_COMMAND} -E copy ${AUD_ROM_OPL}
+            ${PKG_DIR}/Assets/rp6502/common/opl.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
         DEPENDS vid_font_rom
