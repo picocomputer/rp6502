@@ -17,6 +17,48 @@ Everything the SD card needs except the binaries:
   platform image byte format is not publicly documented, so the converter
   is authoritative.
 
+## Reading the console
+
+The machine's console — the 6502's `$FFE1` writes and the soft CPU's own
+`com_printf`, interleaved — comes out two ways, both live in every
+bitstream.
+
+**Through the Pocket.** With debug logging switched on in the Pocket,
+target command 0x0152 carries four console bytes per entry, first byte in
+the top eight bits, so the 32-bit event id reads left to right as ASCII:
+`52503635` is `RP65`. A short word at the end of a burst is
+left-justified and zero-filled. One entry is a round trip through the
+host, so the log lags and drops when the console outruns it; what it is
+for is the boot narration and the last line before a hang.
+
+**Through the debug pin.** `dbg_tx` is 115200 8N1, 1.8 V, on the 6515D
+breakout board. Same bytes, no host in the path — which is the point: it
+still talks when the PLL is dead, and silence there means something
+specific.
+
+## First bring-up
+
+`core_top` takes two parameters. `TCM_INIT_FILE` names the soft CPU's
+firmware image, four byte-lane files from
+`src/fpga/codegen/rv_tcm_gen.py`; the build supplies it and a bitstream
+without it comes up fetching zeros, which looks exactly like a dead
+video path and is not one. `CORE_TEST_PATTERN` replaces the picture with
+colour bars while leaving the machine built and still talking on both
+console paths, so one build separates "is the video path alive" from
+"is the machine alive".
+
+The firmware narrates its own boot, and where the log stops is the
+answer:
+
+| last line | what got that far |
+| --- | --- |
+| *nothing* | the soft CPU is not executing, or the host is not answering 0x0152 — turn on `CORE_TEST_PATTERN` to tell those apart |
+| `boot: rv` | it runs; `term_init` did not return |
+| `boot: term` | the drivers are up; `vid_init` did not return, and it is the one that copies the font out of SDRAM |
+| `boot: loading` | it reached the slot; the loader did not finish |
+| `rom: bad image` | staging read back wrong — SDRAM, not the loader |
+| `boot: running` | everything above worked and the 6502 is out of reset, so a black screen now is the video path |
+
 `cmake --build build/fpga --target bitstream` then `--target package`
 assembles everything above except the two images into
 `build/fpga/tests/package`. Drop `icon.bin` and `Platforms/_images` in

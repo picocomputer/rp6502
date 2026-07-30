@@ -759,10 +759,16 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             list(APPEND BS_LINES "${line}")
         endif()
     endforeach()
+    if(NOT SW_BIN)
+        message(FATAL_ERROR
+            "no RISC-V toolchain - a bitstream without firmware boots to "
+            "a soft CPU fetching zeros. apt install gcc-riscv64-unknown-elf")
+    endif()
     list(APPEND BS_LINES
         "set_global_assignment -name GENERATE_RBF_FILE ON"
+        "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
-        "set_global_assignment -name VERILOG_FILE ${APF}/core/core_bridge_cmd.v"
+        "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
         "set_global_assignment -name SDC_FILE ${APF}/core/core_constraints.sdc"
         "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/core_top.sv"
@@ -778,7 +784,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         endif()
     endforeach()
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
-            pocket_bridge pocket_core)
+            pocket_bridge pocket_bars pocket_dbg pocket_dbglog pocket_core)
         list(APPEND BS_LINES
             "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
     endforeach()
@@ -808,7 +814,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
 
+    # The firmware has to be IN the bitstream. Simulation loads it into
+    # the verilated arrays from C++, so nothing in the synthesis path
+    # ever needed it and for a long time nothing supplied it — the soft
+    # CPU came up fetching zeros.
     add_custom_target(bitstream
+        COMMAND python3 ${RP6502_SRC}/fpga/codegen/rv_tcm_gen.py
+            ${SW_BIN} ${BS_DIR}/sw 12288
         COMMAND ${QUARTUS_MAP} rp6502
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_ASM} rp6502
@@ -817,7 +829,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${BS_DIR}/output_files/rp6502.rbf
             ${BS_DIR}/bitstream.rbf_r
         WORKING_DIRECTORY ${BS_DIR}
-        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
+        DEPENDS sw_bin cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Building the Pocket bitstream"
         VERBATIM)
     else()

@@ -315,10 +315,17 @@ int main(void)
     /* No str_init: it exists to apply a locale, and this machine has one
      * locale and no S() callers — the whole localized chain is meant to
      * collect under --gc-sections. */
+    /* Checkpoints, not decoration. These are the only report the
+     * hardware gives while it is coming up, and the two that follow the
+     * drivers bracket the font copy out of SDRAM — the one init here
+     * that waits on something off-chip. A silent log says the soft CPU
+     * never ran; a log that stops says where. */
+    print("boot: rv\n");
     com_init();
     std_init();
     rln_init();
     term_init();
+    print("boot: term\n");
     vid_init();
     print("boot: loading\n");
 

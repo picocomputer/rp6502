@@ -24,7 +24,11 @@
 
 `default_nettype none
 
-module core_top (
+module core_top #(
+    /* 1 paints colour bars instead of the machine, for first bring-up. */
+    parameter bit CORE_TEST_PATTERN = 1'b0,
+    parameter TCM_INIT_FILE = "sw"
+) (
 
 //
 // physical connections
@@ -317,7 +321,8 @@ assign sram_we_n  = 1;
 assign sram_ub_n  = 1;
 assign sram_lb_n  = 1;
 
-assign dbg_tx = 1'bZ;
+wire dbg_tx_w;
+assign dbg_tx = dbg_tx_w;
 assign user1 = 1'bZ;
 assign aux_scl = 1'bZ;
 assign vpll_feed = 1'bZ;
@@ -481,6 +486,10 @@ core_bridge_cmd icb (
 
     .osnotify_inmenu        ( osnotify_inmenu ),
     
+    .target_debug_event         ( dbglog_event ),
+    .target_debug_id            ( dbglog_id ),
+    .target_debug_done          ( dbglog_done ),
+
     .target_dataslot_read       ( target_dataslot_read ),
     .target_dataslot_write      ( target_dataslot_write ),
     .target_dataslot_getfile    ( target_dataslot_getfile ),
@@ -549,7 +558,7 @@ wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
-pocket_core core (
+pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
     .clk_vid  ( clk_vid ),
@@ -567,11 +576,11 @@ pocket_core core (
 
     .cont1_key ( cont1_key ),
 
-    .pocket_core_rgb  ( video_rgb ),
-    .pocket_core_de   ( video_de ),
-    .pocket_core_skip ( video_skip ),
-    .pocket_core_vs   ( video_vs ),
-    .pocket_core_hs   ( video_hs ),
+    .pocket_core_rgb  ( m_rgb ),
+    .pocket_core_de   ( m_de ),
+    .pocket_core_skip ( m_skip ),
+    .pocket_core_vs   ( m_vs ),
+    .pocket_core_hs   ( m_hs ),
 
     .pocket_core_mclk ( audio_mclk ),
     .pocket_core_dac  ( audio_dac ),
@@ -591,12 +600,71 @@ pocket_core core (
     // The scanout clock the scaler samples on, and the machine's own
     // console, brought out for the debug pin and for nothing else.
     .pocket_core_ready     ( ),
-    .pocket_core_tx_data   ( ),
-    .pocket_core_tx_valid  ( ),
-    .pocket_core_rv_tx_data  ( ),
-    .pocket_core_rv_tx_valid ( ),
+    .pocket_core_tx_data   ( con_tx_data ),
+    .pocket_core_tx_valid  ( con_tx_valid ),
+    .pocket_core_rv_tx_data  ( con_rv_data ),
+    .pocket_core_rv_tx_valid ( con_rv_valid ),
     .pocket_core_rv_halted   ( )
 );
+
+/* Both consoles out the debug pin, on the host's clock so the channel
+ * survives anything wrong with ours. */
+wire [7:0] con_tx_data, con_rv_data;
+wire con_tx_valid, con_rv_valid;
+
+wire dbglog_event, dbglog_done;
+wire [31:0] dbglog_id;
+
+pocket_dbglog dbglog (
+    .clk_sys     ( clk_sys ),
+    .rst_n       ( core_rst_n_sys ),
+    .tx_data     ( con_tx_data ),
+    .tx_valid    ( con_tx_valid ),
+    .rv_tx_data  ( con_rv_data ),
+    .rv_tx_valid ( con_rv_valid ),
+    .clk_74a     ( clk_74a ),
+    .arst_n      ( core_rst_n_74 ),
+    .target_debug_done   ( dbglog_done ),
+    .pocket_dbglog_event ( dbglog_event ),
+    .pocket_dbglog_id    ( dbglog_id )
+);
+
+pocket_dbg dbg (
+    .clk_sys     ( clk_sys ),
+    .rst_n       ( core_rst_n_sys ),
+    .tx_data     ( con_tx_data ),
+    .tx_valid    ( con_tx_valid ),
+    .rv_tx_data  ( con_rv_data ),
+    .rv_tx_valid ( con_rv_valid ),
+    .clk_74a     ( clk_74a ),
+    .arst_n      ( core_rst_n_74 ),
+    .pocket_dbg_tx ( dbg_tx_w )
+);
+
+/* The bring-up bisect. With bars on, the machine is still built and
+ * still talking out the debug pin — only the picture is replaced, so
+ * one build answers both "is the video path alive" and "is the machine
+ * alive" independently. */
+wire [23:0] m_rgb;
+wire m_de, m_skip, m_vs, m_hs;
+wire [23:0] b_rgb;
+wire b_de, b_skip, b_vs, b_hs;
+
+pocket_bars bars (
+    .clk_vid ( clk_vid ),
+    .rst_n   ( core_rst_n_sys ),
+    .pocket_bars_rgb  ( b_rgb ),
+    .pocket_bars_de   ( b_de ),
+    .pocket_bars_skip ( b_skip ),
+    .pocket_bars_vs   ( b_vs ),
+    .pocket_bars_hs   ( b_hs )
+);
+
+assign video_rgb  = CORE_TEST_PATTERN ? b_rgb  : m_rgb;
+assign video_de   = CORE_TEST_PATTERN ? b_de   : m_de;
+assign video_skip = CORE_TEST_PATTERN ? b_skip : m_skip;
+assign video_vs   = CORE_TEST_PATTERN ? b_vs   : m_vs;
+assign video_hs   = CORE_TEST_PATTERN ? b_hs   : m_hs;
 
 assign video_rgb_clock = clk_vid;
 assign video_rgb_clock_90 = clk_vid_90;

@@ -15,7 +15,9 @@
  * engine stay up throughout.
  */
 
-module pocket_core (
+module pocket_core #(
+    parameter TCM_INIT_FILE = ""
+) (
     /* Clocks and the platform reset. */
     input logic clk_74a,
     input logic clk_sys,
@@ -149,7 +151,7 @@ module pocket_core (
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
-    rp6502 machine (
+    rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE)) machine (
         .clk_sys(clk_sys),
         .rst_n(mrst_n),
         .rp6502_tx_data(pocket_core_tx_data),

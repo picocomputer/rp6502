@@ -32,7 +32,11 @@
 
 module rp6502
     import rp6502_pkg::*;
-(
+#(
+    /* The soft CPU's firmware, for synthesis. Simulation loads the
+     * arrays directly through the testbench and leaves this empty. */
+    parameter TCM_INIT_FILE = ""
+) (
     input logic clk_sys,
     input logic rst_n,
 
@@ -162,7 +166,7 @@ module rp6502
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
 
-    rv_soc rv (
+    rv_soc #(.TCM_INIT_FILE(TCM_INIT_FILE)) rv (
         .clk(clk_sys),
         .rst_n(rst_n),
         .rv_soc_tx_data(rp6502_rv_tx_data),
