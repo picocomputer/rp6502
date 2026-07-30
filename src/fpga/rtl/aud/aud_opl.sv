@@ -22,13 +22,22 @@
  */
 
 module aud_opl #(
-    /* The core's sample is 24 bits signed and the machine's PWM is ten
-     * centered at 512. ria/aud/opl.c takes emu8950's 16-bit sample down
-     * by (16 - PWM_BITS - 2), the two being a deliberate boost; the same
-     * boost against 24 bits is this shift. Kept a parameter because the
-     * level is the one thing here that wants tuning against the
-     * emulator rather than reasoning. */
-    parameter int SAMPLE_SHIFT = 12
+    /* DAC_OUTPUT_WIDTH is 24, but that is the container and not the
+     * range: one channel at full volume measures a peak of 2^18, so the
+     * nine of them together reach about 2^21.
+     *
+     * ria/aud/opl.c takes emu8950's full-scale 16 bits down by
+     * (16 - PWM_BITS - 2) and then clamps to nine, which maps full scale
+     * to four times the clamp — the machine runs its OPL hot and lets
+     * the loud parts square off. Holding that same ratio here puts 2^21
+     * at four times 511, and the shift that does it is ten. One channel
+     * then lands at half scale, which is where the measurement says a
+     * single voice belongs.
+     *
+     * Twelve was the first guess, from reading the 24 as a range. It put
+     * one voice 18 dB down, quiet enough to read as broken next to the
+     * PSG. */
+    parameter int SAMPLE_SHIFT = 10
 ) (
     input logic clk,
     input logic rst_n,
@@ -128,7 +137,7 @@ module aud_opl #(
         end
     end
 
-    logic signed [23:0] core_sample;
+    logic signed [23:0] core_sample /*verilator public_flat_rd*/;
     logic core_valid;
     /* dout, led and irq_n are the chip's, not the machine's: status
      * reads go nowhere, the LEDs were a dev board's, and opl.c never

@@ -90,11 +90,20 @@ static void poke(uint16_t page, uint8_t reg, uint8_t val)
 }
 
 /* Sum of |sample - 512| over a span, which is silence at zero and
- * anything at all otherwise. */
+ * anything at all otherwise, and the loudest excursion in that span.
+ *
+ * The sum alone is a bad test and was one: it passed a voice sitting 18
+ * dB below where it belonged, because a few hundred samples deviating
+ * by a single count still sum to more than a few hundred. Level is the
+ * thing that separates working audio from audio you cannot hear, so
+ * peak is what the loud case asserts. */
+static uint64_t last_peak;
+
 static uint64_t energy(int samples)
 {
     uint64_t sum = 0;
     int seen = 0;
+    last_peak = 0;
     /* A sample every CLK_DIV_COUNT clocks, with room for the envelope
      * to climb out of its attack. */
     for (long i = 0; seen < samples && i < 40000000L; i++)
@@ -102,7 +111,10 @@ static uint64_t energy(int samples)
         tick();
         if (dut->aud_opl_valid)
         {
-            sum += (uint64_t)std::abs((int)dut->aud_opl_l - 512);
+            uint64_t d = (uint64_t)std::abs((int)dut->aud_opl_l - 512);
+            sum += d;
+            if (d > last_peak)
+                last_peak = d;
             seen++;
         }
     }
@@ -141,9 +153,12 @@ UTEST(opl, a_note_makes_sound)
     set_page(0x1200);
     ASSERT_TRUE(dut->aud_opl_enabled);
     note_on(0x12);
-    /* Past the attack, then measure. */
+    /* Past the attack, then measure. One voice at full volume measures
+     * a peak of 255 of the 511 available; anything under half that is
+     * the scaling wrong rather than the note quiet. */
     energy(64);
     ASSERT_GT(energy(512), (uint64_t)512);
+    ASSERT_GT(last_peak, (uint64_t)128);
 }
 
 UTEST(opl, the_pointer_gates_the_page_it_names)
