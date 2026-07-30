@@ -783,6 +783,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
+        "set_global_assignment -name VERILOG_FILE ${APF}/core/pin_ddio_clk.v"
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
         "set_global_assignment -name SDC_FILE ${APF}/core/core_constraints.sdc"
         "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/core_top.sv"

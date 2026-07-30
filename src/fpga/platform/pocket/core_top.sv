@@ -544,9 +544,20 @@ pocket_pll pll (
     .locked   ( pll_locked )
 );
 
-// The chip's clock is the shifted one, driven from a register in the
-// pad so it leaves with the same delay as everything beside it.
-assign dram_clk = clk_dram;
+// The chip's clock is the shifted one, and it leaves from a register in
+// the pad rather than from the fabric, because that is the only way the
+// shift means anything. Every other pin to the chip is launched by an
+// output register; a clock carried out on an assign is launched by
+// whatever routing the fitter happened to give it, so the 180 degrees
+// the PLL was asked for is 180 degrees plus an unknown. Through the
+// DDR output cell, high on the rise and low on the fall, it leaves the
+// same way its data does and the angle survives to the pad.
+pin_ddio_clk dram_clk_out (
+    .datain_h ( 1'b1 ),
+    .datain_l ( 1'b0 ),
+    .outclock ( clk_dram ),
+    .dataout  ( dram_clk )
+);
 
 // Out of reset as soon as the clocks are good, and not one moment
 // later. reset_n is the host's run gate, not a reset: it goes high
