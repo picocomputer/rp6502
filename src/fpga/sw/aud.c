@@ -10,10 +10,7 @@
  */
 
 #include "aud.h"
-#include "com.h"
 #include "mmio.h"
-
-#include <stdio.h>
 
 #include <string.h>
 
@@ -45,29 +42,4 @@ bool aud_opl_xreg(uint16_t word)
     memset((void *)&XRAM_WIN[word], 0, 256);
     AUD_OPL_XADDR = word;
     return true;
-}
-
-/* Bring-up only. The OPL2 reached hardware silent with every link of it
- * verified in simulation, and from outside the machine a snoop that
- * never fired, a chip that never ran, and a note nobody programmed all
- * look identical. This tells them apart on the debug log the Pocket
- * already carries: one line per register the snoop accepted, and the
- * tick count that says whether the chip is generating samples at all.
- *
- * Bounded at forty lines so a program that writes continuously does not
- * bury the answer. Delete this with the answer.
- */
-void aud_task(void)
-{
-    static uint32_t seen;
-    static uint8_t lines;
-    uint32_t dbg = AUD_OPL_DBG;
-
-    if (!(dbg & 0x80000000u) || dbg == seen || lines >= 40)
-        return;
-    seen = dbg;
-    lines++;
-    printf("opl: writes %u reg %02X=%02X ticks %u\n",
-           (unsigned)(dbg & 0xFF), (unsigned)((dbg >> 8) & 0xFF),
-           (unsigned)((dbg >> 16) & 0xFF), (unsigned)((dbg >> 24) & 0x7F));
 }

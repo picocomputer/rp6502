@@ -73,8 +73,6 @@
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
 #define AUD_BEL_STRIKE (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
-/* Bring-up: {enabled, ticks[6:0], last value, last reg, writes}. */
-#define AUD_OPL_DBG (*(volatile uint32_t *)0x7000000Cu)
 #define CPU_RUN (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 

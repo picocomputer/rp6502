@@ -427,7 +427,6 @@ int main(void)
         kbd_task();
         pad_task();
         mou_task();
-        aud_task();
         std_task();
         com_task();
         rln_task();

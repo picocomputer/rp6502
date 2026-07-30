@@ -360,7 +360,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Init simulation submodules
-        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/hazard3 vendor/6502_65C02_functional_tests
+        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/hazard3 vendor/opl2_fpga vendor/6502_65C02_functional_tests
 
       - name: Install build dependencies + Verilator + RISC-V toolchain
         run: |
