@@ -837,6 +837,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_ASM} rp6502
         COMMAND ${QUARTUS_STA} rp6502
+        # No .rbf_r from a fit that did not close. A bitstream that
+        # misses timing assembles and runs, and only stops running when
+        # the part is warm or the fitter's luck turns.
+        COMMAND python3 ${RP6502_SRC}/fpga/codegen/sta_gate.py
+            ${BS_DIR}/output_files/rp6502.sta.rpt
         COMMAND python3 ${RP6502_SRC}/fpga/codegen/rbf_r_gen.py
             ${BS_DIR}/output_files/rp6502.rbf
             ${BS_DIR}/bitstream.rbf_r
