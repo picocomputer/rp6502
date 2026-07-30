@@ -123,6 +123,8 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
         return pad_set_xram(word);
     if (channel == 1 && address == 0)
         return aud_psg_xreg(word);
+    if (channel == 1 && address == 1)
+        return aud_opl_xreg(word);
     return false;
 }
 

@@ -11,10 +11,24 @@ and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
 ## Audio
 
 The PSG and the bell are RTL, proven bit-exact against `ria/aud/psg.c` and
-`ria/aud/bel.c` in lockstep. OPL2 is not ported: no permissively licensed RTL
-implementation exists (JTOPL2 is GPL-3, opl3_fpga is LGPL-3), and emu8950 on
-the soft CPU needs several times more cycles than the whole core has. Programs
-that select the OPL get an xreg failure, the signal for an absent device.
+`ria/aud/bel.c` in lockstep.
+
+The OPL2 is `vendor/opl2_fpga`, Greg Taylor's reverse-engineered YM3812 under
+LGPL-3.0, credited in the Pocket distribution README. emu8950 on the soft CPU
+was never possible — it needs several times more cycles than the whole core
+has — so the chip is RTL, and there is no bit-exact claim to make: it is a
+different implementation from the emulator's, not a port of it. Its own tests
+check the wiring rather than the waveform, which is what `test_opl` does.
+
+It runs on `clk_sys` with the sample divider set to 1014, putting the rate
+0.024% under the 49,715.9 Hz the chip specifies. That is deliberate: at its
+native 12.727 MHz it would need a clock of its own, and this machine has paid
+enough for a second clock domain already.
+
+`aud_opl` presents what `aud_psg` presents, and `rp6502.sv` listens to
+whichever pointer was programmed last, the way `aud_setup` hands the interrupt
+over on real hardware. Four small fixes Quartus needs and Vivado did not live
+in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 ## Layout
 

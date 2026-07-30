@@ -693,12 +693,19 @@ module rp6502
         .ov_clear(sp_ov_clear)
     );
 
+    /* Three device registers at the audio window: the PSG's pointer, the
+     * console bell, and the OPL2's pointer. */
+    logic aud_we;
+    always_comb aud_we = bus_stb && bus_we && bus_sel_aud;
+
+    logic [9:0] psg_l, psg_r;
+    logic psg_valid;
     aud_psg aud_psg (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .xaddr_we(bus_stb && bus_we && bus_sel_aud && !bus_addr[2]),
+        .xaddr_we(aud_we && bus_addr[3:2] == 2'b00),
         .xaddr_wdata(bus_wdata[15:0]),
-        .bel_strike(bus_stb && bus_we && bus_sel_aud && bus_addr[2]),
+        .bel_strike(aud_we && bus_addr[3:2] == 2'b01),
         .aud_psg_a_req(ma_req[4]),
         .aud_psg_a_addr(ma_addr[4]),
         .a_gnt(a_any && a_sel == 3'd4),
@@ -706,10 +713,36 @@ module rp6502
         .q_we(xr_busy && xr_we),
         .q_addr(xr_addr),
         .q_val(xr_wdata),
-        .aud_psg_l(rp6502_aud_l),
-        .aud_psg_r(rp6502_aud_r),
-        .aud_psg_valid(rp6502_aud_valid)
+        .aud_psg_l(psg_l),
+        .aud_psg_r(psg_r),
+        .aud_psg_valid(psg_valid)
     );
+
+    logic [9:0] opl_l, opl_r;
+    logic opl_valid, opl_enabled;
+    aud_opl aud_opl (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .xaddr_we(aud_we && bus_addr[3:2] == 2'b10),
+        .xaddr_wdata(bus_wdata[15:0]),
+        .q_we(xr_busy && xr_we),
+        .q_addr(xr_addr),
+        .q_val(xr_wdata),
+        .bel_strike(aud_we && bus_addr[3:2] == 2'b01),
+        .aud_opl_l(opl_l),
+        .aud_opl_r(opl_r),
+        .aud_opl_valid(opl_valid),
+        .aud_opl_enabled(opl_enabled)
+    );
+
+    /* The machine runs one engine at a time, exactly as the firmware
+     * does — aud_setup hands the interrupt to whichever device was
+     * programmed last, and the other stops being asked for samples. */
+    always_comb begin
+        rp6502_aud_l = opl_enabled ? opl_l : psg_l;
+        rp6502_aud_r = opl_enabled ? opl_r : psg_r;
+        rp6502_aud_valid = opl_enabled ? opl_valid : psg_valid;
+    end
 
     /* The 180- and 360-line canvases sit under a 60-line letterbox. */
     logic vid_letterbox;

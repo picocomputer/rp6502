@@ -115,8 +115,31 @@ add_dependencies(test_font vid_font_rom vid_palette_rom aud_sine_rom)
 # models the host bridge in C++ instead, so one harness serves every target.
 find_package(verilator CONFIG QUIET HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 if(verilator_FOUND)
+    # The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
+    # distribution README. Our fixes shadow their originals by being named
+    # first and the vendor copies dropped from the glob, so the submodule
+    # stays untouched. The package has to lead; nothing else cares.
+    #
+    # Every file is listed rather than found on a search path, because
+    # Quartus resolves .name port shorthand only against modules it has
+    # already been given, and the OPL2's memory wrappers are written that
+    # way. i2s is the dev board's audio out, and we have our own.
+    set(OPL2_DIR ${RP6502_VENDOR}/opl2_fpga/fpga/modules)
+    set(OPL2_SOURCES
+        ${CMAKE_CURRENT_LIST_DIR}/opl2.vlt
+        ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
+        ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_single_bank.sv
+        ${RP6502_VENDOR}/opl2_fpga_rp6502/trick_sw_detection.sv)
+    foreach(dir top_level channels operator timers host_if misc clks)
+        file(GLOB _opl_dir_src ${OPL2_DIR}/${dir}/src/*.sv ${OPL2_DIR}/${dir}/src/*.v)
+        list(FILTER _opl_dir_src EXCLUDE REGEX
+            "/(i2s|mem_single_bank|trick_sw_detection)\\.sv$")
+        list(APPEND OPL2_SOURCES ${_opl_dir_src})
+    endforeach()
+
     set(RP6502_MACHINE_SOURCES
         ${CMAKE_CURRENT_LIST_DIR}/hazard3.vlt
+        ${OPL2_SOURCES}
         ${CPU65_ROM}
         ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv
         ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
@@ -130,6 +153,7 @@ if(verilator_FOUND)
         ${AUD_SINE_PKG}
         ${RP6502_FPGA_RTL}/aud/aud_psg.sv
         ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+        ${RP6502_FPGA_RTL}/aud/aud_opl.sv
         ${VID_PALETTE_PKG}
         ${RP6502_FPGA_RTL}/vid/vid_font.sv
         ${RP6502_FPGA_RTL}/vid/vid_mode.sv
@@ -188,6 +212,19 @@ if(verilator_FOUND)
         PREFIX Vrp6502
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
         VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+    )
+
+    # The OPL2 device: the pointer gates it, a poke reaches the chip.
+    rp6502_add_test(opl
+        SOURCES test_opl.cpp
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+        TIMEOUT 300)
+    verilate(test_opl
+        SOURCES ${OPL2_SOURCES} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+            ${RP6502_FPGA_RTL}/aud/aud_opl.sv
+        TOP_MODULE aud_opl
+        PREFIX Vaud_opl
+        VERILATOR_ARGS -Wall --assert -O3
     )
 
     # The soft CPU's microsecond clock against clk_sys wall time.
@@ -717,6 +754,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         if(src MATCHES "\\.sv$")
             list(APPEND SYNTH_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
+        elseif(src MATCHES "\\.v$")
+            list(APPEND SYNTH_LINES
+                "set_global_assignment -name VERILOG_FILE ${src}")
         endif()
     endforeach()
     string(REPLACE ";" "\n" SYNTH_QSF_TEXT "${SYNTH_LINES}")
@@ -754,6 +794,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         if(src MATCHES "\\.sv$")
             list(APPEND PSYNTH_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
+        elseif(src MATCHES "\\.v$")
+            list(APPEND PSYNTH_LINES
+                "set_global_assignment -name VERILOG_FILE ${src}")
         endif()
     endforeach()
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
@@ -816,6 +859,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
                 "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
+        elseif(src MATCHES "\\.v$")
+            list(APPEND BS_LINES
+                "set_global_assignment -name VERILOG_FILE ${src}")
         endif()
     endforeach()
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram

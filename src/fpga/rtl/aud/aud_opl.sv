@@ -49,11 +49,16 @@ module aud_opl #(
 
     output logic [9:0] aud_opl_l,
     output logic [9:0] aud_opl_r,
-    output logic aud_opl_valid
+    output logic aud_opl_valid,
+    /* Which engine the machine is listening to. Programming either
+     * device's pointer is what picks it, so the choice lives with the
+     * pointer rather than in a register of its own. */
+    output logic aud_opl_enabled
 );
 
     logic [7:0] page;
     logic enabled;
+    always_comb aud_opl_enabled = enabled;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             page <= 8'd0;
@@ -66,6 +71,23 @@ module aud_opl #(
 
     logic snoop;
     always_comb snoop = q_we && enabled && q_addr[15:8] == page;
+
+    /* opl_xreg resets the chip before it hands the page over, so a
+     * program never inherits the last one's voices. The register file
+     * is memory that a plain reset walks rather than clears, so the
+     * pulse has to outlast that walk; the file is 22 deep and this is
+     * the round number above it. */
+    logic [7:0] chip_rst;
+    logic core_ic_n;
+    always_comb core_ic_n = rst_n && chip_rst == 8'd0;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            chip_rst <= 8'd255;
+        else if (xaddr_we)
+            chip_rst <= 8'd255;
+        else if (chip_rst != 8'd0)
+            chip_rst <= chip_rst - 8'd1;
+    end
 
     /* Four clocks a register: select low, select high, data low, data
      * high. The core latches on the rising edge of its write, so the
@@ -93,7 +115,7 @@ module aud_opl #(
             hold_val <= 8'd0;
         end else begin
             case (state)
-                S_IDLE: if (snoop) begin
+                S_IDLE: if (snoop && core_ic_n) begin
                     hold_reg <= q_addr[7:0];
                     hold_val <= q_val;
                     state <= S_SEL;
@@ -116,7 +138,7 @@ module aud_opl #(
         .clk(clk),
         .clk_host(clk),
         .clk_dac(clk),
-        .ic_n(rst_n),
+        .ic_n(core_ic_n),
         .cs_n(cs_n),
         .rd_n(1'b1),
         .wr_n(wr_n),

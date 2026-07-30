@@ -72,6 +72,7 @@
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
 #define AUD_BEL_STRIKE (*(volatile uint32_t *)0x70000004u)
+#define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
 #define CPU_RUN (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 
