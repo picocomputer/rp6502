@@ -33,6 +33,7 @@ extern "C"
 
 #include <cstdio>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 extern "C" bool psg_xreg(uint16_t word);
@@ -59,8 +60,12 @@ static void clock_cycle()
     dut->eval();
 }
 
+/* Snoops waiting for the end of the RTL's walk; see xram_write. */
+static std::vector<std::pair<uint16_t, uint8_t>> held;
+
 static void rtl_xaddr(uint16_t word)
 {
+    held.clear();
     dut->xaddr_we = 1;
     dut->xaddr_wdata = word;
     clock_cycle();
@@ -68,16 +73,37 @@ static void rtl_xaddr(uint16_t word)
     clock_cycle(); /* the write applies at the boundary, one clock on */
 }
 
-/* One XRAM byte written by the "6502": both models see the data and
- * their gate queues see the notify. */
+/* One XRAM byte written by the "6502". The data is shared, so both
+ * models read it from the same place at the same moment; the snoop is
+ * not, and that is deliberate.
+ *
+ * The firmware replays its ring after the envelope step, so a gate
+ * written now reaches the step one sample from now. The RTL has no ring
+ * and acts on the clock the write lands, so the same gate reaches this
+ * sample's step. Both are one step of a 24 kHz envelope and neither is
+ * more right; what this test is for is the waveform the synthesis
+ * produces, which only compares if the two models step the same
+ * envelope with the same gate. So the snoop is held until the RTL's
+ * walk is done — where the firmware's replay sits — and the pointer
+ * change discards what is held, because psg_xreg discards the ring
+ * (psg.c:284). Where the gate lands is asserted on its own, below. */
+static void release_snoop()
+{
+    for (auto &w : held)
+    {
+        dut->q_we = 1;
+        dut->q_addr = w.first;
+        dut->q_val = w.second;
+        clock_cycle();
+        dut->q_we = 0;
+    }
+    held.clear();
+}
+
 static void xram_write(uint16_t addr, uint8_t val)
 {
     shim_xram_write(addr, val);
-    dut->q_we = 1;
-    dut->q_addr = addr;
-    dut->q_val = val;
-    clock_cycle();
-    dut->q_we = 0;
+    held.emplace_back(addr, val);
 }
 
 /* Run both models for n samples, demanding exact agreement. */
@@ -100,6 +126,7 @@ static void run_lockstep(int *utest_result, int n)
         ASSERT_EQ(dut->aud_psg_r, cr);
         g_sample++;
         clock_cycle(); /* consume the strobe */
+        release_snoop();
     }
 }
 
@@ -109,6 +136,7 @@ static void run_lockstep(int *utest_result, int n)
  * on the C side after this returns, completing the boundary. */
 static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
 {
+    held.clear(); /* psg_xreg drops the ring; the pointer paths must agree */
     while (dut->rootp->aud_psg__DOT__state == 0)
         clock_cycle();
     for (int i = 0; i < depth; i++)
@@ -220,9 +248,12 @@ UTEST(psg, lockstep_bit_exact)
     xram_write((uint16_t)(base2 + 7 * 8 + 6), 0x31);
     run_lockstep(utest_result, 800);
 
-    /* Flood the queue past a sample's 32-entry drain and past the
-     * ring itself: order preserved, drops matched. */
-    for (int i = 0; i < 300; i++)
+    /* A burst of gates on one channel, inside what the firmware's ring
+     * can hold and inside one sample's drain, so both models see every
+     * one of them. Past those bounds the firmware starts dropping and
+     * rate limiting and the RTL does not; that is asserted by itself in
+     * psg.no_write_is_dropped rather than compared here. */
+    for (int i = 0; i < 20; i++)
         xram_write((uint16_t)(base2 + 6), (uint8_t)(i & 1));
     run_lockstep(utest_result, 600);
 
@@ -293,9 +324,11 @@ UTEST(psg, lockstep_bit_exact)
     run_lockstep(utest_result, 3200);
 
     /* Device-register writes landing inside the walk: shallow in the
-     * fetch, in the mix, deep in the generate, and into the drain with
-     * gates pending — the reset must hold whole at the boundary. */
-    static const int depths[] = {3, 40, 60, 200, 400, 424};
+     * fetch, in the mix, and deep in the generate — the reset must hold
+     * whole at the boundary. There was a sixth depth that landed in the
+     * drain; the walk ends where the drain used to begin, so it now
+     * lands past the walk and tests the boundary twice over. */
+    static const int depths[] = {3, 40, 60, 200, 400};
     for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); i++)
     {
         for (int ch = 0; ch < 8; ch++)
@@ -322,6 +355,96 @@ UTEST(psg, lockstep_bit_exact)
     rtl_xaddr(0xFFFF);
     ASSERT_TRUE(psg_xreg(0xFFFF));
     rtl_xaddr(0xFFFF);
+}
+
+/* Straight to the snoop, nothing held: what the 6502 actually does. */
+static void snoop_now(uint16_t addr, uint8_t val)
+{
+    shim_xram_write(addr, val);
+    dut->q_we = 1;
+    dut->q_addr = addr;
+    dut->q_val = val;
+    clock_cycle();
+    dut->q_we = 0;
+}
+
+static int rtl_sample()
+{
+    int guard = 0;
+    while (!dut->aud_psg_valid && guard++ < 4000)
+        clock_cycle();
+    int l = dut->aud_psg_l;
+    clock_cycle();
+    return l - 512;
+}
+
+static void rtl_reset()
+{
+    held.clear();
+    dut->q_we = 0;
+    dut->xaddr_we = 0;
+    dut->rst_n = 0;
+    for (int i = 0; i < 4; i++)
+        clock_cycle();
+    dut->rst_n = 1;
+}
+
+/* One channel at the fastest attack, silent until gated. */
+static void one_loud_channel(uint16_t base)
+{
+    for (int ch = 1; ch < 8; ch++)
+        config(base, ch, 0, 0, 0, 0, 0, 0);
+    config(base, 0, 1000, 255, 0x0F, 0x00, 0x02, 0x00);
+    rtl_xaddr(base);
+    held.clear();
+}
+
+/* The contract that removing the ring creates, and the one thing the
+ * lockstep holds its snoops back to avoid: a write reaches the state it
+ * names on the clock it lands. The firmware replays after its envelope
+ * step and cannot, so there is nothing to compare against and the
+ * machine's own behaviour is stated instead. Envelope state, not sound
+ * — how long a gate takes to become audible is a question about attack
+ * rates, and this is a question about when the write arrives. */
+#define ADSR_RELEASE 0
+#define ADSR_ATTACK 1
+
+UTEST(psg, gate_applies_on_the_clock_it_lands)
+{
+    shim_init();
+    rtl_reset();
+    const uint16_t base = 0x4000;
+    one_loud_channel(base);
+    rtl_sample();
+
+    ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+    snoop_now(base + 6, 0x01);
+    ASSERT_EQ(ADSR_ATTACK, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+
+    snoop_now(base + 6, 0x00);
+    ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+}
+
+/* And no bound on how many land. The firmware keeps 256 of them and
+ * replays at most 32 a sample, so a burst past either is dropped or
+ * deferred; nothing here holds a write long enough to lose one. The
+ * last of them wins because it is last, not because it fitted. */
+UTEST(psg, no_write_is_dropped)
+{
+    shim_init();
+    rtl_reset();
+    const uint16_t base = 0x4000;
+    one_loud_channel(base);
+    rtl_sample();
+
+    /* Far past the ring, and past any one sample's replay. */
+    for (int i = 0; i < 600; i++)
+        snoop_now(base + 6, (uint8_t)(i & 1));
+    ASSERT_EQ(ADSR_ATTACK, dut->rootp->aud_psg__DOT__ch_adsr[0]);
+
+    for (int i = 0; i < 601; i++)
+        snoop_now(base + 6, (uint8_t)(i & 1));
+    ASSERT_EQ(ADSR_RELEASE, dut->rootp->aud_psg__DOT__ch_adsr[0]);
 }
 
 UTEST_STATE();

@@ -7,12 +7,19 @@
  * clocks: eight channels of sine, square, sawtooth, triangle and noise
  * through the 6581's envelope rates. Each sample walks the handler's
  * exact order — the previous sample mixes out under the fresh pan while
- * the phase, wave, and envelope advance behind it, and the gate queue
- * drains last, at most thirty-two entries. The phase increment divides
- * 2^32 * freq by 72000 through a restoring divider because the oracle
- * divides, and every accumulator wraps at the C's own width. Gates
- * arrive from the RW engine's write snoop; the queue drops new entries
- * when full, like the firmware's ring. The bell rides the same grid the
+ * the phase, wave, and envelope advance behind it. The phase increment
+ * divides 2^32 * freq by 72000 through a restoring divider because the
+ * oracle divides, and every accumulator wraps at the C's own width.
+ *
+ * Register writes arrive from the RW engine's snoop and take effect on
+ * the clock they land, which is what a register does. The firmware
+ * queues them in a ring and replays the ring at the sample boundary
+ * because its processor is elsewhere when the write happens; that ring
+ * is a fact about the emulation and not about the machine, and carrying
+ * it here bought a 256-entry memory, a drain state, and a bound of
+ * thirty-two writes a sample that hardware has no reason to have.
+ *
+ * The bell rides the same grid the
  * way the C rides the handler: struck from the console, stepped once
  * per sample, mixed under the channels after their shift — and when the
  * pointer is parked the walk still runs, the standing bell alone, as
@@ -125,21 +132,25 @@ module aud_psg
         cf_pan = cf[55:48];
     end
 
-    /* The gate queue: the firmware's 256-entry ring, drop when full. */
-    /* Read where it is used, so it wants LUT RAM: a block RAM
-     * cannot answer without a clock and a register file this
-     * wide does not fit. */
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] queue[256];
-    logic [7:0] q_head, q_tail;
-    always_ff @(posedge clk) begin
-        if (q_we && enabled && q_addr[15:8] == xaddr[15:8]
-            && 8'(q_head + 8'd1) != q_tail)
-            queue[8'(q_head + 8'd1)] <= {q_addr[7:0], q_val};
-    end
+    /* The write snoop, decoded where it lands. The firmware keeps a
+     * ring of every write to the device page and replays it at the
+     * sample boundary because a processor cannot be in two places at
+     * once; this one sees the write on the clock it happens and has
+     * nowhere to put it but the state it affects. Anything the page
+     * means is decoded here, and today the channel's gate is all it
+     * means. */
+    logic snoop;
+    always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
+    logic [15:0] snoop_off;
+    always_comb snoop_off = q_addr - xaddr;
+    logic [2:0] snoop_ch;
+    always_comb snoop_ch = snoop_off[5:3];
+    logic snoop_gate;
+    always_comb snoop_gate = snoop && snoop_off[2:0] == 3'd6
+        && snoop_off[15:3] < 13'd8;
 
     typedef enum logic [2:0] {
-        P_IDLE, P_FETCH, P_MIX, P_BEL, P_OUT, P_DIV, P_STEP, P_DRAIN
+        P_IDLE, P_FETCH, P_MIX, P_BEL, P_OUT, P_DIV, P_STEP
     } state_t;
     state_t state;
 
@@ -262,13 +273,6 @@ module aud_psg
         endcase
     end
 
-    /* Queue drain: the C's uint16 recombination and stride filter. */
-    logic [15:0] q_ent;
-    always_comb q_ent = queue[8'(q_tail + 8'd1)];
-    logic [15:0] q_offset;
-    always_comb q_offset = {walk_xaddr[15:8], q_ent[15:8]} - walk_xaddr;
-    logic [4:0] drained;
-
     always_comb begin
         aud_psg_a_req = state == P_FETCH && {1'b0, fw_i} < {1'b0, fw_n};
         aud_psg_a_addr = walk_xaddr[15:2] + {9'd0, fw_i};
@@ -289,8 +293,6 @@ module aud_psg
             end
             gather <= '0;
             ch <= '0;
-            q_head <= '0;
-            q_tail <= '0;
             state <= P_IDLE;
             tickctr <= '0;
             fw_i <= '0;
@@ -303,17 +305,12 @@ module aud_psg
             div_q <= '0;
             div_rem <= '0;
             div_i <= '0;
-            drained <= '0;
             aud_psg_l <= 10'd512;
             aud_psg_r <= 10'd512;
             aud_psg_valid <= 1'b0;
         end else begin
             gnt_d <= a_gnt;
             aud_psg_valid <= 1'b0;
-
-            if (q_we && enabled && q_addr[15:8] == xaddr[15:8]
-                && 8'(q_head + 8'd1) != q_tail)
-                q_head <= q_head + 8'd1;
 
             if (tickctr == 13'(TICKS_PER_SAMPLE - 1))
                 tickctr <= '0;
@@ -324,8 +321,8 @@ module aud_psg
                 P_IDLE: begin
                     if (xreg_pend) begin
                         /* psg_xreg at the boundary: the pointer lands,
-                         * the envelopes and noise reset, the queue
-                         * empties; the phase persists. */
+                         * the envelopes and noise reset; the phase
+                         * persists. */
                         xreg_pend <= 1'b0;
                         xaddr <= xreg_word;
                         for (int i = 0; i < 8; i++) begin
@@ -334,7 +331,6 @@ module aud_psg
                             ch_vol[i] <= '0;
                             ch_adsr[i] <= ADSR_RELEASE;
                         end
-                        q_tail <= q_head;
                     end
                     if (tickctr == 13'd0) begin
                         walk_psg <= xreg_pend ? xreg_word != 16'hFFFF
@@ -430,8 +426,8 @@ module aud_psg
                     ch_adsr[ch] <= adsr_next;
                     ch <= ch + 3'd1;
                     if (ch == 3'd7) begin
-                        drained <= '0;
-                        state <= P_DRAIN;
+                        aud_psg_valid <= 1'b1;
+                        state <= P_IDLE;
                     end else begin
                         div_q <= {cview[{3'(ch + 3'd1), 6'd0}+:16], 32'd0};
                         div_rem <= '0;
@@ -439,33 +435,19 @@ module aud_psg
                         state <= P_DIV;
                     end
                 end
-                P_DRAIN: begin
-                    /* The strobe marks the whole walk done — output,
-                     * generate, drain — so a write after it lands in
-                     * the next sample, the handler's own boundary. */
-                    if (q_tail == q_head) begin
-                        aud_psg_valid <= 1'b1;
-                        state <= P_IDLE;
-                    end else begin
-                        q_tail <= q_tail + 8'd1;
-                        if (q_offset[2:0] == 3'd6
-                            && q_offset[15:3] < 13'd8) begin
-                            if (!q_ent[0]
-                                && ch_adsr[q_offset[5:3]] != ADSR_RELEASE)
-                                ch_adsr[q_offset[5:3]] <= ADSR_RELEASE;
-                            if (q_ent[0]
-                                && ch_adsr[q_offset[5:3]] == ADSR_RELEASE)
-                                ch_adsr[q_offset[5:3]] <= ADSR_ATTACK;
-                        end
-                        drained <= drained + 5'd1;
-                        if (drained == 5'd31) begin
-                            aud_psg_valid <= 1'b1;
-                            state <= P_IDLE;
-                        end
-                    end
-                end
                 default: state <= P_IDLE;
             endcase
+
+            /* After the case, so a write landing on the same clock as
+             * the walk's own step wins it. The program has just said
+             * what the channel is doing; the envelope is only saying
+             * what it was doing. */
+            if (snoop_gate) begin
+                if (!q_val[0] && ch_adsr[snoop_ch] != ADSR_RELEASE)
+                    ch_adsr[snoop_ch] <= ADSR_RELEASE;
+                if (q_val[0] && ch_adsr[snoop_ch] == ADSR_RELEASE)
+                    ch_adsr[snoop_ch] <= ADSR_ATTACK;
+            end
 
             /* After the case, so a write on an apply clock is kept for
              * the next boundary instead of vanishing under the clear. */
@@ -484,9 +466,14 @@ module aud_psg
         return 10'(s + 16'sd512);
     endfunction
 
+    /* The rest of pan_gate is the pan, and the pan is not edge
+     * triggered — it arrives with the rest of the config on the fetch,
+     * every sample, and is read out of cf. Only the gate has to be
+     * caught at the moment it moves. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{cf[63:56], gather, q_ent, cview,
+    always_comb unused_aud_psg = ^{cf[63:56], gather, cview,
+                                   walk_xaddr[0], q_val[7:1],
                                    div_rem[17]};
     /* verilator lint_on UNUSEDSIGNAL */
 
