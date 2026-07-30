@@ -18,8 +18,8 @@
  *       the testbench fills it now, the APF input bridge will later
  *   +16 microseconds since reset, low word; +20 high word. The tick is
  *       a fractional accumulator, MTIME_ADD per clock wrapping at
- *       MTIME_WRAP (1/1 in simulation; 10/1008 at the Pocket's
- *       100.8 MHz); the firmware's time_us_64 reads hi-lo-hi
+ *       MTIME_WRAP, which rp6502.sv sets from its clock; the
+ *       firmware's time_us_64 reads hi-lo-hi
  *   +24 staged ROM length in bytes: the platform sets it after filling
  *       the staging window, the firmware writes 0 once consumed
  *   +28 HID key event: bit 9 valid, bit 8 down, low byte the HID

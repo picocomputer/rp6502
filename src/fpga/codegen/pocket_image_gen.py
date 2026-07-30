@@ -13,8 +13,11 @@
 # --selftest re-encodes the two reference images that ship in the
 # core-template submodule and insists on byte equality, which is the
 # only real evidence that the rotation goes the way round it should.
-# Both of them are a bright field with dark marks; a picture on white
-# converts straight, with no inversion.
+#
+# Both of those are a bright field with dark marks, so a picture drawn
+# on white converts straight. Analogue warns that "the icon color may be
+# inverted in the UI", which is not checkable from here, so --invert is
+# how to flip it after seeing it on a real Pocket.
 #
 # This is run by hand when the artwork changes and its output is
 # committed, so PIL is a tool the author needs and not a thing the
@@ -43,9 +46,12 @@ def decode(data: bytes, width: int, height: int) -> np.ndarray:
     return np.rot90(rot, -1)
 
 
-def fit(src: Image.Image, width: int, height: int) -> np.ndarray:
+def fit(src: Image.Image, width: int, height: int,
+        invert: bool = False) -> np.ndarray:
     """Whole picture, aspect kept, centred on the field the marks sit on."""
     gray = src.convert("L")
+    if invert:
+        gray = Image.eval(gray, lambda v: 255 - v)
     scale = min(width / gray.width, height / gray.height)
     w = max(1, round(gray.width * scale))
     h = max(1, round(gray.height * scale))
@@ -82,13 +88,16 @@ def main() -> int:
     args = sys.argv[1:]
     if args and args[0] == "--selftest":
         return selftest(Path(args[1]))
+    invert = "--invert" in args
+    args = [a for a in args if a != "--invert"]
     if len(args) != 4:
-        print("usage: pocket_image_gen.py <src.png> <out.bin> <w> <h>\n"
+        print("usage: pocket_image_gen.py [--invert] <src.png> <out.bin> "
+              "<w> <h>\n"
               "       pocket_image_gen.py --selftest <core-template dir>",
               file=sys.stderr)
         return 2
     width, height = int(args[2]), int(args[3])
-    data = encode(fit(Image.open(args[0]), width, height))
+    data = encode(fit(Image.open(args[0]), width, height, invert))
     Path(args[1]).write_bytes(data)
     print(f"{args[1]}: {width}x{height}, {len(data)} bytes")
     return 0

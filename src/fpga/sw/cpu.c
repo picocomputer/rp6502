@@ -18,6 +18,10 @@
 #include "mmio.h"
 #include "ria/sys/cpu.h"
 
+/* The system setting, which a ROM's own choice of clock only borrows.
+ * The register holds what is running; this holds what to go back to. */
+static uint16_t cpu_phi2_khz_set = CPU_PHI2_DEFAULT;
+
 void cpu_set_phi2_khz_run(uint16_t phi2_khz)
 {
     if (phi2_khz < CPU_PHI2_MIN_KHZ)
@@ -36,13 +40,20 @@ bool cpu_set_phi2_khz(uint16_t phi2_khz)
 {
     if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
         return false;
+    cpu_phi2_khz_set = phi2_khz;
     MMIO_PHI2 = phi2_khz;
     return true;
 }
 
 uint16_t cpu_get_phi2_khz(void)
 {
-    return (uint16_t)MMIO_PHI2;
+    return cpu_phi2_khz_set;
+}
+
+/* A ROM that changed the clock does not get to leave it changed. */
+void cpu_stop(void)
+{
+    MMIO_PHI2 = cpu_phi2_khz_set;
 }
 
 /* The machine's lifecycle contract, minimally. */

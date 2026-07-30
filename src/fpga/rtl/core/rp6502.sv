@@ -168,7 +168,16 @@ module rp6502
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
 
-    rv_soc #(.TCM_INIT_FILE(TCM_INIT_FILE)) rv (
+    /* One microsecond is SYS_KHZ/1000 clocks, which is 50.4 of them and
+     * so not a whole number. Ten per clock wrapping at a hundredth of
+     * the rate keeps the fraction exact. Left at the module's 1/1 and
+     * the clock runs SYS_KHZ/1000 times fast, which nothing catches
+     * because nothing in simulation waits on a real second. */
+    rv_soc #(
+        .MTIME_ADD(10),
+        .MTIME_WRAP(SYS_KHZ / 100),
+        .TCM_INIT_FILE(TCM_INIT_FILE)
+    ) rv (
         .clk(clk_sys),
         .rst_n(rst_n),
         .rv_soc_phi2_khz(phi2_khz),

@@ -209,6 +209,8 @@ bool main_api(uint8_t operation)
         {
         case 0x00:
             return api_return_axsreg(api_get_errno_opt());
+        case 0x01:
+            return api_return_axsreg(cpu_get_phi2_khz_run());
         case 0x03:
             return api_return_axsreg(rln_get_max_length());
         case 0x04:
@@ -238,6 +240,11 @@ bool main_api(uint8_t operation)
         case 0x00:
             if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
                 return api_return_errno(API_EINVAL);
+            break;
+        case 0x01:
+            if (value < CPU_PHI2_MIN_KHZ || value > CPU_PHI2_MAX_KHZ)
+                return api_return_errno(API_EINVAL);
+            cpu_set_phi2_khz_run((uint16_t)value);
             break;
         case 0x03:
             if (value > UINT8_MAX)
@@ -390,6 +397,7 @@ int main(void)
             else if (API_OP == 0xFF)
             {
                 CPU_RUN = 0;
+                cpu_stop();
                 api_return_ax(0);
             }
         }
