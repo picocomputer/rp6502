@@ -25,8 +25,13 @@
 #include "rom.h"
 
 #include <ctype.h>
+#include <stdio.h>
+#include <string.h>
 
 static uint32_t rom_pos, rom_end;
+/* Where the asset directory starts, or 0 for an image without one.
+ * The loader already computes this bound and used to discard it. */
+static uint32_t rom_assets;
 
 static uint32_t rom_crc32(uint32_t crc, uint8_t byte)
 {
@@ -120,6 +125,7 @@ bool rom_load_staged(uint32_t len)
     char line[512];
     rom_pos = 0;
     rom_end = len;
+    rom_assets = 0;
 
     if (rom_gets(line, sizeof(line)) < 0 ||
         rom_strncasecmp(line, "#!RP6502", 8) != 0)
@@ -140,6 +146,7 @@ bool rom_load_staged(uint32_t len)
     }
     else
         rom_pos = after_magic;
+    rom_assets = prog_end < rom_end ? prog_end : 0;
 
     bool reset_lo = false, reset_hi = false;
     while (rom_pos < prog_end)
@@ -185,4 +192,172 @@ bool rom_load_staged(uint32_t len)
     }
 
     return reset_lo && reset_hi;
+}
+
+/* ---- The ROM: drive: read-only windows onto assets in the staged image.
+ *
+ * emu/emu/rom.c does this against a host file and keeps an fd positioned
+ * for each window. Here the image is already in SDRAM behind STAGE, so a
+ * window is an offset and a length and a read is a copy.
+ *
+ * Names are compared as bytes, which is what the emulator does. Assets are
+ * named in UTF-8 and a program's path is OEM code page bytes, so the two
+ * agree for the ASCII names every toolchain actually emits and disagree
+ * above 0x7F. Converting needs tables this firmware does not carry yet;
+ * until it does, the divergence is here rather than hidden.
+ * ---- */
+
+/* One window per stdio descriptor, so the pool is never what runs out
+ * first. STD_FD_MAX is private to std.c, so the number is repeated rather
+ * than shared; if that pool grows, this follows it. */
+#define ROM_OPEN_MAX 16
+
+static struct
+{
+    bool used;
+    uint32_t base, len, pos;
+} rom_win_pool[ROM_OPEN_MAX];
+
+static bool rom_path_is_rom(const char *path, const char **rest)
+{
+    if (rom_strncasecmp(path, "ROM:", 4) != 0)
+        return false;
+    *rest = path + 4;
+    return true;
+}
+
+/* Walk the "#>len crc name" headers from the directory start, skipping each
+ * body, until the name matches or the list runs out. No index, so a program
+ * may carry any number of assets. */
+static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
+{
+    if (!rom_assets)
+        return false;
+    char line[512];
+    rom_pos = rom_assets;
+    while (rom_pos < rom_end)
+    {
+        long n = rom_gets(line, sizeof line);
+        if (n < 2 || line[0] != '#' || line[1] != '>')
+            return false;
+        const char *p = line + 2;
+        uint32_t alen, acrc;
+        if (!parse_u32(&p, &alen) || !parse_u32(&p, &acrc))
+            return false;
+        while (*p == ' ' || *p == '\t')
+            p++;
+        uint32_t data = rom_pos;
+        size_t nl = strlen(name);
+        if (rom_strncasecmp(p, name, nl) == 0 && p[nl] == '\0')
+        {
+            *base = data;
+            *len = alen;
+            return true;
+        }
+        if (data + alen > rom_end)
+            return false; /* truncated: no more assets */
+        rom_pos = data + alen;
+    }
+    return false;
+}
+
+bool rom_std_handles(const char *path)
+{
+    const char *rest;
+    return rom_path_is_rom(path, &rest);
+}
+
+int rom_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    const char *rest;
+    if (!rom_path_is_rom(path, &rest))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    if (flags & 0x02) /* an asset is read-only */
+    {
+        *err = API_EACCES;
+        return -1;
+    }
+    uint32_t base, len;
+    if (!rom_find_asset(rest, &base, &len))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    for (int d = 0; d < ROM_OPEN_MAX; d++)
+        if (!rom_win_pool[d].used)
+        {
+            rom_win_pool[d].used = true;
+            rom_win_pool[d].base = base;
+            rom_win_pool[d].len = len;
+            rom_win_pool[d].pos = 0;
+            return d;
+        }
+    *err = API_EMFILE;
+    return -1;
+}
+
+static int rom_win(int desc)
+{
+    if (desc < 0 || desc >= ROM_OPEN_MAX || !rom_win_pool[desc].used)
+        return -1;
+    return desc;
+}
+
+std_rw_result rom_std_close(int desc, api_errno *err)
+{
+    if (rom_win(desc) < 0)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    rom_win_pool[desc].used = false;
+    return STD_OK;
+}
+
+std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
+                           uint32_t *got, api_errno *err)
+{
+    if (rom_win(desc) < 0)
+    {
+        *got = 0;
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    uint32_t pos = rom_win_pool[desc].pos, len = rom_win_pool[desc].len;
+    uint32_t avail = pos < len ? len - pos : 0;
+    uint32_t want = count < avail ? count : avail;
+    uint32_t at = rom_win_pool[desc].base + pos;
+    for (uint32_t i = 0; i < want; i++)
+        buf[i] = (char)STAGE[at + i];
+    rom_win_pool[desc].pos = pos + want;
+    *got = want; /* short or zero at the window's end, which is EOF */
+    return STD_OK;
+}
+
+int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
+                  api_errno *err)
+{
+    if (rom_win(desc) < 0)
+    {
+        *err = API_EBADF;
+        return -1;
+    }
+    int32_t from = whence == SEEK_SET   ? 0
+                   : whence == SEEK_CUR ? (int32_t)rom_win_pool[desc].pos
+                   : whence == SEEK_END ? (int32_t)rom_win_pool[desc].len
+                                        : -1;
+    if (from < 0 || from + off < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    int32_t np = from + off;
+    if ((uint32_t)np > rom_win_pool[desc].len) /* clamp to the asset */
+        np = (int32_t)rom_win_pool[desc].len;
+    rom_win_pool[desc].pos = (uint32_t)np;
+    *pos = np;
+    return 0;
 }

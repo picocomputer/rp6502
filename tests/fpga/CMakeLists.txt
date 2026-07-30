@@ -572,6 +572,26 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
+        # A real game on the whole machine: a megabyte of ROM with
+        # bundled assets, the loader's asset path, and the video engines
+        # at the rate something drives them in earnest.
+        if(EXISTS ${RP6502_SRC}/../tests/roms/RPStarHopper.rp6502)
+        rp6502_add_test(hopper
+            SOURCES test_hopper.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
+                HOPPER_ROM="${CMAKE_CURRENT_LIST_DIR}/../roms/RPStarHopper.rp6502"
+            TIMEOUT 1800)
+        add_dependencies(test_hopper sw_bin cpu65_rom)
+        verilate(test_hopper
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+        endif()
+
         # The .rp6502 loader against the staged window, the testbench
         # playing the platform bridge.
         rp6502_add_test(rom

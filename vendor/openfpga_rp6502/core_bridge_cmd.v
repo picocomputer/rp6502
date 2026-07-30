@@ -2,6 +2,25 @@
 // bridge host/target command handler
 // 2022 Analogue
 //
+//
+// rp6502: two changes from Analogue's file.
+//
+// 1. Target command 0x0152, Debug Event Log, which upstream does not carry.
+//    target_debug_done retires with the same shape as target_dataslot_done,
+//    so a producer can pace itself against it.
+//
+// 2. Every command now writes the whole of target_0 rather than its low
+//    half. Upstream sets target_0[15:0] at TARG_ST_IDLE and leaves the
+//    previous command's "ok" (0x6F6B) standing in [31:16] for one clk_74a
+//    cycle. The host polls asynchronously; if a poll lands in that window
+//    it reads "ok" beside a new command code, does not recognise "cm", and
+//    never starts the operation -- and the FSM then waits for a result that
+//    will not come. Non-deterministic, and likelier the more commands are
+//    issued. Diagnosed by thinkelastic/PocketQuake, whose src/fpga/
+//    dataslot.md tracks it down from an intermittent hang; the fix here is
+//    theirs. Writing 0x0000 first is safe because it matches none of
+//    "cm"/"bu"/"ok", so the host ignores it and sees a clean transition.
+//
 
 // mapped to 0xF8xxxxxx on bridge
 // the spec is loose enough to allow implementation with either
@@ -509,7 +528,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_read_queue) begin
             target_dataslot_read_queue <= 0;
-            target_0[15:0] <= 16'h0180;
+            target_0 <= {16'h0000, 16'h0180};
             
             target_20 <= target_dataslot_id;
             target_24 <= target_dataslot_slotoffset;
@@ -520,7 +539,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_write_queue) begin
             target_dataslot_write_queue <= 0;
-            target_0[15:0] <= 16'h0184;
+            target_0 <= {16'h0000, 16'h0184};
             
             target_20 <= target_dataslot_id;
             target_24 <= target_dataslot_slotoffset;
@@ -531,7 +550,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_getfile_queue) begin
             target_dataslot_getfile_queue <= 0;
-            target_0[15:0] <= 16'h0190;
+            target_0 <= {16'h0000, 16'h0190};
             
             target_20 <= target_dataslot_id;
             target_24 <= target_buffer_resp_struct; // pointer to the bram that will hold the response struct
@@ -540,7 +559,7 @@ always @(posedge clk) begin
             
         end else if(target_dataslot_openfile_queue) begin
             target_dataslot_openfile_queue <= 0;
-            target_0[15:0] <= 16'h0192;
+            target_0 <= {16'h0000, 16'h0192};
             
             target_20 <= target_dataslot_id;
             target_24 <= target_buffer_param_struct; // pointer to the bram that will hold the parameter struct
@@ -549,7 +568,7 @@ always @(posedge clk) begin
             
         end else if(target_debug_event_queue) begin
             target_debug_event_queue <= 0;
-            target_0[15:0] <= 16'h0152;
+            target_0 <= {16'h0000, 16'h0152};
             
             target_20 <= target_debug_id;
             

@@ -152,6 +152,52 @@ UTEST(aud, opl_makes_a_noise)
     ASSERT_GT(g_valids, (long)0);
 }
 
+UTEST(aud, the_machine_runs_while_the_6502_is_held)
+{
+    /* Resetting the 6502 is how a program is stopped and the next one
+     * started, and none of the rest of the machine should notice. The
+     * soft CPU owns that reset and has to keep running to release it;
+     * the raster cannot pause without the display losing lock; and a
+     * voice left sounding is the device's business, not the CPU's. */
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL));
+    ASSERT_NE(frames_to_sound(8), -1);
+
+    dut->rootp->rp6502__DOT__cpu_run = 0;
+
+    long rv_bytes = 0;
+    long frames = 0;
+    uint64_t mtime0 = dut->rootp->rp6502__DOT__rv__DOT__mtime_us;
+    g_energy = 0;
+    g_peak = 0;
+    g_valids = 0;
+    for (int i = 0; i < 3; i++)
+    {
+        int prev = dut->rp6502_scanline;
+        while (dut->rp6502_scanline != 524)
+        {
+            clock_cycle();
+            if (dut->rp6502_rv_tx_valid)
+                rv_bytes++;
+            if (dut->rp6502_scanline != prev)
+                prev = dut->rp6502_scanline;
+        }
+        while (dut->rp6502_scanline != 0)
+            clock_cycle();
+        frames++;
+    }
+
+    /* The 6502 really is held. */
+    ASSERT_EQ((int)dut->rootp->rp6502__DOT__cpu_run, 0);
+    /* The raster kept its cadence. */
+    ASSERT_EQ(frames, (long)3);
+    /* The soft CPU kept time, which it cannot do if it stopped. */
+    ASSERT_GT(dut->rootp->rp6502__DOT__rv__DOT__mtime_us, mtime0);
+    /* And the note is still sounding. */
+    ASSERT_GT(g_valids, (long)0);
+    ASSERT_GT(g_peak, 32);
+    (void)rv_bytes;
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

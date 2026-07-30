@@ -178,10 +178,24 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
     return true;
 }
 
+/* One driver: the ROM: drive. A program's own files would need the host,
+ * which is its own piece of work; open() of anything else falls out of
+ * std_api_open's loop and returns ENOENT, which is what a machine with no
+ * disc should say. */
+static const std_driver_t main_drivers[] = {
+    {
+        .handles = rom_std_handles,
+        .open = rom_std_open,
+        .close = rom_std_close,
+        .read = rom_std_read,
+        .lseek = rom_std_lseek,
+    },
+};
+
 const std_driver_t *main_std_drivers(size_t *count)
 {
-    *count = 0;
-    return 0;
+    *count = sizeof main_drivers / sizeof main_drivers[0];
+    return main_drivers;
 }
 
 bool main_api(uint8_t operation)
