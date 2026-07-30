@@ -259,8 +259,8 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
     uint32_t want = pos < len ? len - pos : 0;
     if (want > count)
         want = count;
-    if (want > FILE_STAGE_SIZE)
-        want = FILE_STAGE_SIZE;
+    if (want > FILE_XFER_MAX)
+        want = FILE_XFER_MAX;
     if (!want)
         return STD_OK; /* short or zero at the end, which is EOF */
     FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;

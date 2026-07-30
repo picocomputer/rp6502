@@ -7,9 +7,11 @@
  * asking. Four target commands move a data slot's file — Slot Read
  * copies from it into memory the bridge can write, Slot Write copies
  * out of memory the bridge can read, Open File hands the host a name
- * and binds it to a slot, and the data table says how long the file
- * is. This block issues them for the soft CPU and answers when they
- * retire.
+ * and binds it to a slot, Get File asks which name a slot already
+ * holds — and the data table says how long the file is. This block
+ * issues all five for the soft CPU and answers when they retire. Get
+ * File has no caller yet; it is wired because a fit is half an hour
+ * and a missing wire is not worth one.
  *
  * The two directions use different memory, because the bridge is not
  * symmetric. Writes toward the core already had a path — the loader
@@ -63,6 +65,7 @@ module pocket_file #(
     input logic [31:0] bridge_addr,
     output logic [31:0] pocket_file_rd_data,
     output logic [31:0] pocket_file_param_struct,
+    output logic [31:0] pocket_file_resp_struct,
 
     /* The data table, shared with the loader's own read of slot 0. */
     output logic pocket_file_dt_req,
@@ -74,6 +77,7 @@ module pocket_file #(
     output logic pocket_file_read,
     output logic pocket_file_write,
     output logic pocket_file_openfile,
+    output logic pocket_file_getfile,
     output logic [15:0] pocket_file_id,
     output logic [31:0] pocket_file_slotoffset,
     output logic [31:0] pocket_file_bridgeaddr,
@@ -88,6 +92,7 @@ module pocket_file #(
     localparam logic [2:0] OP_WRITE = 3'd2;
     localparam logic [2:0] OP_OPEN = 3'd3;
     localparam logic [2:0] OP_DT = 3'd4;
+    localparam logic [2:0] OP_GETFILE = 3'd5;
 
     localparam logic [2:0] F_IDLE = 3'd0;
     localparam logic [2:0] F_START = 3'd1;
@@ -174,7 +179,15 @@ module pocket_file #(
     always_ff @(posedge clk_74a)
         pocket_file_rd_data <= window[bridge_addr[WA+1:2]];
 
-    always_comb pocket_file_param_struct = WINDOW_BASE;
+    /* Open File's parameter struct is the one thing the host reads out
+     * of the window, so its pointer is the window. Get File's response
+     * struct is the reverse — the host writes the name — which the
+     * bridge can only do into the store, so it rides the same address
+     * register a Slot Read does. */
+    always_comb begin
+        pocket_file_param_struct = WINDOW_BASE;
+        pocket_file_resp_struct  = pocket_file_bridgeaddr;
+    end
 
     /* --- The command, clk_74a side. --- */
     logic [2:0] fstate;
@@ -195,6 +208,7 @@ module pocket_file #(
             pocket_file_read <= 1'b0;
             pocket_file_write <= 1'b0;
             pocket_file_openfile <= 1'b0;
+            pocket_file_getfile <= 1'b0;
             pocket_file_dt_req <= 1'b0;
             pocket_file_dt_addr <= '0;
         end else begin
@@ -207,6 +221,7 @@ module pocket_file #(
                     pocket_file_read <= r_op == OP_READ;
                     pocket_file_write <= r_op == OP_WRITE;
                     pocket_file_openfile <= r_op == OP_OPEN;
+                    pocket_file_getfile <= r_op == OP_GETFILE;
                     fstate <= F_ARM;
                 end
                 /* The bridge holds done high from one command until the
@@ -217,6 +232,7 @@ module pocket_file #(
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;
+                    pocket_file_getfile <= 1'b0;
                     if (!target_dataslot_done)
                         fstate <= F_WAIT;
                     else if (&tmo) begin

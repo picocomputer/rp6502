@@ -410,7 +410,7 @@ end
 // pocket_file drives these; the machine's firmware is what asks.
     wire            target_dataslot_read;
     wire            target_dataslot_write;
-    wire            target_dataslot_getfile = 0;    // require additional param/resp structs to be mapped
+    wire            target_dataslot_getfile;    // require additional param/resp structs to be mapped
     wire            target_dataslot_openfile;   // require additional param/resp structs to be mapped
 
     wire            target_dataslot_ack;
@@ -423,7 +423,7 @@ end
     wire    [31:0]  target_dataslot_length;
 
     wire    [31:0]  target_buffer_param_struct; // Open File reads the name out of the file bridge's own window
-    wire    [31:0]  target_buffer_resp_struct = 0;  // Get File is not used
+    wire    [31:0]  target_buffer_resp_struct;  // Get File answers into the staging store
 
 // bridge data slot access
 // synchronous to clk_74a
@@ -595,9 +595,11 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     // the file bridge
     .pocket_core_bridge_rd_data      ( file_bridge_rd_data ),
     .pocket_core_param_struct        ( target_buffer_param_struct ),
+    .pocket_core_resp_struct         ( target_buffer_resp_struct ),
     .pocket_core_dataslot_read       ( target_dataslot_read ),
     .pocket_core_dataslot_write      ( target_dataslot_write ),
     .pocket_core_dataslot_openfile   ( target_dataslot_openfile ),
+    .pocket_core_dataslot_getfile    ( target_dataslot_getfile ),
     .pocket_core_dataslot_id         ( target_dataslot_id ),
     .pocket_core_dataslot_slotoffset ( target_dataslot_slotoffset ),
     .pocket_core_dataslot_bridgeaddr ( target_dataslot_bridgeaddr ),

@@ -45,6 +45,8 @@
 #define FILE_STAGE ((volatile const uint8_t *)0x63FE0000u)
 #define FILE_STAGE_BRIDGE 0x03FE0000u
 #define FILE_STAGE_SIZE 0x10000u
+/* The most the host will move in one slot operation. */
+#define FILE_XFER_MAX 0x8000u
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
  * other port is the bridge's, so it is word-wide and write-only: the
@@ -65,6 +67,9 @@
 #define FILE_OP_WRITE 2u
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
+/* Get File answers into the staging store at FILE_BRIDGE, since the
+ * bridge writes toward us and cannot write the window. */
+#define FILE_OP_GETFILE 5u
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu
