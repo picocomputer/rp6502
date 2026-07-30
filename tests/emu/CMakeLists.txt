@@ -88,3 +88,18 @@ rp6502_add_test(paint_tab LIBS emu_core FIXTURE paint_tab.rp6502 TIMEOUT 60)
 
 # --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
 rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
+
+# --- OEM code page conversion (ria/api/uni.c) against the ffunicode.c it
+# replaces. The vendored file is compiled beside it with its entry points
+# renamed, so every code page, every byte, every code point in the BMP,
+# and the whole up-case map are compared in one process. ---
+set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
+rp6502_add_test(uni
+    SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c ${OEMCP_C}
+        ${RP6502_VENDOR}/fatfs/ffunicode.c
+    INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/emu/host/pico
+        ${OEMCP_DIR})
+add_dependencies(test_uni oemcp)
+set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
+    TARGET_DIRECTORY test_uni PROPERTIES COMPILE_DEFINITIONS
+    "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")

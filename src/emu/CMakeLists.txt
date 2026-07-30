@@ -29,6 +29,23 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
+
+# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
+# generator so the logic in ria/api/uni.c can be read without a
+# preprocessor. See src/fpga/codegen/oem_table_gen.py.
+set(OEMCP_GEN ${RP6502_SRC}/fpga/codegen/oem_table_gen.py)
+set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
+set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
+set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
+add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${OEMCP_GEN}
+        --ffunicode ${OEMCP_SRC} --emit-c ${OEMCP_C} --emit-h ${OEMCP_H}
+    DEPENDS ${OEMCP_GEN} ${OEMCP_SRC}
+    COMMENT "Generating the OEM code page tables"
+    VERBATIM)
+add_custom_target(oemcp DEPENDS ${OEMCP_C} ${OEMCP_H})
+set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR})
+
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/emu/pro.c
@@ -58,6 +75,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/ria/api/clk.c
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/oem.c
+    ${RP6502_SRC}/ria/api/uni.c
+    ${OEMCP_C}
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/aud/bel.c
     ${RP6502_SRC}/ria/aud/opl.c
@@ -75,7 +94,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/vga/term/term.c
     ${RP6502_VENDOR}/emu8950/emu8950.c
     ${RP6502_VENDOR}/fatfs/ff.c
-    ${RP6502_VENDOR}/fatfs/ffunicode.c
 )
 
 if(WIN32)
@@ -171,6 +189,7 @@ if(MSVC)
 endif()
 
 target_include_directories(emu_core PUBLIC
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}/emu/host/pico
     ${RP6502_SRC}
     ${RP6502_VENDOR}/chips_rp6502 # shadows vendor/chips; must precede it
