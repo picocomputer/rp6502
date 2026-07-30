@@ -25,26 +25,21 @@ Everything the SD card needs except the binaries:
 
 ## Credits and licences
 
-The core is BSD-3-Clause except where a vendored part says otherwise, and
-two of those parts ship inside the bitstream rather than beside it, so
-their notices belong here:
+The core is BSD-3-Clause. Two vendored parts ship inside the bitstream
+rather than beside it, so their notices belong here:
 
 - **OPL2 (YM3812)** — [gtaylormb/opl2_fpga](https://github.com/gtaylormb/opl2_fpga),
-  Greg Taylor, **LGPL-3.0**, a reverse-engineered SystemVerilog OPL2 built
-  down from his OPL3 core. It descends from Robson Cozendey's Java OPL3
-  (2008) and Steffen Ohrendorf's C++ port (2012). Our changes are four
-  small ones in `vendor/opl2_fpga_rp6502/`, each annotated where it sits;
-  the submodule itself is unmodified. Because LGPL-3.0 asks that the
-  library stay replaceable, note that the whole core builds from source
-  at [github.com/picocomputer/rp6502](https://github.com/picocomputer/rp6502)
-  and the bitstream is a plain file on the SD card — replacing
-  `bitstream.rbf_r` with your own build is the entire install procedure.
+  Greg Taylor, LGPL-3.0. A reverse-engineered SystemVerilog OPL2 built
+  down from his OPL3 core, itself descended from Robson Cozendey's Java
+  OPL3 and Steffen Ohrendorf's C++ port.
 - **Hazard3** — [Wren6991/Hazard3](https://github.com/Wren6991/Hazard3),
   Luke Wren, Apache-2.0. The RP2350's own RISC-V core, running the
   machine's real firmware inside the fabric.
 
 The Analogue Pocket framework files under `vendor/openfpga` are Analogue's
 core template, used under its own terms.
+
+Full source: [picocomputer.github.io](https://picocomputer.github.io)
 
 ## Suspend
 
