@@ -65,8 +65,8 @@ module aud_opl #(
     output logic aud_opl_enabled
 );
 
-    logic [7:0] page;
-    logic enabled;
+    logic [7:0] page /*verilator public_flat_rd*/;
+    logic enabled /*verilator public_flat_rd*/;
     always_comb aud_opl_enabled = enabled;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

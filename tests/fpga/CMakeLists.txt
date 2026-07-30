@@ -529,15 +529,25 @@ if(verilator_FOUND)
             VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
         )
 
-        # furelise.rp6502 on the whole machine — the xreg dispatch, the
-        # gate snoop, the rotor fetch, and the 24 kHz grid against
-        # 60 Hz — is bypassed for now. Thirty-five of its frames are the
-        # tracker's own lead-in before a note sounds, which makes it the
-        # slowest test in the suite by a wide margin for what it proves.
-        # A faster machine-level audio test covering both the PSG and
-        # the OPL replaces it; test_furelise.cpp stays in the tree until
-        # that lands. The PSG's own correctness is not at stake here —
-        # test_psg holds it bit-exact against ria/aud/psg.c in lockstep.
+        # Both engines end to end: a program asks for the device, pours
+        # its registers in through RW0, and the machine makes a noise
+        # inside a couple of frames. This is the plumbing test — the
+        # xreg dispatch, the write snoop, and the sample grid — not a
+        # waveform one; test_psg holds the PSG bit-exact against
+        # ria/aud/psg.c, and the OPL2 has no emulator to agree with.
+        rp6502_add_test(aud
+            SOURCES test_aud.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
+            TIMEOUT 600)
+        add_dependencies(test_aud sw_bin cpu65_rom)
+        verilate(test_aud
+            SOURCES ${RP6502_MACHINE_SOURCES}
+            TOP_MODULE rp6502
+            PREFIX Vrp6502
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
 
         # The .rp6502 loader against the staged window, the testbench
         # playing the platform bridge.

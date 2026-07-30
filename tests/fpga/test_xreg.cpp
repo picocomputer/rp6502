@@ -130,6 +130,13 @@ UTEST(xreg, dispatch_matches_the_oracle)
     push(0); push(1); push(0); pushw(0x8000);
     op1();
 
+    /* The OPL pointer, whose validation is only that the block is page
+     * aligned: a reject, then one that stands. */
+    push(0); push(1); push(1); pushw(0xF001); /* not a page */
+    op1();
+    push(0); push(1); push(1); pushw(0xF000);
+    op1();
+
     /* ATR_BEL: read the default, mute, ring silently, reject a bad
      * value, unmute, ring for real. */
     auto opn = [&](uint8_t op, uint8_t a) {
@@ -218,13 +225,18 @@ UTEST(xreg, dispatch_matches_the_oracle)
 
     /* Eighteen results, four bytes each, plus the two BEL characters,
      * identical on both machines. */
-    ASSERT_EQ(cpu_out.size(), (size_t)(18 * 4 + 2));
+    ASSERT_EQ(cpu_out.size(), (size_t)(20 * 4 + 2));
 
     /* The muted BEL never struck; the unmuted one did. */
     ASSERT_EQ(strikes, 1);
 
     /* The device register holds the last accepted pointer. */
     ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0x8000);
+    /* And the OPL's, which is the whole path the device depends on:
+     * the xreg dispatch, the soft CPU's validation, the MMIO write and
+     * the machine's decode of it. */
+    ASSERT_TRUE(dut->rootp->rp6502__DOT__aud_opl__DOT__enabled);
+    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_opl__DOT__page, 0xF0);
     ASSERT_TRUE(oracle_out.size() >= cpu_out.size());
     ASSERT_EQ(memcmp(oracle_out.data() + oracle_out.size() - cpu_out.size(),
                      cpu_out.data(), cpu_out.size()), 0);
