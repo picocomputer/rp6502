@@ -35,6 +35,19 @@ module pocket_core #(
     input logic reset_n,
     output logic [9:0] pocket_core_dt_addr,
     input logic [31:0] datatable_q,
+    /* The file bridge: the host's answer to a target command, and the
+     * word it reads back out of us. */
+    output logic [31:0] pocket_core_bridge_rd_data,
+    output logic [31:0] pocket_core_param_struct,
+    output logic pocket_core_dataslot_read,
+    output logic pocket_core_dataslot_write,
+    output logic pocket_core_dataslot_openfile,
+    output logic [15:0] pocket_core_dataslot_id,
+    output logic [31:0] pocket_core_dataslot_slotoffset,
+    output logic [31:0] pocket_core_dataslot_bridgeaddr,
+    output logic [31:0] pocket_core_dataslot_length,
+    input logic target_dataslot_done,
+    input logic [2:0] target_dataslot_err,
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
     input logic [15:0] cont1_trig,
@@ -101,6 +114,11 @@ module pocket_core #(
     logic [24:0] w_addr;
     logic [15:0] w_data;
 
+    logic [9:0] bridge_dt_addr, file_dt_addr;
+    logic dt_busy, file_dt_req;
+    always_comb pocket_core_dt_addr = file_dt_req && !dt_busy
+        ? file_dt_addr : bridge_dt_addr;
+
     pocket_bridge bridge (
         .clk_74a(clk_74a),
         .arst_n(arst_n),
@@ -109,7 +127,8 @@ module pocket_core #(
         .bridge_wr_data(bridge_wr_data),
         .dataslot_allcomplete(dataslot_allcomplete),
         .reset_n(reset_n),
-        .pocket_bridge_dt_addr(pocket_core_dt_addr),
+        .pocket_bridge_dt_addr(bridge_dt_addr),
+        .pocket_bridge_dt_busy(dt_busy),
         .datatable_q(datatable_q),
         .cont1_key(cont1_key),
         .cont1_joy(cont1_joy),
@@ -177,6 +196,10 @@ module pocket_core #(
         .dram_dq_in(dram_dq_in)
     );
 
+    logic [27:0] host_addr;
+    logic host_stb, host_we;
+    logic [31:0] host_wdata, host_rdata;
+
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;
     logic [9:0] aud_l, aud_r;
@@ -202,6 +225,11 @@ module pocket_core #(
         .rp6502_stage_pend(stage_pend),
         .stage_stall(stage_stall),
         .stage_rdata(stage_rdata),
+        .rp6502_host_addr(host_addr),
+        .rp6502_host_stb(host_stb),
+        .rp6502_host_we(host_we),
+        .rp6502_host_wdata(host_wdata),
+        .host_rdata(host_rdata),
         .slot_set(slot_set),
         .slot_len(slot_len),
         .key_set(1'b0),
@@ -223,6 +251,39 @@ module pocket_core #(
         .rp6502_aud_valid(aud_valid),
         .rp6502_scanline(scanline),
         .rp6502_vid_frame(vid_frame)
+    );
+
+    /* The file bridge keeps the platform reset, not the machine's: a
+     * command in flight belongs to the host, and a reboot that dropped
+     * it would leave the bridge waiting for a core that had forgotten
+     * it asked. */
+    pocket_file file (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .stb(host_stb),
+        .we(host_we),
+        .addr(host_addr),
+        .wdata(host_wdata),
+        .pocket_file_rdata(host_rdata),
+        .w_pending(w_avail),
+        .clk_74a(clk_74a),
+        .arst_n(arst_n),
+        .bridge_addr(bridge_addr),
+        .pocket_file_rd_data(pocket_core_bridge_rd_data),
+        .pocket_file_param_struct(pocket_core_param_struct),
+        .pocket_file_dt_req(file_dt_req),
+        .pocket_file_dt_addr(file_dt_addr),
+        .datatable_q(datatable_q),
+        .dt_busy(dt_busy),
+        .pocket_file_read(pocket_core_dataslot_read),
+        .pocket_file_write(pocket_core_dataslot_write),
+        .pocket_file_openfile(pocket_core_dataslot_openfile),
+        .pocket_file_id(pocket_core_dataslot_id),
+        .pocket_file_slotoffset(pocket_core_dataslot_slotoffset),
+        .pocket_file_bridgeaddr(pocket_core_dataslot_bridgeaddr),
+        .pocket_file_length(pocket_core_dataslot_length),
+        .target_dataslot_done(target_dataslot_done),
+        .target_dataslot_err(target_dataslot_err)
     );
 
     pocket_video video (

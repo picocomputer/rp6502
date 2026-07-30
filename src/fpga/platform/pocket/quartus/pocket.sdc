@@ -66,3 +66,45 @@ set_max_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
     -to [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] 13.468
 set_min_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
     -to [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] 0
+
+# The file bridge's command crosses the same way: the parameters stand
+# still while a toggle carries the news, and only the toggle's first
+# stage is cut by the rule above. Bound the parameters instead of
+# cutting them, so a word cannot outlast the toggle that announced it.
+# Named by source and stopped at the far clock, because the command
+# parameters leave this block entirely — core_bridge_cmd's own target
+# registers are where they land.
+set_max_delay -from [get_registers {*pocket_file*|pocket_file_id[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|pocket_file_id[*]}] \
+    -to [get_clocks {clk_74a}] 0
+set_max_delay -from [get_registers {*pocket_file*|pocket_file_slotoffset[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|pocket_file_slotoffset[*]}] \
+    -to [get_clocks {clk_74a}] 0
+set_max_delay -from [get_registers {*pocket_file*|pocket_file_bridgeaddr[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|pocket_file_bridgeaddr[*]}] \
+    -to [get_clocks {clk_74a}] 0
+set_max_delay -from [get_registers {*pocket_file*|pocket_file_length[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|pocket_file_length[*]}] \
+    -to [get_clocks {clk_74a}] 0
+set_max_delay -from [get_registers {*pocket_file*|r_op[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
+    -to [get_clocks {clk_74a}] 0
+
+# And the answer, coming back behind its own toggle.
+set_max_delay -from [get_registers {*pocket_file*|err_q[*]}] \
+    -to [get_registers {*pocket_file*|r_err[*]}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|err_q[*]}] \
+    -to [get_registers {*pocket_file*|r_err[*]}] 0
+set_max_delay -from [get_registers {*pocket_file*|tmo_q}] \
+    -to [get_registers {*pocket_file*|tmo_flag}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|tmo_q}] \
+    -to [get_registers {*pocket_file*|tmo_flag}] 0
+set_max_delay -from [get_registers {*pocket_file*|result_q[*]}] \
+    -to [get_registers {*pocket_file*|r_result[*]}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|result_q[*]}] \
+    -to [get_registers {*pocket_file*|r_result[*]}] 0

@@ -331,15 +331,17 @@ assign vpll_feed = 1'bZ;
 // for bridge write data, we just broadcast it to all bus devices
 // for bridge read data, we have to mux it
 // add your own devices here
+//
+// 0x0xxxxxxx is the staging store, which the host only ever writes; the
+// window at 0x2xxxxxxx is the file bridge's outbound buffer, and the one
+// thing here the host reads out of the machine.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
     end
-    32'h10xxxxxx: begin
-        // example
-        // bridge_rd_data <= example_device_data;
-        bridge_rd_data <= 0;
+    32'h20xxxxxx: begin
+        bridge_rd_data <= file_bridge_rd_data;
     end
     32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
@@ -353,6 +355,7 @@ end
 //
     wire            reset_n;                // driven by host commands, can be used as core-wide reset
     wire    [31:0]  cmd_bridge_rd_data;
+    wire    [31:0]  file_bridge_rd_data;
     
 // bridge host commands
 // synchronous to clk_74a
@@ -404,23 +407,24 @@ end
 // bridge target commands
 // synchronous to clk_74a
 
-    reg             target_dataslot_read;       
-    reg             target_dataslot_write;
-    reg             target_dataslot_getfile;    // require additional param/resp structs to be mapped
-    reg             target_dataslot_openfile;   // require additional param/resp structs to be mapped
-    
-    wire            target_dataslot_ack;        
+// pocket_file drives these; the machine's firmware is what asks.
+    wire            target_dataslot_read;
+    wire            target_dataslot_write;
+    wire            target_dataslot_getfile = 0;    // require additional param/resp structs to be mapped
+    wire            target_dataslot_openfile;   // require additional param/resp structs to be mapped
+
+    wire            target_dataslot_ack;
     wire            target_dataslot_done;
     wire    [2:0]   target_dataslot_err;
 
-    reg     [15:0]  target_dataslot_id;
-    reg     [31:0]  target_dataslot_slotoffset;
-    reg     [31:0]  target_dataslot_bridgeaddr;
-    reg     [31:0]  target_dataslot_length;
-    
-    wire    [31:0]  target_buffer_param_struct; // to be mapped/implemented when using some Target commands
-    wire    [31:0]  target_buffer_resp_struct;  // to be mapped/implemented when using some Target commands
-    
+    wire    [15:0]  target_dataslot_id;
+    wire    [31:0]  target_dataslot_slotoffset;
+    wire    [31:0]  target_dataslot_bridgeaddr;
+    wire    [31:0]  target_dataslot_length;
+
+    wire    [31:0]  target_buffer_param_struct; // Open File reads the name out of the file bridge's own window
+    wire    [31:0]  target_buffer_resp_struct = 0;  // Get File is not used
+
 // bridge data slot access
 // synchronous to clk_74a
 
@@ -587,6 +591,19 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .reset_n              ( reset_n ),
     .pocket_core_dt_addr  ( datatable_addr ),
     .datatable_q          ( datatable_q ),
+
+    // the file bridge
+    .pocket_core_bridge_rd_data      ( file_bridge_rd_data ),
+    .pocket_core_param_struct        ( target_buffer_param_struct ),
+    .pocket_core_dataslot_read       ( target_dataslot_read ),
+    .pocket_core_dataslot_write      ( target_dataslot_write ),
+    .pocket_core_dataslot_openfile   ( target_dataslot_openfile ),
+    .pocket_core_dataslot_id         ( target_dataslot_id ),
+    .pocket_core_dataslot_slotoffset ( target_dataslot_slotoffset ),
+    .pocket_core_dataslot_bridgeaddr ( target_dataslot_bridgeaddr ),
+    .pocket_core_dataslot_length     ( target_dataslot_length ),
+    .target_dataslot_done            ( target_dataslot_done ),
+    .target_dataslot_err             ( target_dataslot_err ),
 
     .cont1_key ( cont1_key ),
     .cont1_joy ( cont1_joy ),

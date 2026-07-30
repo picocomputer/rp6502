@@ -1,0 +1,357 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * The Pocket's drive. Eight data slots stand in for eight open files:
+ * Open File binds one to a name, Slot Read and Slot Write move bytes
+ * between it and memory the bridge can reach, and the data table says
+ * how long the file is. pocket_file does the asking; this decides what
+ * to ask.
+ *
+ * A name resolves wherever the platform's own data slots resolve —
+ * fonts.bin is declared as a bare filename and the host finds it in the
+ * core's asset directory, so a program's SAVE.DAT lands beside it. A
+ * name beginning with a slash is the host's to interpret.
+ *
+ * Names cross as bytes. A program's path is OEM code page bytes and the
+ * host's is UTF-8, which agree for the ASCII every real filename uses
+ * and disagree above 0x7F; src/fpga/sw/rom.c has the same divergence for
+ * the same missing tables, and both end when those tables arrive.
+ *
+ * A slot's file has a length, not a high-water mark, so a write past the
+ * end reopens the slot with the resize flag and the new length before
+ * sending the bytes. That costs a round trip per extension and assumes
+ * a resize keeps what was already there, which is what a resize means
+ * everywhere else.
+ */
+
+#include "mmio.h"
+#include "msc.h"
+
+#include <stdio.h>
+#include <string.h>
+
+/* Slot 0 is the ROM and slot 1 the fonts; the eight above them are
+ * ours, and data.json declares them. */
+#define MSC_SLOT_FIRST 2
+#define MSC_OPEN_MAX 8
+
+/* Open File's parameter struct: 256 bytes of name, then the flags and
+ * the size. */
+#define MSC_NAME_MAX 256
+#define MSC_PARAM_FLAGS 256
+#define MSC_PARAM_SIZE 260
+
+#define MSC_DS_CREATE 1u
+#define MSC_DS_RESIZE 2u
+
+/* The public open() flags, as fat.c spells them. */
+#define MSC_O_READ 0x01
+#define MSC_O_WRITE 0x02
+#define MSC_O_CREAT 0x10
+#define MSC_O_TRUNC 0x20
+#define MSC_O_APPEND 0x40
+#define MSC_O_EXCL 0x80
+
+static struct
+{
+    bool used;
+    bool writable;
+    uint32_t len;
+    uint32_t pos;
+    /* Kept because growing the file means opening it again, and the
+     * window the name went out through cannot be read back. */
+    char name[MSC_NAME_MAX];
+} msc_pool[MSC_OPEN_MAX];
+
+/* A command, start to finish. The soft CPU has nothing else to do while
+ * the host works — the 6502 is stopped inside its syscall — and
+ * pocket_file times out rather than wait forever. */
+static uint32_t msc_command(uint32_t op)
+{
+    FILE_CTL = op;
+    uint32_t st;
+    do
+        st = FILE_CTL;
+    while (st & (FILE_ST_BUSY | FILE_ST_DRAIN));
+    return st;
+}
+
+/* The window is one port of a block RAM and the bridge owns the other,
+ * so it is written whole words at a time and never read back. The host
+ * takes byte zero of each word from the top eight bits, which is what
+ * bridge_endian_little being clear means. */
+static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
+{
+    for (uint32_t i = 0; i < len; i += 4)
+    {
+        uint32_t w = 0;
+        for (uint32_t j = 0; j < 4; j++)
+            if (i + j < len)
+                w |= (uint32_t)src[i + j] << (24 - 8 * j);
+        FILE_WIN[(off + i) >> 2] = w;
+    }
+}
+
+/* The struct's integer fields are little-endian in that same byte
+ * stream: the host reads them the way a core writing the struct with a
+ * plain store on a little-endian CPU needs. Guessing this wrong shows
+ * up as an open that fails rather than one that does the wrong thing,
+ * because every flag we send lives in the lowest byte. */
+static void msc_win_u32(uint32_t off, uint32_t v)
+{
+    uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16),
+                    (uint8_t)(v >> 24)};
+    msc_win_put(off, b, 4);
+}
+
+/* The data table is pairs of slot id and slot size, which is how the
+ * loader reads slot 0's length. Scanned rather than indexed, so the
+ * order the host writes them in does not have to be guessed at. */
+#define MSC_DT_PAIRS 20
+
+static uint32_t msc_dt(uint32_t word)
+{
+    FILE_ID = word;
+    msc_command(FILE_OP_DT);
+    return FILE_RESULT;
+}
+
+static bool msc_slot_len(uint32_t slot, uint32_t *len)
+{
+    for (uint32_t i = 0; i < MSC_DT_PAIRS; i++)
+        if (msc_dt(i * 2) == slot)
+        {
+            *len = msc_dt(i * 2 + 1);
+            return true;
+        }
+    return false;
+}
+
+/* Bind a slot to a name. The error codes the bridge returns are not
+ * documented anywhere we can read, so anything nonzero on an open is
+ * reported as the reason an open usually fails. */
+static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
+                          uint32_t size)
+{
+    uint8_t pad[MSC_NAME_MAX];
+    size_t n = strlen(name);
+    if (n >= MSC_NAME_MAX)
+        return false;
+    memcpy(pad, name, n);
+    memset(pad + n, 0, MSC_NAME_MAX - n);
+    msc_win_put(0, pad, MSC_NAME_MAX);
+    msc_win_u32(MSC_PARAM_FLAGS, flags);
+    msc_win_u32(MSC_PARAM_SIZE, size);
+    FILE_ID = slot;
+    return !(msc_command(FILE_OP_OPEN) & (FILE_ST_ERR | FILE_ST_TIMEOUT));
+}
+
+/* The machine names its drive MSC0: and takes 0: as a shortcut, and
+ * programs written for it say so. There is one drive here and no
+ * working directory, so a prefix is stripped along with the separator
+ * that followed it and what remains resolves the same way a bare name
+ * does. A path that begins with a slash and no prefix is left alone:
+ * that is the host's own root, and it is the only way to reach it. */
+static const char *msc_strip_drive(const char *path)
+{
+    const char *p = path;
+    if ((p[0] | 0x20) == 'm' && (p[1] | 0x20) == 's' && (p[2] | 0x20) == 'c')
+        p += 3;
+    if (*p >= '0' && *p <= '9' && p[1] == ':')
+        p += 2;
+    else
+        return path;
+    while (*p == '/' || *p == '\\')
+        p++;
+    return p;
+}
+
+static int msc_desc(int desc)
+{
+    if (desc < 0 || desc >= MSC_OPEN_MAX || !msc_pool[desc].used)
+        return -1;
+    return desc;
+}
+
+bool msc_std_handles(const char *path)
+{
+    (void)path;
+    return true;
+}
+
+int msc_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    path = msc_strip_drive(path);
+    if (!*path || strlen(path) >= MSC_NAME_MAX)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    int d = -1;
+    for (int i = 0; i < MSC_OPEN_MAX; i++)
+        if (!msc_pool[i].used)
+        {
+            d = i;
+            break;
+        }
+    if (d < 0)
+    {
+        *err = API_EMFILE;
+        return -1;
+    }
+    uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
+
+    /* Exclusive creation has no flag of its own: the host is asked for
+     * the file as it stands, and an answer means it is already there. */
+    if ((flags & (MSC_O_CREAT | MSC_O_EXCL)) == (MSC_O_CREAT | MSC_O_EXCL)
+        && msc_open_slot(slot, path, 0, 0))
+    {
+        *err = API_EEXIST;
+        return -1;
+    }
+
+    uint32_t dsf = (flags & MSC_O_CREAT) ? MSC_DS_CREATE : 0;
+    if (flags & MSC_O_TRUNC)
+        dsf |= MSC_DS_RESIZE;
+    if (!msc_open_slot(slot, path, dsf, 0))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+
+    uint32_t len = 0;
+    if (!msc_slot_len(slot, &len))
+    {
+        *err = API_EIO;
+        return -1;
+    }
+    msc_pool[d].used = true;
+    msc_pool[d].writable = (flags & MSC_O_WRITE) != 0;
+    msc_pool[d].len = (flags & MSC_O_TRUNC) ? 0 : len;
+    msc_pool[d].pos = (flags & MSC_O_APPEND) ? msc_pool[d].len : 0;
+    memcpy(msc_pool[d].name, path, strlen(path) + 1);
+    return d;
+}
+
+std_rw_result msc_std_close(int desc, api_errno *err)
+{
+    if (msc_desc(desc) < 0)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    msc_pool[desc].used = false;
+    return STD_OK;
+}
+
+std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
+                           uint32_t *got, api_errno *err)
+{
+    *got = 0;
+    if (msc_desc(desc) < 0)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    uint32_t pos = msc_pool[desc].pos, len = msc_pool[desc].len;
+    uint32_t want = pos < len ? len - pos : 0;
+    if (want > count)
+        want = count;
+    if (want > FILE_STAGE_SIZE)
+        want = FILE_STAGE_SIZE;
+    if (!want)
+        return STD_OK; /* short or zero at the end, which is EOF */
+    FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+    FILE_OFFSET = pos;
+    FILE_BRIDGE = FILE_STAGE_BRIDGE;
+    FILE_LENGTH = want;
+    if (msc_command(FILE_OP_READ) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    for (uint32_t i = 0; i < want; i++)
+        buf[i] = (char)FILE_STAGE[i];
+    msc_pool[desc].pos = pos + want;
+    *got = want;
+    return STD_OK;
+}
+
+std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
+                            uint32_t *wrote, api_errno *err)
+{
+    *wrote = 0;
+    if (msc_desc(desc) < 0)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    if (!msc_pool[desc].writable)
+    {
+        *err = API_EACCES;
+        return STD_ERROR;
+    }
+    if (!count)
+        return STD_OK;
+    uint32_t pos = msc_pool[desc].pos;
+    uint32_t want = count > FILE_WIN_SIZE ? FILE_WIN_SIZE : count;
+    uint32_t slot = MSC_SLOT_FIRST + (uint32_t)desc;
+    if (pos + want > msc_pool[desc].len)
+    {
+        if (!msc_open_slot(slot, msc_pool[desc].name,
+                           MSC_DS_CREATE | MSC_DS_RESIZE, pos + want))
+        {
+            *err = API_ENOSPC;
+            return STD_ERROR;
+        }
+        msc_pool[desc].len = pos + want;
+    }
+    msc_win_put(0, (const uint8_t *)buf, want);
+    FILE_ID = slot;
+    FILE_OFFSET = pos;
+    FILE_BRIDGE = FILE_WIN_BASE;
+    FILE_LENGTH = want;
+    if (msc_command(FILE_OP_WRITE) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+    {
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    msc_pool[desc].pos = pos + want;
+    *wrote = want;
+    return want < count ? STD_PENDING : STD_OK;
+}
+
+/* Every write has already reached the host by the time it returns. */
+std_rw_result msc_std_sync(int desc, api_errno *err)
+{
+    if (msc_desc(desc) < 0)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    return STD_OK;
+}
+
+int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
+                  api_errno *err)
+{
+    if (msc_desc(desc) < 0)
+    {
+        *err = API_EBADF;
+        return -1;
+    }
+    int32_t from = whence == SEEK_SET   ? 0
+                   : whence == SEEK_CUR ? (int32_t)msc_pool[desc].pos
+                   : whence == SEEK_END ? (int32_t)msc_pool[desc].len
+                                        : -1;
+    if (from < 0 || from + off < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    msc_pool[desc].pos = (uint32_t)(from + off);
+    *pos = from + off;
+    return 0;
+}

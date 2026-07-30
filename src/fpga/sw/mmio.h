@@ -37,8 +37,42 @@
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
 /* The font asset sits in the last 64 KB of the staging store, above any
- * ROM the loader will ever be handed. */
+ * ROM the loader will ever be handed. The 64 KB below it is where the
+ * host lands a Slot Read, since the bridge already knows how to write
+ * the staging store and knows no other way to write us at all. Both
+ * bounds are declared in data.json's size_maximum for slot 0. */
 #define FONTS ((volatile const uint8_t *)0x63FF0000u)
+#define FILE_STAGE ((volatile const uint8_t *)0x63FE0000u)
+#define FILE_STAGE_BRIDGE 0x03FE0000u
+#define FILE_STAGE_SIZE 0x10000u
+
+/* The host's file bridge. FILE_WIN is one port of a block RAM whose
+ * other port is the bridge's, so it is word-wide and write-only: the
+ * machine fills it and the host reads it, for Open File's parameter
+ * struct and for Slot Write's payload. FILE_WIN_BASE is where the host
+ * sees it, and must agree with pocket_file's WINDOW_BASE. */
+#define FILE_ID (*(volatile uint32_t *)0x80000000u)
+#define FILE_OFFSET (*(volatile uint32_t *)0x80000004u)
+#define FILE_LENGTH (*(volatile uint32_t *)0x80000008u)
+#define FILE_BRIDGE (*(volatile uint32_t *)0x8000000Cu)
+#define FILE_CTL (*(volatile uint32_t *)0x80000010u)
+#define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
+#define FILE_WIN ((volatile uint32_t *)0x80001000u)
+#define FILE_WIN_BASE 0x20000000u
+#define FILE_WIN_SIZE 512u
+
+#define FILE_OP_READ 1u
+#define FILE_OP_WRITE 2u
+#define FILE_OP_OPEN 3u
+#define FILE_OP_DT 4u
+
+#define FILE_ST_BUSY 0x01u
+#define FILE_ST_ERR 0x0Eu
+#define FILE_ST_TIMEOUT 0x10u
+/* Halfwords the host wrote that have not reached the store yet. The
+ * bridge reports a slot operation complete while its own queue is still
+ * draining, so a read of what just arrived waits for this to clear. */
+#define FILE_ST_DRAIN 0x20u
 
 /* The terminal cell window is where the linker places term.c's screen
  * buffers; the register bank above it is the scanout seam. */

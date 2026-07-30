@@ -28,6 +28,9 @@
  *   0x60000000  staging, read-only: the platform answers with the byte at
  *               rp6502_stage_addr — the APF data slot on the Pocket, the
  *               bridge model in simulation
+ *   0x80000000  the platform's own devices, word-wide and read/write. The
+ *               Pocket puts its host file bridge here; a platform with
+ *               nothing to put there reads zero
  */
 
 module rp6502
@@ -68,6 +71,16 @@ module rp6502
     output logic rp6502_stage_pend,
     input logic stage_stall,
     input logic [7:0] stage_rdata,
+
+    /* The platform window: a word-wide read/write port onto whatever the
+     * board has that the machine does not. The strobe is one clock, and
+     * the answer is expected the clock after it, as the video window's
+     * is. */
+    output logic [27:0] rp6502_host_addr,
+    output logic rp6502_host_stb,
+    output logic rp6502_host_we,
+    output logic [31:0] rp6502_host_wdata,
+    input logic [31:0] host_rdata,
 
     /* Platform sidebands into the soft CPU's registers: the staged slot
      * length after a load, key events off the platform inputs. */
@@ -279,7 +292,7 @@ module rp6502
     end
 
     logic bus_sel_sram, bus_sel_regs, bus_sel_ctl, bus_sel_stage,
-        bus_sel_vid, bus_sel_xram, bus_sel_aud;
+        bus_sel_vid, bus_sel_xram, bus_sel_aud, bus_sel_host;
     always_comb begin
         bus_sel_sram = bus_addr[31:28] == 4'h1;
         bus_sel_xram = bus_addr[31:28] == 4'h3;
@@ -288,6 +301,14 @@ module rp6502
         bus_sel_stage = bus_addr[31:28] == 4'h6;
         bus_sel_vid = bus_addr[31:28] == 4'h5;
         bus_sel_aud = bus_addr[31:28] == 4'h7;
+        bus_sel_host = bus_addr[31:28] == 4'h8;
+    end
+
+    always_comb begin
+        rp6502_host_addr = bus_addr[27:0];
+        rp6502_host_stb = bus_stb && bus_sel_host;
+        rp6502_host_we = bus_we;
+        rp6502_host_wdata = bus_wdata;
     end
 
     /* The pending request shows the address early for a slow platform;
@@ -304,7 +325,8 @@ module rp6502
     logic [7:0] sram_b_rdata;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
-    // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid.
+    // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid,
+    // 5 xram, 6 the platform's own.
     logic [2:0] bus_rsel;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
@@ -319,7 +341,8 @@ module rp6502
                     : (bus_sel_ctl ? 3'd2
                     : (bus_sel_stage ? 3'd3
                     : (bus_sel_vid ? 3'd4
-                    : (bus_sel_xram ? 3'd5 : 3'd0))));
+                    : (bus_sel_xram ? 3'd5
+                    : (bus_sel_host ? 3'd6 : 3'd0)))));
                 bus_ctl_api <= bus_addr[2];
                 bus_vid_prog <= bus_addr[17];
                 stage_addr_q <= bus_addr[27:0];
@@ -347,7 +370,7 @@ module rp6502
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q
             : (bus_rsel == 3'd4
                ? (bus_vid_prog ? vid_prog_b_rdata : vid_b_rdata)
-               : {4{bus_rbyte}});
+               : (bus_rsel == 3'd6 ? host_rdata : {4{bus_rbyte}}));
     end
 
     logic [7:0] ria_data;

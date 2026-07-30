@@ -115,6 +115,22 @@ add_custom_command(OUTPUT ${AUD_ROM_PSG} ${AUD_ROM_OPL}
     VERBATIM)
 add_custom_target(aud_roms ALL DEPENDS ${AUD_ROM_PSG} ${AUD_ROM_OPL})
 
+# The file round trip, generated the same way and shipped the same way.
+set(FILE_ROM_GEN ${RP6502_SRC}/fpga/codegen/file_rom_gen.py)
+set(FILE_ROM ${CMAKE_CURRENT_BINARY_DIR}/file.rp6502)
+execute_process(
+    COMMAND python3 ${FILE_ROM_GEN} --emit ${FILE_ROM}
+    RESULT_VARIABLE FILE_ROM_GEN_RC)
+if(FILE_ROM_GEN_RC)
+    message(FATAL_ERROR "file_rom_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${FILE_ROM}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${FILE_ROM_GEN} --emit ${FILE_ROM}
+    DEPENDS ${FILE_ROM_GEN}
+    COMMENT "Generating the file round-trip ROM"
+    VERBATIM)
+add_custom_target(file_rom ALL DEPENDS ${FILE_ROM})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -318,7 +334,7 @@ if(verilator_FOUND)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c
             ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
-            ${SW_SRC}/mou.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
+            ${SW_SRC}/mou.c ${SW_SRC}/msc.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
             ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
             ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
             ${RP6502_SRC}/ria/api/api.c
@@ -715,6 +731,33 @@ if(verilator_FOUND)
                 ${RP6502_FPGA_POCKET}/pocket_i2s.sv
                 ${RP6502_FPGA_POCKET}/pocket_sdram.sv
                 ${RP6502_FPGA_POCKET}/pocket_bridge.sv
+                ${RP6502_FPGA_POCKET}/pocket_file.sv
+                ${RP6502_FPGA_POCKET}/pocket_core.sv
+                ${CMAKE_CURRENT_LIST_DIR}/sdram_model.sv
+                ${CMAKE_CURRENT_LIST_DIR}/tb_pocket.sv
+            TOP_MODULE tb_pocket
+            PREFIX Vtb_pocket
+            INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+            VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+        )
+
+        # --- The file bridge, with the bench playing the host ---
+        rp6502_add_test(pfile
+            SOURCES test_pfile.cpp
+            INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
+                FILE_ROM="${FILE_ROM}"
+            TIMEOUT 1200)
+        add_dependencies(test_pfile sw_bin cpu65_rom vid_font_rom
+            vid_palette_rom file_rom)
+        verilate(test_pfile
+            SOURCES ${RP6502_MACHINE_SOURCES}
+                ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+                ${RP6502_FPGA_POCKET}/pocket_video.sv
+                ${RP6502_FPGA_POCKET}/pocket_i2s.sv
+                ${RP6502_FPGA_POCKET}/pocket_sdram.sv
+                ${RP6502_FPGA_POCKET}/pocket_bridge.sv
+                ${RP6502_FPGA_POCKET}/pocket_file.sv
                 ${RP6502_FPGA_POCKET}/pocket_core.sv
                 ${CMAKE_CURRENT_LIST_DIR}/sdram_model.sv
                 ${CMAKE_CURRENT_LIST_DIR}/tb_pocket.sv
@@ -833,7 +876,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         endif()
     endforeach()
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
-            pocket_bridge pocket_core)
+            pocket_bridge pocket_file pocket_core)
         list(APPEND PSYNTH_LINES
             "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
     endforeach()
@@ -898,7 +941,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         endif()
     endforeach()
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
-            pocket_bridge pocket_bars pocket_dbg pocket_dbglog pocket_core)
+            pocket_bridge pocket_file pocket_bars pocket_dbg pocket_dbglog
+            pocket_core)
         list(APPEND BS_LINES
             "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
     endforeach()
@@ -926,6 +970,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/psg.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${AUD_ROM_OPL}
             ${PKG_DIR}/Assets/rp6502/common/opl.rp6502
+        COMMAND ${CMAKE_COMMAND} -E copy ${FILE_ROM}
+            ${PKG_DIR}/Assets/rp6502/common/file.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
         DEPENDS vid_font_rom

@@ -33,6 +33,7 @@ module pocket_bridge (
     input logic dataslot_allcomplete,
     input logic reset_n,
     output logic [9:0] pocket_bridge_dt_addr,
+    output logic pocket_bridge_dt_busy,
     input logic [31:0] datatable_q,
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
@@ -142,7 +143,17 @@ module pocket_bridge (
     logic [1:0] dt_read;
     logic [31:0] slot_size;
     logic settle_t;
-    always_comb pocket_bridge_dt_addr = 10'd1;
+    /* The word this reads is fixed, so sharing the table's one port with
+     * pocket_file costs nothing but the right of way: this read starts
+     * on an edge and cannot be asked to wait, so it says when it holds
+     * the address and the other side stands off. */
+    logic dt_trig;
+    always_comb begin
+        pocket_bridge_dt_addr = 10'd1;
+        dt_trig = (dataslot_allcomplete && !allcomplete_q)
+            || (reset_n && !reset_n_q);
+        pocket_bridge_dt_busy = dt_trig || |dt_read;
+    end
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             reset_n_q <= 1'b0;
@@ -154,8 +165,7 @@ module pocket_bridge (
             reset_n_q <= reset_n;
             allcomplete_q <= dataslot_allcomplete;
             dt_read <= {dt_read[0], 1'b0};
-            if ((dataslot_allcomplete && !allcomplete_q)
-                || (reset_n && !reset_n_q))
+            if (dt_trig)
                 dt_read[0] <= 1'b1;
             if (dt_read[1]) begin
                 slot_size <= datatable_q;

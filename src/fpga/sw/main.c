@@ -17,6 +17,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "mou.h"
+#include "msc.h"
 #include "pad.h"
 #include "rom.h"
 #include "vga.h"
@@ -178,10 +179,9 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
     return true;
 }
 
-/* One driver: the ROM: drive. A program's own files would need the host,
- * which is its own piece of work; open() of anything else falls out of
- * std_api_open's loop and returns ENOENT, which is what a machine with no
- * disc should say. */
+/* The ROM: drive first, then the host's, which claims everything left —
+ * the arrangement the shared std.c was written against, where the
+ * mass-storage drive is the catch-all and comes last. */
 static const std_driver_t main_drivers[] = {
     {
         .handles = rom_std_handles,
@@ -189,6 +189,15 @@ static const std_driver_t main_drivers[] = {
         .close = rom_std_close,
         .read = rom_std_read,
         .lseek = rom_std_lseek,
+    },
+    {
+        .handles = msc_std_handles,
+        .open = msc_std_open,
+        .close = msc_std_close,
+        .read = msc_std_read,
+        .write = msc_std_write,
+        .sync = msc_std_sync,
+        .lseek = msc_std_lseek,
     },
 };
 

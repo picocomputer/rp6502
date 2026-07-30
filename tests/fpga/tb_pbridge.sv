@@ -49,6 +49,7 @@ module tb_pbridge (
     output logic tb_pbridge_rvalid
 );
 
+    logic dt_busy;
     logic w_avail, w_take;
     logic [24:0] w_addr;
     logic [15:0] w_data;
@@ -62,6 +63,7 @@ module tb_pbridge (
         .dataslot_allcomplete(dataslot_allcomplete),
         .reset_n(reset_n),
         .pocket_bridge_dt_addr(tb_pbridge_dt_addr),
+        .pocket_bridge_dt_busy(dt_busy),
         .datatable_q(datatable_q),
         .cont1_key(cont1_key),
         .cont1_joy(cont1_joy),
@@ -143,7 +145,7 @@ module tb_pbridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
-    always_comb unused_tb_pbridge = ^{dqm, refreshes};
+    always_comb unused_tb_pbridge = ^{dqm, refreshes, dt_busy};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
