@@ -286,7 +286,7 @@ module rv_soc #(
     always_comb rv_soc_key_pending = mmio_key_valid;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
 
-    logic [63:0] mtime_us;
+    logic [63:0] mtime_us /*verilator public_flat_rd*/;
     logic [15:0] mtime_acc;
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

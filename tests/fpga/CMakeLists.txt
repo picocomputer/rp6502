@@ -190,6 +190,20 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
     )
 
+    # The soft CPU's microsecond clock against clk_sys wall time.
+    rp6502_add_test(mtime
+        SOURCES test_mtime.cpp
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+        TIMEOUT 120)
+    add_dependencies(test_mtime cpu65_rom)
+    verilate(test_mtime
+        SOURCES ${RP6502_MACHINE_SOURCES}
+        TOP_MODULE rp6502
+        PREFIX Vrp6502
+        INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
+        VERILATOR_ARGS -Wall --assert -O3 ${RP6502_MACHINE_VERILATOR_ARGS}
+    )
+
     # --- The 65C02 in RTL, against the same suites as the emulator's C ---
     # tests/cpu holds both implementations to one set of evidence; this is the
     # RTL half. Fixture guards mirror tests/cpu's.
@@ -780,6 +794,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     endforeach()
     list(APPEND BS_LINES
         "set_global_assignment -name GENERATE_RBF_FILE ON"
+        # Analogue's template asks for Auto Fit, which stops optimizing
+        # the moment timing is met. That is why hold on the soft CPU's
+        # crossing into the machine landed at a single picosecond: met,
+        # and abandoned there. Standard Fit keeps going, and the margin
+        # it finds is what survives the next fit's placement.
+        "set_global_assignment -name FITTER_EFFORT \"STANDARD FIT\""
         "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"

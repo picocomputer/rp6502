@@ -99,6 +99,10 @@ module rp6502
     output logic rp6502_vid_frame
 );
 
+    /* clk_rv is half clk_sys, per the port comment. Anything the soft
+     * CPU measures time with counts against this one. */
+    localparam int RV_KHZ = SYS_KHZ / 2;
+
     /* PHI2, fixed until the soft CPU programs it. */
     logic [15:0] phi2_khz;
     logic phi2_en;
@@ -214,14 +218,16 @@ module rp6502
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
 
-    /* One microsecond is SYS_KHZ/1000 clocks, which is 50.4 of them and
-     * so not a whole number. Ten per clock wrapping at a hundredth of
-     * the rate keeps the fraction exact. Left at the module's 1/1 and
-     * the clock runs SYS_KHZ/1000 times fast, which nothing catches
-     * because nothing in simulation waits on a real second. */
+    /* Counted against RV_KHZ, not SYS_KHZ: mtime_acc is clocked by
+     * clk_rv. One microsecond is RV_KHZ/1000 clocks, which is 25.2 of
+     * them and so not a whole number. Ten per clock wrapping at a
+     * hundredth of the rate keeps the fraction exact. Left at the
+     * module's 1/1 and the clock runs RV_KHZ/1000 times fast, which
+     * nothing catches because nothing in simulation waits on a real
+     * second. */
     rv_soc #(
         .MTIME_ADD(10),
-        .MTIME_WRAP(SYS_KHZ / 100),
+        .MTIME_WRAP(RV_KHZ / 100),
         .TCM_INIT_FILE(TCM_INIT_FILE)
     ) rv (
         .clk(clk_rv),
