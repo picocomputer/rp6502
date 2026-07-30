@@ -127,8 +127,20 @@ UTEST(boot, firmware_boots_the_6502)
      * soft CPU and its cell writes landed in the vid BRAM through the
      * linker's window. Row 0's published base points at cells whose glyph
      * bytes spell the machine's first line, 8-byte term_data_t stride. */
-    uint32_t row0 = dut->rootp->rp6502__DOT__vid_term__DOT__row_shadow[0];
     const char *line0 = "HELLO, WORLD!";
+    /* The boot narration reaches the terminal now that it goes through
+     * the manifold rather than around it, so the program's first line
+     * is wherever the narration left off rather than row zero. */
+    int found = -1;
+    for (int row = 0; row < 8 && found < 0; row++)
+    {
+        uint32_t base = dut->rootp->rp6502__DOT__vid_term__DOT__row_shadow[row];
+        uint32_t w = term_cell(dut->rootp, (base >> 2));
+        if ((char)(w & 0xFF) == line0[0])
+            found = row;
+    }
+    ASSERT_NE(found, -1);
+    uint32_t row0 = dut->rootp->rp6502__DOT__vid_term__DOT__row_shadow[found];
     for (size_t i = 0; line0[i]; i++)
     {
         uint32_t w = term_cell(dut->rootp, (row0 >> 2) + 2 * i);

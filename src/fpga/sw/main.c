@@ -8,6 +8,8 @@
  * memory, write its vectors into the register cells, and release its reset.
  */
 
+#include <stdio.h>
+
 #include "aud.h"
 #include "com.h"
 #include "font.h"
@@ -36,12 +38,6 @@
 #include <pico/rand.h>
 
 #include <stdint.h>
-
-static void print(const char *s)
-{
-    while (*s)
-        MMIO_CONSOLE = (uint8_t)*s++;
-}
 
 /* Until the .rp6502 loader arrives, the program rides in the firmware:
  * print "HELLO, WORLD!\r\n" through $FFE1 under the $FFE0 ready bit, then a
@@ -338,14 +334,14 @@ int main(void)
      * drivers bracket the font copy out of SDRAM — the one init here
      * that waits on something off-chip. A silent log says the soft CPU
      * never ran; a log that stops says where. */
-    print("boot: rv\n");
+    printf("boot: rv\n");
     com_init();
     std_init();
     rln_init();
     term_init();
-    print("boot: term\n");
+    printf("boot: term\n");
     vid_init();
-    print("boot: loading\n");
+    printf("boot: loading\n");
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
      * it straight out of the platform's staging window. */
@@ -356,7 +352,7 @@ int main(void)
     {
         staged = rom_load_staged(slot);
         MMIO_SLOT = 0;
-        print(staged ? "rom: staged\n" : "rom: bad image\n");
+        printf(staged ? "rom: staged\n" : "rom: bad image\n");
         runnable = staged;
     }
 
@@ -369,7 +365,7 @@ int main(void)
         for (uint32_t i = 0; i < sizeof boot_prog; i++)
             if (SRAM[BOOT_ORG + i] != boot_prog[i])
             {
-                print("boot: verify failed\n");
+                printf("boot: verify failed\n");
                 runnable = false;
                 break;
             }
@@ -387,7 +383,7 @@ int main(void)
     if (runnable)
     {
         CPU_RUN = 1;
-        print("boot: running\n");
+        printf("boot: running\n");
     }
 
     /* The OS loop, in the firmware's task order with api last. The real
@@ -417,6 +413,7 @@ int main(void)
         kbd_task();
         pad_task();
         mou_task();
+        aud_task();
         std_task();
         com_task();
         rln_task();

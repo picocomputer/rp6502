@@ -175,6 +175,22 @@ int com_printf(const char *fmt, ...)
     return n;
 }
 
+/* picolibc wants a stream before printf will link, and every caller in
+ * the shared sources expects one. Pointing it at com_putchar means the
+ * CRLF expansion, the BEL scan and the terminal tap all apply to a plain
+ * printf exactly as they do to com_printf -- there is one console, and
+ * this is the way to it. */
+static int com_stdio_putc(char c, FILE *f)
+{
+    (void)f;
+    return com_putchar((unsigned char)c);
+}
+
+static FILE com_stdio = FDEV_SETUP_STREAM(com_stdio_putc, NULL, NULL,
+                                          _FDEV_SETUP_WRITE);
+FILE *const stdout = &com_stdio;
+FILE *const stderr = &com_stdio;
+
 /* The console never backpressures; the simulation sink is always ready. */
 
 bool com_putchar_ready(void)

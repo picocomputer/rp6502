@@ -146,7 +146,9 @@ UTEST(compare, syscall_rom_matches_oracle)
     /* The machine's stream begins after the boot narration; the oracle's
      * may begin with its startup banner. The program bytes must match
      * exactly: same UART bytes, same std write, same AX, same errno. */
-    const char *marker = "boot: running\n";
+    /* com.c expands a bare newline to CRLF, as the console does for
+     * everything else the machine prints. */
+    const char *marker = "boot: running\r\n";
     size_t at = rv_out.find(marker);
     ASSERT_TRUE(at != std::string::npos);
     std::string rtl_stream = rv_out.substr(at + strlen(marker));

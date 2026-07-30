@@ -319,7 +319,8 @@ module rp6502
                     : (bus_sel_ctl ? 3'd2
                     : (bus_sel_stage ? 3'd3
                     : (bus_sel_vid ? 3'd4
-                    : (bus_sel_xram ? 3'd5 : 3'd0))));
+                    : (bus_sel_xram ? 3'd5
+                    : (bus_sel_aud ? 3'd6 : 3'd0)))));
                 bus_ctl_api <= bus_addr[2];
                 bus_vid_prog <= bus_addr[17];
                 stage_addr_q <= bus_addr[27:0];
@@ -345,9 +346,10 @@ module rp6502
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q
+            : (bus_rsel == 3'd6 ? opl_dbg
             : (bus_rsel == 3'd4
                ? (bus_vid_prog ? vid_prog_b_rdata : vid_b_rdata)
-               : {4{bus_rbyte}});
+               : {4{bus_rbyte}}));
     end
 
     logic [7:0] ria_data;
@@ -720,6 +722,7 @@ module rp6502
 
     logic [9:0] opl_l, opl_r;
     logic opl_valid, opl_enabled;
+    logic [31:0] opl_dbg;
     aud_opl aud_opl (
         .clk(clk_sys),
         .rst_n(rst_n),
@@ -732,7 +735,8 @@ module rp6502
         .aud_opl_l(opl_l),
         .aud_opl_r(opl_r),
         .aud_opl_valid(opl_valid),
-        .aud_opl_enabled(opl_enabled)
+        .aud_opl_enabled(opl_enabled),
+        .aud_opl_dbg(opl_dbg)
     );
 
     /* The machine runs one engine at a time, exactly as the firmware

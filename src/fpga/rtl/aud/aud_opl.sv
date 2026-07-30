@@ -62,7 +62,13 @@ module aud_opl #(
     /* Which engine the machine is listening to. Programming either
      * device's pointer is what picks it, so the choice lives with the
      * pointer rather than in a register of its own. */
-    output logic aud_opl_enabled
+    output logic aud_opl_enabled,
+
+    /* Bring-up only, and readable at the audio window: what the machine
+     * cannot see from outside is whether the snoop ever fired, what it
+     * carried, and whether the chip is running at all. Silence looks the
+     * same for all three. */
+    output logic [31:0] aud_opl_dbg
 );
 
     logic [7:0] page /*verilator public_flat_rd*/;
@@ -122,6 +128,7 @@ module aud_opl #(
             state <= S_IDLE;
             hold_reg <= 8'd0;
             hold_val <= 8'd0;
+            dbg_writes <= 8'd0;
         end else begin
             case (state)
                 S_IDLE: if (snoop && core_ic_n) begin
@@ -129,13 +136,20 @@ module aud_opl #(
                     hold_val <= q_val;
                     state <= S_SEL;
                 end
-                S_SEL: state <= S_SEL_HI;
+                S_SEL: begin
+                    dbg_writes <= dbg_writes + 8'd1;
+                    state <= S_SEL_HI;
+                end
                 S_SEL_HI: state <= S_DAT;
                 S_DAT: state <= S_DAT_HI;
                 default: state <= S_IDLE;
             endcase
         end
     end
+
+    logic [7:0] dbg_writes, dbg_ticks;
+    always_comb aud_opl_dbg = {enabled, dbg_ticks[6:0], hold_val, hold_reg,
+                               dbg_writes};
 
     logic signed [23:0] core_sample /*verilator public_flat_rd*/;
     logic core_valid;
@@ -179,8 +193,11 @@ module aud_opl #(
             aud_opl_l <= 10'd512;
             aud_opl_r <= 10'd512;
             aud_opl_valid <= 1'b0;
+            dbg_ticks <= 8'd0;
         end else begin
             aud_opl_valid <= core_valid;
+            if (core_valid)
+                dbg_ticks <= dbg_ticks + 8'd1;
             if (core_valid) begin
                 if (mixed < -25'sd512) begin
                     aud_opl_l <= 10'd0;
