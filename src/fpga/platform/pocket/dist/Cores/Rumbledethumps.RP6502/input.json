@@ -7,8 +7,12 @@
                 "mappings": [
                     { "id": 0, "name": "Enter", "key": "pad_btn_a" },
                     { "id": 1, "name": "Escape", "key": "pad_btn_b" },
-                    { "id": 2, "name": "Tab", "key": "pad_btn_select" },
-                    { "id": 3, "name": "Enter", "key": "pad_btn_start" }
+                    { "id": 2, "name": "Space", "key": "pad_btn_x" },
+                    { "id": 3, "name": "Backspace", "key": "pad_btn_y" },
+                    { "id": 4, "name": "Page Up", "key": "pad_trig_l" },
+                    { "id": 5, "name": "Page Down", "key": "pad_trig_r" },
+                    { "id": 6, "name": "Tab", "key": "pad_btn_select" },
+                    { "id": 7, "name": "Enter", "key": "pad_btn_start" }
                 ]
             }
         ]

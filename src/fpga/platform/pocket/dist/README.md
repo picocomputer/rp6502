@@ -11,11 +11,17 @@ Everything the SD card needs except the binaries:
   a core without it comes up with a blank screen. It loads into the
   last 64 KB of the SDRAM, above the ROM slot's own ceiling, and the
   firmware copies it to the video device at every boot.
-- `Cores/Rumbledethumps.RP6502/icon.bin` (36x36, 16-bit brightness in the
-  high byte, rotated 90 CCW) and `Platforms/_images/rp6502.bin` (521x165)
-  are produced with agg23's Analogue-Pocket-Image-Process converter; the
-  platform image byte format is not publicly documented, so the converter
-  is authoritative.
+- `Cores/Rumbledethumps.RP6502/icon.bin` and
+  `Platforms/_images/rp6502.bin` are here already, made from the logo by
+  `src/fpga/codegen/pocket_image_gen.py`. Analogue documents one format
+  for both, under "Image Format" in its packaging-a-core page: sixteen
+  bits a pixel, monochrome, brightness in the upper eight, the raster
+  stored rotated a quarter turn counter-clockwise, no header and no
+  magic. Only the size differs — 36x36 and 521x165 — and a file is the
+  right length or it is wrong. Run the script again when the artwork
+  changes and commit what it makes; `--selftest` re-encodes the two
+  reference images in the core-template submodule and requires byte
+  equality, which is what proves the rotation goes the right way.
 
 ## Reading the console
 
@@ -60,7 +66,6 @@ answer:
 | `boot: running` | everything above worked and the 6502 is out of reset, so a black screen now is the video path |
 
 `cmake --build build/fpga --target bitstream` then `--target package`
-assembles everything above except the two images into
-`build/fpga/tests/package`. Drop `icon.bin` and `Platforms/_images` in
-beside it, then zip the three top directories at the archive root as
+assembles all of the above into `build/fpga/tests/package`. Zip the
+three top directories at the archive root as
 `Rumbledethumps.RP6502_<version>_<date>.zip`.

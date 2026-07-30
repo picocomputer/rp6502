@@ -212,13 +212,17 @@ module pocket_bridge (
      * The bitmap crosses whole (buttons are slow); each mapped edge
      * leaves as one press or release, paced 4,096 clocks apart so the
      * firmware's poll never loses one under another. */
-    localparam int KEYS = 8;
+    localparam int KEYS = 12;
     localparam logic [4:0] BTN[KEYS] = '{
-        5'd0, 5'd1, 5'd2, 5'd3, 5'd4, 5'd5, 5'd14, 5'd15
+        5'd0, 5'd1, 5'd2, 5'd3, 5'd4, 5'd5,
+        5'd6, 5'd7, 5'd8, 5'd9, 5'd14, 5'd15
     };
     localparam logic [7:0] HID[KEYS] = '{
         8'h52, 8'h51, 8'h50, 8'h4F, /* up down left right */
-        8'h28, 8'h29, 8'h2B, 8'h28  /* enter esc tab enter */
+        8'h28, 8'h29,               /* a enter, b escape */
+        8'h2C, 8'h2A,               /* x space, y backspace */
+        8'h4B, 8'h4E,               /* l pgup, r pgdn */
+        8'h2B, 8'h28                /* select tab, start enter */
     };
 
     logic [31:0] keys_s1, keys_s2;

@@ -105,12 +105,6 @@ static const uint8_t boot_prog[] = {
 
 #define BOOT_ORG 0x0200u
 
-/* The machine's lifecycle contract, minimally. */
-bool cpu_active(void)
-{
-    return CPU_RUN != 0;
-}
-
 bool ria_active(void)
 {
     return false;
@@ -192,6 +186,10 @@ bool main_api(uint8_t operation)
     {
     case 0x01:
         return pix_api_xreg();
+    case 0x02:
+        /* atr_api_phi2's shape: a report, not a control. What sets the
+         * clock is the Pocket's own menu. */
+        return api_return_ax(cpu_get_phi2_khz_run());
     case 0x03:
         /* atr_api_code_page's shape. With no filesystem the code page is
          * the glyphs alone; the OEM conversion the string layer wants

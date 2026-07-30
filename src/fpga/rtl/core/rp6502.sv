@@ -35,7 +35,9 @@ module rp6502
 #(
     /* The soft CPU's firmware, for synthesis. Simulation loads the
      * arrays directly through the testbench and leaves this empty. */
-    parameter TCM_INIT_FILE = ""
+    parameter TCM_INIT_FILE = "",
+    /* clk_sys in kHz, which the PHI2 accumulator counts against. */
+    parameter int SYS_KHZ = 50400
 ) (
     input logic clk_sys,
     input logic rst_n,
@@ -84,12 +86,12 @@ module rp6502
 );
 
     /* PHI2, fixed until the soft CPU programs it. */
+    logic [15:0] phi2_khz;
     logic phi2_en;
-    phi2_div phi2_div (
+    phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .div_int(16'd16),
-        .div_frac(8'd0),
+        .phi2_khz(phi2_khz),
         .phi2_div_en(phi2_en)
     );
 
@@ -169,6 +171,7 @@ module rp6502
     rv_soc #(.TCM_INIT_FILE(TCM_INIT_FILE)) rv (
         .clk(clk_sys),
         .rst_n(rst_n),
+        .rv_soc_phi2_khz(phi2_khz),
         .rv_soc_tx_data(rp6502_rv_tx_data),
         .rv_soc_tx_valid(rp6502_rv_tx_valid),
         .rv_soc_halted(rp6502_rv_halted),

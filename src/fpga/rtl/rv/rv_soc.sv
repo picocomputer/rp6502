@@ -52,6 +52,8 @@ module rv_soc #(
     output logic [7:0] rv_soc_tx_data,
     output logic rv_soc_tx_valid,
 
+    output logic [15:0] rv_soc_phi2_khz,
+
     output logic rv_soc_halted,
     output logic [31:0] rv_soc_exit_code,
 
@@ -281,6 +283,7 @@ module rv_soc #(
         else if (dph_mmio)
             case (mmio_reg)
                 5'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
+                5'h0C: hrdata = {16'd0, rv_soc_phi2_khz};
                 5'h10: hrdata = mtime_us[31:0];
                 5'h14: hrdata = mtime_us[63:32];
                 5'h18: hrdata = mmio_slot_len;
@@ -302,6 +305,9 @@ module rv_soc #(
             mmio_key_valid <= 1'b0;
             mmio_key_data <= 9'h000;
             mmio_slot_len <= 32'h0;
+            /* The machine runs at its fastest until told otherwise, so
+             * a firmware that never sets it still gets the default. */
+            rv_soc_phi2_khz <= 16'd8000;
         end else begin
             rv_soc_tx_valid <= 1'b0;
             if (dph_active && !dph_write && dph_mmio && mmio_reg == 5'h08)
@@ -324,6 +330,7 @@ module rv_soc #(
                         rv_soc_halted <= 1'b1;
                         rv_soc_exit_code <= hwdata;
                     end
+                    5'h0C: rv_soc_phi2_khz <= hwdata[15:0];
                     5'h18: mmio_slot_len <= hwdata;
                     default: ;
                 endcase

@@ -3,37 +3,52 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 6502 clock enable: one pulse every int + frac/256 system clocks, the
- * same 16.8 fixed-point shape as the RIA's PIO divider (ria/sys/cpu.c), so
- * every achievable PHI2 is exact and firmware quantization carries over.
+ * The 6502 clock enable, as a phase accumulator rather than a divider.
+ * Add the wanted kilohertz every system clock, and each time the total
+ * reaches the system clock's own kilohertz, take that much back out and
+ * pulse. The pulse rate is then exactly the wanted rate, for every whole
+ * kilohertz the machine allows, with no quantization to apologize for
+ * and nothing for the firmware to divide.
+ *
+ * The RIA arrives at the same place from the other side. Its PIO divider
+ * is 16.8 fixed point, which would be inexact here — 50400/8000 is 6.3,
+ * and 0.3 is not a binary fraction — but its clock is picked so that the
+ * division comes out whole and the fixed point never has to express
+ * anything awkward. The video picks ours, so the arithmetic gives way
+ * instead of the frequency.
+ *
+ * Individual periods still vary by one system clock, exactly as the
+ * RIA's do whenever its fraction is non-zero. It is the average that is
+ * exact, and the 6502 is a clock-enable design that cannot tell.
  */
 
-module phi2_div (
+module phi2_div #(
+    /* The clock being counted, in kHz. Every rate up to it is exact. */
+    parameter int SYS_KHZ = 50400
+) (
     input logic clk,
     input logic rst_n,
 
-    input logic [15:0] div_int,
-    input logic [7:0] div_frac,
+    input logic [15:0] phi2_khz,
 
     output logic phi2_div_en
 );
 
-    logic [15:0] count;
-    logic [8:0] acc;
+    localparam int ACC_W = $clog2(SYS_KHZ) + 1;
+
+    logic [ACC_W-1:0] acc, next;
+    always_comb next = acc + ACC_W'(phi2_khz);
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            count <= 16'd0;
-            acc <= 9'd0;
+            acc <= '0;
             phi2_div_en <= 1'b0;
-        end else if (count == 16'd0) begin
+        end else if (next >= ACC_W'(SYS_KHZ)) begin
+            acc <= next - ACC_W'(SYS_KHZ);
             phi2_div_en <= 1'b1;
-            acc <= {1'b0, acc[7:0]} + {1'b0, div_frac};
-            // The fractional carry stretches this period by one clock.
-            count <= div_int - 16'd1 + {15'd0, acc[8]};
         end else begin
+            acc <= next;
             phi2_div_en <= 1'b0;
-            count <= count - 16'd1;
         end
     end
 

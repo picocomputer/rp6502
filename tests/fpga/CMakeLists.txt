@@ -244,7 +244,7 @@ if(verilator_FOUND)
         file(GLOB SW_HEADERS ${RP6502_SRC}/fpga/sw/*.h)
         set(SW_SOURCES
             ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c
-            ${SW_SRC}/com.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
+            ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
             ${SW_SRC}/pix.c
             ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
             ${SW_SRC}/trap.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
@@ -540,6 +540,17 @@ if(verilator_FOUND)
             "  sudo apt-get install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf")
     endif()
 
+    # --- Every whole kilohertz, exactly ---
+    rp6502_add_test(phi2
+        SOURCES test_phi2.cpp
+        TIMEOUT 120)
+    verilate(test_phi2
+        SOURCES ${RP6502_SRC}/fpga/rtl/cpu65/phi2_div.sv
+        TOP_MODULE phi2_div
+        PREFIX Vphi2_div
+        VERILATOR_ARGS -Wall --assert -O3
+    )
+
     # --- The platform FIFO under hostile clocking ---
     rp6502_add_test(fifo
         SOURCES test_fifo.cpp
@@ -795,10 +806,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     file(WRITE ${BS_QSF} "${BS_QSF_TEXT}\n")
     file(WRITE ${BS_DIR}/rp6502.qpf "PROJECT_REVISION = \"rp6502\"\n")
     find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-    # Everything the SD card needs, assembled. The JSONs and the tree
-    # come from dist/ as they are; the bitstream and the glyph asset are
-    # built. The two images are not here — they need artwork and
-    # agg23's converter, and dist/README.md says so.
+    # Everything the SD card needs, assembled. The JSONs, the images and
+    # the tree come from dist/ as they are; the bitstream and the glyph
+    # asset are built.
     set(PKG_DIR ${CMAKE_CURRENT_BINARY_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
     add_custom_target(package
@@ -811,8 +821,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
-        COMMAND ${CMAKE_COMMAND} -E echo
-            "package: ${PKG_DIR} - still needs icon.bin and Platforms/_images"
         DEPENDS vid_font_rom
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)

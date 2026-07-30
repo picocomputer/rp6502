@@ -8,9 +8,11 @@
 #
 # Only two things here are claims about the design rather than about the
 # clock, and both are read off the RTL: the 6502 and the VIA advance on
-# the PHI2 enable, which is sixteen system clocks at the default divider
-# and twelve at the fastest PHI2 the machine allows. Four is the
-# conservative telling. Nothing else has an enable this file is willing
+# the PHI2 enable, which is 504 system clocks at the slowest PHI2 the
+# machine allows and six at the fastest, that being 50400 kHz over the
+# 8000 the accumulator is asked for. Six is the number that matters and
+# four is the conservative telling of it. Nothing else has an enable this
+# file is willing
 # to swear to — an enable that fires on consecutive clocks in some state
 # is a single-cycle path however slow its cadence looks from outside,
 # and a multicycle written on the strength of a sample rate would be a

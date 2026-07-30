@@ -9,3 +9,4 @@ src/emu/host/android/local.properties
 src/emu/host/android/*.keystore
 src/emu/host/android/*.jks
 src/emu/host/android/release/
+__pycache__/
