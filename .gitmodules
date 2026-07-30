@@ -32,3 +32,6 @@
 [submodule "vendor/openfpga"]
 	path = vendor/openfpga
 	url = https://github.com/open-fpga/core-template.git
+[submodule "vendor/opl2_fpga"]
+	path = vendor/opl2_fpga
+	url = https://github.com/gtaylormb/opl2_fpga
