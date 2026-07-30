@@ -203,12 +203,19 @@ module vid_mode4 (
      * the shift, which is why the slice is exact and not a rounding. */
     logic signed [17:0] kx;
     always_comb kx = 18'(tex_offs_x0) + size_x0;
+    /* The products stand in registers, so the multiply and the sum
+     * that follows it are not the same clock's work. Everything they
+     * are made of was registered by the decode, and the setup that
+     * consumes them is a clock later than that, so this costs no state
+     * and no time — only the flops. Together in one hop it was the
+     * longest path in the machine: a size bit through the width adder,
+     * through a 24-bit multiply, through a three-way 32-bit add. */
     logic signed [23:0] pu_x, pu_y, pv_x, pv_y;
-    always_comb begin
-        pu_x = 24'(d_t[0] * kx);
-        pu_y = 24'(d_t[1] * tex_offs_y);
-        pv_x = 24'(d_t[3] * kx);
-        pv_y = 24'(d_t[4] * tex_offs_y);
+    always_ff @(posedge clk) begin
+        pu_x <= 24'(d_t[0] * kx);
+        pu_y <= 24'(d_t[1] * tex_offs_y);
+        pv_x <= 24'(d_t[3] * kx);
+        pv_y <= 24'(d_t[4] * tex_offs_y);
     end
     logic signed [31:0] af_u0, af_v0;
     always_comb begin
