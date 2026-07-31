@@ -9,6 +9,16 @@ if(WIN32) # cli.c needs the same getopt the app uses
     target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
 endif()
 
+# --- The resampler, on its own: no emulator, no 6502, just arithmetic and a
+# ruler. Measures the filter rather than asserting it, so a change that
+# quietly makes it worse fails here instead of on someone's headphones. ---
+rp6502_add_test(rsmp
+    SOURCES test_rsmp.c ${RP6502_SRC}/ria/aud/rsmp.c
+    INCLUDES ${RP6502_SRC})
+if(NOT WIN32)
+    target_link_libraries(test_rsmp PRIVATE m)
+endif()
+
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---
 rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502)
 
