@@ -10,7 +10,7 @@
                 "extensions": [
                     "rp6502"
                 ],
-                "size_maximum": "0x03FE0000",
+                "size_maximum": "0x03FD0000",
                 "address": "0x00000000"
             },
             {
@@ -21,6 +21,15 @@
                 "filename": "fonts.bin",
                 "size_maximum": "0x00010000",
                 "address": "0x03FF0000"
+            },
+            {
+                "name": "Code pages",
+                "id": 10,
+                "required": true,
+                "parameters": "0x0",
+                "filename": "oemcp.bin",
+                "size_maximum": "0x00010000",
+                "address": "0x03FD0000"
             },
             {
                 "name": "File 0",

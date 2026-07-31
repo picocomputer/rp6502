@@ -112,8 +112,17 @@ def emit_h(path, n, c1, c2, total):
 
 
 def emit_c(path, words):
-    out = [HEADER, '\n#include "oemcp.h"\n#include "ria/api/uni.h"\n\n',
-           "static const uint16_t oemcp_data[OEMCP_WORDS] = {\n"]
+    # __in_flash keeps the tables out of SRAM on a RIA, whose binary is
+    # copied to RAM at boot; ffunicode.c marked every one of these the
+    # same way and dropping it would cost five kilobytes of the scarcest
+    # memory on the board. The emulator's pico.h shim defines it away,
+    # and the Pocket does not compile this file at all -- its copy lives
+    # in the staging store.
+    out = [HEADER,
+           '\n#include "oemcp.h"\n#include "ria/api/uni.h"\n'
+           '\n#include <pico.h>\n\n',
+           'static const __in_flash("oemcp") uint16_t'
+           " oemcp_data[OEMCP_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])
         out.append(f"    {row},\n")

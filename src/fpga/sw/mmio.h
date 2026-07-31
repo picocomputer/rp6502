@@ -40,11 +40,13 @@
  * ROM the loader will ever be handed. The 64 KB below it is where the
  * host lands a Slot Read, since the bridge already knows how to write
  * the staging store and knows no other way to write us at all. Both
- * bounds are declared in data.json's size_maximum for slot 0. */
+ * bounds are declared in data.json's size_maximum for slot 0, and so is
+ * the 64 KB below them holding the OEM code page tables. */
 #define FONTS ((volatile const uint8_t *)0x63FF0000u)
 #define FILE_STAGE ((volatile const uint8_t *)0x63FE0000u)
 #define FILE_STAGE_BRIDGE 0x03FE0000u
 #define FILE_STAGE_SIZE 0x10000u
+#define OEMCP ((volatile const uint8_t *)0x63FD0000u)
 /* The most the host will move in one slot operation. */
 #define FILE_XFER_MAX 0x8000u
 

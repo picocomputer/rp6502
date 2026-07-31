@@ -317,6 +317,8 @@ static void boot(const std::vector<uint8_t> &rom)
     host_put_bytes(0, rom.data(), rom.size());
     std::vector<uint8_t> fonts = read_file(FONTS_BIN);
     host_put_bytes(0x03FF0000u, fonts.data(), fonts.size());
+    std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
+    host_put_bytes(0x03FD0000u, oemcp.data(), oemcp.size());
     dt_set(0, (uint32_t)rom.size());
     dut->datatable_q = g_dt[1];
     dut->dataslot_allcomplete = 1;

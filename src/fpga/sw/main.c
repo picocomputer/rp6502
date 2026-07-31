@@ -24,6 +24,7 @@
 #include "vid.h"
 #include "ria/api/api.h"
 #include "ria/api/std.h"
+#include "ria/api/uni.h"
 #include "ria/main.h"
 #include "ria/str/rln.h"
 #include "ria/sys/cpu.h"
@@ -218,9 +219,9 @@ bool main_api(uint8_t operation)
          * clock is the Pocket's own menu. */
         return api_return_ax(cpu_get_phi2_khz_run());
     case 0x03:
-        /* atr_api_code_page's shape. With no filesystem the code page is
-         * the glyphs alone; the OEM conversion the string layer wants
-         * arrives with its tables. */
+        /* atr_api_code_page's shape: the glyphs. The conversion tables
+         * are a separate asset on a separate slot and fail separately,
+         * so a font page is not refused on their account. */
         if (API_AX)
             font_set_code_page(API_AX);
         return api_return_ax(font_get_code_page());
@@ -363,6 +364,12 @@ int main(void)
     rln_init();
     term_init();
     printf("boot: term\n");
+    /* The code page tables came in on their own data slot. Say so if
+     * they did not: the machine runs either way, and the alternative to
+     * saying so is a program whose accented filenames quietly stop
+     * matching. Halting over a text table would be the worse trade. */
+    if (!uni_init())
+        printf("oem: no tables\n");
     vid_init();
     printf("boot: loading\n");
 

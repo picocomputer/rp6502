@@ -301,6 +301,13 @@ static void power_on(int *utest_result)
     for (size_t i = 0; i + 1 < fonts.size(); i += 2)
         chip[(TB_STAGE_FONT_BASE + i) >> 1] =
             (uint16_t)(fonts[i] | (fonts[i + 1] << 8));
+
+    /* The code page tables ride in on their own slot the same way, and
+     * go in the same way here. */
+    const std::vector<uint8_t> &oemcp = tb_stage_oemcp();
+    for (size_t i = 0; i + 1 < oemcp.size(); i += 2)
+        chip[(0x03FD0000u + i) >> 1] =
+            (uint16_t)(oemcp[i] | (oemcp[i + 1] << 8));
 }
 
 static void run_case(int *utest_result, const char *name)
