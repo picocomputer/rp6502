@@ -37,7 +37,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 1",
@@ -45,7 +51,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 2",
@@ -53,7 +65,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 3",
@@ -61,7 +79,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 4",
@@ -69,7 +93,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 5",
@@ -77,7 +107,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 6",
@@ -85,7 +121,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             },
             {
                 "name": "File 7",
@@ -93,7 +135,13 @@
                 "required": false,
                 "parameters": "0x0",
                 "size_maximum": "0x00010000",
-                "deferload": true
+                "deferload": true,
+                "extensions": [
+                    "dat",
+                    "sav",
+                    "bin",
+                    "txt"
+                ]
             }
         ]
     }

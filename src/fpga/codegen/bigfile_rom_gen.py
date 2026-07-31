@@ -202,7 +202,8 @@ def build():
     p.b[jmp_main + 1] = main >> 8
 
     for a, v in ((BADL, 0), (BADH, 0), (ERRL, 0xFF), (ERRH, 0xFF),
-                 (GOTL, 0), (GOTH, 0)):
+                 (GOTL, 0), (GOTH, 0), (WROL, 0), (WROH, 0),
+                 (F1, 0xFF), (F2, 0xFF), (RERR, 0)):
         p.store(a, v)
 
     # Create, then write CHUNKS x CHUNK bytes.

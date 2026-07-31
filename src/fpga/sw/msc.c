@@ -165,8 +165,17 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
     FILE_ID = slot;
     uint32_t st = msc_command(FILE_OP_OPEN);
     if (st & FILE_ST_TIMEOUT)
+    {
+        printf("msc: open timed out\n");
         return false;
-    return ((st & FILE_ST_ERR) >> 1) <= 1;
+    }
+    uint32_t rc = (st & FILE_ST_ERR) >> 1;
+    /* The host distinguishes its refusals and there is nowhere else for
+     * a program to learn which one it got: open() has one errno for all
+     * of them. 2 slot not defined, 3 not found, 4 malformed path. */
+    if (rc > 1)
+        printf("msc: open rc=%u\n", (unsigned)rc);
+    return rc <= 1;
 }
 
 /* The machine names its drive MSC0: and takes 0: as a shortcut, and
