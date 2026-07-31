@@ -43,9 +43,12 @@ static int32_t rsmp_at(const int32_t *h, uint32_t mu)
         int64_t c = 0;
         for (int i = 0; i < RSMP_TAPS; i++)
             c += (int64_t)rsmp_matrix[k][i] * h[i];
-        acc = ((acc * mu) >> RSMP_Q) + c;
+        acc = ((acc * mu + (1 << (RSMP_Q - 1))) >> RSMP_Q) + c;
     }
-    return (int32_t)(acc >> RSMP_Q);
+    /* Round, do not truncate. An arithmetic shift floors, and a floor on
+     * every sample is a systematic half-LSB offset — which measures as a
+     * DC term 8 dB above everything else the filter does. */
+    return (int32_t)((acc + (1 << (RSMP_Q - 1))) >> RSMP_Q);
 }
 
 int rsmp_push(rsmp_t *r, int32_t x, uint64_t step, int32_t *out, int max_out)

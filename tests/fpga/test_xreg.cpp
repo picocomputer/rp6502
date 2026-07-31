@@ -253,13 +253,15 @@ UTEST(xreg, dispatch_matches_the_oracle)
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__fill_e[240 * 4], 0u);
 
     /* The sprite slots: mode 4 plane 1, mode 5 plane 2, count over
-     * config in the second word. */
+     * config in the second word. spr_e keeps only the live bits —
+     * {enable, mode[2:0], attr[15:0]} — because the twelve dead ones
+     * cost three M10K to store. */
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_e[100 * 4 + 1],
-              0x80000000u | (4u << 16));
+              (1u << 19) | (4u << 16));
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_c[100 * 4 + 1],
               (3u << 16) | 0x2000u);
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_e[100 * 4 + 2],
-              0x80000000u | (5u << 16) | 10u);
+              (1u << 19) | (5u << 16) | 10u);
     ASSERT_EQ(r->rp6502__DOT__vid_prog__DOT__spr_c[100 * 4 + 2],
               (2u << 16) | 0x3000u);
 }

@@ -83,8 +83,15 @@ module vid_prog (
     logic [31:0] fill_e[2048] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
     logic [15:0] fill_c[2048] /*verilator public_flat_rw*/;
+    /* Twenty bits, not thirty-two. A sprite entry is an enable, a
+     * three-bit mode and sixteen bits of attribute; vid_sprite marks
+     * [30:19] unused and means it. Quartus trims fill_e to sixteen by
+     * itself but cannot trim this one, because the read mux below ties
+     * its width to spr_c's, and spr_c really does use all thirty-two.
+     * Narrowing by hand is three M10K at a depth where a block holds
+     * 10,240 bits: 2048x20 is four, 2048x32 is seven. */
     (* ramstyle = "no_rw_check" *)
-    logic [31:0] spr_e[2048] /*verilator public_flat_rw*/;
+    logic [19:0] spr_e[2048] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
     logic [31:0] spr_c[2048] /*verilator public_flat_rw*/;
 
@@ -105,7 +112,7 @@ module vid_prog (
                     if (!b_addr[3] && b_addr[2])
                         fill_c[b_idx] <= b_wdata[15:0];
                     if (b_addr[3] && !b_addr[2])
-                        spr_e[b_idx] <= b_wdata;
+                        spr_e[b_idx] <= {b_wdata[31], b_wdata[18:0]};
                     if (b_addr[3] && b_addr[2])
                         spr_c[b_idx] <= b_wdata;
                 end
@@ -157,7 +164,8 @@ module vid_prog (
     /* The sprite stage only ever asks for words 2 and 3 — its index
      * carries a hard 1 in the word's high bit — so its two arrays
      * answer together and the low bit picks between them. */
-    logic [31:0] s_e_q, s_c_q;
+    logic [19:0] s_e_q;
+    logic [31:0] s_c_q;
     logic s_half_q;
     always_ff @(posedge clk) begin
         vid_prog_p_entry <= fill_e[{p_line, p_plane}];
@@ -166,7 +174,8 @@ module vid_prog (
         s_c_q <= spr_c[s_idx[12:2]];
         s_half_q <= s_idx[0];
     end
-    always_comb vid_prog_s_data = s_half_q ? s_c_q : s_e_q;
+    always_comb vid_prog_s_data =
+        s_half_q ? s_c_q : {s_e_q[19], 12'd0, s_e_q[18:0]};
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_prog;

@@ -926,6 +926,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
+        # A shift register the fitter recognises becomes an M10K, and the
+        # ones here are short enough that a block is a poor trade: three
+        # blocks go back for a handful of ALMs. Blocks are what this
+        # device is short of, not logic.
+        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
         # The machine's own ports outnumber the package's pins — the host
         # window alone is a hundred of them — and this target exists to
         # measure area, not to be bound to pads.
@@ -1034,7 +1039,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
-        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith")
+        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
+        # A shift register the fitter recognises becomes an M10K, and the
+        # ones here are short enough that a block is a poor trade: three
+        # blocks go back for a handful of ALMs. Blocks are what this
+        # device is short of, not logic.
+        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
