@@ -429,8 +429,10 @@ end
 // synchronous to clk_74a
 
     wire    [9:0]   datatable_addr;
-    wire            datatable_wren;
-    wire    [31:0]  datatable_data;
+    // Port A is ours and we only read it; the host writes through port
+    // B. Left floating these drove a RAM's write enable with nothing.
+    wire            datatable_wren = 1'b0;
+    wire    [31:0]  datatable_data = 32'd0;
     wire    [31:0]  datatable_q;
 
 core_bridge_cmd icb (

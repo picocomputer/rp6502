@@ -31,6 +31,9 @@
 
 static Vtb_pocket *dut;
 static long a_next, s_next, g_sys;
+static uint32_t dt_pipe[2];
+/* The host's id/size table, as pairs. */
+static uint32_t g_dt[64];
 
 /* Where msc.c stages a Slot Read, and where the host reads a Slot
  * Write out of. Both are firmware and RTL constants; a test that
@@ -59,7 +62,18 @@ static void tick()
         }
     }
     if (aedge)
+    {
+        /* mf_datatable answers two clk_74a later than the address: an
+         * address register and an output register, both on CLOCK0.
+         * Driving datatable_q combinationally let a core that captured
+         * a clock early pass here, and on hardware that core read the
+         * address the loader leaves standing — a constant 1 — so every
+         * slot came back holding slot 0's size. */
+        dut->datatable_q = dt_pipe[1];
+        dt_pipe[1] = dt_pipe[0];
+        dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
         dut->clk_74a = 1;
+    }
     dut->eval();
     /* Once per machine clock: the valid is a level for that clock and
      * the bridge's edges fall inside it. */
@@ -152,7 +166,6 @@ static void host_get_bytes(uint32_t base, uint8_t *p, size_t n)
 
 /* --- The data table --- */
 
-static uint32_t g_dt[64];
 
 static void dt_set(uint32_t slot, uint32_t size)
 {
@@ -260,7 +273,6 @@ static void do_slotwrite()
 static void step()
 {
     static int prev_r, prev_w, prev_o;
-    dut->datatable_q = g_dt[dut->tb_pocket_dt_addr & 63];
     tick();
     int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
         o = dut->tb_pocket_ds_openfile;

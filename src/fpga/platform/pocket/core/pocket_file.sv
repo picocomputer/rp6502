@@ -102,6 +102,7 @@ module pocket_file #(
     localparam logic [2:0] F_DT0 = 3'd4;
     localparam logic [2:0] F_DT1 = 3'd5;
     localparam logic [2:0] F_DT2 = 3'd6;
+    localparam logic [2:0] F_DT3 = 3'd7;
 
     /* The command, and the answer, standing across the crossing. */
     logic [2:0] r_op;
@@ -270,8 +271,16 @@ module pocket_file #(
                     pocket_file_dt_addr <= pocket_file_id[9:0];
                     fstate <= F_DT1;
                 end
+                /* mf_datatable carries an output register as well as
+                 * an address one — outdata_reg_a is CLOCK0 — so the word
+                 * lands two clocks after the address, not one. Reading a
+                 * clock early returns whatever address was selected
+                 * before this one, and that is the loader's, which is
+                 * wired to a constant 1: every slot came back holding
+                 * slot 0's size. */
                 F_DT1: fstate <= dt_busy ? F_DT0 : F_DT2;
-                F_DT2:
+                F_DT2: fstate <= dt_busy ? F_DT0 : F_DT3;
+                F_DT3:
                 if (dt_busy)
                     fstate <= F_DT0;
                 else begin
