@@ -145,6 +145,10 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
  * even when the bare name names a file that exists, which is how we
  * know it is the form and not the lookup.
  *
+ * INCOMPLETE: the host will not create a file under Assets, so nothing
+ * here writes. Result 3 on every create; see the platform README.
+ * Saves works and needs a folder nothing will make.
+ *
  * Assets rather than Saves, though the machine writes here: the host
  * does not create the folders in a path it is given, and it does not
  * say so — a create into a folder that is not there is answered with a

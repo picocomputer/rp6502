@@ -28,6 +28,22 @@ core that wakes reading a store nobody refreshed will not fail loudly
 
 ## The host's filesystem
 
+> **INCOMPLETE — the drive does not write.** `MSC0:` is rooted at
+> `/Assets/rp6502/common/`, and the host refuses to create a file there:
+> `fstest.rp6502` gets 10 of 34, failing from the first create onward
+> with result 3. Assets is readable and nothing else, which is
+> presumably what the separate `Saves` tree is for.
+>
+> Creating works under `/Saves/rp6502/common/` — that build passed 26 of
+> 26 — but only when the folder is already on the card, and nothing in
+> the API creates it. A nonvolatile slot does not either, at least not
+> the way it was tried here.
+>
+> Changing `MSC_PATH` in `src/fpga/sw/msc.c` back to Saves is a one-line
+> fix and a bitstream. It was not done because the folder has to come
+> from somewhere and no answer to that was found. Everything below is
+> what was learned before the work stopped.
+
 **Everything in this section is a guess.** None of it is documented.
 Every line is what one Pocket on one firmware did when we poked it, and
 some of it is probably still wrong — three of the claims that stood here
