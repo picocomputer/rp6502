@@ -131,12 +131,14 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* A name resolves against the core's asset directory, which is where
- * the host's own slots resolve, so a program's SAVE.DAT needs no path
- * at all. The rooted form stays reachable: a name that already begins
- * with a slash is passed through untouched. */
-#define MSC_PATH ""
-#define MSC_PATH_LEN 0u
+/* "File requested outside /Assets and /Saves, or malformed" is what the
+ * host writes down when it turns a name away, so it has to land under
+ * one of those two. Saves is ours, because the machine writes these.
+ * A bare name may resolve there of its own accord — PocketQuake passes
+ * one and calls it relative to Assets — so ask that way first and root
+ * it only when the host says no. */
+#define MSC_PATH "/Saves/rp6502/common/"
+#define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 
 /* Bind a slot to a name. Open File answers 0 when the file was there
@@ -180,6 +182,8 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
     uint32_t rc = msc_try_open(slot, name, false, flags, size);
+    if (rc == MSC_RC_MALFORMED)
+        rc = msc_try_open(slot, name, true, flags, size);
     /* 0 opened, 1 created and opened; 2 slot not defined, 3 not found,
      * 4 malformed. open() has one errno for all of them and the console
      * is the only place a program can learn which it got. */
