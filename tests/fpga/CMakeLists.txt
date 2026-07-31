@@ -1062,31 +1062,15 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     add_custom_target(package
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
-        COMMAND ${CMAKE_COMMAND} -E rm -f ${PKG_DIR}/README.md
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
         COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
-        # The bring-up notes go with the card, because the machine's own
-        # console is where its diagnostics land and every real program
-        # takes the screen before you can read them.
-        COMMAND ${CMAKE_COMMAND} -E copy ${AUD_ROM_PSG}
-            ${PKG_DIR}/Assets/rp6502/common/psg.rp6502
-        COMMAND ${CMAKE_COMMAND} -E copy ${AUD_ROM_OPL}
-            ${PKG_DIR}/Assets/rp6502/common/opl.rp6502
-        COMMAND ${CMAKE_COMMAND} -E copy ${FILE_ROM}
-            ${PKG_DIR}/Assets/rp6502/common/file.rp6502
-        COMMAND ${CMAKE_COMMAND} -E copy ${BIGFILE_ROM}
-            ${PKG_DIR}/Assets/rp6502/common/bigfile.rp6502
-        COMMAND ${CMAKE_COMMAND} -E copy ${PROBE_ROM}
-            ${PKG_DIR}/Assets/rp6502/common/probe.rp6502
-        COMMAND ${CMAKE_COMMAND} -E copy ${FSTEST_ROM}
-            ${PKG_DIR}/Assets/rp6502/common/fstest.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
-        DEPENDS vid_font_rom bigfile_rom probe_rom fstest_rom
+        DEPENDS vid_font_rom
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
 
