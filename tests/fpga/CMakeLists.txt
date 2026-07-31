@@ -1022,6 +1022,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E rm -f ${PKG_DIR}/README.md
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
+        # Where MSC0: lives. Open File is given a whole path and the host
+        # will not invent the folders in it, so the card has to carry one.
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            ${PKG_DIR}/Saves/rp6502/common
         COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         # The bring-up notes go with the card, because the machine's own

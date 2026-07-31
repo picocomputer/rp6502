@@ -9,10 +9,9 @@
  * how long the file is. pocket_file does the asking; this decides what
  * to ask.
  *
- * Open File wants a whole path and calls a bare name malformed, so a
- * program's SAVE.DAT becomes /Saves/rp6502/common/SAVE.DAT: Saves
- * because the machine writes these, common because the slots are not
- * marked core-specific. That folder is the drive.
+ * Where a name resolves is the open question — see msc_open_slot. The
+ * machine asks the way that works rather than the way one document
+ * says, because the two available documents disagree.
  *
  * A program's path is code page bytes and the host's is UTF-8, so the
  * name is converted on its way out. Three bytes per character is the
@@ -132,29 +131,39 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* The host wants a whole path, not a name: a slot that is not marked
- * core-specific reads and writes under its platform's common folder,
- * and Saves rather than Assets because these are the machine's files
- * and it writes them. A bare name is rejected as malformed. */
+/* Where a name resolves is the one thing about Open File that two
+ * sources disagree on. Analogue calls the field "full path including
+ * filename" and shows /Assets/<platform>/common/name; PocketQuake, the
+ * only implementation of this command anyone has published, passes a
+ * name relative to Assets and says so. Both cannot be the whole truth,
+ * so the machine asks the way that works: bare first, and if the host
+ * calls that malformed, rooted. */
 #define MSC_PATH "/Saves/rp6502/common/"
 #define MSC_PATH_LEN (sizeof MSC_PATH - 1)
+
+/* 4 is "malformed path", the only refusal worth a second attempt. */
+#define MSC_RC_MALFORMED 4u
 
 /* Bind a slot to a name. Open File answers 0 when the file was there
  * and 1 when it had to make it, and both of those are yes — the rest
  * are 2 slot not defined, 3 not found, 4 malformed path, 5 general. */
-static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
-                          uint32_t size)
+static uint32_t msc_try_open(uint32_t slot, const char *name, bool rooted,
+                             uint32_t flags, uint32_t size)
 {
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
-    memcpy(pad, MSC_PATH, MSC_PATH_LEN);
-    size_t n = MSC_PATH_LEN;
+    size_t n = 0;
+    if (rooted)
+    {
+        memcpy(pad, MSC_PATH, MSC_PATH_LEN);
+        n = MSC_PATH_LEN;
+    }
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
         int k = uni_to_utf8_char(*s, page, enc);
         if (n + (size_t)k >= MSC_NAME_MAX)
-            return false;
+            return MSC_RC_MALFORMED;
         memcpy(pad + n, enc, (size_t)k);
         n += (size_t)k;
     }
@@ -167,12 +176,23 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
     if (st & FILE_ST_TIMEOUT)
     {
         printf("msc: open timed out\n");
-        return false;
+        return MSC_RC_MALFORMED;
     }
-    uint32_t rc = (st & FILE_ST_ERR) >> 1;
-    /* The host distinguishes its refusals and there is nowhere else for
-     * a program to learn which one it got: open() has one errno for all
-     * of them. 2 slot not defined, 3 not found, 4 malformed path. */
+    return (st & FILE_ST_ERR) >> 1;
+}
+
+static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
+                          uint32_t size)
+{
+    uint32_t rc = msc_try_open(slot, name, false, flags, size);
+    if (rc == MSC_RC_MALFORMED)
+    {
+        printf("msc: bare rc=4, rooting\n");
+        rc = msc_try_open(slot, name, true, flags, size);
+    }
+    /* 0 opened, 1 created and opened; 2 slot not defined, 3 not found,
+     * 4 malformed. open() has one errno for all of them and the console
+     * is the only place a program can learn which it got. */
     if (rc > 1)
         printf("msc: open rc=%u\n", (unsigned)rc);
     return rc <= 1;
