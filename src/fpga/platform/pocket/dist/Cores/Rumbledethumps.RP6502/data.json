@@ -35,65 +35,65 @@
                 "name": "File 0",
                 "id": 2,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 1",
                 "id": 3,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 2",
                 "id": 4,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 3",
                 "id": 5,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 4",
                 "id": 6,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 5",
                 "id": 7,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 6",
                 "id": 8,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             },
             {
                 "name": "File 7",
                 "id": 9,
                 "required": false,
-                "parameters": "0x0",
+                "parameters": "0x01",
                 "size_maximum": "0x00010000",
-                "address": "0x03FE0000"
+                "deferload": true
             }
         ]
     }
