@@ -192,6 +192,27 @@ add_custom_command(OUTPUT ${PROBE_ROM}
     VERBATIM)
 add_custom_target(probe_rom ALL DEPENDS ${PROBE_ROM})
 
+# The whole drive in one boot: twenty-six checks the machine decides
+# for itself. It runs here against the bench's host as well as on the
+# card, so a bug in the ROM is found before a photograph is.
+set(FSTEST_ROM_GEN ${RP6502_SRC}/fpga/codegen/fstest_rom_gen.py)
+set(FSTEST_ROM ${CMAKE_CURRENT_BINARY_DIR}/fstest.rp6502)
+execute_process(
+    COMMAND python3 ${FSTEST_ROM_GEN} --emit ${FSTEST_ROM}
+    WORKING_DIRECTORY ${RP6502_SRC}/fpga/codegen
+    RESULT_VARIABLE FSTEST_ROM_GEN_RC)
+if(FSTEST_ROM_GEN_RC)
+    message(FATAL_ERROR "fstest_rom_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${FSTEST_ROM}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${FSTEST_ROM_GEN}
+        --emit ${FSTEST_ROM}
+    WORKING_DIRECTORY ${RP6502_SRC}/fpga/codegen
+    DEPENDS ${FSTEST_ROM_GEN} ${BIGFILE_ROM_GEN}
+    COMMENT "Generating the filesystem conformance ROM"
+    VERBATIM)
+add_custom_target(fstest_rom ALL DEPENDS ${FSTEST_ROM})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -825,9 +846,10 @@ if(verilator_FOUND)
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
                 OEMCP_BIN="${OEMCP_BIN}" FILE_ROM="${FILE_ROM}"
+                FSTEST_ROM="${FSTEST_ROM}"
             TIMEOUT 1200)
         add_dependencies(test_pfile sw_bin cpu65_rom vid_font_rom
-            vid_palette_rom file_rom oemcp_bin)
+            vid_palette_rom file_rom fstest_rom oemcp_bin)
         verilate(test_pfile
             SOURCES ${RP6502_MACHINE_SOURCES}
                 ${RP6502_FPGA_POCKET}/pocket_fifo.sv
@@ -1069,11 +1091,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/bigfile.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${PROBE_ROM}
             ${PKG_DIR}/Assets/rp6502/common/probe.rp6502
+        COMMAND ${CMAKE_COMMAND} -E copy ${FSTEST_ROM}
+            ${PKG_DIR}/Assets/rp6502/common/fstest.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
-        DEPENDS vid_font_rom bigfile_rom probe_rom
+        DEPENDS vid_font_rom bigfile_rom probe_rom fstest_rom
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
 
