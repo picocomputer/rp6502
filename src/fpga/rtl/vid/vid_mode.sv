@@ -179,6 +179,48 @@ module vid_mode (
     logic [9:0] m2_px_addr;
     logic [15:0] m2_px_data;
     logic m2_done, m2_filled;
+
+    /* One palette for the plane. Only the mode holding it can be
+     * loading, so the write side is a select rather than an arbiter. */
+    logic m1_pal_ld, m2_pal_ld, m3_pal_ld;
+    logic [7:0] m1_pal_w, m2_pal_w, m3_pal_w;
+    logic [8:0] m1_pal_words, m2_pal_words, m3_pal_words;
+    logic [7:0] m1_pal_idx_a, m1_pal_idx_b, m2_pal_idx, m3_pal_idx;
+    logic [15:0] pal_qa, pal_qb;
+    logic pal_ld;
+    logic [7:0] pal_w, pal_idx_a;
+    logic [8:0] pal_words;
+    always_comb begin
+        if (mode_q == 3'd1) begin
+            pal_ld = m1_pal_ld;
+            pal_w = m1_pal_w;
+            pal_words = m1_pal_words;
+            pal_idx_a = m1_pal_idx_a;
+        end else if (mode_q == 3'd2) begin
+            pal_ld = m2_pal_ld;
+            pal_w = m2_pal_w;
+            pal_words = m2_pal_words;
+            pal_idx_a = m2_pal_idx;
+        end else begin
+            pal_ld = m3_pal_ld;
+            pal_w = m3_pal_w;
+            pal_words = m3_pal_words;
+            pal_idx_a = m3_pal_idx;
+        end
+    end
+    vid_palram vid_palram (
+        .clk(clk),
+        .ld(pal_ld),
+        .w(pal_w),
+        .words(pal_words),
+        .half(cfgw[97]),
+        .a_rdata(a_rdata),
+        .idx_a(pal_idx_a),
+        .idx_b(m1_pal_idx_b),
+        .vid_palram_qa(pal_qa),
+        .vid_palram_qb(pal_qb)
+    );
+
     vid_mode1 vid_mode1 (
         .clk(clk),
         .rst_n(rst_n),
@@ -196,6 +238,13 @@ module vid_mode (
         .vid_mode1_f_addr(vid_mode_f_addr),
         .f_gnt(f_gnt),
         .f_data(f_data),
+        .vid_mode1_pal_ld(m1_pal_ld),
+        .vid_mode1_pal_w(m1_pal_w),
+        .vid_mode1_pal_words(m1_pal_words),
+        .vid_mode1_pal_idx_a(m1_pal_idx_a),
+        .vid_mode1_pal_idx_b(m1_pal_idx_b),
+        .pal_qa(pal_qa),
+        .pal_qb(pal_qb),
         .vid_mode1_px_we(m1_px_we),
         .vid_mode1_px_addr(m1_px_addr),
         .vid_mode1_px_data(m1_px_data),
@@ -215,6 +264,11 @@ module vid_mode (
         .vid_mode2_a_addr(m2_a_addr),
         .a_gnt(a_gnt),
         .a_rdata(a_rdata),
+        .vid_mode2_pal_ld(m2_pal_ld),
+        .vid_mode2_pal_w(m2_pal_w),
+        .vid_mode2_pal_words(m2_pal_words),
+        .vid_mode2_pal_idx(m2_pal_idx),
+        .pal_q(pal_qa),
         .vid_mode2_px_we(m2_px_we),
         .vid_mode2_px_addr(m2_px_addr),
         .vid_mode2_px_data(m2_px_data),
@@ -234,6 +288,11 @@ module vid_mode (
         .vid_mode3_a_addr(m3_a_addr),
         .a_gnt(a_gnt),
         .a_rdata(a_rdata),
+        .vid_mode3_pal_ld(m3_pal_ld),
+        .vid_mode3_pal_w(m3_pal_w),
+        .vid_mode3_pal_words(m3_pal_words),
+        .vid_mode3_pal_idx(m3_pal_idx),
+        .pal_q(pal_qa),
         .vid_mode3_px_we(m3_px_we),
         .vid_mode3_px_addr(m3_px_addr),
         .vid_mode3_px_data(m3_px_data),

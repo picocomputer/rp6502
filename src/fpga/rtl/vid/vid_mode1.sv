@@ -38,6 +38,16 @@ module vid_mode1
     input logic f_gnt,
     input logic [7:0] f_data,
 
+    /* The plane's palette, shared with the other two renderers. This is
+     * the engine that needs both of its read ports. */
+    output logic vid_mode1_pal_ld,
+    output logic [7:0] vid_mode1_pal_w,
+    output logic [8:0] vid_mode1_pal_words,
+    output logic [7:0] vid_mode1_pal_idx_a,
+    output logic [7:0] vid_mode1_pal_idx_b,
+    input logic [15:0] pal_qa,
+    input logic [15:0] pal_qb,
+
     output logic vid_mode1_px_we,
     output logic [9:0] vid_mode1_px_addr,
     output logic [15:0] vid_mode1_px_data,
@@ -99,21 +109,10 @@ module vid_mode1
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
-    /* Read where it is used, so it wants LUT RAM: a block RAM
-     * cannot answer without a clock and a register file this
-     * wide does not fit. */
-    /* LUT RAM carries one write and one read, and this engine reads a
-     * foreground and a background entry at once — so the palette is
-     * four arrays: the parity split that gives each a single write,
-     * doubled so each reader has its own port. */
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_fg_even[128];
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_fg_odd[128];
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_bg_even[128];
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_bg_odd[128];
+    /* The store is the plane's, in vid_palram — a plane runs one mode at
+     * a time, and this one reloads every entry it will index before it
+     * emits, so all three can share it. Both of its read ports are here,
+     * because a cell wants its foreground and background at once. */
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
@@ -162,30 +161,16 @@ module vid_mode1
         g_bg16 = gview[47:32];
     end
 
-    /* The load's write port, outside the pipeline's reset so it can be
-     * memory at all; both readers' copies take the same words. */
+    /* The load's strobe; the store's write port is the plane's. */
     logic pal_ld;
     always_comb pal_ld = !abort_i && !start && state == S1_PAL
         && pal_xram && pal_bpp != 4'd0 && gnt_d;
-    logic pal_we_e, pal_we_o;
-    logic [6:0] pal_wa_o;
-    logic [15:0] pal_wd_e, pal_wd_o;
     always_comb begin
-        pal_we_e = pal_ld && (!cf_palette[1] || {1'b0, pal_w} != pal_words);
-        pal_we_o = pal_ld && (!cf_palette[1] || pal_w != 8'd0);
-        pal_wa_o = cf_palette[1] ? 7'(pal_w - 8'd1) : pal_w[6:0];
-        pal_wd_e = cf_palette[1] ? a_rdata[31:16] : a_rdata[15:0];
-        pal_wd_o = cf_palette[1] ? a_rdata[15:0] : a_rdata[31:16];
-    end
-    always_ff @(posedge clk) begin
-        if (pal_we_e) begin
-            pal_fg_even[pal_w[6:0]] <= pal_wd_e;
-            pal_bg_even[pal_w[6:0]] <= pal_wd_e;
-        end
-        if (pal_we_o) begin
-            pal_fg_odd[pal_wa_o] <= pal_wd_o;
-            pal_bg_odd[pal_wa_o] <= pal_wd_o;
-        end
+        vid_mode1_pal_ld = pal_ld;
+        vid_mode1_pal_w = pal_w;
+        vid_mode1_pal_words = pal_words;
+        vid_mode1_pal_idx_a = fg_idx;
+        vid_mode1_pal_idx_b = bg_idx;
     end
 
     logic [15:0] pal_fg, pal_bg;
@@ -198,10 +183,8 @@ module vid_mode1
             default: begin fg_idx = g_b1; bg_idx = g_b2; end
         endcase
         if (pal_xram) begin
-            pal_fg = fg_idx[0] ? pal_fg_odd[fg_idx[7:1]]
-                               : pal_fg_even[fg_idx[7:1]];
-            pal_bg = bg_idx[0] ? pal_bg_odd[bg_idx[7:1]]
-                               : pal_bg_even[bg_idx[7:1]];
+            pal_fg = pal_qa;
+            pal_bg = pal_qb;
         end else if (pal_bpp == 4'd1) begin
             pal_fg = VID_COLOR_2[fg_idx[0]];
             pal_bg = VID_COLOR_2[bg_idx[0]];

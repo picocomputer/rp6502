@@ -33,6 +33,13 @@ module vid_mode2
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
+    /* The plane's palette, shared with the other two renderers. */
+    output logic vid_mode2_pal_ld,
+    output logic [7:0] vid_mode2_pal_w,
+    output logic [8:0] vid_mode2_pal_words,
+    output logic [7:0] vid_mode2_pal_idx,
+    input logic [15:0] pal_q,
+
     output logic vid_mode2_px_we,
     output logic [9:0] vid_mode2_px_addr,
     output logic [15:0] vid_mode2_px_data,
@@ -129,16 +136,9 @@ module vid_mode2
         div_rem_n = div_ge ? div_t - {1'b0, div_den} : div_t;
     end
 
-    /* Read where it is used, so it wants LUT RAM: a block RAM
-     * cannot answer without a clock and a register file this
-     * wide does not fit. */
-    /* LUT RAM carries one write, and every word of the load carries
-     * one even entry and one odd one however the palette is aligned —
-     * so the parity split gives each array a single port. */
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_even[128];
-    (* ramstyle = "MLAB, no_rw_check" *)
-    logic [15:0] pal_odd[128];
+    /* The store is the plane's, in vid_palram — a plane runs one mode at
+     * a time, and this one reloads every entry it will index before it
+     * emits, so all three can share it. */
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
@@ -193,31 +193,19 @@ module vid_mode2
             default: pix_idx = cur_byte;
         endcase
     end
-    /* The load's write port, outside the pipeline's reset so it can be
-     * memory at all; the conditions are the state machine's own. */
+    /* The load's strobe; the store's write port is the plane's. */
     logic pal_ld;
     always_comb pal_ld = !abort_i && !start && state == S2_PAL
         && pal_xram && gnt_d;
-    logic pal_we_e, pal_we_o;
-    logic [6:0] pal_wa_o;
-    logic [15:0] pal_wd_e, pal_wd_o;
     always_comb begin
-        pal_we_e = pal_ld && (!cf_palette[1] || {1'b0, pal_w} != pal_words);
-        pal_we_o = pal_ld && (!cf_palette[1] || pal_w != 8'd0);
-        pal_wa_o = cf_palette[1] ? 7'(pal_w - 8'd1) : pal_w[6:0];
-        pal_wd_e = cf_palette[1] ? a_rdata[31:16] : a_rdata[15:0];
-        pal_wd_o = cf_palette[1] ? a_rdata[15:0] : a_rdata[31:16];
-    end
-    always_ff @(posedge clk) begin
-        if (pal_we_e)
-            pal_even[pal_w[6:0]] <= pal_wd_e;
-        if (pal_we_o)
-            pal_odd[pal_wa_o] <= pal_wd_o;
+        vid_mode2_pal_ld = pal_ld;
+        vid_mode2_pal_w = pal_w;
+        vid_mode2_pal_words = pal_words;
+        vid_mode2_pal_idx = pix_idx;
     end
 
     logic [15:0] pal_ram;
-    always_comb pal_ram = pix_idx[0] ? pal_odd[pix_idx[7:1]]
-                                     : pal_even[pix_idx[7:1]];
+    always_comb pal_ram = pal_q;
     logic [15:0] pal_out;
     always_comb pal_out = pal_xram ? pal_ram
         : (bpp_log == 2'd0 ? VID_COLOR_2[pix_idx[0]] : VID_COLOR_256[pix_idx]);
