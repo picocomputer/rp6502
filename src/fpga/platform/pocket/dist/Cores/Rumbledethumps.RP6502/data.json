@@ -36,7 +36,7 @@
                 "id": 2,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -44,7 +44,7 @@
                 "id": 3,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -52,7 +52,7 @@
                 "id": 4,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -60,7 +60,7 @@
                 "id": 5,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -68,7 +68,7 @@
                 "id": 6,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -76,7 +76,7 @@
                 "id": 7,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -84,7 +84,7 @@
                 "id": 8,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             },
             {
@@ -92,7 +92,7 @@
                 "id": 9,
                 "required": false,
                 "parameters": "0x0",
-                "size_maximum": "0x00100000",
+                "size_maximum": "0x00010000",
                 "address": "0x03FE0000"
             }
         ]
