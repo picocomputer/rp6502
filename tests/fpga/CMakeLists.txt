@@ -151,6 +151,26 @@ add_custom_command(OUTPUT ${FILE_ROM}
     VERBATIM)
 add_custom_target(file_rom ALL DEPENDS ${FILE_ROM})
 
+# The same round trip past the transfer window. It ships but is not a
+# test: what it exists to ask — whether the Pocket's resize keeps what
+# was already in the file — has no answer in simulation, because the
+# bench answers the way we assumed.
+set(BIGFILE_ROM_GEN ${RP6502_SRC}/fpga/codegen/bigfile_rom_gen.py)
+set(BIGFILE_ROM ${CMAKE_CURRENT_BINARY_DIR}/bigfile.rp6502)
+execute_process(
+    COMMAND python3 ${BIGFILE_ROM_GEN} --emit ${BIGFILE_ROM}
+    RESULT_VARIABLE BIGFILE_ROM_GEN_RC)
+if(BIGFILE_ROM_GEN_RC)
+    message(FATAL_ERROR "bigfile_rom_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${BIGFILE_ROM}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${BIGFILE_ROM_GEN}
+        --emit ${BIGFILE_ROM}
+    DEPENDS ${BIGFILE_ROM_GEN}
+    COMMENT "Generating the multi-chunk file ROM"
+    VERBATIM)
+add_custom_target(bigfile_rom ALL DEPENDS ${BIGFILE_ROM})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -1013,11 +1033,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/opl.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${FILE_ROM}
             ${PKG_DIR}/Assets/rp6502/common/file.rp6502
+        COMMAND ${CMAKE_COMMAND} -E copy ${BIGFILE_ROM}
+            ${PKG_DIR}/Assets/rp6502/common/bigfile.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
-        DEPENDS vid_font_rom
+        DEPENDS vid_font_rom bigfile_rom
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
 
