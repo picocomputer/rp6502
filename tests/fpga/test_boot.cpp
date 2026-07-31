@@ -27,23 +27,31 @@ static Vrp6502 *dut;
 static bool rv_phase;
 
 /* The terminal's cells live as four byte-lane arrays so the fabric can
- * hold them in memory; a whole cell is those lanes stacked. */
+ * hold them in memory, and each lane is banked 8192 + 4096 + 2048 + 1024
+ * so Quartus stops rounding 15360 up to 16384 and charging a block a
+ * lane for it. A whole cell is the four lanes of one bank, stacked. */
+#define TERM_LANE(r, l, i)                                                    \
+    (*((i) < 8192   ? &r->rp6502__DOT__vid_term__DOT__cell##l##_b0[i]         \
+       : (i) < 12288 ? &r->rp6502__DOT__vid_term__DOT__cell##l##_b1[(i) - 8192] \
+       : (i) < 14336 ? &r->rp6502__DOT__vid_term__DOT__cell##l##_b2[(i) - 12288] \
+                     : &r->rp6502__DOT__vid_term__DOT__cell##l##_b3[(i) - 14336]))
+
 template <typename Root>
 static uint32_t term_cell(Root *r, size_t i)
 {
-    return (uint32_t)r->rp6502__DOT__vid_term__DOT__cell0[i]
-        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell1[i] << 8)
-        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell2[i] << 16)
-        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell3[i] << 24);
+    return (uint32_t)TERM_LANE(r, 0, i)
+        | ((uint32_t)TERM_LANE(r, 1, i) << 8)
+        | ((uint32_t)TERM_LANE(r, 2, i) << 16)
+        | ((uint32_t)TERM_LANE(r, 3, i) << 24);
 }
 
 template <typename Root>
 static void term_cell_set(Root *r, size_t i, uint32_t v)
 {
-    r->rp6502__DOT__vid_term__DOT__cell0[i] = (uint8_t)v;
-    r->rp6502__DOT__vid_term__DOT__cell1[i] = (uint8_t)(v >> 8);
-    r->rp6502__DOT__vid_term__DOT__cell2[i] = (uint8_t)(v >> 16);
-    r->rp6502__DOT__vid_term__DOT__cell3[i] = (uint8_t)(v >> 24);
+    TERM_LANE(r, 0, i) = (uint8_t)v;
+    TERM_LANE(r, 1, i) = (uint8_t)(v >> 8);
+    TERM_LANE(r, 2, i) = (uint8_t)(v >> 16);
+    TERM_LANE(r, 3, i) = (uint8_t)(v >> 24);
 }
 
 

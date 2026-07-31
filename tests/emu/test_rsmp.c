@@ -20,6 +20,8 @@
  * any good; that one is about whether the fabric copies it exactly.
  */
 
+#define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
+
 #include "ria/aud/rsmp.h"
 #include "utest.h"
 

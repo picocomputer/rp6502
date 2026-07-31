@@ -935,7 +935,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # The machine's own ports outnumber the package's pins — the host
         # window alone is a hundred of them — and this target exists to
         # measure area, not to be bound to pads.
-        "set_instance_assignment -name VIRTUAL_PIN ON -to *")
+        "set_instance_assignment -name VIRTUAL_PIN ON -to *"
+        # -to * means Quartus reports every node it declined to make a
+        # virtual pin, which is ten thousand messages — its cap — and
+        # buries the hundred and sixty that mean something. Only this
+        # project has the assignment, so only this project hides it.
+        "set_global_assignment -name MESSAGE_DISABLE 15720")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND SYNTH_LINES
