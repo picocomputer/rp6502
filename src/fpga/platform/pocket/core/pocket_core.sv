@@ -30,6 +30,7 @@ module pocket_core #(
     /* core_bridge_cmd's signals, bridge domain. */
     input logic bridge_wr,
     input logic [31:0] bridge_addr,
+    input logic bridge_rd,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     input logic reset_n,
@@ -294,6 +295,7 @@ module pocket_core #(
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
+        .bridge_rd(bridge_rd),
         .pocket_file_rd_data(pocket_core_bridge_rd_data),
         .pocket_file_param_struct(pocket_core_param_struct),
         .pocket_file_resp_struct(pocket_core_resp_struct),

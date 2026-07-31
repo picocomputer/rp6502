@@ -586,6 +586,7 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     // the host's loader, and the table that says how much it wrote
     .bridge_wr            ( bridge_wr ),
     .bridge_addr          ( bridge_addr ),
+    .bridge_rd            ( bridge_rd ),
     .bridge_wr_data       ( bridge_wr_data ),
     .dataslot_allcomplete ( dataslot_allcomplete ),
     .reset_n              ( reset_n ),

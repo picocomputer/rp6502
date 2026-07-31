@@ -101,18 +101,27 @@ static void host_write(uint32_t addr, uint32_t w)
         a_edge();
 }
 
-/* A read presents the address and samples several clocks later, which
- * is the shape io_bridge_peripheral gives a core: four cycles between
- * the address landing and the word being taken. */
+/* A read is a strobe, and the word it names is held until the next one:
+ * "the core may not immediately provide the read data and has up until
+ * the next read strobe to drive bridge_rd_data". The bench used to set
+ * an address and sample, never pulsing bridge_rd at all, so a core that
+ * simply chased bridge_addr passed here and handed hardware the word
+ * after the one it was asked for. */
 static uint32_t host_read(uint32_t addr)
 {
     dut->bridge_addr = addr;
+    a_edge();
+    dut->bridge_rd = 1;
+    a_edge();
+    dut->bridge_rd = 0;
+    /* The host moves the address on to the next word before it takes
+     * this one — that is what the buffering buys it. Holding the address
+     * still here is what let a core that chases bridge_addr pass, and
+     * then hand hardware the word after the one it asked for. */
+    dut->bridge_addr = addr + 4;
     for (int k = 0; k < 6; k++)
         a_edge();
-    uint32_t w = (addr >> 24) == 0x20 ? dut->tb_pocket_bridge_rd_data : 0;
-    for (int k = 0; k < 8; k++)
-        a_edge();
-    return w;
+    return dut->tb_pocket_bridge_rd_data;
 }
 
 /* Byte zero of a word rides the top eight bits: bridge_endian_little

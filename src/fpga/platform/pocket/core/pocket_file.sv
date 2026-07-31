@@ -63,6 +63,7 @@ module pocket_file #(
     input logic clk_74a,
     input logic arst_n,
     input logic [31:0] bridge_addr,
+    input logic bridge_rd,
     output logic [31:0] pocket_file_rd_data,
     output logic [31:0] pocket_file_param_struct,
     output logic [31:0] pocket_file_resp_struct,
@@ -176,8 +177,17 @@ module pocket_file #(
     always_ff @(posedge clk_sys)
         if (win_we)
             window[addr[WA+1:2]] <= wdata;
+    /* The read is taken on the strobe and held until the next one:
+     * "the core may not immediately provide the read data and has up
+     * until the next read strobe to drive bridge_rd_data". Following
+     * bridge_addr instead means moving the answer on the moment the
+     * host moves the address, and the host moves it early — it is a
+     * fetch hint for the word after the one it is still collecting. A
+     * core that chases it hands back the next word every time, which is
+     * how T2.DAT went out and [AT] came back. */
     always_ff @(posedge clk_74a)
-        pocket_file_rd_data <= window[bridge_addr[WA+1:2]];
+        if (bridge_rd)
+            pocket_file_rd_data <= window[bridge_addr[WA+1:2]];
 
     /* Open File's parameter struct is the one thing the host reads out
      * of the window, so its pointer is the window. Get File's response

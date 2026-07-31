@@ -16,6 +16,7 @@ module tb_pocket (
     input logic arst_n,
 
     input logic bridge_wr,
+    input logic bridge_rd,
     input logic [31:0] bridge_addr,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
@@ -84,6 +85,7 @@ module tb_pocket (
         .arst_n(arst_n),
         .bridge_wr(bridge_wr),
         .bridge_addr(bridge_addr),
+        .bridge_rd(bridge_rd),
         .bridge_wr_data(bridge_wr_data),
         .dataslot_allcomplete(dataslot_allcomplete),
         .reset_n(reset_n),
