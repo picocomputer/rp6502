@@ -43,6 +43,8 @@ static std::map<std::string, std::vector<uint8_t>> g_files;
 static std::string g_bound[16];
 static std::string g_console;
 static int g_opens, g_reads, g_writes;
+/* Set if the core ever sends a name the host would call malformed. */
+static bool g_unrooted;
 
 static void tick()
 {
@@ -168,6 +170,16 @@ static void do_openfile()
     uint8_t param[264];
     host_get_bytes(dut->tb_pocket_param_struct, param, sizeof param);
     std::string name((const char *)param);
+    /* The core sends a whole path now, because the host rejects a
+     * bare name as malformed. */
+    const std::string root = "/Saves/rp6502/common/";
+    if (name.rfind(root, 0) == 0)
+        name = name.substr(root.size());
+    else
+    {
+        g_unrooted = true;
+        fprintf(stderr, "openfile: unrooted path [%s]\n", name.c_str());
+    }
     /* The struct's integers are little-endian inside that byte
      * stream, which is what msc.c writes. */
     uint32_t flags = (uint32_t)param[256] | ((uint32_t)param[257] << 8)
@@ -177,24 +189,31 @@ static void do_openfile()
                     | ((uint32_t)param[262] << 16)
                     | ((uint32_t)param[263] << 24);
     g_opens++;
+    bool created = false;
     auto it = g_files.find(name);
     if (it == g_files.end())
     {
         if (!(flags & 1))
         {
             dut->target_dataslot_done = 1;
-            dut->target_dataslot_err = 1;
+            dut->target_dataslot_err = 3; /* file not found */
             for (int k = 0; k < 4; k++)
                 a_edge();
             return;
         }
         it = g_files.emplace(name, std::vector<uint8_t>()).first;
+        created = true;
     }
     if (flags & 2)
         it->second.resize(size, 0);
     g_bound[slot] = name;
     dt_set(slot, (uint32_t)it->second.size());
-    target_done();
+    /* 0 opened, 1 created and opened; the host tells them apart and only
+     * 2 and up are failures. */
+    dut->target_dataslot_done = 1;
+    dut->target_dataslot_err = created ? 1 : 0;
+    for (int k = 0; k < 4; k++)
+        a_edge();
 }
 
 static void do_slotread()
@@ -285,6 +304,7 @@ static void boot(const std::vector<uint8_t> &rom)
     g_console.clear();
     g_files.clear();
     g_opens = g_reads = g_writes = 0;
+    g_unrooted = false;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
@@ -360,6 +380,9 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_EQ(memcmp(f.data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
     ASSERT_GT(g_reads, 0);
+    /* The host rejects a bare filename as a malformed path, so a name
+     * that is not rooted is a bug even when the bench can resolve it. */
+    ASSERT_FALSE(g_unrooted);
 
     teardown();
 }

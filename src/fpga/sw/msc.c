@@ -9,10 +9,10 @@
  * how long the file is. pocket_file does the asking; this decides what
  * to ask.
  *
- * A name resolves wherever the platform's own data slots resolve —
- * fonts.bin is declared as a bare filename and the host finds it in the
- * core's asset directory, so a program's SAVE.DAT lands beside it. A
- * name beginning with a slash is the host's to interpret.
+ * Open File wants a whole path and calls a bare name malformed, so a
+ * program's SAVE.DAT becomes /Saves/rp6502/common/SAVE.DAT: Saves
+ * because the machine writes these, common because the slots are not
+ * marked core-specific. That folder is the drive.
  *
  * A program's path is code page bytes and the host's is UTF-8, so the
  * name is converted on its way out. Three bytes per character is the
@@ -132,15 +132,23 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* Bind a slot to a name. The error codes the bridge returns are not
- * documented anywhere we can read, so anything nonzero on an open is
- * reported as the reason an open usually fails. */
+/* The host wants a whole path, not a name: a slot that is not marked
+ * core-specific reads and writes under its platform's common folder,
+ * and Saves rather than Assets because these are the machine's files
+ * and it writes them. A bare name is rejected as malformed. */
+#define MSC_PATH "/Saves/rp6502/common/"
+#define MSC_PATH_LEN (sizeof MSC_PATH - 1)
+
+/* Bind a slot to a name. Open File answers 0 when the file was there
+ * and 1 when it had to make it, and both of those are yes — the rest
+ * are 2 slot not defined, 3 not found, 4 malformed path, 5 general. */
 static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
-    size_t n = 0;
+    memcpy(pad, MSC_PATH, MSC_PATH_LEN);
+    size_t n = MSC_PATH_LEN;
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
@@ -155,7 +163,10 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
     msc_win_u32(MSC_PARAM_FLAGS, flags);
     msc_win_u32(MSC_PARAM_SIZE, size);
     FILE_ID = slot;
-    return !(msc_command(FILE_OP_OPEN) & (FILE_ST_ERR | FILE_ST_TIMEOUT));
+    uint32_t st = msc_command(FILE_OP_OPEN);
+    if (st & FILE_ST_TIMEOUT)
+        return false;
+    return ((st & FILE_ST_ERR) >> 1) <= 1;
 }
 
 /* The machine names its drive MSC0: and takes 0: as a shortcut, and
@@ -194,7 +205,7 @@ bool msc_std_handles(const char *path)
 int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     path = msc_strip_drive(path);
-    if (!*path || strlen(path) >= MSC_NAME_MAX)
+    if (!*path || strlen(path) >= MSC_NAME_MAX - MSC_PATH_LEN)
     {
         *err = API_EINVAL;
         return -1;
