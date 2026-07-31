@@ -411,6 +411,7 @@ end
     wire            target_dataslot_read;
     wire            target_dataslot_write;
     wire            target_dataslot_getfile;    // require additional param/resp structs to be mapped
+    wire            target_dataslot_flush;
     wire            target_dataslot_openfile;   // require additional param/resp structs to be mapped
 
     wire            target_dataslot_ack;
@@ -499,6 +500,7 @@ core_bridge_cmd icb (
     .target_dataslot_read       ( target_dataslot_read ),
     .target_dataslot_write      ( target_dataslot_write ),
     .target_dataslot_getfile    ( target_dataslot_getfile ),
+    .target_dataslot_flush      ( target_dataslot_flush ),
     .target_dataslot_openfile   ( target_dataslot_openfile ),
     
     .target_dataslot_ack        ( target_dataslot_ack ),
@@ -603,6 +605,7 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .pocket_core_dataslot_write      ( target_dataslot_write ),
     .pocket_core_dataslot_openfile   ( target_dataslot_openfile ),
     .pocket_core_dataslot_getfile    ( target_dataslot_getfile ),
+    .pocket_core_dataslot_flush      ( target_dataslot_flush ),
     .pocket_core_dataslot_id         ( target_dataslot_id ),
     .pocket_core_dataslot_slotoffset ( target_dataslot_slotoffset ),
     .pocket_core_dataslot_bridgeaddr ( target_dataslot_bridgeaddr ),

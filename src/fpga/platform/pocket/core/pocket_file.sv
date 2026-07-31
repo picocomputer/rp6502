@@ -4,14 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The host's filesystem, reached the only way a core can reach it: by
- * asking. Four target commands move a data slot's file — Slot Read
+ * asking. Five target commands move a data slot's file — Slot Read
  * copies from it into memory the bridge can write, Slot Write copies
  * out of memory the bridge can read, Open File hands the host a name
  * and binds it to a slot, Get File asks which name a slot already
- * holds — and the data table says how long the file is. This block
- * issues all five for the soft CPU and answers when they retire. Get
- * File has no caller yet; it is wired because a fit is half an hour
- * and a missing wire is not worth one.
+ * holds, Flush commits what was written — and the data table says how
+ * long the file is. This block issues all six for the soft CPU and
+ * answers when they retire. Get File has no caller yet; it is wired
+ * because a fit is half an hour and a missing wire is not worth one.
+ *
+ * Flush is the one command Analogue documents but its own reference
+ * core_bridge_cmd.v never implemented, so the override in
+ * vendor/openfpga_rp6502 adds it alongside the other four.
  *
  * The two directions use different memory, because the bridge is not
  * symmetric. Writes toward the core already had a path — the loader
@@ -79,6 +83,7 @@ module pocket_file #(
     output logic pocket_file_write,
     output logic pocket_file_openfile,
     output logic pocket_file_getfile,
+    output logic pocket_file_flush,
     output logic [15:0] pocket_file_id,
     output logic [31:0] pocket_file_slotoffset,
     output logic [31:0] pocket_file_bridgeaddr,
@@ -94,6 +99,7 @@ module pocket_file #(
     localparam logic [2:0] OP_OPEN = 3'd3;
     localparam logic [2:0] OP_DT = 3'd4;
     localparam logic [2:0] OP_GETFILE = 3'd5;
+    localparam logic [2:0] OP_FLUSH = 3'd6;
 
     localparam logic [2:0] F_IDLE = 3'd0;
     localparam logic [2:0] F_START = 3'd1;
@@ -220,6 +226,7 @@ module pocket_file #(
             pocket_file_write <= 1'b0;
             pocket_file_openfile <= 1'b0;
             pocket_file_getfile <= 1'b0;
+            pocket_file_flush <= 1'b0;
             pocket_file_dt_req <= 1'b0;
             pocket_file_dt_addr <= '0;
         end else begin
@@ -233,6 +240,7 @@ module pocket_file #(
                     pocket_file_write <= r_op == OP_WRITE;
                     pocket_file_openfile <= r_op == OP_OPEN;
                     pocket_file_getfile <= r_op == OP_GETFILE;
+                    pocket_file_flush <= r_op == OP_FLUSH;
                     fstate <= F_ARM;
                 end
                 /* The bridge holds done high from one command until the
@@ -244,6 +252,7 @@ module pocket_file #(
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;
                     pocket_file_getfile <= 1'b0;
+                    pocket_file_flush <= 1'b0;
                     if (!target_dataslot_done)
                         fstate <= F_WAIT;
                     else if (&tmo) begin

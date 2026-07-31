@@ -171,6 +171,27 @@ add_custom_command(OUTPUT ${BIGFILE_ROM}
     VERBATIM)
 add_custom_target(bigfile_rom ALL DEPENDS ${BIGFILE_ROM})
 
+# The create path has never worked on hardware and the name turned out
+# not to matter. This walks a list of names in one boot so the next
+# guess costs a card copy instead of a fit.
+set(PROBE_ROM_GEN ${RP6502_SRC}/fpga/codegen/probe_rom_gen.py)
+set(PROBE_ROM ${CMAKE_CURRENT_BINARY_DIR}/probe.rp6502)
+execute_process(
+    COMMAND python3 ${PROBE_ROM_GEN} --emit ${PROBE_ROM}
+    WORKING_DIRECTORY ${RP6502_SRC}/fpga/codegen
+    RESULT_VARIABLE PROBE_ROM_GEN_RC)
+if(PROBE_ROM_GEN_RC)
+    message(FATAL_ERROR "probe_rom_gen.py failed")
+endif()
+add_custom_command(OUTPUT ${PROBE_ROM}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${PROBE_ROM_GEN}
+        --emit ${PROBE_ROM}
+    WORKING_DIRECTORY ${RP6502_SRC}/fpga/codegen
+    DEPENDS ${PROBE_ROM_GEN} ${BIGFILE_ROM_GEN}
+    COMMENT "Generating the open-file probe ROM"
+    VERBATIM)
+add_custom_target(probe_rom ALL DEPENDS ${PROBE_ROM})
+
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
 # machine, so emu_core defines the behavior the RTL has to reproduce.
@@ -1039,11 +1060,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/file.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${BIGFILE_ROM}
             ${PKG_DIR}/Assets/rp6502/common/bigfile.rp6502
+        COMMAND ${CMAKE_COMMAND} -E copy ${PROBE_ROM}
+            ${PKG_DIR}/Assets/rp6502/common/probe.rp6502
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
-        DEPENDS vid_font_rom bigfile_rom
+        DEPENDS vid_font_rom bigfile_rom probe_rom
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
 

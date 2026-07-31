@@ -97,6 +97,7 @@ input   wire            target_dataslot_read,       // rising edge triggered
 input   wire            target_dataslot_write,
 input   wire            target_dataslot_getfile,
 input   wire            target_dataslot_openfile,
+input   wire            target_dataslot_flush,
 
 output  reg             target_dataslot_ack,        // asserted upon command start until completion
 output  reg             target_dataslot_done,       // asserted upon command finish until next command is issued    
@@ -217,6 +218,7 @@ localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
     reg             target_dataslot_write_1, target_dataslot_write_queue;
     reg             target_dataslot_getfile_1, target_dataslot_getfile_queue;
     reg             target_dataslot_openfile_1, target_dataslot_openfile_queue;
+    reg             target_dataslot_flush_1, target_dataslot_flush_queue;
     reg             target_debug_event_1, target_debug_event_queue;
     // A host that does not answer 0x0152 must not take the data slot
     // commands down with it - this state machine serves both, and a
@@ -240,6 +242,7 @@ initial begin
     target_dataslot_write_queue <= 0;
     target_dataslot_getfile_queue <= 0;
     target_dataslot_openfile_queue <= 0;
+    target_dataslot_flush_queue <= 0;
     target_debug_event_queue <= 0;
     target_debug_done <= 0;
     target_debug_timeout <= 0;
@@ -257,6 +260,7 @@ always @(posedge clk) begin
     target_dataslot_write_1 <= target_dataslot_write;
     target_dataslot_getfile_1 <= target_dataslot_getfile;
     target_dataslot_openfile_1 <= target_dataslot_openfile;
+    target_dataslot_flush_1 <= target_dataslot_flush;
     target_debug_event_1 <= target_debug_event;
     
     if(status_setup_done & ~status_setup_done_1) begin
@@ -273,6 +277,9 @@ always @(posedge clk) begin
     end
     if(target_dataslot_openfile & ~target_dataslot_openfile_1) begin
         target_dataslot_openfile_queue <= 1;
+    end
+    if(target_dataslot_flush & ~target_dataslot_flush_1) begin
+        target_dataslot_flush_queue <= 1;
     end
     if(target_debug_event & ~target_debug_event_1) begin
         target_debug_event_queue <= 1;
@@ -566,6 +573,14 @@ always @(posedge clk) begin
                                                     // which must contain the desired filename and flag/size before command execution
             tstate <= TARG_ST_DATASLOTOP;
             
+        end else if(target_dataslot_flush_queue) begin
+            target_dataslot_flush_queue <= 0;
+            target_0 <= {16'h0000, 16'h0188};
+
+            target_20 <= target_dataslot_id;
+
+            tstate <= TARG_ST_DATASLOTOP;
+
         end else if(target_debug_event_queue) begin
             target_debug_event_queue <= 0;
             target_0 <= {16'h0000, 16'h0152};

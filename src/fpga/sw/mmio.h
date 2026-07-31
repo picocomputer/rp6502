@@ -75,6 +75,10 @@
 /* Get File answers into the staging store at FILE_BRIDGE, since the
  * bridge writes toward us and cannot write the window. */
 #define FILE_OP_GETFILE 5u
+/* Analogue documents 0x0188 but never implemented it in its own
+ * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
+ * are not Open File's: 0 is written, 1 is slot not defined. */
+#define FILE_OP_FLUSH 6u
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu

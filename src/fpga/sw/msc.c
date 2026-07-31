@@ -280,6 +280,12 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    if (msc_pool[desc].writable)
+    {
+        std_rw_result r = msc_std_sync(desc, err);
+        if (r != STD_OK)
+            return r;
+    }
     msc_pool[desc].used = false;
     return STD_OK;
 }
@@ -361,12 +367,20 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
     return want < count ? STD_PENDING : STD_OK;
 }
 
-/* Every write has already reached the host by the time it returns. */
+/* A write returns once the host has taken it, which is not the same as
+ * the card having it. Flush is what commits, and on a handheld that can
+ * be switched off between one and the other it is not optional. */
 std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
     {
         *err = API_EBADF;
+        return STD_ERROR;
+    }
+    FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+    if (msc_command(FILE_OP_FLUSH) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+    {
+        *err = API_EIO;
         return STD_ERROR;
     }
     return STD_OK;
