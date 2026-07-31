@@ -84,6 +84,13 @@ static uint32_t msc_command(uint32_t op)
  * so it is written whole words at a time and never read back. The host
  * takes byte zero of each word from the top eight bits, which is what
  * bridge_endian_little being clear means. */
+/* Which end of the word byte zero rides is settled for host writes --
+ * the ROM arrives that way and parses -- but nothing has ever proved
+ * the host reads back the same way round, and this window is the only
+ * thing it ever reads out of us. So the packing is a parameter and the
+ * open tries both. */
+static bool msc_win_swap;
+
 static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i += 4)
@@ -91,7 +98,8 @@ static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
         uint32_t w = 0;
         for (uint32_t j = 0; j < 4; j++)
             if (i + j < len)
-                w |= (uint32_t)src[i + j] << (24 - 8 * j);
+                w |= (uint32_t)src[i + j]
+                     << (msc_win_swap ? 8 * j : 24 - 8 * j);
         FILE_WIN[(off + i) >> 2] = w;
     }
 }
@@ -184,11 +192,21 @@ static uint32_t msc_try_open(uint32_t slot, const char *name, bool rooted,
 static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
+    /* Both path forms came back malformed, which says the name is not
+     * arriving rather than being resolved wrongly. The remaining
+     * variable is the byte order of the struct we hand over. */
+    msc_win_swap = false;
     uint32_t rc = msc_try_open(slot, name, false, flags, size);
     if (rc == MSC_RC_MALFORMED)
     {
-        printf("msc: bare rc=4, rooting\n");
-        rc = msc_try_open(slot, name, true, flags, size);
+        printf("msc: msb rc=4, trying lsb\n");
+        msc_win_swap = true;
+        rc = msc_try_open(slot, name, false, flags, size);
+        if (rc == MSC_RC_MALFORMED)
+        {
+            printf("msc: lsb rc=4, rooting\n");
+            rc = msc_try_open(slot, name, true, flags, size);
+        }
     }
     /* 0 opened, 1 created and opened; 2 slot not defined, 3 not found,
      * 4 malformed. open() has one errno for all of them and the console
