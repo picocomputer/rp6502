@@ -19,7 +19,9 @@
  * LUT RAM, because the read has to answer where it is used.
  */
 
-module vid_palram (
+module vid_palram
+    import vid_palette_pkg::*;
+(
     input logic clk,
 
     /* The load, from whichever renderer holds the plane. */
@@ -29,6 +31,12 @@ module vid_palram (
     input logic half,
     input logic [31:0] a_rdata,
 
+    /* The read answers with a finished color: the loaded entry, or the
+     * builtin the mode would otherwise have indexed itself. The builtin
+     * is a 256-entry constant, and it was being synthesized once per
+     * reader — four times a plane where twice will do. */
+    input logic xram,
+    input logic one_bpp,
     input logic [7:0] idx_a,
     input logic [7:0] idx_b,
     output logic [15:0] vid_palram_qa,
@@ -70,10 +78,18 @@ module vid_palram (
     end
 
     always_comb begin
-        vid_palram_qa = idx_a[0] ? pal_a_odd[idx_a[7:1]]
-                                  : pal_a_even[idx_a[7:1]];
-        vid_palram_qb = idx_b[0] ? pal_b_odd[idx_b[7:1]]
-                                  : pal_b_even[idx_b[7:1]];
+        if (xram) begin
+            vid_palram_qa = idx_a[0] ? pal_a_odd[idx_a[7:1]]
+                                     : pal_a_even[idx_a[7:1]];
+            vid_palram_qb = idx_b[0] ? pal_b_odd[idx_b[7:1]]
+                                     : pal_b_even[idx_b[7:1]];
+        end else if (one_bpp) begin
+            vid_palram_qa = VID_COLOR_2[idx_a[0]];
+            vid_palram_qb = VID_COLOR_2[idx_b[0]];
+        end else begin
+            vid_palram_qa = VID_COLOR_256[idx_a];
+            vid_palram_qb = VID_COLOR_256[idx_b];
+        end
     end
 
 endmodule

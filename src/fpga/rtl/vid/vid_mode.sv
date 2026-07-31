@@ -186,8 +186,10 @@ module vid_mode (
     logic [7:0] m1_pal_w, m2_pal_w, m3_pal_w;
     logic [8:0] m1_pal_words, m2_pal_words, m3_pal_words;
     logic [7:0] m1_pal_idx_a, m1_pal_idx_b, m2_pal_idx, m3_pal_idx;
+    logic m1_pal_xram, m2_pal_xram, m3_pal_xram;
+    logic m1_pal_one_bpp, m2_pal_one_bpp, m3_pal_one_bpp;
     logic [15:0] pal_qa, pal_qb;
-    logic pal_ld;
+    logic pal_ld, pal_xram, pal_one_bpp;
     logic [7:0] pal_w, pal_idx_a;
     logic [8:0] pal_words;
     always_comb begin
@@ -196,16 +198,22 @@ module vid_mode (
             pal_w = m1_pal_w;
             pal_words = m1_pal_words;
             pal_idx_a = m1_pal_idx_a;
+            pal_xram = m1_pal_xram;
+            pal_one_bpp = m1_pal_one_bpp;
         end else if (mode_q == 3'd2) begin
             pal_ld = m2_pal_ld;
             pal_w = m2_pal_w;
             pal_words = m2_pal_words;
             pal_idx_a = m2_pal_idx;
+            pal_xram = m2_pal_xram;
+            pal_one_bpp = m2_pal_one_bpp;
         end else begin
             pal_ld = m3_pal_ld;
             pal_w = m3_pal_w;
             pal_words = m3_pal_words;
             pal_idx_a = m3_pal_idx;
+            pal_xram = m3_pal_xram;
+            pal_one_bpp = m3_pal_one_bpp;
         end
     end
     vid_palram vid_palram (
@@ -215,6 +223,8 @@ module vid_mode (
         .words(pal_words),
         .half(cfgw[97]),
         .a_rdata(a_rdata),
+        .xram(pal_xram),
+        .one_bpp(pal_one_bpp),
         .idx_a(pal_idx_a),
         .idx_b(m1_pal_idx_b),
         .vid_palram_qa(pal_qa),
@@ -243,6 +253,8 @@ module vid_mode (
         .vid_mode1_pal_words(m1_pal_words),
         .vid_mode1_pal_idx_a(m1_pal_idx_a),
         .vid_mode1_pal_idx_b(m1_pal_idx_b),
+        .vid_mode1_pal_xram(m1_pal_xram),
+        .vid_mode1_pal_one_bpp(m1_pal_one_bpp),
         .pal_qa(pal_qa),
         .pal_qb(pal_qb),
         .vid_mode1_px_we(m1_px_we),
@@ -268,6 +280,8 @@ module vid_mode (
         .vid_mode2_pal_w(m2_pal_w),
         .vid_mode2_pal_words(m2_pal_words),
         .vid_mode2_pal_idx(m2_pal_idx),
+        .vid_mode2_pal_xram(m2_pal_xram),
+        .vid_mode2_pal_one_bpp(m2_pal_one_bpp),
         .pal_q(pal_qa),
         .vid_mode2_px_we(m2_px_we),
         .vid_mode2_px_addr(m2_px_addr),
@@ -292,6 +306,8 @@ module vid_mode (
         .vid_mode3_pal_w(m3_pal_w),
         .vid_mode3_pal_words(m3_pal_words),
         .vid_mode3_pal_idx(m3_pal_idx),
+        .vid_mode3_pal_xram(m3_pal_xram),
+        .vid_mode3_pal_one_bpp(m3_pal_one_bpp),
         .pal_q(pal_qa),
         .vid_mode3_px_we(m3_px_we),
         .vid_mode3_px_addr(m3_px_addr),

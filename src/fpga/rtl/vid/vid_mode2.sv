@@ -38,6 +38,8 @@ module vid_mode2
     output logic [7:0] vid_mode2_pal_w,
     output logic [8:0] vid_mode2_pal_words,
     output logic [7:0] vid_mode2_pal_idx,
+    output logic vid_mode2_pal_xram,
+    output logic vid_mode2_pal_one_bpp,
     input logic [15:0] pal_q,
 
     output logic vid_mode2_px_we,
@@ -202,13 +204,12 @@ module vid_mode2
         vid_mode2_pal_w = pal_w;
         vid_mode2_pal_words = pal_words;
         vid_mode2_pal_idx = pix_idx;
+        vid_mode2_pal_xram = pal_xram;
+        vid_mode2_pal_one_bpp = bpp_log == 2'd0;
     end
 
-    logic [15:0] pal_ram;
-    always_comb pal_ram = pal_q;
     logic [15:0] pal_out;
-    always_comb pal_out = pal_xram ? pal_ram
-        : (bpp_log == 2'd0 ? VID_COLOR_2[pix_idx[0]] : VID_COLOR_256[pix_idx]);
+    always_comb pal_out = pal_q;
 
     logic in_window;
     always_comb in_window = col >= 0 && col < win_w_s;

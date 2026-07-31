@@ -45,6 +45,8 @@ module vid_mode1
     output logic [8:0] vid_mode1_pal_words,
     output logic [7:0] vid_mode1_pal_idx_a,
     output logic [7:0] vid_mode1_pal_idx_b,
+    output logic vid_mode1_pal_xram,
+    output logic vid_mode1_pal_one_bpp,
     input logic [15:0] pal_qa,
     input logic [15:0] pal_qb,
 
@@ -171,6 +173,8 @@ module vid_mode1
         vid_mode1_pal_words = pal_words;
         vid_mode1_pal_idx_a = fg_idx;
         vid_mode1_pal_idx_b = bg_idx;
+        vid_mode1_pal_xram = pal_xram;
+        vid_mode1_pal_one_bpp = pal_bpp == 4'd1;
     end
 
     logic [15:0] pal_fg, pal_bg;
@@ -182,16 +186,8 @@ module vid_mode1
             3'd2: begin fg_idx = {4'd0, g_b1[3:0]}; bg_idx = {4'd0, g_b1[7:4]}; end
             default: begin fg_idx = g_b1; bg_idx = g_b2; end
         endcase
-        if (pal_xram) begin
-            pal_fg = pal_qa;
-            pal_bg = pal_qb;
-        end else if (pal_bpp == 4'd1) begin
-            pal_fg = VID_COLOR_2[fg_idx[0]];
-            pal_bg = VID_COLOR_2[bg_idx[0]];
-        end else begin
-            pal_fg = VID_COLOR_256[fg_idx];
-            pal_bg = VID_COLOR_256[bg_idx];
-        end
+        pal_fg = pal_qa;
+        pal_bg = pal_qb;
     end
 
     /* The font byte: gathered from XRAM, or fetched from the store the

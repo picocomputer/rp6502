@@ -40,6 +40,8 @@ module vid_mode3
     output logic [7:0] vid_mode3_pal_w,
     output logic [8:0] vid_mode3_pal_words,
     output logic [7:0] vid_mode3_pal_idx,
+    output logic vid_mode3_pal_xram,
+    output logic vid_mode3_pal_one_bpp,
     input logic [15:0] pal_q,
 
     /* Pixels into the plane's write bank. */
@@ -155,11 +157,12 @@ module vid_mode3
         vid_mode3_pal_w = pal_w;
         vid_mode3_pal_words = pal_words;
         vid_mode3_pal_idx = pix_idx;
+        vid_mode3_pal_xram = pal_xram;
+        vid_mode3_pal_one_bpp = bpp_log == 3'd0;
     end
 
     logic [15:0] pal_out;
-    always_comb pal_out = pal_xram ? pal_q
-        : (bpp_log == 3'd0 ? VID_COLOR_2[pix_idx[0]] : VID_COLOR_256[pix_idx]);
+    always_comb pal_out = pal_q;
 
     logic in_window;
     always_comb in_window = col >= 0
