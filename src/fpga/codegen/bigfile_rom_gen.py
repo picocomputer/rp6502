@@ -68,6 +68,9 @@ BADL, BADH = 0x0204, 0x0205  # wrong bytes seen
 ERRL, ERRH = 0x0206, 0x0207  # offset of the first, FFFF for none
 GOTL, GOTH = 0x0208, 0x0209  # bytes actually read back
 TMP = 0x020A
+WROL, WROH = 0x020B, 0x020C  # bytes the writes actually took
+F1, F2 = 0x020D, 0x020E      # the two descriptors, FF when open failed
+RERR = 0x020F                # a read answered -1
 
 
 def val(chunk, i):
@@ -207,6 +210,7 @@ def build():
     p.store(API_A, O_WRONLY | O_CREAT | O_TRUNC)
     p.call(OP_OPEN)
     p.sta(FD)
+    p.sta(F1)
 
     for c in range(CHUNKS):
         # Push descending, so the write reads forward as byte 0..255.
@@ -223,6 +227,15 @@ def build():
         p.lda_abs(FD)
         p.sta(API_A)
         p.call(OP_WRITE_XSTACK)
+        # A is the low byte of what it took; X the high, or FF on error.
+        p.emit(0xE0, 0x00)  # cpx #0
+        wbad = p.branch(0xD0)
+        p.emit(0x18)  # clc
+        p.emit(0x6D, WROL & 0xFF, WROL >> 8)  # adc WROL
+        p.sta(WROL)
+        p.emit(0x90, 0x03)  # bcc over
+        p.inc_abs(WROH)
+        p.close(wbad)
 
     p.lda_abs(FD)
     p.sta(API_A)
@@ -233,6 +246,7 @@ def build():
     p.store(API_A, O_RDONLY)
     p.call(OP_OPEN)
     p.sta(FD)
+    p.sta(F2)
 
     for c in range(CHUNKS):
         p.push(CHUNK >> 8)
@@ -240,6 +254,13 @@ def build():
         p.lda_abs(FD)
         p.sta(API_A)
         p.call(OP_READ_XSTACK)
+        # X is the count's high byte, and FF when the call failed. Either
+        # way a nonzero high byte means this is not a length we asked for.
+        p.emit(0xE0, 0x00)  # cpx #0
+        rok = p.branch(0xF0)
+        p.inc_abs(RERR)
+        rbad = p.branch(0xD0)  # bne: always, skip the chunk
+        p.close(rok)
         p.emit(0xAA)  # tax — bytes returned
         short = p.branch(0xF0)  # beq: nothing came back, skip the chunk
 
@@ -271,15 +292,26 @@ def build():
         p.emit(0xCA)  # dex
         p.emit(0xD0, (top - (p.here() + 2)) & 0xFF)
         p.close(short)
+        p.close(rbad)
 
     p.lda_abs(FD)
     p.sta(API_A)
     p.call(OP_CLOSE)
 
     # --- the answer ---
-    text("\r\nBIGFILE\r\nW=")
-    p.lda(TOTAL >> 8)
-    p.ldx(TOTAL & 0xFF)
+    text("\r\nBIGFILE\r\nF=")
+    p.lda_abs(F1)
+    p.jsr(puthex)
+    p.lda(ord("/"))
+    p.jsr(putc)
+    p.lda_abs(F2)
+    p.jsr(puthex)
+    text(" X=")
+    p.lda_abs(RERR)
+    p.jsr(puthex)
+    text("\r\nW=")
+    p.lda_abs(WROH)
+    p.ldx_abs(WROL)
     p.jsr(puthex16)
     text(" R=")
     p.lda_abs(GOTH)
@@ -298,6 +330,7 @@ def build():
     # PASS needs no wrong bytes and the whole file back.
     p.lda_abs(BADL)
     p.ora_abs(BADH)
+    p.ora_abs(RERR)
     f1 = p.branch(0xD0)
     p.lda_abs(GOTL)
     p.emit(0xC9, TOTAL & 0xFF)
