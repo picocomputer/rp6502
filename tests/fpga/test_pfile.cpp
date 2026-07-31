@@ -211,19 +211,17 @@ static void do_openfile()
     g_opens++;
     bool created = false;
     auto it = g_files.find(name);
-    bool have = it != g_files.end();
-    /* There is no empty file. The host keeps a slot's length in a table
-     * where zero reads the same as no file at all, so a create or a
-     * resize to nothing is refused with the code for a missing name.
-     * Measured on hardware: a create at zero answered 3 for every name
-     * tried, while an append that asked for a length grew the file. The
-     * bench used to allow it, which is why nine rebuilds went by with
-     * this suite green and not one file ever created on the card. */
-    bool wants_zero = ((flags & 1) && !have && !((flags & 2) && size))
-                      || ((flags & 2) && !size);
-    if (!have || wants_zero)
+    /* Zero-length files are allowed here, and the reason that is not
+     * obvious: they were once refused, because every create the machine
+     * had ever made came back "not found" and a length of zero looked
+     * like the cause. It was not — the flags word was arriving swapped
+     * and the host was seeing no create bit at all. Whether the real
+     * host will hold a file at zero is a hardware question; do not put
+     * a refusal back here on the strength of the old runs, because
+     * every one of them was made through that bug. */
+    if (it == g_files.end())
     {
-        if (!(flags & 1) || wants_zero)
+        if (!(flags & 1))
         {
             dut->target_dataslot_done = 1;
             dut->target_dataslot_err = 3; /* file not found */

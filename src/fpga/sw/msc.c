@@ -22,12 +22,10 @@
  * end reopens the slot with the resize flag and the new length before
  * sending the bytes. That costs a round trip per extension.
  *
- * There is no empty file. The host stores a slot's length in a table
- * where zero reads the same as no file at all, so it declines to make
- * one and answers with the code for a missing name. Every file here
- * therefore begins as a single byte that the first write sizes properly,
- * and a program that creates one and writes nothing leaves that byte
- * behind rather than nothing at all.
+ * The two integers in Open File's struct are words, not bytes of the
+ * stream the path rides in — see msc_win_u32, which had them the other
+ * way round for long enough that create looked broken and the whole
+ * flags word was arriving as zero.
  */
 
 #include "font.h"
@@ -251,37 +249,24 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
 
-    /* The host keeps a slot's length in a table where zero and "no file"
-     * are the same entry, so it will not make one: a create or a resize
-     * to zero answers 3, the code for a name that is not there, while
-     * the same call for a single byte is taken. Measured — an append
-     * grew a file by sixteen bytes on the build that could not truncate
-     * one to nothing.
-     *
-     * So a file has to start at one byte, which means create and resize
-     * now travel together, which in turn means a create has to know
-     * whether the file is already there: both flags against one that is
-     * would cut it down to that byte. The plain open answers exactly
-     * that, and it is the same question exclusive creation asks. */
-    bool exists = msc_open_slot(slot, path, 0, 0);
-    if (exists && (flags & (MSC_O_CREAT | MSC_O_EXCL))
-                      == (MSC_O_CREAT | MSC_O_EXCL))
+    /* Exclusive creation has no flag of its own: the host is asked for
+     * the file as it stands, and an answer means it is already there. */
+    if ((flags & (MSC_O_CREAT | MSC_O_EXCL)) == (MSC_O_CREAT | MSC_O_EXCL)
+        && msc_open_slot(slot, path, 0, 0))
     {
         *err = API_EEXIST;
         return -1;
     }
-    if (!exists && !(flags & MSC_O_CREAT))
-    {
-        *err = API_ENOENT;
-        return -1;
-    }
-    /* Nothing to keep, either because it was just made or because the
-     * program asked for it gone. Both are that one byte on the card and
-     * a length of zero here, which is what makes the first write extend
-     * from the beginning. */
-    bool empty = !exists || (flags & MSC_O_TRUNC);
-    if (empty
-        && !msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 1))
+
+    /* Create and resize are independent, and the size is read only when
+     * resize is asked for. So O_CREAT alone opens a file already there
+     * without touching it, and only O_TRUNC asks for one back at
+     * nothing. Whether the host will hold a file at nothing is the
+     * question this shape puts to it. */
+    uint32_t dsf = (flags & MSC_O_CREAT) ? MSC_DS_CREATE : 0;
+    if (flags & MSC_O_TRUNC)
+        dsf |= MSC_DS_RESIZE;
+    if (!msc_open_slot(slot, path, dsf, 0))
     {
         *err = API_ENOENT;
         return -1;
@@ -295,7 +280,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     msc_pool[d].used = true;
     msc_pool[d].writable = (flags & MSC_O_WRITE) != 0;
-    msc_pool[d].len = empty ? 0 : len;
+    msc_pool[d].len = (flags & MSC_O_TRUNC) ? 0 : len;
     msc_pool[d].pos = (flags & MSC_O_APPEND) ? msc_pool[d].len : 0;
     memcpy(msc_pool[d].name, path, strlen(path) + 1);
     return d;

@@ -3,40 +3,31 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Creating a file has never worked on hardware, and neither the name nor
-# the folder is why. Nine variants of extension, case, missing extension
-# and create-without-truncate all answered 3, file not found, while a
-# name already on the card opens and returns a descriptor. So the path,
-# the folder, the slot binding and the first 256 bytes of the parameter
-# struct are all proven good.
+# Can the host hold a file at zero bytes?
 #
-# What is not proven is that the operation flags at offset 0x100 arrive
-# at all. A truncate of an existing file left every byte in place, but
-# that measures nothing on its own: O_TRUNC resizes to zero, and a host
-# that refuses any zero-length operation would look identical to a host
-# that never saw the flags. Both also explain the create failure, since
-# msc.c pairs create with resize-to-zero.
+# It looked settled that it could not: every create ever attempted came
+# back 3, "file not found", and a length of zero was the obvious reason.
+# It was the wrong reason. The operation flags were being written low
+# byte first into a stream the host reads as a word, so flags of 3 went
+# out as 0x03000000 and the host saw no create bit and no resize bit at
+# all. It opened what was there and refused what was not, which is what
+# a missing create bit looks like from here.
 #
-# An append does NOT separate them, which cost a wrong conclusion: the
-# same call that asks for the resize also writes past the old end, so a
-# host whose Slot Write extends on its own grows the file by exactly as
-# much whether the resize bit was read or ignored.
+# With the word the right way round a create takes and a shrink takes,
+# both proven — the shrink being the one a write cannot counterfeit,
+# since no write makes a file smaller. So the zero question was never
+# actually asked, and the firmware now asks it plainly: create with no
+# size, truncate to no size, and report what the host says the lengths
+# are afterwards.
 #
-# A SHRINK does separate them. No write can make a file smaller, so a
-# file that comes back shorter than it was proves the host read the
-# resize bit, and a bit that is read proves the create bit beside it in
-# the same byte is read too. O_TRUNC now asks for exactly that: one
-# byte, which is nonzero, on a file that is longer.
+# Lengths come from lseek to the end rather than from a read, because a
+# read returns what was asked for and a capped read reports its own cap.
+# They are taken through a fresh open, because msc.c keeps its own idea
+# of the length and would otherwise report the answer it hoped for.
 #
-# The length is measured with lseek to the end, not by reading: a read
-# returns what was asked for, so a capped read reports its own cap and
-# says nothing about a file of any size. It is taken through a fresh
-# open too, because msc.c keeps its own idea of the length and would
-# report the answer it hoped for rather than the one the host gave.
-#
-# Needs a t2.bin in /Saves/rp6502/common/ longer than one byte, and no
-# n1.bin. The run shortens t2.bin to a byte, so put a fresh one back
-# before repeating.
+# Needs a t2.bin in /Saves/rp6502/common/ and no n2.bin. Deleting the
+# whole folder instead turns the same ROM into the other open question:
+# whether the host creates the tree on its way to a file.
 
 import argparse
 import zlib
@@ -52,11 +43,11 @@ OP_LSEEK = 0x1A
 SEEK_END_CC65 = 1
 
 FD = 0x0200
-# The file to shrink, which must exist and be longer than one byte, and
-# the name to create, which must NOT exist. The run destroys the first:
-# put a fresh one back before repeating.
+# The file to truncate, which must exist, and the name to create, which
+# must not. Both end at zero if the host allows it, so use a new NEW
+# each run or delete the last one.
 OLD = "t2.bin"
-NEW = "n1.bin"
+NEW = "n2.bin"
 
 
 def build():
@@ -146,11 +137,11 @@ def build():
 
     show_len("L0", OLD)
 
-    # Does a create work now that it asks for a byte rather than nothing?
+    # A create that names no size at all.
     attempt("N", NEW, O_WRONLY | O_CREAT)
     show_len("L1", NEW)
 
-    # The discriminator: a nonzero resize that can only be a shrink.
+    # A truncate to nothing, which is the same question from the other side.
     attempt("T", OLD, O_WRONLY | O_TRUNC)
     show_len("L2", OLD)
 
