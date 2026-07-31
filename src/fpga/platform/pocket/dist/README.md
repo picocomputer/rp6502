@@ -112,12 +112,20 @@ deadline on a data slot operation and never leaves it: one flush takes
 the drive down for the rest of the session. The override implements the
 command and `pocket_file` carries the op, but nothing issues it.
 
-**There is no mkdir.** Nothing in the target command list creates a
-directory, so a core can only write where a folder already exists. Not
-yet established: whether the host creates missing folders on the way to
-a file it was asked to create. Until that is answered the distribution
-ships `Saves/rp6502/common/`, and the honest caveat is that an empty
-directory does not always survive being copied to a card.
+**There is no mkdir, and no warning that there isn't.** Nothing in the
+target command list creates a directory, and the host does not invent
+the folders in a path it is given. What makes that dangerous rather
+than merely limiting is how it fails: asked to create a file in a
+folder that does not exist, the host answers with a **descriptor** —
+the code for success — and no file appears. A program writes its save,
+is told the file was made, closes it, and there is nothing on the card.
+Measured: create returned a valid handle and the very next open of the
+same name answered 3.
+
+So the folder is a shipping requirement, not a convenience, and it has
+to arrive with a file in it — `Saves/rp6502/common/.keep` — because an
+empty directory does not survive being zipped or copied. Deleting that
+file is how a card silently stops saving.
 
 ## Reading the console
 

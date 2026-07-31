@@ -271,6 +271,20 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
+    /* A create is answered the same way whether or not one happened. Ask
+     * for a file in a folder the card does not have and the host returns
+     * a descriptor, having written nothing — a program would be told its
+     * save succeeded and find nothing there later. Measured: the create
+     * handed back a handle and the next open of that name answered 3.
+     *
+     * Nothing in the result tells the two apart, so the only honest test
+     * is to ask again with no flags and see whether the name is there
+     * now. One round trip, and only on the path that creates. */
+    if ((dsf & MSC_DS_CREATE) && !msc_open_slot(slot, path, 0, 0))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
 
     uint32_t len = 0;
     if (!msc_slot_len(slot, &len))
