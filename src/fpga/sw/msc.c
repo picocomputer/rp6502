@@ -101,16 +101,22 @@ static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
     }
 }
 
-/* The struct's integer fields are little-endian in that same byte
- * stream: the host reads them the way a core writing the struct with a
- * plain store on a little-endian CPU needs. Guessing this wrong shows
- * up as an open that fails rather than one that does the wrong thing,
- * because every flag we send lives in the lowest byte. */
+/* The struct's integer fields are words, not bytes. The path above rides
+ * the byte stream and arrives intact, so it was reasonable to write these
+ * into the same stream — and wrong. The host takes the bridge word as it
+ * stands, which means a value written low byte first arrives reversed:
+ * flags of 3 land as 0x03000000, every documented bit clear and every
+ * reserved bit set, and the host does what that asks. It opens the file
+ * and neither creates nor resizes.
+ *
+ * That reads as a working open on a file already there and as "not
+ * found" on one that is not, which is exactly how it looked for a day.
+ * Measured in the end by a shrink, the one operation a write cannot
+ * counterfeit: a resize to one byte returned success and left an 18 KB
+ * file at 18 KB. */
 static void msc_win_u32(uint32_t off, uint32_t v)
 {
-    uint8_t b[4] = {(uint8_t)v, (uint8_t)(v >> 8), (uint8_t)(v >> 16),
-                    (uint8_t)(v >> 24)};
-    msc_win_put(off, b, 4);
+    FILE_WIN[off >> 2] = v;
 }
 
 /* The data table is pairs of slot id and slot size, which is how the
@@ -302,12 +308,6 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (msc_pool[desc].writable)
-    {
-        std_rw_result r = msc_std_sync(desc, err);
-        if (r != STD_OK)
-            return r;
-    }
     msc_pool[desc].used = false;
     return STD_OK;
 }
@@ -389,20 +389,23 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
     return want < count ? STD_PENDING : STD_OK;
 }
 
-/* A write returns once the host has taken it, which is not the same as
- * the card having it. Flush is what commits, and on a handheld that can
- * be switched off between one and the other it is not optional. */
+/* This host does not answer 0x0188. Analogue documents the command and
+ * left it out of its own core_bridge_cmd.v, which was the warning; the
+ * machine issued one and waited out its timeout, and then every command
+ * after it timed out too, because the bridge puts no deadline on a data
+ * slot operation and stays in it forever. So one flush takes the drive
+ * down for the rest of the session.
+ *
+ * The plumbing stays — pocket_file carries the op and the override
+ * carries the command — because a later Pocket firmware may answer it
+ * and a wire costs a fit to put back. Nothing issues it until something
+ * proves it is answered. Until then a write is durable when the host
+ * says it took it, which is all we can observe. */
 std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
     {
         *err = API_EBADF;
-        return STD_ERROR;
-    }
-    FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
-    if (msc_command(FILE_OP_FLUSH) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
-    {
-        *err = API_EIO;
         return STD_ERROR;
     }
     return STD_OK;

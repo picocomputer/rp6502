@@ -64,6 +64,61 @@ Whoever picks this up: prove which of the two it is first, because a
 core that wakes reading a store nobody refreshed will not fail loudly
 — it will read plausible rubbish and hand it to a running program.
 
+## The host's filesystem
+
+`MSC0:` is `/Saves/rp6502/common/`. A core cannot touch the card itself;
+it asks the host through target commands, and the whole of what those
+commands offer is Slot Read (0x0180), Slot Write (0x0184), Data slot
+flush (0x0188), Get filename (0x0190) and Open File (0x0192). Everything
+below was measured on hardware, because the documentation is thin in
+exactly the places that matter and the result codes are not precise
+enough to infer from.
+
+**Seek is free.** Slot Read and Slot Write both carry a 32-bit offset
+into the file, so random access needs no cursor protocol.
+
+**Names must be rooted.** The host takes `/Assets/<platform>/common/name`
+or `/Saves/<platform>/common/name` and refuses anything else as
+malformed — including a bare filename that names a file which exists,
+which is how we know it rejects the form rather than failing the lookup.
+Only platforms listed in `core.json` are reachable.
+
+**The struct's integers are words, the path is bytes.** With
+`bridge_endian_little` clear, byte zero of the path rides bits 31:24 of
+its word — but the flags at 0x100 and the size at 0x104 are taken as the
+bridge word itself, not assembled from that byte stream. Writing them
+low byte first sends flags of 3 as `0x03000000`: every documented bit
+clear, every reserved bit set. The host then opens the file and neither
+creates nor resizes, which reads as success on a file already there and
+as "not found" on one that is not.
+
+That cost a day, and the reason is worth keeping: **a growth can never
+prove a resize**, because a Slot Write past the end produces the same
+length. Only a shrink can, and the shrink is what caught it — a resize
+to one byte returned success and left an 18 KB file at 18 KB.
+
+**Open File has two ways of saying yes** — 0 opened, 1 created and
+opened — and only this command does. The others use 0 alone. The rest
+are 2 slot not defined, 3 not found, 4 malformed path, 5 general.
+
+**A write is not a save, and there is nothing to be done about it.**
+Slot Write returns once the host has taken the bytes, which on a
+handheld that sleeps is not the same as the card having them. 0x0188 is
+what would commit them, and this host does not answer it — Analogue
+documents the command and left it out of its own `core_bridge_cmd.v`,
+which was the warning. A core that issues one waits out its timeout and
+then every later command times out too, because the bridge puts no
+deadline on a data slot operation and never leaves it: one flush takes
+the drive down for the rest of the session. The override implements the
+command and `pocket_file` carries the op, but nothing issues it.
+
+**There is no mkdir.** Nothing in the target command list creates a
+directory, so a core can only write where a folder already exists. Not
+yet established: whether the host creates missing folders on the way to
+a file it was asked to create. Until that is answered the distribution
+ships `Saves/rp6502/common/`, and the honest caveat is that an empty
+directory does not always survive being copied to a card.
+
 ## Reading the console
 
 The machine's console — the 6502's `$FFE1` writes and the soft CPU's own

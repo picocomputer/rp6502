@@ -17,10 +17,16 @@
 # that never saw the flags. Both also explain the create failure, since
 # msc.c pairs create with resize-to-zero.
 #
-# A resize to a NON-ZERO size separates them, and appending is how to
-# ask for one without a seek: msc_std_write re-opens the slot with
-# MSC_DS_RESIZE and pos+want whenever a write runs past the end, and
-# O_APPEND starts pos at the current length.
+# An append does NOT separate them, which cost a wrong conclusion: the
+# same call that asks for the resize also writes past the old end, so a
+# host whose Slot Write extends on its own grows the file by exactly as
+# much whether the resize bit was read or ignored.
+#
+# A SHRINK does separate them. No write can make a file smaller, so a
+# file that comes back shorter than it was proves the host read the
+# resize bit, and a bit that is read proves the create bit beside it in
+# the same byte is read too. O_TRUNC now asks for exactly that: one
+# byte, which is nonzero, on a file that is longer.
 #
 # The length is measured with lseek to the end, not by reading: a read
 # returns what was asked for, so a capped read reports its own cap and
@@ -28,19 +34,17 @@
 # open too, because msc.c keeps its own idea of the length and would
 # report the answer it hoped for rather than the one the host gave.
 #
-# Needs any t2.bin in /Saves/rp6502/common/. Its size does not matter;
-# what matters is whether the low sixteen bits of the length move by
-# exactly the sixteen bytes appended.
+# Needs a t2.bin in /Saves/rp6502/common/ longer than one byte, and no
+# n1.bin. The run shortens t2.bin to a byte, so put a fresh one back
+# before repeating.
 
 import argparse
 import zlib
 from pathlib import Path
 
-from bigfile_rom_gen import (ORG, XSTACK, API_A, API_OP, API_CALL, RIA_TX,
-                             RIA_READY, OP_OPEN, OP_CLOSE, OP_WRITE_XSTACK,
-                             O_RDONLY, O_WRONLY, Prog)
-
-O_APPEND = 0x40
+from bigfile_rom_gen import (ORG, API_A, API_OP, API_CALL, RIA_TX, RIA_READY,
+                             OP_OPEN, OP_CLOSE, O_RDONLY, O_WRONLY, O_CREAT,
+                             O_TRUNC, Prog)
 
 # api_pop_int8 takes whence before api_pop_int32_end takes the offset, so
 # whence is pushed last. cc65 spells END as 1, not 2.
@@ -48,8 +52,11 @@ OP_LSEEK = 0x1A
 SEEK_END_CC65 = 1
 
 FD = 0x0200
-NAME = "t2.bin"
-APPEND = 16
+# The file to shrink, which must exist and be longer than one byte, and
+# the name to create, which must NOT exist. The run destroys the first:
+# put a fresh one back before repeating.
+OLD = "t2.bin"
+NEW = "n1.bin"
 
 
 def build():
@@ -92,8 +99,8 @@ def build():
             p.lda(c)
             p.jsr(putc)
 
-    def open_name(flags):
-        p.push_str(NAME)
+    def open_name(name, flags):
+        p.push_str(name)
         p.store(API_A, flags)
         p.call(OP_OPEN)
         p.sta(FD)
@@ -107,9 +114,9 @@ def build():
         p.call(OP_CLOSE)
         p.close(skip)
 
-    def show_len(tag):
+    def show_len(tag, name):
         """Seek to the end and print the low sixteen bits of the length."""
-        open_name(O_RDONLY)
+        open_name(name, O_RDONLY)
         text(tag + "=")
         p.lda_abs(FD)
         p.jsr(puthex)
@@ -129,28 +136,23 @@ def build():
         text("\r\n")
         close_fd()
 
-    show_len("A")
+    def attempt(tag, name, flags):
+        open_name(name, flags)
+        text(tag + "=")
+        p.lda_abs(FD)
+        p.jsr(puthex)
+        text("\r\n")
+        close_fd()
 
-    # Append, which asks for a resize to a length that is not zero.
-    open_name(O_WRONLY | O_APPEND)
-    text("B=")
-    p.lda_abs(FD)
-    p.jsr(puthex)
-    text("/")
-    p.ldx(APPEND)
-    top = p.here()
-    p.lda(0x5A)
-    p.sta(XSTACK)
-    p.emit(0xCA)  # dex
-    p.emit(0xD0, (top - (p.here() + 2)) & 0xFF)
-    p.lda_abs(FD)
-    p.sta(API_A)
-    p.call(OP_WRITE_XSTACK)
-    p.jsr(puthex)  # bytes the write took, FF on error
-    text("\r\n")
-    close_fd()
+    show_len("L0", OLD)
 
-    show_len("C")
+    # Does a create work now that it asks for a byte rather than nothing?
+    attempt("N", NEW, O_WRONLY | O_CREAT)
+    show_len("L1", NEW)
+
+    # The discriminator: a nonzero resize that can only be a shrink.
+    attempt("T", OLD, O_WRONLY | O_TRUNC)
+    show_len("L2", OLD)
 
     text("DONE\r\n")
     p.emit(0xDB)  # stp
@@ -169,7 +171,7 @@ def main():
             crc = zlib.crc32(data) & 0xFFFFFFFF
             rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
         Path(a.emit).write_bytes(rom)
-        print(f"probe.rp6502 {len(rom)} bytes, nonzero-resize probe on {NAME}")
+        print(f"probe.rp6502 {len(rom)} bytes, shrink probe on {OLD}, create {NEW}")
     return 0
 
 

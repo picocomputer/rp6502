@@ -197,14 +197,17 @@ static void do_openfile()
     const std::string root = "/Saves/rp6502/common/";
     if (name.rfind(root, 0) == 0)
         name = name.substr(root.size());
-    /* The struct's integers are little-endian inside that byte
-     * stream, which is what msc.c writes. */
-    uint32_t flags = (uint32_t)param[256] | ((uint32_t)param[257] << 8)
-                     | ((uint32_t)param[258] << 16)
-                     | ((uint32_t)param[259] << 24);
-    uint32_t size = (uint32_t)param[260] | ((uint32_t)param[261] << 8)
-                    | ((uint32_t)param[262] << 16)
-                    | ((uint32_t)param[263] << 24);
+    /* The struct's integers are bridge words, not bytes of the stream the
+     * path rides in. The bench had them the other way round and so agreed
+     * with a firmware that wrote them reversed, which is how a create
+     * that never once worked on hardware kept a green suite: the host
+     * saw flags of 3 as 0x03000000 and opened without creating. Read
+     * them the way the real host does, and put the byte order back in
+     * msc_win_u32 to watch this test go red. */
+    uint32_t flags = ((uint32_t)param[256] << 24) | ((uint32_t)param[257] << 16)
+                     | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
+    uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
+                    | ((uint32_t)param[262] << 8) | (uint32_t)param[263];
     g_opens++;
     bool created = false;
     auto it = g_files.find(name);
