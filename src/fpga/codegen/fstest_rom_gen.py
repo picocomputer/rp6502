@@ -22,7 +22,7 @@
 # period past anything this test writes. A file that returns at the
 # right length full of the wrong bytes fails here.
 #
-# Leaves fs1.dat, fs2.dat and s0..s7.dat in /Saves/rp6502/common/.
+# Leaves fs1.dat, fs2.dat and s0..s7.dat in /Assets/rp6502/common/.
 
 import argparse
 import zlib

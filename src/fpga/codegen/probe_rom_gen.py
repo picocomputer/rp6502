@@ -25,7 +25,7 @@
 # They are taken through a fresh open, because msc.c keeps its own idea
 # of the length and would otherwise report the answer it hoped for.
 #
-# Needs a t2.bin in /Saves/rp6502/common/ and no n2.bin. Deleting the
+# Needs a t2.bin in /Assets/rp6502/common/ and no n2.bin. Deleting the
 # whole folder instead turns the same ROM into the other open question:
 # whether the host creates the tree on its way to a file.
 

@@ -194,7 +194,7 @@ static void do_openfile()
      * open question — Analogue documents a full path, PocketQuake passes
      * one relative to Assets — so the bench takes both and hardware is
      * the arbiter. Asserting a form here would only enshrine a guess. */
-    const std::string root = "/Saves/rp6502/common/";
+    const std::string root = "/Assets/rp6502/common/";
     if (name.rfind(root, 0) == 0)
         name = name.substr(root.size());
     /* The struct's integers are bridge words, not bytes of the stream the

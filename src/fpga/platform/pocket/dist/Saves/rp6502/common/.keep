@@ -1,6 +1,0 @@
-The machine writes its files here. Keep this folder.
-
-The Pocket will not create it. Worse, a core that asks for a file in a
-folder that is not there is told the file was made, and no file appears
-— so an empty folder loses saves silently. This placeholder exists
-because an empty directory does not survive being zipped or copied.

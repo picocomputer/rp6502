@@ -143,9 +143,16 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
 /* Every name is rooted. The host turns away anything else — "File
  * requested outside /Assets and /Saves, or malformed" — and it does so
  * even when the bare name names a file that exists, which is how we
- * know it is the form and not the lookup. Saves rather than Assets
- * because the machine writes these. */
-#define MSC_PATH "/Saves/rp6502/common/"
+ * know it is the form and not the lookup.
+ *
+ * Assets rather than Saves, though the machine writes here: the host
+ * does not create the folders in a path it is given, and it does not
+ * say so — a create into a folder that is not there is answered with a
+ * descriptor and leaves nothing on the card. Assets already exists on
+ * every card that can run this at all, because the fonts and the code
+ * pages live in it. Saves would have to be conjured, and nothing the
+ * platform offers conjures it. */
+#define MSC_PATH "/Assets/rp6502/common/"
 #define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 

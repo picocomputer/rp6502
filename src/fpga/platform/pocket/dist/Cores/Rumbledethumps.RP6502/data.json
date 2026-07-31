@@ -32,16 +32,6 @@
         "address": "0x03FD0000"
       },
       {
-        "name": "Save folder",
-        "id": 11,
-        "required": false,
-        "parameters": "0x20",
-        "nonvolatile": true,
-        "filename": "rp6502.nv",
-        "size_maximum": "0x00000010",
-        "address": "0x03FEF000"
-      },
-      {
         "name": "File 0",
         "id": 2,
         "required": false,

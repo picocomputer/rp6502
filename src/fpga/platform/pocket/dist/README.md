@@ -66,13 +66,24 @@ core that wakes reading a store nobody refreshed will not fail loudly
 
 ## The host's filesystem
 
-`MSC0:` is `/Saves/rp6502/common/`. A core cannot touch the card itself;
-it asks the host through target commands, and the whole of what those
-commands offer is Slot Read (0x0180), Slot Write (0x0184), Data slot
-flush (0x0188), Get filename (0x0190) and Open File (0x0192). Everything
-below was measured on hardware, because the documentation is thin in
-exactly the places that matter and the result codes are not precise
-enough to infer from.
+**Everything in this section is a guess.** None of it is documented.
+Every line is inferred from what one Pocket, on one firmware, did when
+poked — and a rule induced from behaviour is not a rule, it is the best
+story that fits the evidence so far. Several confident statements that
+stood here earlier were wrong, and were replaced by other confident
+statements only after a measurement contradicted them. Some of what
+follows is probably still wrong. Any of it can change under a firmware
+update without anything anywhere saying so.
+
+Read the assertions below as "this is what happened when we tried it",
+never as "this is how it works". Where a claim rests on a specific
+experiment, the experiment is named, because that is the only part of
+it that is actually true.
+
+`MSC0:` is `/Assets/rp6502/common/` — the same folder the fonts and the
+code page tables load from. A drive rooted in `Saves` would read better
+and is what the folder is for, but nothing we could find creates it, so
+the machine writes where the card already has somewhere to write.
 
 **Seek is free.** Slot Read and Slot Write both carry a 32-bit offset
 into the file, so random access needs no cursor protocol.
@@ -80,22 +91,27 @@ into the file, so random access needs no cursor protocol.
 **Names must be rooted.** The host takes `/Assets/<platform>/common/name`
 or `/Saves/<platform>/common/name` and refuses anything else as
 malformed — including a bare filename that names a file which exists,
-which is how we know it rejects the form rather than failing the lookup.
-Only platforms listed in `core.json` are reachable.
+which is how we know it rejects the form and not the lookup. Only
+platforms listed in `core.json` are reachable.
+
+**Creating a file takes both flag bits.** Bit 0 on its own is answered
+with a descriptor and makes nothing at all; bit 1, resize, is what puts
+the file there. So a create carries both, which means it has to know
+first whether the file already exists, since both bits against one that
+does would cut it back to nothing. There is no flag for exclusive
+creation either, and the same plain open answers both questions.
 
 **The struct's integers are words, the path is bytes.** With
 `bridge_endian_little` clear, byte zero of the path rides bits 31:24 of
 its word — but the flags at 0x100 and the size at 0x104 are taken as the
-bridge word itself, not assembled from that byte stream. Writing them
-low byte first sends flags of 3 as `0x03000000`: every documented bit
+bridge word itself, not assembled from that byte stream. Written low
+byte first, flags of 3 arrive as `0x03000000`: every documented bit
 clear, every reserved bit set. The host then opens the file and neither
 creates nor resizes, which reads as success on a file already there and
 as "not found" on one that is not.
 
-That cost a day, and the reason is worth keeping: **a growth can never
-prove a resize**, because a Slot Write past the end produces the same
-length. Only a shrink can, and the shrink is what caught it — a resize
-to one byte returned success and left an 18 KB file at 18 KB.
+**A growth can never prove a resize**, because a Slot Write past the end
+produces the same length either way. Only a shrink can.
 
 **Open File has two ways of saying yes** — 0 opened, 1 created and
 opened — and only this command does. The others use 0 alone. The rest
@@ -103,29 +119,50 @@ are 2 slot not defined, 3 not found, 4 malformed path, 5 general.
 
 **A write is not a save, and there is nothing to be done about it.**
 Slot Write returns once the host has taken the bytes, which on a
-handheld that sleeps is not the same as the card having them. 0x0188 is
-what would commit them, and this host does not answer it — Analogue
-documents the command and left it out of its own `core_bridge_cmd.v`,
-which was the warning. A core that issues one waits out its timeout and
-then every later command times out too, because the bridge puts no
-deadline on a data slot operation and never leaves it: one flush takes
-the drive down for the rest of the session. The override implements the
-command and `pocket_file` carries the op, but nothing issues it.
+handheld that sleeps is not the same as the card having them. 0x0188
+would commit them and this host does not answer it: a core that issues
+one waits out its timeout, and then every later command times out too,
+because the bridge puts no deadline on a data slot operation and never
+leaves one. One flush takes the drive down for the rest of the session.
 
-**There is no mkdir, and no warning that there isn't.** Nothing in the
-target command list creates a directory, and the host does not invent
-the folders in a path it is given. What makes that dangerous rather
-than merely limiting is how it fails: asked to create a file in a
-folder that does not exist, the host answers with a **descriptor** —
-the code for success — and no file appears. A program writes its save,
-is told the file was made, closes it, and there is nothing on the card.
-Measured: create returned a valid handle and the very next open of the
-same name answered 3.
+**There is no mkdir, and no warning that there isn't.** Nothing creates
+a directory, and the host does not invent the folders in a path. Asked
+to create a file in a folder that is not there it answers with a
+descriptor — the code for success — and no file appears. Which is why
+`MSC0:` is rooted in `Assets`.
 
-So the folder is a shipping requirement, not a convenience, and it has
-to arrive with a file in it — `Saves/rp6502/common/.keep` — because an
-empty directory does not survive being zipped or copied. Deleting that
-file is how a card silently stops saving.
+## On Analogue's documentation
+
+Every rule in the section above had to be discovered by experiment, and
+none of it is written down anywhere. That is why every one of them is a
+guess: black-box behaviour induced from a handful of trials on a single
+device. The reference is a list of command numbers, parameter offsets
+and result codes; it is silent on what the host actually does, and it
+is silent in exactly the places where being wrong is expensive.
+
+It does not say that the two integers in Open File's parameter struct
+are read as bridge words while the path beside them is read as a byte
+stream. It does not say that the create bit alone creates nothing. It
+does not say that creating into a missing folder reports success and
+writes nothing, nor that nothing in the API will make that folder. It
+documents a flush command that Analogue's own reference core does not
+implement and this firmware does not answer, and does not mention that
+an unanswered data slot command wedges the bridge permanently. Nowhere
+does it distinguish "this failed" from "this did nothing".
+
+That last one is the real cost. A platform whose errors are quiet forces
+every question to be settled by a physical experiment on the device,
+and each of those is a bitstream and a reboot. Finding one swapped word
+took a day, most of it spent building measurements that could tell a
+wrong answer from a right one — because the host will not.
+
+If you are porting something here: assume nothing the documentation
+implies, and assume nothing this file states either. Verify each
+behaviour with a test whose wrong outcome looks different from its
+right one, and put the whole filesystem in one ROM that reports for
+itself. `Assets/rp6502/common/fstest.rp6502` is that ROM, and it runs in
+the simulator too. It is worth more than this prose, because it can be
+re-run against a firmware that has changed its mind.
 
 ## Reading the console
 

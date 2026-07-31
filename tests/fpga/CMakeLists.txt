@@ -1065,17 +1065,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E rm -f ${PKG_DIR}/README.md
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
-        # Where MSC0: lives. Open File is given a whole path and the host
-        # will not invent the folders in it — measured, and it does not
-        # say so: a create into a folder that is not there answers with a
-        # descriptor and leaves nothing behind. So the card has to carry
-        # the folder, and the folder has to carry a file, because an
-        # empty directory does not survive being zipped or copied.
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-            ${PKG_DIR}/Saves/rp6502/common
-        COMMAND ${CMAKE_COMMAND} -E copy
-            ${RP6502_SRC}/fpga/platform/pocket/dist/Saves/rp6502/common/.keep
-            ${PKG_DIR}/Saves/rp6502/common/.keep
         COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         # The bring-up notes go with the card, because the machine's own
