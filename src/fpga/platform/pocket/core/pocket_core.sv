@@ -159,7 +159,9 @@ module pocket_core #(
         .pocket_bridge_kbd_trig(kbd_trig),
         .pocket_bridge_mou_key(mou_key),
         .pocket_bridge_mou_joy(mou_joy),
-        .pocket_bridge_mou_trig(mou_trig)
+        .pocket_bridge_mou_trig(mou_trig),
+        .pocket_bridge_set_phi2(set_phi2),
+        .pocket_bridge_set_cp(set_cp)
     );
 
     /* Staging: the machine's byte fetch against the halfword store. */
@@ -200,7 +202,28 @@ module pocket_core #(
 
     logic [27:0] host_addr;
     logic host_stb, host_we;
-    logic [31:0] host_wdata, host_rdata;
+    logic [31:0] host_wdata, host_rdata, file_rdata;
+    logic [31:0] set_phi2, set_cp;
+
+    /* The platform window's second half is what the interact menu has
+     * set, read-only: the machine polls it and applies what changed.
+     * Bit 16 picks; the file bridge owns everything below it. */
+    logic [31:0] set_rdata;
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            set_rdata <= '0;
+        else if (host_stb)
+            set_rdata <= host_addr[2] ? set_cp : set_phi2;
+    end
+    always_comb host_rdata = host_addr_q ? set_rdata : file_rdata;
+
+    logic host_addr_q;
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            host_addr_q <= 1'b0;
+        else if (host_stb)
+            host_addr_q <= host_addr[16];
+    end
 
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;
@@ -262,11 +285,11 @@ module pocket_core #(
     pocket_file file (
         .clk_sys(clk_sys),
         .rst_n(rst_n),
-        .stb(host_stb),
+        .stb(host_stb && !host_addr[16]),
         .we(host_we),
         .addr(host_addr),
         .wdata(host_wdata),
-        .pocket_file_rdata(host_rdata),
+        .pocket_file_rdata(file_rdata),
         .w_pending(w_avail),
         .clk_74a(clk_74a),
         .arst_n(arst_n),

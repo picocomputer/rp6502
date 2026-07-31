@@ -50,6 +50,7 @@ module tb_pbridge (
 );
 
     logic dt_busy;
+    logic [31:0] set_phi2, set_cp;
     logic w_avail, w_take;
     logic [24:0] w_addr;
     logic [15:0] w_data;
@@ -92,7 +93,9 @@ module tb_pbridge (
         .pocket_bridge_kbd_trig(tb_pbridge_kbd_trig),
         .pocket_bridge_mou_key(tb_pbridge_mou_key),
         .pocket_bridge_mou_joy(tb_pbridge_mou_joy),
-        .pocket_bridge_mou_trig(tb_pbridge_mou_trig)
+        .pocket_bridge_mou_trig(tb_pbridge_mou_trig),
+        .pocket_bridge_set_phi2(set_phi2),
+        .pocket_bridge_set_cp(set_cp)
     );
 
     logic cke;
@@ -145,7 +148,7 @@ module tb_pbridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
-    always_comb unused_tb_pbridge = ^{dqm, refreshes, dt_busy};
+    always_comb unused_tb_pbridge = ^{dqm, refreshes, dt_busy, set_phi2, set_cp};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

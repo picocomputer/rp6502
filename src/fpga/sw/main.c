@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include "aud.h"
+#include "cfg.h"
 #include "com.h"
 #include "font.h"
 #include "kbd.h"
@@ -440,6 +441,7 @@ int main(void)
                 api_return_ax(0);
             }
         }
+        cfg_task();
         kbd_task();
         pad_task();
         mou_task();

@@ -64,7 +64,10 @@ module pocket_bridge (
     output logic [15:0] pocket_bridge_kbd_trig,
     output logic [31:0] pocket_bridge_mou_key,
     output logic [31:0] pocket_bridge_mou_joy,
-    output logic [15:0] pocket_bridge_mou_trig
+    output logic [15:0] pocket_bridge_mou_trig,
+    /* The interact menu's persisted settings, as levels. */
+    output logic [31:0] pocket_bridge_set_phi2,
+    output logic [31:0] pocket_bridge_set_cp
 );
 
     /* --- Slot words into halfword writes, clk_74a side. --- */
@@ -77,13 +80,35 @@ module pocket_bridge (
     logic slot_wr;
     always_comb slot_wr = bridge_wr && bridge_addr[31:28] == 4'h0;
 
-    /* The interact action, crossed as a toggle. */
+    /* The interact menu. The action is decoded on its whole address, not
+     * on the nibble: every variable in the menu writes somewhere in this
+     * range, and matching the range alone would reboot the machine each
+     * time a setting moved.
+     *
+     * The settings themselves cross as levels, because that is what they
+     * are. The host replays a persisted value once at load and then only
+     * when the user changes it, so a mailbox would have nothing to hold
+     * and an edge could be missed; a level the machine reads whenever it
+     * likes cannot be. Two flops and an agreement, as the pad does. */
     logic urst_t;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n)
             urst_t <= 1'b0;
-        else if (bridge_wr && bridge_addr[31:28] == 4'h1)
+        else if (bridge_wr && bridge_addr == 32'h1000_0000)
             urst_t <= !urst_t;
+    end
+
+    logic [31:0] uphi2_74, ucp_74;
+    always_ff @(posedge clk_74a or negedge arst_n) begin
+        if (!arst_n) begin
+            uphi2_74 <= '0;
+            ucp_74   <= '0;
+        end else if (bridge_wr) begin
+            if (bridge_addr == 32'h1000_0004)
+                uphi2_74 <= bridge_wr_data;
+            if (bridge_addr == 32'h1000_0008)
+                ucp_74 <= bridge_wr_data;
+        end
     end
 
     always_comb begin
@@ -247,6 +272,7 @@ module pocket_bridge (
      * scan codes on the third slot the way APF sends them. */
     logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2, kk_s1, kk_s2, kj_s1, kj_s2;
     logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
+    logic [31:0] up_s1, up_s2, uc_s1, uc_s2;
     logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
@@ -256,6 +282,10 @@ module pocket_bridge (
             kk_s1 <= '0; kk_s2 <= '0;
             kj_s1 <= '0; kj_s2 <= '0;
             kt_s1 <= '0; kt_s2 <= '0;
+            up_s1 <= '0; up_s2 <= '0;
+            uc_s1 <= '0; uc_s2 <= '0;
+            pocket_bridge_set_phi2 <= '0;
+            pocket_bridge_set_cp <= '0;
             mk_s1 <= '0; mk_s2 <= '0;
             mj_s1 <= '0; mj_s2 <= '0;
             mt_s1 <= '0; mt_s2 <= '0;
@@ -284,6 +314,10 @@ module pocket_bridge (
             mk_s1 <= cont4_key;  mk_s2 <= mk_s1;
             mj_s1 <= cont4_joy;  mj_s2 <= mj_s1;
             mt_s1 <= cont4_trig; mt_s2 <= mt_s1;
+            up_s1 <= uphi2_74; up_s2 <= up_s1;
+            uc_s1 <= ucp_74;   uc_s2 <= uc_s1;
+            if (up_s1 == up_s2) pocket_bridge_set_phi2 <= up_s2;
+            if (uc_s1 == uc_s2) pocket_bridge_set_cp <= uc_s2;
             if (mk_s1 == mk_s2) pocket_bridge_mou_key <= mk_s2;
             if (mj_s1 == mj_s2) pocket_bridge_mou_joy <= mj_s2;
             if (mt_s1 == mt_s2) pocket_bridge_mou_trig <= mt_s2;
@@ -292,8 +326,7 @@ module pocket_bridge (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_bridge;
-    always_comb unused_pocket_bridge = ^{bridge_addr[27:26],
-                                         bridge_addr[0]};
+    always_comb unused_pocket_bridge = ^{bridge_addr[27:26]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

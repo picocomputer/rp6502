@@ -62,6 +62,9 @@
 #define FILE_CTL (*(volatile uint32_t *)0x80000010u)
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
+/* The interact menu's persisted settings, read-only. */
+#define SET_PHI2 (*(volatile uint32_t *)0x80010000u)
+#define SET_CP (*(volatile uint32_t *)0x80010004u)
 #define FILE_WIN_BASE 0x20000000u
 #define FILE_WIN_SIZE 512u
 

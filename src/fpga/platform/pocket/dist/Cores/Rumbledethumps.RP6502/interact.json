@@ -9,6 +9,120 @@
                 "enabled": true,
                 "address": "0x10000000",
                 "value": 1
+            },
+            {
+                "name": "6502 speed",
+                "id": 2,
+                "type": "list",
+                "enabled": true,
+                "persist": true,
+                "address": "0x10000004",
+                "defaultval": 8000,
+                "options": [
+                    {
+                        "value": 800,
+                        "name": "800 kHz"
+                    },
+                    {
+                        "value": 1000,
+                        "name": "1 MHz"
+                    },
+                    {
+                        "value": 2000,
+                        "name": "2 MHz"
+                    },
+                    {
+                        "value": 4000,
+                        "name": "4 MHz"
+                    },
+                    {
+                        "value": 6000,
+                        "name": "6 MHz"
+                    },
+                    {
+                        "value": 8000,
+                        "name": "8 MHz"
+                    }
+                ]
+            },
+            {
+                "name": "Code page",
+                "id": 3,
+                "type": "list",
+                "enabled": true,
+                "persist": true,
+                "address": "0x10000008",
+                "defaultval": 437,
+                "options": [
+                    {
+                        "value": 437,
+                        "name": "437"
+                    },
+                    {
+                        "value": 720,
+                        "name": "720"
+                    },
+                    {
+                        "value": 737,
+                        "name": "737"
+                    },
+                    {
+                        "value": 771,
+                        "name": "771"
+                    },
+                    {
+                        "value": 775,
+                        "name": "775"
+                    },
+                    {
+                        "value": 850,
+                        "name": "850"
+                    },
+                    {
+                        "value": 852,
+                        "name": "852"
+                    },
+                    {
+                        "value": 855,
+                        "name": "855"
+                    },
+                    {
+                        "value": 857,
+                        "name": "857"
+                    },
+                    {
+                        "value": 860,
+                        "name": "860"
+                    },
+                    {
+                        "value": 861,
+                        "name": "861"
+                    },
+                    {
+                        "value": 862,
+                        "name": "862"
+                    },
+                    {
+                        "value": 863,
+                        "name": "863"
+                    },
+                    {
+                        "value": 864,
+                        "name": "864"
+                    },
+                    {
+                        "value": 865,
+                        "name": "865"
+                    },
+                    {
+                        "value": 866,
+                        "name": "866"
+                    },
+                    {
+                        "value": 869,
+                        "name": "869"
+                    }
+                ]
             }
         ],
         "messages": []
