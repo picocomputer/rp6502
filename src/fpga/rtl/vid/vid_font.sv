@@ -48,6 +48,9 @@ module vid_font (
     logic [31:0] f16[1024] /*verilator public_flat_rd*/;
     logic [31:0] f8[512] /*verilator public_flat_rd*/;
     logic [31:0] ital[512] /*verilator public_flat_rd*/;
+    /* An MLAB, not a block: 4 kbit does not justify a whole M10K, and
+     * nothing reads this while writing it. */
+    (* ramstyle = "no_rw_check, MLAB" *)
     logic [31:0] dec[128] /*verilator public_flat_rd*/;
 
     logic [1:0] w_face;
