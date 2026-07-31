@@ -20,9 +20,10 @@
  *
  * A slot's file has a length, not a high-water mark, so a write past the
  * end reopens the slot with the resize flag and the new length before
- * sending the bytes. That costs a round trip per extension and assumes
- * a resize keeps what was already there, which is what a resize means
- * everywhere else.
+ * sending the bytes. That costs a round trip per extension. A resize
+ * keeps what was already there — measured on hardware, because the host
+ * reports nothing either way and a resize that zeroed instead would
+ * return only the last chunk of any file written in more than one.
  */
 
 #include "font.h"
