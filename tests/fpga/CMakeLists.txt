@@ -861,7 +861,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
         "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
-        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith")
+        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
+        # The machine's own ports outnumber the package's pins — the host
+        # window alone is a hundred of them — and this target exists to
+        # measure area, not to be bound to pads.
+        "set_instance_assignment -name VIRTUAL_PIN ON -to *")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND SYNTH_LINES
