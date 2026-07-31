@@ -38,4 +38,13 @@ uint16_t ff_oem2uni(uint16_t oem, uint16_t cp);
 uint16_t ff_uni2oem(uint32_t uni, uint16_t cp);
 uint32_t ff_wtoupper(uint32_t uni);
 
+/* The UTF-8 codec, against an explicit code page. oem.c wraps these
+ * with the page it is currently holding; a platform with no oem.c calls
+ * them directly. A code point with no OEM character becomes '?' and a
+ * malformed sequence becomes one '?' — never an ASCII byte the input did
+ * not contain, because these decode untrusted host filenames. */
+unsigned char uni_from_codepoint(uint32_t cp, uint16_t page);
+unsigned char uni_from_utf8_next(const char **p, uint16_t page);
+int uni_to_utf8_char(unsigned char b, uint16_t page, char *dst);
+
 #endif /* _RIA_API_UNI_H_ */

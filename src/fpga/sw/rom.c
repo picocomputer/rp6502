@@ -21,8 +21,11 @@
  * goes for the fonts, which live in the last 64 KB of the same store.
  */
 
+#include "font.h"
 #include "mmio.h"
 #include "rom.h"
+
+#include "ria/api/uni.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -200,11 +203,10 @@ bool rom_load_staged(uint32_t len)
  * for each window. Here the image is already in SDRAM behind STAGE, so a
  * window is an offset and a length and a read is a copy.
  *
- * Names are compared as bytes, which is what the emulator does. Assets are
- * named in UTF-8 and a program's path is OEM code page bytes, so the two
- * agree for the ASCII names every toolchain actually emits and disagree
- * above 0x7F. Converting needs tables this firmware does not carry yet;
- * until it does, the divergence is here rather than hidden.
+ * An asset is named in UTF-8 and a program's path is code page bytes, so
+ * the comparison converts as it walks. The two agree for the ASCII names
+ * every toolchain actually emits and would disagree above 0x7F, which is
+ * the whole reason the code page tables are loaded.
  * ---- */
 
 /* One window per stdio descriptor, so the pool is never what runs out
@@ -224,6 +226,22 @@ static bool rom_path_is_rom(const char *path, const char **rest)
         return false;
     *rest = path + 4;
     return true;
+}
+
+/* The header's name against the program's path, one converted to the
+ * other as it goes. */
+static bool rom_name_eq(const char *utf8, const char *oem)
+{
+    uint16_t page = font_get_code_page();
+    for (;;)
+    {
+        unsigned char a = uni_from_utf8_next(&utf8, page);
+        unsigned char b = (unsigned char)*oem++;
+        if (toupper(a) != toupper(b))
+            return false;
+        if (!a)
+            return true;
+    }
 }
 
 /* Walk the "#>len crc name" headers from the directory start, skipping each
@@ -247,8 +265,7 @@ static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
         while (*p == ' ' || *p == '\t')
             p++;
         uint32_t data = rom_pos;
-        size_t nl = strlen(name);
-        if (rom_strncasecmp(p, name, nl) == 0 && p[nl] == '\0')
+        if (rom_name_eq(p, name))
         {
             *base = data;
             *len = alen;

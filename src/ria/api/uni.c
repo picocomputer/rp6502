@@ -156,3 +156,97 @@ uint32_t ff_wtoupper(uint32_t uni)
     }
     return uc;
 }
+
+/* --- The UTF-8 codec. It lived in oem.c, which also owns the current
+ * code page, the locale and telling the keyboard and the screen when it
+ * changes — and reaches for four headers to do it, none of which exist
+ * on a machine with no config store and its own video. The conversion
+ * itself never needed any of them: only a page number and the two
+ * lookups above. oem.c keeps its own names and passes the page it is
+ * holding, so nothing that called it has changed. --- */
+
+unsigned char uni_from_codepoint(uint32_t cp, uint16_t page)
+{
+    if (cp >= 0xD800 && cp <= 0xDFFF)
+        return 0x7F;
+    uint16_t w = ff_uni2oem(cp, page);
+    return w ? (unsigned char)w : 0x7F;
+}
+
+unsigned char uni_from_utf8_next(const char **p, uint16_t page)
+{
+    const unsigned char *s = (const unsigned char *)*p;
+    unsigned char b0 = *s;
+    if (!b0)
+        return 0;
+    if (b0 < 0x80)
+    {
+        *p = (const char *)(s + 1);
+        return b0;
+    }
+    uint32_t cp;
+    int extra;
+    if ((b0 & 0xE0) == 0xC0)
+    {
+        cp = b0 & 0x1F;
+        extra = 1;
+    }
+    else if ((b0 & 0xF0) == 0xE0)
+    {
+        cp = b0 & 0x0F;
+        extra = 2;
+    }
+    else if ((b0 & 0xF8) == 0xF0)
+    {
+        cp = b0 & 0x07;
+        extra = 3;
+    }
+    else
+    {
+        *p = (const char *)(s + 1);
+        return 0x7F;
+    }
+    for (int i = 1; i <= extra; i++)
+    {
+        unsigned char bi = s[i];
+        if ((bi & 0xC0) != 0x80)
+        {
+            *p = (const char *)(s + i);
+            return 0x7F;
+        }
+        cp = (cp << 6) | (bi & 0x3F);
+    }
+    *p = (const char *)(s + extra + 1);
+    // Reject overlong forms and beyond-Unicode: untrusted input (host file
+    // names) must not decode to an ASCII it doesn't contain ('/', '.').
+    static const uint32_t min_cp[] = {0, 0x80, 0x800, 0x10000};
+    if (cp < min_cp[extra] || cp > 0x10FFFF)
+        return 0x7F;
+    return uni_from_codepoint(cp, page);
+}
+
+int uni_to_utf8_char(unsigned char b, uint16_t page, char *dst)
+{
+    uint32_t u = b;
+    if (b >= 0x80)
+    {
+        u = ff_oem2uni(b, page);
+        if (!u)
+            u = 0xFFFD;
+    }
+    if (u < 0x80)
+    {
+        dst[0] = (char)u;
+        return 1;
+    }
+    if (u < 0x800)
+    {
+        dst[0] = (char)(0xC0 | (u >> 6));
+        dst[1] = (char)(0x80 | (u & 0x3F));
+        return 2;
+    }
+    dst[0] = (char)(0xE0 | (u >> 12));
+    dst[1] = (char)(0x80 | ((u >> 6) & 0x3F));
+    dst[2] = (char)(0x80 | (u & 0x3F));
+    return 3;
+}

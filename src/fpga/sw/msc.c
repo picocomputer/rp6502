@@ -14,10 +14,10 @@
  * core's asset directory, so a program's SAVE.DAT lands beside it. A
  * name beginning with a slash is the host's to interpret.
  *
- * Names cross as bytes. A program's path is OEM code page bytes and the
- * host's is UTF-8, which agree for the ASCII every real filename uses
- * and disagree above 0x7F; src/fpga/sw/rom.c has the same divergence for
- * the same missing tables, and both end when those tables arrive.
+ * A program's path is code page bytes and the host's is UTF-8, so the
+ * name is converted on its way out. Three bytes per character is the
+ * worst case, and a name that will not fit the struct that way is
+ * refused rather than truncated into a different file.
  *
  * A slot's file has a length, not a high-water mark, so a write past the
  * end reopens the slot with the resize flag and the new length before
@@ -26,8 +26,11 @@
  * everywhere else.
  */
 
+#include "font.h"
 #include "mmio.h"
 #include "msc.h"
+
+#include "ria/api/uni.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -136,10 +139,17 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
     uint8_t pad[MSC_NAME_MAX];
-    size_t n = strlen(name);
-    if (n >= MSC_NAME_MAX)
-        return false;
-    memcpy(pad, name, n);
+    uint16_t page = font_get_code_page();
+    size_t n = 0;
+    for (const unsigned char *s = (const unsigned char *)name; *s; s++)
+    {
+        char enc[4];
+        int k = uni_to_utf8_char(*s, page, enc);
+        if (n + (size_t)k >= MSC_NAME_MAX)
+            return false;
+        memcpy(pad + n, enc, (size_t)k);
+        n += (size_t)k;
+    }
     memset(pad + n, 0, MSC_NAME_MAX - n);
     msc_win_put(0, pad, MSC_NAME_MAX);
     msc_win_u32(MSC_PARAM_FLAGS, flags);
