@@ -128,24 +128,14 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
             *len = msc_dt(i * 2 + 1);
             return true;
         }
-    /* The host says it wrote the pair — "Updating core data slot BRAM
-     * table. Slot ID [2] idx 3" — so a slot that is bound and still not
-     * here means the table is being read wrongly, not that it is empty.
-     * The first few words say which. */
-    printf("msc: slot %u not in table [%lu %lu %lu %lu %lu %lu %lu %lu]\n",
-           (unsigned)slot, (unsigned long)msc_dt(0), (unsigned long)msc_dt(1),
-           (unsigned long)msc_dt(2), (unsigned long)msc_dt(3),
-           (unsigned long)msc_dt(4), (unsigned long)msc_dt(5),
-           (unsigned long)msc_dt(6), (unsigned long)msc_dt(7));
     return false;
 }
 
-/* "File requested outside /Assets and /Saves, or malformed" is what the
- * host writes down when it turns a name away, so it has to land under
- * one of those two. Saves is ours, because the machine writes these.
- * A bare name may resolve there of its own accord — PocketQuake passes
- * one and calls it relative to Assets — so ask that way first and root
- * it only when the host says no. */
+/* Every name is rooted. The host turns away anything else — "File
+ * requested outside /Assets and /Saves, or malformed" — and it does so
+ * even when the bare name names a file that exists, which is how we
+ * know it is the form and not the lookup. Saves rather than Assets
+ * because the machine writes these. */
 #define MSC_PATH "/Saves/rp6502/common/"
 #define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
@@ -153,17 +143,13 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
 /* Bind a slot to a name. Open File answers 0 when the file was there
  * and 1 when it had to make it, and both of those are yes — the rest
  * are 2 slot not defined, 3 not found, 4 malformed path, 5 general. */
-static uint32_t msc_try_open(uint32_t slot, const char *name, bool rooted,
+static uint32_t msc_try_open(uint32_t slot, const char *name,
                              uint32_t flags, uint32_t size)
 {
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
-    size_t n = 0;
-    if (rooted)
-    {
-        memcpy(pad, MSC_PATH, MSC_PATH_LEN);
-        n = MSC_PATH_LEN;
-    }
+    memcpy(pad, MSC_PATH, MSC_PATH_LEN);
+    size_t n = MSC_PATH_LEN;
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
@@ -190,9 +176,7 @@ static uint32_t msc_try_open(uint32_t slot, const char *name, bool rooted,
 static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
-    uint32_t rc = msc_try_open(slot, name, false, flags, size);
-    if (rc == MSC_RC_MALFORMED)
-        rc = msc_try_open(slot, name, true, flags, size);
+    uint32_t rc = msc_try_open(slot, name, flags, size);
     /* 0 opened, 1 created and opened; 2 slot not defined, 3 not found,
      * 4 malformed. open() has one errno for all of them and the console
      * is the only place a program can learn which it got. */
