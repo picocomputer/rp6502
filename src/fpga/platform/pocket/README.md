@@ -1,7 +1,7 @@
 # Porting to the Analogue Pocket
 
 Notes for working on this core. Nothing here is needed to use it — the
-distribution tree is described in `dist/README.md`.
+distribution tree is described in `dist/rp6502.txt`.
 
 ## Suspend
 
