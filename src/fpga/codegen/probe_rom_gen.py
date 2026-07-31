@@ -3,48 +3,53 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Creating a file has never worked on hardware. Open File with bit 0 set
-# answers 3, "file not found", against a name that is not already there,
-# while opening one that is works. Everything we send matches the
-# documented struct: the path is rooted at a platform folder core.json
-# declares, the slot is not read-only, the flags are at 0x100 and the
-# size at 0x104, and the path parses — a malformed one answers 4, not 3.
+# Creating a file has never worked on hardware, and neither the name nor
+# the folder is why. Nine variants of extension, case, missing extension
+# and create-without-truncate all answered 3, file not found, while a
+# name already on the card opens and returns a descriptor. So the path,
+# the folder, the slot binding and the first 256 bytes of the parameter
+# struct are all proven good.
 #
-# So the remaining variables are in the name itself, and each is a guess
-# no document settles: whether the extension is matched against the
-# slot's lowercase list case-sensitively, whether an extension is needed
-# at all, and whether a subdirectory in the leaf changes the answer.
+# What is not proven is that the operation flags at offset 0x100 arrive
+# at all. A truncate of an existing file left every byte in place, but
+# that measures nothing on its own: O_TRUNC resizes to zero, and a host
+# that refuses any zero-length operation would look identical to a host
+# that never saw the flags. Both also explain the create failure, since
+# msc.c pairs create with resize-to-zero.
 #
-# A .rp6502 is a card file, so this costs a copy rather than a fit. Each
-# attempt prints its own line, and msc.c prints "msc: open rc=N" ahead of
-# any that failed, so a line with no rc above it is the one that worked.
+# A resize to a NON-ZERO size separates them, and appending is how to
+# ask for one without a seek: msc_std_write re-opens the slot with
+# MSC_DS_RESIZE and pos+want whenever a write runs past the end, and
+# O_APPEND starts pos at the current length.
+#
+# The length is measured with lseek to the end, not by reading: a read
+# returns what was asked for, so a capped read reports its own cap and
+# says nothing about a file of any size. It is taken through a fresh
+# open too, because msc.c keeps its own idea of the length and would
+# report the answer it hoped for rather than the one the host gave.
+#
+# Needs any t2.bin in /Saves/rp6502/common/. Its size does not matter;
+# what matters is whether the low sixteen bits of the length move by
+# exactly the sixteen bytes appended.
 
 import argparse
 import zlib
 from pathlib import Path
 
-from bigfile_rom_gen import (ORG, API_A, API_OP, API_CALL, RIA_TX, RIA_READY,
-                             OP_OPEN, OP_CLOSE, O_RDONLY, O_WRONLY, O_CREAT,
-                             O_TRUNC, Prog)
+from bigfile_rom_gen import (ORG, XSTACK, API_A, API_OP, API_CALL, RIA_TX,
+                             RIA_READY, OP_OPEN, OP_CLOSE, OP_WRITE_XSTACK,
+                             O_RDONLY, O_WRONLY, Prog)
+
+O_APPEND = 0x40
+
+# api_pop_int8 takes whence before api_pop_int32_end takes the offset, so
+# whence is pushed last. cc65 spells END as 1, not 2.
+OP_LSEEK = 0x1A
+SEEK_END_CC65 = 1
 
 FD = 0x0200
-
-# The first asks whether last run's file is still there, so the rest are
-# read against a known card rather than an assumed one. The others each
-# change exactly one thing about the name.
-CASES = [
-    ("0", "T2.DAT", O_RDONLY),
-    ("1", "T2.DAT", O_WRONLY | O_CREAT | O_TRUNC),
-    ("2", "t2.dat", O_WRONLY | O_CREAT | O_TRUNC),
-    ("3", "T2.SAV", O_WRONLY | O_CREAT | O_TRUNC),
-    ("4", "t2.sav", O_WRONLY | O_CREAT | O_TRUNC),
-    ("5", "t2.bin", O_WRONLY | O_CREAT | O_TRUNC),
-    ("6", "t2.txt", O_WRONLY | O_CREAT | O_TRUNC),
-    ("7", "T2", O_WRONLY | O_CREAT | O_TRUNC),
-    # Create without truncate: if the host refuses to make a zero-byte
-    # file, this is the one that separates that from the flag itself.
-    ("8", "t2c.dat", O_WRONLY | O_CREAT),
-]
+NAME = "t2.bin"
+APPEND = 16
 
 
 def build():
@@ -87,24 +92,65 @@ def build():
             p.lda(c)
             p.jsr(putc)
 
-    for tag, name, flags in CASES:
-        p.push_str(name)
+    def open_name(flags):
+        p.push_str(NAME)
         p.store(API_A, flags)
         p.call(OP_OPEN)
         p.sta(FD)
-        text(tag + "=")
-        p.lda_abs(FD)
-        p.jsr(puthex)
-        text("\r\n")
-        # FF is the failure, and closing it would free a descriptor that
-        # was never taken.
+
+    def close_fd():
         p.lda_abs(FD)
         p.emit(0xC9, 0xFF)  # cmp #$FF
-        skip = p.branch(0xF0)  # beq
+        skip = p.branch(0xF0)
         p.lda_abs(FD)
         p.sta(API_A)
         p.call(OP_CLOSE)
         p.close(skip)
+
+    def show_len(tag):
+        """Seek to the end and print the low sixteen bits of the length."""
+        open_name(O_RDONLY)
+        text(tag + "=")
+        p.lda_abs(FD)
+        p.jsr(puthex)
+        text("/")
+        for _ in range(4):
+            p.push(0)  # a zero offset, so its byte order cannot matter
+        p.push(SEEK_END_CC65)
+        p.lda_abs(FD)
+        p.sta(API_A)
+        p.call(OP_LSEEK)
+        # api_return_axsreg puts bits 7:0 in A and 15:8 in X.
+        p.emit(0x48)  # pha
+        p.emit(0x8A)  # txa
+        p.jsr(puthex)
+        p.emit(0x68)  # pla
+        p.jsr(puthex)
+        text("\r\n")
+        close_fd()
+
+    show_len("A")
+
+    # Append, which asks for a resize to a length that is not zero.
+    open_name(O_WRONLY | O_APPEND)
+    text("B=")
+    p.lda_abs(FD)
+    p.jsr(puthex)
+    text("/")
+    p.ldx(APPEND)
+    top = p.here()
+    p.lda(0x5A)
+    p.sta(XSTACK)
+    p.emit(0xCA)  # dex
+    p.emit(0xD0, (top - (p.here() + 2)) & 0xFF)
+    p.lda_abs(FD)
+    p.sta(API_A)
+    p.call(OP_WRITE_XSTACK)
+    p.jsr(puthex)  # bytes the write took, FF on error
+    text("\r\n")
+    close_fd()
+
+    show_len("C")
 
     text("DONE\r\n")
     p.emit(0xDB)  # stp
@@ -123,7 +169,7 @@ def main():
             crc = zlib.crc32(data) & 0xFFFFFFFF
             rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
         Path(a.emit).write_bytes(rom)
-        print(f"probe.rp6502 {len(rom)} bytes, {len(CASES)} cases")
+        print(f"probe.rp6502 {len(rom)} bytes, nonzero-resize probe on {NAME}")
     return 0
 
 

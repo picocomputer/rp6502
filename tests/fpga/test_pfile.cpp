@@ -45,7 +45,7 @@ static const uint32_t WINDOW_BASE = 0x20000000u;
 static std::map<std::string, std::vector<uint8_t>> g_files;
 static std::string g_bound[16];
 static std::string g_console;
-static int g_opens, g_reads, g_writes;
+static int g_opens, g_reads, g_writes, g_flushes;
 
 static void tick()
 {
@@ -208,9 +208,19 @@ static void do_openfile()
     g_opens++;
     bool created = false;
     auto it = g_files.find(name);
-    if (it == g_files.end())
+    bool have = it != g_files.end();
+    /* There is no empty file. The host keeps a slot's length in a table
+     * where zero reads the same as no file at all, so a create or a
+     * resize to nothing is refused with the code for a missing name.
+     * Measured on hardware: a create at zero answered 3 for every name
+     * tried, while an append that asked for a length grew the file. The
+     * bench used to allow it, which is why nine rebuilds went by with
+     * this suite green and not one file ever created on the card. */
+    bool wants_zero = ((flags & 1) && !have && !((flags & 2) && size))
+                      || ((flags & 2) && !size);
+    if (!have || wants_zero)
     {
-        if (!(flags & 1))
+        if (!(flags & 1) || wants_zero)
         {
             dut->target_dataslot_done = 1;
             dut->target_dataslot_err = 3; /* file not found */
@@ -268,35 +278,59 @@ static void do_slotwrite()
     target_done();
 }
 
+/* Flush commits a slot to the card. Nothing here buffers, so the answer
+ * is simply yes — but it has to be answered, because a command the host
+ * never retires leaves the machine waiting out its timeout. */
+static void do_flush()
+{
+    dut->target_dataslot_done = 0;
+    g_flushes++;
+    /* The core proves its command was taken by watching done fall before
+     * it rises again, so the fall has to last long enough to be seen.
+     * Every other handler gets that for free from the clocks its host
+     * memory access burns; this one touches nothing and would otherwise
+     * hand back an answer to a question the core never saw asked. */
+    for (int k = 0; k < 4; k++)
+        a_edge();
+    target_done();
+}
+
 /* One clk_sys step with the host watching for a command. The request
  * lines are one pulse wide, so this samples every clock. */
 static void step()
 {
-    static int prev_r, prev_w, prev_o;
+    static int prev_r, prev_w, prev_o, prev_f;
     tick();
     int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-        o = dut->tb_pocket_ds_openfile;
+        o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush;
     if (o && !prev_o)
     {
-        prev_r = prev_w = prev_o = 0;
+        prev_r = prev_w = prev_o = prev_f = 0;
         do_openfile();
+        return;
+    }
+    if (f && !prev_f)
+    {
+        prev_r = prev_w = prev_o = prev_f = 0;
+        do_flush();
         return;
     }
     if (r && !prev_r)
     {
-        prev_r = prev_w = prev_o = 0;
+        prev_r = prev_w = prev_o = prev_f = 0;
         do_slotread();
         return;
     }
     if (w && !prev_w)
     {
-        prev_r = prev_w = prev_o = 0;
+        prev_r = prev_w = prev_o = prev_f = 0;
         do_slotwrite();
         return;
     }
     prev_r = r;
     prev_w = w;
     prev_o = o;
+    prev_f = f;
 }
 
 static std::vector<uint8_t> read_file(const char *path)
@@ -319,7 +353,7 @@ static void boot(const std::vector<uint8_t> &rom)
     a_next = s_next = g_sys = 0;
     g_console.clear();
     g_files.clear();
-    g_opens = g_reads = g_writes = 0;
+    g_opens = g_reads = g_writes = g_flushes = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
@@ -383,8 +417,8 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
         step();
 
     if (g_console.find(want) == std::string::npos)
-        fprintf(stderr, "console: [%s] opens=%d reads=%d writes=%d\n",
-                g_console.c_str(), g_opens, g_reads, g_writes);
+        fprintf(stderr, "console: [%s] opens=%d reads=%d writes=%d flushes=%d\n",
+                g_console.c_str(), g_opens, g_reads, g_writes, g_flushes);
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     /* The host's own copy is the other half of the proof: the bytes
