@@ -14,9 +14,12 @@
 # read that returns its own cap — so each case below compares against
 # something the wrong answer could not produce.
 #
-# The payload is computed, never stored: byte i of the file is
-# (i * 7 + 13) & 0xFF, which lets a 128-byte chunk be pushed from a
-# running value and checked the same way. A file that comes back at the
+# The payload is computed, never stored, and it must not repeat: reads
+# land in a staging store nothing clears between transfers, so a read
+# that quietly does nothing hands back the previous one's bytes. Seven
+# per byte alone comes back around every 256, which would let a
+# duplicated block pass; thirty-seven more per chunk stretches the
+# period past anything this test writes. A file that returns at the
 # right length full of the wrong bytes fails here.
 #
 # Leaves fs1.dat, fs2.dat and s0..s7.dat in /Saves/rp6502/common/.
@@ -44,6 +47,7 @@ TIDX = 0x0205
 EXPL, EXPH = 0x0206, 0x0207
 CNT = 0x0208
 BAD = 0x0209
+CNTL, CNTH = 0x020A, 0x020B
 FAILS = 0x0210  # the indices that failed, printed at the end
 FDS = 0x0230    # eight descriptors for the slot exhaustion check
 
@@ -186,7 +190,7 @@ def build():
     p.emit(0x48)  # pha — carry the verdict past the payload advance
     p.lda_abs(VAL)
     p.emit(0x18)
-    p.emit(0x69, (7 * CHUNK) & 0xFF)
+    p.emit(0x69, (7 * CHUNK + 37) & 0xFF)
     p.sta(VAL)
     p.emit(0x68)
     p.rts()
@@ -194,20 +198,23 @@ def build():
     # --- read one chunk back and check every byte of it ---
     rd_chunk = p.here()
     p.store(BAD, 0)
-    p.store(EXPL, CHUNK)
-    p.store(EXPH, 0)
     p.push(CHUNK >> 8)
     p.push(CHUNK & 0xFF)
     p.lda_abs(FD)
     p.sta(API_A)
     p.call(OP_READ_XSTACK)
-    p.jsr(eq16)
-    p.emit(0xC9, 0x00)
-    short = p.branch(0xF0)
-    p.lda(1)  # a short or failed read is a failure of its own
+    p.sta(CNTL)
+    p.emit(0x8E, CNTH & 0xFF, CNTH >> 8)  # stx CNTH
+    p.emit(0xE0, 0xFF)  # cpx #$FF — the call itself failed, stack is clean
+    live = p.branch(0xD0)
+    p.lda(1)
     p.rts()
-    p.close(short)
-    p.ldx(CHUNK)
+    p.close(live)
+    # Whatever arrived has to come off the stack whether it matched or
+    # not: xstack is the 6502's own pointer and the next syscall pops its
+    # arguments from wherever this leaves it.
+    p.emit(0xAE, CNTL & 0xFF, CNTL >> 8)  # ldx CNTL
+    empty = p.branch(0xF0)
     top = p.here()
     p.lda_abs(XSTACK)  # pops
     p.cmp_abs(VAL)
@@ -220,6 +227,20 @@ def build():
     p.sta(VAL)
     p.emit(0xCA)
     p.emit(0xD0, (top - (p.here() + 2)) & 0xFF)
+    p.close(empty)
+    p.lda_abs(VAL)
+    p.emit(0x18)
+    p.emit(0x69, 37)
+    p.sta(VAL)
+    # A short read is its own failure, counted after the stack is clean.
+    p.lda_abs(CNTL)
+    p.emit(0xC9, CHUNK)
+    lenok = p.branch(0xF0)
+    p.emit(0xEE, BAD & 0xFF, BAD >> 8)
+    p.close(lenok)
+    p.lda_abs(CNTH)
+    p.emit(0xF0, 0x03)
+    p.emit(0xEE, BAD & 0xFF, BAD >> 8)
     p.lda_abs(BAD)
     p.rts()
 
@@ -315,7 +336,7 @@ def build():
     check(not_ff)
 
     # 11 a second chunk, continuing the pattern
-    p.store(VAL, (13 + 7 * CHUNK) & 0xFF)
+    p.store(VAL, (13 + 7 * CHUNK + 37) & 0xFF)
     check(wr_chunk)
     p.jsr(do_close)
 
@@ -423,7 +444,7 @@ def build():
     check(eq16)
 
     # 21 and the bytes there are the ones that belong there
-    p.store(VAL, (13 + 7 * CHUNK) & 0xFF)
+    p.store(VAL, (13 + 7 * CHUNK + 37) & 0xFF)
     check(rd_chunk)
     p.jsr(do_close)
 

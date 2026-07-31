@@ -47,7 +47,11 @@
 #define FILE_STAGE_BRIDGE 0x03FE0000u
 #define FILE_STAGE_SIZE 0x10000u
 #define OEMCP ((volatile const uint8_t *)0x63FD0000u)
-/* The most the host will move in one slot operation. */
+/* The most the host will move in one slot operation. The ceiling is not
+ * arbitrary: data.json puts the nonvolatile slot that makes the Saves
+ * folder exist at 0x03FEF000, inside this same region. Half the region
+ * keeps a transfer clear of it, and raising this past 0xF000 would have
+ * the host write that file out of whatever a read left behind. */
 #define FILE_XFER_MAX 0x8000u
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
