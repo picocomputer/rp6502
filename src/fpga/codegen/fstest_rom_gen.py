@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The whole drive in one boot. Twenty-six checks the machine decides for
+# The whole drive in one boot. Thirty-four checks the machine decides for
 # itself, printed as one row of dots, one line naming whatever failed,
 # and a count. Nothing here needs reading off against a table.
 #
@@ -490,6 +490,62 @@ def build():
     p.lda_abs(BAD)
     p.jsr(record)
 
+    # 27 the console devices are answered above the drive
+    open_it("CON:", O_RDONLY)
+    p.lda_abs(FD)
+    check(not_ff)
+    p.jsr(do_close)
+
+    # 28 and so is the terminal
+    open_it("TTY:", O_RDONLY)
+    p.lda_abs(FD)
+    check(not_ff)
+    p.jsr(do_close)
+
+    # 29 a name of nothing is not a name
+    open_it("", O_RDONLY)
+    p.lda_abs(FD)
+    check(is_ff)
+
+    # 30 a descriptor never handed out cannot be closed
+    p.store(API_A, 0x0F)
+    p.call(OP_CLOSE)
+    check(is_ff)
+
+    # 31 nor read from
+    p.push(0)
+    p.push(0x10)
+    p.store(API_A, 0x0F)
+    p.call(OP_READ_XSTACK)
+    check(is_ff)
+
+    # 32 truncate is not create: a missing name stays missing
+    open_it("nope.dat", O_WRONLY | O_TRUNC)
+    p.lda_abs(FD)
+    check(is_ff)
+
+    # 33 a read-only descriptor refuses to be written
+    open_it(NAME, O_RDONLY)
+    p.push(0x5A)
+    p.lda_abs(FD)
+    p.sta(API_A)
+    p.call(OP_WRITE_XSTACK)
+    check(is_ff)
+
+    # 34 and the position follows a read, which is the cursor working
+    p.store(EXPL, CHUNK)
+    p.store(EXPH, 0)
+    p.store(VAL, 13)
+    p.jsr(rd_chunk)
+    for _ in range(4):
+        p.push(0)
+    p.push(SEEK_CUR)
+    p.lda_abs(FD)
+    p.sta(API_A)
+    p.call(OP_LSEEK)
+    check(eq16)
+    p.jsr(do_close)
+
     # --- the tally ---
     text("\r\nPASS ")
     p.lda_abs(PASSN)
@@ -529,7 +585,7 @@ def main():
             crc = zlib.crc32(data) & 0xFFFFFFFF
             rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
         Path(a.emit).write_bytes(rom)
-        print(f"fstest.rp6502 {len(rom)} bytes, 26 checks, {TOTAL} byte payload")
+        print(f"fstest.rp6502 {len(rom)} bytes, 34 checks, {TOTAL} byte payload")
     return 0
 
 

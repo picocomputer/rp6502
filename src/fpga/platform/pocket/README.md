@@ -88,26 +88,39 @@ descriptor — the code for success — and no file appears. Which is why
 
 ## On Analogue's documentation
 
-The reference is a list of command numbers, parameter offsets and
-result codes. It says nothing about what the host does with them.
+Analogue are cunts about this. The openFPGA file API is published as a
+table of command numbers, parameter offsets and result codes, and that
+is the whole of it. Not one word about what the host actually does when
+you send one. They shipped a filesystem interface and documented its
+column headings.
 
-It does not say that the two integers in Open File's parameter struct
-are read as bridge words while the path beside them is read as a byte
-stream. It does not say that the create bit alone creates nothing. It
-does not say that creating into a missing folder reports success and
-writes nothing, nor that nothing in the API will make that folder. It
-documents a flush command that Analogue's own reference core does not
-implement and this firmware does not answer, and does not mention that
-one unanswered data slot command wedges the bridge for the session.
-Nowhere does it distinguish "this failed" from "this did nothing".
+What is missing is not detail, it is everything that decides whether
+your code works:
 
-The last one is what costs. Every question has to go to the device, and
-each trip is a bitstream and a reboot. The swapped word above took a
-day — not to fix, it is one line, but to corner. Most of that day went
-on measurements that turned out to prove nothing: a file that came back
-the right length, when a write past the end would have produced the
-same length whether or not the resize happened. Only a shrink could
-tell those apart, and it took far too long to see it.
+- The two integers in Open File's parameter struct are read as bridge
+  words while the path lying next to them in the same struct is read as
+  a byte stream. Get that wrong and every flag you send is zero.
+- The create bit on its own creates nothing. Resize is what makes the
+  file. Nowhere.
+- Creating into a folder that does not exist returns a **descriptor** —
+  the success code — and writes nothing. Nothing in the API creates a
+  folder either. So the documented way to make a file silently does not.
+- There is a flush command, 0x0188, in the reference. Analogue's own
+  reference core does not implement it and the console does not answer
+  it. Issue one and it times out; every data slot command after it times
+  out too, because the bridge has no deadline on one and never leaves
+  it. One call kills the drive for the session. Not a word.
+- Nothing anywhere distinguishes "that failed" from "that did nothing".
+
+That last one is what actually costs. Errors are silent, so every
+question has to be put to the physical device, and every trip is a
+bitstream and a reboot. The swapped word above took a day — one line to
+fix, a day to corner — and most of that day went on measurements that
+proved nothing, because a file coming back the right length looks
+identical whether the resize happened or a write past the end did it.
+Only a shrink can tell those apart. Working that out is not engineering,
+it is archaeology, and it was avoidable with one honest paragraph from
+the people who wrote the firmware.
 
 `fstest.rp6502` exercises the whole drive in one boot and prints its own
 verdict, in the simulator as well as on the card. The build leaves it in

@@ -468,9 +468,9 @@ UTEST(pfile, the_whole_drive_conforms)
                 g_console.c_str(), g_opens, g_reads, g_writes);
     ASSERT_TRUE(at != std::string::npos);
 
-    /* 26 checks, printed in hex. Anything less and the console names
+    /* 34 checks, printed in hex. Anything less and the console names
      * which ones on the BAD line. */
-    if (g_console.find("PASS 1A/1A") == std::string::npos)
+    if (g_console.find("PASS 22/22") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("PASS 1A/1A") != std::string::npos);
+    ASSERT_TRUE(g_console.find("PASS 22/22") != std::string::npos);
 }
