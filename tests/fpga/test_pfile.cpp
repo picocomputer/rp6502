@@ -229,6 +229,19 @@ static void do_openfile()
                 a_edge();
             return;
         }
+        /* Create takes both bits. Bit 0 on its own is answered with a
+         * descriptor and makes nothing: measured, eight opens asking for
+         * O_CREAT without O_TRUNC each came back a handle and none of
+         * them left a file. Resize is what puts it there, so a create
+         * without it succeeds loudly and does nothing at all. */
+        if (!(flags & 2))
+        {
+            dut->target_dataslot_done = 1;
+            dut->target_dataslot_err = 1; /* created and opened, it says */
+            for (int k = 0; k < 4; k++)
+                a_edge();
+            return;
+        }
         it = g_files.emplace(name, std::vector<uint8_t>()).first;
         created = true;
     }

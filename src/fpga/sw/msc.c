@@ -249,38 +249,43 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
 
-    /* Exclusive creation has no flag of its own: the host is asked for
-     * the file as it stands, and an answer means it is already there. */
-    if ((flags & (MSC_O_CREAT | MSC_O_EXCL)) == (MSC_O_CREAT | MSC_O_EXCL)
-        && msc_open_slot(slot, path, 0, 0))
+    /* Creating takes both bits. The create bit alone is answered with a
+     * descriptor and makes nothing — measured: eight opens asking for
+     * O_CREAT without O_TRUNC each came back a handle and each failed
+     * the check below. Resize is what puts the file there.
+     *
+     * So the two travel together, and that means a create has to know
+     * whether the file is already present: both bits against one that is
+     * would cut it back to nothing. The plain open answers that, and it
+     * is the same question exclusive creation asks. */
+    bool exists = msc_open_slot(slot, path, 0, 0);
+    if (exists && (flags & (MSC_O_CREAT | MSC_O_EXCL))
+                      == (MSC_O_CREAT | MSC_O_EXCL))
     {
         *err = API_EEXIST;
         return -1;
     }
-
-    /* Create and resize are independent, and the size is read only when
-     * resize is asked for. So O_CREAT alone opens a file already there
-     * without touching it, and only O_TRUNC asks for one back at
-     * nothing. Whether the host will hold a file at nothing is the
-     * question this shape puts to it. */
-    uint32_t dsf = (flags & MSC_O_CREAT) ? MSC_DS_CREATE : 0;
-    if (flags & MSC_O_TRUNC)
-        dsf |= MSC_DS_RESIZE;
-    if (!msc_open_slot(slot, path, dsf, 0))
+    if (!exists && !(flags & MSC_O_CREAT))
     {
         *err = API_ENOENT;
         return -1;
     }
-    /* A create is answered the same way whether or not one happened. Ask
+    /* Nothing to keep, either because it is new or because the program
+     * asked for it gone. The host holds a file at no length, so this is
+     * a resize to nothing and a length of nothing on both sides. */
+    bool empty = !exists || (flags & MSC_O_TRUNC);
+    if (empty
+        && !msc_open_slot(slot, path,
+                          MSC_DS_RESIZE | (exists ? 0 : MSC_DS_CREATE), 0))
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    /* A create is answered the same way whether or not one happened: ask
      * for a file in a folder the card does not have and the host returns
-     * a descriptor, having written nothing — a program would be told its
-     * save succeeded and find nothing there later. Measured: the create
-     * handed back a handle and the next open of that name answered 3.
-     *
-     * Nothing in the result tells the two apart, so the only honest test
-     * is to ask again with no flags and see whether the name is there
-     * now. One round trip, and only on the path that creates. */
-    if ((dsf & MSC_DS_CREATE) && !msc_open_slot(slot, path, 0, 0))
+     * a descriptor, having written nothing. Nothing in the result tells
+     * the two apart, so ask again plainly and take that answer. */
+    if (!exists && !msc_open_slot(slot, path, 0, 0))
     {
         *err = API_ENOENT;
         return -1;
@@ -294,7 +299,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     msc_pool[d].used = true;
     msc_pool[d].writable = (flags & MSC_O_WRITE) != 0;
-    msc_pool[d].len = (flags & MSC_O_TRUNC) ? 0 : len;
+    msc_pool[d].len = empty ? 0 : len;
     msc_pool[d].pos = (flags & MSC_O_APPEND) ? msc_pool[d].len : 0;
     memcpy(msc_pool[d].name, path, strlen(path) + 1);
     return d;
