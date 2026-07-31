@@ -128,6 +128,15 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
             *len = msc_dt(i * 2 + 1);
             return true;
         }
+    /* The host says it wrote the pair — "Updating core data slot BRAM
+     * table. Slot ID [2] idx 3" — so a slot that is bound and still not
+     * here means the table is being read wrongly, not that it is empty.
+     * The first few words say which. */
+    printf("msc: slot %u not in table [%lu %lu %lu %lu %lu %lu %lu %lu]\n",
+           (unsigned)slot, (unsigned long)msc_dt(0), (unsigned long)msc_dt(1),
+           (unsigned long)msc_dt(2), (unsigned long)msc_dt(3),
+           (unsigned long)msc_dt(4), (unsigned long)msc_dt(5),
+           (unsigned long)msc_dt(6), (unsigned long)msc_dt(7));
     return false;
 }
 

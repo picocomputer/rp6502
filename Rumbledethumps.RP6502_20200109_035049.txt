@@ -1,0 +1,363 @@
+APF Debug Log
+Pocket OS version 2_6
+
+Start
+Load core normally
+Opening /Cores/Rumbledethumps.RP6502/core.json
+Opening /Cores/Rumbledethumps.RP6502/variants.json
+Opening /Cores/Rumbledethumps.RP6502/data.json
+Opening /Cores/Rumbledethumps.RP6502/interact.json
+Opening /Cores/Rumbledethumps.RP6502/video.json
+Opening /Cores/Rumbledethumps.RP6502/audio.json
+Opening /Cores/Rumbledethumps.RP6502/input.json
+Done loading core json
+Slot: Checking for required files
+Setup files: checking slot ID [0]
+Persistent filename supported. Checking cache...
+Persistent filename valid, loaded: /Assets/rp6502/common/bigfile.rp6502
+File is required
+Found file defined by instance or manually browsed: /Assets/rp6502/common/bigfile.rp6502
+Setup files: checking slot ID [1]
+File is required
+Found file defined in data.json: fonts.bin
+Setup files: checking slot ID [10]
+File is required
+Found file defined in data.json: oemcp.bin
+Setup files: checking slot ID [2]
+Setup files: checking slot ID [3]
+Setup files: checking slot ID [4]
+Setup files: checking slot ID [5]
+Setup files: checking slot ID [6]
+Setup files: checking slot ID [7]
+Setup files: checking slot ID [8]
+Setup files: checking slot ID [9]
+Calculating total load size for all combined assets
+Total loadsize is 71018
+Bitstream: loading idx 0
+Bitstream: load Aristotle with /Cores/Rumbledethumps.RP6502/bitstream.rbf_r
+Bitstream: OK
+Host: BRIDGE command
+ * 0x0000 : Request Status
+ * done - result 0x0003
+ * ok
+Core says it is in idle.
+Cart: Checking for desired cartridge adapter. We found 0x00, want 0x00
+Cart: Forcing power off
+Host: BRIDGE command
+ * 0x00B1 : OS Notify: Cartridge Adapter
+ * Wrote parameter 0 (0x00008000) to 0xF8000020
+ * done - result 0xFFFF
+ * ok
+Slot: checking name [RP6502 ROM] ID [0] idx 0
+Checking file /Assets/rp6502/common/bigfile.rp6502
+Found, 4498 bytes
+Enforcing max size check of 66912256 bytes
+Host: BRIDGE command
+ * 0x0082 : Data slot: Request Write
+ * Wrote parameter 0 (0x00000000) to 0xF8000020
+ * Wrote parameter 1 (0x00001192) to 0xF8000024
+ * done - result 0x0000
+ * ok
+File: Load 0x00000000 with 0x0000001192 bytes from slot name [RP6502 ROM] and filename [/Assets/rp6502/common/bigfile.rp6502]
+Slot: load done
+Host: Updating core data slot BRAM table. Slot ID [0] idx 0 - size 4498 bytes
+Host: Wrote BRAM addr 0: 0x00000000 (ID)
+Host: Wrote BRAM addr 1: 0x00001192 (size)
+Slot: checking name [Fonts] ID [1] idx 1
+Checking file /Assets/rp6502/common/fonts.bin
+Found, 61440 bytes
+Enforcing max size check of 65536 bytes
+Host: BRIDGE command
+ * 0x0082 : Data slot: Request Write
+ * Wrote parameter 0 (0x00000001) to 0xF8000020
+ * Wrote parameter 1 (0x0000F000) to 0xF8000024
+ * done - result 0x0000
+ * ok
+File: Load 0x03FF0000 with 0x000000F000 bytes from slot name [Fonts] and filename [/Assets/rp6502/common/fonts.bin]
+Slot: load done
+Host: Updating core data slot BRAM table. Slot ID [1] idx 1 - size 61440 bytes
+Host: Wrote BRAM addr 2: 0x00000001 (ID)
+Host: Wrote BRAM addr 3: 0x0000F000 (size)
+Slot: checking name [Code pages] ID [10] idx 2
+Checking file /Assets/rp6502/common/oemcp.bin
+Found, 5080 bytes
+Enforcing max size check of 65536 bytes
+Host: BRIDGE command
+ * 0x0082 : Data slot: Request Write
+ * Wrote parameter 0 (0x0000000A) to 0xF8000020
+ * Wrote parameter 1 (0x000013D8) to 0xF8000024
+ * done - result 0x0000
+ * ok
+File: Load 0x03FD0000 with 0x00000013D8 bytes from slot name [Code pages] and filename [/Assets/rp6502/common/oemcp.bin]
+Slot: load done
+Host: Updating core data slot BRAM table. Slot ID [10] idx 2 - size 5080 bytes
+Host: Wrote BRAM addr 4: 0x0000000A (ID)
+Host: Wrote BRAM addr 5: 0x000013D8 (size)
+Slot: checking name [File 0] ID [2] idx 3
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [2] idx 3 - size 0 bytes
+Host: Wrote BRAM addr 6: 0x00000002 (ID)
+Host: Wrote BRAM addr 7: 0x00000000 (size)
+Slot: checking name [File 1] ID [3] idx 4
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [3] idx 4 - size 0 bytes
+Host: Wrote BRAM addr 8: 0x00000003 (ID)
+Host: Wrote BRAM addr 9: 0x00000000 (size)
+Slot: checking name [File 2] ID [4] idx 5
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [4] idx 5 - size 0 bytes
+Host: Wrote BRAM addr 10: 0x00000004 (ID)
+Host: Wrote BRAM addr 11: 0x00000000 (size)
+Slot: checking name [File 3] ID [5] idx 6
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [5] idx 6 - size 0 bytes
+Host: Wrote BRAM addr 12: 0x00000005 (ID)
+Host: Wrote BRAM addr 13: 0x00000000 (size)
+Slot: checking name [File 4] ID [6] idx 7
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [6] idx 7 - size 0 bytes
+Host: Wrote BRAM addr 14: 0x00000006 (ID)
+Host: Wrote BRAM addr 15: 0x00000000 (size)
+Slot: checking name [File 5] ID [7] idx 8
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [7] idx 8 - size 0 bytes
+Host: Wrote BRAM addr 16: 0x00000007 (ID)
+Host: Wrote BRAM addr 17: 0x00000000 (size)
+Slot: checking name [File 6] ID [8] idx 9
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [8] idx 9 - size 0 bytes
+Host: Wrote BRAM addr 18: 0x00000008 (ID)
+Host: Wrote BRAM addr 19: 0x00000000 (size)
+Slot: checking name [File 7] ID [9] idx 10
+Checking file 
+Host: Updating core data slot BRAM table. Slot ID [9] idx 10 - size 0 bytes
+Host: Wrote BRAM addr 20: 0x00000009 (ID)
+Host: Wrote BRAM addr 21: 0x00000000 (size)
+Host: BRIDGE command
+ * 0x008F : Data slot: Access all complete
+ * done - result 0x0000
+ * ok
+
+Prerun
+Interact: setup
+Interact: loaded file [/Cores/Rumbledethumps.RP6502/interact.json]
+Interact: setting up the menu
+Interact: Data slot ID [0] is reloadable! Adding
+Interact: check for persisted state
+Interact: trying to load persist [/Settings/Rumbledethumps.RP6502/Interact/_core/interact_persist.json]
+Interact: load state
+Interact: loaded file [/Cores/Rumbledethumps.RP6502/interact.json]
+Interact: persist loading 0 values from core
+Input: setup
+Input: loaded file [/Cores/Rumbledethumps.RP6502/input.json]
+Input: setting up the menu
+Input: check for persisted state
+Input: trying to load persist [/Settings/Rumbledethumps.RP6502/Input/_core/input_persist.json]
+Input: load state
+Input: loaded file [/Cores/Rumbledethumps.RP6502/input.json]
+Input: persist loading 8 values from core
+Video: setup
+Video: setting up the menu
+Video: check for persisted state
+Video: trying to load persist [/Settings/Rumbledethumps.RP6502/Video/_core/video_persist.json]
+Video: load state
+Video: persist loading values
+
+Run
+Host: BRIDGE command
+ * 0x0090 : Real-time Clock Data
+ * Wrote parameter 0 (0x5E16A31C) to 0xF8000020
+ * Wrote parameter 1 (0x20200109) to 0xF8000024
+ * Wrote parameter 2 (0x04035052) to 0xF8000028
+ * done - result 0x0000
+ * ok
+Host: BRIDGE command
+ * 0x00B2 : OS Notify: Docked State
+ * Wrote parameter 0 (0x00000000) to 0xF8000020
+ * done - result 0xFFFF
+ * ok
+Target: Check READY TO RUN
+Host: Writing interact values if present
+Interact: loaded file [/Cores/Rumbledethumps.RP6502/interact.json]
+Interact: writing 0 values into core
+Input: loaded file [/Cores/Rumbledethumps.RP6502/input.json]
+Cart: Power remaining OFF
+Host: BRIDGE command
+ * 0x0011 : Reset Exit
+ * done - result 0x0000
+ * ok
+
+Run: continue APF internal
+Host: BRIDGE command
+ * 0x00B8 : OS Notify: Display Mode
+ * Wrote parameter 0 (0x00000000) to 0xF8000020
+ * done - result 0xFFFF
+ * Read response 0 (0x00000000) from 0xF8000040
+ * ok
+Host: BRIDGE command
+ * 0x00B0 : OS Notify: Menu State
+ * Wrote parameter 0 (0x00000000) to 0xF8000020
+ * done - result 0x0000
+ * ok
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x626F6F74]
+Target: New command [0192]
+Host: memory read 0x108 bytes from 0x20000000
+Target: Open filename in slot name [File 0]: [T2.DAT]
+File requested outside /Assets and /Saves, or malformed
+Target: Canceled open file
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3A207276]
+Target: New command [0192]
+Host: memory read 0x108 bytes from 0x20000000
+Target: Open filename in slot name [File 0]: [/Saves/rp6502/common/T2.DAT]
+Host: Updating core data slot BRAM table. Slot ID [2] idx 3 - size 20965 bytes
+Host: Wrote BRAM addr 6: 0x00000002 (ID)
+Host: Wrote BRAM addr 7: 0x000051E5 (size)
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D0A626F]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x6F743A20]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x7465726D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D0A626F]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x6F743A20]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x6C6F6164]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x696E670D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0A726F6D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3A207374]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x61676564]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D0A626F]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x6F743A20]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x72756E6E]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x696E670D]
+Target: New command [0192]
+Host: memory read 0x108 bytes from 0x20000000
+Target: Open filename in slot name [File 0]: [T2.DAT]
+File requested outside /Assets and /Saves, or malformed
+Target: Canceled open file
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0A000000]
+Target: New command [0192]
+Host: memory read 0x108 bytes from 0x20000000
+Target: Open filename in slot name [File 0]: [/Saves/rp6502/common/T2.DAT]
+Host: Updating core data slot BRAM table. Slot ID [2] idx 3 - size 20965 bytes
+Host: Wrote BRAM addr 6: 0x00000002 (ID)
+Host: Wrote BRAM addr 7: 0x000051E5 (size)
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D0A4249]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D474649]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0A4C450D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0A463D42]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x46462F49]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x46462058]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x473D4631]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x49384C0D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x450A0D57]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0A3D4630]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3D304630]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x46302F20]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x4652463D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x20305830]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3D303130]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x380D0D0A]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0A45573D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3D463046]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x30463046]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3020204E]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x523D3D30]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x30303030]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x3030300D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D0A0A46]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x45413D49]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x464C460D]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x460A4620]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x4E3D3030]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x30300D0A]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x4641494C]
+Target: New command [0152]
+Target: Event Log (2020/01/09 03:50:52) [0x0D0A0000]
+Host: BRIDGE command
+ * 0x00B0 : OS Notify: Menu State
+ * Wrote parameter 0 (0x00000001) to 0xF8000020
+ * done - result 0x0000
+ * ok
+
+Unload
+Host: BRIDGE command
+ * 0x0010 : Reset Enter
+ * done - result 0x0000
+ * ok
+Interact: saving persistent state
+Interact: loaded file [/Cores/Rumbledethumps.RP6502/interact.json]
+Interact: persist checking 0 values from core
+Interact: trying to save persist [/Settings/Rumbledethumps.RP6502/Interact/_core/interact_persist.json]
+Input: saving persistent state
+Input: loaded file [/Cores/Rumbledethumps.RP6502/input.json]
+Input: trying to save persist [/Settings/Rumbledethumps.RP6502/Input/_core/input_persist.json]
+Video: saving persistent state
+Video: trying to save persist [/Settings/Rumbledethumps.RP6502/Video/_core/video_persist.json]
+Checking all slots for nonvolatile
+Slot: checking name [RP6502 ROM] ID [0] idx 0
+ - skipping because not nonvolatile
+Slot: checking name [Fonts] ID [1] idx 1
+ - skipping because not nonvolatile
+Slot: checking name [Code pages] ID [10] idx 2
+ - skipping because not nonvolatile
+Slot: checking name [File 0] ID [2] idx 3
+ - skipping because not nonvolatile
+Slot: checking name [File 1] ID [3] idx 4
+ - skipping because not nonvolatile
+Slot: checking name [File 2] ID [4] idx 5
+ - skipping because not nonvolatile
+Slot: checking name [File 3] ID [5] idx 6
+ - skipping because not nonvolatile
+Slot: checking name [File 4] ID [6] idx 7
+ - skipping because not nonvolatile
+Slot: checking name [File 5] ID [7] idx 8
+ - skipping because not nonvolatile
+Slot: checking name [File 6] ID [8] idx 9
+ - skipping because not nonvolatile
+Slot: checking name [File 7] ID [9] idx 10
+ - skipping because not nonvolatile
+Unload complete. Come again soon
