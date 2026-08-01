@@ -185,6 +185,55 @@ UTEST(opl, ffff_puts_it_away)
      * which rp6502.sv decides from this bit. */
 }
 
+/* The bell on this path had no test, which is how it spent the whole
+ * project ringing at 3,645 Hz. aud_bel's constants were frozen at the
+ * PSG's 24 kHz while aud_opl steps it once per OPL sample at 49,704, so
+ * every rate in it ran 2.07x fast. Measuring the period catches that
+ * whatever the cause — a wrong parameter, a wrong step, a wrong table.
+ *
+ * bel.c makes the teletype's tone from freq/3, so 1760/3 = 586.67 Hz,
+ * and the triangle's duty window gates most of the cycle away. Counting
+ * rising zero crossings of the gated wave gives the cycle rate directly. */
+UTEST(opl, the_bell_rings_at_the_rate_the_engine_runs)
+{
+    fresh();
+    set_page(0xFFFF); /* engine idle: the bell is all that moves */
+    dut->bel_strike = 1;
+    tick();
+    dut->bel_strike = 0;
+
+    /* Time the gap between crossings rather than counting them over a
+     * fixed window: the envelope reaches zero around sample 13,000 and a
+     * window wide enough to be comfortable also counts the silence, which
+     * reads as a low pitch rather than a short sound. */
+    const int want = 60;
+    int seen = 0, prev = 0, n = 0, first = -1, last = -1;
+    for (long i = 0; n < want && i < 400000000L; i++)
+    {
+        tick();
+        if (!dut->aud_opl_valid)
+            continue;
+        int v = (int16_t)dut->aud_opl_l;
+        if (prev <= 0 && v > 0)
+        {
+            if (first < 0)
+                first = seen;
+            last = seen;
+            n++;
+        }
+        prev = v;
+        seen++;
+    }
+    ASSERT_EQ(n, want);
+    /* 1760/3 = 586.67 Hz at 49,704 samples a second is 84.7 samples a
+     * cycle. With the constants frozen at the PSG's 24 kHz this ran
+     * 2.07x fast, near 1,215 Hz — nowhere near the window. */
+    const double hz = (double)(n - 1) * 49704.0 / (double)(last - first);
+    fprintf(stderr, "  opl bell %.1f Hz\n", hz);
+    ASSERT_GT(hz, 560.0);
+    ASSERT_LT(hz, 615.0);
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

@@ -162,7 +162,9 @@ module aud_opl #(
 
     /* The bell rides the sample tick, as it does on the PSG's grid. */
     logic signed [15:0] bel_out;
-    aud_bel bel (
+    /* CLK_FREQ / CLK_DIV_COUNT: what the core actually emits, not the
+     * 49,716 a YM3812 would. */
+    aud_bel #(.RATE(int'(opl2_pkg::ACTUAL_SAMPLE_FREQ))) bel (
         .clk(clk),
         .rst_n(rst_n),
         .strike(bel_strike),

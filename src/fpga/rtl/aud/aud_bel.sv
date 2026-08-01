@@ -5,18 +5,28 @@
  *
  * The bell of ria/aud/bel.c, reduced to the one sound this machine can
  * ring: bel_teletype, struck by the console's BEL scan. Every derived
- * rate in the C is a function of the preset and the fixed 24 kHz, so
- * the divider, the tables, and the millisecond thresholds all collapse
- * to constants — the triangle's grit window, the 8 ms attack to -5,
- * the 6 ms decay to -6, the 750 ms release, restrike at 100 ms, release
- * at 20 ms, end at 800 ms. The queue of eight becomes an occupancy
+ * rate in the C is a function of the preset and the sample rate, so the
+ * divider, the tables, and the millisecond thresholds all collapse to
+ * constants — the triangle's grit window, the 8 ms attack to -5, the
+ * 6 ms decay to -6, the 750 ms release, restrike at 100 ms, release at
+ * 20 ms, end at 800 ms.
+ *
+ * RATE is a parameter because there are two instances at two rates.
+ * They were both frozen at 24 kHz, which was right inside aud_psg and
+ * wrong inside aud_opl: stepped once per OPL sample at 49,704 Hz, the
+ * bell rang at 3,645 Hz instead of 1,760 with its whole envelope
+ * compressed 2.07x. It is stated at the instance now so it cannot
+ * silently drift again. The queue of eight becomes an occupancy
  * counter, since every entry is the same sound. One step per sample
  * walks the C's exact order: elapsed time first, restrike skipping the
  * release and end checks, generate from the advanced phase, envelope,
  * then the output under the fresh volume.
  */
 
-module aud_bel (
+module aud_bel #(
+    /* Samples per second this instance is stepped at. */
+    parameter int RATE = 24000
+) (
     input logic clk,
     input logic rst_n,
 
@@ -29,16 +39,23 @@ module aud_bel (
     output logic signed [15:0] aud_bel_out
 );
 
-    localparam logic [31:0] PHASE_INC = 32'd104988089;  /* 1760 Hz */
+    /* bel.c's arithmetic exactly, including where it truncates: the
+     * envelope rates divide by rate/1000 the way bel_env_rate does. */
+    localparam longint unsigned KHZ = 64'(RATE) / 64'd1000;
+    localparam logic [31:0] PHASE_INC =
+        32'((64'd4294967296 * 64'd1760) / 64'd3 / 64'(RATE));  /* 1760 Hz */
     localparam logic [7:0] DUTY_HALF = 8'd107;          /* 215 >> 1 */
-    localparam logic [31:0] ATK_RATE = 32'd87381;       /* 8 ms */
+    localparam logic [31:0] ATK_RATE = 32'((1 << 24) / (KHZ * 8));
     localparam logic [31:0] ATK_TARGET = 32'd102 << 16; /* -5 vol */
-    localparam logic [31:0] DEC_RATE = 32'd116508;      /* 6 ms */
+    localparam logic [31:0] DEC_RATE = 32'((1 << 24) / (KHZ * 6));
     localparam logic [31:0] DEC_TARGET = 32'd86 << 16;  /* -6 vol */
-    localparam logic [31:0] REL_RATE = 32'd932;         /* 750 ms */
-    localparam logic [14:0] RESTRIKE_AT = 15'd2400;     /* 100 ms */
-    localparam logic [14:0] RELEASE_AT = 15'd480;       /* 20 ms */
-    localparam logic [14:0] END_AT = 15'd19200;         /* 800 ms */
+    localparam logic [31:0] REL_RATE = 32'((1 << 24) / (KHZ * 750));
+    /* Sixteen bits, not fifteen: 800 ms at the OPL's rate is 39,200 and
+     * the old width stopped at 32,767, so a rate-parameterised bell
+     * would have wrapped its end-of-life counter. */
+    localparam logic [15:0] RESTRIKE_AT = 16'(KHZ * 100);
+    localparam logic [15:0] RELEASE_AT = 16'(KHZ * 20);
+    localparam logic [15:0] END_AT = 16'(KHZ * 800);
 
     localparam logic [1:0] ADSR_RELEASE = 2'd0;
     localparam logic [1:0] ADSR_ATTACK = 2'd1;
@@ -50,14 +67,14 @@ module aud_bel (
     logic [1:0] adsr;
     logic [31:0] vol;
     logic [31:0] phase;
-    logic [14:0] elapsed;
+    logic [15:0] elapsed;
 
     logic n_active;
     logic [2:0] n_count;
     logic [1:0] n_adsr;
     logic [31:0] n_vol;
     logic [31:0] n_phase;
-    logic [14:0] n_elapsed;
+    logic [15:0] n_elapsed;
     logic signed [15:0] n_out;
 
     logic gen;
@@ -83,7 +100,7 @@ module aud_bel (
                 n_out = '0;
             else begin
                 gen = 1'b1;
-                n_elapsed = elapsed + 15'd1;
+                n_elapsed = elapsed + 16'd1;
                 if (n_elapsed >= RESTRIKE_AT && count >= 3'd2) begin
                     n_count = count - 3'd1;
                     n_adsr = ADSR_ATTACK;
