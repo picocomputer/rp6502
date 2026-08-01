@@ -39,23 +39,25 @@ module aud_bel #(
     output logic signed [15:0] aud_bel_out
 );
 
-    /* bel.c's arithmetic exactly, including where it truncates: the
-     * envelope rates divide by rate/1000 the way bel_env_rate does. */
-    localparam longint unsigned KHZ = 64'(RATE) / 64'd1000;
+    /* bel.c's arithmetic exactly. Milliseconds convert as rate * ms / 1000
+     * rather than rate / 1000 * ms, which is the same number whenever the
+     * rate is a round number of samples per millisecond and 1.44% out at
+     * the OPL's 49716. The thresholds round up because the C compares
+     * elapsed_samples * 1000 / rate against the millisecond with >=. */
     localparam logic [31:0] PHASE_INC =
         32'((64'd4294967296 * 64'd1760) / 64'd3 / 64'(RATE));  /* 1760 Hz */
     localparam logic [7:0] DUTY_HALF = 8'd107;          /* 215 >> 1 */
-    localparam logic [31:0] ATK_RATE = 32'((1 << 24) / (KHZ * 8));
+    localparam logic [31:0] ATK_RATE = 32'((1 << 24) / ((64'(RATE) * 8) / 1000));
     localparam logic [31:0] ATK_TARGET = 32'd102 << 16; /* -5 vol */
-    localparam logic [31:0] DEC_RATE = 32'((1 << 24) / (KHZ * 6));
+    localparam logic [31:0] DEC_RATE = 32'((1 << 24) / ((64'(RATE) * 6) / 1000));
     localparam logic [31:0] DEC_TARGET = 32'd86 << 16;  /* -6 vol */
-    localparam logic [31:0] REL_RATE = 32'((1 << 24) / (KHZ * 750));
-    /* Sixteen bits, not fifteen: 800 ms at the OPL's rate is 39,200 and
+    localparam logic [31:0] REL_RATE = 32'((1 << 24) / ((64'(RATE) * 750) / 1000));
+    /* Sixteen bits, not fifteen: 800 ms at the OPL's rate is 39,773 and
      * the old width stopped at 32,767, so a rate-parameterised bell
      * would have wrapped its end-of-life counter. */
-    localparam logic [15:0] RESTRIKE_AT = 16'(KHZ * 100);
-    localparam logic [15:0] RELEASE_AT = 16'(KHZ * 20);
-    localparam logic [15:0] END_AT = 16'(KHZ * 800);
+    localparam logic [15:0] RESTRIKE_AT = 16'((64'(RATE) * 100 + 999) / 1000);
+    localparam logic [15:0] RELEASE_AT = 16'((64'(RATE) * 20 + 999) / 1000);
+    localparam logic [15:0] END_AT = 16'((64'(RATE) * 800 + 999) / 1000);
 
     localparam logic [1:0] ADSR_RELEASE = 2'd0;
     localparam logic [1:0] ADSR_ATTACK = 2'd1;

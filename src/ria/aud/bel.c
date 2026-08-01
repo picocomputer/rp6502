@@ -180,14 +180,18 @@ void bel_add(const ria_bel_t *sound)
     }
 }
 
+/* (rate * ms) / 1000, not (rate / 1000) * ms. The old form threw away the
+ * part of the rate below a kilohertz, which is exact at 24000 and 48000 and
+ * 1.44% fast at the OPL's 49716 — the one rate the bell is stepped at that
+ * is not a round number of samples per millisecond. */
 static inline uint32_t bel_attack_rate(uint8_t nibble, uint32_t rate)
 {
-    return (1 << 24) / (rate / 1000 * bel_attack_ms_table[nibble]);
+    return (1 << 24) / (uint32_t)(((uint64_t)rate * bel_attack_ms_table[nibble]) / 1000);
 }
 
 static inline uint32_t bel_decay_release_rate(uint8_t nibble, uint32_t rate)
 {
-    return (1 << 24) / (rate / 1000 * bel_decay_release_ms_table[nibble]);
+    return (1 << 24) / (uint32_t)(((uint64_t)rate * bel_decay_release_ms_table[nibble]) / 1000);
 }
 
 #pragma GCC push_options

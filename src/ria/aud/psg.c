@@ -19,8 +19,14 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define PSG_RATE 24000
 #define PSG_CHANNELS 8
+
+/* The rate psg_setup was last given, and the divisor the phase increments
+ * come out of. Both derived once, because a runtime divisor in the sample
+ * loop would be a real 64-bit division: eight of them per sample, against
+ * 5,333 cycles at 48 kHz on a core that is also running the 6502's bus. */
+static uint32_t psg_rate;
+static uint32_t psg_phase_div;
 
 /* Full scale of a generated wave, and the value a closed duty gate rails
  * to. The rail is -PSG_PEAK, not the true minimum, because it was -127
@@ -58,45 +64,21 @@ static const uint32_t psg_vol_table[] = {
     0 << 16,
 };
 
-// Same rates as the 6581 SID
-static const uint32_t psg_attack_table[] = {
-    (1 << 24) / (PSG_RATE / 1000 * 2),
-    (1 << 24) / (PSG_RATE / 1000 * 8),
-    (1 << 24) / (PSG_RATE / 1000 * 16),
-    (1 << 24) / (PSG_RATE / 1000 * 24),
-    (1 << 24) / (PSG_RATE / 1000 * 38),
-    (1 << 24) / (PSG_RATE / 1000 * 56),
-    (1 << 24) / (PSG_RATE / 1000 * 68),
-    (1 << 24) / (PSG_RATE / 1000 * 80),
-    (1 << 24) / (PSG_RATE / 1000 * 100),
-    (1 << 24) / (PSG_RATE / 1000 * 250),
-    (1 << 24) / (PSG_RATE / 1000 * 500),
-    (1 << 24) / (PSG_RATE / 1000 * 800),
-    (1 << 24) / (PSG_RATE / 1000 * 1000),
-    (1 << 24) / (PSG_RATE / 1000 * 3000),
-    (1 << 24) / (PSG_RATE / 1000 * 5000),
-    (1 << 24) / (PSG_RATE / 1000 * 8000),
+// Same rates as the 6581 SID, in milliseconds
+static const uint16_t psg_attack_ms_table[] = {
+    2, 8, 16, 24, 38, 56, 68, 80,
+    100, 250, 500, 800, 1000, 3000, 5000, 8000,
 };
 
-// Same rates as the 6581 SID
-static const uint32_t psg_decay_release_table[] = {
-    (1 << 24) / (PSG_RATE / 1000 * 6),
-    (1 << 24) / (PSG_RATE / 1000 * 24),
-    (1 << 24) / (PSG_RATE / 1000 * 48),
-    (1 << 24) / (PSG_RATE / 1000 * 72),
-    (1 << 24) / (PSG_RATE / 1000 * 114),
-    (1 << 24) / (PSG_RATE / 1000 * 168),
-    (1 << 24) / (PSG_RATE / 1000 * 204),
-    (1 << 24) / (PSG_RATE / 1000 * 240),
-    (1 << 24) / (PSG_RATE / 1000 * 300),
-    (1 << 24) / (PSG_RATE / 1000 * 750),
-    (1 << 24) / (PSG_RATE / 1000 * 1500),
-    (1 << 24) / (PSG_RATE / 1000 * 2400),
-    (1 << 24) / (PSG_RATE / 1000 * 3000),
-    (1 << 24) / (PSG_RATE / 1000 * 9000),
-    (1 << 24) / (PSG_RATE / 1000 * 15000),
-    (1 << 24) / (PSG_RATE / 1000 * 24000),
+static const uint16_t psg_decay_release_ms_table[] = {
+    6, 24, 48, 72, 114, 168, 204, 240,
+    300, 750, 1500, 2400, 3000, 9000, 15000, 24000,
 };
+
+/* The same rates as increments, once psg_setup knows what a second is.
+ * 128 bytes of RAM where there used to be 128 bytes of flash. */
+static uint32_t psg_attack_table[16];
+static uint32_t psg_decay_release_table[16];
 
 struct psg_channel
 {
@@ -117,7 +99,40 @@ static struct
     uint32_t phase;
     uint32_t noise1;
     uint32_t noise2;
+    /* The last frequency this channel was written and the increment it
+     * divides out to. The division is the expensive thing in the sample
+     * loop and freq only moves when a program writes a note, so it is done
+     * then. Zero and zero is a correct pair — freq 0 really does give
+     * increment 0 — so no separate validity flag is needed. */
+    uint16_t freq;
+    uint32_t phase_inc;
 } psg_channel_state[PSG_CHANNELS];
+
+void psg_setup(uint32_t rate)
+{
+    psg_rate = rate;
+    /* One divisor rather than two divisions per channel per sample.
+     * floor(floor(x/3)/rate) is floor(x/(3*rate)) for positive integers, so
+     * this is the same number the RTL's restoring divider produces from the
+     * same constant. */
+    psg_phase_div = 3 * rate;
+    for (unsigned i = 0; i < 16; i++)
+    {
+        /* (rate * ms) / 1000, not (rate / 1000) * ms: the old form was exact
+         * at 24000 and 48000 and 0.23% slow at 44100, which is a rate a
+         * sound card can hand back. */
+        psg_attack_table[i] =
+            (1 << 24) / (uint32_t)(((uint64_t)rate * psg_attack_ms_table[i]) / 1000);
+        psg_decay_release_table[i] =
+            (1 << 24) / (uint32_t)(((uint64_t)rate * psg_decay_release_ms_table[i]) / 1000);
+    }
+    /* The cached increments were divided by the old rate. */
+    for (unsigned i = 0; i < PSG_CHANNELS; i++)
+    {
+        psg_channel_state[i].freq = 0;
+        psg_channel_state[i].phase_inc = 0;
+    }
+}
 
 #pragma GCC push_options
 #pragma GCC optimize("O3")
@@ -155,7 +170,7 @@ static void
     }
     /* 63/64 rather than 1/2 per side is the pan law this has always had;
      * the shift undoes it and lands on full scale. */
-    int32_t bel_mix = bel_sample(PSG_RATE);
+    int32_t bel_mix = bel_sample(psg_rate);
     acc_l = ((acc_l + 64) >> 7) + bel_mix;
     acc_r = ((acc_r + 64) >> 7) + bel_mix;
     if (acc_l < AUD_SAMPLE_MIN)
@@ -170,8 +185,13 @@ static void
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * channels[i].freq / 3 / PSG_RATE;
-        psg_channel_state[i].phase += phase_inc;
+        if (channels[i].freq != psg_channel_state[i].freq)
+        {
+            psg_channel_state[i].freq = channels[i].freq;
+            psg_channel_state[i].phase_inc =
+                (uint32_t)(((uint64_t)channels[i].freq << 32) / psg_phase_div);
+        }
+        psg_channel_state[i].phase += psg_channel_state[i].phase_inc;
         /* The duty gate still compares the top byte of the phase, so where
          * a wave starts and stops is unchanged. Only the value widens: the
          * ramps take eight more bits off the same accumulator, so they are
@@ -303,6 +323,8 @@ bool psg_xreg(uint16_t word)
         psg_channel_state[i].noise2 = 0xEFCDAB89;
         psg_channel_state[i].vol = 0;
         psg_channel_state[i].adsr = release;
+        psg_channel_state[i].freq = 0;
+        psg_channel_state[i].phase_inc = 0;
     }
     if (word & 0x0001 ||
         word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
@@ -319,6 +341,6 @@ bool psg_xreg(uint16_t word)
     psg_xaddr = word;
     xram_queue_page = word >> 8;
     xram_queue_tail = xram_queue_head;
-    aud_setup(psg_irq_handler, PSG_RATE);
+    aud_setup(psg_irq_handler, psg_rate);
     return true;
 }

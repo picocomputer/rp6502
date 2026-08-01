@@ -6,6 +6,7 @@
 
 #include "ria/aud/aud.h"
 #include "ria/aud/bel.h"
+#include "ria/aud/psg.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/sys.h"
 #include <math.h>
@@ -33,6 +34,12 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 int16_t aud_sine_table[256];
 
 static irq_handler_t aud_irq_fn;
+static uint32_t aud_irq_rate;
+
+/* What this chip generates at. The PWM's wrap divides 256 MHz, so any rate
+ * is reachable and 24000 lands exactly; the carrier is a separate slice at
+ * 250 kHz and does not move with it. */
+#define AUD_NATIVE_RATE 24000
 
 void __in_flash("aud_init") aud_init(void)
 {
@@ -59,6 +66,7 @@ void __in_flash("aud_init") aud_init(void)
         aud_sine_table[i] = lround(cos(M_PI * 2.0 / 256 * i) * -32767);
 
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
+    psg_setup(AUD_NATIVE_RATE);
     bel_setup();
 }
 
@@ -69,8 +77,13 @@ void aud_stop(void)
 
 void aud_setup(void (*irq_fn)(void), uint32_t rate)
 {
-    if (aud_irq_fn != irq_fn)
+    /* The rate is part of the identity. Comparing only the handler made
+     * re-registering the same device at a new rate a silent no-op, which is
+     * exactly what a host that hands back a different sample rate needs to
+     * be able to do. */
+    if (aud_irq_fn != irq_fn || aud_irq_rate != rate)
     {
+        aud_irq_rate = rate;
         irq_set_enabled(PWM_IRQ_WRAP_0, false);
         pwm_set_irq_enabled(AUD_IRQ_SLICE, false);
         if (aud_irq_fn != NULL)

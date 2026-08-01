@@ -8,8 +8,8 @@
 #include "emu/emu/aud.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
-#include "emu/emu/aud.h"
 #include "ria/aud/bel.h"
+#include "ria/aud/psg.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 #include <math.h>
 #include <string.h>
@@ -20,11 +20,16 @@ int16_t aud_sine_table[256];
 static void (*aud_irq_fn)(void);
 static uint32_t aud_irq_rate;
 
+/* What the emulated machine generates at until the host says otherwise.
+ * aud_pump resamples whatever this is into the device rate. */
+#define AUD_NATIVE_RATE 24000
+
 void aud_init(void)
 {
     // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
         aud_sine_table[i] = (int16_t)lround(cos(M_PI * 2.0 / 256 * i) * -32767);
+    psg_setup(AUD_NATIVE_RATE);
     aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
 }
 
