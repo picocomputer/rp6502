@@ -30,18 +30,25 @@ module aud_opl #(
      * SAMPLE_WIDTH first, so that figure was never reachable and the
      * shift derived from it put this engine at half the level of the C.
      *
-     * ria/aud/opl.c runs the OPL four times hot and lets the loud parts
-     * square off: it multiplies emu8950's full scale by four and clamps.
+     * Five is unity: (channel <<< 5) >>> 5 is the core's own level, and
+     * this engine adds no gain at all. That is deliberate — an RTL YM3812
+     * is the closer thing to the chip, so it sets the level and the C
+     * follows. ria/aud/opl.c multiplies emu8950 by four to reach the same
+     * place, because opl2_fpga's channel is four times emu8950's mix for
+     * the same registers.
      *
-     * Five, not three. Three is what "the same * 4" looks like if you
-     * assume this core's channel and emu8950's mix are the same scale,
-     * and they are not — opl2_fpga's is four times emu8950's for the same
-     * registers. Measured rather than reasoned: test_opl's note peaks at
-     * 8172 out of emu8950 and 32680 out of this at a shift of three, an
-     * exact factor of four, which is 12 dB of a difference nobody could
-     * miss on hardware and every test passed anyway. At five the two
-     * chips answer the same note at the same level. Exact, too: the low
-     * five bits of core_sample are always zero. */
+     * So the two paths have different gain structures that cancel, and
+     * the two constants are not independent: move opl.c's four or this
+     * five alone and the platforms diverge. Measured, with test_opl's
+     * note — 8172 out of emu8950 after its four, 32680 out of this at a
+     * shift of three. An exact factor of four, 12 dB, which nobody could
+     * miss on hardware and every test passed anyway.
+     *
+     * They clip together too, from opposite directions: opl.c clamps
+     * after its four, at 8192 of emu8950's scale, and channels.sv
+     * saturates its own accumulator at 32767 — the same 8192 in emu8950
+     * units. Exact, also: the low five bits of core_sample are always
+     * zero. */
     parameter int SAMPLE_SHIFT = 5
 ) (
     input logic clk,

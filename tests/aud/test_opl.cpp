@@ -154,10 +154,9 @@ UTEST(opl, a_note_makes_sound)
     note_on(0x12);
     /* Past the attack, then measure. The level is the point: this engine
      * and ria/aud/opl.c are the same chip twice and have to be the same
-     * loudness, and nothing else compares them. emu8950 driven with these
-     * exact registers peaks at 2043 before opl.c's *4, so the fabric —
-     * which applies the same *4 as (channel <<< 5) >>> 3 — has to land
-     * near 8172 too.
+     * loudness, and nothing else compares them. This one sets the level —
+     * an RTL YM3812 is the closer thing to the chip — and opl.c's *4 is
+     * emu8950 coming up to meet it, from a peak of 2043 to 8172.
      *
      * The bound used to be 128 out of "the 511 available", written when
      * the path was ten bits. It survived the widening to sixteen and was
