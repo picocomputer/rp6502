@@ -5,7 +5,7 @@
  *
  * What the render actually spends. The engines race the beam: they fill
  * the next line's buffers while this one scans out, and the deadline is
- * pixel 799, which today is three thousand two hundred clocks after the
+ * pixel 799, which today is sixteen hundred clocks after the
  * line began. Nothing has ever measured how much of that they use — the
  * only signal is the underrun assertion, which fires when the answer is
  * "all of it and more".

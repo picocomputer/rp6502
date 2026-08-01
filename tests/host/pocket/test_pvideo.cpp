@@ -138,6 +138,111 @@ UTEST(pvideo, raster_and_pixels_exact)
     ASSERT_GE(hs_count, 2 * 525);
 }
 
+/* A 320x180 canvas, decoded the way the scaler latches it. The writer
+ * side is unchanged — the machine always paints the full 640x480 beam —
+ * and the adapter undoes the presentation: de only on the 180 lines that
+ * carry canvas rows (inside the 60-line letterbox, first of each doubled
+ * pair), skip on the duplicate of each doubled pixel, and the end-of-line
+ * word naming scaler slot 3 on the cycle after every de fall. The counts
+ * are the claim: 320 latched pixels a line, 180 lines a frame, and a
+ * duplicated or letterboxed pixel reaching the scaler breaks the totals
+ * before any color is compared. */
+UTEST(pvideo, canvas_native_de_skip_and_slot)
+{
+    dut->rst_n = 0;
+    dut->vrst_n = 0;
+    for (int i = 0; i < 4; i++)
+    {
+        dut->clk_sys = 1;
+        dut->clk_vid = 1;
+        dut->eval();
+        dut->clk_sys = 0;
+        dut->clk_vid = 0;
+        dut->eval();
+    }
+    dut->rst_n = 1;
+    dut->vrst_n = 1;
+    dut->vid_canvas = 2; /* vga_320_180 */
+
+    long latched = 0, endlines = 0;
+    int rx = -1, ry = -1;
+    bool started = false, de_q = false;
+
+    for (int f = 0; f < 3; f++)
+    {
+        for (int line = 0; line < 525; line++)
+        {
+            for (int c = 0; c < 1600; c++)
+            {
+                dut->vid_frame = line == 0 && c == 0;
+                bool de = line < 480 && c < 1280 && (c & 1) == 1;
+                dut->vid_de = de;
+                if (de)
+                    dut->vid_pixel = pattern(f, c >> 1, line);
+                dut->clk_sys = 1;
+                if ((c & 1) == 0)
+                    dut->clk_vid = 1;
+                dut->eval();
+
+                if ((c & 1) == 0)
+                {
+                    if (dut->pocket_video_vs)
+                    {
+                        rx = 0;
+                        ry = 0;
+                        started = true;
+                    }
+                    else if (rx >= 0 && ++rx == 800)
+                    {
+                        rx = 0;
+                        ry++;
+                    }
+                    if (started)
+                    {
+                        int px = rx - 9;
+                        int py = ry;
+                        bool row_sel = py >= 60 && py < 420 && !(py & 1);
+                        bool win = px >= 0 && px < 640 && py < 480;
+                        ASSERT_EQ(dut->pocket_video_de, win && row_sel);
+                        if (dut->pocket_video_de)
+                        {
+                            ASSERT_EQ(dut->pocket_video_skip, px & 1);
+                            if (!dut->pocket_video_skip)
+                            {
+                                int pf = (int)(latched / (320L * 180));
+                                ASSERT_EQ(dut->pocket_video_rgb,
+                                          rgb888(pattern(pf, px, py)));
+                                latched++;
+                            }
+                        }
+                        else if (de_q)
+                        {
+                            /* The cycle after de falls: the slot word. */
+                            ASSERT_EQ(dut->pocket_video_rgb,
+                                      (uint32_t)3 << 13);
+                            endlines++;
+                        }
+                        else
+                        {
+                            ASSERT_EQ(dut->pocket_video_rgb, 0u);
+                        }
+                        de_q = dut->pocket_video_de;
+                    }
+                }
+
+                dut->clk_sys = 0;
+                if ((c & 1) == 0)
+                    dut->clk_vid = 0;
+                dut->eval();
+            }
+        }
+    }
+    ASSERT_TRUE(started);
+    /* Two-plus full frames of 320x180, one slot word per active line. */
+    ASSERT_GT(latched, 2L * 320 * 180);
+    ASSERT_GT(endlines, 2L * 180);
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

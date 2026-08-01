@@ -144,13 +144,22 @@ static bool run_until_quiet(long *presses = nullptr)
     return false;
 }
 
-/* Capture one full decoded frame off the scaler interface: sample on
- * clk_vid rises, track the raster from vs, collect de pixels. */
-static void capture_frame(uint32_t *fb)
+/* Capture one full decoded frame off the scaler interface the way the
+ * scaler latches it: sample on clk_vid rises, arm at a vs pulse, collect
+ * pixels where de stands and skip does not, and read the end-of-line
+ * word on the cycle after each de fall — rgb[23:13] carries the scaler
+ * slot request there, rgb[2:0] the function code. The frame is over at
+ * the next vs; the caller asserts the pixel count, because the count IS
+ * the claim now: a canvas-native stream has exactly canvas-many pixels,
+ * and a duplicated or letterboxed one shows up as the wrong total before
+ * any color is compared. */
+static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
 {
     size_t at = 0;
     bool started = false;
-    while (at < 640 * 480)
+    bool de_q = false;
+    int slot = -1;
+    for (;;)
     {
         long sys_before = g_sys;
         tick();
@@ -159,13 +168,26 @@ static void capture_frame(uint32_t *fb)
             continue;
         if (dut->tb_pocket_vs)
         {
-            at = 0; /* a partial catch restarts at the origin */
+            if (started && at > 0)
+                break; /* the frame between two vs pulses */
+            at = 0;
             started = true;
             continue;
         }
-        if (started && dut->tb_pocket_de)
+        if (!started)
+            continue;
+        /* The end-of-line word rides the FIRST de-low cycle — the spec's
+         * "after the DE falling edge" is this sample, not the one after
+         * it, and reading one late finds zeros that decode as slot 0. */
+        if (de_q && !dut->tb_pocket_de && (dut->tb_pocket_rgb & 0x7) == 0)
+            slot = (int)(dut->tb_pocket_rgb >> 13);
+        de_q = dut->tb_pocket_de;
+        if (dut->tb_pocket_de && !dut->tb_pocket_skip && at < max_px)
             fb[at++] = dut->tb_pocket_rgb;
     }
+    if (slot_out)
+        *slot_out = slot;
+    return at;
 }
 
 /* The oracle's framebuffer is RGBA with the same replication the
@@ -246,26 +268,32 @@ static void run_and_compare(int *utest_result, const char *name,
     if (wait)
         ASSERT_TRUE(run_until_quiet());
 
-    static uint32_t fb[2][640 * 480];
-    capture_frame(fb[0]);
+    /* Canvas-native now: the adapter undoes the beam's doubling and
+     * letterboxing, so the stream is exactly ow x oh pixels and lines up
+     * with the oracle's framebuffer one to one. The old compare here
+     * re-implemented the duplication in C to expand the oracle up to
+     * 640x480 — the hardware stopped pretending, so the test stops
+     * compensating. */
+    static uint32_t fb[640 * 480];
+    int slot = -1;
+    const size_t got = capture_frame(fb, sizeof fb / sizeof *fb, &slot);
+    ASSERT_EQ(got, (size_t)ow * (size_t)oh);
 
-    int xs = ow == 320 ? 1 : 0;
-    int ys = (oh == 240 || oh == 180) ? 1 : 0;
-    int yo = (oh == 180 || oh == 360) ? 60 : 0;
+    const int want_slot = ow == 640 ? (oh == 480 ? 0 : 1)
+                                    : (oh == 240 ? 2 : 3);
+    ASSERT_EQ(slot, want_slot);
+
     int diffs = 0;
-    for (int y = 0; y < 480; y++)
-        for (int x = 0; x < 640; x++)
+    for (int y = 0; y < oh; y++)
+        for (int x = 0; x < ow; x++)
         {
-            uint32_t want = 0;
-            if (y >= yo && ((y - yo) >> ys) < oh)
-                want = scaler_rgb(
-                    ofb[(size_t)((y - yo) >> ys) * (size_t)ow
-                        + (size_t)(x >> xs)]);
-            if (fb[0][(size_t)y * 640 + x] != want)
+            const uint32_t want =
+                scaler_rgb(ofb[(size_t)y * (size_t)ow + (size_t)x]);
+            if (fb[(size_t)y * (size_t)ow + (size_t)x] != want)
             {
                 if (getenv("POCKET_DEBUG") && diffs < 20)
                     fprintf(stderr, "diff x=%d y=%d rtl=%06X want=%06X\n",
-                            x, y, fb[0][(size_t)y * 640 + x], want);
+                            x, y, fb[(size_t)y * (size_t)ow + (size_t)x], want);
                 diffs++;
             }
         }

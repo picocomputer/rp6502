@@ -88,7 +88,7 @@ module vid_mode4 (
      * reached further than it looks: the sprite's address and request
      * are what the XRAM arbiter selects on, so every other engine's
      * grant arrived through this cone too. M4_DECODE costs one clock
-     * per descriptor against three thousand two hundred in a line. */
+     * per descriptor against sixteen hundred in a line. */
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr;
     logic [7:0] d_log;

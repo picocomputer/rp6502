@@ -5,9 +5,9 @@
  *
  * The 640x480@60 raster, the only one this machine scans out: 800 pixels
  * a line, 525 lines a frame, syncs active-low per the VGA-side scanvideo
- * programming. The clock runs four times the pixel — the 100.8 MHz
- * render domain over the 25.2 MHz beam — so every pixel spans four
- * clocks and the engines racing the beam get their 3,200-clock line.
+ * programming. The clock runs twice the pixel — the 50.4 MHz render
+ * domain over the 25.2 MHz beam — so every pixel spans two clocks and
+ * the engines racing the beam get their 1,600-clock line.
  * The pulses fire on a pixel's first clock; de strobes on its last, when
  * everything upstream has settled, so a de sample is one pixel.
  *

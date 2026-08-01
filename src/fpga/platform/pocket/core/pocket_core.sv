@@ -229,6 +229,7 @@ module pocket_core #(
 
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;
+    logic [2:0] vid_canvas;
     logic signed [15:0] aud_l, aud_r;
     logic aud_valid;
     logic rx_taken;
@@ -273,6 +274,7 @@ module pocket_core #(
         .rp6502_key_pending(key_pending),
         .rp6502_vid_pixel(vid_pixel),
         .rp6502_vid_de(vid_de),
+        .rp6502_vid_canvas(vid_canvas),
         .rp6502_aud_l(aud_l),
         .rp6502_aud_r(aud_r),
         .rp6502_aud_valid(aud_valid),
@@ -323,6 +325,7 @@ module pocket_core #(
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),
         .vid_frame(vid_frame),
+        .vid_canvas(vid_canvas),
         .clk_vid(clk_vid),
         .vrst_n(mrst_n),
         .pocket_video_rgb(pocket_core_rgb),

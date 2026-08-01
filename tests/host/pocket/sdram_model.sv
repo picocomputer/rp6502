@@ -35,7 +35,9 @@ module sdram_model (
     logic [1:0] saw_ref;
     logic saw_mrs;
 
-    /* Coarse timing floors, in clocks at 100.8 MHz. */
+    /* Coarse timing floors, in clocks at the controller's 50.4 MHz. The
+     * values only work there: tRCD's floor of 2 is 39.7 ns at 50.4 and
+     * an illegal 19.8 ns at the 100.8 an older comment claimed. */
     int since_act[4];
     int since_ref;
     int since_any;

@@ -99,9 +99,14 @@ module rp6502
     input logic [15:0] mou_trig,
     output logic rp6502_key_pending,
 
-    /* The composed picture, aligned with its data enable. */
+    /* The composed picture, aligned with its data enable, and the canvas
+     * it presents — vga.h's encoding, latched at vblank. A platform whose
+     * scaler wants the native picture (the Pocket's does) uses the canvas
+     * to undo the beam's doubling and letterboxing; one that just wants
+     * 640x480 ignores it. */
     output logic [15:0] rp6502_vid_pixel,
     output logic rp6502_vid_de,
+    output logic [2:0] rp6502_vid_canvas,
 
     /* One stereo sample per PSG tick, 10-bit PWM levels. */
     output logic signed [15:0] rp6502_aud_l,
@@ -553,12 +558,9 @@ module rp6502
 
     logic [31:0] vid_prog_b_rdata;
     logic [2:0] vid_canvas;
+    always_comb rp6502_vid_canvas = vid_canvas;
     logic vid_console, vid_x_shift, vid_y_shift;
     logic [9:0] vid_y_offset;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_prog_geo;
-    /* verilator lint_on UNUSEDSIGNAL */
-    always_comb unused_prog_geo = ^{vid_canvas};
 
     /* The prog read port rotates through the planes; each engine waits
      * for its slot and captures the entry the clock after. */

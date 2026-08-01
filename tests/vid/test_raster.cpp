@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The 640x480@60 raster at the two-clock render tick: 3,200 clocks a
+ * The 640x480@60 raster at the two-clock render tick: 1,600 clocks a
  * line, 525 lines a frame, syncs active-low in their exact windows — h
  * 656..751 of every line, v lines 490..491 — and de strobing once per
  * visible pixel, on its final tick.
