@@ -52,9 +52,10 @@ module aud_psg
     /* The console's BEL scan: one teletype bell per pulse. */
     input logic bel_strike,
 
-    /* One stereo sample per tick, PWM levels centered at 512. */
-    output logic [9:0] aud_psg_l,
-    output logic [9:0] aud_psg_r,
+    /* One stereo sample per tick, signed at full scale. The platform
+     * narrows: the Pocket's I2S takes all sixteen bits. */
+    output logic signed [15:0] aud_psg_l,
+    output logic signed [15:0] aud_psg_r,
     output logic aud_psg_valid
 );
 
@@ -107,7 +108,7 @@ module aud_psg
     logic [15:0] walk_xaddr;
 
     /* Channel state, the C's exactly. */
-    logic signed [7:0] ch_sample[8];
+    logic signed [15:0] ch_sample[8];
     logic [1:0] ch_adsr[8];
     logic [31:0] ch_vol[8];
     logic [31:0] ch_phase[8];
@@ -170,17 +171,29 @@ module aud_psg
     always_comb fw_n = walk_xaddr[1] ? 5'd17 : 5'd16;
     logic gnt_d;
 
-    /* The output mix accumulates in the C's int16. */
-    logic signed [15:0] mix_l, mix_r;
+    /* The output mix accumulates unshifted in the C's int32 and rounds
+     * once at P_OUT. Two truncations in series used to bias every
+     * sounding channel downward, which is DC, not noise. */
+    logic signed [26:0] mix_l, mix_r;
     /* The oracle's int8 division truncates toward zero. */
     logic signed [7:0] pan;
     always_comb pan = cf_pan[7]
         ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
         : 8'($signed(cf_pan) >>> 1);
+    /* Thirteen bits of the Q24 envelope, not nine: at nine a long release
+     * moved the gain in 256 visible steps. Rounded, like the C. */
     logic signed [16:0] mix_s;
     always_comb mix_s =
-        17'(($signed(ch_sample[ch]) * $signed({1'b0, ch_vol[ch][24:16]}))
-            >>> 8);
+        17'((30'($signed(ch_sample[ch]) * $signed({1'b0, ch_vol[ch][24:12]}))
+             + 30'sd2048) >>> 12);
+
+    /* The pan multiply, widened before it happens rather than after: the
+     * product needs every bit of 27 and a 17-bit context would drop it. */
+    logic signed [26:0] pan_l, pan_r;
+    always_comb begin
+        pan_l = 27'(mix_s) * (27'sd63 - 27'(pan));
+        pan_r = 27'(mix_s) * (27'sd63 + 27'(pan));
+    end
 
     /* One restoring divider makes the phase increment: the 48-bit
      * dividend freq * 2^32 over 72000. */
@@ -202,29 +215,29 @@ module aud_psg
     always_comb duty_half = cf_duty >> 1;
 
     /* The wave sample from the advanced phase. */
-    logic signed [7:0] wave;
+    logic signed [15:0] wave;
     always_comb begin
         case (cf_wr[7:4])
             4'd0: begin
                 if (ph < 8'd128 - duty_half || ph >= 8'd128 + duty_half)
-                    wave = -8'sd127;
+                    wave = -16'sd32767;
                 else
                     wave = $signed(AUD_SINE[ph]);
             end
-            4'd1: wave = ph > cf_duty ? -8'sd127 : 8'sd127;
-            4'd2: wave = ph > cf_duty ? -8'sd127
-                : 8'(8'sd127 - $signed(ph));
+            4'd1: wave = ph > cf_duty ? -16'sd32767 : 16'sd32767;
+            4'd2: wave = ph > cf_duty ? -16'sd32767
+                : 16'(16'sd32767 - $signed({1'b0, phase_next[31:16]}));
             4'd3: begin
                 if (ph < 8'd128 - duty_half || ph >= 8'd128 + duty_half)
-                    wave = -8'sd127;
+                    wave = -16'sd32767;
                 else if (ph >= 8'd128)
-                    wave = 8'(8'sd127 - $signed(phase_next[30:23]));
+                    wave = 16'(16'sd32767 - $signed(phase_next[30:15]));
                 else
-                    wave = 8'($signed(phase_next[30:23]) - 8'sd128);
+                    wave = 16'($signed(phase_next[30:15]) - 16'sd32768);
             end
-            4'd4: wave = ph > cf_duty ? -8'sd127
-                : $signed(ch_noise2[ch][7:0]);
-            default: wave = 8'sd0;
+            4'd4: wave = ph > cf_duty ? -16'sd32767
+                : $signed(ch_noise2[ch][15:0]);
+            default: wave = 16'sd0;
         endcase
     end
 
@@ -305,8 +318,8 @@ module aud_psg
             div_q <= '0;
             div_rem <= '0;
             div_i <= '0;
-            aud_psg_l <= 10'd512;
-            aud_psg_r <= 10'd512;
+            aud_psg_l <= '0;
+            aud_psg_r <= '0;
             aud_psg_valid <= 1'b0;
         end else begin
             gnt_d <= a_gnt;
@@ -381,10 +394,8 @@ module aud_psg
                 end
                 P_MIX: begin
                     if (pan != -8'sd64) begin
-                        mix_l <= mix_l
-                            + 16'((mix_s * (17'sd63 - 17'(pan))) >>> 7);
-                        mix_r <= mix_r
-                            + 16'((mix_s * (17'sd63 + 17'(pan))) >>> 7);
+                        mix_l <= mix_l + pan_l;
+                        mix_r <= mix_r + pan_r;
                     end
                     ch <= ch + 3'd1;
                     if (ch == 3'd7)
@@ -393,8 +404,10 @@ module aud_psg
                 P_BEL: state <= P_OUT;
                 P_OUT: begin
                     if (walk_psg) begin
-                        aud_psg_l <= clamped(16'(16'(mix_l <<< 2) + bel_out));
-                        aud_psg_r <= clamped(16'(16'(mix_r <<< 2) + bel_out));
+                        aud_psg_l <= clamped(21'(21'((mix_l + 27'sd64) >>> 7)
+                                                 + 21'(bel_out)));
+                        aud_psg_r <= clamped(21'(21'((mix_r + 27'sd64) >>> 7)
+                                                 + 21'(bel_out)));
                         ch <= '0;
                         div_q <= {cf_freq, 32'd0};
                         div_rem <= '0;
@@ -402,8 +415,8 @@ module aud_psg
                         state <= P_DIV;
                     end else begin
                         /* The standing bell, bel_irq_handler's output. */
-                        aud_psg_l <= clamped(bel_out);
-                        aud_psg_r <= clamped(bel_out);
+                        aud_psg_l <= clamped(21'(bel_out));
+                        aud_psg_r <= clamped(21'(bel_out));
                         aud_psg_valid <= 1'b1;
                         state <= P_IDLE;
                     end
@@ -458,12 +471,12 @@ module aud_psg
         end
     end
 
-    function automatic logic [9:0] clamped(logic signed [15:0] s);
-        if (s < -16'sd512)
-            s = -16'sd512;
-        if (s > 16'sd511)
-            s = 16'sd511;
-        return 10'(s + 16'sd512);
+    function automatic logic signed [15:0] clamped(logic signed [20:0] s);
+        if (s < -21'sd32768)
+            s = -21'sd32768;
+        if (s > 21'sd32767)
+            s = 21'sd32767;
+        return 16'(s);
     endfunction
 
     /* The rest of pan_gate is the pan, and the pan is not edge

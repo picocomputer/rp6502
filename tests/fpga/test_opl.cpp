@@ -89,7 +89,7 @@ static void poke(uint16_t page, uint8_t reg, uint8_t val)
         tick();
 }
 
-/* Sum of |sample - 512| over a span, which is silence at zero and
+/* Sum of |sample| over a span, which is silence at zero and
  * anything at all otherwise, and the loudest excursion in that span.
  *
  * The sum alone is a bad test and was one: it passed a voice sitting 18
@@ -111,7 +111,7 @@ static uint64_t energy(int samples)
         tick();
         if (dut->aud_opl_valid)
         {
-            uint64_t d = (uint64_t)std::abs((int)dut->aud_opl_l - 512);
+            uint64_t d = (uint64_t)std::abs((int)(int16_t)dut->aud_opl_l);
             sum += d;
             if (d > last_peak)
                 last_peak = d;

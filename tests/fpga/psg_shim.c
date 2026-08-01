@@ -25,10 +25,10 @@ volatile uint8_t xram_queue_head;
 volatile uint8_t xram_queue_tail;
 volatile uint8_t xram_queue[256][2];
 
-int8_t aud_sine_table[256];
+int16_t aud_sine_table[256];
 
 static void (*handler)(void);
-static uint16_t out_l, out_r;
+static int16_t out_l, out_r;
 
 void aud_setup(void (*fn)(void), uint32_t rate)
 {
@@ -36,7 +36,7 @@ void aud_setup(void (*fn)(void), uint32_t rate)
     handler = fn;
 }
 
-void aud_out(uint16_t left, uint16_t right)
+void aud_out(int16_t left, int16_t right)
 {
     out_l = left;
     out_r = right;
@@ -50,7 +50,7 @@ void shim_init(void)
         aud_sine_table[i] = AUD_SINE_TABLE[i];
 }
 
-void shim_sample(uint16_t *l, uint16_t *r)
+void shim_sample(int16_t *l, int16_t *r)
 {
     handler();
     *l = out_l;

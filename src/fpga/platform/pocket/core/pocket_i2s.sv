@@ -20,8 +20,8 @@ module pocket_i2s (
     /* The machine's domain. */
     input logic clk_sys,
     input logic rst_n,
-    input logic [9:0] aud_l,
-    input logic [9:0] aud_r,
+    input logic signed [15:0] aud_l,
+    input logic signed [15:0] aud_r,
     input logic aud_valid,
 
     /* The Pocket's domain. */
@@ -32,12 +32,15 @@ module pocket_i2s (
     output logic pocket_i2s_lrck
 );
 
-    /* Signed conversion at the source: center falls away, six bits of
-     * headroom scale 10 bits to 16. */
-    logic [15:0] s_l, s_r;
+    /* The machine hands over sixteen signed bits and the codec wants
+     * sixteen signed bits, so there is nothing to do. This used to take a
+     * ten-bit level, subtract its center and shift it up six, which put
+     * real signal in the top ten and zeros in the bottom six for the
+     * whole life of the core. */
+    logic signed [15:0] s_l, s_r;
     always_comb begin
-        s_l = 16'(({6'b0, aud_l} - 16'd512) <<< 6);
-        s_r = 16'(({6'b0, aud_r} - 16'd512) <<< 6);
+        s_l = aud_l;
+        s_r = aud_r;
     end
 
     logic fifo_empty, fifo_full;

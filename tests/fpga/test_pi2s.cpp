@@ -67,18 +67,23 @@ UTEST(pi2s, frames_and_samples_exact)
             if (++sample_clk == 2100)
             {
                 sample_clk = 0;
-                /* Distinct consecutive values, extremes included. */
-                int l = (sample_idx * 37 + 1) & 0x3FF;
-                int r = 1023 - ((sample_idx * 61) & 0x3FF);
+                /* Distinct consecutive values, extremes included. Signed
+                 * at full scale now: the machine hands the codec sixteen
+                 * bits and this stage passes them through, so a value that
+                 * survives must arrive bit for bit. The old feed was ten
+                 * bits scaled up six, which could not have caught a stage
+                 * that quietly dropped the bottom six. */
+                int l = (int)(int16_t)(sample_idx * 4801 + 13);
+                int r = (int)(int16_t)(-3 - sample_idx * 7919);
                 if (sample_idx == 5)
-                    l = 0;
+                    l = -32768;
                 if (sample_idx == 6)
-                    l = 1023;
-                dut->aud_l = (uint16_t)l;
-                dut->aud_r = (uint16_t)r;
+                    l = 32767;
+                dut->aud_l = (int16_t)l;
+                dut->aud_r = (int16_t)r;
                 dut->aud_valid = 1;
-                fed_l.push_back((int16_t)((l - 512) << 6));
-                fed_r.push_back((int16_t)((r - 512) << 6));
+                fed_l.push_back((int16_t)l);
+                fed_r.push_back((int16_t)r);
                 sample_idx++;
             }
             dut->clk_sys = 1;

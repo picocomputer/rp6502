@@ -229,7 +229,7 @@ module pocket_core #(
 
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;
-    logic [9:0] aud_l, aud_r;
+    logic signed [15:0] aud_l, aud_r;
     logic aud_valid;
     logic rx_taken;
     logic [31:0] rv_exit_code;

@@ -63,7 +63,7 @@ module aud_bel (
     logic gen;
     logic [31:0] phase_n;
     logic [7:0] ph;
-    logic signed [7:0] wave;
+    logic signed [15:0] wave;
 
     always_comb begin
         n_active = active;
@@ -109,13 +109,15 @@ module aud_bel (
                 n_phase = phase_n;
                 ph = phase_n[31:24];
 
-                /* The teletype's triangle, duty 215. */
+                /* The teletype's triangle, duty 215. Sixteen bits, taking
+                 * eight more of the same accumulator: the identical ramp
+                 * with a finer staircase, wrap included. */
                 if (ph < 8'd128 - DUTY_HALF || ph >= 8'd128 + DUTY_HALF)
-                    wave = -8'sd127;
+                    wave = -16'sd32767;
                 else if (ph >= 8'd128)
-                    wave = 8'(8'sd127 - $signed(phase_n[30:23]));
+                    wave = 16'(16'sd32767 - $signed(phase_n[30:15]));
                 else
-                    wave = 8'($signed(phase_n[30:23]) - 8'sd128);
+                    wave = 16'($signed(phase_n[30:15]) - 16'sd32768);
 
                 case (n_adsr)
                     ADSR_ATTACK: begin
@@ -144,8 +146,10 @@ module aud_bel (
                     end
                 endcase
 
-                n_out = 16'(17'(($signed(wave)
-                    * $signed({1'b0, n_vol[24:16]})) >>> 8) <<< 2);
+                /* Thirteen bits of envelope, rounded once. It used to
+                 * truncate to eight and shift the gap back in as zeros. */
+                n_out = 16'((30'($signed(wave) * $signed({1'b0, n_vol[24:12]}))
+                    + 30'sd2048) >>> 12);
             end
         end
 

@@ -112,18 +112,19 @@ static void run_lockstep(int *utest_result, int n)
 {
     for (int i = 0; i < n; i++)
     {
-        uint16_t cl, cr;
+        int16_t cl, cr;
         shim_sample(&cl, &cr);
         int guard = 0;
         while (!dut->aud_psg_valid && guard++ < 4000)
             clock_cycle();
         ASSERT_LT(guard, 4000);
         if (getenv("PSG_DEBUG")
-            && (dut->aud_psg_l != cl || dut->aud_psg_r != cr))
+            && ((int16_t)dut->aud_psg_l != cl || (int16_t)dut->aud_psg_r != cr))
             fprintf(stderr, "psg diff sample=%ld rtl=(%d,%d) c=(%d,%d)\n",
-                    g_sample, dut->aud_psg_l, dut->aud_psg_r, cl, cr);
-        ASSERT_EQ(dut->aud_psg_l, cl);
-        ASSERT_EQ(dut->aud_psg_r, cr);
+                    g_sample, (int16_t)dut->aud_psg_l, (int16_t)dut->aud_psg_r,
+                    cl, cr);
+        ASSERT_EQ((int16_t)dut->aud_psg_l, cl);
+        ASSERT_EQ((int16_t)dut->aud_psg_r, cr);
         g_sample++;
         clock_cycle(); /* consume the strobe */
         release_snoop();
@@ -373,9 +374,9 @@ static int rtl_sample()
     int guard = 0;
     while (!dut->aud_psg_valid && guard++ < 4000)
         clock_cycle();
-    int l = dut->aud_psg_l;
+    int l = (int16_t)dut->aud_psg_l;
     clock_cycle();
-    return l - 512;
+    return l;
 }
 
 static void rtl_reset()

@@ -23,21 +23,20 @@
 
 module aud_opl #(
     /* DAC_OUTPUT_WIDTH is 24, but that is the container and not the
-     * range: one channel at full volume measures a peak of 2^18, so the
-     * nine of them together reach about 2^21.
+     * range. dac_prep parks a saturated 16-bit channel sum at
+     * DAC_LEFT_SHIFT = 5, so core_sample is channel <<< 5 and its real
+     * range is 2^20 — the whole mix, not one voice. An older note here
+     * claimed 2^21 from nine voices; channels.sv saturates the sum to
+     * SAMPLE_WIDTH first, so that figure was never reachable and the
+     * shift derived from it put this engine at half the level of the C.
      *
-     * ria/aud/opl.c takes emu8950's full-scale 16 bits down by
-     * (16 - PWM_BITS - 2) and then clamps to nine, which maps full scale
-     * to four times the clamp — the machine runs its OPL hot and lets
-     * the loud parts square off. Holding that same ratio here puts 2^21
-     * at four times 511, and the shift that does it is ten. One channel
-     * then lands at half scale, which is where the measurement says a
-     * single voice belongs.
-     *
-     * Twelve was the first guess, from reading the 24 as a range. It put
-     * one voice 18 dB down, quiet enough to read as broken next to the
-     * PSG. */
-    parameter int SAMPLE_SHIFT = 10
+     * ria/aud/opl.c runs the OPL four times hot and lets the loud parts
+     * square off: it multiplies emu8950's full scale by four and clamps.
+     * Three is the shift that says the same thing here — (channel <<< 5)
+     * >>> 3 is channel * 4 — so the fabric and the C now clip on the
+     * same note rather than an octave of level apart. Exact, too: the
+     * low five bits of core_sample are always zero. */
+    parameter int SAMPLE_SHIFT = 3
 ) (
     input logic clk,
     input logic rst_n,
@@ -56,8 +55,8 @@ module aud_opl #(
     /* The console's BEL scan: one teletype bell per pulse. */
     input logic bel_strike,
 
-    output logic [9:0] aud_opl_l,
-    output logic [9:0] aud_opl_r,
+    output logic signed [15:0] aud_opl_l,
+    output logic signed [15:0] aud_opl_r,
     output logic aud_opl_valid,
     /* Which engine the machine is listening to. Programming either
      * device's pointer is what picks it, so the choice lives with the
@@ -176,21 +175,21 @@ module aud_opl #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            aud_opl_l <= 10'd512;
-            aud_opl_r <= 10'd512;
+            aud_opl_l <= '0;
+            aud_opl_r <= '0;
             aud_opl_valid <= 1'b0;
         end else begin
             aud_opl_valid <= core_valid;
             if (core_valid) begin
-                if (mixed < -25'sd512) begin
-                    aud_opl_l <= 10'd0;
-                    aud_opl_r <= 10'd0;
-                end else if (mixed > 25'sd511) begin
-                    aud_opl_l <= 10'd1023;
-                    aud_opl_r <= 10'd1023;
+                if (mixed < -25'sd32768) begin
+                    aud_opl_l <= -16'sd32768;
+                    aud_opl_r <= -16'sd32768;
+                end else if (mixed > 25'sd32767) begin
+                    aud_opl_l <= 16'sd32767;
+                    aud_opl_r <= 16'sd32767;
                 end else begin
-                    aud_opl_l <= 10'(mixed + 25'sd512);
-                    aud_opl_r <= 10'(mixed + 25'sd512);
+                    aud_opl_l <= 16'(mixed);
+                    aud_opl_r <= 16'(mixed);
                 end
             end
         end

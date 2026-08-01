@@ -104,8 +104,8 @@ module rp6502
     output logic rp6502_vid_de,
 
     /* One stereo sample per PSG tick, 10-bit PWM levels. */
-    output logic [9:0] rp6502_aud_l,
-    output logic [9:0] rp6502_aud_r,
+    output logic signed [15:0] rp6502_aud_l,
+    output logic signed [15:0] rp6502_aud_r,
     output logic rp6502_aud_valid,
 
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline,
@@ -721,7 +721,7 @@ module rp6502
     logic aud_we;
     always_comb aud_we = bus_stb && bus_we && bus_sel_aud;
 
-    logic [9:0] psg_l, psg_r;
+    logic signed [15:0] psg_l, psg_r;
     logic psg_valid;
     aud_psg aud_psg (
         .clk(clk_sys),
@@ -741,7 +741,7 @@ module rp6502
         .aud_psg_valid(psg_valid)
     );
 
-    logic [9:0] opl_l, opl_r;
+    logic signed [15:0] opl_l, opl_r;
     logic opl_valid, opl_enabled;
     aud_opl aud_opl (
         .clk(clk_sys),

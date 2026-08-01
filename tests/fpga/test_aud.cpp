@@ -71,8 +71,12 @@ static void clock_cycle()
     if (dut->rp6502_aud_valid)
     {
         g_valids++;
-        int dl = (int)dut->rp6502_aud_l - 512;
-        int dr = (int)dut->rp6502_aud_r - 512;
+        /* Signed at full scale, silence at zero. This used to subtract
+         * the RP2350 PWM's 512 center, which stopped being the center
+         * when the path widened — and every threshold below was loose
+         * enough that it kept passing while measuring the wrong thing. */
+        int dl = (int)(int16_t)dut->rp6502_aud_l;
+        int dr = (int)(int16_t)dut->rp6502_aud_r;
         if (dl < 0)
             dl = -dl;
         if (dr < 0)
@@ -138,7 +142,11 @@ UTEST(aud, psg_makes_a_noise)
     ASSERT_NE(at, -1);
     ASSERT_LT(at, 3);
     /* Loud, not merely moving. */
-    ASSERT_GT(g_peak, 32);
+    /* 511 was the whole range this port had when it was ten bits, so a
+     * peak above it can only come from the wide path. One channel at full
+     * volume centred lands at 32767 * 63 >> 7 = 16127, which is what this
+     * ROM plays; 4096 leaves room without accepting a narrow one. */
+    ASSERT_GT(g_peak, 4096);
     ASSERT_GT(g_valids, (long)0);
 }
 
@@ -148,7 +156,7 @@ UTEST(aud, opl_makes_a_noise)
     int at = frames_to_sound(8);
     ASSERT_NE(at, -1);
     ASSERT_LT(at, 3);
-    ASSERT_GT(g_peak, 32);
+    ASSERT_GT(g_peak, 4096);
     ASSERT_GT(g_valids, (long)0);
 }
 

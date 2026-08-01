@@ -15,7 +15,7 @@ extern "C"
 #endif
 
     void shim_init(void);
-    void shim_sample(uint16_t *l, uint16_t *r);
+    void shim_sample(int16_t *l, int16_t *r);
     void shim_xram_write(uint16_t addr, uint8_t val);
     uint32_t shim_xram_word(uint16_t word_addr);
 
