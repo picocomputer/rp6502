@@ -3,14 +3,23 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * pocket_i2s decoded like the codec hears it: the bench feeds 24 kHz
+ * pocket_i2s decoded like the codec hears it: the bench feeds 48 kHz
  * samples on the machine clock at the true 165:224 ratio against
  * 74.25 MHz, reconstructs SCLK from the MCLK port, samples the data
  * line on rising edges, and rebuilds each channel word. The frames
  * must run 64 SCLK with sixteen active bits MSB-first, right under
- * LRCK high as the shipped cores transmit; deduplicated, the stream
- * must equal the fed sequence
- * through the signed conversion, every sample heard exactly twice.
+ * LRCK high as the shipped cores transmit; the stream must equal the
+ * fed sequence exactly — every sample heard exactly ONCE.
+ *
+ * Once, because the machine is 48 kHz end to end now: the PSG and the
+ * bell generate at it and the OPL is resampled into it upstream, so
+ * this stage is 1:1 and any drop or repeat here is a bug. It used to
+ * be fed 24 kHz and asserted every sample twice, which was exact for
+ * the PSG and silently never tested the OPL path that dropped 1,700
+ * samples a second. Both ends are exactly 48,000 on average — the
+ * producer is 50.4 MHz/1050 and LRCK is 12.288 MHz/256 off the
+ * fractional MCLK — so there is no drift for the FIFO to absorb, only
+ * jitter.
  */
 
 #include "Vpocket_i2s.h"
@@ -46,13 +55,13 @@ UTEST(pi2s, frames_and_samples_exact)
     uint32_t word = 0;
     long sclk_falls_per_frame = 0;
 
-    /* Machine-side sample cadence: one sample per 2100 clk_sys. */
+    /* Machine-side sample cadence: one sample per 1050 clk_sys — 48 kHz. */
     long sample_clk = 0;
     int sample_idx = 0;
 
     /* clk_sys period 330, clk_74a period 224 — the true ratio. */
     long wnext = 330, anext = 224;
-    const long T_END = 330L * 2100 * 40; /* 40 samples' worth */
+    const long T_END = 330L * 1050 * 84; /* 80 samples' worth + startup */
 
     for (long t = 0; t < T_END; t++)
     {
@@ -64,7 +73,7 @@ UTEST(pi2s, frames_and_samples_exact)
         if (wedge)
         {
             dut->aud_valid = 0;
-            if (++sample_clk == 2100)
+            if (++sample_clk == 1050)
             {
                 sample_clk = 0;
                 /* Distinct consecutive values, extremes included. Signed
@@ -144,21 +153,21 @@ UTEST(pi2s, frames_and_samples_exact)
         }
     }
 
-    /* Deduplicate: every fed sample must be heard exactly twice, in
-     * order, after the silent start-up frames. */
+    /* Every fed sample heard exactly once, in order, after the silent
+     * start-up frames. No dedup: a repeat is the FIFO underrunning and a
+     * skip is it overflowing, and both used to hide inside "twice". */
     auto check = [&](std::vector<int32_t> &dec, std::vector<int32_t> &fed) {
         size_t d = 0;
         while (d < dec.size() && dec[d] == 0 && (fed.empty() || fed[0] != 0))
             d++;
         size_t f = 0;
-        while (d + 1 < dec.size() && f < fed.size())
+        while (d < dec.size() && f < fed.size())
         {
             ASSERT_EQ(dec[d], fed[f]);
-            ASSERT_EQ(dec[d + 1], fed[f]);
-            d += 2;
+            d++;
             f++;
         }
-        ASSERT_GT(f, (size_t)30); /* nearly all 40 heard, twice each */
+        ASSERT_GT(f, (size_t)70); /* nearly all 80 heard, once each */
     };
     check(dec_l, fed_l);
     check(dec_r, fed_r);

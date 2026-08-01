@@ -438,6 +438,7 @@ int main(void)
             {
                 CPU_RUN = 0;
                 cpu_stop();
+                aud_stop();
                 api_return_ax(0);
             }
         }

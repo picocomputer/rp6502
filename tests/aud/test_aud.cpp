@@ -206,6 +206,47 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
     (void)rv_bytes;
 }
 
+UTEST(aud, a_program_exit_goes_quiet)
+{
+    /* The distinction the test above draws is the one this enforces from
+     * the other side: HOLDING the 6502 leaves a voice sounding, because a
+     * voice is the device's business — but EXITING a program parks both
+     * engines, the way the RP2350's aud_stop hands its interrupt back.
+     * The engines here free-run, so until the firmware's exit path parked
+     * the pointers, a stopped program's last chord played forever. It had
+     * from first power-on to now, with nothing looking. */
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL_EXIT));
+    int at = frames_to_sound(8);
+    ASSERT_NE(at, -1);
+
+    /* The ROM delays a moment and exits; give the firmware frames enough
+     * to see the API op and park the engines. */
+    int stopped = -1;
+    for (int i = 0; i < 20; i++)
+    {
+        run_frame();
+        if (!dut->rootp->rp6502__DOT__cpu_run)
+        {
+            stopped = i;
+            break;
+        }
+    }
+    ASSERT_NE(stopped, -1);
+
+    /* One frame for the release already in flight, then silence — exactly
+     * zero, not merely quiet: parked engines answer zero and no bell has
+     * been rung. */
+    run_frame();
+    g_energy = 0;
+    g_peak = 0;
+    g_valids = 0;
+    run_frame();
+    run_frame();
+    ASSERT_GT(g_valids, (long)0); /* the sample tick survives the stop */
+    ASSERT_EQ(g_peak, 0);
+    ASSERT_EQ(g_energy, (long)0);
+}
+
 UTEST_STATE();
 
 int main(int argc, const char *const argv[])

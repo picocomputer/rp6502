@@ -21,6 +21,16 @@
 
 #include <string.h>
 
+/* The exit path's teardown: a stopped program's engines park, the way
+ * aud_stop hands the RP2350's interrupt back to the standing bell. The
+ * engines here are free-running hardware, so without this the last sound
+ * plays forever — which it did, from first power-on until now. */
+void aud_stop(void)
+{
+    AUD_PSG_XADDR = 0xFFFF;
+    AUD_OPL_XADDR = 0xFFFF;
+}
+
 bool aud_psg_xreg(uint16_t word)
 {
     if (word & 0x0001 || word > 0x10000 - 64 ||

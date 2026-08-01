@@ -73,6 +73,20 @@ class Prog:
         here = ORG + len(self.b)
         self.b += bytes((0x4C, here & 0xFF, here >> 8))
 
+    def delay(self, outer):
+        """About outer * 1,280 cycles of nothing."""
+        self.b += bytes((0xA0, outer & 0xFF))       # LDY #outer
+        self.b += bytes((0xA2, 0x00))               # outer: LDX #0
+        self.b += bytes((0xCA, 0xD0, 0xFD))         # inner: DEX BNE inner
+        self.b += bytes((0x88, 0xD0, 0xF8))         # DEY BNE outer (to the LDX)
+
+    def exit(self):
+        """API exit: the firmware parks both audio engines and stops the
+        CPU, so anything still sounding past this is the machine's bug."""
+        self.lda(0xFF)
+        self.sta(API_OP)
+        self.spin()
+
 
 def psg_prog():
     p = Prog()
@@ -116,6 +130,24 @@ def opl_prog():
     return p.b
 
 
+def opl_exit_prog():
+    """The OPL note, a moment of it, then a clean program exit. test_aud
+    holds the machine to silence afterwards — the coverage the stopped-
+    program bug never had, on the platform where the engines free-run."""
+    p = Prog()
+    page = 0xF000
+    p.xreg(0, 1, 1, page)
+    for reg, val in (
+        (0x20, 0x01), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00),
+        (0x60, 0xF0), (0x63, 0xF0), (0x80, 0x77), (0x83, 0x77),
+        (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
+    ):
+        p.poke(page + reg, val)
+    p.delay(64)
+    p.exit()
+    return p.b
+
+
 def record(addr, data):
     head = f"${addr:05X} ${len(data):X} ${zlib.crc32(data) & 0xFFFFFFFF:08X}\n"
     return head.encode() + data
@@ -133,11 +165,14 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit-psg")
     ap.add_argument("--emit-opl")
+    ap.add_argument("--emit-opl-exit")
     a = ap.parse_args()
     if a.emit_psg:
         print(f"psg.rp6502 {emit(a.emit_psg, psg_prog())} bytes")
     if a.emit_opl:
         print(f"opl.rp6502 {emit(a.emit_opl, opl_prog())} bytes")
+    if a.emit_opl_exit:
+        print(f"opl_exit.rp6502 {emit(a.emit_opl_exit, opl_exit_prog())} bytes")
     return 0
 
 

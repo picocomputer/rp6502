@@ -94,9 +94,11 @@ rp6502_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
 # on hardware and a note the simulation asserts from drifting apart.
 set(AUD_ROM_PSG ${RP6502_ASSETS}/psg.rp6502)
 set(AUD_ROM_OPL ${RP6502_ASSETS}/opl.rp6502)
+set(AUD_ROM_OPL_EXIT ${RP6502_ASSETS}/opl_exit.rp6502)
 rp6502_asset(aud_roms GEN ${RP6502_SRC}/gen/aud_rom_gen.py
     ARGS --emit-psg ${AUD_ROM_PSG} --emit-opl ${AUD_ROM_OPL}
-    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_OPL}
+        --emit-opl-exit ${AUD_ROM_OPL_EXIT}
+    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_OPL} ${AUD_ROM_OPL_EXIT}
     COMMENT "Generating the audio bring-up ROMs")
 
 # The resampler's coefficients, as the package the RTL reads. The same
