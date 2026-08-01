@@ -140,9 +140,10 @@ UTEST(rsmp, the_ratio_is_the_ratio)
 
 UTEST(rsmp, a_constant_survives_as_itself)
 {
-    /* Unity gain at every fractional phase. A Farrow whose taps do not sum
-     * to one turns a steady tone into a rough one, and the roughness rides
-     * the phase so it is not a level error anyone would spot by eye. */
+    /* Unity gain at every fractional phase. A row whose taps do not sum to
+     * one turns a steady tone into a rough one, and the roughness rides the
+     * phase so it is not a level error anyone would spot by eye. This is
+     * why the generator constrains the row sums rather than fitting them. */
     static int32_t out[8192];
     int32_t dc = 12345;
     const int n = run(gen_dc, &dc, 8192, POCKET_IN, POCKET_OUT, out, 8192);
@@ -166,16 +167,17 @@ UTEST(rsmp, a_cold_filter_does_not_click)
 UTEST(rsmp, a_tone_survives_the_pocket_ratio)
 {
     /* Limits are what the filter measures with a few dB of margin, not
-     * round numbers picked in advance. Below 8 kHz these sit on the
-     * integer output floor rather than on anything the filter does; above
-     * it they are the filter, and every one of them beats the six-point
-     * Lagrange this replaced by 18 to 41 dB. */
+     * round numbers picked in advance. Every one of these now sits on the
+     * integer output floor rather than on anything the filter does — which
+     * is the point of the polyphase sinc: the Farrow it replaced read -35
+     * at 16 kHz and -14 at 20 kHz, so the top of the band was the only
+     * place left on this path where the arithmetic was audible. */
     static const struct
     {
         double hz, limit;
     } want[] = {
-        {100, -80}, {1000, -80}, {4000, -80}, {8000, -78},
-        {12000, -70}, {16000, -35}, {20000, -14},
+        {100, -86}, {1000, -81}, {4000, -85}, {8000, -84},
+        {12000, -83}, {16000, -84}, {20000, -83},
     };
     static int32_t out[SKIP + ANA + 4096];
     for (unsigned k = 0; k < sizeof want / sizeof *want; k++)
@@ -210,7 +212,7 @@ UTEST(rsmp, it_handles_the_rates_a_sound_card_hands_back)
 
         const double db = residual_db(out, hz, rates[k]);
         fprintf(stderr, "  49716 -> %5u: %6.1f dB\n", rates[k], db);
-        ASSERT_LT(db, -75.0);
+        ASSERT_LT(db, -80.0);
     }
 }
 

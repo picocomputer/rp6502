@@ -3,116 +3,164 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# Designs the Farrow matrix in src/emu/emu/rsmp.c, which src/fpga/rtl/aud/
-# aud_rsmp.sv reads too. Needs numpy; it is a design and check tool, not
-# part of the build, because the coefficients are committed.
+# The OPL resampler's polyphase coefficients, for src/emu/emu/rsmp.c and for
+# src/fpga/rtl/aud/aud_rsmp.sv, which has to reproduce that C sample for
+# sample. Standard library only, so this can run in the build rather than
+# committing three thousand numbers that a reader cannot check by eye.
 #
-# Why not Lagrange, which is what everyone reaches for: Lagrange is
-# maximally flat at DC, and it spends every degree of freedom there. Its
-# gain then depends on the fractional phase, and a gain that moves with the
-# phase is heard as roughness rather than as a level error. Measured
-# through the integer path at 49704 -> 48000, six-point Lagrange leaves
-# -57 dB of it at 8 kHz and -36 dB at 12 kHz.
+# The structure is a windowed-sinc fractional-delay interpolator: PHASES
+# rows of TAPS coefficients, row p realising a delay of p/PHASES of an input
+# sample, with a linear interpolation between adjacent rows for everything
+# in between. Row PHASES is stored too — it is row 0 shifted by one tap —
+# so the inner loop never has to special-case the wrap.
 #
-# So the sub-filters are least-squares fits to the ideal fractional delay
-# instead, over a grid of both frequency and phase. Two things make the
-# result usable rather than merely optimal:
+# Why this and not the Farrow it replaces. Both were measured at the
+# Pocket's 49704 -> 48000 through the integer path, in dB, lower better:
 #
-#   The DC gain is CONSTRAINED, not fitted. Row 0 sums to one and every
-#   other row to zero, so a constant comes through as itself at every
-#   phase. An unconstrained fit trades that away and puts a gain wobble
-#   right where the ear is most sensitive.
+#     kHz            1      4      8     12     16     20
+#     farrow-10    -87    -86    -82    -70    -35    -14
+#     this         -85    -90    -89    -88    -89    -88
 #
-#   The error is weighted 1/w. Weighted evenly, the fit spreads its error
-#   across the band and lands 40 dB worse than Lagrange at 4 kHz while
-#   winning at 16 kHz — a bad trade, since almost nothing in the audible
-#   range lives up there. Weighted 1/w it beats Lagrange everywhere.
+# Every one of those is the integer output floor rather than the filter, so
+# they are a statement about the ruler, not about how good this can get.
+# tests/aud/test_rsmp.c is that ruler and is the thing to re-run.
 #
-# Result at 49704 -> 48000, sideband level in dB, lower better:
+# The Farrow computes its coefficients from a polynomial in the phase, which
+# costs multiplies and buys nothing above the midband; this looks them up,
+# which costs memory the Cyclone V turned out to have. The 45 dB it wins at
+# 16-20 kHz is the last lossy stage left on a path that is otherwise 16 bits
+# end to end.
 #
-#     kHz      1      4      8     12     16     20
-#     lagrange-6   -87    -85    -57    -36    -22    -11
-#     this        -87    -86    -85    -77    -41    -18
-#
-# The first four are the integer output floor, not the filter.
+# PHASES is a cliff, not a knob. At 64 the error between adjacent rows
+# dominates everything the filter does and the whole thing measures -10 dB.
+# It fails catastrophically rather than gracefully, so a casual listen would
+# not catch a phase count set too low.
 
 import argparse
+import math
 
-TAPS = 10
-ORDER = 6
-Q = 14
-WP = 0.55  # fit out to 0.55*pi; past there the taps run out either way
-WEIGHT_P = 1  # 1/w**p
+PHASES = 128
+TAPS = 24
+Q = 17
 
-COMMITTED = [
-    [0, 0, 0, 0, 16384, 0, 0, 0, 0, 0],
-    [133, -894, 3513, -12473, -2217, 16425, -6285, 2373, -683, 108],
-    [-37, 339, -2021, 13844, -24348, 14142, -2377, 560, -116, 14],
-    [-236, 1496, -4962, 5793, 2348, -10351, 8789, -3887, 1211, -201],
-    [162, -1118, 4309, -9509, 11721, -7720, 2218, 115, -236, 58],
-    [-21, 176, -839, 2345, -3888, 3888, -2345, 839, -176, 21],
-]
+# Cutoff as a fraction of the input Nyquist, and the Kaiser shape. The
+# images this has to suppress sit at Fs_in - f, so passing 20 kHz at 49.7 kHz
+# means stopping 29.7 kHz: a transition from 0.80 to 1.20 of Nyquist. That
+# is what these two numbers buy, and 24 taps is what pays for it.
+FC = 1.0
+BETA = 7.2
 
 
-def design():
-    import numpy as np
-
-    us = np.linspace(0, 1, 33)
-    ws = np.linspace(1e-4, WP * np.pi, 180)
-    nf = TAPS - 1
-    rows, rhs = [], []
-    for u in us:
-        for w in ws:
-            g = 1.0 / (w ** WEIGHT_P)
-            # The last tap is eliminated rather than fitted; that is how the
-            # row sums stay exact instead of nearly exact.
-            eL = np.exp(-1j * w * (TAPS - 1))
-            b = np.zeros(nf * ORDER, complex)
-            const = 0j
-            for k in range(ORDER):
-                const += (1.0 if k == 0 else 0.0) * (u ** k) * eL
-                for i in range(nf):
-                    b[i * ORDER + k] = (np.exp(-1j * w * i) - eL) * (u ** k) * g
-            rows.append(b)
-            rhs.append((np.exp(-1j * w * (TAPS // 2 - 1 + u)) - const) * g)
-    A = np.array(rows)
-    y = np.array(rhs)
-    A = np.vstack([A.real, A.imag])
-    y = np.concatenate([y.real, y.imag])
-    f = np.linalg.lstsq(A, y, rcond=None)[0].reshape(nf, ORDER).T
-
-    m = [[0] * TAPS for _ in range(ORDER)]
-    for k in range(ORDER):
-        row = [int(round(f[k][i] * (1 << Q))) for i in range(nf)]
-        want = (1 << Q) if k == 0 else 0
-        m[k] = row + [want - sum(row)]
-    return m
+def i0(x):
+    """Modified Bessel of the first kind, order zero."""
+    s, t, k = 1.0, 1.0, 1
+    while True:
+        t *= (x / (2.0 * k)) ** 2
+        s += t
+        if t < 1e-18 * s:
+            return s
+        k += 1
 
 
-def check_rows(m):
-    for k, row in enumerate(m):
-        want = (1 << Q) if k == 0 else 0
-        if sum(row) != want:
-            raise SystemExit(f"row {k} sums to {sum(row)}, wanted {want}")
-        if max(abs(c) for c in row) > 32767:
-            raise SystemExit(f"row {k} does not fit int16")
+def sinc(x):
+    if x == 0.0:
+        return 1.0
+    px = math.pi * x
+    return math.sin(px) / px
+
+
+def rows():
+    """PHASES+1 rows of TAPS, quantised to Q and summing to exactly 1 << Q.
+
+    hist[0] is the OLDEST sample, so tap i sits at offset 11 - i + mu from
+    the interpolation point, which lands between hist[11] and hist[12].
+    Getting that direction backwards makes a windowed sinc measure worse
+    than the Farrow it replaces, which cost an afternoon once already.
+    """
+    half = TAPS / 2.0
+    i0b = i0(BETA)
+    out = []
+    for p in range(PHASES + 1):
+        mu = p / PHASES
+        row = []
+        for i in range(TAPS):
+            tau = (TAPS // 2 - 1) - i + mu
+            r = tau / half
+            if abs(r) >= 1.0:
+                row.append(0.0)
+            else:
+                w = i0(BETA * math.sqrt(1.0 - r * r)) / i0b
+                row.append(sinc(FC * tau) * w)
+        # Unity DC gain at every phase, constrained rather than fitted: a
+        # constant has to come through as itself or a held note develops a
+        # tremolo at the phase-wrap rate. Quantise, then put the whole
+        # residual on the largest tap, where it is smallest in relative
+        # terms.
+        scale = (1 << Q) / sum(row)
+        q = [int(math.floor(c * scale + 0.5)) for c in row]
+        big = max(range(TAPS), key=lambda k: abs(q[k]))
+        q[big] += (1 << Q) - sum(q)
+        out.append(q)
+    return out
+
+
+def check(rs):
+    peak = 0
+    for p, row in enumerate(rs):
+        if sum(row) != (1 << Q):
+            raise SystemExit(f"row {p} sums to {sum(row)}, wanted {1 << Q}")
+        peak = max(peak, max(abs(c) for c in row))
+    # Row PHASES must be row 0 shifted by one tap, or the wrap is a step.
+    if rs[PHASES][1:] != rs[0][:-1]:
+        raise SystemExit("row PHASES is not row 0 shifted; the wrap will click")
+    return peak
+
+
+def emit_h(path, rs):
+    with open(path, "w") as f:
+        f.write("// Generated by rsmp_coef_gen.py. Do not edit.\n")
+        for row in rs:
+            f.write("    {" + ", ".join(str(c) for c in row) + "},\n")
+
+
+def emit_sv(path, rs, peak):
+    width = max(2, peak.bit_length() + 1)
+    with open(path, "w") as f:
+        f.write("// Generated by rsmp_coef_gen.py. Do not edit.\n")
+        f.write("package rsmp_coef_pkg;\n")
+        f.write("/* verilator lint_off UNUSEDPARAM */\n")
+        f.write(f"localparam int RSMP_PHASES = {PHASES};\n")
+        f.write(f"localparam int RSMP_TAPS = {TAPS};\n")
+        f.write(f"localparam int RSMP_Q = {Q};\n")
+        f.write(f"localparam int RSMP_COEF_W = {width};\n")
+        f.write(f"localparam logic signed [{width - 1}:0] "
+                f"RSMP_COEF[{(PHASES + 1) * TAPS}] = '{{\n")
+        flat = [c for row in rs for c in row]
+        for i in range(0, len(flat), 8):
+            chunk = ", ".join(f"{width}'sh{c & ((1 << width) - 1):0{(width + 3) // 4}X}"
+                              for c in flat[i:i + 8])
+            f.write(f"    {chunk}{',' if i + 8 < len(flat) else ''}\n")
+        f.write("};\n")
+        f.write("/* verilator lint_on UNUSEDPARAM */\n")
+        f.write("endpackage\n")
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--check", action="store_true")
+    ap.add_argument("--emit-h")
+    ap.add_argument("--emit-sv")
+    ap.add_argument("--report", action="store_true")
     a = ap.parse_args()
 
-    check_rows(COMMITTED)
-    if a.check:
-        m = design()
-        if m != COMMITTED:
-            raise SystemExit(f"design drifted:\n derived   {m}\n committed {COMMITTED}")
-        print(f"rsmp matrix reproduces, {TAPS} taps, order {ORDER}, Q{Q}")
-        return 0
-
-    for row in design():
-        print("    {" + ", ".join(str(c) for c in row) + "},")
+    rs = rows()
+    peak = check(rs)
+    if a.emit_h:
+        emit_h(a.emit_h, rs)
+    if a.emit_sv:
+        emit_sv(a.emit_sv, rs, peak)
+    if a.report:
+        print(f"rsmp {PHASES} phases x {TAPS} taps, Q{Q}, "
+              f"peak {peak} needs {peak.bit_length() + 1} bits signed")
     return 0
 
 

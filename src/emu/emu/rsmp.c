@@ -6,15 +6,10 @@
 
 #include "emu/emu/rsmp.h"
 
-/* src/gen/rsmp_coef_gen.py designs and re-checks these;
- * aud_rsmp.sv reads the same numbers. */
-const int16_t rsmp_matrix[RSMP_ORDER][RSMP_TAPS] = {
-    {0, 0, 0, 0, 16384, 0, 0, 0, 0, 0},
-    {133, -894, 3513, -12473, -2217, 16425, -6285, 2373, -683, 108},
-    {-37, 339, -2021, 13844, -24348, 14142, -2377, 560, -116, 14},
-    {-236, 1496, -4962, 5793, 2348, -10351, 8789, -3887, 1211, -201},
-    {162, -1118, 4309, -9509, 11721, -7720, 2218, 115, -236, 58},
-    {-21, 176, -839, 2345, -3888, 3888, -2345, 839, -176, 21},
+/* src/gen/rsmp_coef_gen.py designs and emits these; aud_rsmp.sv reads the
+ * same numbers out of the package the same script writes. */
+const int32_t rsmp_coef[RSMP_PHASES + 1][RSMP_TAPS] = {
+#include "rsmp_coef.h"
 };
 
 void rsmp_reset(rsmp_t *r)
@@ -32,29 +27,39 @@ uint64_t rsmp_step(uint32_t in_rate, uint32_t out_rate)
     return ((uint64_t)in_rate << 32) / out_rate;
 }
 
-/* Horner over the polynomial, each coefficient a six-tap filter of the
- * history. Everything stays in Q14 until the last shift, so the RTL has one
- * accumulator width and one rounding rule to copy. */
+/* Two passes of the same filter — once with the row below the phase, once
+ * with the row above — and a straight line between the results. That is the
+ * same number as interpolating the coefficients and filtering once, because
+ * both are linear, and it is the cheaper of the two in fabric: one MAC
+ * engine run twice, one coefficient read per tap.
+ *
+ * The fraction is taken to sixteen bits rather than the twenty-five that
+ * are there. The difference of two accumulators reaches 2^38, and 2^38
+ * times a Q25 fraction does not fit in the int64 this has to stay inside.
+ * A sixteenth of a 128th of a sample is 1.2e-7 of an input sample; the
+ * coefficients are quantised far more coarsely than that.
+ */
 static int32_t rsmp_at(const int32_t *h, uint32_t mu)
 {
-    int64_t acc = 0;
-    for (int k = RSMP_ORDER - 1; k >= 0; k--)
+    const unsigned p = mu >> 25;               /* 0 .. RSMP_PHASES-1 */
+    const int64_t f = (mu >> 9) & 0xFFFF;      /* Q16 between p and p+1 */
+    int64_t a = 0, b = 0;
+    for (int i = 0; i < RSMP_TAPS; i++)
     {
-        int64_t c = 0;
-        for (int i = 0; i < RSMP_TAPS; i++)
-            c += (int64_t)rsmp_matrix[k][i] * h[i];
-        acc = ((acc * mu + (1 << (RSMP_Q - 1))) >> RSMP_Q) + c;
+        a += (int64_t)rsmp_coef[p][i] * h[i];
+        b += (int64_t)rsmp_coef[p + 1][i] * h[i];
     }
+    const int64_t v = a + (((b - a) * f) >> 16);
     /* Round, do not truncate. An arithmetic shift floors, and a floor on
      * every sample is a systematic half-LSB offset — which measures as a
-     * DC term 8 dB above everything else the filter does. */
-    return (int32_t)((acc + (1 << (RSMP_Q - 1))) >> RSMP_Q);
+     * DC term well above everything else the filter does. */
+    return (int32_t)((v + (1 << (RSMP_Q - 1))) >> RSMP_Q);
 }
 
 int rsmp_push(rsmp_t *r, int32_t x, uint64_t step, int32_t *out, int max_out)
 {
-    /* A cold filter would ring against five zeros and put a click at the
-     * start of every sound. Start it flat at the first sample instead. */
+    /* A cold filter would ring against twenty-three zeros and put a click
+     * at the start of every sound. Start it flat at the first sample. */
     if (!r->primed)
     {
         for (int i = 0; i < RSMP_TAPS; i++)
@@ -73,7 +78,7 @@ int rsmp_push(rsmp_t *r, int32_t x, uint64_t step, int32_t *out, int max_out)
     {
         if (n == max_out)
             break;
-        out[n++] = rsmp_at(r->hist, (uint32_t)(r->phase >> (32 - RSMP_Q)));
+        out[n++] = rsmp_at(r->hist, (uint32_t)r->phase);
         r->phase += step;
     }
     /* One input consumed, so the interval moves on by one whether or not it

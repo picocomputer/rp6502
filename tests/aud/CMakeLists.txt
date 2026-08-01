@@ -10,7 +10,8 @@
 # quietly makes it worse fails here instead of on someone's headphones. ---
 rp6502_add_test(rsmp
     SOURCES test_rsmp.c ${RP6502_SRC}/emu/emu/rsmp.c
-    INCLUDES ${RP6502_SRC})
+    INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR})
+add_dependencies(test_rsmp rsmp_coef)
 if(NOT WIN32)
     target_link_libraries(test_rsmp PRIVATE m)
 endif()

@@ -48,6 +48,20 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
 add_custom_target(oemcp DEPENDS ${OEMCP_C} ${OEMCP_H})
 set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
 
+# The OPL resampler's polyphase coefficients, on the same terms: three
+# thousand numbers nobody can check by eye, so they are built rather than
+# committed. Standard library only — a windowed sinc needs no solver — so
+# this costs the build nothing but python3, which it already needs.
+set(RSMP_GEN ${RP6502_SRC}/gen/rsmp_coef_gen.py)
+set(RSMP_COEF_H ${CMAKE_CURRENT_BINARY_DIR}/rsmp_coef.h)
+set(RSMP_COEF_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
+add_custom_command(OUTPUT ${RSMP_COEF_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${RSMP_GEN} --emit-h ${RSMP_COEF_H}
+    DEPENDS ${RSMP_GEN}
+    COMMENT "Generating the resampler coefficients"
+    VERBATIM)
+add_custom_target(rsmp_coef DEPENDS ${RSMP_COEF_H})
+
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
     ${RP6502_SRC}/emu/emu/pro.c

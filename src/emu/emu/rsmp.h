@@ -17,28 +17,20 @@
  * Everything else this machine makes a noise with is generated at the rate
  * the sink asked for and needs none of this.
  *
- * A Farrow structure rather than a polyphase table, because the two hosts
- * have opposite scarcities and this suits both. The Cyclone V has twenty
- * spare DSP blocks and 1050 clocks between output samples, but only eight
- * spare M10K and a 64 KB TCM already wanting sixteen of them — so a
- * 169-phase coefficient table is the one thing it cannot afford, while a
- * few dozen multiply-accumulates are free. Farrow keeps the coefficients in
- * a 6x6 matrix and computes the phase instead of looking it up.
+ * A polyphase windowed sinc: 128 rows of 24 taps, row p realising a delay
+ * of p/128 of an input sample, with a linear interpolation between adjacent
+ * rows for the rest. One structure serves both ends — the Pocket's ratio is
+ * exactly 175/169 and the emulator's is whatever the sound card returned,
+ * and a table plus a lerp evaluates either.
  *
- * It is also the only structure that suits both ends. The Pocket's ratio is
- * exactly 175/169 — both rates divide the same 50.4 MHz, so the phase
- * sequence is one of 169 exact values and can never drift — while the
- * emulator's is whatever the sound card returned. A polyphase table would
- * need a different design for each; a Farrow evaluates any fraction.
- *
- * The sub-filters are least-squares designed, not Lagrange. Lagrange is the
- * obvious choice and it is maximally flat at DC, which sounds right until
- * it is measured: it spends every degree of freedom at DC, and above the
- * midband its gain starts to depend on the fractional phase — which is
- * heard as roughness, not as a level error. Through the integer path at
- * 49704 into 48000 that costs -57 dB at 8 kHz and -36 dB at 12 kHz. The
- * same structure fitted properly gives -85 and -77. See rsmp_coef_gen.py
- * for the design and for why the weighting matters.
+ * This replaced a Farrow structure, which computes its coefficients from a
+ * polynomial in the phase instead of looking them up. That trade looked
+ * right while the Cyclone V was short of block memory and stopped being
+ * right when it wasn't: the Farrow measured -35 dB at 16 kHz and -14 dB at
+ * 20 kHz through the Pocket's ratio, which made it the last lossy stage on
+ * a path that is otherwise sixteen bits end to end. See rsmp_coef_gen.py
+ * for the design and tests/aud/test_rsmp.c for the measurement — that file
+ * is the ruler, and the ruler was wrong twice before the filter was.
  *
  * Integer throughout, and that is deliberate: aud_rsmp.sv is held to this
  * file sample-for-sample the way aud_psg is held to psg.c, which only works
@@ -50,14 +42,14 @@
  * RTL is held to in any case.
  */
 
-#define RSMP_TAPS 10
-#define RSMP_ORDER 6
-#define RSMP_Q 14
+#define RSMP_TAPS 24
+#define RSMP_PHASES 128
+#define RSMP_Q 17
 
 typedef struct
 {
-    /* x[n-9] .. x[n], newest last. The interpolation interval is between
-     * hist[4] and hist[5]; the samples either side are the context that
+    /* x[n-23] .. x[n], newest last. The interpolation interval is between
+     * hist[11] and hist[12]; the samples either side are the context that
      * lets it be a filter rather than a straight line. */
     int32_t hist[RSMP_TAPS];
     /* Q32 position inside that interval. Wider than 32 bits because the
@@ -67,11 +59,10 @@ typedef struct
     bool primed;
 } rsmp_t;
 
-/* Q14 Farrow matrix. Row k holds the ten-tap filter whose output is the
- * coefficient of u^k. Every row but the first sums to zero and the first
- * sums to one, so the gain is exactly unity at DC for every phase — the
- * one property worth constraining rather than fitting. */
-extern const int16_t rsmp_matrix[RSMP_ORDER][RSMP_TAPS];
+/* Row p is the filter for a delay of p/RSMP_PHASES. There are PHASES+1 of
+ * them: the last is the first shifted by one tap, so interpolating between
+ * p and p+1 never has to special-case the wrap. */
+extern const int32_t rsmp_coef[RSMP_PHASES + 1][RSMP_TAPS];
 
 void rsmp_reset(rsmp_t *r);
 
