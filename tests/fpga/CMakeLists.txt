@@ -250,16 +250,18 @@ if(verilator_FOUND)
         ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
         ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_single_bank.sv
         ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_simple_dual_port.sv
-        ${RP6502_VENDOR}/opl2_fpga_rp6502/trick_sw_detection.sv)
+        ${RP6502_VENDOR}/opl2_fpga_rp6502/trick_sw_detection.sv
+        ${RP6502_VENDOR}/opl2_fpga_rp6502/afifo.v)
     foreach(dir top_level channels operator timers host_if misc clks)
         file(GLOB _opl_dir_src ${OPL2_DIR}/${dir}/src/*.sv ${OPL2_DIR}/${dir}/src/*.v)
         list(FILTER _opl_dir_src EXCLUDE REGEX
-            "/(i2s|mem_single_bank|mem_simple_dual_port|trick_sw_detection)\\.sv$")
+            "/(i2s|mem_single_bank|mem_simple_dual_port|trick_sw_detection)\\.sv$|/afifo\\.v$")
         list(APPEND OPL2_SOURCES ${_opl_dir_src})
     endforeach()
 
     set(RP6502_MACHINE_SOURCES
         ${CMAKE_CURRENT_LIST_DIR}/hazard3.vlt
+        ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
         ${OPL2_SOURCES}
         ${CPU65_ROM}
         ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv

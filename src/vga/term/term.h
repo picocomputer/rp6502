@@ -30,9 +30,16 @@ void term_RIS_no_clear(void);
  *
  * It doubles the cell memory, and on a platform whose cells live in FPGA
  * block memory that is the difference between a feature and a firmware.
- * The Pocket turns it off and spends the twenty-eight blocks on the soft
- * CPU's TCM instead; MiSTer has room and leaves it on, which is why this
- * is a switch and not a deletion.
+ * The Pocket turns it off, which takes its cell store from sixty-four
+ * M10K to thirty-two and pays for the soft CPU's 64 KB TCM; MiSTer has
+ * room and leaves it on, which is why this is a switch and not a
+ * deletion.
+ *
+ * The Pocket is meant to get it back. Thirty-two blocks is what that
+ * costs, and 61,440 bytes is sixty blocks of content however it is
+ * arranged, so there is no clever packing waiting to be found — it has
+ * to come out of the device's budget. Turning it back on is a matter of
+ * finding those blocks, not of changing anything here.
  *
  * Off, the escape sequences still parse and the cursor still saves and
  * restores — only the buffer swap is skipped, so a full-screen program

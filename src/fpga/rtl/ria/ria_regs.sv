@@ -123,11 +123,20 @@ module ria_regs (
     end
     always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
-    /* The 6502's TX ring: pushed at $FFE1, drained by the OS. */
+    /* The 6502's TX ring: pushed at $FFE1, drained by the OS.
+     *
+     * Sixteen bytes, and an M10K holds 10,240 — left to itself Quartus
+     * spent a whole block on 128 bits and then added seventeen
+     * pass-through registers, because the read below is asynchronous
+     * and a block's read address is not. An MLAB answers where it is
+     * used, so both the block and the bypass go away. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] txf[16];
     logic [3:0] txf_w, txf_r;
     logic [4:0] txf_count;
     logic txf_pop;
+    logic push_now;
+    always_comb push_now = en && cs && we && rs == 5'h01 && txf_count < 5'd16;
 
     /* The RW engine: one pending write-back, urgent restages, and the
      * background alternator. Captures land one clock after their issue. */
@@ -269,6 +278,8 @@ module ria_regs (
     /* Outside the reset: an array an asynchronous reset can reach
      * infers as flip-flops, never as memory. */
     always_ff @(posedge clk) begin
+        if (push_now)
+            txf[txf_w] <= data_i;
         if (xs_we[0]) begin
             xs0[xs_waddr0] <= xs_wdat0;
             xm0[xs_waddr0] <= xs_wdat0;
@@ -451,10 +462,8 @@ module ria_regs (
     end
 
     /* The rings live at the system clock: the 6502 pushes on its enable, the
-     * OS pops and offers whenever its strobe lands. */
-    logic push_now;
-    always_comb push_now = en && cs && we && rs == 5'h01 && txf_count < 5'd16;
-
+     * OS pops and offers whenever its strobe lands. The push's data lands
+     * in the reset-free block above; only the pointer belongs here. */
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             txf_w <= 4'd0;
@@ -525,10 +534,8 @@ module ria_regs (
              * pointer is the OS's other door. */
             if (b_we && b_word == 8'd200)
                 xsp <= b_wdata[9:0];
-            if (push_now) begin
-                txf[txf_w] <= data_i;
+            if (push_now)
                 txf_w <= txf_w + 4'd1;
-            end
             if (txf_pop)
                 txf_r <= txf_r + 4'd1;
             txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
