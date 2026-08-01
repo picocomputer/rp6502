@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, openfpga]
     tags: ['v[0-9]*']
   pull_request:
     branches: [main]
@@ -137,7 +137,8 @@ jobs:
       - name: Init emulator submodules
         run: |
           git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap
+            vendor/chips vendor/sokol vendor/imgui vendor/cppdap \
+            vendor/6502_65C02_functional_tests
           git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       - name: Install build + windowed-emu dependencies
@@ -179,7 +180,8 @@ jobs:
       - name: Init emulator submodules
         run: |
           git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap
+            vendor/chips vendor/sokol vendor/imgui vendor/cppdap \
+            vendor/6502_65C02_functional_tests
           git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       - name: Configure & build emulator (Release, arm64)
@@ -235,7 +237,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Init web-build submodules
-        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/emsdk
+        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/emsdk vendor/6502_65C02_functional_tests
 
       - name: Install build tools
         run: |
@@ -346,6 +348,77 @@ jobs:
           name: emu-android-apk
           path: rp6502-emu.apk
           if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # FPGA simulation: verilate the machine and run it against the emu_core oracle.
+  # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
+  # with -Wall, so any RTL warning fails the build.
+  # ---------------------------------------------------------------------------
+  fpga-sim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Init simulation submodules
+        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/hazard3 vendor/opl2_fpga vendor/6502_65C02_functional_tests
+
+      - name: Install build dependencies + Verilator + RISC-V toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build verilator \
+            gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+      # Blobless sparse clone of one directory; the full repo is 4.8 GB.
+      - name: Fetch SingleStepTests CPU vectors
+        run: python3 tests/cpu/vectors.py
+
+      - name: Configure & build simulation
+        run: |
+          set -euxo pipefail
+          cmake -S src/fpga -B build/fpga -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/fpga
+
+      - name: Run simulation tests
+        run: ctest --test-dir build/fpga --output-on-failure --parallel $(nproc)
+
+  # The bitstream, and whether it closed. Quartus writes one out either
+  # way, so the slack is the thing being tested here — the .rbf_r is a
+  # by-product. Not on pull requests: a fit is tens of minutes and needs
+  # a 20 GB toolchain, and nothing about a fit is decided by a diff.
+  fpga-bitstream:
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    container: raetro/quartus:21.1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Init submodules
+        run: git submodule update --init --depth 1 vendor/hazard3 vendor/openfpga
+
+      - name: Install build dependencies + RISC-V toolchain
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build python3 \
+            gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+      # The firmware has to exist before the bitstream can carry it; a
+      # core built without it boots a soft CPU fetching zeros, which
+      # looks exactly like dead hardware and is not.
+      - name: Build bitstream
+        run: |
+          set -euxo pipefail
+          cmake -S src/fpga -B build/fpga -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/fpga --target bitstream
+
+      - name: Assemble the core package
+        run: cmake --build build/fpga --target package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocket-core
+          path: build/fpga/tests/package
 
   # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).

@@ -23,3 +23,15 @@
 [submodule "vendor/emsdk"]
 	path = vendor/emsdk
 	url = https://github.com/emscripten-core/emsdk.git
+[submodule "vendor/6502_65C02_functional_tests"]
+	path = vendor/6502_65C02_functional_tests
+	url = https://github.com/Klaus2m5/6502_65C02_functional_tests
+[submodule "vendor/hazard3"]
+	path = vendor/hazard3
+	url = https://github.com/Wren6991/Hazard3
+[submodule "vendor/openfpga"]
+	path = vendor/openfpga
+	url = https://github.com/open-fpga/core-template.git
+[submodule "vendor/opl2_fpga"]
+	path = vendor/opl2_fpga
+	url = https://github.com/gtaylormb/opl2_fpga

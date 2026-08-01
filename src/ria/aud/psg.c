@@ -22,6 +22,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define PSG_RATE 24000
 #define PSG_CHANNELS 8
 
+/* Full scale of a generated wave, and the value a closed duty gate rails
+ * to. The rail is -PSG_PEAK, not the true minimum, because it was -127
+ * against a peak of 127 and this keeps that asymmetry rather than quietly
+ * gaining an LSB of DC. */
+#define PSG_PEAK 32767
+#define PSG_RAIL (-32767)
+
 enum psg_adsr_state
 {
     release,
@@ -104,7 +111,7 @@ struct psg_channel
 
 static struct
 {
-    int8_t sample;
+    int16_t sample;
     uint8_t adsr;
     uint32_t vol;
     uint32_t phase;
@@ -122,41 +129,55 @@ static void
 
     struct psg_channel *channels = (void *)&xram[psg_xaddr];
 
-    // Output previous sample at start to minimize jitter
-    int16_t sample_l = 0;
-    int16_t sample_r = 0;
+    /* Output previous sample at start to minimize jitter.
+     *
+     * The mix accumulates unshifted and rounds once. It used to truncate
+     * twice — after the envelope and again after the pan — and a floor is
+     * not noise, it is a downward bias that every sounding channel adds to.
+     * Eight of them reached -26 dBFS of DC that appeared and vanished with
+     * the notes. The envelope takes thirteen bits here rather than nine:
+     * psg_vol_table is Q24 and at nine bits a long release moved in 256
+     * visible steps, which is the zipper you could hear on a slow fade. */
+    int32_t acc_l = 0;
+    int32_t acc_r = 0;
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
-        int8_t sample = psg_channel_state[i].sample;
-        sample = ((int32_t)sample * (psg_channel_state[i].vol >> 16)) >> 8;
+        int32_t sample = ((int32_t)psg_channel_state[i].sample
+                              * (int32_t)(psg_channel_state[i].vol >> 12)
+                          + (1 << 11))
+                         >> 12;
         int8_t pan = (int8_t)channels[i].pan_gate / 2;
         if (pan != -64)
         {
-            sample_l += ((int32_t)sample * (63 - pan)) >> 7;
-            sample_r += ((int32_t)sample * (63 + pan)) >> 7;
+            acc_l += sample * (63 - pan);
+            acc_r += sample * (63 + pan);
         }
     }
-    int16_t max_val = (1 << (AUD_PWM_BITS - 1)) - 1;
-    int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
-    sample_l <<= (AUD_PWM_BITS - 8);
-    sample_r <<= (AUD_PWM_BITS - 8);
-    int16_t bel_mix = bel_sample(PSG_RATE);
-    sample_l += bel_mix;
-    sample_r += bel_mix;
-    if (sample_l < min_val)
-        sample_l = min_val;
-    if (sample_l > max_val)
-        sample_l = max_val;
-    if (sample_r < min_val)
-        sample_r = min_val;
-    if (sample_r > max_val)
-        sample_r = max_val;
-    aud_out(sample_l + AUD_PWM_CENTER, sample_r + AUD_PWM_CENTER);
+    /* 63/64 rather than 1/2 per side is the pan law this has always had;
+     * the shift undoes it and lands on full scale. */
+    int32_t bel_mix = bel_sample(PSG_RATE);
+    acc_l = ((acc_l + 64) >> 7) + bel_mix;
+    acc_r = ((acc_r + 64) >> 7) + bel_mix;
+    if (acc_l < AUD_SAMPLE_MIN)
+        acc_l = AUD_SAMPLE_MIN;
+    if (acc_l > AUD_SAMPLE_MAX)
+        acc_l = AUD_SAMPLE_MAX;
+    if (acc_r < AUD_SAMPLE_MIN)
+        acc_r = AUD_SAMPLE_MIN;
+    if (acc_r > AUD_SAMPLE_MAX)
+        acc_r = AUD_SAMPLE_MAX;
+    aud_out((int16_t)acc_l, (int16_t)acc_r);
 
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
         uint32_t phase_inc = ((uint64_t)UINT32_MAX + 1) * channels[i].freq / 3 / PSG_RATE;
         psg_channel_state[i].phase += phase_inc;
+        /* The duty gate still compares the top byte of the phase, so where
+         * a wave starts and stops is unchanged. Only the value widens: the
+         * ramps take eight more bits off the same accumulator, so they are
+         * the same slope with a finer staircase, and PSG_RAIL is the old
+         * -127 rail scaled. The gate rails to full negative rather than to
+         * silence, which is how duty has always worked here. */
         uint32_t phase = psg_channel_state[i].phase >> 24;
         uint32_t duty = channels[i].duty;
         switch (channels[i].wave_release >> 4)
@@ -164,38 +185,42 @@ static void
         case 0: // sine
             duty >>= 1;
             if (phase < 128u - duty || phase >= 128u + duty)
-                psg_channel_state[i].sample = -127;
+                psg_channel_state[i].sample = PSG_RAIL;
             else
                 psg_channel_state[i].sample = aud_sine_table[phase];
             break;
         case 1: // square
             if (phase > duty)
-                psg_channel_state[i].sample = -127;
+                psg_channel_state[i].sample = PSG_RAIL;
             else
-                psg_channel_state[i].sample = 127;
+                psg_channel_state[i].sample = PSG_PEAK;
             break;
         case 2: // sawtooth
             if (phase > duty)
-                psg_channel_state[i].sample = -127;
+                psg_channel_state[i].sample = PSG_RAIL;
             else
-                psg_channel_state[i].sample = 127 - phase;
+                psg_channel_state[i].sample =
+                    (int16_t)(PSG_PEAK - (int32_t)(psg_channel_state[i].phase >> 16));
             break;
         case 3: // triangle
             duty >>= 1;
             if (phase < 128u - duty || phase >= 128u + duty)
-                psg_channel_state[i].sample = -127;
+                psg_channel_state[i].sample = PSG_RAIL;
             else if (phase >= 128)
-                psg_channel_state[i].sample = 127 - (int8_t)(psg_channel_state[i].phase >> 23);
+                psg_channel_state[i].sample =
+                    (int16_t)(PSG_PEAK - (int16_t)(psg_channel_state[i].phase >> 15));
             else
-                psg_channel_state[i].sample = (int8_t)(psg_channel_state[i].phase >> 23) - 128;
+                psg_channel_state[i].sample =
+                    (int16_t)((int16_t)(psg_channel_state[i].phase >> 15) - 32768);
             break;
         case 4: // noise
             if (phase > duty)
-                psg_channel_state[i].sample = -127;
+                psg_channel_state[i].sample = PSG_RAIL;
             else
             {
                 psg_channel_state[i].noise1 ^= psg_channel_state[i].noise2;
-                psg_channel_state[i].sample = psg_channel_state[i].noise2 & 0xFF;
+                psg_channel_state[i].sample =
+                    (int16_t)(psg_channel_state[i].noise2 & 0xFFFF);
                 psg_channel_state[i].noise2 += psg_channel_state[i].noise1;
             }
             break;
@@ -263,21 +288,33 @@ static void
 
 bool psg_xreg(uint16_t word)
 {
-    if (word & 0x0001 ||
-        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
-        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
-    {
-        psg_xaddr = 0xFFFF;
-        return word == 0xFFFF;
-    }
-    // Set up linear-feedback shift register for noise. Starting constants from here:
-    // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+    /* Taking control and giving it up both reset the engine, the way a
+     * reset line would, so a program never inherits the last one's
+     * envelopes. The fabric has always done this — aud_psg resets on any
+     * write to its pointer register, 0xFFFF included — and this is the
+     * software catching up.
+     *
+     * Starting constants for the noise LFSR from here:
+     * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+     */
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
         psg_channel_state[i].noise1 = 0x67452301;
         psg_channel_state[i].noise2 = 0xEFCDAB89;
         psg_channel_state[i].vol = 0;
         psg_channel_state[i].adsr = release;
+    }
+    if (word & 0x0001 ||
+        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
+        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
+    {
+        psg_xaddr = 0xFFFF;
+        /* And hand the interrupt back. The handler reads its channel
+         * block from &xram[psg_xaddr] with nothing guarding it, so a
+         * parked pointer left installed walks 64 bytes off the end of
+         * XRAM once a sample, forever. */
+        aud_stop();
+        return word == 0xFFFF;
     }
     psg_xaddr = word;
     xram_queue_page = word >> 8;

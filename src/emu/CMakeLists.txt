@@ -21,9 +21,30 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
 option(RP6502_EMU_BUILD_TESTS "Build the CTest test suite" ON)
 
+# emu_core alone, without the window, debugger, or tests. The FPGA simulation
+# links it as the reference oracle and needs none of the desktop stack.
+option(RP6502_EMU_CORE_ONLY "Build only the emu_core library" OFF)
+
 get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
+
+
+# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
+# generator so the logic in ria/api/uni.c can be read without a
+# preprocessor. See src/fpga/codegen/oem_table_gen.py.
+set(OEMCP_GEN ${RP6502_SRC}/fpga/codegen/oem_table_gen.py)
+set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
+set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
+set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
+add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${OEMCP_GEN}
+        --ffunicode ${OEMCP_SRC} --emit-c ${OEMCP_C} --emit-h ${OEMCP_H}
+    DEPENDS ${OEMCP_GEN} ${OEMCP_SRC}
+    COMMENT "Generating the OEM code page tables"
+    VERBATIM)
+add_custom_target(oemcp DEPENDS ${OEMCP_C} ${OEMCP_H})
+set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
@@ -54,12 +75,15 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/ria/api/clk.c
     ${RP6502_SRC}/ria/api/fat.c
     ${RP6502_SRC}/ria/api/oem.c
+    ${RP6502_SRC}/ria/api/uni.c
+    ${OEMCP_C}
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/aud/bel.c
     ${RP6502_SRC}/ria/aud/opl.c
     ${RP6502_SRC}/ria/aud/psg.c
     ${RP6502_SRC}/ria/str/rln.c
     ${RP6502_SRC}/ria/str/str.c
+    ${RP6502_SRC}/vga/modes/mode0.c
     ${RP6502_SRC}/vga/modes/mode1.c
     ${RP6502_SRC}/vga/modes/mode2.c
     ${RP6502_SRC}/vga/modes/mode3.c
@@ -70,7 +94,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/vga/term/term.c
     ${RP6502_VENDOR}/emu8950/emu8950.c
     ${RP6502_VENDOR}/fatfs/ff.c
-    ${RP6502_VENDOR}/fatfs/ffunicode.c
 )
 
 if(WIN32)
@@ -166,8 +189,10 @@ if(MSVC)
 endif()
 
 target_include_directories(emu_core PUBLIC
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}/emu/host/pico
     ${RP6502_SRC}
+    ${RP6502_VENDOR}/chips_rp6502 # shadows vendor/chips; must precede it
     ${RP6502_VENDOR}
 )
 target_compile_definitions(emu_core PUBLIC
@@ -186,6 +211,10 @@ else()
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
     target_compile_options(emu_core PRIVATE /wd4068 /wd4098)
     target_compile_definitions(emu_core PUBLIC _CRT_SECURE_NO_WARNINGS)
+endif()
+
+if(RP6502_EMU_CORE_ONLY)
+    return()
 endif()
 
 # The desktop window + audio stack. Windows/macOS/web/Android carry their own
@@ -358,5 +387,8 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(${RP6502_ROOT}/tests tests)
+    add_subdirectory(${RP6502_ROOT}/tests/emu tests)
+    # The CPU the emulator runs is also the FPGA core's reference, so its
+    # conformance suite belongs to both; src/fpga builds the RTL half.
+    add_subdirectory(${RP6502_ROOT}/tests/cpu tests_cpu)
 endif()

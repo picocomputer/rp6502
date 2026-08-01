@@ -35,19 +35,21 @@ static void
     aud_clear_irq();
 
     // Output previous sample at start to minimize jitter
-    aud_out(opl_sample + AUD_PWM_CENTER, opl_sample + AUD_PWM_CENTER);
+    aud_out(opl_sample, opl_sample);
     int16_t next;
     OPL_calc_buffer(opl_emu8950, &next, 1);
-    const int boost_bits = 2;
-    opl_sample = next >> (16 - AUD_PWM_BITS - boost_bits);
-    // Mix in bel
-    opl_sample += bel_sample(OPL_SAMPLE_RATE);
-    int16_t max_val = (1 << (AUD_PWM_BITS - 1)) - 1;
-    int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
-    if (opl_sample < min_val)
-        opl_sample = min_val;
-    if (opl_sample > max_val)
-        opl_sample = max_val;
+    /* Four times hot, and the clamp lets the loud parts square off — the
+     * machine has always run its OPL this way. It used to reach the same
+     * ratio by shifting emu8950's sixteen bits down to ten, which threw
+     * six of them away at the source, before any host with a better
+     * converter than the RP2350's PWM could see them. Multiplying instead
+     * of shifting keeps every bit and clips in exactly the same place. */
+    int32_t s = (int32_t)next * 4 + bel_sample(OPL_SAMPLE_RATE);
+    if (s < AUD_SAMPLE_MIN)
+        s = AUD_SAMPLE_MIN;
+    if (s > AUD_SAMPLE_MAX)
+        s = AUD_SAMPLE_MAX;
+    opl_sample = (int16_t)s;
 
     // Update opl regs from xram
     uint8_t max_work = 8;
@@ -64,7 +66,14 @@ static void
 bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
+    {
+        /* Giving up control resets the chip and hands the interrupt
+         * back, so a stopped program's last chord does not hold. */
+        if (opl_emu8950)
+            OPL_reset(opl_emu8950);
+        aud_stop();
         return word == 0xFFFF;
+    }
     // Would be nice to not malloc but initializeTables() is static
     if (!opl_emu8950)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);

@@ -1217,7 +1217,15 @@ INLINE static int16_t mix_output_raw(OPL *opl) {
     }
 #endif
 
-    return out;
+    /* rp6502: clamp, do not wrap. Fifteen int16 channels sum well past
+     * int16, and returning the sum narrowed made a loud chord flip
+     * polarity instead of clipping — a buzz exactly where the music is
+     * loudest. */
+    if (out > 32767)
+        out = 32767;
+    if (out < -32768)
+        out = -32768;
+    return (int16_t)out;
 }
 #endif
 

@@ -27,6 +27,7 @@ target_compile_definitions(rp6502-vga PRIVATE
 
 target_sources(rp6502-vga PRIVATE
     main.c
+    modes/mode0.c
     modes/mode1.c
     modes/mode2.c
     modes/mode3.c

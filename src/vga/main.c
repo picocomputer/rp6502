@@ -5,6 +5,7 @@
  */
 
 #include "vga/main.h"
+#include "vga/modes/mode0.h"
 #include "vga/modes/mode1.h"
 #include "vga/modes/mode2.h"
 #include "vga/modes/mode3.h"
@@ -70,7 +71,7 @@ bool main_prog(uint16_t *xregs)
     switch (xregs[1])
     {
     case 0:
-        return term_prog(xregs);
+        return mode0_prog(xregs);
     case 1:
         return mode1_prog(xregs);
     case 2:
