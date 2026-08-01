@@ -35,8 +35,11 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
     rtl/core/       the machine, independent of the FPGA platform
     platform/       per-host wrappers (Pocket APF, MiSTer), Quartus projects
 
-Tests live with every other test, in `tests/fpga` — the Verilator testbench and
-the emu_core reference oracle.
+Tests live with every other test, in `tests/`, filed by subsystem rather than
+by host: the verilated `aud_psg` is in `tests/aud` beside the `psg.c` it is
+held to, not in a directory of its own. `tests/bench` carries the Verilator
+testbench and the emu_core reference oracle; `tests/host/pocket` carries what
+is genuinely about this board rather than about the machine.
 
 ## Building the simulation
 

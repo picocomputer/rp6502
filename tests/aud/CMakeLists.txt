@@ -1,0 +1,68 @@
+# PSG, bell, OPL2 and the resampler.
+#
+# The two engines are held bit-exact: ria/aud/psg.c and ria/aud/bel.c are the
+# reference, and the verilated aud_psg and aud_bel have to produce the same
+# sample every sample. That is what psg_shim.c exists for — it stands the
+# firmware's drivers up over flat shims so the same C runs on a workstation.
+
+# --- The resampler, on its own: no emulator, no 6502, just arithmetic and a
+# ruler. Measures the filter rather than asserting it, so a change that
+# quietly makes it worse fails here instead of on someone's headphones. ---
+rp6502_add_test(rsmp
+    SOURCES test_rsmp.c ${RP6502_SRC}/emu/emu/rsmp.c
+    INCLUDES ${RP6502_SRC})
+if(NOT WIN32)
+    target_link_libraries(test_rsmp PRIVATE m)
+endif()
+
+# --- The PSG through a real program (the ezpsg Fur Elise tracker) ---
+rp6502_add_test(furelise LIBS emu_core FIXTURE furelise.rp6502 TIMEOUT 60)
+
+if(RP6502_VERILATE)
+    set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
+        ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico)
+
+    # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
+    # The bit-exact audio proof: the vendored DSP over flat shims and the
+    # verilated engine consume the same XRAM image and gate schedule.
+    rp6502_add_module_test(psg
+        TOP aud_psg
+        RTL ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_psg.sv
+            ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+        SOURCES test_psg.cpp psg_shim.c
+            ${RP6502_SRC}/ria/aud/psg.c ${RP6502_SRC}/ria/aud/bel.c
+        INCLUDES ${AUD_SHIM_INCLUDES}
+        DEPENDS aud_sine_rom
+        ARGS -GTICKS_PER_SAMPLE=1200
+        TIMEOUT 300)
+
+    # --- The one bell, against the real bel.c ---
+    rp6502_add_module_test(bel
+        TOP aud_bel
+        RTL ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+        SOURCES test_bel.cpp psg_shim.c ${RP6502_SRC}/ria/aud/bel.c
+        INCLUDES ${AUD_SHIM_INCLUDES}
+        DEPENDS aud_sine_rom
+        ARGS -GRATE=48000
+        TIMEOUT 300)
+
+    # --- The OPL2 device: the pointer gates it, a poke reaches the chip ---
+    rp6502_add_module_test(opl
+        TOP aud_opl
+        RTL ${OPL2_SOURCES} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+            ${RP6502_FPGA_RTL}/aud/aud_opl.sv
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 300)
+endif()
+
+if(RP6502_SOFT_CPU)
+    # Both engines end to end: a program asks for the device, pours its
+    # registers in through RW0, and the machine makes a noise inside a couple
+    # of frames. This is the plumbing test — the xreg dispatch, the write
+    # snoop, and the sample grid — not a waveform one; test_psg holds the PSG
+    # bit-exact, and the OPL2 has no emulator to agree with.
+    rp6502_add_machine_test(aud FIRMWARE
+        DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
+        DEPENDS aud_roms
+        TIMEOUT 600)
+endif()

@@ -130,7 +130,7 @@
             "type": "process",
             "command": "python3",
             "args": [
-                "${workspaceFolder}/tests/cpu/vectors.py"
+                "${workspaceFolder}/tests/cpu65/vectors.py"
             ],
             "presentation": {
                 "reveal": "always",

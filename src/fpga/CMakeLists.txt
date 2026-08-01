@@ -32,7 +32,9 @@ add_subdirectory(${RP6502_SRC}/emu emu)
 target_compile_definitions(emu_core PUBLIC TERM_ALT_SCREEN=0)
 
 enable_testing()
-# Both CPU implementations answer the same conformance vectors, so this build
-# runs the C reference alongside the RTL rather than trusting them separately.
-add_subdirectory(${RP6502_ROOT}/tests/cpu tests_cpu)
-add_subdirectory(${RP6502_ROOT}/tests/fpga tests)
+# The whole suite, organised by subsystem rather than by host. This tree has
+# the RTL, so it registers the verilated half of every subsystem alongside the
+# C half — both implementations of the CPU against the same vectors, both
+# audio engines against the same reference samples, and so on.
+set(RP6502_TESTS_RTL ON)
+add_subdirectory(${RP6502_ROOT}/tests tests)

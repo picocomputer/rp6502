@@ -32,11 +32,13 @@ get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSO
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in ria/api/uni.c can be read without a
-# preprocessor. See src/fpga/codegen/oem_table_gen.py.
-set(OEMCP_GEN ${RP6502_SRC}/fpga/codegen/oem_table_gen.py)
+# preprocessor. See src/gen/oem_table_gen.py.
+set(OEMCP_GEN ${RP6502_SRC}/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
-set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
-set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
+# Cached, so tests/ can see them from either tree: src/emu adds tests/ as a
+# sibling, but src/fpga adds it directly and never enters this scope.
+set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c CACHE INTERNAL "")
+set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h CACHE INTERNAL "")
 add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     COMMAND ${CMAKE_COMMAND} -E env python3 ${OEMCP_GEN}
         --ffunicode ${OEMCP_SRC} --emit-c ${OEMCP_C} --emit-h ${OEMCP_H}
@@ -44,7 +46,7 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     COMMENT "Generating the OEM code page tables"
     VERBATIM)
 add_custom_target(oemcp DEPENDS ${OEMCP_C} ${OEMCP_H})
-set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR})
+set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/emu/main.c
@@ -387,8 +389,7 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    add_subdirectory(${RP6502_ROOT}/tests/emu tests)
-    # The CPU the emulator runs is also the FPGA core's reference, so its
-    # conformance suite belongs to both; src/fpga builds the RTL half.
-    add_subdirectory(${RP6502_ROOT}/tests/cpu tests_cpu)
+    # The C half of every subsystem's suite. src/fpga adds the same directory
+    # with RP6502_TESTS_RTL and gets the verilated half as well.
+    add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()

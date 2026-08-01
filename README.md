@@ -40,7 +40,7 @@ case. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
 one-time developer download rather than a submodule. Run the VS Code
 **vectors: download** task, or from the command line:
 ```
-$ python3 tests/cpu/vectors.py
+$ python3 tests/cpu65/vectors.py
 ```
 This blobless sparse clone takes about a minute and lands roughly a gigabyte in
 `vendor/65x02`. Without it, the conformance tests are skipped and CMake says so.

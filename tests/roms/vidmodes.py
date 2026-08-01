@@ -9,13 +9,22 @@
 # emulator suite boots them and asserts a settled, non-empty picture; the
 # FPGA suite runs the same files on both machines and demands pixel
 # equality, so these ROMs are the shared corpus that keeps the two
-# implementations honest. Committed alongside their generator; rerun it
-# only to change the corpus.
+# implementations honest.
+#
+# Output is a build artifact, not a commit. Every byte here is derived from
+# this file, so committing the results only makes a second copy that can
+# disagree with the generator. The .rp6502 files that remain in tests/roms
+# are real cc65-built programs with no generator, which is why they stay.
 
+import argparse
 import zlib
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument("--out", type=Path, required=True,
+                help="directory to write the corpus into")
+OUT = ap.parse_args().out
+OUT.mkdir(parents=True, exist_ok=True)
 
 
 def record(addr, data):
