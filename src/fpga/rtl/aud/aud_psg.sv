@@ -19,11 +19,11 @@
  * it here bought a 256-entry memory, a drain state, and a bound of
  * thirty-two writes a sample that hardware has no reason to have.
  *
- * The bell rides the same grid the
- * way the C rides the handler: struck from the console, stepped once
- * per sample, mixed under the channels after their shift — and when the
- * pointer is parked the walk still runs, the standing bell alone, as
- * aud_init leaves the firmware.
+ * No bell here. There is one for the whole machine, past the engine
+ * mux in rp6502.sv, because only one engine is ever audible and two
+ * instances meant paying for a second that could not be heard. When the
+ * pointer is parked the walk still runs and emits silence, so the
+ * sample tick the output stage rides never stops.
  */
 
 module aud_psg
@@ -48,9 +48,6 @@ module aud_psg
     input logic q_we,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
-
-    /* The console's BEL scan: one teletype bell per pulse. */
-    input logic bel_strike,
 
     /* One stereo sample per tick, signed at full scale. The platform
      * narrows: the Pocket's I2S takes all sixteen bits. */
@@ -151,20 +148,9 @@ module aud_psg
         && snoop_off[15:3] < 13'd8;
 
     typedef enum logic [2:0] {
-        P_IDLE, P_FETCH, P_MIX, P_BEL, P_OUT, P_DIV, P_STEP
+        P_IDLE, P_FETCH, P_MIX, P_OUT, P_DIV, P_STEP
     } state_t;
     state_t state;
-
-    logic bel_step;
-    always_comb bel_step = state == P_BEL;
-    logic signed [15:0] bel_out;
-    aud_bel bel (
-        .clk(clk),
-        .rst_n(rst_n),
-        .strike(bel_strike),
-        .step(bel_step),
-        .aud_bel_out(bel_out)
-    );
 
     logic [12:0] tickctr;
     logic [4:0] fw_i, fw_c, fw_n;
@@ -356,7 +342,7 @@ module aud_psg
                             gather <= '0;
                             state <= P_FETCH;
                         end else
-                            state <= P_BEL;
+                            state <= P_OUT;
                     end
                 end
                 P_FETCH: begin
@@ -399,24 +385,23 @@ module aud_psg
                     end
                     ch <= ch + 3'd1;
                     if (ch == 3'd7)
-                        state <= P_BEL;
+                        state <= P_OUT;
                 end
-                P_BEL: state <= P_OUT;
                 P_OUT: begin
                     if (walk_psg) begin
-                        aud_psg_l <= clamped(21'(21'((mix_l + 27'sd64) >>> 7)
-                                                 + 21'(bel_out)));
-                        aud_psg_r <= clamped(21'(21'((mix_r + 27'sd64) >>> 7)
-                                                 + 21'(bel_out)));
+                        aud_psg_l <= clamped(21'((mix_l + 27'sd64) >>> 7));
+                        aud_psg_r <= clamped(21'((mix_r + 27'sd64) >>> 7));
                         ch <= '0;
                         div_q <= {cf_freq, 32'd0};
                         div_rem <= '0;
                         div_i <= '0;
                         state <= P_DIV;
                     end else begin
-                        /* The standing bell, bel_irq_handler's output. */
-                        aud_psg_l <= clamped(21'(bel_out));
-                        aud_psg_r <= clamped(21'(bel_out));
+                        /* No program: silence, but keep the sample tick
+                         * so the output stage's bell still reaches the
+                         * codec. bel_irq_handler's counterpart. */
+                        aud_psg_l <= '0;
+                        aud_psg_r <= '0;
                         aud_psg_valid <= 1'b1;
                         state <= P_IDLE;
                     end

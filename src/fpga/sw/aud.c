@@ -7,6 +7,13 @@
  * odd, out of bounds, or a block crossing its 256-byte page — and the
  * pointer lands in the device register, whose write also resets the
  * envelopes, the noise seeds, and the gate queue in hardware.
+ *
+ * Programming one engine parks the other. On the RP2350 that happens by
+ * itself: psg_xreg and opl_xreg each call aud_setup, which hands the one
+ * interrupt to the new handler and the loser simply stops being asked
+ * for samples. The engines here are free-running hardware and nothing
+ * takes their turn away, so the pointers have to do it. Without this
+ * both would sound at once, and rp6502.sv sums them.
  */
 
 #include "aud.h"
@@ -22,6 +29,7 @@ bool aud_psg_xreg(uint16_t word)
         AUD_PSG_XADDR = 0xFFFF;
         return word == 0xFFFF;
     }
+    AUD_OPL_XADDR = 0xFFFF;
     AUD_PSG_XADDR = word;
     return true;
 }
@@ -40,6 +48,7 @@ bool aud_opl_xreg(uint16_t word)
         return word == 0xFFFF;
     }
     memset((void *)&XRAM_WIN[word], 0, 256);
+    AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = word;
     return true;
 }

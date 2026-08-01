@@ -792,6 +792,20 @@ if(verilator_FOUND)
         VERILATOR_ARGS -Wall --assert -O3
     )
 
+    # --- The one bell, against the real bel.c ---
+    rp6502_add_test(bel
+        SOURCES test_bel.cpp psg_shim.c ${RP6502_SRC}/ria/aud/bel.c
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${CMAKE_CURRENT_BINARY_DIR}
+            ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico
+        TIMEOUT 300)
+    add_dependencies(test_bel aud_sine_rom)
+    verilate(test_bel
+        SOURCES ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+        TOP_MODULE aud_bel
+        PREFIX Vaud_bel
+        VERILATOR_ARGS -Wall --assert -O3 -GRATE=48000
+    )
+
     # --- The staging SDRAM controller against a behavioral chip ---
     rp6502_add_test(psdram
         SOURCES test_psdram.cpp

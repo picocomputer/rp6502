@@ -52,9 +52,6 @@ module aud_opl #(
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
-    /* The console's BEL scan: one teletype bell per pulse. */
-    input logic bel_strike,
-
     output logic signed [15:0] aud_opl_l,
     output logic signed [15:0] aud_opl_r,
     output logic aud_opl_valid,
@@ -160,20 +157,13 @@ module aud_opl #(
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* The bell rides the sample tick, as it does on the PSG's grid. */
-    logic signed [15:0] bel_out;
-    /* CLK_FREQ / CLK_DIV_COUNT: what the core actually emits, not the
-     * 49,716 a YM3812 would. */
-    aud_bel #(.RATE(int'(opl2_pkg::ACTUAL_SAMPLE_FREQ))) bel (
-        .clk(clk),
-        .rst_n(rst_n),
-        .strike(bel_strike),
-        .step(core_valid),
-        .aud_bel_out(bel_out)
-    );
-
+    /* Zero when the pointer is parked. The engine is free-running
+     * hardware and its core holds whatever it was last playing, so
+     * without this a stopped program keeps sounding — which the old
+     * output mux hid by selecting the PSG instead, and a sum would
+     * not. */
     logic signed [24:0] mixed;
-    always_comb mixed = (25'(core_sample) >>> SAMPLE_SHIFT) + 25'(bel_out);
+    always_comb mixed = enabled ? (25'(core_sample) >>> SAMPLE_SHIFT) : 25'sd0;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

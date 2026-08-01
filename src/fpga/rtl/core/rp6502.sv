@@ -728,7 +728,6 @@ module rp6502
         .rst_n(rst_n),
         .xaddr_we(aud_we && bus_addr[3:2] == 2'b00),
         .xaddr_wdata(bus_wdata[15:0]),
-        .bel_strike(aud_we && bus_addr[3:2] == 2'b01),
         .aud_psg_a_req(ma_req[4]),
         .aud_psg_a_addr(ma_addr[4]),
         .a_gnt(a_any && a_sel == 3'd4),
@@ -751,20 +750,71 @@ module rp6502
         .q_we(xr_busy && xr_we),
         .q_addr(xr_addr),
         .q_val(xr_wdata),
-        .bel_strike(aud_we && bus_addr[3:2] == 2'b01),
         .aud_opl_l(opl_l),
         .aud_opl_r(opl_r),
         .aud_opl_valid(opl_valid),
         .aud_opl_enabled(opl_enabled)
     );
 
-    /* The machine runs one engine at a time, exactly as the firmware
-     * does — aud_setup hands the interrupt to whichever device was
-     * programmed last, and the other stops being asked for samples. */
+    /* The engines sum rather than select. The xreg validation lets only
+     * one hold a pointer at a time and the other answers zero — the PSG
+     * emits silence with its pointer parked, and aud_opl gates on its
+     * own enable — so the sum is the selection, without the mux.
+     *
+     * The sample tick still follows the enabled engine. A parked PSG
+     * keeps ticking at 24 kHz so the bell below has a heartbeat to ride,
+     * and OR-ing that with the OPL's 49,704 would push both rates into a
+     * FIFO expecting one. */
+    logic signed [16:0] eng_l, eng_r;
+    logic eng_valid;
     always_comb begin
-        rp6502_aud_l = opl_enabled ? opl_l : psg_l;
-        rp6502_aud_r = opl_enabled ? opl_r : psg_r;
-        rp6502_aud_valid = opl_enabled ? opl_valid : psg_valid;
+        eng_l = 17'(opl_l) + 17'(psg_l);
+        eng_r = 17'(opl_r) + 17'(psg_r);
+        eng_valid = opl_enabled ? opl_valid : psg_valid;
+    end
+
+    /* One bell for the machine, past the mux. Both engines used to carry
+     * their own and only the selected one could ever be heard, so the
+     * second cost 207 ALMs and a DSP to be inaudible.
+     *
+     * It keeps its own 48 kHz tick rather than riding whichever engine
+     * won, because the two run at 24,000 and 49,704 and a bell stepped
+     * by the winner would change pitch with the engine — which is the
+     * bug the RATE parameter was just added to fix. 50.4 MHz over 1050
+     * is exactly 48,000. The engine's tick still decides when the sum
+     * reaches the codec; at 587 Hz the bell is far below what even the
+     * slower engine can carry. */
+    localparam int BEL_TICKS = 1050;
+    logic [10:0] bel_div;
+    logic bel_step;
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n) begin
+            bel_div <= '0;
+            bel_step <= 1'b0;
+        end else begin
+            bel_step <= bel_div == 11'(BEL_TICKS - 1);
+            bel_div <= bel_div == 11'(BEL_TICKS - 1) ? '0 : bel_div + 11'd1;
+        end
+    end
+
+    logic signed [15:0] bel_out;
+    aud_bel #(.RATE(48000)) bel (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .strike(aud_we && bus_addr[3:2] == 2'b01),
+        .step(bel_step),
+        .aud_bel_out(bel_out)
+    );
+
+    logic signed [17:0] out_l, out_r;
+    always_comb begin
+        out_l = 18'(eng_l) + 18'(bel_out);
+        out_r = 18'(eng_r) + 18'(bel_out);
+        rp6502_aud_l = out_l < -18'sd32768 ? -16'sd32768
+            : out_l > 18'sd32767 ? 16'sd32767 : 16'(out_l);
+        rp6502_aud_r = out_r < -18'sd32768 ? -16'sd32768
+            : out_r > 18'sd32767 ? 16'sd32767 : 16'(out_r);
+        rp6502_aud_valid = eng_valid;
     end
 
     /* The 180- and 360-line canvases sit under a 60-line letterbox. */

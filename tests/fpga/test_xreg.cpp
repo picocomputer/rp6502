@@ -217,7 +217,7 @@ UTEST(xreg, dispatch_matches_the_oracle)
         dut->eval();
         if (dut->rp6502_tx_valid)
             cpu_out.push_back((char)dut->rp6502_tx_data);
-        uint8_t bc = dut->rootp->rp6502__DOT__aud_psg__DOT__bel__DOT__count;
+        uint8_t bc = dut->rootp->rp6502__DOT__bel__DOT__count;
         if (bel_count_prev == 0 && bc != 0)
             strikes++;
         bel_count_prev = bc;
@@ -230,8 +230,12 @@ UTEST(xreg, dispatch_matches_the_oracle)
     /* The muted BEL never struck; the unmuted one did. */
     ASSERT_EQ(strikes, 1);
 
-    /* The device register holds the last accepted pointer. */
-    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0x8000);
+    /* The PSG took 0x8000 and the OPL took 0xF000 after it, and
+     * programming either parks the other — the engines are free-running
+     * hardware that rp6502.sv sums, so the pointers are what makes them
+     * exclusive. The firmware gets this for free from aud_setup handing
+     * over the one interrupt; here it is deliberate. */
+    ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0xFFFF);
     /* And the OPL's, which is the whole path the device depends on:
      * the xreg dispatch, the soft CPU's validation, the MMIO write and
      * the machine's decode of it. */

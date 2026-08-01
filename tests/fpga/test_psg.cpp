@@ -11,8 +11,16 @@
  * attack, decay, the sustain quirks, and release, pan extremes with
  * the truncating division and the mute, the halfword-aligned block,
  * and the gate queue's 32-per-sample drain and drop-when-full ring.
- * The bell rings on both sides too — the real bel.c against aud_bel —
- * first standing alone with the pointer parked, then under the song.
+ * The bell is not here. It belongs to the machine now rather than to
+ * this engine — one instance past the engine mux in rp6502.sv — and
+ * test_bel locksteps it against bel.c directly.
+ *
+ * So do not ring one in this file. psg.c still mixes the bell, because
+ * on the RP2350 and in the emulator the driver is the whole output
+ * stage and there is nowhere else for it to go; aud_psg does not,
+ * because on the Pocket there is somewhere else. The two agree exactly
+ * while the bell is silent, which is the only condition this lockstep
+ * is valid under.
  * The hostile phases press where the plumbing bends: device-register
  * writes landing deep inside a walk, non-gate and wrong-page traffic
  * through the queue filters, the mute over a sounding channel, the
@@ -149,15 +157,6 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
     run_lockstep(utest_result, 1);
 }
 
-/* One teletype bell on both machines. */
-static void bel_ring()
-{
-    bel_add(&bel_teletype);
-    dut->bel_strike = 1;
-    clock_cycle();
-    dut->bel_strike = 0;
-}
-
 static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
                    uint8_t va, uint8_t vd, uint8_t wr, uint8_t pan_gate)
 {
@@ -177,22 +176,12 @@ UTEST(psg, lockstep_bit_exact)
     shim_init();
     bel_setup();
 
-    /* The standing bell, the machine as aud_init leaves it: parked
-     * pointer, silence, then one teletype bell through attack, decay,
-     * sustain, the 20 ms release, out to the 800 ms end. */
-    run_lockstep(utest_result, 30);
-    bel_ring();
-    run_lockstep(utest_result, 19300);
-
-    /* Three queued bells restrike at 100 ms strides; ten more flood
-     * the ring of eight, the drops matched, the last rings out. */
-    bel_ring();
-    bel_ring();
-    bel_ring();
-    run_lockstep(utest_result, 5000);
-    for (int i = 0; i < 10; i++)
-        bel_ring();
-    run_lockstep(utest_result, 36000);
+    /* The machine as aud_init leaves it: pointer parked, and the walk
+     * still running so the output stage keeps its sample tick. The bell
+     * used to ring here and this test swept it up for free; there is one
+     * bell for the machine now, past the engine mux, and test_bel holds
+     * it against bel.c on its own. */
+    run_lockstep(utest_result, 200);
 
     /* Every wave across the channels at a word-aligned block. */
     const uint16_t base = 0x8000;
@@ -221,7 +210,6 @@ UTEST(psg, lockstep_bit_exact)
 
     /* A bell under the full mix: mixed after the channel shift, it
      * rides the handler switch and the reprogram below unbroken. */
-    bel_ring();
     run_lockstep(utest_result, 3000);
 
     /* Gates down: release to the floor. */
@@ -345,7 +333,6 @@ UTEST(psg, lockstep_bit_exact)
     ASSERT_TRUE(psg_xreg(0xFFFF));
     rtl_xaddr(0xFFFF);
     run_lockstep(utest_result, 10);
-    bel_ring();
     run_lockstep(utest_result, 10);
     rtl_xaddr_mid_walk(utest_result, base, 0);
     ASSERT_TRUE(psg_xreg(base));
