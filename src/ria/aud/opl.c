@@ -66,7 +66,14 @@ static void
 bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
+    {
+        /* Giving up control resets the chip and hands the interrupt
+         * back, so a stopped program's last chord does not hold. */
+        if (opl_emu8950)
+            OPL_reset(opl_emu8950);
+        aud_stop();
         return word == 0xFFFF;
+    }
     // Would be nice to not malloc but initializeTables() is static
     if (!opl_emu8950)
         opl_emu8950 = OPL_new(OPL_CLOCK_RATE, OPL_SAMPLE_RATE);

@@ -288,21 +288,33 @@ static void
 
 bool psg_xreg(uint16_t word)
 {
-    if (word & 0x0001 ||
-        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
-        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
-    {
-        psg_xaddr = 0xFFFF;
-        return word == 0xFFFF;
-    }
-    // Set up linear-feedback shift register for noise. Starting constants from here:
-    // https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+    /* Taking control and giving it up both reset the engine, the way a
+     * reset line would, so a program never inherits the last one's
+     * envelopes. The fabric has always done this — aud_psg resets on any
+     * write to its pointer register, 0xFFFF included — and this is the
+     * software catching up.
+     *
+     * Starting constants for the noise LFSR from here:
+     * https://www.musicdsp.org/en/latest/Synthesis/216-fast-whitenoise-generator.html
+     */
     for (unsigned i = 0; i < PSG_CHANNELS; i++)
     {
         psg_channel_state[i].noise1 = 0x67452301;
         psg_channel_state[i].noise2 = 0xEFCDAB89;
         psg_channel_state[i].vol = 0;
         psg_channel_state[i].adsr = release;
+    }
+    if (word & 0x0001 ||
+        word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
+        ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
+    {
+        psg_xaddr = 0xFFFF;
+        /* And hand the interrupt back. The handler reads its channel
+         * block from &xram[psg_xaddr] with nothing guarding it, so a
+         * parked pointer left installed walks 64 bytes off the end of
+         * XRAM once a sample, forever. */
+        aud_stop();
+        return word == 0xFFFF;
     }
     psg_xaddr = word;
     xram_queue_page = word >> 8;
