@@ -19,6 +19,7 @@
 #include "oracle.h"
 #include "tb_quiet.h"
 #include "tb_stage.h"
+#include "tb_term.h"
 #include "tb_tcm.h"
 #include "utest.h"
 
@@ -31,25 +32,6 @@ static Vrp6502 *dut;
 /* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
 static bool rv_phase;
 
-/* The terminal's cells live as four byte-lane arrays so the fabric can
- * hold them in memory; a whole cell is those lanes stacked. */
-template <typename Root>
-static uint32_t term_cell(Root *r, size_t i)
-{
-    return (uint32_t)r->rp6502__DOT__vid_term__DOT__cell0[i]
-        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell1[i] << 8)
-        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell2[i] << 16)
-        | ((uint32_t)r->rp6502__DOT__vid_term__DOT__cell3[i] << 24);
-}
-
-template <typename Root>
-static void term_cell_set(Root *r, size_t i, uint32_t v)
-{
-    r->rp6502__DOT__vid_term__DOT__cell0[i] = (uint8_t)v;
-    r->rp6502__DOT__vid_term__DOT__cell1[i] = (uint8_t)(v >> 8);
-    r->rp6502__DOT__vid_term__DOT__cell2[i] = (uint8_t)(v >> 16);
-    r->rp6502__DOT__vid_term__DOT__cell3[i] = (uint8_t)(v >> 24);
-}
 
 
 static bool load_firmware(const char *path)

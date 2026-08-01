@@ -4,12 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * One RAM: the 48 KB tightly-coupled memory at zero, code first because the
- * reset vector is address zero. The stack grows down from the top. The size
- * is a block-memory decision as much as a software one: each byte lane costs
- * one block memory per 1024 words, so 48 KB is forty-eight of them against
- * sixty-four for the 64 KB this used to be — a fifth of the device's block
- * memory, for a firmware that ends at 36 KB and a stack that has never
- * needed the twenty-nine KB the rest of it was.
+ * reset vector is address zero. The stack grows down from the top.
+ *
+ * The size is a block-memory decision as much as a software one. Each byte
+ * lane costs one block per 1024 words, so 48 KB is forty-eight of them and
+ * 64 KB would be sixty-four. The blocks for 64 KB now exist — a harvest
+ * found nine and eight were already free — but the sizes between are not
+ * free to pick: Quartus decomposes a depth into at most two power-of-two
+ * chunks and rounds up, so 56 KB costs the same sixty-four as 64 KB unless
+ * the lanes are banked by hand, and banking means per-bank init files
+ * through rv_tcm_gen.py and every tb_load_tcm call site. Left at 48 KB
+ * until the final block count is known and the size can be chosen once.
  */
 
 MEMORY
