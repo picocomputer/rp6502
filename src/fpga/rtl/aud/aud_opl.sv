@@ -32,11 +32,17 @@ module aud_opl #(
      *
      * ria/aud/opl.c runs the OPL four times hot and lets the loud parts
      * square off: it multiplies emu8950's full scale by four and clamps.
-     * Three is the shift that says the same thing here — (channel <<< 5)
-     * >>> 3 is channel * 4 — so the fabric and the C now clip on the
-     * same note rather than an octave of level apart. Exact, too: the
-     * low five bits of core_sample are always zero. */
-    parameter int SAMPLE_SHIFT = 3
+     *
+     * Five, not three. Three is what "the same * 4" looks like if you
+     * assume this core's channel and emu8950's mix are the same scale,
+     * and they are not — opl2_fpga's is four times emu8950's for the same
+     * registers. Measured rather than reasoned: test_opl's note peaks at
+     * 8172 out of emu8950 and 32680 out of this at a shift of three, an
+     * exact factor of four, which is 12 dB of a difference nobody could
+     * miss on hardware and every test passed anyway. At five the two
+     * chips answer the same note at the same level. Exact, too: the low
+     * five bits of core_sample are always zero. */
+    parameter int SAMPLE_SHIFT = 5
 ) (
     input logic clk,
     input logic rst_n,

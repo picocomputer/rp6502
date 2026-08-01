@@ -152,12 +152,23 @@ UTEST(opl, a_note_makes_sound)
     set_page(0x1200);
     ASSERT_TRUE(dut->aud_opl_enabled);
     note_on(0x12);
-    /* Past the attack, then measure. One voice at full volume measures
-     * a peak of 255 of the 511 available; anything under half that is
-     * the scaling wrong rather than the note quiet. */
+    /* Past the attack, then measure. The level is the point: this engine
+     * and ria/aud/opl.c are the same chip twice and have to be the same
+     * loudness, and nothing else compares them. emu8950 driven with these
+     * exact registers peaks at 2043 before opl.c's *4, so the fabric —
+     * which applies the same *4 as (channel <<< 5) >>> 3 — has to land
+     * near 8172 too.
+     *
+     * The bound used to be 128 out of "the 511 available", written when
+     * the path was ten bits. It survived the widening to sixteen and was
+     * then loose by a factor of five hundred, which is how this engine
+     * came to run 6 dB hot with every test green. */
     energy(64);
     ASSERT_GT(energy(512), (uint64_t)512);
-    ASSERT_GT(last_peak, (uint64_t)128);
+    fprintf(stderr, "  opl peak %llu (emu8950 with these registers: 8172)\n",
+            (unsigned long long)last_peak);
+    ASSERT_GT(last_peak, (uint64_t)6000);
+    ASSERT_LT(last_peak, (uint64_t)11000);
 }
 
 UTEST(opl, the_pointer_gates_the_page_it_names)
