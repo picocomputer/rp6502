@@ -16,6 +16,9 @@ if(NOT WIN32)
     target_link_libraries(test_rsmp PRIVATE m)
 endif()
 
+# --- aud_pump: the seam between the machine's rate and the host's ---
+rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
+
 if(RP6502_VERILATE)
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
         ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico)

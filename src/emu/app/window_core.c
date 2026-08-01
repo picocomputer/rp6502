@@ -357,10 +357,20 @@ void window_core_init(void)
         .logger.func = slog_func,
     });
     if (aud_enabled()) /* --mute opens no OS audio device */
+    {
+        /* Ask for the rate the machine already generates at. Sokol writes
+         * back what it actually got, and telling the machine means the PSG
+         * and the bell are generated at it — so on a device that gives us
+         * 48000, which is most of them, nothing is resampled at all and
+         * only the OPL2 ever reaches a filter. Left unasked, this defaulted
+         * to 44100 and every voice went through one. */
         saudio_setup(&(saudio_desc){
+            .sample_rate = 48000,
             .num_channels = 2,
             .logger.func = slog_func,
         });
+        aud_set_native_rate((uint32_t)saudio_sample_rate());
+    }
     sfb_setup(&(sfb_desc){
         .logger.func = slog_func,
     });

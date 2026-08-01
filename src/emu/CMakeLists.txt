@@ -67,6 +67,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/emu/pro.c
     ${RP6502_SRC}/emu/emu/tim.c
     ${RP6502_SRC}/emu/emu/aud.c
+    ${RP6502_SRC}/emu/emu/rsmp.c
     ${RP6502_SRC}/emu/dbg/dbg.c
     ${RP6502_SRC}/emu/hid/kbd.c
     ${RP6502_SRC}/emu/hid/mou.c
@@ -204,6 +205,7 @@ if(MSVC)
     )
 endif()
 
+add_dependencies(emu_core rsmp_coef)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}/emu/host/pico
