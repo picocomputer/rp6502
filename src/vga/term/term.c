@@ -504,10 +504,12 @@ static void term_reset_core(term_state_t *term)
     term->csi_intermediate = 0;
     term_reset_sgr_and_modes(term);
     term_reset_tab_stops(term);
+#if TERM_ALT_SCREEN
     term_mark_buf_erased(&term->bufs[1], term->height,
                          color_256[TERM_FG_COLOR_INDEX],
                          color_256[TERM_BG_COLOR_INDEX],
                          color_256[TERM_FG_COLOR_INDEX], 0);
+#endif
 }
 
 static void term_out_RIS(term_state_t *term)
@@ -1190,6 +1192,13 @@ static void term_enter_alt(term_state_t *term, bool save_cursor, bool clear_on_e
         return;
     if (save_cursor)
         term_save_cursor_state(term);
+#if !TERM_ALT_SCREEN
+    /* No second buffer on this platform. The cursor save above still
+     * happened, so ?1049 restores correctly on the way out; the program
+     * simply draws on the primary. */
+    (void)clear_on_entry;
+    return;
+#else
     /* Seed alt's cs from primary unconditionally. ?47/?1047 need this so the
      * cursor follows across the swap; ?1049 needs it so the lazy clear uses
      * primary's SGR rather than alt's never-initialized (zero = black/black)
@@ -1207,6 +1216,7 @@ static void term_enter_alt(term_state_t *term, bool save_cursor, bool clear_on_e
         // cleaned (alt buffer may have lazy-dirty rows from a prior leave).
         term_set_cursor_position(term, term->cur->x, term->cur->y);
     }
+#endif
 }
 
 // Leave the alt screen buffer.
@@ -1218,6 +1228,14 @@ static void term_enter_alt(term_state_t *term, bool save_cursor, bool clear_on_e
 // - ?47: cursor follows, alt content preserved (mark_for_reentry=false).
 static void term_leave_alt(term_state_t *term, bool restore_cursor, bool mark_for_reentry)
 {
+#if !TERM_ALT_SCREEN
+    /* Never entered, so there is nothing to swap back — but the entry
+     * did save the cursor, and leaving it saved would strand it. */
+    (void)mark_for_reentry;
+    if (restore_cursor && term->cursor_save_valid)
+        term_restore_cursor_state(term);
+    return;
+#else
     if (!term->alt_active)
         return;
     if (mark_for_reentry)
@@ -1229,6 +1247,7 @@ static void term_leave_alt(term_state_t *term, bool restore_cursor, bool mark_fo
         term_restore_cursor_state(term);
     else
         term_set_cursor_position(term, term->cur->x, term->cur->y);
+#endif
 }
 
 // Scroll the inclusive region [top, bot] up by n rows in a single pass.
@@ -2528,11 +2547,18 @@ void term_init(void)
     // prepare console
     memcpy(color_256_term, color_256, sizeof(color_256_term));
     static term_data_t term40_pri_mem[40 * TERM_MAX_HEIGHT];
-    static term_data_t term40_alt_mem[40 * TERM_MAX_HEIGHT];
     static term_data_t term80_pri_mem[80 * TERM_MAX_HEIGHT];
+#if TERM_ALT_SCREEN
+    static term_data_t term40_alt_mem[40 * TERM_MAX_HEIGHT];
     static term_data_t term80_alt_mem[80 * TERM_MAX_HEIGHT];
     term_state_init(&term_40, 40, term40_pri_mem, term40_alt_mem);
     term_state_init(&term_80, 80, term80_pri_mem, term80_alt_mem);
+#else
+    /* No alt store, so bufs[1] carries state but never cells. Nothing
+     * may swap to it or mark it erased; see term_enter_alt. */
+    term_state_init(&term_40, 40, term40_pri_mem, NULL);
+    term_state_init(&term_80, 80, term80_pri_mem, NULL);
+#endif
     // become part of stdout
     static stdio_driver_t term_stdio = {
         .out_chars = com_out_chars,

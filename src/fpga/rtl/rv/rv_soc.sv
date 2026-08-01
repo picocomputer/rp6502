@@ -95,7 +95,7 @@ module rv_soc #(
     input logic [31:0] bus_rdata
 );
 
-    localparam int TCM_WORDS = 12288;  // 48 KB
+    localparam int TCM_WORDS = 16384;  // 64 KB
     localparam int TCM_AW = $clog2(TCM_WORDS);
 
     // AHB5 master from the CPU. Address bits between the TCM window and the

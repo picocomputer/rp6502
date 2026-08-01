@@ -444,6 +444,11 @@ if(verilator_FOUND)
                 -I ${RP6502_SRC}/emu/host/pico
                 -I ${RP6502_VENDOR}
                 "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
+                # The alternate screen buffer doubles term.c's cell store,
+                # and on this platform the cells are block memory. Off here
+                # buys twenty-eight blocks, which is where the 64 KB TCM
+                # comes from. Other fabrics with room leave it on.
+                -DTERM_ALT_SCREEN=0
                 -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
                 -o ${CMAKE_CURRENT_BINARY_DIR}/sw.elf
                 ${SW_SOURCES}

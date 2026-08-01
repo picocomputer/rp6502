@@ -26,6 +26,22 @@ void term_RIS_no_clear(void);
  * hosts with their own scanout hardware bring their own.
  */
 
+/* TERM_ALT_SCREEN: the ?47 / ?1047 / ?1049 alternate screen buffer.
+ *
+ * It doubles the cell memory, and on a platform whose cells live in FPGA
+ * block memory that is the difference between a feature and a firmware.
+ * The Pocket turns it off and spends the twenty-eight blocks on the soft
+ * CPU's TCM instead; MiSTer has room and leaves it on, which is why this
+ * is a switch and not a deletion.
+ *
+ * Off, the escape sequences still parse and the cursor still saves and
+ * restores — only the buffer swap is skipped, so a full-screen program
+ * draws on the primary and leaves its output behind on exit. That is
+ * what a terminal without an alternate screen has always done. */
+#ifndef TERM_ALT_SCREEN
+#define TERM_ALT_SCREEN 1
+#endif
+
 typedef struct
 {
     uint8_t font_code;

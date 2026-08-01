@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The terminal's cell memory and scanout registers. The cells are the four
- * screen buffers of vga/term/term.c — 61,440 bytes the linker places behind
+ * The terminal's cell memory and scanout registers. The cells are the
+ * screen buffers of vga/term/term.c — 30,720 bytes the linker places behind
  * the soft CPU's 0x5 window, so the shared ANSI engine's ordinary stores
  * land here unchanged. The register bank above them carries what the
  * renderer needs each frame: the visible rows' base offsets (term.c owns
@@ -49,57 +49,28 @@ module vid_term (
     output logic [31:0] vid_term_b_rdata
 );
 
-    /* Banked by hand: 8192 + 4096 + 2048 + 1024. Quartus decomposes a
-     * depth into at most two power-of-two chunks and then rounds up, so
-     * 15360 asks for 16384 and costs sixteen blocks a lane to hold what
-     * fits in fifteen. Spelling the banks out costs fifteen, and four
-     * lanes hand back four blocks for a select and an output mux.
+    /* One array per byte lane. A byte-enabled write is what keeps a
+     * true dual-port RAM from being inferred at all, and the lanes cost
+     * exactly the same bits while each carries a plain whole-word write
+     * and two plain reads.
      *
-     * Still one array per byte lane: a byte-enabled write is what keeps
-     * a true dual-port RAM from being inferred at all, and the lanes
-     * cost the same bits while each carries a plain whole-word write and
-     * two plain reads. */
+     * 7680 words, and flat rather than banked. These were banked by hand
+     * while the store was 15360 deep, because Quartus decomposes a depth
+     * into at most two power-of-two chunks and rounds up, so 15360 asked
+     * for 16384 and cost sixteen blocks a lane. At 7680 the rounding is
+     * to 8192 and costs eight either way, so the banking bought nothing
+     * and came back out. Depth decides this, not cleverness. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0_b0[8192] /*verilator public_flat_rw*/;
+    logic [7:0] cell0[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1_b0[8192] /*verilator public_flat_rw*/;
+    logic [7:0] cell1[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2_b0[8192] /*verilator public_flat_rw*/;
+    logic [7:0] cell2[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3_b0[8192] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0_b1[4096] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1_b1[4096] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2_b1[4096] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3_b1[4096] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0_b2[2048] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1_b2[2048] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2_b2[2048] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3_b2[2048] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0_b3[1024] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1_b3[1024] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2_b3[1024] /*verilator public_flat_rw*/;
-    (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3_b3[1024] /*verilator public_flat_rw*/;
+    logic [7:0] cell3[7680] /*verilator public_flat_rw*/;
 
-    /* Which bank an index lands in. The boundaries are 8192, 12288 and
-     * 14336, so one bit decides each. */
-    function automatic logic [1:0] bank_of(input logic [2:0] hi);
-        bank_of = !hi[2] ? 2'd0 : !hi[1] ? 2'd1 : !hi[0] ? 2'd2 : 2'd3;
-    endfunction
-
-    logic [13:0] cell_idx;
-    always_comb cell_idx = b_addr[15:2];
+    logic [12:0] cell_idx;
+    always_comb cell_idx = b_addr[14:2];
 
     /* Row bases as byte offsets into the cell window, cursor packed
      * {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]}, the cursor
@@ -114,80 +85,31 @@ module vid_term (
     /* The scanout read stands alone and unreset: a block RAM's output
      * register has no asynchronous clear, and a read inside the
      * pipeline's reset would keep the cells out of memory entirely. */
-    /* Every bank reads in parallel and the select rides alongside, so
-     * the answer is still one clock behind the address rather than two —
-     * a block RAM's output register cannot be muxed before itself. */
-    logic [31:0] f_b0, f_b1, f_b2, f_b3;
-    logic [1:0] f_bank_q;
-    always_ff @(posedge clk) begin
-        f_b0 <= {cell3_b0[fetch_word[12:0]], cell2_b0[fetch_word[12:0]], cell1_b0[fetch_word[12:0]], cell0_b0[fetch_word[12:0]]};
-        f_b1 <= {cell3_b1[fetch_word[11:0]], cell2_b1[fetch_word[11:0]], cell1_b1[fetch_word[11:0]], cell0_b1[fetch_word[11:0]]};
-        f_b2 <= {cell3_b2[fetch_word[10:0]], cell2_b2[fetch_word[10:0]], cell1_b2[fetch_word[10:0]], cell0_b2[fetch_word[10:0]]};
-        f_b3 <= {cell3_b3[fetch_word[9:0]], cell2_b3[fetch_word[9:0]], cell1_b3[fetch_word[9:0]], cell0_b3[fetch_word[9:0]]};
-        f_bank_q <= bank_of(fetch_word[13:11]);
-    end
-    always_comb
-        fetch_q = f_bank_q == 2'd0 ? f_b0
-                : f_bank_q == 2'd1 ? f_b1
-                : f_bank_q == 2'd2 ? f_b2
-                                   : f_b3;
+    always_ff @(posedge clk)
+        fetch_q <= {cell3[fetch_word], cell2[fetch_word],
+                    cell1[fetch_word], cell0[fetch_word]};
 
     /* Same rule as the line buffer: the cells' output register carries
      * the cells and nothing else, and the registers answer beside it. */
-    logic [31:0] regs_q;
-    logic [31:0] c_b0, c_b1, c_b2, c_b3;
-    logic [1:0] c_bank_q;
+    logic [31:0] cells_q, regs_q;
     logic sel_cells;
-    logic [31:0] cells_q;
-    always_comb
-        cells_q = c_bank_q == 2'd0 ? c_b0
-                : c_bank_q == 2'd1 ? c_b1
-                : c_bank_q == 2'd2 ? c_b2
-                                   : c_b3;
     always_comb vid_term_b_rdata = sel_cells ? cells_q : regs_q;
 
     always_ff @(posedge clk) begin
-        c_b0 <= {cell3_b0[cell_idx[12:0]], cell2_b0[cell_idx[12:0]], cell1_b0[cell_idx[12:0]], cell0_b0[cell_idx[12:0]]};
-        c_b1 <= {cell3_b1[cell_idx[11:0]], cell2_b1[cell_idx[11:0]], cell1_b1[cell_idx[11:0]], cell0_b1[cell_idx[11:0]]};
-        c_b2 <= {cell3_b2[cell_idx[10:0]], cell2_b2[cell_idx[10:0]], cell1_b2[cell_idx[10:0]], cell0_b2[cell_idx[10:0]]};
-        c_b3 <= {cell3_b3[cell_idx[9:0]], cell2_b3[cell_idx[9:0]], cell1_b3[cell_idx[9:0]], cell0_b3[cell_idx[9:0]]};
-        c_bank_q <= bank_of(cell_idx[13:11]);
         if (b_stb) begin
+            cells_q <= {cell3[cell_idx], cell2[cell_idx],
+                        cell1[cell_idx], cell0[cell_idx]};
             sel_cells <= !b_addr[16];
             if (!b_addr[16]) begin
                 if (b_we) begin
-                    if (b_wstrb[0] && bank_of(cell_idx[13:11]) == 2'd0)
-                        cell0_b0[cell_idx[12:0]] <= b_wdata[7:0];
-                    if (b_wstrb[1] && bank_of(cell_idx[13:11]) == 2'd0)
-                        cell1_b0[cell_idx[12:0]] <= b_wdata[15:8];
-                    if (b_wstrb[2] && bank_of(cell_idx[13:11]) == 2'd0)
-                        cell2_b0[cell_idx[12:0]] <= b_wdata[23:16];
-                    if (b_wstrb[3] && bank_of(cell_idx[13:11]) == 2'd0)
-                        cell3_b0[cell_idx[12:0]] <= b_wdata[31:24];
-                    if (b_wstrb[0] && bank_of(cell_idx[13:11]) == 2'd1)
-                        cell0_b1[cell_idx[11:0]] <= b_wdata[7:0];
-                    if (b_wstrb[1] && bank_of(cell_idx[13:11]) == 2'd1)
-                        cell1_b1[cell_idx[11:0]] <= b_wdata[15:8];
-                    if (b_wstrb[2] && bank_of(cell_idx[13:11]) == 2'd1)
-                        cell2_b1[cell_idx[11:0]] <= b_wdata[23:16];
-                    if (b_wstrb[3] && bank_of(cell_idx[13:11]) == 2'd1)
-                        cell3_b1[cell_idx[11:0]] <= b_wdata[31:24];
-                    if (b_wstrb[0] && bank_of(cell_idx[13:11]) == 2'd2)
-                        cell0_b2[cell_idx[10:0]] <= b_wdata[7:0];
-                    if (b_wstrb[1] && bank_of(cell_idx[13:11]) == 2'd2)
-                        cell1_b2[cell_idx[10:0]] <= b_wdata[15:8];
-                    if (b_wstrb[2] && bank_of(cell_idx[13:11]) == 2'd2)
-                        cell2_b2[cell_idx[10:0]] <= b_wdata[23:16];
-                    if (b_wstrb[3] && bank_of(cell_idx[13:11]) == 2'd2)
-                        cell3_b2[cell_idx[10:0]] <= b_wdata[31:24];
-                    if (b_wstrb[0] && bank_of(cell_idx[13:11]) == 2'd3)
-                        cell0_b3[cell_idx[9:0]] <= b_wdata[7:0];
-                    if (b_wstrb[1] && bank_of(cell_idx[13:11]) == 2'd3)
-                        cell1_b3[cell_idx[9:0]] <= b_wdata[15:8];
-                    if (b_wstrb[2] && bank_of(cell_idx[13:11]) == 2'd3)
-                        cell2_b3[cell_idx[9:0]] <= b_wdata[23:16];
-                    if (b_wstrb[3] && bank_of(cell_idx[13:11]) == 2'd3)
-                        cell3_b3[cell_idx[9:0]] <= b_wdata[31:24];
+                    if (b_wstrb[0])
+                        cell0[cell_idx] <= b_wdata[7:0];
+                    if (b_wstrb[1])
+                        cell1[cell_idx] <= b_wdata[15:8];
+                    if (b_wstrb[2])
+                        cell2[cell_idx] <= b_wdata[23:16];
+                    if (b_wstrb[3])
+                        cell3[cell_idx] <= b_wdata[31:24];
                 end
             end else begin
                 case (b_addr[7:2])
@@ -298,7 +220,7 @@ module vid_term (
     /* Cell words: {fg, attr, code} and {ul, bg} of the cell being
      * resolved while its predecessor shifts out. */
     logic [31:0] w0_n, w1_n;
-    logic [13:0] fetch_word;
+    logic [12:0] fetch_word;
     logic [31:0] fetch_q;
     logic [7:0] bits;
     logic [15:0] fg_r, bg_r;
@@ -443,11 +365,11 @@ module vid_term (
                             ? 7'd79 : cursor_q[6:0];
                         cur_style <= cursor_q[7:0] >= 8'd80
                             ? 3'd1 : cursor_q[18:16];
-                        fetch_word <= row_base[logical_row][15:2];
+                        fetch_word <= row_base[logical_row][14:2];
                         step <= 4'd2;
                     end
                     4'd2: begin
-                        fetch_word <= fetch_word + 14'd1;
+                        fetch_word <= fetch_word + 13'd1;
                         step <= 4'd3;
                     end
                     4'd3: begin
@@ -459,7 +381,7 @@ module vid_term (
                     end
                     4'd4: begin
                         w1_n <= fetch_q;
-                        fetch_word <= fetch_word + 14'd1;
+                        fetch_word <= fetch_word + 13'd1;
                         step <= 4'd5;
                     end
                     4'd5: begin
@@ -469,7 +391,7 @@ module vid_term (
                         bg_r <= bg_res;
                         shreg <= bits_res;
                         rescol <= 7'd1;
-                        fetch_word <= fetch_word + 14'd1;
+                        fetch_word <= fetch_word + 13'd1;
                         step <= 4'd6;
                     end
                     /* Steady state: eight pixel writes for this cell while
@@ -488,7 +410,7 @@ module vid_term (
                         case (px[2:0])
                             3'd0: w0_n <= fetch_q;
                             3'd1: w1_n <= fetch_q;
-                            3'd6: fetch_word <= fetch_word + 14'd1;
+                            3'd6: fetch_word <= fetch_word + 13'd1;
                             3'd7: begin
                                 /* Load the resolved next cell. */
                                 bits <= bits_res;
@@ -496,7 +418,7 @@ module vid_term (
                                 bg_r <= bg_res;
                                 shreg <= bits_res;
                                 rescol <= rescol + 7'd1;
-                                fetch_word <= fetch_word + 14'd1;
+                                fetch_word <= fetch_word + 13'd1;
                                 if (px == 10'd639)
                                     run <= 1'b0;
                             end
@@ -540,7 +462,7 @@ module vid_term (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_term;
-    always_comb unused_vid_term = ^{b_addr[1:0], bits, cur_bar,
+    always_comb unused_vid_term = ^{b_addr[1:0], b_addr[15], bits, cur_bar,
                                     prog_q[30:26], prog_q[15:10],
                                     cursor_q[31:26], cursor_q[23:19], t[9]};
     /* verilator lint_on UNUSEDSIGNAL */

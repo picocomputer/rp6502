@@ -8,8 +8,13 @@
 // reads and writes one address at once, so that guarantee costs four
 // blocks for nothing.
 //
-// no_rw_check rather than a forced MLAB: every opl2 bank goes through
-// this module, so the ones that genuinely want a block should keep it.
+// Both tokens, and the second one is the point. no_rw_check alone was
+// tried first and moved Quartus's refusal from "Unsupported Mixed Feed
+// Through Setting" to "Latch Type Behaviour" — one blocker for another,
+// nothing freed. The two places in this tree where an array does reach
+// an MLAB spell it in full: vid_font.sv "no_rw_check, MLAB" and
+// ria_regs.sv "MLAB, no_rw_check".
+//
 // The change is invisible to Verilator — same RTL, different synthesis —
 // so the fit report is the only place it shows.
 
@@ -73,7 +78,7 @@ module mem_simple_dual_port #(
 );
     logic [DATA_WIDTH-1:0] dob_p0;
 
-    (* ramstyle = "no_rw_check" *)
+    (* ramstyle = "no_rw_check, MLAB" *)
     logic [DATA_WIDTH-1:0] ram [DEPTH-1:0] = '{default: DEFAULT_VALUE};
 
     always_ff @(posedge clka)

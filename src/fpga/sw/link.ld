@@ -3,24 +3,20 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One RAM: the 48 KB tightly-coupled memory at zero, code first because the
+ * One RAM: the 64 KB tightly-coupled memory at zero, code first because the
  * reset vector is address zero. The stack grows down from the top.
  *
- * The size is a block-memory decision as much as a software one. Each byte
- * lane costs one block per 1024 words, so 48 KB is forty-eight of them and
- * 64 KB would be sixty-four. The blocks for 64 KB now exist — a harvest
- * found nine and eight were already free — but the sizes between are not
- * free to pick: Quartus decomposes a depth into at most two power-of-two
- * chunks and rounds up, so 56 KB costs the same sixty-four as 64 KB unless
- * the lanes are banked by hand, and banking means per-bank init files
- * through rv_tcm_gen.py and every tb_load_tcm call site. Left at 48 KB
- * until the final block count is known and the size can be chosen once.
+ * It was 48 KB for a while because the blocks were not there. Sixty-four of
+ * the device's 308 go here now, and most of them came from turning the
+ * terminal's alternate screen buffer off for this platform: that halves the
+ * cell store and hands back twenty-eight blocks, against the sixteen this
+ * costs. See TERM_ALT_SCREEN in vga/term/term.h.
  */
 
 MEMORY
 {
-    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 48K
-    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
+    TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
+    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 30720
 }
 
 ENTRY(_start)
