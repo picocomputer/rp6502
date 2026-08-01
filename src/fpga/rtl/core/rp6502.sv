@@ -740,7 +740,9 @@ module rp6502
         .aud_psg_valid(psg_valid)
     );
 
-    logic signed [15:0] opl_l, opl_r;
+    /* One channel: the right output carries the same sample and nothing
+     * downstream reads it any more. */
+    logic signed [15:0] opl_l;
     logic opl_valid, opl_enabled;
     aud_opl aud_opl (
         .clk(clk_sys),
@@ -750,10 +752,31 @@ module rp6502
         .q_we(xr_busy && xr_we),
         .q_addr(xr_addr),
         .q_val(xr_wdata),
-        .aud_opl_l(opl_l),
-        .aud_opl_r(opl_r),
+        .aud_opl_out(opl_l),
         .aud_opl_valid(opl_valid),
         .aud_opl_enabled(opl_enabled)
+    );
+
+    /* The OPL2 into the codec's rate. A YM3812 samples every 1014 clk_sys
+     * and the codec every 1050, so this is the one voice on the machine
+     * whose rate is not ours to choose — everything else is generated at
+     * 48 kHz to begin with. Before this the surplus was simply dropped:
+     * pocket_i2s reloaded from whichever sample happened to be latest, so
+     * about 1,700 OPL samples a second were overwritten and never
+     * transmitted, unfiltered.
+     *
+     * One instance, not two. A YM3812 is mono and aud_opl emits the same
+     * sample on both channels, so resampling it twice would buy nothing
+     * and cost four more M10K. */
+    logic signed [15:0] opl_rs;
+    logic opl_rs_valid;
+    aud_rsmp aud_rsmp (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .in_sample(opl_l),
+        .in_valid(opl_valid),
+        .aud_rsmp_out(opl_rs),
+        .aud_rsmp_valid(opl_rs_valid)
     );
 
     /* The engines sum rather than select. The xreg validation lets only
@@ -761,16 +784,18 @@ module rp6502
      * emits silence with its pointer parked, and aud_opl gates on its
      * own enable — so the sum is the selection, without the mux.
      *
-     * The sample tick still follows the enabled engine. A parked PSG
-     * keeps ticking at 24 kHz so the bell below has a heartbeat to ride,
-     * and OR-ing that with the OPL's 49,704 would push both rates into a
-     * FIFO expecting one. */
+     * The tick still follows the enabled engine, but no longer because
+     * they run at different rates: both are 48 kHz now. The resampler
+     * emits on whichever OPL sample completed an output interval, so its
+     * pulses are evenly paced only on average, and the PSG's come off its
+     * own divider. Same rate, different phase, so one of them has to be
+     * the heartbeat rather than both. */
     logic signed [16:0] eng_l, eng_r;
     logic eng_valid;
     always_comb begin
-        eng_l = 17'(opl_l) + 17'(psg_l);
-        eng_r = 17'(opl_r) + 17'(psg_r);
-        eng_valid = opl_enabled ? opl_valid : psg_valid;
+        eng_l = 17'(opl_rs) + 17'(psg_l);
+        eng_r = 17'(opl_rs) + 17'(psg_r);
+        eng_valid = opl_enabled ? opl_rs_valid : psg_valid;
     end
 
     /* One bell for the machine, past the mux. Both engines used to carry

@@ -99,6 +99,15 @@ rp6502_asset(aud_roms GEN ${RP6502_SRC}/gen/aud_rom_gen.py
     OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_OPL}
     COMMENT "Generating the audio bring-up ROMs")
 
+# The resampler's coefficients, as the package the RTL reads. The same
+# script writes the C table in src/emu, so there is one design behind both
+# and the lockstep is comparing implementations rather than designs.
+set(RSMP_COEF_PKG ${RP6502_ASSETS}/rsmp_coef_pkg.sv)
+rp6502_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/gen/rsmp_coef_gen.py
+    ARGS --emit-sv ${RSMP_COEF_PKG}
+    OUTPUTS ${RSMP_COEF_PKG}
+    COMMENT "Generating the resampler coefficient package")
+
 # The OEM code page tables. This machine cannot link them in, so it gets
 # the binary and loads it into the staging store beside the fonts.
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)

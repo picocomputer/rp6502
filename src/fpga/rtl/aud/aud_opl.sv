@@ -52,8 +52,9 @@ module aud_opl #(
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
-    output logic signed [15:0] aud_opl_l,
-    output logic signed [15:0] aud_opl_r,
+    /* One channel. A YM3812 is mono; this used to emit the same sample on
+     * an _l and an _r and nothing ever read the second one. */
+    output logic signed [15:0] aud_opl_out,
     output logic aud_opl_valid,
     /* Which engine the machine is listening to. Programming either
      * device's pointer is what picks it, so the choice lives with the
@@ -167,22 +168,17 @@ module aud_opl #(
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            aud_opl_l <= '0;
-            aud_opl_r <= '0;
+            aud_opl_out <= '0;
             aud_opl_valid <= 1'b0;
         end else begin
             aud_opl_valid <= core_valid;
             if (core_valid) begin
-                if (mixed < -25'sd32768) begin
-                    aud_opl_l <= -16'sd32768;
-                    aud_opl_r <= -16'sd32768;
-                end else if (mixed > 25'sd32767) begin
-                    aud_opl_l <= 16'sd32767;
-                    aud_opl_r <= 16'sd32767;
-                end else begin
-                    aud_opl_l <= 16'(mixed);
-                    aud_opl_r <= 16'(mixed);
-                end
+                if (mixed < -25'sd32768)
+                    aud_opl_out <= -16'sd32768;
+                else if (mixed > 25'sd32767)
+                    aud_opl_out <= 16'sd32767;
+                else
+                    aud_opl_out <= 16'(mixed);
             end
         end
     end

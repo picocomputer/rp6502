@@ -73,6 +73,8 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_FPGA_RTL}/aud/aud_psg.sv
     ${RP6502_FPGA_RTL}/aud/aud_bel.sv
     ${RP6502_FPGA_RTL}/aud/aud_opl.sv
+    ${RSMP_COEF_PKG}
+    ${RP6502_FPGA_RTL}/aud/aud_rsmp.sv
     ${VID_PALETTE_PKG}
     ${RP6502_FPGA_RTL}/vid/vid_font.sv
     ${RP6502_FPGA_RTL}/vid/vid_palram.sv

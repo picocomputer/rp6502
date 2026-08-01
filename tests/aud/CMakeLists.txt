@@ -46,6 +46,17 @@ if(RP6502_VERILATE)
         ARGS -GRATE=48000
         TIMEOUT 300)
 
+    # --- The resampler in RTL, against emu/emu/rsmp.c in lockstep ---
+    # test_rsmp says whether the filter is any good; this says whether the
+    # fabric copies it exactly. Both read one generated coefficient design.
+    rp6502_add_module_test(rsmp_rtl
+        TOP aud_rsmp
+        RTL ${RSMP_COEF_PKG} ${RP6502_FPGA_RTL}/aud/aud_rsmp.sv
+        SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/emu/emu/rsmp.c
+        INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
+        DEPENDS rsmp_coef rsmp_coef_pkg
+        TIMEOUT 300)
+
     # --- The OPL2 device: the pointer gates it, a poke reaches the chip ---
     rp6502_add_module_test(opl
         TOP aud_opl

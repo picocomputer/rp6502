@@ -110,7 +110,7 @@ static uint64_t energy(int samples)
         tick();
         if (dut->aud_opl_valid)
         {
-            uint64_t d = (uint64_t)std::abs((int)(int16_t)dut->aud_opl_l);
+            uint64_t d = (uint64_t)std::abs((int)(int16_t)dut->aud_opl_out);
             sum += d;
             if (d > last_peak)
                 last_peak = d;
