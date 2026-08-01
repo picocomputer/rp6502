@@ -36,10 +36,14 @@ int16_t aud_sine_table[256];
 static irq_handler_t aud_irq_fn;
 static uint32_t aud_irq_rate;
 
-/* What this chip generates at. The PWM's wrap divides 256 MHz, so any rate
- * is reachable and 24000 lands exactly; the carrier is a separate slice at
- * 250 kHz and does not move with it. */
-#define AUD_NATIVE_RATE 24000
+/* What this chip generates at. The PWM's wrap divides 256 MHz, so 48000
+ * lands within 0.006% (a wrap of 5332 realises 48,003 Hz) and the carrier is
+ * a separate slice at 250 kHz that does not move with it. At 24000 a square
+ * wave aliased everything above 12 kHz straight back into the band, with
+ * nothing band-limiting it. */
+#define AUD_NATIVE_RATE 48000
+
+uint32_t aud_native_rate(void) { return AUD_NATIVE_RATE; }
 
 void __in_flash("aud_init") aud_init(void)
 {
@@ -66,7 +70,7 @@ void __in_flash("aud_init") aud_init(void)
         aud_sine_table[i] = lround(cos(M_PI * 2.0 / 256 * i) * -32767);
 
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
-    psg_setup(AUD_NATIVE_RATE);
+    psg_setup(aud_native_rate());
     bel_setup();
 }
 

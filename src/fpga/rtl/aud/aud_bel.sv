@@ -24,8 +24,10 @@
  */
 
 module aud_bel #(
-    /* Samples per second this instance is stepped at. */
-    parameter int RATE = 24000
+    /* Samples per second this instance is stepped at. The machine's one
+     * bell runs at 48 kHz; the default matches it so an instance that
+     * forgets to say gets the right answer rather than the old one. */
+    parameter int RATE = 48000
 ) (
     input logic clk,
     input logic rst_n,

@@ -8,8 +8,9 @@
  * through the 6581's envelope rates. Each sample walks the handler's
  * exact order — the previous sample mixes out under the fresh pan while
  * the phase, wave, and envelope advance behind it. The phase increment
- * divides 2^32 * freq by 72000 through a restoring divider because the
- * oracle divides, and every accumulator wraps at the C's own width.
+ * divides 2^32 * freq by three times the rate through a restoring divider
+ * because the oracle divides, and every accumulator wraps at the C's own
+ * width.
  *
  * Register writes arrive from the RW engine's snoop and take effect on
  * the clock they land, which is what a register does. The firmware
@@ -29,7 +30,14 @@
 module aud_psg
     import aud_sine_pkg::*;
 #(
-    parameter int TICKS_PER_SAMPLE = 2100
+    /* Samples per second the arithmetic is built for: the envelope tables
+     * and the phase divisor come out of this. Separate from the tick below,
+     * which only decides how often a sample happens — the lockstep shortens
+     * that to run faster and must not change this. psg_setup is handed the
+     * same number; PSG_SHIM_RATE is where the test states it. */
+    parameter int RATE = 48000,
+    /* 50.4 MHz / 48,000 exactly. */
+    parameter int TICKS_PER_SAMPLE = 1050
 ) (
     input logic clk,
     input logic rst_n,
@@ -62,26 +70,30 @@ module aud_psg
         32'd61 << 16, 32'd50 << 16, 32'd40 << 16, 32'd31 << 16,
         32'd22 << 16, 32'd14 << 16, 32'd7 << 16, 32'd0
     };
+    /* psg_setup's tables, elaborated: (1 << 24) over the samples in that
+     * many milliseconds, with the milliseconds converted as RATE * ms / 1000
+     * the way the C does — not RATE / 1000 * ms, which drops the part of the
+     * rate below a kilohertz. Sixty-four bit intermediates because RATE
+     * times the longest release passes 2^31 above 89 kHz.
+     *
+     * Spelled out rather than folded into a constant function: this has to
+     * elaborate in Quartus as well as Verilator, and a function call in a
+     * localparam array initializer is the sort of thing only one of them
+     * accepts. */
+    `define PSG_ENV(ms) 32'd16777216 / 32'((64'(RATE) * 64'd``ms) / 64'd1000)
     localparam logic [31:0] ATTACK_TABLE[16] = '{
-        32'd16777216 / (24 * 2), 32'd16777216 / (24 * 8),
-        32'd16777216 / (24 * 16), 32'd16777216 / (24 * 24),
-        32'd16777216 / (24 * 38), 32'd16777216 / (24 * 56),
-        32'd16777216 / (24 * 68), 32'd16777216 / (24 * 80),
-        32'd16777216 / (24 * 100), 32'd16777216 / (24 * 250),
-        32'd16777216 / (24 * 500), 32'd16777216 / (24 * 800),
-        32'd16777216 / (24 * 1000), 32'd16777216 / (24 * 3000),
-        32'd16777216 / (24 * 5000), 32'd16777216 / (24 * 8000)
+        `PSG_ENV(2), `PSG_ENV(8), `PSG_ENV(16), `PSG_ENV(24),
+        `PSG_ENV(38), `PSG_ENV(56), `PSG_ENV(68), `PSG_ENV(80),
+        `PSG_ENV(100), `PSG_ENV(250), `PSG_ENV(500), `PSG_ENV(800),
+        `PSG_ENV(1000), `PSG_ENV(3000), `PSG_ENV(5000), `PSG_ENV(8000)
     };
     localparam logic [31:0] DR_TABLE[16] = '{
-        32'd16777216 / (24 * 6), 32'd16777216 / (24 * 24),
-        32'd16777216 / (24 * 48), 32'd16777216 / (24 * 72),
-        32'd16777216 / (24 * 114), 32'd16777216 / (24 * 168),
-        32'd16777216 / (24 * 204), 32'd16777216 / (24 * 240),
-        32'd16777216 / (24 * 300), 32'd16777216 / (24 * 750),
-        32'd16777216 / (24 * 1500), 32'd16777216 / (24 * 2400),
-        32'd16777216 / (24 * 3000), 32'd16777216 / (24 * 9000),
-        32'd16777216 / (24 * 15000), 32'd16777216 / (24 * 24000)
+        `PSG_ENV(6), `PSG_ENV(24), `PSG_ENV(48), `PSG_ENV(72),
+        `PSG_ENV(114), `PSG_ENV(168), `PSG_ENV(204), `PSG_ENV(240),
+        `PSG_ENV(300), `PSG_ENV(750), `PSG_ENV(1500), `PSG_ENV(2400),
+        `PSG_ENV(3000), `PSG_ENV(9000), `PSG_ENV(15000), `PSG_ENV(24000)
     };
+    `undef PSG_ENV
 
     localparam logic [1:0] ADSR_RELEASE = 2'd0;
     localparam logic [1:0] ADSR_ATTACK = 2'd1;
@@ -182,15 +194,28 @@ module aud_psg
     end
 
     /* One restoring divider makes the phase increment: the 48-bit
-     * dividend freq * 2^32 over 72000. */
+     * dividend freq * 2^32 over three times the rate.
+     *
+     * Sized from the divisor rather than assumed. A restoring divider's
+     * remainder runs below its divisor and the compare sees it shifted up
+     * one bit, so 72000 fitted seventeen and eighteen and 144000 fits
+     * neither: at 48 kHz the old widths would have dropped the top bit of
+     * every remainder and detuned the whole engine, silently. */
+    localparam logic [31:0] PHASE_DIV = 32'(3 * RATE);
+    localparam int REM_W = $clog2(PHASE_DIV);
+
     logic [47:0] div_q;
-    logic [17:0] div_rem;
+    logic [REM_W-1:0] div_rem;
     logic [5:0] div_i;
-    logic [17:0] div_t;
+    logic [REM_W:0] div_t;
+    logic [REM_W-1:0] div_next;
     logic div_ge;
     always_comb begin
-        div_t = {div_rem[16:0], div_q[47]};
-        div_ge = div_t >= 18'd72000;
+        div_t = {div_rem, div_q[47]};
+        div_ge = div_t >= PHASE_DIV[REM_W:0];
+        /* Narrower than div_t on purpose: both arms land below the divisor,
+         * so the extra bit is provably zero. */
+        div_next = REM_W'(div_ge ? div_t - PHASE_DIV[REM_W:0] : div_t);
     end
 
     logic [31:0] phase_next;
@@ -408,7 +433,7 @@ module aud_psg
                 end
                 P_DIV: begin
                     div_q <= {div_q[46:0], div_ge};
-                    div_rem <= div_ge ? div_t - 18'd72000 : div_t;
+                    div_rem <= div_next;
                     div_i <= div_i + 6'd1;
                     if (div_i == 6'd47)
                         state <= P_STEP;
@@ -471,8 +496,7 @@ module aud_psg
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
     always_comb unused_aud_psg = ^{cf[63:56], gather, cview,
-                                   walk_xaddr[0], q_val[7:1],
-                                   div_rem[17]};
+                                   walk_xaddr[0], q_val[7:1]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

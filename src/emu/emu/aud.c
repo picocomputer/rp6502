@@ -21,15 +21,18 @@ static void (*aud_irq_fn)(void);
 static uint32_t aud_irq_rate;
 
 /* What the emulated machine generates at until the host says otherwise.
- * aud_pump resamples whatever this is into the device rate. */
-#define AUD_NATIVE_RATE 24000
+ * aud_pump resamples whatever this is into the device rate. Asking sokol
+ * for 48000 so this is usually a straight copy is a later step. */
+#define AUD_NATIVE_RATE 48000
+
+uint32_t aud_native_rate(void) { return AUD_NATIVE_RATE; }
 
 void aud_init(void)
 {
     // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
         aud_sine_table[i] = (int16_t)lround(cos(M_PI * 2.0 / 256 * i) * -32767);
-    psg_setup(AUD_NATIVE_RATE);
+    psg_setup(aud_native_rate());
     aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
 }
 

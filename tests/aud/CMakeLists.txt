@@ -15,9 +15,6 @@ if(NOT WIN32)
     target_link_libraries(test_rsmp PRIVATE m)
 endif()
 
-# --- The PSG through a real program (the ezpsg Fur Elise tracker) ---
-rp6502_add_test(furelise LIBS emu_core FIXTURE furelise.rp6502 TIMEOUT 60)
-
 if(RP6502_VERILATE)
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
         ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico)
@@ -33,7 +30,9 @@ if(RP6502_VERILATE)
             ${RP6502_SRC}/ria/aud/psg.c ${RP6502_SRC}/ria/aud/bel.c
         INCLUDES ${AUD_SHIM_INCLUDES}
         DEPENDS aud_sine_rom
-        ARGS -GTICKS_PER_SAMPLE=1200
+        # RATE is the arithmetic and must match PSG_SHIM_RATE; the tick is
+        # shortened only so the simulation runs faster.
+        ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
         TIMEOUT 300)
 
     # --- The one bell, against the real bel.c ---

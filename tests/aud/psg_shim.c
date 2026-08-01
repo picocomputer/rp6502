@@ -36,6 +36,11 @@ void aud_setup(void (*fn)(void), uint32_t rate)
     handler = fn;
 }
 
+/* The bench steps the engine itself, so the only thing this answers is what
+ * bel_setup registers with — and that has to be the rate the model was
+ * elaborated for. */
+uint32_t aud_native_rate(void) { return PSG_SHIM_RATE; }
+
 void aud_out(int16_t left, int16_t right)
 {
     out_l = left;

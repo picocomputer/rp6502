@@ -9,14 +9,17 @@
 
 #include <stdint.h>
 
-/* The rate aud_psg.sv's constants are elaborated for: its envelope tables
- * divide by `24 * ms` and its phase divider by 72000. test_psg hands the
- * same number to psg_setup, because a lockstep between two engines built
- * for different rates compares nothing — and psg_setup divides by it, so
- * leaving it unset is a division by zero rather than a quiet mismatch.
- * Not shim_init's job: test_bel links this shim without psg.c. Move this
- * when aud_psg.sv's constants move. */
-#define PSG_SHIM_RATE 24000
+/* The rate aud_psg.sv's arithmetic is elaborated for. test_psg hands the
+ * same number to psg_setup and to the model's RATE parameter, because a
+ * lockstep between two engines built for different rates compares nothing —
+ * and psg_setup divides by it, so leaving it unset is a division by zero
+ * rather than a quiet mismatch. Not shim_init's job: test_bel links this
+ * shim without psg.c.
+ *
+ * Distinct from TICKS_PER_SAMPLE, which the test shortens so the simulation
+ * runs faster. The tick decides how often a sample happens; this decides
+ * what the sample is. */
+#define PSG_SHIM_RATE 48000
 
 #ifdef __cplusplus
 extern "C"

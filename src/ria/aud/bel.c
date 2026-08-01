@@ -15,7 +15,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define BEL_DEFAULT_RATE 24000
 #define BEL_QUEUE_SIZE 8
 
 /* As psg.c: full scale, and the value a closed duty gate rails to. */
@@ -366,7 +365,7 @@ __time_critical_func(bel_irq_handler)(void)
 
     /* bel_sample already answers at full scale and cannot exceed it, so
      * there is nothing to clamp; the platform's aud_out narrows. */
-    int16_t sample = bel_sample(BEL_DEFAULT_RATE);
+    int16_t sample = bel_sample(aud_native_rate());
     aud_out(sample, sample);
 }
 #pragma GCC pop_options
@@ -375,5 +374,5 @@ void bel_setup(void)
 {
     bel_state.noise1 = 0x67452301;
     bel_state.noise2 = 0xEFCDAB89;
-    aud_setup(bel_irq_handler, BEL_DEFAULT_RATE);
+    aud_setup(bel_irq_handler, aud_native_rate());
 }

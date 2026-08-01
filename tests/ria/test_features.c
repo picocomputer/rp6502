@@ -152,7 +152,7 @@ UTEST(features, teletype_bell)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
-    ASSERT_EQ(aud_rate(), 24000); /* standing BEL device */
+    ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* standing BEL device */
     ASSERT_TRUE(com_get_bel());         /* enabled by default */
 
     /* Disabled (nothing has rung yet): a BEL byte is ignored and stays silent. */
@@ -171,7 +171,7 @@ UTEST(features, teletype_bell)
 UTEST(features, audio_disable)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    ASSERT_EQ(aud_rate(), 24000); /* enabled by default */
+    ASSERT_EQ(aud_rate(), (int)aud_native_rate()); /* enabled by default */
 
     aud_set_enabled(false);
     ASSERT_FALSE(aud_enabled());
