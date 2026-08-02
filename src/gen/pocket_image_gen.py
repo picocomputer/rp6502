@@ -16,8 +16,15 @@
 #
 # Both of those are a bright field with dark marks, so a picture drawn
 # on white converts straight. Analogue warns that "the icon color may be
-# inverted in the UI", which is not checkable from here, so --invert is
-# how to flip it after seeing it on a real Pocket.
+# inverted in the UI", and on the strength of that warning the icon was
+# once generated with --invert. A real Pocket then showed it as a cow on
+# a black square: the UI does not invert, and the icon wants the same
+# polarity as everything else. Do not pass --invert for it.
+#
+# --at places the artwork's centre at a fraction of the width. The
+# platform banner is not centred: the stock cores set their device art a
+# little left of middle, and 0.37 is where they sit. Plain centring and
+# --left both look wrong beside them.
 #
 # This is run by hand when the artwork changes and its output is
 # committed, so PIL is a tool the author needs and not a thing the
@@ -46,8 +53,8 @@ def decode(data: bytes, width: int, height: int) -> np.ndarray:
     return np.rot90(rot, -1)
 
 
-def fit(src: Image.Image, width: int, height: int,
-        invert: bool = False, left: bool = False) -> np.ndarray:
+def fit(src: Image.Image, width: int, height: int, invert: bool = False,
+        left: bool = False, at: float | None = None) -> np.ndarray:
     """Whole picture, aspect kept, on the field the marks sit on."""
     gray = src.convert("L")
     if invert:
@@ -57,7 +64,13 @@ def fit(src: Image.Image, width: int, height: int,
     h = max(1, round(gray.height * scale))
     gray = gray.resize((w, h), Image.LANCZOS)
     field = Image.new("L", (width, height), 0 if invert else 255)
-    field.paste(gray, (0 if left else (width - w) // 2, (height - h) // 2))
+    if at is not None:
+        x = round(width * at - w / 2)
+    elif left:
+        x = 0
+    else:
+        x = (width - w) // 2
+    field.paste(gray, (max(0, min(x, width - w)), (height - h) // 2))
     return np.asarray(field, dtype=np.uint8)
 
 
@@ -90,15 +103,20 @@ def main() -> int:
         return selftest(Path(args[1]))
     invert = "--invert" in args
     left = "--left" in args
+    at = None
+    if "--at" in args:
+        i = args.index("--at")
+        at = float(args[i + 1])
+        del args[i:i + 2]
     args = [a for a in args if a not in ("--invert", "--left")]
     if len(args) != 4:
-        print("usage: pocket_image_gen.py [--invert] [--left] <src.png> "
-              "<out.bin> <w> <h>\n"
+        print("usage: pocket_image_gen.py [--invert] [--left] [--at FRAC] "
+              "<src.png> <out.bin> <w> <h>\n"
               "       pocket_image_gen.py --selftest <core-template dir>",
               file=sys.stderr)
         return 2
     width, height = int(args[2]), int(args[3])
-    data = encode(fit(Image.open(args[0]), width, height, invert, left))
+    data = encode(fit(Image.open(args[0]), width, height, invert, left, at))
     Path(args[1]).write_bytes(data)
     print(f"{args[1]}: {width}x{height}, {len(data)} bytes")
     return 0
