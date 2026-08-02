@@ -144,17 +144,16 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        # A shift register the fitter recognises becomes an M10K, and the
-        # ones here are short enough that a block is a poor trade: three
-        # blocks go back for a handful of ALMs. Blocks are what this
-        # device is short of, not logic.
-        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
-        # The device ran out of LABs before it ran out of ALMs — 1854
-        # asked of 1848 — while setup closes with more than a nanosecond
-        # and a half to spare. Area mode trades exactly that margin for
-        # placement room. The old per-knob register packing assignment
-        # is gone from 25.1std ("no longer supported -- removing"), so
-        # the umbrella is the lever that remains.
+        # Shift-register recognition was off while M10K was the scarce
+        # currency: three blocks went back for a handful of ALMs. The
+        # scarcity inverted — the filesystem batch tipped the device to
+        # 1853 LABs of 1848 with four blocks idle — so the trade flips
+        # with it: the fitter may spend blocks on shift registers again.
+        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION ON"
+        # And area mode: setup closes with more than a nanosecond and a
+        # half to spare, which is margin the packer can spend. The old
+        # per-knob register packing assignment is gone from 25.1std
+        # ("no longer supported -- removing"); the umbrella remains.
         "set_global_assignment -name OPTIMIZATION_MODE \"AGGRESSIVE AREA\"")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")

@@ -36,6 +36,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 /* Slot 0 is the ROM and slot 1 the fonts; the eight above them are
  * ours, and data.json declares them. */
@@ -155,6 +156,18 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
 #define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 
+/* A name that spells a host root travels verbatim: the host owns
+ * /Assets and /Saves, and a program naming them is asking for the
+ * host's tree, not the drive's. Everything else gets the drive's
+ * root. Detected before the slash strip, or the rooted spelling
+ * would lose the slash that marks it. */
+static bool msc_host_rooted(const char *p)
+{
+    if (*p == '/')
+        p++;
+    return !strncasecmp(p, "Assets/", 7) || !strncasecmp(p, "Saves/", 6);
+}
+
 /* Bind a slot to a name. Open File answers 0 when the file was there
  * and 1 when it had to make it, and both of those are yes — the rest
  * are 2 slot not defined, 3 not found, 4 malformed path, 5 general. */
@@ -163,8 +176,12 @@ static uint32_t msc_try_open(uint32_t slot, const char *name,
 {
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
-    memcpy(pad, MSC_PATH, MSC_PATH_LEN);
-    size_t n = MSC_PATH_LEN;
+    size_t n = 0;
+    if (!msc_host_rooted(name))
+    {
+        memcpy(pad, MSC_PATH, MSC_PATH_LEN);
+        n = MSC_PATH_LEN;
+    }
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
@@ -233,7 +250,10 @@ bool msc_std_handles(const char *path)
 
 int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    path = msc_strip_drive(path);
+    /* Host-rooted names skip the drive strip too: their leading slash
+     * is the root's, not the drive's. */
+    if (!msc_host_rooted(path))
+        path = msc_strip_drive(path);
     if (!path)
     {
         *err = API_ENODEV;

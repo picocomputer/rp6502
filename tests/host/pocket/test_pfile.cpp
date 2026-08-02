@@ -497,3 +497,31 @@ UTEST(pfile, the_whole_drive_conforms)
      * folder experiment prove nothing. */
     ASSERT_EQ(g_dt[11 * 2 + 1], 256u);
 }
+
+/* The root-spelling probe, mechanics only: the bench's host accepts
+ * every rooted form, so a clean run reads five creates and five full
+ * writes. What each spelling does on real hardware is the question the
+ * ROM exists to ask; here it just has to ask it correctly. */
+UTEST(pfile, roots_probe_mechanics)
+{
+    std::vector<uint8_t> rom = read_file(ROOTS_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+
+    for (long i = 0; i < 60000000L && g_console.find("DONE") == std::string::npos;
+         i++)
+        step();
+
+    fprintf(stderr, "roots console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find("DONE") != std::string::npos);
+    for (const char *want : {"0:-CW", "1:-CW", "2:-CW", "3:-CW", "4:-CW"})
+        ASSERT_TRUE(g_console.find(want) != std::string::npos);
+
+    /* Verbatim delivery is the point: the host must have seen the
+     * spellings, not the drive's rooting of them. */
+    ASSERT_TRUE(g_files.count("000.bin") == 1);
+    ASSERT_TRUE(g_files.count("Assets/rp6502/common/001.bin") == 1);
+    ASSERT_TRUE(g_files.count("002.bin") == 1);
+    ASSERT_TRUE(g_files.count("Saves/rp6502/common/003.bin") == 1);
+    ASSERT_TRUE(g_files.count("004.bin") == 1);
+}

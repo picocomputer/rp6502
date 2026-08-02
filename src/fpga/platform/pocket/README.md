@@ -222,7 +222,7 @@ assembles the card tree into `build/fpga/tests/package`. Zip the three
 top directories at the archive root as
 `Rumbledethumps.RP6502_<version>_<date>.zip`.
 
-The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe` —
+The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe`, `roots` —
 are built into `build/fpga/tests/` and are deliberately not in the
 package. Copy the ones you want into `Assets/rp6502/common/` on a card
 when testing.
