@@ -55,9 +55,11 @@ static bool rv_phase;
 static const long LINE_CLOCKS = 1600;
 static const long LINE_DEADLINE = 2 * 799;
 
-/* The sprite stage waits for every plane to finish before it plans
- * (vid_sprite.sv SP_WAIT), so a line is strictly the planes and then
- * the sprites. Worth knowing which half the clocks are in. */
+/* The sprite stage walks planes in order and waits only for the plane
+ * each sprite lands in (vid_sprite.sv SP_WAIT — it used to wait for all
+ * three, and this comment used to say so). Sprites on a light plane
+ * overlap a heavy fill for free; the planes+sprites sums below are the
+ * coupled case, where the sprites target the plane that was slow. */
 struct budget_t
 {
     long worst;        /* most clocks any one line took, end to end */
