@@ -123,16 +123,23 @@ module vid_palcache
     always_comb vid_palcache_hit = !xram
         || (hit_a && (!need_b || hit_b));
 
-    /* The fill: one word at a time, a's before b's. The request drops
-     * the cycle the line lands, and the consumer's combinational hit
-     * rises the same cycle the arrays update settle — one stalled pixel
-     * per miss beyond the round trip itself. */
+    /* The fill: one word at a time, a's before b's. The miss stands a
+     * register between the tag compare and the channel: the lookup's
+     * arithmetic — the consumer's index slicing, the entry add, the
+     * compare — is a full-period cone already, and asking it to also
+     * cross the fabric to the XRAM block's address port in the same
+     * cycle is what broke the fit. A miss pays one extra cycle it was
+     * already spending stalled; a hit still answers where it is asked. */
+    logic pending;
+    logic [13:0] pend_wa;
     logic filling;
     logic [13:0] fill_wa;
+    logic miss_now;
+    always_comb miss_now = lookup && xram && !filling && !pending
+        && (!hit_a || (need_b && !hit_b));
     always_comb begin
-        vid_palcache_req = lookup && xram && !filling
-            && (!hit_a || (need_b && !hit_b));
-        vid_palcache_addr = !hit_a ? wa_a : wa_b;
+        vid_palcache_req = pending;
+        vid_palcache_addr = pend_wa;
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -142,12 +149,19 @@ module vid_palcache
                 valid[s][1] <= 1'b0;
                 lru[s] <= 1'b0;
             end
+            pending <= 1'b0;
+            pend_wa <= '0;
             filling <= 1'b0;
             fill_wa <= '0;
         end else begin
-            if (!filling && fill_gnt) begin
+            if (miss_now) begin
+                pending <= 1'b1;
+                pend_wa <= !hit_a ? wa_a : wa_b;
+            end
+            if (pending && fill_gnt) begin
+                pending <= 1'b0;
                 filling <= 1'b1;
-                fill_wa <= vid_palcache_addr;
+                fill_wa <= pend_wa;
             end
             if (filling && fill_rdy) begin
                 filling <= 1'b0;
@@ -170,6 +184,7 @@ module vid_palcache
                     valid[s][0] <= 1'b0;
                     valid[s][1] <= 1'b0;
                 end
+                pending <= 1'b0;
                 filling <= 1'b0;
             end
         end

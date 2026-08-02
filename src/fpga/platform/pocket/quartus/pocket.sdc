@@ -67,6 +67,19 @@ set_max_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
 set_min_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
     -to [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] 0
 
+# The same length, crossing on into the soft CPU. This leg is
+# synchronous — 50.4 into 25.2, rising together — but the bus still
+# stands still when it is sampled: the bridge writes it on the settle
+# toggle and fires slot_set four machine clocks later, and rv_soc
+# captures only under that enable. The min-delay-0 idiom does nothing
+# here because the same-edge hold relationship is already zero; what is
+# void is the hold check itself, which guards a same-edge change the
+# announcement's four-clock lead excludes. Setup stays, and matters:
+# the bus must still cross before the enable does.
+set_false_path -hold \
+    -from [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] \
+    -to [get_registers {*|mmio_slot_len[*]}]
+
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first
 # stage is cut by the rule above. Bound the parameters instead of
