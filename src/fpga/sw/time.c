@@ -58,28 +58,32 @@ static int32_t tim_base_nsec;
 static uint64_t tim_base_us;
 static bool tim_program_set;   /* a program set UTC; the menu lets go */
 
-/* Two things here read backwards and both are right.
+/* The zone has no name, so it is spelled as its own offset: the
+ * bracketed form, "<-0700>+7:00", which POSIX provides for exactly
+ * this case and which makes %Z print "-0700".
  *
- * The offset's sign is inverted against the menu's. POSIX states an
- * offset as what must be *added to local time to reach UTC*, so a zone
- * seven hours east of Greenwich spells itself "-7". The tree's own
- * table says the same thing: CET is "CET-1", SAST is "SAST-2".
+ * The two halves disagree on sign and both are right. Inside the
+ * brackets is the name, and a name reads the way people write offsets,
+ * east positive. Outside is the POSIX offset, which states what must
+ * be *added to local time to reach UTC* and so runs the other way: the
+ * same zone seven hours east is "-0700" and "+7:00" in one string.
+ * The tree's own table keeps the outside convention — CET is "CET-1",
+ * SAST is "SAST-2".
  *
- * And the name is not "UTC", because it is not UTC — it is whatever
- * zone the user set, and %Z prints it. The letters are arbitrary; only
- * their count matters.
- *
- * The zone's name must be three characters or more. POSIX says so, and
- * the C library enforces it by giving up without a word: a two-letter
- * name parses as no zone at all, TZ stays unset, and localtime quietly
- * returns UTC — which is exactly what "LT" did on hardware, both
- * clocks reading GMT while the offset itself was arriving fine. */
+ * A plain name here must be three characters or more; POSIX says so
+ * and the C library enforces it by giving up without a word. "LT"
+ * parsed as no zone at all, TZ stayed unset, and localtime quietly
+ * returned UTC — both clocks reading GMT on hardware while the offset
+ * itself was arriving perfectly. The brackets sidestep the rule, and
+ * fstest now checks that the two clocks disagree, so a string this
+ * library will not parse cannot ship again. */
 static void tim_apply_tz(void)
 {
-    char tz[16];
+    char tz[24];
     int32_t west = -tim_tz_min;
-    snprintf(tz, sizeof tz, "LOC%+ld:%02ld", (long)(west / 60),
-             labs((long)(west % 60)));
+    snprintf(tz, sizeof tz, "<%+03ld%02ld>%+ld:%02ld",
+             (long)(tim_tz_min / 60), labs((long)(tim_tz_min % 60)),
+             (long)(west / 60), labs((long)(west % 60)));
     setenv("TZ", tz, 1);
     tzset();
 }

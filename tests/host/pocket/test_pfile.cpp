@@ -200,11 +200,20 @@ static void do_openfile()
     uint8_t param[264];
     host_get_bytes(dut->tb_pocket_param_struct, param, sizeof param);
     std::string name((const char *)param);
-    /* Hardware answered the question the old bench refused to guess at:
-     * the host resolves a relative name against /Saves/rp6502/common/,
-     * a working directory it pins and never moves, and a leading slash
-     * names the card's root. */
-    std::string key = name[0] == '/' ? name : "/Saves/rp6502/common/" + name;
+    /* The host resolves nothing. A name reaches it as an absolute path
+     * or not at all — measured, when the same run wrote 004.bin spelled
+     * in full and never produced 000.bin spelled bare. Refusing the
+     * relative form here is what holds the drive to spelling it out. */
+    if (name.empty() || name[0] != '/')
+    {
+        g_opens++;
+        dut->target_dataslot_done = 1;
+        dut->target_dataslot_err = 4; /* malformed path */
+        for (int k = 0; k < 4; k++)
+            a_edge();
+        return;
+    }
+    std::string key = name;
     std::string parent = key.substr(0, key.rfind('/'));
     if (parent.empty())
         parent = "/";
@@ -431,6 +440,10 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
     dut->rtc_valid = 1;
+    /* The menu's UTC offset, five and a half hours east: a half hour in
+     * it so a sign error cannot hide behind a whole-hour symmetry, and
+     * non-zero so the two clocks must disagree. */
+    host_write(0x1000000Cu, 330);
     dut->datatable_q = g_dt[1];
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;
@@ -477,7 +490,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
 
 /* The whole drive in one boot. Every check the ROM makes is one the
  * machine decides for itself, so the bench can hold it to the same
- * standard the card does: all forty-seven, or name the ones that
+ * standard the card does: all forty-eight, or name the ones that
  * failed. A ROM shipped without this costs a bitstream and a photograph
  * to find a branch that went the wrong way. */
 static void run_fstest(int *utest_result)
@@ -500,11 +513,11 @@ static void run_fstest(int *utest_result)
                 g_console.c_str(), g_opens, g_reads, g_writes);
     ASSERT_TRUE(at != std::string::npos);
 
-    /* 47 checks, printed in hex. Anything less and the console names
+    /* 48 checks, printed in hex. Anything less and the console names
      * which ones on the BAD line. */
-    if (g_console.find("PASS 2F/2F") == std::string::npos)
+    if (g_console.find("PASS 30/30") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("PASS 2F/2F") != std::string::npos);
+    ASSERT_TRUE(g_console.find("PASS 30/30") != std::string::npos);
 }
 
 UTEST(pfile, the_whole_drive_conforms)

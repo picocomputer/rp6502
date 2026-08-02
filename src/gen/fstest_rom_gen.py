@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The whole drive in one boot. Forty-seven checks the machine decides for
+# The whole drive in one boot. Forty-eight checks the machine decides for
 # itself, printed as one row of dots, one line naming whatever failed,
 # and a count. Nothing here needs reading off against a table.
 #
@@ -40,6 +40,8 @@ OP_CHDIR = 0x29
 OP_CHDRIVE = 0x2A
 OP_GETCWD = 0x2B
 OP_SYNCFS = 0x1E
+OP_GMTIME = 0x3A
+OP_LOCALTIME = 0x3B
 OP_TIME_GET = 0x3F
 SEEK_CUR, SEEK_END, SEEK_SET = 0, 1, 2  # cc65's spelling, not POSIX's
 
@@ -53,6 +55,7 @@ EXPL, EXPH = 0x0206, 0x0207
 CNT = 0x0208
 BAD = 0x0209
 CNTL, CNTH = 0x020A, 0x020B
+TMP2 = 0x020C
 FAILS = 0x0210  # the indices that failed, printed at the end
 FDS = 0x0230    # eight descriptors for the slot exhaustion check
 
@@ -655,7 +658,40 @@ def build():
     p.lda_abs(TMP)
     check(is_zero)
 
-    # 47 syncfs drives the flush the bridge can now survive
+    # 47 the offset actually reaches the C library. It can arrive
+    # perfectly and localtime still read UTC: a zone name of under
+    # three characters makes the library decline to parse it and say
+    # nothing, which is what shipped once. Nothing here knows the
+    # offset — only that the two clocks must not agree, which they
+    # cannot unless the zone took. Summed over the whole wire struct
+    # so no field order is assumed.
+    def tm_sum(op):
+        for _ in range(8):
+            p.push(0)
+        p.call(op)
+        p.lda(0)
+        p.sta(TMP)
+        for _ in range(18):
+            p.lda_abs(XSTACK)
+            p.emit(0x18)                        # clc
+            p.emit(0x6D, TMP & 0xFF, TMP >> 8)  # adc TMP
+            p.sta(TMP)
+
+    tm_sum(OP_GMTIME)
+    p.lda_abs(TMP)
+    p.sta(TMP2)
+    tm_sum(OP_LOCALTIME)
+    p.lda_abs(TMP)
+    p.emit(0xCD, TMP2 & 0xFF, TMP2 >> 8)        # cmp TMP2
+    hd = p.branch(0xD0)                         # bne: they differ
+    p.lda(1)
+    hj = p.branch(0x80)
+    p.close(hd)
+    p.lda(0)
+    p.close(hj)
+    check(is_zero)
+
+    # 48 syncfs drives the flush the bridge can now survive
     open_it(NAME2, O_RDONLY)
     p.call(OP_SYNCFS)
     check(not_ff)
@@ -700,7 +736,7 @@ def main():
             crc = zlib.crc32(data) & 0xFFFFFFFF
             rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
         Path(a.emit).write_bytes(rom)
-        print(f"fstest.rp6502 {len(rom)} bytes, 47 checks, {TOTAL} byte payload")
+        print(f"fstest.rp6502 {len(rom)} bytes, 48 checks, {TOTAL} byte payload")
     return 0
 
 

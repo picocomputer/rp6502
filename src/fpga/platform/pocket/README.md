@@ -23,19 +23,27 @@ sleep once looked like a way to make the drive's folder appear.
 
 ## The host's filesystem
 
-`MSC0:` is the card, and the drive writes. The host resolves a
-relative name against `/Saves/rp6502/common/` — a working directory
-it pins there and never moves — and a leading slash names the card's
-root, so the firmware strips the drive prefix and passes the rest
-through verbatim. `foo.txt` and `MSC0:foo.txt` are the same saved
-game; `MSC0:/Assets/rp6502/common/foo.txt` reaches the package's own
-folder, which is writable. A program's plain `open("game.save", ...)`
-lands in the same place on every platform.
+`MSC0:` is the card, and the drive writes. The drive prefix is
+stripped and the slash after it decides everything: a name that
+follows the colon directly is relative and the firmware spells it out
+against `/Saves/rp6502/common/`, while a name that starts with a slash
+is already absolute and travels untouched. `foo.txt` and
+`MSC0:foo.txt` are the same saved game;
+`MSC0:/Assets/rp6502/common/foo.txt` reaches the package's own folder,
+which is writable. A program's plain `open("game.save", ...)` lands in
+the same place on every platform.
 
-The working directory is synthetic and pinned: getcwd answers
-`MSC0:/Saves/rp6502/common/` — measured, not asked, since the host
-has no such call — so appending a name to it opens the same file the
-bare name does. chdir errors whatever it names, even that directory.
+**The host resolves nothing.** It looked for a while as though it kept
+a working directory at `/Saves/rp6502/common/`, and one run settled
+it: `004.bin` spelled in full appeared on the card and `000.bin`
+spelled bare never did, same folder, same boot. Every name reaches the
+host absolute or it does not arrive. The bench refuses a relative path
+outright so the firmware cannot quietly go back to hoping.
+
+getcwd is therefore entirely ours: it answers
+`MSC0:/Saves/rp6502/common/`, which is where relative names go, so
+appending a name to it opens the same file the bare name does. chdir
+errors whatever it names, even that directory.
 There is no delete, rename or mkdir: the target command list ends at
 Open File, and those calls answer ENOSYS. Existence is probed with a
 plain `O_RDONLY` open, which fails on a missing name without creating
@@ -77,12 +85,14 @@ folder-missing behaviour was measured after that fix and stands.
 **Seek is free.** Slot Read and Slot Write both carry a 32-bit offset
 into the file, so random access needs no cursor protocol.
 
-**Names are not rooted after all.** "The host refuses a bare filename
-as malformed" stood here too, and fell to the five-spelling probe
-run: a relative name resolves against `/Saves/rp6502/common/`, a
-working directory the host pins, and a leading slash starts at the
-card's root. Whether a leading slash reaches anything outside
-`/Assets` and `/Saves` is untested.
+**Names must be absolute.** This one went round twice. First the
+claim was that the host refuses a bare filename as malformed; then a
+probe run looked like it resolved relative names against a pinned
+`/Saves/rp6502/common/`, and the firmware was changed to lean on
+that; then the next run showed a bare name simply never arriving
+while the same name spelled in full worked. The original claim was
+right. Whether an absolute path reaches anything outside `/Assets`
+and `/Saves` is untested.
 
 **Creating a file takes both flag bits.** Bit 0 on its own is answered
 with a descriptor and makes nothing at all; bit 1, resize, is what puts

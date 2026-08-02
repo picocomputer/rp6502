@@ -144,8 +144,18 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
 
 /* The host does not create folders in a path it is given, and does
  * not say so: a create into a folder that is not there is answered
- * with a descriptor and leaves nothing on the card. See
- * msc_conjure_home for what puts the drive's folder there. */
+ * with a descriptor and leaves nothing on the card. The package ships
+ * the one folder the drive needs.
+ *
+ * Nor does it resolve a relative name. It looked for a while as though
+ * it did — as though there were a working directory pinned here — and
+ * hardware settled it: "004.bin" spelled in full landed, and "000.bin"
+ * on its own never appeared, both naming the same folder on the same
+ * card in the same run. So the drive spells the path out. Names that
+ * arrive already absolute are the program reaching for the card's own
+ * root and travel untouched. */
+#define MSC_PATH "/Saves/rp6502/common/"
+#define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 
 /* Bind a slot to a name. Open File answers 0 when the file was there
@@ -157,6 +167,11 @@ static uint32_t msc_try_open(uint32_t slot, const char *name,
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
     size_t n = 0;
+    if (*name != '/')
+    {
+        memcpy(pad, MSC_PATH, MSC_PATH_LEN);
+        n = MSC_PATH_LEN;
+    }
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
@@ -187,12 +202,13 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
 }
 
 /* The machine names its drive MSC0: and takes 0: as a shortcut, and
- * the prefix is all that is stripped — what follows it is the host's
- * path, verbatim. "foo.txt" and "MSC0:foo.txt" are the same saved
- * game in the pinned working directory, the way open("save.dat")
- * should land on every platform; "MSC0:/foo.txt" starts at the card's
- * root, which is how a program reaches /Assets. A named drive that is
- * not 0 is refused rather than aliased. */
+ * the prefix is all that is stripped — the slash after it, or its
+ * absence, is what decides where the name lands. "foo.txt" and
+ * "MSC0:foo.txt" are the same saved game in the drive's own folder,
+ * the way open("save.dat") should land on every platform;
+ * "MSC0:/foo.txt" starts at the card's root, which is how a program
+ * reaches /Assets. A named drive that is not 0 is refused rather than
+ * aliased. */
 static const char *msc_strip_drive(const char *path)
 {
     const char *p = path;
@@ -251,7 +267,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENODEV;
         return -1;
     }
-    if (!*path || strlen(path) >= MSC_NAME_MAX)
+    if (!*path || strlen(path) >= MSC_NAME_MAX - MSC_PATH_LEN)
     {
         *err = API_EINVAL;
         return -1;
