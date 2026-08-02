@@ -166,18 +166,7 @@ rp6502_asset(probe_rom GEN ${RP6502_SRC}/gen/probe_rom_gen.py
     WORKDIR ${RP6502_SRC}/gen
     COMMENT "Generating the open-file probe ROM")
 
-# Which root spellings the host's Open File takes: five files, five
-# spellings, existence printed and eight bytes written to each, so the
-# card afterwards is itself the result.
-set(ROOTS_ROM ${RP6502_ASSETS}/roots.rp6502)
-rp6502_asset(roots_rom GEN ${RP6502_SRC}/gen/roots_rom_gen.py
-    ARGS --emit ${ROOTS_ROM}
-    OUTPUTS ${ROOTS_ROM}
-    DEPENDS ${BIGFILE_ROM_GEN}
-    WORKDIR ${RP6502_SRC}/gen
-    COMMENT "Generating the root-spelling probe ROM")
-
-# The whole drive in one boot: forty-six checks the machine decides
+# The whole drive in one boot: forty-seven checks the machine decides
 # for itself. It runs here against the bench's host as well as on the
 # card, so a bug in the ROM is found before a photograph is.
 set(FSTEST_ROM ${RP6502_ASSETS}/fstest.rp6502)

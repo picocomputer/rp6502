@@ -26,7 +26,11 @@ void term_RIS_no_clear(void);
  * hosts with their own scanout hardware bring their own.
  */
 
-/* TERM_ALT_SCREEN: the ?47 / ?1047 / ?1049 alternate screen buffer.
+/* The cell store is the largest thing term.c owns, and two things size
+ * it: this switch, and TERM_MAX_HEIGHT in term.c — 32 rows only where
+ * the device's 512-line SXGA console exists, 30 everywhere else.
+ *
+ * TERM_ALT_SCREEN: the ?47 / ?1047 / ?1049 alternate screen buffer.
  *
  * It doubles the cell memory, and on a platform whose cells live in FPGA
  * block memory that is the difference between a feature and a firmware.

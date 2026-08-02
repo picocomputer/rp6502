@@ -9,9 +9,11 @@
  * how long the file is. pocket_file does the asking; this decides what
  * to ask.
  *
- * Where a name resolves is the open question — see msc_open_slot. The
- * machine asks the way that works rather than the way one document
- * says, because the two available documents disagree.
+ * Where a name resolves was measured on hardware: the host runs every
+ * relative name against /Saves/rp6502/common/, a working directory it
+ * pins there and never moves, and a leading slash names the card's
+ * root. The drive passes both through verbatim, so a bare name is a
+ * saved game in the platform's folder and MSC0:/ is the card.
  *
  * A program's path is code page bytes and the host's is UTF-8, so the
  * name is converted on its way out. Three bytes per character is the
@@ -36,7 +38,6 @@
 
 #include <stdio.h>
 #include <string.h>
-#include <strings.h>
 
 /* Slot 0 is the ROM and slot 1 the fonts; the eight above them are
  * ours, and data.json declares them. */
@@ -141,32 +142,11 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* Every name is rooted here, in the platform's common Saves folder —
- * the host turns away anything not under /Assets or /Saves, and it
- * does so even when the bare name names a file that exists, which is
- * how we know it is the form and not the lookup. The host does not
- * create folders in a path it is given, and does not say so — a create
- * into a folder that is not there is answered with a descriptor and
- * leaves nothing on the card. What conjures this folder is the
- * nonvolatile nvram.bin slot: the host persists it into the same
- * common folder at the first Quit, power-off or sleep, folders and
- * all, and from then on the drive has its home. On a virgin card the
- * drive is read-only until that first exit. */
-#define MSC_PATH "/Saves/rp6502/common/"
-#define MSC_PATH_LEN (sizeof MSC_PATH - 1)
+/* The host does not create folders in a path it is given, and does
+ * not say so: a create into a folder that is not there is answered
+ * with a descriptor and leaves nothing on the card. See
+ * msc_conjure_home for what puts the drive's folder there. */
 #define MSC_RC_MALFORMED 4u
-
-/* A name that spells a host root travels verbatim: the host owns
- * /Assets and /Saves, and a program naming them is asking for the
- * host's tree, not the drive's. Everything else gets the drive's
- * root. Detected before the slash strip, or the rooted spelling
- * would lose the slash that marks it. */
-static bool msc_host_rooted(const char *p)
-{
-    if (*p == '/')
-        p++;
-    return !strncasecmp(p, "Assets/", 7) || !strncasecmp(p, "Saves/", 6);
-}
 
 /* Bind a slot to a name. Open File answers 0 when the file was there
  * and 1 when it had to make it, and both of those are yes — the rest
@@ -177,11 +157,6 @@ static uint32_t msc_try_open(uint32_t slot, const char *name,
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
     size_t n = 0;
-    if (!msc_host_rooted(name))
-    {
-        memcpy(pad, MSC_PATH, MSC_PATH_LEN);
-        n = MSC_PATH_LEN;
-    }
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
@@ -212,11 +187,12 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
 }
 
 /* The machine names its drive MSC0: and takes 0: as a shortcut, and
- * programs written for it say so. There is one drive, its root is the
- * only directory, and the working directory is pinned to it — so
- * "foo.txt", "MSC0:foo.txt" and "MSC0:/foo.txt" are the same file, the
- * way a game's open("save.dat") should land on every platform. A named
- * drive that is not 0 is refused rather than aliased. */
+ * the prefix is all that is stripped — what follows it is the host's
+ * path, verbatim. "foo.txt" and "MSC0:foo.txt" are the same saved
+ * game in the pinned working directory, the way open("save.dat")
+ * should land on every platform; "MSC0:/foo.txt" starts at the card's
+ * root, which is how a program reaches /Assets. A named drive that is
+ * not 0 is refused rather than aliased. */
 static const char *msc_strip_drive(const char *path)
 {
     const char *p = path;
@@ -226,13 +202,9 @@ static const char *msc_strip_drive(const char *path)
     {
         if (*p != '0')
             return NULL;
-        p += 2;
+        return p + 2;
     }
-    else if (p != path)
-        return path;
-    while (*p == '/' || *p == '\\')
-        p++;
-    return p;
+    return path;
 }
 
 static int msc_desc(int desc)
@@ -240,6 +212,65 @@ static int msc_desc(int desc)
     if (desc < 0 || desc >= MSC_OPEN_MAX || !msc_pool[desc].used)
         return -1;
     return desc;
+}
+
+/* A command the host never picked up. The bridge's deadline expires
+ * before pocket_file's and retires the command itself, so this arrives
+ * as result 7 rather than as the machine's own timeout; the timeout
+ * bit now means the bridge stopped answering too. Either way nobody
+ * ran the command. */
+#define MSC_RC_NO_HOST 7u
+
+static bool msc_unanswered(uint32_t st)
+{
+    return (st & FILE_ST_TIMEOUT)
+           || ((st & FILE_ST_ERR) >> 1) == MSC_RC_NO_HOST;
+}
+
+/* Flush, 0x0188: Analogue documents the command and left it out of its
+ * own core_bridge_cmd.v, which was the warning — no firmware this core
+ * has met answers it. The override's bridge now puts a deadline on a
+ * data slot command the host never picks up, so asking is safe: it
+ * costs one deadline instead of the session. The first ask decides; a
+ * host that answers gets a real flush every time from then on, one
+ * that does not is remembered. */
+static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
+    msc_flush_state;
+
+/* The nonvolatile slot exists to make the host conjure the drive's
+ * folder: at Quit, power-off or sleep the host persists every
+ * nonvolatile slot into the common Saves folder, creating the path as
+ * it goes — the only folder-creating act this platform has. On a
+ * virgin card that is a session too late, so when a create comes back
+ * hollow the drive asks early, once a boot: dirty the slot with a
+ * write, then flush it. Whether this host honors either mid-session
+ * is answered by the caller's retry, not guessed at here. */
+#define MSC_NVRAM_SLOT 11u
+#define MSC_NVRAM_SIZE 256u
+
+static bool msc_conjure_tried;
+
+static bool msc_conjure_home(void)
+{
+    if (msc_conjure_tried)
+        return false;
+    msc_conjure_tried = true;
+    uint8_t zero = 0;
+    msc_win_put(0, &zero, 1);
+    FILE_ID = MSC_NVRAM_SLOT;
+    FILE_OFFSET = 0;
+    FILE_BRIDGE = FILE_WIN_BASE;
+    FILE_LENGTH = 1;
+    if (msc_command(FILE_OP_WRITE) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+        return false;
+    if (msc_flush_state != MSC_FLUSH_NEVER)
+    {
+        FILE_ID = MSC_NVRAM_SLOT;
+        msc_flush_state = msc_unanswered(msc_command(FILE_OP_FLUSH))
+                              ? MSC_FLUSH_NEVER
+                              : MSC_FLUSH_WORKS;
+    }
+    return true;
 }
 
 bool msc_std_handles(const char *path)
@@ -250,16 +281,13 @@ bool msc_std_handles(const char *path)
 
 int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    /* Host-rooted names skip the drive strip too: their leading slash
-     * is the root's, not the drive's. */
-    if (!msc_host_rooted(path))
-        path = msc_strip_drive(path);
+    path = msc_strip_drive(path);
     if (!path)
     {
         *err = API_ENODEV;
         return -1;
     }
-    if (!*path || strlen(path) >= MSC_NAME_MAX - MSC_PATH_LEN)
+    if (!*path || strlen(path) >= MSC_NAME_MAX)
     {
         *err = API_EINVAL;
         return -1;
@@ -301,23 +329,32 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     /* Nothing to keep, either because it is new or because the program
      * asked for it gone. The host holds a file at no length, so this is
-     * a resize to nothing and a length of nothing on both sides. */
+     * a resize to nothing and a length of nothing on both sides.
+     *
+     * Truncating one that is already there cannot be a missing folder —
+     * the probe above just found it — so the conjure below has nothing
+     * to offer and a failure here is the host's, and final. */
     bool empty = !exists || (flags & MSC_O_TRUNC);
-    if (empty
-        && !msc_open_slot(slot, path,
-                          MSC_DS_RESIZE | (exists ? 0 : MSC_DS_CREATE), 0))
+    if (empty && exists && !msc_open_slot(slot, path, MSC_DS_RESIZE, 0))
     {
-        *err = API_ENOENT;
+        *err = API_EIO;
         return -1;
     }
     /* A create is answered the same way whether or not one happened: ask
      * for a file in a folder the card does not have and the host returns
      * a descriptor, having written nothing. Nothing in the result tells
-     * the two apart, so ask again plainly and take that answer. */
-    if (!exists && !msc_open_slot(slot, path, 0, 0))
+     * the two apart, so ask again plainly and take that answer — and on
+     * a virgin card take it twice, with the folder conjure between. */
+    while (!exists)
     {
-        *err = API_ENOENT;
-        return -1;
+        if (msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 0)
+            && msc_open_slot(slot, path, 0, 0))
+            break;
+        if (!msc_conjure_home())
+        {
+            *err = API_ENOENT;
+            return -1;
+        }
     }
 
     uint32_t len = 0;
@@ -422,17 +459,6 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
     return want < count ? STD_PENDING : STD_OK;
 }
 
-/* Flush, 0x0188: Analogue documents the command and left it out of its
- * own core_bridge_cmd.v, which was the warning — no firmware this core
- * has met answers it. The override's bridge now puts a deadline on a
- * data slot command the host never picks up, so asking is safe: it
- * costs one timeout instead of the session. So the first sync asks,
- * once. A host that answers gets a real flush on every sync from then
- * on; one that does not is remembered, and a write is durable when the
- * host says it took it, which is all that can be observed there. */
-static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
-    msc_flush_state;
-
 std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
@@ -444,7 +470,7 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
         return STD_OK;
     FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
     uint32_t st = msc_command(FILE_OP_FLUSH);
-    if (st & FILE_ST_TIMEOUT)
+    if (msc_unanswered(st))
     {
         msc_flush_state = MSC_FLUSH_NEVER;
         return STD_OK;
@@ -480,17 +506,10 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     return 0;
 }
 
-/* The nonvolatile slot exists to make the host conjure the drive's
- * folder: at Quit, power-off or sleep the host persists every
- * nonvolatile slot into the same common Saves folder the drive is
- * rooted in, creating the path it needs — the only folder-creating act
- * this platform has. It persists exactly as many bytes as the size
- * table names, and a slot whose file was never on the card loads as
- * zero bytes, so the size is published here once at boot or nothing
- * would ever be written. */
-#define MSC_NVRAM_SLOT 11u
-#define MSC_NVRAM_SIZE 256u
-
+/* The host persists exactly as many bytes of the nonvolatile slot as
+ * the size table names, and a slot whose file was never on the card
+ * loads as zero bytes — so the size is published here once at boot or
+ * nothing would ever be written. */
 void msc_init(void)
 {
     for (uint32_t i = 0; i < MSC_DT_PAIRS; i++)
@@ -506,15 +525,15 @@ void msc_init(void)
         }
 }
 
-/* One drive, one directory: the working directory is the drive's root
- * and cannot move. getcwd answers the canonical spelling; chdir is an
- * error whatever it names, even the root, so a program never
- * concludes that directories work; chdrive accepts only the drive the
- * machine has. A pinned cwd is what lets open("game.save") land in
- * the same place on every platform that runs the program. */
+/* The working directory is synthetic — the host cannot be asked, but
+ * it was measured, and it cannot move. It is spelled from the drive
+ * so a program appending a name to it opens the same file the bare
+ * name does. chdir is an error whatever it names, even the directory
+ * getcwd answered, so a program never concludes that directories
+ * work; chdrive accepts only the drive the machine has. */
 bool msc_api_getcwd(void)
 {
-    static const char cwd[] = "MSC0:/";
+    static const char cwd[] = "MSC0:/Saves/rp6502/common/";
     uint16_t len = sizeof cwd - 1;
     xstack_ptr = XSTACK_SIZE - len;
     memcpy(&xstack[xstack_ptr], cwd, len);

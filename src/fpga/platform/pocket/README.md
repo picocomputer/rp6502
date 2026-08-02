@@ -23,24 +23,37 @@ the folder it conjures below.
 
 ## The host's filesystem
 
-`MSC0:` is rooted at `/Saves/rp6502/common/`, and the drive writes.
-The folder problem that parked this work is solved by the nonvolatile
-slot: `data.json` declares `nvram.bin` (slot 11, platform-common, init
-to 0xFF), `msc_init` publishes its size into the data slot size table
-through the write port that used to be tied to ground, and at the
-first Quit, power-off or sleep the host persists the file — creating
-`/Saves/rp6502/common/` on its way. On a virgin card the drive is
-read-only for the first session and writable ever after.
+`MSC0:` is the card, and the drive writes. The host resolves a
+relative name against `/Saves/rp6502/common/` — a working directory
+it pins there and never moves — and a leading slash names the card's
+root, so the firmware strips the drive prefix and passes the rest
+through verbatim. `foo.txt` and `MSC0:foo.txt` are the same saved
+game; `MSC0:/Assets/rp6502/common/foo.txt` reaches the package's own
+folder, which is writable. A program's plain `open("game.save", ...)`
+lands in the same place on every platform.
 
-Paths take one shape: `foo.txt`, `MSC0:foo.txt` and `MSC0:/foo.txt`
-are the same file. The working directory is pinned — getcwd answers
-`MSC0:/`, chdir errors whatever it names — so a program's plain
-`open("game.save", ...)` lands in the same place on every platform.
+The working directory is synthetic and pinned: getcwd answers
+`MSC0:/Saves/rp6502/common/` — measured, not asked, since the host
+has no such call — so appending a name to it opens the same file the
+bare name does. chdir errors whatever it names, even that directory.
 There is no delete, rename or mkdir: the target command list ends at
 Open File, and those calls answer ENOSYS. Existence is probed with a
 plain `O_RDONLY` open, which fails on a missing name without creating
 anything; trying `save00.dat` upward is the directory listing this
 host will ever have.
+
+The folder problem that parked this work is solved by the nonvolatile
+slot: `data.json` declares `nvram.bin` (slot 11, platform-common, init
+to 0xFF), `msc_init` publishes its size into the data slot size table
+through the write port that used to be tied to ground, and at the
+first Quit, power-off or sleep the host persists the file — creating
+`/Saves/rp6502/common/` on its way. That is a session too late for a
+virgin card, so when a create comes back hollow the firmware asks
+early, once a boot: it dirties the slot with a one-byte write, flushes
+it, and retries the create. A host that honors either mid-session
+turns a read-only first session into a working one; one that does not
+leaves the drive read-only until that first exit, exactly as before.
+Which kind this host is, a virgin-card `fstest` run answers.
 
 **Some of this section is measured, not documented.** Every claim
 about host behaviour is what one Pocket on one firmware did when we
@@ -60,11 +73,12 @@ folder-missing behaviour was measured after that fix and stands.
 **Seek is free.** Slot Read and Slot Write both carry a 32-bit offset
 into the file, so random access needs no cursor protocol.
 
-**Names must be rooted.** The host takes `/Assets/<platform>/common/name`
-or `/Saves/<platform>/common/name` and refuses anything else as
-malformed — including a bare filename that names a file which exists,
-which is how we know it rejects the form and not the lookup. Only
-platforms listed in `core.json` are reachable.
+**Names are not rooted after all.** "The host refuses a bare filename
+as malformed" stood here too, and fell to the five-spelling probe
+run: a relative name resolves against `/Saves/rp6502/common/`, a
+working directory the host pins, and a leading slash starts at the
+card's root. Whether a leading slash reaches anything outside
+`/Assets` and `/Saves` is untested.
 
 **Creating a file takes both flag bits.** Bit 0 on its own is answered
 with a descriptor and makes nothing at all; bit 1, resize, is what puts
@@ -93,19 +107,36 @@ are 2 slot not defined, 3 not found, 4 malformed path, 5 general.
 once the host has taken the bytes, which on a handheld that sleeps is
 not the same as the card having them. 0x0188 would commit them, and no
 firmware this core has met answers it — but the bridge override now
-puts a ~3.6 s deadline on a data slot command the host never picks up,
-so a flush costs one timeout instead of the session. The firmware's
-first sync asks once: a host that answers gets a real flush on every
-sync after, one that does not is remembered for the session and a
-write is durable when the host says it took it.
+puts a ~1.8 s deadline on a data slot command the host never picks up,
+so a flush costs one deadline instead of the session. The firmware's
+first ask decides — a sync or the folder conjure, whichever comes
+first: a host that answers gets a real flush every time after, one
+that does not is remembered for the session and a write is durable
+when the host says it took it.
+
+**Two deadlines, and the shorter one must be the bridge's.** Both the
+bridge and `pocket_file` time a data slot command out, and for a while
+the bridge's was the longer of the two on the reasoning that the
+downstream should give up first. That is exactly backwards, and it
+cost a real bug: the bridge is the side *parked* on the silent host,
+and only its own retirement frees it. With the downstream quitting
+first the bridge stayed parked with nobody listening, and the next
+command — which proves it was accepted by watching `done` fall, and
+finds it already low — adopted the flush's late answer as its own and
+then executed at the host with no one waiting. A write reported as
+failed, performed anyway. The deadlines are now 1.8 s bridge inside
+3.6 s downstream, and a command the host ignores comes back as result
+7 rather than a timeout.
 
 **There is no mkdir, and no warning that there isn't.** Nothing in the
 runtime API creates a directory, and the host does not invent the
 folders in a path. Asked to create a file in a folder that is not
 there it answers with a descriptor — the code for success — and no
 file appears. The one folder-creating act the platform has is the
-nonvolatile flush at shutdown, which is what the `nvram.bin` slot is
-for.
+nonvolatile flush, which is what the `nvram.bin` slot is for — at
+shutdown for certain, and mid-session if this host turns out to
+answer a flush the firmware asks for when a create comes back
+hollow.
 
 ## On Analogue's documentation
 
@@ -222,7 +253,9 @@ assembles the card tree into `build/fpga/tests/package`. Zip the three
 top directories at the archive root as
 `Rumbledethumps.RP6502_<version>_<date>.zip`.
 
-The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe`, `roots` —
+The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe` —
 are built into `build/fpga/tests/` and are deliberately not in the
 package. Copy the ones you want into `Assets/rp6502/common/` on a card
-when testing.
+when testing. The root-spelling `roots` probe answered its question —
+relative names resolve against a pinned `/Saves/rp6502/common/` —
+and retired.

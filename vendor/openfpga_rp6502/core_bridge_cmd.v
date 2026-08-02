@@ -226,12 +226,17 @@ localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
     reg     [23:0]  target_debug_timeout;
     // And a host that does not answer a data slot command must not take
     // the session down: this host has never answered 0x0188, and without
-    // a deadline here one flush parks WAITRESULT_DSO forever. 2^28 clocks
-    // is about 3.6 s at 74.25 MHz - twice pocket_file's own 1.8 s, so a
-    // legitimate slow write always finishes or times out downstream
-    // first, and this fires only for a command the host will never pick
-    // up. Result code 7 marks the difference from a host that answered.
-    reg     [27:0]  target_dso_timeout;
+    // a deadline here one flush parks WAITRESULT_DSO forever. 2^27 clocks
+    // is about 1.8 s at 74.25 MHz - HALF pocket_file's deadline, and the
+    // ordering is the point. This side is the one parked, so it has to
+    // be the one that gives up first: retiring into a downstream still
+    // waiting hands the answer to someone. The other way round - which
+    // this counter was, at 2^28 against pocket_file's 2^27 - the
+    // downstream quits first, this state stays parked, and the next
+    // command adopts this one's late answer and then executes at the
+    // host unheard. Result code 7 marks the difference from a host that
+    // answered.
+    reg     [26:0]  target_dso_timeout;
     
     
 initial begin
@@ -639,7 +644,7 @@ always @(posedge clk) begin
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;
         end else if(&target_dso_timeout) begin
-            // about 3.6s at 74.25MHz - the host never picked it up
+            // about 1.8s at 74.25MHz - the host never picked it up
             target_dataslot_err <= 3'd7;
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;

@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The whole drive in one boot. Forty-six checks the machine decides for
+# The whole drive in one boot. Forty-seven checks the machine decides for
 # itself, printed as one row of dots, one line naming whatever failed,
 # and a count. Nothing here needs reading off against a table.
 #
@@ -103,7 +103,12 @@ def build():
     p.lda(ord("."))
     p.jsr(putc)
     p.inc_abs(PASSN)
-    rdone = p.branch(0x4C - 0x4C + 0x50)  # bvc: V is clear here, so always
+    # bra. This was a bvc, on the reasoning that V is clear here — and V
+    # is whatever the last BIT $FFE0 in putc left in it, which is the
+    # console's RX-ready bit. Press a key while the test runs and every
+    # later pass was also logged as a failure. The 65C02 has a real
+    # unconditional branch; use it.
+    rdone = p.branch(0x80)
     p.close(rfail)
     p.lda(ord("X"))
     p.jsr(putc)
@@ -572,35 +577,42 @@ def build():
     p.lda_abs(FD)
     check(is_ff)
 
-    # 37 the spellings are one file: create under the drive prefix
+    # 37 the relative spellings are one file: create under the drive
+    # prefix
     open_it("MSC0:pfx.dat", O_WRONLY | O_CREAT | O_TRUNC)
     p.lda_abs(FD)
     check(not_ff)
     p.jsr(do_close)
-    # 38 find it rooted
+    # 38 the slash names the card's root, not the working directory,
+    # so the rooted spelling must miss
     open_it("msc0:/pfx.dat", O_RDONLY)
+    p.lda_abs(FD)
+    check(is_ff)
+    # 39 the absolute spelling of the working directory finds it
+    open_it("MSC0:/Saves/rp6502/common/pfx.dat", O_RDONLY)
     p.lda_abs(FD)
     check(not_ff)
     p.jsr(do_close)
-    # 39 and bare
+    # 40 and bare
     open_it("pfx.dat", O_RDONLY)
     p.lda_abs(FD)
     check(not_ff)
     p.jsr(do_close)
-    # 40 a drive that is not 0 is not this drive
+    # 41 a drive that is not 0 is not this drive
     open_it("msc1:pfx.dat", O_RDONLY)
     p.lda_abs(FD)
     check(is_ff)
 
-    # 41 the working directory is pinned: getcwd answers len+1 of
-    # MSC0:/ — the expectation stored first, because storing it uses A
-    p.store(EXPL, 7)
+    # 42 the working directory is pinned and synthetic: getcwd answers
+    # len+1 — the expectation stored first, because storing it uses A
+    p.store(EXPL, 27)
     p.store(EXPH, 0)
     p.call(OP_GETCWD)
     check(eq16)
-    # 42 ...and spells it exactly, popped in order
+    # 43 ...and spells it exactly, popped in order, so appending a name
+    # to it opens the same file the bare name does
     p.store(TMP, 0)
-    for ch in "MSC0:/":
+    for ch in "MSC0:/Saves/rp6502/common/":
         p.lda_abs(XSTACK)
         p.emit(0xC9, ord(ch))
         h = p.branch(0xF0)
@@ -609,37 +621,41 @@ def build():
     p.lda_abs(TMP)
     check(is_zero)
 
-    # 43 chdir errors whatever it names, even the root it is already in
-    p.push_str("MSC0:/")
+    # 44 chdir errors whatever it names, even the directory getcwd
+    # just answered
+    p.push_str("MSC0:/Saves/rp6502/common/")
     p.call(OP_CHDIR)
     check(is_ff)
 
-    # 44 chdrive accepts the one drive there is
+    # 45 chdrive accepts the one drive there is
     p.push_str("MSC0:")
     p.call(OP_CHDRIVE)
     check(not_ff)
 
-    # 45 the clock is the host's local reading through the offset: the
-    # bench latches a billion seconds with the offset at zero, so the
-    # popped int64 reads 0x3B9ACA00 plus the machine's short uptime,
-    # little end first
+    # 46 the clock arrived and is sane. Not a particular instant: this
+    # ROM has to give the same verdict on the bench, where the host
+    # latches a billion seconds, and on a Pocket reading its own wall
+    # clock. What both have and a machine whose RTC never came through
+    # does not is a real 32-bit epoch — byte 3 set puts it past
+    # mid-1970, which the 43200-second fallback cannot reach, and the
+    # top four bytes stay clear until 2106. Popped little end first.
     p.call(OP_TIME_GET)
     p.store(TMP, 0)
-    p.lda_abs(XSTACK)       # low byte: inside the uptime window
-    p.emit(0xC9, 0x10)      # cmp #$10
-    h = p.branch(0x90)      # bcc: less than 16 seconds elapsed
+    for _ in range(3):
+        p.lda_abs(XSTACK)   # the low three bytes are whatever time it is
+    p.lda_abs(XSTACK)
+    h = p.branch(0xD0)      # bne: byte 3 set, so the clock is really set
     p.inc_abs(TMP)
     p.close(h)
-    for want in (0xCA, 0x9A, 0x3B, 0, 0, 0, 0):
+    for _ in range(4):
         p.lda_abs(XSTACK)
-        p.emit(0xC9, want)
-        h = p.branch(0xF0)
+        h = p.branch(0xF0)  # beq: and nothing above it
         p.inc_abs(TMP)
         p.close(h)
     p.lda_abs(TMP)
     check(is_zero)
 
-    # 46 syncfs drives the flush the bridge can now survive
+    # 47 syncfs drives the flush the bridge can now survive
     open_it(NAME2, O_RDONLY)
     p.call(OP_SYNCFS)
     check(not_ff)
@@ -684,7 +700,7 @@ def main():
             crc = zlib.crc32(data) & 0xFFFFFFFF
             rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
         Path(a.emit).write_bytes(rom)
-        print(f"fstest.rp6502 {len(rom)} bytes, 46 checks, {TOTAL} byte payload")
+        print(f"fstest.rp6502 {len(rom)} bytes, 47 checks, {TOTAL} byte payload")
     return 0
 
 

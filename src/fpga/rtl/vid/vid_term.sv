@@ -55,13 +55,19 @@ module vid_term (
      * exactly the same bits while each carries a plain whole-word write
      * and two plain reads.
      *
-     * 7680 words: one screen. The alternate screen buffer was here for
-     * a day at 15360, and the device ran out of LABs before the ALMs
-     * or the blocks — packing the die to its last rows is what made
-     * every fit a coin toss, so the buffer went back out. See
-     * TERM_ALT_SCREEN in vga/term/term.h. Flat rather than banked: at
-     * 7680 the depth rounds to 8192 and costs eight blocks a lane
-     * either way, so banking bought nothing and came back out too. */
+     * 7680 words: one screen at the tallest terminal term.c can build,
+     * 32 rows. This platform's firmware asks for 30 and uses 7200 of
+     * them — 480 words of slack, kept because the window is hardware
+     * and a taller firmware must still fit it, and because it is free:
+     * 7200 and 7680 both round to a depth of 8192 and cost eight
+     * blocks a lane. Measured, along with the reason banking is not
+     * here — split per screen it came to 72 blocks against 64.
+     *
+     * The alternate screen buffer was here for a day at 15360, and the
+     * device ran out of LABs before the ALMs or the blocks — packing
+     * the die to its last rows is what made every fit a coin toss, so
+     * the buffer went back out. See TERM_ALT_SCREEN in
+     * vga/term/term.h. */
     (* ramstyle = "no_rw_check" *)
     logic [7:0] cell0[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)

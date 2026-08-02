@@ -22,7 +22,8 @@
  * the first Quit, power-off or sleep. */
 void msc_init(void);
 
-/* The pinned working directory: getcwd answers MSC0:/, chdir always
+/* The pinned working directory: getcwd answers the host's own, which
+ * is MSC0:/Saves/rp6502/common/ and 26 characters; chdir always
  * errors, chdrive accepts only this drive's names. */
 bool msc_api_getcwd(void);
 bool msc_api_chdir(void);

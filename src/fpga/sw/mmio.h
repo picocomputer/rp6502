@@ -89,7 +89,11 @@
 /* Analogue documents 0x0188 but never implemented it in its own
  * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
  * are not Open File's: 0 is written, 1 is slot not defined; 7 is the
- * override's own bridge deadline, a command no host ever picked up. */
+ * override's own bridge deadline, a command no host ever picked up.
+ * A 7 arrives as an ordinary answer, not as FILE_ST_TIMEOUT — the
+ * bridge's deadline is deliberately the shorter one, so it retires
+ * its own parked command while this side is still listening. The
+ * timeout bit now means the bridge itself stopped answering. */
 #define FILE_OP_FLUSH 6u
 /* Write one word of the data slot size table: FILE_ID names the table
  * word, FILE_LENGTH carries the value. How a nonvolatile slot's size

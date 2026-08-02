@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -41,11 +42,19 @@ static uint32_t g_dt[64];
 static const uint32_t STAGE_BRIDGE = 0x03FE0000u;
 static const uint32_t WINDOW_BASE = 0x20000000u;
 
-/* The host's filesystem, and which slot is bound to which file. */
+/* The host's filesystem, and which slot is bound to which file. Files
+ * are keyed by their absolute card path, folders modeled because the
+ * real host will not create one: a create into a folder that is not
+ * there answers with a descriptor and writes nothing. */
 static std::map<std::string, std::vector<uint8_t>> g_files;
+static std::set<std::string> g_dirs;
+static std::vector<uint8_t> g_nvram;
 static std::string g_bound[16];
 static std::string g_console;
 static int g_opens, g_reads, g_writes, g_flushes;
+
+/* The nonvolatile slot, as data.json numbers it. */
+static const uint32_t NVRAM_SLOT = 11;
 
 static void tick()
 {
@@ -195,17 +204,14 @@ static void do_openfile()
     uint8_t param[264];
     host_get_bytes(dut->tb_pocket_param_struct, param, sizeof param);
     std::string name((const char *)param);
-    /* Any rooted form resolves here. Which one the real host accepts is
-     * the open question — Analogue documents a full path, PocketQuake
-     * passes one relative to Assets — so the bench takes them all and
-     * hardware is the arbiter. Asserting a form here would only
-     * enshrine a guess. */
-    for (const char *root : {"/Saves/rp6502/common/", "/Assets/rp6502/common/"})
-        if (name.rfind(root, 0) == 0)
-        {
-            name = name.substr(strlen(root));
-            break;
-        }
+    /* Hardware answered the question the old bench refused to guess at:
+     * the host resolves a relative name against /Saves/rp6502/common/,
+     * a working directory it pins and never moves, and a leading slash
+     * names the card's root. */
+    std::string key = name[0] == '/' ? name : "/Saves/rp6502/common/" + name;
+    std::string parent = key.substr(0, key.rfind('/'));
+    if (parent.empty())
+        parent = "/";
     /* The struct's integers are bridge words, not bytes of the stream the
      * path rides in. The bench had them the other way round and so agreed
      * with a firmware that wrote them reversed, which is how a create
@@ -219,7 +225,7 @@ static void do_openfile()
                     | ((uint32_t)param[262] << 8) | (uint32_t)param[263];
     g_opens++;
     bool created = false;
-    auto it = g_files.find(name);
+    auto it = g_files.find(key);
     /* Zero-length files are allowed here, and the reason that is not
      * obvious: they were once refused, because every create the machine
      * had ever made came back "not found" and a length of zero looked
@@ -242,8 +248,10 @@ static void do_openfile()
          * descriptor and makes nothing: measured, eight opens asking for
          * O_CREAT without O_TRUNC each came back a handle and none of
          * them left a file. Resize is what puts it there, so a create
-         * without it succeeds loudly and does nothing at all. */
-        if (!(flags & 2))
+         * without it succeeds loudly and does nothing at all — and so
+         * does a create into a folder the card does not have, which is
+         * the hollow answer the firmware's conjure exists for. */
+        if (!(flags & 2) || !g_dirs.count(parent))
         {
             dut->target_dataslot_done = 1;
             dut->target_dataslot_err = 1; /* created and opened, it says */
@@ -251,12 +259,12 @@ static void do_openfile()
                 a_edge();
             return;
         }
-        it = g_files.emplace(name, std::vector<uint8_t>()).first;
+        it = g_files.emplace(key, std::vector<uint8_t>()).first;
         created = true;
     }
     if (flags & 2)
         it->second.resize(size, 0);
-    g_bound[slot] = name;
+    g_bound[slot] = key;
     dt_set(slot, (uint32_t)it->second.size());
     /* 0 opened, 1 created and opened; the host tells them apart and only
      * 2 and up are failures. */
@@ -292,22 +300,38 @@ static void do_slotwrite()
     g_writes++;
     std::vector<uint8_t> chunk(len, 0);
     host_get_bytes(at, chunk.data(), chunk.size());
-    std::vector<uint8_t> &f = g_files[g_bound[slot]];
+    /* The nonvolatile slot is memory the host holds, not a bound file;
+     * it reaches the card at a flush or an exit. */
+    std::vector<uint8_t> &f =
+        slot == NVRAM_SLOT ? g_nvram : g_files[g_bound[slot]];
     if (f.size() < off + len)
         f.resize(off + len, 0);
     for (uint32_t i = 0; i < len; i++)
         f[off + i] = chunk[i];
-    dt_set(slot, (uint32_t)f.size());
+    if (slot != NVRAM_SLOT)
+        dt_set(slot, (uint32_t)f.size());
     target_done();
 }
 
-/* Flush commits a slot to the card. Nothing here buffers, so the answer
- * is simply yes — but it has to be answered, because a command the host
- * never retires leaves the machine waiting out its timeout. */
+/* Flush commits a slot to the card. For a file slot nothing here
+ * buffers, so the answer is simply yes — but it has to be answered,
+ * because a command the host never retires leaves the machine waiting
+ * out its timeout. For the nonvolatile slot the commit is the folder
+ * conjure itself: the host persists it folders-and-all, table-size
+ * bytes, exactly as it would at Quit. */
 static void do_flush()
 {
     dut->target_dataslot_done = 0;
+    uint32_t slot = dut->tb_pocket_ds_id;
     g_flushes++;
+    if (slot == NVRAM_SLOT)
+    {
+        g_dirs.insert("/Saves/rp6502");
+        g_dirs.insert("/Saves/rp6502/common");
+        std::vector<uint8_t> v = g_nvram;
+        v.resize(g_dt[NVRAM_SLOT * 2 + 1], 0);
+        g_files["/Saves/rp6502/common/nvram.bin"] = v;
+    }
     /* The core proves its command was taken by watching done fall before
      * it rises again, so the fall has to last long enough to be seen.
      * Every other handler gets that for free from the clocks its host
@@ -370,12 +394,23 @@ static std::vector<uint8_t> read_file(const char *path)
     return v;
 }
 
-static void boot(const std::vector<uint8_t> &rom)
+/* A virgin card has the package's folders and no Saves home — that is
+ * made at the first exit, or mid-session by the conjure this bench now
+ * models. A seasoned card has been through one of those. */
+static void boot(const std::vector<uint8_t> &rom, bool virgin)
 {
     dut = new Vtb_pocket;
     a_next = s_next = g_sys = 0;
     g_console.clear();
     g_files.clear();
+    g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
+              "/Saves"};
+    if (!virgin)
+    {
+        g_dirs.insert("/Saves/rp6502");
+        g_dirs.insert("/Saves/rp6502/common");
+    }
+    g_nvram.clear();
     g_opens = g_reads = g_writes = g_flushes = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
@@ -412,10 +447,19 @@ static void boot(const std::vector<uint8_t> &rom)
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
     host_put_bytes(0x03FD0000u, oemcp.data(), oemcp.size());
     dt_set(0, (uint32_t)rom.size());
-    /* The nvram slot the way a virgin card presents it: in the table
-     * at zero bytes, no file behind it. The firmware must publish a
-     * real size or the host would persist nothing at shutdown. */
-    dt_set(11, 0);
+    /* A virgin card presents the nonvolatile slot at zero bytes with no
+     * file behind it, and the firmware must publish a real size or the
+     * host would persist nothing at shutdown. A seasoned one already
+     * carries the file the last exit wrote, so the host loads it and
+     * the table already reads its size — the case where the firmware
+     * must leave the table alone. */
+    if (virgin)
+        dt_set(NVRAM_SLOT, 0);
+    else
+    {
+        dt_set(NVRAM_SLOT, 256);
+        g_files["/Saves/rp6502/common/nvram.bin"] = std::vector<uint8_t>(256, 0xFF);
+    }
     /* The host's clock, local time behind the valid, as command 0x0090
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
@@ -440,7 +484,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
-    boot(rom);
+    boot(rom, false);
 
     const std::string want = "pocket file ok\r\n";
     for (long i = 0; i < 40000000L && g_console.find(want) == std::string::npos;
@@ -453,7 +497,10 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     /* The host's own copy is the other half of the proof: the bytes
-     * reached a file, not just a buffer the machine still owns. */
+     * reached a file, not just a buffer the machine still owns. The
+     * seasoned card's nvram.bin is the platform's furniture, not the
+     * program's, so it does not count towards what was written. */
+    g_files.erase("/Saves/rp6502/common/nvram.bin");
     ASSERT_EQ(g_files.size(), (size_t)1);
     const std::vector<uint8_t> &f = g_files.begin()->second;
     ASSERT_EQ(f.size(), want.size());
@@ -464,64 +511,68 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     teardown();
 }
 
-/* The whole drive in one boot, run here first. Every check the ROM makes
- * is one the machine decides for itself, so the bench can hold it to the
- * same standard the card does: all forty-six, or name the ones that
+/* The whole drive in one boot. Every check the ROM makes is one the
+ * machine decides for itself, so the bench can hold it to the same
+ * standard the card does: all forty-seven, or name the ones that
  * failed. A ROM shipped without this costs a bitstream and a photograph
  * to find a branch that went the wrong way. */
-UTEST(pfile, the_whole_drive_conforms)
+static void run_fstest(int *utest_result)
 {
-    std::vector<uint8_t> rom = read_file(FSTEST_ROM);
-    ASSERT_GT(rom.size(), 0u);
-    boot(rom);
-
-    for (long i = 0; i < 60000000L && g_console.find("BAD") == std::string::npos;
-         i++)
+    /* Run to the end of the report, not to the word BAD: the failing
+     * indices are printed after it and a newline closes the line.
+     * Stopping at BAD threw away the only thing that says what broke. */
+    size_t at = std::string::npos;
+    for (long i = 0; i < 60000000L; i++)
+    {
         step();
+        if (at == std::string::npos)
+            at = g_console.find("BAD");
+        else if (g_console.find('\n', at) != std::string::npos)
+            break;
+    }
 
-    size_t at = g_console.find("BAD");
     if (at == std::string::npos)
         fprintf(stderr, "console: [%s] opens=%d reads=%d writes=%d\n",
                 g_console.c_str(), g_opens, g_reads, g_writes);
     ASSERT_TRUE(at != std::string::npos);
 
-    /* 46 checks, printed in hex. Anything less and the console names
+    /* 47 checks, printed in hex. Anything less and the console names
      * which ones on the BAD line. */
-    if (g_console.find("PASS 2E/2E") == std::string::npos)
+    if (g_console.find("PASS 2F/2F") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("PASS 2E/2E") != std::string::npos);
+    ASSERT_TRUE(g_console.find("PASS 2F/2F") != std::string::npos);
 
     /* And the firmware published the nonvolatile slot's size — the
      * count the host persists at shutdown, and with it the drive's
      * folder. A table left at zero is the bug that made the first
      * folder experiment prove nothing. */
-    ASSERT_EQ(g_dt[11 * 2 + 1], 256u);
+    ASSERT_EQ(g_dt[NVRAM_SLOT * 2 + 1], 256u);
 }
 
-/* The root-spelling probe, mechanics only: the bench's host accepts
- * every rooted form, so a clean run reads five creates and five full
- * writes. What each spelling does on real hardware is the question the
- * ROM exists to ask; here it just has to ask it correctly. */
-UTEST(pfile, roots_probe_mechanics)
+UTEST(pfile, the_whole_drive_conforms)
 {
-    std::vector<uint8_t> rom = read_file(ROOTS_ROM);
+    std::vector<uint8_t> rom = read_file(FSTEST_ROM);
     ASSERT_GT(rom.size(), 0u);
-    boot(rom);
+    boot(rom, false);
+    run_fstest(utest_result);
+    teardown();
+}
 
-    for (long i = 0; i < 60000000L && g_console.find("DONE") == std::string::npos;
-         i++)
-        step();
-
-    fprintf(stderr, "roots console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("DONE") != std::string::npos);
-    for (const char *want : {"0:-CW", "1:-CW", "2:-CW", "3:-CW", "4:-CW"})
-        ASSERT_TRUE(g_console.find(want) != std::string::npos);
-
-    /* Verbatim delivery is the point: the host must have seen the
-     * spellings, not the drive's rooting of them. */
-    ASSERT_TRUE(g_files.count("000.bin") == 1);
-    ASSERT_TRUE(g_files.count("Assets/rp6502/common/001.bin") == 1);
-    ASSERT_TRUE(g_files.count("002.bin") == 1);
-    ASSERT_TRUE(g_files.count("Saves/rp6502/common/003.bin") == 1);
-    ASSERT_TRUE(g_files.count("004.bin") == 1);
+/* The same drive on a virgin card: the first create comes back hollow,
+ * the firmware dirties and flushes the nonvolatile slot, this host
+ * honors it the way Quit would, and the retry lands. Whether the real
+ * host honors a mid-session flush is the open hardware question; what
+ * this proves is that the machine asks correctly and recovers, and
+ * that a host that answers turns a read-only first session into a
+ * working one. */
+UTEST(pfile, a_virgin_card_conjures_its_folder)
+{
+    std::vector<uint8_t> rom = read_file(FSTEST_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom, true);
+    run_fstest(utest_result);
+    ASSERT_GT(g_flushes, 0);
+    ASSERT_EQ(g_files.count("/Saves/rp6502/common/nvram.bin"), (size_t)1);
+    ASSERT_EQ(g_files["/Saves/rp6502/common/nvram.bin"].size(), (size_t)256);
+    teardown();
 }

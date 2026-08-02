@@ -40,10 +40,18 @@
  * standing, flips a toggle, and waits; the parameters are quasi-static
  * behind that toggle, with three flops of synchroniser passing before
  * the bridge side reads them, and the answer returns the same way.
- * core_bridge_cmd puts no deadline on a data slot operation, unlike
- * the one it puts on a debug event, so the deadline is here: a host
- * that never answers retires the command as a timeout rather than
- * leaving the machine waiting on a file forever.
+ * Both this module and the bridge put a deadline on a data slot
+ * operation, and **the bridge's must expire first**. The bridge is
+ * the side holding the resource: while it waits on a host that never
+ * answers, it is parked, and only its own retirement frees it. If
+ * this side gives up first the bridge is still parked with nobody
+ * listening, and the next command walks into the wreckage — F_ARM
+ * proves a command was taken by watching done fall, but a parked
+ * bridge already has it low, so the command skips the proof, adopts
+ * the parked flush's late answer as its own, and then executes for
+ * real at the host with no one waiting for it. The ordering is the
+ * whole fix; this deadline is only the backstop for a bridge that
+ * has itself stopped answering.
  */
 
 module pocket_file #(
@@ -52,8 +60,9 @@ module pocket_file #(
      * the copy. */
     parameter logic [31:0] WINDOW_BASE = 32'h2000_0000,
     parameter int WINDOW_WORDS = 128,
-    /* About 1.8 s at 74.25 MHz. */
-    parameter int TIMEOUT_BITS = 27
+    /* About 3.6 s at 74.25 MHz — twice the bridge's own deadline, so
+     * the bridge always retires into a side still listening. */
+    parameter int TIMEOUT_BITS = 28
 ) (
     /* The machine's side: the soft CPU's platform window. */
     input logic clk_sys,
