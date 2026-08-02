@@ -22,7 +22,12 @@ module tb_pocket (
     input logic dataslot_allcomplete,
     input logic reset_n,
     output logic [9:0] tb_pocket_dt_addr,
+    output logic tb_pocket_dt_we,
+    output logic [31:0] tb_pocket_dt_wdata,
     input logic [31:0] datatable_q,
+    /* The host's clock, as command 0x0090 would have latched it. */
+    input logic [31:0] rtc_epoch,
+    input logic rtc_valid,
 
     /* The file bridge, played from the bench the way the host plays it. */
     output logic [31:0] tb_pocket_bridge_rd_data,
@@ -91,7 +96,11 @@ module tb_pocket (
         .dataslot_allcomplete(dataslot_allcomplete),
         .reset_n(reset_n),
         .pocket_core_dt_addr(tb_pocket_dt_addr),
+        .pocket_core_dt_we(tb_pocket_dt_we),
+        .pocket_core_dt_wdata(tb_pocket_dt_wdata),
         .datatable_q(datatable_q),
+        .rtc_epoch(rtc_epoch),
+        .rtc_valid(rtc_valid),
         .pocket_core_bridge_rd_data(tb_pocket_bridge_rd_data),
         .pocket_core_param_struct(tb_pocket_param_struct),
         .pocket_core_resp_struct(tb_pocket_resp_struct),

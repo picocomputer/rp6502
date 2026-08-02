@@ -143,15 +143,12 @@ UTEST(compare, syscall_rom_matches_oracle)
             rv_out.push_back((char)dut->rp6502_rv_tx_data);
     }));
 
-    /* The machine's stream begins after the boot narration; the oracle's
-     * may begin with its startup banner. The program bytes must match
-     * exactly: same UART bytes, same std write, same AX, same errno. */
-    /* com.c expands a bare newline to CRLF, as the console does for
-     * everything else the machine prints. */
-    const char *marker = "boot: running\r\n";
-    size_t at = rv_out.find(marker);
-    ASSERT_TRUE(at != std::string::npos);
-    std::string rtl_stream = rv_out.substr(at + strlen(marker));
+    /* The machine boots silently now, so its stream is the program's
+     * bytes from the first one; the oracle's may begin with its startup
+     * banner, which the tail compare below slides past. The program
+     * bytes must match exactly: same UART bytes, same std write, same
+     * AX, same errno. */
+    std::string rtl_stream = rv_out;
     ASSERT_TRUE(rtl_stream.size() >= 7);
     ASSERT_TRUE(oracle_out.size() >= rtl_stream.size());
     ASSERT_STREQ(oracle_out.substr(oracle_out.size() - rtl_stream.size()).c_str(),

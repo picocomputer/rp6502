@@ -385,22 +385,28 @@ end
     wire     [31:0] rtc_time_bcd;
     wire            rtc_valid;
 
-    wire            savestate_supported;
-    wire    [31:0]  savestate_addr;
-    wire    [31:0]  savestate_size;
-    wire    [31:0]  savestate_maxloadsize;
+    // Sleep is the savestate handshake: at sleep the host asks 0x00A0
+    // for a blob and this core answers that it cannot make one, so the
+    // Pocket powers down without one and wake is a fresh core load —
+    // every slot restaged by the normal boot, which is the reset a
+    // computer with a power switch wakes to. Denying is a real answer;
+    // these are driven zeros, not floats.
+    wire            savestate_supported = 1'b0;
+    wire    [31:0]  savestate_addr = 32'd0;
+    wire    [31:0]  savestate_size = 32'd0;
+    wire    [31:0]  savestate_maxloadsize = 32'd0;
 
     wire            savestate_start;
-    wire            savestate_start_ack;
-    wire            savestate_start_busy;
-    wire            savestate_start_ok;
-    wire            savestate_start_err;
+    wire            savestate_start_ack = 1'b0;
+    wire            savestate_start_busy = 1'b0;
+    wire            savestate_start_ok = 1'b0;
+    wire            savestate_start_err = 1'b1;
 
     wire            savestate_load;
-    wire            savestate_load_ack;
-    wire            savestate_load_busy;
-    wire            savestate_load_ok;
-    wire            savestate_load_err;
+    wire            savestate_load_ack = 1'b0;
+    wire            savestate_load_busy = 1'b0;
+    wire            savestate_load_ok = 1'b0;
+    wire            savestate_load_err = 1'b1;
     
     wire            osnotify_inmenu;
 
@@ -430,10 +436,13 @@ end
 // synchronous to clk_74a
 
     wire    [9:0]   datatable_addr;
-    // Port A is ours and we only read it; the host writes through port
-    // B. Left floating these drove a RAM's write enable with nothing.
-    wire            datatable_wren = 1'b0;
-    wire    [31:0]  datatable_data = 32'd0;
+    // Port A is ours, both ways now: reads for slot sizes, and the
+    // write that publishes a nonvolatile slot's size — the host
+    // persists exactly as many bytes as the table names, so a slot
+    // whose file does not exist yet stays zero until the machine says
+    // otherwise. The host still writes through port B.
+    wire            datatable_wren;
+    wire    [31:0]  datatable_data;
     wire    [31:0]  datatable_q;
 
 core_bridge_cmd icb (
@@ -595,7 +604,13 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .dataslot_allcomplete ( dataslot_allcomplete ),
     .reset_n              ( reset_n ),
     .pocket_core_dt_addr  ( datatable_addr ),
+    .pocket_core_dt_we    ( datatable_wren ),
+    .pocket_core_dt_wdata ( datatable_data ),
     .datatable_q          ( datatable_q ),
+
+    // the host's clock, written once at boot by command 0x0090
+    .rtc_epoch ( rtc_epoch_seconds ),
+    .rtc_valid ( rtc_valid ),
 
     // the file bridge
     .pocket_core_bridge_rd_data      ( file_bridge_rd_data ),

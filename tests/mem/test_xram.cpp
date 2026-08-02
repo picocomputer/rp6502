@@ -138,7 +138,6 @@ UTEST(xram, records_load_and_match_the_oracle)
 
     std::string rv_out;
     ASSERT_TRUE(rtl_boot(rom, &rv_out));
-    ASSERT_TRUE(strstr(rv_out.c_str(), "rom: staged") != NULL);
 
     /* Every XRAM byte identical, LE words on the RTL side. */
     auto *r = dut->rootp;

@@ -35,7 +35,12 @@ module pocket_core #(
     input logic dataslot_allcomplete,
     input logic reset_n,
     output logic [9:0] pocket_core_dt_addr,
+    output logic pocket_core_dt_we,
+    output logic [31:0] pocket_core_dt_wdata,
     input logic [31:0] datatable_q,
+    /* The host's clock, from command 0x0090, bridge domain. */
+    input logic [31:0] rtc_epoch,
+    input logic rtc_valid,
     /* The file bridge: the host's answer to a target command, and the
      * word it reads back out of us. */
     output logic [31:0] pocket_core_bridge_rd_data,
@@ -119,9 +124,15 @@ module pocket_core #(
     logic [15:0] w_data;
 
     logic [9:0] bridge_dt_addr, file_dt_addr;
-    logic dt_busy, file_dt_req;
+    logic dt_busy, file_dt_req, file_dt_we;
     always_comb pocket_core_dt_addr = file_dt_req && !dt_busy
         ? file_dt_addr : bridge_dt_addr;
+    /* The write enable only passes while the file walk owns the
+     * address: a cycle the loader steals writes nothing, and
+     * pocket_file redoes it, rather than a stolen cycle writing
+     * through the loader's address. */
+    always_comb pocket_core_dt_we = file_dt_we && file_dt_req && !dt_busy;
+    always_comb pocket_core_dt_wdata = pocket_core_dataslot_length;
 
     pocket_bridge bridge (
         .clk_74a(clk_74a),
@@ -163,7 +174,12 @@ module pocket_core #(
         .pocket_bridge_mou_joy(mou_joy),
         .pocket_bridge_mou_trig(mou_trig),
         .pocket_bridge_set_phi2(set_phi2),
-        .pocket_bridge_set_cp(set_cp)
+        .pocket_bridge_set_cp(set_cp),
+        .pocket_bridge_set_tz(set_tz),
+        .rtc_epoch(rtc_epoch),
+        .rtc_valid(rtc_valid),
+        .pocket_bridge_rtc_epoch(rtc_epoch_sys),
+        .pocket_bridge_rtc_valid(rtc_valid_sys)
     );
 
     /* Staging: the machine's byte fetch against the halfword store. */
@@ -205,17 +221,27 @@ module pocket_core #(
     logic [27:0] host_addr;
     logic host_stb, host_we;
     logic [31:0] host_wdata, host_rdata, file_rdata;
-    logic [31:0] set_phi2, set_cp;
+    logic [31:0] set_phi2, set_cp, set_tz;
+    logic [31:0] rtc_epoch_sys;
+    logic rtc_valid_sys;
 
     /* The platform window's second half is what the interact menu has
-     * set, read-only: the machine polls it and applies what changed.
-     * Bit 16 picks; the file bridge owns everything below it. */
+     * set plus the host's clock, read-only: the machine polls it and
+     * applies what changed. Bit 16 picks; the file bridge owns
+     * everything below it. */
     logic [31:0] set_rdata;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n)
             set_rdata <= '0;
         else if (host_stb)
-            set_rdata <= host_addr[2] ? set_cp : set_phi2;
+            case (host_addr[4:2])
+                3'd0: set_rdata <= set_phi2;
+                3'd1: set_rdata <= set_cp;
+                3'd2: set_rdata <= set_tz;
+                3'd3: set_rdata <= rtc_epoch_sys;
+                3'd4: set_rdata <= {31'd0, rtc_valid_sys};
+                default: set_rdata <= '0;
+            endcase
     end
     always_comb host_rdata = host_addr_q ? set_rdata : file_rdata;
 
@@ -304,6 +330,7 @@ module pocket_core #(
         .pocket_file_resp_struct(pocket_core_resp_struct),
         .pocket_file_dt_req(file_dt_req),
         .pocket_file_dt_addr(file_dt_addr),
+        .pocket_file_dt_we(file_dt_we),
         .datatable_q(datatable_q),
         .dt_busy(dt_busy),
         .pocket_file_read(pocket_core_dataslot_read),

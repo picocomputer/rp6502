@@ -1,7 +1,25 @@
 {
     "interact": {
         "magic": "APF_VER_1",
-        "variables": [],
+        "variables": [
+            {
+                "name": "UTC offset (minutes)",
+                "id": 1,
+                "type": "slider_u32",
+                "enabled": true,
+                "address": "0x1000000C",
+                "persist": true,
+                "writeonly": true,
+                "defaultval": 0,
+                "graphical": {
+                    "signed": true,
+                    "min": -720,
+                    "max": 840,
+                    "adjust_small": 15,
+                    "adjust_large": 60
+                }
+            }
+        ],
         "messages": []
     }
 }

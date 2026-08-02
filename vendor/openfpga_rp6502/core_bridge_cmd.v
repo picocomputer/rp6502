@@ -224,6 +224,14 @@ localparam  [3:0]   TARG_ST_WAITRESULT_DSO  = 'd15;
     // commands down with it - this state machine serves both, and a
     // core that cannot load a ROM is worse than one that cannot log.
     reg     [23:0]  target_debug_timeout;
+    // And a host that does not answer a data slot command must not take
+    // the session down: this host has never answered 0x0188, and without
+    // a deadline here one flush parks WAITRESULT_DSO forever. 2^28 clocks
+    // is about 3.6 s at 74.25 MHz - twice pocket_file's own 1.8 s, so a
+    // legitimate slow write always finishes or times out downstream
+    // first, and this fires only for a command the host will never pick
+    // up. Result code 7 marks the difference from a host that answered.
+    reg     [27:0]  target_dso_timeout;
     
     
 initial begin
@@ -246,6 +254,7 @@ initial begin
     target_debug_event_queue <= 0;
     target_debug_done <= 0;
     target_debug_timeout <= 0;
+    target_dso_timeout <= 0;
     target_dataslot_ack <= 0;
     target_dataslot_done <= 0;
     target_dataslot_err <= 0;
@@ -611,12 +620,14 @@ always @(posedge clk) begin
     end
     TARG_ST_DATASLOTOP: begin
         target_0[31:16] <= 16'h636D;
-        
+
         target_dataslot_done <= 0;
         target_dataslot_err <= 0;
+        target_dso_timeout <= 0;
         tstate <= TARG_ST_WAITRESULT_DSO;
     end
     TARG_ST_WAITRESULT_DSO: begin
+        target_dso_timeout <= target_dso_timeout + 1'b1;
         if(target_0[31:16] == 16'h6275) begin
             target_dataslot_ack <= 1;
         end
@@ -625,6 +636,11 @@ always @(posedge clk) begin
             // save result code
             target_dataslot_err <= target_0[2:0];
             // assert done
+            target_dataslot_done <= 1;
+            tstate <= TARG_ST_IDLE;
+        end else if(&target_dso_timeout) begin
+            // about 3.6s at 74.25MHz - the host never picked it up
+            target_dataslot_err <= 3'd7;
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;
         end

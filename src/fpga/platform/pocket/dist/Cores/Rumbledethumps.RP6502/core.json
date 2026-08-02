@@ -7,13 +7,13 @@
             "description": "Picocomputer 6502: W65C02, VGA, PSG.",
             "author": "Rumbledethumps",
             "url": "https://picocomputer.github.io",
-            "version": "0.1.0",
-            "date_release": "2026-07-28"
+            "version": "0.2.0",
+            "date_release": "2026-08-01"
         },
         "framework": {
             "target_product": "Analogue Pocket",
             "version_required": "1.1",
-            "sleep_supported": false,
+            "sleep_supported": true,
             "dock": {
                 "supported": true,
                 "analog_output": false

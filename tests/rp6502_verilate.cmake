@@ -118,6 +118,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/ria/api/api.c
+        ${RP6502_SRC}/ria/api/clk.c
         ${RP6502_SRC}/ria/api/std.c
         ${RP6502_SRC}/ria/api/uni.c
         ${RP6502_SRC}/ria/str/rln.c

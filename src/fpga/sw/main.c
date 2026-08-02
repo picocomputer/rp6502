@@ -24,7 +24,9 @@
 #include "vga.h"
 #include "vid.h"
 #include "ria/api/api.h"
+#include "ria/api/clk.h"
 #include "ria/api/std.h"
+#include "ria/api/tim.h"
 #include "ria/api/uni.h"
 #include "ria/main.h"
 #include "ria/str/rln.h"
@@ -318,18 +320,44 @@ bool main_api(uint8_t operation)
         return std_api_read_xstack();
     case 0x18:
         return std_api_write_xstack();
+    case 0x0F:
+        return clk_api_clock();
+    case 0x10:
+        return clk_api_get_res();
+    case 0x11:
+        return clk_api_get_time();
+    case 0x12:
+        return clk_api_set_time();
     case 0x1A:
         return std_api_lseek_cc65();
     case 0x1D:
         return std_api_lseek_llvm();
     case 0x1E:
         return std_api_syncfs();
+    case 0x29:
+        return msc_api_chdir();
+    case 0x2A:
+        return msc_api_chdrive();
+    case 0x2B:
+        return msc_api_getcwd();
     case 0x30:
         return rln_api_lastkey();
     case 0x31:
         return rln_api_peek();
     case 0x32:
         return rln_api_poke();
+    case 0x3A:
+        return clk_api_gmtime();
+    case 0x3B:
+        return clk_api_localtime();
+    case 0x3C:
+        return clk_api_mktime();
+    case 0x3D:
+        return clk_api_strftime();
+    case 0x3E:
+        return clk_api_time_set();
+    case 0x3F:
+        return clk_api_time_get();
     case 0x42:
         return api_return_ax(0x4143);
     case 0x43:
@@ -340,11 +368,12 @@ bool main_api(uint8_t operation)
         return api_return_ax(val + 1);
     }
     default:
-        /* The filesystem calls land here: no directory to open, no file
-         * to seek. If sleep is ever supported, look again at what a
-         * stub like this owes a program that was mid-anything when the
-         * lid closed - and at src/fpga/sw/rom.c, which is still reading
-         * the staging store long after a load looks finished. */
+        /* What lands here now is the directory family — the drive has
+         * one directory and nothing to enumerate — plus unlink, rename
+         * and stat, which the host's API cannot express. Sleep needs no
+         * special care from a stub: waking is a fresh core load with
+         * every slot restaged, so no program is ever mid-anything
+         * across it. */
         return api_return_errno(API_ENOSYS);
     }
 }
@@ -354,17 +383,10 @@ int main(void)
     /* No str_init: it exists to apply a locale, and this machine has one
      * locale and no S() callers — the whole localized chain is meant to
      * collect under --gc-sections. */
-    /* Checkpoints, not decoration. These are the only report the
-     * hardware gives while it is coming up, and the two that follow the
-     * drivers bracket the font copy out of SDRAM — the one init here
-     * that waits on something off-chip. A silent log says the soft CPU
-     * never ran; a log that stops says where. */
-    printf("boot: rv\n");
     com_init();
     std_init();
     rln_init();
     term_init();
-    printf("boot: term\n");
     /* The code page tables came in on their own data slot. Say so if
      * they did not: the machine runs either way, and the alternative to
      * saying so is a program whose accented filenames quietly stop
@@ -372,7 +394,8 @@ int main(void)
     if (!uni_init())
         printf("oem: no tables\n");
     vid_init();
-    printf("boot: loading\n");
+    tim_init();
+    msc_init();
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
      * it straight out of the platform's staging window. */
@@ -383,7 +406,8 @@ int main(void)
     {
         staged = rom_load_staged(slot);
         MMIO_SLOT = 0;
-        printf(staged ? "rom: staged\n" : "rom: bad image\n");
+        if (!staged)
+            printf("rom: bad image\n");
         runnable = staged;
     }
 
@@ -396,7 +420,6 @@ int main(void)
         for (uint32_t i = 0; i < sizeof boot_prog; i++)
             if (SRAM[BOOT_ORG + i] != boot_prog[i])
             {
-                printf("boot: verify failed\n");
                 runnable = false;
                 break;
             }
@@ -412,10 +435,7 @@ int main(void)
     rln_run();
     api_run();
     if (runnable)
-    {
         CPU_RUN = 1;
-        printf("boot: running\n");
-    }
 
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the

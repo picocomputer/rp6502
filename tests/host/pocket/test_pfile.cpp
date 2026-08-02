@@ -72,6 +72,11 @@ static void tick()
         dut->datatable_q = dt_pipe[1];
         dt_pipe[1] = dt_pipe[0];
         dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
+        /* The write side: the machine publishes a nonvolatile slot's
+         * size. The enable is a clk_sys pulse wide enough to cover a
+         * 74a period, sampled here the way the real RAM samples it. */
+        if (dut->tb_pocket_dt_we)
+            g_dt[dut->tb_pocket_dt_addr & 63] = dut->tb_pocket_dt_wdata;
         dut->clk_74a = 1;
     }
     dut->eval();
@@ -190,13 +195,17 @@ static void do_openfile()
     uint8_t param[264];
     host_get_bytes(dut->tb_pocket_param_struct, param, sizeof param);
     std::string name((const char *)param);
-    /* Either form resolves here. Which one the real host accepts is the
-     * open question — Analogue documents a full path, PocketQuake passes
-     * one relative to Assets — so the bench takes both and hardware is
-     * the arbiter. Asserting a form here would only enshrine a guess. */
-    const std::string root = "/Assets/rp6502/common/";
-    if (name.rfind(root, 0) == 0)
-        name = name.substr(root.size());
+    /* Any rooted form resolves here. Which one the real host accepts is
+     * the open question — Analogue documents a full path, PocketQuake
+     * passes one relative to Assets — so the bench takes them all and
+     * hardware is the arbiter. Asserting a form here would only
+     * enshrine a guess. */
+    for (const char *root : {"/Saves/rp6502/common/", "/Assets/rp6502/common/"})
+        if (name.rfind(root, 0) == 0)
+        {
+            name = name.substr(strlen(root));
+            break;
+        }
     /* The struct's integers are bridge words, not bytes of the stream the
      * path rides in. The bench had them the other way round and so agreed
      * with a firmware that wrote them reversed, which is how a create
@@ -403,6 +412,14 @@ static void boot(const std::vector<uint8_t> &rom)
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
     host_put_bytes(0x03FD0000u, oemcp.data(), oemcp.size());
     dt_set(0, (uint32_t)rom.size());
+    /* The nvram slot the way a virgin card presents it: in the table
+     * at zero bytes, no file behind it. The firmware must publish a
+     * real size or the host would persist nothing at shutdown. */
+    dt_set(11, 0);
+    /* The host's clock, local time behind the valid, as command 0x0090
+     * leaves it: 2001-09-09 01:46:40, a billion seconds. */
+    dut->rtc_epoch = 1000000000u;
+    dut->rtc_valid = 1;
     dut->datatable_q = g_dt[1];
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;
@@ -449,7 +466,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
 
 /* The whole drive in one boot, run here first. Every check the ROM makes
  * is one the machine decides for itself, so the bench can hold it to the
- * same standard the card does: all twenty-six, or name the ones that
+ * same standard the card does: all forty-six, or name the ones that
  * failed. A ROM shipped without this costs a bitstream and a photograph
  * to find a branch that went the wrong way. */
 UTEST(pfile, the_whole_drive_conforms)
@@ -468,9 +485,15 @@ UTEST(pfile, the_whole_drive_conforms)
                 g_console.c_str(), g_opens, g_reads, g_writes);
     ASSERT_TRUE(at != std::string::npos);
 
-    /* 34 checks, printed in hex. Anything less and the console names
+    /* 46 checks, printed in hex. Anything less and the console names
      * which ones on the BAD line. */
-    if (g_console.find("PASS 22/22") == std::string::npos)
+    if (g_console.find("PASS 2E/2E") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
-    ASSERT_TRUE(g_console.find("PASS 22/22") != std::string::npos);
+    ASSERT_TRUE(g_console.find("PASS 2E/2E") != std::string::npos);
+
+    /* And the firmware published the nonvolatile slot's size — the
+     * count the host persists at shutdown, and with it the drive's
+     * folder. A table left at zero is the bug that made the first
+     * folder experiment prove nothing. */
+    ASSERT_EQ(g_dt[11 * 2 + 1], 256u);
 }

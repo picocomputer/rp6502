@@ -58,6 +58,13 @@ SECTIONS
 
     __stack_top = ORIGIN(TCM) + LENGTH(TCM);
 
+    /* The heap exists for setenv: the time zone rides the environment
+     * so the C library's localtime, mktime and strftime all read one
+     * offset. A few short strings, once — but sbrk needs its bounds,
+     * and the top is held back so the stack keeps room of its own. */
+    __heap_start = __bss_end;
+    __heap_end = __stack_top - 4K;
+
     /* The RIA register cells are hardware; REGS() indexes them here, and
      * the xstack and its pointer live behind the same window. */
     PROVIDE(regs = 0x20000000);

@@ -100,8 +100,6 @@ UTEST(boot, firmware_boots_the_6502)
     /* The machine's stream reaches the OS console through the manifold —
      * whole up to the stdin phase, where rln's own echo and ANSI cursor
      * traffic join the merge. */
-    ASSERT_TRUE(strstr(rv_out.c_str(), "boot: loading") != NULL);
-    ASSERT_TRUE(strstr(rv_out.c_str(), "boot: running") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "HELLO, WORLD!\r\nCADBHI\r") != NULL);
     ASSERT_TRUE(strstr(rv_out.c_str(), "OK") != NULL);
 
@@ -110,9 +108,9 @@ UTEST(boot, firmware_boots_the_6502)
      * linker's window. Row 0's published base points at cells whose glyph
      * bytes spell the machine's first line, 8-byte term_data_t stride. */
     const char *line0 = "HELLO, WORLD!";
-    /* The boot narration reaches the terminal now that it goes through
-     * the manifold rather than around it, so the program's first line
-     * is wherever the narration left off rather than row zero. */
+    /* The machine boots silently, so this lands on row zero — but the
+     * scan stays, because where the first line lands is the terminal's
+     * business and not this test's. */
     int found = -1;
     for (int row = 0; row < 8 && found < 0; row++)
     {

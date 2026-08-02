@@ -9,9 +9,12 @@
  * out of memory the bridge can read, Open File hands the host a name
  * and binds it to a slot, Get File asks which name a slot already
  * holds, Flush commits what was written — and the data table says how
- * long the file is. This block issues all six for the soft CPU and
- * answers when they retire. Get File has no caller yet; it is wired
- * because a fit is half an hour and a missing wire is not worth one.
+ * long the file is, in both directions: the machine reads it to learn
+ * a slot's size and writes it to publish one, which is how the host
+ * knows how many bytes a nonvolatile slot's file deserves at shutdown.
+ * This block issues all of it for the soft CPU and answers when they
+ * retire. Get File has no caller yet; it is wired because a fit is
+ * half an hour and a missing wire is not worth one.
  *
  * Flush is the one command Analogue documents but its own reference
  * core_bridge_cmd.v never implemented, so the override in
@@ -72,9 +75,14 @@ module pocket_file #(
     output logic [31:0] pocket_file_param_struct,
     output logic [31:0] pocket_file_resp_struct,
 
-    /* The data table, shared with the loader's own read of slot 0. */
+    /* The data table, shared with the loader's own read of slot 0.
+     * The write side is how a nonvolatile slot's size gets published:
+     * the host persists exactly as many bytes as the table names, so a
+     * slot whose file does not exist yet holds zero until the machine
+     * writes a real size here. The value rides pocket_file_length. */
     output logic pocket_file_dt_req,
     output logic [9:0] pocket_file_dt_addr,
+    output logic pocket_file_dt_we,
     input logic [31:0] datatable_q,
     input logic dt_busy,
 
@@ -100,15 +108,18 @@ module pocket_file #(
     localparam logic [2:0] OP_DT = 3'd4;
     localparam logic [2:0] OP_GETFILE = 3'd5;
     localparam logic [2:0] OP_FLUSH = 3'd6;
+    localparam logic [2:0] OP_DTW = 3'd7;
 
-    localparam logic [2:0] F_IDLE = 3'd0;
-    localparam logic [2:0] F_START = 3'd1;
-    localparam logic [2:0] F_ARM = 3'd2;
-    localparam logic [2:0] F_WAIT = 3'd3;
-    localparam logic [2:0] F_DT0 = 3'd4;
-    localparam logic [2:0] F_DT1 = 3'd5;
-    localparam logic [2:0] F_DT2 = 3'd6;
-    localparam logic [2:0] F_DT3 = 3'd7;
+    localparam logic [3:0] F_IDLE = 4'd0;
+    localparam logic [3:0] F_START = 4'd1;
+    localparam logic [3:0] F_ARM = 4'd2;
+    localparam logic [3:0] F_WAIT = 4'd3;
+    localparam logic [3:0] F_DT0 = 4'd4;
+    localparam logic [3:0] F_DT1 = 4'd5;
+    localparam logic [3:0] F_DT2 = 4'd6;
+    localparam logic [3:0] F_DT3 = 4'd7;
+    localparam logic [3:0] F_DTW0 = 4'd8;
+    localparam logic [3:0] F_DTW1 = 4'd9;
 
     /* The command, and the answer, standing across the crossing. */
     logic [2:0] r_op;
@@ -207,7 +218,7 @@ module pocket_file #(
     end
 
     /* --- The command, clk_74a side. --- */
-    logic [2:0] fstate;
+    logic [3:0] fstate;
     logic go_t1, go_t2, go_t3;
     logic [TIMEOUT_BITS-1:0] tmo;
 
@@ -229,6 +240,7 @@ module pocket_file #(
             pocket_file_flush <= 1'b0;
             pocket_file_dt_req <= 1'b0;
             pocket_file_dt_addr <= '0;
+            pocket_file_dt_we <= 1'b0;
         end else begin
             go_t1 <= go_t;
             go_t2 <= go_t1;
@@ -298,12 +310,35 @@ module pocket_file #(
                     ret_t  <= !ret_t;
                     fstate <= F_IDLE;
                 end
+                /* The write walk, same yield discipline: the enable is
+                 * one cycle, and a cycle the loader stole is redone —
+                 * the wrapper gates the enable with the grant, so a
+                 * stolen cycle writes nothing rather than writing the
+                 * loader's address. */
+                F_DTW0:
+                if (!dt_busy) begin
+                    pocket_file_dt_req  <= 1'b1;
+                    pocket_file_dt_addr <= pocket_file_id[9:0];
+                    pocket_file_dt_we   <= 1'b1;
+                    fstate <= F_DTW1;
+                end
+                F_DTW1: begin
+                    pocket_file_dt_we <= 1'b0;
+                    if (dt_busy)
+                        fstate <= F_DTW0;
+                    else begin
+                        pocket_file_dt_req <= 1'b0;
+                        ret_t  <= !ret_t;
+                        fstate <= F_IDLE;
+                    end
+                end
                 default:
                 if (go_t2 != go_t3) begin
                     err_q  <= '0;
                     tmo_q  <= 1'b0;
                     tmo    <= '0;
-                    fstate <= r_op == OP_DT ? F_DT0 : F_START;
+                    fstate <= r_op == OP_DT ? F_DT0
+                        : r_op == OP_DTW ? F_DTW0 : F_START;
                 end
             endcase
         end

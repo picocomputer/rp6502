@@ -170,7 +170,6 @@ static void run_staged(int *utest_result, bool slot_by_port,
                 cpu_out.c_str(), rv_out.c_str(), (int)quiet);
     ASSERT_TRUE(quiet);
     ASSERT_STREQ(cpu_out.c_str(), "RP");
-    ASSERT_TRUE(strstr(rv_out.c_str(), "rom: staged") != NULL);
 }
 
 UTEST(rom, staged_rom_boots)

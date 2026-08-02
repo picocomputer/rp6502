@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The whole drive in one boot. Thirty-four checks the machine decides for
+# The whole drive in one boot. Forty-six checks the machine decides for
 # itself, printed as one row of dots, one line naming whatever failed,
 # and a count. Nothing here needs reading off against a table.
 #
@@ -22,7 +22,7 @@
 # period past anything this test writes. A file that returns at the
 # right length full of the wrong bytes fails here.
 #
-# Leaves fs1.dat, fs2.dat and s0..s7.dat in /Assets/rp6502/common/.
+# Leaves fs1.dat, fs2.dat, pfx.dat and s0..s7.dat in /Saves/rp6502/common/.
 
 import argparse
 import zlib
@@ -36,6 +36,11 @@ from bigfile_rom_gen import (ORG, XSTACK, API_A, API_OP, API_CALL, RIA_TX,
 O_APPEND = 0x40
 O_EXCL = 0x80
 OP_LSEEK = 0x1A
+OP_CHDIR = 0x29
+OP_CHDRIVE = 0x2A
+OP_GETCWD = 0x2B
+OP_SYNCFS = 0x1E
+OP_TIME_GET = 0x3F
 SEEK_CUR, SEEK_END, SEEK_SET = 0, 1, 2  # cc65's spelling, not POSIX's
 
 FD = 0x0200
@@ -128,6 +133,16 @@ def build():
     p.rts()
     p.close(h)
     p.lda(1)
+    p.rts()
+
+    # --- A must be zero (a miss counter stayed empty) ---
+    is_zero = p.here()
+    p.emit(0xC9, 0x00)
+    h = p.branch(0xF0)
+    p.lda(1)
+    p.rts()
+    p.close(h)
+    p.lda(0)
     p.rts()
 
     # --- X:A against EXPH:EXPL ---
@@ -546,6 +561,90 @@ def build():
     check(eq16)
     p.jsr(do_close)
 
+    # 35 the presence probe: a plain open of a missing name fails...
+    open_it("probe.dat", O_RDONLY)
+    p.lda_abs(FD)
+    check(is_ff)
+    # 36 ...and fails again — the probe itself must leave nothing
+    # behind, or trying save00..saveNN as a directory listing would
+    # manufacture the files it was looking for
+    open_it("probe.dat", O_RDONLY)
+    p.lda_abs(FD)
+    check(is_ff)
+
+    # 37 the spellings are one file: create under the drive prefix
+    open_it("MSC0:pfx.dat", O_WRONLY | O_CREAT | O_TRUNC)
+    p.lda_abs(FD)
+    check(not_ff)
+    p.jsr(do_close)
+    # 38 find it rooted
+    open_it("msc0:/pfx.dat", O_RDONLY)
+    p.lda_abs(FD)
+    check(not_ff)
+    p.jsr(do_close)
+    # 39 and bare
+    open_it("pfx.dat", O_RDONLY)
+    p.lda_abs(FD)
+    check(not_ff)
+    p.jsr(do_close)
+    # 40 a drive that is not 0 is not this drive
+    open_it("msc1:pfx.dat", O_RDONLY)
+    p.lda_abs(FD)
+    check(is_ff)
+
+    # 41 the working directory is pinned: getcwd answers len+1 of
+    # MSC0:/ — the expectation stored first, because storing it uses A
+    p.store(EXPL, 7)
+    p.store(EXPH, 0)
+    p.call(OP_GETCWD)
+    check(eq16)
+    # 42 ...and spells it exactly, popped in order
+    p.store(TMP, 0)
+    for ch in "MSC0:/":
+        p.lda_abs(XSTACK)
+        p.emit(0xC9, ord(ch))
+        h = p.branch(0xF0)
+        p.inc_abs(TMP)
+        p.close(h)
+    p.lda_abs(TMP)
+    check(is_zero)
+
+    # 43 chdir errors whatever it names, even the root it is already in
+    p.push_str("MSC0:/")
+    p.call(OP_CHDIR)
+    check(is_ff)
+
+    # 44 chdrive accepts the one drive there is
+    p.push_str("MSC0:")
+    p.call(OP_CHDRIVE)
+    check(not_ff)
+
+    # 45 the clock is the host's local reading through the offset: the
+    # bench latches a billion seconds with the offset at zero, so the
+    # popped int64 reads 0x3B9ACA00 plus the machine's short uptime,
+    # little end first
+    p.call(OP_TIME_GET)
+    p.store(TMP, 0)
+    p.lda_abs(XSTACK)       # low byte: inside the uptime window
+    p.emit(0xC9, 0x10)      # cmp #$10
+    h = p.branch(0x90)      # bcc: less than 16 seconds elapsed
+    p.inc_abs(TMP)
+    p.close(h)
+    for want in (0xCA, 0x9A, 0x3B, 0, 0, 0, 0):
+        p.lda_abs(XSTACK)
+        p.emit(0xC9, want)
+        h = p.branch(0xF0)
+        p.inc_abs(TMP)
+        p.close(h)
+    p.lda_abs(TMP)
+    check(is_zero)
+
+    # 46 syncfs drives the flush the bridge can now survive
+    open_it(NAME2, O_RDONLY)
+    p.call(OP_SYNCFS)
+    check(not_ff)
+    p.jsr(do_close)
+
     # --- the tally ---
     text("\r\nPASS ")
     p.lda_abs(PASSN)
@@ -585,7 +684,7 @@ def main():
             crc = zlib.crc32(data) & 0xFFFFFFFF
             rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
         Path(a.emit).write_bytes(rom)
-        print(f"fstest.rp6502 {len(rom)} bytes, 34 checks, {TOTAL} byte payload")
+        print(f"fstest.rp6502 {len(rom)} bytes, 46 checks, {TOTAL} byte payload")
     return 0
 
 

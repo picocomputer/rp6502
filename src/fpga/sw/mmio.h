@@ -66,9 +66,16 @@
 #define FILE_CTL (*(volatile uint32_t *)0x80000010u)
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
-/* The interact menu's persisted settings, read-only. */
+/* The interact menu's persisted settings, read-only, and the host's
+ * clock. SET_TZ is the menu's UTC offset in signed minutes; RTC_EPOCH
+ * is the Pocket's local wall time as seconds since 1970, written once
+ * at core boot by host command 0x0090, and RTC_VALID says it ever
+ * was. */
 #define SET_PHI2 (*(volatile uint32_t *)0x80010000u)
 #define SET_CP (*(volatile uint32_t *)0x80010004u)
+#define SET_TZ (*(volatile uint32_t *)0x80010008u)
+#define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
+#define RTC_VALID (*(volatile uint32_t *)0x80010010u)
 #define FILE_WIN_BASE 0x20000000u
 #define FILE_WIN_SIZE 512u
 
@@ -81,8 +88,13 @@
 #define FILE_OP_GETFILE 5u
 /* Analogue documents 0x0188 but never implemented it in its own
  * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
- * are not Open File's: 0 is written, 1 is slot not defined. */
+ * are not Open File's: 0 is written, 1 is slot not defined; 7 is the
+ * override's own bridge deadline, a command no host ever picked up. */
 #define FILE_OP_FLUSH 6u
+/* Write one word of the data slot size table: FILE_ID names the table
+ * word, FILE_LENGTH carries the value. How a nonvolatile slot's size
+ * gets published, so the host persists that many bytes at shutdown. */
+#define FILE_OP_DTW 7u
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu

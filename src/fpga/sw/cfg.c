@@ -21,11 +21,12 @@
 
 #include "cfg.h"
 #include "font.h"
+#include "main.h"
 #include "mmio.h"
 
 #include "ria/sys/cpu.h"
 
-static uint32_t cfg_phi2, cfg_cp;
+static uint32_t cfg_phi2, cfg_cp, cfg_tz;
 
 void cfg_task(void)
 {
@@ -42,5 +43,13 @@ void cfg_task(void)
         cfg_cp = cp;
         if (cp)
             font_set_code_page((uint16_t)cp);
+    }
+    /* The offset's zero is a real value — UTC — so unlike the others
+     * it applies as-is; time.c ignores a write that changes nothing. */
+    uint32_t tz = SET_TZ;
+    if (tz != cfg_tz)
+    {
+        cfg_tz = tz;
+        tim_set_tz_minutes((int32_t)tz);
     }
 }

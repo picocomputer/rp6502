@@ -5,56 +5,48 @@ distribution tree is described in `dist/rp6502.txt`.
 
 ## Suspend
 
-`core.json` says `"sleep_supported": false`, and it stays false until
-someone does the work below rather than because the flag is hard to
-change.
+`core.json` says `"sleep_supported": true`, and the design of sleep on
+this platform is the reason it can: openFPGA sleep is the savestate
+handshake — at sleep the host asks 0x00A0 for a blob, and this core
+answers that it cannot make one, driven zeros on every savestate input
+in `core_top.sv`. The Pocket powers down without a state and wake is a
+fresh core load: bitstream, slots, everything restaged by the normal
+boot. Waking to a reset machine is what a computer with a power switch
+does, and it dissolves the old worry about the SDRAM staging store —
+nothing has to survive because everything is reloaded.
 
-The machine has no state worth saving and no way to save it: everything
-it is lives in the fabric, and there is no nonvolatile slot to put it
-in. That part is fine — waking to a reset machine is what a computer
-with a power switch does.
-
-What is not fine is the staged ROM. `src/fpga/sw/rom.c` reads assets
-straight out of the SDRAM staging window for as long as the program
-runs, and the glyphs sit in the last 64 KB of the same store. A load
-does not finish; it keeps going. So sleep is only safe if either the
-SDRAM is still being refreshed while the Pocket is asleep, or the core
-restages the slot on waking before it lets the machine run. Neither is
-established here, and the first is not ours to decide.
-
-Whoever picks this up: prove which of the two it is first, because a
-core that wakes reading a store nobody refreshed will not fail loudly
-— it will read plausible rubbish and hand it to a running program.
+Two things ride on sleep beyond the nap itself, both from Analogue's
+data.json page: nonvolatile slots are flushed to the card "when a core
+is stopped with the root menu Quit option, Pocket is turned off, or
+Pocket is slept" — so sleep is also a save point for `nvram.bin` and
+the folder it conjures below.
 
 ## The host's filesystem
 
-> **INCOMPLETE — the drive does not write.** `MSC0:` is rooted at
-> `/Assets/rp6502/common/`, and the host refuses to create a file there:
-> `fstest.rp6502` gets 10 of 34, failing from the first create onward
-> with result 3. Assets is readable and nothing else, which is
-> presumably what the separate `Saves` tree is for.
->
-> Creating works under `/Saves/rp6502/common/` — that build passed 26 of
-> 26 — but only when the folder is already on the card, and nothing in
-> the API creates it. A nonvolatile slot does not either, at least not
-> the way it was tried here.
->
-> Changing `MSC_PATH` in `src/fpga/sw/msc.c` back to Saves is a one-line
-> fix and a bitstream. It was not done because the folder has to come
-> from somewhere and no answer to that was found. Everything below is
-> what was learned before the work stopped.
+`MSC0:` is rooted at `/Saves/rp6502/common/`, and the drive writes.
+The folder problem that parked this work is solved by the nonvolatile
+slot: `data.json` declares `nvram.bin` (slot 11, platform-common, init
+to 0xFF), `msc_init` publishes its size into the data slot size table
+through the write port that used to be tied to ground, and at the
+first Quit, power-off or sleep the host persists the file — creating
+`/Saves/rp6502/common/` on its way. On a virgin card the drive is
+read-only for the first session and writable ever after.
 
-**Everything in this section is a guess.** None of it is documented.
-Every line is what one Pocket on one firmware did when we poked it, and
-some of it is probably still wrong — three of the claims that stood here
-earlier were, and each was written just as confidently as what replaced
-it. Any of it can change under a firmware update with nothing anywhere
-saying so.
+Paths take one shape: `foo.txt`, `MSC0:foo.txt` and `MSC0:/foo.txt`
+are the same file. The working directory is pinned — getcwd answers
+`MSC0:/`, chdir errors whatever it names — so a program's plain
+`open("game.save", ...)` lands in the same place on every platform.
+There is no delete, rename or mkdir: the target command list ends at
+Open File, and those calls answer ENOSYS. Existence is probed with a
+plain `O_RDONLY` open, which fails on a missing name without creating
+anything; trying `save00.dat` upward is the directory listing this
+host will ever have.
 
-`MSC0:` is `/Assets/rp6502/common/` — the same folder the fonts and the
-code page tables load from. A drive rooted in `Saves` would read better
-and is what the folder is for, but nothing we could find creates it, so
-the machine writes where the card already has somewhere to write.
+**Some of this section is measured, not documented.** Every claim
+about host behaviour is what one Pocket on one firmware did when we
+poked it; any of it can change under a firmware update with nothing
+anywhere saying so. When prose and `fstest.rp6502` disagree, the ROM
+is right.
 
 **Seek is free.** Slot Read and Slot Write both carry a 32-bit offset
 into the file, so random access needs no cursor protocol.
@@ -88,19 +80,23 @@ produces the same length either way. Only a shrink can.
 opened — and only this command does. The others use 0 alone. The rest
 are 2 slot not defined, 3 not found, 4 malformed path, 5 general.
 
-**A write is not a save, and there is nothing to be done about it.**
-Slot Write returns once the host has taken the bytes, which on a
-handheld that sleeps is not the same as the card having them. 0x0188
-would commit them and this host does not answer it: a core that issues
-one waits out its timeout, and then every later command times out too,
-because the bridge puts no deadline on a data slot operation and never
-leaves one. One flush takes the drive down for the rest of the session.
+**A write is not a save, but asking is safe now.** Slot Write returns
+once the host has taken the bytes, which on a handheld that sleeps is
+not the same as the card having them. 0x0188 would commit them, and no
+firmware this core has met answers it — but the bridge override now
+puts a ~3.6 s deadline on a data slot command the host never picks up,
+so a flush costs one timeout instead of the session. The firmware's
+first sync asks once: a host that answers gets a real flush on every
+sync after, one that does not is remembered for the session and a
+write is durable when the host says it took it.
 
-**There is no mkdir, and no warning that there isn't.** Nothing creates
-a directory, and the host does not invent the folders in a path. Asked
-to create a file in a folder that is not there it answers with a
-descriptor — the code for success — and no file appears. Which is why
-`MSC0:` is rooted in `Assets`.
+**There is no mkdir, and no warning that there isn't.** Nothing in the
+runtime API creates a directory, and the host does not invent the
+folders in a path. Asked to create a file in a folder that is not
+there it answers with a descriptor — the code for success — and no
+file appears. The one folder-creating act the platform has is the
+nonvolatile flush at shutdown, which is what the `nvram.bin` slot is
+for.
 
 ## On Analogue's documentation
 
@@ -123,9 +119,9 @@ your code works:
   folder either. So the documented way to make a file silently does not.
 - There is a flush command, 0x0188, in the reference. Analogue's own
   reference core does not implement it and the console does not answer
-  it. Issue one and it times out; every data slot command after it times
-  out too, because the bridge has no deadline on one and never leaves
-  it. One call kills the drive for the session. Not a word.
+  it. Issue one through the stock bridge and it never retires; every
+  data slot command after it queues forever. One call killed the drive
+  for the session until the override grew its own deadline. Not a word.
 - Nothing anywhere distinguishes "that failed" from "that did nothing".
 
 That last one is what actually costs. Errors are silent, so every
@@ -200,17 +196,17 @@ colour bars while leaving the machine built and still talking on both
 console paths, so one build separates "is the video path alive" from
 "is the machine alive".
 
-The firmware narrates its own boot, and where the log stops is the
-answer:
+The firmware boots silently — the narration that used to print here
+came out once the platform stopped needing bring-up — so the boot
+diagnostic is now the failures it still reports and the states the
+debug log shows:
 
-| last line | what got that far |
+| signal | what it says |
 | --- | --- |
-| *nothing* | the soft CPU is not executing, or the host is not answering 0x0152 — turn on `CORE_TEST_PATTERN` to tell those apart |
-| `boot: rv` | it runs; `term_init` did not return |
-| `boot: term` | the drivers are up; `vid_init` did not return, and it is the one that copies the font out of SDRAM |
-| `boot: loading` | it reached the slot; the loader did not finish |
+| *no 0x0152 traffic at all* | the soft CPU is not executing, or the host is not answering the log — turn on `CORE_TEST_PATTERN` to tell those apart |
+| `oem: no tables` | the code page slot did not stage; accented filenames will fold to U+FFFD |
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
-| `boot: running` | everything above worked and the 6502 is out of reset, so a black screen now is the video path |
+| the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 
 `cmake --build build/fpga --target bitstream` then `--target package`
 assembles the card tree into `build/fpga/tests/package`. Zip the three
