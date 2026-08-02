@@ -389,41 +389,41 @@ bool main_api(uint8_t operation)
  * part was reconfigured, every memory came back out of the bitstream
  * and nothing short of the savestate interface can continue anything.
  *
- * So: the microsecond counter, which is reset by anything at all, and
- * a marker in each of the three block memories, which the bitstream
- * would overwrite. Read before they are rewritten, printed before
- * anything else has run.
+ * So: the microsecond counter, which anything at all resets, and a
+ * marker in this firmware's own memory, which a reconfigure would
+ * overwrite out of the bitstream. Between them they separate all
+ * three cases, and neither touches the machine being measured.
  *
- * The markers sit at the top of each store because the loader fills
- * from the bottom; a program that uses the last words of its own RAM
- * can still scribble them, so a run between sleeps is not a clean
- * measurement. Delete this whole block once the answer is known. */
+ * An earlier version also marked the top of SRAM and of XRAM. Those
+ * are the 6502's address space, live just above the register window,
+ * and writing them broke the drive test on hardware while the
+ * simulator saw nothing wrong. A probe that disturbs its subject
+ * measures the disturbance. Delete this block once the answer is
+ * known. */
 #define BOOT_MAGIC 0x36353032u
 static uint32_t boot_tcm_magic __attribute__((section(".noinit")));
 static uint32_t boot_count __attribute__((section(".noinit")));
+static uint32_t boot_mt_hi, boot_mt_lo;
+static bool boot_tcm_alive;
 
-static bool boot_probe_store(volatile uint8_t *base, uint32_t top)
+/* Read first, before any init can disturb it. */
+static void boot_probe_read(void)
 {
-    bool alive = true;
-    for (uint32_t i = 0; i < 4; i++)
-        alive &= base[top + i] == (uint8_t)(BOOT_MAGIC >> (8 * i));
-    for (uint32_t i = 0; i < 4; i++)
-        base[top + i] = (uint8_t)(BOOT_MAGIC >> (8 * i));
-    return alive;
+    boot_mt_hi = MTIME_HI;
+    boot_mt_lo = MTIME_LO;
+    boot_tcm_alive = boot_tcm_magic == BOOT_MAGIC;
+    boot_tcm_magic = BOOT_MAGIC;
+    boot_count = boot_tcm_alive ? boot_count + 1 : 1;
 }
 
-static void boot_probe(void)
+/* Say it once there is somewhere to say it. The console is not the
+ * terminal until term_init and vid_init have run, which is why the
+ * first version of this printed into nothing. */
+static void boot_probe_print(void)
 {
-    uint32_t mt_hi = MTIME_HI, mt_lo = MTIME_LO;
-    bool tcm = boot_tcm_magic == BOOT_MAGIC;
-    bool sram = boot_probe_store(SRAM, 0xFFF0u);
-    bool xram = boot_probe_store(XRAM_WIN, 0xFFF0u);
-    boot_tcm_magic = BOOT_MAGIC;
-    boot_count = tcm ? boot_count + 1 : 1;
-    printf("sleep: n=%lu mt=%lu:%08lu tcm=%c sram=%c xram=%c\n",
-           (unsigned long)boot_count, (unsigned long)mt_hi,
-           (unsigned long)mt_lo, tcm ? 'Y' : 'N', sram ? 'Y' : 'N',
-           xram ? 'Y' : 'N');
+    printf("sleep: n=%lu mt=%lu:%08lu tcm=%c\n", (unsigned long)boot_count,
+           (unsigned long)boot_mt_hi, (unsigned long)boot_mt_lo,
+           boot_tcm_alive ? 'Y' : 'N');
 }
 
 int main(void)
@@ -431,8 +431,8 @@ int main(void)
     /* No str_init: it exists to apply a locale, and this machine has one
      * locale and no S() callers — the whole localized chain is meant to
      * collect under --gc-sections. */
+    boot_probe_read();
     com_init();
-    boot_probe();
     std_init();
     rln_init();
     term_init();
@@ -443,6 +443,7 @@ int main(void)
     if (!uni_init())
         printf("oem: no tables\n");
     vid_init();
+    boot_probe_print();
     tim_init();
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
