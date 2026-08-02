@@ -84,17 +84,21 @@ set_false_path -hold \
 # the beam clock share general[1]; every transfer between them is
 # same-edge synchronous with a hold relationship of zero, met only by
 # the skew between two global networks staying under one LUT of data
-# delay. The fitter pads such paths against its own estimate, and two
-# fits in a row it left one fast-corner path a handful of picoseconds
-# short — a different path each time, because which register pair draws
-# the worst spine seam is placement lottery. So demand margin instead
-# of luck: a fifth of a nanosecond of minimum delay is invisible to
-# setup, whose slowest relationship here is 19.8 ns, and makes the
-# whole class a requirement the router has to satisfy at every corner.
-set_min_delay 0.2 \
+# delay. The fitter pads such paths against its own delay estimate, and
+# two fits in a row it left one fast-corner path a handful of
+# picoseconds short — a different register pair each time, because
+# which pair draws the worst spine seam is placement lottery. What is
+# actually untrusted is the corner model on this crossing, by tens of
+# picoseconds, so say exactly that: sixty picoseconds of added hold
+# uncertainty, three times the worst observed miss, in both directions.
+# The fitter then pads every such path to clear it and the signoff
+# demands the same. A flat minimum delay was tried instead and asked
+# too much of paths into MLAB address ports, which have almost no
+# routing detour to give; uncertainty scales the demand to the check.
+set_clock_uncertainty -add -hold 0.060 \
     -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
     -to [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}]
-set_min_delay 0.2 \
+set_clock_uncertainty -add -hold 0.060 \
     -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
