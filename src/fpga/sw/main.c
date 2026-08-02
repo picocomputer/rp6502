@@ -378,60 +378,11 @@ bool main_api(uint8_t operation)
     }
 }
 
-/* What survives a sleep, reported once at boot.
- *
- * Waking restarts the ROM, and what it costs to change that depends
- * entirely on how much of the machine is still standing when the boot
- * runs. Three outcomes and three different projects: if the fabric
- * never stopped, only this firmware's own boot restarted the ROM and
- * continuing is a branch; if it was reset but the block memories kept
- * their contents, continuing means not re-running the boot; if the
- * part was reconfigured, every memory came back out of the bitstream
- * and nothing short of the savestate interface can continue anything.
- *
- * So: the microsecond counter, which anything at all resets, and a
- * marker in this firmware's own memory, which a reconfigure would
- * overwrite out of the bitstream. Between them they separate all
- * three cases, and neither touches the machine being measured.
- *
- * An earlier version also marked the top of SRAM and of XRAM. Those
- * are the 6502's address space, live just above the register window,
- * and writing them broke the drive test on hardware while the
- * simulator saw nothing wrong. A probe that disturbs its subject
- * measures the disturbance. Delete this block once the answer is
- * known. */
-#define BOOT_MAGIC 0x36353032u
-static uint32_t boot_tcm_magic __attribute__((section(".noinit")));
-static uint32_t boot_count __attribute__((section(".noinit")));
-static uint32_t boot_mt_hi, boot_mt_lo;
-static bool boot_tcm_alive;
-
-/* Read first, before any init can disturb it. */
-static void boot_probe_read(void)
-{
-    boot_mt_hi = MTIME_HI;
-    boot_mt_lo = MTIME_LO;
-    boot_tcm_alive = boot_tcm_magic == BOOT_MAGIC;
-    boot_tcm_magic = BOOT_MAGIC;
-    boot_count = boot_tcm_alive ? boot_count + 1 : 1;
-}
-
-/* Say it once there is somewhere to say it. The console is not the
- * terminal until term_init and vid_init have run, which is why the
- * first version of this printed into nothing. */
-static void boot_probe_print(void)
-{
-    printf("sleep: n=%lu mt=%lu:%08lu tcm=%c\n", (unsigned long)boot_count,
-           (unsigned long)boot_mt_hi, (unsigned long)boot_mt_lo,
-           boot_tcm_alive ? 'Y' : 'N');
-}
-
 int main(void)
 {
     /* No str_init: it exists to apply a locale, and this machine has one
      * locale and no S() callers — the whole localized chain is meant to
      * collect under --gc-sections. */
-    boot_probe_read();
     com_init();
     std_init();
     rln_init();
@@ -443,7 +394,6 @@ int main(void)
     if (!uni_init())
         printf("oem: no tables\n");
     vid_init();
-    boot_probe_print();
     tim_init();
 
     /* A staged .rp6502 outranks the built-in program: the loader parses

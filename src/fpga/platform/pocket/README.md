@@ -5,21 +5,35 @@ distribution tree is described in `dist/rp6502.txt`.
 
 ## Suspend
 
-`core.json` says `"sleep_supported": true`, and the design of sleep on
-this platform is the reason it can: openFPGA sleep is the savestate
-handshake — at sleep the host asks 0x00A0 for a blob, and this core
-answers that it cannot make one, driven zeros on every savestate input
-in `core_top.sv`. The Pocket powers down without a state and wake is a
-fresh core load: bitstream, slots, everything restaged by the normal
-boot. Waking to a reset machine is what a computer with a power switch
-does, and it dissolves the old worry about the SDRAM staging store —
-nothing has to survive because everything is reloaded.
+`core.json` says `"sleep_supported": false`, and that is a decision
+rather than an omission.
 
-Analogue's data.json page notes that nonvolatile slots are flushed to
-the card "when a core is stopped with the root menu Quit option,
-Pocket is turned off, or Pocket is slept". This core declares no
-nonvolatile slot, so nothing rides on that — but it is the reason
-sleep once looked like a way to make the drive's folder appear.
+Sleeping on openFPGA means producing a savestate. At sleep the host
+asks 0x00A0 for a blob, powers down, and hands it back on wake; a core
+that cannot make one is powered down without it. This core cannot, so
+for a while it declined the blob and let the Pocket sleep anyway,
+waking into a cold boot on the theory that a machine with a power
+switch wakes to a reset.
+
+Hardware disagreed, and the owner said so plainly: the ROM restarted
+instead of continuing. So the machine was asked what survives. A
+marker was written into the firmware's own memory — a `.noinit`
+section the bitstream would overwrite and `crt0` leaves alone —
+alongside the microsecond counter, which anything at all resets, and
+the pair was printed at every boot. Across two sleep cycles the marker
+was gone and the counter back at nothing, every time.
+
+**Wake reconfigures the part.** SRAM, XRAM, TCM and every register come
+back out of the bitstream. Nothing the firmware can do continues a
+program through that; only a genuine savestate could, and that means
+marshalling something like 200 KB of machine state through the bridge
+with 153 ALMs spare — a feature that costs another feature.
+
+Since a sleep that silently restarts the user's program is worse than
+a Pocket that simply does not offer sleep for this core, the core stops
+claiming it. The savestate inputs in `core_top.sv` stay driven and
+denying, so a host that asks anyway still gets a real answer rather
+than a floating one.
 
 ## The host's filesystem
 

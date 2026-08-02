@@ -57,24 +57,13 @@ SECTIONS
         __bss_end = .;
     } > TCM
 
-    /* Not cleared by crt0 and not loaded from the bitstream, which is
-     * the whole point: what is here after a boot came through that boot
-     * alive. It is how the machine tells a reset from a reconfigure. */
-    .noinit (NOLOAD) : {
-        . = ALIGN(4);
-        __noinit_start = .;
-        *(.noinit*)
-        . = ALIGN(4);
-        __noinit_end = .;
-    } > TCM
-
     __stack_top = ORIGIN(TCM) + LENGTH(TCM);
 
     /* The heap exists for setenv: the time zone rides the environment
      * so the C library's localtime, mktime and strftime all read one
      * offset. A few short strings, once — but sbrk needs its bounds,
      * and the top is held back so the stack keeps room of its own. */
-    __heap_start = __noinit_end;
+    __heap_start = __bss_end;
     __heap_end = __stack_top - 4K;
 
     /* The RIA register cells are hardware; REGS() indexes them here, and

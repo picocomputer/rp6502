@@ -385,12 +385,23 @@ end
     wire     [31:0] rtc_time_bcd;
     wire            rtc_valid;
 
-    // Sleep is the savestate handshake: at sleep the host asks 0x00A0
-    // for a blob and this core answers that it cannot make one, so the
-    // Pocket powers down without one and wake is a fresh core load —
-    // every slot restaged by the normal boot, which is the reset a
-    // computer with a power switch wakes to. Denying is a real answer;
-    // these are driven zeros, not floats.
+    // Sleep is off in core.json, and this is why. Sleeping on openFPGA
+    // means handing the host a savestate: it asks 0x00A0 for a blob,
+    // powers down, and gives the blob back on wake. This core cannot
+    // make one, so it answers that it cannot, and the Pocket used to
+    // sleep anyway and wake into a cold boot.
+    //
+    // Measured, with a marker in memory the bitstream would overwrite
+    // and a counter nothing but a reset can clear: wake reconfigures
+    // the part. The marker was gone and the counter back at zero every
+    // time. So SRAM, XRAM, TCM and every register come back out of the
+    // bitstream, and no amount of care in the firmware can continue a
+    // program across a nap — only a real savestate could, and that is
+    // 200 KB of machine to marshal with 153 ALMs spare.
+    //
+    // A sleep that silently restarts the user's program is worse than
+    // no sleep, so the core no longer claims to support it. These stay
+    // driven and denying: a host that asks anyway gets a real answer.
     wire            savestate_supported = 1'b0;
     wire    [31:0]  savestate_addr = 32'd0;
     wire    [31:0]  savestate_size = 32'd0;
