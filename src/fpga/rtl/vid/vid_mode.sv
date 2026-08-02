@@ -92,9 +92,12 @@ module vid_mode (
      * bank flip lands on h==0's first tick, so only the pixel-0 read at
      * the end of h==799 still sees the fresh line under its write-side
      * label; a repeat line never flips and reads the held bank. */
+    /* Native scanout: address h reads pixel h. This used to halve the
+     * address on 320-wide canvases so each stored pixel spanned two beam
+     * slots; the machine emits each pixel once now, and a platform whose
+     * sink wants the repeat makes it downstream, where it is free. */
     logic [9:0] rd_next;
-    always_comb rd_next = x_shift
-        ? {1'b0, 9'((h + 10'd1) >> 1)} : h + 10'd1;
+    always_comb rd_next = h + 10'd1;
     logic [10:0] lb_rd;
     always_comb lb_rd = h == 10'd799
         ? {flip_next ? wr_bank : !wr_bank, 10'd0}
@@ -105,7 +108,7 @@ module vid_mode (
     always_ff @(posedge clk) begin
         if (px_last) begin
             lb_q <= linebuf[lb_rd];
-            lb_blank <= !(h == 10'd799 || h < 10'd639);
+            lb_blank <= !(h == 10'd799 || h < cw - 10'd1);
         end
     end
     always_comb vid_mode_pix = lb_blank ? 16'h0000 : lb_q;

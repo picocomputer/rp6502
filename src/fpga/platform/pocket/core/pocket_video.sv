@@ -3,31 +3,28 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's beam handed to the Pocket's scaler. The machine paints
- * at 50.4 MHz, one pixel strobe per two clocks; the scaler wants a
- * 25.2 MHz raster with its own manners — one vsync pulse at the
- * origin, one hsync pulse at x==3 on every line, data enable across
- * the active window, black outside it. Both rasters come off the same
- * PLL, so a shallow FIFO and a frame pulse are the whole alignment:
- * the reader's raster starts on the first crossed frame pulse and
- * never resynchronizes, the de window sits a few clocks past the
- * origin so the writer stays ahead, and occupancy holds still from
- * then on — moving occupancy is a broken clock family, and the
- * simulation asserts it never moves to the rails.
+ * The machine's picture handed to the Pocket's scaler. There is no CRT
+ * here and no beam modeled anywhere: the raster is 800x525 CLOCKS per
+ * frame at 25.2 MHz, and inside it each canvas row is one hs, the
+ * row's own pixels back to back, then porch —
  *
- * The scaler is told the truth about the canvas. The machine paints
- * every canvas into one 640x480 beam — 320-wide canvases as doubled
- * pixels, 240- and 180-line canvases as doubled lines, the 16:9
- * heights under a 60-line letterbox — and this stage undoes exactly
- * that presentation: skip marks the duplicate of each doubled pixel
- * (the scaler latches only the first, and Analogue's CRT mode
- * requires no horizontal duplication), de simply never asserts on
- * repeated or letterbox lines, and the end-of-line word after each
- * active line names the scaler slot for the canvas, so the Pocket
- * scales the native picture with its own filters. The reader still
- * pops every pixel of the full window whatever the canvas — the
- * FIFO's flow is the clock alignment and does not change with the
- * picture.
+ *     640 wide: hs, 640 px over 640 clocks, 160 clocks of porch
+ *     320 wide: hs, 320 px over 320 clocks, 1280 clocks of porch
+ *
+ * — so a 320-wide row's period spans two 800-clock slots, the 240- and
+ * 180-row canvases come out at their own heights, and the end-of-line
+ * word after each row requests the scaler slot for the canvas,
+ * video.json's scaler_modes in the same order. Analogue's filters (and
+ * the CRT mode, which documents that duplicated pixels break it) work
+ * on real pixels because no other kind arrives.
+ *
+ * The machine emits every canvas pixel exactly once — its de IS the
+ * canvas — so this stage is only clock alignment: pixels arrive at one
+ * per two clk_sys and leave at one per clk_vid, the same rate, and the
+ * FIFO buffers jitter, not content. Both clocks come off the same PLL;
+ * the reader's raster starts on the first crossed frame pulse and
+ * never resynchronizes, and its window trails the writer by a few
+ * pixels so the writer is always ahead.
  */
 
 module pocket_video (
@@ -37,8 +34,9 @@ module pocket_video (
     input logic [15:0] vid_pixel,
     input logic vid_de,
     input logic vid_frame,
-    /* The machine's canvas, vga.h's encoding. Latched by the machine at
-     * vblank, so it is quasi-static here; sampled once per frame below. */
+    /* The machine's canvas, vga.h's encoding, latched by the machine at
+     * vblank; the reader crosses it and mirrors the machine's own row
+     * schedule with it. */
     input logic [2:0] vid_canvas,
 
     /* The scaler's domain. */
@@ -53,17 +51,30 @@ module pocket_video (
 
     localparam int H_TOTAL = 800;
     localparam int V_TOTAL = 525;
-    localparam int X_DE0 = 8;
-    localparam int H_ACTIVE = 640;
     localparam int V_ACTIVE = 480;
+    /* Pixels right after hs, one small fixed offset for every width. */
+    localparam int X_DE0 = 8;
 
-    /* vga.h's vga_canvas_t, and the scaler slot each one maps to —
-     * video.json's scaler_modes array in the same order. */
-    /* Console (0) and 640x480 (3) both decode to the default arm below,
-     * so only the canvases that change the geometry are named. */
+    /* vga.h's vga_canvas_t. Console (0) and 640x480 (3) decode alike. */
     localparam logic [2:0] CV_320_240 = 3'd1;
     localparam logic [2:0] CV_320_180 = 3'd2;
     localparam logic [2:0] CV_640_360 = 3'd4;
+
+    function automatic logic cv_is_x2(input logic [2:0] cv);
+        cv_is_x2 = cv == CV_320_240 || cv == CV_320_180;
+    endfunction
+
+    /* Which raster lines carry rows — the machine's own schedule: canvas
+     * rows on the first line of each doubled pair, the 16:9 heights
+     * between lines 60 and 420, nothing anywhere else. */
+    function automatic logic cv_row_sel(input logic [2:0] cv,
+                                        input logic [9:0] line);
+        cv_row_sel = line < 10'(V_ACTIVE);
+        if (cv == CV_320_180 || cv == CV_640_360)
+            cv_row_sel = line >= 10'd60 && line < 10'd420;
+        if (cv_is_x2(cv))
+            cv_row_sel = cv_row_sel && !line[0];
+    endfunction
 
     /* The frame pulse crosses as a toggle. */
     logic frame_t;
@@ -88,7 +99,8 @@ module pocket_video (
     logic frame_pulse;
     always_comb frame_pulse = frame_t2 != frame_t3;
 
-    /* Active pixels cross through the FIFO. */
+    /* Canvas pixels cross through the FIFO — jitter-deep, because the
+     * two sides run at the same rate. */
     logic fifo_empty, fifo_full;
     logic [15:0] fifo_pixel;
     logic take;
@@ -124,18 +136,9 @@ module pocket_video (
     logic running;
     logic [9:0] x;
     logic [9:0] y;
-    logic de_now;
-    always_comb de_now = running
-        && x >= 10'(X_DE0) && x < 10'(X_DE0 + H_ACTIVE)
-        && y < 10'(V_ACTIVE);
-    always_comb take = de_now;
 
-    /* The canvas, crossed and then held for a whole frame so the
-     * geometry cannot tear mid-picture. A change lands during vblank on
-     * the machine side and is sampled here at the next origin; the one
-     * frame in between is the mode-switch frame the scaler is already
-     * discarding, since the slot request also takes effect a frame
-     * late. */
+    /* The reader's copy of the canvas, crossed and held for a whole
+     * frame so the window cannot tear mid-picture. */
     logic [2:0] canvas_s1, canvas_s2, canvas;
     always_ff @(posedge clk_vid or negedge vrst_n) begin
         if (!vrst_n) begin
@@ -150,16 +153,10 @@ module pocket_video (
         end
     end
 
-    /* What the canvas means to this raster: which beam pixels are the
-     * canvas's own and which are the presentation. */
-    logic cv_x2;      /* 320 wide: every beam pixel pair is one canvas pixel */
-    logic cv_y2;      /* 240/180 tall: every beam line pair is one canvas row */
-    logic cv_box;     /* 16:9: the picture sits under a 60-line letterbox */
-    logic [2:0] slot;
+    logic [9:0] cw;   /* the canvas's width: the de run and the pops */
+    logic [2:0] slot; /* video.json's scaler_modes, same order */
     always_comb begin
-        cv_x2 = canvas == CV_320_240 || canvas == CV_320_180;
-        cv_y2 = canvas == CV_320_240 || canvas == CV_320_180;
-        cv_box = canvas == CV_320_180 || canvas == CV_640_360;
+        cw = cv_is_x2(canvas) ? 10'd320 : 10'd640;
         unique case (canvas)
             CV_640_360: slot = 3'd1;
             CV_320_240: slot = 3'd2;
@@ -168,32 +165,21 @@ module pocket_video (
         endcase
     end
 
-    /* A line carries canvas rows when it is inside the letterbox and is
-     * the first of its doubled pair. The letterbox top is 60 even, so
-     * the pair parity is y[0] either way. */
-    logic line_sel;
-    always_comb begin
-        line_sel = y < 10'(V_ACTIVE);
-        if (cv_box)
-            line_sel = y >= 10'd60 && y < 10'd420;
-        if (cv_y2)
-            line_sel = line_sel && !y[0];
-    end
+    /* de is the canvas, in the same slot the machine sends it: its own
+     * width, back to back, one pop per asserted cycle. */
+    logic de_sel;
+    always_comb de_sel = running
+        && x >= 10'(X_DE0) && x < 10'(X_DE0) + cw
+        && cv_row_sel(canvas, y);
+    always_comb take = de_sel;
 
-    /* The de and skip the scaler sees: de only on canvas rows, skip on
-     * the duplicate of each doubled pixel. X_DE0 is even, so the first
-     * of a pair lands on even x. */
-    logic de_sel, skip_sel;
-    always_comb de_sel = de_now && line_sel;
-    always_comb skip_sel = de_sel && cv_x2 && x[0];
-
-    /* The end-of-line word: the cycle after de falls on every line that
-     * carried it, rgb names the scaler slot — endline[23:13] the
-     * parameter, [2:0] the Set Scaler Slot function code, zeros. Zeros
-     * anywhere else are safe: the scaler samples this position only. */
+    /* The end-of-line word: the cycle after de falls on every row, rgb
+     * names the scaler slot — endline[23:13] the parameter, [2:0] the
+     * Set Scaler Slot function code, zeros. Zeros anywhere else are
+     * safe: the scaler samples this position only. */
     logic endline_now;
-    always_comb endline_now = running && line_sel
-        && x == 10'(X_DE0 + H_ACTIVE);
+    always_comb endline_now = running && cv_row_sel(canvas, y)
+        && x == 10'(X_DE0) + cw;
 
     logic [7:0] r8, g8, b8;
     always_comb begin
@@ -209,7 +195,6 @@ module pocket_video (
             y <= '0;
             pocket_video_rgb <= '0;
             pocket_video_de <= 1'b0;
-            pocket_video_skip <= 1'b0;
             pocket_video_vs <= 1'b0;
             pocket_video_hs <= 1'b0;
         end else begin
@@ -229,14 +214,20 @@ module pocket_video (
             pocket_video_vs <= (running && x == 10'(H_TOTAL - 1)
                                 && y == 10'(V_TOTAL - 1))
                 || (!running && frame_pulse);
-            pocket_video_hs <= running && x == 10'd2;
+            /* One hs per row period: every 800-clock slot at full width,
+             * every second one when a row's period spans two — so the
+             * order on the wire is always hs, pixels, porch. */
+            pocket_video_hs <= running && x == 10'd2
+                && (!cv_is_x2(canvas) || !y[0]);
             pocket_video_de <= de_sel;
-            pocket_video_skip <= skip_sel;
             pocket_video_rgb <= de_sel ? {r8, g8, b8}
                 : endline_now ? {11'(slot), 13'd0}
                 : 24'h0;
         end
     end
+
+    /* Nothing is skipped: only canvas pixels ever arrive. */
+    always_comb pocket_video_skip = 1'b0;
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_video;

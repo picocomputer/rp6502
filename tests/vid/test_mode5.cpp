@@ -62,14 +62,16 @@ static void clock_cycle()
     dut->eval();
 }
 
-static void capture_frame(uint32_t *fb)
+/* The machine's de is the canvas now — each pixel once, each row once,
+ * no letterbox — so a frame is exactly canvas-many pixels. */
+static void capture_frame(uint32_t *fb, size_t px)
 {
     while (dut->rp6502_scanline != 524)
         clock_cycle();
     while (dut->rp6502_scanline != 0)
         clock_cycle();
     size_t at = 0;
-    while (at < 640 * 480)
+    while (at < px)
     {
         clock_cycle();
         if (dut->rp6502_vid_de)
@@ -111,28 +113,21 @@ static void run_case(int *utest_result, const char *name)
     }));
 
     static uint32_t fb[2][640 * 480];
-    capture_frame(fb[0]);
-    capture_frame(fb[1]);
-    ASSERT_EQ(memcmp(fb[0], fb[1], sizeof(fb[0])), 0);
+    const size_t px = (size_t)ow * (size_t)oh;
+    capture_frame(fb[0], px);
+    capture_frame(fb[1], px);
+    ASSERT_EQ(memcmp(fb[0], fb[1], px * 4), 0);
 
-    int xs = ow == 320 ? 1 : 0;
-    int ys = (oh == 240 || oh == 180) ? 1 : 0;
-    int yo = (oh == 180 || oh == 360) ? 60 : 0;
     int diffs = 0;
-    for (int y = 0; y < 480; y++)
-        for (int x = 0; x < 640; x++)
+    for (int y = 0; y < oh; y++)
+        for (int x = 0; x < ow; x++)
         {
-            uint32_t want;
-            int cy = (y - yo) >> ys;
-            if (y < yo || cy >= oh)
-                want = 0xFF000000u;
-            else
-                want = ofb[(size_t)cy * ow + (x >> xs)];
-            if (fb[0][(size_t)y * 640 + x] != want)
+            uint32_t want = ofb[(size_t)y * ow + x];
+            if (fb[0][(size_t)y * ow + x] != want)
             {
                 if (getenv("MODE5_DEBUG") && diffs < 20)
                     fprintf(stderr, "%s diff x=%d y=%d rtl=%08X want=%08X\n",
-                            name, x, y, fb[0][(size_t)y * 640 + x], want);
+                            name, x, y, fb[0][(size_t)y * ow + x], want);
                 diffs++;
             }
         }
@@ -213,11 +208,14 @@ UTEST(mode5, overrun_counts_lost_races_320x240)
         clock_cycle();
     }));
 
+    /* sprite_overrun is built on canvas 1 — 320x240, vidmodes.py — and
+     * this case runs no oracle, so the frame size is stated here. */
     static uint32_t fb[2][640 * 480];
-    capture_frame(fb[0]);
+    const size_t px = 320 * 240;
+    capture_frame(fb[0], px);
     uint16_t over = dut->rootp->rp6502__DOT__vid_sprite__DOT__vid_sprite_overrun;
-    capture_frame(fb[1]);
-    ASSERT_EQ(memcmp(fb[0], fb[1], sizeof(fb[0])), 0);
+    capture_frame(fb[1], px);
+    ASSERT_EQ(memcmp(fb[0], fb[1], px * 4), 0);
     ASSERT_GT(over, 0);
 }
 

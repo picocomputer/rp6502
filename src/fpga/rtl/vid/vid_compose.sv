@@ -6,9 +6,10 @@
  * The plane composite, emu/sys/vga.c's exact rule: on the console canvas
  * the terminal is the whole picture; otherwise the lowest filled plane is
  * the base, composed unconditionally, and the planes above it overwrite
- * only where their alpha bit is set, ascending. Nothing filled — or the
- * letterbox rows of the 180- and 360-line canvases — is opaque black,
- * the same black the oracle paints where nothing covers.
+ * only where their alpha bit is set, ascending. Nothing filled is opaque
+ * black, the same black the oracle paints where nothing covers. The
+ * letterbox rows this used to blacken no longer exist: de never asserts
+ * outside the canvas, so there is nothing here to paint over.
  */
 
 module vid_compose (
@@ -16,7 +17,6 @@ module vid_compose (
     input logic rst_n,
     input logic de,
     input logic console,
-    input logic letterbox,
     input logic [15:0] term_pix,
     input logic [15:0] p0_pix,
     input logic p0_filled,
@@ -32,8 +32,6 @@ module vid_compose (
     always_comb begin
         if (console)
             comp = term_pix;
-        else if (letterbox)
-            comp = 16'h0000;
         else begin
             comp = 16'h0000;
             if (p0_filled)

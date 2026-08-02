@@ -435,6 +435,7 @@ module rp6502
      * hardware. The scanline port is the beam's line. */
     logic [9:0] vid_h /*verilator public_flat_rd*/;
     logic [9:0] vid_v /*verilator public_flat_rd*/;
+    logic vid_de_full;
     logic vid_de /*verilator public_flat_rd*/;
     logic vid_hsync /*verilator public_flat_rd*/;
     logic vid_vsync /*verilator public_flat_rd*/;
@@ -450,7 +451,7 @@ module rp6502
         .vid_timing_v(vid_v),
         .vid_timing_px_first(vid_px_first),
         .vid_timing_px_last(vid_px_last),
-        .vid_timing_de(vid_de),
+        .vid_timing_de(vid_de_full),
         .vid_timing_hsync(vid_hsync),
         .vid_timing_vsync(vid_vsync),
         .vid_timing_line_start(vid_line_start),
@@ -844,17 +845,29 @@ module rp6502
         rp6502_aud_valid = eng_valid;
     end
 
-    /* The 180- and 360-line canvases sit under a 60-line letterbox. */
-    logic vid_letterbox;
-    always_comb vid_letterbox = vid_y_offset != 10'd0
-        && (vid_v < 10'd60 || vid_v >= 10'd420);
+    /* vid_timing's de is the full 640x480 window; the machine's de is
+     * the CANVAS — each of its columns once, each of its rows once, and
+     * nothing where the 180- and 360-line canvases used to carry a
+     * letterbox. Doubling and letterboxing were presentation, and
+     * presentation belongs to the platform: a sink that wants a fixed
+     * 640x480 raster repeats pixels and lines for free, while
+     * un-repeating them costs a buffer. This machine emits every canvas
+     * pixel exactly once. */
+    always_comb begin
+        vid_de = vid_de_full;
+        if (vid_x_shift)
+            vid_de = vid_de && vid_h < 10'd320;
+        if (vid_y_shift)
+            vid_de = vid_de && !vid_v[0];
+        if (vid_y_offset != 10'd0)
+            vid_de = vid_de && vid_v >= 10'd60 && vid_v < 10'd420;
+    end
 
     vid_compose vid_compose (
         .clk(clk_sys),
         .rst_n(rst_n),
         .de(vid_de),
         .console(vid_console),
-        .letterbox(vid_letterbox),
         .term_pix(term_pix),
         .p0_pix(m_pix[0]),
         .p0_filled(m_filled[0]),
