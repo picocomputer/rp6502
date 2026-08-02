@@ -63,7 +63,7 @@ Set `RP6502_FPGA_TRACE` to a path to capture an FST trace, viewable in gtkwave:
 `test_budget` counts, for every scanline of the heaviest fixtures, the clocks
 from the line boundary to the last engine going idle, and reports XRAM port A's
 occupancy beside it. The beam's deadline is pixel 799 — the next line's pixel
-zero is read then — so a line is `4 * 799` clocks today and would be `2 * 799`
+zero is read then — so a line is `2 * 799` clocks today and would be `799`
 at half the system clock.
 
 Read those numbers as a floor. Every fixture stops its 6502 before the
@@ -71,34 +71,24 @@ measurement and none of them make sound, so neither takes the port A slot a
 running machine would, and no fixture puts a heavy sprite load over mode 3's
 XRAM-palette prologue.
 
-## Deferred: gate the palette cache on width and depth
+## The palette, two ways, and what remains deferred
 
-Mode 5 fetches a paletted sprite's colour from XRAM once per pixel — request,
-grant, data, emit — which is what its time goes on, and why reading the index
-word ahead bought it nothing. Mode 3 already does the other thing: it pulls the
-whole palette into a small RAM beside the engine once, then indexes it
-combinationally.
+An earlier version of this section weighed caching a sprite's palette
+against fetching it per pixel, gated on width and depth. That question is
+settled: the sprite stage carries a sixteen-entry set-associative cache —
+eight sets, two ways, one-word lines, flushed each row — sized so any
+sixteen contiguous colours are conflict-free, which makes a miss exactly
+the fetch the stage was already making. The fill modes deliberately do not
+use it: a 256-colour fill's pathological line would miss per pixel and blow
+the deadline, and the fill contract is deterministic completion, so fills
+keep the whole-palette snapshot in the plane's palram.
 
-Neither choice is right unconditionally, and both terms are known when the
-descriptor is decoded. A palette is `2^(bpp-1)` words — two 16-bit entries to a
-word — against however many pixels the clipped span will emit:
-
-| bpp | palette words | cache wins above a span of |
-| --- | --- | --- |
-| 1 | 1 | 1 |
-| 2 | 2 | 2 |
-| 4 | 8 | 8 |
-| 8 | 128 | 128 |
-
-So at 1, 2 and 4 bits a cache pays for anything but the narrowest sprite, and
-at 8 bits it only pays for one wider than 128 — which is why mode 3, always
-full width, can cache unconditionally and a sprite engine cannot. Sprites are
-usually 8 or 16 wide.
-
-The same comparison applies to mode 1 and mode 2, whose windows can be narrow
-enough that mode 3's unconditional load is the wrong trade for them too.
-
-Worth doing when the render needs the clocks. It does not today.
+What remains deferred is the snapshot's tax: at 8 bpp the reload is a
+128-clock prologue on every line, paid even when the palette has not
+changed all frame. A reload-skip tag — reload only when the pointer moves
+or a write lands inside the palette's range, roughly thirty ALMs of
+compare — buys the prologue back. Worth doing only if the render budget
+halves; at today's clock the prologue fits with room to spare.
 
 ## The soft CPU's own clock
 
