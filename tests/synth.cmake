@@ -99,9 +99,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # own source list is dropped, because those files are what we
     # replace.
     set(BS_DIR ${CMAKE_CURRENT_BINARY_DIR}/bitstream)
-    if(NOT DEFINED RP6502_FIT_SEED)
-        set(RP6502_FIT_SEED 1)
-    endif()
     set(BS_QSF ${BS_DIR}/rp6502.qsf)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
     # Analogue's framework is a submodule the simulation never needs, so
@@ -157,13 +154,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # half to spare, which is margin the packer can spend. The old
         # per-knob register packing assignment is gone from 25.1std
         # ("no longer supported -- removing"); the umbrella remains.
-        "set_global_assignment -name OPTIMIZATION_MODE \"AGGRESSIVE AREA\""
-        # The spine pair's sixty picoseconds of demanded hold margin is
-        # met or missed by placement: the same netlist has landed at
-        # +115 ps and at +26 ps on different runs. When a fit misses it,
-        # roll this rather than the constraint:
-        #   cmake -DRP6502_FIT_SEED=<n> build/fpga
-        "set_global_assignment -name SEED ${RP6502_FIT_SEED}")
+        "set_global_assignment -name OPTIMIZATION_MODE \"AGGRESSIVE AREA\"")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES

@@ -8,15 +8,16 @@
  *
  * The TCM was 48 KB for a while, and the alternate screen buffer paid for
  * the growth to 64: turning it off halved the cell store while the blocks
- * were not there. The video work that followed paid the buffer back out of
- * the device's remaining budget, so both screens fit behind the window
- * again. See TERM_ALT_SCREEN in vga/term/term.h.
+ * were not there. The buffer came back for a day when the blocks did, and
+ * went back out when the device ran short of LABs instead — packing the
+ * die to its last rows made every fit a coin toss. See TERM_ALT_SCREEN in
+ * vga/term/term.h.
  */
 
 MEMORY
 {
     TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 64K
-    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
+    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 30720
 }
 
 ENTRY(_start)

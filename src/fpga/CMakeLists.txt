@@ -23,6 +23,14 @@ set(RP6502_FPGA_POCKET ${CMAKE_CURRENT_LIST_DIR}/platform/pocket/core)
 # tests, so the simulation needs none of the desktop dev stack.
 set(RP6502_EMU_CORE_ONLY ON CACHE BOOL "" FORCE)
 add_subdirectory(${RP6502_SRC}/emu emu)
+# The oracle has to be the same machine the RTL is. This platform builds
+# term.c without the alternate screen buffer — the cells are block memory
+# here and that buffer is half of them — so the emu_core this tree builds
+# must match, or a frame comparison diverges the moment a script types
+# ?1049. This is a separate build tree from the emulator's, so its own
+# emu_core keeps the buffer.
+target_compile_definitions(emu_core PUBLIC TERM_ALT_SCREEN=0)
+
 enable_testing()
 # The whole suite, organised by subsystem rather than by host. This tree has
 # the RTL, so it registers the verilated half of every subsystem alongside the

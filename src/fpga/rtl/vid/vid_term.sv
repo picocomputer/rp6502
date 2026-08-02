@@ -4,12 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The terminal's cell memory and scanout registers. The cells are the
- * screen buffers of vga/term/term.c — 61,440 bytes, both screens, that the
- * linker places behind the soft CPU's 0x5 window, so the shared ANSI
- * engine's ordinary stores land here unchanged. The register bank above them carries what the
- * renderer needs each frame: the visible rows' base offsets (term.c owns
- * the O(1) scroll remap and the firmware publishes the resolved bases once
- * per frame), the cursor, the blink phase, and the prog window.
+ * screen buffers of vga/term/term.c — 30,720 bytes the linker places
+ * behind the soft CPU's 0x5 window, so the shared ANSI engine's
+ * ordinary stores land here unchanged. The register bank above them
+ * carries what the renderer needs each frame: the visible rows' base
+ * offsets (term.c owns the O(1) scroll remap and the firmware
+ * publishes the resolved bases once per frame), the cursor, the blink
+ * phase, and the prog window.
  *
  * Registers written by the firmware are shadows; the scanout latches them
  * at frame start, one frame of latency and never a tear. The scanout side
@@ -54,24 +55,24 @@ module vid_term (
      * exactly the same bits while each carries a plain whole-word write
      * and two plain reads.
      *
-     * 15360 words: both screens, the alternate behind the primary at
-     * the offsets the firmware's row table publishes. Flat rather than
-     * banked — Quartus decomposes the depth into two power-of-two
-     * chunks and rounds up, so this costs sixteen blocks a lane where
-     * hand-banking into four chunks would cost fifteen; those four
-     * blocks were judged not worth the 112 ALMs of addressing the
-     * banking cost when it was tried at this depth before. */
+     * 7680 words: one screen. The alternate screen buffer was here for
+     * a day at 15360, and the device ran out of LABs before the ALMs
+     * or the blocks — packing the die to its last rows is what made
+     * every fit a coin toss, so the buffer went back out. See
+     * TERM_ALT_SCREEN in vga/term/term.h. Flat rather than banked: at
+     * 7680 the depth rounds to 8192 and costs eight blocks a lane
+     * either way, so banking bought nothing and came back out too. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0[15360] /*verilator public_flat_rw*/;
+    logic [7:0] cell0[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1[15360] /*verilator public_flat_rw*/;
+    logic [7:0] cell1[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2[15360] /*verilator public_flat_rw*/;
+    logic [7:0] cell2[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3[15360] /*verilator public_flat_rw*/;
+    logic [7:0] cell3[7680] /*verilator public_flat_rw*/;
 
-    logic [13:0] cell_idx;
-    always_comb cell_idx = b_addr[15:2];
+    logic [12:0] cell_idx;
+    always_comb cell_idx = b_addr[14:2];
 
     /* Row bases as byte offsets into the cell window, cursor packed
      * {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]}, the cursor
@@ -221,7 +222,7 @@ module vid_term (
     /* Cell words: {fg, attr, code} and {ul, bg} of the cell being
      * resolved while its predecessor shifts out. */
     logic [31:0] w0_n, w1_n;
-    logic [13:0] fetch_word;
+    logic [12:0] fetch_word;
     logic [31:0] fetch_q;
     logic [7:0] bits;
     logic [15:0] fg_r, bg_r;
@@ -366,11 +367,11 @@ module vid_term (
                             ? 7'd79 : cursor_q[6:0];
                         cur_style <= cursor_q[7:0] >= 8'd80
                             ? 3'd1 : cursor_q[18:16];
-                        fetch_word <= row_base[logical_row][15:2];
+                        fetch_word <= row_base[logical_row][14:2];
                         step <= 4'd2;
                     end
                     4'd2: begin
-                        fetch_word <= fetch_word + 14'd1;
+                        fetch_word <= fetch_word + 13'd1;
                         step <= 4'd3;
                     end
                     4'd3: begin
@@ -382,7 +383,7 @@ module vid_term (
                     end
                     4'd4: begin
                         w1_n <= fetch_q;
-                        fetch_word <= fetch_word + 14'd1;
+                        fetch_word <= fetch_word + 13'd1;
                         step <= 4'd5;
                     end
                     4'd5: begin
@@ -392,7 +393,7 @@ module vid_term (
                         bg_r <= bg_res;
                         shreg <= bits_res;
                         rescol <= 7'd1;
-                        fetch_word <= fetch_word + 14'd1;
+                        fetch_word <= fetch_word + 13'd1;
                         step <= 4'd6;
                     end
                     /* Steady state: eight pixel writes for this cell while
@@ -411,7 +412,7 @@ module vid_term (
                         case (px[2:0])
                             3'd0: w0_n <= fetch_q;
                             3'd1: w1_n <= fetch_q;
-                            3'd6: fetch_word <= fetch_word + 14'd1;
+                            3'd6: fetch_word <= fetch_word + 13'd1;
                             3'd7: begin
                                 /* Load the resolved next cell. */
                                 bits <= bits_res;
@@ -419,7 +420,7 @@ module vid_term (
                                 bg_r <= bg_res;
                                 shreg <= bits_res;
                                 rescol <= rescol + 7'd1;
-                                fetch_word <= fetch_word + 14'd1;
+                                fetch_word <= fetch_word + 13'd1;
                                 if (px == 10'd639)
                                     run <= 1'b0;
                             end
@@ -463,7 +464,7 @@ module vid_term (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_term;
-    always_comb unused_vid_term = ^{b_addr[1:0], bits, cur_bar,
+    always_comb unused_vid_term = ^{b_addr[1:0], b_addr[15], bits, cur_bar,
                                     prog_q[30:26], prog_q[15:10],
                                     cursor_q[31:26], cursor_q[23:19], t[9]};
     /* verilator lint_on UNUSEDSIGNAL */

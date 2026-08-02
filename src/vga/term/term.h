@@ -30,17 +30,17 @@ void term_RIS_no_clear(void);
  *
  * It doubles the cell memory, and on a platform whose cells live in FPGA
  * block memory that is the difference between a feature and a firmware.
- * The Pocket turned it off for a while — that halved its cell store and
- * paid for the soft CPU's growth to a 64 KB TCM — and turned it back on
- * once the video pipeline's block budget could carry both screens. The
- * switch stays, because the next fabric short of blocks will want it:
- * everything still builds and every escape sequence still parses with
- * the buffer compiled out.
+ * The Pocket turns it off. It was off to pay for the soft CPU's 64 KB
+ * TCM, came back for a day when the blocks were found, and went out
+ * again when the device ran short of LABs instead: a die packed to its
+ * last rows made every fit a coin toss, and slack in the fabric is
+ * worth more than a second screen. Other fabrics with room leave it
+ * on, which is why this is a switch and not a deletion.
  *
- * Off, the cursor still saves and restores — only the buffer swap is
- * skipped, so a full-screen program draws on the primary and leaves its
- * output behind on exit. That is what a terminal without an alternate
- * screen has always done. */
+ * Off, the escape sequences still parse and the cursor still saves and
+ * restores — only the buffer swap is skipped, so a full-screen program
+ * draws on the primary and leaves its output behind on exit. That is
+ * what a terminal without an alternate screen has always done. */
 #ifndef TERM_ALT_SCREEN
 #define TERM_ALT_SCREEN 1
 #endif
