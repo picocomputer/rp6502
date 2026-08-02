@@ -148,7 +148,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # ones here are short enough that a block is a poor trade: three
         # blocks go back for a handful of ALMs. Blocks are what this
         # device is short of, not logic.
-        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF")
+        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
+        # The device ran out of LABs before it ran out of ALMs — 1854
+        # asked of 1848 — while setup closes with more than a nanosecond
+        # and a half to spare. Dense register packing trades exactly
+        # that margin for placement room.
+        "set_global_assignment -name AUTO_PACKED_REGISTERS_STRATIX \"MINIMIZE AREA WITH CHAINS\"")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
