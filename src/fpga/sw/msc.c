@@ -237,42 +237,6 @@ static bool msc_unanswered(uint32_t st)
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
-/* The nonvolatile slot exists to make the host conjure the drive's
- * folder: at Quit, power-off or sleep the host persists every
- * nonvolatile slot into the common Saves folder, creating the path as
- * it goes — the only folder-creating act this platform has. On a
- * virgin card that is a session too late, so when a create comes back
- * hollow the drive asks early, once a boot: dirty the slot with a
- * write, then flush it. Whether this host honors either mid-session
- * is answered by the caller's retry, not guessed at here. */
-#define MSC_NVRAM_SLOT 11u
-#define MSC_NVRAM_SIZE 256u
-
-static bool msc_conjure_tried;
-
-static bool msc_conjure_home(void)
-{
-    if (msc_conjure_tried)
-        return false;
-    msc_conjure_tried = true;
-    uint8_t zero = 0;
-    msc_win_put(0, &zero, 1);
-    FILE_ID = MSC_NVRAM_SLOT;
-    FILE_OFFSET = 0;
-    FILE_BRIDGE = FILE_WIN_BASE;
-    FILE_LENGTH = 1;
-    if (msc_command(FILE_OP_WRITE) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
-        return false;
-    if (msc_flush_state != MSC_FLUSH_NEVER)
-    {
-        FILE_ID = MSC_NVRAM_SLOT;
-        msc_flush_state = msc_unanswered(msc_command(FILE_OP_FLUSH))
-                              ? MSC_FLUSH_NEVER
-                              : MSC_FLUSH_WORKS;
-    }
-    return true;
-}
-
 bool msc_std_handles(const char *path)
 {
     (void)path;
@@ -343,18 +307,13 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     /* A create is answered the same way whether or not one happened: ask
      * for a file in a folder the card does not have and the host returns
      * a descriptor, having written nothing. Nothing in the result tells
-     * the two apart, so ask again plainly and take that answer — and on
-     * a virgin card take it twice, with the folder conjure between. */
-    while (!exists)
+     * the two apart, so ask again plainly and take that answer. */
+    if (!exists
+        && !(msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 0)
+             && msc_open_slot(slot, path, 0, 0)))
     {
-        if (msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 0)
-            && msc_open_slot(slot, path, 0, 0))
-            break;
-        if (!msc_conjure_home())
-        {
-            *err = API_ENOENT;
-            return -1;
-        }
+        *err = API_ENOENT;
+        return -1;
     }
 
     uint32_t len = 0;
@@ -504,25 +463,6 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     msc_pool[desc].pos = (uint32_t)(from + off);
     *pos = from + off;
     return 0;
-}
-
-/* The host persists exactly as many bytes of the nonvolatile slot as
- * the size table names, and a slot whose file was never on the card
- * loads as zero bytes — so the size is published here once at boot or
- * nothing would ever be written. */
-void msc_init(void)
-{
-    for (uint32_t i = 0; i < MSC_DT_PAIRS; i++)
-        if (msc_dt(i * 2) == MSC_NVRAM_SLOT)
-        {
-            if (msc_dt(i * 2 + 1) < MSC_NVRAM_SIZE)
-            {
-                FILE_ID = i * 2 + 1;
-                FILE_LENGTH = MSC_NVRAM_SIZE;
-                msc_command(FILE_OP_DTW);
-            }
-            return;
-        }
 }
 
 /* The working directory is synthetic — the host cannot be asked, but

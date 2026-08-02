@@ -15,11 +15,11 @@ boot. Waking to a reset machine is what a computer with a power switch
 does, and it dissolves the old worry about the SDRAM staging store —
 nothing has to survive because everything is reloaded.
 
-Two things ride on sleep beyond the nap itself, both from Analogue's
-data.json page: nonvolatile slots are flushed to the card "when a core
-is stopped with the root menu Quit option, Pocket is turned off, or
-Pocket is slept" — so sleep is also a save point for `nvram.bin` and
-the folder it conjures below.
+Analogue's data.json page notes that nonvolatile slots are flushed to
+the card "when a core is stopped with the root menu Quit option,
+Pocket is turned off, or Pocket is slept". This core declares no
+nonvolatile slot, so nothing rides on that — but it is the reason
+sleep once looked like a way to make the drive's folder appear.
 
 ## The host's filesystem
 
@@ -42,18 +42,22 @@ plain `O_RDONLY` open, which fails on a missing name without creating
 anything; trying `save00.dat` upward is the directory listing this
 host will ever have.
 
-The folder problem that parked this work is solved by the nonvolatile
-slot: `data.json` declares `nvram.bin` (slot 11, platform-common, init
-to 0xFF), `msc_init` publishes its size into the data slot size table
-through the write port that used to be tied to ground, and at the
-first Quit, power-off or sleep the host persists the file — creating
-`/Saves/rp6502/common/` on its way. That is a session too late for a
-virgin card, so when a create comes back hollow the firmware asks
-early, once a boot: it dirties the slot with a one-byte write, flushes
-it, and retries the create. A host that honors either mid-session
-turns a read-only first session into a working one; one that does not
-leaves the drive read-only until that first exit, exactly as before.
-Which kind this host is, a virgin-card `fstest` run answers.
+**The drive's folder ships in the package.** The host creates no
+directories, so `dist/` carries `Saves/rp6502/common/` with a readme
+in it and the card has the folder from the moment the core is
+installed.
+
+That is the second answer to this problem. The first was a trick: a
+nonvolatile `nvram.bin` slot, which the host persists into that same
+folder at Quit, power-off or sleep — creating the path on its way.
+It worked, but only at exit, so a fresh card stayed read-only for its
+whole first session. The firmware then tried to trigger it early,
+dirtying the slot and flushing it whenever a create came back hollow.
+On hardware that bought nothing: the host does not persist a
+nonvolatile slot mid-session, and each attempt cost seconds of
+commands nobody answered, so every open on a folderless card hung
+before failing. The trick, the slot and the early flush are all gone.
+Shipping a directory is what the problem always wanted.
 
 **Some of this section is measured, not documented.** Every claim
 about host behaviour is what one Pocket on one firmware did when we
@@ -107,10 +111,9 @@ are 2 slot not defined, 3 not found, 4 malformed path, 5 general.
 once the host has taken the bytes, which on a handheld that sleeps is
 not the same as the card having them. 0x0188 would commit them, and no
 firmware this core has met answers it — but the bridge override now
-puts a ~1.8 s deadline on a data slot command the host never picks up,
-so a flush costs one deadline instead of the session. The firmware's
-first ask decides — a sync or the folder conjure, whichever comes
-first: a host that answers gets a real flush every time after, one
+puts a ~0.9 s deadline on a data slot command the host never picks up,
+so a flush costs one deadline instead of the session. The first sync
+decides: a host that answers gets a real flush every time after, one
 that does not is remembered for the session and a write is durable
 when the host says it took it.
 
@@ -124,19 +127,17 @@ first the bridge stayed parked with nobody listening, and the next
 command — which proves it was accepted by watching `done` fall, and
 finds it already low — adopted the flush's late answer as its own and
 then executed at the host with no one waiting. A write reported as
-failed, performed anyway. The deadlines are now 1.8 s bridge inside
-3.6 s downstream, and a command the host ignores comes back as result
+failed, performed anyway. The deadlines are now 0.9 s bridge inside
+1.8 s downstream, and a command the host ignores comes back as result
 7 rather than a timeout.
 
 **There is no mkdir, and no warning that there isn't.** Nothing in the
 runtime API creates a directory, and the host does not invent the
 folders in a path. Asked to create a file in a folder that is not
 there it answers with a descriptor — the code for success — and no
-file appears. The one folder-creating act the platform has is the
-nonvolatile flush, which is what the `nvram.bin` slot is for — at
-shutdown for certain, and mid-session if this host turns out to
-answer a flush the firmware asks for when a create comes back
-hollow.
+file appears. There is no folder-creating act available at run time at
+all: the nonvolatile-slot flush comes closest and only fires at exit.
+So every directory the core needs has to ship in the package.
 
 ## On Analogue's documentation
 

@@ -58,11 +58,27 @@ static int32_t tim_base_nsec;
 static uint64_t tim_base_us;
 static bool tim_program_set;   /* a program set UTC; the menu lets go */
 
+/* Two things here read backwards and both are right.
+ *
+ * The offset's sign is inverted against the menu's. POSIX states an
+ * offset as what must be *added to local time to reach UTC*, so a zone
+ * seven hours east of Greenwich spells itself "-7". The tree's own
+ * table says the same thing: CET is "CET-1", SAST is "SAST-2".
+ *
+ * And the name is not "UTC", because it is not UTC — it is whatever
+ * zone the user set, and %Z prints it. The letters are arbitrary; only
+ * their count matters.
+ *
+ * The zone's name must be three characters or more. POSIX says so, and
+ * the C library enforces it by giving up without a word: a two-letter
+ * name parses as no zone at all, TZ stays unset, and localtime quietly
+ * returns UTC — which is exactly what "LT" did on hardware, both
+ * clocks reading GMT while the offset itself was arriving fine. */
 static void tim_apply_tz(void)
 {
     char tz[16];
     int32_t west = -tim_tz_min;
-    snprintf(tz, sizeof tz, "LT%+ld:%02ld", (long)(west / 60),
+    snprintf(tz, sizeof tz, "LOC%+ld:%02ld", (long)(west / 60),
              labs((long)(west % 60)));
     setenv("TZ", tz, 1);
     tzset();

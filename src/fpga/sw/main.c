@@ -395,7 +395,6 @@ int main(void)
         printf("oem: no tables\n");
     vid_init();
     tim_init();
-    msc_init();
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
      * it straight out of the platform's staging window. */

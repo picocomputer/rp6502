@@ -48,13 +48,9 @@ static const uint32_t WINDOW_BASE = 0x20000000u;
  * there answers with a descriptor and writes nothing. */
 static std::map<std::string, std::vector<uint8_t>> g_files;
 static std::set<std::string> g_dirs;
-static std::vector<uint8_t> g_nvram;
 static std::string g_bound[16];
 static std::string g_console;
 static int g_opens, g_reads, g_writes, g_flushes;
-
-/* The nonvolatile slot, as data.json numbers it. */
-static const uint32_t NVRAM_SLOT = 11;
 
 static void tick()
 {
@@ -300,38 +296,22 @@ static void do_slotwrite()
     g_writes++;
     std::vector<uint8_t> chunk(len, 0);
     host_get_bytes(at, chunk.data(), chunk.size());
-    /* The nonvolatile slot is memory the host holds, not a bound file;
-     * it reaches the card at a flush or an exit. */
-    std::vector<uint8_t> &f =
-        slot == NVRAM_SLOT ? g_nvram : g_files[g_bound[slot]];
+    std::vector<uint8_t> &f = g_files[g_bound[slot]];
     if (f.size() < off + len)
         f.resize(off + len, 0);
     for (uint32_t i = 0; i < len; i++)
         f[off + i] = chunk[i];
-    if (slot != NVRAM_SLOT)
-        dt_set(slot, (uint32_t)f.size());
+    dt_set(slot, (uint32_t)f.size());
     target_done();
 }
 
-/* Flush commits a slot to the card. For a file slot nothing here
- * buffers, so the answer is simply yes — but it has to be answered,
- * because a command the host never retires leaves the machine waiting
- * out its timeout. For the nonvolatile slot the commit is the folder
- * conjure itself: the host persists it folders-and-all, table-size
- * bytes, exactly as it would at Quit. */
+/* Flush commits a slot to the card. Nothing here buffers, so the answer
+ * is simply yes — but it has to be answered, because a command the host
+ * never retires leaves the machine waiting out its deadline. */
 static void do_flush()
 {
     dut->target_dataslot_done = 0;
-    uint32_t slot = dut->tb_pocket_ds_id;
     g_flushes++;
-    if (slot == NVRAM_SLOT)
-    {
-        g_dirs.insert("/Saves/rp6502");
-        g_dirs.insert("/Saves/rp6502/common");
-        std::vector<uint8_t> v = g_nvram;
-        v.resize(g_dt[NVRAM_SLOT * 2 + 1], 0);
-        g_files["/Saves/rp6502/common/nvram.bin"] = v;
-    }
     /* The core proves its command was taken by watching done fall before
      * it rises again, so the fall has to last long enough to be seen.
      * Every other handler gets that for free from the clocks its host
@@ -394,10 +374,11 @@ static std::vector<uint8_t> read_file(const char *path)
     return v;
 }
 
-/* A virgin card has the package's folders and no Saves home — that is
- * made at the first exit, or mid-session by the conjure this bench now
- * models. A seasoned card has been through one of those. */
-static void boot(const std::vector<uint8_t> &rom, bool virgin)
+/* The card as installed carries every folder the package ships, drive
+ * included — the host makes none of them. `homeless` is the card that
+ * lost its Saves folder, where the drive can only fail, and must fail
+ * cleanly rather than hang. */
+static void boot(const std::vector<uint8_t> &rom, bool homeless)
 {
     dut = new Vtb_pocket;
     a_next = s_next = g_sys = 0;
@@ -405,12 +386,11 @@ static void boot(const std::vector<uint8_t> &rom, bool virgin)
     g_files.clear();
     g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
               "/Saves"};
-    if (!virgin)
+    if (!homeless)
     {
         g_dirs.insert("/Saves/rp6502");
         g_dirs.insert("/Saves/rp6502/common");
     }
-    g_nvram.clear();
     g_opens = g_reads = g_writes = g_flushes = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
@@ -447,19 +427,6 @@ static void boot(const std::vector<uint8_t> &rom, bool virgin)
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
     host_put_bytes(0x03FD0000u, oemcp.data(), oemcp.size());
     dt_set(0, (uint32_t)rom.size());
-    /* A virgin card presents the nonvolatile slot at zero bytes with no
-     * file behind it, and the firmware must publish a real size or the
-     * host would persist nothing at shutdown. A seasoned one already
-     * carries the file the last exit wrote, so the host loads it and
-     * the table already reads its size — the case where the firmware
-     * must leave the table alone. */
-    if (virgin)
-        dt_set(NVRAM_SLOT, 0);
-    else
-    {
-        dt_set(NVRAM_SLOT, 256);
-        g_files["/Saves/rp6502/common/nvram.bin"] = std::vector<uint8_t>(256, 0xFF);
-    }
     /* The host's clock, local time behind the valid, as command 0x0090
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
@@ -497,10 +464,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     /* The host's own copy is the other half of the proof: the bytes
-     * reached a file, not just a buffer the machine still owns. The
-     * seasoned card's nvram.bin is the platform's furniture, not the
-     * program's, so it does not count towards what was written. */
-    g_files.erase("/Saves/rp6502/common/nvram.bin");
+     * reached a file, not just a buffer the machine still owns. */
     ASSERT_EQ(g_files.size(), (size_t)1);
     const std::vector<uint8_t> &f = g_files.begin()->second;
     ASSERT_EQ(f.size(), want.size());
@@ -541,12 +505,6 @@ static void run_fstest(int *utest_result)
     if (g_console.find("PASS 2F/2F") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
     ASSERT_TRUE(g_console.find("PASS 2F/2F") != std::string::npos);
-
-    /* And the firmware published the nonvolatile slot's size — the
-     * count the host persists at shutdown, and with it the drive's
-     * folder. A table left at zero is the bug that made the first
-     * folder experiment prove nothing. */
-    ASSERT_EQ(g_dt[NVRAM_SLOT * 2 + 1], 256u);
 }
 
 UTEST(pfile, the_whole_drive_conforms)
@@ -558,21 +516,29 @@ UTEST(pfile, the_whole_drive_conforms)
     teardown();
 }
 
-/* The same drive on a virgin card: the first create comes back hollow,
- * the firmware dirties and flushes the nonvolatile slot, this host
- * honors it the way Quit would, and the retry lands. Whether the real
- * host honors a mid-session flush is the open hardware question; what
- * this proves is that the machine asks correctly and recovers, and
- * that a host that answers turns a read-only first session into a
- * working one. */
-UTEST(pfile, a_virgin_card_conjures_its_folder)
+/* The card that lost the drive's folder. The host will not create one
+ * — a create into a path that is not there is answered with a
+ * descriptor and writes nothing — so every call here can only fail.
+ * What it must not do is take its time about it. The folder ships in
+ * the package for exactly this reason; before it did, the firmware
+ * tried to conjure it mid-session by dirtying and flushing a
+ * nonvolatile slot, which on hardware bought nothing and cost seconds
+ * of unanswered commands on every open. */
+UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
 {
     std::vector<uint8_t> rom = read_file(FSTEST_ROM);
     ASSERT_GT(rom.size(), 0u);
     boot(rom, true);
-    run_fstest(utest_result);
-    ASSERT_GT(g_flushes, 0);
-    ASSERT_EQ(g_files.count("/Saves/rp6502/common/nvram.bin"), (size_t)1);
-    ASSERT_EQ(g_files["/Saves/rp6502/common/nvram.bin"].size(), (size_t)256);
+
+    for (long i = 0; i < 60000000L && g_console.find("PASS") == std::string::npos;
+         i++)
+        step();
+
+    /* It reached its own tally instead of stalling inside an open. */
+    if (g_console.find("PASS") == std::string::npos)
+        fprintf(stderr, "console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find("PASS") != std::string::npos);
+    /* And left nothing behind on a card that cannot hold it. */
+    ASSERT_EQ(g_files.size(), (size_t)0);
     teardown();
 }

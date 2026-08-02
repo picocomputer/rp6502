@@ -17,11 +17,6 @@
  * so it must be last in main_std_drivers: it claims every path no
  * earlier driver took, which is what the shared std.c expects of the
  * mass-storage drive on the real machine. */
-/* Publish the nonvolatile slot's size into the data table, once at
- * boot, so the host persists it — and with it the drive's folder — at
- * the first Quit, power-off or sleep. */
-void msc_init(void);
-
 /* The pinned working directory: getcwd answers the host's own, which
  * is MSC0:/Saves/rp6502/common/ and 26 characters; chdir always
  * errors, chdrive accepts only this drive's names. */

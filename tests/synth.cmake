@@ -176,7 +176,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
     # Everything the SD card needs, assembled. The JSONs, the images and
     # the tree come from dist/ as they are; the bitstream and the glyph
-    # asset are built.
+    # asset are built. dist/ carries Saves/rp6502/common/ because the
+    # host will not create it and the drive is nothing without it.
     set(PKG_DIR ${CMAKE_CURRENT_BINARY_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
     add_custom_target(package

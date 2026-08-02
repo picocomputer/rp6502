@@ -60,9 +60,9 @@ module pocket_file #(
      * the copy. */
     parameter logic [31:0] WINDOW_BASE = 32'h2000_0000,
     parameter int WINDOW_WORDS = 128,
-    /* About 3.6 s at 74.25 MHz — twice the bridge's own deadline, so
+    /* About 1.8 s at 74.25 MHz — twice the bridge's own deadline, so
      * the bridge always retires into a side still listening. */
-    parameter int TIMEOUT_BITS = 28
+    parameter int TIMEOUT_BITS = 27
 ) (
     /* The machine's side: the soft CPU's platform window. */
     input logic clk_sys,

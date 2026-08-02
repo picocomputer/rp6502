@@ -142,16 +142,6 @@
           "bin",
           "txt"
         ]
-      },
-      {
-        "name": "NVRAM",
-        "id": 11,
-        "required": false,
-        "parameters": "0x20",
-        "nonvolatile": true,
-        "filename": "nvram.bin",
-        "size_maximum": "0x00000100",
-        "address": "0x03FC0000"
       }
     ]
   }
