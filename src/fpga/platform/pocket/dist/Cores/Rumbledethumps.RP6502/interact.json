@@ -3,21 +3,61 @@
         "magic": "APF_VER_1",
         "variables": [
             {
-                "name": "UTC offset (minutes)",
+                "name": "UTC offset side",
                 "id": 1,
-                "type": "slider_u32",
+                "type": "list",
+                "enabled": true,
+                "address": "0x10000014",
+                "persist": true,
+                "writeonly": true,
+                "defaultval": 0,
+                "options": [
+                    { "value": "0x0", "name": "East of Greenwich +" },
+                    { "value": "0x1", "name": "West of Greenwich -" }
+                ]
+            },
+            {
+                "name": "UTC offset hours",
+                "id": 2,
+                "type": "list",
                 "enabled": true,
                 "address": "0x1000000C",
                 "persist": true,
                 "writeonly": true,
                 "defaultval": 0,
-                "graphical": {
-                    "signed": true,
-                    "min": -720,
-                    "max": 840,
-                    "adjust_small": 15,
-                    "adjust_large": 60
-                }
+                "options": [
+                    { "value": "0x0", "name": "0" },
+                    { "value": "0x1", "name": "1" },
+                    { "value": "0x2", "name": "2" },
+                    { "value": "0x3", "name": "3" },
+                    { "value": "0x4", "name": "4" },
+                    { "value": "0x5", "name": "5" },
+                    { "value": "0x6", "name": "6" },
+                    { "value": "0x7", "name": "7" },
+                    { "value": "0x8", "name": "8" },
+                    { "value": "0x9", "name": "9" },
+                    { "value": "0xA", "name": "10" },
+                    { "value": "0xB", "name": "11" },
+                    { "value": "0xC", "name": "12" },
+                    { "value": "0xD", "name": "13" },
+                    { "value": "0xE", "name": "14" }
+                ]
+            },
+            {
+                "name": "UTC offset minutes",
+                "id": 3,
+                "type": "list",
+                "enabled": true,
+                "address": "0x10000010",
+                "persist": true,
+                "writeonly": true,
+                "defaultval": 0,
+                "options": [
+                    { "value": "0x0", "name": ":00" },
+                    { "value": "0xF", "name": ":15" },
+                    { "value": "0x1E", "name": ":30" },
+                    { "value": "0x2D", "name": ":45" }
+                ]
             }
         ],
         "messages": []

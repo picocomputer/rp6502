@@ -26,7 +26,8 @@
 
 #include "ria/sys/cpu.h"
 
-static uint32_t cfg_phi2, cfg_cp, cfg_tz;
+static uint32_t cfg_phi2, cfg_cp;
+static int32_t cfg_tz;
 
 void cfg_task(void)
 {
@@ -44,12 +45,14 @@ void cfg_task(void)
         if (cp)
             font_set_code_page((uint16_t)cp);
     }
-    /* The offset's zero is a real value — UTC — so unlike the others
-     * it applies as-is; time.c ignores a write that changes nothing. */
-    uint32_t tz = SET_TZ;
+    /* Three menu entries make one offset, so any of them moving is the
+     * same event and the combined number is what to watch. The offset's
+     * zero is a real value — UTC — so unlike the others it applies
+     * as-is; time.c ignores a write that changes nothing. */
+    int32_t tz = set_tz_minutes();
     if (tz != cfg_tz)
     {
         cfg_tz = tz;
-        tim_set_tz_minutes((int32_t)tz);
+        tim_set_tz_minutes(tz);
     }
 }

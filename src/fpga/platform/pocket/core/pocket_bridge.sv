@@ -69,6 +69,8 @@ module pocket_bridge (
     output logic [31:0] pocket_bridge_set_phi2,
     output logic [31:0] pocket_bridge_set_cp,
     output logic [31:0] pocket_bridge_set_tz,
+    output logic [31:0] pocket_bridge_set_tz_min,
+    output logic [31:0] pocket_bridge_set_tz_sign,
 
     /* The host's clock, written once at core boot by command 0x0090:
      * local wall time as seconds since 1970, and the flag that it was
@@ -107,12 +109,23 @@ module pocket_bridge (
             urst_t <= !urst_t;
     end
 
-    logic [31:0] uphi2_74, ucp_74, utz_74;
+    /* The time zone arrives in three pieces because the menu cannot
+     * offer it in one. A list holds at most sixteen options and the
+     * offset spans twenty-seven whole hours, so the sign, the hours and
+     * the quarter-hour are three separate menu entries and three
+     * separate registers. They could have shared one register — APF can
+     * mask an element into part of a word — but that is a
+     * read-modify-write, and these registers are write-only because the
+     * bridge answers reads elsewhere. The firmware puts the pieces back
+     * together. */
+    logic [31:0] uphi2_74, ucp_74, utz_74, utzm_74, utzs_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             uphi2_74 <= '0;
             ucp_74   <= '0;
             utz_74   <= '0;
+            utzm_74  <= '0;
+            utzs_74  <= '0;
         end else if (bridge_wr) begin
             if (bridge_addr == 32'h1000_0004)
                 uphi2_74 <= bridge_wr_data;
@@ -120,6 +133,10 @@ module pocket_bridge (
                 ucp_74 <= bridge_wr_data;
             if (bridge_addr == 32'h1000_000C)
                 utz_74 <= bridge_wr_data;
+            if (bridge_addr == 32'h1000_0010)
+                utzm_74 <= bridge_wr_data;
+            if (bridge_addr == 32'h1000_0014)
+                utzs_74 <= bridge_wr_data;
         end
     end
 
@@ -285,6 +302,7 @@ module pocket_bridge (
     logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2, kk_s1, kk_s2, kj_s1, kj_s2;
     logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
     logic [31:0] up_s1, up_s2, uc_s1, uc_s2, ut_s1, ut_s2;
+    logic [31:0] um_s1, um_s2, us_s1, us_s2;
     logic [31:0] re_s1, re_s2;
     logic rv_s1, rv_s2;
     logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
@@ -299,11 +317,15 @@ module pocket_bridge (
             up_s1 <= '0; up_s2 <= '0;
             uc_s1 <= '0; uc_s2 <= '0;
             ut_s1 <= '0; ut_s2 <= '0;
+            um_s1 <= '0; um_s2 <= '0;
+            us_s1 <= '0; us_s2 <= '0;
             re_s1 <= '0; re_s2 <= '0;
             rv_s1 <= 1'b0; rv_s2 <= 1'b0;
             pocket_bridge_set_phi2 <= '0;
             pocket_bridge_set_cp <= '0;
             pocket_bridge_set_tz <= '0;
+            pocket_bridge_set_tz_min <= '0;
+            pocket_bridge_set_tz_sign <= '0;
             pocket_bridge_rtc_epoch <= '0;
             pocket_bridge_rtc_valid <= 1'b0;
             mk_s1 <= '0; mk_s2 <= '0;
@@ -337,11 +359,15 @@ module pocket_bridge (
             up_s1 <= uphi2_74; up_s2 <= up_s1;
             uc_s1 <= ucp_74;   uc_s2 <= uc_s1;
             ut_s1 <= utz_74;   ut_s2 <= ut_s1;
+            um_s1 <= utzm_74;  um_s2 <= um_s1;
+            us_s1 <= utzs_74;  us_s2 <= us_s1;
             re_s1 <= rtc_epoch; re_s2 <= re_s1;
             rv_s1 <= rtc_valid; rv_s2 <= rv_s1;
             if (up_s1 == up_s2) pocket_bridge_set_phi2 <= up_s2;
             if (uc_s1 == uc_s2) pocket_bridge_set_cp <= uc_s2;
             if (ut_s1 == ut_s2) pocket_bridge_set_tz <= ut_s2;
+            if (um_s1 == um_s2) pocket_bridge_set_tz_min <= um_s2;
+            if (us_s1 == us_s2) pocket_bridge_set_tz_sign <= us_s2;
             if (re_s1 == re_s2) pocket_bridge_rtc_epoch <= re_s2;
             pocket_bridge_rtc_valid <= rv_s2;
             if (mk_s1 == mk_s2) pocket_bridge_mou_key <= mk_s2;

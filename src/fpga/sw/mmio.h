@@ -48,10 +48,8 @@
 #define FILE_STAGE_SIZE 0x10000u
 #define OEMCP ((volatile const uint8_t *)0x63FD0000u)
 /* The most the host will move in one slot operation. The ceiling is not
- * arbitrary: data.json puts the nonvolatile slot that makes the Saves
- * folder exist at 0x03FEF000, inside this same region. Half the region
- * keeps a transfer clear of it, and raising this past 0xF000 would have
- * the host write that file out of whatever a read left behind. */
+ * arbitrary: it is half the staging region, which keeps a transfer
+ * clear of the font and code-page assets pinned above it. */
 #define FILE_XFER_MAX 0x8000u
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
@@ -67,15 +65,27 @@
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
 /* The interact menu's persisted settings, read-only, and the host's
- * clock. SET_TZ is the menu's UTC offset in signed minutes; RTC_EPOCH
- * is the Pocket's local wall time as seconds since 1970, written once
- * at core boot by host command 0x0090, and RTC_VALID says it ever
- * was. */
+ * clock. The UTC offset arrives in three pieces — hours, quarter hour,
+ * and which side of Greenwich — because a menu list holds sixteen
+ * options and the offset spans twenty-seven whole hours. RTC_EPOCH is
+ * the Pocket's local wall time as seconds since 1970, written once at
+ * core boot by host command 0x0090, and RTC_VALID says it ever was. */
 #define SET_PHI2 (*(volatile uint32_t *)0x80010000u)
 #define SET_CP (*(volatile uint32_t *)0x80010004u)
-#define SET_TZ (*(volatile uint32_t *)0x80010008u)
+#define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
 #define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
 #define RTC_VALID (*(volatile uint32_t *)0x80010010u)
+#define SET_TZ_MIN (*(volatile uint32_t *)0x80010014u)
+#define SET_TZ_WEST (*(volatile uint32_t *)0x80010018u)
+
+/* The three pieces as the one number everything downstream wants:
+ * minutes east of UTC. Defined once here because both the boot read
+ * and the menu poll need it and they must not drift apart. */
+static inline int32_t set_tz_minutes(void)
+{
+    int32_t m = (int32_t)((SET_TZ_HOUR & 0xFFu) * 60u + (SET_TZ_MIN & 0xFFu));
+    return (SET_TZ_WEST & 1u) ? -m : m;
+}
 #define FILE_WIN_BASE 0x20000000u
 #define FILE_WIN_SIZE 512u
 

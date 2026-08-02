@@ -440,10 +440,14 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
     dut->rtc_valid = 1;
-    /* The menu's UTC offset, five and a half hours east: a half hour in
-     * it so a sign error cannot hide behind a whole-hour symmetry, and
-     * non-zero so the two clocks must disagree. */
-    host_write(0x1000000Cu, 330);
+    /* The menu's UTC offset, five and a half hours east. Three entries
+     * now, because a list holds sixteen options and the offset spans
+     * twenty-seven hours: hours, quarter hour, and which side. A half
+     * hour in it so a sign error cannot hide behind a whole-hour
+     * symmetry, and non-zero so the two clocks must disagree. */
+    host_write(0x1000000Cu, 5);   /* hours */
+    host_write(0x10000010u, 30);  /* minutes */
+    host_write(0x10000014u, 0);   /* east */
     dut->datatable_q = g_dt[1];
     dut->dataslot_allcomplete = 1;
     dut->reset_n = 1;

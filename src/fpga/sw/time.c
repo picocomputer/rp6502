@@ -8,9 +8,9 @@
  * words never shows a torn value. Wall time starts from the one thing
  * the host ever says about it: command 0x0090 at core boot, local
  * time as seconds since 1970, latched behind RTC_VALID. The Pocket has
- * no idea what a time zone is, so the menu's UTC offset — SET_TZ,
- * signed minutes east, persisted by the host like every menu value —
- * is what turns that local reading into the UTC the time API serves.
+ * no idea what a time zone is, so the menu's UTC offset — three list
+ * entries the host persists, combined by set_tz_minutes into signed
+ * minutes east — turns that local reading into the UTC the API serves.
  * Moving the clock for DST is the user's job, exactly as the menu
  * says.
  *
@@ -91,7 +91,7 @@ static void tim_apply_tz(void)
 void tim_init(void)
 {
     tim_local_boot = RTC_VALID ? (int64_t)RTC_EPOCH : TIM_DEFAULT_EPOCH;
-    tim_tz_min = (int32_t)SET_TZ;
+    tim_tz_min = set_tz_minutes();
     tim_base_sec = tim_local_boot - (int64_t)tim_tz_min * 60;
     tim_base_nsec = 0;
     tim_base_us = time_us_64();

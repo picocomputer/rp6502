@@ -35,6 +35,33 @@ claiming it. The savestate inputs in `core_top.sv` stay driven and
 denying, so a host that asks anyway still gets a real answer rather
 than a floating one.
 
+## The Core Settings menu
+
+Three things live there and one used to that should not.
+
+**The time zone is three entries, not one.** The Pocket knows nothing
+about time zones, so the offset has to be set by hand — and it cannot
+be one control. A list holds at most sixteen options and the offset
+spans twenty-seven whole hours, so it is a side (east or west), an
+hour (0 to 14) and a quarter hour. A slider was tried first and the
+owner reported it garbled: its numbers ran to 840. The three write
+three separate registers because APF can mask several elements into
+one word only by reading it back first, and these registers are
+write-only. `set_tz_minutes` in `mmio.h` is the single place they are
+put back together.
+
+**The Controls submenu is gone.** APF builds it from `input.json`,
+which claimed the Pocket's buttons were Enter, Escape, Space and so
+on. This core does no such thing: it hands `cont1_key` to the firmware
+as a gamepad report, buttons and axes, exactly as the machine's own
+HID API expects. The file is now an empty controller list, since the
+menu was documenting a mapping that does not exist.
+
+**The last ROM no longer relaunches itself.** Slot 0 had bit 9 of its
+parameter bitmap set — "persist browsed filename" — which makes APF
+remember the file and reload it on every core load, overriding the
+browser. Cleared, so the core asks each time.
+
 ## The host's filesystem
 
 `MSC0:` is the card, and the drive writes. The drive prefix is
