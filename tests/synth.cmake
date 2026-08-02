@@ -113,6 +113,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # CPU fetching zeros, which looks like dead hardware and is not.
     if(EXISTS ${APF}/ap_core.qsf AND SW_BIN)
     file(MAKE_DIRECTORY ${BS_DIR})
+    # apf_constraints.sdc reads core/core_constraints.sdc relative to the
+    # project directory — the framework's hook for a core's own groups.
+    # Stage it where that read looks, instead of listing it a second time
+    # and letting the vendor's read fail as a Critical Warning every run.
+    file(COPY ${APF}/core/core_constraints.sdc DESTINATION ${BS_DIR}/core)
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
     foreach(line ${BS_TEMPLATE})
@@ -133,7 +138,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
         "set_global_assignment -name VERILOG_FILE ${APF}/core/pin_ddio_clk.v"
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
-        "set_global_assignment -name SDC_FILE ${APF}/core/core_constraints.sdc"
         "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/core_top.sv"
         "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/pocket_pll.v"
         "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"

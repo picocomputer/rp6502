@@ -44,6 +44,9 @@ set(OPL2_DIR ${RP6502_VENDOR}/opl2_fpga/fpga/modules)
 set(OPL2_SOURCES
     ${RP6502_BENCH}/opl2.vlt
     ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
+    ${OPL2_LUT_PKG}
+    ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_lut_rom.sv
+    ${RP6502_VENDOR}/opl2_fpga_rp6502/phase_generator.sv
     ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_single_bank.sv
     ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_simple_dual_port.sv
     ${RP6502_VENDOR}/opl2_fpga_rp6502/trick_sw_detection.sv
@@ -51,7 +54,7 @@ set(OPL2_SOURCES
 foreach(dir top_level channels operator timers host_if misc clks)
     file(GLOB _opl_dir_src ${OPL2_DIR}/${dir}/src/*.sv ${OPL2_DIR}/${dir}/src/*.v)
     list(FILTER _opl_dir_src EXCLUDE REGEX
-        "/(i2s|mem_single_bank|mem_simple_dual_port|trick_sw_detection)\\.sv$|/afifo\\.v$")
+        "/(i2s|mem_single_bank|mem_simple_dual_port|trick_sw_detection|phase_generator|opl2_log_sine_lut|opl2_exp_lut)\\.sv$|/afifo\\.v$")
     list(APPEND OPL2_SOURCES ${_opl_dir_src})
 endforeach()
 

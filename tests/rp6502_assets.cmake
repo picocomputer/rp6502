@@ -88,6 +88,23 @@ rp6502_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
     OUTPUTS ${AUD_SINE_PKG} ${AUD_SINE_H}
     COMMENT "Generating the aud sine ROM")
 
+# The OPL2's two operator tables as one 512x12 package. The vendor's
+# generated case arms are the source — parsed and re-emitted, so the
+# fabric's words are the submodule's by construction — and the formulas
+# from its headers are recomputed as a tripwire against a submodule
+# update changing either table silently.
+set(OPL2_LUT_SRC ${RP6502_VENDOR}/opl2_fpga/fpga/modules/operator/src)
+set(OPL2_LUT_PKG ${RP6502_ASSETS}/opl2_lut_pkg.sv)
+set(OPL2_LUT_H ${RP6502_ASSETS}/opl2_lut_tables.h)
+rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
+    ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
+        --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv
+        --emit-sv ${OPL2_LUT_PKG} --emit-h ${OPL2_LUT_H}
+    OUTPUTS ${OPL2_LUT_PKG} ${OPL2_LUT_H}
+    DEPENDS ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
+        ${OPL2_LUT_SRC}/opl2_exp_lut.sv
+    COMMENT "Generating the merged OPL2 LUT ROM")
+
 # Two audio programs that make one note and leave the console alone, so
 # the machine's own diagnostics stay readable while a device is driven.
 # test_aud runs these same files, which is what keeps a note that sounds

@@ -60,12 +60,24 @@ if(RP6502_VERILATE)
         DEPENDS rsmp_coef rsmp_coef_pkg
         TIMEOUT 300)
 
+    # --- The merged OPL2 LUT ROM against the generated tables ---
+    # The generator holds the words to the vendor's case arms and their
+    # documented formulas; this holds the module to the words.
+    rp6502_add_module_test(oplrom
+        TOP opl2_lut_rom
+        RTL ${OPL2_LUT_PKG}
+            ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_lut_rom.sv
+        INCLUDES ${RP6502_ASSETS}
+        DEPENDS opl2_lut_rom
+        TIMEOUT 120)
+
     # --- The OPL2 device: the pointer gates it, a poke reaches the chip ---
     rp6502_add_module_test(opl
         TOP aud_opl
         RTL ${OPL2_SOURCES} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
             ${RP6502_FPGA_RTL}/aud/aud_opl.sv
         INCLUDES ${RP6502_BENCH}
+        DEPENDS opl2_lut_rom
         TIMEOUT 300)
 endif()
 

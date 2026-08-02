@@ -72,18 +72,20 @@ module pocket_i2s (
             latest <= fifo_word;
     end
 
-    /* MCLK by fractional accumulator, the reference's own constants:
-     * 245,760 into 742,500 toggles at 24.576 MHz for 12.288 average. */
-    logic [21:0] mclk_acc;
+    /* MCLK by fractional accumulator: 4,096 into 12,375, the
+     * reference's 245,760 into 742,500 with the common sixty divided
+     * out — the identical toggle sequence, seven bits narrower.
+     * Toggles at 24.576 MHz for 12.288 average. */
+    logic [14:0] mclk_acc;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             mclk_acc <= '0;
             pocket_i2s_mclk <= 1'b0;
-        end else if (mclk_acc >= 22'd742500) begin
-            mclk_acc <= mclk_acc - 22'd742500 + 22'd245760;
+        end else if (mclk_acc >= 15'd12375) begin
+            mclk_acc <= mclk_acc - 15'd12375 + 15'd4096;
             pocket_i2s_mclk <= !pocket_i2s_mclk;
         end else begin
-            mclk_acc <= mclk_acc + 22'd245760;
+            mclk_acc <= mclk_acc + 15'd4096;
         end
     end
 
