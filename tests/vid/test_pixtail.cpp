@@ -127,10 +127,16 @@ struct capture
     int pal_loads;
 };
 
+/* When nonzero, the feeder is starved: each next segment is offered
+ * only this many cycles after the previous take, so valid's rising
+ * edge sweeps across every phase of a segment's last pixel. */
+static int g_feed_delay = 0;
+
 static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
                      uint16_t pal_ptr, bool pal_xram, int cw, capture *c)
 {
     memset(c, 0, sizeof *c);
+    int feed_hold = 0;
 
     /* The bench's palram: loaded by the tail's own protocol, so a wrong
      * load shows up as wrong colors, not as a bench assumption. */
@@ -157,7 +163,7 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
     for (long t = 0; t < 20000 && !c->done; t++)
     {
         /* Present the next segment whenever the tail can take one. */
-        if (si < segs.size())
+        if (si < segs.size() && feed_hold == 0)
         {
             const seg &s = segs[si];
             dut->seg_valid = 1;
@@ -234,7 +240,12 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
         dut->eval();
 
         if (dut->vid_pixtail_seg_take && si < segs.size())
+        {
             si++;
+            feed_hold = g_feed_delay;
+        }
+        else if (feed_hold > 0)
+            feed_hold--;
 
         if (dut->vid_pixtail_px_we)
         {
@@ -406,6 +417,35 @@ UTEST(pixtail, address_stamped_short_segments)
         s.push_back({false, (uint32_t)((0x1000 + i * 61 % 4096) * 32), 0,
                      0, 0, 5});
     check_line(utest_result, s, 4, false, 0, false, 640);
+}
+
+/* The starved feeder: a front that delivers its next segment barely in
+ * time, or barely late, at every phase around a segment's last pixel.
+ * The phase that offers a segment on the exact edge the current one
+ * finishes with the deck empty once made the take vanish — taken by
+ * the handshake, never emitted — and only a starved front can produce
+ * that alignment, which is why the always-ready feeder above never
+ * did. */
+UTEST(pixtail, starved_feeder_alignment_sweep)
+{
+    fresh();
+    fill_xram();
+    for (int d = 1; d <= 12; d++)
+    {
+        g_feed_delay = d;
+        std::vector<seg> s;
+        for (int i = 0; i < 80; i++)
+            s.push_back({true, 0, (uint8_t)rnd(), (uint16_t)rnd(),
+                         (uint16_t)rnd(), 8});
+        check_line(utest_result, s, 0, false, 0, false, 640);
+        std::vector<seg> t;
+        for (int i = 0; i < 80; i++)
+            t.push_back({false,
+                         (uint32_t)((0x4800 + (i * 41 % 512) * 16) * 8), 0,
+                         0, 0, 8});
+        check_line(utest_result, t, 2, false, 0xA400, true, 640);
+    }
+    g_feed_delay = 0;
 }
 
 UTEST(pixtail, mixed_and_narrow_and_reused)

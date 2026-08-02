@@ -122,8 +122,14 @@ module vid_pixtail
     } seg_t;
     seg_t cur, deck;
     logic cur_v, deck_v;
+    /* No take on a promote edge: a segment offered exactly as cur
+     * finishes with the deck empty would land in the deck while the
+     * promote copies the deck's old emptiness over it — taken, never
+     * emitted, and the line comes up short. Blocked here, it lands in
+     * cur one cycle later. Only a front already starving the deck can
+     * hit this, so the cycle was a stall either way. */
     always_comb vid_pixtail_seg_take = state == T_RUN && seg_valid
-        && (!cur_v || !deck_v);
+        && (!cur_v || !deck_v) && !cur_done;
 
     /* ---------------------------------------------------------------- */
     /* The fetch pipeline, mode3's: two words in flight or banked,       */
