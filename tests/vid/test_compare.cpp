@@ -143,12 +143,19 @@ UTEST(compare, syscall_rom_matches_oracle)
             rv_out.push_back((char)dut->rp6502_rv_tx_data);
     }));
 
-    /* The machine boots silently now, so its stream is the program's
-     * bytes from the first one; the oracle's may begin with its startup
-     * banner, which the tail compare below slides past. The program
-     * bytes must match exactly: same UART bytes, same std write, same
-     * AX, same errno. */
+    /* The machine boots almost silently: one diagnostic line reporting
+     * what survived the last sleep, which the oracle has no notion of.
+     * Drop it and the rest of the stream is the program's bytes from
+     * the first one; the oracle's may begin with its startup banner,
+     * which the tail compare below slides past. The program bytes must
+     * match exactly: same UART bytes, same std write, same AX, same
+     * errno. Goes away with the probe. */
     std::string rtl_stream = rv_out;
+    ASSERT_EQ(rtl_stream.rfind("sleep:", 0), (size_t)0);
+    size_t eol = rtl_stream.find('\n');
+    ASSERT_TRUE(eol != std::string::npos);
+    fprintf(stderr, "boot probe: %s\n", rtl_stream.substr(0, eol).c_str());
+    rtl_stream = rtl_stream.substr(eol + 1);
     ASSERT_TRUE(rtl_stream.size() >= 7);
     ASSERT_TRUE(oracle_out.size() >= rtl_stream.size());
     ASSERT_STREQ(oracle_out.substr(oracle_out.size() - rtl_stream.size()).c_str(),

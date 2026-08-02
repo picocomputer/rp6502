@@ -378,12 +378,61 @@ bool main_api(uint8_t operation)
     }
 }
 
+/* What survives a sleep, reported once at boot.
+ *
+ * Waking restarts the ROM, and what it costs to change that depends
+ * entirely on how much of the machine is still standing when the boot
+ * runs. Three outcomes and three different projects: if the fabric
+ * never stopped, only this firmware's own boot restarted the ROM and
+ * continuing is a branch; if it was reset but the block memories kept
+ * their contents, continuing means not re-running the boot; if the
+ * part was reconfigured, every memory came back out of the bitstream
+ * and nothing short of the savestate interface can continue anything.
+ *
+ * So: the microsecond counter, which is reset by anything at all, and
+ * a marker in each of the three block memories, which the bitstream
+ * would overwrite. Read before they are rewritten, printed before
+ * anything else has run.
+ *
+ * The markers sit at the top of each store because the loader fills
+ * from the bottom; a program that uses the last words of its own RAM
+ * can still scribble them, so a run between sleeps is not a clean
+ * measurement. Delete this whole block once the answer is known. */
+#define BOOT_MAGIC 0x36353032u
+static uint32_t boot_tcm_magic __attribute__((section(".noinit")));
+static uint32_t boot_count __attribute__((section(".noinit")));
+
+static bool boot_probe_store(volatile uint8_t *base, uint32_t top)
+{
+    bool alive = true;
+    for (uint32_t i = 0; i < 4; i++)
+        alive &= base[top + i] == (uint8_t)(BOOT_MAGIC >> (8 * i));
+    for (uint32_t i = 0; i < 4; i++)
+        base[top + i] = (uint8_t)(BOOT_MAGIC >> (8 * i));
+    return alive;
+}
+
+static void boot_probe(void)
+{
+    uint32_t mt_hi = MTIME_HI, mt_lo = MTIME_LO;
+    bool tcm = boot_tcm_magic == BOOT_MAGIC;
+    bool sram = boot_probe_store(SRAM, 0xFFF0u);
+    bool xram = boot_probe_store(XRAM_WIN, 0xFFF0u);
+    boot_tcm_magic = BOOT_MAGIC;
+    boot_count = tcm ? boot_count + 1 : 1;
+    printf("sleep: n=%lu mt=%lu:%08lu tcm=%c sram=%c xram=%c\n",
+           (unsigned long)boot_count, (unsigned long)mt_hi,
+           (unsigned long)mt_lo, tcm ? 'Y' : 'N', sram ? 'Y' : 'N',
+           xram ? 'Y' : 'N');
+}
+
 int main(void)
 {
     /* No str_init: it exists to apply a locale, and this machine has one
      * locale and no S() callers — the whole localized chain is meant to
      * collect under --gc-sections. */
     com_init();
+    boot_probe();
     std_init();
     rln_init();
     term_init();
