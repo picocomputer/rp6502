@@ -189,10 +189,12 @@ module vid_mode (
     logic m1_start;
     logic m1_a_req;
     logic [13:0] m1_a_addr;
-    logic m1_px_we;
-    logic [9:0] m1_px_addr;
-    logic [15:0] m1_px_data;
-    logic m1_done, m1_filled;
+    logic m1_tl_start;
+    logic m1_seg_valid;
+    logic [7:0] m1_seg_ibits;
+    logic [15:0] m1_seg_fg, m1_seg_bg;
+    logic [9:0] m1_seg_px;
+    logic m1_filled;
     logic m2_start;
     logic m2_a_req;
     logic [13:0] m2_a_addr;
@@ -275,10 +277,13 @@ module vid_mode (
         .vid_mode1_pal_one_bpp(m1_pal_one_bpp),
         .pal_qa(pal_qa),
         .pal_qb(pal_qb),
-        .vid_mode1_px_we(m1_px_we),
-        .vid_mode1_px_addr(m1_px_addr),
-        .vid_mode1_px_data(m1_px_data),
-        .vid_mode1_done(m1_done),
+        .vid_mode1_tl_start(m1_tl_start),
+        .vid_mode1_seg_valid(m1_seg_valid),
+        .vid_mode1_seg_ibits(m1_seg_ibits),
+        .vid_mode1_seg_fg(m1_seg_fg),
+        .vid_mode1_seg_bg(m1_seg_bg),
+        .vid_mode1_seg_px(m1_seg_px),
+        .seg_take(tl_take),
         .vid_mode1_filled(m1_filled)
     );
     vid_mode2 vid_mode2 (
@@ -330,7 +335,10 @@ module vid_mode (
     /* The shared pixel tail behind whichever front is running. Mode 2
      * keeps fetching map bytes while the tail streams pixel words, so
      * the tail's grants are only the cycles the front is not asking —
-     * the wrapper's channel mux presents the front's address first. */
+     * the wrapper's channel mux presents the front's address first.
+     * Mode 1's segments are all immediate and its palette is its own,
+     * so during it the tail touches no memory at all: its grant line
+     * is silenced so the front's fetches cannot churn its ledgers. */
     logic tf_start;
     logic [15:0] tf_pal_ptr;
     logic tf_pal_xram;
@@ -338,9 +346,24 @@ module vid_mode (
     logic tf_reversed;
     logic tf_seg_valid, tf_seg_imm;
     logic [22:0] tf_seg_bits;
+    logic [7:0] tf_seg_ibits;
+    logic [15:0] tf_seg_fg, tf_seg_bg;
     logic [9:0] tf_seg_px;
     always_comb begin
-        if (mode_q == 3'd2) begin
+        if (mode_q == 3'd1) begin
+            tf_start = m1_tl_start;
+            tf_pal_ptr = 16'd0;
+            tf_pal_xram = 1'b0;
+            tf_bpp = 3'd0;
+            tf_reversed = 1'b0;
+            tf_seg_valid = m1_seg_valid;
+            tf_seg_imm = 1'b1;
+            tf_seg_bits = 23'd0;
+            tf_seg_ibits = m1_seg_ibits;
+            tf_seg_fg = m1_seg_fg;
+            tf_seg_bg = m1_seg_bg;
+            tf_seg_px = m1_seg_px;
+        end else if (mode_q == 3'd2) begin
             tf_start = m2_tl_start;
             tf_pal_ptr = m2_pal_ptr;
             tf_pal_xram = m2_pal_xram;
@@ -349,6 +372,9 @@ module vid_mode (
             tf_seg_valid = m2_seg_valid;
             tf_seg_imm = m2_seg_imm;
             tf_seg_bits = m2_seg_bits;
+            tf_seg_ibits = 8'd0;
+            tf_seg_fg = 16'd0;
+            tf_seg_bg = 16'd0;
             tf_seg_px = m2_seg_px;
         end else begin
             tf_start = m3_tl_start;
@@ -359,6 +385,9 @@ module vid_mode (
             tf_seg_valid = m3_seg_valid;
             tf_seg_imm = m3_seg_imm;
             tf_seg_bits = m3_seg_bits;
+            tf_seg_ibits = 8'd0;
+            tf_seg_fg = 16'd0;
+            tf_seg_bg = 16'd0;
             tf_seg_px = m3_seg_px;
         end
     end
@@ -375,14 +404,14 @@ module vid_mode (
         .seg_valid(tf_seg_valid),
         .seg_imm(tf_seg_imm),
         .seg_bits(tf_seg_bits),
-        .seg_ibits(8'd0),
-        .seg_fg(16'd0),
-        .seg_bg(16'd0),
+        .seg_ibits(tf_seg_ibits),
+        .seg_fg(tf_seg_fg),
+        .seg_bg(tf_seg_bg),
         .seg_px(tf_seg_px),
         .vid_pixtail_seg_take(tl_take),
         .vid_pixtail_a_req(tl_a_req),
         .vid_pixtail_a_addr(tl_a_addr),
-        .a_gnt(a_gnt && !m2_a_req),
+        .a_gnt(a_gnt && mode_q != 3'd1 && !m2_a_req),
         .a_rdy(1'b0),
         .a_rdata(a_rdata),
         .vid_pixtail_pal_ld(tl_pal_ld),
@@ -409,10 +438,10 @@ module vid_mode (
         if (mode_q == 3'd1) begin
             sub_a_req = m1_a_req;
             sub_a_addr = m1_a_addr;
-            sub_px_we = m1_px_we;
-            sub_px_addr = m1_px_addr;
-            sub_px_data = m1_px_data;
-            sub_done = m1_done;
+            sub_px_we = tl_px_we;
+            sub_px_addr = tl_px_addr;
+            sub_px_data = tl_px_data;
+            sub_done = tl_done;
             sub_filled = m1_filled;
         end else if (mode_q == 3'd2) begin
             sub_a_req = m2_a_req || tl_a_req;
