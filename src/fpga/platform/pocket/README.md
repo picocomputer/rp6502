@@ -48,6 +48,15 @@ poked it; any of it can change under a firmware update with nothing
 anywhere saying so. When prose and `fstest.rp6502` disagree, the ROM
 is right.
 
+One claim already fell that way: "the host refuses to create under
+Assets" stood here with a result code to its name, and then test
+files turned up on a card under `/Assets/rp6502/common/`. The likely
+truth is that the refusal was measured in the byte-order era — flags
+arriving as `0x03000000` made every create a plain open of a missing
+name, result 3 — and creates work wherever the folder already exists.
+Assets' folder always exists, which is why the files are there. The
+folder-missing behaviour was measured after that fix and stands.
+
 **Seek is free.** Slot Read and Slot Write both carry a 32-bit offset
 into the file, so random access needs no cursor protocol.
 

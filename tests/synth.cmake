@@ -151,9 +151,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
         # The device ran out of LABs before it ran out of ALMs — 1854
         # asked of 1848 — while setup closes with more than a nanosecond
-        # and a half to spare. Dense register packing trades exactly
-        # that margin for placement room.
-        "set_global_assignment -name AUTO_PACKED_REGISTERS_STRATIX \"MINIMIZE AREA WITH CHAINS\"")
+        # and a half to spare. Area mode trades exactly that margin for
+        # placement room. The old per-knob register packing assignment
+        # is gone from 25.1std ("no longer supported -- removing"), so
+        # the umbrella is the lever that remains.
+        "set_global_assignment -name OPTIMIZATION_MODE \"AGGRESSIVE AREA\"")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES
