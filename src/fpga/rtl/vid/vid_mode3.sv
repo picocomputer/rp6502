@@ -3,20 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 3, the linear bitmap of vga/modes/mode3.c: rows mapped with true
- * wraparound and the oracle's rejects — range, bitmap overrun, the 16bpp
- * odd row — the palette snapshotted per line as an XRAM burst or the
- * builtin ROM, pixels emitted through the window rules in every bit
- * order, normal and reversed. The plane engine starts it with the config
- * view in hand; it owns the XRAM channel and the pixel port until done.
- * The emitter may stall while the fetch pipeline primes or a wrap rewinds
- * it — only the beam's deadline matters, and an abort_i while busy is the
- * underrun.
+ * Mode 3, the linear bitmap of vga/modes/mode3.c — now only the part
+ * that is genuinely mode 3: rows mapped with true wraparound, the
+ * oracle's rejects (range, bitmap overrun, the 16bpp odd row), and the
+ * line described to the shared pixel tail as segments. The tail owns
+ * the fetching, the slicing, the palette and the pixels; this front
+ * owns the geometry. A wrapped bitmap is runs of the bitmap's width
+ * back to back; a clipped one is a run with padding around it; a
+ * rejected line is one padding segment. What used to be a fetch
+ * pipeline racing an emitter is now arithmetic.
  */
 
-module vid_mode3
-    import vid_palette_pkg::*;
-(
+module vid_mode3 (
     input logic clk,
     input logic rst_n,
 
@@ -29,28 +27,19 @@ module vid_mode3
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    /* The plane's XRAM channel while running. */
-    output logic vid_mode3_a_req,
-    output logic [13:0] vid_mode3_a_addr,
-    input logic a_gnt,
-    input logic [31:0] a_rdata,
-
-    /* The plane's palette, shared with the other two renderers. */
-    output logic vid_mode3_pal_ld,
-    output logic [7:0] vid_mode3_pal_w,
-    output logic [8:0] vid_mode3_pal_words,
-    output logic [7:0] vid_mode3_pal_idx,
+    /* The tail: a palette plan at tl_start, then segments on demand. */
+    output logic vid_mode3_tl_start,
+    output logic [15:0] vid_mode3_pal_ptr,
     output logic vid_mode3_pal_xram,
-    output logic vid_mode3_pal_one_bpp,
-    input logic [15:0] pal_q,
+    output logic [2:0] vid_mode3_bpp,
+    output logic vid_mode3_reversed,
+    output logic vid_mode3_seg_valid,
+    output logic vid_mode3_seg_imm,
+    output logic [22:0] vid_mode3_seg_bits,
+    output logic [9:0] vid_mode3_seg_px,
+    input logic seg_take,
 
-    /* Pixels into the plane's write bank. */
-    output logic vid_mode3_px_we,
-    output logic [9:0] vid_mode3_px_addr,
-    output logic [15:0] vid_mode3_px_data,
-
-    /* Done, and whether the plane counts as filled. */
-    output logic vid_mode3_done,
+    /* Whether the plane counts as filled, valid from tl_start on. */
     output logic vid_mode3_filled
 );
 
@@ -82,8 +71,8 @@ module vid_mode3
         endcase
     end
 
-    typedef enum logic [2:0] {
-        S3_IDLE, S3_ROW, S3_WRAP, S3_ADDR, S3_PAL, S3_RUN, S3_BLANK
+    typedef enum logic [1:0] {
+        S3_IDLE, S3_WRAP, S3_ADDR, S3_SEG
     } state_t;
     state_t state;
 
@@ -92,7 +81,8 @@ module vid_mode3
     logic [19:0] row_off;
     logic [16:0] row_base;
     logic signed [16:0] col;
-    logic [9:0] px /*verilator public_flat_rd*/;
+    logic [9:0] px_rem;
+    logic blank;
 
     /* The oracle stores these in int16, so ±32768 wraps before the
      * wraparound fold sees it. */
@@ -100,115 +90,31 @@ module vid_mode3
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
-    /* Palette: XRAM snapshot or the builtin ROM at emission. The store
-     * itself is the plane's, in vid_palram — a plane runs one mode at a
-     * time, and this one reloads every entry it will index before it
-     * emits, so all three can share it. */
-    logic pal_xram;
-    logic [8:0] pal_n;
-    logic [8:0] pal_words;
-    /* Entry pairs per word: 2^(bpp-1) words carry the 2^bpp entries. A
-     * halfword-aligned palette straddles one more word, entry 0 in the
-     * first word's high half. */
-    always_comb pal_words = 9'd1 << ((5'd1 << bpp_log) - 5'd1);
-    logic [8:0] pal_fetch;
-    always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
-    logic [7:0] pal_w;
-
-    /* The fetch pipeline: two words in flight or banked; issue counts on
-     * grant, capture the clock after. */
-    logic [31:0] fifo[2];
-    logic [1:0] fifo_v;
-    logic [1:0] inflight;
-    logic [13:0] fetch_word;
-    logic gnt_d;
-    logic primed;
-
-    logic [4:0] bit_in_word;
-    logic [22:0] bit_origin;
-    always_comb bit_origin = ({6'd0, row_base} << 3)
-        + (23'(col[15:0]) << bpp_log);
-
-    logic [7:0] cur_byte;
-    always_comb cur_byte = fifo[0][{bit_in_word[4:3], 3'b000}+:8];
-    logic [7:0] pix_idx;
+    /* The next segment, purely from where col stands. */
+    logic signed [16:0] width_s;
+    always_comb width_s = $signed({cf_width[15], cf_width});
+    logic [16:0] pad_left;
+    always_comb pad_left = 17'(-col);
+    logic [16:0] run_w;
+    always_comb run_w = 17'(width_s - col);
     always_comb begin
-        case (bpp_log)
-            3'd0: pix_idx = {7'd0, reversed
-                ? cur_byte[bit_in_word[2:0]]
-                : cur_byte[3'd7 - bit_in_word[2:0]]};
-            3'd1: pix_idx = {6'd0, reversed
-                ? cur_byte[{bit_in_word[2:1], 1'b0}+:2]
-                : cur_byte[{2'd3 - bit_in_word[2:1], 1'b0}+:2]};
-            3'd2: pix_idx = {4'd0, reversed
-                ? cur_byte[{bit_in_word[2], 2'b00}+:4]
-                : cur_byte[{!bit_in_word[2], 2'b00}+:4]};
-            default: pix_idx = cur_byte;
-        endcase
-    end
-    logic [15:0] pix16;
-    always_comb pix16 = bit_in_word[4] ? fifo[0][31:16] : fifo[0][15:0];
-    /* The load's strobe; the store's write port is the plane's. */
-    logic pal_ld;
-    always_comb pal_ld = !abort_i && !start && state == S3_PAL
-        && pal_xram && bpp_log != 3'd4 && gnt_d;
-    always_comb begin
-        vid_mode3_pal_ld = pal_ld;
-        vid_mode3_pal_w = pal_w;
-        vid_mode3_pal_words = pal_words;
-        vid_mode3_pal_idx = pix_idx;
-        vid_mode3_pal_xram = pal_xram;
-        vid_mode3_pal_one_bpp = bpp_log == 3'd0;
-    end
-
-    logic [15:0] pal_out;
-    always_comb pal_out = pal_q;
-
-    logic in_window;
-    always_comb in_window = col >= 0
-        && col < $signed({cf_width[15], cf_width});
-
-    /* This clock emits a pixel and it is the word's last. */
-    logic fifo_shift;
-    always_comb fifo_shift = state == S3_RUN && primed && in_window
-        && fifo_v[0]
-        && !(cf_x_wrap && col == $signed({cf_width[15], cf_width}) - 17'sd1)
-        && 6'(bit_in_word) + {1'b0, 5'd1 << bpp_log} == 6'd32;
-
-    /* Request and address are combinational so a grant always takes the
-     * live counter — back-to-back grants must never re-read a word. */
-    always_comb begin
-        vid_mode3_a_req = 1'b0;
-        vid_mode3_a_addr = fetch_word;
-        case (state)
-            S3_PAL: begin
-                vid_mode3_a_req = pal_xram && bpp_log != 3'd4
-                    && pal_n < pal_fetch;
-                vid_mode3_a_addr = cf_palette[15:2] + {5'd0, pal_n};
-            end
-            S3_RUN: vid_mode3_a_req = primed && in_window
-                && 3'(fifo_v) + 3'(inflight) < 3'd2;
-            default: ;
-        endcase
-    end
-
-    /* The pixel port: emitting, padding outside the window, or blanking. */
-    always_comb begin
-        vid_mode3_px_we = 1'b0;
-        vid_mode3_px_addr = px;
-        vid_mode3_px_data = 16'h0000;
-        case (state)
-            S3_RUN: begin
-                if (!in_window)
-                    vid_mode3_px_we = 1'b1;
-                else if (primed && fifo_v[0]) begin
-                    vid_mode3_px_we = 1'b1;
-                    vid_mode3_px_data = bpp_log == 3'd4 ? pix16 : pal_out;
-                end
-            end
-            S3_BLANK: vid_mode3_px_we = 1'b1;
-            default: ;
-        endcase
+        vid_mode3_seg_valid = state == S3_SEG && px_rem != 10'd0;
+        vid_mode3_seg_imm = 1'b1;
+        vid_mode3_seg_bits = 23'd0;
+        vid_mode3_seg_px = px_rem;
+        if (!blank && col < 0) begin
+            /* Left padding up to the bitmap's edge. */
+            if (pad_left < {7'd0, px_rem})
+                vid_mode3_seg_px = pad_left[9:0];
+        end else if (!blank && col < width_s) begin
+            /* A run of the bitmap, to its right edge or the line's. */
+            vid_mode3_seg_imm = 1'b0;
+            vid_mode3_seg_bits = ({6'd0, row_base} << 3)
+                + (23'(col[15:0]) << bpp_log);
+            if (run_w < {7'd0, px_rem})
+                vid_mode3_seg_px = run_w[9:0];
+        end
+        /* else: blank, or right padding — the rest of the line. */
     end
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -219,31 +125,26 @@ module vid_mode3
             row_off <= '0;
             row_base <= '0;
             col <= '0;
-            px <= '0;
-            pal_xram <= 1'b0;
-            pal_n <= '0;
-            pal_w <= '0;
-            fifo[0] <= '0;
-            fifo[1] <= '0;
-            fifo_v <= '0;
-            inflight <= '0;
-            fetch_word <= '0;
-            gnt_d <= 1'b0;
-            primed <= 1'b0;
-            bit_in_word <= '0;
-            vid_mode3_done <= 1'b0;
+            px_rem <= '0;
+            blank <= 1'b0;
+            vid_mode3_tl_start <= 1'b0;
+            vid_mode3_pal_ptr <= '0;
+            vid_mode3_pal_xram <= 1'b0;
+            vid_mode3_bpp <= '0;
+            vid_mode3_reversed <= 1'b0;
             vid_mode3_filled <= 1'b0;
         end else begin
-            gnt_d <= a_gnt;
-            vid_mode3_done <= 1'b0;
+            vid_mode3_tl_start <= 1'b0;
             if (abort_i) begin
-                if (state != S3_IDLE)
+`ifdef VERILATOR
+                if (state == S3_WRAP || state == S3_ADDR)
                     $fatal(1, "vid_mode3 underrun");
+`endif
+                state <= S3_IDLE;
             end else if (start) begin
                 row <= $signed({row16[15], row16});
                 sizeof_row <= ((20'(cf_width) << bpp_log) + 20'd7) >> 3;
                 col <= $signed({col16[15], col16});
-                px <= '0;
                 state <= S3_WRAP;
             end else begin
                 case (state)
@@ -252,9 +153,10 @@ module vid_mode3
                         /* Iterative wraparound; sane configs settle in a
                          * step or two, and the beam's deadline bounds the
                          * pathological ones. */
-                        if (cf_width < 16'sd1 || cf_height < 16'sd1)
-                            state <= S3_BLANK;
-                        else if (cf_y_wrap && row < 0)
+                        if (cf_width < 16'sd1 || cf_height < 16'sd1) begin
+                            blank <= 1'b1;
+                            state <= S3_ADDR;
+                        end else if (cf_y_wrap && row < 0)
                             row <= row + {cf_height[15], cf_height};
                         else if (cf_y_wrap
                                  && row >= $signed({cf_height[15], cf_height}))
@@ -266,8 +168,11 @@ module vid_mode3
                             col <= col - {cf_width[15], cf_width};
                         else if (row < 0
                                  || row >= $signed({cf_height[15], cf_height}))
-                            state <= S3_BLANK;
-                        else begin
+                        begin
+                            blank <= 1'b1;
+                            state <= S3_ADDR;
+                        end else begin
+                            blank <= 1'b0;
                             row_off <= 20'(37'(row[15:0])
                                            * 37'(sizeof_row));
                             state <= S3_ADDR;
@@ -276,119 +181,50 @@ module vid_mode3
                     S3_ADDR: begin
                         row_base <= {1'b0, cf_data} + row_off[16:0];
                         /* Bitmap overrun, and 16bpp rejects an odd row. */
-                        if (35'(cf_height[14:0]) * 35'(sizeof_row)
-                            > 35'(17'h10000) - 35'({1'b0, cf_data})
-                            || (bpp_log == 3'd4
-                                && (cf_data[0] ^ row_off[0])))
-                            state <= S3_BLANK;
-                        else begin
-                            pal_xram <= !cf_palette[0]
-                                && {1'b0, cf_palette}
-                                    <= 17'h10000
-                                        - (17'd2 << {12'd0, 5'd1 << bpp_log});
-                            pal_n <= '0;
-                            pal_w <= '0;
-                            state <= S3_PAL;
-                        end
+                        if (!blank
+                            && (35'(cf_height[14:0]) * 35'(sizeof_row)
+                                > 35'(17'h10000) - 35'({1'b0, cf_data})
+                                || (bpp_log == 3'd4
+                                    && (cf_data[0] ^ row_off[0]))))
+                            blank <= 1'b1;
+                        /* The tail's plan: a blank line loads nothing.
+                         * The pal_xram test folds the blank decision in
+                         * combinationally, since blank may land on this
+                         * same edge. */
+                        vid_mode3_pal_ptr <= cf_palette;
+                        vid_mode3_pal_xram <= !blank
+                            && !(35'(cf_height[14:0]) * 35'(sizeof_row)
+                                 > 35'(17'h10000) - 35'({1'b0, cf_data})
+                                 || (bpp_log == 3'd4
+                                     && (cf_data[0] ^ row_off[0])))
+                            && !cf_palette[0]
+                            && bpp_log != 3'd4
+                            && {1'b0, cf_palette}
+                                <= 17'h10000
+                                    - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                        vid_mode3_bpp <= bpp_log;
+                        vid_mode3_reversed <= reversed;
+                        vid_mode3_filled <= !blank
+                            && !(35'(cf_height[14:0]) * 35'(sizeof_row)
+                                 > 35'(17'h10000) - 35'({1'b0, cf_data})
+                                 || (bpp_log == 3'd4
+                                     && (cf_data[0] ^ row_off[0])));
+                        vid_mode3_tl_start <= 1'b1;
+                        px_rem <= cw;
+                        state <= S3_SEG;
                     end
-                    S3_PAL: begin
-                        if (!pal_xram || bpp_log == 3'd4) begin
-                            state <= S3_RUN;
-                            primed <= 1'b0;
-                            fifo_v <= '0;
-                            inflight <= '0;
-                        end else begin
-                            if (a_gnt)
-                                pal_n <= pal_n + 9'd1;
-                            if (gnt_d) begin
-                                pal_w <= pal_w + 8'd1;
-                                if ({1'b0, pal_w} == pal_fetch - 9'd1)
-                                begin
-                                    state <= S3_RUN;
-                                    primed <= 1'b0;
-                                    fifo_v <= '0;
-                                    inflight <= '0;
-                                    pal_w <= '0;
-                                end
-                            end
-                        end
-                    end
-                    S3_RUN: begin
-                        if (!in_window) begin
-                            /* Outside the bitmap: transparent black. */
-                            px <= px + 10'd1;
-                            col <= col + 17'd1;
-                            if (col + 17'sd1 == 0)
-                                primed <= 1'b0;  /* entering at col 0 */
-                            if (px == cw - 10'd1) begin
+                    S3_SEG: begin
+                        if (seg_take) begin
+                            px_rem <= px_rem - vid_mode3_seg_px;
+                            if (!blank && col < 0)
+                                col <= col + $signed({7'd0,
+                                                      vid_mode3_seg_px});
+                            else if (!blank && col < width_s)
+                                col <= cf_x_wrap ? 17'sd0
+                                    : col + $signed({7'd0,
+                                                     vid_mode3_seg_px});
+                            if (px_rem == vid_mode3_seg_px)
                                 state <= S3_IDLE;
-                                vid_mode3_done <= 1'b1;
-                                vid_mode3_filled <= 1'b1;
-                            end
-                        end else if (!primed) begin
-                            /* (Re)aim the pipeline at col's bit. */
-                            fetch_word <= 14'(bit_origin >> 5);
-                            bit_in_word <= 5'(bit_origin & 23'd31);
-                            fifo_v <= '0;
-                            inflight <= '0;
-                            primed <= 1'b1;
-                        end else begin
-                            /* Keep two words moving; emit when fed. The
-                             * capture and the word-boundary shift can land
-                             * on the same edge, so they resolve together
-                             * through fifo_shift. */
-                            if (a_gnt)
-                                fetch_word <= fetch_word + 14'd1;
-                            inflight <= inflight + (a_gnt ? 2'd1 : 2'd0)
-                                - (gnt_d ? 2'd1 : 2'd0);
-                            if (fifo_shift) begin
-                                if (fifo_v[1]) begin
-                                    fifo[0] <= fifo[1];
-                                    if (gnt_d)
-                                        fifo[1] <= a_rdata;
-                                    fifo_v <= {gnt_d, 1'b1};
-                                end else begin
-                                    if (gnt_d)
-                                        fifo[0] <= a_rdata;
-                                    fifo_v <= {1'b0, gnt_d};
-                                end
-                            end else if (gnt_d) begin
-                                if (!fifo_v[0])
-                                    fifo[0] <= a_rdata;
-                                else
-                                    fifo[1] <= a_rdata;
-                                fifo_v <= {fifo_v[0], 1'b1};
-                            end
-                            if (fifo_v[0]) begin
-                                px <= px + 10'd1;
-                                if (cf_x_wrap && col
-                                    == $signed({cf_width[15], cf_width})
-                                        - 17'sd1)
-                                begin
-                                    col <= '0;
-                                    primed <= 1'b0;
-                                end else begin
-                                    col <= col + 17'sd1;
-                                    if (fifo_shift)
-                                        bit_in_word <= '0;
-                                    else
-                                        bit_in_word <= bit_in_word
-                                            + (5'd1 << bpp_log);
-                                end
-                                if (px == cw - 10'd1) begin
-                                    state <= S3_IDLE;
-                                    vid_mode3_done <= 1'b1;
-                                    vid_mode3_filled <= 1'b1;
-                                end
-                            end
-                        end
-                    end
-                    S3_BLANK: begin
-                        px <= px + 10'd1;
-                        if (px == cw - 10'd1) begin
-                            state <= S3_IDLE;
-                            vid_mode3_done <= 1'b1;
-                            vid_mode3_filled <= 1'b0;
                         end
                     end
                     default: state <= S3_IDLE;
@@ -400,7 +236,8 @@ module vid_mode3
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode3;
     always_comb unused_vid_mode3 = ^{row_off[19:17], sizeof_row, cfgw,
-                                     attr[15:4]};
+                                     attr[15:4], pad_left[16:10],
+                                     run_w[16:10]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

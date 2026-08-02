@@ -78,6 +78,7 @@ set(RP6502_MACHINE_SOURCES
     ${VID_PALETTE_PKG}
     ${RP6502_FPGA_RTL}/vid/vid_font.sv
     ${RP6502_FPGA_RTL}/vid/vid_palram.sv
+    ${RP6502_FPGA_RTL}/vid/vid_pixtail.sv
     ${RP6502_FPGA_RTL}/vid/vid_mode.sv
     ${RP6502_FPGA_RTL}/vid/vid_mode1.sv
     ${RP6502_FPGA_RTL}/vid/vid_mode2.sv

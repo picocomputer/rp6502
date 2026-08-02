@@ -162,12 +162,30 @@ module vid_mode (
     /* The mode pipelines; the prog entry's mode bits pick one. */
     logic [2:0] mode_q;
     logic m3_start;
-    logic m3_a_req;
-    logic [13:0] m3_a_addr;
-    logic m3_px_we;
-    logic [9:0] m3_px_addr;
-    logic [15:0] m3_px_data;
-    logic m3_done, m3_filled;
+    /* Mode 3 is a front on the shared pixel tail: it describes the line
+     * as segments and the tail does the rest. Its channel, pixels and
+     * palette below are the tail's. */
+    logic m3_tl_start;
+    logic [15:0] m3_pal_ptr;
+    logic m3_pal_xram;
+    logic [2:0] m3_bpp;
+    logic m3_reversed;
+    logic m3_seg_valid, m3_seg_imm;
+    logic [22:0] m3_seg_bits;
+    logic [9:0] m3_seg_px;
+    logic m3_filled;
+    logic tl_take;
+    logic tl_a_req;
+    logic [13:0] tl_a_addr;
+    logic tl_pal_ld;
+    logic [7:0] tl_pal_w;
+    logic [8:0] tl_pal_words;
+    logic [7:0] tl_pal_idx;
+    logic tl_pal_xram, tl_pal_one_bpp;
+    logic tl_px_we;
+    logic [9:0] tl_px_addr;
+    logic [15:0] tl_px_data;
+    logic tl_done;
     logic m1_start;
     logic m1_a_req;
     logic [13:0] m1_a_addr;
@@ -185,12 +203,12 @@ module vid_mode (
 
     /* One palette for the plane. Only the mode holding it can be
      * loading, so the write side is a select rather than an arbiter. */
-    logic m1_pal_ld, m2_pal_ld, m3_pal_ld;
-    logic [7:0] m1_pal_w, m2_pal_w, m3_pal_w;
-    logic [8:0] m1_pal_words, m2_pal_words, m3_pal_words;
-    logic [7:0] m1_pal_idx_a, m1_pal_idx_b, m2_pal_idx, m3_pal_idx;
-    logic m1_pal_xram, m2_pal_xram, m3_pal_xram;
-    logic m1_pal_one_bpp, m2_pal_one_bpp, m3_pal_one_bpp;
+    logic m1_pal_ld, m2_pal_ld;
+    logic [7:0] m1_pal_w, m2_pal_w;
+    logic [8:0] m1_pal_words, m2_pal_words;
+    logic [7:0] m1_pal_idx_a, m1_pal_idx_b, m2_pal_idx;
+    logic m1_pal_xram, m2_pal_xram;
+    logic m1_pal_one_bpp, m2_pal_one_bpp;
     logic [15:0] pal_qa, pal_qb;
     logic pal_ld, pal_xram, pal_one_bpp;
     logic [7:0] pal_w, pal_idx_a;
@@ -211,12 +229,12 @@ module vid_mode (
             pal_xram = m2_pal_xram;
             pal_one_bpp = m2_pal_one_bpp;
         end else begin
-            pal_ld = m3_pal_ld;
-            pal_w = m3_pal_w;
-            pal_words = m3_pal_words;
-            pal_idx_a = m3_pal_idx;
-            pal_xram = m3_pal_xram;
-            pal_one_bpp = m3_pal_one_bpp;
+            pal_ld = tl_pal_ld;
+            pal_w = tl_pal_w;
+            pal_words = tl_pal_words;
+            pal_idx_a = tl_pal_idx;
+            pal_xram = tl_pal_xram;
+            pal_one_bpp = tl_pal_one_bpp;
         end
     end
     vid_palram vid_palram (
@@ -301,22 +319,55 @@ module vid_mode (
         .cfgw(cfgw[111:0]),
         .t_row(t_row),
         .cw(cw),
-        .vid_mode3_a_req(m3_a_req),
-        .vid_mode3_a_addr(m3_a_addr),
-        .a_gnt(a_gnt),
-        .a_rdata(a_rdata),
-        .vid_mode3_pal_ld(m3_pal_ld),
-        .vid_mode3_pal_w(m3_pal_w),
-        .vid_mode3_pal_words(m3_pal_words),
-        .vid_mode3_pal_idx(m3_pal_idx),
+        .vid_mode3_tl_start(m3_tl_start),
+        .vid_mode3_pal_ptr(m3_pal_ptr),
         .vid_mode3_pal_xram(m3_pal_xram),
-        .vid_mode3_pal_one_bpp(m3_pal_one_bpp),
-        .pal_q(pal_qa),
-        .vid_mode3_px_we(m3_px_we),
-        .vid_mode3_px_addr(m3_px_addr),
-        .vid_mode3_px_data(m3_px_data),
-        .vid_mode3_done(m3_done),
+        .vid_mode3_bpp(m3_bpp),
+        .vid_mode3_reversed(m3_reversed),
+        .vid_mode3_seg_valid(m3_seg_valid),
+        .vid_mode3_seg_imm(m3_seg_imm),
+        .vid_mode3_seg_bits(m3_seg_bits),
+        .vid_mode3_seg_px(m3_seg_px),
+        .seg_take(tl_take),
         .vid_mode3_filled(m3_filled)
+    );
+
+    /* The shared pixel tail. Mode 3 feeds it today; modes 2 and 1
+     * follow, at which point the fronts mux into these same ports. */
+    vid_pixtail vid_pixtail (
+        .clk(clk),
+        .rst_n(rst_n),
+        .start(m3_tl_start),
+        .abort_i(line_start),
+        .cw(cw),
+        .pal_ptr(m3_pal_ptr),
+        .pal_xram(m3_pal_xram),
+        .bpp_log(m3_bpp),
+        .reversed(m3_reversed),
+        .seg_valid(m3_seg_valid),
+        .seg_imm(m3_seg_imm),
+        .seg_bits(m3_seg_bits),
+        .seg_ibits(8'd0),
+        .seg_fg(16'd0),
+        .seg_bg(16'd0),
+        .seg_px(m3_seg_px),
+        .vid_pixtail_seg_take(tl_take),
+        .vid_pixtail_a_req(tl_a_req),
+        .vid_pixtail_a_addr(tl_a_addr),
+        .a_gnt(a_gnt),
+        .a_rdy(1'b0),
+        .a_rdata(a_rdata),
+        .vid_pixtail_pal_ld(tl_pal_ld),
+        .vid_pixtail_pal_w(tl_pal_w),
+        .vid_pixtail_pal_words(tl_pal_words),
+        .vid_pixtail_pal_idx(tl_pal_idx),
+        .vid_pixtail_pal_xram(tl_pal_xram),
+        .vid_pixtail_pal_one_bpp(tl_pal_one_bpp),
+        .pal_q(pal_qa),
+        .vid_pixtail_px_we(tl_px_we),
+        .vid_pixtail_px_addr(tl_px_addr),
+        .vid_pixtail_px_data(tl_px_data),
+        .vid_pixtail_done(tl_done)
     );
 
     /* The running pipeline's channel, pixel port, and completion. */
@@ -344,12 +395,12 @@ module vid_mode (
             sub_done = m2_done;
             sub_filled = m2_filled;
         end else begin
-            sub_a_req = m3_a_req;
-            sub_a_addr = m3_a_addr;
-            sub_px_we = m3_px_we;
-            sub_px_addr = m3_px_addr;
-            sub_px_data = m3_px_data;
-            sub_done = m3_done;
+            sub_a_req = tl_a_req;
+            sub_a_addr = tl_a_addr;
+            sub_px_we = tl_px_we;
+            sub_px_addr = tl_px_addr;
+            sub_px_data = tl_px_data;
+            sub_done = tl_done;
             sub_filled = m3_filled;
         end
     end
