@@ -84,6 +84,7 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_FPGA_RTL}/vid/vid_mode3.sv
     ${RP6502_FPGA_RTL}/vid/vid_mode4.sv
     ${RP6502_FPGA_RTL}/vid/vid_mode5.sv
+    ${RP6502_FPGA_RTL}/vid/vid_palcache.sv
     ${RP6502_FPGA_RTL}/vid/vid_sprite.sv
     ${RP6502_FPGA_RTL}/vid/vid_prog.sv
     ${RP6502_FPGA_RTL}/vid/vid_term.sv

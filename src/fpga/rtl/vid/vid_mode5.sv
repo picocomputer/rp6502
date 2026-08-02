@@ -33,6 +33,19 @@ module vid_mode5
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
+    /* The palette, asked of the sprite stage's cache: a finished color
+     * and a hit, combinational. On a miss the cache fills through this
+     * engine's own channel while the pixel stalls — the two never
+     * request together, because a palette lookup only exists while the
+     * index word is already in hand. */
+    output logic vid_mode5_pal_lookup,
+    output logic vid_mode5_pal_xram,
+    output logic vid_mode5_pal_one_bpp,
+    output logic [15:0] vid_mode5_pal_base,
+    output logic [7:0] vid_mode5_pal_idx,
+    input logic pal_hit,
+    input logic [15:0] pal_q,
+
     output logic vid_mode5_px_we,
     output logic [9:0] vid_mode5_px_addr,
     output logic [15:0] vid_mode5_px_data,
@@ -57,7 +70,7 @@ module vid_mode5
         17'(17'({7'd0, size}) * 17'({7'd0, bytes_per_row}));
 
     typedef enum logic [2:0] {
-        M5_IDLE, M5_DESC, M5_JUDGE, M5_PIX, M5_PAL, M5_NEXT
+        M5_IDLE, M5_DESC, M5_JUDGE, M5_PIX, M5_NEXT
     } state_t;
     state_t state;
 
@@ -127,13 +140,17 @@ module vid_mode5
             default: pix_idx = cur_byte;
         endcase
     end
-    logic [16:0] pal_addr;
-    always_comb pal_addr = {1'b0, d_pptr} + {8'd0, pix_idx, 1'b0};
+    /* The cache resolves XRAM and builtin palettes alike into a
+     * finished color; this engine only names the question. */
+    always_comb begin
+        vid_mode5_pal_lookup = state == M5_PIX && dhit && pal_xram;
+        vid_mode5_pal_xram = pal_xram;
+        vid_mode5_pal_one_bpp = bpp_log == 2'd0;
+        vid_mode5_pal_base = d_pptr;
+        vid_mode5_pal_idx = pix_idx;
+    end
     logic [15:0] pal_color;
-    always_comb pal_color = pal_xram
-        ? (pal_addr[1] ? a_rdata[31:16] : a_rdata[15:0])
-        : (bpp_log == 2'd0 ? VID_COLOR_2[pix_idx[0]]
-                           : VID_COLOR_256[pix_idx]);
+    always_comb pal_color = pal_q;
 
     logic dhit;
     always_comb dhit = dcache_v && dcache_word == pix_byte_addr[15:2];
@@ -147,23 +164,20 @@ module vid_mode5
                 if (!dhit) begin
                     vid_mode5_a_req = fw_i == 3'd0;
                     vid_mode5_a_addr = pix_byte_addr[15:2];
-                end else if (pal_xram) begin
-                    vid_mode5_a_req = fw_i == 3'd0;
-                    vid_mode5_a_addr = pal_addr[15:2];
                 end
             end
             default: ;
         endcase
     end
 
-    /* The write lands only where the color carries alpha. */
+    /* The write lands only where the color carries alpha, and only when
+     * the cache has answered — a miss stalls the pixel, not the walk's
+     * correctness. Builtin palettes always hit. */
     always_comb begin
         vid_mode5_px_we = 1'b0;
         vid_mode5_px_addr = dst;
         vid_mode5_px_data = pal_color;
-        if (state == M5_PIX && dhit && !pal_xram)
-            vid_mode5_px_we = pal_color[5];
-        else if (state == M5_PAL && gnt_d)
+        if (state == M5_PIX && dhit && pal_hit)
             vid_mode5_px_we = pal_color[5];
     end
 
@@ -282,20 +296,9 @@ module vid_mode5
                                 dcache_v <= 1'b1;
                                 fw_i <= '0;
                             end
-                        end else if (pal_xram) begin
-                            if (a_gnt) begin
-                                fw_i <= 3'd1;
-                                state <= M5_PAL;
-                            end
-                        end else
+                        end else if (pal_hit)
                             step_pixel();
-                    end
-                    M5_PAL: begin
-                        if (gnt_d) begin
-                            fw_i <= '0;
-                            state <= M5_PIX;
-                            step_pixel();
-                        end
+                        /* else: the cache is filling on this channel. */
                     end
                     default: state <= M5_IDLE;
                 endcase
@@ -307,7 +310,6 @@ module vid_mode5
     logic unused_vid_mode5;
     always_comb unused_vid_mode5 = ^{attr[15:6], attr[2], gather,
                                      daddr[16], tex_y[15:9],
-                                     pal_addr[16], pal_addr[0],
                                      pix_byte_addr[16],
                                      idx[15:13], dview};
     /* verilator lint_on UNUSEDSIGNAL */

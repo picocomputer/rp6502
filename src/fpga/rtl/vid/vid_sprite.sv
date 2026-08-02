@@ -95,6 +95,50 @@ module vid_sprite (
     logic [9:0] m5_px_addr;
     logic [15:0] m5_px_data;
     logic m5_done;
+
+    /* Mode 5's palette cache. The engine's per-pixel palette reads used
+     * to be one arbitrated XRAM round trip each; the cache answers
+     * repeats combinationally and fills misses through the same channel
+     * while the pixel stalls. Coherence is by row: line_start empties
+     * it, so a palette write lands by the next row — the owner's call,
+     * and the reason there is no write snoop. */
+    logic pal_lookup, pal_xram, pal_one_bpp;
+    logic [15:0] pal_base;
+    logic [7:0] pal_idx;
+    logic pal_hit;
+    logic [15:0] pal_q;
+    logic pc_req;
+    logic [13:0] pc_addr;
+    logic pc_gnt, pc_rdy;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            pc_rdy <= 1'b0;
+        else
+            pc_rdy <= pc_gnt;
+    end
+    /* verilator lint_off PINCONNECTEMPTY */
+    vid_palcache vid_palcache (
+        .clk(clk),
+        .rst_n(rst_n),
+        .lookup(pal_lookup),
+        .xram(pal_xram),
+        .one_bpp(pal_one_bpp),
+        .base(pal_base),
+        .idx_a(pal_idx),
+        .idx_b(8'd0),
+        .need_b(1'b0),
+        .vid_palcache_qa(pal_q),
+        .vid_palcache_qb(),
+        .vid_palcache_hit(pal_hit),
+        .vid_palcache_req(pc_req),
+        .vid_palcache_addr(pc_addr),
+        .fill_gnt(pc_gnt),
+        .fill_rdy(pc_rdy),
+        .a_rdata(a_rdata),
+        .flush(line_start)
+    );
+    /* verilator lint_on PINCONNECTEMPTY */
+
     vid_mode5 vid_mode5 (
         .clk(clk),
         .rst_n(rst_n),
@@ -112,6 +156,13 @@ module vid_sprite (
         .vid_mode5_px_we(m5_px_we),
         .vid_mode5_px_addr(m5_px_addr),
         .vid_mode5_px_data(m5_px_data),
+        .vid_mode5_pal_lookup(pal_lookup),
+        .vid_mode5_pal_xram(pal_xram),
+        .vid_mode5_pal_one_bpp(pal_one_bpp),
+        .vid_mode5_pal_base(pal_base),
+        .vid_mode5_pal_idx(pal_idx),
+        .pal_hit(pal_hit),
+        .pal_q(pal_q),
         .vid_mode5_done(m5_done)
     );
     logic m4_start;
@@ -144,9 +195,15 @@ module vid_sprite (
     logic sp_is4;
     always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
 
+    /* The cache's fill preempts mode 5's own requests, which is safe by
+     * construction: a palette lookup only exists while the index word is
+     * in hand, so the two never ask together. */
     always_comb begin
-        vid_sprite_a_req = state == SP_RUN && (sp_is4 ? m4_a_req : m5_a_req);
-        vid_sprite_a_addr = sp_is4 ? m4_a_addr : m5_a_addr;
+        vid_sprite_a_req = state == SP_RUN
+            && (sp_is4 ? m4_a_req : (pc_req || m5_a_req));
+        vid_sprite_a_addr = sp_is4 ? m4_a_addr
+            : pc_req ? pc_addr : m5_a_addr;
+        pc_gnt = a_gnt && pc_req && state == SP_RUN && !sp_is4;
     end
 
     logic sp_en;
