@@ -80,6 +80,24 @@ set_false_path -hold \
     -from [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] \
     -to [get_registers {*|mmio_slot_len[*]}]
 
+# The machine's two spines. clk_sys is the PLL's general[0]; clk_rv and
+# the beam clock share general[1]; every transfer between them is
+# same-edge synchronous with a hold relationship of zero, met only by
+# the skew between two global networks staying under one LUT of data
+# delay. The fitter pads such paths against its own estimate, and two
+# fits in a row it left one fast-corner path a handful of picoseconds
+# short — a different path each time, because which register pair draws
+# the worst spine seam is placement lottery. So demand margin instead
+# of luck: a fifth of a nanosecond of minimum delay is invisible to
+# setup, whose slowest relationship here is 19.8 ns, and makes the
+# whole class a requirement the router has to satisfy at every corner.
+set_min_delay 0.2 \
+    -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
+    -to [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}]
+set_min_delay 0.2 \
+    -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first
 # stage is cut by the rule above. Bound the parameters instead of
