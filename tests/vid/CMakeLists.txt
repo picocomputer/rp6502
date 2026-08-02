@@ -25,6 +25,16 @@ if(RP6502_VERILATE)
     # The frame counter and the vsync interrupt against the raster.
     rp6502_add_machine_test(vsync TIMEOUT 120)
 
+    # The shared pixel tail against a golden model, before any mode front
+    # stands on it: every depth, both bit orders, wrap-split, tile-shaped,
+    # immediate and mixed segments, under a jittered grant line.
+    rp6502_add_module_test(pixtail
+        TOP vid_pixtail
+        RTL ${VID_PALETTE_PKG} ${RP6502_FPGA_RTL}/vid/vid_pixtail.sv
+        INCLUDES ${RP6502_ASSETS}
+        DEPENDS vid_palette_rom
+        TIMEOUT 120)
+
     # The generated font ROM against the tables emu_core builds at runtime.
     rp6502_add_test(font
         SOURCES test_font.cpp
