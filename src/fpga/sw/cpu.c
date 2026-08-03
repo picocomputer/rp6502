@@ -58,7 +58,7 @@ uint16_t cpu_get_phi2_khz(void)
  * stage a new image under a 6502 already running the old one. */
 void cpu_init(void)
 {
-    CPU_RUN = 0;
+    CPU_RESB = 0;
     MMIO_PHI2 = cpu_phi2_khz_set;
 }
 
@@ -75,18 +75,18 @@ void cpu_init(void)
 void cpu_run(void)
 {
     REGS_WIN[0x10] = 0; /* $FFF0 */
-    CPU_RUN = 1;
+    CPU_RESB = 1;
 }
 
 /* A ROM that changed the clock does not get to leave it changed. */
 void cpu_stop(void)
 {
-    CPU_RUN = 0;
+    CPU_RESB = 0;
     MMIO_PHI2 = cpu_phi2_khz_set;
 }
 
 /* The machine's lifecycle contract, minimally. */
 bool cpu_active(void)
 {
-    return CPU_RUN != 0;
+    return CPU_RESB != 0;
 }

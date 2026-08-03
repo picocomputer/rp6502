@@ -154,7 +154,7 @@ static inline int32_t set_tz_minutes(void)
  * freq, duty, vol_attack / vol_decay, wave_release, pan_gate. */
 #define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
 #define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
-#define CPU_RUN (*(volatile uint8_t *)0x40000000u)
+#define CPU_RESB (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 
 #endif /* _FPGA_SW_MMIO_H_ */

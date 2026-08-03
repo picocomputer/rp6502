@@ -152,12 +152,12 @@ module rp6502
      * A ROM load therefore hands the new program a VIA with its timers,
      * interrupt enables and port directions cleared, not the last
      * program's. */
-    logic cpu_run /*verilator public_flat_rw*/;
+    logic resb /*verilator public_flat_rw*/;
     logic cpu_stp;
 
     cpu65 cpu (
         .clk(clk_sys),
-        .rst_n(cpu_run),
+        .rst_n(resb),
         .en(phi2_en),
         .data_i(cpu_din),
         .irq_i(via_irq || ria_irq),
@@ -196,7 +196,7 @@ module rp6502
     logic [7:0] via_data;
     via via (
         .clk(clk_sys),
-        .rst_n(cpu_run),
+        .rst_n(resb),
         .en(phi2_en),
         .cs(sel_via),
         .we(cpu_we),
@@ -427,9 +427,9 @@ module rp6502
      * middle of rebuilding. */
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n)
-            cpu_run <= 1'b0;
+            resb <= 1'b0;
         else if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
-            cpu_run <= bus_wbyte[0];
+            resb <= bus_wbyte[0];
     end
 
     /* Reads answer one cycle after the strobe. The register window is a
@@ -439,7 +439,7 @@ module rp6502
     always_comb begin
         case (bus_rsel)
             3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
-                : {6'b0, cpu_stp, cpu_run};
+                : {6'b0, cpu_stp, resb};
             3'd3: bus_rbyte = stage_rdata;
             3'd5: bus_rbyte = xram_b_rdata;
             default: bus_rbyte = sram_b_rdata;

@@ -54,7 +54,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
             return false;
         if (dut->rp6502_tx_valid || dut->rp6502_rv_tx_valid)
             moved = true;
-        if (dut->rootp->rp6502__DOT__cpu_run)
+        if (dut->rootp->rp6502__DOT__resb)
             ran = true;
         if (pending && !dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len)
             pending = false;
@@ -65,7 +65,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
             continue;
         frames++;
         bool stopped = dut->rootp->rp6502__DOT__cpu__DOT__stop_flag != 0
-            || !dut->rootp->rp6502__DOT__cpu_run;
+            || !dut->rootp->rp6502__DOT__resb;
         if (!pending && (ran || had_image) && stopped && !moved)
             return true;
         moved = false;

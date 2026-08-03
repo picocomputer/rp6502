@@ -92,7 +92,7 @@ static bool rtl_boot(const std::vector<uint8_t> &rom, std::string *rv_out)
         dut->clk_rv = 0;
     dut->clk_sys = 0;
         dut->eval();
-        if (dut->rootp->rp6502__DOT__cpu_run)
+        if (dut->rootp->rp6502__DOT__resb)
             ever_ran = true;
         if (dut->rp6502_rv_tx_valid)
             rv_out->push_back((char)dut->rp6502_rv_tx_data);

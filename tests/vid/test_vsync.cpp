@@ -40,7 +40,7 @@ static void machine_reset()
     clock_cycle();
     clock_cycle();
     dut->rst_n = 1;
-    dut->rootp->rp6502__DOT__cpu_run = 1;
+    dut->rootp->rp6502__DOT__resb = 1;
 }
 
 UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)

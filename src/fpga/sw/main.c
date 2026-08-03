@@ -458,7 +458,7 @@ int main(void)
             }
             else if (API_OP == 0xFF)
             {
-                CPU_RUN = 0;
+                CPU_RESB = 0;
                 cpu_stop();
                 aud_stop();
                 api_return_ax(0);

@@ -117,7 +117,7 @@ static bool run_until_quiet(long *presses = nullptr)
 
         if (dut->tb_pocket_tx_valid || dut->tb_pocket_rv_tx_valid)
             moved = true;
-        if (dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__cpu_run)
+        if (dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__resb)
             ran = true;
         int vs = dut->tb_pocket_vs;
         bool frame_edge = vs && !prev;
@@ -128,17 +128,17 @@ static bool run_until_quiet(long *presses = nullptr)
         auto *r = dut->rootp;
         bool stopped =
             r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag != 0
-            || !r->tb_pocket__DOT__core__DOT__machine__DOT__cpu_run;
+            || !r->tb_pocket__DOT__core__DOT__machine__DOT__resb;
         if (ran && stopped && !moved)
             return true;
         moved = false;
     }
     if (getenv("POCKET_DEBUG"))
         fprintf(stderr, "quiet gave up: frames=%ld ran=%d run=%d "
-                "cpu_run=%d stop=%d\n", frames, (int)ran,
+                "resb=%d stop=%d\n", frames, (int)ran,
                 (int)dut->rootp->tb_pocket__DOT__core__DOT__run,
                 (int)dut->rootp
-                    ->tb_pocket__DOT__core__DOT__machine__DOT__cpu_run,
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__resb,
                 (int)dut->rootp
                     ->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag);
     return false;

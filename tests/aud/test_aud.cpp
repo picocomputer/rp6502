@@ -195,7 +195,7 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
     ASSERT_TRUE(load_rom(AUD_ROM_OPL));
     ASSERT_NE(frames_to_sound(8), -1);
 
-    dut->rootp->rp6502__DOT__cpu_run = 0;
+    dut->rootp->rp6502__DOT__resb = 0;
 
     long rv_bytes = 0;
     long frames = 0;
@@ -220,7 +220,7 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
     }
 
     /* The 6502 really is held. */
-    ASSERT_EQ((int)dut->rootp->rp6502__DOT__cpu_run, 0);
+    ASSERT_EQ((int)dut->rootp->rp6502__DOT__resb, 0);
     /* The raster kept its cadence. */
     ASSERT_EQ(frames, (long)3);
     /* The soft CPU kept time, which it cannot do if it stopped. */
@@ -250,7 +250,7 @@ UTEST(aud, a_program_exit_goes_quiet)
     for (int i = 0; i < 20; i++)
     {
         run_frame();
-        if (!dut->rootp->rp6502__DOT__cpu_run)
+        if (!dut->rootp->rp6502__DOT__resb)
         {
             stopped = i;
             break;
