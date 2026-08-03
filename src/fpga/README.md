@@ -52,10 +52,15 @@ Development is simulation first. Tests run the same `.rp6502` on the verilated
 machine and on `emu_core`, then compare — the emulator is the reference for
 behavior the RTL must reproduce.
 
-    sudo apt-get install verilator gtkwave
-    cmake -B build/fpga -S src/fpga
+    sudo apt-get install verilator gtkwave ninja-build
+    cmake -B build/fpga -S src/fpga -G Ninja
     cmake --build build/fpga
     ctest --test-dir build/fpga
+
+Ninja is required, not preferred, and CMake stops if it is missing: the
+pocket testbench builds one verilated model that two tests link, which
+make will build twice at once and then link half-written or stale. One
+tree, `build/fpga`, is what CI configures and what these commands assume.
 
 Without Verilator only the oracle tests build; CMake warns and continues.
 
