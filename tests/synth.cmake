@@ -174,6 +174,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     file(WRITE ${BS_QSF} "${BS_QSF_TEXT}\n")
     file(WRITE ${BS_DIR}/rp6502.qpf "PROJECT_REVISION = \"rp6502\"\n")
     find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+    find_program(QUARTUS_DRC quartus_drc HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
     # Everything the SD card needs, assembled. The JSONs, the images and
     # the tree come from dist/ as they are; the bitstream and the glyph
     # asset are built. dist/ carries Saves/rp6502/common/ because the
@@ -181,6 +182,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(PKG_DIR ${CMAKE_CURRENT_BINARY_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
     add_custom_target(package
+        # Never package a bitstream older than the fit it claims to be.
+        COMMAND python3 ${RP6502_SRC}/gen/rbf_fresh.py
+            ${BS_DIR}/output_files/rp6502.rbf ${BS_DIR}/bitstream.rbf_r
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -211,6 +215,14 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # the part is warm or the fitter's luck turns.
         COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
             ${BS_DIR}/output_files/rp6502.sta.rpt
+        # Nor from one that grew a violation timing cannot see. An
+        # unsynchronised reset and a torn opcode both close every corner
+        # and both fail on a different fit; the Design Assistant is the
+        # only thing in the flow that looks for them.
+        COMMAND ${QUARTUS_DRC} rp6502
+        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
+            ${BS_DIR}/output_files/rp6502.drc.rpt
+            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
         COMMAND python3 ${RP6502_SRC}/gen/rbf_r_gen.py
             ${BS_DIR}/output_files/rp6502.rbf
             ${BS_DIR}/bitstream.rbf_r

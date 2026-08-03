@@ -1,0 +1,59 @@
+# What the Design Assistant finds today, and why each entry is still
+# here. Anything above these numbers fails the build; see
+# src/gen/drc_gate.py. Lower a line when a fix lands.
+#
+# R101  Combinational logic used as a reset, unsynchronised.
+#       mrst_n is the real one: the core's master reset, 7916 fanout on a
+#       global network, released asynchronously. Blocks leave reset in
+#       whatever order the routing gives, which is a different order
+#       every fit. Fixed: asserted asynchronously and released
+#       synchronously now, once per clock domain, in pocket_core.sv.
+#       What is left is aud_opl's core_ic_n, the vendor core's own.
+R101 1
+#
+# S102  A register whose synchronous and asynchronous ports come from one
+#       source. All sixteen are inside vendor/opl2_fpga's hold_reg and
+#       hold_val.
+S102 16
+#
+# D101  Data crossing clock domains without a synchroniser. Almost all of
+#       this is the clk_sys/clk_rv seam, which rp6502.sdc declares one
+#       synchronous group on purpose — the tool cannot see the SDC and
+#       counts it as asynchronous. Real, but not what this rule thinks.
+D101 615
+#
+# D103  Data bits not correctly synchronised. pocket_file's r_op, the
+#       file command opcode. Traced and judged safe: r_op is written
+#       once per command and cannot change again until busy clears, and
+#       the host does not read it until go_t2 != go_t3, three clk_74a
+#       flops after the toggle that announced it. Data held still behind
+#       a synchronised toggle is the correct handshake; the tool flags
+#       it because it can see the three bits crossing and not the
+#       handshake, the same blind spot that flags every gray pointer
+#       under D102. Left as found.
+D103 3
+#
+# D102  Multi-bit crossings that are synchronised but may land
+#       misaligned. Most are pocket_fifo's gray pointers, where one bit
+#       changes per step and misalignment is safe by construction — the
+#       tool cannot know the encoding. The bridge's held parameter buses
+#       and Analogue's own controller buses make up the rest, along with
+#       r_op again.
+D102 25
+#
+# C104  A clock source driving something other than a clock port:
+#       clk_74a, which Analogue's own framework also uses as data.
+C104 1
+#
+# R102  An external reset not double-registered: bridge_spiss, from the
+#       platform.
+R102 1
+#
+# C106  One clock driving both edges. rp6502.sv takes the soft CPU's two
+#       narrowings on negedge clk_sys, because the launch is on the
+#       rising edge the two clocks share and asking there asks while the
+#       answer is changing. Half a period of settled time replaces none,
+#       and the cost is that the path now depends on the clock's duty
+#       cycle as well as its period — 9.9 ns nominal against a race that
+#       had zero, which is a trade worth making and worth naming.
+C106 1
