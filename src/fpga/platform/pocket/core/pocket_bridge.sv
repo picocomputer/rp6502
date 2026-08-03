@@ -13,8 +13,10 @@
  * register it lands in. Completion is a level that clears only at the
  * next slot request, so the settle fires on its edge.
  *
- * A write into the 0x1 window dips the run gate: the interact menu's
- * "Reset 6502", which reloads the ROM still staged in the SDRAM.
+ * A host write to 0x10000000 dips the run gate for 255 clocks, which
+ * reboots the machine against the ROM still staged in the SDRAM. That
+ * address is SET_PHI2; no entry in interact.json writes it, so nothing
+ * currently reaches this.
  */
 
 module pocket_bridge (
