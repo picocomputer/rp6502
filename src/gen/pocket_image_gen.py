@@ -15,11 +15,12 @@
 # only real evidence that the rotation goes the way round it should.
 #
 # Both of those are a bright field with dark marks, so a picture drawn
-# on white converts straight. Analogue warns that "the icon color may be
-# inverted in the UI", and on the strength of that warning the icon was
-# once generated with --invert. A real Pocket then showed it as a cow on
-# a black square: the UI does not invert, and the icon wants the same
-# polarity as everything else. Do not pass --invert for it.
+# on white converts straight -- and then arrives on the Pocket as a cow
+# on a black square. Analogue's "the icon color may be inverted in the
+# UI" is not a maybe, and it is not only the icon: the platform banner
+# comes out the same way. A file whose stored field is bright displays
+# dark. Both images want --invert, which is why the shipped art of other
+# cores stores a dark field for a white one.
 #
 # --at places the artwork's centre at a fraction of the width. The
 # platform banner is not centred: the stock cores set their device art a
