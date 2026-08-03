@@ -33,25 +33,28 @@ set_false_path -to [get_registers {*pocket_fifo*|rptr_gray_w1[*]}]
 
 # The bridge's write payload rides beside its own gray pointer and is
 # only read once that pointer has crossed, so it is quasi-static by the
-# time the reader looks. Bound it rather than cut it: a word must not
-# take longer to cross than the pointer that announces it. 13.468 ns is
-# one host clock.
+# time the reader looks. It carried a bound of one host clock here for a
+# long time, and the bound never once applied.
 #
-# Name the memory the way the fitter does, not the way the source does.
-# The queue's mem is an inferred MLAB, so it is not a register and
-# get_registers cannot see it: the filter {*pocket_fifo*|mem*} matched
-# zero registers, zero keepers and zero cells, and every fit this project
-# has ever run printed "Ignored filter" for both lines. The bound was
-# never applied, which left the crossing to whatever the placer happened
-# to give it -- fine until something re-placed the design.
+# Twice, in fact. It named {*pocket_fifo*|mem*}, and mem is an inferred
+# MLAB: not a register, so get_registers cannot see it, and the fitter
+# said "Ignored filter" in every fit this tree has run. Named correctly
+# as the memory's ~MEMORYREGOUT it matches 136 keepers at signoff and
+# still not during placement, because those atoms do not exist until the
+# fitter makes them — so a bound meant to steer the placer could only
+# ever grade it afterwards.
 #
-# Inference renames it altdpram|dpram|lutramN, whose output keeper is
-# ~MEMORYREGOUT, and the read data leaves the queue combinationally, so
-# the capture register is in the reader and not in {*pocket_fifo*}. Both
-# halves of the old filter were wrong. Constrain from the memory outputs
-# to wherever they land.
-set_max_delay -from [get_keepers {*pocket_fifo*|*MEMORYREGOUT}] 13.468
-set_min_delay -from [get_keepers {*pocket_fifo*|*MEMORYREGOUT}] 0
+# It is gone rather than fixed a third time, because it was bracing
+# something that does not need it. core_constraints.sdc groups only the
+# host's clocks; the PLL's outputs are in no group, so nothing cuts
+# these crossings and the analyzer times them the ordinary way, more
+# tightly than one host clock. A constraint that adds nothing but a
+# warning is worse than no constraint.
+#
+# If the PLL outputs are ever put in a group of their own, this becomes
+# load-bearing again — and it must then be written by clock pair rather
+# than by node, so that it resolves at every stage instead of only at
+# the last one.
 
 # The rest of the crossings between the host's clock and the machine's.
 # Every one is a two-flop synchronizer or a value held still behind one,
