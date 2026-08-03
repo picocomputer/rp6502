@@ -26,26 +26,10 @@
 
 #include "ria/sys/cpu.h"
 
-static uint32_t cfg_phi2, cfg_cp;
 static int32_t cfg_tz;
 
 void cfg_task(void)
 {
-    // TODO SET_PHI2 and SET_CP are wasted resources that need to be cleaned up
-    uint32_t phi2 = SET_PHI2;
-    if (phi2 != cfg_phi2)
-    {
-        cfg_phi2 = phi2;
-        if (phi2 >= CPU_PHI2_MIN_KHZ && phi2 <= CPU_PHI2_MAX_KHZ)
-            cpu_set_phi2_khz_run((uint16_t)phi2);
-    }
-    uint32_t cp = SET_CP;
-    if (cp != cfg_cp)
-    {
-        cfg_cp = cp;
-        if (cp)
-            font_set_code_page((uint16_t)cp);
-    }
     /* Three menu entries make one offset, so any of them moving is the
      * same event and the combined number is what to watch. The offset's
      * zero is a real value — UTC — so unlike the others it applies

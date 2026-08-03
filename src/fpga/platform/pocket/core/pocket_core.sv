@@ -195,8 +195,6 @@ module pocket_core #(
         .pocket_bridge_mou_key(mou_key),
         .pocket_bridge_mou_joy(mou_joy),
         .pocket_bridge_mou_trig(mou_trig),
-        .pocket_bridge_set_phi2(set_phi2),
-        .pocket_bridge_set_cp(set_cp),
         .pocket_bridge_set_tz(set_tz),
         .pocket_bridge_set_tz_min(set_tz_min),
         .pocket_bridge_set_tz_sign(set_tz_sign),
@@ -245,7 +243,7 @@ module pocket_core #(
     logic [27:0] host_addr;
     logic host_stb, host_we;
     logic [31:0] host_wdata, host_rdata, file_rdata;
-    logic [31:0] set_phi2, set_cp, set_tz, set_tz_min, set_tz_sign;
+    logic [31:0] set_tz, set_tz_min, set_tz_sign;
     logic [31:0] rtc_epoch_sys;
     logic rtc_valid_sys;
 
@@ -259,8 +257,6 @@ module pocket_core #(
             set_rdata <= '0;
         else if (host_stb)
             case (host_addr[4:2])
-                3'd0: set_rdata <= set_phi2;
-                3'd1: set_rdata <= set_cp;
                 3'd2: set_rdata <= set_tz;
                 3'd3: set_rdata <= rtc_epoch_sys;
                 3'd4: set_rdata <= {31'd0, rtc_valid_sys};

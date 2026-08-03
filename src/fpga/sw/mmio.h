@@ -70,8 +70,6 @@
  * options and the offset spans twenty-seven whole hours. RTC_EPOCH is
  * the Pocket's local wall time as seconds since 1970, written once at
  * core boot by host command 0x0090, and RTC_VALID says it ever was. */
-#define SET_PHI2 (*(volatile uint32_t *)0x80010000u)
-#define SET_CP (*(volatile uint32_t *)0x80010004u)
 #define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
 #define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
 #define RTC_VALID (*(volatile uint32_t *)0x80010010u)

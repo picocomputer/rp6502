@@ -20,7 +20,7 @@ S102 16
 #       this is the clk_sys/clk_rv seam, which rp6502.sdc declares one
 #       synchronous group on purpose — the tool cannot see the SDC and
 #       counts it as asynchronous. Real, but not what this rule thinks.
-D101 615
+D101 551
 #
 # D103  Data bits not correctly synchronised. pocket_file's r_op, the
 #       file command opcode. Traced and judged safe: r_op is written
@@ -39,7 +39,7 @@ D103 3
 #       tool cannot know the encoding. The bridge's held parameter buses
 #       and Analogue's own controller buses make up the rest, along with
 #       r_op again.
-D102 25
+D102 23
 #
 # C104  A clock source driving something other than a clock port:
 #       clk_74a, which Analogue's own framework also uses as data.

@@ -13,10 +13,6 @@
  * register it lands in. Completion is a level that clears only at the
  * next slot request, so the settle fires on its edge.
  *
- * A host write to 0x10000000 dips the run gate for 255 clocks, which
- * reboots the machine against the ROM still staged in the SDRAM. That
- * address is SET_PHI2; no entry in interact.json writes it, so nothing
- * currently reaches this.
  */
 
 module pocket_bridge (
@@ -60,8 +56,6 @@ module pocket_bridge (
     output logic [31:0] pocket_bridge_mou_joy,
     output logic [15:0] pocket_bridge_mou_trig,
     /* The interact menu's persisted settings, as levels. */
-    output logic [31:0] pocket_bridge_set_phi2,
-    output logic [31:0] pocket_bridge_set_cp,
     output logic [31:0] pocket_bridge_set_tz,
     output logic [31:0] pocket_bridge_set_tz_min,
     output logic [31:0] pocket_bridge_set_tz_sign,
@@ -85,25 +79,13 @@ module pocket_bridge (
     logic slot_wr;
     always_comb slot_wr = bridge_wr && bridge_addr[31:28] == 4'h0;
 
-    /* The interact menu. The action is decoded on its whole address, not
-     * on the nibble: every variable in the menu writes somewhere in this
-     * range, and matching the range alone would reboot the machine each
-     * time a setting moved.
-     *
-     * The settings themselves cross as levels, because that is what they
+    /* The menu's settings cross as levels, because that is what they
      * are. The host replays a persisted value once at load and then only
      * when the user changes it, so a mailbox would have nothing to hold
      * and an edge could be missed; a level the machine reads whenever it
-     * likes cannot be. Two flops and an agreement, as the pad does. */
-    logic urst_t;
-    always_ff @(posedge clk_74a or negedge arst_n) begin
-        if (!arst_n)
-            urst_t <= 1'b0;
-        else if (bridge_wr && bridge_addr == 32'h1000_0000)
-            urst_t <= !urst_t;
-    end
-
-    /* The time zone arrives in three pieces because the menu cannot
+     * likes cannot be. Two flops and an agreement, as the pad does.
+     *
+     * The time zone arrives in three pieces because the menu cannot
      * offer it in one. A list holds at most sixteen options and the
      * offset spans twenty-seven whole hours, so the sign, the hours and
      * the quarter-hour are three separate menu entries and three
@@ -112,19 +94,13 @@ module pocket_bridge (
      * read-modify-write, and these registers are write-only because the
      * bridge answers reads elsewhere. The firmware puts the pieces back
      * together. */
-    logic [31:0] uphi2_74, ucp_74, utz_74, utzm_74, utzs_74;
+    logic [31:0] utz_74, utzm_74, utzs_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
-            uphi2_74 <= '0;
-            ucp_74   <= '0;
             utz_74   <= '0;
             utzm_74  <= '0;
             utzs_74  <= '0;
         end else if (bridge_wr) begin
-            if (bridge_addr == 32'h1000_0004)
-                uphi2_74 <= bridge_wr_data;
-            if (bridge_addr == 32'h1000_0008)
-                ucp_74 <= bridge_wr_data;
             if (bridge_addr == 32'h1000_000C)
                 utz_74 <= bridge_wr_data;
             if (bridge_addr == 32'h1000_0010)
@@ -223,8 +199,6 @@ module pocket_bridge (
     /* --- The machine's release and the posting, clk_sys side. --- */
     logic settle_t1, settle_t2, settle_t3;
     logic reset_n_s1, reset_n_s2;
-    logic urst_t1, urst_t2, urst_t3;
-    logic [7:0] urst_cnt;
     logic settled;
     logic run_q;
     logic [3:0] post;
@@ -235,10 +209,6 @@ module pocket_bridge (
             settle_t3 <= 1'b0;
             reset_n_s1 <= 1'b0;
             reset_n_s2 <= 1'b0;
-            urst_t1 <= 1'b0;
-            urst_t2 <= 1'b0;
-            urst_t3 <= 1'b0;
-            urst_cnt <= '0;
             settled <= 1'b0;
             run_q <= 1'b0;
             post <= '0;
@@ -250,13 +220,6 @@ module pocket_bridge (
             settle_t3 <= settle_t2;
             reset_n_s1 <= reset_n;
             reset_n_s2 <= reset_n_s1;
-            urst_t1 <= urst_t;
-            urst_t2 <= urst_t1;
-            urst_t3 <= urst_t2;
-            if (urst_t2 != urst_t3)
-                urst_cnt <= 8'hFF;
-            else if (urst_cnt != '0)
-                urst_cnt <= urst_cnt - 8'd1;
             run_q <= pocket_bridge_run;
             pocket_bridge_slot_set <= 1'b0;
             post <= {post[2:0], 1'b0};
@@ -273,8 +236,7 @@ module pocket_bridge (
                 pocket_bridge_slot_set <= 1'b1;
         end
     end
-    always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready
-        && urst_cnt == '0;
+    always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready;
 
     /* --- The controller, and the dock's keyboard. ---
      *
@@ -293,7 +255,7 @@ module pocket_bridge (
      * scan codes on the third slot the way APF sends them. */
     logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2, kk_s1, kk_s2, kj_s1, kj_s2;
     logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
-    logic [31:0] up_s1, up_s2, uc_s1, uc_s2, ut_s1, ut_s2;
+    logic [31:0] ut_s1, ut_s2;
     logic [31:0] um_s1, um_s2, us_s1, us_s2;
     logic [31:0] re_s1, re_s2;
     logic rv_s1, rv_s2;
@@ -306,15 +268,11 @@ module pocket_bridge (
             kk_s1 <= '0; kk_s2 <= '0;
             kj_s1 <= '0; kj_s2 <= '0;
             kt_s1 <= '0; kt_s2 <= '0;
-            up_s1 <= '0; up_s2 <= '0;
-            uc_s1 <= '0; uc_s2 <= '0;
             ut_s1 <= '0; ut_s2 <= '0;
             um_s1 <= '0; um_s2 <= '0;
             us_s1 <= '0; us_s2 <= '0;
             re_s1 <= '0; re_s2 <= '0;
             rv_s1 <= 1'b0; rv_s2 <= 1'b0;
-            pocket_bridge_set_phi2 <= '0;
-            pocket_bridge_set_cp <= '0;
             pocket_bridge_set_tz <= '0;
             pocket_bridge_set_tz_min <= '0;
             pocket_bridge_set_tz_sign <= '0;
@@ -348,15 +306,11 @@ module pocket_bridge (
             mk_s1 <= cont4_key;  mk_s2 <= mk_s1;
             mj_s1 <= cont4_joy;  mj_s2 <= mj_s1;
             mt_s1 <= cont4_trig; mt_s2 <= mt_s1;
-            up_s1 <= uphi2_74; up_s2 <= up_s1;
-            uc_s1 <= ucp_74;   uc_s2 <= uc_s1;
             ut_s1 <= utz_74;   ut_s2 <= ut_s1;
             um_s1 <= utzm_74;  um_s2 <= um_s1;
             us_s1 <= utzs_74;  us_s2 <= us_s1;
             re_s1 <= rtc_epoch; re_s2 <= re_s1;
             rv_s1 <= rtc_valid; rv_s2 <= rv_s1;
-            if (up_s1 == up_s2) pocket_bridge_set_phi2 <= up_s2;
-            if (uc_s1 == uc_s2) pocket_bridge_set_cp <= uc_s2;
             if (ut_s1 == ut_s2) pocket_bridge_set_tz <= ut_s2;
             if (um_s1 == um_s2) pocket_bridge_set_tz_min <= um_s2;
             if (us_s1 == us_s2) pocket_bridge_set_tz_sign <= us_s2;
