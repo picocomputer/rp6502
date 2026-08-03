@@ -34,11 +34,24 @@ set_false_path -to [get_registers {*pocket_fifo*|rptr_gray_w1[*]}]
 # The bridge's write payload rides beside its own gray pointer and is
 # only read once that pointer has crossed, so it is quasi-static by the
 # time the reader looks. Bound it rather than cut it: a word must not
-# take longer to cross than the pointer that announces it.
-set_max_delay -from [get_registers {*pocket_fifo*|mem*}] \
-    -to [get_registers {*pocket_fifo*}] 13.468
-set_min_delay -from [get_registers {*pocket_fifo*|mem*}] \
-    -to [get_registers {*pocket_fifo*}] 0
+# take longer to cross than the pointer that announces it. 13.468 ns is
+# one host clock.
+#
+# Name the memory the way the fitter does, not the way the source does.
+# The queue's mem is an inferred MLAB, so it is not a register and
+# get_registers cannot see it: the filter {*pocket_fifo*|mem*} matched
+# zero registers, zero keepers and zero cells, and every fit this project
+# has ever run printed "Ignored filter" for both lines. The bound was
+# never applied, which left the crossing to whatever the placer happened
+# to give it -- fine until something re-placed the design.
+#
+# Inference renames it altdpram|dpram|lutramN, whose output keeper is
+# ~MEMORYREGOUT, and the read data leaves the queue combinationally, so
+# the capture register is in the reader and not in {*pocket_fifo*}. Both
+# halves of the old filter were wrong. Constrain from the memory outputs
+# to wherever they land.
+set_max_delay -from [get_keepers {*pocket_fifo*|*MEMORYREGOUT}] 13.468
+set_min_delay -from [get_keepers {*pocket_fifo*|*MEMORYREGOUT}] 0
 
 # The rest of the crossings between the host's clock and the machine's.
 # Every one is a two-flop synchronizer or a value held still behind one,

@@ -105,8 +105,51 @@ module pocket_core #(
 );
 
     logic run;
-    logic mrst_n;
-    always_comb mrst_n = rst_n && run;
+
+    /* The machine's reset, asserted asynchronously and released
+     * synchronously, once for every clock it lands in.
+     *
+     * rst_n and run are levels the platform moves on its own clock, so
+     * the gate of them is combinational and can glitch. Worse is the
+     * release: this signal is the asynchronous reset of seven thousand
+     * nine hundred flops reached through a global network, and an
+     * unsynchronised release arrives at each of them at whatever moment
+     * the routing gives it. Blocks then leave reset in an order the
+     * fitter chose rather than one the design chose — a different order
+     * every fit, so a machine that starts wrong in a way no timing
+     * report can show and no zero-delay simulation can reproduce. The
+     * Design Assistant's rule R101 names it; nothing else in the flow
+     * looks.
+     *
+     * Three domains take it: clk_sys and clk_rv inside the machine, and
+     * clk_vid through the video block's own reset port. A release
+     * synchronised to one clock is still a race in the others, so each
+     * gets its own pair. The first stage is named _s1 so pocket.sdc's
+     * standing rule cuts the asynchronous arrival at it. */
+    logic mrst_raw_n;
+    always_comb mrst_raw_n = rst_n && run;
+
+    logic mrst_sys_s1, mrst_sys_n;
+    always_ff @(posedge clk_sys or negedge mrst_raw_n) begin
+        if (!mrst_raw_n) begin
+            mrst_sys_s1 <= 1'b0;
+            mrst_sys_n <= 1'b0;
+        end else begin
+            mrst_sys_s1 <= 1'b1;
+            mrst_sys_n <= mrst_sys_s1;
+        end
+    end
+
+    logic mrst_vid_s1, mrst_vid_n;
+    always_ff @(posedge clk_vid or negedge mrst_raw_n) begin
+        if (!mrst_raw_n) begin
+            mrst_vid_s1 <= 1'b0;
+            mrst_vid_n <= 1'b0;
+        end else begin
+            mrst_vid_s1 <= 1'b1;
+            mrst_vid_n <= mrst_vid_s1;
+        end
+    end
 
     logic slot_set;
     /* The Pocket sends no key events; its keyboard arrives as a report
@@ -269,7 +312,7 @@ module pocket_core #(
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE)) machine (
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
-        .rst_n(mrst_n),
+        .rst_n(mrst_sys_n),
         .rp6502_tx_data(pocket_core_tx_data),
         .rp6502_tx_valid(pocket_core_tx_valid),
         .rx_valid(1'b0),
@@ -352,13 +395,13 @@ module pocket_core #(
 
     pocket_video video (
         .clk_sys(clk_sys),
-        .rst_n(mrst_n),
+        .rst_n(mrst_sys_n),
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),
         .vid_frame(vid_frame),
         .vid_canvas(vid_canvas),
         .clk_vid(clk_vid),
-        .vrst_n(mrst_n),
+        .vrst_n(mrst_vid_n),
         .pocket_video_rgb(pocket_core_rgb),
         .pocket_video_de(pocket_core_de),
         .pocket_video_skip(pocket_core_skip),

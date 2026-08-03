@@ -212,9 +212,42 @@ module rp6502
      * would fall between the soft CPU's edges: held for two, which
      * always spans one, and both carry a value the far side is holding
      * anyway, so arriving twice costs nothing. */
-    logic bus_stb_raw, bus_stb_q;
-    logic rv_tx_valid_raw, rv_tx_valid_q;
+    logic bus_stb_raw, bus_stb_n, bus_stb_q;
+    logic rv_tx_valid_raw, rv_tx_valid_n, rv_tx_valid_q;
     logic slot_set_q, key_set_q;
+
+    /* These two narrowings ask a question about a signal from the other
+     * clock, and the two clocks rise together, so asking it on the
+     * rising edge asks it at the moment the answer is changing.
+     *
+     * bus_stb_raw is worse than a clock crossing: rv_soc builds it
+     * combinationally out of its own bus_pend and the machine's
+     * bus_rdy, so it is a term from both clocks with a glitch of its
+     * own. It was compared live against its clk_sys copy, and the
+     * failure that arrangement has is silent. Let the copy catch the
+     * new value one edge early and the comparison reads 1 && !1: the
+     * pulse never fires, and by the next edge both terms are high so it
+     * never fires again. The whole bus access disappears with nothing
+     * to show for it — a dropped byte at $FFE1, an API call at $FFF0
+     * that never lands, an xreg write the video never sees. Which
+     * accesses go depends on the skew between two global networks, so
+     * it is a different set every fit and none of it in simulation.
+     *
+     * Take them on the falling edge instead. The launch is at the
+     * rising edge the two clocks share, so half a period later the
+     * value has been still for 9.9 ns rather than for nothing, and the
+     * comparison is between two registers on this clock. The access is
+     * still captured on the same rising edge it always was: the pulse
+     * spans the half period from here to there. */
+    always_ff @(negedge clk_sys or negedge rst_n) begin
+        if (!rst_n) begin
+            bus_stb_n <= 1'b0;
+            rv_tx_valid_n <= 1'b0;
+        end else begin
+            bus_stb_n <= bus_stb_raw;
+            rv_tx_valid_n <= rv_tx_valid_raw;
+        end
+    end
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
             bus_stb_q <= 1'b0;
@@ -222,16 +255,16 @@ module rp6502
             slot_set_q <= 1'b0;
             key_set_q <= 1'b0;
         end else begin
-            bus_stb_q <= bus_stb_raw;
-            rv_tx_valid_q <= rv_tx_valid_raw;
+            bus_stb_q <= bus_stb_n;
+            rv_tx_valid_q <= rv_tx_valid_n;
             slot_set_q <= slot_set;
             key_set_q <= key_set;
         end
     end
-    always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
+    always_comb rp6502_rv_tx_valid = rv_tx_valid_n && !rv_tx_valid_q;
 
     logic bus_stb, bus_we, bus_pend;
-    always_comb bus_stb = bus_stb_raw && !bus_stb_q;
+    always_comb bus_stb = bus_stb_n && !bus_stb_q;
     logic [31:0] bus_addr, bus_wdata;
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
