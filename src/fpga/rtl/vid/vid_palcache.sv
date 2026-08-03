@@ -35,7 +35,6 @@ module vid_palcache
     import vid_palette_pkg::*;
 (
     input logic clk,
-    input logic rst_n,
 
     /* idx_b rides beside idx_a for mode 1's foreground/background pair.
      * With xram clear the builtins answer and there is nothing to
@@ -122,51 +121,50 @@ module vid_palcache
         vid_palcache_addr = pend_wa;
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        for (int s = 0; s < 8; s++) begin
+            valid[s][0] = 1'b0;
+            valid[s][1] = 1'b0;
+            lru[s] = 1'b0;
+        end
+        pending = 1'b0;
+        pend_wa = '0;
+        filling = 1'b0;
+        fill_wa = '0;
+    end
+    always_ff @(posedge clk) begin
+        if (miss_now) begin
+            pending <= 1'b1;
+            pend_wa <= !hit_a ? wa_a : wa_b;
+        end
+        if (pending && fill_gnt) begin
+            pending <= 1'b0;
+            filling <= 1'b1;
+            fill_wa <= pend_wa;
+        end
+        if (filling && fill_rdy) begin
+            filling <= 1'b0;
+            line[fill_wa[2:0]][lru[fill_wa[2:0]]] <= a_rdata;
+            tag[fill_wa[2:0]][lru[fill_wa[2:0]]] <= fill_wa[13:3];
+            valid[fill_wa[2:0]][lru[fill_wa[2:0]]] <= 1'b1;
+            lru[fill_wa[2:0]] <= !lru[fill_wa[2:0]];
+        end
+
+        /* Touch on hit so the resident way survives. */
+        if (lookup && xram && hit_a)
+            lru[set_a] <= hit_a0;
+        if (lookup && xram && need_b && hit_b)
+            lru[set_b] <= hit_b0;
+
+        /* The flush outranks a landing fill: a word granted before
+         * the boundary must not resurrect after it. */
+        if (flush) begin
             for (int s = 0; s < 8; s++) begin
                 valid[s][0] <= 1'b0;
                 valid[s][1] <= 1'b0;
-                lru[s] <= 1'b0;
             end
             pending <= 1'b0;
-            pend_wa <= '0;
             filling <= 1'b0;
-            fill_wa <= '0;
-        end else begin
-            if (miss_now) begin
-                pending <= 1'b1;
-                pend_wa <= !hit_a ? wa_a : wa_b;
-            end
-            if (pending && fill_gnt) begin
-                pending <= 1'b0;
-                filling <= 1'b1;
-                fill_wa <= pend_wa;
-            end
-            if (filling && fill_rdy) begin
-                filling <= 1'b0;
-                line[fill_wa[2:0]][lru[fill_wa[2:0]]] <= a_rdata;
-                tag[fill_wa[2:0]][lru[fill_wa[2:0]]] <= fill_wa[13:3];
-                valid[fill_wa[2:0]][lru[fill_wa[2:0]]] <= 1'b1;
-                lru[fill_wa[2:0]] <= !lru[fill_wa[2:0]];
-            end
-
-            /* Touch on hit so the resident way survives. */
-            if (lookup && xram && hit_a)
-                lru[set_a] <= hit_a0;
-            if (lookup && xram && need_b && hit_b)
-                lru[set_b] <= hit_b0;
-
-            /* The flush outranks a landing fill: a word granted before
-             * the boundary must not resurrect after it. */
-            if (flush) begin
-                for (int s = 0; s < 8; s++) begin
-                    valid[s][0] <= 1'b0;
-                    valid[s][1] <= 1'b0;
-                end
-                pending <= 1'b0;
-                filling <= 1'b0;
-            end
         end
     end
 

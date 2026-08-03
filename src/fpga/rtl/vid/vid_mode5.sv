@@ -18,7 +18,6 @@ module vid_mode5
     import vid_palette_pkg::*;
 (
     input logic clk,
-    input logic rst_n,
 
     input logic start,
     input logic abort_i,
@@ -206,118 +205,117 @@ module vid_mode5
         end
     endtask
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        state = M5_IDLE;
+        idx = '0;
+        gather = '0;
+        lane = '0;
+        fw_i = '0;
+        fw_c = '0;
+        fw_n = '0;
+        gnt_d = 1'b0;
+        tex_x = '0;
+        size_x = '0;
+        pal_xram = 1'b0;
+        row_addr = '0;
+        dcache = '0;
+        dcache_word = '0;
+        dcache_v = 1'b0;
+        px_i = '0;
+        dst = '0;
+        bpp_log = '0;
+        size = '0;
+        bytes_per_row = '0;
+        data_size = '0;
+        vid_mode5_done = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        gnt_d <= a_gnt;
+        vid_mode5_done <= 1'b0;
+        if (abort_i) begin
+            /* A lost race: the scaffold counted it; drop the line. */
             state <= M5_IDLE;
+        end else if (start) begin
             idx <= '0;
-            gather <= '0;
-            lane <= '0;
-            fw_i <= '0;
-            fw_c <= '0;
-            fw_n <= '0;
-            gnt_d <= 1'b0;
-            tex_x <= '0;
-            size_x <= '0;
-            pal_xram <= 1'b0;
-            row_addr <= '0;
-            dcache <= '0;
-            dcache_word <= '0;
             dcache_v <= 1'b0;
-            px_i <= '0;
-            dst <= '0;
-            bpp_log <= '0;
-            size <= '0;
-            bytes_per_row <= '0;
-            data_size <= '0;
-            vid_mode5_done <= 1'b0;
-        end else begin
-            gnt_d <= a_gnt;
-            vid_mode5_done <= 1'b0;
-            if (abort_i) begin
-                /* A lost race: the scaffold counted it; drop the line. */
+            bpp_log <= attr[1:0];
+            size <= size_w;
+            bytes_per_row <= bytes_per_row_w;
+            data_size <= 17'(17'({7'd0, size_w})
+                             * 17'({7'd0, bytes_per_row_w}));
+            if (length == 16'd0) begin
+                vid_mode5_done <= 1'b1;
                 state <= M5_IDLE;
-            end else if (start) begin
-                idx <= '0;
-                dcache_v <= 1'b0;
-                bpp_log <= attr[1:0];
-                size <= size_w;
-                bytes_per_row <= bytes_per_row_w;
-                data_size <= 17'(17'({7'd0, size_w})
-                                 * 17'({7'd0, bytes_per_row_w}));
-                if (length == 16'd0) begin
-                    vid_mode5_done <= 1'b1;
-                    state <= M5_IDLE;
-                end else
-                    state <= M5_NEXT;
-            end else begin
-                case (state)
-                    M5_IDLE: ;
-                    M5_NEXT: begin
-                        /* Aim the gather at descriptor idx. */
-                        lane <= daddr_lane;
-                        fw_i <= '0;
-                        fw_c <= '0;
-                        fw_n <= 3'((5'({3'd0, daddr_lane}) + 5'd8 + 5'd3)
-                                   >> 2);
-                        gather <= '0;
-                        state <= M5_DESC;
+            end else
+                state <= M5_NEXT;
+        end else begin
+            case (state)
+                M5_IDLE: ;
+                M5_NEXT: begin
+                    /* Aim the gather at descriptor idx. */
+                    lane <= daddr_lane;
+                    fw_i <= '0;
+                    fw_c <= '0;
+                    fw_n <= 3'((5'({3'd0, daddr_lane}) + 5'd8 + 5'd3)
+                               >> 2);
+                    gather <= '0;
+                    state <= M5_DESC;
+                end
+                M5_DESC: begin
+                    if (a_gnt)
+                        fw_i <= fw_i + 3'd1;
+                    if (gnt_d) begin
+                        case (fw_c)
+                            3'd0: gather[31:0] <= a_rdata;
+                            3'd1: gather[63:32] <= a_rdata;
+                            3'd2: gather[95:64] <= a_rdata;
+                            default: ;
+                        endcase
+                        fw_c <= fw_c + 3'd1;
+                        if (fw_c + 3'd1 == fw_n)
+                            state <= M5_JUDGE;
                     end
-                    M5_DESC: begin
-                        if (a_gnt)
-                            fw_i <= fw_i + 3'd1;
-                        if (gnt_d) begin
-                            case (fw_c)
-                                3'd0: gather[31:0] <= a_rdata;
-                                3'd1: gather[63:32] <= a_rdata;
-                                3'd2: gather[95:64] <= a_rdata;
-                                default: ;
-                            endcase
-                            fw_c <= fw_c + 3'd1;
-                            if (fw_c + 3'd1 == fw_n)
-                                state <= M5_JUDGE;
+                end
+                M5_JUDGE: begin
+                    /* The oracle's skip ladder, one clock. */
+                    tex_x <= d_x < 0 ? -d_x : 16'sd0;
+                    size_x <= clip_size_x;
+                    pal_xram <= !d_pptr[0]
+                        && {1'b0, d_pptr}
+                            <= 17'h10000
+                                - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                    row_addr <= {1'b0, d_sptr}
+                        + 17'(17'({8'd0, tex_y[8:0]})
+                              * 17'({7'd0, bytes_per_row}));
+                    px_i <= d_x < 0 ? -d_x : 16'sd0;
+                    dst <= d_x < 0 ? 10'd0 : d_x[9:0];
+                    fw_i <= '0;
+                    if (tex_y >= {6'd0, size}
+                        || clip_size_x < 16'sd1
+                        || {1'b0, d_sptr} > 17'h10000 - data_size)
+                        next_sprite();
+                    else
+                        state <= M5_PIX;
+                end
+                M5_PIX: begin
+                    if (!dhit) begin
+                        /* The index word misses; refetch. */
+                        if (a_gnt) begin
+                            fw_i <= 3'd1;
+                            dcache_word <= pix_byte_addr[15:2];
+                            dcache_v <= 1'b0;
                         end
-                    end
-                    M5_JUDGE: begin
-                        /* The oracle's skip ladder, one clock. */
-                        tex_x <= d_x < 0 ? -d_x : 16'sd0;
-                        size_x <= clip_size_x;
-                        pal_xram <= !d_pptr[0]
-                            && {1'b0, d_pptr}
-                                <= 17'h10000
-                                    - (17'd2 << {12'd0, 5'd1 << bpp_log});
-                        row_addr <= {1'b0, d_sptr}
-                            + 17'(17'({8'd0, tex_y[8:0]})
-                                  * 17'({7'd0, bytes_per_row}));
-                        px_i <= d_x < 0 ? -d_x : 16'sd0;
-                        dst <= d_x < 0 ? 10'd0 : d_x[9:0];
-                        fw_i <= '0;
-                        if (tex_y >= {6'd0, size}
-                            || clip_size_x < 16'sd1
-                            || {1'b0, d_sptr} > 17'h10000 - data_size)
-                            next_sprite();
-                        else
-                            state <= M5_PIX;
-                    end
-                    M5_PIX: begin
-                        if (!dhit) begin
-                            /* The index word misses; refetch. */
-                            if (a_gnt) begin
-                                fw_i <= 3'd1;
-                                dcache_word <= pix_byte_addr[15:2];
-                                dcache_v <= 1'b0;
-                            end
-                            if (gnt_d) begin
-                                dcache <= a_rdata;
-                                dcache_v <= 1'b1;
-                                fw_i <= '0;
-                            end
-                        end else if (pal_hit)
-                            step_pixel();
-                        /* else: the cache is filling on this channel. */
-                    end
-                    default: state <= M5_IDLE;
-                endcase
-            end
+                        if (gnt_d) begin
+                            dcache <= a_rdata;
+                            dcache_v <= 1'b1;
+                            fw_i <= '0;
+                        end
+                    end else if (pal_hit)
+                        step_pixel();
+                    /* else: the cache is filling on this channel. */
+                end
+                default: state <= M5_IDLE;
+            endcase
         end
     end
 

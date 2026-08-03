@@ -36,10 +36,19 @@ static void run_scenario(int *utest_result, int wperiod, int rperiod,
     uint32_t next_val = seed;
     long pushed = 0, popped = 0;
 
-    dut->wrst_n = 0;
-    dut->rrst_n = 0;
+    /* No reset on either side: both pointers power up at zero together,
+     * which is the only relationship this FIFO ever needs. */
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vpocket_fifo;
     dut->w_stb = 0;
     dut->r_take = 0;
+    dut->wclk = 0;
+    dut->rclk = 0;
+    dut->eval();
     for (int i = 0; i < 4; i++)
     {
         dut->wclk = 1;
@@ -49,8 +58,6 @@ static void run_scenario(int *utest_result, int wperiod, int rperiod,
         dut->rclk = 0;
         dut->eval();
     }
-    dut->wrst_n = 1;
-    dut->rrst_n = 1;
 
     long wnext = wperiod, rnext = rperiod;
     for (long t = 0; pushed < 4000 || !ref.empty(); t++)

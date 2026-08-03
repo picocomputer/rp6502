@@ -130,17 +130,6 @@ module pocket_core #(
         end
     end
 
-    logic mrst_vid_s1, mrst_vid_n;
-    always_ff @(posedge clk_vid or negedge mrst_raw_n) begin
-        if (!mrst_raw_n) begin
-            mrst_vid_s1 <= 1'b0;
-            mrst_vid_n <= 1'b0;
-        end else begin
-            mrst_vid_s1 <= 1'b1;
-            mrst_vid_n <= mrst_vid_s1;
-        end
-    end
-
     logic slot_set;
     /* The Pocket sends no key events; its keyboard arrives as a report
      * and its pad as state. The machine's event mailbox stays for the
@@ -385,13 +374,11 @@ module pocket_core #(
 
     pocket_video video (
         .clk_sys(clk_sys),
-        .rst_n(mrst_sys_n),
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),
         .vid_frame(vid_frame),
         .vid_canvas(vid_canvas),
         .clk_vid(clk_vid),
-        .vrst_n(mrst_vid_n),
         .pocket_video_rgb(pocket_core_rgb),
         .pocket_video_de(pocket_core_de),
         .pocket_video_skip(pocket_core_skip),
@@ -404,7 +391,6 @@ module pocket_core #(
      * repeats the last sample, flat, until the reboot resumes. */
     pocket_i2s i2s (
         .clk_sys(clk_sys),
-        .rst_n(rst_n),
         .aud_l(aud_l),
         .aud_r(aud_r),
         .aud_valid(aud_valid),

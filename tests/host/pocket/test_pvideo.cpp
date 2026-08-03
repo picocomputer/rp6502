@@ -37,8 +37,15 @@ static uint32_t rgb888(uint16_t p)
 
 UTEST(pvideo, raster_and_pixels_exact)
 {
-    dut->rst_n = 0;
-    dut->vrst_n = 0;
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vpocket_video;
+    dut->clk_sys = 0;
+    dut->clk_vid = 0;
+    dut->eval();
     for (int i = 0; i < 4; i++)
     {
         dut->clk_sys = 1;
@@ -48,8 +55,6 @@ UTEST(pvideo, raster_and_pixels_exact)
         dut->clk_vid = 0;
         dut->eval();
     }
-    dut->rst_n = 1;
-    dut->vrst_n = 1;
     dut->vid_canvas = 0; /* console: full 640x480 */
 
     long got_px = 0, want_px = 0;
@@ -151,8 +156,15 @@ UTEST(pvideo, raster_and_pixels_exact)
  * breaks the totals before any color is compared. */
 UTEST(pvideo, canvas_native_de_skip_and_slot)
 {
-    dut->rst_n = 0;
-    dut->vrst_n = 0;
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vpocket_video;
+    dut->clk_sys = 0;
+    dut->clk_vid = 0;
+    dut->eval();
     for (int i = 0; i < 4; i++)
     {
         dut->clk_sys = 1;
@@ -162,8 +174,6 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         dut->clk_vid = 0;
         dut->eval();
     }
-    dut->rst_n = 1;
-    dut->vrst_n = 1;
     dut->vid_canvas = 2; /* vga_320_180 */
 
     long latched = 0, endlines = 0;

@@ -110,7 +110,6 @@ module vid_sprite (
     /* verilator lint_off PINCONNECTEMPTY */
     vid_palcache vid_palcache (
         .clk(clk),
-        .rst_n(rst_n),
         .lookup(pal_lookup),
         .xram(pal_xram),
         .one_bpp(pal_one_bpp),
@@ -132,7 +131,6 @@ module vid_sprite (
 
     vid_mode5 vid_mode5 (
         .clk(clk),
-        .rst_n(rst_n),
         .start(m5_start),
         .abort_i(line_start),
         .attr(slot_entry[p][15:0]),
@@ -165,7 +163,6 @@ module vid_sprite (
     logic m4_done;
     vid_mode4 vid_mode4 (
         .clk(clk),
-        .rst_n(rst_n),
         .start(m4_start),
         .abort_i(line_start),
         .attr(slot_entry[p][15:0]),
@@ -233,128 +230,127 @@ module vid_sprite (
         end
     endtask
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            state <= SP_IDLE;
-            t <= '0;
-            slot_entry[0] <= '0;
-            slot_entry[1] <= '0;
-            slot_entry[2] <= '0;
-            slot_cfg[0] <= '0;
-            slot_cfg[1] <= '0;
-            slot_cfg[2] <= '0;
-            s_n <= '0;
-            s_cap <= '0;
-            s_cap_v <= 1'b0;
-            p <= '0;
-            fg_v <= 1'b0;
-            fg <= '0;
-            clr <= '0;
-            m4_start <= 1'b0;
-            m5_start <= 1'b0;
-            run4 <= 1'b0;
-            vid_sprite_force <= 1'b0;
+    initial begin
+        state = SP_IDLE;
+        t = '0;
+        slot_entry[0] = '0;
+        slot_entry[1] = '0;
+        slot_entry[2] = '0;
+        slot_cfg[0] = '0;
+        slot_cfg[1] = '0;
+        slot_cfg[2] = '0;
+        s_n = '0;
+        s_cap = '0;
+        s_cap_v = 1'b0;
+        p = '0;
+        fg_v = 1'b0;
+        fg = '0;
+        clr = '0;
+        m4_start = 1'b0;
+        m5_start = 1'b0;
+        run4 = 1'b0;
+        vid_sprite_force = 1'b0;
+        vid_sprite_overrun = '0;
+    end
+    always_ff @(posedge clk) begin
+        m4_start <= 1'b0;
+        m5_start <= 1'b0;
+        vid_sprite_force <= 1'b0;
+        if (ov_clear)
             vid_sprite_overrun <= '0;
+        if (h == 10'd799 && state != SP_IDLE) begin
+            /* The lost race: count it once and drop the line; the
+             * engines die at the next line_start. */
+            vid_sprite_overrun <= (ov_clear ? 16'd0
+                                            : vid_sprite_overrun)
+                + 16'd1;
+            state <= SP_IDLE;
+        end else if (line_start) begin
+            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
+            s_n <= '0;
+            s_cap_v <= 1'b0;
+            state <= SP_SLOT;
         end else begin
-            m4_start <= 1'b0;
-            m5_start <= 1'b0;
-            vid_sprite_force <= 1'b0;
-            if (ov_clear)
-                vid_sprite_overrun <= '0;
-            if (h == 10'd799 && state != SP_IDLE) begin
-                /* The lost race: count it once and drop the line; the
-                 * engines die at the next line_start. */
-                vid_sprite_overrun <= (ov_clear ? 16'd0
-                                                : vid_sprite_overrun)
-                    + 16'd1;
-                state <= SP_IDLE;
-            end else if (line_start) begin
-                t <= v == 10'd524 ? 10'd0 : v + 10'd1;
-                s_n <= '0;
-                s_cap_v <= 1'b0;
-                state <= SP_SLOT;
-            end else begin
-                case (state)
-                    SP_IDLE: ;
-                    SP_SLOT: begin
-                        if (!render_now)
-                            state <= SP_IDLE;
-                        else begin
-                            if (s_n < 3'd6)
-                                s_n <= s_n + 3'd1;
-                            s_cap <= s_n;
-                            s_cap_v <= s_n < 3'd6;
-                            if (s_cap_v) begin
-                                if (s_cap[0])
-                                    slot_cfg[s_cap[2:1]] <= s_data;
-                                else
-                                    slot_entry[s_cap[2:1]] <= s_data;
-                                if (s_cap == 3'd5) begin
-                                    p <= '0;
-                                    fg_v <= 1'b0;
-                                    state <= busy[0] ? SP_WAIT : SP_PLAN;
-                                end
+            case (state)
+                SP_IDLE: ;
+                SP_SLOT: begin
+                    if (!render_now)
+                        state <= SP_IDLE;
+                    else begin
+                        if (s_n < 3'd6)
+                            s_n <= s_n + 3'd1;
+                        s_cap <= s_n;
+                        s_cap_v <= s_n < 3'd6;
+                        if (s_cap_v) begin
+                            if (s_cap[0])
+                                slot_cfg[s_cap[2:1]] <= s_data;
+                            else
+                                slot_entry[s_cap[2:1]] <= s_data;
+                            if (s_cap == 3'd5) begin
+                                p <= '0;
+                                fg_v <= 1'b0;
+                                state <= busy[0] ? SP_WAIT : SP_PLAN;
                             end
                         end
                     end
-                    SP_WAIT: begin
-                        /* This plane's fill, not everyone's. The three
-                         * line buffers are separate and the merge is
-                         * vid_compose's job at scanout, so a plane's
-                         * sprites need only the plane they land in —
-                         * plane 1's fill covering plane 0's sprite
-                         * happens later, by alpha, not by ordering
-                         * here. Waiting for all three made the sprite
-                         * stage idle through the slowest fill.
-                         *
-                         * Narrow is safe even for a plane with sprites
-                         * and no fill of its own: those composite onto
-                         * fg, and fg is only ever set from an earlier
-                         * step of an ascending walk, so that plane has
-                         * already been waited for. */
-                        if (!busy[p])
-                            state <= SP_PLAN;
+                end
+                SP_WAIT: begin
+                    /* This plane's fill, not everyone's. The three
+                     * line buffers are separate and the merge is
+                     * vid_compose's job at scanout, so a plane's
+                     * sprites need only the plane they land in —
+                     * plane 1's fill covering plane 0's sprite
+                     * happens later, by alpha, not by ordering
+                     * here. Waiting for all three made the sprite
+                     * stage idle through the slowest fill.
+                     *
+                     * Narrow is safe even for a plane with sprites
+                     * and no fill of its own: those composite onto
+                     * fg, and fg is only ever set from an earlier
+                     * step of an ascending walk, so that plane has
+                     * already been waited for. */
+                    if (!busy[p])
+                        state <= SP_PLAN;
+                end
+                SP_PLAN: begin
+                    if (rnew[p] && rfilled[p]) begin
+                        fg_v <= 1'b1;
+                        fg <= p;
                     end
-                    SP_PLAN: begin
-                        if (rnew[p] && rfilled[p]) begin
-                            fg_v <= 1'b1;
-                            fg <= p;
-                        end
-                        if (!sp_en)
-                            next_plane();
-                        else if (!(rnew[p] && rfilled[p]) && !fg_v) begin
-                            clr <= '0;
-                            state <= SP_CLEAR;
-                        end else begin
-                            run4 <= sp_is4;
-                            if (sp_is4)
-                                m4_start <= 1'b1;
-                            else
-                                m5_start <= 1'b1;
-                            state <= SP_RUN;
-                        end
+                    if (!sp_en)
+                        next_plane();
+                    else if (!(rnew[p] && rfilled[p]) && !fg_v) begin
+                        clr <= '0;
+                        state <= SP_CLEAR;
+                    end else begin
+                        run4 <= sp_is4;
+                        if (sp_is4)
+                            m4_start <= 1'b1;
+                        else
+                            m5_start <= 1'b1;
+                        state <= SP_RUN;
                     end
-                    SP_CLEAR: begin
-                        clr <= clr + 10'd1;
-                        if (clr == cw - 10'd1) begin
-                            vid_sprite_force <= 1'b1;
-                            fg_v <= 1'b1;
-                            fg <= p;
-                            run4 <= sp_is4;
-                            if (sp_is4)
-                                m4_start <= 1'b1;
-                            else
-                                m5_start <= 1'b1;
-                            state <= SP_RUN;
-                        end
+                end
+                SP_CLEAR: begin
+                    clr <= clr + 10'd1;
+                    if (clr == cw - 10'd1) begin
+                        vid_sprite_force <= 1'b1;
+                        fg_v <= 1'b1;
+                        fg <= p;
+                        run4 <= sp_is4;
+                        if (sp_is4)
+                            m4_start <= 1'b1;
+                        else
+                            m5_start <= 1'b1;
+                        state <= SP_RUN;
                     end
-                    SP_RUN: begin
-                        if (run4 ? m4_done : m5_done)
-                            next_plane();
-                    end
-                    default: state <= SP_IDLE;
-                endcase
-            end
+                end
+                SP_RUN: begin
+                    if (run4 ? m4_done : m5_done)
+                        next_plane();
+                end
+                default: state <= SP_IDLE;
+            endcase
         end
     end
 

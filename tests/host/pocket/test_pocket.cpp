@@ -304,6 +304,15 @@ static void power_on(int *utest_result)
 {
     a_next = 224;
     s_next = 330;
+    /* Genuinely powered on, not merely reset: the beam and the video
+     * path take no reset now, so a pulse leaves them mid-frame while
+     * everything else restarts. */
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vtb_pocket;
     ASSERT_TRUE(load_firmware(SW_BIN));
     dut->rst_n = 0;
     dut->arst_n = 0;

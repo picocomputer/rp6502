@@ -19,7 +19,6 @@
 module pocket_i2s (
     /* The machine's domain. */
     input logic clk_sys,
-    input logic rst_n,
     input logic signed [15:0] aud_l,
     input logic signed [15:0] aud_r,
     input logic aud_valid,
@@ -51,12 +50,10 @@ module pocket_i2s (
         .DEPTH_LOG2(2)
     ) fifo (
         .wclk(clk_sys),
-        .wrst_n(rst_n),
         .w_stb(aud_valid && !fifo_full),
         .w_data({s_r, s_l}),
         .pocket_fifo_full(fifo_full),
         .rclk(clk_74a),
-        .rrst_n(arst_n),
         .r_take(take),
         .pocket_fifo_empty(fifo_empty),
         .pocket_fifo_rdata(fifo_word)

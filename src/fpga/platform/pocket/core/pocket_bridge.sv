@@ -169,12 +169,10 @@ module pocket_bridge (
         .DEPTH_LOG2(3)
     ) wfifo (
         .wclk(clk_74a),
-        .wrst_n(arst_n),
         .w_stb(wf_stb && !wf_full),
         .w_data(wf_wdata),
         .pocket_fifo_full(wf_full),
         .rclk(clk_sys),
-        .rrst_n(rst_n),
         .r_take(w_take),
         .pocket_fifo_empty(wf_empty),
         .pocket_fifo_rdata({pocket_bridge_w_addr, pocket_bridge_w_data})

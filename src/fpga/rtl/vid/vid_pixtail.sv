@@ -22,7 +22,6 @@ module vid_pixtail
     import vid_palette_pkg::*;
 (
     input logic clk,
-    input logic rst_n,
 
     input logic start,
     input logic abort_i,
@@ -213,219 +212,218 @@ module vid_pixtail
         endcase
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        state = T_IDLE;
+        pal_n = '0;
+        pal_w = '0;
+        cur_v = 1'b0;
+        deck_v = 1'b0;
+        cur = '0;
+        deck = '0;
+        fifo_v = '0;
+        inflight = '0;
+        fetch_word = '0;
+        fetch_px_left = '0;
+        fetch_seg1 = 1'b0;
+        fetch_bit0_next = '0;
+        cur_fetched = 1'b0;
+        deck_fetched = 1'b0;
+        gnt_q = 1'b0;
+        bit_in_word = '0;
+        imm_bit = '0;
+        px = '0;
+        cur_left = '0;
+        vid_pixtail_done = 1'b0;
+        for (int i = 0; i < 2; i++) begin
+            fifo[i] = '0;
+            fifo_bit0[i] = '0;
+            fifo_seg1[i] = 1'b0;
+            inflight_seg1[i] = 1'b0;
+            inflight_bit0[i] = '0;
+        end
+    end
+    always_ff @(posedge clk) begin
+        gnt_q <= a_gnt;
+        vid_pixtail_done <= 1'b0;
+        if (abort_i) begin
+`ifdef VERILATOR
+            if (state != T_IDLE)
+                $fatal(1, "vid_pixtail underrun");
+`endif
             state <= T_IDLE;
+        end else if (start) begin
             pal_n <= '0;
             pal_w <= '0;
             cur_v <= 1'b0;
             deck_v <= 1'b0;
-            cur <= '0;
-            deck <= '0;
-            fifo_v <= '0;
-            inflight <= '0;
-            fetch_word <= '0;
-            fetch_px_left <= '0;
-            fetch_seg1 <= 1'b0;
-            fetch_bit0_next <= '0;
             cur_fetched <= 1'b0;
             deck_fetched <= 1'b0;
-            gnt_q <= 1'b0;
-            bit_in_word <= '0;
-            imm_bit <= '0;
+            fifo_v <= '0;
+            inflight <= '0;
+            fetch_px_left <= '0;
             px <= '0;
-            cur_left <= '0;
-            vid_pixtail_done <= 1'b0;
-            for (int i = 0; i < 2; i++) begin
-                fifo[i] <= '0;
-                fifo_bit0[i] <= '0;
-                fifo_seg1[i] <= 1'b0;
-                inflight_seg1[i] <= 1'b0;
-                inflight_bit0[i] <= '0;
-            end
+            state <= T_PAL;
         end else begin
-            gnt_q <= a_gnt;
-            vid_pixtail_done <= 1'b0;
-            if (abort_i) begin
-`ifdef VERILATOR
-                if (state != T_IDLE)
-                    $fatal(1, "vid_pixtail underrun");
-`endif
-                state <= T_IDLE;
-            end else if (start) begin
-                pal_n <= '0;
-                pal_w <= '0;
-                cur_v <= 1'b0;
-                deck_v <= 1'b0;
-                cur_fetched <= 1'b0;
-                deck_fetched <= 1'b0;
-                fifo_v <= '0;
-                inflight <= '0;
-                fetch_px_left <= '0;
-                px <= '0;
-                state <= T_PAL;
-            end else begin
-                case (state)
-                    T_IDLE: ;
-                    T_PAL: begin
-                        if (pal_skip) begin
-                            state <= T_RUN;
-                        end else begin
-                            if (a_gnt)
-                                pal_n <= pal_n + 9'd1;
-                            if (gnt_q) begin
-                                pal_w <= pal_w + 8'd1;
-                                if ({1'b0, pal_w} == pal_fetch - 9'd1) begin
-                                    pal_w <= '0;
-                                    state <= T_RUN;
-                                end
+            case (state)
+                T_IDLE: ;
+                T_PAL: begin
+                    if (pal_skip) begin
+                        state <= T_RUN;
+                    end else begin
+                        if (a_gnt)
+                            pal_n <= pal_n + 9'd1;
+                        if (gnt_q) begin
+                            pal_w <= pal_w + 8'd1;
+                            if ({1'b0, pal_w} == pal_fetch - 9'd1) begin
+                                pal_w <= '0;
+                                state <= T_RUN;
                             end
                         end
                     end
-                    T_RUN: begin
-                        if (vid_pixtail_seg_take) begin
-                            if (!cur_v) begin
-                                cur.imm <= seg_imm;
-                                cur.bits <= seg_bits;
-                                cur.ibits <= seg_ibits;
-                                cur.fg <= seg_fg;
-                                cur.bg <= seg_bg;
-                                cur.px <= seg_px;
-                                cur_v <= 1'b1;
-                                cur_left <= seg_px;
-                                cur_fetched <= seg_imm;
-                                imm_bit <= '0;
-                            end else begin
-                                deck.imm <= seg_imm;
-                                deck.bits <= seg_bits;
-                                deck.ibits <= seg_ibits;
-                                deck.fg <= seg_fg;
-                                deck.bg <= seg_bg;
-                                deck.px <= seg_px;
-                                deck_v <= 1'b1;
-                                deck_fetched <= seg_imm;
-                            end
+                end
+                T_RUN: begin
+                    if (vid_pixtail_seg_take) begin
+                        if (!cur_v) begin
+                            cur.imm <= seg_imm;
+                            cur.bits <= seg_bits;
+                            cur.ibits <= seg_ibits;
+                            cur.fg <= seg_fg;
+                            cur.bg <= seg_bg;
+                            cur.px <= seg_px;
+                            cur_v <= 1'b1;
+                            cur_left <= seg_px;
+                            cur_fetched <= seg_imm;
+                            imm_bit <= '0;
+                        end else begin
+                            deck.imm <= seg_imm;
+                            deck.bits <= seg_bits;
+                            deck.ibits <= seg_ibits;
+                            deck.fg <= seg_fg;
+                            deck.bg <= seg_bg;
+                            deck.px <= seg_px;
+                            deck_v <= 1'b1;
+                            deck_fetched <= seg_imm;
                         end
+                    end
 
-                        /* Take order is fetch order, so cur outranks the
-                         * deck. */
-                        if (aim_cur_now) begin
-                            fetch_word <= 14'(cur.bits >> 5);
-                            fetch_bit0_next <= 5'(cur.bits & 23'd31);
-                            fetch_px_left <= cur.px;
-                            fetch_seg1 <= 1'b0;
-                            cur_fetched <= 1'b1;
-                        end else if (aim_deck_now) begin
-                            fetch_word <= 14'(deck.bits >> 5);
-                            fetch_bit0_next <= 5'(deck.bits & 23'd31);
-                            fetch_px_left <= deck.px;
-                            fetch_seg1 <= 1'b1;
-                            deck_fetched <= 1'b1;
-                        end
+                    /* Take order is fetch order, so cur outranks the
+                     * deck. */
+                    if (aim_cur_now) begin
+                        fetch_word <= 14'(cur.bits >> 5);
+                        fetch_bit0_next <= 5'(cur.bits & 23'd31);
+                        fetch_px_left <= cur.px;
+                        fetch_seg1 <= 1'b0;
+                        cur_fetched <= 1'b1;
+                    end else if (aim_deck_now) begin
+                        fetch_word <= 14'(deck.bits >> 5);
+                        fetch_bit0_next <= 5'(deck.bits & 23'd31);
+                        fetch_px_left <= deck.px;
+                        fetch_seg1 <= 1'b1;
+                        deck_fetched <= 1'b1;
+                    end
 
-                        if (a_gnt && state == T_RUN) begin
-                            fetch_word <= fetch_word + 14'd1;
-                            fetch_px_left <= fetch_px_left
-                                < {4'd0, px_per_word_from}
-                                ? 10'd0
-                                : fetch_px_left - {4'd0, px_per_word_from};
-                            fetch_bit0_next <= '0;
-                        end
+                    if (a_gnt && state == T_RUN) begin
+                        fetch_word <= fetch_word + 14'd1;
+                        fetch_px_left <= fetch_px_left
+                            < {4'd0, px_per_word_from}
+                            ? 10'd0
+                            : fetch_px_left - {4'd0, px_per_word_from};
+                        fetch_bit0_next <= '0;
+                    end
 
-                        /* One rule keeps the slicer honest: whenever
-                         * fifo[0] receives a word, bit_in_word loads that
-                         * word's tag. Only a first word carries an
-                         * offset, so promotion needs no special case. */
-                        if (word_shift) begin
-                            if (fifo_v[1]) begin
-                                fifo[0] <= fifo[1];
-                                fifo_bit0[0] <= fifo_bit0[1];
-                                fifo_seg1[0] <= fifo_seg1[1] && !cur_done;
-                                bit_in_word <= fifo_bit0[1];
-                                if (gnt_q) begin
-                                    fifo[1] <= a_rdata;
-                                    fifo_bit0[1] <= inflight_bit0[0];
-                                    fifo_seg1[1] <= inflight_seg1[0]
-                                        && !cur_done;
-                                end
-                                fifo_v <= {gnt_q, 1'b1};
-                            end else begin
-                                if (gnt_q) begin
-                                    fifo[0] <= a_rdata;
-                                    fifo_bit0[0] <= inflight_bit0[0];
-                                    fifo_seg1[0] <= inflight_seg1[0]
-                                        && !cur_done;
-                                    bit_in_word <= inflight_bit0[0];
-                                end
-                                fifo_v <= {1'b0, gnt_q};
-                            end
-                        end else if (gnt_q) begin
-                            if (!fifo_v[0]) begin
-                                fifo[0] <= a_rdata;
-                                fifo_bit0[0] <= inflight_bit0[0];
-                                fifo_seg1[0] <= inflight_seg1[0]
-                                    && !cur_done;
-                                bit_in_word <= inflight_bit0[0];
-                            end else begin
+                    /* One rule keeps the slicer honest: whenever
+                     * fifo[0] receives a word, bit_in_word loads that
+                     * word's tag. Only a first word carries an
+                     * offset, so promotion needs no special case. */
+                    if (word_shift) begin
+                        if (fifo_v[1]) begin
+                            fifo[0] <= fifo[1];
+                            fifo_bit0[0] <= fifo_bit0[1];
+                            fifo_seg1[0] <= fifo_seg1[1] && !cur_done;
+                            bit_in_word <= fifo_bit0[1];
+                            if (gnt_q) begin
                                 fifo[1] <= a_rdata;
                                 fifo_bit0[1] <= inflight_bit0[0];
                                 fifo_seg1[1] <= inflight_seg1[0]
                                     && !cur_done;
                             end
-                            fifo_v <= {fifo_v[0], 1'b1};
+                            fifo_v <= {gnt_q, 1'b1};
+                        end else begin
+                            if (gnt_q) begin
+                                fifo[0] <= a_rdata;
+                                fifo_bit0[0] <= inflight_bit0[0];
+                                fifo_seg1[0] <= inflight_seg1[0]
+                                    && !cur_done;
+                                bit_in_word <= inflight_bit0[0];
+                            end
+                            fifo_v <= {1'b0, gnt_q};
                         end
-
-                        inflight <= inflight + (a_gnt ? 2'd1 : 2'd0)
-                            - (gnt_q ? 2'd1 : 2'd0);
-                        if (gnt_q) begin
-                            inflight_seg1[0] <= inflight_seg1[1];
-                            inflight_bit0[0] <= inflight_bit0[1];
-                            if (a_gnt) begin
-                                inflight_seg1[1] <= fetch_seg1;
-                                inflight_bit0[1] <= fetch_bit0_next;
-                            end
-                        end else if (a_gnt) begin
-                            inflight_seg1[inflight[0]] <= fetch_seg1;
-                            inflight_bit0[inflight[0]] <= fetch_bit0_next;
+                    end else if (gnt_q) begin
+                        if (!fifo_v[0]) begin
+                            fifo[0] <= a_rdata;
+                            fifo_bit0[0] <= inflight_bit0[0];
+                            fifo_seg1[0] <= inflight_seg1[0]
+                                && !cur_done;
+                            bit_in_word <= inflight_bit0[0];
+                        end else begin
+                            fifo[1] <= a_rdata;
+                            fifo_bit0[1] <= inflight_bit0[0];
+                            fifo_seg1[1] <= inflight_seg1[0]
+                                && !cur_done;
                         end
+                        fifo_v <= {fifo_v[0], 1'b1};
+                    end
 
-                        if (emit_now) begin
-                            px <= px + 10'd1;
-                            cur_left <= cur_left - 10'd1;
-                            if (emit_imm)
-                                imm_bit <= imm_bit + 3'd1;
-                            else if (!word_shift)
-                                bit_in_word <= bit_in_word
-                                    + (5'd1 << bpp_log);
-                            if (cur_done) begin
-                                /* The deck's words are already arriving
-                                 * behind cur's, so every deck tag becomes
-                                 * a cur tag on the promote. */
-                                cur <= deck;
-                                cur_v <= deck_v;
-                                cur_left <= deck.px;
-                                cur_fetched <= deck_fetched
-                                    || aim_deck_now;
-                                deck_v <= 1'b0;
-                                deck_fetched <= 1'b0;
-                                imm_bit <= '0;
-                                for (int i = 0; i < 2; i++) begin
-                                    fifo_seg1[i] <= 1'b0;
-                                    inflight_seg1[i] <= 1'b0;
-                                end
-                                fetch_seg1 <= 1'b0;
+                    inflight <= inflight + (a_gnt ? 2'd1 : 2'd0)
+                        - (gnt_q ? 2'd1 : 2'd0);
+                    if (gnt_q) begin
+                        inflight_seg1[0] <= inflight_seg1[1];
+                        inflight_bit0[0] <= inflight_bit0[1];
+                        if (a_gnt) begin
+                            inflight_seg1[1] <= fetch_seg1;
+                            inflight_bit0[1] <= fetch_bit0_next;
+                        end
+                    end else if (a_gnt) begin
+                        inflight_seg1[inflight[0]] <= fetch_seg1;
+                        inflight_bit0[inflight[0]] <= fetch_bit0_next;
+                    end
+
+                    if (emit_now) begin
+                        px <= px + 10'd1;
+                        cur_left <= cur_left - 10'd1;
+                        if (emit_imm)
+                            imm_bit <= imm_bit + 3'd1;
+                        else if (!word_shift)
+                            bit_in_word <= bit_in_word
+                                + (5'd1 << bpp_log);
+                        if (cur_done) begin
+                            /* The deck's words are already arriving
+                             * behind cur's, so every deck tag becomes
+                             * a cur tag on the promote. */
+                            cur <= deck;
+                            cur_v <= deck_v;
+                            cur_left <= deck.px;
+                            cur_fetched <= deck_fetched
+                                || aim_deck_now;
+                            deck_v <= 1'b0;
+                            deck_fetched <= 1'b0;
+                            imm_bit <= '0;
+                            for (int i = 0; i < 2; i++) begin
+                                fifo_seg1[i] <= 1'b0;
+                                inflight_seg1[i] <= 1'b0;
                             end
-                            if (px == cw - 10'd1) begin
-                                state <= T_IDLE;
-                                cur_v <= 1'b0;
-                                deck_v <= 1'b0;
-                                vid_pixtail_done <= 1'b1;
-                            end
+                            fetch_seg1 <= 1'b0;
+                        end
+                        if (px == cw - 10'd1) begin
+                            state <= T_IDLE;
+                            cur_v <= 1'b0;
+                            deck_v <= 1'b0;
+                            vid_pixtail_done <= 1'b1;
                         end
                     end
-                    default: state <= T_IDLE;
-                endcase
-            end
+                end
+                default: state <= T_IDLE;
+            endcase
         end
     end
 

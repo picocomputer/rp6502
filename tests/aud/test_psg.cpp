@@ -368,15 +368,22 @@ static int rtl_sample()
     return l;
 }
 
+/* The engine takes no reset, so a clean one is a fresh one. */
 static void rtl_reset()
 {
     held.clear();
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vaud_psg;
+    dut->clk = 0;
     dut->q_we = 0;
     dut->xaddr_we = 0;
-    dut->rst_n = 0;
+    dut->eval();
     for (int i = 0; i < 4; i++)
         clock_cycle();
-    dut->rst_n = 1;
 }
 
 /* One channel at the fastest attack, silent until gated. */
@@ -445,10 +452,10 @@ int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vaud_psg;
-    dut->rst_n = 0;
+    dut->clk = 0;
+    dut->eval();
     for (int i = 0; i < 4; i++)
         clock_cycle();
-    dut->rst_n = 1;
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;

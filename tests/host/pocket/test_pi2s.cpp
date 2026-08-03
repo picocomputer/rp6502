@@ -32,7 +32,6 @@ static Vpocket_i2s *dut;
 
 UTEST(pi2s, frames_and_samples_exact)
 {
-    dut->rst_n = 0;
     dut->arst_n = 0;
     for (int i = 0; i < 4; i++)
     {
@@ -43,7 +42,6 @@ UTEST(pi2s, frames_and_samples_exact)
         dut->clk_74a = 0;
         dut->eval();
     }
-    dut->rst_n = 1;
     dut->arst_n = 1;
 
     /* Fed and decoded streams, as signed left/right pairs. */

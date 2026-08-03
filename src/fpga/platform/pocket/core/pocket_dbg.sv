@@ -46,12 +46,10 @@ module pocket_dbg #(
         .DEPTH_LOG2(6)
     ) q (
         .wclk(clk_sys),
-        .wrst_n(rst_n),
         .w_stb(tx_valid || rv_tx_valid),
         .w_data(byte_in),
         .pocket_fifo_full(fifo_full),
         .rclk(clk_74a),
-        .rrst_n(arst_n),
         .r_take(take),
         .pocket_fifo_empty(fifo_empty),
         .pocket_fifo_rdata(byte_out)

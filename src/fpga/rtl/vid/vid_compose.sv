@@ -14,7 +14,6 @@
 
 module vid_compose (
     input logic clk,
-    input logic rst_n,
     input logic de,
     input logic console,
     input logic [15:0] term_pix,
@@ -47,14 +46,13 @@ module vid_compose (
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            vid_compose_pix <= 16'h0000;
-            vid_compose_de <= 1'b0;
-        end else begin
-            vid_compose_pix <= comp;
-            vid_compose_de <= de;
-        end
+    initial begin
+        vid_compose_pix = 16'h0000;
+        vid_compose_de = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        vid_compose_pix <= comp;
+        vid_compose_de <= de;
     end
 
 endmodule

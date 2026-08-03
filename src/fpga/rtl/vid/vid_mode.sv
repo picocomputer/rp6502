@@ -216,7 +216,6 @@ module vid_mode (
 
     vid_mode1 vid_mode1 (
         .clk(clk),
-        .rst_n(rst_n),
         .start(m1_start),
         .abort_i(line_start),
         .attr(attr),
@@ -251,7 +250,6 @@ module vid_mode (
     );
     vid_mode2 vid_mode2 (
         .clk(clk),
-        .rst_n(rst_n),
         .start(m2_start),
         .abort_i(line_start),
         .attr(attr),
@@ -275,7 +273,6 @@ module vid_mode (
     );
     vid_mode3 vid_mode3 (
         .clk(clk),
-        .rst_n(rst_n),
         .start(m3_start),
         .abort_i(line_start),
         .attr(attr),
@@ -353,7 +350,6 @@ module vid_mode (
     end
     vid_pixtail vid_pixtail (
         .clk(clk),
-        .rst_n(rst_n),
         .start(tf_start),
         .abort_i(line_start),
         .cw(cw),
@@ -440,117 +436,133 @@ module vid_mode (
 
     logic gnt_d;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            wr_bank <= 1'b0;
-            filled_q[0] <= 1'b0;
-            filled_q[1] <= 1'b0;
-            flip_next <= 1'b0;
-            vid_mode_underrun <= 1'b0;
-            state <= S_IDLE;
-            t <= '0;
-            attr <= '0;
-            config_ptr <= '0;
-            cfgw <= '0;
-            cfg_i <= '0;
-            cfg_c <= '0;
-            m3_start <= 1'b0;
-            m2_start <= 1'b0;
-            m1_start <= 1'b0;
-            mode_q <= '0;
-            gnt_d <= 1'b0;
-        end else begin
-            gnt_d <= a_gnt;
-            m3_start <= 1'b0;
-            m2_start <= 1'b0;
-            m1_start <= 1'b0;
-            if (sp_force) begin
-                flip_next <= 1'b1;
-                filled_q[wr_bank] <= 1'b1;
-            end
-            /* The next line's pixel 0 is read during h==799, so the flip
-             * must land before it or that pixel comes up stale. */
-            vid_mode_underrun <= h == 10'd799 && state != S_IDLE;
-`ifndef SYNTHESIS
-            if (h == 10'd799 && state != S_IDLE)
-                $fatal(1, "vid_mode underrun");
+    initial begin
+        wr_bank = 1'b0;
+        filled_q[0] = 1'b0;
+        filled_q[1] = 1'b0;
+        flip_next = 1'b0;
+        vid_mode_underrun = 1'b0;
+        state = S_IDLE;
+        t = '0;
+        attr = '0;
+        config_ptr = '0;
+        cfgw = '0;
+        cfg_i = '0;
+        cfg_c = '0;
+        m3_start = 1'b0;
+        m2_start = 1'b0;
+        m1_start = 1'b0;
+        mode_q = '0;
+        gnt_d = 1'b0;
+    end
+`ifdef VERILATOR
+    /* Simulation's own reset, and the only thing in this module that
+     * takes one — VERILATOR is defined by the simulator and by nothing
+     * in the synthesis flow, so the fabric never sees the port. A
+     * machine reset costs the beam a frame, because the beam does not
+     * take one; this is what tells the stop below to expect it. */
+    logic settled;
+    always_ff @(posedge clk or negedge rst_n)
+        if (!rst_n)
+            settled <= 1'b0;
+        else if (line_start && v == 10'd524)
+            settled <= 1'b1;
 `endif
-            if (line_start) begin
-                t <= v == 10'd524 ? 10'd0 : v + 10'd1;
-                if (flip_next)
-                    wr_bank <= !wr_bank;
-                flip_next <= 1'b0;
-                state <= S_PROG;
-            end else begin
-                case (state)
-                    S_IDLE: ;
-                    S_PROG: begin
-                        if (!render_now)
-                            state <= S_IDLE;
-                        else if (p_gnt)
-                            state <= S_PROG_W;
+
+    always_ff @(posedge clk) begin
+        gnt_d <= a_gnt;
+        m3_start <= 1'b0;
+        m2_start <= 1'b0;
+        m1_start <= 1'b0;
+        if (sp_force) begin
+            flip_next <= 1'b1;
+            filled_q[wr_bank] <= 1'b1;
+        end
+        /* The next line's pixel 0 is read during h==799, so the flip
+         * must land before it or that pixel comes up stale. */
+        vid_mode_underrun <= h == 10'd799 && state != S_IDLE;
+`ifdef VERILATOR
+        /* The counter above still counts them; only the stop waits one
+         * frame, which is what a reset costs a beam that does not take
+         * one — a frame of the black screen the machine boots to. */
+        if (settled && h == 10'd799 && state != S_IDLE)
+            $fatal(1, "vid_mode underrun");
+`endif
+        if (line_start) begin
+            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
+            if (flip_next)
+                wr_bank <= !wr_bank;
+            flip_next <= 1'b0;
+            state <= S_PROG;
+        end else begin
+            case (state)
+                S_IDLE: ;
+                S_PROG: begin
+                    if (!render_now)
+                        state <= S_IDLE;
+                    else if (p_gnt)
+                        state <= S_PROG_W;
+                end
+                S_PROG_W: begin
+                    attr <= p_entry[15:0];
+                    config_ptr <= p_config;
+                    mode_q <= p_entry[18:16];
+                    if (!p_entry[31] || p_entry[18:16] == 3'd0
+                        || p_entry[18:16] > 3'd3) begin
+                        /* Marked unfilled and left unwritten: the
+                         * compose skips an unfilled plane, and the
+                         * one reader that would care — the sprite
+                         * stage — clears the buffer itself. */
+                        state <= S_IDLE;
+                        flip_next <= 1'b1;
+                        filled_q[wr_bank] <= 1'b0;
+                    end else begin
+                        cfg_i <= '0;
+                        cfg_c <= '0;
+                        state <= S_CFG;
                     end
-                    S_PROG_W: begin
-                        attr <= p_entry[15:0];
-                        config_ptr <= p_config;
-                        mode_q <= p_entry[18:16];
-                        if (!p_entry[31] || p_entry[18:16] == 3'd0
-                            || p_entry[18:16] > 3'd3) begin
-                            /* Marked unfilled and left unwritten: the
-                             * compose skips an unfilled plane, and the
-                             * one reader that would care — the sprite
-                             * stage — clears the buffer itself. */
-                            state <= S_IDLE;
-                            flip_next <= 1'b1;
-                            filled_q[wr_bank] <= 1'b0;
-                        end else begin
-                            cfg_i <= '0;
-                            cfg_c <= '0;
-                            state <= S_CFG;
-                        end
-                    end
-                    S_CFG: begin
-                        if (a_gnt)
-                            cfg_i <= cfg_i + 3'd1;
-                        if (gnt_d) begin
-                            if (config_ptr[1])
-                                case (cfg_c)
-                                    3'd0: cfgw[15:0] <= a_rdata[31:16];
-                                    3'd1: cfgw[47:16] <= a_rdata;
-                                    3'd2: cfgw[79:48] <= a_rdata;
-                                    3'd3: cfgw[111:80] <= a_rdata;
-                                    default: cfgw[143:112] <= a_rdata;
-                                endcase
+                end
+                S_CFG: begin
+                    if (a_gnt)
+                        cfg_i <= cfg_i + 3'd1;
+                    if (gnt_d) begin
+                        if (config_ptr[1])
+                            case (cfg_c)
+                                3'd0: cfgw[15:0] <= a_rdata[31:16];
+                                3'd1: cfgw[47:16] <= a_rdata;
+                                3'd2: cfgw[79:48] <= a_rdata;
+                                3'd3: cfgw[111:80] <= a_rdata;
+                                default: cfgw[143:112] <= a_rdata;
+                            endcase
+                        else
+                            case (cfg_c)
+                                3'd0: cfgw[31:0] <= a_rdata;
+                                3'd1: cfgw[63:32] <= a_rdata;
+                                3'd2: cfgw[95:64] <= a_rdata;
+                                3'd3: cfgw[127:96] <= a_rdata;
+                                default: cfgw[143:128] <= a_rdata[15:0];
+                            endcase
+                        cfg_c <= cfg_c + 3'd1;
+                        if (cfg_c == 3'd4) begin
+                            if (mode_q == 3'd1)
+                                m1_start <= 1'b1;
+                            else if (mode_q == 3'd2)
+                                m2_start <= 1'b1;
                             else
-                                case (cfg_c)
-                                    3'd0: cfgw[31:0] <= a_rdata;
-                                    3'd1: cfgw[63:32] <= a_rdata;
-                                    3'd2: cfgw[95:64] <= a_rdata;
-                                    3'd3: cfgw[127:96] <= a_rdata;
-                                    default: cfgw[143:128] <= a_rdata[15:0];
-                                endcase
-                            cfg_c <= cfg_c + 3'd1;
-                            if (cfg_c == 3'd4) begin
-                                if (mode_q == 3'd1)
-                                    m1_start <= 1'b1;
-                                else if (mode_q == 3'd2)
-                                    m2_start <= 1'b1;
-                                else
-                                    m3_start <= 1'b1;
-                                state <= S_MODE;
-                            end
+                                m3_start <= 1'b1;
+                            state <= S_MODE;
                         end
                     end
-                    S_MODE: begin
-                        if (sub_done) begin
-                            filled_q[wr_bank] <= sub_filled;
-                            flip_next <= 1'b1;
-                            state <= S_IDLE;
-                        end
+                end
+                S_MODE: begin
+                    if (sub_done) begin
+                        filled_q[wr_bank] <= sub_filled;
+                        flip_next <= 1'b1;
+                        state <= S_IDLE;
                     end
-                    default: state <= S_IDLE;
-                endcase
-            end
+                end
+                default: state <= S_IDLE;
+            endcase
         end
     end
 

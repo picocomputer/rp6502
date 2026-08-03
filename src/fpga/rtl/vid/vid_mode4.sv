@@ -12,7 +12,6 @@
 
 module vid_mode4 (
     input logic clk,
-    input logic rst_n,
 
     input logic start,
     input logic abort_i,
@@ -294,219 +293,218 @@ module vid_mode4 (
         af_left <= af_left - 17'd1;
     endtask
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        state = M4_IDLE;
+        idx = '0;
+        gather = '0;
+        lane = '0;
+        d_x = '0;
+        d_y = '0;
+        d_sptr = '0;
+        d_log = '0;
+        d_meta = 1'b0;
+        size = '0;
+        img_bytes = '0;
+        d_mask = '0;
+        d_over = '0;
+        for (int j = 0; j < 6; j++)
+            d_t[j] = '0;
+        fw_i = '0;
+        fw_c = '0;
+        fw_n = '0;
+        gnt_d = 1'b0;
+        tex_x = '0;
+        span_end = '0;
+        meta_cont = 1'b0;
+        row_texel = '0;
+        dcache = '0;
+        dcache_word = '0;
+        dcache_v = 1'b0;
+        pre_data = '0;
+        pre_word = '0;
+        pre_v = 1'b0;
+        pre_pend = 1'b0;
+        px_i = '0;
+        dst = '0;
+        af_u = '0;
+        af_v = '0;
+        af_left = '0;
+        vid_mode4_done = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        gnt_d <= a_gnt;
+        vid_mode4_done <= 1'b0;
+        if (abort_i) begin
+            /* A lost race: the scaffold counted it; drop the line. */
             state <= M4_IDLE;
+        end else if (start) begin
             idx <= '0;
-            gather <= '0;
-            lane <= '0;
-            d_x <= '0;
-            d_y <= '0;
-            d_sptr <= '0;
-            d_log <= '0;
-            d_meta <= 1'b0;
-            size <= '0;
-            img_bytes <= '0;
-            d_mask <= '0;
-            d_over <= '0;
-            for (int j = 0; j < 6; j++)
-                d_t[j] <= '0;
-            fw_i <= '0;
-            fw_c <= '0;
-            fw_n <= '0;
-            gnt_d <= 1'b0;
-            tex_x <= '0;
-            span_end <= '0;
-            meta_cont <= 1'b0;
-            row_texel <= '0;
-            dcache <= '0;
-            dcache_word <= '0;
             dcache_v <= 1'b0;
-            pre_data <= '0;
-            pre_word <= '0;
             pre_v <= 1'b0;
             pre_pend <= 1'b0;
-            px_i <= '0;
-            dst <= '0;
-            af_u <= '0;
-            af_v <= '0;
-            af_left <= '0;
-            vid_mode4_done <= 1'b0;
-        end else begin
-            gnt_d <= a_gnt;
-            vid_mode4_done <= 1'b0;
-            if (abort_i) begin
-                /* A lost race: the scaffold counted it; drop the line. */
+            if (length == 16'd0) begin
+                vid_mode4_done <= 1'b1;
                 state <= M4_IDLE;
-            end else if (start) begin
-                idx <= '0;
-                dcache_v <= 1'b0;
-                pre_v <= 1'b0;
-                pre_pend <= 1'b0;
-                if (length == 16'd0) begin
-                    vid_mode4_done <= 1'b1;
-                    state <= M4_IDLE;
-                end else
-                    state <= M4_NEXT;
-            end else begin
-                case (state)
-                    M4_IDLE: ;
-                    M4_NEXT: begin
-                        lane <= daddr_lane;
-                        fw_i <= '0;
-                        fw_c <= '0;
-                        fw_n <= 3'((6'({4'd0, daddr_lane})
-                                    + (affine ? 6'd20 : 6'd8) + 6'd3)
-                                   >> 2);
-                        gather <= '0;
-                        state <= M4_DESC;
+            end else
+                state <= M4_NEXT;
+        end else begin
+            case (state)
+                M4_IDLE: ;
+                M4_NEXT: begin
+                    lane <= daddr_lane;
+                    fw_i <= '0;
+                    fw_c <= '0;
+                    fw_n <= 3'((6'({4'd0, daddr_lane})
+                                + (affine ? 6'd20 : 6'd8) + 6'd3)
+                               >> 2);
+                    gather <= '0;
+                    state <= M4_DESC;
+                end
+                M4_DESC: begin
+                    if (a_gnt)
+                        fw_i <= fw_i + 3'd1;
+                    if (gnt_d) begin
+                        case (fw_c)
+                            3'd0: gather[31:0] <= a_rdata;
+                            3'd1: gather[63:32] <= a_rdata;
+                            3'd2: gather[95:64] <= a_rdata;
+                            3'd3: gather[127:96] <= a_rdata;
+                            3'd4: gather[159:128] <= a_rdata;
+                            3'd5: gather[191:160] <= a_rdata;
+                            default: ;
+                        endcase
+                        fw_c <= fw_c + 3'd1;
+                        if (fw_c + 3'd1 == fw_n)
+                            state <= M4_DECODE;
                     end
-                    M4_DESC: begin
-                        if (a_gnt)
-                            fw_i <= fw_i + 3'd1;
-                        if (gnt_d) begin
-                            case (fw_c)
-                                3'd0: gather[31:0] <= a_rdata;
-                                3'd1: gather[63:32] <= a_rdata;
-                                3'd2: gather[95:64] <= a_rdata;
-                                3'd3: gather[127:96] <= a_rdata;
-                                3'd4: gather[159:128] <= a_rdata;
-                                3'd5: gather[191:160] <= a_rdata;
-                                default: ;
-                            endcase
-                            fw_c <= fw_c + 3'd1;
-                            if (fw_c + 3'd1 == fw_n)
-                                state <= M4_DECODE;
-                        end
-                    end
-                    M4_DECODE: begin
-                        d_x <= dc_x;
-                        d_y <= dc_y;
-                        d_sptr <= dc_sptr;
-                        d_log <= dc_log;
-                        d_meta <= dc_meta;
-                        size <= dc_log[7:3] == 5'd0
-                            ? 8'(8'd1 << dc_log[2:0]) : 8'd0;
-                        img_bytes <= 17'(17'd2 << {13'd0, dc_log[2:0], 1'b0});
-                        d_mask <= 7'((8'd1 << dc_log[2:0]) - 8'd1);
-                        d_over <= 32'hFFFF0000 << dc_log[2:0];
-                        for (int j = 0; j < 6; j++)
-                            d_t[j] <= dc_t[j];
-                        state <= M4_JUDGE;
-                    end
-                    M4_JUDGE: begin
-                        tex_x <= tex_offs_x0;
-                        span_end <= tex_offs_x0 + 17'(size_x_eff[16:0]);
-                        meta_cont <= 1'b0;
-                        row_texel <= log_wrap ? 17'd0
-                            : 17'(17'(tex_offs_y[6:0]) << d_log[2:0]);
-                        px_i <= tex_offs_x0;
-                        dst <= 10'(x_start);
-                        fw_i <= '0;
-                        if (log_wrap
-                            ? (tex_offs_y < 0 || size_x_eff < 18'sd1)
-                            : (log_big
-                               || byte_size > 18'h10000
-                               || {2'b0, d_sptr} > 18'h10000 - byte_size
-                               || tex_offs_y < 0
-                               || tex_offs_y
-                                   >= 17'($signed({9'd0, size}))
-                               || size_x0 < 18'sd1))
-                            next_sprite();
-                        else if (affine)
-                            state <= M4_ASETUP;
-                        else if (d_meta)
-                            state <= M4_META;
-                        else
-                            state <= M4_PIX;
-                    end
-                    M4_ASETUP: begin
-                        af_u <= 32'(af_u0);
-                        af_v <= 32'(af_v0);
-                        af_left <= 17'(size_x0[16:0]);
-                        dst <= 10'(x_start + size_x0[16:0] - 17'sd1);
-                        state <= M4_APOP;
-                    end
-                    M4_APOP: begin
-                        if (af_left == 17'd0)
-                            next_sprite();
-                        else if (af_over)
-                            step_af();
-                        else if (!dhit) begin
-                            if (a_gnt) begin
-                                fw_i <= 3'd1;
-                                dcache_word <= af_byte_addr[15:2];
-                                dcache_v <= 1'b0;
-                            end
-                            if (gnt_d) begin
-                                dcache <= a_rdata;
-                                dcache_v <= 1'b1;
-                                fw_i <= '0;
-                            end
-                        end else
-                            step_af();
-                    end
-                    M4_META: begin
-                        if (a_gnt)
+                end
+                M4_DECODE: begin
+                    d_x <= dc_x;
+                    d_y <= dc_y;
+                    d_sptr <= dc_sptr;
+                    d_log <= dc_log;
+                    d_meta <= dc_meta;
+                    size <= dc_log[7:3] == 5'd0
+                        ? 8'(8'd1 << dc_log[2:0]) : 8'd0;
+                    img_bytes <= 17'(17'd2 << {13'd0, dc_log[2:0], 1'b0});
+                    d_mask <= 7'((8'd1 << dc_log[2:0]) - 8'd1);
+                    d_over <= 32'hFFFF0000 << dc_log[2:0];
+                    for (int j = 0; j < 6; j++)
+                        d_t[j] <= dc_t[j];
+                    state <= M4_JUDGE;
+                end
+                M4_JUDGE: begin
+                    tex_x <= tex_offs_x0;
+                    span_end <= tex_offs_x0 + 17'(size_x_eff[16:0]);
+                    meta_cont <= 1'b0;
+                    row_texel <= log_wrap ? 17'd0
+                        : 17'(17'(tex_offs_y[6:0]) << d_log[2:0]);
+                    px_i <= tex_offs_x0;
+                    dst <= 10'(x_start);
+                    fw_i <= '0;
+                    if (log_wrap
+                        ? (tex_offs_y < 0 || size_x_eff < 18'sd1)
+                        : (log_big
+                           || byte_size > 18'h10000
+                           || {2'b0, d_sptr} > 18'h10000 - byte_size
+                           || tex_offs_y < 0
+                           || tex_offs_y
+                               >= 17'($signed({9'd0, size}))
+                           || size_x0 < 18'sd1))
+                        next_sprite();
+                    else if (affine)
+                        state <= M4_ASETUP;
+                    else if (d_meta)
+                        state <= M4_META;
+                    else
+                        state <= M4_PIX;
+                end
+                M4_ASETUP: begin
+                    af_u <= 32'(af_u0);
+                    af_v <= 32'(af_v0);
+                    af_left <= 17'(size_x0[16:0]);
+                    dst <= 10'(x_start + size_x0[16:0] - 17'sd1);
+                    state <= M4_APOP;
+                end
+                M4_APOP: begin
+                    if (af_left == 17'd0)
+                        next_sprite();
+                    else if (af_over)
+                        step_af();
+                    else if (!dhit) begin
+                        if (a_gnt) begin
                             fw_i <= 3'd1;
+                            dcache_word <= af_byte_addr[15:2];
+                            dcache_v <= 1'b0;
+                        end
                         if (gnt_d) begin
-                            /* Narrow to the row's opaque span; the walk
-                             * below skips when it comes up empty. */
-                            if (17'($signed({2'd0, a_rdata[30:16]}))
-                                > tex_x) begin
-                                tex_x <= 17'({2'd0, a_rdata[30:16]});
-                                px_i <= 17'({2'd0, a_rdata[30:16]});
-                                dst <= 10'(17'(d_x)
-                                           + 17'({2'd0, a_rdata[30:16]}));
-                            end
-                            if (17'($signed({1'd0, a_rdata[15:0]}))
-                                < span_end)
-                                span_end <= 17'({1'd0, a_rdata[15:0]});
-                            meta_cont <= a_rdata[31];
+                            dcache <= a_rdata;
+                            dcache_v <= 1'b1;
                             fw_i <= '0;
-                            state <= M4_PIX;
                         end
+                    end else
+                        step_af();
+                end
+                M4_META: begin
+                    if (a_gnt)
+                        fw_i <= 3'd1;
+                    if (gnt_d) begin
+                        /* Narrow to the row's opaque span; the walk
+                         * below skips when it comes up empty. */
+                        if (17'($signed({2'd0, a_rdata[30:16]}))
+                            > tex_x) begin
+                            tex_x <= 17'({2'd0, a_rdata[30:16]});
+                            px_i <= 17'({2'd0, a_rdata[30:16]});
+                            dst <= 10'(17'(d_x)
+                                       + 17'({2'd0, a_rdata[30:16]}));
+                        end
+                        if (17'($signed({1'd0, a_rdata[15:0]}))
+                            < span_end)
+                            span_end <= 17'({1'd0, a_rdata[15:0]});
+                        meta_cont <= a_rdata[31];
+                        fw_i <= '0;
+                        state <= M4_PIX;
                     end
-                    M4_PIX: begin
-                        /* The prefetch's own answer, told apart from
-                         * the miss fetch's by which one is pending —
-                         * only ever one is outstanding, because the
-                         * request logic asks for one or the other. */
-                        if (pre_pend && gnt_d) begin
-                            pre_data <= a_rdata;
-                            pre_v <= 1'b1;
-                            pre_pend <= 1'b0;
-                        end else if (pre_want && a_gnt) begin
-                            pre_word <= pre_next;
-                            pre_pend <= 1'b1;
-                        end
-                        if (px_i >= span_end)
-                            next_sprite();
-                        else if (!hit_any) begin
-                            if (a_gnt && !pre_want) begin
-                                fw_i <= 3'd1;
-                                dcache_word <= tex_byte_addr[15:2];
-                                dcache_v <= 1'b0;
-                            end
-                            if (gnt_d && !pre_pend) begin
-                                dcache <= a_rdata;
-                                dcache_v <= 1'b1;
-                                fw_i <= '0;
-                            end
-                        end else begin
-                            if (pre_hit) begin
-                                dcache <= pre_data;
-                                dcache_word <= pre_word;
-                                dcache_v <= 1'b1;
-                                pre_v <= 1'b0;
-                            end
-                            px_i <= px_i + 17'sd1;
-                            dst <= dst + 10'd1;
-                        end
+                end
+                M4_PIX: begin
+                    /* The prefetch's own answer, told apart from
+                     * the miss fetch's by which one is pending —
+                     * only ever one is outstanding, because the
+                     * request logic asks for one or the other. */
+                    if (pre_pend && gnt_d) begin
+                        pre_data <= a_rdata;
+                        pre_v <= 1'b1;
+                        pre_pend <= 1'b0;
+                    end else if (pre_want && a_gnt) begin
+                        pre_word <= pre_next;
+                        pre_pend <= 1'b1;
                     end
-                    default: state <= M4_IDLE;
-                endcase
-            end
+                    if (px_i >= span_end)
+                        next_sprite();
+                    else if (!hit_any) begin
+                        if (a_gnt && !pre_want) begin
+                            fw_i <= 3'd1;
+                            dcache_word <= tex_byte_addr[15:2];
+                            dcache_v <= 1'b0;
+                        end
+                        if (gnt_d && !pre_pend) begin
+                            dcache <= a_rdata;
+                            dcache_v <= 1'b1;
+                            fw_i <= '0;
+                        end
+                    end else begin
+                        if (pre_hit) begin
+                            dcache <= pre_data;
+                            dcache_word <= pre_word;
+                            dcache_v <= 1'b1;
+                            pre_v <= 1'b0;
+                        end
+                        px_i <= px_i + 17'sd1;
+                        dst <= dst + 10'd1;
+                    end
+                end
+                default: state <= M4_IDLE;
+            endcase
         end
     end
 

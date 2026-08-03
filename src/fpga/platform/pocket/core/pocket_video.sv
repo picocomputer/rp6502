@@ -24,7 +24,6 @@
 module pocket_video (
     /* The machine's domain. */
     input logic clk_sys,
-    input logic rst_n,
     input logic [15:0] vid_pixel,
     input logic vid_de,
     input logic vid_frame,
@@ -35,7 +34,6 @@ module pocket_video (
 
     /* The scaler's domain. */
     input logic clk_vid,
-    input logic vrst_n,
     output logic [23:0] pocket_video_rgb,
     output logic pocket_video_de,
     output logic pocket_video_skip,
@@ -72,23 +70,20 @@ module pocket_video (
 
     /* The frame pulse crosses as a toggle. */
     logic frame_t;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            frame_t <= 1'b0;
-        else if (vid_frame)
+    initial frame_t = 1'b0;
+    always_ff @(posedge clk_sys)
+        if (vid_frame)
             frame_t <= !frame_t;
-    end
     logic frame_t1, frame_t2, frame_t3;
-    always_ff @(posedge clk_vid or negedge vrst_n) begin
-        if (!vrst_n) begin
-            frame_t1 <= 1'b0;
-            frame_t2 <= 1'b0;
-            frame_t3 <= 1'b0;
-        end else begin
-            frame_t1 <= frame_t;
-            frame_t2 <= frame_t1;
-            frame_t3 <= frame_t2;
-        end
+    initial begin
+        frame_t1 = 1'b0;
+        frame_t2 = 1'b0;
+        frame_t3 = 1'b0;
+    end
+    always_ff @(posedge clk_vid) begin
+        frame_t1 <= frame_t;
+        frame_t2 <= frame_t1;
+        frame_t3 <= frame_t2;
     end
     logic frame_pulse;
     always_comb frame_pulse = frame_t2 != frame_t3;
@@ -103,24 +98,31 @@ module pocket_video (
         .DEPTH_LOG2(4)
     ) fifo (
         .wclk(clk_sys),
-        .wrst_n(rst_n),
         .w_stb(vid_de),
         .w_data(vid_pixel),
         .pocket_fifo_full(fifo_full),
         .rclk(clk_vid),
-        .rrst_n(vrst_n),
         .r_take(take),
         .pocket_fifo_empty(fifo_empty),
         .pocket_fifo_rdata(fifo_pixel)
     );
 
 `ifdef VERILATOR
+    /* Armed at the first frame boundary. Nothing resets the beam, so at
+     * power-on it starts mid-line and the two sides of the FIFO come up
+     * in whatever order they come up in — a scanline of the black screen
+     * the machine boots to. After that a full or empty FIFO is a real
+     * defect and worth stopping on. */
+    logic checked = 1'b0;
+    always_ff @(posedge clk_sys)
+        if (vid_frame)
+            checked <= 1'b1;
     always_ff @(posedge clk_sys) begin
-        if (vid_de && fifo_full)
+        if (checked && vid_de && fifo_full)
             $error("pocket_video: pixel fifo overflow");
     end
     always_ff @(posedge clk_vid) begin
-        if (take && fifo_empty)
+        if (checked && take && fifo_empty)
             $error("pocket_video: pixel fifo underflow");
     end
 `endif
@@ -134,17 +136,16 @@ module pocket_video (
     /* The reader's copy of the canvas, crossed and held for a whole
      * frame so the window cannot tear mid-picture. */
     logic [2:0] canvas_s1, canvas_s2, canvas;
-    always_ff @(posedge clk_vid or negedge vrst_n) begin
-        if (!vrst_n) begin
-            canvas_s1 <= '0;
-            canvas_s2 <= '0;
-            canvas <= '0;
-        end else begin
-            canvas_s1 <= vid_canvas;
-            canvas_s2 <= canvas_s1;
-            if (!running || (x == 10'(H_TOTAL - 1) && y == 10'(V_TOTAL - 1)))
-                canvas <= canvas_s2;
-        end
+    initial begin
+        canvas_s1 = '0;
+        canvas_s2 = '0;
+        canvas = '0;
+    end
+    always_ff @(posedge clk_vid) begin
+        canvas_s1 <= vid_canvas;
+        canvas_s2 <= canvas_s1;
+        if (!running || (x == 10'(H_TOTAL - 1) && y == 10'(V_TOTAL - 1)))
+            canvas <= canvas_s2;
     end
 
     logic [9:0] cw;   /* the canvas's width: the de run and the pops */
@@ -182,42 +183,41 @@ module pocket_video (
         b8 = {fifo_pixel[15:11], fifo_pixel[15:13]};
     end
 
-    always_ff @(posedge clk_vid or negedge vrst_n) begin
-        if (!vrst_n) begin
-            running <= 1'b0;
-            x <= '0;
-            y <= '0;
-            pocket_video_rgb <= '0;
-            pocket_video_de <= 1'b0;
-            pocket_video_vs <= 1'b0;
-            pocket_video_hs <= 1'b0;
-        end else begin
-            if (!running) begin
-                if (frame_pulse) begin
-                    running <= 1'b1;
-                    x <= '0;
-                    y <= '0;
-                end
-            end else if (x == 10'(H_TOTAL - 1)) begin
+    initial begin
+        running = 1'b0;
+        x = '0;
+        y = '0;
+        pocket_video_rgb = '0;
+        pocket_video_de = 1'b0;
+        pocket_video_vs = 1'b0;
+        pocket_video_hs = 1'b0;
+    end
+    always_ff @(posedge clk_vid) begin
+        if (!running) begin
+            if (frame_pulse) begin
+                running <= 1'b1;
                 x <= '0;
-                y <= y == 10'(V_TOTAL - 1) ? '0 : y + 10'd1;
-            end else begin
-                x <= x + 10'd1;
+                y <= '0;
             end
-
-            pocket_video_vs <= (running && x == 10'(H_TOTAL - 1)
-                                && y == 10'(V_TOTAL - 1))
-                || (!running && frame_pulse);
-            /* One hs per row period: every 800-clock slot at full width,
-             * every second one when a row's period spans two — so the
-             * order on the wire is always hs, pixels, porch. */
-            pocket_video_hs <= running && x == 10'd2
-                && (!cv_is_x2(canvas) || !y[0]);
-            pocket_video_de <= de_sel;
-            pocket_video_rgb <= de_sel ? {r8, g8, b8}
-                : endline_now ? {11'(slot), 13'd0}
-                : 24'h0;
+        end else if (x == 10'(H_TOTAL - 1)) begin
+            x <= '0;
+            y <= y == 10'(V_TOTAL - 1) ? '0 : y + 10'd1;
+        end else begin
+            x <= x + 10'd1;
         end
+
+        pocket_video_vs <= (running && x == 10'(H_TOTAL - 1)
+                            && y == 10'(V_TOTAL - 1))
+            || (!running && frame_pulse);
+        /* One hs per row period: every 800-clock slot at full width,
+         * every second one when a row's period spans two — so the
+         * order on the wire is always hs, pixels, porch. */
+        pocket_video_hs <= running && x == 10'd2
+            && (!cv_is_x2(canvas) || !y[0]);
+        pocket_video_de <= de_sel;
+        pocket_video_rgb <= de_sel ? {r8, g8, b8}
+            : endline_now ? {11'(slot), 13'd0}
+            : 24'h0;
     end
 
     /* Nothing is skipped: only canvas pixels ever arrive. */

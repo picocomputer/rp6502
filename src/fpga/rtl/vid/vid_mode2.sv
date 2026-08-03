@@ -20,7 +20,6 @@
 
 module vid_mode2 (
     input logic clk,
-    input logic rst_n,
 
     input logic start,
     input logic abort_i,
@@ -202,176 +201,175 @@ module vid_mode2 (
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        state = S2_IDLE;
+        mstate = M_IDLE;
+        row = '0;
+        q_row = '0;
+        r_row = '0;
+        row_base = '0;
+        col = '0;
+        px_rem = '0;
+        blank = 1'b0;
+        tile = '0;
+        tcol = '0;
+        tile_id = '0;
+        win_w_s = '0;
+        height_px_s = '0;
+        div_q = '0;
+        div_rem = '0;
+        div_i = '0;
+        div_den = '0;
+        gnt_d = 1'b0;
+        vid_mode2_tl_start = 1'b0;
+        vid_mode2_pal_ptr = '0;
+        vid_mode2_pal_xram = 1'b0;
+        vid_mode2_bpp = '0;
+        vid_mode2_filled = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        gnt_d <= a_gnt;
+        vid_mode2_tl_start <= 1'b0;
+        if (abort_i) begin
+`ifdef VERILATOR
+            if (state != S2_IDLE && state != S2_SEG)
+                $fatal(1, "vid_mode2 underrun");
+`endif
             state <= S2_IDLE;
             mstate <= M_IDLE;
-            row <= '0;
-            q_row <= '0;
-            r_row <= '0;
-            row_base <= '0;
-            col <= '0;
-            px_rem <= '0;
+        end else if (start) begin
+            row <= $signed({{5{row16[15]}}, row16});
+            col <= $signed({{5{col16[15]}}, col16});
+            win_w_s <= $signed({{5{width_px[15]}}, width_px});
+            height_px_s <= $signed({{5{height_px[15]}}, height_px});
             blank <= 1'b0;
-            tile <= '0;
-            tcol <= '0;
-            tile_id <= '0;
-            win_w_s <= '0;
-            height_px_s <= '0;
-            div_q <= '0;
-            div_rem <= '0;
-            div_i <= '0;
-            div_den <= '0;
-            gnt_d <= 1'b0;
-            vid_mode2_tl_start <= 1'b0;
-            vid_mode2_pal_ptr <= '0;
-            vid_mode2_pal_xram <= 1'b0;
-            vid_mode2_bpp <= '0;
-            vid_mode2_filled <= 1'b0;
+            state <= S2_WRAP;
         end else begin
-            gnt_d <= a_gnt;
-            vid_mode2_tl_start <= 1'b0;
-            if (abort_i) begin
-`ifdef VERILATOR
-                if (state != S2_IDLE && state != S2_SEG)
-                    $fatal(1, "vid_mode2 underrun");
-`endif
-                state <= S2_IDLE;
-                mstate <= M_IDLE;
-            end else if (start) begin
-                row <= $signed({{5{row16[15]}}, row16});
-                col <= $signed({{5{col16[15]}}, col16});
-                win_w_s <= $signed({{5{width_px[15]}}, width_px});
-                height_px_s <= $signed({{5{height_px[15]}}, height_px});
-                blank <= 1'b0;
-                state <= S2_WRAP;
-            end else begin
-                case (state)
-                    S2_IDLE: ;
-                    S2_WRAP: begin
-                        /* Iterative wraparound; sane configs settle in a
-                         * step or two, and the beam's deadline bounds the
-                         * pathological ones. The oracle rejects on the
-                         * int16 height, not the tile count. */
-                        if (cf_width < 16'sd1 || height_px_s < 21'sd1) begin
-                            blank <= 1'b1;
-                            state <= S2_ADDR;
-                        end else if (cf_y_wrap && row < 0)
-                            row <= row + height_px_s;
-                        else if (cf_y_wrap && row >= height_px_s)
-                            row <= row - height_px_s;
-                        else if (cf_x_wrap && col < 0)
-                            col <= col + win_w_s;
-                        else if (cf_x_wrap && col >= win_w_s)
-                            col <= col - win_w_s;
-                        else if (row < 0 || row >= height_px_s) begin
-                            blank <= 1'b1;
-                            state <= S2_ADDR;
-                        end else if (y_trim == 4'd0) begin
-                            q_row <= tile16 ? row[18:4] : row[17:3];
-                            r_row <= tile16 ? row[3:0] : {1'b0, row[2:0]};
-                            state <= S2_ADDR;
-                        end else begin
-                            div_q <= row[19:0];
-                            div_rem <= '0;
-                            div_i <= '0;
-                            div_den <= tile_h;
-                            state <= S2_DIVY;
-                        end
+            case (state)
+                S2_IDLE: ;
+                S2_WRAP: begin
+                    /* Iterative wraparound; sane configs settle in a
+                     * step or two, and the beam's deadline bounds the
+                     * pathological ones. The oracle rejects on the
+                     * int16 height, not the tile count. */
+                    if (cf_width < 16'sd1 || height_px_s < 21'sd1) begin
+                        blank <= 1'b1;
+                        state <= S2_ADDR;
+                    end else if (cf_y_wrap && row < 0)
+                        row <= row + height_px_s;
+                    else if (cf_y_wrap && row >= height_px_s)
+                        row <= row - height_px_s;
+                    else if (cf_x_wrap && col < 0)
+                        col <= col + win_w_s;
+                    else if (cf_x_wrap && col >= win_w_s)
+                        col <= col - win_w_s;
+                    else if (row < 0 || row >= height_px_s) begin
+                        blank <= 1'b1;
+                        state <= S2_ADDR;
+                    end else if (y_trim == 4'd0) begin
+                        q_row <= tile16 ? row[18:4] : row[17:3];
+                        r_row <= tile16 ? row[3:0] : {1'b0, row[2:0]};
+                        state <= S2_ADDR;
+                    end else begin
+                        div_q <= row[19:0];
+                        div_rem <= '0;
+                        div_i <= '0;
+                        div_den <= tile_h;
+                        state <= S2_DIVY;
                     end
-                    S2_DIVY: begin
-                        div_q <= div_q_n;
-                        div_rem <= div_rem_n;
-                        div_i <= div_i + 5'd1;
-                        if (div_i == 5'd19) begin
-                            q_row <= div_q_n[14:0];
-                            r_row <= div_rem_n[3:0];
-                            state <= S2_ADDR;
-                        end
+                end
+                S2_DIVY: begin
+                    div_q <= div_q_n;
+                    div_rem <= div_rem_n;
+                    div_i <= div_i + 5'd1;
+                    if (div_i == 5'd19) begin
+                        q_row <= div_q_n[14:0];
+                        r_row <= div_rem_n[3:0];
+                        state <= S2_ADDR;
                     end
-                    S2_ADDR: begin
-                        row_base <= {1'b0, cf_data}
-                            + 17'(17'(q_row) * 17'({2'd0, cf_width[14:0]}));
-                        if (overrun)
-                            blank <= 1'b1;
-                        vid_mode2_pal_ptr <= cf_palette;
-                        vid_mode2_pal_xram <= !blank && !overrun
-                            && !cf_palette[0]
-                            && {1'b0, cf_palette}
-                                <= 17'h10000
-                                    - (17'd2 << {12'd0, 5'd1 << bpp_log});
-                        vid_mode2_bpp <= {1'b0, bpp_log};
-                        vid_mode2_filled <= !blank && !overrun;
-                        vid_mode2_tl_start <= 1'b1;
-                        px_rem <= cw;
-                        mstate <= M_IDLE;
-                        if (blank || overrun || col < 21'sd1) begin
-                            tile <= '0;
-                            tcol <= '0;
-                            state <= S2_SEG;
-                        end else if (x_trim == 4'd0) begin
-                            tile <= tile16 ? col[18:4] : col[17:3];
-                            tcol <= tile16 ? col[3:0] : {1'b0, col[2:0]};
-                            state <= S2_SEG;
-                        end else begin
-                            div_q <= col[19:0];
-                            div_rem <= '0;
-                            div_i <= '0;
-                            div_den <= eff_w;
-                            state <= S2_DIVX;
-                        end
+                end
+                S2_ADDR: begin
+                    row_base <= {1'b0, cf_data}
+                        + 17'(17'(q_row) * 17'({2'd0, cf_width[14:0]}));
+                    if (overrun)
+                        blank <= 1'b1;
+                    vid_mode2_pal_ptr <= cf_palette;
+                    vid_mode2_pal_xram <= !blank && !overrun
+                        && !cf_palette[0]
+                        && {1'b0, cf_palette}
+                            <= 17'h10000
+                                - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                    vid_mode2_bpp <= {1'b0, bpp_log};
+                    vid_mode2_filled <= !blank && !overrun;
+                    vid_mode2_tl_start <= 1'b1;
+                    px_rem <= cw;
+                    mstate <= M_IDLE;
+                    if (blank || overrun || col < 21'sd1) begin
+                        tile <= '0;
+                        tcol <= '0;
+                        state <= S2_SEG;
+                    end else if (x_trim == 4'd0) begin
+                        tile <= tile16 ? col[18:4] : col[17:3];
+                        tcol <= tile16 ? col[3:0] : {1'b0, col[2:0]};
+                        state <= S2_SEG;
+                    end else begin
+                        div_q <= col[19:0];
+                        div_rem <= '0;
+                        div_i <= '0;
+                        div_den <= eff_w;
+                        state <= S2_DIVX;
                     end
-                    S2_DIVX: begin
-                        div_q <= div_q_n;
-                        div_rem <= div_rem_n;
-                        div_i <= div_i + 5'd1;
-                        if (div_i == 5'd19) begin
-                            tile <= div_q_n[14:0];
-                            tcol <= div_rem_n[3:0];
-                            state <= S2_SEG;
-                        end
+                end
+                S2_DIVX: begin
+                    div_q <= div_q_n;
+                    div_rem <= div_rem_n;
+                    div_i <= div_i + 5'd1;
+                    if (div_i == 5'd19) begin
+                        tile <= div_q_n[14:0];
+                        tcol <= div_rem_n[3:0];
+                        state <= S2_SEG;
                     end
-                    S2_SEG: begin
-                        case (mstate)
-                            M_IDLE: if (!blank && col < win_w_s)
-                                mstate <= M_REQ;
-                            M_REQ: if (a_gnt)
-                                mstate <= M_WAIT;
-                            M_WAIT: if (gnt_d) begin
-                                tile_id <= a_rdata[
-                                    {map_addr[1:0], 3'b000}+:8];
-                                mstate <= M_HAVE;
-                            end
-                            default: ;
-                        endcase
+                end
+                S2_SEG: begin
+                    case (mstate)
+                        M_IDLE: if (!blank && col < win_w_s)
+                            mstate <= M_REQ;
+                        M_REQ: if (a_gnt)
+                            mstate <= M_WAIT;
+                        M_WAIT: if (gnt_d) begin
+                            tile_id <= a_rdata[
+                                {map_addr[1:0], 3'b000}+:8];
+                            mstate <= M_HAVE;
+                        end
+                        default: ;
+                    endcase
 
-                        if (seg_take) begin
-                            px_rem <= px_rem - vid_mode2_seg_px;
-                            if (px_rem == vid_mode2_seg_px)
-                                state <= S2_IDLE;
-                            if (!blank && col < 0)
-                                col <= col
-                                    + $signed({11'd0, vid_mode2_seg_px});
-                            else if (!blank && col < win_w_s) begin
-                                mstate <= M_IDLE;
-                                tcol <= '0;
-                                if (cf_x_wrap
-                                    && col + $signed(
-                                        {11'd0, vid_mode2_seg_px})
-                                        == win_w_s) begin
-                                    col <= '0;
-                                    tile <= '0;
-                                end else begin
-                                    col <= col + $signed(
-                                        {11'd0, vid_mode2_seg_px});
-                                    tile <= tile + 15'd1;
-                                end
+                    if (seg_take) begin
+                        px_rem <= px_rem - vid_mode2_seg_px;
+                        if (px_rem == vid_mode2_seg_px)
+                            state <= S2_IDLE;
+                        if (!blank && col < 0)
+                            col <= col
+                                + $signed({11'd0, vid_mode2_seg_px});
+                        else if (!blank && col < win_w_s) begin
+                            mstate <= M_IDLE;
+                            tcol <= '0;
+                            if (cf_x_wrap
+                                && col + $signed(
+                                    {11'd0, vid_mode2_seg_px})
+                                    == win_w_s) begin
+                                col <= '0;
+                                tile <= '0;
+                            end else begin
+                                col <= col + $signed(
+                                    {11'd0, vid_mode2_seg_px});
+                                tile <= tile + 15'd1;
                             end
                         end
                     end
-                    default: state <= S2_IDLE;
-                endcase
-            end
+                end
+                default: state <= S2_IDLE;
+            endcase
         end
     end
 

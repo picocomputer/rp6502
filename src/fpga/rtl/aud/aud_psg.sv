@@ -33,7 +33,6 @@ module aud_psg
     parameter int TICKS_PER_SAMPLE = 1050
 ) (
     input logic clk,
-    input logic rst_n,
 
     /* The device register: the sw's validated pointer, 0xFFFF off. */
     input logic xaddr_we,
@@ -622,7 +621,7 @@ module aud_psg
      * caught at the moment it moves. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{rst_n, cf[63:56], q_val[7:1], bel_wdata[31:24]};
+    always_comb unused_aud_psg = ^{cf[63:56], q_val[7:1], bel_wdata[31:24]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

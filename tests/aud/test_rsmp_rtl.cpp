@@ -59,14 +59,11 @@ static void fresh()
     }
     dut = new Vaud_rsmp;
     dut->clk = 0;
-    dut->rst_n = 0;
     dut->in_valid = 0;
     dut->in_sample = 0;
     dut->eval();
-    for (int i = 0; i < 4; i++)
+    for (int i = 0; i < 5; i++)
         tick();
-    dut->rst_n = 1;
-    tick();
 }
 
 /* The C is not clamped — it answers at full width and lets the platform's

@@ -447,7 +447,6 @@ module rp6502
     logic vid_px_first, vid_px_last;
     vid_timing vid_timing (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .vid_timing_h(vid_h),
         .vid_timing_v(vid_v),
         .vid_timing_px_first(vid_px_first),
@@ -565,7 +564,6 @@ module rp6502
 
     vid_prog vid_prog (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .frame_start(vid_frame_start),
         .v(vid_v),
         .px_first(vid_px_first),
@@ -642,7 +640,7 @@ module rp6502
         for (gi = 0; gi < 3; gi++) begin : gen_mode
             vid_mode vid_mode (
                 .clk(clk_sys),
-                .rst_n(rst_n),
+        .rst_n(rst_n),
                 .v(vid_v),
                 .h(vid_h),
                 .px_last(vid_px_last),
@@ -716,7 +714,6 @@ module rp6502
     /* verilator lint_off PINCONNECTEMPTY */
     aud_psg aud_psg (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
         .aud_psg_a_req(ma_req[4]),
@@ -765,7 +762,6 @@ module rp6502
     /* verilator lint_off PINCONNECTEMPTY */
     aud_rsmp aud_rsmp (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .in_sample(opl_l),
         .in_valid(opl_valid),
         .step(psg_tick),
@@ -807,7 +803,6 @@ module rp6502
 
     vid_compose vid_compose (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .de(vid_de),
         .console(vid_console),
         .term_pix(term_pix),

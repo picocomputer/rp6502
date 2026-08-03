@@ -30,7 +30,6 @@
 
 module vid_prog (
     input logic clk,
-    input logic rst_n,
     input logic frame_start,
 
     input logic [9:0] v,
@@ -119,28 +118,27 @@ module vid_prog (
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            canvas_shadow <= 3'd0;
-            vsync_shadow <= 10'd480;
-            vsync_q <= 10'd480;
-            vid_prog_canvas <= 3'd0;
-        end else begin
-            if (b_stb && b_we && b_addr[15] && !b_addr[3]) begin
-                if (b_addr[2])
-                    vsync_shadow <= b_wdata[9:0];
-                else
-                    canvas_shadow <= b_wdata[2:0];
-            end
-            /* The canvas is a render latch: it fires one raster line
-             * before the beam's frame, where the engines take row 0, so
-             * row 0 sees the same canvas as every other row. The vsync
-             * line paces the beam and latches at the beam's boundary. */
-            if (h == 10'd0 && px_first && v == 10'd524)
-                vid_prog_canvas <= canvas_shadow;
-            if (frame_start)
-                vsync_q <= vsync_shadow;
+    initial begin
+        canvas_shadow = 3'd0;
+        vsync_shadow = 10'd480;
+        vsync_q = 10'd480;
+        vid_prog_canvas = 3'd0;
+    end
+    always_ff @(posedge clk) begin
+        if (b_stb && b_we && b_addr[15] && !b_addr[3]) begin
+            if (b_addr[2])
+                vsync_shadow <= b_wdata[9:0];
+            else
+                canvas_shadow <= b_wdata[2:0];
         end
+        /* The canvas is a render latch: it fires one raster line
+         * before the beam's frame, where the engines take row 0, so
+         * row 0 sees the same canvas as every other row. The vsync
+         * line paces the beam and latches at the beam's boundary. */
+        if (h == 10'd0 && px_first && v == 10'd524)
+            vid_prog_canvas <= canvas_shadow;
+        if (frame_start)
+            vsync_q <= vsync_shadow;
     end
 
     always_comb vid_prog_ov_clear = b_stb && b_we && b_addr[15]

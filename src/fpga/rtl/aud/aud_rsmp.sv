@@ -34,7 +34,6 @@ module aud_rsmp
     parameter int STEP_DEN = 1014
 ) (
     input logic clk,
-    input logic rst_n,
 
     input logic signed [15:0] in_sample,
     input logic in_valid,
@@ -251,10 +250,5 @@ module aud_rsmp
             default: state <= R_IDLE;
         endcase
     end
-
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_aud_rsmp_rst;
-    always_comb unused_aud_rsmp_rst = ^{rst_n};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

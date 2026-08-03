@@ -20,7 +20,6 @@ module vid_timing
     import rp6502_pkg::*;
 (
     input logic clk,
-    input logic rst_n,
 
     output logic [9:0] vid_timing_h,
     output logic [9:0] vid_timing_v,
@@ -36,23 +35,22 @@ module vid_timing
 
     logic tick;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            tick <= '0;
-            vid_timing_h <= '0;
-            vid_timing_v <= '0;
-        end else begin
-            tick <= tick + 1'd1;
-            if (tick == 1'd1) begin
-                if (vid_timing_h == 10'(RP6502_H_TOTAL - 1)) begin
-                    vid_timing_h <= '0;
-                    if (vid_timing_v == 10'(RP6502_V_TOTAL - 1))
-                        vid_timing_v <= '0;
-                    else
-                        vid_timing_v <= vid_timing_v + 10'd1;
-                end else begin
-                    vid_timing_h <= vid_timing_h + 10'd1;
-                end
+    initial begin
+        tick = '0;
+        vid_timing_h = '0;
+        vid_timing_v = '0;
+    end
+    always_ff @(posedge clk) begin
+        tick <= tick + 1'd1;
+        if (tick == 1'd1) begin
+            if (vid_timing_h == 10'(RP6502_H_TOTAL - 1)) begin
+                vid_timing_h <= '0;
+                if (vid_timing_v == 10'(RP6502_V_TOTAL - 1))
+                    vid_timing_v <= '0;
+                else
+                    vid_timing_v <= vid_timing_v + 10'd1;
+            end else begin
+                vid_timing_h <= vid_timing_h + 10'd1;
             end
         end
     end

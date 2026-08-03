@@ -16,7 +16,6 @@
 
 module vid_mode3 (
     input logic clk,
-    input logic rst_n,
 
     /* One line of work: start when the config view is valid; abort_i is
      * the next line's deadline. */
@@ -117,119 +116,118 @@ module vid_mode3 (
         /* else: blank, or right padding — the rest of the line. */
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            state <= S3_IDLE;
-            row <= '0;
-            sizeof_row <= '0;
-            row_off <= '0;
-            row_base <= '0;
-            col <= '0;
-            px_rem <= '0;
-            blank <= 1'b0;
-            vid_mode3_tl_start <= 1'b0;
-            vid_mode3_pal_ptr <= '0;
-            vid_mode3_pal_xram <= 1'b0;
-            vid_mode3_bpp <= '0;
-            vid_mode3_reversed <= 1'b0;
-            vid_mode3_filled <= 1'b0;
-        end else begin
-            vid_mode3_tl_start <= 1'b0;
-            if (abort_i) begin
+    initial begin
+        state = S3_IDLE;
+        row = '0;
+        sizeof_row = '0;
+        row_off = '0;
+        row_base = '0;
+        col = '0;
+        px_rem = '0;
+        blank = 1'b0;
+        vid_mode3_tl_start = 1'b0;
+        vid_mode3_pal_ptr = '0;
+        vid_mode3_pal_xram = 1'b0;
+        vid_mode3_bpp = '0;
+        vid_mode3_reversed = 1'b0;
+        vid_mode3_filled = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        vid_mode3_tl_start <= 1'b0;
+        if (abort_i) begin
 `ifdef VERILATOR
-                if (state == S3_WRAP || state == S3_ADDR)
-                    $fatal(1, "vid_mode3 underrun");
+            if (state == S3_WRAP || state == S3_ADDR)
+                $fatal(1, "vid_mode3 underrun");
 `endif
-                state <= S3_IDLE;
-            end else if (start) begin
-                row <= $signed({row16[15], row16});
-                sizeof_row <= ((20'(cf_width) << bpp_log) + 20'd7) >> 3;
-                col <= $signed({col16[15], col16});
-                state <= S3_WRAP;
-            end else begin
-                case (state)
-                    S3_IDLE: ;
-                    S3_WRAP: begin
-                        /* Iterative wraparound; sane configs settle in a
-                         * step or two, and the beam's deadline bounds the
-                         * pathological ones. */
-                        if (cf_width < 16'sd1 || cf_height < 16'sd1) begin
-                            blank <= 1'b1;
-                            state <= S3_ADDR;
-                        end else if (cf_y_wrap && row < 0)
-                            row <= row + {cf_height[15], cf_height};
-                        else if (cf_y_wrap
-                                 && row >= $signed({cf_height[15], cf_height}))
-                            row <= row - {cf_height[15], cf_height};
-                        else if (cf_x_wrap && col < 0)
-                            col <= col + {cf_width[15], cf_width};
-                        else if (cf_x_wrap
-                                 && col >= $signed({cf_width[15], cf_width}))
-                            col <= col - {cf_width[15], cf_width};
-                        else if (row < 0
-                                 || row >= $signed({cf_height[15], cf_height}))
-                        begin
-                            blank <= 1'b1;
-                            state <= S3_ADDR;
-                        end else begin
-                            blank <= 1'b0;
-                            row_off <= 20'(37'(row[15:0])
-                                           * 37'(sizeof_row));
-                            state <= S3_ADDR;
-                        end
+            state <= S3_IDLE;
+        end else if (start) begin
+            row <= $signed({row16[15], row16});
+            sizeof_row <= ((20'(cf_width) << bpp_log) + 20'd7) >> 3;
+            col <= $signed({col16[15], col16});
+            state <= S3_WRAP;
+        end else begin
+            case (state)
+                S3_IDLE: ;
+                S3_WRAP: begin
+                    /* Iterative wraparound; sane configs settle in a
+                     * step or two, and the beam's deadline bounds the
+                     * pathological ones. */
+                    if (cf_width < 16'sd1 || cf_height < 16'sd1) begin
+                        blank <= 1'b1;
+                        state <= S3_ADDR;
+                    end else if (cf_y_wrap && row < 0)
+                        row <= row + {cf_height[15], cf_height};
+                    else if (cf_y_wrap
+                             && row >= $signed({cf_height[15], cf_height}))
+                        row <= row - {cf_height[15], cf_height};
+                    else if (cf_x_wrap && col < 0)
+                        col <= col + {cf_width[15], cf_width};
+                    else if (cf_x_wrap
+                             && col >= $signed({cf_width[15], cf_width}))
+                        col <= col - {cf_width[15], cf_width};
+                    else if (row < 0
+                             || row >= $signed({cf_height[15], cf_height}))
+                    begin
+                        blank <= 1'b1;
+                        state <= S3_ADDR;
+                    end else begin
+                        blank <= 1'b0;
+                        row_off <= 20'(37'(row[15:0])
+                                       * 37'(sizeof_row));
+                        state <= S3_ADDR;
                     end
-                    S3_ADDR: begin
-                        row_base <= {1'b0, cf_data} + row_off[16:0];
-                        /* Bitmap overrun, and 16bpp rejects an odd row. */
-                        if (!blank
-                            && (35'(cf_height[14:0]) * 35'(sizeof_row)
-                                > 35'(17'h10000) - 35'({1'b0, cf_data})
-                                || (bpp_log == 3'd4
-                                    && (cf_data[0] ^ row_off[0]))))
-                            blank <= 1'b1;
-                        /* The tail's plan: a blank line loads nothing.
-                         * The pal_xram test folds the blank decision in
-                         * combinationally, since blank may land on this
-                         * same edge. */
-                        vid_mode3_pal_ptr <= cf_palette;
-                        vid_mode3_pal_xram <= !blank
-                            && !(35'(cf_height[14:0]) * 35'(sizeof_row)
-                                 > 35'(17'h10000) - 35'({1'b0, cf_data})
-                                 || (bpp_log == 3'd4
-                                     && (cf_data[0] ^ row_off[0])))
-                            && !cf_palette[0]
-                            && bpp_log != 3'd4
-                            && {1'b0, cf_palette}
-                                <= 17'h10000
-                                    - (17'd2 << {12'd0, 5'd1 << bpp_log});
-                        vid_mode3_bpp <= bpp_log;
-                        vid_mode3_reversed <= reversed;
-                        vid_mode3_filled <= !blank
-                            && !(35'(cf_height[14:0]) * 35'(sizeof_row)
-                                 > 35'(17'h10000) - 35'({1'b0, cf_data})
-                                 || (bpp_log == 3'd4
-                                     && (cf_data[0] ^ row_off[0])));
-                        vid_mode3_tl_start <= 1'b1;
-                        px_rem <= cw;
-                        state <= S3_SEG;
+                end
+                S3_ADDR: begin
+                    row_base <= {1'b0, cf_data} + row_off[16:0];
+                    /* Bitmap overrun, and 16bpp rejects an odd row. */
+                    if (!blank
+                        && (35'(cf_height[14:0]) * 35'(sizeof_row)
+                            > 35'(17'h10000) - 35'({1'b0, cf_data})
+                            || (bpp_log == 3'd4
+                                && (cf_data[0] ^ row_off[0]))))
+                        blank <= 1'b1;
+                    /* The tail's plan: a blank line loads nothing.
+                     * The pal_xram test folds the blank decision in
+                     * combinationally, since blank may land on this
+                     * same edge. */
+                    vid_mode3_pal_ptr <= cf_palette;
+                    vid_mode3_pal_xram <= !blank
+                        && !(35'(cf_height[14:0]) * 35'(sizeof_row)
+                             > 35'(17'h10000) - 35'({1'b0, cf_data})
+                             || (bpp_log == 3'd4
+                                 && (cf_data[0] ^ row_off[0])))
+                        && !cf_palette[0]
+                        && bpp_log != 3'd4
+                        && {1'b0, cf_palette}
+                            <= 17'h10000
+                                - (17'd2 << {12'd0, 5'd1 << bpp_log});
+                    vid_mode3_bpp <= bpp_log;
+                    vid_mode3_reversed <= reversed;
+                    vid_mode3_filled <= !blank
+                        && !(35'(cf_height[14:0]) * 35'(sizeof_row)
+                             > 35'(17'h10000) - 35'({1'b0, cf_data})
+                             || (bpp_log == 3'd4
+                                 && (cf_data[0] ^ row_off[0])));
+                    vid_mode3_tl_start <= 1'b1;
+                    px_rem <= cw;
+                    state <= S3_SEG;
+                end
+                S3_SEG: begin
+                    if (seg_take) begin
+                        px_rem <= px_rem - vid_mode3_seg_px;
+                        if (!blank && col < 0)
+                            col <= col + $signed({7'd0,
+                                                  vid_mode3_seg_px});
+                        else if (!blank && col < width_s)
+                            col <= cf_x_wrap ? 17'sd0
+                                : col + $signed({7'd0,
+                                                 vid_mode3_seg_px});
+                        if (px_rem == vid_mode3_seg_px)
+                            state <= S3_IDLE;
                     end
-                    S3_SEG: begin
-                        if (seg_take) begin
-                            px_rem <= px_rem - vid_mode3_seg_px;
-                            if (!blank && col < 0)
-                                col <= col + $signed({7'd0,
-                                                      vid_mode3_seg_px});
-                            else if (!blank && col < width_s)
-                                col <= cf_x_wrap ? 17'sd0
-                                    : col + $signed({7'd0,
-                                                     vid_mode3_seg_px});
-                            if (px_rem == vid_mode3_seg_px)
-                                state <= S3_IDLE;
-                        end
-                    end
-                    default: state <= S3_IDLE;
-                endcase
-            end
+                end
+                default: state <= S3_IDLE;
+            endcase
         end
     end
 

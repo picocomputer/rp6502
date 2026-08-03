@@ -271,9 +271,15 @@ static void run_line(const std::vector<seg> &segs, int bpp_log, bool rev,
     }
 }
 
+/* The tail takes no reset, so a fresh one is a newly powered one. */
 static void fresh()
 {
-    dut->rst_n = 0;
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vvid_pixtail;
     dut->clk = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
@@ -281,7 +287,6 @@ static void fresh()
         dut->clk = 1; dut->eval();
         dut->clk = 0; dut->eval();
     }
-    dut->rst_n = 1;
 }
 
 static void fill_xram()

@@ -17,7 +17,6 @@
 
 module vid_mode1 (
     input logic clk,
-    input logic rst_n,
 
     input logic start,
     input logic abort_i,
@@ -282,210 +281,209 @@ module vid_mode1 (
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        state = S1_IDLE;
+        fstate = F_IDLE;
+        row = '0;
+        scanrow = '0;
+        sizeof_row = '0;
+        row_off = '0;
+        row_base = '0;
+        col = '0;
+        px_rem = '0;
+        blank = 1'b0;
+        pal_xram = 1'b0;
+        pal_n = '0;
+        pal_w = '0;
+        cell_addr = '0;
+        cell_lane = '0;
+        fetch_col = '0;
+        fw_i = '0;
+        fw_c = '0;
+        fw_n = '0;
+        gather = '0;
+        gnt_d = 1'b0;
+        f_gnt_d = 1'b0;
+        nxt_v = 1'b0;
+        nxt_bits = '0;
+        nxt_fg = '0;
+        nxt_bg = '0;
+        font_gather = '0;
+        vid_mode1_tl_start = 1'b0;
+        vid_mode1_filled = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        gnt_d <= a_gnt;
+        f_gnt_d <= f_gnt;
+        vid_mode1_tl_start <= 1'b0;
+        if (abort_i) begin
+`ifdef VERILATOR
+            if (state != S1_IDLE && state != S1_SEG)
+                $fatal(1, "vid_mode1 underrun");
+`endif
             state <= S1_IDLE;
             fstate <= F_IDLE;
-            row <= '0;
-            scanrow <= '0;
-            sizeof_row <= '0;
-            row_off <= '0;
-            row_base <= '0;
-            col <= '0;
-            px_rem <= '0;
+        end else if (start) begin
+            row <= $signed({row16[15], row16});
+            sizeof_row <= 20'(17'(cf_wchars[15:0])
+                              * {14'd0, cell_size});
+            col <= $signed({col16[15], col16});
             blank <= 1'b0;
-            pal_xram <= 1'b0;
-            pal_n <= '0;
-            pal_w <= '0;
-            cell_addr <= '0;
-            cell_lane <= '0;
-            fetch_col <= '0;
-            fw_i <= '0;
-            fw_c <= '0;
-            fw_n <= '0;
-            gather <= '0;
-            gnt_d <= 1'b0;
-            f_gnt_d <= 1'b0;
             nxt_v <= 1'b0;
-            nxt_bits <= '0;
-            nxt_fg <= '0;
-            nxt_bg <= '0;
-            font_gather <= '0;
-            vid_mode1_tl_start <= 1'b0;
-            vid_mode1_filled <= 1'b0;
+            fstate <= F_IDLE;
+            state <= S1_WRAP;
+            fetch_col <= '0;
         end else begin
-            gnt_d <= a_gnt;
-            f_gnt_d <= f_gnt;
-            vid_mode1_tl_start <= 1'b0;
-            if (abort_i) begin
-`ifdef VERILATOR
-                if (state != S1_IDLE && state != S1_SEG)
-                    $fatal(1, "vid_mode1 underrun");
-`endif
-                state <= S1_IDLE;
-                fstate <= F_IDLE;
-            end else if (start) begin
-                row <= $signed({row16[15], row16});
-                sizeof_row <= 20'(17'(cf_wchars[15:0])
-                                  * {14'd0, cell_size});
-                col <= $signed({col16[15], col16});
-                blank <= 1'b0;
-                nxt_v <= 1'b0;
-                fstate <= F_IDLE;
-                state <= S1_WRAP;
-                fetch_col <= '0;
-            end else begin
-                case (state)
-                    S1_IDLE: ;
-                    S1_WRAP: begin
-                        /* The oracle rejects on the int16 height, not the
-                         * char count. */
-                        if (cf_wchars < 16'sd1 || height_px_s < 18'sd1)
-                        begin
-                            blank <= 1'b1;
-                            state <= S1_ADDR;
-                        end
-                        else if (cf_y_wrap && row < 0)
-                            row <= 17'(18'(row) + height_px_s);
-                        else if (cf_y_wrap && 18'(row) >= height_px_s)
-                            row <= 17'(18'(row) - height_px_s);
-                        else if (cf_x_wrap && col < 0)
-                            col <= 17'(18'(col) + win_w);
-                        else if (cf_x_wrap && 18'(col) >= win_w)
-                            col <= 17'(18'(col) - win_w);
-                        else if (row < 0 || 18'(row) >= height_px_s)
-                        begin
-                            blank <= 1'b1;
-                            state <= S1_ADDR;
-                        end
-                        else begin
-                            row_off <= 20'((37'(row[15:0])
-                                            >> (fh16 ? 4 : 3))
-                                           * 37'(sizeof_row));
-                            scanrow <= fh16 ? row[3:0] : {1'b0, row[2:0]};
-                            state <= S1_ADDR;
+            case (state)
+                S1_IDLE: ;
+                S1_WRAP: begin
+                    /* The oracle rejects on the int16 height, not the
+                     * char count. */
+                    if (cf_wchars < 16'sd1 || height_px_s < 18'sd1)
+                    begin
+                        blank <= 1'b1;
+                        state <= S1_ADDR;
+                    end
+                    else if (cf_y_wrap && row < 0)
+                        row <= 17'(18'(row) + height_px_s);
+                    else if (cf_y_wrap && 18'(row) >= height_px_s)
+                        row <= 17'(18'(row) - height_px_s);
+                    else if (cf_x_wrap && col < 0)
+                        col <= 17'(18'(col) + win_w);
+                    else if (cf_x_wrap && 18'(col) >= win_w)
+                        col <= 17'(18'(col) - win_w);
+                    else if (row < 0 || 18'(row) >= height_px_s)
+                    begin
+                        blank <= 1'b1;
+                        state <= S1_ADDR;
+                    end
+                    else begin
+                        row_off <= 20'((37'(row[15:0])
+                                        >> (fh16 ? 4 : 3))
+                                       * 37'(sizeof_row));
+                        scanrow <= fh16 ? row[3:0] : {1'b0, row[2:0]};
+                        state <= S1_ADDR;
+                    end
+                end
+                S1_ADDR: begin
+                    row_base <= {1'b0, cf_data} + row_off[16:0];
+                    if (overrun)
+                        blank <= 1'b1;
+                    vid_mode1_filled <= !blank && !overrun;
+                    vid_mode1_tl_start <= 1'b1;
+                    px_rem <= cw;
+                    if (blank || overrun)
+                        state <= S1_SEG;
+                    else begin
+                        pal_xram <= pal_bpp != 4'd0 && !cf_palette[0]
+                            && {1'b0, cf_palette}
+                                <= 17'h10000
+                                    - (17'd2 << {13'd0, pal_bpp});
+                        pal_n <= '0;
+                        pal_w <= '0;
+                        state <= S1_PAL;
+                    end
+                end
+                S1_PAL: begin
+                    if (!pal_xram || pal_bpp == 4'd0) begin
+                        state <= S1_SEG;
+                        fstate <= F_IDLE;
+                        fetch_col <= col < 0 ? 16'd0 : col[15:0] >> 3;
+                    end else begin
+                        if (a_gnt)
+                            pal_n <= pal_n + 9'd1;
+                        if (gnt_d) begin
+                            pal_w <= pal_w + 8'd1;
+                            if ({1'b0, pal_w} == pal_fetch - 9'd1)
+                            begin
+                                state <= S1_SEG;
+                                fstate <= F_IDLE;
+                                fetch_col <= col < 0
+                                    ? 16'd0 : col[15:0] >> 3;
+                                pal_w <= '0;
+                            end
                         end
                     end
-                    S1_ADDR: begin
-                        row_base <= {1'b0, cf_data} + row_off[16:0];
-                        if (overrun)
-                            blank <= 1'b1;
-                        vid_mode1_filled <= !blank && !overrun;
-                        vid_mode1_tl_start <= 1'b1;
-                        px_rem <= cw;
-                        if (blank || overrun)
-                            state <= S1_SEG;
-                        else begin
-                            pal_xram <= pal_bpp != 4'd0 && !cf_palette[0]
-                                && {1'b0, cf_palette}
-                                    <= 17'h10000
-                                        - (17'd2 << {13'd0, pal_bpp});
-                            pal_n <= '0;
-                            pal_w <= '0;
-                            state <= S1_PAL;
+                end
+                S1_SEG: begin
+                    /* The fetcher gathers the next cell. */
+                    case (fstate)
+                        F_IDLE: begin
+                            if (!blank && !nxt_v
+                                && $signed(18'(fetch_col) <<< 3)
+                                   < win_w) begin
+                                cell_addr <= cell_fetch_addr;
+                                cell_lane <= cell_fetch_addr[1:0];
+                                fw_i <= '0;
+                                fw_c <= '0;
+                                fw_n <= 2'((4'(cell_fetch_addr[1:0])
+                                     + {1'd0, cell_size} + 4'd3) >> 2);
+                                gather <= '0;
+                                fstate <= F_W;
+                            end
                         end
-                    end
-                    S1_PAL: begin
-                        if (!pal_xram || pal_bpp == 4'd0) begin
-                            state <= S1_SEG;
-                            fstate <= F_IDLE;
-                            fetch_col <= col < 0 ? 16'd0 : col[15:0] >> 3;
-                        end else begin
+                        F_W: begin
                             if (a_gnt)
-                                pal_n <= pal_n + 9'd1;
+                                fw_i <= fw_i + 2'd1;
                             if (gnt_d) begin
-                                pal_w <= pal_w + 8'd1;
-                                if ({1'b0, pal_w} == pal_fetch - 9'd1)
-                                begin
-                                    state <= S1_SEG;
-                                    fstate <= F_IDLE;
-                                    fetch_col <= col < 0
-                                        ? 16'd0 : col[15:0] >> 3;
-                                    pal_w <= '0;
-                                end
-                            end
-                        end
-                    end
-                    S1_SEG: begin
-                        /* The fetcher gathers the next cell. */
-                        case (fstate)
-                            F_IDLE: begin
-                                if (!blank && !nxt_v
-                                    && $signed(18'(fetch_col) <<< 3)
-                                       < win_w) begin
-                                    cell_addr <= cell_fetch_addr;
-                                    cell_lane <= cell_fetch_addr[1:0];
+                                case (fw_c)
+                                    2'd0: gather[31:0] <= a_rdata;
+                                    2'd1: gather[63:32] <= a_rdata;
+                                    2'd2: gather[95:64] <= a_rdata;
+                                    default: ;
+                                endcase
+                                fw_c <= fw_c + 2'd1;
+                                if (fw_c + 2'd1 == fw_n) begin
                                     fw_i <= '0;
-                                    fw_c <= '0;
-                                    fw_n <= 2'((4'(cell_fetch_addr[1:0])
-                                         + {1'd0, cell_size} + 4'd3) >> 2);
-                                    gather <= '0;
-                                    fstate <= F_W;
+                                    fstate <= F_FONT;
                                 end
-                            end
-                            F_W: begin
-                                if (a_gnt)
-                                    fw_i <= fw_i + 2'd1;
-                                if (gnt_d) begin
-                                    case (fw_c)
-                                        2'd0: gather[31:0] <= a_rdata;
-                                        2'd1: gather[63:32] <= a_rdata;
-                                        2'd2: gather[95:64] <= a_rdata;
-                                        default: ;
-                                    endcase
-                                    fw_c <= fw_c + 2'd1;
-                                    if (fw_c + 2'd1 == fw_n) begin
-                                        fw_i <= '0;
-                                        fstate <= F_FONT;
-                                    end
-                                end
-                            end
-                            F_FONT: begin
-                                if (fnt_gnt)
-                                    fw_i <= 2'd1;
-                                if (fnt_gnt_d) begin
-                                    font_gather <= fnt_byte;
-                                    fstate <= F_READY;
-                                end
-                            end
-                            F_READY: begin
-                                if (!nxt_v) begin
-                                    nxt_bits <= font_gather;
-                                    nxt_fg <= fmt == 3'd4 ? g_fg16 : pal_fg;
-                                    nxt_bg <= fmt == 3'd4 ? g_bg16 : pal_bg;
-                                    nxt_v <= 1'b1;
-                                    fetch_col <= fetch_col + 16'd1;
-                                    fstate <= F_IDLE;
-                                end
-                            end
-                            default: fstate <= F_IDLE;
-                        endcase
-
-                        if (seg_take) begin
-                            px_rem <= px_rem - vid_mode1_seg_px;
-                            if (px_rem == vid_mode1_seg_px)
-                                state <= S1_IDLE;
-                            if (!blank && col < 0)
-                                col <= col
-                                    + $signed({7'd0, vid_mode1_seg_px});
-                            else if (!blank && 18'(col) < win_w) begin
-                                nxt_v <= 1'b0;
-                                if (cf_x_wrap
-                                    && 18'(col) + 18'({8'd0,
-                                                       vid_mode1_seg_px})
-                                        == win_w) begin
-                                    col <= '0;
-                                    fetch_col <= '0;
-                                    fstate <= F_IDLE;
-                                end else
-                                    col <= col + $signed(
-                                        {7'd0, vid_mode1_seg_px});
                             end
                         end
+                        F_FONT: begin
+                            if (fnt_gnt)
+                                fw_i <= 2'd1;
+                            if (fnt_gnt_d) begin
+                                font_gather <= fnt_byte;
+                                fstate <= F_READY;
+                            end
+                        end
+                        F_READY: begin
+                            if (!nxt_v) begin
+                                nxt_bits <= font_gather;
+                                nxt_fg <= fmt == 3'd4 ? g_fg16 : pal_fg;
+                                nxt_bg <= fmt == 3'd4 ? g_bg16 : pal_bg;
+                                nxt_v <= 1'b1;
+                                fetch_col <= fetch_col + 16'd1;
+                                fstate <= F_IDLE;
+                            end
+                        end
+                        default: fstate <= F_IDLE;
+                    endcase
+
+                    if (seg_take) begin
+                        px_rem <= px_rem - vid_mode1_seg_px;
+                        if (px_rem == vid_mode1_seg_px)
+                            state <= S1_IDLE;
+                        if (!blank && col < 0)
+                            col <= col
+                                + $signed({7'd0, vid_mode1_seg_px});
+                        else if (!blank && 18'(col) < win_w) begin
+                            nxt_v <= 1'b0;
+                            if (cf_x_wrap
+                                && 18'(col) + 18'({8'd0,
+                                                   vid_mode1_seg_px})
+                                    == win_w) begin
+                                col <= '0;
+                                fetch_col <= '0;
+                                fstate <= F_IDLE;
+                            end else
+                                col <= col + $signed(
+                                    {7'd0, vid_mode1_seg_px});
+                        end
                     end
-                    default: state <= S1_IDLE;
-                endcase
-            end
+                end
+                default: state <= S1_IDLE;
+            endcase
         end
     end
 

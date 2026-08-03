@@ -16,13 +16,11 @@ module pocket_fifo #(
     parameter int DEPTH_LOG2 = 3
 ) (
     input logic wclk,
-    input logic wrst_n,
     input logic w_stb,
     input logic [WIDTH-1:0] w_data,
     output logic pocket_fifo_full,
 
     input logic rclk,
-    input logic rrst_n,
     input logic r_take,
     output logic pocket_fifo_empty,
     output logic [WIDTH-1:0] pocket_fifo_rdata
@@ -46,34 +44,32 @@ module pocket_fifo #(
     always_comb wptr_n = wptr + PW'(w_stb && !pocket_fifo_full);
     always_comb rptr_n = rptr + PW'(r_take && !pocket_fifo_empty);
 
-    always_ff @(posedge wclk or negedge wrst_n) begin
-        if (!wrst_n) begin
-            wptr <= '0;
-            wptr_gray <= '0;
-            rptr_gray_w1 <= '0;
-            rptr_gray_w2 <= '0;
-        end else begin
-            if (w_stb && !pocket_fifo_full)
-                mem[wptr[DEPTH_LOG2-1:0]] <= w_data;
-            wptr <= wptr_n;
-            wptr_gray <= wptr_n ^ (wptr_n >> 1);
-            rptr_gray_w1 <= rptr_gray;
-            rptr_gray_w2 <= rptr_gray_w1;
-        end
+    initial begin
+        wptr = '0;
+        wptr_gray = '0;
+        rptr_gray_w1 = '0;
+        rptr_gray_w2 = '0;
+    end
+    always_ff @(posedge wclk) begin
+        if (w_stb && !pocket_fifo_full)
+            mem[wptr[DEPTH_LOG2-1:0]] <= w_data;
+        wptr <= wptr_n;
+        wptr_gray <= wptr_n ^ (wptr_n >> 1);
+        rptr_gray_w1 <= rptr_gray;
+        rptr_gray_w2 <= rptr_gray_w1;
     end
 
-    always_ff @(posedge rclk or negedge rrst_n) begin
-        if (!rrst_n) begin
-            rptr <= '0;
-            rptr_gray <= '0;
-            wptr_gray_r1 <= '0;
-            wptr_gray_r2 <= '0;
-        end else begin
-            rptr <= rptr_n;
-            rptr_gray <= rptr_n ^ (rptr_n >> 1);
-            wptr_gray_r1 <= wptr_gray;
-            wptr_gray_r2 <= wptr_gray_r1;
-        end
+    initial begin
+        rptr = '0;
+        rptr_gray = '0;
+        wptr_gray_r1 = '0;
+        wptr_gray_r2 = '0;
+    end
+    always_ff @(posedge rclk) begin
+        rptr <= rptr_n;
+        rptr_gray <= rptr_n ^ (rptr_n >> 1);
+        wptr_gray_r1 <= wptr_gray;
+        wptr_gray_r2 <= wptr_gray_r1;
     end
 
     /* Full: the write pointer has lapped the (synchronized) read

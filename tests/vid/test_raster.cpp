@@ -16,10 +16,12 @@ static const int TB_PX = 2;
 static const int TB_H_TOTAL = 800;
 static const int TB_V_TOTAL = 525;
 
-UTEST(rtl, reset_clears_raster)
+/* The beam takes no reset — it is not the 6502 or the 6522 — so where a
+ * frame starts is decided at power-on and nowhere else. Every frame
+ * comparison in the suite rests on that being the origin. */
+UTEST(rtl, power_on_starts_at_the_origin)
 {
     tb_core_init();
-    tb_core_reset();
     ASSERT_EQ(tb_core_scanline(), 0);
     ASSERT_EQ(tb_core_h(), 0);
     tb_core_free();
@@ -28,7 +30,6 @@ UTEST(rtl, reset_clears_raster)
 UTEST(rtl, scanline_advances_once_per_line)
 {
     tb_core_init();
-    tb_core_reset();
     tb_core_clocks(TB_H_TOTAL * TB_PX - 1);
     ASSERT_EQ(tb_core_scanline(), 0);
     tb_core_clocks(1);
@@ -41,7 +42,6 @@ UTEST(rtl, scanline_advances_once_per_line)
 UTEST(rtl, frame_wraps_after_525_lines)
 {
     tb_core_init();
-    tb_core_reset();
     tb_core_clocks((TB_V_TOTAL - 1) * TB_H_TOTAL * TB_PX);
     ASSERT_EQ(tb_core_scanline(), TB_V_TOTAL - 1);
     tb_core_clocks(TB_H_TOTAL * TB_PX);
@@ -52,7 +52,6 @@ UTEST(rtl, frame_wraps_after_525_lines)
 UTEST(rtl, sync_and_de_windows_are_exact)
 {
     tb_core_init();
-    tb_core_reset();
     /* One full frame, every clock checked against the window math. */
     for (int v = 0; v < TB_V_TOTAL; v++)
         for (int h = 0; h < TB_H_TOTAL; h++)

@@ -111,31 +111,30 @@ module vid_term (
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            for (int i = 0; i < 32; i++)
-                row_shadow[i] <= 16'h0000;
-            cursor_shadow <= 32'h0;
-            cursor_color_shadow <= 16'h0;
-            blink_shadow <= 2'h0;
-            prog_shadow <= 32'h0;
-            frame_count <= 32'h0;
-        end else begin
-            if (frame_start)
-                frame_count <= frame_count + 32'd1;
-            if (b_stb && b_we && b_addr[16]) begin
-                case (b_addr[7:2])
-                    6'd32: cursor_shadow <= b_wdata;
-                    6'd33: cursor_color_shadow <= b_wdata[15:0];
-                    6'd34: blink_shadow <= b_wdata[1:0];
-                    6'd35: prog_shadow <= b_wdata;
-                    6'd40: ;  /* the frame counter is the raster's */
-                    default: begin
-                        if (!b_addr[7])
-                            row_shadow[b_addr[6:2]] <= b_wdata[15:0];
-                    end
-                endcase
-            end
+    initial begin
+        for (int i = 0; i < 32; i++)
+            row_shadow[i] = 16'h0000;
+        cursor_shadow = 32'h0;
+        cursor_color_shadow = 16'h0;
+        blink_shadow = 2'h0;
+        prog_shadow = 32'h0;
+        frame_count = 32'h0;
+    end
+    always_ff @(posedge clk) begin
+        if (frame_start)
+            frame_count <= frame_count + 32'd1;
+        if (b_stb && b_we && b_addr[16]) begin
+            case (b_addr[7:2])
+                6'd32: cursor_shadow <= b_wdata;
+                6'd33: cursor_color_shadow <= b_wdata[15:0];
+                6'd34: blink_shadow <= b_wdata[1:0];
+                6'd35: prog_shadow <= b_wdata;
+                6'd40: ;  /* the frame counter is the raster's */
+                default: begin
+                    if (!b_addr[7])
+                        row_shadow[b_addr[6:2]] <= b_wdata[15:0];
+                end
+            endcase
         end
     end
 
@@ -293,109 +292,108 @@ module vid_term (
     logic cur_bar;
     always_comb cur_bar = cur_here && (cur_style == 3'd5 || cur_style == 3'd6);
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            wr_bank <= 1'b0;
-            run <= 1'b0;
-            t <= '0;
-            t_active <= 1'b0;
-            term_line <= '0;
-            cur_hit <= 1'b0;
-            cur_cx <= '0;
-            cur_style <= '0;
+    initial begin
+        wr_bank = 1'b0;
+        run = 1'b0;
+        t = '0;
+        t_active = 1'b0;
+        term_line = '0;
+        cur_hit = 1'b0;
+        cur_cx = '0;
+        cur_style = '0;
+        rescol = '0;
+        px = '0;
+        step = '0;
+        w0_n = '0;
+        w1_n = '0;
+        fetch_word = '0;
+        bits = '0;
+        fg_r = '0;
+        bg_r = '0;
+        shreg = '0;
+    end
+    always_ff @(posedge clk) begin
+        lb_we <= 1'b0;
+        if (line_start) begin
+            wr_bank <= !wr_bank;
+            t <= v == 10'd524 ? 10'd0 : v + 10'd1;
+            run <= 1'b1;
             rescol <= '0;
             px <= '0;
             step <= '0;
-            w0_n <= '0;
-            w1_n <= '0;
-            fetch_word <= '0;
-            bits <= '0;
-            fg_r <= '0;
-            bg_r <= '0;
-            shreg <= '0;
-        end else begin
-            lb_we <= 1'b0;
-            if (line_start) begin
-                wr_bank <= !wr_bank;
-                t <= v == 10'd524 ? 10'd0 : v + 10'd1;
-                run <= 1'b1;
-                rescol <= '0;
-                px <= '0;
-                step <= '0;
-            end else if (run && step == 4'd0) begin
-                t_active <= prog_q[31] && t >= prog_q[9:0]
-                    && t < prog_q[25:16];
-                term_line <= t[8:0] - prog_q[8:0];
-                step <= 4'd1;
-            end else if (run) begin
-                case (step)
-                    4'd1: begin
-                        cur_hit <= cursor_q[25]  /* enabled */
-                            && (cursor_q[24]     /* lit, or steady style */
-                                || cursor_q[18:16] == 3'd2
-                                || cursor_q[18:16] == 3'd4
-                                || cursor_q[18:16] == 3'd6)
-                            && cursor_q[15:8] == {3'd0, logical_row};
-                        cur_cx <= cursor_q[7:0] >= 8'd80
-                            ? 7'd79 : cursor_q[6:0];
-                        cur_style <= cursor_q[7:0] >= 8'd80
-                            ? 3'd1 : cursor_q[18:16];
-                        fetch_word <= row_base[logical_row][14:2];
-                        step <= 4'd2;
-                    end
-                    4'd2: begin
-                        fetch_word <= fetch_word + 13'd1;
-                        step <= 4'd3;
-                    end
-                    4'd3: begin
-                        w0_n <= fetch_q;
-                        step <= 4'd4;
-                    end
-                    4'd4: begin
-                        w1_n <= fetch_q;
-                        fetch_word <= fetch_word + 13'd1;
-                        step <= 4'd5;
-                    end
-                    4'd5: begin
-                        bits <= bits_res;
-                        fg_r <= fg_res;
-                        bg_r <= bg_res;
-                        shreg <= bits_res;
-                        rescol <= 7'd1;
-                        fetch_word <= fetch_word + 13'd1;
-                        step <= 4'd6;
-                    end
-                    default: begin
-                        lb_we <= 1'b1;
-                        lb_bank <= wr_bank;
-                        lb_addr <= px;
-                        lb_data <= t_active
-                            ? ((cur_bar_out && px[2:0] < 3'd2)
-                                   ? cursor_color_q
-                                   : (shreg[7] ? fg_r : bg_r))
-                            : 16'h0000;
-                        shreg <= {shreg[6:0], 1'b0};
-                        px <= px + 10'd1;
-                        case (px[2:0])
-                            3'd0: w0_n <= fetch_q;
-                            3'd1: w1_n <= fetch_q;
-                            3'd6: fetch_word <= fetch_word + 13'd1;
-                            3'd7: begin
-                                /* Load the resolved next cell. */
-                                bits <= bits_res;
-                                fg_r <= fg_res;
-                                bg_r <= bg_res;
-                                shreg <= bits_res;
-                                rescol <= rescol + 7'd1;
-                                fetch_word <= fetch_word + 13'd1;
-                                if (px == 10'd639)
-                                    run <= 1'b0;
-                            end
-                            default: ;
-                        endcase
-                    end
-                endcase
-            end
+        end else if (run && step == 4'd0) begin
+            t_active <= prog_q[31] && t >= prog_q[9:0]
+                && t < prog_q[25:16];
+            term_line <= t[8:0] - prog_q[8:0];
+            step <= 4'd1;
+        end else if (run) begin
+            case (step)
+                4'd1: begin
+                    cur_hit <= cursor_q[25]  /* enabled */
+                        && (cursor_q[24]     /* lit, or steady style */
+                            || cursor_q[18:16] == 3'd2
+                            || cursor_q[18:16] == 3'd4
+                            || cursor_q[18:16] == 3'd6)
+                        && cursor_q[15:8] == {3'd0, logical_row};
+                    cur_cx <= cursor_q[7:0] >= 8'd80
+                        ? 7'd79 : cursor_q[6:0];
+                    cur_style <= cursor_q[7:0] >= 8'd80
+                        ? 3'd1 : cursor_q[18:16];
+                    fetch_word <= row_base[logical_row][14:2];
+                    step <= 4'd2;
+                end
+                4'd2: begin
+                    fetch_word <= fetch_word + 13'd1;
+                    step <= 4'd3;
+                end
+                4'd3: begin
+                    w0_n <= fetch_q;
+                    step <= 4'd4;
+                end
+                4'd4: begin
+                    w1_n <= fetch_q;
+                    fetch_word <= fetch_word + 13'd1;
+                    step <= 4'd5;
+                end
+                4'd5: begin
+                    bits <= bits_res;
+                    fg_r <= fg_res;
+                    bg_r <= bg_res;
+                    shreg <= bits_res;
+                    rescol <= 7'd1;
+                    fetch_word <= fetch_word + 13'd1;
+                    step <= 4'd6;
+                end
+                default: begin
+                    lb_we <= 1'b1;
+                    lb_bank <= wr_bank;
+                    lb_addr <= px;
+                    lb_data <= t_active
+                        ? ((cur_bar_out && px[2:0] < 3'd2)
+                               ? cursor_color_q
+                               : (shreg[7] ? fg_r : bg_r))
+                        : 16'h0000;
+                    shreg <= {shreg[6:0], 1'b0};
+                    px <= px + 10'd1;
+                    case (px[2:0])
+                        3'd0: w0_n <= fetch_q;
+                        3'd1: w1_n <= fetch_q;
+                        3'd6: fetch_word <= fetch_word + 13'd1;
+                        3'd7: begin
+                            /* Load the resolved next cell. */
+                            bits <= bits_res;
+                            fg_r <= fg_res;
+                            bg_r <= bg_res;
+                            shreg <= bits_res;
+                            rescol <= rescol + 7'd1;
+                            fetch_word <= fetch_word + 13'd1;
+                            if (px == 10'd639)
+                                run <= 1'b0;
+                        end
+                        default: ;
+                    endcase
+                end
+            endcase
         end
     end
 
