@@ -19,9 +19,21 @@
  */
 
 #include "aud.h"
+#include "bel.h"
 #include "mmio.h"
 
 #include <string.h>
+
+/* Both engines parked before anything can program them, the way the
+ * RP2350's aud_init ends by setting its engines up. The platform's reset
+ * is not the engines' — they hold what the last session left them, and a
+ * host reset would otherwise come back to the old program still playing. */
+void aud_init(void)
+{
+    AUD_PSG_XADDR = 0xFFFF;
+    AUD_OPL_XADDR = 0xFFFF;
+    bel_init();
+}
 
 /* The exit path's teardown: a stopped program's engines are reset. The
  * engines here are free-running hardware, so without this the last sound

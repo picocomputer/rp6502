@@ -34,16 +34,15 @@ struct result
 
 static result run_khz(int khz, int sys_clocks)
 {
-    dut->rst_n = 0;
+    /* The accumulator has no reset — it is not the 6502 or the 6522, and
+     * a rate change is meant to take effect where the phase already is.
+     * Each rate therefore starts from power-on, which is the only state
+     * the hardware ever establishes for it. */
+    delete dut;
+    dut = new Vphi2_div;
     dut->phi2_khz = khz;
-    for (int i = 0; i < 2; i++)
-    {
-        dut->clk = 0;
-        dut->eval();
-        dut->clk = 1;
-        dut->eval();
-    }
-    dut->rst_n = 1;
+    dut->clk = 0;
+    dut->eval();
 
     result r = {0, 1 << 30, false};
     int gap = 0;

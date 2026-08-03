@@ -27,7 +27,6 @@ module phi2_div #(
     parameter int SYS_KHZ = 50400
 ) (
     input logic clk,
-    input logic rst_n,
 
     input logic [15:0] phi2_khz,
 
@@ -39,11 +38,12 @@ module phi2_div #(
     logic [ACC_W-1:0] acc, next;
     always_comb next = acc + ACC_W'(phi2_khz);
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            acc <= '0;
-            phi2_div_en <= 1'b0;
-        end else if (next >= ACC_W'(SYS_KHZ)) begin
+    initial begin
+        acc = '0;
+        phi2_div_en = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        if (next >= ACC_W'(SYS_KHZ)) begin
             acc <= next - ACC_W'(SYS_KHZ);
             phi2_div_en <= 1'b1;
         end else begin

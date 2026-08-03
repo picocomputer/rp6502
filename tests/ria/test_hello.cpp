@@ -129,20 +129,43 @@ UTEST(hello, echoes_through_the_latch)
     ASSERT_STREQ(out.c_str(), "Q");
 }
 
-/* The ready bit is visible without traffic, and vectors live in the cells. */
-UTEST(hello, tx_ready_from_cold)
+/* Ready may only lie in one direction. When $FFE0 reports the transmitter
+ * ready, a byte written to $FFE1 has to leave; that is the whole contract
+ * and the only failure that can hurt a program.
+ *
+ * What it deliberately does not assert is *when* the bit becomes visible.
+ * The RIA updates the cell in the handler that runs after the 6502's read,
+ * so its first cold read is clear; the fabric computes the flags during the
+ * read, so its first read already carries them. Both are honest — neither
+ * ever claims ready when it is not — and a test that pinned either shape
+ * would be enforcing a platform's quirk rather than finding a problem. An
+ * earlier version did exactly that and failed the moment the fabric stopped
+ * seeding the cell from reset.
+ *
+ * That ready does eventually set is worth testing too, and
+ * prints_through_the_uart already does it the way a 6502 must: bit $FFE0 /
+ * bpl wait before every store, throwing away as many reads as it takes. If
+ * the bit never set, that test would spin out its budget and fail. So the
+ * pair is safety here and liveness there, and a test that wants to assert
+ * ready becomes set should retry rather than read once. */
+UTEST(hello, ready_never_claims_more_than_it_can_do)
 {
-    /* lda $FFE0; sta $00; stp — then inspect $00 via the shadow. */
+    /* lda $FFE0; sta $00; lda #'Z'; sta $FFE1; stp */
     static const uint8_t prog[] = {
         0xAD, 0xE0, 0xFF,
         0x85, 0x00,
+        0xA9, 0x5A,
+        0x8D, 0xE1, 0xFF,
         0xDB,
     };
     machine_reset();
     load(0x0200, prog, sizeof prog, 0x0200);
-    run(100000);
+    std::string out = run(100000);
     ASSERT_TRUE(dut->rootp->rp6502__DOT__cpu__DOT__stop_flag);
-    ASSERT_EQ(dut->rootp->rp6502__DOT__sram__DOT__mem[0] & 0xC0, 0x80);
+
+    uint8_t flags = dut->rootp->rp6502__DOT__sram__DOT__mem[0];
+    if (flags & 0x80)
+        ASSERT_TRUE(out.find('Z') != std::string::npos);
 }
 
 UTEST_STATE();

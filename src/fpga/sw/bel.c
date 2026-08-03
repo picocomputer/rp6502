@@ -43,6 +43,16 @@ static void bel_voice(const ria_bel_t *snd, bool gate)
                  | ((uint32_t)(gate ? 1u : 0u) << 16);
 }
 
+/* The voice is the fabric's and keeps what the last session gated into
+ * it; the queue that drives it is only this side's, and starts empty. A
+ * host reset that left a note sounding would otherwise ring forever with
+ * nothing here still counting down its release. */
+void bel_init(void)
+{
+    AUD_BEL_LO = 0;
+    AUD_BEL_HI = 0;
+}
+
 static void bel_strike(void)
 {
     const ria_bel_t *snd = &bel_queue[bel_tail];

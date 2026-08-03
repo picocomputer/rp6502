@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+void aud_init(void);
 void aud_stop(void);
 bool aud_psg_xreg(uint16_t word);
 bool aud_opl_xreg(uint16_t word);

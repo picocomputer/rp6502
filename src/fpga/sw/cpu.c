@@ -50,9 +50,38 @@ uint16_t cpu_get_phi2_khz(void)
     return cpu_phi2_khz_set;
 }
 
+/* Hold the 6502 in reset from the very start of main(), the way the
+ * RP2350's cpu_init() drives RESB low before anything else. The fabric
+ * powers up with these clear, but reset is the 6502's and the 6522's
+ * alone now: a host that pulses it without reconfiguring leaves the
+ * machine holding whatever the last session left, and the loader would
+ * stage a new image under a 6502 already running the old one. */
+void cpu_init(void)
+{
+    CPU_RUN = 0;
+    MMIO_PHI2 = cpu_phi2_khz_set;
+}
+
+/* The RIA's own cells are the firmware's to establish, the way
+ * ria_run() does it on the RP2350: the 6502 is released against a state
+ * somebody chose rather than whatever the cells happened to hold. The
+ * fabric used to cover for this with an asynchronous reset across every
+ * register in the machine, which is not the contract — it is a reset
+ * fan-out standing in for an init nobody wrote.
+ *
+ * $FFF0 is the API's own register and the one ria_run() clears by name.
+ * The vectors are written by the loader before this, because only it
+ * knows where the image starts. */
+void cpu_run(void)
+{
+    REGS_WIN[0x10] = 0; /* $FFF0 */
+    CPU_RUN = 1;
+}
+
 /* A ROM that changed the clock does not get to leave it changed. */
 void cpu_stop(void)
 {
+    CPU_RUN = 0;
     MMIO_PHI2 = cpu_phi2_khz_set;
 }
 

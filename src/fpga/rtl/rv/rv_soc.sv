@@ -86,6 +86,12 @@ module rv_soc #(
      * bus_rdy low withholds the strobe and stretches the phase, for slaves
      * whose port is arbitrated. */
     input logic bus_rdy,
+    /* The machine's answer that it took the access. Not rebuilt here from
+     * bus_rdy: that is a term the machine's own clock moves, and this
+     * clock's edge is the machine's edge, so asking it here asks it while
+     * it is changing. Two answers to one question, and where they differ
+     * the access either never happened or happens twice. */
+    input logic bus_taken,
     output logic rv_soc_bus_pend,
     output logic rv_soc_bus_stb,
     output logic rv_soc_bus_we,
@@ -222,18 +228,19 @@ module rv_soc #(
     logic [TCM_AW-1:0] word_addr;
     always_comb word_addr = haddr[TCM_AW+1:2];
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            dph_active <= 1'b0;
-            dph_write <= 1'b0;
-            dph_mmio <= 1'b0;
-            dph_ext <= 1'b0;
-            dph_waited <= 1'b0;
-            dph_word <= '0;
-            dph_addr <= '0;
-            dph_strb <= '0;
-            mmio_reg <= '0;
-        end else if (hready) begin
+    initial begin
+        dph_active = 1'b0;
+        dph_write = 1'b0;
+        dph_mmio = 1'b0;
+        dph_ext = 1'b0;
+        dph_waited = 1'b0;
+        dph_word = '0;
+        dph_addr = '0;
+        dph_strb = '0;
+        mmio_reg = '0;
+    end
+    always_ff @(posedge clk) begin
+        if (hready) begin
             dph_active <= htrans[1];
             dph_write <= hwrite;
             dph_mmio <= haddr[31:28] == 4'hF;
@@ -243,7 +250,7 @@ module rv_soc #(
             dph_strb <= strb;
             mmio_reg <= haddr[6:0];
             dph_waited <= 1'b0;
-        end else if (rv_soc_bus_stb) begin
+        end else if (bus_taken) begin
             dph_waited <= 1'b1;
         end
     end
@@ -255,7 +262,15 @@ module rv_soc #(
     always_comb rv_soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
         rv_soc_bus_stb = rv_soc_bus_pend && bus_rdy;
-        rv_soc_bus_we = rv_soc_bus_stb && dph_write;
+        /* Direction is the data phase's alone. Qualifying it with the
+         * strobe put bus_rdy in it — a term the machine's clock moves —
+         * so it answered live while the strobe answers from the falling
+         * edge. Two answers to one question, taken half a period apart:
+         * where they disagree the access still lands and lands as a
+         * read, and the write it was disappears. Every consumer already
+         * qualifies this with the strobe, so the term bought nothing
+         * but the disagreement. */
+        rv_soc_bus_we = dph_write;
         rv_soc_bus_addr = dph_addr;
         rv_soc_bus_wdata = hwdata;
         rv_soc_bus_wstrb = dph_strb;
@@ -288,11 +303,12 @@ module rv_soc #(
 
     logic [63:0] mtime_us /*verilator public_flat_rd*/;
     logic [15:0] mtime_acc;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            mtime_us <= 64'd0;
-            mtime_acc <= '0;
-        end else if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
+    initial begin
+        mtime_us = 64'd0;
+        mtime_acc = '0;
+    end
+    always_ff @(posedge clk) begin
+        if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
         begin
             mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
                              - 32'(MTIME_WRAP));
@@ -328,21 +344,21 @@ module rv_soc #(
             hrdata = tcm_rdata;
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            rv_soc_tx_data <= 8'h00;
-            rv_soc_tx_valid <= 1'b0;
-            rv_soc_halted <= 1'b0;
-            rv_soc_exit_code <= 32'h0;
-            mmio_kbd_valid <= 1'b0;
-            mmio_kbd_data <= 8'h00;
-            mmio_key_valid <= 1'b0;
-            mmio_key_data <= 9'h000;
-            mmio_slot_len <= 32'h0;
-            /* The machine runs at its fastest until told otherwise, so
-             * a firmware that never sets it still gets the default. */
-            rv_soc_phi2_khz <= 16'd8000;
-        end else begin
+    initial begin
+        rv_soc_tx_data = 8'h00;
+        rv_soc_tx_valid = 1'b0;
+        rv_soc_halted = 1'b0;
+        rv_soc_exit_code = 32'h0;
+        mmio_kbd_valid = 1'b0;
+        mmio_kbd_data = 8'h00;
+        mmio_key_valid = 1'b0;
+        mmio_key_data = 9'h000;
+        mmio_slot_len = 32'h0;
+        /* The machine runs at its fastest until told otherwise, so a
+         * firmware that never sets it still gets the default. */
+        rv_soc_phi2_khz = 16'd8000;
+    end
+    always_ff @(posedge clk) begin
             rv_soc_tx_valid <= 1'b0;
             if (dph_active && !dph_write && dph_mmio && mmio_reg == 7'h08)
                 mmio_kbd_valid <= 1'b0;
@@ -369,7 +385,6 @@ module rv_soc #(
                     default: ;
                 endcase
             end
-        end
     end
 
 endmodule

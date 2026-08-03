@@ -538,199 +538,198 @@ module aud_psg
         end
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            xaddr <= 16'hFFFF;
-            xreg_pend <= 1'b0;
-            xreg_word <= 16'hFFFF;
-            for (int i = 0; i < 9; i++)
-                ch_adsr[i] <= ADSR_RELEASE;
-            clr <= 1'b0;
-            bel_lo <= '0;
-            bel_hi <= '0;
-            bel_gate_q <= 1'b0;
-            w_phase <= '0;
-            w_noise1 <= '0;
-            w_noise2 <= '0;
-            w_vol <= '0;
-            w_ch <= '0;
-            ch <= '0;
-            state <= P_IDLE;
+    initial begin
+        xaddr = 16'hFFFF;
+        xreg_pend = 1'b0;
+        xreg_word = 16'hFFFF;
+        for (int i = 0; i < 9; i++)
+            ch_adsr[i] = ADSR_RELEASE;
+        clr = 1'b0;
+        bel_lo = '0;
+        bel_hi = '0;
+        bel_gate_q = 1'b0;
+        w_phase = '0;
+        w_noise1 = '0;
+        w_noise2 = '0;
+        w_vol = '0;
+        w_ch = '0;
+        ch = '0;
+        state = P_IDLE;
+        tickctr = '0;
+        fw_i = '0;
+        fw_c = '0;
+        gnt_d = 1'b0;
+        mix_l = '0;
+        mix_r = '0;
+        mix_i = '0;
+        mix_s = '0;
+        div_q = '0;
+        div_rem = '0;
+        div_i = '0;
+        aud_psg_l = '0;
+        aud_psg_r = '0;
+        aud_psg_valid = 1'b0;
+        aud_psg_tick = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        gnt_d <= a_gnt;
+        aud_psg_valid <= 1'b0;
+        aud_psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
+
+        if (tickctr == 13'(TICKS_PER_SAMPLE - 1))
             tickctr <= '0;
-            fw_i <= '0;
-            fw_c <= '0;
-            gnt_d <= 1'b0;
-            mix_l <= '0;
-            mix_r <= '0;
-            mix_i <= '0;
-            mix_s <= '0;
-            div_q <= '0;
-            div_rem <= '0;
-            div_i <= '0;
-            aud_psg_l <= '0;
-            aud_psg_r <= '0;
-            aud_psg_valid <= 1'b0;
-            aud_psg_tick <= 1'b0;
-        end else begin
-            gnt_d <= a_gnt;
-            aud_psg_valid <= 1'b0;
-            aud_psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
+        else
+            tickctr <= tickctr + 13'd1;
 
-            if (tickctr == 13'(TICKS_PER_SAMPLE - 1))
-                tickctr <= '0;
-            else
-                tickctr <= tickctr + 13'd1;
+        /* A walk that outlasts its tick does not stall. P_IDLE misses
+         * the boundary, the sample is dropped, and the heartbeat the
+         * whole machine rides when the OPL is parked gets a gap in it,
+         * quietly. */
+        if (tickctr == 13'd0 && state != P_IDLE)
+            $fatal(1, "aud_psg walk overrun");
 
-            /* A walk that outlasts its tick does not stall. P_IDLE misses
-             * the boundary, the sample is dropped, and the heartbeat the
-             * whole machine rides when the OPL is parked gets a gap in it,
-             * quietly. */
-            if (tickctr == 13'd0 && state != P_IDLE)
-                $fatal(1, "aud_psg walk overrun");
-
-            case (state)
-                P_IDLE: begin
-                    if (xreg_pend) begin
-                        /* psg_xreg at the boundary: the pointer lands and
-                         * the gate goes home. The envelopes and the noise
-                         * go with clr, at the load that would have read
-                         * them; the phase persists. */
-                        xreg_pend <= 1'b0;
-                        xaddr <= xreg_word;
-                        clr <= 1'b1;
-                        for (int i = 0; i < 8; i++)
-                            ch_adsr[i] <= ADSR_RELEASE;
-                    end
-                    if (tickctr == 13'd0) begin
-                        /* The walk always runs — the ninth voice is the
-                         * console bell and does not wait on a program. A
-                         * parked pointer only skips the fetch; the eight
-                         * program voices are silent because their volume
-                         * was cleared when it parked, and a voice that is
-                         * silent makes no sound. */
+        case (state)
+            P_IDLE: begin
+                if (xreg_pend) begin
+                    /* psg_xreg at the boundary: the pointer lands and
+                     * the gate goes home. The envelopes and the noise
+                     * go with clr, at the load that would have read
+                     * them; the phase persists. */
+                    xreg_pend <= 1'b0;
+                    xaddr <= xreg_word;
+                    clr <= 1'b1;
+                    for (int i = 0; i < 8; i++)
+                        ch_adsr[i] <= ADSR_RELEASE;
+                end
+                if (tickctr == 13'd0) begin
+                    /* The walk always runs — the ninth voice is the
+                     * console bell and does not wait on a program. A
+                     * parked pointer only skips the fetch; the eight
+                     * program voices are silent because their volume
+                     * was cleared when it parked, and a voice that is
+                     * silent makes no sound. */
+                    ch <= '0;
+                    mix_l <= '0;
+                    mix_r <= '0;
+                    mix_i <= '0;
+                    if (xreg_pend ? xreg_word != 16'hFFFF : enabled)
+                    begin
+                        fw_i <= '0;
+                        fw_c <= '0;
+                        state <= P_FETCH;
+                    end else
+                        state <= P_MIX;
+                end
+            end
+            P_FETCH: begin
+                if (a_gnt)
+                    fw_i <= fw_i + 5'd1;
+                if (gnt_d) begin
+                    carry_hi <= a_rdata[31:16];
+                    fw_c <= fw_c + 5'd1;
+                    if (fw_c + 5'd1 == fw_n) begin
                         ch <= '0;
                         mix_l <= '0;
                         mix_r <= '0;
                         mix_i <= '0;
-                        if (xreg_pend ? xreg_word != 16'hFFFF : enabled)
-                        begin
-                            fw_i <= '0;
-                            fw_c <= '0;
-                            state <= P_FETCH;
-                        end else
-                            state <= P_MIX;
+                        state <= P_MIX;
                     end
                 end
-                P_FETCH: begin
-                    if (a_gnt)
-                        fw_i <= fw_i + 5'd1;
-                    if (gnt_d) begin
-                        carry_hi <= a_rdata[31:16];
-                        fw_c <= fw_c + 5'd1;
-                        if (fw_c + 5'd1 == fw_n) begin
-                            ch <= '0;
-                            mix_l <= '0;
-                            mix_r <= '0;
-                            mix_i <= '0;
-                            state <= P_MIX;
-                        end
+            end
+            P_MIX: begin
+                case (mix_i)
+                    2'd0: mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
+                    2'd1: if (pan != -8'sd64)
+                        mix_l <= mix_l + 27'(mul_p);
+                    default: begin
+                        if (pan != -8'sd64)
+                            mix_r <= mix_r + 27'(mul_p);
+                        ch <= ch + 4'd1;
+                        if (ch == 4'd8)
+                            state <= P_OUT;
                     end
-                end
-                P_MIX: begin
-                    case (mix_i)
-                        2'd0: mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
-                        2'd1: if (pan != -8'sd64)
-                            mix_l <= mix_l + 27'(mul_p);
-                        default: begin
-                            if (pan != -8'sd64)
-                                mix_r <= mix_r + 27'(mul_p);
-                            ch <= ch + 4'd1;
-                            if (ch == 4'd8)
-                                state <= P_OUT;
-                        end
-                    endcase
-                    mix_i <= mix_i == 2'd2 ? 2'd0 : mix_i + 2'd1;
-                end
-                P_OUT: begin
-                    aud_psg_l <= clamped(21'((mix_l + 27'sd64) >>> 7));
-                    aud_psg_r <= clamped(21'((mix_r + 27'sd64) >>> 7));
-                    ch <= '0;
+                endcase
+                mix_i <= mix_i == 2'd2 ? 2'd0 : mix_i + 2'd1;
+            end
+            P_OUT: begin
+                aud_psg_l <= clamped(21'((mix_l + 27'sd64) >>> 7));
+                aud_psg_r <= clamped(21'((mix_r + 27'sd64) >>> 7));
+                ch <= '0;
+                state <= P_LOAD;
+            end
+            P_LOAD: begin
+                /* The channel out of the memory and the divider set
+                 * against its frequency, which is the word cf is
+                 * already reading at this address. */
+                w_ch <= ch;
+                w_phase <= ch_phase[ch];
+                w_vol <= ld_vol;
+                w_noise1 <= clr && !ch[3] ? 32'h67452301 : ch_noise1[ch];
+                w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : ch_noise2[ch];
+                div_q <= '0;
+                div_rem <= REM_W'(cf_freq);
+                div_i <= '0;
+                state <= P_DIV;
+            end
+            P_DIV: begin
+                div_q <= {div_q[30:0], div_ge};
+                div_rem <= div_next;
+                div_i <= div_i + 5'd1;
+                if (div_i == 5'd31)
+                    state <= P_PH;
+            end
+            P_PH: begin
+                /* A clock of its own, so the wave reads a phase that
+                 * is standing in a register rather than coming out of
+                 * a thirty-two-bit add. The whole machine has under
+                 * two nanoseconds spare and this costs eight clocks
+                 * of the seven hundred going unused. */
+                w_phase <= w_phase + div_q;
+                state <= P_STEP;
+            end
+            P_STEP: begin
+                ch_adsr[ch] <= adsr_next;
+                ch <= ch + 4'd1;
+                if (ch == 4'd8) begin
+                    clr <= 1'b0;
+                    aud_psg_valid <= 1'b1;
+                    state <= P_IDLE;
+                end else
                     state <= P_LOAD;
-                end
-                P_LOAD: begin
-                    /* The channel out of the memory and the divider set
-                     * against its frequency, which is the word cf is
-                     * already reading at this address. */
-                    w_ch <= ch;
-                    w_phase <= ch_phase[ch];
-                    w_vol <= ld_vol;
-                    w_noise1 <= clr && !ch[3] ? 32'h67452301 : ch_noise1[ch];
-                    w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : ch_noise2[ch];
-                    div_q <= '0;
-                    div_rem <= REM_W'(cf_freq);
-                    div_i <= '0;
-                    state <= P_DIV;
-                end
-                P_DIV: begin
-                    div_q <= {div_q[30:0], div_ge};
-                    div_rem <= div_next;
-                    div_i <= div_i + 5'd1;
-                    if (div_i == 5'd31)
-                        state <= P_PH;
-                end
-                P_PH: begin
-                    /* A clock of its own, so the wave reads a phase that
-                     * is standing in a register rather than coming out of
-                     * a thirty-two-bit add. The whole machine has under
-                     * two nanoseconds spare and this costs eight clocks
-                     * of the seven hundred going unused. */
-                    w_phase <= w_phase + div_q;
-                    state <= P_STEP;
-                end
-                P_STEP: begin
-                    ch_adsr[ch] <= adsr_next;
-                    ch <= ch + 4'd1;
-                    if (ch == 4'd8) begin
-                        clr <= 1'b0;
-                        aud_psg_valid <= 1'b1;
-                        state <= P_IDLE;
-                    end else
-                        state <= P_LOAD;
-                end
-                default: state <= P_IDLE;
-            endcase
-
-            /* After the case, so a write landing on the same clock as
-             * the walk's own step wins it. The program has just said
-             * what the channel is doing; the envelope is only saying
-             * what it was doing. */
-            if (snoop_gate) begin
-                if (!q_val[0] && ch_adsr[{1'b0, snoop_ch}] != ADSR_RELEASE)
-                    ch_adsr[{1'b0, snoop_ch}] <= ADSR_RELEASE;
-                if (q_val[0] && ch_adsr[{1'b0, snoop_ch}] == ADSR_RELEASE)
-                    ch_adsr[{1'b0, snoop_ch}] <= ADSR_ATTACK;
             end
+            default: state <= P_IDLE;
+        endcase
 
-            /* The ninth voice's gate is a level in a register, so its edge
-             * is taken here; the other eight get theirs from the snoop.
-             * Holding it high must not restrike a note that already died. */
-            if (bel_hi[16] && !bel_gate_q && ch_adsr[8] == ADSR_RELEASE)
-                ch_adsr[8] <= ADSR_ATTACK;
-            if (!bel_hi[16] && bel_gate_q && ch_adsr[8] != ADSR_RELEASE)
-                ch_adsr[8] <= ADSR_RELEASE;
-            bel_gate_q <= bel_hi[16];
+        /* After the case, so a write landing on the same clock as
+         * the walk's own step wins it. The program has just said
+         * what the channel is doing; the envelope is only saying
+         * what it was doing. */
+        if (snoop_gate) begin
+            if (!q_val[0] && ch_adsr[{1'b0, snoop_ch}] != ADSR_RELEASE)
+                ch_adsr[{1'b0, snoop_ch}] <= ADSR_RELEASE;
+            if (q_val[0] && ch_adsr[{1'b0, snoop_ch}] == ADSR_RELEASE)
+                ch_adsr[{1'b0, snoop_ch}] <= ADSR_ATTACK;
+        end
 
-            if (bel_lo_we)
-                bel_lo <= bel_wdata;
-            if (bel_hi_we)
-                bel_hi <= bel_wdata[23:0];
+        /* The ninth voice's gate is a level in a register, so its edge
+         * is taken here; the other eight get theirs from the snoop.
+         * Holding it high must not restrike a note that already died. */
+        if (bel_hi[16] && !bel_gate_q && ch_adsr[8] == ADSR_RELEASE)
+            ch_adsr[8] <= ADSR_ATTACK;
+        if (!bel_hi[16] && bel_gate_q && ch_adsr[8] != ADSR_RELEASE)
+            ch_adsr[8] <= ADSR_RELEASE;
+        bel_gate_q <= bel_hi[16];
 
-            /* After the case, so a write on an apply clock is kept for
-             * the next boundary instead of vanishing under the clear. */
-            if (xaddr_we) begin
-                xreg_pend <= 1'b1;
-                xreg_word <= xaddr_wdata;
-            end
+        if (bel_lo_we)
+            bel_lo <= bel_wdata;
+        if (bel_hi_we)
+            bel_hi <= bel_wdata[23:0];
+
+        /* After the case, so a write on an apply clock is kept for
+         * the next boundary instead of vanishing under the clear. */
+        if (xaddr_we) begin
+            xreg_pend <= 1'b1;
+            xreg_word <= xaddr_wdata;
         end
     end
 
@@ -748,7 +747,7 @@ module aud_psg
      * caught at the moment it moves. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{cf[63:56], q_val[7:1], bel_wdata[31:24]};
+    always_comb unused_aud_psg = ^{rst_n, cf[63:56], q_val[7:1], bel_wdata[31:24]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

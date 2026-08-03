@@ -384,6 +384,8 @@ int main(void)
     /* No str_init: it exists to apply a locale, and this machine has one
      * locale and no S() callers — the whole localized chain is meant to
      * collect under --gc-sections. */
+    cpu_init();
+    aud_init();
     com_init();
     std_init();
     rln_init();
@@ -435,7 +437,7 @@ int main(void)
     rln_run();
     api_run();
     if (runnable)
-        CPU_RUN = 1;
+        cpu_run();
 
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the

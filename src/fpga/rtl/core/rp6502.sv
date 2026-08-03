@@ -126,7 +126,6 @@ module rp6502
     logic phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .phi2_khz(phi2_khz),
         .phi2_div_en(phi2_en)
     );
@@ -143,13 +142,22 @@ module rp6502
     /* verilator lint_on UNUSEDSIGNAL */
     always_comb unused_sync = cpu_sync;
 
-    /* The 6502 runs when the OS says so; cpu_run is its inverted RESB. */
+    /* RESB, inverted: the one reset the machine has, held by the OS and
+     * reaching the 6502 and the 6522 and nothing else. It is a register,
+     * not a gate of one with the platform's reset — that would put a
+     * combinational term on a reset network, and the platform already
+     * reaches this flop asynchronously, so a gate would say nothing the
+     * flop does not.
+     *
+     * A ROM load therefore hands the new program a VIA with its timers,
+     * interrupt enables and port directions cleared, not the last
+     * program's. */
     logic cpu_run /*verilator public_flat_rw*/;
     logic cpu_stp;
 
     cpu65 cpu (
         .clk(clk_sys),
-        .rst_n(rst_n && cpu_run),
+        .rst_n(cpu_run),
         .en(phi2_en),
         .data_i(cpu_din),
         .irq_i(via_irq || ria_irq),
@@ -188,7 +196,7 @@ module rp6502
     logic [7:0] via_data;
     via via (
         .clk(clk_sys),
-        .rst_n(rst_n),
+        .rst_n(cpu_run),
         .en(phi2_en),
         .cs(sel_via),
         .we(cpu_we),
@@ -239,24 +247,27 @@ module rp6502
      * comparison is between two registers on this clock. The access is
      * still captured on the same rising edge it always was: the pulse
      * spans the half period from here to there. */
-    always_ff @(negedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            bus_stb_n <= 1'b0;
-        else
-            bus_stb_n <= bus_stb_raw;
+    /* The two halves are one mechanism and must stay one. Asynchronous
+     * clear is a control signal a LAB shares, so a half that needs it
+     * and a half that does not cannot be packed together: give them
+     * different control and the fitter is free to separate them, which
+     * is the separation this whole arrangement exists to deny. They
+     * carry no state worth keeping, so neither takes the reset. */
+    initial bus_stb_n = 1'b0;
+    always_ff @(negedge clk_sys) begin
+        bus_stb_n <= bus_stb_raw;
     end
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
-            bus_stb_q <= 1'b0;
-            rv_tx_valid_q <= 1'b0;
-            slot_set_q <= 1'b0;
-            key_set_q <= 1'b0;
-        end else begin
-            bus_stb_q <= bus_stb_n;
-            rv_tx_valid_q <= rv_tx_valid_raw;
-            slot_set_q <= slot_set;
-            key_set_q <= key_set;
-        end
+    initial begin
+        bus_stb_q = 1'b0;
+        rv_tx_valid_q = 1'b0;
+        slot_set_q = 1'b0;
+        key_set_q = 1'b0;
+    end
+    always_ff @(posedge clk_sys) begin
+        bus_stb_q <= bus_stb_n;
+        rv_tx_valid_q <= rv_tx_valid_raw;
+        slot_set_q <= slot_set;
+        key_set_q <= key_set;
     end
     /* This one stays on the rising edge. rv_tx_valid_raw is a clean flop
      * from the soft CPU's clock — no bus_rdy, no term from this clock, so
@@ -269,6 +280,21 @@ module rp6502
 
     logic bus_stb, bus_we, bus_pend;
     always_comb bus_stb = bus_stb_n && !bus_stb_q;
+
+    /* What the soft CPU is told, rather than what it would work out for
+     * itself. The strobe is one clock of this clock, and the other clock
+     * looks only every second one, so it is held until the request it
+     * answers goes away — a level that has been still for a whole period
+     * by the time the far side reads it, and a register the analyzer can
+     * see, where the term it replaces was a glitch that it cannot. */
+    logic bus_taken;
+    initial bus_taken = 1'b0;
+    always_ff @(posedge clk_sys) begin
+        if (!bus_pend)
+            bus_taken <= 1'b0;
+        else if (bus_stb)
+            bus_taken <= 1'b1;
+    end
     logic [31:0] bus_addr, bus_wdata;
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
@@ -308,6 +334,7 @@ module rp6502
         .rv_soc_key_pending(rp6502_key_pending),
         .bus_rdy(!(bus_sel_xram && xr_busy)
                  && !(bus_sel_stage && stage_stall)),
+        .bus_taken(bus_taken),
         .rv_soc_bus_pend(bus_pend),
         .rv_soc_bus_stb(bus_stb_raw),
         .rv_soc_bus_we(bus_we),
@@ -370,31 +397,39 @@ module rp6502
     // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid,
     // 5 xram, 6 the platform's own.
     logic [2:0] bus_rsel;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
-            cpu_run <= 1'b0;
-            bus_rsel <= 3'd0;
-            bus_ctl_api <= 1'b0;
-            bus_vid_prog <= 1'b0;
-            stage_addr_q <= '0;
-        end else begin
-            if (bus_stb) begin
-                bus_rsel <= bus_sel_regs ? 3'd1
-                    : (bus_sel_ctl ? 3'd2
-                    : (bus_sel_stage ? 3'd3
-                    : (bus_sel_vid ? 3'd4
-                    : (bus_sel_xram ? 3'd5
-                    : (bus_sel_host ? 3'd6 : 3'd0)))));
-                bus_ctl_api <= bus_addr[2];
-                bus_vid_prog <= bus_addr[17];
-                stage_addr_q <= bus_addr[27:0];
-                /* Captured at the strobe: ring reads advance their pointer
-                 * there, so the answer must not be re-derived afterward. */
-                regs_b_q <= regs_b_rdata;
-            end
-            if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
-                cpu_run <= bus_wbyte[0];
+    initial begin
+        bus_rsel = 3'd0;
+        bus_ctl_api = 1'b0;
+        bus_vid_prog = 1'b0;
+        stage_addr_q = '0;
+    end
+    always_ff @(posedge clk_sys) begin
+        if (bus_stb) begin
+            bus_rsel <= bus_sel_regs ? 3'd1
+                : (bus_sel_ctl ? 3'd2
+                : (bus_sel_stage ? 3'd3
+                : (bus_sel_vid ? 3'd4
+                : (bus_sel_xram ? 3'd5
+                : (bus_sel_host ? 3'd6 : 3'd0)))));
+            bus_ctl_api <= bus_addr[2];
+            bus_vid_prog <= bus_addr[17];
+            stage_addr_q <= bus_addr[27:0];
+            /* Captured at the strobe: ring reads advance their pointer
+             * there, so the answer must not be re-derived afterward. */
+            regs_b_q <= regs_b_rdata;
         end
+    end
+
+    /* The 6502's RESB keeps the reset the rest of the machine gave up.
+     * The platform asserts this whenever the host asks for it, not only
+     * at power-on, and a 6502 that comes out of it still running is one
+     * executing the last program against cells the firmware is in the
+     * middle of rebuilding. */
+    always_ff @(posedge clk_sys or negedge rst_n) begin
+        if (!rst_n)
+            cpu_run <= 1'b0;
+        else if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
+            cpu_run <= bus_wbyte[0];
     end
 
     /* Reads answer one cycle after the strobe. The register window is a

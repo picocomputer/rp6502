@@ -194,116 +194,120 @@ module aud_rsmp
     logic signed [41:0] rounded;
     always_comb rounded = (mixed + 42'sd65536) >>> RSMP_Q;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            state <= R_IDLE;
-            phase <= '0;
-            wptr <= '0;
-            rptr <= '0;
-            primed <= 1'b0;
-            tap <= '0;
-            pass <= 1'b0;
-            acc_a <= '0;
-            acc_b <= '0;
-            scaled_q <= '0;
-            mac_en <= 1'b0;
-            mac_pass <= 1'b0;
-            aud_rsmp_out <= '0;
-            aud_rsmp_valid <= 1'b0;
-        end else begin
-            aud_rsmp_valid <= 1'b0;
-
-            if (mac_en) begin
-                if (mac_pass)
-                    acc_b <= acc_b + prod;
-                else
-                    acc_a <= acc_a + prod;
-            end
-            mac_en <= 1'b0;
-
-            /* The input only fills the history. It keeps arriving whether or
-             * not the engine is programmed, so this never starves. */
-            if (in_valid) begin
-                /* A cold filter would ring against twenty-three zeros and
-                 * click at the start of every sound, so the first sample
-                 * fills the whole history. */
-                if (!primed) begin
-                    for (int i = 0; i < 32; i++) hist[i] <= in_sample;
-                    /* One input consumed: the first output reads the taps
-                     * ending at it, which is where the C's first push
-                     * leaves its history. */
-                    rptr <= 5'd1;
-                    primed <= 1'b1;
-                end else begin
-                    hist[wptr] <= in_sample;
-                end
-                wptr <= wptr + 5'd1;
-            end
-
-            case (state)
-                R_IDLE: begin
-                    /* Never read past what has arrived. The source outruns
-                     * the sink, so this only ever holds at startup — and a
-                     * tick held is a tick the phase does not advance on, so
-                     * the stream stays in step rather than slipping. */
-                    if (step && primed && wptr != rptr) begin
-                        acc_a <= '0;
-                        acc_b <= '0;
-                        tap <= '0;
-                        pass <= 1'b0;
-                        state <= R_MAC;
-                    end
-                end
-
-                /* One coefficient and one sample per cycle. The product
-                 * lands two cycles later, which is what R_DRAIN waits out. */
-                R_MAC: begin
-                    mac_en <= 1'b1;
-                    mac_pass <= pass;
-                    if (tap == 6'(RSMP_TAPS - 1)) begin
-                        tap <= '0;
-                        if (!pass) begin
-                            pass <= 1'b1;
-                        end else begin
-                            pass <= 1'b0;
-                            state <= R_DRAIN;
-                        end
-                    end else begin
-                        tap <= tap + 6'd1;
-                    end
-                end
-
-                /* The last product is still in flight. */
-                R_DRAIN: state <= R_SCALE;
-
-                /* The accumulators are final now: interpolate between the
-                 * two rows and hold it for the round. */
-                R_SCALE: begin
-                    scaled_q <= 41'(scaled >>> 16);
-                    state <= R_EMIT;
-                end
-
-                R_EMIT: begin
-                    aud_rsmp_out <= rounded < -42'sd32768 ? -16'sd32768
-                        : rounded > 42'sd32767 ? 16'sd32767 : 16'(rounded);
-                    aud_rsmp_valid <= 1'b1;
-                    /* One output is worth STEP inputs, and STEP is above one
-                     * because the source outruns the sink. Consume the whole
-                     * ones and keep the fraction; at this ratio it is one
-                     * input most times and two the rest. */
-                    if (phase_next >= TWO) begin
-                        phase <= phase_next - TWO;
-                        rptr <= rptr + 5'd2;
-                    end else begin
-                        phase <= phase_next - ONE;
-                        rptr <= rptr + 5'd1;
-                    end
-                    state <= R_IDLE;
-                end
-
-                default: state <= R_IDLE;
-            endcase
-        end
+    initial begin
+        state = R_IDLE;
+        phase = '0;
+        wptr = '0;
+        rptr = '0;
+        primed = 1'b0;
+        tap = '0;
+        pass = 1'b0;
+        acc_a = '0;
+        acc_b = '0;
+        scaled_q = '0;
+        mac_en = 1'b0;
+        mac_pass = 1'b0;
+        aud_rsmp_out = '0;
+        aud_rsmp_valid = 1'b0;
     end
+    always_ff @(posedge clk) begin
+        aud_rsmp_valid <= 1'b0;
+
+        if (mac_en) begin
+            if (mac_pass)
+                acc_b <= acc_b + prod;
+            else
+                acc_a <= acc_a + prod;
+        end
+        mac_en <= 1'b0;
+
+        /* The input only fills the history. It keeps arriving whether or
+         * not the engine is programmed, so this never starves. */
+        if (in_valid) begin
+            /* A cold filter would ring against twenty-three zeros and
+             * click at the start of every sound, so the first sample
+             * fills the whole history. */
+            if (!primed) begin
+                for (int i = 0; i < 32; i++) hist[i] <= in_sample;
+                /* One input consumed: the first output reads the taps
+                 * ending at it, which is where the C's first push
+                 * leaves its history. */
+                rptr <= 5'd1;
+                primed <= 1'b1;
+            end else begin
+                hist[wptr] <= in_sample;
+            end
+            wptr <= wptr + 5'd1;
+        end
+
+        case (state)
+            R_IDLE: begin
+                /* Never read past what has arrived. The source outruns
+                 * the sink, so this only ever holds at startup — and a
+                 * tick held is a tick the phase does not advance on, so
+                 * the stream stays in step rather than slipping. */
+                if (step && primed && wptr != rptr) begin
+                    acc_a <= '0;
+                    acc_b <= '0;
+                    tap <= '0;
+                    pass <= 1'b0;
+                    state <= R_MAC;
+                end
+            end
+
+            /* One coefficient and one sample per cycle. The product
+             * lands two cycles later, which is what R_DRAIN waits out. */
+            R_MAC: begin
+                mac_en <= 1'b1;
+                mac_pass <= pass;
+                if (tap == 6'(RSMP_TAPS - 1)) begin
+                    tap <= '0;
+                    if (!pass) begin
+                        pass <= 1'b1;
+                    end else begin
+                        pass <= 1'b0;
+                        state <= R_DRAIN;
+                    end
+                end else begin
+                    tap <= tap + 6'd1;
+                end
+            end
+
+            /* The last product is still in flight. */
+            R_DRAIN: state <= R_SCALE;
+
+            /* The accumulators are final now: interpolate between the
+             * two rows and hold it for the round. */
+            R_SCALE: begin
+                scaled_q <= 41'(scaled >>> 16);
+                state <= R_EMIT;
+            end
+
+            R_EMIT: begin
+                aud_rsmp_out <= rounded < -42'sd32768 ? -16'sd32768
+                    : rounded > 42'sd32767 ? 16'sd32767 : 16'(rounded);
+                aud_rsmp_valid <= 1'b1;
+                /* One output is worth STEP inputs, and STEP is above one
+                 * because the source outruns the sink. Consume the whole
+                 * ones and keep the fraction; at this ratio it is one
+                 * input most times and two the rest. */
+                if (phase_next >= TWO) begin
+                    phase <= phase_next - TWO;
+                    rptr <= rptr + 5'd2;
+                end else begin
+                    phase <= phase_next - ONE;
+                    rptr <= rptr + 5'd1;
+                end
+                state <= R_IDLE;
+            end
+
+            default: state <= R_IDLE;
+        endcase
+    end
+
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_aud_rsmp_rst;
+    always_comb unused_aud_rsmp_rst = ^{rst_n};
+    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
