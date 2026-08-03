@@ -31,6 +31,7 @@ static int32_t cfg_tz;
 
 void cfg_task(void)
 {
+    // TODO SET_PHI2 and SET_CP are wasted resources that need to be cleaned up
     uint32_t phi2 = SET_PHI2;
     if (phi2 != cfg_phi2)
     {
