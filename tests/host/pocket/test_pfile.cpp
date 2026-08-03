@@ -50,6 +50,7 @@ static std::map<std::string, std::vector<uint8_t>> g_files;
 static std::set<std::string> g_dirs;
 static std::string g_bound[16];
 static std::string g_console;
+static std::string g_rv;
 static int g_opens, g_reads, g_writes, g_flushes;
 
 static void tick()
@@ -89,6 +90,8 @@ static void tick()
      * the bridge's edges fall inside it. */
     if (sedge && dut->tb_pocket_tx_valid)
         g_console += (char)dut->tb_pocket_tx_data;
+    if (sedge && dut->tb_pocket_rv_tx_valid)
+        g_rv += (char)dut->tb_pocket_rv_tx_data;
     if (sedge)
     {
         dut->clk_sys = 0;
@@ -392,6 +395,7 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     dut = new Vtb_pocket;
     a_next = s_next = g_sys = 0;
     g_console.clear();
+    g_rv.clear();
     g_files.clear();
     g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
               "/Saves"};

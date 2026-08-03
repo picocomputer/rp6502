@@ -213,7 +213,7 @@ module rp6502
      * always spans one, and both carry a value the far side is holding
      * anyway, so arriving twice costs nothing. */
     logic bus_stb_raw, bus_stb_n, bus_stb_q;
-    logic rv_tx_valid_raw, rv_tx_valid_n, rv_tx_valid_q;
+    logic rv_tx_valid_raw, rv_tx_valid_q;
     logic slot_set_q, key_set_q;
 
     /* These two narrowings ask a question about a signal from the other
@@ -240,13 +240,10 @@ module rp6502
      * still captured on the same rising edge it always was: the pulse
      * spans the half period from here to there. */
     always_ff @(negedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
+        if (!rst_n)
             bus_stb_n <= 1'b0;
-            rv_tx_valid_n <= 1'b0;
-        end else begin
+        else
             bus_stb_n <= bus_stb_raw;
-            rv_tx_valid_n <= rv_tx_valid_raw;
-        end
     end
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n) begin
@@ -256,12 +253,19 @@ module rp6502
             key_set_q <= 1'b0;
         end else begin
             bus_stb_q <= bus_stb_n;
-            rv_tx_valid_q <= rv_tx_valid_n;
+            rv_tx_valid_q <= rv_tx_valid_raw;
             slot_set_q <= slot_set;
             key_set_q <= key_set;
         end
     end
-    always_comb rp6502_rv_tx_valid = rv_tx_valid_n && !rv_tx_valid_q;
+    /* This one stays on the rising edge. rv_tx_valid_raw is a clean flop
+     * from the soft CPU's clock — no bus_rdy, no term from this clock, so
+     * nothing settles late and a later sample buys nothing. Taking it on
+     * the falling edge only narrowed the pulse to the half period between
+     * the two edges, which every rising-edge consumer then catches at its
+     * expiry: pocket_dbg and pocket_dbglog both sample there, and the
+     * bench stopped seeing the soft CPU's console at all. */
+    always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
 
     logic bus_stb, bus_we, bus_pend;
     always_comb bus_stb = bus_stb_n && !bus_stb_q;
