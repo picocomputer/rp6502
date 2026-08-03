@@ -204,7 +204,7 @@ UTEST(xreg, dispatch_matches_the_oracle)
 
     std::string cpu_out;
     int strikes = 0;
-    uint8_t bel_count_prev = 0;
+    bool bel_gate_prev = false;
     ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
         dut->stage_rdata = tb_stage(rom, a);
@@ -217,10 +217,13 @@ UTEST(xreg, dispatch_matches_the_oracle)
         dut->eval();
         if (dut->rp6502_tx_valid)
             cpu_out.push_back((char)dut->rp6502_tx_data);
-        uint8_t bc = dut->rootp->rp6502__DOT__bel__DOT__count;
-        if (bel_count_prev == 0 && bc != 0)
+        /* The bell is a voice of the PSG now and the soft CPU rings it by
+         * writing the voice's gate, so a strike is that bit going up. */
+        const bool bg =
+            (dut->rootp->rp6502__DOT__aud_psg__DOT__bel_hi >> 16) & 1;
+        if (!bel_gate_prev && bg)
             strikes++;
-        bel_count_prev = bc;
+        bel_gate_prev = bg;
     }));
 
     /* Eighteen results, four bytes each, plus the two BEL characters,
@@ -230,11 +233,8 @@ UTEST(xreg, dispatch_matches_the_oracle)
     /* The muted BEL never struck; the unmuted one did. */
     ASSERT_EQ(strikes, 1);
 
-    /* The PSG took 0x8000 and the OPL took 0xF000 after it, and
-     * programming either parks the other — the engines are free-running
-     * hardware that rp6502.sv sums, so the pointers are what makes them
-     * exclusive. The firmware gets this for free from aud_setup handing
-     * over the one interrupt; here it is deliberate. */
+    /* The PSG took 0x8000 and the OPL took 0xF000 after it. Setting up
+     * either engine resets the other, so the PSG's pointer is parked. */
     ASSERT_EQ(dut->rootp->rp6502__DOT__aud_psg__DOT__xaddr, 0xFFFF);
     /* And the OPL's, which is the whole path the device depends on:
      * the xreg dispatch, the soft CPU's validation, the MMIO write and

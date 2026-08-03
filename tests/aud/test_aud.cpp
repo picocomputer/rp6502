@@ -160,6 +160,31 @@ UTEST(aud, opl_makes_a_noise)
     ASSERT_GT(g_valids, (long)0);
 }
 
+/* The bell is the soft CPU's, and it has to sound with no program holding
+ * an engine at all — the console's own case, and the one the fabric used
+ * to serve with a module of its own. */
+UTEST(aud, the_bell_rings_with_no_program)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_BEL));
+    const int at = frames_to_sound(4);
+    fprintf(stderr, "  bel heard on frame %d, peak %d\n", at, g_peak);
+    ASSERT_NE(at, -1);
+    ASSERT_GT(g_peak, 32);
+    ASSERT_GT(g_valids, (long)0);
+}
+
+/* Nothing gates the mix. An OPL program holds an engine and the bell
+ * sounds over it, both reaching the codec on the one tick. */
+UTEST(aud, the_bell_rings_over_the_opl)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_OPL_BEL));
+    const int at = frames_to_sound(4);
+    fprintf(stderr, "  opl+bel heard on frame %d, peak %d\n", at, g_peak);
+    ASSERT_NE(at, -1);
+    ASSERT_GT(g_peak, 32);
+    ASSERT_GT(g_valids, (long)0);
+}
+
 UTEST(aud, the_machine_runs_while_the_6502_is_held)
 {
     /* Resetting the 6502 is how a program is stopped and the next one

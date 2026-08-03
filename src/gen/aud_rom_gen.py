@@ -23,6 +23,7 @@ ORG = 0x0300
 RW0_DATA = 0xFFE4
 RW0_ADDR = 0xFFE6
 XSTACK = 0xFFEC
+UART_TX = 0xFFE1
 API_OP = 0xFFEF
 API_CALL = 0xFFF1
 
@@ -148,6 +149,36 @@ def opl_exit_prog():
     return p.b
 
 
+def bel_prog():
+    """One BEL character and nothing else. The bell is a voice of the PSG
+    that the soft CPU drives, so this proves it sounds with no program
+    holding an engine — which is the console's own case."""
+    p = Prog()
+    p.lda(0x07)
+    p.sta(UART_TX)
+    p.spin()
+    return p.b
+
+
+def opl_bel_prog():
+    """The OPL note and a BEL over the top of it. Every engine is audible
+    at all times, and this is the sharp end of that: two voices from two
+    places reaching the codec on one tick."""
+    p = Prog()
+    page = 0xF000
+    p.xreg(0, 1, 1, page)
+    for reg, val in (
+        (0x20, 0x01), (0x23, 0x01), (0x40, 0x10), (0x43, 0x00),
+        (0x60, 0xF0), (0x63, 0xF0), (0x80, 0x77), (0x83, 0x77),
+        (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
+    ):
+        p.poke(page + reg, val)
+    p.lda(0x07)
+    p.sta(UART_TX)
+    p.spin()
+    return p.b
+
+
 def record(addr, data):
     head = f"${addr:05X} ${len(data):X} ${zlib.crc32(data) & 0xFFFFFFFF:08X}\n"
     return head.encode() + data
@@ -166,6 +197,8 @@ def main():
     ap.add_argument("--emit-psg")
     ap.add_argument("--emit-opl")
     ap.add_argument("--emit-opl-exit")
+    ap.add_argument("--emit-bel")
+    ap.add_argument("--emit-opl-bel")
     a = ap.parse_args()
     if a.emit_psg:
         print(f"psg.rp6502 {emit(a.emit_psg, psg_prog())} bytes")
@@ -173,6 +206,10 @@ def main():
         print(f"opl.rp6502 {emit(a.emit_opl, opl_prog())} bytes")
     if a.emit_opl_exit:
         print(f"opl_exit.rp6502 {emit(a.emit_opl_exit, opl_exit_prog())} bytes")
+    if a.emit_bel:
+        print(f"bel.rp6502 {emit(a.emit_bel, bel_prog())} bytes")
+    if a.emit_opl_bel:
+        print(f"opl_bel.rp6502 {emit(a.emit_opl_bel, opl_bel_prog())} bytes")
     return 0
 
 

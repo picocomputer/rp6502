@@ -92,6 +92,7 @@ target_sources(${RIA_TARGET} PRIVATE
     api/tim.c
     aud/aud.c
     aud/bel.c
+    aud/bel_presets.c
     aud/opl.c
     aud/psg.c
     ble/ble.c

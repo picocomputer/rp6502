@@ -10,8 +10,13 @@ and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
 
 ## Audio
 
-The PSG and the bell are RTL, proven bit-exact against `ria/aud/psg.c` and
-`ria/aud/bel.c` in lockstep.
+The PSG is RTL and agrees with `ria/aud/psg.c` sample for sample in lockstep.
+Its ninth voice is the console bell, configured by the soft CPU: the sounds
+are `ria/aud/bel_presets.c` and the queue and lifetime are
+`src/fpga/sw/bel.c`, so fabric holds a voice and software holds the bell.
+
+Nothing gates the mix. Every engine and the bell sum, on one sample tick —
+the PSG's divider — and an engine with no program answers zero.
 
 The OPL2 is `vendor/opl2_fpga`, Greg Taylor's reverse-engineered YM3812 under
 LGPL-3.0, credited in the Pocket distribution README. emu8950 on the soft CPU

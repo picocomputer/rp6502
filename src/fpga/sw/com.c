@@ -14,8 +14,10 @@
  * the BEL scan at the sink rings the platform bell.
  */
 
+#include "bel.h"
 #include "com.h"
 #include "mmio.h"
+#include "ria/aud/bel.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -126,7 +128,7 @@ static void com_tx_write(const char *buf, int len)
     {
         MMIO_CONSOLE = (uint8_t)buf[i];
         if (buf[i] == '\a' && com_bel_enabled)
-            AUD_BEL_STRIKE = 1;
+            bel_add(&bel_teletype);
     }
     if (com_term_out)
         com_term_out(buf, len);

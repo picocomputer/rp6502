@@ -74,7 +74,6 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_FPGA_RTL}/vid/vid_timing.sv
     ${AUD_SINE_PKG}
     ${RP6502_FPGA_RTL}/aud/aud_psg.sv
-    ${RP6502_FPGA_RTL}/aud/aud_bel.sv
     ${RP6502_FPGA_RTL}/aud/aud_opl.sv
     ${RSMP_COEF_PKG}
     ${RP6502_FPGA_RTL}/aud/aud_rsmp.sv
@@ -117,6 +116,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/mou.c ${SW_SRC}/msc.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
         ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${RP6502_SRC}/ria/aud/bel_presets.c
+        ${SW_SRC}/bel.c
         ${RP6502_SRC}/ria/api/api.c
         ${RP6502_SRC}/ria/api/clk.c
         ${RP6502_SRC}/ria/api/std.c

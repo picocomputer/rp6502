@@ -1,9 +1,13 @@
 # PSG, bell, OPL2 and the resampler.
 #
-# The two engines are held bit-exact: ria/aud/psg.c and ria/aud/bel.c are the
-# reference, and the verilated aud_psg and aud_bel have to produce the same
-# sample every sample. That is what psg_shim.c exists for — it stands the
-# firmware's drivers up over flat shims so the same C runs on a workstation.
+# aud_psg and ria/aud/psg.c are two implementations of one engine and are
+# held to the same sample. That is what psg_shim.c exists for — it stands
+# the firmware's drivers up over flat shims so the same C runs on a
+# workstation.
+#
+# There is no bell here any more. The bell is a voice of aud_psg that the
+# soft CPU drives, so what used to be its own module test is now the
+# machine's — see test_aud.
 
 # --- The resampler, on its own: no emulator, no 6502, just arithmetic and a
 # ruler. Measures the filter rather than asserting it, so a change that
@@ -29,24 +33,14 @@ if(RP6502_VERILATE)
     rp6502_add_module_test(psg
         TOP aud_psg
         RTL ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_psg.sv
-            ${RP6502_FPGA_RTL}/aud/aud_bel.sv
         SOURCES test_psg.cpp psg_shim.c
             ${RP6502_SRC}/ria/aud/psg.c ${RP6502_SRC}/ria/aud/bel.c
+            ${RP6502_SRC}/ria/aud/bel_presets.c
         INCLUDES ${AUD_SHIM_INCLUDES}
         DEPENDS aud_sine_rom
         # RATE is the arithmetic and must match PSG_SHIM_RATE; the tick is
         # shortened only so the simulation runs faster.
         ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
-        TIMEOUT 300)
-
-    # --- The one bell, against the real bel.c ---
-    rp6502_add_module_test(bel
-        TOP aud_bel
-        RTL ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
-        SOURCES test_bel.cpp psg_shim.c ${RP6502_SRC}/ria/aud/bel.c
-        INCLUDES ${AUD_SHIM_INCLUDES}
-        DEPENDS aud_sine_rom
-        ARGS -GRATE=48000
         TIMEOUT 300)
 
     # --- The resampler in RTL, against emu/emu/rsmp.c in lockstep ---
@@ -74,7 +68,7 @@ if(RP6502_VERILATE)
     # --- The OPL2 device: the pointer gates it, a poke reaches the chip ---
     rp6502_add_module_test(opl
         TOP aud_opl
-        RTL ${OPL2_SOURCES} ${RP6502_FPGA_RTL}/aud/aud_bel.sv
+        RTL ${OPL2_SOURCES}
             ${RP6502_FPGA_RTL}/aud/aud_opl.sv
         INCLUDES ${RP6502_BENCH}
         DEPENDS opl2_lut_rom
@@ -90,6 +84,7 @@ if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(aud FIRMWARE
         DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
             AUD_ROM_OPL_EXIT="${AUD_ROM_OPL_EXIT}"
+            AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
         DEPENDS aud_roms
         TIMEOUT 600)
 endif()

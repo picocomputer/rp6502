@@ -3,12 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * aud_rsmp against the real rsmp.c, sample for sample.
+ * aud_rsmp against rsmp.c, sample for sample.
  *
  * test_rsmp measures whether the filter is any good; this measures whether
- * the fabric copies it exactly. Two different questions, and only the
- * second one can be answered by comparison — the same way test_psg holds
- * aud_psg to psg.c while nothing in that pair says the PSG sounds right.
+ * the two implementations of it agree. Two different questions, and only
+ * the second one can be answered by comparison — neither side is the
+ * other's reference, and nothing in this pair says the filter sounds right.
  *
  * The interesting part is the phase bookkeeping rather than the multiplies.
  * A resampler whose arithmetic is perfect and whose phase accumulator drifts
@@ -69,23 +69,6 @@ static void fresh()
     tick();
 }
 
-/* One input into the RTL, and everything it hands back. The engine takes
- * about fifty cycles an output and the inputs are a thousand apart on the
- * real machine, so a hundred and sixty is generous and still bounded. */
-static void rtl_push(int16_t x, std::vector<int16_t> &out)
-{
-    dut->in_sample = x;
-    dut->in_valid = 1;
-    tick();
-    dut->in_valid = 0;
-    for (int i = 0; i < 160; i++)
-    {
-        tick();
-        if (dut->aud_rsmp_valid)
-            out.push_back((int16_t)dut->aud_rsmp_out);
-    }
-}
-
 /* The C is not clamped — it answers at full width and lets the platform's
  * sink decide. The fabric IS the sink here, so the comparison clamps the C
  * the way aud_rsmp does rather than pretending neither of them narrows. */
@@ -98,6 +81,14 @@ static int16_t clamp16(int32_t v)
     return (int16_t)v;
 }
 
+/* Both cadences at once, the way the machine runs them: an OPL sample every
+ * 1014 clk_sys and the mixer's tick every 1050, off the same clock.
+ *
+ * The RTL is pulled and the C is pushed, so there is no per-input count to
+ * compare any more — an input and an output are simply different events. The
+ * streams are still identical, because both walk the same phase against the
+ * same taps in the same order, so the stream is what this compares.
+ */
 static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
 {
     fresh();
@@ -105,34 +96,55 @@ static void lockstep(int *utest_result, int32_t (*gen)(int), int n_in)
     rsmp_reset(&r);
     const uint64_t step = rsmp_step(POCKET_IN, POCKET_OUT);
 
-    long compared = 0;
-    for (int i = 0; i < n_in; i++)
+    std::vector<int16_t> cbuf, rbuf;
+    long next_in = 0;
+    /* The tick starts a whole input behind, which is the slack the pull side
+     * needs: an output may never read further than the inputs have reached. */
+    long next_step = POCKET_OUT;
+    int in_i = 0;
+
+    const long clocks = (long)(n_in + 2) * POCKET_OUT;
+    for (long t = 0; t < clocks; t++)
     {
-        const int32_t x = gen(i);
+        const bool do_in = in_i < n_in && t == next_in;
+        const bool do_step = t == next_step;
 
-        int32_t cbuf[8];
-        const int got = rsmp_push(&r, x, step, cbuf, 8);
+        dut->in_valid = do_in ? 1 : 0;
+        dut->step = do_step ? 1 : 0;
+        if (do_in)
+            dut->in_sample = (int16_t)gen(in_i);
+        tick();
+        dut->in_valid = 0;
+        dut->step = 0;
 
-        std::vector<int16_t> rbuf;
-        rtl_push((int16_t)x, rbuf);
-
-        if ((int)rbuf.size() != got)
-            fprintf(stderr, "count diff at input %d: rtl=%zu c=%d\n",
-                    i, rbuf.size(), got);
-        ASSERT_EQ((int)rbuf.size(), got);
-
-        for (int k = 0; k < got; k++)
+        if (do_in)
         {
-            const int16_t want = clamp16(cbuf[k]);
-            if (rbuf[k] != want)
-                fprintf(stderr, "diff at input %d out %d: rtl=%d c=%d\n",
-                        i, k, rbuf[k], want);
-            ASSERT_EQ(rbuf[k], want);
-            compared++;
+            int32_t c[8];
+            const int got = rsmp_push(&r, gen(in_i), step, c, 8);
+            for (int k = 0; k < got; k++)
+                cbuf.push_back(clamp16(c[k]));
+            in_i++;
+            next_in += POCKET_OUT;
         }
+        if (do_step)
+            next_step += POCKET_IN;
+        if (dut->aud_rsmp_valid)
+            rbuf.push_back((int16_t)dut->aud_rsmp_out);
     }
-    fprintf(stderr, "  %ld samples matched\n", compared);
-    ASSERT_GT(compared, (long)(n_in / 2));
+
+    /* The pull side trails the push side by whatever is still in the history
+     * when the clock stops, so the common prefix is what agrees. */
+    const size_t n = rbuf.size() < cbuf.size() ? rbuf.size() : cbuf.size();
+    for (size_t k = 0; k < n; k++)
+    {
+        if (rbuf[k] != cbuf[k])
+            fprintf(stderr, "diff at out %zu: rtl=%d c=%d\n",
+                    k, rbuf[k], cbuf[k]);
+        ASSERT_EQ(rbuf[k], cbuf[k]);
+    }
+    fprintf(stderr, "  %zu samples matched (rtl %zu, c %zu)\n",
+            n, rbuf.size(), cbuf.size());
+    ASSERT_GT((long)n, (long)(n_in / 2));
 }
 
 /* Silence has to agree too: a filter with a stuck accumulator passes every

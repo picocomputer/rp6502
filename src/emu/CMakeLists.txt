@@ -96,6 +96,7 @@ add_library(emu_core STATIC
     ${OEMCP_C}
     ${RP6502_SRC}/ria/api/std.c
     ${RP6502_SRC}/ria/aud/bel.c
+    ${RP6502_SRC}/ria/aud/bel_presets.c
     ${RP6502_SRC}/ria/aud/opl.c
     ${RP6502_SRC}/ria/aud/psg.c
     ${RP6502_SRC}/ria/str/rln.c

@@ -108,7 +108,7 @@ module rp6502
     output logic rp6502_vid_de,
     output logic [2:0] rp6502_vid_canvas,
 
-    /* One stereo sample per PSG tick, 10-bit PWM levels. */
+    /* One stereo sample per PSG tick, signed at full scale. */
     output logic signed [15:0] rp6502_aud_l,
     output logic signed [15:0] rp6502_aud_r,
     output logic rp6502_aud_valid,
@@ -752,17 +752,21 @@ module rp6502
         .ov_clear(sp_ov_clear)
     );
 
-    /* Three device registers at the audio window: the PSG's pointer, the
-     * console bell, and the OPL2's pointer. */
+    /* The audio window: the PSG's pointer, the OPL2's pointer, and the two
+     * words of the ninth voice the soft CPU rings the bell with. Four bits
+     * of offset rather than two, so the window is sixty-four bytes and the
+     * bell's descriptor has somewhere to live. */
     logic aud_we;
     always_comb aud_we = bus_stb && bus_we && bus_sel_aud;
 
+    logic psg_tick;
+
     logic signed [15:0] psg_l, psg_r;
-    logic psg_valid;
+    /* verilator lint_off PINCONNECTEMPTY */
     aud_psg aud_psg (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .xaddr_we(aud_we && bus_addr[3:2] == 2'b00),
+        .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
         .aud_psg_a_req(ma_req[4]),
         .aud_psg_a_addr(ma_addr[4]),
@@ -771,27 +775,38 @@ module rp6502
         .q_we(xr_busy && xr_we),
         .q_addr(xr_addr),
         .q_val(xr_wdata),
+        .bel_lo_we(aud_we && bus_addr[5:2] == 4'h4),
+        .bel_hi_we(aud_we && bus_addr[5:2] == 4'h5),
+        .bel_wdata(bus_wdata),
         .aud_psg_l(psg_l),
         .aud_psg_r(psg_r),
-        .aud_psg_valid(psg_valid)
+        /* The walk's own done strobe. The machine runs off the tick
+         * below instead, which is the divider and not the walk. */
+        .aud_psg_valid(),
+        .aud_psg_tick(psg_tick)
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     /* One channel: the right output carries the same sample and nothing
      * downstream reads it any more. */
     logic signed [15:0] opl_l;
-    logic opl_valid, opl_enabled;
+    logic opl_valid;
+    /* verilator lint_off PINCONNECTEMPTY */
     aud_opl aud_opl (
         .clk(clk_sys),
         .rst_n(rst_n),
-        .xaddr_we(aud_we && bus_addr[3:2] == 2'b10),
+        .xaddr_we(aud_we && bus_addr[5:2] == 4'h2),
         .xaddr_wdata(bus_wdata[15:0]),
         .q_we(xr_busy && xr_we),
         .q_addr(xr_addr),
         .q_val(xr_wdata),
         .aud_opl_out(opl_l),
         .aud_opl_valid(opl_valid),
-        .aud_opl_enabled(opl_enabled)
+        /* Nothing gates on it: an engine with no program answers zero and
+         * a voice that is silent makes no sound. */
+        .aud_opl_enabled()
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     /* The OPL2 into the codec's rate. A YM3812 samples every 1014 clk_sys
      * and the codec every 1050, so this is the one voice on the machine
@@ -805,77 +820,37 @@ module rp6502
      * sample on both channels, so resampling it twice would buy nothing
      * and cost four more M10K. */
     logic signed [15:0] opl_rs;
-    logic opl_rs_valid;
+    /* verilator lint_off PINCONNECTEMPTY */
     aud_rsmp aud_rsmp (
         .clk(clk_sys),
         .rst_n(rst_n),
         .in_sample(opl_l),
         .in_valid(opl_valid),
+        .step(psg_tick),
         .aud_rsmp_out(opl_rs),
-        .aud_rsmp_valid(opl_rs_valid)
+        /* Pulled, so its answer is ready when the tick that asked for it
+         * comes round again; the strobe is the module's own business. */
+        .aud_rsmp_valid()
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
-    /* The engines sum rather than select. The xreg validation lets only
-     * one hold a pointer at a time and the other answers zero — the PSG
-     * emits silence with its pointer parked, and aud_opl gates on its
-     * own enable — so the sum is the selection, without the mux.
+    /* The engines sum. Nothing selects, nothing gates: an engine that is
+     * not making sound contributes zero, and the console bell is the PSG's
+     * ninth voice so it sums with the rest.
      *
-     * The tick still follows the enabled engine, but no longer because
-     * they run at different rates: both are 48 kHz now. The resampler
-     * emits on whichever OPL sample completed an output interval, so its
-     * pulses are evenly paced only on average, and the PSG's come off its
-     * own divider. Same rate, different phase, so one of them has to be
-     * the heartbeat rather than both. */
+     * One heartbeat, the PSG's divider — the tick itself, not the end of a
+     * walk, whose length moves with the XRAM rotor and jumps when a pointer
+     * is programmed. The OPL's resampler is pulled by the same tick, so
+     * every voice reaching the codec was taken on the same clock. */
     logic signed [16:0] eng_l, eng_r;
-    logic eng_valid;
     always_comb begin
         eng_l = 17'(opl_rs) + 17'(psg_l);
         eng_r = 17'(opl_rs) + 17'(psg_r);
-        eng_valid = opl_enabled ? opl_rs_valid : psg_valid;
-    end
-
-    /* One bell for the machine, past the mux. Both engines used to carry
-     * their own and only the selected one could ever be heard, so the
-     * second cost 207 ALMs and a DSP to be inaudible.
-     *
-     * It keeps its own 48 kHz tick rather than riding whichever engine
-     * won, because the two run at 24,000 and 49,704 and a bell stepped
-     * by the winner would change pitch with the engine — which is the
-     * bug the RATE parameter was just added to fix. 50.4 MHz over 1050
-     * is exactly 48,000. The engine's tick still decides when the sum
-     * reaches the codec; at 587 Hz the bell is far below what even the
-     * slower engine can carry. */
-    localparam int BEL_TICKS = 1050;
-    logic [10:0] bel_div;
-    logic bel_step;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
-            bel_div <= '0;
-            bel_step <= 1'b0;
-        end else begin
-            bel_step <= bel_div == 11'(BEL_TICKS - 1);
-            bel_div <= bel_div == 11'(BEL_TICKS - 1) ? '0 : bel_div + 11'd1;
-        end
-    end
-
-    logic signed [15:0] bel_out;
-    aud_bel #(.RATE(48000)) bel (
-        .clk(clk_sys),
-        .rst_n(rst_n),
-        .strike(aud_we && bus_addr[3:2] == 2'b01),
-        .step(bel_step),
-        .aud_bel_out(bel_out)
-    );
-
-    logic signed [17:0] out_l, out_r;
-    always_comb begin
-        out_l = 18'(eng_l) + 18'(bel_out);
-        out_r = 18'(eng_r) + 18'(bel_out);
-        rp6502_aud_l = out_l < -18'sd32768 ? -16'sd32768
-            : out_l > 18'sd32767 ? 16'sd32767 : 16'(out_l);
-        rp6502_aud_r = out_r < -18'sd32768 ? -16'sd32768
-            : out_r > 18'sd32767 ? 16'sd32767 : 16'(out_r);
-        rp6502_aud_valid = eng_valid;
+        rp6502_aud_l = eng_l < -17'sd32768 ? -16'sd32768
+            : eng_l > 17'sd32767 ? 16'sd32767 : 16'(eng_l);
+        rp6502_aud_r = eng_r < -17'sd32768 ? -16'sd32768
+            : eng_r > 17'sd32767 ? 16'sd32767 : 16'(eng_r);
+        rp6502_aud_valid = psg_tick;
     end
 
     /* vid_timing's de is the full 640x480 window; the machine's de is

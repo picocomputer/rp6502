@@ -149,8 +149,11 @@ static inline int32_t set_tz_minutes(void)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
-#define AUD_BEL_STRIKE (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
+/* The bell's voice, a channel block's six bytes in its own order:
+ * freq, duty, vol_attack / vol_decay, wave_release, pan_gate. */
+#define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
+#define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
 #define CPU_RUN (*(volatile uint8_t *)0x40000000u)
 #define API_PENDING (*(volatile uint8_t *)0x40000004u)
 

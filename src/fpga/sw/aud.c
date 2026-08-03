@@ -8,12 +8,14 @@
  * pointer lands in the device register, whose write also resets the
  * envelopes, the noise seeds, and the gate queue in hardware.
  *
- * Programming one engine parks the other. On the RP2350 that happens by
- * itself: psg_xreg and opl_xreg each call aud_setup, which hands the one
- * interrupt to the new handler and the loser simply stops being asked
- * for samples. The engines here are free-running hardware and nothing
- * takes their turn away, so the pointers have to do it. Without this
- * both would sound at once, and rp6502.sv sums them.
+ * Setting up either engine resets the other: the PSG is reset when an OPL
+ * xreg setup is attempted, and the OPL when a PSG one is. Writing a
+ * pointer register is what resets an engine, 0xFFFF included, so parking
+ * the other one is the reset.
+ *
+ * That is the only exclusion there is. Nothing gates the mix — rp6502.sv
+ * sums every engine and the bell together, and an engine with no program
+ * answers zero.
  */
 
 #include "aud.h"
@@ -21,10 +23,10 @@
 
 #include <string.h>
 
-/* The exit path's teardown: a stopped program's engines park, the way
- * aud_stop hands the RP2350's interrupt back to the standing bell. The
+/* The exit path's teardown: a stopped program's engines are reset. The
  * engines here are free-running hardware, so without this the last sound
- * plays forever — which it did, from first power-on until now. */
+ * plays forever. The bell is not among them — it is the soft CPU's, and a
+ * rung bell rings through a program stop. */
 void aud_stop(void)
 {
     AUD_PSG_XADDR = 0xFFFF;

@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include "aud.h"
+#include "bel.h"
 #include "cfg.h"
 #include "com.h"
 #include "font.h"
@@ -467,6 +468,7 @@ int main(void)
         mou_task();
         std_task();
         com_task();
+        bel_task();
         rln_task();
         term_task();
         vid_task();
