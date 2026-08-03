@@ -3,14 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The sprite stage: vga.c's foreground walk, run once per rendered line
- * after every plane's fill has finished. Sprites do not own a buffer —
- * they paint into the foreground, the most recently filled plane at or
- * below their own, and only when no plane below has filled do they zero
- * their own bank and claim it as a filled layer. Plane order is the
- * paint order, so the walk is sequential where the fills raced in
- * parallel; everything still lands before the beam's h==799 read of the
- * next line's first pixel.
+ * The sprite stage, run once per rendered line after every plane's fill
+ * has finished. Sprites own no buffer: they paint into the foreground —
+ * the most recently filled plane at or below their own — and only zero
+ * and claim a bank when no plane below has filled. Plane order is paint
+ * order, so the walk is sequential where the fills raced.
  */
 
 module vid_sprite (
@@ -26,28 +23,23 @@ module vid_sprite (
     input logic y_shift,
     input logic [9:0] y_offset,
 
-    /* The sprite slots out of the prog table, one word per clock. */
     output logic [12:0] vid_sprite_s_idx,
     input logic [31:0] s_data,
 
-    /* The fill engines' line outcome. */
     input logic [2:0] busy,
     input logic [2:0] rnew,
     input logic [2:0] rfilled,
 
-    /* Writes into the foreground plane's bank, and the claim that turns
-     * a zeroed bank into a filled layer. */
     output logic [1:0] vid_sprite_plane,
     output logic vid_sprite_we,
     output logic [9:0] vid_sprite_addr,
     output logic [15:0] vid_sprite_data,
     output logic vid_sprite_force,
 
-    /* Lost races: a line whose sprites missed the beam counts here and
-     * shows its partial paint, the way hardware racing the beam does. */
+    /* A line whose sprites missed the beam shows its partial paint, the
+     * way hardware racing a beam does. */
     output logic [15:0] vid_sprite_overrun /*verilator public_flat_rd*/,
 
-    /* XRAM port A, one rotor slot. */
     output logic vid_sprite_a_req,
     output logic [13:0] vid_sprite_a_addr,
     input logic a_gnt,
@@ -55,7 +47,6 @@ module vid_sprite (
     input logic ov_clear
 );
 
-    /* Target line, the fills' own derivation. */
     logic [9:0] t;
     logic [9:0] t_cv;
     logic render_now;

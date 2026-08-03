@@ -3,50 +3,26 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The RP6502 machine, independent of the FPGA platform hosting it. Platform
- * wrappers under platform/ adapt this to the Analogue Pocket (APF) or MiSTer;
- * the simulation verilates this module directly and drives it from sim/.
+ * The machine, independent of the FPGA platform hosting it.
  *
- * So far: the 6502 at a divided PHI2, its 64 KB, the VIA at $FFD0, the
- * RIA's bare UART and register cells at $FFE0, and the soft CPU that owns
- * them all — a Hazard3 whose firmware loads programs into the 6502's memory,
- * writes its vectors, and releases its reset, the way the RIA boots the real
- * machine. The memory map and its quirks follow emu/sys/mem.c: every write
+ * Two quirks the map inherits and nothing else would predict: every write
  * also lands in the SRAM shadow, and $FF00-$FFCF reads float at the last
  * value the bus carried.
- *
- * The soft CPU's window on the machine, byte-wide unless noted:
- *   0x10000000  the 6502's 64 KB
- *   0x30000000  the 64 KB XRAM
- *   0x20000000  the RIA register cells; +0x40 pops the 6502's TX ring,
- *               +0x100 the xstack bytes, +0x320 the xstack pointer,
- *               +0x48 offers an RX byte toward the $FFE2 latch
- *   0x40000000  control: bit 0 runs the 6502 (its RESB, inverted)
- *   0x40000004  syscall: bit 0 reads pending; any write acknowledges
- *   0x50000000  the terminal cell memory and scanout registers, word-wide;
- *               +0x20000 the scanline program, canvas, and vsync line
- *   0x60000000  staging, read-only: the platform answers with the byte at
- *               rp6502_stage_addr — the APF data slot on the Pocket, the
- *               bridge model in simulation
- *   0x80000000  the platform's own devices, word-wide and read/write. The
- *               Pocket puts its host file bridge here; a platform with
- *               nothing to put there reads zero
  */
 
 module rp6502
     import rp6502_pkg::*;
 #(
-    /* The soft CPU's firmware, for synthesis. Simulation loads the
-     * arrays directly through the testbench and leaves this empty. */
+    /* Empty in simulation, which loads the arrays through the bench. */
     parameter TCM_INIT_FILE = "",
     /* clk_sys in kHz, which the PHI2 accumulator counts against. */
     parameter int SYS_KHZ = 50400
 ) (
     input logic clk_sys,
-    /* The soft CPU's clock: half clk_sys and rising with it. Made
-     * outside, because a divider made here rises after this module's
-     * own registers have settled at the same edge, and a master clocked
-     * that late reads a ready the machine has not published. */
+    /* Half clk_sys, rising with it. Made outside: a divider made here
+     * would rise after this module's own registers settle on the same
+     * edge, and a master clocked that late reads a ready the machine has
+     * not published. */
     input logic clk_rv,
     input logic rst_n,
 
@@ -82,8 +58,6 @@ module rp6502
     output logic [31:0] rp6502_host_wdata,
     input logic [31:0] host_rdata,
 
-    /* Platform sidebands into the soft CPU's registers: the staged slot
-     * length after a load, key events off the platform inputs. */
     input logic slot_set,
     input logic [31:0] slot_len,
     input logic key_set,
@@ -99,16 +73,12 @@ module rp6502
     input logic [15:0] mou_trig,
     output logic rp6502_key_pending,
 
-    /* The composed picture, aligned with its data enable, and the canvas
-     * it presents — vga.h's encoding, latched at vblank. A platform whose
-     * scaler wants the native picture (the Pocket's does) uses the canvas
-     * to undo the beam's doubling and letterboxing; one that just wants
-     * 640x480 ignores it. */
+    /* The canvas says how to undo the beam's doubling and letterboxing.
+     * A scaler that only wants 640x480 ignores it. */
     output logic [15:0] rp6502_vid_pixel,
     output logic rp6502_vid_de,
     output logic [2:0] rp6502_vid_canvas,
 
-    /* One stereo sample per PSG tick, signed at full scale. */
     output logic signed [15:0] rp6502_aud_l,
     output logic signed [15:0] rp6502_aud_r,
     output logic rp6502_aud_valid,
@@ -117,11 +87,9 @@ module rp6502
     output logic rp6502_vid_frame
 );
 
-    /* clk_rv is half clk_sys, per the port comment. Anything the soft
-     * CPU measures time with counts against this one. */
+    /* The soft CPU measures time against its own clock, not this one. */
     localparam int RV_KHZ = SYS_KHZ / 2;
 
-    /* PHI2, fixed until the soft CPU programs it. */
     logic [15:0] phi2_khz;
     logic phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
@@ -130,7 +98,6 @@ module rp6502
         .phi2_div_en(phi2_en)
     );
 
-    /* The 6502 and its bus, decoded per the machine's map. */
     logic [15:0] cpu_addr;
     logic [7:0] cpu_dout, cpu_din;
     logic cpu_we;
@@ -142,16 +109,11 @@ module rp6502
     /* verilator lint_on UNUSEDSIGNAL */
     always_comb unused_sync = cpu_sync;
 
-    /* RESB, inverted: the one reset the machine has, held by the OS and
-     * reaching the 6502 and the 6522 and nothing else. It is a register,
-     * not a gate of one with the platform's reset — that would put a
-     * combinational term on a reset network, and the platform already
-     * reaches this flop asynchronously, so a gate would say nothing the
-     * flop does not.
-     *
-     * A ROM load therefore hands the new program a VIA with its timers,
-     * interrupt enables and port directions cleared, not the last
-     * program's. */
+    /* RESB inverted, reaching the 6502 and the 6522 and nothing else. A
+     * register, not a gate of one with the platform's reset: the platform
+     * already clears this flop asynchronously, so the gate would say
+     * nothing the flop does not while putting a combinational term on a
+     * reset network. */
     logic resb /*verilator public_flat_rw*/;
     logic cpu_stp;
 
@@ -206,47 +168,27 @@ module rp6502
         .via_irq(via_irq)
     );
 
-    /* The soft CPU and its window on the machine.
-     *
-     * Its clock is half this one, so every level it drives stands for
-     * two machine clocks and every pulse the machine sends can fall
-     * between two of its edges. Three signals care, and all three are
-     * fixed here rather than in rv_soc, which does not know it is being
-     * clocked slowly.
-     *
-     * The strobe and the console valid are levels the machine must act
-     * on exactly once: narrowed to their first machine clock. Going the
-     * other way, slot_set and key_set are one machine clock wide and
-     * would fall between the soft CPU's edges: held for two, which
-     * always spans one, and both carry a value the far side is holding
-     * anyway, so arriving twice costs nothing. */
+    /* The soft CPU's clock is half this one, so every level it drives
+     * stands for two machine clocks and every pulse the machine sends can
+     * fall between two of its edges. Fixed here rather than in rv_soc,
+     * which does not know it is clocked slowly: the strobe and the
+     * console valid are narrowed to one machine clock, while slot_set and
+     * key_set are held for two so an edge always sees them. */
     logic bus_stb_raw, bus_stb_n, bus_stb_q;
     logic rv_tx_valid_raw, rv_tx_valid_q;
     logic slot_set_q, key_set_q;
 
-    /* These two narrowings ask a question about a signal from the other
-     * clock, and the two clocks rise together, so asking it on the
-     * rising edge asks it at the moment the answer is changing.
-     *
-     * bus_stb_raw is worse than a clock crossing: rv_soc builds it
-     * combinationally out of its own bus_pend and the machine's
-     * bus_rdy, so it is a term from both clocks with a glitch of its
-     * own. It was compared live against its clk_sys copy, and the
-     * failure that arrangement has is silent. Let the copy catch the
-     * new value one edge early and the comparison reads 1 && !1: the
-     * pulse never fires, and by the next edge both terms are high so it
-     * never fires again. The whole bus access disappears with nothing
-     * to show for it — a dropped byte at $FFE1, an API call at $FFF0
-     * that never lands, an xreg write the video never sees. Which
-     * accesses go depends on the skew between two global networks, so
+    /* The two clocks rise together, so a question asked on the rising
+     * edge is asked while the answer is changing. bus_stb_raw is worse
+     * than a crossing: rv_soc builds it out of its own bus_pend and the
+     * machine's bus_rdy, a term from both clocks. Compared live against a
+     * copy that caught the new value one edge early, it reads 1 && !1 —
+     * the pulse never fires, and the whole access disappears silently.
+     * Which accesses go depends on skew between two global networks, so
      * it is a different set every fit and none of it in simulation.
      *
-     * Take them on the falling edge instead. The launch is at the
-     * rising edge the two clocks share, so half a period later the
-     * value has been still for 9.9 ns rather than for nothing, and the
-     * comparison is between two registers on this clock. The access is
-     * still captured on the same rising edge it always was: the pulse
-     * spans the half period from here to there. */
+     * On the falling edge the value has been still for half a period and
+     * the comparison is between two registers on this clock. */
     /* The two halves are one mechanism and must stay one. Asynchronous
      * clear is a control signal a LAB shares, so a half that needs it
      * and a half that does not cannot be packed together: give them
@@ -271,22 +213,16 @@ module rp6502
     end
     /* This one stays on the rising edge. rv_tx_valid_raw is a clean flop
      * from the soft CPU's clock — no bus_rdy, no term from this clock, so
-     * nothing settles late and a later sample buys nothing. Taking it on
-     * the falling edge only narrowed the pulse to the half period between
-     * the two edges, which every rising-edge consumer then catches at its
-     * expiry: pocket_dbg and pocket_dbglog both sample there, and the
-     * bench stopped seeing the soft CPU's console at all. */
+     * a later sample buys nothing and only narrows the pulse to a half
+     * period, which rising-edge consumers then catch at its expiry. */
     always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
 
     logic bus_stb, bus_we, bus_pend;
     always_comb bus_stb = bus_stb_n && !bus_stb_q;
 
-    /* What the soft CPU is told, rather than what it would work out for
-     * itself. The strobe is one clock of this clock, and the other clock
-     * looks only every second one, so it is held until the request it
-     * answers goes away — a level that has been still for a whole period
-     * by the time the far side reads it, and a register the analyzer can
-     * see, where the term it replaces was a glitch that it cannot. */
+    /* Held until the request it answers goes away, because the other
+     * clock looks only every second one. A register the analyzer can see,
+     * where the term it replaces was a glitch it cannot. */
     logic bus_taken;
     initial bus_taken = 1'b0;
     always_ff @(posedge clk_sys) begin
@@ -299,13 +235,11 @@ module rp6502
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
 
-    /* Counted against RV_KHZ, not SYS_KHZ: mtime_acc is clocked by
-     * clk_rv. One microsecond is RV_KHZ/1000 clocks, which is 25.2 of
-     * them and so not a whole number. Ten per clock wrapping at a
-     * hundredth of the rate keeps the fraction exact. Left at the
-     * module's 1/1 and the clock runs RV_KHZ/1000 times fast, which
-     * nothing catches because nothing in simulation waits on a real
-     * second. */
+    /* RV_KHZ, not SYS_KHZ: mtime_acc is clocked by clk_rv, and a
+     * microsecond is 25.2 of those — not whole. Ten per clock wrapping at
+     * a hundredth of the rate keeps the fraction exact. Left at the
+     * module's 1/1 the clock runs 25.2x fast, which nothing in simulation
+     * waits on a real second to catch. */
     rv_soc #(
         .MTIME_ADD(10),
         .MTIME_WRAP(RV_KHZ / 100),
@@ -344,7 +278,6 @@ module rp6502
         .bus_rdata(bus_rdata)
     );
 
-    /* Byte lane per sb/lb for the byte-wide windows. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_bus;
     always_comb unused_bus = ^{bus_addr[27:16]};
@@ -380,8 +313,8 @@ module rp6502
         rp6502_host_wdata = bus_wdata;
     end
 
-    /* The pending request shows the address early for a slow platform;
-     * the strobe-captured register holds it through the answer cycle. */
+    /* Shown early for a slow platform; the strobe-captured register
+     * holds it through the answer cycle. */
     logic [27:0] stage_addr_q;
     always_comb begin
         rp6502_stage_pend = bus_pend && bus_sel_stage;
@@ -420,11 +353,10 @@ module rp6502
         end
     end
 
-    /* The 6502's RESB keeps the reset the rest of the machine gave up.
-     * The platform asserts this whenever the host asks for it, not only
-     * at power-on, and a 6502 that comes out of it still running is one
-     * executing the last program against cells the firmware is in the
-     * middle of rebuilding. */
+    /* The platform asserts this whenever the host asks, not only at
+     * power-on, and a 6502 that comes out of it still running is one
+     * executing the last program against cells the firmware is rebuilding
+     * underneath it. */
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n)
             resb <= 1'b0;
@@ -432,9 +364,8 @@ module rp6502
             resb <= bus_wbyte[0];
     end
 
-    /* Reads answer one cycle after the strobe. The register window is a
-     * true word; the byte-wide windows put their byte on every lane so the
-     * master's own extract picks the addressed one. */
+    /* The byte-wide windows put their byte on every lane, so the master's
+     * own extract picks the addressed one. */
     logic [7:0] bus_rbyte;
     always_comb begin
         case (bus_rsel)
@@ -503,8 +434,6 @@ module rp6502
             bus_hold <= cpu_din;
     end
 
-    /* The raster: one clock per pixel in simulation, the pixel domain on
-     * hardware. The scanline port is the beam's line. */
     logic [9:0] vid_h /*verilator public_flat_rd*/;
     logic [9:0] vid_v /*verilator public_flat_rd*/;
     logic vid_de_full;
@@ -532,23 +461,17 @@ module rp6502
     );
     always_comb rp6502_scanline = vid_v;
 
-    /* The XRAM. Port A rotates among the requesting mode engines; port B
-     * is the RW engine's while busy — the soft CPU's strobe waits — and
-     * the engine's background refresh yields to the soft CPU in turn. */
+    /* Port B is the RW engine's while busy, so the soft CPU's strobe
+     * waits; the engine's background refresh yields to it in turn. */
     logic [7:0] xram_b_rdata;
     logic xr_busy, xr_we;
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    /* Bit 18 of the video window is the font store, above the terminal
-     * at bit 17's clear half and the scanline program at its set one.
-     *
-     * The font store: the terminal and the three plane engines read a
-     * byte each per character cell, so one port is eight times what
-     * they ask for. The terminal and the planes never read together —
-     * a plane renders only off the console canvas — so the rotor is
-     * fairness between the planes more than arbitration. Mod four, so
-     * the wrap is free. */
+    /* The terminal and the planes never read the font together — a plane
+     * renders only off the console canvas — so the rotor is fairness
+     * between the planes more than arbitration. Mod four, so the wrap is
+     * free. */
     logic [3:0] mf_req;
     logic [13:0] mf_addr[4];
     logic [1:0] f_rotor, f_sel;
@@ -582,21 +505,15 @@ module rp6502
         .w_data(bus_wdata)
     );
 
-    /* Three fills, the sprite stage, and the PSG share port A; the
-     * scan folds mod five in wider bits. */
     logic [4:0] ma_req;
     logic [13:0] ma_addr[5];
     logic [2:0] a_rotor, a_sel;
     logic a_any;
-    /* The pick, for every rotor position at once. Scanning from the
-     * live rotor made each candidate depend on the one before it — an
-     * adder, a wrap and a priority step per requester, five deep, in
-     * front of the address mux and of every requester's grant. Solved
-     * for all five positions the answer is one function of the five
-     * request bits, and the rotor only chooses between the answers,
-     * arriving from a register while they settle. Same truth table:
-     * the lowest offset with a request still wins, because the loop
-     * counts down and the last assignment stands. */
+    /* Every rotor position solved at once, so the rotor only chooses
+     * between answers that settled while it arrived from a register.
+     * Scanning from the live rotor instead put five priority steps in
+     * front of the address mux. The lowest offset with a request wins:
+     * the loop counts down and the last assignment stands. */
     logic [2:0] sel_at[5];
     logic any_at[5];
     always_comb begin
@@ -635,8 +552,6 @@ module rp6502
     logic vid_console, vid_x_shift, vid_y_shift;
     logic [9:0] vid_y_offset;
 
-    /* The prog read port rotates through the planes; each engine waits
-     * for its slot and captures the entry the clock after. */
     logic [1:0] p_rotor;
     logic [8:0] pm_line[3];
     logic [31:0] pm_entry;
@@ -709,9 +624,8 @@ module rp6502
     logic [1:0] sp_plane;
     logic sp_we, sp_force, sp_ov_clear;
     logic [15:0] sp_overrun;
-    /* Lines a plane failed to fill in time, counted beside the sprite
-     * stage's lost races and cleared with them. Saturating, because a
-     * count that wraps to zero reads as a healthy machine. */
+    /* Saturating: a count that wraps to zero reads as a healthy
+     * machine. */
     logic [15:0] plane_underrun;
     always_ff @(posedge clk_sys or negedge rst_n) begin
         if (!rst_n)
@@ -791,10 +705,8 @@ module rp6502
         .ov_clear(sp_ov_clear)
     );
 
-    /* The audio window: the PSG's pointer, the OPL2's pointer, and the two
-     * words of the ninth voice the soft CPU rings the bell with. Four bits
-     * of offset rather than two, so the window is sixty-four bytes and the
-     * bell's descriptor has somewhere to live. */
+    /* Four bits of offset rather than two, so the bell's descriptor has
+     * somewhere to live beside the two pointers. */
     logic aud_we;
     always_comb aud_we = bus_stb && bus_we && bus_sel_aud;
 
@@ -819,15 +731,13 @@ module rp6502
         .bel_wdata(bus_wdata),
         .aud_psg_l(psg_l),
         .aud_psg_r(psg_r),
-        /* The walk's own done strobe. The machine runs off the tick
-         * below instead, which is the divider and not the walk. */
+        /* The machine runs off the tick below, which is the divider and
+         * not the walk. */
         .aud_psg_valid(),
         .aud_psg_tick(psg_tick)
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* One channel: the right output carries the same sample and nothing
-     * downstream reads it any more. */
     logic signed [15:0] opl_l;
     logic opl_valid;
     /* verilator lint_off PINCONNECTEMPTY */
@@ -841,23 +751,16 @@ module rp6502
         .q_val(xr_wdata),
         .aud_opl_out(opl_l),
         .aud_opl_valid(opl_valid),
-        /* Nothing gates on it: an engine with no program answers zero and
-         * a voice that is silent makes no sound. */
         .aud_opl_enabled()
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* The OPL2 into the codec's rate. A YM3812 samples every 1014 clk_sys
-     * and the codec every 1050, so this is the one voice on the machine
-     * whose rate is not ours to choose — everything else is generated at
-     * 48 kHz to begin with. Before this the surplus was simply dropped:
-     * pocket_i2s reloaded from whichever sample happened to be latest, so
-     * about 1,700 OPL samples a second were overwritten and never
-     * transmitted, unfiltered.
+    /* A YM3812 samples every 1014 clk_sys and the codec every 1050, so
+     * this is the one voice whose rate is not ours to choose. Dropping
+     * the surplus instead lost about 1,700 samples a second, unfiltered.
      *
-     * One instance, not two. A YM3812 is mono and aud_opl emits the same
-     * sample on both channels, so resampling it twice would buy nothing
-     * and cost four more M10K. */
+     * One instance: a YM3812 is mono, so resampling it twice would buy
+     * nothing and cost four more M10K. */
     logic signed [15:0] opl_rs;
     /* verilator lint_off PINCONNECTEMPTY */
     aud_rsmp aud_rsmp (
@@ -867,20 +770,16 @@ module rp6502
         .in_valid(opl_valid),
         .step(psg_tick),
         .aud_rsmp_out(opl_rs),
-        /* Pulled, so its answer is ready when the tick that asked for it
-         * comes round again; the strobe is the module's own business. */
+        /* Pulled, so its answer is ready when the tick comes round. */
         .aud_rsmp_valid()
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* The engines sum. Nothing selects, nothing gates: an engine that is
-     * not making sound contributes zero, and the console bell is the PSG's
-     * ninth voice so it sums with the rest.
-     *
-     * One heartbeat, the PSG's divider — the tick itself, not the end of a
-     * walk, whose length moves with the XRAM rotor and jumps when a pointer
-     * is programmed. The OPL's resampler is pulled by the same tick, so
-     * every voice reaching the codec was taken on the same clock. */
+    /* Nothing selects and nothing gates: an engine making no sound
+     * contributes zero. One heartbeat, the PSG's divider — the tick
+     * itself, not the end of a walk, whose length moves with the XRAM
+     * rotor. The OPL's resampler is pulled by the same tick, so every
+     * voice reaching the codec was taken on the same clock. */
     logic signed [16:0] eng_l, eng_r;
     always_comb begin
         eng_l = 17'(opl_rs) + 17'(psg_l);
@@ -892,14 +791,10 @@ module rp6502
         rp6502_aud_valid = psg_tick;
     end
 
-    /* vid_timing's de is the full 640x480 window; the machine's de is
-     * the CANVAS — each of its columns once, each of its rows once, and
-     * nothing where the 180- and 360-line canvases used to carry a
-     * letterbox. Doubling and letterboxing were presentation, and
-     * presentation belongs to the platform: a sink that wants a fixed
-     * 640x480 raster repeats pixels and lines for free, while
-     * un-repeating them costs a buffer. This machine emits every canvas
-     * pixel exactly once. */
+    /* Every canvas pixel exactly once, no doubling and no letterbox:
+     * that is presentation and it belongs to the platform. Repeating
+     * pixels is free for a sink that wants 640x480; un-repeating them
+     * costs a buffer. */
     always_comb begin
         vid_de = vid_de_full;
         if (vid_x_shift)

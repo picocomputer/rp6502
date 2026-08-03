@@ -3,19 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * M6522 VIA, per-cycle identical to the emulator's chips/m6522.h as the
- * machine wires it: register file, both timers with their delay pipelines,
- * IFR/IER with the one-cycle IRQ pipeline, and the T1 PB7 toggle. The ports
- * are unwired here as on the board — inputs read low, CA/CB never see an
- * edge — so the port-input machinery reduces to constants and is documented
- * out rather than carried dead.
+ * M6522 VIA, per-cycle identical to the emulator's model as the machine
+ * wires it. The ports are unwired here as on the board — inputs read
+ * low, CA/CB never see an edge — so the port-input machinery reduces to
+ * constants rather than being carried dead.
  *
- * Every field operation and its ordering comes from the C: register access
- * effects land first, the timers tick on the pipeline bits fed two cycles
- * before, the IRQ flag follows its own one-cycle pipe, and the pipelines
- * shift last. One quirk is kept deliberately: in PB6 count mode the C
- * compares the fresh port inputs (all zero) against the pins it drove last
- * cycle, so a driven-high PB6 reads as a falling edge every cycle.
+ * Operation order comes from the C: register access effects first, then
+ * the timers on pipeline bits fed two cycles earlier, then the IRQ
+ * flag's own one-cycle pipe, then the pipelines shift. One quirk is
+ * deliberate: in PB6 count mode the C compares fresh port inputs (all
+ * zero) against the pins it drove last cycle, so a driven-high PB6
+ * reads as a falling edge every cycle.
  *
  * Read data is combinational from pre-tick state; read side effects land at
  * the clock edge with everything else.

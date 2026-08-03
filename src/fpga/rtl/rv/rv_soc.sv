@@ -3,42 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The soft CPU and its memory: a Hazard3 — the RP2350's own RISC-V core —
- * with a unified 128 KB tightly-coupled RAM and the beginnings of an MMIO
- * bus. This is the processor the RIA firmware runs on; the 6502-facing
- * hardware arrives as MMIO devices.
+ * A Hazard3, which is the RP2350's own core, so the firmware that runs
+ * here is the firmware that runs there.
  *
- * The AHB slave is single-cycle: always ready, reads launched in the address
- * phase out of BRAM, writes landed by byte lane at the end of the data phase.
- *
- * MMIO so far, word-wide at 0xF0000000:
- *   +0  console: write emits the low byte; reads as 0 (always ready)
- *   +4  halt: write stops the simulation testbench, value is the exit code
- *   +8  keyboard in: one offered byte, bit 8 valid, popped by the read;
- *       the testbench fills it now, the APF input bridge will later
- *   +16 microseconds since reset, low word; +20 high word. The tick is
- *       a fractional accumulator, MTIME_ADD per clock wrapping at
- *       MTIME_WRAP, which rp6502.sv sets from its clock; the
- *       firmware's time_us_64 reads hi-lo-hi
- *   +24 staged ROM length in bytes: the platform sets it after filling
- *       the staging window, the firmware writes 0 once consumed
- *   +28 HID key event: bit 9 valid, bit 8 down, low byte the HID
- *       keycode; popped by the read; the testbench fills it now, the
- *       APF input bridge will later
- *   +32 the controller, three words: buttons and type, then the two
- *       analog sticks, then the two triggers. Levels, not events —
- *       a pad is a thing that is, where a key is a thing that
- *       happened, and the two want different plumbing
- *   +44 the dock's keyboard, three words: modifiers, then four scan
- *       codes, then the last two. APF says the order codes appear in
- *       is implementation-dependent, so this is a set and the
- *       firmware rebuilds its bitmap from the whole of it
- *
- * Everything outside the TCM and the local page goes out the system bus,
- * with one wait state so the machine's single-cycle devices — SRAM port B,
- * the RIA cells, the 6502's reset — see one strobe per access and answer by
- * the stretched data phase. Byte lanes carry sb/lb; the loader moves bytes,
- * which is all a 6502's memory wants.
+ * The TCM and the local MMIO page answer inside the data phase. Anything
+ * else costs a wait state, which is what gives the machine's
+ * single-cycle devices one strobe per access.
  */
 
 module rv_soc #(
@@ -49,26 +19,19 @@ module rv_soc #(
     input logic clk,
     input logic rst_n,
 
-    /* Platform sidebands: the APF bridge posts the slot length and key
-     * events the way the testbenches poke them. */
     input logic slot_set,
     input logic [31:0] slot_len,
     input logic key_set,
     input logic [8:0] key_code,
-    /* The controller, as it stands. Already synchronized; a level does
-     * not need a mailbox and would be wrong in one. */
+    /* A level needs no mailbox and would be wrong in one. */
     input logic [31:0] pad_key,
     input logic [31:0] pad_joy,
     input logic [15:0] pad_trig,
-    /* The dock's keyboard: six scan codes across joy and trig, the
-     * modifiers in key. A report, not events — which is what a USB
-     * keyboard sends, and what the firmware rebuilds its bitmap from. */
     input logic [31:0] kbd_key,
     input logic [31:0] kbd_joy,
     input logic [15:0] kbd_trig,
-    /* The dock's mouse: a report counter, the buttons, and two relative
-     * movements. The counter is how a new report is told from a still
-     * hand, deltas being the same zero either way. */
+    /* The counter is how a new report is told from a still hand: the
+     * deltas are the same zero either way. */
     input logic [31:0] mou_key,
     input logic [31:0] mou_joy,
     input logic [15:0] mou_trig,
@@ -82,15 +45,11 @@ module rv_soc #(
     output logic rv_soc_halted,
     output logic [31:0] rv_soc_exit_code,
 
-    /* System bus: one strobe per access during the stretched data phase;
-     * bus_rdy low withholds the strobe and stretches the phase, for slaves
-     * whose port is arbitrated. */
     input logic bus_rdy,
-    /* The machine's answer that it took the access. Not rebuilt here from
-     * bus_rdy: that is a term the machine's own clock moves, and this
-     * clock's edge is the machine's edge, so asking it here asks it while
-     * it is changing. Two answers to one question, and where they differ
-     * the access either never happened or happens twice. */
+    /* Told, not worked out again from bus_rdy: that term moves on the
+     * machine's edge, which is this clock's edge, so a second answer
+     * here differs from the first and the access happens twice or not
+     * at all. */
     input logic bus_taken,
     output logic rv_soc_bus_pend,
     output logic rv_soc_bus_stb,
@@ -104,8 +63,6 @@ module rv_soc #(
     localparam int TCM_WORDS = 16384;  // 64 KB
     localparam int TCM_AW = $clog2(TCM_WORDS);
 
-    // AHB5 master from the CPU. Address bits between the TCM window and the
-    // MMIO page have no decode yet, and the bus never bursts.
     logic [31:0] haddr /*verilator public_flat_rd*/;
     logic hwrite /*verilator public_flat_rd*/;
     logic [1:0] htrans /*verilator public_flat_rd*/;
@@ -178,8 +135,6 @@ module rv_soc #(
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    // Address-phase capture; the data phase completes one cycle later,
-    // or two for the system bus.
     logic dph_active /*verilator public_flat_rd*/;
     logic dph_write /*verilator public_flat_rd*/;
     logic dph_mmio /*verilator public_flat_rd*/;
@@ -255,30 +210,22 @@ module rv_soc #(
         end
     end
 
-    // The strobe is the wait-state cycle: captured address out, write data
-    // straight off the held AHB data phase, reads answered next cycle.
     /* pend has no rdy term; its own block keeps the scheduler from seeing
      * a loop through the arbiter. */
     always_comb rv_soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
         rv_soc_bus_stb = rv_soc_bus_pend && bus_rdy;
-        /* Direction is the data phase's alone. Qualifying it with the
-         * strobe put bus_rdy in it — a term the machine's clock moves —
-         * so it answered live while the strobe answers from the falling
-         * edge. Two answers to one question, taken half a period apart:
-         * where they disagree the access still lands and lands as a
-         * read, and the write it was disappears. Every consumer already
-         * qualifies this with the strobe, so the term bought nothing
-         * but the disagreement. */
+        /* The data phase's alone. Qualified with the strobe it carried
+         * bus_rdy, answering live where the strobe answers from the
+         * falling edge, and a write that lands as a read is gone. */
         rv_soc_bus_we = dph_write;
         rv_soc_bus_addr = dph_addr;
         rv_soc_bus_wdata = hwdata;
         rv_soc_bus_wstrb = dph_strb;
     end
 
-    // TCM read launches in the address phase; write lands in the data phase.
-    // The decode matters: an external-window write must not also land here,
-    // or the loader overwrites the firmware under its own feet.
+    /* The decode matters: an external-window write must not also land
+     * here, or the loader overwrites the firmware under its own feet. */
     always_ff @(posedge clk) begin
         tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
                       tcm1[word_addr], tcm0[word_addr]};

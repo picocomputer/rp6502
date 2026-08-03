@@ -3,23 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The scanline program: the RTL image of the VGA side's prog table, minus
- * the function pointers — per scanline per plane, a fill slot and a
- * sprite slot. The fill slot is an enable/mode/attr word and the config
- * pointer; the sprite slot the same word shape, its second word packing
- * the sprite count over the config pointer. The soft CPU is the sole
- * author and every validation happens in its C, so the table is trusted
- * the way the fill functions trust their options.
+ * The scanline program: per scanline per plane, a fill slot and a
+ * sprite slot. The soft CPU is the sole author and every validation
+ * happens in its C, so the table is trusted.
  *
- * The table lives as four arrays, one per word of a slot pair, because
- * a block RAM has two ports and this table has four readers: the bus,
- * the walk's entry and config, and the sprite stage. Split by word each
- * array has exactly one writer and one reader, which is what the fabric
- * can build; kept whole it becomes a quarter of a million registers.
- * The soft CPU never reads the table back — vga.c only writes it — so
- * the bus side is write-only and the read port answers the registers
- * alone. The config word is sixteen bits wide because that is all a
- * config pointer is, which makes the split cost less memory than the
+ * Four arrays, one per word of a slot pair, because a block RAM has two
+ * ports and this table has four readers. Split by word each array has
+ * one writer and one reader, which is what the fabric can build; kept
+ * whole it becomes a quarter of a million registers. The bus side is
+ * write-only, since nothing reads the table back. The config word is
+ * sixteen bits because that is all a config pointer is, which makes the
+ * split cost less memory than the
  * single table did.
  *
  * The canvas and the vsync line are shadows: the canvas latches where

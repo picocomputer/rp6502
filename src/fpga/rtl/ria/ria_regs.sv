@@ -3,45 +3,22 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The RIA register window at $FFE0-$FFFF, or as much of it as exists before
- * the soft CPU arrives: the bare UART at $FFE0-$FFE2 and the plain RAM cells
- * everything else falls back to, including the 6502 vectors the loader
- * writes. Semantics per emu/sys/ria.c: reading $FFE0 pulls a byte into the
- * $FFE2 latch and reports it in bit 6, bit 7 says TX is always ready;
- * reading $FFE2 returns the latch and refills it.
+ * The RIA register window at $FFE0-$FFFF. The emulator defines the
+ * semantics and this must match it — every read side effect below is
+ * there because emu/sys/ria.c has it, not because the fabric wants it.
  *
- * Read data is combinational from pre-tick state; side effects land at the
- * enabled edge, the same discipline as via.sv.
+ * Read data is combinational from pre-tick state; side effects land at
+ * the enabled edge.
  *
- * RW0 and RW1 live at $FFE4-$FFEB: the data ports read and write XRAM at
- * their address registers, post-incrementing by the signed step, per
- * emu/sys/ria.c. The cells at $FFE4/$FFE8 are staging mirrors the engine
- * keeps loaded from XRAM — a background refresh when the port is free,
- * an urgent restage after every access — so the 6502's combinational read
- * is the emulator's, and any writer to XRAM heals the stage within a few
- * clocks, always before the next PHI2.
+ * The RW ports read and write XRAM at their address registers, and the
+ * cells at $FFE4/$FFE8 are staging mirrors the engine keeps loaded — a
+ * background refresh when the port is free, an urgent restage after
+ * every access — so a writer to XRAM heals the stage before the next
+ * PHI2 and the 6502's combinational read is still the emulator's.
  *
- * The XSTACK lives here too: 512 bytes plus the guard byte that is the
- * empty stack's top. A write to $FFEC pushes, a read pops, and cell $0C is
- * the top-of-stack mirror both sides maintain — hardware after the 6502's
- * push and pop, the firmware's own API_STACK stores after its. The OS sees
- * the bytes and the pointer through its window, the plain memory that
- * api_push_n and api_pop_n expect.
- *
- * $FFE3 counts frames, 8-bit wrap, one increment per vsync pulse; a 6502
- * write sticks until the next pulse increments over it. $FFF0 is the IRQ
- * block, emulator semantics (emu/sys/ria.c, which is the oracle — the
- * RP2350 firmware clears selectively by observed byte instead): reading
- * returns the pending sources and acknowledges them all, writing sets the
- * enable mask and acks the written bits, and IRQB asserts while a pending
- * source is enabled. Bit 7 is vsync.
- *
- * A write to $FFEF is a syscall: the hardware itself arms the BRA -2 block
- * at $FFF1 in the same cycle the op lands, so the 6502 can JSR into the
- * trampoline immediately and there is no window where it outruns the OS
- * (api.h's api_set_regs_blocked becomes a harmless duplicate). The OS sees
- * the op in the cells, does its work, patches the return bytes, and clears
- * the pending flag.
+ * A write to $FFEF arms the BRA -2 block at $FFF1 in the same cycle the
+ * op lands, so the 6502 can JSR into the trampoline immediately and
+ * never outruns the OS.
  */
 
 module ria_regs (
@@ -56,21 +33,18 @@ module ria_regs (
 
     output logic [7:0] ria_regs_data,
 
-    /* TX: one byte per $FFE1 write, for the console. */
     output logic [7:0] ria_regs_tx_data,
     output logic ria_regs_tx_valid,
 
-    /* RX: a byte offered from the console side, taken when latched. */
     input logic rx_valid,
     input logic [7:0] rx_data,
     output logic ria_regs_rx_taken,
 
-    /* One pulse per frame from the raster; IRQB toward the 6502. */
     input logic vsync_pulse,
     output logic ria_regs_irq,
 
-    /* XRAM port B: the engine owns it while busy; the background refresh
-     * yields to the soft CPU. Reads land one clock after the address. */
+    /* The engine owns port B while busy; the background refresh yields
+     * to the soft CPU. */
     output logic ria_regs_xr_busy,
     output logic ria_regs_xr_we,
     output logic [15:0] ria_regs_xr_addr,
@@ -78,17 +52,9 @@ module ria_regs (
     input logic [7:0] xr_rdata,
     input logic xr_cpu_want,
 
-    /* The OS side: words 0-7 are the cells, plain memory the way the
-     * firmware's REGS macros treat them, wide enough for REGSW and REGSL.
-     * Word 16 pops the 6502's TX ring (bit 8 valid), word 18 offers an RX
-     * byte and reads back bit 0, the offer slot free, and bit 1, the 6502
-     * asked for a byte and found none — emu/sys/ria.c pulls from the merged
-     * console sources lazily at the moment of the read, and this flag is
-     * that moment made visible, so the OS never commits a byte the console
-     * side still wants. A write with bit 9 set answers an ask with nothing,
-     * the way the emulator's empty pull simply returns: an ask is served
-     * exactly once, never remembered into a later byte's arrival. Words
-     * 64-192 are the xstack bytes, word 200 the stack pointer. */
+    /* The OS side. The RX ask is the emulator's lazy pull made visible:
+     * it is served exactly once and never remembered into a later byte's
+     * arrival, so the OS never commits a byte the console still wants. */
     input logic b_we,
     input logic b_re,
     input logic [7:0] b_word,
@@ -96,7 +62,6 @@ module ria_regs (
     input logic [31:0] b_wdata,
     output logic [31:0] ria_regs_b_rdata,
 
-    /* A syscall is pending; the OS acknowledges. */
     output logic ria_regs_api_pending,
     input logic api_ack
 );
@@ -106,9 +71,8 @@ module ria_regs (
 
     logic [7:0] regs[32] /*verilator public_flat_rw*/;
 
-    /* The $FFF0 block; the regs cell only mirrors pending for reads. Acks
-     * resolve before this frame's pulse, so a pulse is never lost to a
-     * same-edge acknowledge. */
+    /* Acks resolve before this frame's pulse, so a pulse is never lost
+     * to a same-edge acknowledge. */
     logic [7:0] irq_pending /*verilator public_flat_rd*/;
     logic [7:0] irq_enabled /*verilator public_flat_rd*/;
     logic [7:0] pend_next;
@@ -123,13 +87,10 @@ module ria_regs (
     end
     always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
-    /* The 6502's TX ring: pushed at $FFE1, drained by the OS.
-     *
-     * Sixteen bytes, and an M10K holds 10,240 — left to itself Quartus
-     * spent a whole block on 128 bits and then added seventeen
-     * pass-through registers, because the read below is asynchronous
-     * and a block's read address is not. An MLAB answers where it is
-     * used, so both the block and the bypass go away. */
+    /* Sixteen bytes against an M10K's 10,240: left alone Quartus spends
+     * a whole block on 128 bits and adds pass-through registers, because
+     * the read below is asynchronous and a block's read address is not.
+     * An MLAB answers where it is used. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] txf[16];
     logic [3:0] txf_w, txf_r;
@@ -138,8 +99,6 @@ module ria_regs (
     logic push_now;
     always_comb push_now = en && cs && we && rs == 5'h01 && txf_count < 5'd16;
 
-    /* The RW engine: one pending write-back, urgent restages, and the
-     * background alternator. Captures land one clock after their issue. */
     logic xr_wr_pend;
     logic [15:0] xr_wr_addr;
     logic [7:0] xr_wr_byte;
@@ -166,12 +125,10 @@ module ria_regs (
             ria_regs_xr_addr = {regs[5'h0B], regs[5'h0A]};
     end
 
-    /* The XSTACK: 512 bytes, a zero guard at the top, and the pointer.
-     * LUT RAM is one write port and one asynchronous read port, so the
-     * bytes are one array per lane, and the set exists twice because
-     * the OS's word read and the pop's mirror refill are two readers.
-     * The guard word stays registers: the arrays keep a clean 128 deep
-     * and the refill wants only its low byte. */
+    /* LUT RAM is one write port and one asynchronous read port, so the
+     * bytes are one array per lane and the set exists twice — the OS's
+     * word read and the pop's mirror refill are two readers. The guard
+     * stays registers so the arrays keep a clean 128 deep. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] xs0[128];
     (* ramstyle = "MLAB, no_rw_check" *)
@@ -193,7 +150,6 @@ module ria_regs (
     logic xs_fill;  // a pop's mirror refill lands one clock later
     logic [9:0] xs_fill_at;
 
-    /* The OS's RX offer, merged with the external one; external wins. */
     logic os_rx_valid;
     logic [7:0] os_rx_data;
     logic rx_req;
@@ -204,7 +160,6 @@ module ria_regs (
         eff_rx_data = rx_valid ? rx_data : os_rx_data;
     end
 
-    /* Whether this access pulls the offered byte into the latch. */
     logic pull;
     always_comb begin
         pull = 1'b0;
@@ -229,10 +184,8 @@ module ria_regs (
         end
     end
 
-    /* Registered with the side effect it reports: the offered byte is taken
-     * at the same edge that latches it, never a cycle before. */
-    /* Window word 64 is xstack byte 0; word 192 is the guard, the only
-     * index inside the window with bit 7 set. */
+    /* Registered with the side effect it reports: the offered byte is
+     * taken at the same edge that latches it, never a cycle before. */
     logic [7:0] xs_word;
     logic xs_win;
     always_comb begin
@@ -240,8 +193,6 @@ module ria_regs (
         xs_win = b_word >= 8'd64 && b_word <= 8'd192;
     end
 
-    /* One write port per lane, the 6502's push and the OS's word
-     * sharing it the way the register cells share theirs. */
     logic xs_push;
     logic [8:0] xs_push_at;
     logic [3:0] xs_os_lane, xs_we;
@@ -262,7 +213,6 @@ module ria_regs (
         xs_wdat3 = xs_os_lane[3] ? b_wdata[31:24] : data_i;
     end
 
-    /* The pop's refill reads the mirror copy at the new top. */
     logic [7:0] xs_fill_byte;
     always_comb begin
         case (xs_fill_at[1:0])
@@ -328,7 +278,6 @@ module ria_regs (
         endcase
     end
 
-    /* Popping is the strobed read of word 16 with a byte available. */
     always_comb txf_pop = b_re && b_word == 8'd16 && txf_count != 5'd0;
 
     always_ff @(posedge clk or negedge rst_n) begin
@@ -351,9 +300,8 @@ module ria_regs (
                     if (we) begin
                         case (rs)
                             5'h01: begin
-                                /* Push; a write while full drops, and TX_READY
-                                 * told the program not to. The tap still pulses
-                                 * for the testbench console. */
+                                /* A write while full drops; TX_READY told
+                                 * the program not to. */
                                 ria_regs_tx_data <= data_i;
                                 ria_regs_tx_valid <= 1'b1;
                             end

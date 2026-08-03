@@ -4,21 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The terminal's cell memory and scanout registers. The cells are the
- * screen buffers of vga/term/term.c — 30,720 bytes the linker places
- * behind the soft CPU's 0x5 window, so the shared ANSI engine's
- * ordinary stores land here unchanged. The register bank above them
- * carries what the renderer needs each frame: the visible rows' base
- * offsets (term.c owns the O(1) scroll remap and the firmware
- * publishes the resolved bases once per frame), the cursor, the blink
- * phase, and the prog window.
+ * shared ANSI engine's screen buffers, placed behind this window by the
+ * linker so its ordinary stores land here unchanged.
  *
- * Registers written by the firmware are shadows; the scanout latches them
- * at frame start, one frame of latency and never a tear. The scanout side
- * arrives with vid_compose; until then the shadows and the frame counter
- * are the whole story.
+ * Firmware writes are shadows; the scanout latches them at frame start,
+ * for one frame of latency and never a tear.
  *
- * The cells power up zero — BRAM contents ship in the bitstream, so there
- * is no boot-time clear; term.c's own lazy row clears do the rest.
+ * The cells power up zero — BRAM contents ship in the bitstream — so
+ * there is no boot-time clear.
  */
 
 module vid_term (
@@ -26,22 +19,18 @@ module vid_term (
     input logic rst_n,
     input logic frame_start,
 
-    /* The raster: the renderer works one line ahead of the beam, into the
-     * ping-pong line buffer the beam reads behind it. */
+    /* The renderer works one line ahead of the beam. */
     input logic [9:0] h,
     input logic [9:0] v,
     input logic px_last,
     input logic line_start,
     output logic [15:0] vid_term_pix,
 
-    /* The font store, shared with the plane engines. */
     output logic vid_term_f_req,
     output logic [13:0] vid_term_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
 
-    /* The soft CPU's window: bit 16 low is cell memory, word-wide with
-     * byte lanes; bit 16 high is the register bank. */
     input logic b_stb,
     input logic b_we,
     input logic [16:0] b_addr,
@@ -50,24 +39,17 @@ module vid_term (
     output logic [31:0] vid_term_b_rdata
 );
 
-    /* One array per byte lane. A byte-enabled write is what keeps a
-     * true dual-port RAM from being inferred at all, and the lanes cost
-     * exactly the same bits while each carries a plain whole-word write
-     * and two plain reads.
+    /* One array per byte lane: a byte-enabled write keeps a true
+     * dual-port RAM from being inferred at all, and the lanes cost the
+     * same bits.
      *
-     * 7680 words: one screen at the tallest terminal term.c can build,
-     * 32 rows. This platform's firmware asks for 30 and uses 7200 of
-     * them — 480 words of slack, kept because the window is hardware
-     * and a taller firmware must still fit it, and because it is free:
-     * 7200 and 7680 both round to a depth of 8192 and cost eight
-     * blocks a lane. Measured, along with the reason banking is not
-     * here — split per screen it came to 72 blocks against 64.
+     * 7680 words is the tallest terminal the engine can build. This
+     * firmware uses 7200, and the slack is free — both round to a depth
+     * of 8192 and cost eight blocks a lane.
      *
-     * The alternate screen buffer was here for a day at 15360, and the
-     * device ran out of LABs before the ALMs or the blocks — packing
-     * the die to its last rows is what made every fit a coin toss, so
-     * the buffer went back out. See TERM_ALT_SCREEN in
-     * vga/term/term.h. */
+     * No alternate screen buffer: at 15360 the device ran out of LABs
+     * before ALMs or blocks, and packing the die that hard made every
+     * fit a coin toss. */
     (* ramstyle = "no_rw_check" *)
     logic [7:0] cell0[7680] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
@@ -80,9 +62,8 @@ module vid_term (
     logic [12:0] cell_idx;
     always_comb cell_idx = b_addr[14:2];
 
-    /* Row bases as byte offsets into the cell window, cursor packed
-     * {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]}, the cursor
-     * color, the blink phase, and prog {enable[31], end[25:16], begin[9:0]}. */
+    /* cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
+     * prog {enable[31], end[25:16], begin[9:0]}. */
     logic [15:0] row_shadow[32] /*verilator public_flat_rd*/;
     logic [31:0] cursor_shadow /*verilator public_flat_rd*/;
     logic [15:0] cursor_color_shadow /*verilator public_flat_rd*/;
@@ -97,8 +78,6 @@ module vid_term (
         fetch_q <= {cell3[fetch_word], cell2[fetch_word],
                     cell1[fetch_word], cell0[fetch_word]};
 
-    /* Same rule as the line buffer: the cells' output register carries
-     * the cells and nothing else, and the registers answer beside it. */
     logic [31:0] cells_q, regs_q;
     logic sel_cells;
     always_comb vid_term_b_rdata = sel_cells ? cells_q : regs_q;
@@ -160,9 +139,8 @@ module vid_term (
         end
     end
 
-    /* Scanout state, latched one raster line before the beam's frame —
-     * where the render takes row 0 — so a mid-frame publish never tears
-     * and row 0 sees the same state as every other row. */
+    /* Latched one line before the beam's frame, where the render takes
+     * row 0, so a mid-frame publish never tears. */
     logic frame_render;
     always_comb frame_render = line_start && v == 10'd524;
     logic [15:0] row_base[32];
@@ -188,18 +166,16 @@ module vid_term (
         end
     end
 
-    /* The renderer, mirroring term_render_640: during line v it draws the
-     * beam's next line into the write bank. Steady state is eight clocks a
-     * cell — the two cell words and the font byte fetch under the previous
-     * cell's pixel writes — well inside the 800-clock line. */
-    /* Two banks in one array: the bank rides in the address, because a
-     * bank index outside it reads both halves and muxes — an
-     * asynchronous read, and no block RAM at all. */
+    /* Eight clocks a cell in steady state — two cell words and a font
+     * byte, fetched under the previous cell's pixel writes — against a
+     * line of 800. The margin is why the fetches can be serial. */
+    /* The bank rides in the address: a bank index outside it reads both
+     * halves and muxes, which is an asynchronous read and no block RAM
+     * at all. */
     (* ramstyle = "no_rw_check" *)
     logic [15:0] linebuf[2048];
 
-    /* The write travels to its own unreset block: a block RAM has no
-     * asynchronous clear, and a port inside the pipeline's reset keeps
+    /* Its own unreset block: a port inside the pipeline's reset keeps
      * the whole buffer out of memory. */
     logic lb_we;
     logic lb_bank;
@@ -225,8 +201,6 @@ module vid_term (
     logic [3:0] step;
     logic run /*verilator public_flat_rd*/;
 
-    /* Cell words: {fg, attr, code} and {ul, bg} of the cell being
-     * resolved while its predecessor shifts out. */
     logic [31:0] w0_n, w1_n;
     logic [12:0] fetch_word;
     logic [31:0] fetch_q;
@@ -234,7 +208,6 @@ module vid_term (
     logic [15:0] fg_r, bg_r;
     logic [7:0] shreg;
 
-    /* The font fetch for the cell being resolved. */
     logic [1:0] font_sel;
     logic [7:0] font_code;
     logic [7:0] font_bits;
@@ -248,10 +221,8 @@ module vid_term (
             font_sel = 2'd0;
         font_code = font_sel == 2'd1 ? w0_n[7:0] - 8'h5F : w0_n[7:0];
     end
-    /* The store lives at the top with the other shared memories; the
-     * face rides in the address, row-major with font.c's own strides.
-     * The cell's word lands seven clocks before its glyph is needed, so
-     * the request stands and the byte is simply there in time. */
+    /* The cell's word lands seven clocks before its glyph is needed, so
+     * the request stands and the byte is there in time. */
     always_comb begin
         case (font_sel)
             2'd1: vid_term_f_addr = {2'b11, 3'b000, scanrow, font_code[4:0]};
@@ -261,9 +232,8 @@ module vid_term (
         vid_term_f_req = run;
     end
 
-    /* The store answers the clock after its grant, which is the clock
-     * the resolve wants it — so the arriving byte passes straight
-     * through and only the gaps come from the hold. */
+    /* The store answers the clock the resolve wants it, so the arriving
+     * byte passes straight through. */
     logic f_gnt_d;
     logic [7:0] font_hold;
     always_ff @(posedge clk) begin
@@ -285,10 +255,10 @@ module vid_term (
         ul_row = scanrow == 4'd15 || scanrow == 4'd13;
     end
 
-    /* One cell's colors, the C renderer's exact order: blink darkens
-     * unless the block cursor owns the cell, line rows force the stroke
-     * and take the underline color, the block cursor then swaps in its
-     * own ground with the cell's background as ink. */
+    /* The C renderer's exact order: blink darkens unless the block
+     * cursor owns the cell, line rows force the stroke and take the
+     * underline colour, then the block cursor swaps in its own ground
+     * with the cell's background as ink. */
     logic cur_here, cur_block;
     logic [7:0] attr_r;
     logic [7:0] bits_res;
@@ -353,15 +323,12 @@ module vid_term (
                 px <= '0;
                 step <= '0;
             end else if (run && step == 4'd0) begin
-                /* Line setup, one clock after line_start so t is held. */
                 t_active <= prog_q[31] && t >= prog_q[9:0]
                     && t < prog_q[25:16];
                 term_line <= t[8:0] - prog_q[8:0];
                 step <= 4'd1;
             end else if (run) begin
                 case (step)
-                    /* Prologue: fetch and resolve cell 0, then cell 1's
-                     * words, before the pixel loop begins. */
                     4'd1: begin
                         cur_hit <= cursor_q[25]  /* enabled */
                             && (cursor_q[24]     /* lit, or steady style */
@@ -381,9 +348,6 @@ module vid_term (
                         step <= 4'd3;
                     end
                     4'd3: begin
-                        /* An address lands one clock after it is set and
-                         * captures one after that; cell 0's first word is
-                         * on fetch_q now. */
                         w0_n <= fetch_q;
                         step <= 4'd4;
                     end
@@ -393,7 +357,6 @@ module vid_term (
                         step <= 4'd5;
                     end
                     4'd5: begin
-                        /* font_bits now carries cell 0; resolve it. */
                         bits <= bits_res;
                         fg_r <= fg_res;
                         bg_r <= bg_res;
@@ -402,8 +365,6 @@ module vid_term (
                         fetch_word <= fetch_word + 13'd1;
                         step <= 4'd6;
                     end
-                    /* Steady state: eight pixel writes for this cell while
-                     * the next cell's words and font byte arrive. */
                     default: begin
                         lb_we <= 1'b1;
                         lb_bank <= wr_bank;

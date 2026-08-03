@@ -3,19 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The font store: four faces the terminal and the mode 1 cells read a
- * byte at a time, and the soft CPU owns. Nothing here is built into the
- * bitstream — the store comes up blank and the firmware fills it from
- * the font asset beside the core, which is what lets seventeen code
- * pages exist without seventeen code pages of code memory. Blank is
- * also the honest power-up: an initial image would render a terminal
- * even with the firmware's stores misaddressed, and every frame test
- * would pass while nothing worked.
+ * The font store: four faces read a byte at a time. Nothing is built
+ * into the bitstream — the store comes up blank and the firmware fills
+ * it from the font asset, which is what lets seventeen code pages exist
+ * without seventeen code pages of code memory. Blank is also the honest
+ * power-up: an initial image would render a terminal even with the
+ * firmware's stores misaddressed, and every frame test would pass while
+ * nothing worked.
  *
- * Every face is addressed row-major with font.c's own stride, so the
- * hardware image is the C image and the firmware's copy is the memcpy
- * font_set_code_page already makes. The read address carries the face
- * in its top two bits:
+ * Faces are row-major with the C's own stride, so the hardware image is
+ * the C image. The read address carries the face in its top two bits:
  *
  *   0  font16    {2'b00, row[3:0], code[7:0]}         4096 B
  *   1  font8     {2'b01, 1'b0, row[2:0], code[7:0]}   2048 B

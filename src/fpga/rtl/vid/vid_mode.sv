@@ -3,21 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One plane's line engine: the scaffolding every mode shares, working one
- * raster line ahead of the beam into a ping-pong line buffer — the
- * vid_term discipline generalized. Each line: wait for this plane's prog
- * slot, fetch the config words, and hand the line to the mode's own
- * pipeline — vid_mode3 so far, vid_mode1 and vid_mode2 beside it as they
- * land, the modes.h-and-mode files split of the C carried into RTL. The
+ * One plane's line engine: the scaffolding every mode shares, working
+ * one raster line ahead of the beam into a ping-pong line buffer. The
  * subengine owns the XRAM channel and the pixel port until it reports
  * done and whether the plane counts as filled.
  *
  * On line-doubled canvases a row renders once, on the raster line where
- * it first appears, and the buffer holds through the repeat — scanvideo's
- * y_scale semantics, never a re-render the oracle could not have seen.
- *
- * XRAM port A and the prog-table read port are shared three ways; grants
- * rotate and the pipelines absorb the latency.
+ * it first appears, and the buffer holds through the repeat — never a
+ * re-render the oracle could not have seen.
  */
 
 module vid_mode (
@@ -29,49 +22,38 @@ module vid_mode (
     input logic px_last,
     input logic line_start,
 
-    /* Latched canvas geometry from vid_prog. On the console canvas the
-     * planes idle — the oracle's fill guard — which also shields the
-     * unreset prog BRAM across a warm reset. */
+    /* On the console canvas the planes idle, which is the oracle's fill
+     * guard and also shields the unreset prog BRAM across a warm
+     * reset. */
     input logic console,
     input logic x_shift,
     input logic y_shift,
     input logic [9:0] y_offset,
 
-    /* This plane's prog entry: request granted in this plane's slot, the
-     * entry registered the clock after. */
     output logic [8:0] vid_mode_p_line,  /* comb: valid whenever granted */
     input logic p_gnt,
     input logic [31:0] p_entry,
     input logic [15:0] p_config,
 
-    /* XRAM port A, arbitrated: hold req with an address; gnt means the
-     * address was taken and the word arrives next clock. */
+    /* gnt means the address was taken; the word arrives next clock. */
     output logic vid_mode_a_req,
     output logic [13:0] vid_mode_a_addr,
     input logic a_gnt,
 
-    /* The font store, for mode 1's built-in glyphs. */
     output logic vid_mode_f_req,
     output logic [13:0] vid_mode_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
     input logic [31:0] a_rdata,
 
-    /* The beam side: this plane's pixel at h, and whether the line
-     * filled at all. */
     output logic [15:0] vid_mode_pix,
     output logic vid_mode_filled,
 
-    /* The sprite stage: the fill's outcome for the line in progress,
-     * writes into the working bank after the fill, and the claim that
-     * turns a zeroed bank into a filled layer. */
     output logic vid_mode_busy,
     output logic vid_mode_rnew,
     output logic vid_mode_rfilled,
-    /* One pulse for a fill that did not finish before the beam wanted
-     * it. The simulation stops on this; hardware cannot, so it counts
-     * instead — otherwise a plane that misses its deadline simply
-     * re-scans the line before it, with nothing to say so. */
+    /* A fill that missed its deadline re-scans the line before it with
+     * nothing to say so, so hardware counts these. */
     output logic vid_mode_underrun,
     input logic sp_we,
     input logic [9:0] sp_addr,
@@ -79,23 +61,19 @@ module vid_mode (
     input logic sp_force
 );
 
-    /* The bank rides inside the address and the output register
-     * carries only the buffer; either one broken keeps the whole line
-     * out of block memory. */
+    /* The bank rides inside the address and the output register carries
+     * only the buffer: either one broken keeps the line out of block
+     * memory. */
     (* ramstyle = "no_rw_check" *)
     logic [15:0] linebuf[2048];
     logic wr_bank;
     logic filled_q[2] /*verilator public_flat_rd*/;
     logic flip_next;
 
-    /* The beam reads one ahead of itself, on each pixel's last tick. The
-     * bank flip lands on h==0's first tick, so only the pixel-0 read at
-     * the end of h==799 still sees the fresh line under its write-side
-     * label; a repeat line never flips and reads the held bank. */
-    /* Native scanout: address h reads pixel h. This used to halve the
-     * address on 320-wide canvases so each stored pixel spanned two beam
-     * slots; the machine emits each pixel once now, and a platform whose
-     * sink wants the repeat makes it downstream, where it is free. */
+    /* The beam reads one ahead of itself, on each pixel's last tick, and
+     * the bank flip lands on h==0's first tick — so only the pixel-0
+     * read at the end of h==799 sees the fresh line under its write-side
+     * label. A repeat line never flips and reads the held bank. */
     logic [9:0] rd_next;
     always_comb rd_next = h + 10'd1;
     logic [10:0] lb_rd;
@@ -112,16 +90,11 @@ module vid_mode (
         end
     end
     always_comb vid_mode_pix = lb_blank ? 16'h0000 : lb_q;
-    /* The flip lands on h==0's first tick, so everywhere the beam shows
-     * pixels the displayed line is the read-side bank — and flip_next
-     * already belongs to the line being rendered. */
     always_comb vid_mode_filled = filled_q[!wr_bank];
 
     always_comb vid_mode_rnew = flip_next;
     always_comb vid_mode_rfilled = filled_q[wr_bank];
 
-    /* Target line: the canvas row it maps to, and whether this raster
-     * line starts that row's render. */
     logic [9:0] t /*verilator public_flat_rd*/;
     logic [9:0] t_cv;
     logic render_now;
@@ -143,28 +116,18 @@ module vid_mode (
     logic [15:0] attr /*verilator public_flat_rd*/;
     logic [15:0] config_ptr /*verilator public_flat_rd*/;
 
-    /* Five fetched words hold any mode's config — mode 1's 16 bytes from
-     * a halfword-aligned pointer span them all, and every pipeline reads
-     * its bytes at fixed offsets from here.
-     *
-     * The words land already aligned. The halfword offset is settled in
-     * S_PROG_W, a state before the first read is even issued, so the
-     * shift belongs on the capture rather than in front of every
-     * pipeline's arithmetic — where it was one register bit driving a
-     * hundred and ninety-four loads, and the first hop of the worst
-     * path in six different blocks. */
+    /* Five words hold any mode's config, and they land already aligned:
+     * the halfword offset is settled before the first read is issued, so
+     * the shift belongs on the capture rather than in front of every
+     * pipeline's arithmetic. */
     logic [2:0] cfg_i, cfg_c;
     logic [143:0] cfgw;
 
     logic [9:0] cw;
     always_comb cw = x_shift ? 10'd320 : 10'd640;
 
-    /* The mode pipelines; the prog entry's mode bits pick one. */
     logic [2:0] mode_q;
     logic m3_start;
-    /* Modes 2 and 3 are fronts on the shared pixel tail: each describes
-     * the line as segments and the tail does the rest. The channel,
-     * pixels and palette below are the tail's. */
     logic m3_tl_start;
     logic [15:0] m3_pal_ptr;
     logic m3_pal_xram;
@@ -207,8 +170,8 @@ module vid_mode (
     logic [9:0] m2_seg_px;
     logic m2_filled;
 
-    /* One palette for the plane. Only the mode holding it can be
-     * loading, so the write side is a select rather than an arbiter. */
+    /* Only the mode holding the plane can be loading, so the write side
+     * is a select rather than an arbiter. */
     logic m1_pal_ld;
     logic [7:0] m1_pal_w;
     logic [8:0] m1_pal_words;
@@ -332,13 +295,10 @@ module vid_mode (
         .vid_mode3_filled(m3_filled)
     );
 
-    /* The shared pixel tail behind whichever front is running. Mode 2
-     * keeps fetching map bytes while the tail streams pixel words, so
-     * the tail's grants are only the cycles the front is not asking —
-     * the wrapper's channel mux presents the front's address first.
-     * Mode 1's segments are all immediate and its palette is its own,
-     * so during it the tail touches no memory at all: its grant line
-     * is silenced so the front's fetches cannot churn its ledgers. */
+    /* The tail's grants are only the cycles the front is not asking, so
+     * the channel mux presents the front's address first. Mode 1's
+     * segments are all immediate, so its grant line is silenced and the
+     * front's fetches cannot churn the tail's ledgers. */
     logic tf_start;
     logic [15:0] tf_pal_ptr;
     logic tf_pal_xram;
@@ -427,7 +387,6 @@ module vid_mode (
         .vid_pixtail_done(tl_done)
     );
 
-    /* The running pipeline's channel, pixel port, and completion. */
     logic sub_a_req;
     logic [13:0] sub_a_addr;
     logic sub_px_we;
@@ -462,7 +421,6 @@ module vid_mode (
         end
     end
 
-    /* The XRAM channel: the plane's own config fetch, or the pipeline's. */
     always_comb begin
         if (state == S_CFG) begin
             vid_mode_a_req = cfg_i < 3'd5;
@@ -473,8 +431,6 @@ module vid_mode (
         end
     end
 
-    /* The write bank: the pipeline's pixels, or the sprite stage
-     * painting after the fill went idle. */
     always_ff @(posedge clk) begin
         if (state == S_MODE && sub_px_we)
             linebuf[{wr_bank, sub_px_addr}] <= sub_px_data;
@@ -512,10 +468,8 @@ module vid_mode (
                 flip_next <= 1'b1;
                 filled_q[wr_bank] <= 1'b1;
             end
-            /* The beam's true deadline: the next line's pixel 0 is read
-             * during h==799, so the flip must have landed before it. A
-             * completion during h==799 would silently scan a stale first
-             * pixel; the pipelines' own aborts fire later. */
+            /* The next line's pixel 0 is read during h==799, so the flip
+             * must land before it or that pixel comes up stale. */
             vid_mode_underrun <= h == 10'd799 && state != S_IDLE;
 `ifndef SYNTHESIS
             if (h == 10'd799 && state != S_IDLE)
@@ -531,8 +485,6 @@ module vid_mode (
                 case (state)
                     S_IDLE: ;
                     S_PROG: begin
-                        /* t settled last clock; wait for this plane's
-                         * prog slot. */
                         if (!render_now)
                             state <= S_IDLE;
                         else if (p_gnt)
@@ -544,17 +496,10 @@ module vid_mode (
                         mode_q <= p_entry[18:16];
                         if (!p_entry[31] || p_entry[18:16] == 3'd0
                             || p_entry[18:16] > 3'd3) begin
-                            /* Nothing programmed, or a mode whose
-                             * pipeline is not built yet. The buffer is
-                             * marked unfilled and vid_compose skips an
-                             * unfilled plane, so there is nothing to
-                             * write: this used to walk the whole line
-                             * putting zeros into a buffer no one would
-                             * read, six hundred and forty clocks an
-                             * idle plane, every line. The one reader
-                             * that would care is the sprite stage
-                             * painting a plane that never filled, and
-                             * it clears the buffer itself. */
+                            /* Marked unfilled and left unwritten: the
+                             * compose skips an unfilled plane, and the
+                             * one reader that would care — the sprite
+                             * stage — clears the buffer itself. */
                             state <= S_IDLE;
                             flip_next <= 1'b1;
                             filled_q[wr_bank] <= 1'b0;
@@ -565,7 +510,6 @@ module vid_mode (
                         end
                     end
                     S_CFG: begin
-                        /* Issue on grant, capture the clock after. */
                         if (a_gnt)
                             cfg_i <= cfg_i + 3'd1;
                         if (gnt_d) begin

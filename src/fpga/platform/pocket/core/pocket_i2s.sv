@@ -3,21 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's 48 kHz stereo handed to the Pocket's codec as I2S,
- * timed the way every shipped core times it (after agg23's sound_i2s):
- * MCLK 12.288 MHz from a fractional accumulator on the 74.25 MHz clock,
- * SCLK a quarter of it, LRCK at 48 kHz over 64 SCLK, the word reloaded
- * each frame at the low-to-high boundary, sixteen bits MSB-first per
- * channel and zeros behind them — right in the high half, so the
- * LRCK-high slot carries the right sample the way that core transmits
- * it. The machine already speaks signed sixteen bits at 48 kHz, so
- * nothing here converts anything.
+ * The machine's 48 kHz stereo to the Pocket's codec as I2S, timed the
+ * way every shipped core times it: MCLK 12.288 MHz from a fractional
+ * accumulator on 74.25, SCLK a quarter of that, LRCK at 48 kHz over 64
+ * SCLK, sixteen bits MSB-first per channel with the right sample in the
+ * LRCK-high slot. The machine already speaks signed sixteen at 48 kHz,
+ * so nothing here converts.
  *
- * There is no elasticity: the FIFO exists to cross into the codec's
- * clock, and the reader drains it into one register the moment anything
- * arrives. A sample that lands between two frame reloads is overwritten
- * and a frame with nothing new repeats — so what feeds this has to be
- * periodic, which the machine's one sample tick is.
+ * There is no elasticity: the FIFO only crosses clocks, and the reader
+ * drains it into one register. A sample landing between frame reloads
+ * is overwritten and a frame with nothing new repeats — so what feeds
+ * this has to be periodic, which the machine's sample tick is.
  */
 
 module pocket_i2s (

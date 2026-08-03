@@ -3,55 +3,29 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The host's filesystem, reached the only way a core can reach it: by
- * asking. Five target commands move a data slot's file — Slot Read
- * copies from it into memory the bridge can write, Slot Write copies
- * out of memory the bridge can read, Open File hands the host a name
- * and binds it to a slot, Get File asks which name a slot already
- * holds, Flush commits what was written — and the data table says how
- * long the file is, in both directions: the machine reads it to learn
- * a slot's size and writes it to publish one, which is how the host
- * knows how many bytes a nonvolatile slot's file deserves at shutdown.
- * This block issues all of it for the soft CPU and answers when they
- * retire. Get File has no caller yet; it is wired because a fit is
- * half an hour and a missing wire is not worth one.
+ * The host's filesystem, reached the only way a core can: by asking.
  *
- * Flush is the one command Analogue documents but its own reference
- * core_bridge_cmd.v never implemented, so the override in
- * vendor/openfpga_rp6502 adds it alongside the other four.
+ * Flush is documented by Analogue but absent from its own reference
+ * core_bridge_cmd.v, so vendor/openfpga_rp6502 overrides it.
  *
- * The two directions use different memory, because the bridge is not
- * symmetric. Writes toward the core already had a path — the loader
- * streams data slots into the SDRAM and has since the first ROM — so
- * Slot Read simply names an SDRAM address and the machine reads the
- * bytes back through its staging window. Reads out of the core had
- * none, and cannot use the SDRAM: the bridge samples read data four
- * clocks after it presents an address, which is less than the store's
- * turnaround, and Analogue's own answer to that is a prefetch that
- * assumes the host walks addresses in order. Rather than bet a file's
- * contents on an assumption, the outbound side is a block RAM that
- * always answers in one clock. It is small — 512 bytes, one M10K in
- * the shape one write port and one read port take — and Open File's
- * 264-byte parameter struct fits inside it, so the same buffer carries
- * the filename going out and the file data going out. Never at once:
- * an open is finished before a write begins.
+ * The two directions use different memory because the bridge is not
+ * symmetric. Inbound already had a path through the SDRAM. Outbound
+ * cannot use it: the bridge samples read data four clocks after
+ * presenting an address, which is inside the store's turnaround, and
+ * Analogue's answer is a prefetch that assumes the host walks addresses
+ * in order. Rather than bet a file's contents on that, outbound is a
+ * block RAM that always answers in one clock. Open File's 264-byte
+ * parameter struct fits the same 512 bytes, and an open always finishes
+ * before a write begins.
  *
- * Every command is one crossing. The machine leaves its parameters
- * standing, flips a toggle, and waits; the parameters are quasi-static
- * behind that toggle, with three flops of synchroniser passing before
- * the bridge side reads them, and the answer returns the same way.
- * Both this module and the bridge put a deadline on a data slot
- * operation, and **the bridge's must expire first**. The bridge is
- * the side holding the resource: while it waits on a host that never
- * answers, it is parked, and only its own retirement frees it. If
- * this side gives up first the bridge is still parked with nobody
- * listening, and the next command walks into the wreckage — F_ARM
- * proves a command was taken by watching done fall, but a parked
- * bridge already has it low, so the command skips the proof, adopts
- * the parked flush's late answer as its own, and then executes for
- * real at the host with no one waiting for it. The ordering is the
- * whole fix; this deadline is only the backstop for a bridge that
- * has itself stopped answering.
+ * Both this module and the bridge put a deadline on a slot operation,
+ * and THE BRIDGE'S MUST EXPIRE FIRST. The bridge holds the resource and
+ * only its own retirement frees it. Give up first and the next command
+ * walks into a parked bridge: F_ARM proves a command was taken by
+ * watching done fall, a parked bridge already has it low, so the
+ * command skips the proof, adopts the parked answer as its own, and
+ * then executes for real with nobody waiting. This deadline is only the
+ * backstop for a bridge that has itself stopped answering.
  */
 
 module pocket_file #(
@@ -64,7 +38,6 @@ module pocket_file #(
      * the bridge always retires into a side still listening. */
     parameter int TIMEOUT_BITS = 27
 ) (
-    /* The machine's side: the soft CPU's platform window. */
     input logic clk_sys,
     input logic rst_n,
     input logic stb,
@@ -72,10 +45,8 @@ module pocket_file #(
     input logic [27:0] addr,
     input logic [31:0] wdata,
     output logic [31:0] pocket_file_rdata,
-    /* Halfwords the host wrote that the store has not taken yet. */
     input logic w_pending,
 
-    /* The bridge's side. */
     input logic clk_74a,
     input logic arst_n,
     input logic [31:0] bridge_addr,
@@ -84,18 +55,15 @@ module pocket_file #(
     output logic [31:0] pocket_file_param_struct,
     output logic [31:0] pocket_file_resp_struct,
 
-    /* The data table, shared with the loader's own read of slot 0.
-     * The write side is how a nonvolatile slot's size gets published:
-     * the host persists exactly as many bytes as the table names, so a
-     * slot whose file does not exist yet holds zero until the machine
-     * writes a real size here. The value rides pocket_file_length. */
+    /* The host persists exactly as many bytes as the table names, so a
+     * nonvolatile slot holds zero until the machine writes a real
+     * size. */
     output logic pocket_file_dt_req,
     output logic [9:0] pocket_file_dt_addr,
     output logic pocket_file_dt_we,
     input logic [31:0] datatable_q,
     input logic dt_busy,
 
-    /* core_bridge_cmd's target commands. */
     output logic pocket_file_read,
     output logic pocket_file_write,
     output logic pocket_file_openfile,
@@ -130,13 +98,11 @@ module pocket_file #(
     localparam logic [3:0] F_DTW0 = 4'd8;
     localparam logic [3:0] F_DTW1 = 4'd9;
 
-    /* The command, and the answer, standing across the crossing. */
     logic [2:0] r_op;
     logic go_t, ret_t, tmo_q;
     logic [2:0] err_q;
     logic [31:0] result_q;
 
-    /* --- The machine's registers, clk_sys side. --- */
     logic busy, tmo_flag;
     logic [2:0] r_err;
     logic [31:0] r_result;
@@ -188,9 +154,8 @@ module pocket_file #(
                     end
                     default: ;
                 endcase
-            /* The parameters are write-only. Nothing reads back what it
-             * just wrote, and a mux that answers for four 32-bit
-             * registers is real area on a part with none left. */
+            /* Write-only: a mux answering for four 32-bit registers is
+             * real area on a part with none left. */
             if (stb)
                 pocket_file_rdata <= addr[2]
                     ? r_result
@@ -198,35 +163,26 @@ module pocket_file #(
         end
     end
 
-    /* --- The outbound buffer: written by the machine, read by the
-     * host. One write port, one read port, a clock each. --- */
     logic [31:0] window[WINDOW_WORDS];
     always_ff @(posedge clk_sys)
         if (win_we)
             window[addr[WA+1:2]] <= wdata;
-    /* The read is taken on the strobe and held until the next one:
-     * "the core may not immediately provide the read data and has up
-     * until the next read strobe to drive bridge_rd_data". Following
-     * bridge_addr instead means moving the answer on the moment the
-     * host moves the address, and the host moves it early — it is a
-     * fetch hint for the word after the one it is still collecting. A
-     * core that chases it hands back the next word every time, which is
-     * how T2.DAT went out and [AT] came back. */
+    /* Taken on the strobe and held until the next one, which is what
+     * Analogue's wording allows. Following bridge_addr instead chases a
+     * fetch hint for the word after the one the host is still
+     * collecting, and hands back the next word every time. */
     always_ff @(posedge clk_74a)
         if (bridge_rd)
             pocket_file_rd_data <= window[bridge_addr[WA+1:2]];
 
-    /* Open File's parameter struct is the one thing the host reads out
-     * of the window, so its pointer is the window. Get File's response
-     * struct is the reverse — the host writes the name — which the
-     * bridge can only do into the store, so it rides the same address
-     * register a Slot Read does. */
+    /* Get File is the reverse — the host writes the name — which the
+     * bridge can only do into the store, so it rides a Slot Read's
+     * address register. */
     always_comb begin
         pocket_file_param_struct = WINDOW_BASE;
         pocket_file_resp_struct  = pocket_file_bridgeaddr;
     end
 
-    /* --- The command, clk_74a side. --- */
     logic [3:0] fstate;
     logic go_t1, go_t2, go_t3;
     logic [TIMEOUT_BITS-1:0] tmo;
@@ -264,10 +220,8 @@ module pocket_file #(
                     pocket_file_flush <= r_op == OP_FLUSH;
                     fstate <= F_ARM;
                 end
-                /* The bridge holds done high from one command until the
-                 * next is issued, so the fall is what proves this
-                 * command was taken and the rise after it is the
-                 * answer. pocket_dbglog waits on the same two edges. */
+                /* done is held high between commands, so the fall proves
+                 * this one was taken and the rise is the answer. */
                 F_ARM: begin
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
@@ -292,9 +246,8 @@ module pocket_file #(
                     ret_t  <= !ret_t;
                     fstate <= F_IDLE;
                 end
-                /* The loader's own read of slot 0 fires off an edge it
-                 * cannot be asked to wait on, so this one yields and
-                 * starts over. The machine is polling either way. */
+                /* The loader's read of slot 0 fires off an edge it
+                 * cannot be asked to wait on, so this one yields. */
                 F_DT0:
                 if (!dt_busy) begin
                     pocket_file_dt_req  <= 1'b1;

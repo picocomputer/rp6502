@@ -5,26 +5,19 @@
  *
  * The APF bridge met on our side of the fence. Slot words arrive on
  * clk_74a MSB-first — file byte zero rides wr_data[31:24] — and leave
- * as two halfword writes toward the SDRAM, even byte low. The slot
- * length comes from the data table after the host signals completion,
- * and the machine's release is ordered by construction: the run gate
- * rises only with the SDRAM awake and the slot settled, and the
- * length posts through the sideband two clocks after the rise, since
- * the machine's own reset clears the register it lands in. A host
- * re-reset re-posts it the same way. The controller and the dock's
- * keyboard cross whole, as state, and go no further: the machine has
- * had a gamepad and a keyboard since it was designed, so neither has
- * to pretend to be the other. Completion arrives as a level from the
- * bridge command
- * block — it clears only at the next slot request — so the settle
- * fires on its edge. A write into the 0x1 window — the interact
- * menu's "Reset 6502" action — dips the run gate for a moment: the
- * machine reboots and reloads the ROM still staged in the SDRAM,
- * the monitor-less machine's reset button.
+ * as two halfword writes toward the SDRAM, even byte low.
+ *
+ * The machine's release is ordered by construction: the run gate rises
+ * only with the SDRAM awake and the slot settled, and the length posts
+ * two clocks after the rise because the machine's reset clears the
+ * register it lands in. Completion is a level that clears only at the
+ * next slot request, so the settle fires on its edge.
+ *
+ * A write into the 0x1 window dips the run gate: the interact menu's
+ * "Reset 6502", which reloads the ROM still staged in the SDRAM.
  */
 
 module pocket_bridge (
-    /* The bridge's domain. */
     input logic clk_74a,
     input logic arst_n,
     input logic bridge_wr,
@@ -45,7 +38,6 @@ module pocket_bridge (
     input logic [31:0] cont4_joy,
     input logic [15:0] cont4_trig,
 
-    /* The machine's domain. */
     input logic clk_sys,
     input logic rst_n,
     input logic sdram_ready,

@@ -3,68 +3,51 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The OPL2's 49,704 samples a second into the codec's 48,000, and nothing
- * else. Every other voice on this machine is generated at whatever rate the
- * sink asked for; a YM3812 runs at its own rate or it is not a YM3812, so
- * this exists for that one engine.
+ * The OPL2's 49,704 samples a second into the codec's 48,000. A YM3812
+ * runs at its own rate or it is not a YM3812, so this exists for that one
+ * engine and nothing else.
  *
- * emu/emu/rsmp.c is the same filter written for a different sink, and the
- * two agree sample for sample. Both read the same coefficients out of the
- * package src/gen/rsmp_coef_gen.py writes, so there is one design and two
- * implementations of it rather than two designs.
+ * Bit-exact with emu/emu/rsmp.c, off the same generated coefficients.
+ * That one reads pushed and this one pulled, because there the sink is a
+ * buffer; they walk the same phase against the same taps in the same
+ * order, so the streams stay equal.
  *
- * Pulled, not pushed: the mixer takes one sample on the machine's tick,
- * always one, never none and never two. An input only lands in the history;
- * the tick is what moves the phase and produces a sample. rsmp.c is written
- * the other way round because there the sink is a buffer and a push API is
- * what that platform wants. Neither shape is the other's copy: they walk the
- * same phase against the same taps in the same order, so the stream is the
- * same and the two stay equal.
+ * 128 rows of 24 taps, row p a delay of p/128 of an input sample, linear
+ * between rows. One multiply-accumulate walked twice — the row below the
+ * phase, then the row above — which is the same arithmetic as
+ * interpolating the coefficients and filtering once, at one coefficient
+ * read per tap instead of two. Forty-eight cycles of the thousand
+ * between input samples.
  *
- * Structure: 128 rows of 24 taps, row p a delay of p/128 of an input
- * sample, and a straight line between adjacent rows for everything in
- * between. One multiply-accumulate walked twice — once against the row
- * below the phase, once against the row above — because that is the same
- * number as interpolating the coefficients and filtering once, and it needs
- * one coefficient read per tap instead of two. Forty-eight cycles of the
- * roughly one thousand between input samples.
- *
- * Only rows 0..64 are stored. The rest are those read backwards, which is
- * exact rather than approximate: a windowed sinc is even in its argument.
- * That is worth six M10K — measured, not assumed — and six M10K is the
- * difference between leaving room for the alternate screen buffer and not.
+ * Only rows 0..64 are stored; the rest are those read backwards, exact
+ * because a windowed sinc is even in its argument. Six M10K, measured.
  */
 
 module aud_rsmp
     import rsmp_coef_pkg::*;
 #(
-    /* Input frames per output frame, as the two clock divisors rather than
-     * as two frequencies. The OPL2 takes a sample every 1014 clk_sys and
-     * the codec every 1050, both off the same 50.4 MHz, so the ratio is
-     * exactly 175/169 and the phase sequence is one of 169 values that can
-     * never drift. Rounded Hz — 49704 into 48000 — is close and not equal,
-     * and the difference is a slipped sample every seven seconds. */
+    /* The two clock divisors, not two frequencies: 1014 and 1050 off the
+     * same 50.4 MHz is exactly 175/169, a phase sequence of 169 values
+     * that cannot drift. Rounded Hz slips a sample every seven
+     * seconds. */
     parameter int STEP_NUM = 1050,
     parameter int STEP_DEN = 1014
 ) (
     input logic clk,
     input logic rst_n,
 
-    /* One OPL2 sample. */
     input logic signed [15:0] in_sample,
     input logic in_valid,
 
-    /* The machine's sample tick: take one out. */
     input logic step,
 
     output logic signed [15:0] aud_rsmp_out,
     output logic aud_rsmp_valid
 );
 
-    /* Input frames per output frame, Q32 — rsmp_step's number. Above 1.0
-     * whenever the source outruns the sink, which is the case this exists
-     * for, so the phase needs a bit above the fraction and another for the
-     * add that overshoots it. */
+    /* Q32, and above 1.0 whenever the source outruns the sink — which is
+     * the case this exists for — so the phase needs a bit above the
+     * fraction and another for the add that overshoots it. */
     localparam longint unsigned STEP =
         ((64'(STEP_NUM) << 32) / 64'(STEP_DEN));
     localparam int PH_W = 34;
@@ -73,30 +56,20 @@ module aud_rsmp
 
     localparam int HALF_ROWS = RSMP_PHASES / 2;  /* rows 0..64 are stored */
 
-    /* ---------------------------------------------------------------- */
-    /* The history, as a circular buffer rather than a shift register.    */
-    /* ---------------------------------------------------------------- */
-    /* Twenty-four sixteen-bit taps read one per cycle. As a shift register
-     * that is 384 flops; as a small memory it is one MLAB and a counter,
-     * and the synthesis project turns shift-register inference off anyway
-     * because a block is a poor trade for a short one. */
+    /* A circular buffer, not a shift register: 24 taps read one per cycle
+     * is 384 flops as a shift register and one MLAB plus a counter as a
+     * memory. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic signed [15:0] hist[32];
     logic [4:0] wptr;
     logic primed;
 
-    /* ---------------------------------------------------------------- */
-    /* The coefficients.                                                  */
-    /* ---------------------------------------------------------------- */
     (* ramstyle = "M10K, no_rw_check" *)
     logic signed [RSMP_COEF_W-1:0] coef[RSMP_HALF_N];
     initial begin
         for (int i = 0; i < RSMP_HALF_N; i++) coef[i] = RSMP_HALF[i];
     end
 
-    /* ---------------------------------------------------------------- */
-    /* Sequencer                                                          */
-    /* ---------------------------------------------------------------- */
     typedef enum logic [2:0] {
         R_IDLE, R_MAC, R_DRAIN, R_SCALE, R_EMIT
     } state_t;
@@ -112,7 +85,6 @@ module aud_rsmp
      * four of those products need 38 bits signed. */
     logic signed [39:0] acc_a, acc_b;
 
-    /* The row this pass walks, and the phase's position between rows. */
     logic [7:0] row;
     always_comb row = 8'(phase[31:25]) + 8'(pass);
 
@@ -132,11 +104,8 @@ module aud_rsmp
     logic [10:0] coef_addr;
     always_comb coef_addr = 11'(src_row) * 11'(RSMP_TAPS) + 11'(src_tap);
 
-    /* Tap 0 is the oldest sample. rptr points one past the newest input the
-     * phase has consumed, which trails wptr — the newest that has arrived —
-     * by under a sample. Two pointers rather than one is what pulling costs,
-     * and the history is thirty-two deep against twenty-four taps, so the
-     * slack for it is already there. */
+    /* rptr trails wptr by under a sample: two pointers is what pulling
+     * costs, and the history is 32 deep against 24 taps. */
     logic [4:0] rptr;
     logic [4:0] hist_addr;
     always_comb hist_addr = rptr - 5'(RSMP_TAPS) + 5'(tap);
@@ -148,27 +117,21 @@ module aud_rsmp
         hist_q <= hist[hist_addr];
     end
 
-    /* One cycle behind the reads, so the product lands on the cycle after
-     * the address was presented. */
     logic mac_en;
     logic mac_pass;
     logic signed [39:0] prod;
     always_comb prod = 40'(coef_q) * 40'(hist_q);
 
-    /* ---------------------------------------------------------------- */
-    /* The interpolation between the two passes, and the output scale.    */
-    /* ---------------------------------------------------------------- */
-    /* Sixteen bits of the twenty-five available, matching the C: the
-     * difference of two accumulators reaches 2^39 and a Q25 fraction would
-     * take the product past what is worth carrying. A sixteenth of a 128th
-     * of a sample is far finer than the coefficients are quantised. */
+    /* Sixteen bits of the twenty-five available, matching the C: a Q25
+     * fraction against a 2^39 difference carries more than is worth
+     * carrying, and a sixteenth of a 128th of a sample is already finer
+     * than the coefficients are quantised. */
     logic [15:0] frac;
     always_comb frac = phase[24:9];
 
-    /* Signed by construction. The fraction is a magnitude, but an unsigned
-     * operand makes the whole product unsigned in SystemVerilog and the
-     * difference below is very much signed — which would show up as the
-     * filter working perfectly on rising signals only. */
+    /* Signed by construction: the fraction is a magnitude, but one
+     * unsigned operand makes the whole product unsigned in SystemVerilog,
+     * and the filter would then work on rising signals only. */
     logic signed [16:0] fracs;
     always_comb fracs = $signed({1'b0, frac});
 
@@ -178,12 +141,9 @@ module aud_rsmp
     logic signed [56:0] scaled;
     always_comb scaled = 57'(diff) * 57'(fracs);
 
-    /* A clock between the multiply and the sum. Everything from the
-     * accumulators to the output register used to be one clock — a
-     * forty-one bit subtract, a forty-one by seventeen multiply, two wide
-     * adds and the clamp — and it was the longest path in the core when
-     * the Pocket's own layer went on top of the machine. There are a
-     * thousand clocks between outputs and this engine spends fifty. */
+    /* A clock between the multiply and the sum: as one clock it was the
+     * core's longest path. There are a thousand clocks between outputs
+     * and this engine spends fifty. */
     logic signed [40:0] scaled_q;
 
     logic signed [41:0] mixed;
@@ -221,17 +181,11 @@ module aud_rsmp
         end
         mac_en <= 1'b0;
 
-        /* The input only fills the history. It keeps arriving whether or
-         * not the engine is programmed, so this never starves. */
         if (in_valid) begin
-            /* A cold filter would ring against twenty-three zeros and
-             * click at the start of every sound, so the first sample
-             * fills the whole history. */
+            /* A cold filter rings against 23 zeros and clicks at the
+             * start of every sound, so the first sample fills it. */
             if (!primed) begin
                 for (int i = 0; i < 32; i++) hist[i] <= in_sample;
-                /* One input consumed: the first output reads the taps
-                 * ending at it, which is where the C's first push
-                 * leaves its history. */
                 rptr <= 5'd1;
                 primed <= 1'b1;
             end else begin
@@ -242,10 +196,9 @@ module aud_rsmp
 
         case (state)
             R_IDLE: begin
-                /* Never read past what has arrived. The source outruns
-                 * the sink, so this only ever holds at startup — and a
-                 * tick held is a tick the phase does not advance on, so
-                 * the stream stays in step rather than slipping. */
+                /* Never read past what has arrived. A tick held is a
+                 * tick the phase does not advance on, so the stream
+                 * stays in step rather than slipping. */
                 if (step && primed && wptr != rptr) begin
                     acc_a <= '0;
                     acc_b <= '0;
@@ -255,8 +208,7 @@ module aud_rsmp
                 end
             end
 
-            /* One coefficient and one sample per cycle. The product
-             * lands two cycles later, which is what R_DRAIN waits out. */
+            /* The product lands two cycles later; R_DRAIN waits it out. */
             R_MAC: begin
                 mac_en <= 1'b1;
                 mac_pass <= pass;
@@ -273,11 +225,8 @@ module aud_rsmp
                 end
             end
 
-            /* The last product is still in flight. */
             R_DRAIN: state <= R_SCALE;
 
-            /* The accumulators are final now: interpolate between the
-             * two rows and hold it for the round. */
             R_SCALE: begin
                 scaled_q <= 41'(scaled >>> 16);
                 state <= R_EMIT;
@@ -287,10 +236,8 @@ module aud_rsmp
                 aud_rsmp_out <= rounded < -42'sd32768 ? -16'sd32768
                     : rounded > 42'sd32767 ? 16'sd32767 : 16'(rounded);
                 aud_rsmp_valid <= 1'b1;
-                /* One output is worth STEP inputs, and STEP is above one
-                 * because the source outruns the sink. Consume the whole
-                 * ones and keep the fraction; at this ratio it is one
-                 * input most times and two the rest. */
+                /* Consume the whole inputs and keep the fraction: at
+                 * this ratio one most times and two the rest. */
                 if (phase_next >= TWO) begin
                     phase <= phase_next - TWO;
                     rptr <= rptr + 5'd2;

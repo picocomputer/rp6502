@@ -3,53 +3,31 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The PSG, one sample every one thousand and fifty clocks: nine voices of
- * sine, square, sawtooth, triangle and noise through the 6581's envelope
- * rates. Each sample walks the same order ria/aud/psg.c does — the
- * previous sample mixes out under the fresh pan while the phase, wave and
- * envelope advance behind it — and the two agree sample for sample. The
- * phase increment divides 2^32 * freq by three times the rate through a
- * restoring divider, and every accumulator wraps at the width psg.c uses.
+ * Nine voices, bit-exact with ria/aud/psg.c: the same walk order, the
+ * same accumulator widths, the same wrapping. The two must agree sample
+ * for sample, which is what fixes every width below.
  *
- * Eight voices are the program's, read out of its XRAM block. The ninth is
- * the console bell: its six bytes come from two registers the soft CPU
- * writes, because a bell has to ring whether or not a program has
- * installed a pointer. It is otherwise an ordinary voice — same divider,
- * same wave, same envelope, same place in the mix — and everything that
- * decides what it plays lives in src/fpga/sw/bel.c.
+ * Eight voices are the program's, out of its XRAM block. The ninth is
+ * the bell, six bytes the soft CPU writes, because a bell has to ring
+ * whether or not a program installed a pointer.
  *
- * So the walk always runs. A parked pointer skips the fetch and nothing
- * else; the eight program voices are silent because parking cleared their
- * volume, and a voice that is silent makes no sound.
+ * The walk always runs. A parked pointer skips the fetch and nothing
+ * else — parking cleared the volumes, and a silent voice makes no sound.
  *
- * One of everything, because the walk only ever has one voice in hand:
- * one multiplier taken three clocks a voice, one divider taken thirty-two,
- * one subtractor serving the decay and the release, and the voices' state
- * and config in memories the cursor addresses rather than register files
- * it slices. Under four hundred clocks of the thousand are used, and the
- * six hundred going spare are what pays for all of it.
+ * One multiplier, one divider, one subtractor, and the voice state in
+ * memories the cursor addresses. Under four hundred clocks of the
+ * thousand are used, and the spare six hundred are what pays for it.
  *
- * Register writes arrive from the RW engine's snoop and take effect on
- * the clock they land, which is what a register does. The firmware
- * queues them in a ring and replays the ring at the sample boundary
- * because its processor is elsewhere when the write happens; that ring
- * is a fact about the emulation and not about the machine, and carrying
- * it here bought a 256-entry memory, a drain state, and a bound of
- * thirty-two writes a sample that hardware has no reason to have.
- *
- * The tick is the machine's. aud_psg_tick is the divider itself, not the
- * end of a walk, and everything downstream — the OPL's resampler, the
- * codec — runs off that one pulse.
+ * aud_psg_tick is the divider itself, not the end of a walk; everything
+ * downstream runs off that pulse.
  */
 
 module aud_psg
     import aud_sine_pkg::*;
 #(
-    /* Samples per second the arithmetic is built for: the envelope tables
-     * and the phase divisor come out of this. Separate from the tick below,
-     * which only decides how often a sample happens — the lockstep shortens
-     * that to run faster and must not change this. psg_setup is handed the
-     * same number; PSG_SHIM_RATE is where the test states it. */
+    /* The arithmetic's rate, which the envelope tables and phase divisor
+     * come out of. Separate from the tick, which only says how often a
+     * sample happens: the lockstep shortens that and must not touch this. */
     parameter int RATE = 48000,
     /* 50.4 MHz / 48,000 exactly. */
     parameter int TICKS_PER_SAMPLE = 1050
@@ -61,34 +39,26 @@ module aud_psg
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
-    /* XRAM port A, one rotor slot. */
     output logic aud_psg_a_req,
     output logic [13:0] aud_psg_a_addr,
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    /* The RW engine's write snoop. */
     input logic q_we,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
-    /* The ninth voice, written by the soft CPU rather than fetched from
-     * XRAM: the same six bytes a channel's block holds, in the same order.
-     * It is the console bell, and it has to sound whether or not a program
-     * has installed a pointer, so it does not come out of the fetch. */
+    /* The bell: a channel block's six bytes in a channel block's order,
+     * so the driver writes a descriptor rather than a set of fields. */
     input logic bel_lo_we,
     input logic bel_hi_we,
     input logic [31:0] bel_wdata,
 
-    /* One stereo sample per tick, signed at full scale. The platform
-     * narrows: the Pocket's I2S takes all sixteen bits. */
+    /* Signed at full scale; the platform narrows. */
     output logic signed [15:0] aud_psg_l,
     output logic signed [15:0] aud_psg_r,
     output logic aud_psg_valid,
 
-    /* The machine's sample tick — the divider itself, not the end of a
-     * walk, whose length moves with the XRAM rotor. Everything downstream
-     * runs off this one pulse. */
     output logic aud_psg_tick
 );
 
@@ -102,16 +72,11 @@ module aud_psg
         9'd61, 9'd50, 9'd40, 9'd31,
         9'd22, 9'd14, 9'd7, 9'd0
     };
-    /* psg_setup's tables, elaborated: (1 << 24) over the samples in that
-     * many milliseconds, with the milliseconds converted as RATE * ms / 1000
-     * the way the C does — not RATE / 1000 * ms, which drops the part of the
-     * rate below a kilohertz. Sixty-four bit intermediates because RATE
-     * times the longest release passes 2^31 above 89 kHz.
-     *
-     * Spelled out rather than folded into a constant function: this has to
-     * elaborate in Quartus as well as Verilator, and a function call in a
-     * localparam array initializer is the sort of thing only one of them
-     * accepts. */
+    /* RATE * ms / 1000 as the C does it, not RATE / 1000 * ms, which
+     * drops the part of the rate below a kilohertz. 64-bit intermediates:
+     * RATE times the longest release passes 2^31 above 89 kHz. Spelled
+     * out because Quartus will not take a function call in a localparam
+     * array initializer. */
     `define PSG_ENV_RAW(ms) \
         32'd16777216 / 32'((64'(RATE) * 64'd``ms) / 64'd1000)
     /* The shortest attack is the largest step either table holds, so both
@@ -134,11 +99,8 @@ module aud_psg
     `undef PSG_ENV
     `undef PSG_ENV_RAW
 
-    /* The envelope is a uint32 in the C but never leaves the range the
-     * volume table sets: every arm lands on a table entry or below one, and
-     * the only value that passes the largest is the attack's own sum before
-     * its clamp. Sized from the table and that step, the way REM_W is sized
-     * from the divisor. */
+    /* A uint32 in the C, but it never leaves the volume table's range —
+     * only the attack's pre-clamp sum passes the largest entry. */
     localparam int VOL_W = $clog2((32'd256 << 16) + ENV_MAX + 32'd1);
 
     localparam logic [1:0] ADSR_RELEASE = 2'd0;
@@ -150,40 +112,21 @@ module aud_psg
     logic enabled;
     always_comb enabled = xaddr != 16'hFFFF;
 
-    /* psg_xreg cannot preempt the ISR, so a device-register write holds
-     * here and takes effect at the next walk boundary; a write landing
-     * mid-walk must not tear the in-flight sample's state. */
+    /* Held to the next walk boundary: a write landing mid-walk would
+     * tear the in-flight sample's state. */
     logic xreg_pend;
     logic [15:0] xreg_word;
 
-    /* Channel state, the C's exactly — memories the cursor addresses, not
-     * eight copies behind an eight-way mux. Eleven hundred and sixty-eight
-     * flops and a hundred-and-thirty-six-bit mux went here, to hand the
-     * walk the one channel it is ever working on. cfg went this way
-     * already; this is the rest of it.
-     *
-     * One array a field, and not one wide array of all five: at a hundred
-     * and thirty-seven bits Quartus answers "can't infer memory for
-     * variable with attribute MLAB", falls back to a block and adds
-     * pass-through logic to define a read-during-write nobody asked for.
-     * A lane is thirty-two bits or under and every one of them lands.
-     *
-     * The write goes to w_ch and the read comes from ch. They hold the
-     * same number for the length of a channel's turn, but they are two
-     * signals, and one address is a single port — which has no
-     * asynchronous read to offer and takes the block-and-bypass road too.
-     *
-     * The working registers below are the other half of it: the load reads
-     * an entry on one clock and the step writes it on another, so the read
-     * never has to say what it sees while the same address is written.
+    /* One array a field, never one wide array: past 136 bits Quartus
+     * refuses MLAB, falls back to a block and adds pass-through logic for
+     * a read-during-write nobody asked for. Two addresses (w_ch and ch)
+     * for the same reason — one address is a single port, which has no
+     * asynchronous read to offer.
      *
      * Initialized rather than reset, which is what lets them be memory at
-     * all — the zeros ride in the bitstream as a .mif. The C's state is a
-     * zeroed static and psg_xreg deliberately leaves the phase alone, so
-     * power-on zeros are the match; nothing advances before the first
-     * xreg, because a parked pointer never walks.
+     * all; the zeros ride in the bitstream as a .mif.
      *
-     * The gate stays flops. The snoop writes it at whatever index and on
+     * The gate stays flops: the snoop writes it at whatever index and on
      * whatever clock the 6502 chose, which is a second write port. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic signed [15:0] ch_sample[9];
@@ -206,24 +149,13 @@ module aud_psg
     end
     logic [1:0] ch_adsr[9];
 
-    /* The 64 config bytes, gathered fresh each sample — as a memory the
-     * walk indexes, not a register file it slices.
-     *
-     * This was a 544-bit register, shifted whole by a halfword to square
-     * up a pointer that is even but not a word, then cut with an eight-way
-     * sixty-four-bit mux. Five hundred flops, a five-hundred-bit barrel
-     * shift and the mux, to hand one channel its eight bytes. The walk
-     * visits one channel at a time, so the shape wanted is eight entries
-     * addressed by the channel; MLAB reads asynchronously, so cf is
-     * combinational exactly as it was and no state moves by a cycle.
-     *
-     * Two thirty-two-bit halves rather than one sixty-four: the fetch
-     * arrives a word at a time and writes a word at a time, and a single
-     * wide array would need a half-width write enable to say which end.
+    /* Eight entries the walk indexes; MLAB reads asynchronously, so cf
+     * stays combinational and no state moves by a cycle. Two 32-bit
+     * halves rather than one 64: the fetch arrives a word at a time, and
+     * one wide array would need a half-width write enable.
      *
      * Not reset, which is what lets them be memory at all. Nothing reads
-     * them before P_FETCH has written all sixteen words: the walk leaves
-     * P_FETCH only on the last one. */
+     * them before P_FETCH has written all sixteen words. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [31:0] cfg_lo[8];
     (* ramstyle = "MLAB, no_rw_check" *)
@@ -231,46 +163,30 @@ module aud_psg
     logic [63:0] cf;
     logic [3:0] ch;
 
-    /* The ninth voice's six bytes, held where the other eight hold theirs.
-     * Two words because that is two stores from the soft CPU and the same
-     * byte order a channel block has, so the driver writes a descriptor
-     * rather than a set of fields. */
     logic [31:0] bel_lo;
     logic [23:0] bel_hi;
     logic bel_gate_q;
     always_comb cf = ch[3] ? {8'd0, bel_hi, bel_lo}
                            : {cfg_hi[ch[2:0]], cfg_lo[ch[2:0]]};
 
-    /* The channel the walk has picked up, held out of the memory for the
-     * length of its turn, and the entry it goes back to. The address is
-     * registered rather than taken from the cursor again: read and write
-     * off one address is a single-port memory, which has no asynchronous
-     * read to offer, and Quartus answers that by building the array out of
-     * a block and a pass-through instead. Two addresses is a dual port and
-     * a dual port is an MLAB. */
+    /* The address is registered rather than retaken from the cursor: two
+     * addresses is a dual port and a dual port is an MLAB. */
     logic [31:0] w_phase, w_noise1, w_noise2;
     logic [VOL_W-1:0] w_vol;
     logic [3:0] w_ch;
 
-    /* psg_xreg's reset of the envelopes and the noise, deferred to the
-     * load that would have read them. Eight entries cannot be cleared on
-     * one clock and there is no clock where they must be: the walk
-     * substitutes the seeds as it picks each channel up and writes them
-     * back with everything else. A parked pointer does not walk, so the
-     * flag simply waits, and the state at the first sample is the same
-     * either way.
+    /* The envelope and noise clear, deferred to the load that would have
+     * read them: eight entries cannot be cleared on one clock and there
+     * is no clock where they must be.
      *
-     * The gate is not deferred. A snoop landing between the xreg and the
-     * walk has to survive it, which is the order the C has — psg_xreg
-     * first, then the ring replay. */
+     * The gate is not deferred — a snoop landing between the xreg and the
+     * walk has to survive it, which is the C's order. */
     logic clr;
     logic [VOL_W-1:0] ld_vol;
     always_comb ld_vol = clr && !ch[3] ? '0 : ch_vol[ch];
 
-    /* The realignment, done as the words land: one sixteen-bit carry
-     * instead of shifting the whole block afterwards. psg_xreg rejects an
-     * odd pointer and nothing else, so the block can start on a halfword
-     * and straddle seventeen words rather than sixteen. */
+    /* An odd pointer is the only thing rejected, so a block can start on
+     * a halfword and straddle seventeen words rather than sixteen. */
     logic [15:0] carry_hi;
     logic cw_en;
     logic [3:0] cw_word;
@@ -297,13 +213,8 @@ module aud_psg
         cf_pan = cf[55:48];
     end
 
-    /* The write snoop, decoded where it lands. The firmware keeps a
-     * ring of every write to the device page and replays it at the
-     * sample boundary because a processor cannot be in two places at
-     * once; this one sees the write on the clock it happens and has
-     * nowhere to put it but the state it affects. Anything the page
-     * means is decoded here, and today the channel's gate is all it
-     * means. */
+    /* Decoded where it lands, on the clock it lands. The gate is all the
+     * page means today. */
     logic snoop;
     always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
     logic [15:0] snoop_off;
@@ -324,29 +235,21 @@ module aud_psg
     always_comb fw_n = xaddr[1] ? 5'd17 : 5'd16;
     logic gnt_d;
 
-    /* The output mix accumulates unshifted in the C's int32 and rounds
-     * once at P_OUT. Two truncations in series used to bias every
-     * sounding channel downward, which is DC, not noise. */
+    /* Unshifted, rounding once at P_OUT: two truncations in series bias
+     * every sounding channel downward, which is DC, not noise. */
     logic signed [26:0] mix_l, mix_r;
     /* The oracle's int8 division truncates toward zero. */
     logic signed [7:0] pan;
     always_comb pan = cf_pan[7]
         ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
         : 8'($signed(cf_pan) >>> 1);
-    /* One multiplier, walked three times a channel, mix_i saying which of
-     * the three it is doing: the envelope's product, then that product
-     * against each side's pan.
+    /* One multiplier walked three times a channel — the envelope's
+     * product, then that against each side's pan. In series on one clock
+     * it was the module's longest path, and the walk has seven hundred
+     * spare clocks to spend instead.
      *
-     * All three used to happen on one clock, and two of them in series —
-     * the envelope's product was an operand of the pan's. Three multipliers
-     * for eight channels, two of them asked for at 27 bits to carry a
-     * product that never passes 24, and the pair of them in a row was the
-     * longest path in the module. The walk has seven hundred spare clocks
-     * a sample; it can afford to take three of them.
-     *
-     * Seventeen by fourteen: a sample and the mix are both seventeen bits
-     * signed, and the widest second operand is the thirteen-bit slice of
-     * the envelope. */
+     * 17x14: sample and mix are both 17 signed, and the widest second
+     * operand is the envelope's 13-bit slice. */
     logic [1:0] mix_i;
     logic signed [16:0] mix_s;
     logic signed [16:0] mul_a;
@@ -364,8 +267,7 @@ module aud_psg
         mul_p = 31'(mul_a) * 31'(mul_b);
     end
 
-    /* One restoring divider makes the phase increment: the 48-bit
-     * dividend freq * 2^32 over three times the rate.
+    /* The phase increment: freq * 2^32 over three times the rate.
      *
      * Sized from the divisor rather than assumed. A restoring divider's
      * remainder runs below its divisor and the compare sees it shifted up
@@ -381,14 +283,9 @@ module aud_psg
     initial if (PHASE_DIV <= 32'd65535)
         $fatal(1, "aud_psg: RATE too low for the divider preload");
 
-    /* Thirty-two iterations, not forty-eight. The dividend's top sixteen
-     * bits are the frequency and the frequency is below the divisor, so
-     * those sixteen steps can only shift the frequency into the remainder
-     * and put zeros in the quotient. Starting from there is the same
-     * division: the remainder begins holding the frequency and the rest of
-     * the dividend is the zeros that were always going to shift in. The
-     * quotient a sixteen-bit frequency can reach is 31 bits, so nothing
-     * comes off the top either. */
+    /* Thirty-two iterations, not forty-eight: the dividend's top sixteen
+     * bits are the frequency, which is below the divisor, so those steps
+     * only shift it into the remainder and put zeros in the quotient. */
     logic [31:0] div_q;
     logic [REM_W-1:0] div_rem;
     logic [4:0] div_i;
@@ -408,9 +305,8 @@ module aud_psg
     logic [7:0] duty_half;
     always_comb duty_half = cf_duty >> 1;
 
-    /* One comparator for the three waves that rail past the duty, and one
-     * window for the two that rail either side of the peak. Written out
-     * once because they were written out four times and twice. */
+    /* One comparator for the three waves that rail past the duty, one
+     * window for the two that rail either side of the peak. */
     logic past_duty, off_window;
     always_comb begin
         past_duty = ph > cf_duty;
@@ -428,11 +324,10 @@ module aud_psg
         tri_up = {~w_phase[30], w_phase[29:15]};
     end
 
-    /* The sine's quarter, folded back out. The package carries the trough
-     * to the peak and nothing else, because a localparam array indexed by
-     * a register is a mux of constants and a quarter of the entries is a
-     * quarter of the mux. The fold is exact — see aud_sine_gen.py — so
-     * this is the same 256 words the C reads, arrived at differently. */
+    /* A quarter table folded back out: a localparam array indexed by a
+     * register is a mux of constants, so a quarter of the entries is a
+     * quarter of the mux. The fold is exact — the same 256 words the C
+     * reads. */
     logic [6:0] sine_a, sine_b;
     logic sine_neg;
     always_comb begin
@@ -444,7 +339,6 @@ module aud_psg
     always_comb sine = sine_neg ? -$signed(AUD_SINE_Q[sine_b])
                                 : $signed(AUD_SINE_Q[sine_b]);
 
-    /* The wave sample from the advanced phase. */
     logic signed [15:0] wave;
     always_comb begin
         case (cf_wr[7:4])
@@ -459,23 +353,20 @@ module aud_psg
         endcase
     end
 
-    /* Noise steps only when its window emits: the xor lands first, the
-     * sample is noise2's low byte, then noise2 absorbs the sum. */
+    /* Noise steps only when its window emits. */
     logic noise_step;
     always_comb noise_step = cf_wr[7:4] == 4'd4 && !past_duty;
     logic [31:0] noise1_x;
     always_comb noise1_x = w_noise1 ^ w_noise2;
 
-    /* The peak the attack climbs to and the level the sustain holds. */
     logic [VOL_W-1:0] vol_peak, vol_sus;
     always_comb begin
         vol_peak = VOL_W'({VOL_TABLE[cf_va[7:4]], 16'd0});
         vol_sus = VOL_W'({VOL_TABLE[cf_vd[7:4]], 16'd0});
     end
 
-    /* Decay and release are the same subtraction against different nibbles.
-     * The nibble is what gets muxed, so there is one table read and one
-     * subtractor where there were two of each. */
+    /* Decay and release are the same subtraction against different
+     * nibbles, so the nibble is what gets muxed. */
     logic [3:0] dr_idx;
     always_comb dr_idx = ch_adsr[ch] == ADSR_DECAY ? cf_vd[3:0] : cf_wr[3:0];
     logic [VOL_W-1:0] dr_val, dr_next;
@@ -484,7 +375,6 @@ module aud_psg
         dr_next = w_vol <= dr_val ? '0 : w_vol - dr_val;
     end
 
-    /* The envelope's next value. */
     logic [VOL_W-1:0] vol_next;
     logic [1:0] adsr_next;
     always_comb begin
@@ -519,8 +409,7 @@ module aud_psg
         aud_psg_a_addr = xaddr[15:2] + {9'd0, fw_i};
     end
 
-    /* Unreset and on their own clock edge: a reset here would make these
-     * flops again and undo the whole point. */
+    /* Unreset: a reset here would make these flops again. */
     always_ff @(posedge clk) begin
         if (state == P_STEP) begin
             ch_sample[w_ch] <= wave;
@@ -581,20 +470,16 @@ module aud_psg
         else
             tickctr <= tickctr + 13'd1;
 
-        /* A walk that outlasts its tick does not stall. P_IDLE misses
-         * the boundary, the sample is dropped, and the heartbeat the
-         * whole machine rides when the OPL is parked gets a gap in it,
-         * quietly. */
+        /* A walk that outlasts its tick drops the sample silently, and
+         * the heartbeat the machine rides gets a gap in it. */
         if (tickctr == 13'd0 && state != P_IDLE)
             $fatal(1, "aud_psg walk overrun");
 
         case (state)
             P_IDLE: begin
                 if (xreg_pend) begin
-                    /* psg_xreg at the boundary: the pointer lands and
-                     * the gate goes home. The envelopes and the noise
-                     * go with clr, at the load that would have read
-                     * them; the phase persists. */
+                    /* The phase persists across an xreg; the envelopes
+                     * and noise go with clr. */
                     xreg_pend <= 1'b0;
                     xaddr <= xreg_word;
                     clr <= 1'b1;
@@ -602,12 +487,8 @@ module aud_psg
                         ch_adsr[i] <= ADSR_RELEASE;
                 end
                 if (tickctr == 13'd0) begin
-                    /* The walk always runs — the ninth voice is the
-                     * console bell and does not wait on a program. A
-                     * parked pointer only skips the fetch; the eight
-                     * program voices are silent because their volume
-                     * was cleared when it parked, and a voice that is
-                     * silent makes no sound. */
+                    /* The walk always runs: the bell does not wait on a
+                     * program. */
                     ch <= '0;
                     mix_l <= '0;
                     mix_r <= '0;
@@ -658,9 +539,7 @@ module aud_psg
                 state <= P_LOAD;
             end
             P_LOAD: begin
-                /* The channel out of the memory and the divider set
-                 * against its frequency, which is the word cf is
-                 * already reading at this address. */
+                /* cf is already reading the frequency at this address. */
                 w_ch <= ch;
                 w_phase <= ch_phase[ch];
                 w_vol <= ld_vol;
@@ -679,11 +558,9 @@ module aud_psg
                     state <= P_PH;
             end
             P_PH: begin
-                /* A clock of its own, so the wave reads a phase that
-                 * is standing in a register rather than coming out of
-                 * a thirty-two-bit add. The whole machine has under
-                 * two nanoseconds spare and this costs eight clocks
-                 * of the seven hundred going unused. */
+                /* A clock of its own, so the wave reads a standing
+                 * phase rather than a 32-bit add. The machine has under
+                 * two nanoseconds spare; this costs eight clocks. */
                 w_phase <= w_phase + div_q;
                 state <= P_STEP;
             end
@@ -700,10 +577,8 @@ module aud_psg
             default: state <= P_IDLE;
         endcase
 
-        /* After the case, so a write landing on the same clock as
-         * the walk's own step wins it. The program has just said
-         * what the channel is doing; the envelope is only saying
-         * what it was doing. */
+        /* After the case, so a write landing on the walk's own step
+         * wins it. */
         if (snoop_gate) begin
             if (!q_val[0] && ch_adsr[{1'b0, snoop_ch}] != ADSR_RELEASE)
                 ch_adsr[{1'b0, snoop_ch}] <= ADSR_RELEASE;

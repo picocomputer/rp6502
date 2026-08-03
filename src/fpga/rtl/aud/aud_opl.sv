@@ -3,22 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The OPL2, wrapped so the machine sees the same shape it sees for the
- * PSG. Inside is gtaylormb/opl2_fpga under LGPL-3.0, credited in the
- * distribution README; nothing of its interface reaches the machine.
+ * The OPL2, wrapped so the machine sees the shape it sees for the PSG.
+ * Inside is gtaylormb/opl2_fpga under LGPL-3.0, credited in the
+ * distribution README; none of its interface reaches the machine.
  *
- * ria/aud/opl.c makes the device a 256-byte XRAM page that mirrors the
- * chip's register file, so an offset within the page *is* a register
- * number. On real hardware a queue carried those writes to the emulator
- * between interrupts; here the write goes to the chip as it lands, the
- * same way the PSG's did once the queue came out of it.
+ * The device is a 256-byte XRAM page mirroring the chip's register file,
+ * so an offset within the page IS a register number.
  *
- * The core's host side is a YM3812 bus: one write selects a register,
- * the next carries its value, and each is edge-detected off cs_n and
- * wr_n. So a register costs four clocks. Only the 6502's RW engine
- * feeds this snoop, and at 8 MHz PHI2 its writes are at least 6.3
- * clocks apart, so the sequencer is never the narrow part. host_if
- * holds a 64-deep FIFO behind it besides.
+ * The core's host side is a YM3812 bus — one write selects a register,
+ * the next carries its value, each edge-detected — so a register costs
+ * four clocks. At 8 MHz PHI2 the 6502's writes are 6.3 clocks apart, so
+ * the sequencer is never the narrow part.
  */
 
 module aud_opl #(
@@ -28,50 +23,35 @@ module aud_opl #(
      * range is 2^20 — the whole mix, not one voice. An older note here
      * claimed 2^21 from nine voices; channels.sv saturates the sum to
      * SAMPLE_WIDTH first, so that figure was never reachable and the
-     * shift derived from it put this engine at half the level of the C.
+     * shift derived from it puts this engine at half the level of the C.
      *
-     * Five is unity: (channel <<< 5) >>> 5 is the core's own level, and
-     * this engine adds no gain at all. That is deliberate — an RTL YM3812
-     * is the closer thing to the chip, so it sets the level and the C
-     * follows. ria/aud/opl.c multiplies emu8950 by four to reach the same
-     * place, because opl2_fpga's channel is four times emu8950's mix for
-     * the same registers.
+     * Five is unity: (channel <<< 5) >>> 5 is the core's own level, so
+     * this engine adds no gain. The RTL YM3812 is the closer thing to
+     * the chip, so it sets the level and opl.c multiplies emu8950 by
+     * four to reach the same place.
      *
-     * So the two paths have different gain structures that cancel, and
-     * the two constants are not independent: move opl.c's four or this
-     * five alone and the platforms diverge. Measured, with test_opl's
-     * note — 8172 out of emu8950 after its four, 32680 out of this at a
-     * shift of three. An exact factor of four, 12 dB, which nobody could
-     * miss on hardware and every test passed anyway.
-     *
-     * They clip together too, from opposite directions: opl.c clamps
-     * after its four, at 8192 of emu8950's scale, and channels.sv
-     * saturates its own accumulator at 32767 — the same 8192 in emu8950
-     * units. Exact, also: the low five bits of core_sample are always
-     * zero. */
+     * THE TWO CONSTANTS ARE NOT INDEPENDENT: move opl.c's four or this
+     * five alone and the platforms diverge by 12 dB, which every test
+     * passed anyway. They clip together too, from opposite directions,
+     * at the same 8192 in emu8950 units. */
     parameter int SAMPLE_SHIFT = 5
 ) (
     input logic clk,
     input logic rst_n,
 
-    /* The device register: the sw's validated pointer, 0xFFFF off.
-     * opl_xreg rejects anything not page-aligned, so only the page
-     * survives the trip. */
+    /* Page-aligned or rejected before it reaches here. */
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
-    /* The RW engine's write snoop. */
     input logic q_we,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
-    /* One channel. A YM3812 is mono; this used to emit the same sample on
-     * an _l and an _r and nothing ever read the second one. */
+    /* A YM3812 is mono. */
     output logic signed [15:0] aud_opl_out,
     output logic aud_opl_valid,
-    /* Which engine the machine is listening to. Programming either
-     * device's pointer is what picks it, so the choice lives with the
-     * pointer rather than in a register of its own. */
+    /* Programming either pointer picks the engine, so the choice lives
+     * with the pointer rather than a register of its own. */
     output logic aud_opl_enabled
 );
 

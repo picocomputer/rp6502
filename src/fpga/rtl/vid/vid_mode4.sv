@@ -3,15 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 4, the sixteen-bit sprites of vga/modes/mode4.c — the RISCBoy
- * system pico-playground carries: an array of descriptors, each a
- * power-of-two square of raw RGB555 texels, walked in order so later
- * sprites land on earlier ones. A texel writes where its alpha bit is
- * set; a sprite with opacity metadata narrows each row to its opaque
- * span first and skips the alpha test entirely when the row is marked
- * continuous. The affine path joins here. The sprite scaffold starts
- * one line's walk with the slot in hand and routes the pixel port at
- * the foreground plane; only the beam's deadline matters.
+ * Mode 4: an array of descriptors, each a power-of-two square of raw
+ * RGB555 texels, walked in order so later sprites land on earlier ones.
+ * A texel writes where its alpha bit is set; opacity metadata narrows a
+ * row to its opaque span and skips the alpha test when the row is marked
+ * continuous.
  */
 
 module vid_mode4 (
@@ -50,8 +46,6 @@ module vid_mode4 (
 
     logic [15:0] idx;
 
-    /* The descriptor gather: eight or twenty bytes from a
-     * halfword-aligned array, up to six words. */
     logic [191:0] gather;
     logic [1:0] lane;
     logic [16:0] daddr;
@@ -80,37 +74,30 @@ module vid_mode4 (
         dc_meta = (affine ? dview[159:152] : dview[63:56]) != 8'h00;
     end
 
-    /* The descriptor, once, into registers. Everything downstream of
-     * here — the guard arithmetic, the texel address, the affine setup
-     * — used to hang off the gathered words through the lane select,
-     * which put the whole descriptor decode and the address adder in
-     * one clock and made this the longest path in the machine. It also
-     * reached further than it looks: the sprite's address and request
-     * are what the XRAM arbiter selects on, so every other engine's
-     * grant arrived through this cone too. M4_DECODE costs one clock
-     * per descriptor against sixteen hundred in a line. */
+    /* Decoded once into registers. Hanging the guard arithmetic, texel
+     * address and affine setup off the gathered words instead put the
+     * whole decode and the address adder in one clock — and since the
+     * sprite's address is what the XRAM arbiter selects on, every other
+     * engine's grant arrived through that cone too. One clock per
+     * descriptor against sixteen hundred in a line. */
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr;
     logic [7:0] d_log;
     logic d_meta;
     logic signed [15:0] d_t[6];
 
-    /* The square's geometry; log sizes past seven cannot fit XRAM and
-     * skip on the size test exactly as the oracle's arithmetic does.
-     * These are the shifts d_log used to drive, kept as registers
-     * rather than recomputed: every one of them stood in front of the
-     * address adder, so a variable shift and an add had to happen
+    /* Kept as registers rather than recomputed: each stood in front of
+     * the address adder, so a variable shift and an add had to happen
      * between a register and the XRAM's address port. */
     logic [7:0] size;
     logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
     logic [31:0] d_over;  /* the affine walk's out-of-square mask */
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
-    /* The oracle computes byte_size in wrapping thirty-two bits, so a
-     * plain sprite with log 16..31 and no metadata wraps to zero and
-     * passes both guards; its zero row is defined C and renders the
-     * canvas width. Deeper rows read past XRAM on the host — the RTL
-     * re-reads row zero instead. */
+    /* The oracle wraps byte_size in 32 bits, so a plain sprite with log
+     * 16..31 and no metadata wraps to zero and passes both guards. Its
+     * zero row is defined C; deeper rows read past XRAM on the host, and
+     * the RTL re-reads row zero instead. */
     logic log_wrap;
     always_comb log_wrap = !affine && !d_meta
         && d_log >= 8'd16 && d_log < 8'd32;
@@ -123,7 +110,6 @@ module vid_mode4 (
     always_comb byte_size = {1'b0, img_bytes}
         + (d_meta ? 18'({size, 2'b00}) : 18'd0);
 
-    /* The intersect, in the oracle's int arithmetic. */
     logic signed [16:0] tex_offs_y;
     always_comb tex_offs_y = 17'($signed({8'd0, t_row}) - 17'(d_y));
     logic signed [16:0] x_start;
@@ -138,7 +124,6 @@ module vid_mode4 (
                                              : 18'($signed({8'd0, cw})))
         - 18'(x_start);
 
-    /* Clipped span registers, adjusted again by metadata. */
     logic signed [16:0] tex_x, span_end;
     logic meta_cont;
     logic [16:0] row_texel;  /* texel index of the row's first column */
@@ -147,14 +132,10 @@ module vid_mode4 (
     always_comb meta_addr = {1'b0, d_sptr} + img_bytes[16:0]
         + {8'd0, tex_offs_y[6:0], 2'b00};
 
-    /* One cached XRAM word carries two texels, so the plain walk spends
-     * one clock emitting each and has the other free. It used to sit
-     * idle: a miss cost a clock for the grant and a clock for the data
-     * before either texel could be emitted, which is two clocks a texel
-     * with the memory idle for most of them. The spare clock now asks
-     * for the next word, and the walk crosses a word boundary without
-     * stopping. Only the plain path prefetches — the affine walk's
-     * addresses are not sequential, and it keeps the fetch it had. */
+    /* A word carries two texels, so the plain walk has a spare clock and
+     * spends it asking for the next word — crossing a word boundary
+     * without stopping. Only the plain path prefetches; the affine
+     * walk's addresses are not sequential. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;

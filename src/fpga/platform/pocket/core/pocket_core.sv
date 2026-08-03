@@ -3,22 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine and its four adapters, assembled: everything between
- * the APF shell and rp6502 that is ours to own. The shell — or the
- * bench — supplies clocks, the bridge write stream, and the
- * core_bridge_cmd signals; this module turns them into a running
- * machine with its beam on the scaler, its samples on the codec, and
- * its staged ROM behind the SDRAM. The machine's reset is the
- * bridge's run gate under the platform reset; the adapters that carry
- * live streams (video capture, sample feed) reset with the machine so
- * a reload re-arms them, while the bridge, the store, and the I2S
- * engine stay up throughout.
+ * The machine and its adapters: everything between the APF shell and
+ * rp6502 that is ours to own.
+ *
+ * The machine's reset is the bridge's run gate under the platform reset.
+ * Adapters carrying live streams reset with the machine so a reload
+ * re-arms them; the bridge, the store and the I2S engine stay up
+ * throughout.
  */
 
 module pocket_core #(
     parameter TCM_INIT_FILE = ""
 ) (
-    /* Clocks and the platform reset. */
     input logic clk_74a,
     input logic clk_sys,
     /* Half clk_sys, rising with it; see pocket_pll. */
@@ -27,7 +23,6 @@ module pocket_core #(
     input logic rst_n,
     input logic arst_n,
 
-    /* core_bridge_cmd's signals, bridge domain. */
     input logic bridge_wr,
     input logic [31:0] bridge_addr,
     input logic bridge_rd,
@@ -38,11 +33,8 @@ module pocket_core #(
     output logic pocket_core_dt_we,
     output logic [31:0] pocket_core_dt_wdata,
     input logic [31:0] datatable_q,
-    /* The host's clock, from command 0x0090, bridge domain. */
     input logic [31:0] rtc_epoch,
     input logic rtc_valid,
-    /* The file bridge: the host's answer to a target command, and the
-     * word it reads back out of us. */
     output logic [31:0] pocket_core_bridge_rd_data,
     output logic [31:0] pocket_core_param_struct,
     output logic [31:0] pocket_core_resp_struct,
@@ -60,13 +52,11 @@ module pocket_core #(
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
     input logic [15:0] cont1_trig,
-    /* The dock puts its keyboard on the third slot: six scan codes
-     * across joy and trig, the modifiers in key. */
+    /* The dock's keyboard: six scan codes across joy and trig. */
     input logic [31:0] cont3_key,
     input logic [31:0] cont3_joy,
     input logic [15:0] cont3_trig,
-    /* The dock puts its mouse on the fourth: a report counter, the
-     * buttons, and the two relative movements. */
+    /* The dock's mouse: a report counter, buttons, two movements. */
     input logic [31:0] cont4_key,
     input logic [31:0] cont4_joy,
     input logic [15:0] cont4_trig,

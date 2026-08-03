@@ -4,25 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The sprite stage's palette cache. Mode 5 reads its palette from XRAM
- * live, per pixel — one arbitrated round trip per opaque pixel, which is
- * most of what a paletted sprite line costs. This turns those trips into
- * hits for the colors a row actually uses.
+ * per opaque pixel, which is most of what a paletted sprite line costs.
  *
- * Sixteen entries was the owner's spec, with one invariant: any sixteen
- * colors at any contiguous XRAM location must be conflict-free. Entries
- * are halfwords, words carry two, and a halfword-aligned palette spreads
- * sixteen colors across nine consecutive words — so the shape is eight
- * sets of two ways with one-word lines, and any run of sixteen or fewer
- * words maps at most two deep per set: a 4bpp sprite's whole palette
- * costs at most nine compulsory misses a row and can never thrash. A
- * miss is exactly today's fetch, so the pathological case is bounded by
- * what the stage already was — the cache only removes trips.
+ * The invariant: any sixteen colours at any contiguous XRAM location
+ * must be conflict-free. A halfword-aligned palette spreads sixteen
+ * colours across nine consecutive words, so eight sets of two ways with
+ * one-word lines maps any run of sixteen or fewer words at most two deep
+ * per set — nine compulsory misses a row, and it can never thrash. A
+ * miss is exactly the old fetch, so the cache only removes trips.
  *
- * The fill modes deliberately do NOT use this. A 256-color fill's
- * pathological line — indices cycling more colors than any small cache
- * holds — would miss per pixel and blow the deadline at any clock, and
- * the fill contract is deterministic completion. Fills keep their
- * snapshot store; the owner's requirement is what decided it.
+ * The fill modes deliberately do NOT use this: a 256-colour fill cycling
+ * more colours than the cache holds would miss per pixel and blow a
+ * deadline the fill contract says is deterministic.
  *
  * The read answers where it is used, like the store it replaces: tags and
  * data are flops, the hit and both colors are combinational, and the
@@ -31,13 +24,11 @@
  * of the mode engine's own fetches — the engine is stalled on the miss,
  * so the port is going spare.
  *
- * Coherence is by row, not by write — the owner's call: flush empties
- * the cache at each line's walk, so entries live for one row and a
- * palette write lands by the next. The C reads live per pixel, so a
- * write racing its own row's render is observed a row late here; that
- * write was always a race — the emulator renders a line at a moment of
- * its choosing, and this machine renders one line ahead of the beam.
- * Dropping the per-write snoop is what makes the cache this small.
+ * Coherence is by row, not by write: the flush empties the cache each
+ * line, so a palette write lands by the next row. A write racing its own
+ * row's render is observed a row late — but that write was always a
+ * race, and dropping the per-write snoop is what makes the cache this
+ * small.
  */
 
 module vid_palcache
@@ -46,11 +37,9 @@ module vid_palcache
     input logic clk,
     input logic rst_n,
 
-    /* The consumer's question, and the finished answer. base is the
-     * palette's XRAM byte address (bit 0 already validated clear); idx_b
-     * rides beside idx_a for mode 1's foreground/background pair and
-     * participates only when need_b. With xram clear the builtins answer
-     * and there is nothing to miss. */
+    /* idx_b rides beside idx_a for mode 1's foreground/background pair.
+     * With xram clear the builtins answer and there is nothing to
+     * miss. */
     input logic lookup,
     input logic xram,
     input logic one_bpp,
@@ -62,9 +51,6 @@ module vid_palcache
     output logic [15:0] vid_palcache_qb,
     output logic vid_palcache_hit,
 
-    /* The fill master. req holds until gnt; the word lands on a_rdata
-     * the cycle rdy asserts, which is the interposer's grant-owner
-     * bookkeeping, not a guess. */
     output logic vid_palcache_req,
     output logic [13:0] vid_palcache_addr,
     input logic fill_gnt,
@@ -75,8 +61,6 @@ module vid_palcache
     input logic flush
 );
 
-    /* Entry halfword address, then the word that holds it: the tag is
-     * the word address above the set bits. */
     logic [15:0] ha_a, ha_b;
     always_comb ha_a = {1'b0, base[15:1]} + {8'd0, idx_a};
     always_comb ha_b = {1'b0, base[15:1]} + {8'd0, idx_b};
@@ -84,7 +68,6 @@ module vid_palcache
     always_comb wa_a = ha_a[14:1];
     always_comb wa_b = ha_b[14:1];
 
-    /* Eight sets, two ways, one word each. */
     logic [10:0] tag[8][2];
     logic valid[8][2];
     logic [31:0] line[8][2];
@@ -123,13 +106,10 @@ module vid_palcache
     always_comb vid_palcache_hit = !xram
         || (hit_a && (!need_b || hit_b));
 
-    /* The fill: one word at a time, a's before b's. The miss stands a
-     * register between the tag compare and the channel: the lookup's
-     * arithmetic — the consumer's index slicing, the entry add, the
-     * compare — is a full-period cone already, and asking it to also
-     * cross the fabric to the XRAM block's address port in the same
-     * cycle is what broke the fit. A miss pays one extra cycle it was
-     * already spending stalled; a hit still answers where it is asked. */
+    /* A register stands between the tag compare and the channel: the
+     * lookup's arithmetic is a full-period cone already, and crossing to
+     * the XRAM's address port in the same cycle broke the fit. The miss
+     * pays a cycle it was spending stalled anyway. */
     logic pending;
     logic [13:0] pend_wa;
     logic filling;

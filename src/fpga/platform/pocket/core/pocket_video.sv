@@ -3,20 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The machine's picture handed to the Pocket's scaler. There is no CRT
- * here and no beam modeled anywhere: the raster is 800x525 CLOCKS per
- * frame at 25.2 MHz, and inside it each canvas row is one hs, the
- * row's own pixels back to back, then porch —
+ * The machine's picture handed to the Pocket's scaler. No CRT and no
+ * beam is modelled: the raster is 800x525 CLOCKS at 25.2 MHz, and each
+ * canvas row is one hs, its own pixels back to back, then porch — so a
+ * 320-wide row spans two 800-clock slots and the shorter canvases come
+ * out at their own heights.
  *
- *     640 wide: hs, 640 px over 640 clocks, 160 clocks of porch
- *     320 wide: hs, 320 px over 320 clocks, 1280 clocks of porch
- *
- * — so a 320-wide row's period spans two 800-clock slots, the 240- and
- * 180-row canvases come out at their own heights, and the end-of-line
- * word after each row requests the scaler slot for the canvas,
- * video.json's scaler_modes in the same order. Analogue's filters (and
- * the CRT mode, which documents that duplicated pixels break it) work
- * on real pixels because no other kind arrives.
+ * Analogue's filters, and the CRT mode that documents duplicated pixels
+ * breaking it, work because no duplicated pixel ever arrives.
  *
  * The machine emits every canvas pixel exactly once — its de IS the
  * canvas — so this stage is only clock alignment: pixels arrive at one
