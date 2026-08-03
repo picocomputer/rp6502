@@ -117,7 +117,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # project directory — the framework's hook for a core's own groups.
     # Stage it where that read looks, instead of listing it a second time
     # and letting the vendor's read fail as a Critical Warning every run.
-    file(COPY ${APF}/core/core_constraints.sdc DESTINATION ${BS_DIR}/core)
+    # Ours, not the template's: vendor/openfpga's copy groups a PLL this
+    # core does not instantiate, so its four filters matched nothing.
+    file(COPY ${RP6502_SRC}/fpga/platform/pocket/quartus/core_constraints.sdc
+        DESTINATION ${BS_DIR}/core)
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
     foreach(line ${BS_TEMPLATE})

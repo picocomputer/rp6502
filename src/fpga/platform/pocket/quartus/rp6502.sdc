@@ -18,19 +18,34 @@
 # and a multicycle written on the strength of a sample rate would be a
 # constraint that lies.
 
-create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
-# The soft CPU's, half clk_sys and rising with it. Declared against the
-# same waveform rather than as an independent clock, because that is
-# what the PLL makes and what the crossings are written against: the
-# analyzer must see the two as one synchronous group, not as a domain
-# crossing it should cut.
-create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
-    [get_ports clk_rv]
-derive_clock_uncertainty
+# Only when the machine is the top level. Inside a platform its clocks
+# arrive from a PLL and its ports are not ports, so every line below
+# named one and matched nothing: Quartus printed "Ignored create_clock,
+# argument <targets> is an empty collection" for both, in every Pocket
+# fit this tree has ever run. The two lines that follow them were worse
+# than dead — under a platform, all_inputs and all_outputs are the
+# device's pads rather than the machine's testbench edges, so a rule
+# written to excuse a bench was cutting real pins. Guard the lot on the
+# one condition that separates the two cases.
+if {[get_collection_size [get_ports -nowarn clk_sys]] > 0} {
 
-# The machine's ports are testbench-facing; the platform owns the pads.
-set_false_path -from [all_inputs] -to [all_registers]
-set_false_path -from [all_registers] -to [all_outputs]
+    create_clock -name clk_sys -period 19.841 [get_ports clk_sys]
+    # The soft CPU's, half clk_sys and rising with it. Declared against
+    # the same waveform rather than as an independent clock, because
+    # that is what the PLL makes and what the crossings are written
+    # against: the analyzer must see the two as one synchronous group,
+    # not as a domain crossing it should cut. Under the platform the
+    # same statement is made by core_constraints.sdc, which names the
+    # PLL's own outputs and puts them in one group.
+    create_clock -name clk_rv -period 39.682 -waveform {0.000 19.841} \
+        [get_ports clk_rv]
+
+    # The machine's ports are testbench-facing; the platform owns the pads.
+    set_false_path -from [all_inputs] -to [all_registers]
+    set_false_path -from [all_registers] -to [all_outputs]
+}
+
+derive_clock_uncertainty
 
 set_multicycle_path -setup -from [get_registers {*cpu65*}] 4
 set_multicycle_path -hold  -from [get_registers {*cpu65*}] 3
