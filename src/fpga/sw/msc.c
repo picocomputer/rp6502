@@ -75,20 +75,53 @@ static struct
 /* A command, start to finish. The soft CPU has nothing else to do while
  * the host works — the 6502 is stopped inside its syscall — and
  * pocket_file times out rather than wait forever. */
-static uint32_t msc_command(uint32_t op)
+/* A command in two halves, because the task loop does not wait for
+ * anything. The bridge gives a silent host 1.8 seconds before it retires
+ * the command; spinning that out stops every other task, and a stopped
+ * loop is a machine that drops most of the 6502's console output, misses
+ * its video frames, and fails the next file operation too.
+ *
+ * So: start it, and poll it once per pass. */
+static void msc_start(uint32_t op)
 {
     FILE_CTL = op;
+}
+
+/* True when the host has answered and *st holds the status. */
+static bool msc_poll(uint32_t *st)
+{
+    uint32_t v = FILE_CTL;
+    if (v & (FILE_ST_BUSY | FILE_ST_DRAIN))
+        return false;
+    *st = v;
+    return true;
+}
+
+/* The blocking form, still used by open and by the boot-time staging.
+ * open is the one worker left that runs a command to completion inside a
+ * single dispatch; converting it needs the std open contract to carry
+ * STD_PENDING, which is its own change. Everything the machine does at
+ * volume — read, write, sync — no longer comes through here. */
+static uint32_t msc_command(uint32_t op)
+{
     uint32_t st;
-    do
-        st = FILE_CTL;
-    while (st & (FILE_ST_BUSY | FILE_ST_DRAIN));
+    msc_start(op);
+    while (!msc_poll(&st))
+        ;
     return st;
 }
 
-/* The window is one port of a block RAM and the bridge owns the other,
- * so it is written whole words at a time and never read back. The host
- * takes byte zero of each word from the top eight bits, which is what
- * bridge_endian_little being clear means. */
+/* The command an API worker has in flight. One record is enough: the
+ * 6502 is parked in a single syscall, so only one worker is ever mid-op.
+ * A worker sets the registers and starts the command on its first entry,
+ * then answers STD_PENDING until the host does — and the loop keeps
+ * running the whole time. */
+static bool msc_busy;
+
+/* The write worker's grow, a second command it can have in flight: the
+ * resize-open that makes room, before the WRITE that fills it. */
+static bool msc_grow;
+
 static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i += 4)
@@ -161,8 +194,14 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
 /* Bind a slot to a name. Open File answers 0 when the file was there
  * and 1 when it had to make it, and both of those are yes — the rest
  * are 2 slot not defined, 3 not found, 4 malformed path, 5 general. */
-static uint32_t msc_try_open(uint32_t slot, const char *name,
-                             uint32_t flags, uint32_t size)
+/* Not a host answer: the command is on its way and the caller must come
+ * back for it. */
+#define MSC_RC_STARTED 0xFFu
+
+/* Builds the name into the window and starts the command. Answers
+ * MSC_RC_MALFORMED without starting one when the name will not fit. */
+static uint32_t msc_try_open_start(uint32_t slot, const char *name,
+                                   uint32_t flags, uint32_t size)
 {
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
@@ -186,10 +225,32 @@ static uint32_t msc_try_open(uint32_t slot, const char *name,
     msc_win_u32(MSC_PARAM_FLAGS, flags);
     msc_win_u32(MSC_PARAM_SIZE, size);
     FILE_ID = slot;
-    uint32_t st = msc_command(FILE_OP_OPEN);
-    if (st & FILE_ST_TIMEOUT)
-        return MSC_RC_MALFORMED;
-    return (st & FILE_ST_ERR) >> 1;
+    msc_start(FILE_OP_OPEN);
+    return MSC_RC_STARTED;
+}
+
+/* The result code once the host answers: 0 opened, 1 created and opened,
+ * 2 slot not defined, 3 not found, 4 malformed, 5 general. A command the
+ * host never picked up reads as MSC_RC_MALFORMED, which is what every
+ * caller already treats as a refusal. */
+static bool msc_try_open_poll(uint32_t *rc)
+{
+    uint32_t st;
+    if (!msc_poll(&st))
+        return false;
+    *rc = (st & FILE_ST_TIMEOUT) ? MSC_RC_MALFORMED : ((st & FILE_ST_ERR) >> 1);
+    return true;
+}
+
+/* The blocking form, for open and for boot-time staging. */
+static uint32_t msc_try_open(uint32_t slot, const char *name,
+                             uint32_t flags, uint32_t size)
+{
+    uint32_t rc = msc_try_open_start(slot, name, flags, size);
+    if (rc == MSC_RC_STARTED)
+        while (!msc_try_open_poll(&rc))
+            ;
+    return rc;
 }
 
 static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
@@ -374,11 +435,20 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
         want = FILE_XFER_MAX;
     if (!want)
         return STD_OK; /* short or zero at the end, which is EOF */
-    FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
-    FILE_OFFSET = pos;
-    FILE_BRIDGE = FILE_STAGE_BRIDGE;
-    FILE_LENGTH = want;
-    if (msc_command(FILE_OP_READ) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+    uint32_t st;
+    if (!msc_busy)
+    {
+        FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+        FILE_OFFSET = pos;
+        FILE_BRIDGE = FILE_STAGE_BRIDGE;
+        FILE_LENGTH = want;
+        msc_busy = true;
+        msc_start(FILE_OP_READ);
+    }
+    if (!msc_poll(&st))
+        return STD_PENDING;
+    msc_busy = false;
+    if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
         *err = API_EIO;
         return STD_ERROR;
@@ -411,20 +481,43 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
     uint32_t slot = MSC_SLOT_FIRST + (uint32_t)desc;
     if (pos + want > msc_pool[desc].len)
     {
-        if (!msc_open_slot(slot, msc_pool[desc].name,
-                           MSC_DS_CREATE | MSC_DS_RESIZE, pos + want))
+        uint32_t rc;
+        if (!msc_grow)
+        {
+            if (msc_try_open_start(slot, msc_pool[desc].name,
+                                   MSC_DS_CREATE | MSC_DS_RESIZE, pos + want)
+                != MSC_RC_STARTED)
+            {
+                *err = API_ENOSPC;
+                return STD_ERROR;
+            }
+            msc_grow = true;
+        }
+        if (!msc_try_open_poll(&rc))
+            return STD_PENDING;
+        msc_grow = false;
+        if (rc > 1)
         {
             *err = API_ENOSPC;
             return STD_ERROR;
         }
         msc_pool[desc].len = pos + want;
     }
-    msc_win_put(0, (const uint8_t *)buf, want);
-    FILE_ID = slot;
-    FILE_OFFSET = pos;
-    FILE_BRIDGE = FILE_WIN_BASE;
-    FILE_LENGTH = want;
-    if (msc_command(FILE_OP_WRITE) & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+    uint32_t st;
+    if (!msc_busy)
+    {
+        msc_win_put(0, (const uint8_t *)buf, want);
+        FILE_ID = slot;
+        FILE_OFFSET = pos;
+        FILE_BRIDGE = FILE_WIN_BASE;
+        FILE_LENGTH = want;
+        msc_busy = true;
+        msc_start(FILE_OP_WRITE);
+    }
+    if (!msc_poll(&st))
+        return STD_PENDING;
+    msc_busy = false;
+    if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
         *err = API_EIO;
         return STD_ERROR;
@@ -443,8 +536,16 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
     }
     if (msc_flush_state == MSC_FLUSH_NEVER)
         return STD_OK;
-    FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
-    uint32_t st = msc_command(FILE_OP_FLUSH);
+    uint32_t st;
+    if (!msc_busy)
+    {
+        FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+        msc_busy = true;
+        msc_start(FILE_OP_FLUSH);
+    }
+    if (!msc_poll(&st))
+        return STD_PENDING;
+    msc_busy = false;
     if (msc_unanswered(st))
     {
         msc_flush_state = MSC_FLUSH_NEVER;
