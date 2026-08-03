@@ -54,20 +54,26 @@ module vid_mode5
 );
 
     /* attr[5:3] the square's size — eight through five hundred twelve —
-     * attr[1:0] the depth; the prog validated the pairing. */
-    logic [1:0] bpp_log;
+     * attr[1:0] the depth; the prog validated the pairing.
+     *
+     * Taken once at the start rather than re-derived every clock. attr is
+     * the slot's and does not move for the length of a plane's walk, but
+     * the derivation was standing in front of every decision the walk
+     * makes: the plane's slot mux, two shifts and a seventeen-bit
+     * multiply, nine nanoseconds of the twenty available, reached before
+     * the skip ladder's compare could start. Nothing downstream reads
+     * these before M5_JUDGE, which is three clocks after the start. */
     logic [3:0] size_log;
+    logic [9:0] size_w, bytes_per_row_w;
     always_comb begin
-        bpp_log = attr[1:0];
         size_log = 4'd3 + {1'b0, attr[5:3]};
+        size_w = 10'(10'd1 << size_log);
+        bytes_per_row_w = 10'(13'({3'd0, size_w} << attr[1:0]) >> 3);
     end
+    logic [1:0] bpp_log;
     logic [9:0] size;
-    always_comb size = 10'(10'd1 << size_log);
     logic [9:0] bytes_per_row;
-    always_comb bytes_per_row = 10'(13'({3'd0, size} << bpp_log) >> 3);
     logic [16:0] data_size;
-    always_comb data_size =
-        17'(17'({7'd0, size}) * 17'({7'd0, bytes_per_row}));
 
     typedef enum logic [2:0] {
         M5_IDLE, M5_DESC, M5_JUDGE, M5_PIX, M5_NEXT
@@ -219,6 +225,10 @@ module vid_mode5
             dcache_v <= 1'b0;
             px_i <= '0;
             dst <= '0;
+            bpp_log <= '0;
+            size <= '0;
+            bytes_per_row <= '0;
+            data_size <= '0;
             vid_mode5_done <= 1'b0;
         end else begin
             gnt_d <= a_gnt;
@@ -229,6 +239,11 @@ module vid_mode5
             end else if (start) begin
                 idx <= '0;
                 dcache_v <= 1'b0;
+                bpp_log <= attr[1:0];
+                size <= size_w;
+                bytes_per_row <= bytes_per_row_w;
+                data_size <= 17'(17'({7'd0, size_w})
+                                 * 17'({7'd0, bytes_per_row_w}));
                 if (length == 16'd0) begin
                     vid_mode5_done <= 1'b1;
                     state <= M5_IDLE;

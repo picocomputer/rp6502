@@ -195,15 +195,23 @@ module vid_sprite (
     logic sp_is4;
     always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
 
+    /* The engine this plane's slot picked, taken when the plane was
+     * planned. sp_is4 reads slot_entry[p], a three-way mux on thirty-two
+     * bits, and it stood in the pixel port's data path and in the XRAM
+     * arbiter's — on every clock of a walk, for a bit that cannot change
+     * while the walk runs. vid_mode4 keeps its descriptor this way and
+     * says why; this is the same thing one level up. */
+    logic run4;
+
     /* The cache's fill preempts mode 5's own requests, which is safe by
      * construction: a palette lookup only exists while the index word is
      * in hand, so the two never ask together. */
     always_comb begin
         vid_sprite_a_req = state == SP_RUN
-            && (sp_is4 ? m4_a_req : (pc_req || m5_a_req));
-        vid_sprite_a_addr = sp_is4 ? m4_a_addr
+            && (run4 ? m4_a_req : (pc_req || m5_a_req));
+        vid_sprite_a_addr = run4 ? m4_a_addr
             : pc_req ? pc_addr : m5_a_addr;
-        pc_gnt = a_gnt && pc_req && state == SP_RUN && !sp_is4;
+        pc_gnt = a_gnt && pc_req && state == SP_RUN && !run4;
     end
 
     logic sp_en;
@@ -218,9 +226,9 @@ module vid_sprite (
         if (state == SP_CLEAR)
             vid_sprite_we = 1'b1;
         else if (state == SP_RUN) begin
-            vid_sprite_we = sp_is4 ? m4_px_we : m5_px_we;
-            vid_sprite_addr = sp_is4 ? m4_px_addr : m5_px_addr;
-            vid_sprite_data = sp_is4 ? m4_px_data : m5_px_data;
+            vid_sprite_we = run4 ? m4_px_we : m5_px_we;
+            vid_sprite_addr = run4 ? m4_px_addr : m5_px_addr;
+            vid_sprite_data = run4 ? m4_px_data : m5_px_data;
         end
     end
 
@@ -253,6 +261,7 @@ module vid_sprite (
             clr <= '0;
             m4_start <= 1'b0;
             m5_start <= 1'b0;
+            run4 <= 1'b0;
             vid_sprite_force <= 1'b0;
             vid_sprite_overrun <= '0;
         end else begin
@@ -326,6 +335,7 @@ module vid_sprite (
                             clr <= '0;
                             state <= SP_CLEAR;
                         end else begin
+                            run4 <= sp_is4;
                             if (sp_is4)
                                 m4_start <= 1'b1;
                             else
@@ -339,6 +349,7 @@ module vid_sprite (
                             vid_sprite_force <= 1'b1;
                             fg_v <= 1'b1;
                             fg <= p;
+                            run4 <= sp_is4;
                             if (sp_is4)
                                 m4_start <= 1'b1;
                             else
@@ -347,7 +358,7 @@ module vid_sprite (
                         end
                     end
                     SP_RUN: begin
-                        if (sp_is4 ? m4_done : m5_done)
+                        if (run4 ? m4_done : m5_done)
                             next_plane();
                     end
                     default: state <= SP_IDLE;
