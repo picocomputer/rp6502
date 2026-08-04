@@ -725,7 +725,6 @@ wire b_de, b_skip, b_vs, b_hs;
 
 pocket_bars bars (
     .clk_vid ( clk_vid ),
-    .rst_n   ( core_rst_n_sys ),
     .pocket_bars_rgb  ( b_rgb ),
     .pocket_bars_de   ( b_de ),
     .pocket_bars_skip ( b_skip ),

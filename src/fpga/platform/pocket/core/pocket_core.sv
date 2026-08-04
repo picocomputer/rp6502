@@ -252,10 +252,9 @@ module pocket_core #(
      * applies what changed. Bit 16 picks; the file bridge owns
      * everything below it. */
     logic [31:0] set_rdata;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            set_rdata <= '0;
-        else if (host_stb)
+    initial set_rdata = '0;
+    always_ff @(posedge clk_sys) begin
+        if (host_stb)
             case (host_addr[4:2])
                 3'd2: set_rdata <= set_tz;
                 3'd3: set_rdata <= rtc_epoch_sys;
@@ -268,12 +267,10 @@ module pocket_core #(
     always_comb host_rdata = host_addr_q ? set_rdata : file_rdata;
 
     logic host_addr_q;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            host_addr_q <= 1'b0;
-        else if (host_stb)
+    initial host_addr_q = 1'b0;
+    always_ff @(posedge clk_sys)
+        if (host_stb)
             host_addr_q <= host_addr[16];
-    end
 
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;

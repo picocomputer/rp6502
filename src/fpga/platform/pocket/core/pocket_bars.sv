@@ -20,7 +20,6 @@
 
 module pocket_bars (
     input logic clk_vid,
-    input logic rst_n,
 
     output logic [23:0] pocket_bars_rgb,
     output logic pocket_bars_de,
@@ -37,21 +36,20 @@ module pocket_bars (
 
     logic [9:0] x, y;
 
-    always_ff @(posedge clk_vid or negedge rst_n) begin
-        if (!rst_n) begin
+    initial begin
+        x = '0;
+        y = '0;
+        pocket_bars_vs = 1'b0;
+        pocket_bars_hs = 1'b0;
+    end
+    always_ff @(posedge clk_vid) begin
+        if (x == 10'(H_TOTAL - 1)) begin
             x <= '0;
-            y <= '0;
-            pocket_bars_vs <= 1'b0;
-            pocket_bars_hs <= 1'b0;
-        end else begin
-            if (x == 10'(H_TOTAL - 1)) begin
-                x <= '0;
-                y <= y == 10'(V_TOTAL - 1) ? '0 : y + 10'd1;
-            end else
-                x <= x + 10'd1;
-            pocket_bars_vs <= x == 10'(H_TOTAL - 1) && y == 10'(V_TOTAL - 1);
-            pocket_bars_hs <= x == 10'd2;
-        end
+            y <= y == 10'(V_TOTAL - 1) ? '0 : y + 10'd1;
+        end else
+            x <= x + 10'd1;
+        pocket_bars_vs <= x == 10'(H_TOTAL - 1) && y == 10'(V_TOTAL - 1);
+        pocket_bars_hs <= x == 10'd2;
     end
 
     logic [9:0] px;
