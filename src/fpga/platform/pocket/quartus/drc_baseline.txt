@@ -29,6 +29,9 @@ R101 1
 #       cross and cannot see what holds them, which is the same blind
 #       spot that reports every gray pointer under D102.
 #
+#       272 of them are inside Analogue's own code and are not ours to
+#       change. This number does not fall.
+#
 #       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
 #       anyway, in tests/synth.cmake: without it Quartus found all 78
 #       chains and discarded them, calculating no MTBF for the design at
