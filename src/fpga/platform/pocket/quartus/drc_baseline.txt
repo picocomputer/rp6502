@@ -40,7 +40,18 @@ D101 551
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
 #       per step and misalignment is safe by construction — the tool
 #       cannot know the encoding — and the bridge's held buses.
-D102 22
+#
+#       23 rather than 22 since RESB stopped taking a reset. Measured,
+#       not assumed: the same tree fits at 22 with that one reset put
+#       back. Nothing connects them logically — resb is clk_sys inside
+#       the machine and the arrival is pocket_file_openfile crossing to
+#       clk_74a — so it is packing, the same way losing a reset let the
+#       fitter merge a synchroniser once before. The crossing itself is
+#       the documented one: openfile is decoded from r_op in F_START,
+#       which is reached only after go_t2 != go_t3, three clk_74a flops
+#       behind the toggle. Its four siblings are already here and under
+#       D103 on the same argument.
+D102 23
 #
 # D103  Data bits not correctly synchronised. pocket_file's command
 #       word: r_op, and the flush, write and getfile strobes beside it.
