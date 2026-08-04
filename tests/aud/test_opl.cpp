@@ -49,14 +49,11 @@ static void fresh()
     }
     dut = new Vaud_opl;
     dut->clk = 0;
-    dut->rst_n = 0;
     dut->xaddr_we = 0;
     dut->q_we = 0;
     dut->eval();
-    tick();
-    tick();
-    dut->rst_n = 1;
-    for (int i = 0; i < 300; i++)
+    /* chip_rst powers up full, so the core's IC runs itself out. */
+    for (int i = 0; i < 302; i++)
         tick();
 }
 

@@ -23,7 +23,6 @@
 
 module ria_regs (
     input logic clk,
-    input logic rst_n,
     input logic en,
 
     input logic cs,
@@ -280,230 +279,228 @@ module ria_regs (
 
     always_comb txf_pop = b_re && b_word == 8'd16 && txf_count != 5'd0;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            for (int i = 0; i < 32; i++)
-                regs[i] <= 8'h00;
-            ria_regs_tx_data <= 8'h00;
+    initial begin
+        for (int i = 0; i < 32; i++)
+            regs[i] = 8'h00;
+        ria_regs_tx_data = 8'h00;
+        ria_regs_tx_valid = 1'b0;
+        ria_regs_rx_taken = 1'b0;
+        ria_regs_api_pending = 1'b0;
+        irq_pending = 8'h00;
+        irq_enabled = 8'h00;
+    end
+    always_ff @(posedge clk) begin
+        if (en) begin
+            ria_regs_tx_valid <= 1'b0;
+            ria_regs_rx_taken <= pull;
+            if (api_ack)
+                ria_regs_api_pending <= 1'b0;
+            if (cs) begin
+                if (we) begin
+                    case (rs)
+                        5'h01: begin
+                            /* A write while full drops; TX_READY told
+                             * the program not to. */
+                            ria_regs_tx_data <= data_i;
+                            ria_regs_tx_valid <= 1'b1;
+                        end
+                        5'h04: begin
+                            /* The byte goes to XRAM, never the cell; the
+                             * address steps past it. */
+                            {regs[5'h07], regs[5'h06]} <=
+                                {regs[5'h07], regs[5'h06]}
+                                + {{8{regs[5'h05][7]}}, regs[5'h05]};
+                        end
+                        5'h08: begin
+                            {regs[5'h0B], regs[5'h0A]} <=
+                                {regs[5'h0B], regs[5'h0A]}
+                                + {{8{regs[5'h09][7]}}, regs[5'h09]};
+                        end
+                        5'h0C: begin
+                            /* Push: the mirror is the byte just pushed. */
+                            if (xsp != 10'd0)
+                                regs[5'h0C] <= data_i;
+                        end
+                        5'h0F: begin
+                            /* The op lands and the trampoline blocks, one
+                             * indivisible cycle. */
+                            regs[5'h0F] <= data_i;
+                            regs[5'h11] <= 8'h80;
+                            regs[5'h12] <= 8'hFE;
+                            ria_regs_api_pending <= 1'b1;
+                        end
+                        5'h10: ;  /* enable/ack handled above the case */
+                        default: regs[rs] <= data_i;
+                    endcase
+                end else begin
+                    case (rs)
+                        5'h00: begin
+                            if (pull) begin
+                                regs[0] <= regs[0] | RX_READY;
+                                regs[2] <= eff_rx_data;
+                            end
+                        end
+                        5'h04: begin
+                            /* The staged byte answered; step the address. */
+                            {regs[5'h07], regs[5'h06]} <=
+                                {regs[5'h07], regs[5'h06]}
+                                + {{8{regs[5'h05][7]}}, regs[5'h05]};
+                        end
+                        5'h08: begin
+                            {regs[5'h0B], regs[5'h0A]} <=
+                                {regs[5'h0B], regs[5'h0A]}
+                                + {{8{regs[5'h09][7]}}, regs[5'h09]};
+                        end
+                        5'h0C: ;  /* pop: pointer and mirror move below */
+                        5'h02: begin
+                            /* Return the latch, then refill or empty it. */
+                            if (pull) begin
+                                regs[2] <= eff_rx_data;
+                                regs[0] <= regs[0] | RX_READY;
+                            end else begin
+                                regs[2] <= 8'h00;
+                                regs[0] <= regs[0] & ~RX_READY;
+                            end
+                        end
+                        default: ;
+                    endcase
+                end
+            end
+        end else begin
             ria_regs_tx_valid <= 1'b0;
             ria_regs_rx_taken <= 1'b0;
-            ria_regs_api_pending <= 1'b0;
-            irq_pending <= 8'h00;
-            irq_enabled <= 8'h00;
-        end else begin
-            if (en) begin
-                ria_regs_tx_valid <= 1'b0;
-                ria_regs_rx_taken <= pull;
-                if (api_ack)
-                    ria_regs_api_pending <= 1'b0;
-                if (cs) begin
-                    if (we) begin
-                        case (rs)
-                            5'h01: begin
-                                /* A write while full drops; TX_READY told
-                                 * the program not to. */
-                                ria_regs_tx_data <= data_i;
-                                ria_regs_tx_valid <= 1'b1;
-                            end
-                            5'h04: begin
-                                /* The byte goes to XRAM, never the cell; the
-                                 * address steps past it. */
-                                {regs[5'h07], regs[5'h06]} <=
-                                    {regs[5'h07], regs[5'h06]}
-                                    + {{8{regs[5'h05][7]}}, regs[5'h05]};
-                            end
-                            5'h08: begin
-                                {regs[5'h0B], regs[5'h0A]} <=
-                                    {regs[5'h0B], regs[5'h0A]}
-                                    + {{8{regs[5'h09][7]}}, regs[5'h09]};
-                            end
-                            5'h0C: begin
-                                /* Push: the mirror is the byte just pushed. */
-                                if (xsp != 10'd0)
-                                    regs[5'h0C] <= data_i;
-                            end
-                            5'h0F: begin
-                                /* The op lands and the trampoline blocks, one
-                                 * indivisible cycle. */
-                                regs[5'h0F] <= data_i;
-                                regs[5'h11] <= 8'h80;
-                                regs[5'h12] <= 8'hFE;
-                                ria_regs_api_pending <= 1'b1;
-                            end
-                            5'h10: ;  /* enable/ack handled above the case */
-                            default: regs[rs] <= data_i;
-                        endcase
-                    end else begin
-                        case (rs)
-                            5'h00: begin
-                                if (pull) begin
-                                    regs[0] <= regs[0] | RX_READY;
-                                    regs[2] <= eff_rx_data;
-                                end
-                            end
-                            5'h04: begin
-                                /* The staged byte answered; step the address. */
-                                {regs[5'h07], regs[5'h06]} <=
-                                    {regs[5'h07], regs[5'h06]}
-                                    + {{8{regs[5'h05][7]}}, regs[5'h05]};
-                            end
-                            5'h08: begin
-                                {regs[5'h0B], regs[5'h0A]} <=
-                                    {regs[5'h0B], regs[5'h0A]}
-                                    + {{8{regs[5'h09][7]}}, regs[5'h09]};
-                            end
-                            5'h0C: ;  /* pop: pointer and mirror move below */
-                            5'h02: begin
-                                /* Return the latch, then refill or empty it. */
-                                if (pull) begin
-                                    regs[2] <= eff_rx_data;
-                                    regs[0] <= regs[0] | RX_READY;
-                                end else begin
-                                    regs[2] <= 8'h00;
-                                    regs[0] <= regs[0] & ~RX_READY;
-                                end
-                            end
-                            default: ;
-                        endcase
-                    end
-                end
-            end else begin
-                ria_regs_tx_valid <= 1'b0;
-                ria_regs_rx_taken <= 1'b0;
-                if (api_ack)
-                    ria_regs_api_pending <= 1'b0;
-            end
-            /* The frame counter and the $FFF0 block land every
-             * clock: pending resolves through pend_next, its
-             * regs cell is only the mirror. */
-                if (vsync_pulse)
-                    regs[5'h03] <= regs[5'h03] + 8'd1;
-                if (en && cs && we && rs == 5'h10)
-                    irq_enabled <= data_i;
-                irq_pending <= pend_next;
-                regs[5'h10] <= pend_next;
-            /* The RW stages reload one clock after their issue; a same-edge
-             * 6502 or OS write is repaired by the restage that follows it. */
-            if (xr_cap0)
-                regs[5'h04] <= xr_rdata;
-            if (xr_cap1)
-                regs[5'h08] <= xr_rdata;
-            /* A pop's mirror refill arrives from the RAM one clock after the
-             * pointer moved, always between 6502 cycles; an OS write below still
-             * outranks it. */
-            if (xs_fill)
-                regs[5'h0C] <= xs_fill_byte;
-            /* The OS side is plain shared memory at the system clock; it lands
-             * regardless of the 6502's enable, and a same-cell collision goes to
-             * the OS, as arbitrary as it is on the real dual-core part. */
-            if (b_we && b_word < 8'd8) begin
-                if (b_wstrb[0])
-                    regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
-                if (b_wstrb[1])
-                    regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
-                if (b_wstrb[2])
-                    regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
-                if (b_wstrb[3])
-                    regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
-            end
+            if (api_ack)
+                ria_regs_api_pending <= 1'b0;
+        end
+        /* The frame counter and the $FFF0 block land every
+         * clock: pending resolves through pend_next, its
+         * regs cell is only the mirror. */
+            if (vsync_pulse)
+                regs[5'h03] <= regs[5'h03] + 8'd1;
+            if (en && cs && we && rs == 5'h10)
+                irq_enabled <= data_i;
+            irq_pending <= pend_next;
+            regs[5'h10] <= pend_next;
+        /* The RW stages reload one clock after their issue; a same-edge
+         * 6502 or OS write is repaired by the restage that follows it. */
+        if (xr_cap0)
+            regs[5'h04] <= xr_rdata;
+        if (xr_cap1)
+            regs[5'h08] <= xr_rdata;
+        /* A pop's mirror refill arrives from the RAM one clock after the
+         * pointer moved, always between 6502 cycles; an OS write below still
+         * outranks it. */
+        if (xs_fill)
+            regs[5'h0C] <= xs_fill_byte;
+        /* The OS side is plain shared memory at the system clock; it lands
+         * regardless of the 6502's enable, and a same-cell collision goes to
+         * the OS, as arbitrary as it is on the real dual-core part. */
+        if (b_we && b_word < 8'd8) begin
+            if (b_wstrb[0])
+                regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
+            if (b_wstrb[1])
+                regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
+            if (b_wstrb[2])
+                regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
+            if (b_wstrb[3])
+                regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
         end
     end
 
     /* The rings live at the system clock: the 6502 pushes on its enable, the
      * OS pops and offers whenever its strobe lands. The push's data lands
      * in the reset-free block above; only the pointer belongs here. */
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            txf_w <= 4'd0;
-            txf_r <= 4'd0;
-            txf_count <= 5'd0;
-            os_rx_valid <= 1'b0;
-            os_rx_data <= 8'h00;
-            rx_req <= 1'b0;
-            xsp <= 10'd512;
-            xs_fill <= 1'b0;
-            xs_fill_at <= 10'd0;
+    initial begin
+        txf_w = 4'd0;
+        txf_r = 4'd0;
+        txf_count = 5'd0;
+        os_rx_valid = 1'b0;
+        os_rx_data = 8'h00;
+        rx_req = 1'b0;
+        xsp = 10'd512;
+        xs_fill = 1'b0;
+        xs_fill_at = 10'd0;
+        xr_wr_pend = 1'b0;
+        xr_wr_addr = 16'h0000;
+        xr_wr_byte = 8'h00;
+        xr_fill_pend0 = 1'b0;
+        xr_fill_pend1 = 1'b0;
+        xr_bg_alt = 1'b0;
+        xr_cap0 = 1'b0;
+        xr_cap1 = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        /* The engine: retire what issued this clock, then take the
+         * 6502's access. A write-back holds the pre-step address. */
+        xr_cap0 <= xr_issue_f0;
+        xr_cap1 <= xr_issue_f1;
+        if (xr_wr_pend)
             xr_wr_pend <= 1'b0;
-            xr_wr_addr <= 16'h0000;
-            xr_wr_byte <= 8'h00;
+        if (xr_issue_f0)
             xr_fill_pend0 <= 1'b0;
+        if (xr_issue_f1)
             xr_fill_pend1 <= 1'b0;
-            xr_bg_alt <= 1'b0;
-            xr_cap0 <= 1'b0;
-            xr_cap1 <= 1'b0;
-        end else begin
-            /* The engine: retire what issued this clock, then take the
-             * 6502's access. A write-back holds the pre-step address. */
-            xr_cap0 <= xr_issue_f0;
-            xr_cap1 <= xr_issue_f1;
-            if (xr_wr_pend)
-                xr_wr_pend <= 1'b0;
-            if (xr_issue_f0)
-                xr_fill_pend0 <= 1'b0;
-            if (xr_issue_f1)
-                xr_fill_pend1 <= 1'b0;
-            if (xr_bg_go)
-                xr_bg_alt <= !xr_bg_alt;
-            if (en && cs && rs == 5'h04) begin
-                if (we) begin
-                    xr_wr_pend <= 1'b1;
-                    xr_wr_addr <= {regs[5'h07], regs[5'h06]};
-                    xr_wr_byte <= data_i;
-                end
-                xr_fill_pend0 <= 1'b1;
+        if (xr_bg_go)
+            xr_bg_alt <= !xr_bg_alt;
+        if (en && cs && rs == 5'h04) begin
+            if (we) begin
+                xr_wr_pend <= 1'b1;
+                xr_wr_addr <= {regs[5'h07], regs[5'h06]};
+                xr_wr_byte <= data_i;
             end
-            if (en && cs && rs == 5'h08) begin
-                if (we) begin
-                    xr_wr_pend <= 1'b1;
-                    xr_wr_addr <= {regs[5'h0B], regs[5'h0A]};
-                    xr_wr_byte <= data_i;
-                end
-                xr_fill_pend1 <= 1'b1;
+            xr_fill_pend0 <= 1'b1;
+        end
+        if (en && cs && rs == 5'h08) begin
+            if (we) begin
+                xr_wr_pend <= 1'b1;
+                xr_wr_addr <= {regs[5'h0B], regs[5'h0A]};
+                xr_wr_byte <= data_i;
             end
-            /* The 6502's stack ops, and the pop's one-clock-late refill of
-             * the top-of-stack mirror out of the RAM. */
-            xs_fill <= 1'b0;
-            if (en && cs && rs == 5'h0C) begin
-                if (we) begin
-                    if (xsp != 10'd0)
-                        xsp <= xsp - 10'd1;
+            xr_fill_pend1 <= 1'b1;
+        end
+        /* The 6502's stack ops, and the pop's one-clock-late refill of
+         * the top-of-stack mirror out of the RAM. */
+        xs_fill <= 1'b0;
+        if (en && cs && rs == 5'h0C) begin
+            if (we) begin
+                if (xsp != 10'd0)
+                    xsp <= xsp - 10'd1;
+            end else begin
+                if (xsp != 10'd512) begin
+                    xsp <= xsp + 10'd1;
+                    xs_fill <= 1'b1;
+                    xs_fill_at <= xsp + 10'd1;
                 end else begin
-                    if (xsp != 10'd512) begin
-                        xsp <= xsp + 10'd1;
-                        xs_fill <= 1'b1;
-                        xs_fill_at <= xsp + 10'd1;
-                    end else begin
-                        xs_fill <= 1'b1;
-                        xs_fill_at <= xsp;
-                    end
+                    xs_fill <= 1'b1;
+                    xs_fill_at <= xsp;
                 end
             end
-            /* The xstack bytes land in their own block above; the
-             * pointer is the OS's other door. */
-            if (b_we && b_word == 8'd200)
-                xsp <= b_wdata[9:0];
-            if (push_now)
-                txf_w <= txf_w + 4'd1;
-            if (txf_pop)
-                txf_r <= txf_r + 4'd1;
-            txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
-            /* An unanswered ask arms the request; a landed byte, whether
-             * pulled or offered, satisfies it. */
-            if (en && cs && !we && !pull
-                && ((rs == 5'h00 && (regs[0] & RX_READY) == 8'h00)
-                    || rs == 5'h02))
-                rx_req <= 1'b1;
-            if (en && pull)
-                rx_req <= 1'b0;
-            if (b_we && b_word == 8'd18 && b_wdata[9])
-                rx_req <= 1'b0;
-            else if (b_we && b_word == 8'd18 && !os_rx_valid) begin
-                os_rx_valid <= 1'b1;
-                os_rx_data <= b_wdata[7:0];
-                rx_req <= 1'b0;
-            end else if (en && pull && !rx_valid) begin
-                os_rx_valid <= 1'b0;
-            end
+        end
+        /* The xstack bytes land in their own block above; the
+         * pointer is the OS's other door. */
+        if (b_we && b_word == 8'd200)
+            xsp <= b_wdata[9:0];
+        if (push_now)
+            txf_w <= txf_w + 4'd1;
+        if (txf_pop)
+            txf_r <= txf_r + 4'd1;
+        txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
+        /* An unanswered ask arms the request; a landed byte, whether
+         * pulled or offered, satisfies it. */
+        if (en && cs && !we && !pull
+            && ((rs == 5'h00 && (regs[0] & RX_READY) == 8'h00)
+                || rs == 5'h02))
+            rx_req <= 1'b1;
+        if (en && pull)
+            rx_req <= 1'b0;
+        if (b_we && b_word == 8'd18 && b_wdata[9])
+            rx_req <= 1'b0;
+        else if (b_we && b_word == 8'd18 && !os_rx_valid) begin
+            os_rx_valid <= 1'b1;
+            os_rx_data <= b_wdata[7:0];
+            rx_req <= 1'b0;
+        end else if (en && pull && !rx_valid) begin
+            os_rx_valid <= 1'b0;
         end
     end
 

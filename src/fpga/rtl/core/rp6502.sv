@@ -384,7 +384,6 @@ module rp6502
     logic [7:0] ria_data;
     ria_regs ria (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .en(phi2_en),
         .cs(sel_ria),
         .we(cpu_we),
@@ -740,7 +739,6 @@ module rp6502
     /* verilator lint_off PINCONNECTEMPTY */
     aud_opl aud_opl (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h2),
         .xaddr_wdata(bus_wdata[15:0]),
         .q_we(xr_busy && xr_we),

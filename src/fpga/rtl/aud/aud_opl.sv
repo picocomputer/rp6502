@@ -37,7 +37,6 @@ module aud_opl #(
     parameter int SAMPLE_SHIFT = 5
 ) (
     input logic clk,
-    input logic rst_n,
 
     /* Page-aligned or rejected before it reaches here. */
     input logic xaddr_we,
@@ -58,11 +57,12 @@ module aud_opl #(
     logic [7:0] page /*verilator public_flat_rd*/;
     logic enabled /*verilator public_flat_rd*/;
     always_comb aud_opl_enabled = enabled;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            page <= 8'd0;
-            enabled <= 1'b0;
-        end else if (xaddr_we) begin
+    initial begin
+        page = 8'd0;
+        enabled = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        if (xaddr_we) begin
             page <= xaddr_wdata[15:8];
             enabled <= xaddr_wdata != 16'hFFFF;
         end
@@ -78,11 +78,12 @@ module aud_opl #(
      * the round number above it. */
     logic [7:0] chip_rst;
     logic core_ic_n;
-    always_comb core_ic_n = rst_n && chip_rst == 8'd0;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            chip_rst <= 8'd255;
-        else if (xaddr_we)
+    always_comb core_ic_n = chip_rst == 8'd0;
+    /* Full at power-on so the core gets its IC, and reloaded by a
+     * pointer write, which is how the firmware resets this chip. */
+    initial chip_rst = 8'd255;
+    always_ff @(posedge clk) begin
+        if (xaddr_we)
             chip_rst <= 8'd255;
         else if (chip_rst != 8'd0)
             chip_rst <= chip_rst - 8'd1;
@@ -107,24 +108,23 @@ module aud_opl #(
         cs_n = state == S_IDLE;
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            state <= S_IDLE;
-            hold_reg <= 8'd0;
-            hold_val <= 8'd0;
-        end else begin
-            case (state)
-                S_IDLE: if (snoop && core_ic_n) begin
-                    hold_reg <= q_addr[7:0];
-                    hold_val <= q_val;
-                    state <= S_SEL;
-                end
-                S_SEL: state <= S_SEL_HI;
-                S_SEL_HI: state <= S_DAT;
-                S_DAT: state <= S_DAT_HI;
-                default: state <= S_IDLE;
-            endcase
-        end
+    initial begin
+        state = S_IDLE;
+        hold_reg = 8'd0;
+        hold_val = 8'd0;
+    end
+    always_ff @(posedge clk) begin
+        case (state)
+            S_IDLE: if (snoop && core_ic_n) begin
+                hold_reg <= q_addr[7:0];
+                hold_val <= q_val;
+                state <= S_SEL;
+            end
+            S_SEL: state <= S_SEL_HI;
+            S_SEL_HI: state <= S_DAT;
+            S_DAT: state <= S_DAT_HI;
+            default: state <= S_IDLE;
+        endcase
     end
 
     logic signed [23:0] core_sample /*verilator public_flat_rd*/;
@@ -159,20 +159,19 @@ module aud_opl #(
     logic signed [24:0] mixed;
     always_comb mixed = enabled ? (25'(core_sample) >>> SAMPLE_SHIFT) : 25'sd0;
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            aud_opl_out <= '0;
-            aud_opl_valid <= 1'b0;
-        end else begin
-            aud_opl_valid <= core_valid;
-            if (core_valid) begin
-                if (mixed < -25'sd32768)
-                    aud_opl_out <= -16'sd32768;
-                else if (mixed > 25'sd32767)
-                    aud_opl_out <= 16'sd32767;
-                else
-                    aud_opl_out <= 16'(mixed);
-            end
+    initial begin
+        aud_opl_out = '0;
+        aud_opl_valid = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        aud_opl_valid <= core_valid;
+        if (core_valid) begin
+            if (mixed < -25'sd32768)
+                aud_opl_out <= -16'sd32768;
+            else if (mixed > 25'sd32767)
+                aud_opl_out <= 16'sd32767;
+            else
+                aud_opl_out <= 16'(mixed);
         end
     end
 
