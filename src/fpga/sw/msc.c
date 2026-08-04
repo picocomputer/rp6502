@@ -85,10 +85,10 @@ static bool msc_poll(uint32_t *st)
     return true;
 }
 
-/* The blocking form, for open and for boot-time staging. open runs its
- * command to completion inside one dispatch because the std driver's
- * open answers a descriptor, not STD_PENDING. Everything the machine
- * does at volume — read, write, sync — goes the other way. */
+/* The blocking form, for open and for boot-time staging, and it stays
+ * blocking: open happens once per file and the 6502 is parked in its
+ * syscall for it either way. Everything the machine does at volume —
+ * read, write, sync — goes the other way and is re-entered. */
 static uint32_t msc_command(uint32_t op)
 {
     uint32_t st;
