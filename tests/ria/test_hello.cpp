@@ -58,9 +58,9 @@ static void load(uint16_t org, const uint8_t *bytes, size_t n, uint16_t entry)
 {
     auto *r = dut->rootp;
     for (size_t i = 0; i < 0x10000; i++)
-        r->rp6502__DOT__sram__DOT__mem[i] = 0;
+        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < n; i++)
-        r->rp6502__DOT__sram__DOT__mem[org + i] = bytes[i];
+        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[org + i] = bytes[i];
     r->rp6502__DOT__ria__DOT__regs[0x1C] = entry & 0xFF;
     r->rp6502__DOT__ria__DOT__regs[0x1D] = entry >> 8;
 }
@@ -174,7 +174,7 @@ UTEST(hello, ready_never_claims_more_than_it_can_do)
     std::string out = run(100000);
     ASSERT_TRUE(dut->rootp->rp6502__DOT__cpu__DOT__stop_flag);
 
-    uint8_t flags = dut->rootp->rp6502__DOT__sram__DOT__mem[0];
+    uint8_t flags = dut->rootp->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[0];
     if (flags & 0x80)
         ASSERT_TRUE(out.find('Z') != std::string::npos);
 }

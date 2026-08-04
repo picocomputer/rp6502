@@ -139,12 +139,35 @@ module tb_pocket (
         .dram_dq_out(dq_c2m),
         .dram_dq_oe(dq_oe),
         .dram_dq_in(dq_m2c),
+        .sram_a(sram_a),
+        .sram_dq_out(sram_dq_out),
+        .sram_dq_oe(sram_dq_oe),
+        .sram_dq_in(sram_dq),
+        .sram_oe_n(sram_oe_n),
+        .sram_we_n(sram_we_n),
+        .sram_ub_n(sram_ub_n),
+        .sram_lb_n(sram_lb_n),
         .pocket_core_ready(tb_pocket_ready),
         .pocket_core_tx_data(tb_pocket_tx_data),
         .pocket_core_tx_valid(tb_pocket_tx_valid),
         .pocket_core_rv_tx_data(tb_pocket_rv_tx_data),
         .pocket_core_rv_tx_valid(tb_pocket_rv_tx_valid),
         .pocket_core_rv_halted(tb_pocket_rv_halted)
+    );
+
+    /* The board's SRAM, holding the 6502's 64 KB. */
+    wire [15:0] sram_dq;
+    logic [16:0] sram_a;
+    logic [15:0] sram_dq_out;
+    logic sram_dq_oe, sram_oe_n, sram_we_n, sram_ub_n, sram_lb_n;
+    assign sram_dq = sram_dq_oe ? sram_dq_out : {16{1'bz}};
+    asram_model sram_chip (
+        .a(sram_a),
+        .dq(sram_dq),
+        .oe_n(sram_oe_n),
+        .we_n(sram_we_n),
+        .ub_n(sram_ub_n),
+        .lb_n(sram_lb_n)
     );
 
     sdram_model chip (

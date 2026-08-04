@@ -84,7 +84,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
                 "set_global_assignment -name VERILOG_FILE ${src}")
         endif()
     endforeach()
-    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
+    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram pocket_sram
             pocket_bridge pocket_file pocket_core)
         list(APPEND PSYNTH_LINES
             "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
@@ -177,7 +177,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
                 "set_global_assignment -name VERILOG_FILE ${src}")
         endif()
     endforeach()
-    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram
+    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram pocket_sram
             pocket_bridge pocket_file pocket_bars pocket_dbg pocket_dbglog
             pocket_core)
         list(APPEND BS_LINES

@@ -83,6 +83,18 @@ module pocket_core #(
     output logic dram_dq_oe,
     input logic [15:0] dram_dq_in,
 
+    /* The board's own SRAM, which holds the 6502's 64 KB. No chip
+     * enable: Analogue's port list has none, so the board straps it
+     * low and the byte enables are the only deselect there is. */
+    output logic [16:0] sram_a,
+    output logic [15:0] sram_dq_out,
+    output logic sram_dq_oe,
+    input logic [15:0] sram_dq_in,
+    output logic sram_oe_n,
+    output logic sram_we_n,
+    output logic sram_ub_n,
+    output logic sram_lb_n,
+
     /* Status toward the shell, and the consoles for the bench. */
     output logic pocket_core_ready,
     output logic [7:0] pocket_core_tx_data,
@@ -230,6 +242,36 @@ module pocket_core #(
         .dram_dq_in(dram_dq_in)
     );
 
+    logic [15:0] ram_a_addr, ram_b_addr;
+    logic [7:0] ram_a_wdata, ram_b_wdata, ram_a_rdata, ram_b_rdata;
+    logic ram_a_we, ram_b_we, ram_b_stb, ram_b_stall, ram_hold;
+    logic machine_phi2_en, machine_resb;
+
+    pocket_sram sram (
+        .clk(clk_sys),
+        .phi2_en(machine_phi2_en),
+        .cpu_run(machine_resb),
+        .a_addr(ram_a_addr),
+        .a_wdata(ram_a_wdata),
+        .a_we(ram_a_we),
+        .pocket_sram_a_rdata(ram_a_rdata),
+        .b_addr(ram_b_addr),
+        .b_wdata(ram_b_wdata),
+        .b_we(ram_b_we),
+        .b_stb(ram_b_stb),
+        .pocket_sram_b_rdata(ram_b_rdata),
+        .pocket_sram_b_stall(ram_b_stall),
+        .pocket_sram_hold(ram_hold),
+        .pocket_sram_a(sram_a),
+        .pocket_sram_dq_out(sram_dq_out),
+        .pocket_sram_dq_oe(sram_dq_oe),
+        .sram_dq_in(sram_dq_in),
+        .pocket_sram_oe_n(sram_oe_n),
+        .pocket_sram_we_n(sram_we_n),
+        .pocket_sram_ub_n(sram_ub_n),
+        .pocket_sram_lb_n(sram_lb_n)
+    );
+
     logic [27:0] host_addr;
     logic host_stb, host_we;
     logic [31:0] host_wdata, host_rdata, file_rdata;
@@ -271,7 +313,7 @@ module pocket_core #(
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
-    rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE)) machine (
+    rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
         .rst_n(mrst_sys_n),
@@ -314,7 +356,20 @@ module pocket_core #(
         .rp6502_aud_r(aud_r),
         .rp6502_aud_valid(aud_valid),
         .rp6502_scanline(scanline),
-        .rp6502_vid_frame(vid_frame)
+        .rp6502_vid_frame(vid_frame),
+        .rp6502_ram_a_addr(ram_a_addr),
+        .rp6502_ram_a_wdata(ram_a_wdata),
+        .rp6502_ram_a_we(ram_a_we),
+        .ram_a_rdata(ram_a_rdata),
+        .rp6502_ram_b_addr(ram_b_addr),
+        .rp6502_ram_b_wdata(ram_b_wdata),
+        .rp6502_ram_b_we(ram_b_we),
+        .rp6502_ram_b_stb(ram_b_stb),
+        .ram_b_rdata(ram_b_rdata),
+        .ram_b_stall(ram_b_stall),
+        .ram_hold(ram_hold),
+        .rp6502_phi2_en(machine_phi2_en),
+        .rp6502_cpu_run(machine_resb)
     );
 
     /* The file bridge keeps the platform reset, not the machine's: a

@@ -60,7 +60,7 @@ module rv_soc #(
     input logic [31:0] bus_rdata
 );
 
-    localparam int TCM_WORDS = 16384;  // 64 KB
+    localparam int TCM_WORDS = 24576;  // 96 KB
     localparam int TCM_AW = $clog2(TCM_WORDS);
 
     logic [31:0] haddr /*verilator public_flat_rd*/;

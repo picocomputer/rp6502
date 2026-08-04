@@ -136,7 +136,7 @@ output  wire            dram_cas_n,
 output  wire            dram_we_n,
 
 ///////////////////////////////////////////////////
-// sram, 1mbit 16bit
+// sram, 2 mbit / 256 KB, AS6C2016-55BIN
 
 output  wire    [16:0]  sram_a,
 inout   wire    [15:0]  sram_dq,
@@ -314,12 +314,9 @@ wire [15:0] dram_dq_out;
 wire        dram_dq_oe;
 assign dram_dq = dram_dq_oe ? dram_dq_out : {16{1'bZ}};
 
-assign sram_a = 'h0;
-assign sram_dq = {16{1'bZ}};
-assign sram_oe_n  = 1;
-assign sram_we_n  = 1;
-assign sram_ub_n  = 1;
-assign sram_lb_n  = 1;
+wire [15:0] sram_dq_out;
+wire        sram_dq_oe;
+assign sram_dq = sram_dq_oe ? sram_dq_out : {16{1'bZ}};
 
 wire dbg_tx_w;
 assign dbg_tx = dbg_tx_w;
@@ -666,6 +663,15 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .dram_we_n   ( dram_we_n ),
     .dram_dq_out ( dram_dq_out ),
     .dram_dq_oe  ( dram_dq_oe ),
+
+    .sram_a      ( sram_a ),
+    .sram_dq_out ( sram_dq_out ),
+    .sram_dq_oe  ( sram_dq_oe ),
+    .sram_dq_in  ( sram_dq ),
+    .sram_oe_n   ( sram_oe_n ),
+    .sram_we_n   ( sram_we_n ),
+    .sram_ub_n   ( sram_ub_n ),
+    .sram_lb_n   ( sram_lb_n ),
     .dram_dq_in  ( dram_dq ),
 
     // The scanout clock the scaler samples on, and the machine's own

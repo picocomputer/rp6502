@@ -56,3 +56,17 @@ set_multicycle_path -setup -from [get_registers {*via*}] 4
 set_multicycle_path -hold  -from [get_registers {*via*}] 3
 set_multicycle_path -setup -to [get_registers {*via*}] 4
 set_multicycle_path -hold  -to [get_registers {*via*}] 3
+
+# The rules above are one-ended, and one of the paths arriving at the
+# 6502 does not get six clocks to settle. The external SRAM's capture
+# register lands its byte on the fifth clock after the enable and the
+# 6502 samples it on the sixth — one clock, 19.8 ns, not four. Left to
+# the -to rule above, timing would close on paper against 79.4 ns and
+# the fitter would place those registers wherever it liked.
+#
+# Two-ended beats one-ended in SDC precedence, so this narrows it back
+# to what the path actually has.
+set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
+    -to [get_registers {*cpu65*}] 1
+set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
+    -to [get_registers {*cpu65*}] 0

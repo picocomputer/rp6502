@@ -16,7 +16,13 @@ module rp6502
     /* Empty in simulation, which loads the arrays through the bench. */
     parameter TCM_INIT_FILE = "",
     /* clk_sys in kHz, which the PHI2 accumulator counts against. */
-    parameter int SYS_KHZ = 50400
+    parameter int SYS_KHZ = 50400,
+    /* Where the 6502's 64 KB lives. Zero builds it here out of block
+     * memory, which is what every bench wants and what a platform with
+     * blocks to spare should do. One exports the two ports and lets the
+     * platform find the storage — on the Pocket that is a real SRAM
+     * chip, and the 64 M10K it gives back are the soft CPU's TCM. */
+    parameter bit EXT_RAM = 0
 ) (
     input logic clk_sys,
     /* Half clk_sys, rising with it. Made outside: a divider made here
@@ -84,18 +90,49 @@ module rp6502
     output logic rp6502_aud_valid,
 
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline,
-    output logic rp6502_vid_frame
+    output logic rp6502_vid_frame,
+
+    /* The 6502's 64 KB when EXT_RAM says the platform holds it. Port A
+     * is the machine's own and answers within the PHI2 period; port B is
+     * the soft CPU's window and can be told to wait. Unconnected and
+     * ignored when EXT_RAM is zero. */
+    output logic [15:0] rp6502_ram_a_addr,
+    output logic [7:0] rp6502_ram_a_wdata,
+    output logic rp6502_ram_a_we,
+    input logic [7:0] ram_a_rdata,
+    output logic [15:0] rp6502_ram_b_addr,
+    output logic [7:0] rp6502_ram_b_wdata,
+    output logic rp6502_ram_b_we,
+    output logic rp6502_ram_b_stb,
+    input logic [7:0] ram_b_rdata,
+    input logic ram_b_stall,
+    /* The platform's request to stand the machine still for a cycle. */
+    input logic ram_hold,
+    /* What the platform's memory needs to know about the machine: the
+     * cycle it is actually taking, and whether it is running at all.
+     * This is the gated pulse — a cycle the hold suppressed is a cycle
+     * the 6502 did not take, and must not be fetched for. */
+    output logic rp6502_phi2_en,
+    output logic rp6502_cpu_run
 );
 
     /* The soft CPU measures time against its own clock, not this one. */
     localparam int RV_KHZ = SYS_KHZ / 2;
 
     logic [15:0] phi2_khz;
-    logic phi2_en;
+    logic phi2_raw_en, phi2_en;
+    /* The platform can stand the machine still for a cycle — the soft
+     * CPU's window onto the 6502's RAM shares one port with the 6502
+     * when the RAM is off-chip, and something has to give way. Nothing
+     * asks for this today: both users of that window run with the 6502
+     * halted. It exists so that a firmware which did ask would be slow
+     * rather than deadlocked. */
+    always_comb phi2_en = phi2_raw_en && !ram_hold;
+    always_comb rp6502_phi2_en = phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
         .clk(clk_sys),
         .phi2_khz(phi2_khz),
-        .phi2_div_en(phi2_en)
+        .phi2_div_en(phi2_raw_en)
     );
 
     logic [15:0] cpu_addr;
@@ -115,6 +152,7 @@ module rp6502
      * nothing the flop does not while putting a combinational term on a
      * reset network. */
     logic resb /*verilator public_flat_rw*/;
+    always_comb rp6502_cpu_run = resb;
     logic cpu_stp;
 
     cpu65 cpu (
@@ -142,17 +180,47 @@ module rp6502
 
     /* Every write lands in the shadow, whatever else it hits. */
     logic [7:0] sram_rdata;
-    sram64k sram (
-        .clk(clk_sys),
-        .a_addr(cpu_addr),
-        .a_wdata(cpu_dout),
-        .a_we(cpu_we && phi2_en),
-        .a_rdata(sram_rdata),
-        .b_addr(bus_addr[15:0]),
-        .b_wdata(bus_wbyte),
-        .b_we(bus_stb && bus_we && bus_sel_sram),
-        .b_rdata(sram_b_rdata)
-    );
+    logic [7:0] sram_b_rdata;
+    generate
+        if (EXT_RAM) begin : g_ram_ext
+            always_comb begin
+                rp6502_ram_a_addr = cpu_addr;
+                rp6502_ram_a_wdata = cpu_dout;
+                rp6502_ram_a_we = cpu_we;
+                rp6502_ram_b_addr = bus_addr[15:0];
+                rp6502_ram_b_wdata = bus_wbyte;
+                rp6502_ram_b_we = bus_we;
+                rp6502_ram_b_stb = bus_pend && bus_sel_sram;
+                sram_rdata = ram_a_rdata;
+                sram_b_rdata = ram_b_rdata;
+            end
+        end else begin : g_ram_bram
+            sram64k sram (
+                .clk(clk_sys),
+                .a_addr(cpu_addr),
+                .a_wdata(cpu_dout),
+                .a_we(cpu_we && phi2_en),
+                .a_rdata(sram_rdata),
+                .b_addr(bus_addr[15:0]),
+                .b_wdata(bus_wbyte),
+                .b_we(bus_stb && bus_we && bus_sel_sram),
+                .b_rdata(sram_b_rdata)
+            );
+            always_comb begin
+                rp6502_ram_a_addr = '0;
+                rp6502_ram_a_wdata = '0;
+                rp6502_ram_a_we = 1'b0;
+                rp6502_ram_b_addr = '0;
+                rp6502_ram_b_wdata = '0;
+                rp6502_ram_b_we = 1'b0;
+                rp6502_ram_b_stb = 1'b0;
+            end
+            /* verilator lint_off UNUSEDSIGNAL */
+            logic unused_ram;
+            always_comb unused_ram = ^{ram_a_rdata, ram_b_rdata};
+            /* verilator lint_on UNUSEDSIGNAL */
+        end
+    endgenerate
 
     logic ria_irq;
     logic [7:0] via_data;
@@ -267,7 +335,8 @@ module rp6502
         .key_code(key_code),
         .rv_soc_key_pending(rp6502_key_pending),
         .bus_rdy(!(bus_sel_xram && xr_busy)
-                 && !(bus_sel_stage && stage_stall)),
+                 && !(bus_sel_stage && stage_stall)
+                 && !(bus_sel_sram && ram_b_stall)),
         .bus_taken(bus_taken),
         .rv_soc_bus_pend(bus_pend),
         .rv_soc_bus_stb(bus_stb_raw),
@@ -324,7 +393,6 @@ module rp6502
 
     logic api_pending;
     logic bus_ctl_api, bus_vid_prog;
-    logic [7:0] sram_b_rdata;
     logic [31:0] regs_b_rdata, regs_b_q;
     logic [31:0] vid_b_rdata;
     // Which target answers: 0 sram, 1 regs, 2 control, 3 staging, 4 vid,
