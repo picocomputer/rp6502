@@ -33,7 +33,16 @@ module cpu65
     output logic [7:0] cpu65_data,
     output logic cpu65_we,
     output logic cpu65_sync,
-    output logic cpu65_stp
+    output logic cpu65_stp,
+
+    /* What the bus will carry after this enable — the same values the
+     * registers take at the edge, published before it. A memory that
+     * cannot answer inside one clock has to launch on the enable rather
+     * than a clock later, or its byte arrives with nothing left of the
+     * period for the address cone to consume it. */
+    output logic [15:0] cpu65_next_addr,
+    output logic [7:0] cpu65_next_data,
+    output logic cpu65_next_we
 );
 
     // P flag bits
@@ -533,6 +542,20 @@ module cpu65
 
     logic [15:0] pip_mask;
     always_comb pip_mask = cpu65_sync ? 16'h03FF : 16'hFFFF;
+
+    /* The bus one edge early. When the core is stalled the registers
+     * hold, so the answer is what they already carry. */
+    always_comb begin
+        if (stop_stall || wait_stall || rdy_stall) begin
+            cpu65_next_addr = cpu65_addr;
+            cpu65_next_data = cpu65_data;
+            cpu65_next_we = cpu65_we;
+        end else begin
+            cpu65_next_addr = full_addr;
+            cpu65_next_data = dout;
+            cpu65_next_we = n_we;
+        end
+    end
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

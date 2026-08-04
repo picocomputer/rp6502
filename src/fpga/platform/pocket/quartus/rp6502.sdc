@@ -57,16 +57,65 @@ set_multicycle_path -hold  -from [get_registers {*via*}] 3
 set_multicycle_path -setup -to [get_registers {*via*}] 4
 set_multicycle_path -hold  -to [get_registers {*via*}] 3
 
-# The rules above are one-ended, and one of the paths arriving at the
-# 6502 does not get six clocks to settle. The external SRAM's capture
-# register lands its byte on the fifth clock after the enable and the
-# 6502 samples it on the sixth — one clock, 19.8 ns, not four. Left to
-# the -to rule above, timing would close on paper against 79.4 ns and
-# the fitter would place those registers wherever it liked.
+# The rules above are one-ended, and the path arriving at the 6502 from
+# the SRAM does not get six clocks to settle. Left to the -to rule above
+# it would be analysed against 79.4 ns, close on paper, and let the
+# fitter place those registers wherever it liked.
 #
-# Two-ended beats one-ended in SDC precedence, so this narrows it back
-# to what the path actually has.
+# Two, counted off the RTL: the launch is on the enable edge, the chip
+# takes four clocks, the byte is captured on the fourth, and the 6502
+# samples it on the sixth. Two-ended beats one-ended in SDC precedence.
+#
+# This said 1 for a while, from when the launch was a clock later and
+# the capture landed on the fifth. Moving the launch earlier to buy the
+# address cone its second clock is exactly what makes 2 the right
+# number, and the constraint did not follow the design.
 set_multicycle_path -setup -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*cpu65*}] 1
+    -to [get_registers {*cpu65*}] 2
 set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
-    -to [get_registers {*cpu65*}] 0
+    -to [get_registers {*cpu65*}] 1
+
+# ria_regs advances on phi2_en exactly as cpu65 and the VIA do, and it
+# feeds the 6502's data bus. Left unnamed, the path from it through the
+# address cone into the SRAM's launch register was analysed against one
+# clock and missed by 4.3 ns — for a path whose both ends move six
+# clocks apart.
+set_multicycle_path -setup -from [get_registers {*ria_regs*}] 4
+set_multicycle_path -hold  -from [get_registers {*ria_regs*}] 3
+
+# The SRAM's launch registers are the other end of that cycle. Port B
+# shares them and is not enable-based, which is why its access is eight
+# clocks long — see pocket_sram.sv. The capture register is deliberately
+# NOT in here: its path into cpu65 has one clock and the rule above it
+# already says so.
+set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 4
+set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 3
+set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 4
+set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 3
+
+# The board's SRAM, AS6C2016-55BIN. It has no clock, so there is no
+# input or output delay to declare against one — what bounds this
+# interface is the round trip, and the round trip has a budget:
+#
+#   4 clk_sys                     79.365 ns
+#   tAA, address to data valid   -55.000 ns
+#                                 ------
+#   left for both pad crossings    24.365 ns
+#
+# Eleven each way spends 22 of that and leaves 2.365 for clock
+# uncertainty and the board, which is almost nothing here — the part
+# sits as close to the die as it can be placed. If the fitter cannot
+# meet these it will say so, which is the entire point: these pins were
+# among the 148 carrying no constraint at all, so every timing number
+# anyone quoted about this interface was arithmetic rather than
+# analysis.
+#
+# Guarded by -nowarn because the machine-only projects have no pads.
+if {[get_collection_size [get_ports -nowarn {sram_a[0]}]] > 0} {
+    set sram_pads [get_ports {sram_a[*] sram_dq[*] sram_oe_n sram_we_n \
+        sram_ub_n sram_lb_n}]
+    set_max_delay -to $sram_pads 11.0
+    set_min_delay -to $sram_pads 0.0
+    set_max_delay -from [get_ports {sram_dq[*]}] 11.0
+    set_min_delay -from [get_ports {sram_dq[*]}] 0.0
+}

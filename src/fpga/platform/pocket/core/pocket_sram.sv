@@ -80,23 +80,38 @@ module pocket_sram (
      * against 55 ns of tAA leaves nothing for either pad crossing — and
      * five does not fit the 6502, which samples on the sixth.
      *
-     * The access starts a clock AFTER phi2_en, not on it. cpu65 registers
-     * its address at the enable edge, so during that clock the address
-     * standing on the bus is still the previous cycle's; reading it there
-     * fetches the byte before the one the machine asked for, and the
-     * machine executes its own past. The count below is from the launch,
-     * so data lands on the fifth clock after the enable and the 6502
-     * samples it on the sixth. */
+     * The address comes from cpu65's pre-registration bus, so the launch
+     * happens ON the enable rather than a clock after it. Taking the
+     * registered address instead cost a whole clock at both ends: it
+     * fetched the previous cycle's byte, and once that was fixed it left
+     * the byte arriving on the fifth clock with only the sixth to reach
+     * the CPU's address cone — which the fitter measured 0.604 ns short
+     * of. Launching on the enable gives the chip four clocks and the
+     * cone two. */
     localparam int PH_LAST = 3;
+
+    /* The soft CPU's access is deliberately twice as long, and the
+     * reason is a timing constraint rather than the chip. The address
+     * register below is shared, and the 6502's path into it — the whole
+     * address cone, fed by whatever answered the last cycle — is a
+     * multicycle path: both ends move only on phi2_en, so it has six
+     * clocks and the SDC grants it four. Port B's path into the same
+     * register is ordinary logic and gets no such grant, but a shared
+     * register takes the loosest constraint written against it.
+     *
+     * Rather than split the register and lose the pad packing, port B
+     * simply allows for an address that settles late: eight clocks of
+     * access means at least four clocks — 79.4 ns — of stable address
+     * before the capture, against tAA's 55. Port B runs at boot with
+     * the 6502 halted and nothing waits on it. */
+    localparam int PH_LAST_B = 7;
 
     logic [2:0] ph;
     logic busy_a, busy_b;
     logic serving_we;
-    logic phi2_en_q;
 
     initial begin
         ph = '0;
-        phi2_en_q = 1'b0;
         busy_a = 1'b0;
         busy_b = 1'b0;
         serving_we = 1'b0;
@@ -117,13 +132,11 @@ module pocket_sram (
      * and the machine is held whenever a soft CPU access is in flight or
      * about to be. */
     always_comb begin
-        pocket_sram_b_stall = b_stb && !(busy_b && ph == 3'(PH_LAST));
+        pocket_sram_b_stall = b_stb && !(busy_b && ph == 3'(PH_LAST_B));
         pocket_sram_hold = busy_b || (b_stb && !busy_a);
     end
 
     always_ff @(posedge clk) begin
-        phi2_en_q <= phi2_en;
-
         /* Defaults: the bus released, no write, the part deselected by
          * its byte enables. Deselecting with LB#/UB# rather than OE# is
          * what the datasheet's second standby row allows, and with CE#
@@ -133,7 +146,7 @@ module pocket_sram (
         pocket_sram_we_n <= 1'b1;
 
         if (busy_a || busy_b) begin
-            if (ph == 3'(PH_LAST)) begin
+            if (ph == (busy_b ? 3'(PH_LAST_B) : 3'(PH_LAST))) begin
                 if (busy_a)
                     pocket_sram_a_rdata <= sram_dq_in[7:0];
                 else
@@ -146,13 +159,11 @@ module pocket_sram (
                 ph <= ph + 3'd1;
                 pocket_sram_dq_oe <= serving_we;
                 pocket_sram_oe_n <= serving_we;
-                /* tWP wants 45 ns and three clocks is 59.5. The pulse
-                 * ends a clock before the address moves, which is what
-                 * tAW and tBW ask for; tAS and tDH are both zero on this
-                 * part, so nothing else has to be arranged. */
-                pocket_sram_we_n <= !(serving_we && ph < 3'(PH_LAST - 1));
+                /* tWP wants 45 ns; three clocks is 59.5. */
+                pocket_sram_we_n <= !(serving_we
+                    && ph < (busy_b ? 3'(PH_LAST_B) : 3'(PH_LAST)));
             end
-        end else if (phi2_en_q && cpu_run && !pocket_sram_hold) begin
+        end else if (phi2_en && cpu_run && !pocket_sram_hold) begin
             busy_a <= 1'b1;
             ph <= 3'd0;
             serving_we <= a_we;

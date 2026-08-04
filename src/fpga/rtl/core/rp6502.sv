@@ -135,9 +135,9 @@ module rp6502
         .phi2_div_en(phi2_raw_en)
     );
 
-    logic [15:0] cpu_addr;
-    logic [7:0] cpu_dout, cpu_din;
-    logic cpu_we;
+    logic [15:0] cpu_addr, cpu_next_addr;
+    logic [7:0] cpu_dout, cpu_din, cpu_next_data;
+    logic cpu_we, cpu_next_we;
     logic via_irq;
     // Opcode-fetch marker; the debug tap will want it, nothing does yet.
     logic cpu_sync;
@@ -168,7 +168,10 @@ module rp6502
         .cpu65_data(cpu_dout),
         .cpu65_we(cpu_we),
         .cpu65_sync(cpu_sync),
-        .cpu65_stp(cpu_stp)
+        .cpu65_stp(cpu_stp),
+        .cpu65_next_addr(cpu_next_addr),
+        .cpu65_next_data(cpu_next_data),
+        .cpu65_next_we(cpu_next_we)
     );
 
     logic sel_via, sel_ria, sel_open;
@@ -184,9 +187,9 @@ module rp6502
     generate
         if (EXT_RAM) begin : g_ram_ext
             always_comb begin
-                rp6502_ram_a_addr = cpu_addr;
-                rp6502_ram_a_wdata = cpu_dout;
-                rp6502_ram_a_we = cpu_we;
+                rp6502_ram_a_addr = cpu_next_addr;
+                rp6502_ram_a_wdata = cpu_next_data;
+                rp6502_ram_a_we = cpu_next_we;
                 rp6502_ram_b_addr = bus_addr[15:0];
                 rp6502_ram_b_wdata = bus_wbyte;
                 rp6502_ram_b_we = bus_we;
@@ -217,7 +220,9 @@ module rp6502
             end
             /* verilator lint_off UNUSEDSIGNAL */
             logic unused_ram;
-            always_comb unused_ram = ^{ram_a_rdata, ram_b_rdata};
+            always_comb unused_ram = ^{ram_a_rdata, ram_b_rdata,
+                                       cpu_next_addr, cpu_next_data,
+                                       cpu_next_we};
             /* verilator lint_on UNUSEDSIGNAL */
         end
     endgenerate

@@ -146,6 +146,20 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # would invent synchronisers across a seam that is not a
         # crossing.
         "set_global_assignment -name SYNCHRONIZER_IDENTIFICATION \"FORCED IF ASYNCHRONOUS\""
+        # Put the SRAM's launch and capture flops in the pads. In fabric
+        # they measure about 8.2 ns each way on this part; in the I/O
+        # element they are around 3. The interface has 24.4 ns for both
+        # crossings once tAA has taken its 55 out of the 6502's four
+        # clocks, so fabric spends two thirds of the budget on routing
+        # and the IOE spends a quarter. It is also the only way the
+        # placement stays put between fits.
+        )
+    foreach(pin sram_a sram_dq sram_oe_n sram_we_n sram_ub_n sram_lb_n)
+        list(APPEND BS_LINES
+            "set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to ${pin}")
+    endforeach()
+    list(APPEND BS_LINES
+        "set_instance_assignment -name FAST_INPUT_REGISTER ON -to sram_dq"
         "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
