@@ -16,7 +16,6 @@
 
 module vid_term (
     input logic clk,
-    input logic rst_n,
     input logic frame_start,
 
     /* The renderer works one line ahead of the beam. */
@@ -147,15 +146,16 @@ module vid_term (
     logic [15:0] cursor_color_q;
     logic [1:0] blink_q;
     logic [31:0] prog_q;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            for (int i = 0; i < 32; i++)
-                row_base[i] <= 16'h0000;
-            cursor_q <= 32'h0;
-            cursor_color_q <= 16'h0;
-            blink_q <= 2'h0;
-            prog_q <= 32'h0;
-        end else if (frame_render) begin
+    initial begin
+        for (int i = 0; i < 32; i++)
+            row_base[i] = 16'h0000;
+        cursor_q = 32'h0;
+        cursor_color_q = 16'h0;
+        blink_q = 2'h0;
+        prog_q = 32'h0;
+    end
+    always_ff @(posedge clk) begin
+        if (frame_render) begin
             for (int i = 0; i < 32; i++)
                 row_base[i] <= row_shadow[i];
             cursor_q <= cursor_shadow;

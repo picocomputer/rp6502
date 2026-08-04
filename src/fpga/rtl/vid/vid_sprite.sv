@@ -12,7 +12,6 @@
 
 module vid_sprite (
     input logic clk,
-    input logic rst_n,
 
     input logic [9:0] v,
     input logic [9:0] h,
@@ -101,12 +100,9 @@ module vid_sprite (
     logic pc_req;
     logic [13:0] pc_addr;
     logic pc_gnt, pc_rdy;
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            pc_rdy <= 1'b0;
-        else
-            pc_rdy <= pc_gnt;
-    end
+    initial pc_rdy = 1'b0;
+    always_ff @(posedge clk)
+        pc_rdy <= pc_gnt;
     /* verilator lint_off PINCONNECTEMPTY */
     vid_palcache vid_palcache (
         .clk(clk),

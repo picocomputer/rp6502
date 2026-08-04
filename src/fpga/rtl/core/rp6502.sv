@@ -426,12 +426,10 @@ module rp6502
             cpu_din = sram_rdata;
     end
 
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            bus_hold <= 8'h00;
-        else if (phi2_en && !cpu_we)
+    initial bus_hold = 8'h00;
+    always_ff @(posedge clk_sys)
+        if (phi2_en && !cpu_we)
             bus_hold <= cpu_din;
-    end
 
     logic [9:0] vid_h /*verilator public_flat_rd*/;
     logic [9:0] vid_v /*verilator public_flat_rd*/;
@@ -486,12 +484,10 @@ module rp6502
             end
         end
     end
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            f_rotor <= 2'd0;
-        else if (f_any)
+    initial f_rotor = 2'd0;
+    always_ff @(posedge clk_sys)
+        if (f_any)
             f_rotor <= f_sel + 2'd1;
-    end
 
     logic [7:0] font_bits;
     vid_font vid_font (
@@ -528,12 +524,10 @@ module rp6502
         a_sel = sel_at[a_rotor];
         a_any = any_at[a_rotor];
     end
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            a_rotor <= 3'd0;
-        else if (a_any)
+    initial a_rotor = 3'd0;
+    always_ff @(posedge clk_sys)
+        if (a_any)
             a_rotor <= a_sel == 3'd4 ? 3'd0 : a_sel + 3'd1;
-    end
     xram64k xram (
         .clk(clk_sys),
         .a_addr(ma_addr[a_sel]),
@@ -554,12 +548,9 @@ module rp6502
     logic [8:0] pm_line[3];
     logic [31:0] pm_entry;
     logic [15:0] pm_config;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            p_rotor <= 2'd0;
-        else
-            p_rotor <= p_rotor == 2'd2 ? 2'd0 : p_rotor + 2'd1;
-    end
+    initial p_rotor = 2'd0;
+    always_ff @(posedge clk_sys)
+        p_rotor <= p_rotor == 2'd2 ? 2'd0 : p_rotor + 2'd1;
 
     vid_prog vid_prog (
         .clk(clk_sys),
@@ -593,7 +584,6 @@ module rp6502
     logic [15:0] term_pix;
     vid_term vid_term (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .frame_start(vid_frame_start),
         .h(vid_h),
         .v(vid_v),
@@ -624,14 +614,12 @@ module rp6502
     /* Saturating: a count that wraps to zero reads as a healthy
      * machine. */
     logic [15:0] plane_underrun;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            plane_underrun <= '0;
-        else if (sp_ov_clear)
+    initial plane_underrun = '0;
+    always_ff @(posedge clk_sys)
+        if (sp_ov_clear)
             plane_underrun <= '0;
         else if (|m_underrun && plane_underrun != 16'hFFFF)
             plane_underrun <= plane_underrun + 16'd1;
-    end
     logic [9:0] sp_addr;
     logic [15:0] sp_data;
     genvar gi;
@@ -676,7 +664,6 @@ module rp6502
 
     vid_sprite vid_sprite (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .v(vid_v),
         .h(vid_h),
         .line_start(vid_line_start),
