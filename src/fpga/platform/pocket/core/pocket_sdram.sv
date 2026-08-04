@@ -4,15 +4,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The staging store: the Pocket's 64 MB SDR SDRAM under a plain
- * correctness-first controller at 50.4 MHz — CL2, single beats with
- * auto-precharge, one op in flight, refresh on a due counter. The
- * loader's halfword writes pull from the bridge and win the bus only
- * when no read is pending; the staging read serves-and-holds, so the
- * machine's stalled byte fetch completes the moment its halfword
- * stands, and repeat fetches inside the held halfword cost nothing.
- * A write to the held address drops the hold. Bandwidth is beneath
- * consideration here — a ROM loads in tens of milliseconds and the
- * machine reads bytes — so every timing wait is padded generously.
+ * correctness-first controller at 50.4 MHz — CL2, single beats, one op
+ * in flight, refresh on a due counter. The loader's halfword writes
+ * pull from the bridge and win the bus only when no read is pending;
+ * the staging read serves-and-holds, so the machine's stalled byte
+ * fetch completes the moment its halfword stands, and repeat fetches
+ * inside the held halfword cost nothing. A write to the held address
+ * drops the hold.
+ *
+ * Rows are left open. Every access used to set A10 and throw its row
+ * away, which made an activate the price of every byte: eight clocks
+ * to data and eleven before the next op could start. That was fine
+ * while nothing here was in a hurry — the header used to say bandwidth
+ * was beneath consideration — and it stops being fine the moment the
+ * 6502's RAM lives here. At 8 MHz phi2_div emits pulses six clocks
+ * apart at their tightest, and an activate does not fit in six clocks
+ * while a column access does.
+ *
+ * So each bank remembers what it is holding, a request that matches
+ * goes straight to the column access, and only a genuine row change
+ * pays the precharge. Refresh is the one miss nothing can avoid: it
+ * requires every bank precharged, so it closes all four.
  */
 
 module pocket_sdram (
@@ -53,7 +65,7 @@ module pocket_sdram (
 
     typedef enum logic [3:0] {
         S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS,
-        S_IDLE, S_REFRESH, S_ACT, S_READ, S_WRITE, S_WAIT
+        S_IDLE, S_REFRESH, S_PALL_R, S_PRE, S_ACT, S_READ, S_WRITE, S_WAIT
     } state_t;
     state_t state, after;
 
@@ -72,6 +84,34 @@ module pocket_sdram (
 
     logic [2:0] rd_pipe;
 
+    /* What each bank is holding open. Every access used to set A10 and
+     * throw the row away, which made the activate the price of every
+     * single byte. The 6502 is about to run out of here at 8 MHz, where
+     * the whole budget is six clocks: an activate does not fit in that
+     * and a column access does. */
+    logic [12:0] row_open[4];
+    logic bank_active[4];
+    logic any_active;
+    always_comb any_active = bank_active[0] || bank_active[1]
+                          || bank_active[2] || bank_active[3];
+
+    /* The request under consideration, decoded before it is latched so
+     * S_IDLE can jump straight to the column access on a hit. */
+    logic [1:0] req_bank;
+    logic [12:0] req_row;
+    logic req_hit, req_needs_pre;
+    always_comb begin
+        if (rd_pend && !pocket_sdram_rvalid) begin
+            req_bank = rd_addr[24:23];
+            req_row  = rd_addr[22:10];
+        end else begin
+            req_bank = w_addr[24:23];
+            req_row  = w_addr[22:10];
+        end
+        req_hit = bank_active[req_bank] && row_open[req_bank] == req_row;
+        req_needs_pre = bank_active[req_bank] && !req_hit;
+    end
+
     always_comb begin
         dram_cke = 1'b1;
         dram_dqm = 2'b00;
@@ -89,6 +129,10 @@ module pocket_sdram (
         held_addr = '0;
         held_valid = 1'b0;
         rd_pipe = '0;
+        for (int b = 0; b < 4; b++) begin
+            row_open[b] = '0;
+            bank_active[b] = 1'b0;
+        end
         pocket_sdram_rdata = '0;
         pocket_sdram_wtake = 1'b0;
         pocket_sdram_ready = 1'b0;
@@ -159,13 +203,17 @@ module pocket_sdram (
                 state <= S_WAIT;
                 pocket_sdram_ready <= 1'b1;
             end
+            /* A hit goes straight to the column access; op_addr is
+             * registered here and stands by the time that state runs. */
             S_IDLE: begin
                 if (ref_due != '0) begin
-                    state <= S_REFRESH;
+                    /* Auto-refresh wants every bank precharged. */
+                    state <= any_active ? S_PALL_R : S_REFRESH;
                 end else if (rd_pend && !pocket_sdram_rvalid) begin
                     op_is_read <= 1'b1;
                     op_addr <= rd_addr;
-                    state <= S_ACT;
+                    state <= req_hit ? S_READ
+                           : (req_needs_pre ? S_PRE : S_ACT);
                 end else if (w_avail) begin
                     op_is_read <= 1'b0;
                     op_addr <= w_addr;
@@ -176,8 +224,20 @@ module pocket_sdram (
                      * new data, not be served the old. */
                     if (held_valid && held_addr == w_addr)
                         held_valid <= 1'b0;
-                    state <= S_ACT;
+                    state <= req_hit ? S_WRITE
+                           : (req_needs_pre ? S_PRE : S_ACT);
                 end
+            end
+            /* Refresh cannot run with a row open anywhere, so the rows
+             * do not survive it. That is the one unavoidable miss. */
+            S_PALL_R: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
+                dram_a <= 13'h400; /* A10: all banks */
+                for (int b = 0; b < 4; b++)
+                    bank_active[b] <= 1'b0;
+                wait_cnt <= 15'd1; /* tRP */
+                after <= S_REFRESH;
+                state <= S_WAIT;
             end
             S_REFRESH: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
@@ -186,30 +246,47 @@ module pocket_sdram (
                 after <= S_IDLE;
                 state <= S_WAIT;
             end
+            /* Only reached when this bank is holding the wrong row.
+             * tRAS is met by construction: the activate that opened it
+             * is at least a whole operation behind. */
+            S_PRE: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
+                dram_ba <= op_addr[24:23];
+                dram_a <= 13'h000; /* A10 low: this bank only */
+                bank_active[op_addr[24:23]] <= 1'b0;
+                wait_cnt <= 15'd1; /* tRP */
+                after <= S_ACT;
+                state <= S_WAIT;
+            end
             S_ACT: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b011;
                 dram_ba <= op_addr[24:23];
                 dram_a <= op_addr[22:10];
+                row_open[op_addr[24:23]] <= op_addr[22:10];
+                bank_active[op_addr[24:23]] <= 1'b1;
                 wait_cnt <= 15'd1; /* tRCD: command lands next clock */
                 after <= op_is_read ? S_READ : S_WRITE;
                 state <= S_WAIT;
             end
+            /* A10 stays low: the row is left standing for whoever asks
+             * next. The wait is what it takes for rd_pipe to land the
+             * data before another accept can move op_addr under it. */
             S_READ: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b101;
                 dram_ba <= op_addr[24:23];
-                dram_a <= {3'b001, op_addr[9:0]}; /* A10 autopre */
+                dram_a <= {3'b000, op_addr[9:0]};
                 rd_pipe[0] <= 1'b1;
-                wait_cnt <= 15'd5;
+                wait_cnt <= 15'd2;
                 after <= S_IDLE;
                 state <= S_WAIT;
             end
             S_WRITE: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b100;
                 dram_ba <= op_addr[24:23];
-                dram_a <= {3'b001, op_addr[9:0]}; /* A10 autopre */
+                dram_a <= {3'b000, op_addr[9:0]};
                 dram_dq_out <= op_wdata;
                 dram_dq_oe <= 1'b1;
-                wait_cnt <= 15'd5;
+                wait_cnt <= 15'd2; /* tWR before anything precharges */
                 after <= S_IDLE;
                 state <= S_WAIT;
             end
