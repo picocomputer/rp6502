@@ -37,7 +37,6 @@ module pocket_bridge (
     input logic [15:0] cont4_trig,
 
     input logic clk_sys,
-    input logic rst_n,
     input logic sdram_ready,
     input logic w_take,
     output logic pocket_bridge_w_avail,
@@ -202,39 +201,38 @@ module pocket_bridge (
     logic settled;
     logic run_q;
     logic [3:0] post;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
-            settle_t1 <= 1'b0;
-            settle_t2 <= 1'b0;
-            settle_t3 <= 1'b0;
-            reset_n_s1 <= 1'b0;
-            reset_n_s2 <= 1'b0;
-            settled <= 1'b0;
-            run_q <= 1'b0;
-            post <= '0;
-            pocket_bridge_slot_len <= '0;
-            pocket_bridge_slot_set <= 1'b0;
-        end else begin
-            settle_t1 <= settle_t;
-            settle_t2 <= settle_t1;
-            settle_t3 <= settle_t2;
-            reset_n_s1 <= reset_n;
-            reset_n_s2 <= reset_n_s1;
-            run_q <= pocket_bridge_run;
-            pocket_bridge_slot_set <= 1'b0;
-            post <= {post[2:0], 1'b0};
-            if (settle_t2 != settle_t3) begin
-                settled <= 1'b1;
-                pocket_bridge_slot_len <= slot_size;
-            end
-            /* Post after the rise — the machine's reset just cleared
-             * the register — and on a fresh size while running. */
-            if ((pocket_bridge_run && !run_q)
-                || (settle_t2 != settle_t3 && pocket_bridge_run))
-                post[0] <= 1'b1;
-            if (post[3])
-                pocket_bridge_slot_set <= 1'b1;
+    initial begin
+        settle_t1 = 1'b0;
+        settle_t2 = 1'b0;
+        settle_t3 = 1'b0;
+        reset_n_s1 = 1'b0;
+        reset_n_s2 = 1'b0;
+        settled = 1'b0;
+        run_q = 1'b0;
+        post = '0;
+        pocket_bridge_slot_len = '0;
+        pocket_bridge_slot_set = 1'b0;
+    end
+    always_ff @(posedge clk_sys) begin
+        settle_t1 <= settle_t;
+        settle_t2 <= settle_t1;
+        settle_t3 <= settle_t2;
+        reset_n_s1 <= reset_n;
+        reset_n_s2 <= reset_n_s1;
+        run_q <= pocket_bridge_run;
+        pocket_bridge_slot_set <= 1'b0;
+        post <= {post[2:0], 1'b0};
+        if (settle_t2 != settle_t3) begin
+            settled <= 1'b1;
+            pocket_bridge_slot_len <= slot_size;
         end
+        /* Post after the rise — the machine's reset just cleared
+         * the register — and on a fresh size while running. */
+        if ((pocket_bridge_run && !run_q)
+            || (settle_t2 != settle_t3 && pocket_bridge_run))
+            post[0] <= 1'b1;
+        if (post[3])
+            pocket_bridge_slot_set <= 1'b1;
     end
     always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready;
 
@@ -260,66 +258,65 @@ module pocket_bridge (
     logic [31:0] re_s1, re_s2;
     logic rv_s1, rv_s2;
     logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
-            pk_s1 <= '0; pk_s2 <= '0;
-            pj_s1 <= '0; pj_s2 <= '0;
-            pt_s1 <= '0; pt_s2 <= '0;
-            kk_s1 <= '0; kk_s2 <= '0;
-            kj_s1 <= '0; kj_s2 <= '0;
-            kt_s1 <= '0; kt_s2 <= '0;
-            ut_s1 <= '0; ut_s2 <= '0;
-            um_s1 <= '0; um_s2 <= '0;
-            us_s1 <= '0; us_s2 <= '0;
-            re_s1 <= '0; re_s2 <= '0;
-            rv_s1 <= 1'b0; rv_s2 <= 1'b0;
-            pocket_bridge_set_tz <= '0;
-            pocket_bridge_set_tz_min <= '0;
-            pocket_bridge_set_tz_sign <= '0;
-            pocket_bridge_rtc_epoch <= '0;
-            pocket_bridge_rtc_valid <= 1'b0;
-            mk_s1 <= '0; mk_s2 <= '0;
-            mj_s1 <= '0; mj_s2 <= '0;
-            mt_s1 <= '0; mt_s2 <= '0;
-            pocket_bridge_mou_key <= '0;
-            pocket_bridge_mou_joy <= '0;
-            pocket_bridge_mou_trig <= '0;
-            pocket_bridge_pad_key <= '0;
-            pocket_bridge_pad_joy <= '0;
-            pocket_bridge_pad_trig <= '0;
-            pocket_bridge_kbd_key <= '0;
-            pocket_bridge_kbd_joy <= '0;
-            pocket_bridge_kbd_trig <= '0;
-        end else begin
-            pk_s1 <= cont1_key;  pk_s2 <= pk_s1;
-            pj_s1 <= cont1_joy;  pj_s2 <= pj_s1;
-            pt_s1 <= cont1_trig; pt_s2 <= pt_s1;
-            kk_s1 <= cont3_key;  kk_s2 <= kk_s1;
-            kj_s1 <= cont3_joy;  kj_s2 <= kj_s1;
-            kt_s1 <= cont3_trig; kt_s2 <= kt_s1;
-            if (pk_s1 == pk_s2) pocket_bridge_pad_key <= pk_s2;
-            if (pj_s1 == pj_s2) pocket_bridge_pad_joy <= pj_s2;
-            if (pt_s1 == pt_s2) pocket_bridge_pad_trig <= pt_s2;
-            if (kk_s1 == kk_s2) pocket_bridge_kbd_key <= kk_s2;
-            if (kj_s1 == kj_s2) pocket_bridge_kbd_joy <= kj_s2;
-            if (kt_s1 == kt_s2) pocket_bridge_kbd_trig <= kt_s2;
-            mk_s1 <= cont4_key;  mk_s2 <= mk_s1;
-            mj_s1 <= cont4_joy;  mj_s2 <= mj_s1;
-            mt_s1 <= cont4_trig; mt_s2 <= mt_s1;
-            ut_s1 <= utz_74;   ut_s2 <= ut_s1;
-            um_s1 <= utzm_74;  um_s2 <= um_s1;
-            us_s1 <= utzs_74;  us_s2 <= us_s1;
-            re_s1 <= rtc_epoch; re_s2 <= re_s1;
-            rv_s1 <= rtc_valid; rv_s2 <= rv_s1;
-            if (ut_s1 == ut_s2) pocket_bridge_set_tz <= ut_s2;
-            if (um_s1 == um_s2) pocket_bridge_set_tz_min <= um_s2;
-            if (us_s1 == us_s2) pocket_bridge_set_tz_sign <= us_s2;
-            if (re_s1 == re_s2) pocket_bridge_rtc_epoch <= re_s2;
-            pocket_bridge_rtc_valid <= rv_s2;
-            if (mk_s1 == mk_s2) pocket_bridge_mou_key <= mk_s2;
-            if (mj_s1 == mj_s2) pocket_bridge_mou_joy <= mj_s2;
-            if (mt_s1 == mt_s2) pocket_bridge_mou_trig <= mt_s2;
-        end
+    initial begin
+        pk_s1 = '0; pk_s2 = '0;
+        pj_s1 = '0; pj_s2 = '0;
+        pt_s1 = '0; pt_s2 = '0;
+        kk_s1 = '0; kk_s2 = '0;
+        kj_s1 = '0; kj_s2 = '0;
+        kt_s1 = '0; kt_s2 = '0;
+        ut_s1 = '0; ut_s2 = '0;
+        um_s1 = '0; um_s2 = '0;
+        us_s1 = '0; us_s2 = '0;
+        re_s1 = '0; re_s2 = '0;
+        rv_s1 = 1'b0; rv_s2 = 1'b0;
+        pocket_bridge_set_tz = '0;
+        pocket_bridge_set_tz_min = '0;
+        pocket_bridge_set_tz_sign = '0;
+        pocket_bridge_rtc_epoch = '0;
+        pocket_bridge_rtc_valid = 1'b0;
+        mk_s1 = '0; mk_s2 = '0;
+        mj_s1 = '0; mj_s2 = '0;
+        mt_s1 = '0; mt_s2 = '0;
+        pocket_bridge_mou_key = '0;
+        pocket_bridge_mou_joy = '0;
+        pocket_bridge_mou_trig = '0;
+        pocket_bridge_pad_key = '0;
+        pocket_bridge_pad_joy = '0;
+        pocket_bridge_pad_trig = '0;
+        pocket_bridge_kbd_key = '0;
+        pocket_bridge_kbd_joy = '0;
+        pocket_bridge_kbd_trig = '0;
+    end
+    always_ff @(posedge clk_sys) begin
+        pk_s1 <= cont1_key;  pk_s2 <= pk_s1;
+        pj_s1 <= cont1_joy;  pj_s2 <= pj_s1;
+        pt_s1 <= cont1_trig; pt_s2 <= pt_s1;
+        kk_s1 <= cont3_key;  kk_s2 <= kk_s1;
+        kj_s1 <= cont3_joy;  kj_s2 <= kj_s1;
+        kt_s1 <= cont3_trig; kt_s2 <= kt_s1;
+        if (pk_s1 == pk_s2) pocket_bridge_pad_key <= pk_s2;
+        if (pj_s1 == pj_s2) pocket_bridge_pad_joy <= pj_s2;
+        if (pt_s1 == pt_s2) pocket_bridge_pad_trig <= pt_s2;
+        if (kk_s1 == kk_s2) pocket_bridge_kbd_key <= kk_s2;
+        if (kj_s1 == kj_s2) pocket_bridge_kbd_joy <= kj_s2;
+        if (kt_s1 == kt_s2) pocket_bridge_kbd_trig <= kt_s2;
+        mk_s1 <= cont4_key;  mk_s2 <= mk_s1;
+        mj_s1 <= cont4_joy;  mj_s2 <= mj_s1;
+        mt_s1 <= cont4_trig; mt_s2 <= mt_s1;
+        ut_s1 <= utz_74;   ut_s2 <= ut_s1;
+        um_s1 <= utzm_74;  um_s2 <= um_s1;
+        us_s1 <= utzs_74;  us_s2 <= us_s1;
+        re_s1 <= rtc_epoch; re_s2 <= re_s1;
+        rv_s1 <= rtc_valid; rv_s2 <= rv_s1;
+        if (ut_s1 == ut_s2) pocket_bridge_set_tz <= ut_s2;
+        if (um_s1 == um_s2) pocket_bridge_set_tz_min <= um_s2;
+        if (us_s1 == us_s2) pocket_bridge_set_tz_sign <= us_s2;
+        if (re_s1 == re_s2) pocket_bridge_rtc_epoch <= re_s2;
+        pocket_bridge_rtc_valid <= rv_s2;
+        if (mk_s1 == mk_s2) pocket_bridge_mou_key <= mk_s2;
+        if (mj_s1 == mj_s2) pocket_bridge_mou_joy <= mj_s2;
+        if (mt_s1 == mt_s2) pocket_bridge_mou_trig <= mt_s2;
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

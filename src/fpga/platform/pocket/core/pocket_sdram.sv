@@ -17,7 +17,6 @@
 
 module pocket_sdram (
     input logic clk,
-    input logic rst_n,
 
     /* Staging reads: pend-and-hold, halfword addressing. */
     input logic rd_pend,
@@ -78,151 +77,150 @@ module pocket_sdram (
         dram_dqm = 2'b00;
     end
 
-    always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            state <= S_BOOT;
-            after <= S_IDLE;
-            wait_cnt <= 15'(INIT_WAIT);
-            ref_cnt <= '0;
-            ref_due <= '0;
-            op_is_read <= 1'b0;
-            op_addr <= '0;
-            op_wdata <= '0;
-            held_addr <= '0;
-            held_valid <= 1'b0;
-            rd_pipe <= '0;
-            pocket_sdram_rdata <= '0;
-            pocket_sdram_wtake <= 1'b0;
-            pocket_sdram_ready <= 1'b0;
-            dram_a <= '0;
-            dram_ba <= '0;
-            dram_ras_n <= 1'b1;
-            dram_cas_n <= 1'b1;
-            dram_we_n <= 1'b1;
-            dram_dq_out <= '0;
-            dram_dq_oe <= 1'b0;
-        end else begin
-            {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b111;
-            dram_dq_oe <= 1'b0;
-            pocket_sdram_wtake <= 1'b0;
+    initial begin
+        state = S_BOOT;
+        after = S_IDLE;
+        wait_cnt = 15'(INIT_WAIT);
+        ref_cnt = '0;
+        ref_due = '0;
+        op_is_read = 1'b0;
+        op_addr = '0;
+        op_wdata = '0;
+        held_addr = '0;
+        held_valid = 1'b0;
+        rd_pipe = '0;
+        pocket_sdram_rdata = '0;
+        pocket_sdram_wtake = 1'b0;
+        pocket_sdram_ready = 1'b0;
+        dram_a = '0;
+        dram_ba = '0;
+        dram_ras_n = 1'b1;
+        dram_cas_n = 1'b1;
+        dram_we_n = 1'b1;
+        dram_dq_out = '0;
+        dram_dq_oe = 1'b0;
+    end
+    always_ff @(posedge clk) begin
+        {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b111;
+        dram_dq_oe <= 1'b0;
+        pocket_sdram_wtake <= 1'b0;
 
-            if (pocket_sdram_ready) begin
-                if (ref_cnt == 10'(REFRESH_EVERY - 1)) begin
-                    ref_cnt <= '0;
-                    if (ref_due != 2'd3)
-                        ref_due <= ref_due + 2'd1;
-                end else begin
-                    ref_cnt <= ref_cnt + 10'd1;
-                end
+        if (pocket_sdram_ready) begin
+            if (ref_cnt == 10'(REFRESH_EVERY - 1)) begin
+                ref_cnt <= '0;
+                if (ref_due != 2'd3)
+                    ref_due <= ref_due + 2'd1;
+            end else begin
+                ref_cnt <= ref_cnt + 10'd1;
             end
-
-            /* The registered command plus CL2: data stands three
-             * edges after the read state. */
-            rd_pipe <= {rd_pipe[1:0], 1'b0};
-            if (rd_pipe[2]) begin
-                pocket_sdram_rdata <= dram_dq_in;
-                held_addr <= op_addr;
-                held_valid <= 1'b1;
-            end
-
-            case (state)
-                S_BOOT: begin
-                    if (wait_cnt == '0)
-                        state <= S_PALL;
-                    else
-                        wait_cnt <= wait_cnt - 15'd1;
-                end
-                S_PALL: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
-                    dram_a <= 13'h400; /* A10: all banks */
-                    wait_cnt <= 15'd3;
-                    after <= S_REF0;
-                    state <= S_WAIT;
-                end
-                S_REF0: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
-                    wait_cnt <= 15'd8;
-                    after <= S_REF1;
-                    state <= S_WAIT;
-                end
-                S_REF1: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
-                    wait_cnt <= 15'd8;
-                    after <= S_MRS;
-                    state <= S_WAIT;
-                end
-                S_MRS: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b000;
-                    dram_a <= MODE_CL2_BL1;
-                    dram_ba <= 2'b00;
-                    wait_cnt <= 15'd2;
-                    after <= S_IDLE;
-                    state <= S_WAIT;
-                    pocket_sdram_ready <= 1'b1;
-                end
-                S_IDLE: begin
-                    if (ref_due != '0) begin
-                        state <= S_REFRESH;
-                    end else if (rd_pend && !pocket_sdram_rvalid) begin
-                        op_is_read <= 1'b1;
-                        op_addr <= rd_addr;
-                        state <= S_ACT;
-                    end else if (w_avail) begin
-                        op_is_read <= 1'b0;
-                        op_addr <= w_addr;
-                        op_wdata <= w_data;
-                        pocket_sdram_wtake <= 1'b1;
-                        /* The hold dies at accept, not at the command
-                         * — a reader between the two must wait for the
-                         * new data, not be served the old. */
-                        if (held_valid && held_addr == w_addr)
-                            held_valid <= 1'b0;
-                        state <= S_ACT;
-                    end
-                end
-                S_REFRESH: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
-                    ref_due <= ref_due - 2'd1;
-                    wait_cnt <= 15'd8;
-                    after <= S_IDLE;
-                    state <= S_WAIT;
-                end
-                S_ACT: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b011;
-                    dram_ba <= op_addr[24:23];
-                    dram_a <= op_addr[22:10];
-                    wait_cnt <= 15'd1; /* tRCD: command lands next clock */
-                    after <= op_is_read ? S_READ : S_WRITE;
-                    state <= S_WAIT;
-                end
-                S_READ: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b101;
-                    dram_ba <= op_addr[24:23];
-                    dram_a <= {3'b001, op_addr[9:0]}; /* A10 autopre */
-                    rd_pipe[0] <= 1'b1;
-                    wait_cnt <= 15'd5;
-                    after <= S_IDLE;
-                    state <= S_WAIT;
-                end
-                S_WRITE: begin
-                    {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b100;
-                    dram_ba <= op_addr[24:23];
-                    dram_a <= {3'b001, op_addr[9:0]}; /* A10 autopre */
-                    dram_dq_out <= op_wdata;
-                    dram_dq_oe <= 1'b1;
-                    wait_cnt <= 15'd5;
-                    after <= S_IDLE;
-                    state <= S_WAIT;
-                end
-                S_WAIT: begin
-                    if (wait_cnt == '0)
-                        state <= after;
-                    else
-                        wait_cnt <= wait_cnt - 15'd1;
-                end
-                default: state <= S_IDLE;
-            endcase
         end
+
+        /* The registered command plus CL2: data stands three
+         * edges after the read state. */
+        rd_pipe <= {rd_pipe[1:0], 1'b0};
+        if (rd_pipe[2]) begin
+            pocket_sdram_rdata <= dram_dq_in;
+            held_addr <= op_addr;
+            held_valid <= 1'b1;
+        end
+
+        case (state)
+            S_BOOT: begin
+                if (wait_cnt == '0)
+                    state <= S_PALL;
+                else
+                    wait_cnt <= wait_cnt - 15'd1;
+            end
+            S_PALL: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
+                dram_a <= 13'h400; /* A10: all banks */
+                wait_cnt <= 15'd3;
+                after <= S_REF0;
+                state <= S_WAIT;
+            end
+            S_REF0: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
+                wait_cnt <= 15'd8;
+                after <= S_REF1;
+                state <= S_WAIT;
+            end
+            S_REF1: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
+                wait_cnt <= 15'd8;
+                after <= S_MRS;
+                state <= S_WAIT;
+            end
+            S_MRS: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b000;
+                dram_a <= MODE_CL2_BL1;
+                dram_ba <= 2'b00;
+                wait_cnt <= 15'd2;
+                after <= S_IDLE;
+                state <= S_WAIT;
+                pocket_sdram_ready <= 1'b1;
+            end
+            S_IDLE: begin
+                if (ref_due != '0) begin
+                    state <= S_REFRESH;
+                end else if (rd_pend && !pocket_sdram_rvalid) begin
+                    op_is_read <= 1'b1;
+                    op_addr <= rd_addr;
+                    state <= S_ACT;
+                end else if (w_avail) begin
+                    op_is_read <= 1'b0;
+                    op_addr <= w_addr;
+                    op_wdata <= w_data;
+                    pocket_sdram_wtake <= 1'b1;
+                    /* The hold dies at accept, not at the command
+                     * — a reader between the two must wait for the
+                     * new data, not be served the old. */
+                    if (held_valid && held_addr == w_addr)
+                        held_valid <= 1'b0;
+                    state <= S_ACT;
+                end
+            end
+            S_REFRESH: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
+                ref_due <= ref_due - 2'd1;
+                wait_cnt <= 15'd8;
+                after <= S_IDLE;
+                state <= S_WAIT;
+            end
+            S_ACT: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b011;
+                dram_ba <= op_addr[24:23];
+                dram_a <= op_addr[22:10];
+                wait_cnt <= 15'd1; /* tRCD: command lands next clock */
+                after <= op_is_read ? S_READ : S_WRITE;
+                state <= S_WAIT;
+            end
+            S_READ: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b101;
+                dram_ba <= op_addr[24:23];
+                dram_a <= {3'b001, op_addr[9:0]}; /* A10 autopre */
+                rd_pipe[0] <= 1'b1;
+                wait_cnt <= 15'd5;
+                after <= S_IDLE;
+                state <= S_WAIT;
+            end
+            S_WRITE: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b100;
+                dram_ba <= op_addr[24:23];
+                dram_a <= {3'b001, op_addr[9:0]}; /* A10 autopre */
+                dram_dq_out <= op_wdata;
+                dram_dq_oe <= 1'b1;
+                wait_cnt <= 15'd5;
+                after <= S_IDLE;
+                state <= S_WAIT;
+            end
+            S_WAIT: begin
+                if (wait_cnt == '0)
+                    state <= after;
+                else
+                    wait_cnt <= wait_cnt - 15'd1;
+            end
+            default: state <= S_IDLE;
+        endcase
     end
 
 endmodule

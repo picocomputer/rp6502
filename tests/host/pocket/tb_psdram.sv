@@ -35,7 +35,6 @@ module tb_psdram (
 
     pocket_sdram ctrl (
         .clk(clk),
-        .rst_n(rst_n),
         .rd_pend(rd_pend),
         .rd_addr(rd_addr),
         .pocket_sdram_rdata(tb_psdram_rdata),

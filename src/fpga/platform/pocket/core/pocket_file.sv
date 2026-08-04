@@ -39,7 +39,6 @@ module pocket_file #(
     parameter int TIMEOUT_BITS = 27
 ) (
     input logic clk_sys,
-    input logic rst_n,
     input logic stb,
     input logic we,
     input logic [27:0] addr,
@@ -114,53 +113,52 @@ module pocket_file #(
         reg_we = stb && we && !addr[12];
     end
 
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n) begin
-            pocket_file_id <= '0;
-            pocket_file_slotoffset <= '0;
-            pocket_file_length <= '0;
-            pocket_file_bridgeaddr <= '0;
-            r_op <= '0;
-            go_t <= 1'b0;
+    initial begin
+        pocket_file_id = '0;
+        pocket_file_slotoffset = '0;
+        pocket_file_length = '0;
+        pocket_file_bridgeaddr = '0;
+        r_op = '0;
+        go_t = 1'b0;
+        busy = 1'b0;
+        tmo_flag = 1'b0;
+        r_err = '0;
+        r_result = '0;
+        ret_t1 = 1'b0;
+        ret_t2 = 1'b0;
+        ret_t3 = 1'b0;
+        pocket_file_rdata = '0;
+    end
+    always_ff @(posedge clk_sys) begin
+        ret_t1 <= ret_t;
+        ret_t2 <= ret_t1;
+        ret_t3 <= ret_t2;
+        if (ret_t2 != ret_t3) begin
             busy <= 1'b0;
-            tmo_flag <= 1'b0;
-            r_err <= '0;
-            r_result <= '0;
-            ret_t1 <= 1'b0;
-            ret_t2 <= 1'b0;
-            ret_t3 <= 1'b0;
-            pocket_file_rdata <= '0;
-        end else begin
-            ret_t1 <= ret_t;
-            ret_t2 <= ret_t1;
-            ret_t3 <= ret_t2;
-            if (ret_t2 != ret_t3) begin
-                busy <= 1'b0;
-                r_err <= err_q;
-                tmo_flag <= tmo_q;
-                r_result <= result_q;
-            end
-            if (reg_we)
-                case (addr[4:2])
-                    3'd0: pocket_file_id <= wdata[15:0];
-                    3'd1: pocket_file_slotoffset <= wdata;
-                    3'd2: pocket_file_length <= wdata;
-                    3'd3: pocket_file_bridgeaddr <= wdata;
-                    3'd4: begin
-                        r_op <= wdata[2:0];
-                        go_t <= !go_t;
-                        busy <= 1'b1;
-                        tmo_flag <= 1'b0;
-                    end
-                    default: ;
-                endcase
-            /* Write-only: a mux answering for four 32-bit registers is
-             * real area on a part with none left. */
-            if (stb)
-                pocket_file_rdata <= addr[2]
-                    ? r_result
-                    : {26'd0, w_pending, tmo_flag, r_err, busy};
+            r_err <= err_q;
+            tmo_flag <= tmo_q;
+            r_result <= result_q;
         end
+        if (reg_we)
+            case (addr[4:2])
+                3'd0: pocket_file_id <= wdata[15:0];
+                3'd1: pocket_file_slotoffset <= wdata;
+                3'd2: pocket_file_length <= wdata;
+                3'd3: pocket_file_bridgeaddr <= wdata;
+                3'd4: begin
+                    r_op <= wdata[2:0];
+                    go_t <= !go_t;
+                    busy <= 1'b1;
+                    tmo_flag <= 1'b0;
+                end
+                default: ;
+            endcase
+        /* Write-only: a mux answering for four 32-bit registers is
+         * real area on a part with none left. */
+        if (stb)
+            pocket_file_rdata <= addr[2]
+                ? r_result
+                : {26'd0, w_pending, tmo_flag, r_err, busy};
     end
 
     logic [31:0] window[WINDOW_WORDS];

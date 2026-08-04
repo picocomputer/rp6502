@@ -177,7 +177,6 @@ module pocket_core #(
         .cont4_joy(cont4_joy),
         .cont4_trig(cont4_trig),
         .clk_sys(clk_sys),
-        .rst_n(rst_n),
         .sdram_ready(pocket_core_ready),
         .w_take(w_take),
         .pocket_bridge_w_avail(w_avail),
@@ -218,7 +217,6 @@ module pocket_core #(
 
     pocket_sdram sdram (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .rd_pend(stage_pend),
         .rd_addr(stage_addr[25:1]),
         .pocket_sdram_rdata(stage_half),
@@ -333,7 +331,6 @@ module pocket_core #(
      * it asked. */
     pocket_file file (
         .clk_sys(clk_sys),
-        .rst_n(rst_n),
         .stb(host_stb && !host_addr[16]),
         .we(host_we),
         .addr(host_addr),

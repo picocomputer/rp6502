@@ -78,7 +78,6 @@ module tb_pbridge (
         .cont4_joy(cont4_joy),
         .cont4_trig(cont4_trig),
         .clk_sys(clk_sys),
-        .rst_n(rst_n),
         .sdram_ready(tb_pbridge_ready),
         .w_take(w_take),
         .pocket_bridge_w_avail(w_avail),
@@ -115,7 +114,6 @@ module tb_pbridge (
 
     pocket_sdram ctrl (
         .clk(clk_sys),
-        .rst_n(rst_n),
         .rd_pend(rd_pend),
         .rd_addr(rd_addr),
         .pocket_sdram_rdata(tb_pbridge_rdata),
