@@ -3,6 +3,63 @@
 Notes for working on this core. Nothing here is needed to use it — the
 distribution tree is described in `dist/rp6502.txt`.
 
+## The board's memory
+
+Analogue names the parts, which for a long time this file assumed they
+never would. There are three, and for most of this port's life we used
+one of them.
+
+| | part | size | organisation | interface |
+| --- | --- | --- | --- | --- |
+| SDRAM | `AS4C32M16MSA-6BIN` | 64 MB | 32M×16 | 1.8 V, synchronous, 166 MHz |
+| PSRAM | `AS1C8M16PL-70BIN` | 16 MB | 8M×16 | 1.8 V, synchronous burst, 133 MHz |
+| SRAM | `AS6C2016-55BIN` | 256 KB | 128K×16 | 3.3 V, **asynchronous**, 55 ns |
+
+- <https://www.analogue.co/developer/docs/external-hardware>
+- <https://www.alliancememory.com/datasheets/as4c32m16msa/>
+- <https://www.alliancememory.com/datasheets/AS6C2016/>
+
+Analogue's own notes are worth quoting, because each one is a design
+constraint rather than a description. On the SDRAM: *"best accessed in
+bursts since every access requires activation and precharge
+overhead."* On the PSRAM: *"Be careful to never assert both chip enable
+pins (CE0#, CE1#) to avoid bus contention"* — it is two dies sharing
+every signal but those. On the SRAM: *"Available to user cores.
+Latency is marginally faster than PSRAM but possible bandwidth is
+lower."*
+
+**The SRAM is the interesting one and it has been tied off dead** since
+the port began, in `core_top.sv` — `sram_a`, `sram_dq`, `sram_oe_n`,
+`sram_we_n`, `sram_ub_n`, `sram_lb_n` all driven to their idle states.
+Note what is *not* in that port list: there is no chip enable, so the
+board holds the part selected and `OE#`/`WE#` are the whole protocol.
+The byte enables are there, which matters for an 8-bit machine writing
+into a 16-bit part. The PSRAM (`cram0_*`, `cram1_*`) is untouched too.
+
+Why that matters here: the 6502's 64 KB currently lives in block RAM,
+and block RAM is what this design runs out of first — the fit sits at
+275 of 308 M10K with `sram64k`, `xram64k` and the firmware's TCM taking
+64 blocks each. An asynchronous part answering in 55 ns is a
+comfortable fit for a bus that allows 119 ns at 8 MHz, and unlike the
+SDRAM it answers in 55 ns *every* time: no rows, no refresh, no bank
+conflicts, no variance to design around. That is the natural home for
+the 6502's memory, and moving it there frees exactly the 64 blocks that
+doubling the TCM costs.
+
+The SDRAM's own geometry is worth writing down because the controller
+decodes it: 4 banks × 8192 rows × 1024 columns × 16 bits, which makes a
+row **2 KB** and puts the 6502's whole address space inside 32 rows.
+Refresh is 8192 cycles per 64 ms, so 7.8 µs a cycle; `REFRESH_EVERY` is
+390 clocks at 50.4 MHz, which is 7.74 µs.
+
+Core AC timings below are from the 3.3 V sibling `AS4C32M16SA-7` and
+are here as a reference point, **not** as the Pocket's part — the mobile
+`-6` differs and the controller should be retimed against its own
+datasheet: tRCD 15 ns, tRP 15 ns, tRAS 45 ns min and 100 µs max, tRC
+65 ns, tRRD 15 ns, tCCD 1 clock, tDPL 2 clocks, CL2 to 100 MHz and CL3
+to 143 MHz. At 50.4 MHz — 19.84 ns a clock — CL2 is not close to
+marginal and every one of those delays is one or two clocks.
+
 ## Suspend
 
 `core.json` says `"sleep_supported": false`, and that is a decision
@@ -270,6 +327,15 @@ verdict, in the simulator as well as on the card. The build leaves it in
 `build/fpga/tests/` with the other bring-up ROMs; they are not part of
 the distribution. When this prose and that ROM disagree, the ROM is
 right.
+
+One correction, because it was earned. All of the above is about the
+file API. The **hardware** they document properly: every external part
+is named, with capacity, width, voltage and speed grade, at
+<https://www.analogue.co/developer/docs/external-hardware>. This file
+spent a long time asserting that a part number was something we were
+never going to get, and the SDRAM controller was written against padded
+guesses on that basis while a 256 KB SRAM sat tied off in `core_top.sv`
+because nobody had read the page. That was our failure, not theirs.
 
 ## Reading the console
 
