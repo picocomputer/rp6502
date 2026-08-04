@@ -61,6 +61,20 @@ module pocket_sdram (
      * refreshes, mode register CL2 burst-1. */
     localparam int INIT_WAIT = 10100;
     localparam logic [12:0] MODE_CL2_BL1 = 13'b000_0_00_010_0_000;
+    /* The extended mode register, which this controller never wrote.
+     * BA = 2'b10 selects it; A2:A0 are Partial Array Self Refresh and
+     * A7:A5 are driver strength, and all zero means every bank
+     * refreshed at full drive. It powers up in an unknown state.
+     *
+     * That was survivable while nothing here ever slept, because PASR
+     * governs SELF refresh only — an auto refresh covers the whole
+     * array whatever PASR says. Self refresh made it load-bearing: a
+     * part waking with PASR at one-sixteenth would refresh one bank and
+     * quietly lose the fonts, the code page tables and most of the ROM
+     * while the machine sat idle. Driver strength matters for the same
+     * reason in the other direction — 12.5% into the 30 pF test load
+     * blows tAC past 6 ns and every read comes back wrong. */
+    localparam logic [12:0] EMODE_PASR_ALL = 13'b000_0_00_000_0_000;
     /* 8192 rows in 64 ms is 7812.5 ns a row, and this one rounds DOWN
      * because it is a ceiling: 393 clk is 7797 ns and fits, 394 is 7817
      * and does not. */
@@ -89,8 +103,8 @@ module pocket_sdram (
     localparam int IDLE_CLOSE = 64;  /* 1.3 us */
     localparam int IDLE_SREF = 256;  /* 5.1 us */
 
-    typedef enum logic [3:0] {
-        S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS,
+    typedef enum logic [4:0] {
+        S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS, S_EMRS,
         S_IDLE, S_REFRESH, S_PALL_R, S_PALL_I, S_PRE, S_ACT, S_READ,
         S_WRITE, S_SREF_ENT, S_SREF, S_WAIT
     } state_t;
@@ -228,7 +242,15 @@ module pocket_sdram (
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b000;
                 dram_a <= MODE_CL2_BL1;
                 dram_ba <= 2'b00;
-                wait_cnt <= 15'd2;
+                wait_cnt <= 15'd2; /* tMRD */
+                after <= S_EMRS;
+                state <= S_WAIT;
+            end
+            S_EMRS: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b000;
+                dram_a <= EMODE_PASR_ALL;
+                dram_ba <= 2'b10;
+                wait_cnt <= 15'd2; /* tMRD */
                 after <= S_IDLE;
                 state <= S_WAIT;
                 pocket_sdram_ready <= 1'b1;

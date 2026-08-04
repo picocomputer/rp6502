@@ -57,6 +57,22 @@ module sdram_model (
     logic saw_pall;
     logic [1:0] saw_ref;
     logic saw_mrs;
+    logic saw_emrs;
+
+    /* Partial Array Self Refresh, and the reason it starts hostile.
+     * The extended mode register powers up in an UNKNOWN state — the
+     * datasheet says so and names no default — and PASR decides which
+     * banks survive a self refresh. A model that assumed "all banks"
+     * would let a controller that never programs the register pass
+     * here and rot its memory on hardware. So this starts at the least
+     * generous setting the encoding allows, and only an EMRS write
+     * opens it up.
+     *
+     * PASR governs SELF refresh alone; an auto refresh covers the whole
+     * array whatever it says. That is why this stayed harmless until
+     * the controller learned to sleep. */
+    logic [2:0] pasr;
+    logic bank_lost[4];
 
     /* The floors above, counted in clocks. They only hold at 50.4 MHz:
      * every one of them is a nanosecond figure divided by 19.841, so a
@@ -88,6 +104,10 @@ module sdram_model (
             saw_pall <= 1'b0;
             saw_ref <= '0;
             saw_mrs <= 1'b0;
+            saw_emrs <= 1'b0;
+            pasr <= 3'b110; /* one sixteenth: the least it can be */
+            for (int b = 0; b < 4; b++)
+                bank_lost[b] <= 1'b0;
             since_ref <= 100;
             since_any <= 100;
             since_srex <= 100;
@@ -130,6 +150,13 @@ module sdram_model (
                 for (int b = 0; b < 4; b++)
                     if (row_open[b])
                         $fatal(1, "sdram_model: self refresh with an open row");
+                /* Only what PASR covers is refreshed while asleep. The
+                 * rest is gone, and nothing tells the controller. */
+                for (int b = 0; b < 4; b++)
+                    if (!(pasr == 3'b000                       /* all */
+                          || (pasr == 3'b001 && b[1] == 1'b0)  /* half */
+                          || b == 0))                          /* quarter or less */
+                        bank_lost[b] <= 1'b1;
                 in_sref <= 1'b1;
             end else
             case (cmd)
@@ -168,7 +195,20 @@ module sdram_model (
                         saw_ref <= saw_ref + 2'd1;
                     sdram_model_refreshes <= sdram_model_refreshes + 32'd1;
                 end
-                3'b000: begin  /* MODE REGISTER SET */
+                /* BA picks which register: 00 the base one, 10 the
+                 * extended one. Same command, and the old model knew
+                 * only about the first. */
+                3'b000:
+                if (ba == 2'b10) begin
+                    if (a[11:8] != 4'b0000)
+                        $fatal(1, "sdram_model: EMRS reserved bits set, %b", a);
+                    if (a[7:5] == 3'b101 || a[7:5] == 3'b110 || a[7:5] == 3'b111)
+                        $fatal(1, "sdram_model: EMRS reserved driver strength");
+                    if (a[2:0] == 3'b011 || a[2:0] == 3'b100 || a[2:0] == 3'b111)
+                        $fatal(1, "sdram_model: EMRS reserved PASR");
+                    pasr <= a[2:0];
+                    saw_emrs <= 1'b1;
+                end else begin
                     if (saw_ref < 2'd2)
                         $fatal(1, "sdram_model: MRS before two refreshes");
                     if (a != 13'b000_0_00_010_0_000)
@@ -178,6 +218,13 @@ module sdram_model (
                 3'b011: begin  /* ACTIVE */
                     if (!saw_mrs)
                         $fatal(1, "sdram_model: ACT before init");
+                    /* The datasheet's wake ends with the extended mode
+                     * register, and it is not optional: unprogrammed,
+                     * both PASR and driver strength are undefined. */
+                    if (!saw_emrs)
+                        $fatal(1, "sdram_model: ACT before EMRS");
+                    if (bank_lost[ba])
+                        $fatal(1, "sdram_model: bank %0d went unrefreshed while asleep, PASR %b", ba, pasr);
                     if (row_open[ba])
                         $fatal(1, "sdram_model: ACT on open bank");
                     if (since_pre[ba] < 1)
