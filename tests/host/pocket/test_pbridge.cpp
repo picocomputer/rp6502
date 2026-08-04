@@ -10,6 +10,12 @@
  * run-then-post, a host re-reset re-posting the length, a reload with
  * a different image, and controller edges leaving as paced HID
  * events.
+ *
+ * THE HOST PLAYED HERE IS OURS, NOT ANALOGUE'S. core_bridge_cmd.v is
+ * published and its wires are therefore known; the order and the
+ * pacing of a real load are not documented anywhere and were measured
+ * off a Pocket. Expect errors. A core that passes this agrees with our
+ * reading of the host, which is not the same as being right.
  */
 
 #include "Vtb_pbridge.h"

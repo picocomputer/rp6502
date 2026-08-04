@@ -11,12 +11,32 @@
 #include "ria/api/std.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* The host's filesystem, over APF data slots. The catch-all std driver,
  * so it must be last in main_std_drivers: it claims every path no
  * earlier driver took, which is what the shared std.c expects of the
  * mass-storage drive on the real machine. */
+
+/* There is no working directory on this platform, so each side of the
+ * API pins its own folder. A relative path through std open resolves
+ * under MSC_SAVES_PATH, where the host keeps a core's writable files;
+ * argv[0] names the ROM, which the host keeps under MSC_ASSETS_PATH. An
+ * absolute path travels untouched either way.
+ *
+ * The two do not compose: open(argv[0]) looks in the saves folder and
+ * will not find the program. That is the price of having no cwd, and it
+ * is written down in the platform README rather than worked around. */
+#define MSC_SAVES_PATH "/Saves/rp6502/common/"
+#define MSC_ASSETS_PATH "/Assets/rp6502/common/"
+
+/* The host's name for whatever file is bound to a slot, converted to
+ * code page bytes, refused rather than truncated if it will not fit.
+ * Blocking, so boot only — this is how the core learns the name of the
+ * ROM the user picked, which arrives staged and otherwise anonymous. */
+bool msc_getfile(uint32_t slot, char *out, size_t cap);
+
 /* The pinned working directory: getcwd answers the host's own, which
  * is MSC0:/Saves/rp6502/common/ and 26 characters; chdir always
  * errors, chdrive accepts only this drive's names. */

@@ -14,6 +14,14 @@
  * completion, Exit — with a button held through the whole load: the
  * scaler re-arms on the new machine's first frame and the held press
  * delivers itself the moment the rebooted firmware can hear it.
+ *
+ * THE HOST MODELLED HERE IS OURS, NOT ANALOGUE'S. The bridge's timing,
+ * the order of a mid-session reload, and the data slot handshake were
+ * reverse engineered from a real Pocket rather than read out of a
+ * specification, because there is not one. Expect errors in it. The
+ * oracle half of this test is exact — emu_core is the same machine —
+ * but everything the bench does as the host is a guess we have not
+ * been able to disprove.
  */
 
 #include "Vtb_pocket.h"
@@ -38,6 +46,10 @@ static Vtb_pocket *dut;
 static long a_next, s_next;
 static long g_t, g_sys;
 
+/* Get File state, reset per power-on because the model outlives the
+ * device it answers for. */
+static int g_gf_prev, g_gf_hold;
+
 /* clk_sys period 330 with clk_vid on every second rise; clk_74a at
  * period 224 — the true PLL family against the bridge clock. */
 static void tick()
@@ -60,6 +72,26 @@ static void tick()
     if (aedge)
         dut->clk_74a = 1;
     dut->eval();
+    if (aedge)
+    {
+        /* argv: the core asks for slot 0's name before it releases the
+         * 6502, and a command the host never retires costs it the
+         * bridge's whole deadline — 134 million clocks, which is not a
+         * test, it is a hang. These cases do not check the name, and
+         * the staging store answers zeros, which is the empty name a
+         * slot with nothing bound would give. The handshake is what has
+         * to happen: done falls so the core can prove its command was
+         * taken, then rises carrying the answer. */
+        int g = dut->tb_pocket_ds_getfile;
+        if (g && !g_gf_prev)
+        {
+            dut->target_dataslot_done = 0;
+            g_gf_hold = 4;
+        }
+        g_gf_prev = g;
+        if (g_gf_hold && !--g_gf_hold)
+            dut->target_dataslot_done = 1;
+    }
     if (sedge)
     {
         dut->clk_sys = 0;
@@ -319,6 +351,10 @@ static void power_on(int *utest_result)
     dut->reset_n = 0;
     dut->cont1_key = 0;
     dut->dataslot_allcomplete = 0;
+    /* Held high between commands, the way the host holds it: the fall is
+     * what proves a command was taken. */
+    dut->target_dataslot_done = 1;
+    g_gf_prev = g_gf_hold = 0;
     for (int i = 0; i < 32; i++)
         tick();
     dut->rst_n = 1;

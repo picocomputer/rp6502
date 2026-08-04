@@ -14,6 +14,17 @@
  * program wrote, then the whole path held: std.c's dispatch, msc.c's
  * driver, pocket_file's crossing, and both directions through a
  * bridge that is not symmetric.
+ *
+ * THE HOST MODELLED HERE IS OURS, NOT ANALOGUE'S. Analogue publishes
+ * the command numbers and the register layout and almost nothing about
+ * behaviour, so every answer this file gives back — which result code
+ * means what, when the folder has to already exist, the byte order of
+ * the parameter struct's integers, the shape of Get File's response —
+ * was reverse engineered by poking a real Pocket and writing down what
+ * it did. Some of it is certainly wrong, and a firmware update can
+ * make more of it wrong with nothing anywhere saying so. A green run
+ * here means the core agrees with our model of the host. Only hardware
+ * says whether the model is right.
  */
 
 #include "Vtb_pocket.h"
@@ -51,7 +62,7 @@ static std::set<std::string> g_dirs;
 static std::string g_bound[16];
 static std::string g_console;
 static std::string g_rv;
-static int g_opens, g_reads, g_writes, g_flushes;
+static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
 
 static void tick()
 {
@@ -329,35 +340,65 @@ static void do_flush()
     target_done();
 }
 
+/* Get File, the only command that answers with more than a code: the
+ * host writes back the name bound to the slot. It lands wherever the
+ * response struct points, which for this core is the same staging
+ * buffer a Slot Read uses, because the bridge writes nowhere else.
+ *
+ * Analogue documents the command and not the shape of the answer. A
+ * NUL-terminated name at offset 0 is what Open File's parameter struct
+ * carries and what the firmware reads back; the real host is what
+ * settles whether that is right. */
+static void do_getfile()
+{
+    dut->target_dataslot_done = 0;
+    uint32_t slot = dut->tb_pocket_ds_id;
+    uint32_t at = dut->tb_pocket_resp_struct;
+    g_getfiles++;
+    const std::string &name = g_bound[slot];
+    std::vector<uint8_t> resp(256, 0);
+    for (size_t i = 0; i < name.size() && i + 1 < resp.size(); i++)
+        resp[i] = (uint8_t)name[i];
+    host_put_bytes(at, resp.data(), resp.size());
+    target_done();
+}
+
 /* One clk_sys step with the host watching for a command. The request
  * lines are one pulse wide, so this samples every clock. */
 static void step()
 {
-    static int prev_r, prev_w, prev_o, prev_f;
+    static int prev_r, prev_w, prev_o, prev_f, prev_g;
     tick();
     int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-        o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush;
+        o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
+        g = dut->tb_pocket_ds_getfile;
     if (o && !prev_o)
     {
-        prev_r = prev_w = prev_o = prev_f = 0;
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
         do_openfile();
         return;
     }
     if (f && !prev_f)
     {
-        prev_r = prev_w = prev_o = prev_f = 0;
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
         do_flush();
+        return;
+    }
+    if (g && !prev_g)
+    {
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
+        do_getfile();
         return;
     }
     if (r && !prev_r)
     {
-        prev_r = prev_w = prev_o = prev_f = 0;
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
         do_slotread();
         return;
     }
     if (w && !prev_w)
     {
-        prev_r = prev_w = prev_o = prev_f = 0;
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
         do_slotwrite();
         return;
     }
@@ -365,6 +406,7 @@ static void step()
     prev_w = w;
     prev_o = o;
     prev_f = f;
+    prev_g = g;
 }
 
 static std::vector<uint8_t> read_file(const char *path)
@@ -399,10 +441,15 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
         g_dirs.insert("/Saves/rp6502");
         g_dirs.insert("/Saves/rp6502/common");
     }
-    g_opens = g_reads = g_writes = g_flushes = 0;
+    g_opens = g_reads = g_writes = g_flushes = g_getfiles = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
+    /* Slot 0 is the ROM the user picked, and it is bound before the core
+     * ever runs — which is the whole reason argv has to ask. In the
+     * assets folder, where the strip that turns a path into argv[0]
+     * expects to find it. */
+    g_bound[0] = "/Assets/rp6502/common/pfile.rp6502";
 
     dut->rst_n = 0;
     dut->arst_n = 0;
@@ -475,8 +522,11 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
         step();
 
     if (g_console.find(want) == std::string::npos)
-        fprintf(stderr, "console: [%s] opens=%d reads=%d writes=%d flushes=%d\n",
-                g_console.c_str(), g_opens, g_reads, g_writes, g_flushes);
+        fprintf(stderr,
+                "console: [%s] opens=%d reads=%d writes=%d flushes=%d "
+                "getfiles=%d\n",
+                g_console.c_str(), g_opens, g_reads, g_writes, g_flushes,
+                g_getfiles);
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     /* The host's own copy is the other half of the proof: the bytes
@@ -487,6 +537,10 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_EQ(memcmp(f.data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
     ASSERT_GT(g_reads, 0);
+    /* argv[0] is asked for once, before the 6502 is released. A core
+     * that stopped asking would still pass everything above it and
+     * would have no idea what it was running. */
+    ASSERT_EQ(g_getfiles, 1);
 
     teardown();
 }

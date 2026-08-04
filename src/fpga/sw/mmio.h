@@ -90,6 +90,11 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_WRITE 2u
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
+/* The only command that answers with more than a result code, and the
+ * only one where the host writes us: the name bound to a slot lands
+ * wherever FILE_BRIDGE points, so it takes a Slot Read's staging buffer
+ * rather than the outbound window. */
+#define FILE_OP_GETFILE 5u
 /* Analogue documents 0x0188 but never implemented it in its own
  * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
  * are not Open File's: 0 is written, 1 is slot not defined; 7 is the

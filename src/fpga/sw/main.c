@@ -3,9 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The soft CPU's runner. This grows into the counterpart of ria/main.c; so
- * far it does what the RIA does at boot: load a program into the 6502's
- * memory, write its vectors into the register cells, and release its reset.
+ * The soft CPU's runner, this platform's ria/main.c. Same scheduler:
+ * drivers are notified of init, run and stop, and the API and xreg calls
+ * dispatch from here.
+ *
+ * No break. A break drops the RIA to its monitor, and there is no monitor
+ * on a Pocket — the machine runs one program and the way to run another
+ * is the host's menu reloading the core. Nothing can ask for one, so
+ * nothing implements one.
  */
 
 #include <stdio.h>
@@ -26,6 +31,7 @@
 #include "vid.h"
 #include "ria/api/api.h"
 #include "ria/api/clk.h"
+#include "ria/api/pro.h"
 #include "ria/api/std.h"
 #include "ria/api/tim.h"
 #include "ria/api/uni.h"
@@ -235,6 +241,8 @@ bool main_api(uint8_t operation)
         if (!api_set_errno_opt(API_A))
             return api_return_errno(API_EINVAL);
         return api_return_ax(0);
+    case 0x08:
+        return pro_api_argv();
     case 0x0A:
         /* Attributes grow with their engines; these exist now. */
         switch (API_A)
@@ -379,11 +387,11 @@ bool main_api(uint8_t operation)
     }
 }
 
-int main(void)
+/* Power-up, once. No str_init: it exists to apply a locale, and this
+ * machine has one locale and no S() callers — the whole localized chain
+ * is meant to collect under --gc-sections. */
+static void init(void)
 {
-    /* No str_init: it exists to apply a locale, and this machine has one
-     * locale and no S() callers — the whole localized chain is meant to
-     * collect under --gc-sections. */
     cpu_init();
     aud_init();
     com_init();
@@ -398,6 +406,66 @@ int main(void)
         printf("oem: no tables\n");
     vid_init();
     tim_init();
+}
+
+/* The 6502 coming out of reset. */
+static void run(void)
+{
+    pro_run();
+    com_run();
+    rln_run();
+    api_run();
+    clk_run();
+    cpu_run(); /* Must be last: this is RESB going high. */
+}
+
+/* The 6502 going into reset. Anything a program left running is the
+ * firmware's to put back, because none of it is on the platform's reset
+ * — the engines would otherwise play the last note forever. */
+static void stop(void)
+{
+    cpu_stop(); /* Must be first. */
+    rln_stop();
+    api_stop();
+    std_stop();
+    kbd_stop();
+    mou_stop();
+    pad_stop();
+    aud_stop();
+    /* No pro_stop: argv is the loaded ROM's, not the run's, and nothing
+     * short of the Pocket's menu reloading the core can change it. */
+}
+
+static enum state {
+    stopped,
+    starting,
+    running,
+    stopping,
+} volatile main_state;
+
+void main_run(void)
+{
+    if (main_state != running)
+        main_state = starting;
+}
+
+void main_stop(void)
+{
+    cpu_stop(); /* RESB down now; the rest of the fan-out can wait. */
+    if (main_state == starting)
+        main_state = stopped;
+    else if (main_state != stopped)
+        main_state = stopping;
+}
+
+bool main_active(void)
+{
+    return main_state != stopped;
+}
+
+int main(void)
+{
+    init();
 
     /* A staged .rp6502 outranks the built-in program: the loader parses
      * it straight out of the platform's staging window. */
@@ -431,13 +499,8 @@ int main(void)
         REGS_WIN[0x1D] = BOOT_ORG >> 8;
     }
 
-    /* The run fan-out precedes the 6502's release, in the firmware's
-     * order. */
-    com_run();
-    rln_run();
-    api_run();
     if (runnable)
-        cpu_run();
+        main_run();
 
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the
@@ -458,9 +521,7 @@ int main(void)
             }
             else if (API_OP == 0xFF)
             {
-                CPU_RESB = 0;
-                cpu_stop();
-                aud_stop();
+                main_stop();
                 api_return_ax(0);
             }
         }
@@ -475,5 +536,15 @@ int main(void)
         term_task();
         vid_task();
         api_task();
+        if (main_state == starting)
+        {
+            run();
+            main_state = running;
+        }
+        if (main_state == stopping)
+        {
+            stop();
+            main_state = stopped;
+        }
     }
 }

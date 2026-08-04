@@ -11,6 +11,11 @@
  * LRCK high as the shipped cores transmit; the stream must equal the
  * fed sequence exactly — every sample heard exactly ONCE.
  *
+ * THE CODEC MODELLED HERE IS OURS. Analogue names no part and
+ * publishes no waveform; the frame format above was read off other
+ * people's shipped cores and may be wrong in ways this bench cannot
+ * see, because it is the same assumption on both sides.
+ *
  * Once, because the machine is 48 kHz end to end now: the PSG and the
  * bell generate at it and the OPL is resampled into it upstream, so
  * this stage is 1:1 and any drop or repeat here is a bug. It used to

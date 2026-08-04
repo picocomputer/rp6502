@@ -10,6 +10,11 @@
  * frame must carry one vs, a hs on all 525 lines never coincident with
  * vs, exactly 640x480 de pixels whose RGB888 replicate the RGB555
  * pattern, and black everywhere outside the window.
+ *
+ * THE SCALER MODELLED HERE IS OURS. What Analogue's video input will
+ * accept is described in prose and not in a waveform, so the raster
+ * this bench decodes is our reading of it, taken from other cores.
+ * Expect errors; the display is the arbiter.
  */
 
 #include "Vpocket_video.h"

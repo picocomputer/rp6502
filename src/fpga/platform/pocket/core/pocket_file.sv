@@ -65,6 +65,7 @@ module pocket_file #(
     output logic pocket_file_read,
     output logic pocket_file_write,
     output logic pocket_file_openfile,
+    output logic pocket_file_getfile,
     output logic pocket_file_flush,
     output logic [15:0] pocket_file_id,
     output logic [31:0] pocket_file_slotoffset,
@@ -80,6 +81,7 @@ module pocket_file #(
     localparam logic [2:0] OP_WRITE = 3'd2;
     localparam logic [2:0] OP_OPEN = 3'd3;
     localparam logic [2:0] OP_DT = 3'd4;
+    localparam logic [2:0] OP_GETFILE = 3'd5;
     localparam logic [2:0] OP_FLUSH = 3'd6;
 
     localparam logic [3:0] F_IDLE = 4'd0;
@@ -196,6 +198,7 @@ module pocket_file #(
             pocket_file_read <= 1'b0;
             pocket_file_write <= 1'b0;
             pocket_file_openfile <= 1'b0;
+            pocket_file_getfile <= 1'b0;
             pocket_file_flush <= 1'b0;
             pocket_file_dt_req <= 1'b0;
             pocket_file_dt_addr <= '0;
@@ -209,6 +212,7 @@ module pocket_file #(
                     pocket_file_read <= r_op == OP_READ;
                     pocket_file_write <= r_op == OP_WRITE;
                     pocket_file_openfile <= r_op == OP_OPEN;
+                    pocket_file_getfile <= r_op == OP_GETFILE;
                     pocket_file_flush <= r_op == OP_FLUSH;
                     fstate <= F_ARM;
                 end
@@ -218,6 +222,7 @@ module pocket_file #(
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;
+                    pocket_file_getfile <= 1'b0;
                     pocket_file_flush <= 1'b0;
                     if (!target_dataslot_done)
                         fstate <= F_WAIT;

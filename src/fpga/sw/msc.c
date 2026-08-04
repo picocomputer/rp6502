@@ -151,13 +151,50 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
+/* The one command the host answers with something other than a result
+ * code, and the one direction the outbound window cannot carry: the
+ * bridge writes the store, so the name lands where a Slot Read lands.
+ *
+ * Analogue documents the command and not the shape of what comes back.
+ * This reads a NUL-terminated name at offset 0, which is where Open
+ * File's parameter struct carries one; hardware is what settles it. */
+bool msc_getfile(uint32_t slot, char *out, size_t cap)
+{
+    FILE_ID = slot;
+    FILE_BRIDGE = FILE_STAGE_BRIDGE;
+    uint32_t st = msc_command(FILE_OP_GETFILE);
+    if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+        return false;
+
+    char utf8[MSC_NAME_MAX];
+    size_t n = 0;
+    while (n < MSC_NAME_MAX - 1 && FILE_STAGE[n])
+        utf8[n] = (char)FILE_STAGE[n], n++;
+    utf8[n] = 0;
+
+    uint16_t page = font_get_code_page();
+    const char *p = utf8;
+    size_t o = 0;
+    for (;;)
+    {
+        unsigned char c = uni_from_utf8_next(&p, page);
+        if (!c)
+            break;
+        if (o + 1 >= cap)
+            return false;
+        out[o++] = (char)c;
+    }
+    out[o] = 0;
+    return o != 0;
+}
+
 /* Measured on hardware, both of them. The host does not create folders
  * and does not say so — a create into a missing folder answers with a
  * descriptor and leaves nothing on the card — so the package ships the
  * one folder the drive needs. And it does not resolve a relative name,
  * so the drive spells the path out. A name that arrives absolute is the
  * program reaching for the card's root and travels untouched. */
-#define MSC_PATH "/Saves/rp6502/common/"
+#define MSC_PATH MSC_SAVES_PATH
 #define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 

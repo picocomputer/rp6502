@@ -8,6 +8,12 @@
  * enforced — precharge-all, two refreshes, mode register — and the
  * coarse timing floors a real chip cares about, failed loudly with
  * $fatal so a sloppy controller cannot pass by accident.
+ *
+ * THIS CHIP IS OURS, NOT THE BOARD'S. Analogue names no part and
+ * publishes no schematic, so the geometry and every timing floor below
+ * are generic SDR values rather than the datasheet of whatever is
+ * actually soldered to a Pocket. Expect errors: a real part can be
+ * slower than this model in ways nothing here would catch.
  */
 
 module sdram_model (
