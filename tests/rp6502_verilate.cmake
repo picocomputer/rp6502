@@ -133,6 +133,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/vga/term/term.c)
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
+            # Prologues and epilogues become calls into libgcc's
+            # __riscv_save_N/__riscv_restore_N instead of a run of
+            # stores. 1,768 bytes on this image, measured, for a few
+            # cycles a call — and the TCM is 64 KB with the whole
+            # firmware in it, so text is the scarce thing, not cycles.
+            -msave-restore
             -Os -ffreestanding -nostartfiles
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
             -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
