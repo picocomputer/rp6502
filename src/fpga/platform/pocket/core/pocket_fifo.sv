@@ -37,8 +37,12 @@ module pocket_fifo #(
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [WIDTH-1:0] mem[1 << DEPTH_LOG2];
 
-    logic [PW-1:0] wptr, wptr_gray, rptr_gray_w1, rptr_gray_w2;
-    logic [PW-1:0] rptr, rptr_gray, wptr_gray_r1, wptr_gray_r2;
+    /* Preserved: two flops in series with nothing between them are
+     * equivalent, and without a reset to tell them apart the fitter
+     * merges them and the crossing loses its synchroniser. */
+    logic [PW-1:0] wptr, wptr_gray, rptr, rptr_gray;
+    (* preserve *) logic [PW-1:0] rptr_gray_w1, rptr_gray_w2;
+    (* preserve *) logic [PW-1:0] wptr_gray_r1, wptr_gray_r2;
 
     logic [PW-1:0] wptr_n, rptr_n;
     always_comb wptr_n = wptr + PW'(w_stb && !pocket_fifo_full);

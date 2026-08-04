@@ -11,11 +11,6 @@
 #       What is left is aud_opl's core_ic_n, the vendor core's own.
 R101 1
 #
-# S102  A register whose synchronous and asynchronous ports come from one
-#       source. All sixteen are inside vendor/opl2_fpga's hold_reg and
-#       hold_val.
-S102 16
-#
 # D101  Data crossing clock domains without a synchroniser. Almost all of
 #       this is the clk_sys/clk_rv seam, which rp6502.sdc declares one
 #       synchronous group on purpose — the tool cannot see the SDC and
@@ -39,7 +34,7 @@ D103 3
 #       tool cannot know the encoding. The bridge's held parameter buses
 #       and Analogue's own controller buses make up the rest, along with
 #       r_op again.
-D102 23
+D102 22
 #
 # C104  A clock source driving something other than a clock port:
 #       clk_74a, which Analogue's own framework also uses as data.

@@ -74,7 +74,10 @@ module pocket_video (
     always_ff @(posedge clk_sys)
         if (vid_frame)
             frame_t <= !frame_t;
-    logic frame_t1, frame_t2, frame_t3;
+    /* Preserved: two flops in series with nothing between them are
+     * equivalent, and without a reset to tell them apart the fitter
+     * merges them and the crossing loses its synchroniser. */
+    (* preserve *) logic frame_t1, frame_t2, frame_t3;
     initial begin
         frame_t1 = 1'b0;
         frame_t2 = 1'b0;
@@ -135,7 +138,8 @@ module pocket_video (
 
     /* The reader's copy of the canvas, crossed and held for a whole
      * frame so the window cannot tear mid-picture. */
-    logic [2:0] canvas_s1, canvas_s2, canvas;
+    (* preserve *) logic [2:0] canvas_s1, canvas_s2;
+    logic [2:0] canvas;
     initial begin
         canvas_s1 = '0;
         canvas_s2 = '0;

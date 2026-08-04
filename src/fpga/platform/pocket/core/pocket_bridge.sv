@@ -196,8 +196,11 @@ module pocket_bridge (
     end
 
     /* --- The machine's release and the posting, clk_sys side. --- */
-    logic settle_t1, settle_t2, settle_t3;
-    logic reset_n_s1, reset_n_s2;
+    /* Preserved: two flops in series with nothing between them are
+     * equivalent, and without a reset to tell them apart the fitter
+     * merges them and the crossing loses its synchroniser. */
+    (* preserve *) logic settle_t1, settle_t2, settle_t3;
+    (* preserve *) logic reset_n_s1, reset_n_s2;
     logic settled;
     logic run_q;
     logic [3:0] post;
@@ -251,13 +254,21 @@ module pocket_bridge (
      * had a gamepad since it was designed and did not need the pad to
      * pretend; the keys below are the dock's own keyboard, arriving as
      * scan codes on the third slot the way APF sends them. */
-    logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2, kk_s1, kk_s2, kj_s1, kj_s2;
-    logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
-    logic [31:0] ut_s1, ut_s2;
-    logic [31:0] um_s1, um_s2, us_s1, us_s2;
-    logic [31:0] re_s1, re_s2;
-    logic rv_s1, rv_s2;
-    logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
+    /* Preserved, every one of them. These are the two flops that make a
+     * crossing safe, and two flops in series with nothing between them
+     * are equivalent — with a reset to tell them apart the fitter left
+     * them alone, and without one it merged rv_s1 and rv_s2 into the
+     * register they feed. What was left was clk_74a reaching a clk_sys
+     * flop directly: no synchroniser, and a path the analyzer then
+     * reported as six nanoseconds of setup failure. */
+    (* preserve *) logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2;
+    (* preserve *) logic [31:0] kk_s1, kk_s2, kj_s1, kj_s2;
+    (* preserve *) logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
+    (* preserve *) logic [31:0] ut_s1, ut_s2;
+    (* preserve *) logic [31:0] um_s1, um_s2, us_s1, us_s2;
+    (* preserve *) logic [31:0] re_s1, re_s2;
+    (* preserve *) logic rv_s1, rv_s2;
+    (* preserve *) logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
     initial begin
         pk_s1 = '0; pk_s2 = '0;
         pj_s1 = '0; pj_s2 = '0;

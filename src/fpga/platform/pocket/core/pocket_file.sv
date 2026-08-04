@@ -105,7 +105,10 @@ module pocket_file #(
     logic busy, tmo_flag;
     logic [2:0] r_err;
     logic [31:0] r_result;
-    logic ret_t1, ret_t2, ret_t3;
+    /* Preserved: two flops in series with nothing between them are
+     * equivalent, and without a reset to tell them apart the fitter
+     * merges them and the crossing loses its synchroniser. */
+    (* preserve *) logic ret_t1, ret_t2, ret_t3;
     logic win_we, reg_we;
 
     always_comb begin
@@ -182,7 +185,7 @@ module pocket_file #(
     end
 
     logic [3:0] fstate;
-    logic go_t1, go_t2, go_t3;
+    (* preserve *) logic go_t1, go_t2, go_t3;
     logic [TIMEOUT_BITS-1:0] tmo;
 
     always_ff @(posedge clk_74a or negedge arst_n) begin
