@@ -59,14 +59,12 @@ module pocket_file #(
      * size. */
     output logic pocket_file_dt_req,
     output logic [9:0] pocket_file_dt_addr,
-    output logic pocket_file_dt_we,
     input logic [31:0] datatable_q,
     input logic dt_busy,
 
     output logic pocket_file_read,
     output logic pocket_file_write,
     output logic pocket_file_openfile,
-    output logic pocket_file_getfile,
     output logic pocket_file_flush,
     output logic [15:0] pocket_file_id,
     output logic [31:0] pocket_file_slotoffset,
@@ -82,9 +80,7 @@ module pocket_file #(
     localparam logic [2:0] OP_WRITE = 3'd2;
     localparam logic [2:0] OP_OPEN = 3'd3;
     localparam logic [2:0] OP_DT = 3'd4;
-    localparam logic [2:0] OP_GETFILE = 3'd5;
     localparam logic [2:0] OP_FLUSH = 3'd6;
-    localparam logic [2:0] OP_DTW = 3'd7;
 
     localparam logic [3:0] F_IDLE = 4'd0;
     localparam logic [3:0] F_START = 4'd1;
@@ -94,8 +90,6 @@ module pocket_file #(
     localparam logic [3:0] F_DT1 = 4'd5;
     localparam logic [3:0] F_DT2 = 4'd6;
     localparam logic [3:0] F_DT3 = 4'd7;
-    localparam logic [3:0] F_DTW0 = 4'd8;
-    localparam logic [3:0] F_DTW1 = 4'd9;
 
     logic [2:0] r_op;
     logic go_t, ret_t, tmo_q;
@@ -202,11 +196,9 @@ module pocket_file #(
             pocket_file_read <= 1'b0;
             pocket_file_write <= 1'b0;
             pocket_file_openfile <= 1'b0;
-            pocket_file_getfile <= 1'b0;
             pocket_file_flush <= 1'b0;
             pocket_file_dt_req <= 1'b0;
             pocket_file_dt_addr <= '0;
-            pocket_file_dt_we <= 1'b0;
         end else begin
             go_t1 <= go_t;
             go_t2 <= go_t1;
@@ -217,7 +209,6 @@ module pocket_file #(
                     pocket_file_read <= r_op == OP_READ;
                     pocket_file_write <= r_op == OP_WRITE;
                     pocket_file_openfile <= r_op == OP_OPEN;
-                    pocket_file_getfile <= r_op == OP_GETFILE;
                     pocket_file_flush <= r_op == OP_FLUSH;
                     fstate <= F_ARM;
                 end
@@ -227,7 +218,6 @@ module pocket_file #(
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;
-                    pocket_file_getfile <= 1'b0;
                     pocket_file_flush <= 1'b0;
                     if (!target_dataslot_done)
                         fstate <= F_WAIT;
@@ -273,35 +263,12 @@ module pocket_file #(
                     ret_t  <= !ret_t;
                     fstate <= F_IDLE;
                 end
-                /* The write walk, same yield discipline: the enable is
-                 * one cycle, and a cycle the loader stole is redone —
-                 * the wrapper gates the enable with the grant, so a
-                 * stolen cycle writes nothing rather than writing the
-                 * loader's address. */
-                F_DTW0:
-                if (!dt_busy) begin
-                    pocket_file_dt_req  <= 1'b1;
-                    pocket_file_dt_addr <= pocket_file_id[9:0];
-                    pocket_file_dt_we   <= 1'b1;
-                    fstate <= F_DTW1;
-                end
-                F_DTW1: begin
-                    pocket_file_dt_we <= 1'b0;
-                    if (dt_busy)
-                        fstate <= F_DTW0;
-                    else begin
-                        pocket_file_dt_req <= 1'b0;
-                        ret_t  <= !ret_t;
-                        fstate <= F_IDLE;
-                    end
-                end
                 default:
                 if (go_t2 != go_t3) begin
                     err_q  <= '0;
                     tmo_q  <= 1'b0;
                     tmo    <= '0;
-                    fstate <= r_op == OP_DT ? F_DT0
-                        : r_op == OP_DTW ? F_DTW0 : F_START;
+                    fstate <= r_op == OP_DT ? F_DT0 : F_START;
                 end
             endcase
         end

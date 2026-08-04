@@ -42,8 +42,7 @@ module vid_sprite (
     output logic vid_sprite_a_req,
     output logic [13:0] vid_sprite_a_addr,
     input logic a_gnt,
-    input logic [31:0] a_rdata,
-    input logic ov_clear
+    input logic [31:0] a_rdata
 );
 
     logic [9:0] t;
@@ -252,13 +251,10 @@ module vid_sprite (
         m4_start <= 1'b0;
         m5_start <= 1'b0;
         vid_sprite_force <= 1'b0;
-        if (ov_clear)
-            vid_sprite_overrun <= '0;
         if (h == 10'd799 && state != SP_IDLE) begin
             /* The lost race: count it once and drop the line; the
              * engines die at the next line_start. */
-            vid_sprite_overrun <= (ov_clear ? 16'd0
-                                            : vid_sprite_overrun)
+            vid_sprite_overrun <= vid_sprite_overrun
                 + 16'd1;
             state <= SP_IDLE;
         end else if (line_start) begin

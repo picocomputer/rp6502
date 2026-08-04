@@ -78,11 +78,6 @@ static void tick()
         dut->datatable_q = dt_pipe[1];
         dt_pipe[1] = dt_pipe[0];
         dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
-        /* The write side: the machine publishes a nonvolatile slot's
-         * size. The enable is a clk_sys pulse wide enough to cover a
-         * 74a period, sampled here the way the real RAM samples it. */
-        if (dut->tb_pocket_dt_we)
-            g_dt[dut->tb_pocket_dt_addr & 63] = dut->tb_pocket_dt_wdata;
         dut->clk_74a = 1;
     }
     dut->eval();

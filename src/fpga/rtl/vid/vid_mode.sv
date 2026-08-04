@@ -54,7 +54,6 @@ module vid_mode (
     output logic vid_mode_rfilled,
     /* A fill that missed its deadline re-scans the line before it with
      * nothing to say so, so hardware counts these. */
-    output logic vid_mode_underrun,
     input logic sp_we,
     input logic [9:0] sp_addr,
     input logic [15:0] sp_data,
@@ -441,7 +440,6 @@ module vid_mode (
         filled_q[0] = 1'b0;
         filled_q[1] = 1'b0;
         flip_next = 1'b0;
-        vid_mode_underrun = 1'b0;
         state = S_IDLE;
         t = '0;
         attr = '0;
@@ -480,7 +478,6 @@ module vid_mode (
         end
         /* The next line's pixel 0 is read during h==799, so the flip
          * must land before it or that pixel comes up stale. */
-        vid_mode_underrun <= h == 10'd799 && state != S_IDLE;
 `ifdef VERILATOR
         /* The counter above still counts them; only the stop waits one
          * frame, which is what a reset costs a beam that does not take

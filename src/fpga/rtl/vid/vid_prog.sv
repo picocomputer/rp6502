@@ -56,9 +56,6 @@ module vid_prog (
 
     /* The render's lost races: the sprite stage's in the low half, the
      * planes' missed fills in the high. A write clears both. */
-    input logic [15:0] sp_overrun,
-    input logic [15:0] plane_underrun,
-    output logic vid_prog_ov_clear,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
      * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
@@ -111,7 +108,7 @@ module vid_prog (
                 end
             end else begin
                 vid_prog_b_rdata <= b_addr[3]
-                    ? {plane_underrun, sp_overrun}
+                    ? 32'd0
                     : (b_addr[2] ? {22'd0, vsync_shadow}
                                  : {29'd0, canvas_shadow});
             end
@@ -141,8 +138,6 @@ module vid_prog (
             vsync_q <= vsync_shadow;
     end
 
-    always_comb vid_prog_ov_clear = b_stb && b_we && b_addr[15]
-        && b_addr[3];
 
     always_comb begin
         vid_prog_console = vid_prog_canvas == 3'd0;

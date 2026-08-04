@@ -45,7 +45,6 @@
 #define FONTS ((volatile const uint8_t *)0x63FF0000u)
 #define FILE_STAGE ((volatile const uint8_t *)0x63FE0000u)
 #define FILE_STAGE_BRIDGE 0x03FE0000u
-#define FILE_STAGE_SIZE 0x10000u
 #define OEMCP ((volatile const uint8_t *)0x63FD0000u)
 /* The most the host will move in one slot operation. The ceiling is not
  * arbitrary: it is half the staging region, which keeps a transfer
@@ -91,9 +90,6 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_WRITE 2u
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
-/* Get File answers into the staging store at FILE_BRIDGE, since the
- * bridge writes toward us and cannot write the window. */
-#define FILE_OP_GETFILE 5u
 /* Analogue documents 0x0188 but never implemented it in its own
  * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
  * are not Open File's: 0 is written, 1 is slot not defined; 7 is the
@@ -103,10 +99,6 @@ static inline int32_t set_tz_minutes(void)
  * its own parked command while this side is still listening. The
  * timeout bit now means the bridge itself stopped answering. */
 #define FILE_OP_FLUSH 6u
-/* Write one word of the data slot size table: FILE_ID names the table
- * word, FILE_LENGTH carries the value. How a nonvolatile slot's size
- * gets published, so the host persists that many bytes at shutdown. */
-#define FILE_OP_DTW 7u
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu
@@ -140,9 +132,6 @@ static inline int32_t set_tz_minutes(void)
 #define VID_FONT_DEC16 ((volatile uint32_t *)0x50043000u)
 #define VID_CANVAS (*(volatile uint32_t *)0x50028000u)
 #define VID_VSYNC_LINE (*(volatile uint32_t *)0x50028004u)
-/* The render's lost races: sprite slots in the low half, plane fills
- * that missed the beam in the high. A write clears both. */
-#define VID_OVERRUN (*(volatile uint32_t *)0x50028008u)
 #define REGS_WIN ((volatile uint8_t *)0x20000000u)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)

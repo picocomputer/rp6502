@@ -30,8 +30,6 @@ module pocket_core #(
     input logic dataslot_allcomplete,
     input logic reset_n,
     output logic [9:0] pocket_core_dt_addr,
-    output logic pocket_core_dt_we,
-    output logic [31:0] pocket_core_dt_wdata,
     input logic [31:0] datatable_q,
     input logic [31:0] rtc_epoch,
     input logic rtc_valid,
@@ -41,7 +39,6 @@ module pocket_core #(
     output logic pocket_core_dataslot_read,
     output logic pocket_core_dataslot_write,
     output logic pocket_core_dataslot_openfile,
-    output logic pocket_core_dataslot_getfile,
     output logic pocket_core_dataslot_flush,
     output logic [15:0] pocket_core_dataslot_id,
     output logic [31:0] pocket_core_dataslot_slotoffset,
@@ -146,15 +143,9 @@ module pocket_core #(
     logic [15:0] w_data;
 
     logic [9:0] bridge_dt_addr, file_dt_addr;
-    logic dt_busy, file_dt_req, file_dt_we;
+    logic dt_busy, file_dt_req;
     always_comb pocket_core_dt_addr = file_dt_req && !dt_busy
         ? file_dt_addr : bridge_dt_addr;
-    /* The write enable only passes while the file walk owns the
-     * address: a cycle the loader steals writes nothing, and
-     * pocket_file redoes it, rather than a stolen cycle writing
-     * through the loader's address. */
-    always_comb pocket_core_dt_we = file_dt_we && file_dt_req && !dt_busy;
-    always_comb pocket_core_dt_wdata = pocket_core_dataslot_length;
 
     pocket_bridge bridge (
         .clk_74a(clk_74a),
@@ -346,13 +337,11 @@ module pocket_core #(
         .pocket_file_resp_struct(pocket_core_resp_struct),
         .pocket_file_dt_req(file_dt_req),
         .pocket_file_dt_addr(file_dt_addr),
-        .pocket_file_dt_we(file_dt_we),
         .datatable_q(datatable_q),
         .dt_busy(dt_busy),
         .pocket_file_read(pocket_core_dataslot_read),
         .pocket_file_write(pocket_core_dataslot_write),
         .pocket_file_openfile(pocket_core_dataslot_openfile),
-        .pocket_file_getfile(pocket_core_dataslot_getfile),
         .pocket_file_flush(pocket_core_dataslot_flush),
         .pocket_file_id(pocket_core_dataslot_id),
         .pocket_file_slotoffset(pocket_core_dataslot_slotoffset),
