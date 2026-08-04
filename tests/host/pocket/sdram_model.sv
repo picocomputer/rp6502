@@ -9,11 +9,25 @@
  * coarse timing floors a real chip cares about, failed loudly with
  * $fatal so a sloppy controller cannot pass by accident.
  *
- * THIS CHIP IS OURS, NOT THE BOARD'S. Analogue names no part and
- * publishes no schematic, so the geometry and every timing floor below
- * are generic SDR values rather than the datasheet of whatever is
- * actually soldered to a Pocket. Expect errors: a real part can be
- * slower than this model in ways nothing here would catch.
+ * THIS CHIP IS OURS, NOT THE BOARD'S — but it is no longer a guess.
+ * Analogue names the part, AS4C32M16MSA-6BIN, and every floor below is
+ * that datasheet at 50.4 MHz where a clock is 19.841 ns:
+ *
+ *   tRCD  18 ns    1 clk      tRAS min  48 ns     3 clk
+ *   tRP   18 ns    1 clk      tRAS max 100 us  5040 clk
+ *   tRC   60 ns    4 clk      tRFC      80 ns     5 clk
+ *   tDPL   2 tCK   2 clk      tXSR      80 ns     5 clk
+ *
+ * Three of those are close calls that round the wrong way if you are
+ * careless: tRC at 3 clk is 59.5 ns and misses 60 by half a nanosecond,
+ * tRFC at 4 clk misses 80 by the same, and the refresh interval is a
+ * ceiling that rounds DOWN — 393 clk fits inside 7812.5 ns and 394 does
+ * not.
+ *
+ * What is still ours is the behaviour around those numbers, and it can
+ * still be wrong. This model has already been wrong once in a way that
+ * mattered: it demanded auto-precharge on every access because that is
+ * what our controller happened to do.
  */
 
 module sdram_model (
@@ -28,7 +42,10 @@ module sdram_model (
     input logic [15:0] dq_in,
     input logic dq_oe,
     output logic [15:0] dq_out,
-    output logic [31:0] sdram_model_refreshes
+    output logic [31:0] sdram_model_refreshes,
+    /* Clocks spent in self refresh, so a test can prove the store
+     * actually goes to sleep rather than merely being allowed to. */
+    output logic [31:0] sdram_model_sref_clocks
 );
 
     logic [15:0] mem[1 << 25] /*verilator public_flat_rw*/;
@@ -41,14 +58,16 @@ module sdram_model (
     logic [1:0] saw_ref;
     logic saw_mrs;
 
-    /* Coarse timing floors, in clocks at the controller's 50.4 MHz. The
-     * values only work there: tRCD's floor of 2 is 39.7 ns at 50.4 and
-     * an illegal 19.8 ns at the 100.8 an older comment claimed. */
+    /* The floors above, counted in clocks. They only hold at 50.4 MHz:
+     * every one of them is a nanosecond figure divided by 19.841, so a
+     * different clock needs different numbers. */
     int since_act[4];
     int since_pre[4];
     int since_wr[4];
     int since_ref;
     int since_any;
+    int since_srex;
+    logic in_sref;
 
     logic [2:0] cmd;
     always_comb cmd = {ras_n, cas_n, we_n};
@@ -71,22 +90,48 @@ module sdram_model (
             saw_mrs <= 1'b0;
             since_ref <= 100;
             since_any <= 100;
+            since_srex <= 100;
+            in_sref <= 1'b0;
             rd_p0 <= '0;
             rd_p1 <= '0;
             sdram_model_refreshes <= '0;
+            sdram_model_sref_clocks <= '0;
         end else begin
             rd_p1 <= rd_p0;
             for (int b = 0; b < 4; b++) begin
                 since_act[b] <= since_act[b] + 1;
                 since_pre[b] <= since_pre[b] + 1;
                 since_wr[b] <= since_wr[b] + 1;
+                /* A row may not be held past tRAS max. Nothing enforced
+                 * this while every access auto-precharged; keeping rows
+                 * open is what made it reachable. */
+                if (row_open[b] && since_act[b] > 5040)
+                    $fatal(1, "sdram_model: tRAS max exceeded, bank %0d", b);
             end
             since_ref <= since_ref + 1;
             since_any <= since_any + 1;
+            since_srex <= since_srex + 1;
 
-            if (!cke)
-                $fatal(1, "sdram_model: cke dropped");
-
+            if (in_sref) begin
+                sdram_model_sref_clocks <= sdram_model_sref_clocks + 32'd1;
+                /* Asleep: the chip is refreshing itself and no command
+                 * is sampled. CKE going high is the only thing it sees,
+                 * and the array is good as of that moment. */
+                if (cke) begin
+                    in_sref <= 1'b0;
+                    since_srex <= 0;
+                    since_ref <= 0;
+                end
+            end else if (!cke) begin
+                /* The one legal reason to drop CKE here: an auto refresh
+                 * issued with it low is a self refresh entry. */
+                if (cmd != 3'b001)
+                    $fatal(1, "sdram_model: CKE low without self refresh entry");
+                for (int b = 0; b < 4; b++)
+                    if (row_open[b])
+                        $fatal(1, "sdram_model: self refresh with an open row");
+                in_sref <= 1'b1;
+            end else
             case (cmd)
                 3'b111: ;  /* NOP */
                 3'b010: begin  /* PRECHARGE */
@@ -116,7 +161,7 @@ module sdram_model (
                     for (int b = 0; b < 4; b++)
                         if (row_open[b])
                             $fatal(1, "sdram_model: refresh with open row");
-                    if (since_ref < 8)
+                    if (since_ref < 5)
                         $fatal(1, "sdram_model: tRFC violated");
                     since_ref <= 0;
                     if (saw_ref != 2'd3)
@@ -135,10 +180,14 @@ module sdram_model (
                         $fatal(1, "sdram_model: ACT before init");
                     if (row_open[ba])
                         $fatal(1, "sdram_model: ACT on open bank");
-                    if (since_pre[ba] < 2)
+                    if (since_pre[ba] < 1)
                         $fatal(1, "sdram_model: tRP violated");
-                    if (since_ref < 8)
+                    if (since_act[ba] < 4)
+                        $fatal(1, "sdram_model: tRC violated");
+                    if (since_ref < 5)
                         $fatal(1, "sdram_model: tRFC before ACT");
+                    if (since_srex < 5)
+                        $fatal(1, "sdram_model: tXSR violated");
                     row[ba] <= a;
                     row_open[ba] <= 1'b1;
                     since_act[ba] <= 0;
@@ -153,7 +202,7 @@ module sdram_model (
                 3'b101: begin  /* READ */
                     if (!row_open[ba])
                         $fatal(1, "sdram_model: READ on closed bank");
-                    if (since_act[ba] < 2)
+                    if (since_act[ba] < 1)
                         $fatal(1, "sdram_model: tRCD violated on read");
                     rd_p0 <= mem[{ba, row[ba], a[9:0]}];
                     if (a[10]) begin
@@ -164,7 +213,7 @@ module sdram_model (
                 3'b100: begin  /* WRITE */
                     if (!row_open[ba])
                         $fatal(1, "sdram_model: WRITE on closed bank");
-                    if (since_act[ba] < 2)
+                    if (since_act[ba] < 1)
                         $fatal(1, "sdram_model: tRCD violated on write");
                     if (!dq_oe)
                         $fatal(1, "sdram_model: write with dq released");

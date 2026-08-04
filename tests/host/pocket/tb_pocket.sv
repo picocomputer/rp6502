@@ -79,6 +79,7 @@ module tb_pocket (
     logic [15:0] dq_c2m, dq_m2c;
     logic dq_oe;
     logic [31:0] refreshes;
+    logic [31:0] sref_clocks;
 
     pocket_core core (
         .clk_74a(clk_74a),
@@ -158,12 +159,13 @@ module tb_pocket (
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
-        .sdram_model_refreshes(refreshes)
+        .sdram_model_refreshes(refreshes),
+        .sdram_model_sref_clocks(sref_clocks)
     );
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pocket;
-    always_comb unused_tb_pocket = ^{dqm, refreshes};
+    always_comb unused_tb_pocket = ^{dqm, refreshes, sref_clocks};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

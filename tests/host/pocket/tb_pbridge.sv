@@ -136,6 +136,7 @@ module tb_pbridge (
     );
 
     logic [31:0] refreshes;
+    logic [31:0] sref_clocks;
     sdram_model chip (
         .clk(clk_sys),
         .rst_n(rst_n),
@@ -148,12 +149,13 @@ module tb_pbridge (
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
-        .sdram_model_refreshes(refreshes)
+        .sdram_model_refreshes(refreshes),
+        .sdram_model_sref_clocks(sref_clocks)
     );
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
-    always_comb unused_tb_pbridge = ^{dqm, refreshes, dt_busy, set_tz, set_tz_min,
+    always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks, dt_busy, set_tz, set_tz_min,
                                       set_tz_sign, rtc_epoch_s,
                                       rtc_valid_s};
     /* verilator lint_on UNUSEDSIGNAL */

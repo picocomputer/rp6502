@@ -61,17 +61,45 @@ module pocket_sdram (
      * refreshes, mode register CL2 burst-1. */
     localparam int INIT_WAIT = 10100;
     localparam logic [12:0] MODE_CL2_BL1 = 13'b000_0_00_010_0_000;
-    localparam int REFRESH_EVERY = 390; /* 7.7 us, 8192 rows in 64 ms */
+    /* 8192 rows in 64 ms is 7812.5 ns a row, and this one rounds DOWN
+     * because it is a ceiling: 393 clk is 7797 ns and fits, 394 is 7817
+     * and does not. */
+    localparam int REFRESH_EVERY = 390;
+
+    /* Idle thresholds, and the reason there are two. This store is the
+     * machine's pseudo-ROM — a program image, the fonts, the code page
+     * tables — so it is read hard for a few milliseconds at load and
+     * then almost never. The datasheet prices that idleness:
+     *
+     *   IDD2N  precharged, CKE high   15    mA   <- what it used to do
+     *   IDD3P  a row open, CKE low     5    mA
+     *   IDD2P  precharged, CKE low     0.3  mA
+     *   IDD6   self refresh, 4 banks   0.7  mA
+     *   IDD5   an auto refresh       110    mA
+     *
+     * So an idle store costs fifty times more awake than asleep, and the
+     * open rows that make it fast cost sixteen times more than closed
+     * ones. Close the rows shortly after the traffic stops, then hand
+     * the refreshing to the chip and stop clocking it.
+     *
+     * Self refresh beats CKE power-down here even though IDD2P is the
+     * smaller number, because power-down still has to wake every 7.8 us
+     * for an IDD5 refresh: 0.3 mA held plus 110 mA for five clocks in
+     * 390 averages 1.7 mA, against a flat 0.7 mA asleep. */
+    localparam int IDLE_CLOSE = 64;  /* 1.3 us */
+    localparam int IDLE_SREF = 256;  /* 5.1 us */
 
     typedef enum logic [3:0] {
         S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS,
-        S_IDLE, S_REFRESH, S_PALL_R, S_PRE, S_ACT, S_READ, S_WRITE, S_WAIT
+        S_IDLE, S_REFRESH, S_PALL_R, S_PALL_I, S_PRE, S_ACT, S_READ,
+        S_WRITE, S_SREF_ENT, S_SREF, S_WAIT
     } state_t;
     state_t state, after;
 
     logic [14:0] wait_cnt;
     logic [9:0] ref_cnt;
     logic [1:0] ref_due;
+    logic [9:0] idle_cnt;
 
     logic op_is_read;
     logic [24:0] op_addr;
@@ -112,10 +140,7 @@ module pocket_sdram (
         req_needs_pre = bank_active[req_bank] && !req_hit;
     end
 
-    always_comb begin
-        dram_cke = 1'b1;
-        dram_dqm = 2'b00;
-    end
+    always_comb dram_dqm = 2'b00;
 
     initial begin
         state = S_BOOT;
@@ -123,6 +148,8 @@ module pocket_sdram (
         wait_cnt = 15'(INIT_WAIT);
         ref_cnt = '0;
         ref_due = '0;
+        idle_cnt = '0;
+        dram_cke = 1'b1;
         op_is_read = 1'b0;
         op_addr = '0;
         op_wdata = '0;
@@ -149,7 +176,10 @@ module pocket_sdram (
         dram_dq_oe <= 1'b0;
         pocket_sdram_wtake <= 1'b0;
 
-        if (pocket_sdram_ready) begin
+        /* Frozen while asleep: the chip is doing its own refreshing and
+         * a due count that kept rising would wake it the moment it
+         * exited to serve one access. */
+        if (pocket_sdram_ready && state != S_SREF) begin
             if (ref_cnt == 10'(REFRESH_EVERY - 1)) begin
                 ref_cnt <= '0;
                 if (ref_due != 2'd3)
@@ -208,13 +238,16 @@ module pocket_sdram (
             S_IDLE: begin
                 if (ref_due != '0) begin
                     /* Auto-refresh wants every bank precharged. */
+                    idle_cnt <= '0;
                     state <= any_active ? S_PALL_R : S_REFRESH;
                 end else if (rd_pend && !pocket_sdram_rvalid) begin
+                    idle_cnt <= '0;
                     op_is_read <= 1'b1;
                     op_addr <= rd_addr;
                     state <= req_hit ? S_READ
                            : (req_needs_pre ? S_PRE : S_ACT);
                 end else if (w_avail) begin
+                    idle_cnt <= '0;
                     op_is_read <= 1'b0;
                     op_addr <= w_addr;
                     op_wdata <= w_data;
@@ -226,6 +259,12 @@ module pocket_sdram (
                         held_valid <= 1'b0;
                     state <= req_hit ? S_WRITE
                            : (req_needs_pre ? S_PRE : S_ACT);
+                end else begin
+                    idle_cnt <= idle_cnt + 10'd1;
+                    if (idle_cnt == 10'(IDLE_CLOSE) && any_active)
+                        state <= S_PALL_I;
+                    else if (idle_cnt == 10'(IDLE_SREF) && !any_active)
+                        state <= S_SREF_ENT;
                 end
             end
             /* Refresh cannot run with a row open anywhere, so the rows
@@ -239,6 +278,41 @@ module pocket_sdram (
                 after <= S_REFRESH;
                 state <= S_WAIT;
             end
+            /* The rows the traffic left standing, given up because
+             * holding them costs sixteen times what closing them does
+             * and nobody has asked for anything in a microsecond. */
+            S_PALL_I: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b010;
+                dram_a <= 13'h400;
+                for (int b = 0; b < 4; b++)
+                    bank_active[b] <= 1'b0;
+                wait_cnt <= 15'd1; /* tRP */
+                after <= S_IDLE;
+                state <= S_WAIT;
+            end
+            /* Self refresh is an auto refresh issued with CKE low. The
+             * chip keeps its own time from here and the controller stops
+             * clocking it; every bank is already precharged, which is
+             * what entry requires. */
+            S_SREF_ENT: begin
+                {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
+                dram_cke <= 1'b0;
+                state <= S_SREF;
+            end
+            S_SREF:
+                if (rd_pend || w_avail) begin
+                    dram_cke <= 1'b1;
+                    /* tXSR 80 ns, and at least two command-inhibit
+                     * clocks; five covers both. The chip refreshed while
+                     * it slept, so the due count restarts rather than
+                     * resumes. */
+                    wait_cnt <= 15'd5;
+                    after <= S_IDLE;
+                    state <= S_WAIT;
+                    ref_cnt <= '0;
+                    ref_due <= '0;
+                    idle_cnt <= '0;
+                end
             S_REFRESH: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
                 ref_due <= ref_due - 2'd1;

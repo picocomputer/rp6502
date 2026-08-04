@@ -129,6 +129,27 @@ UTEST(psdram, load_soak_and_refresh)
      * (7.7 us at 50.4 MHz is one per 390). */
     long elapsed = g_clocks - soak_start;
     ASSERT_GT((long)dut->tb_psdram_refreshes, elapsed / 504);
+
+    /* Left alone, the store sleeps. This is the whole low-power case
+     * and it has to be asserted rather than assumed: the machine's
+     * pseudo-ROM is idle almost all the time, and awake it draws
+     * fifty times what self refresh does. */
+    uint32_t slept_before = dut->tb_psdram_sref_clocks;
+    uint32_t refreshed_before = dut->tb_psdram_refreshes;
+    for (int i = 0; i < 4000; i++)
+        clock_cycle();
+    ASSERT_GT((long)(dut->tb_psdram_sref_clocks - slept_before), 3000L);
+    /* And it refreshes itself while it sleeps — the controller must not
+     * be issuing any, or it never really went under. */
+    ASSERT_LT((long)(dut->tb_psdram_refreshes - refreshed_before), 3L);
+
+    /* Waking is the other half. The array survived, and the next access
+     * reads what was written before the nap. */
+    ASSERT_EQ(rd(a), 0x5555);
+    wr(a, 0x1234);
+    ASSERT_EQ(rd(a), 0x1234);
+    for (uint32_t i = 0; i < 3000; i += 37)
+        ASSERT_EQ(rd(0x7FF400u + i), ref[0x7FF400u + i]);
 }
 
 UTEST_STATE();

@@ -22,7 +22,8 @@ module tb_psdram (
     output logic tb_psdram_wtake,
 
     output logic tb_psdram_ready,
-    output logic [31:0] tb_psdram_refreshes
+    output logic [31:0] tb_psdram_refreshes,
+    output logic [31:0] tb_psdram_sref_clocks
 );
 
     logic cke;
@@ -68,7 +69,8 @@ module tb_psdram (
         .dq_in(dq_c2m),
         .dq_oe(dq_oe),
         .dq_out(dq_m2c),
-        .sdram_model_refreshes(tb_psdram_refreshes)
+        .sdram_model_refreshes(tb_psdram_refreshes),
+        .sdram_model_sref_clocks(tb_psdram_sref_clocks)
     );
 
     /* verilator lint_off UNUSEDSIGNAL */
