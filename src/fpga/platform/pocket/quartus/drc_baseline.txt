@@ -2,39 +2,54 @@
 # here. Anything above these numbers fails the build; see
 # src/gen/drc_gate.py. Lower a line when a fix lands.
 #
+# Every count and every attribution below was read out of the report
+# rather than reasoned about. The D101 entry used to claim the opposite
+# of what the report says, which is what an unchecked justification is
+# worth.
+#
 # R101  Combinational logic used as a reset, unsynchronised.
-#       mrst_n is the real one: the core's master reset, 7916 fanout on a
-#       global network, released asynchronously. Blocks leave reset in
-#       whatever order the routing gives, which is a different order
-#       every fit. Fixed: asserted asynchronously and released
-#       synchronously now, once per clock domain, in pocket_core.sv.
-#       What is left is aud_opl's core_ic_n, the vendor core's own.
+#       aud_opl's Equal2~1 — the chip_rst == 0 comparator — reaching the
+#       reset of the vendored OPL's own afifo. It is a counter compared
+#       against zero, held for 255 clocks at a time, and the core it
+#       resets is the vendor's. The machine's own reset is one flop now
+#       and reaches nothing but the 6502 and the 6522.
 R101 1
 #
-# D101  Data crossing clock domains without a synchroniser. Almost all of
-#       this is the clk_sys/clk_rv seam, which rp6502.sdc declares one
-#       synchronous group on purpose — the tool cannot see the SDC and
-#       counts it as asynchronous. Real, but not what this rule thinks.
+# D101  Data crossing clock domains without a synchroniser. All 551 are
+#       clk_74a into clk_sys. Not one is the clk_sys/clk_rv seam, which
+#       is what this entry used to say:
+#
+#         240  io_pad_controller  the controller and dock inputs
+#         158  pocket_bridge      timezone, RTC, and the input chains
+#         151  pocket_file        the command parameters and result
+#          32  core_bridge_cmd    Analogue's own
+#
+#       These are host-clock buses that stand still behind a handshake,
+#       or levels read whenever the machine looks. The tool sees the bits
+#       cross and cannot see what holds them, which is the same blind
+#       spot that reports every gray pointer under D102.
+#
+#       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
+#       anyway, in tests/synth.cmake: without it Quartus found all 78
+#       chains and discarded them, calculating no MTBF for the design at
+#       all. With it the tool identifies 476 chains, fails to rate 1.7%
+#       of them rather than 100%, and puts the design at 1e+09 years.
 D101 551
 #
-# D103  Data bits not correctly synchronised. pocket_file's r_op, the
-#       file command opcode. Traced and judged safe: r_op is written
-#       once per command and cannot change again until busy clears, and
-#       the host does not read it until go_t2 != go_t3, three clk_74a
-#       flops after the toggle that announced it. Data held still behind
-#       a synchronised toggle is the correct handshake; the tool flags
-#       it because it can see the three bits crossing and not the
-#       handshake, the same blind spot that flags every gray pointer
-#       under D102. Left as found.
-D103 3
-#
 # D102  Multi-bit crossings that are synchronised but may land
-#       misaligned. Most are pocket_fifo's gray pointers, where one bit
-#       changes per step and misalignment is safe by construction — the
-#       tool cannot know the encoding. The bridge's held parameter buses
-#       and Analogue's own controller buses make up the rest, along with
-#       r_op again.
+#       misaligned. pocket_fifo's gray pointers, where one bit changes
+#       per step and misalignment is safe by construction — the tool
+#       cannot know the encoding — and the bridge's held buses.
 D102 22
+#
+# D103  Data bits not correctly synchronised. pocket_file's command
+#       word: r_op, and the flush, write and getfile strobes beside it.
+#       Written once per command and unable to change again until busy
+#       clears, and the host does not read them until go_t2 != go_t3,
+#       three clk_74a flops after the toggle that announced them. Data
+#       held still behind a synchronised toggle is the correct
+#       handshake; the tool can see the bits and not the handshake.
+D103 3
 #
 # C104  A clock source driving something other than a clock port:
 #       clk_74a, which Analogue's own framework also uses as data.
@@ -45,7 +60,7 @@ C104 1
 R102 1
 #
 # C106  One clock driving both edges, and it stays. rp6502.sv takes the
-#       soft CPU's two narrowings on negedge clk_sys.
+#       soft CPU's bus strobe on negedge clk_sys.
 #
 #       This was first written down as a hack to be backed out, and that
 #       was wrong. The signal being narrowed is rv_soc_bus_stb, which is

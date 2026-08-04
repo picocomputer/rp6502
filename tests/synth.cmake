@@ -136,6 +136,16 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # and abandoned there. Standard Fit keeps going, and the margin
         # it finds is what survives the next fit's placement.
         "set_global_assignment -name FITTER_EFFORT \"STANDARD FIT\""
+        # Name the synchronisers. Quartus finds all 78 chains on its own
+        # and then discards them — "the design MTBF is not calculated
+        # because there are no specified synchronizers" — so every
+        # crossing into a chain's own first stage was reported as
+        # unsynchronised, and the design had no reliability figure at
+        # all. IF ASYNCHRONOUS rather than FORCED because the clk_sys and
+        # clk_rv pair is deliberately one synchronous group: forcing
+        # would invent synchronisers across a seam that is not a
+        # crossing.
+        "set_global_assignment -name SYNCHRONIZER_IDENTIFICATION \"FORCED IF ASYNCHRONOUS\""
         "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
