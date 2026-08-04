@@ -353,16 +353,13 @@ module rp6502
         end
     end
 
-    /* The platform asserts this whenever the host asks, not only at
-     * power-on, and a 6502 that comes out of it still running is one
-     * executing the last program against cells the firmware is rebuilding
-     * underneath it. */
-    always_ff @(posedge clk_sys or negedge rst_n) begin
-        if (!rst_n)
-            resb <= 1'b0;
-        else if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
+    /* Held at power-on and the firmware's from then on. The platform's
+     * reset does not reach it: RESB is the OS's line, the way it is on
+     * the RP2350, and cpu_init drives it low before anything else runs. */
+    initial resb = 1'b0;
+    always_ff @(posedge clk_sys)
+        if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
             resb <= bus_wbyte[0];
-    end
 
     /* The byte-wide windows put their byte on every lane, so the master's
      * own extract picks the addressed one. */

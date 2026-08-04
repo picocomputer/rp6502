@@ -63,6 +63,17 @@ static void rom_record(std::vector<uint8_t> &rom, uint32_t addr,
 /* Boot the staged image; true when the firmware accepted and halted 0. */
 static bool rtl_boot(const std::vector<uint8_t> &rom, std::string *rv_out)
 {
+    /* RESB is the OS's line and takes no reset, so each boot is a fresh
+     * machine rather than a pulse. */
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vrp6502;
+    dut->clk_sys = 0;
+    dut->clk_rv = 0;
+    dut->eval();
     if (!load_firmware(SW_BIN))
         return false;
     dut->rst_n = 0;

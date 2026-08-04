@@ -32,9 +32,20 @@ static void clock_cycle()
     dut->eval();
 }
 
+/* RESB is the OS's line and takes no reset, so a case that wants the
+ * machine held starts a new one. */
 static void machine_reset()
 {
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vrp6502;
+    dut->clk_sys = 0;
+    dut->clk_rv = 0;
     dut->rst_n = 0;
+    dut->eval();
     clock_cycle();
     clock_cycle();
     dut->rst_n = 1;

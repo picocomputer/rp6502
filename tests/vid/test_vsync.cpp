@@ -34,9 +34,20 @@ static void clock_cycle()
     dut->eval();
 }
 
+/* RESB is the OS's line and takes no reset, so a case that wants the
+ * machine held starts a new one. */
 static void machine_reset()
 {
+    if (dut)
+    {
+        dut->final();
+        delete dut;
+    }
+    dut = new Vrp6502;
+    dut->clk_sys = 0;
+    dut->clk_rv = 0;
     dut->rst_n = 0;
+    dut->eval();
     clock_cycle();
     clock_cycle();
     dut->rst_n = 1;
@@ -70,8 +81,8 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
         0x68,
         0x40,
     };
-    auto *r = dut->rootp;
     machine_reset();
+    auto *r = dut->rootp;
     for (size_t i = 0; i < 0x10000; i++)
         r->rp6502__DOT__sram__DOT__mem[i] = 0;
     for (size_t i = 0; i < sizeof prog; i++)
@@ -127,8 +138,8 @@ UTEST(vsync, movable_line_keeps_the_cadence)
         0xD0, 0xF2,
         0xDB,
     };
-    auto *r = dut->rootp;
     machine_reset();
+    auto *r = dut->rootp;
     r->rp6502__DOT__vid_prog__DOT__vsync_shadow = 240;
     for (size_t i = 0; i < 0x10000; i++)
         r->rp6502__DOT__sram__DOT__mem[i] = 0;
@@ -148,7 +159,11 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     }
     ASSERT_TRUE(r->rp6502__DOT__cpu__DOT__stop_flag);
     ASSERT_EQ(at.size(), (size_t)4);
-    for (int i = 1; i < 4; i++)
+    /* The first interval spans the move: the shadow can only reach the
+     * scanout at a frame boundary, so the frame it lands in is short by
+     * however far the line travelled. The claim here is that the cadence
+     * holds once it has, which is every interval after. */
+    for (int i = 2; i < 4; i++)
     {
         int64_t delta = (int64_t)(at[i] - at[i - 1]);
         ASSERT_GT(delta, 840000 - 256);

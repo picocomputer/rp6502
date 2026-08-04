@@ -50,12 +50,11 @@ uint16_t cpu_get_phi2_khz(void)
     return cpu_phi2_khz_set;
 }
 
-/* Hold the 6502 in reset from the very start of main(), the way the
- * RP2350's cpu_init() drives RESB low before anything else. The fabric
- * powers up with these clear, but reset is the 6502's and the 6522's
- * alone now: a host that pulses it without reconfiguring leaves the
- * machine holding whatever the last session left, and the loader would
- * stage a new image under a 6502 already running the old one. */
+/* RESB low before anything else, the way the RP2350's cpu_init drives
+ * it. Both registers here are the OS's alone — no reset reaches either —
+ * so this line is what holds the 6502 and what decides the clock. Without
+ * it a host reset comes back with the last program still running at
+ * whatever speed it asked for. */
 void cpu_init(void)
 {
     CPU_RESB = 0;
