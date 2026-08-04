@@ -445,10 +445,9 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
-    /* Slot 0 is the ROM the user picked, and it is bound before the core
-     * ever runs — which is the whole reason argv has to ask. In the
-     * assets folder, where the strip that turns a path into argv[0]
-     * expects to find it. */
+    /* Slot 0 is the ROM the user picked, bound before the core ever
+     * runs — which is the whole reason argv has to ask. In the assets
+     * folder, spelled absolute, the way the host answers. */
     g_bound[0] = "/Assets/rp6502/common/pfile.rp6502";
 
     dut->rst_n = 0;

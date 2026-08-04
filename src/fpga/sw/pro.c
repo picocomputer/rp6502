@@ -21,9 +21,10 @@
 
 #include <string.h>
 
-/* A filename, not a path — the assets folder is stripped off — so this
- * is well short of the host's 256-byte field. It is static RAM, and a
- * name too long for it is one nobody can type on a Pocket. */
+/* The host's answer verbatim, which is an absolute path — a folder of
+ * 22 characters and then the name. Short of the host's 256-byte field
+ * because this is static RAM on a machine with none to spare, and long
+ * enough that only a name nobody could pick would not fit. */
 #define PRO_ARGV0_MAX 128
 
 static char pro_argv0[PRO_ARGV0_MAX];
@@ -32,6 +33,13 @@ static char pro_argv0[PRO_ARGV0_MAX];
  * blocking bridge command. Once is enough. */
 static bool pro_asked;
 
+/* Kept as the host spells it, prefix and all. Stripping the assets
+ * folder to leave a bare name was the first shape of this and it was
+ * worse twice over: an absolute path is what the drive passes through
+ * untouched, so open(argv[0]) finds the program, and a relative argv
+ * name resolves under the assets folder rather than the saves one —
+ * which is the rule exec will need, and it cannot hold if argv[0]
+ * arrives already relative to something. */
 void pro_run(void)
 {
     if (pro_asked)
@@ -39,9 +47,6 @@ void pro_run(void)
     pro_asked = true;
     if (!msc_getfile(0, pro_argv0, sizeof pro_argv0))
         pro_argv0[0] = '\0';
-    else if (!memcmp(pro_argv0, MSC_ASSETS_PATH, sizeof MSC_ASSETS_PATH - 1))
-        memmove(pro_argv0, pro_argv0 + sizeof MSC_ASSETS_PATH - 1,
-                strlen(pro_argv0 + sizeof MSC_ASSETS_PATH - 1) + 1);
 }
 
 /* The guest ABI is ria/api/arg.h's: little-endian uint16 offsets into

@@ -21,13 +21,11 @@
 
 /* There is no working directory on this platform, so each side of the
  * API pins its own folder. A relative path through std open resolves
- * under MSC_SAVES_PATH, where the host keeps a core's writable files;
- * argv[0] names the ROM, which the host keeps under MSC_ASSETS_PATH. An
- * absolute path travels untouched either way.
- *
- * The two do not compose: open(argv[0]) looks in the saves folder and
- * will not find the program. That is the price of having no cwd, and it
- * is written down in the platform README rather than worked around. */
+ * under MSC_SAVES_PATH, where the host keeps a core's writable files; a
+ * relative path naming a program resolves under MSC_ASSETS_PATH, which
+ * is where the Pocket's menu browses and where slot 0 was bound from.
+ * An absolute path travels untouched either way, which is why argv[0]
+ * keeps the prefix the host gave it. */
 #define MSC_SAVES_PATH "/Saves/rp6502/common/"
 #define MSC_ASSETS_PATH "/Assets/rp6502/common/"
 

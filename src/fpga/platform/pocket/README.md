@@ -91,23 +91,23 @@ guessable from the API. A machine with no working directory still has
 to say what a bare name means, and the two places a bare name comes
 from want different answers:
 
-| relative name arriving through | resolves under            |
-| ------------------------------ | ------------------------- |
-| `std` open, and everything under it | `/Saves/rp6502/common/`   |
-| `argv[0]`                      | `/Assets/rp6502/common/`  |
+| a relative name naming    | resolves under           |
+| ------------------------- | ------------------------ |
+| a file, through `std` open | `/Saves/rp6502/common/`  |
+| a program, through argv   | `/Assets/rp6502/common/` |
 
-Saved games belong in Saves; the ROM the user picked is in Assets,
-because that is where the Pocket's menu browses and where the host
-bound slot 0 from. argv[0] arrives as the host's absolute path and
-has that prefix taken off it, so a program sees the bare filename it
-was launched as.
+Saved games belong in Saves; programs are in Assets, because that is
+where the Pocket's menu browses and where the host bound slot 0 from.
+The second row is the rule `exec` will need when it arrives — it is
+not implemented today.
 
-The cost is that **the two do not compose**: `open(argv[0])` looks in
-the saves folder and will not find the program. No platform with a
-real working directory has that problem. Nothing here works around
-it — a program that wants its own bytes should open its assets
-through `ROM:`, which reads the staged image and needs no path at
-all.
+**argv[0] keeps the prefix the host gave it.** It arrives absolute,
+`/Assets/rp6502/common/name.rp6502`, and is passed through untouched.
+Stripping it to a bare name was tried and is wrong twice: an absolute
+path is exactly what the drive does not re-resolve, so
+`open(argv[0])` finds the program, and a bare argv[0] would already
+be relative to something before `exec` ever got to apply the rule
+above.
 
 **argv[0] is asked for, not known.** The core is handed a staged
 image and never told what it was called. Get File (`0x0190`) on slot
