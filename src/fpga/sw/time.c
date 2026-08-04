@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The machine's clocks. The microsecond counter is the fabric's,
- * monotonic since reset and read hi-lo-hi so a carry between the two
- * words never shows a torn value. Wall time starts from the one thing
+ * monotonic since power-on — nothing resets it — and read hi-lo-hi so a
+ * carry between the two words never shows a torn value. Wall time starts from the one thing
  * the host ever says about it: command 0x0090 at core boot, local
  * time as seconds since 1970, latched behind RTC_VALID. The Pocket has
  * no idea what a time zone is, so the menu's UTC offset — three list

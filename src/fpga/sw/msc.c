@@ -25,9 +25,7 @@
  * sending the bytes. That costs a round trip per extension.
  *
  * The two integers in Open File's struct are words, not bytes of the
- * stream the path rides in — see msc_win_u32, which had them the other
- * way round for long enough that create looked broken and the whole
- * flags word was arriving as zero.
+ * stream the path rides in. See msc_win_u32.
  */
 
 #include "font.h"
@@ -39,13 +37,10 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Slot 0 is the ROM and slot 1 the fonts; the eight above them are
- * ours, and data.json declares them. */
+/* Slot 0 is the ROM and slot 1 the fonts; data.json declares the rest. */
 #define MSC_SLOT_FIRST 2
 #define MSC_OPEN_MAX 8
 
-/* Open File's parameter struct: 256 bytes of name, then the flags and
- * the size. */
 #define MSC_NAME_MAX 256
 #define MSC_PARAM_FLAGS 256
 #define MSC_PARAM_SIZE 260
@@ -53,7 +48,6 @@
 #define MSC_DS_CREATE 1u
 #define MSC_DS_RESIZE 2u
 
-/* The public open() flags, as fat.c spells them. */
 #define MSC_O_READ 0x01
 #define MSC_O_WRITE 0x02
 #define MSC_O_CREAT 0x10
@@ -72,22 +66,16 @@ static struct
     char name[MSC_NAME_MAX];
 } msc_pool[MSC_OPEN_MAX];
 
-/* A command, start to finish. The soft CPU has nothing else to do while
- * the host works — the 6502 is stopped inside its syscall — and
- * pocket_file times out rather than wait forever. */
 /* A command in two halves, because the task loop does not wait for
  * anything. The bridge gives a silent host 1.8 seconds before it retires
- * the command; spinning that out stops every other task, and a stopped
- * loop is a machine that drops most of the 6502's console output, misses
- * its video frames, and fails the next file operation too.
- *
- * So: start it, and poll it once per pass. */
+ * the command, and spinning that out stops every other task: the 6502's
+ * console output, the video frames, and the next file operation with
+ * them. Start it, and poll it once per pass. */
 static void msc_start(uint32_t op)
 {
     FILE_CTL = op;
 }
 
-/* True when the host has answered and *st holds the status. */
 static bool msc_poll(uint32_t *st)
 {
     uint32_t v = FILE_CTL;
@@ -97,11 +85,10 @@ static bool msc_poll(uint32_t *st)
     return true;
 }
 
-/* The blocking form, still used by open and by the boot-time staging.
- * open is the one worker left that runs a command to completion inside a
- * single dispatch; converting it needs the std open contract to carry
- * STD_PENDING, which is its own change. Everything the machine does at
- * volume — read, write, sync — no longer comes through here. */
+/* The blocking form, for open and for boot-time staging. open runs its
+ * command to completion inside one dispatch because the std driver's
+ * open answers a descriptor, not STD_PENDING. Everything the machine
+ * does at volume — read, write, sync — goes the other way. */
 static uint32_t msc_command(uint32_t op)
 {
     uint32_t st;
@@ -111,15 +98,12 @@ static uint32_t msc_command(uint32_t op)
     return st;
 }
 
-/* The command an API worker has in flight. One record is enough: the
- * 6502 is parked in a single syscall, so only one worker is ever mid-op.
- * A worker sets the registers and starts the command on its first entry,
- * then answers STD_PENDING until the host does — and the loop keeps
- * running the whole time. */
+/* One record is enough: the 6502 is parked in a single syscall, so only
+ * one worker is ever mid-op. */
 static bool msc_busy;
 
-/* The write worker's grow, a second command it can have in flight: the
- * resize-open that makes room, before the WRITE that fills it. */
+/* A second command the write worker can have in flight: the resize-open
+ * that makes room before the WRITE that fills it. */
 static bool msc_grow;
 
 static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
@@ -134,27 +118,19 @@ static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
     }
 }
 
-/* The struct's integer fields are words, not bytes. The path above rides
- * the byte stream and arrives intact, so it was reasonable to write these
- * into the same stream — and wrong. The host takes the bridge word as it
- * stands, which means a value written low byte first arrives reversed:
- * flags of 3 land as 0x03000000, every documented bit clear and every
- * reserved bit set, and the host does what that asks. It opens the file
- * and neither creates nor resizes.
- *
- * That reads as a working open on a file already there and as "not
- * found" on one that is not, which is exactly how it looked for a day.
- * Measured in the end by a shrink, the one operation a write cannot
- * counterfeit: a resize to one byte returned success and left an 18 KB
- * file at 18 KB. */
+/* Words, not bytes. The path rides the byte stream and arrives intact,
+ * but the host takes an integer field as the bridge word stands: written
+ * low byte first, flags of 3 arrive as 0x03000000 — every documented bit
+ * clear, every reserved bit set — and the host opens the file without
+ * creating or resizing it. Which looks like success on a file that
+ * exists and "not found" on one that does not. */
 static void msc_win_u32(uint32_t off, uint32_t v)
 {
     FILE_WIN[off >> 2] = v;
 }
 
-/* The data table is pairs of slot id and slot size, which is how the
- * loader reads slot 0's length. Scanned rather than indexed, so the
- * order the host writes them in does not have to be guessed at. */
+/* Scanned rather than indexed: the order the host writes the pairs in
+ * is not promised. */
 #define MSC_DT_PAIRS 20
 
 static uint32_t msc_dt(uint32_t word)
@@ -175,18 +151,12 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* The host does not create folders in a path it is given, and does
- * not say so: a create into a folder that is not there is answered
- * with a descriptor and leaves nothing on the card. The package ships
- * the one folder the drive needs.
- *
- * Nor does it resolve a relative name. It looked for a while as though
- * it did — as though there were a working directory pinned here — and
- * hardware settled it: "004.bin" spelled in full landed, and "000.bin"
- * on its own never appeared, both naming the same folder on the same
- * card in the same run. So the drive spells the path out. Names that
- * arrive already absolute are the program reaching for the card's own
- * root and travel untouched. */
+/* Measured on hardware, both of them. The host does not create folders
+ * and does not say so — a create into a missing folder answers with a
+ * descriptor and leaves nothing on the card — so the package ships the
+ * one folder the drive needs. And it does not resolve a relative name,
+ * so the drive spells the path out. A name that arrives absolute is the
+ * program reaching for the card's root and travels untouched. */
 #define MSC_PATH "/Saves/rp6502/common/"
 #define MSC_PATH_LEN (sizeof MSC_PATH - 1)
 #define MSC_RC_MALFORMED 4u
@@ -229,10 +199,8 @@ static uint32_t msc_try_open_start(uint32_t slot, const char *name,
     return MSC_RC_STARTED;
 }
 
-/* The result code once the host answers: 0 opened, 1 created and opened,
- * 2 slot not defined, 3 not found, 4 malformed, 5 general. A command the
- * host never picked up reads as MSC_RC_MALFORMED, which is what every
- * caller already treats as a refusal. */
+/* A command the host never picked up reads as MSC_RC_MALFORMED, which
+ * every caller already treats as a refusal. */
 static bool msc_try_open_poll(uint32_t *rc)
 {
     uint32_t st;
@@ -256,20 +224,14 @@ static uint32_t msc_try_open(uint32_t slot, const char *name,
 static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
-    /* 0 opened, 1 created and opened; 2 slot not defined, 3 not found,
-     * 4 malformed, 5 general. open() has one errno for each of the
-     * failures and callers map it. */
     return msc_try_open(slot, name, flags, size) <= 1;
 }
 
-/* The machine names its drive MSC0: and takes 0: as a shortcut, and
- * the prefix is all that is stripped — the slash after it, or its
+/* Only the drive prefix is stripped; the slash after it, or its
  * absence, is what decides where the name lands. "foo.txt" and
- * "MSC0:foo.txt" are the same saved game in the drive's own folder,
- * the way open("save.dat") should land on every platform;
- * "MSC0:/foo.txt" starts at the card's root, which is how a program
- * reaches /Assets. A named drive that is not 0 is refused rather than
- * aliased. */
+ * "MSC0:foo.txt" are the same saved game in the drive's folder, the way
+ * open("save.dat") should land anywhere; "MSC0:/foo.txt" starts at the
+ * card's root. A named drive that is not 0 is refused, not aliased. */
 static const char *msc_strip_drive(const char *path)
 {
     const char *p = path;
@@ -291,11 +253,9 @@ static int msc_desc(int desc)
     return desc;
 }
 
-/* A command the host never picked up. The bridge's deadline expires
- * before pocket_file's and retires the command itself, so this arrives
- * as result 7 rather than as the machine's own timeout; the timeout
- * bit now means the bridge stopped answering too. Either way nobody
- * ran the command. */
+/* The bridge's deadline expires before pocket_file's and retires the
+ * command itself, so a host that never picked it up arrives as result 7
+ * rather than as our own timeout. Either way nobody ran it. */
 #define MSC_RC_NO_HOST 7u
 
 static bool msc_unanswered(uint32_t st)
@@ -304,13 +264,10 @@ static bool msc_unanswered(uint32_t st)
            || ((st & FILE_ST_ERR) >> 1) == MSC_RC_NO_HOST;
 }
 
-/* Flush, 0x0188: Analogue documents the command and left it out of its
- * own core_bridge_cmd.v, which was the warning — no firmware this core
- * has met answers it. The override's bridge now puts a deadline on a
- * data slot command the host never picks up, so asking is safe: it
- * costs one deadline instead of the session. The first ask decides; a
- * host that answers gets a real flush every time from then on, one
- * that does not is remembered. */
+/* Flush, 0x0188: documented by Analogue and absent from its own
+ * core_bridge_cmd.v, which was the warning. Asking costs one deadline
+ * rather than the session, so the first ask decides and the answer is
+ * remembered. */
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
@@ -347,14 +304,10 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
 
-    /* Creating takes both bits. The create bit alone is answered with a
-     * descriptor and makes nothing — measured: eight opens asking for
-     * O_CREAT without O_TRUNC each came back a handle and each failed
-     * the check below. Resize is what puts the file there.
-     *
-     * So the two travel together, and that means a create has to know
-     * whether the file is already present: both bits against one that is
-     * would cut it back to nothing. The plain open answers that, and it
+    /* Creating takes both bits: the create bit alone answers with a
+     * descriptor and makes nothing, and resize is what puts the file
+     * there. So a create must first know whether the file exists —
+     * both bits against one that does would cut it to nothing — which
      * is the same question exclusive creation asks. */
     bool exists = msc_open_slot(slot, path, 0, 0);
     if (exists && (flags & (MSC_O_CREAT | MSC_O_EXCL))
@@ -582,12 +535,11 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     return 0;
 }
 
-/* The working directory is synthetic — the host cannot be asked, but
- * it was measured, and it cannot move. It is spelled from the drive
- * so a program appending a name to it opens the same file the bare
- * name does. chdir is an error whatever it names, even the directory
- * getcwd answered, so a program never concludes that directories
- * work; chdrive accepts only the drive the machine has. */
+/* Synthetic: the host cannot be asked, but it was measured and it cannot
+ * move. Spelled from the drive so appending a name to it opens the same
+ * file the bare name does. chdir fails whatever it names — even the
+ * directory getcwd answered — so nothing concludes that directories
+ * work. */
 bool msc_api_getcwd(void)
 {
     static const char cwd[] = "MSC0:/Saves/rp6502/common/";
