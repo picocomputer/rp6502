@@ -43,10 +43,6 @@ if(RP6502_VERILATE)
 endif()
 
 if(RP6502_SOFT_CPU)
-    # The real boot path: no backdoor into the 6502's world, only the
-    # firmware image, the way a bitstream carries it.
-    rp6502_add_machine_test(boot FIRMWARE TIMEOUT 120)
-
     # Op 0x01 dispatch against the oracle, and the RTL program it lands.
     rp6502_add_machine_test(xreg ORACLE FIRMWARE TIMEOUT 900)
 

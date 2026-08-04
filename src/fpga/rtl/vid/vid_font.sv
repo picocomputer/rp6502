@@ -50,18 +50,45 @@ module vid_font (
     (* ramstyle = "no_rw_check, MLAB" *)
     logic [31:0] dec[128] /*verilator public_flat_rd*/;
 
+    /* The write port takes a clock of its own, and the reason is hold
+     * rather than setup. The soft CPU's address reaches these arrays
+     * through nothing but wiring, so at the fast corner the data can
+     * arrive before the clock edge that was supposed to launch it —
+     * measured at -0.122 ns against the dec MLAB's address port, after
+     * three fits walking toward it at +0.119, +0.088, -0.122. The
+     * fitter normally pads such a route with delay and has less room to
+     * do it every fit; a register ends the drift instead of deferring
+     * it.
+     *
+     * It costs nothing. Nothing reads a face until the firmware has
+     * finished writing it, and the firmware only writes these at boot
+     * and on a code page change. */
+    logic w_stb_q;
+    logic [13:0] w_addr_q;
+    logic [31:0] w_data_q;
+    initial begin
+        w_stb_q = 1'b0;
+        w_addr_q = '0;
+        w_data_q = '0;
+    end
+    always_ff @(posedge clk) begin
+        w_stb_q <= w_stb;
+        w_addr_q <= w_addr;
+        w_data_q <= w_data;
+    end
+
     logic [1:0] w_face;
-    always_comb w_face = w_addr[13:12];
+    always_comb w_face = w_addr_q[13:12];
 
     always_ff @(posedge clk) begin
-        if (w_stb && w_face == 2'd0)
-            f16[w_addr[11:2]] <= w_data;
-        if (w_stb && w_face == 2'd1)
-            f8[w_addr[10:2]] <= w_data;
-        if (w_stb && w_face == 2'd2)
-            ital[w_addr[10:2]] <= w_data;
-        if (w_stb && w_face == 2'd3)
-            dec[w_addr[8:2]] <= w_data;
+        if (w_stb_q && w_face == 2'd0)
+            f16[w_addr_q[11:2]] <= w_data_q;
+        if (w_stb_q && w_face == 2'd1)
+            f8[w_addr_q[10:2]] <= w_data_q;
+        if (w_stb_q && w_face == 2'd2)
+            ital[w_addr_q[10:2]] <= w_data_q;
+        if (w_stb_q && w_face == 2'd3)
+            dec[w_addr_q[8:2]] <= w_data_q;
     end
 
     logic [31:0] q16, q8, q_ital, q_dec;
@@ -89,7 +116,7 @@ module vid_font (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_font;
-    always_comb unused_vid_font = ^w_addr[1:0];  /* the lanes carry it */
+    always_comb unused_vid_font = ^{w_addr[1:0], w_addr_q[1:0]};  /* the lanes carry it */
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

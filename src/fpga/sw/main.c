@@ -51,70 +51,6 @@
 
 #include <stdint.h>
 
-/* Until the .rp6502 loader arrives, the program rides in the firmware:
- * print "HELLO, WORLD!\r\n" through $FFE1 under the $FFE0 ready bit, then a
- * bare syscall, then one carrying an xstack argument, then echo the console
- * input back until a carriage return arrives, STP. */
-static const uint8_t boot_prog[] = {
-    0xA2, 0x00,              /*       ldx #0          */
-    0xBD, 0x73, 0x02,        /* loop: lda msg,x       */
-    0xF0, 0x0C,              /*       beq done        */
-    0x2C, 0xE0, 0xFF,        /* wait: bit $FFE0       */
-    0x10, 0xFB,              /*       bpl wait        */
-    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
-    0xE8,                    /*       inx             */
-    0xD0, 0xF0,              /*       bne loop        */
-    0xEA,                    /*       nop             */
-    /* done: the machine's first syscall — op $42 answers AX */
-    0xA9, 0x42,              /*       lda #$42        */
-    0x8D, 0xEF, 0xFF,        /*       sta $FFEF       */
-    0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
-    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
-    0x8E, 0xE1, 0xFF,        /*       stx $FFE1       */
-    /* op $43 increments the uint16 pushed on the xstack */
-    0xA9, 0x42,              /*       lda #$42        */
-    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       */
-    0xA9, 0x43,              /*       lda #$43        */
-    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       */
-    0xA9, 0x43,              /*       lda #$43        */
-    0x8D, 0xEF, 0xFF,        /*       sta $FFEF       */
-    0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
-    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
-    0x8E, 0xE1, 0xFF,        /*       stx $FFE1       */
-    /* echo the RX latch back out until a carriage return */
-    0x2C, 0xE0, 0xFF,        /* echo: bit $FFE0       */
-    0x50, 0xFB,              /*       bvc echo        */
-    0xAD, 0xE2, 0xFF,        /*       lda $FFE2       */
-    0x48,                    /*       pha             */
-    0x2C, 0xE0, 0xFF,        /* wtx:  bit $FFE0       */
-    0x10, 0xFB,              /*       bpl wtx         */
-    0x68,                    /*       pla             */
-    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
-    0xC9, 0x0D,              /*       cmp #$0D        */
-    0xD0, 0xEA,              /*       bne echo        */
-    /* read a line from stdin — the genuine std/rln engine — and print it */
-    0xA9, 0x00,              /*       lda #0          */
-    0x8D, 0xF4, 0xFF,        /*       sta $FFF4       ; API_A = fd 0 */
-    0xA9, 0x00,              /*       lda #0          */
-    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       ; count hi */
-    0xA9, 0x20,              /*       lda #$20        */
-    0x8D, 0xEC, 0xFF,        /*       sta $FFEC       ; count lo */
-    0xA9, 0x16,              /*       lda #$16        */
-    0x8D, 0xEF, 0xFF,        /*       sta $FFEF       ; op read_xstack */
-    0x20, 0xF1, 0xFF,        /*       jsr $FFF1       */
-    0xAA,                    /*       tax             ; bytes read */
-    0xF0, 0x09,              /*       beq rdone       */
-    0xAD, 0xEC, 0xFF,        /* rloop:lda $FFEC       */
-    0x8D, 0xE1, 0xFF,        /*       sta $FFE1       */
-    0xCA,                    /*       dex             */
-    0xD0, 0xF7,              /*       bne rloop       */
-    0xDB,                    /* rdone:stp             */
-    'H', 'E', 'L', 'L', 'O', ',', ' ',
-    'W', 'O', 'R', 'L', 'D', '!', '\r', '\n', 0,
-};
-
-#define BOOT_ORG 0x0200u
-
 bool ria_active(void)
 {
     return false;
@@ -367,15 +303,6 @@ bool main_api(uint8_t operation)
         return clk_api_time_set();
     case 0x3F:
         return clk_api_time_get();
-    case 0x42:
-        return api_return_ax(0x4143);
-    case 0x43:
-    {
-        uint16_t val;
-        if (!api_pop_uint16_end(&val))
-            return api_return_errno(API_EINVAL);
-        return api_return_ax(val + 1);
-    }
     default:
         /* What lands here now is the directory family — the drive has
          * one directory and nothing to enumerate — plus unlink, rename
@@ -467,36 +394,18 @@ int main(void)
 {
     init();
 
-    /* A staged .rp6502 outranks the built-in program: the loader parses
-     * it straight out of the platform's staging window. */
+    /* The loader parses the image straight out of the platform's
+     * staging window. data.json marks slot 0 required, so the host will
+     * not launch this core without one and a zero here means a platform
+     * that staged nothing — which leaves nothing to run. */
     uint32_t slot = MMIO_SLOT;
-    bool staged = false;
-    bool runnable = true;
+    bool runnable = false;
     if (slot)
     {
-        staged = rom_load_staged(slot);
+        runnable = rom_load_staged(slot);
         MMIO_SLOT = 0;
-        if (!staged)
+        if (!runnable)
             printf("rom: bad image\n");
-        runnable = staged;
-    }
-
-    if (runnable && !staged)
-    {
-        for (uint32_t i = 0; i < sizeof boot_prog; i++)
-            SRAM[BOOT_ORG + i] = boot_prog[i];
-
-        /* Verify through the same window before trusting it. */
-        for (uint32_t i = 0; i < sizeof boot_prog; i++)
-            if (SRAM[BOOT_ORG + i] != boot_prog[i])
-            {
-                runnable = false;
-                break;
-            }
-
-        /* Vectors live in the register cells. */
-        REGS_WIN[0x1C] = BOOT_ORG & 0xFF;
-        REGS_WIN[0x1D] = BOOT_ORG >> 8;
     }
 
     if (runnable)
