@@ -27,7 +27,14 @@
  * requires every bank precharged, so it closes all four.
  */
 
-module pocket_sdram (
+module pocket_sdram #(
+    /* Zero keeps the store awake. Both idle behaviours are new, and the
+     * first hardware to run them broke asset reads — the only traffic
+     * sporadic enough to reach them. These are the switch that tells
+     * the two apart without guessing. */
+    parameter bit SELF_REFRESH = 1'b1,
+    parameter bit CLOSE_IDLE_ROWS = 1'b1
+) (
     input logic clk,
 
     /* Staging reads: pend-and-hold, halfword addressing. */
@@ -283,9 +290,11 @@ module pocket_sdram (
                            : (req_needs_pre ? S_PRE : S_ACT);
                 end else begin
                     idle_cnt <= idle_cnt + 10'd1;
-                    if (idle_cnt == 10'(IDLE_CLOSE) && any_active)
+                    if (CLOSE_IDLE_ROWS && idle_cnt == 10'(IDLE_CLOSE)
+                        && any_active)
                         state <= S_PALL_I;
-                    else if (idle_cnt == 10'(IDLE_SREF) && !any_active)
+                    else if (SELF_REFRESH && idle_cnt == 10'(IDLE_SREF)
+                             && !any_active)
                         state <= S_SREF_ENT;
                 end
             end
