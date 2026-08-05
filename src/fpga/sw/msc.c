@@ -308,6 +308,41 @@ static bool msc_unanswered(uint32_t st)
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
+/* The image lands at bridge address zero, which is where the host
+ * staged the program now being replaced — so its assets go with it,
+ * which is the point. The 6502 is stopped and its memory already holds
+ * the old program; nothing reads the store until the loader does.
+ *
+ * A slot operation moves at most FILE_XFER_MAX, so a large image is
+ * several reads into consecutive windows. */
+bool msc_stage_rom(const char *path, uint32_t *len)
+{
+    const char *p = msc_strip_drive(path);
+    if (!p || !*p)
+        return false;
+    uint32_t slot = MSC_SLOT_FIRST;
+    if (msc_try_open(slot, p, 0, 0) > 1)
+        return false;
+    uint32_t total;
+    if (!msc_slot_len(slot, &total) || !total)
+        return false;
+    for (uint32_t at = 0; at < total; at += FILE_XFER_MAX)
+    {
+        uint32_t want = total - at;
+        if (want > FILE_XFER_MAX)
+            want = FILE_XFER_MAX;
+        FILE_ID = slot;
+        FILE_OFFSET = at;
+        FILE_BRIDGE = at;
+        FILE_LENGTH = want;
+        uint32_t st = msc_command(FILE_OP_READ);
+        if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+            return false;
+    }
+    *len = total;
+    return true;
+}
+
 bool msc_std_handles(const char *path)
 {
     (void)path;

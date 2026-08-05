@@ -93,6 +93,39 @@ set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 3
 set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 4
 set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 3
 
+# The SDRAM, AS4C32M16MSA-6BIN. These pins carried no constraint at all
+# until now, which mattered more here than anywhere else on the board:
+# CKE arriving one edge late turns a self refresh entry into an ordinary
+# auto refresh followed by a precharge power-down, and a chip in
+# power-down does not refresh itself. That failure looks exactly like
+# the one that broke asset reads today, it is invisible to the bench —
+# sdram_model treats CKE low as self refresh by construction — and it
+# would arrive or not arrive with the fitter's mood.
+#
+# dram_clk is clk_dram forwarded through a DDR output cell, so the clock
+# the chip samples on is declared where it leaves: at the pad. The half
+# period of shift is what gives the command and address outputs their
+# time, and it only counts if the analyzer knows about it.
+#
+# The numbers are the chip's own input requirements, all four groups
+# alike: address tCAS/tCAH, control tCMS/tCMH, data tCDS/tCDH and CKE
+# tCKS/tCKH are 2.0 ns of setup and 1.0 ns of hold. Read data comes back
+# tAC 6.0 ns after the edge at CL2 and holds tOH 2.5 ns. The board adds
+# almost nothing — the part sits as close to the die as it can be
+# placed.
+if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
+    create_generated_clock -name dram_clk_pin \
+        -source [get_pins {ic|pll|pll|general[2].gpll~PLL_OUTPUT_COUNTER|divclk}] \
+        [get_ports {dram_clk}]
+
+    set dram_out [get_ports {dram_a[*] dram_ba[*] dram_dq[*] dram_dqm[*] \
+        dram_cke dram_ras_n dram_cas_n dram_we_n}]
+    set_output_delay -clock dram_clk_pin -max  2.0 $dram_out
+    set_output_delay -clock dram_clk_pin -min -1.0 $dram_out
+    set_input_delay  -clock dram_clk_pin -max  6.0 [get_ports {dram_dq[*]}]
+    set_input_delay  -clock dram_clk_pin -min  2.5 [get_ports {dram_dq[*]}]
+}
+
 # The board's SRAM, AS6C2016-55BIN. It has no clock, so there is no
 # input or output delay to declare against one — what bounds this
 # interface is the round trip, and the round trip has a budget:

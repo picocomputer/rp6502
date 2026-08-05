@@ -26,6 +26,11 @@ void pro_stop(void);
 bool pro_api_argv(void);
 bool pro_api_exec(void);
 
+/* Platforms that stage their own next program: true when an exec is
+ * waiting and its image has been loaded, so the caller starts the
+ * machine again. Consumed by the call. */
+bool pro_exec_take(void);
+
 /* Launcher: when set, pro_stop() will re-exec the launcher ROM.
  * The chain breaks when the launcher itself stops or on pro_cancel_launcher().
  */

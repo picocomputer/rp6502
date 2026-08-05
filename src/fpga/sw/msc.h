@@ -35,6 +35,12 @@
  * ROM the user picked, which arrives staged and otherwise anonymous. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap);
 
+/* Pull a .rp6502 into the staging store where the host puts one, so the
+ * loader parses it the same way either arrived. This is what exec is:
+ * the machine staging its own next program. Blocking, and only ever
+ * called with the 6502 stopped. */
+bool msc_stage_rom(const char *path, uint32_t *len);
+
 /* The pinned working directory: getcwd answers the host's own, which
  * is MSC0:/Saves/rp6502/common/ and 26 characters; chdir always
  * errors, chdrive accepts only this drive's names. */

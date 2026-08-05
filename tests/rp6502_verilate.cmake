@@ -119,6 +119,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/ria/aud/bel_presets.c
         ${SW_SRC}/bel.c
         ${RP6502_SRC}/ria/api/api.c
+        ${RP6502_SRC}/ria/api/arg.c
         ${RP6502_SRC}/ria/api/clk.c
         ${RP6502_SRC}/ria/api/std.c
         ${RP6502_SRC}/ria/api/uni.c

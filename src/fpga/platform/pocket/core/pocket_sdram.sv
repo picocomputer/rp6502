@@ -306,7 +306,15 @@ module pocket_sdram #(
                     state <= req_hit ? S_WRITE
                            : (req_needs_pre ? S_PRE : S_ACT);
                 end else begin
-                    idle_cnt <= idle_cnt + 10'd1;
+                    /* A request standing on the port is not idleness,
+                     * even when the hold answers it without an access.
+                     * Counting it as idle let the store fall asleep
+                     * with a requester live — which is legal now that a
+                     * nap has a minimum length, but it is a nap taken
+                     * for no reason and it is the window the residency
+                     * bug lived in. */
+                    if (!rd_pend && !w_avail)
+                        idle_cnt <= idle_cnt + 10'd1;
                     if (CLOSE_IDLE_ROWS && idle_cnt == 10'(IDLE_CLOSE)
                         && any_active)
                         state <= S_PALL_I;

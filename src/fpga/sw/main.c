@@ -179,6 +179,8 @@ bool main_api(uint8_t operation)
         return api_return_ax(0);
     case 0x08:
         return pro_api_argv();
+    case 0x09:
+        return pro_api_exec();
     case 0x0A:
         /* Attributes grow with their engines; these exist now. */
         switch (API_A)
@@ -454,6 +456,11 @@ int main(void)
         {
             stop();
             main_state = stopped;
+            /* An exec loads here rather than inside the syscall that
+             * asked for it: stopping is what closes the descriptors the
+             * outgoing program left open, and the read needs one. */
+            if (pro_exec_take())
+                main_run();
         }
     }
 }

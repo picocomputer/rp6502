@@ -3,75 +3,96 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * argv, which on this machine is one string: the name of the .rp6502 the
- * user picked from the Pocket's menu. The core is handed the image
- * already staged and is never told what it was called, so the name has
- * to be asked for — Get File on slot 0, the ROM slot.
+ * argv and exec. The core is handed a staged image and never told what
+ * it was called, so argv[0] has to be asked for — Get File on slot 0,
+ * the ROM slot — and it is kept exactly as the host spells it, absolute
+ * path and all. That is what lets a program open itself, and what lets
+ * exec hand a path back.
  *
- * The RIA's pro.c also launches ROMs and keeps a launcher chain. Neither
- * exists here: choosing a program is the Pocket's menu reloading the
- * core, so there is nothing for exec to do and nothing to return to.
+ * Exec is the machine staging its own next program. The RIA reaches
+ * into a filesystem; here the same thing is Open File to bind a slot,
+ * Slot Read to pull the image into the window the host stages into, and
+ * the ordinary loader on top. The image lands where the host would have
+ * put it, so its bundled assets arrive with it and the ROM: driver
+ * needs to know nothing about how it got there.
+ *
+ * The load happens after the machine has stopped rather than inside the
+ * syscall, because stopping closes the descriptors the outgoing program
+ * left open and one of those slots is what the read needs.
  */
 
 #include "msc.h"
+#include "rom.h"
 
 #include "ria/api/api.h"
+#include "ria/api/arg.h"
 #include "ria/api/pro.h"
-#include "ria/sys/mem.h"
+#include "ria/main.h"
 
+#include <stdio.h>
 #include <string.h>
 
-/* The host's answer verbatim, which is an absolute path — a folder of
- * 22 characters and then the name. Short of the host's 256-byte field
- * because this is static RAM on a machine with none to spare, and long
- * enough that only a name nobody could pick would not fit. */
+/* The host's answer verbatim, which is an absolute path. Short of the
+ * host's 256-byte field because this is static RAM, and long enough
+ * that only a name nobody could pick would not fit. */
 #define PRO_ARGV0_MAX 128
 
 static char pro_argv0[PRO_ARGV0_MAX];
+static char pro_exec_path[PRO_ARGV0_MAX];
+static bool pro_exec_pending;
 
 /* Slot 0's binding cannot change without a core reload, and asking is a
- * blocking bridge command. Once is enough. */
+ * blocking bridge command. Once is enough — and after an exec the
+ * argument buffer holds what the outgoing program passed, which must
+ * not be overwritten by the name of the image the user picked. */
 static bool pro_asked;
 
-/* Kept as the host spells it, prefix and all. Stripping the assets
- * folder to leave a bare name was the first shape of this and it was
- * worse twice over: an absolute path is what the drive passes through
- * untouched, so open(argv[0]) finds the program, and a relative argv
- * name resolves under the assets folder rather than the saves one —
- * which is the rule exec will need, and it cannot hold if argv[0]
- * arrives already relative to something. */
 void pro_run(void)
 {
     if (pro_asked)
         return;
     pro_asked = true;
     if (!msc_getfile(0, pro_argv0, sizeof pro_argv0))
-        pro_argv0[0] = '\0';
+        return;
+    arg_clear();
+    arg_append(pro_argv0);
 }
 
-/* The guest ABI is ria/api/arg.h's: little-endian uint16 offsets into
- * the payload, a {0,0} terminator, then the strings packed behind the
- * table. One string here, so the table is one entry and four bytes.
- *
- * arg.c owns that layout and would be the thing to call, except its
- * buffer is a whole xstack — 512 bytes, spent so exec can carry an argv
- * across a machine reset. There is no exec here, and the firmware has
- * about four kilobytes of stack left between .bss and the top of the
- * TCM. Nothing on this platform can afford an eighth of that to hold
- * one filename; borrowing it is what broke localtime, which needs the
- * deepest stack of anything the machine runs. */
 bool pro_api_argv(void)
 {
-    size_t n = strlen(pro_argv0);
-    size_t size = n ? 4 + n + 1 : 2;
-    xstack_ptr = XSTACK_SIZE - size;
-    uint8_t *p = &xstack[xstack_ptr];
-    p[0] = p[1] = 0;
-    if (n)
+    return api_return_ax(arg_push_xstack());
+}
+
+bool pro_api_exec(void)
+{
+    if (!arg_pull_xstack())
+        return api_return_errno(API_EINVAL);
+    const char *path = arg_index(0);
+    if (!path || strlen(path) >= sizeof pro_exec_path)
+        return api_return_errno(API_EINVAL);
+    memcpy(pro_exec_path, path, strlen(path) + 1);
+    pro_exec_pending = true;
+    /* Committed. Errors surface on the console the way rom.c's do on the
+     * RIA, because the program that asked is already gone. */
+    main_stop();
+    return api_return_ax(0);
+}
+
+bool pro_exec_take(void)
+{
+    if (!pro_exec_pending)
+        return false;
+    pro_exec_pending = false;
+    uint32_t len;
+    if (!msc_stage_rom(pro_exec_path, &len))
     {
-        p[0] = 4;
-        p[2] = p[3] = 0;
-        memcpy(p + 4, pro_argv0, n + 1);
+        printf("exec: %s\n", pro_exec_path);
+        return false;
     }
-    return api_return_ax((uint16_t)size);
+    if (!rom_load_staged(len))
+    {
+        printf("exec: bad image\n");
+        return false;
+    }
+    return true;
 }
