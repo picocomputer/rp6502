@@ -107,13 +107,14 @@ module pocket_sram (
     localparam int PH_LAST_B = 7;
 
     logic [2:0] ph;
-    logic busy_a, busy_b;
+    logic busy_a, busy_b, b_done;
     logic serving_we;
 
     initial begin
         ph = '0;
         busy_a = 1'b0;
         busy_b = 1'b0;
+        b_done = 1'b0;
         serving_we = 1'b0;
         pocket_sram_a = '0;
         pocket_sram_dq_out = '0;
@@ -128,15 +129,26 @@ module pocket_sram (
         pocket_sram_b_rdata = '0;
     end
 
-    /* The soft CPU waits whenever it is not being served this instant,
-     * and the machine is held whenever a soft CPU access is in flight or
-     * about to be. */
+    /* The stall lifts on a registered done rather than on the terminal
+     * phase itself, which is what makes the byte reliably older than the
+     * strobe that collects it. Lifting combinationally in the same clock
+     * that captured the byte handed back the PREVIOUS access's data —
+     * every soft CPU read one behind, which a bench ladder caught by
+     * writing A5 then 3C and reading back 3C twice.
+     *
+     * Nothing waits on this port: it serves the loader and the boot
+     * read-back, both with the 6502 halted. A spare clock is free here
+     * and an off-by-one is not. */
     always_comb begin
-        pocket_sram_b_stall = b_stb && !(busy_b && ph == 3'(PH_LAST_B));
+        pocket_sram_b_stall = b_stb && !b_done;
         pocket_sram_hold = busy_b || (b_stb && !busy_a);
     end
 
     always_ff @(posedge clk) begin
+        /* The done flag lives until the soft CPU takes its answer away. */
+        if (!b_stb)
+            b_done <= 1'b0;
+
         /* Defaults: the bus released, no write, the part deselected by
          * its byte enables. Deselecting with LB#/UB# rather than OE# is
          * what the datasheet's second standby row allows, and with CE#
@@ -149,8 +161,10 @@ module pocket_sram (
             if (ph == (busy_b ? 3'(PH_LAST_B) : 3'(PH_LAST))) begin
                 if (busy_a)
                     pocket_sram_a_rdata <= sram_dq_in[7:0];
-                else
+                else begin
                     pocket_sram_b_rdata <= sram_dq_in[7:0];
+                    b_done <= 1'b1;
+                end
                 busy_a <= 1'b0;
                 busy_b <= 1'b0;
                 pocket_sram_lb_n <= 1'b1;
@@ -171,7 +185,7 @@ module pocket_sram (
             pocket_sram_dq_out <= {8'h00, a_wdata};
             pocket_sram_lb_n <= 1'b0;
             pocket_sram_ub_n <= 1'b1;
-        end else if (b_stb) begin
+        end else if (b_stb && !b_done) begin
             busy_b <= 1'b1;
             ph <= 3'd0;
             serving_we <= b_we;
