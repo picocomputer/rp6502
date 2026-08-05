@@ -83,11 +83,12 @@ set_multicycle_path -hold  -from [get_registers {*pocket_sram*}] \
 set_multicycle_path -setup -from [get_registers {*ria_regs*}] 4
 set_multicycle_path -hold  -from [get_registers {*ria_regs*}] 3
 
-# The SRAM's launch registers are the other end of that cycle. Port B
-# shares them and is not enable-based, which is why its access is eight
-# clocks long — see pocket_sram.sv. The capture register is deliberately
-# NOT in here: its path into cpu65 has one clock and the rule above it
-# already says so.
+# The SRAM's launch registers are the other end of that cycle. This grant
+# is the 6502's alone; port B shares the registers and is walked back to
+# one clock below, because a shared register otherwise takes the loosest
+# rule written against it. The capture register is deliberately NOT in
+# here: its path into cpu65 has one clock and the rule above it already
+# says so.
 set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 4
 set_multicycle_path -hold  -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 3
 set_multicycle_path -setup -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 4
@@ -152,9 +153,11 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
 # the SDRAM, and the 6502 runs into whatever landed.
 #
 # That is the intermittent one-in-five load failure: staged fine, parsed
-# fine, and then nothing. The eight-clock port B access was written on
-# the reasoning that a late address still leaves enough stable time for
-# tAA, which is true of a read and worthless for a write.
+# fine, and then nothing. It was hidden for a while behind an eight-clock
+# port B access, written on the reasoning that a late address still
+# leaves enough stable time for tAA — true of a read and worthless for a
+# write, which is why the port is four clocks again now that these two
+# rules say the real thing.
 set_multicycle_path -setup -from [get_registers {*rv_soc*}] \
     -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 1
 set_multicycle_path -hold  -from [get_registers {*rv_soc*}] \

@@ -90,23 +90,16 @@ module pocket_sram (
      * cone two. */
     localparam int PH_LAST = 3;
 
-    /* The soft CPU's access is deliberately twice as long, and the
-     * reason is a timing constraint rather than the chip. The address
-     * register below is shared, and the 6502's path into it — the whole
-     * address cone, fed by whatever answered the last cycle — is a
-     * multicycle path: both ends move only on phi2_en, so it has six
-     * clocks and the SDC grants it four. Port B's path into the same
-     * register is ordinary logic and gets no such grant, but a shared
-     * register takes the loosest constraint written against it.
-     *
-     * Rather than split the register and lose the pad packing, port B
-     * simply allows for an address that settles late: eight clocks of
-     * access means at least four clocks — 79.4 ns — of stable address
-     * before the capture, against tAA's 55. Port B runs at boot with
-     * the 6502 halted and nothing waits on it. */
-    localparam int PH_LAST_B = 7;
-
-    logic [2:0] ph;
+    /* Both ports run the same four clocks, because the chip is the same
+     * chip either way. Port B was twice as long for a while, which was
+     * never about the SRAM: the address register is shared, the 6502's
+     * path into it is a multicycle that the SDC grants four clocks, and
+     * a shared register takes the loosest constraint written against it,
+     * so the soft CPU's ordinary logic inherited a grant it had not
+     * earned. Doubling its access hid that. The SDC now says the true
+     * thing about each path separately, so there is nothing left to hide
+     * from and the port is as long as tAA needs. */
+    logic [1:0] ph;
     logic busy_a, busy_b, b_done;
     logic serving_we;
 
@@ -158,7 +151,7 @@ module pocket_sram (
         pocket_sram_we_n <= 1'b1;
 
         if (busy_a || busy_b) begin
-            if (ph == (busy_b ? 3'(PH_LAST_B) : 3'(PH_LAST))) begin
+            if (ph == 2'(PH_LAST)) begin
                 if (busy_a)
                     pocket_sram_a_rdata <= sram_dq_in[7:0];
                 else begin
@@ -170,16 +163,15 @@ module pocket_sram (
                 pocket_sram_lb_n <= 1'b1;
                 pocket_sram_ub_n <= 1'b1;
             end else begin
-                ph <= ph + 3'd1;
+                ph <= ph + 2'd1;
                 pocket_sram_dq_oe <= serving_we;
                 pocket_sram_oe_n <= serving_we;
                 /* tWP wants 45 ns; three clocks is 59.5. */
-                pocket_sram_we_n <= !(serving_we
-                    && ph < (busy_b ? 3'(PH_LAST_B) : 3'(PH_LAST)));
+                pocket_sram_we_n <= !(serving_we && ph < 2'(PH_LAST));
             end
         end else if (phi2_en && cpu_run && !pocket_sram_hold) begin
             busy_a <= 1'b1;
-            ph <= 3'd0;
+            ph <= 2'd0;
             serving_we <= a_we;
             pocket_sram_a <= {1'b0, a_addr};
             pocket_sram_dq_out <= {8'h00, a_wdata};
@@ -187,7 +179,7 @@ module pocket_sram (
             pocket_sram_ub_n <= 1'b1;
         end else if (b_stb && !b_done) begin
             busy_b <= 1'b1;
-            ph <= 3'd0;
+            ph <= 2'd0;
             serving_we <= b_we;
             pocket_sram_a <= {1'b0, b_addr};
             pocket_sram_dq_out <= {8'h00, b_wdata};
