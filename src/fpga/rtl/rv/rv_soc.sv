@@ -183,6 +183,18 @@ module rv_soc #(
     logic [TCM_AW-1:0] word_addr;
     always_comb word_addr = haddr[TCM_AW+1:2];
 
+    /* A store's data phase overlaps the next load's address phase, so a
+     * load of the word just stored samples the array on the same edge the
+     * write lands and reads what was there before. The compiler emits that
+     * pair — store then load of the same address, back to back — and the
+     * M10K is told no_rw_check, so nothing bypasses it in the block. These
+     * carry the write around. */
+    logic [3:0] tcm_fwd;
+    logic [31:0] tcm_fwd_data;
+    logic [31:0] tcm_q;
+    logic tcm_wr;
+    always_comb tcm_wr = dph_active && dph_write && !dph_mmio && !dph_ext;
+
     initial begin
         dph_active = 1'b0;
         dph_write = 1'b0;
@@ -229,7 +241,9 @@ module rv_soc #(
     always_ff @(posedge clk) begin
         tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
                       tcm1[word_addr], tcm0[word_addr]};
-        if (dph_active && dph_write && !dph_mmio && !dph_ext) begin
+        tcm_fwd <= (tcm_wr && dph_word == word_addr) ? dph_strb : 4'b0000;
+        tcm_fwd_data <= hwdata;
+        if (tcm_wr) begin
             if (dph_strb[0])
                 tcm0[dph_word] <= hwdata[7:0];
             if (dph_strb[1])
@@ -288,7 +302,14 @@ module rv_soc #(
                 default: hrdata = 32'h0;
             endcase
         else
-            hrdata = tcm_rdata;
+            hrdata = tcm_q;
+    end
+
+    always_comb begin
+        tcm_q[7:0] = tcm_fwd[0] ? tcm_fwd_data[7:0] : tcm_rdata[7:0];
+        tcm_q[15:8] = tcm_fwd[1] ? tcm_fwd_data[15:8] : tcm_rdata[15:8];
+        tcm_q[23:16] = tcm_fwd[2] ? tcm_fwd_data[23:16] : tcm_rdata[23:16];
+        tcm_q[31:24] = tcm_fwd[3] ? tcm_fwd_data[31:24] : tcm_rdata[31:24];
     end
 
     initial begin
