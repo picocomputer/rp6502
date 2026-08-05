@@ -17,6 +17,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_host.h"
 #include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
@@ -107,6 +108,7 @@ static void run_case(int *utest_result, const char *name)
 
     ASSERT_TRUE(tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
+        tb_host_tick(dut, rom);
         dut->stage_rdata = tb_stage(rom, a);
         clock_cycle();
     }));

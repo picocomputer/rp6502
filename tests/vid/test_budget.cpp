@@ -34,6 +34,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_host.h"
 #include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
@@ -208,6 +209,7 @@ static void run_case(int *utest_result, const char *name,
     dut->rst_n = 1;
     r->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
     ASSERT_TRUE(tb_quiet(dut, [&] {
+        tb_host_tick(dut, rom);
         dut->stage_rdata = tb_stage(rom, dut->rp6502_stage_addr);
         clock_cycle();
     }));

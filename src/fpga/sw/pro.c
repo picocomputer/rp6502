@@ -52,7 +52,7 @@ void pro_run(void)
     if (pro_asked)
         return;
     pro_asked = true;
-    if (!msc_getfile(0, pro_argv0, sizeof pro_argv0))
+    if (!msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
         return;
     arg_clear();
     arg_append(pro_argv0);

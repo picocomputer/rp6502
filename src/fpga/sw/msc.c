@@ -40,9 +40,10 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Slot 0 is the ROM and slot 1 the fonts; data.json declares the rest. */
-#define MSC_SLOT_ROM 0
-#define MSC_SLOT_FIRST 2
+/* Slots 0-7 are the open files, one per descriptor. Above them sit the
+ * three the machine never opens: the ROM, the fonts and the code page
+ * tables, which the host stages whole. */
+#define MSC_SLOT_FIRST 0
 #define MSC_OPEN_MAX 8
 
 #define MSC_NAME_MAX 256
@@ -134,8 +135,9 @@ static void msc_win_u32(uint32_t off, uint32_t v)
     FILE_WIN[off >> 2] = v;
 }
 
-/* Scanned rather than indexed: the order the host writes the pairs in
- * is not promised. */
+/* The table is id/size pairs and the host decides where each one lands —
+ * Analogue's side is a RAM the host writes, and defines no layout — so a
+ * slot's size is looked up by its id. */
 #define MSC_DT_PAIRS 20
 
 static uint32_t msc_dt(uint32_t word)
@@ -145,7 +147,7 @@ static uint32_t msc_dt(uint32_t word)
     return FILE_RESULT;
 }
 
-static bool msc_slot_len(uint32_t slot, uint32_t *len)
+bool msc_slot_len(uint32_t slot, uint32_t *len)
 {
     for (uint32_t i = 0; i < MSC_DT_PAIRS; i++)
         if (msc_dt(i * 2) == slot)
@@ -154,6 +156,22 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
             return true;
         }
     return false;
+}
+
+/* Fill a slot's window from its file. Blocking, like open: the loader
+ * runs with the machine stopped, and an asset read is a fault the program
+ * asking for it is already waiting on. The caller clamps to the file's
+ * length; the host is not asked what it has twice. */
+bool msc_slot_read(uint32_t slot, uint32_t off, uint32_t len)
+{
+    if (len > SLOT_WIN_SIZE)
+        len = SLOT_WIN_SIZE;
+    FILE_ID = slot;
+    FILE_OFFSET = off;
+    FILE_BRIDGE = SLOT_WIN_BRIDGE(slot);
+    FILE_LENGTH = len;
+    uint32_t st = msc_command(FILE_OP_READ);
+    return !(st & (FILE_ST_ERR | FILE_ST_TIMEOUT));
 }
 
 /* The one command the host answers with something other than a result
@@ -166,15 +184,16 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
 bool msc_getfile(uint32_t slot, char *out, size_t cap)
 {
     FILE_ID = slot;
-    FILE_BRIDGE = FILE_STAGE_BRIDGE;
+    FILE_BRIDGE = SLOT_WIN_BRIDGE(slot);
     uint32_t st = msc_command(FILE_OP_GETFILE);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
 
     char utf8[MSC_NAME_MAX];
     size_t n = 0;
-    while (n < MSC_NAME_MAX - 1 && FILE_STAGE[n])
-        utf8[n] = (char)FILE_STAGE[n], n++;
+    volatile const uint8_t *win = SLOT_WIN(slot);
+    while (n < MSC_NAME_MAX - 1 && win[n])
+        utf8[n] = (char)win[n], n++;
     utf8[n] = 0;
 
     uint16_t page = font_get_code_page();
@@ -315,46 +334,19 @@ static bool msc_unanswered(uint32_t st)
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
-/* The image lands at bridge address zero, which is where the host
- * staged the program now being replaced — so its assets go with it,
- * which is the point. The 6502 is stopped and its memory already holds
- * the old program; nothing reads the store until the loader does.
- *
- * Through the ROM slot, because that is the slot this is: data.json
- * gives slot 0 the .rp6502 extension, a maximum the size of the staging
- * region, and bridge address zero — the address this walks from. A file
- * slot has a 64 KB maximum and would put a ceiling on what exec can run.
- * It also shares its number with the first std descriptor, so staging
- * there lands on whatever a program left open.
- *
- * A slot operation moves at most FILE_XFER_MAX, so a large image is
- * several reads into consecutive windows. */
+/* Exec's staging, which is now a binding and not a copy. Slot 8 is the
+ * ROM's, so pointing it at the next image is the whole operation — what
+ * the loader and the ROM: drive read afterwards comes through the slot's
+ * window, a fault at a time, and an image with megabytes of assets costs
+ * nothing until something asks for them. */
 bool msc_stage_rom(const char *path, uint32_t *len)
 {
     const char *p = msc_strip_drive(path);
     if (!p || !*p)
         return false;
-    uint32_t slot = MSC_SLOT_ROM;
-    if (msc_try_open(slot, p, 0, 0, MSC_ASSETS_PATH) > 1)
+    if (msc_try_open(MSC_SLOT_ROM, p, 0, 0, MSC_ASSETS_PATH) > 1)
         return false;
-    uint32_t total;
-    if (!msc_slot_len(slot, &total) || !total)
-        return false;
-    for (uint32_t at = 0; at < total; at += FILE_XFER_MAX)
-    {
-        uint32_t want = total - at;
-        if (want > FILE_XFER_MAX)
-            want = FILE_XFER_MAX;
-        FILE_ID = slot;
-        FILE_OFFSET = at;
-        FILE_BRIDGE = at;
-        FILE_LENGTH = want;
-        uint32_t st = msc_command(FILE_OP_READ);
-        if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
-            return false;
-    }
-    *len = total;
-    return true;
+    return msc_slot_len(MSC_SLOT_ROM, len) && *len;
 }
 
 bool msc_std_handles(const char *path)
@@ -446,15 +438,14 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return d;
 }
 
-/* A close flushes. There is no close command to send, so the flush is
- * the only thing that puts a write on the card before the slot is handed
- * to someone else — and exec hands slot 2 to the incoming image the
- * moment the machine stops, which is the same slot the first open file
- * was using.
+/* A close flushes. There is no close command to send the host, so this
+ * is the only thing that puts a write on the card: a program that writes
+ * and closes without syncing has asked for durability the only way the
+ * API offers, and getting it is not optional.
  *
  * It blocks, unlike sync, because std_stop discards what close returns.
- * A flush that answered STD_PENDING there would be dropped on the one
- * path that has to have it. */
+ * A flush that answered STD_PENDING there would be dropped on the path
+ * every exiting program takes. */
 std_rw_result msc_std_close(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
@@ -515,7 +506,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
     {
         FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
         FILE_OFFSET = pos;
-        FILE_BRIDGE = FILE_STAGE_BRIDGE;
+        FILE_BRIDGE = SLOT_WIN_BRIDGE(desc);
         FILE_LENGTH = want;
         msc_busy = true;
         msc_start(FILE_OP_READ);
@@ -529,7 +520,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
         return STD_ERROR;
     }
     for (uint32_t i = 0; i < want; i++)
-        buf[i] = (char)FILE_STAGE[i];
+        buf[i] = (char)SLOT_WIN(desc)[i];
     msc_pool[desc].pos = pos + want;
     *got = want;
     return STD_OK;

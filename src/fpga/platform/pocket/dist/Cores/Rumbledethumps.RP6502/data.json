@@ -3,24 +3,96 @@
     "magic": "APF_VER_1",
     "data_slots": [
       {
-        "name": "RP6502 ROM",
+        "name": "File 0",
         "id": 0,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FA0000"
+      },
+      {
+        "name": "File 1",
+        "id": 1,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FA8000"
+      },
+      {
+        "name": "File 2",
+        "id": 2,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FB0000"
+      },
+      {
+        "name": "File 3",
+        "id": 3,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FB8000"
+      },
+      {
+        "name": "File 4",
+        "id": 4,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FC0000"
+      },
+      {
+        "name": "File 5",
+        "id": 5,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FC8000"
+      },
+      {
+        "name": "File 6",
+        "id": 6,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FD0000"
+      },
+      {
+        "name": "File 7",
+        "id": 7,
+        "required": false,
+        "parameters": "0x0",
+        "size_maximum": "0x00008000",
+        "deferload": true,
+        "address": "0x03FD8000"
+      },
+      {
+        "name": "RP6502 ROM",
+        "id": 8,
         "required": true,
         "parameters": "0x041",
         "extensions": [
           "rp6502"
         ],
-        "size_maximum": "0x03FD0000",
-        "address": "0x00000000"
+        "size_maximum": "0x00008000",
+        "address": "0x03FE0000"
       },
       {
         "name": "Fonts",
-        "id": 1,
+        "id": 9,
         "required": true,
         "parameters": "0x0",
         "filename": "fonts.bin",
-        "size_maximum": "0x00010000",
-        "address": "0x03FF0000"
+        "size_maximum": "0x0000F000",
+        "address": "0x03FEA000"
       },
       {
         "name": "Code pages",
@@ -28,72 +100,8 @@
         "required": true,
         "parameters": "0x0",
         "filename": "oemcp.bin",
-        "size_maximum": "0x00010000",
-        "address": "0x03FD0000"
-      },
-      {
-        "name": "File 0",
-        "id": 2,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 1",
-        "id": 3,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 2",
-        "id": 4,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 3",
-        "id": 5,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 4",
-        "id": 6,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 5",
-        "id": 7,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 6",
-        "id": 8,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
-      },
-      {
-        "name": "File 7",
-        "id": 9,
-        "required": false,
-        "parameters": "0x0",
-        "size_maximum": "0x00010000",
-        "deferload": true
+        "size_maximum": "0x00002000",
+        "address": "0x03FE8000"
       }
     ]
   }

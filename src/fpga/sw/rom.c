@@ -12,17 +12,17 @@
  * both reset vector bytes must arrive or the image is rejected.
  *
  * Suspend, for whoever tries it: this file is the reason it is not a
- * flag flip. STAGE is the SDRAM, and a ROM with bundled assets keeps
- * reading it for as long as the program runs — a load is not a copy
- * that finishes. If the Pocket cuts power to the SDRAM while asleep,
- * the reads after waking return whatever survived, and the program
- * will not know. Anything that turns sleep on has to restage the slot
- * before the machine runs again, or prove the store persists. The same
- * goes for the fonts, which live in the last 64 KB of the same store.
+ * flag flip. A ROM with bundled assets keeps reading its file for as
+ * long as the program runs — a load is not a copy that finishes — and
+ * what it reads through is a 32 KB window in the SDRAM. If the Pocket
+ * cuts power to the store while asleep, the window and the fonts above
+ * it come back holding whatever survived, and the program will not know.
+ * Waking has to refill them, or prove the store persists.
  */
 
 #include "font.h"
 #include "mmio.h"
+#include "msc.h"
 #include "rom.h"
 
 #include "ria/api/uni.h"
@@ -32,6 +32,39 @@
 #include <string.h>
 
 static uint32_t rom_pos, rom_end;
+
+/* The image is a file on the host, not a copy in memory: slot 8 is bound
+ * to it and this is the 32 KB of it currently in hand. A read outside
+ * fetches the aligned window that holds it, so walking the image forward
+ * costs one round trip per window and an asset seek costs one. */
+static uint32_t rom_win_base, rom_win_len;
+
+static bool rom_window(uint32_t at)
+{
+    if (rom_win_len && at >= rom_win_base && at < rom_win_base + rom_win_len)
+        return true;
+    if (at >= rom_end)
+        return false;
+    uint32_t base = at & ~(SLOT_WIN_SIZE - 1);
+    uint32_t len = rom_end - base;
+    if (len > SLOT_WIN_SIZE)
+        len = SLOT_WIN_SIZE;
+    if (!msc_slot_read(MSC_SLOT_ROM, base, len))
+    {
+        rom_win_len = 0;
+        return false;
+    }
+    rom_win_base = base;
+    rom_win_len = len;
+    return true;
+}
+
+static uint8_t rom_byte(uint32_t at)
+{
+    if (!rom_window(at))
+        return 0;
+    return SLOT_WIN(MSC_SLOT_ROM)[at - rom_win_base];
+}
 /* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
 
@@ -50,7 +83,7 @@ static long rom_gets(char *line, size_t cap)
 {
     size_t i = 0;
     int c = -1;
-    while (rom_pos < rom_end && (c = STAGE[rom_pos++]) != '\n')
+    while (rom_pos < rom_end && (c = rom_byte(rom_pos++)) != '\n')
         if (i + 1 < cap)
             line[i++] = (char)c;
     if (c == -1 && i == 0)
@@ -127,6 +160,7 @@ bool rom_load_staged(uint32_t len)
     char line[512];
     rom_pos = 0;
     rom_end = len;
+    rom_win_len = 0;
     rom_assets = 0;
 
     if (rom_gets(line, sizeof(line)) < 0 ||
@@ -174,7 +208,7 @@ bool rom_load_staged(uint32_t len)
         for (uint32_t i = 0; i < reclen; i++)
         {
             uint32_t a = addr + i;
-            uint8_t b = STAGE[rom_pos++];
+            uint8_t b = rom_byte(rom_pos++);
             c = rom_crc32(c, b);
             if (a > 0xFFFF)
                 XRAM_WIN[a - 0x10000] = b;
@@ -199,8 +233,9 @@ bool rom_load_staged(uint32_t len)
 /* ---- The ROM: drive: read-only windows onto assets in the staged image.
  *
  * emu/emu/rom.c does this against a host file and keeps an fd positioned
- * for each window. Here the image is already in SDRAM behind STAGE, so a
- * window is an offset and a length and a read is a copy.
+ * for each window. Here the image is a host file too — slot 8 is bound to
+ * it — so a window is an offset and a length, and a read is a copy when
+ * the bytes are in hand and a round trip when they are not.
  *
  * An asset is named in UTF-8 and a program's path is code page bytes, so
  * the comparison converts as it walks. The two agree for the ASCII names
@@ -347,7 +382,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
     uint32_t want = count < avail ? count : avail;
     uint32_t at = rom_win_pool[desc].base + pos;
     for (uint32_t i = 0; i < want; i++)
-        buf[i] = (char)STAGE[at + i];
+        buf[i] = (char)rom_byte(at + i);
     rom_win_pool[desc].pos = pos + want;
     *got = want; /* short or zero at the window's end, which is EOF */
     return STD_OK;

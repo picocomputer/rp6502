@@ -37,19 +37,25 @@
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
-/* The font asset sits in the last 64 KB of the staging store, above any
- * ROM the loader will ever be handed. The 64 KB below it is where the
- * host lands a Slot Read, since the bridge already knows how to write
- * the staging store and knows no other way to write us at all. Both
- * bounds are declared in data.json's size_maximum for slot 0, and so is
- * the 64 KB below them holding the OEM code page tables. */
-#define FONTS ((volatile const uint8_t *)0x63FF0000u)
-#define FILE_STAGE ((volatile const uint8_t *)0x63FE0000u)
-#define FILE_STAGE_BRIDGE 0x03FE0000u
-#define OEMCP ((volatile const uint8_t *)0x63FD0000u)
-/* The chunk one slot operation moves; a larger file is several of
- * them. */
-#define FILE_XFER_MAX 0x8000u
+/* The fonts and the code page tables are whole files: the fabric reads
+ * glyphs at random and the tables are looked up by codepoint, so neither
+ * can be a window. They are sized to what they hold and nothing more.
+ *
+ * Everything a slot moves goes through a window instead, one per slot,
+ * because the bridge writes the staging store and knows no other way to
+ * write us at all. Thirty-two kilobytes each, which is the most any slot
+ * operation carries. data.json declares all eleven addresses and must
+ * agree with what is here. */
+#define FONTS ((volatile const uint8_t *)0x63FEA000u)
+#define OEMCP ((volatile const uint8_t *)0x63FE8000u)
+
+#define SLOT_WIN_SIZE 0x8000u
+#define SLOT_WIN(i) \
+    ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(i) * SLOT_WIN_SIZE))
+#define SLOT_WIN_BRIDGE(i) (0x03FA0000u + (uint32_t)(i) * SLOT_WIN_SIZE)
+/* The chunk one slot operation moves, which is a whole window; a larger
+ * file is several of them. */
+#define FILE_XFER_MAX SLOT_WIN_SIZE
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
  * other port is the bridge's, so it is word-wide and write-only: the

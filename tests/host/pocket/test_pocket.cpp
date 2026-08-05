@@ -42,6 +42,13 @@ extern "C" {
 #include <vector>
 
 static Vtb_pocket *dut;
+/* The host's id/size pairs, and the image behind slot 8. The ROM is a
+ * file the core reads a window at a time now, so the bench has to answer
+ * the reads rather than pre-loading the store. */
+static uint32_t g_dt[64];
+static uint32_t dt_pipe[2];
+static std::vector<uint8_t> g_rom;
+static int g_rd_prev, g_rd_hold;
 
 static long a_next, s_next;
 static long g_t, g_sys;
@@ -70,7 +77,12 @@ static void tick()
         }
     }
     if (aedge)
+    {
+        dut->datatable_q = dt_pipe[1];
+        dt_pipe[1] = dt_pipe[0];
+        dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
         dut->clk_74a = 1;
+    }
     dut->eval();
     if (aedge)
     {
@@ -89,6 +101,29 @@ static void tick()
             g_gf_hold = 4;
         }
         g_gf_prev = g;
+
+        int r = dut->tb_pocket_ds_read;
+        if (r && !g_rd_prev)
+        {
+            uint32_t off = dut->tb_pocket_ds_slotoffset;
+            uint32_t br = dut->tb_pocket_ds_bridgeaddr;
+            uint32_t len = dut->tb_pocket_ds_length;
+            auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
+            if (dut->tb_pocket_ds_id == 8)
+                for (uint32_t i = 0; i + 1 < len; i += 2)
+                {
+                    size_t a = off + i;
+                    uint8_t lo = a < g_rom.size() ? g_rom[a] : 0;
+                    uint8_t hi = a + 1 < g_rom.size() ? g_rom[a + 1] : 0;
+                    chip[(br + i) >> 1] = (uint16_t)(lo | (hi << 8));
+                }
+            dut->target_dataslot_done = 0;
+            g_rd_hold = 4;
+        }
+        g_rd_prev = r;
+        if (g_rd_hold && !--g_rd_hold)
+            dut->target_dataslot_done = 1;
+
         if (g_gf_hold && !--g_gf_hold)
             dut->target_dataslot_done = 1;
     }
@@ -271,14 +306,21 @@ static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
     }
 }
 
-/* Host slot load: the next request drops the completion level, the
- * stream lands, completion returns and stays. Word 1 of the data table
- * is slot 0's size, so only the ROM's is posted. */
+/* Host slot load: the next request drops the completion level, the first
+ * window lands, completion returns and stays. The rest of the image the
+ * core fetches for itself, which is what a card does. */
 static void host_load(const std::vector<uint8_t> &rom)
 {
     dut->dataslot_allcomplete = 0;
-    dut->datatable_q = (uint32_t)rom.size();
-    host_stream(rom, 0);
+    g_rom = rom;
+    memset(g_dt, 0, sizeof g_dt);
+    g_dt[8 * 2] = 8;
+    g_dt[8 * 2 + 1] = (uint32_t)rom.size();
+    std::vector<uint8_t> first(rom.begin(),
+                               rom.begin() + (rom.size() < 0x8000u
+                                                  ? (long)rom.size()
+                                                  : 0x8000L));
+    host_stream(first, 0x03FE0000u);
     dut->dataslot_allcomplete = 1;
 }
 
@@ -379,7 +421,7 @@ static void power_on(int *utest_result)
      * go in the same way here. */
     const std::vector<uint8_t> &oemcp = tb_stage_oemcp();
     for (size_t i = 0; i + 1 < oemcp.size(); i += 2)
-        chip[(0x03FD0000u + i) >> 1] =
+        chip[(TB_STAGE_OEMCP_BASE + i) >> 1] =
             (uint16_t)(oemcp[i] | (oemcp[i + 1] << 8));
 }
 

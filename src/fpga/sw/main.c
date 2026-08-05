@@ -366,8 +366,17 @@ static void stop(void)
      * stop it asks for. */
 }
 
-/* A length the host staged while we were running, applied at the stop. */
-static uint32_t main_restage;
+/* The host staged something while we were running, applied at the stop.
+ * A flag and not a length: the bridge latches one fixed word of the data
+ * table, so what MMIO_SLOT carries belongs to whichever slot that word
+ * is. The announcement is the news; the size is a question for the
+ * table, by id. */
+static bool main_restage;
+
+static bool main_rom_len(uint32_t *len)
+{
+    return msc_slot_len(MSC_SLOT_ROM, len) && *len;
+}
 
 static enum state {
     stopped,
@@ -404,15 +413,18 @@ int main(void)
      * staging window. data.json marks slot 0 required, so the host will
      * not launch this core without one and a zero here means a platform
      * that staged nothing — which leaves nothing to run. */
-    uint32_t slot = MMIO_SLOT;
+    uint32_t len;
     bool runnable = false;
-    if (slot)
+    if (main_rom_len(&len))
     {
-        runnable = rom_load_staged(slot);
-        MMIO_SLOT = 0;
+        runnable = rom_load_staged(len);
         if (!runnable)
             printf("rom: bad image\n");
     }
+    /* Cleared once the image is dealt with and not before: it is how
+     * anything watching tells a load in progress from a finished one,
+     * and a windowed load takes longer than a frame. */
+    MMIO_SLOT = 0;
 
     if (runnable)
         main_run();
@@ -454,10 +466,9 @@ int main(void)
         /* Slot 0 restaged under a running core: the Core Settings menu
          * can swap the ROM without reloading the part, and the length
          * arriving is the only announcement. */
-        if (MMIO_SLOT)
+        if (MMIO_SLOT && !main_restage)
         {
-            main_restage = MMIO_SLOT;
-            MMIO_SLOT = 0;
+            main_restage = true;
             main_stop();
         }
         if (main_state == starting)
@@ -474,9 +485,15 @@ int main(void)
              * outgoing program left open, and the read needs one. */
             if (main_restage)
             {
-                uint32_t len = main_restage;
-                main_restage = 0;
-                if (rom_load_staged(len))
+                uint32_t len;
+                main_restage = false;
+                bool ok = main_rom_len(&len) && rom_load_staged(len);
+                /* Cleared once the image is dealt with and not before:
+                 * it is how anything watching tells a load in progress
+                 * from a finished one, and a windowed load takes longer
+                 * than a frame. */
+                MMIO_SLOT = 0;
+                if (ok)
                     main_run();
                 else
                     printf("rom: bad image\n");

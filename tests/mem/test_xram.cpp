@@ -14,6 +14,7 @@
 
 #include "oracle.h"
 #include "tb_quiet.h"
+#include "tb_host.h"
 #include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
@@ -95,6 +96,7 @@ static bool rtl_boot(const std::vector<uint8_t> &rom, std::string *rv_out)
     bool ever_ran = false;
     bool quiet = tb_quiet(dut, [&] {
         uint32_t a = dut->rp6502_stage_addr;
+        tb_host_tick(dut, rom);
         dut->stage_rdata = tb_stage(rom, a);
         rv_phase = !rv_phase;
     dut->clk_rv = rv_phase;

@@ -29,6 +29,18 @@
 #define MSC_SAVES_PATH "/Saves/rp6502/common/"
 #define MSC_ASSETS_PATH "/Assets/rp6502/common/"
 
+/* The slots the machine never opens as files. data.json stages all three
+ * whole; the eight below them are the open-file descriptors. */
+#define MSC_SLOT_ROM 8
+
+/* A slot's size, by id. The host places the table's pairs where it likes,
+ * so this looks the id up rather than indexing. Blocking. */
+bool msc_slot_len(uint32_t slot, uint32_t *len);
+
+/* Fill a slot's 32 KB window from its file, starting at off. Blocking.
+ * The caller clamps len to what the file holds. */
+bool msc_slot_read(uint32_t slot, uint32_t off, uint32_t len);
+
 /* The host's name for whatever file is bound to a slot, converted to
  * code page bytes, refused rather than truncated if it will not fit.
  * Blocking, so boot only — this is how the core learns the name of the

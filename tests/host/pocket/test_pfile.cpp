@@ -50,7 +50,7 @@ static uint32_t g_dt[64];
 /* Where msc.c stages a Slot Read, and where the host reads a Slot
  * Write out of. Both are firmware and RTL constants; a test that
  * guessed them would pass against the wrong hardware. */
-static const uint32_t STAGE_BRIDGE = 0x03FE0000u;
+static const uint32_t STAGE_BRIDGE = 0x03FA0000u;
 static const uint32_t WINDOW_BASE = 0x20000000u;
 
 /* The host's filesystem, and which slot is bound to which file. Files
@@ -445,10 +445,18 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
-    /* Slot 0 is the ROM the user picked, bound before the core ever
-     * runs — which is the whole reason argv has to ask. In the assets
-     * folder, spelled absolute, the way the host answers. */
-    g_bound[0] = "/Assets/rp6502/common/pfile.rp6502";
+    /* Slot 8 is the ROM the user picked, bound before the core ever
+     * runs — which is the whole reason argv has to ask, and what lets
+     * the loader read the image a window at a time instead of being
+     * handed all of it. In the assets folder, spelled absolute, the way
+     * the host answers. */
+    g_bound[8] = "/Assets/rp6502/common/pfile.rp6502";
+    /* And the file behind it, because the loader reads the image through
+     * the slot now rather than finding it already in the store. */
+    g_files[g_bound[8]] = rom;
+    g_dirs.insert("/Assets");
+    g_dirs.insert("/Assets/rp6502");
+    g_dirs.insert("/Assets/rp6502/common");
 
     dut->rst_n = 0;
     dut->arst_n = 0;
@@ -473,14 +481,17 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     for (int i = 0; i < 40000 && !dut->tb_pocket_ready; i++)
         tick();
 
-    /* The host's load: the ROM into slot 0, the fonts where data.json
-     * puts them, then the table and completion. */
-    host_put_bytes(0, rom.data(), rom.size());
+    /* The host's load: the ROM's first window into slot 8, the fonts and
+     * the code page tables whole where data.json puts them, then the
+     * table and completion. The rest of the image the core fetches for
+     * itself, a window at a time, the way it will on a card. */
+    host_put_bytes(0x03FE0000u, rom.data(),
+                   rom.size() < 0x8000u ? rom.size() : 0x8000u);
     std::vector<uint8_t> fonts = read_file(FONTS_BIN);
-    host_put_bytes(0x03FF0000u, fonts.data(), fonts.size());
+    host_put_bytes(0x03FEA000u, fonts.data(), fonts.size());
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
-    host_put_bytes(0x03FD0000u, oemcp.data(), oemcp.size());
-    dt_set(0, (uint32_t)rom.size());
+    host_put_bytes(0x03FE8000u, oemcp.data(), oemcp.size());
+    dt_set(8, (uint32_t)rom.size());
     /* The host's clock, local time behind the valid, as command 0x0090
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
@@ -529,19 +540,27 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_TRUE(g_console.find(want) != std::string::npos);
 
     /* The host's own copy is the other half of the proof: the bytes
-     * reached a file, not just a buffer the machine still owns. */
-    ASSERT_EQ(g_files.size(), (size_t)1);
-    const std::vector<uint8_t> &f = g_files.begin()->second;
-    ASSERT_EQ(f.size(), want.size());
-    ASSERT_EQ(memcmp(f.data(), want.data(), want.size()), 0);
+     * reached a file, not just a buffer the machine still owns. The ROM
+     * is a file on the card too, so count what the program left. */
+    size_t made = 0;
+    const std::vector<uint8_t> *f = NULL;
+    for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
+             = g_files.begin();
+         it != g_files.end(); ++it)
+        if (it->first != g_bound[8])
+        {
+            made++;
+            f = &it->second;
+        }
+    ASSERT_EQ(made, (size_t)1);
+    ASSERT_EQ(f->size(), want.size());
+    ASSERT_EQ(memcmp(f->data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
     ASSERT_GT(g_reads, 0);
     /* Exactly one, and which one matters. The ROM closes twice and syncs
      * never, so this is the writable close flushing and the read-only
      * close declining to. There is no close command to send the host, so
-     * a close that does not flush is a write left in the air — and exec
-     * hands the same slot to the next image as soon as the machine
-     * stops. */
+     * a close that does not flush is a write left in the air. */
     ASSERT_EQ(g_flushes, 1);
     /* argv[0] is asked for once, before the 6502 is released. A core
      * that stopped asking would still pass everything above it and
@@ -614,7 +633,14 @@ UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
     if (g_console.find("PASS") == std::string::npos)
         fprintf(stderr, "console: [%s]\n", g_console.c_str());
     ASSERT_TRUE(g_console.find("PASS") != std::string::npos);
-    /* And left nothing behind on a card that cannot hold it. */
-    ASSERT_EQ(g_files.size(), (size_t)0);
+    /* And left nothing behind on a card that cannot hold it — the ROM
+     * itself excepted, which was there before the core ran. */
+    size_t made = 0;
+    for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
+             = g_files.begin();
+         it != g_files.end(); ++it)
+        if (it->first != g_bound[8])
+            made++;
+    ASSERT_EQ(made, (size_t)0);
     teardown();
 }
