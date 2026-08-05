@@ -17,6 +17,13 @@
 // 64KB Extended RAM
 // One page is tracked for audio
 extern uint8_t *const xram;
+
+/* Every XRAM base an xreg carries — a mode's config struct, a sprite
+ * descriptor array, the PSG's channel block — must be 32-bit aligned.
+ * False means unusable; what a host makes of that is its own business
+ * and they differ. */
+bool mem_xram_align(uint16_t addr);
+
 extern volatile uint8_t xram_queue_page;
 extern volatile uint8_t xram_queue_head;
 extern volatile uint8_t xram_queue_tail;

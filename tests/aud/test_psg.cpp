@@ -9,7 +9,7 @@
  * indices on both sides — every stereo PWM pair must match exactly.
  * Covers all five waves across the channels, the envelope through
  * attack, decay, the sustain quirks, and release, pan extremes with
- * the truncating division and the mute, the halfword-aligned block,
+ * the truncating division and the mute, a second block high in XRAM,
  * and the gate queue's 32-per-sample drain and drop-when-full ring.
  * The bell is not here. It belongs to the machine now rather than to
  * this engine — one instance past the engine mux in rp6502.sv — and
@@ -219,10 +219,9 @@ UTEST(psg, lockstep_bit_exact)
         xram_write((uint16_t)(base + ch * 8 + 6), 0x00);
     run_lockstep(utest_result, 2000);
 
-    /* The halfword-aligned block, reprogrammed live and loaded to its
-     * seventeenth word: channel 7's pan rides the last fetched bytes,
-     * and gates land across the borrowing offsets. */
-    const uint16_t base2 = 0x7002;
+    /* A second block, reprogrammed live and loaded to its seventeenth
+     * word: channel 7's pan rides the last fetched bytes. */
+    const uint16_t base2 = 0x7004;
     config(base2, 0, 880, 255, 0x00, 0x00, 0x00, 0x01);
     config(base2, 1, 440, 128, 0x02, 0x30, 0x11, 0x20);
     config(base2, 2, 660, 90, 0x11, 0x50, 0x22, 0xE0);

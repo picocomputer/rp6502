@@ -81,25 +81,21 @@ module vid_mode5
 
     logic [15:0] idx;
 
-    /* The descriptor gather: eight bytes from a halfword-aligned array,
-     * two or three words. */
-    logic [95:0] gather;
-    logic [1:0] lane;
+    /* The descriptor gather: eight bytes, always exactly two words. cfg is
+     * 32-bit aligned and the stride is eight, so a descriptor never straddles
+     * and there is nothing to shift out. */
+    logic [63:0] gather;
     logic [16:0] daddr;
     always_comb daddr = {1'b0, cfg} + {1'd0, idx[12:0], 3'b000};
-    logic [1:0] daddr_lane;
-    always_comb daddr_lane = daddr[1:0];
-    logic [2:0] fw_i, fw_c, fw_n;
+    logic [2:0] fw_i, fw_c;
     logic gnt_d;
-    logic [63:0] dview;
-    always_comb dview = 64'(gather >> {lane, 3'b000});
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr, d_pptr;
     always_comb begin
-        d_x = dview[15:0];
-        d_y = dview[31:16];
-        d_sptr = dview[47:32];
-        d_pptr = dview[63:48];
+        d_x = gather[15:0];
+        d_y = gather[31:16];
+        d_sptr = gather[47:32];
+        d_pptr = gather[63:48];
     end
 
     logic [15:0] tex_y;
@@ -164,7 +160,7 @@ module vid_mode5
         vid_mode5_a_req = 1'b0;
         vid_mode5_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
-            M5_DESC: vid_mode5_a_req = fw_i < fw_n;
+            M5_DESC: vid_mode5_a_req = fw_i < 3'd2;
             M5_PIX: begin
                 if (!dhit) begin
                     vid_mode5_a_req = fw_i == 3'd0;
@@ -209,10 +205,8 @@ module vid_mode5
         state = M5_IDLE;
         idx = '0;
         gather = '0;
-        lane = '0;
         fw_i = '0;
         fw_c = '0;
-        fw_n = '0;
         gnt_d = 1'b0;
         tex_x = '0;
         size_x = '0;
@@ -253,11 +247,8 @@ module vid_mode5
                 M5_IDLE: ;
                 M5_NEXT: begin
                     /* Aim the gather at descriptor idx. */
-                    lane <= daddr_lane;
                     fw_i <= '0;
                     fw_c <= '0;
-                    fw_n <= 3'((5'({3'd0, daddr_lane}) + 5'd8 + 5'd3)
-                               >> 2);
                     gather <= '0;
                     state <= M5_DESC;
                 end
@@ -268,11 +259,10 @@ module vid_mode5
                         case (fw_c)
                             3'd0: gather[31:0] <= a_rdata;
                             3'd1: gather[63:32] <= a_rdata;
-                            3'd2: gather[95:64] <= a_rdata;
                             default: ;
                         endcase
                         fw_c <= fw_c + 3'd1;
-                        if (fw_c + 3'd1 == fw_n)
+                        if (fw_c == 3'd1)
                             state <= M5_JUDGE;
                     end
                 end
@@ -322,9 +312,9 @@ module vid_mode5
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode5;
     always_comb unused_vid_mode5 = ^{attr[15:6], attr[2], gather,
-                                     daddr[16], tex_y[15:9],
+                                     daddr[16], daddr[1:0], tex_y[15:9],
                                      pix_byte_addr[16],
-                                     idx[15:13], dview};
+                                     idx[15:13]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

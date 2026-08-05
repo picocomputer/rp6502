@@ -67,6 +67,12 @@ D101 551
 #       reads the old value or the new one and never a third. The tool
 #       counts eight bits crossing and cannot see the encoding, which is
 #       what this whole entry is about.
+#
+#       The gate has asked for 23. Do not take it: a fit reported 23 and
+#       the next reported 24 with only vid_mode's config fetch changed
+#       between them, and that touches none of these structures — all 24
+#       are named above and every one is in the platform layer. The count
+#       is packing-sensitive, so one observation is not a new floor.
 D102 24
 #
 # D103  Data bits not correctly synchronised. pocket_file's command

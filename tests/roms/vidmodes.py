@@ -270,16 +270,16 @@ mode3("mode3_8bpp", 3, 3, 8, 64, 64, 10, 20, True)
 mode3("mode3_1bpp", 1, 0, 1, 64, 48, 5, 7, False)
 mode3("mode3_4bppr", 2, 10, 4, 40, 30, 0, 0, False)
 mode3("mode3_16bpp", 4, 4, 16, 32, 16, 100, 50, False)
-# The rest of the depth matrix, a halfword-aligned config and palette,
-# content below row 180 on the undoubled 640x360 canvas, wraparound with
+# The rest of the depth matrix, a halfword-aligned palette under a word-aligned
+# config, content below row 180 on the undoubled 640x360 canvas, wraparound with
 # negative positions, and both pointers at their exact XRAM bounds.
 mode3("mode3_2bpp", 1, 1, 2, 80, 60, 3, 5, True,
-      config_ptr=0x0102, pal_ptr=0x0202)
+      config_ptr=0x0100, pal_ptr=0x0202)
 mode3("mode3_4bpp", 3, 2, 4, 100, 80, 17, 9, False)
 mode3("mode3_1bppr", 2, 8, 1, 64, 40, 7, 3, False)
-mode3("mode3_2bppr", 4, 9, 2, 90, 50, 30, 200, False, config_ptr=0xFFF2)
+mode3("mode3_2bppr", 4, 9, 2, 90, 50, 30, 200, False, config_ptr=0xFFF0)
 mode3("mode3_wrap", 1, 3, 8, 50, 40, -37, -23, True,
-      x_wrap=True, y_wrap=True, config_ptr=0xFDE2, pal_ptr=0xFE00)
+      x_wrap=True, y_wrap=True, config_ptr=0xFDE0, pal_ptr=0xFE00)
 
 mode1("mode1_1bpp8x8", 3, 0, 30, 12, 4, 6, False, False)
 mode1("mode1_4bpp8x16", 1, 10, 20, 8, 8, 5, True, False)
@@ -411,13 +411,13 @@ mode4a("mode4a_clip", 3, 0, 4, [
 ])
 stress("sprite_stress")
 
-# The review's dark paths: mode 5 at 1bpp and the big squares, halfword
-# descriptor arrays in every engine, the whole mode 4 log range with the
+# The review's dark paths: mode 5 at 1bpp and the big squares, descriptor
+# arrays off the origin in every engine, the whole mode 4 log range with the
 # defined row of the 32-bit-wrap sizes, small and large affine squares,
 # and a slot built to lose its race so the overrun counter shows it.
 mode5("mode5_1bpp128", 1, 32, 0, [
     (10, 40, 0, 0), (200, -30, 0, 0), (-60, 100, 0, None),
-], desc_ptr=0x0102)
+], desc_ptr=0x0100)
 mode5("mode5_4bpp256", 3, 42, 0, [(30, -60, 0, 0)])
 
 d = bytearray()
@@ -431,8 +431,8 @@ m7meta = bytearray()
 for r in range(128):
     m7meta += (((1 << 31) | 128) if r & 1
                else ((2 << 16) | 126)).to_bytes(4, "little")
-rom("mode4_sizes", 1, [(4, 0, 0x0102, 5, 0, 0, 0)],
-    [(0x0102, d),
+rom("mode4_sizes", 1, [(4, 0, 0x0100, 5, 0, 0, 0)],
+    [(0x0100, d),
      (0x1000, le16(0x1234 | 0x20, 0x0FF5)),
      (0x2000, le16(*(((t * 11 + 9) & 0xFFFF) for t in range(640)))),
      (0x4000, m7 + m7meta)])
@@ -440,8 +440,8 @@ rom("mode4_sizes", 1, [(4, 0, 0x0102, 5, 0, 0, 0)],
 d = bytearray()
 d += le16(0x100, 0, 0, 0, 0x100, 0) + le16(30, 40, 0x1000)     + bytes((3, 0))
 d += le16(0x080, 0, 0, 0, 0x080, 0) + le16(100, 60, 0x4000)     + bytes((6, 0))
-rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
-    [(0x0102, d),
+rom("mode4a_sizes", 1, [(4, 1, 0x0100, 2, 0, 0, 0)],
+    [(0x0100, d),
      (0x1000, le16(*(((t * 13 + 5) & 0xFFFF) for t in range(64)))),
      (0x4000, le16(*(((t * 7 + 3) & 0xFFFF) for t in range(4096))))])
 

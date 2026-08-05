@@ -120,7 +120,7 @@ module vid_mode (
      * the shift belongs on the capture rather than in front of every
      * pipeline's arithmetic. */
     logic [2:0] cfg_i, cfg_c;
-    logic [143:0] cfgw;
+    logic [127:0] cfgw;
 
     logic [9:0] cw;
     always_comb cw = x_shift ? 10'd320 : 10'd640;
@@ -418,7 +418,7 @@ module vid_mode (
 
     always_comb begin
         if (state == S_CFG) begin
-            vid_mode_a_req = cfg_i < 3'd5;
+            vid_mode_a_req = cfg_i < 3'd4;
             vid_mode_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
         end else begin
             vid_mode_a_req = state == S_MODE && sub_a_req;
@@ -523,24 +523,20 @@ module vid_mode (
                     if (a_gnt)
                         cfg_i <= cfg_i + 3'd1;
                     if (gnt_d) begin
-                        if (config_ptr[1])
-                            case (cfg_c)
-                                3'd0: cfgw[15:0] <= a_rdata[31:16];
-                                3'd1: cfgw[47:16] <= a_rdata;
-                                3'd2: cfgw[79:48] <= a_rdata;
-                                3'd3: cfgw[111:80] <= a_rdata;
-                                default: cfgw[143:112] <= a_rdata;
-                            endcase
-                        else
-                            case (cfg_c)
-                                3'd0: cfgw[31:0] <= a_rdata;
-                                3'd1: cfgw[63:32] <= a_rdata;
-                                3'd2: cfgw[95:64] <= a_rdata;
-                                3'd3: cfgw[127:96] <= a_rdata;
-                                default: cfgw[143:128] <= a_rdata[15:0];
-                            endcase
+                        /* config_ptr is 32-bit aligned, so the struct
+                         * lands word for word and there is no second,
+                         * offset-by-two capture to select between. Four
+                         * words: the widest config any engine reads is
+                         * sixteen bytes, and the fifth fetch this used to
+                         * make was discarded. */
+                        case (cfg_c)
+                            3'd0: cfgw[31:0] <= a_rdata;
+                            3'd1: cfgw[63:32] <= a_rdata;
+                            3'd2: cfgw[95:64] <= a_rdata;
+                            default: cfgw[127:96] <= a_rdata;
+                        endcase
                         cfg_c <= cfg_c + 3'd1;
-                        if (cfg_c == 3'd4) begin
+                        if (cfg_c == 3'd3) begin
                             if (mode_q == 3'd1)
                                 m1_start <= 1'b1;
                             else if (mode_q == 3'd2)
@@ -565,8 +561,8 @@ module vid_mode (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode;
-    always_comb unused_vid_mode = ^{t_cv, p_entry[30:19], cfgw[143:128],
-                                    config_ptr[0]};
+    always_comb unused_vid_mode = ^{t_cv, p_entry[30:19],
+                                    config_ptr[1:0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

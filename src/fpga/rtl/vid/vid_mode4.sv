@@ -45,19 +45,17 @@ module vid_mode4 (
 
     logic [15:0] idx;
 
-    logic [191:0] gather;
-    logic [1:0] lane;
+    /* cfg is 32-bit aligned and both descriptor strides are multiples of
+     * four, so a descriptor never straddles a word: nothing to shift out
+     * and the gather lands where it is read. */
+    logic [159:0] gather;
     logic [16:0] daddr;
     always_comb daddr = {1'b0, cfg}
         + (affine
            ? 17'(17'(idx[12:0]) * 17'd20)
            : {1'd0, idx[12:0], 3'b000});
-    logic [1:0] daddr_lane;
-    always_comb daddr_lane = daddr[1:0];
     logic [2:0] fw_i, fw_c, fw_n;
     logic gnt_d;
-    logic [159:0] dview;
-    always_comb dview = 160'(gather >> {lane, 3'b000});
     logic signed [15:0] dc_x, dc_y;
     logic [15:0] dc_sptr;
     logic [7:0] dc_log;
@@ -65,12 +63,12 @@ module vid_mode4 (
     logic signed [15:0] dc_t[6];
     always_comb begin
         for (int j = 0; j < 6; j++)
-            dc_t[j] = dview[16 * j+:16];
-        dc_x = affine ? dview[111:96] : dview[15:0];
-        dc_y = affine ? dview[127:112] : dview[31:16];
-        dc_sptr = affine ? dview[143:128] : dview[47:32];
-        dc_log = affine ? dview[151:144] : dview[55:48];
-        dc_meta = (affine ? dview[159:152] : dview[63:56]) != 8'h00;
+            dc_t[j] = gather[16 * j+:16];
+        dc_x = affine ? gather[111:96] : gather[15:0];
+        dc_y = affine ? gather[127:112] : gather[31:16];
+        dc_sptr = affine ? gather[143:128] : gather[47:32];
+        dc_log = affine ? gather[151:144] : gather[55:48];
+        dc_meta = (affine ? gather[159:152] : gather[63:56]) != 8'h00;
     end
 
     /* Decoded once into registers. Hanging the guard arithmetic, texel
@@ -297,7 +295,6 @@ module vid_mode4 (
         state = M4_IDLE;
         idx = '0;
         gather = '0;
-        lane = '0;
         d_x = '0;
         d_y = '0;
         d_sptr = '0;
@@ -351,12 +348,9 @@ module vid_mode4 (
             case (state)
                 M4_IDLE: ;
                 M4_NEXT: begin
-                    lane <= daddr_lane;
                     fw_i <= '0;
                     fw_c <= '0;
-                    fw_n <= 3'((6'({4'd0, daddr_lane})
-                                + (affine ? 6'd20 : 6'd8) + 6'd3)
-                               >> 2);
+                    fw_n <= affine ? 3'd5 : 3'd2;
                     gather <= '0;
                     state <= M4_DESC;
                 end
@@ -370,7 +364,6 @@ module vid_mode4 (
                             3'd2: gather[95:64] <= a_rdata;
                             3'd3: gather[127:96] <= a_rdata;
                             3'd4: gather[159:128] <= a_rdata;
-                            3'd5: gather[191:160] <= a_rdata;
                             default: ;
                         endcase
                         fw_c <= fw_c + 3'd1;
@@ -510,7 +503,7 @@ module vid_mode4 (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode4;
-    always_comb unused_vid_mode4 = ^{gather, dview, daddr[16],
+    always_comb unused_vid_mode4 = ^{gather, daddr[16], daddr[1:0],
                                      meta_addr[16], meta_addr[1:0],
                                      tex_byte_addr[17:16],
                                      tex_byte_addr[0], size_x0[17],

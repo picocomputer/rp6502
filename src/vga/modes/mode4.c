@@ -456,7 +456,7 @@ bool mode4_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[6];
     const int16_t scanline_end = xregs[7];
 
-    if (config_ptr & 1)
+    if (!mem_xram_align(config_ptr))
         return false;
 
     void (*render_fn)(int16_t, int16_t, uint16_t *, uint16_t, uint16_t);

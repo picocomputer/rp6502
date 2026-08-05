@@ -89,3 +89,23 @@ void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t siz
     mem_deadline = make_timeout_time_ms(mem_timeout_ms);
     mem_callback = callback;
 }
+
+/* The fabric requires a 32-bit aligned base and has no shifter to forgive one. This
+ * host still can, so a halfword base keeps working and names itself instead — a
+ * program that only ever runs here would otherwise meet the rule for the first time
+ * on a Pocket. An odd base was never fetchable and is still refused.
+ *
+ * Define RP6502_XRAM_ALIGN_ERRNO to refuse both and answer through the xreg. */
+bool mem_xram_align(uint16_t addr)
+{
+    if (!(addr & 3))
+        return true;
+#ifndef RP6502_XRAM_ALIGN_ERRNO
+    if (!(addr & 1))
+    {
+        printf("?Deprecated XRAM alignment 0x%04X\n", addr);
+        return true;
+    }
+#endif
+    return false;
+}

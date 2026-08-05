@@ -20,6 +20,13 @@
 
 static uint8_t xram_backing[0x10000];
 uint8_t *const xram = xram_backing;
+
+/* The bench locksteps against the fabric, which has no shifter to forgive one. */
+bool mem_xram_align(uint16_t addr)
+{
+    return !(addr & 3);
+}
+
 volatile uint8_t xram_queue_page;
 volatile uint8_t xram_queue_head;
 volatile uint8_t xram_queue_tail;

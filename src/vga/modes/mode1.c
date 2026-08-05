@@ -456,7 +456,7 @@ bool mode1_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[5];
     const int16_t scanline_end = xregs[6];
 
-    if (config_ptr & 1 ||
+    if (!mem_xram_align(config_ptr) ||
         config_ptr > 0x10000 - sizeof(mode1_config_t))
         return false;
 

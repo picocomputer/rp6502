@@ -257,7 +257,7 @@ bool mode5_prog(uint16_t *xregs)
     const int16_t scanline_begin = xregs[6];
     const int16_t scanline_end = xregs[7];
 
-    if (config_ptr & 1)
+    if (!mem_xram_align(config_ptr))
         return false;
 
     const uint32_t region_size = (uint32_t)sizeof(mode5_sprite_t) * length;

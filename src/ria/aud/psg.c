@@ -326,7 +326,7 @@ bool psg_xreg(uint16_t word)
         psg_channel_state[i].freq = 0;
         psg_channel_state[i].phase_inc = 0;
     }
-    if (word & 0x0001 ||
+    if (!mem_xram_align(word) ||
         word > 0x10000 - PSG_CHANNELS * sizeof(struct psg_channel) ||
         ((word >> 8) != ((word + PSG_CHANNELS * sizeof(struct psg_channel) - 1) >> 8)))
     {
