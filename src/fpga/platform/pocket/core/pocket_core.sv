@@ -29,8 +29,6 @@ module pocket_core #(
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     input logic dataslot_update,
-    input logic [15:0] dataslot_update_id,
-    input logic [31:0] dataslot_update_size,
     input logic reset_n,
     output logic [9:0] pocket_core_dt_addr,
     input logic [31:0] datatable_q,
@@ -144,9 +142,6 @@ module pocket_core #(
     end
 
     logic slot_set;
-    logic upd_set;
-    logic [15:0] upd_id;
-    logic [31:0] upd_len;
     logic [7:0] upd_n;
     /* The Pocket sends no key events; its keyboard arrives as a report
      * and its pad as state. The machine's event mailbox stays for the
@@ -175,8 +170,6 @@ module pocket_core #(
         .bridge_wr_data(bridge_wr_data),
         .dataslot_allcomplete(dataslot_allcomplete),
         .dataslot_update(dataslot_update),
-        .dataslot_update_id(dataslot_update_id),
-        .dataslot_update_size(dataslot_update_size),
         .reset_n(reset_n),
         .pocket_bridge_dt_addr(bridge_dt_addr),
         .pocket_bridge_dt_busy(dt_busy),
@@ -199,9 +192,6 @@ module pocket_core #(
         .pocket_bridge_run(run),
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
-        .pocket_bridge_upd_set(upd_set),
-        .pocket_bridge_upd_id(upd_id),
-        .pocket_bridge_upd_len(upd_len),
         .pocket_bridge_upd_n(upd_n),
         .pocket_bridge_pad_key(pad_key),
         .pocket_bridge_pad_joy(pad_joy),
@@ -351,9 +341,6 @@ module pocket_core #(
         .host_rdata(host_rdata),
         .slot_set(slot_set),
         .slot_len(slot_len),
-        .upd_set(upd_set),
-        .upd_id(upd_id),
-        .upd_len(upd_len),
         .upd_n(upd_n),
         .key_set(1'b0),
         .key_code(9'd0),

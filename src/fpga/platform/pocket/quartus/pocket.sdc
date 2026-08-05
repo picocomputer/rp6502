@@ -83,29 +83,6 @@ set_max_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
 set_min_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
     -to [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] 0
 
-# The slot the host named, and the size it gave it. Same shape as the
-# length above and for the same reason: written once on the host's clock,
-# read on the machine's when the toggle beside it settles. Bounded rather
-# than cut — a false path here would outrank nothing and say nothing, and
-# the requirement is that the word arrives before the toggle does.
-set_max_delay -from [get_registers {*pocket_bridge*|upd_id_74[*]}] \
-    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_id[*]}] 13.468
-set_min_delay -from [get_registers {*pocket_bridge*|upd_id_74[*]}] \
-    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_id[*]}] 0
-set_max_delay -from [get_registers {*pocket_bridge*|upd_len_74[*]}] \
-    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_len[*]}] 13.468
-set_min_delay -from [get_registers {*pocket_bridge*|upd_len_74[*]}] \
-    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_len[*]}] 0
-
-# And the same onward leg into the soft CPU, for the reason the length's
-# has: rv_soc captures only under the enable, which follows the payload.
-set_false_path -hold \
-    -from [get_registers {*pocket_bridge*|pocket_bridge_upd_id[*]}] \
-    -to [get_registers {*|mmio_upd_id[*]}]
-set_false_path -hold \
-    -from [get_registers {*pocket_bridge*|pocket_bridge_upd_len[*]}] \
-    -to [get_registers {*|mmio_upd_len[*]}]
-
 # The same length, crossing on into the soft CPU. This leg is
 # synchronous — 50.4 into 25.2, rising together — but the bus still
 # stands still when it is sampled: the bridge writes it on the settle

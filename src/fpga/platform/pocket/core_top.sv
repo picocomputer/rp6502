@@ -372,8 +372,6 @@ end
     wire            dataslot_requestwrite_ok = 1;
 
     wire            dataslot_update;
-    wire    [15:0]  dataslot_update_id;
-    wire    [31:0]  dataslot_update_size;
     
     wire            dataslot_allcomplete;
 
@@ -481,8 +479,6 @@ core_bridge_cmd icb (
     .dataslot_requestwrite_ok   ( dataslot_requestwrite_ok ),
 
     .dataslot_update            ( dataslot_update ),
-    .dataslot_update_id         ( dataslot_update_id ),
-    .dataslot_update_size       ( dataslot_update_size ),
     
     .dataslot_allcomplete   ( dataslot_allcomplete ),
 
@@ -611,8 +607,6 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .bridge_wr_data       ( bridge_wr_data ),
     .dataslot_allcomplete ( dataslot_allcomplete ),
     .dataslot_update      ( dataslot_update ),
-    .dataslot_update_id   ( dataslot_update_id ),
-    .dataslot_update_size ( dataslot_update_size ),
     .reset_n              ( reset_n ),
     .pocket_core_dt_addr  ( datatable_addr ),
     .datatable_q          ( datatable_q ),

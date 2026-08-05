@@ -29,12 +29,11 @@ module pocket_bridge (
      * and Exit either. So the machine keeps running and this is the only
      * thing that tells it the user picked a different file.
      *
-     * It arrives on the host's clock as a pulse. The payload crosses on a
-     * toggle beside it, which two announcements close together would
-     * cancel, so the count below is what the firmware watches. */
+     * It arrives as a pulse on the host's clock and is counted there.
+     * The count is all that crosses: the machine asks the data table how
+     * big the file is, so carrying the announcement's own id and size
+     * would only be a second answer to a question already answered. */
     input logic dataslot_update,
-    input logic [15:0] dataslot_update_id,
-    input logic [31:0] dataslot_update_size,
     input logic reset_n,
     output logic [9:0] pocket_bridge_dt_addr,
     output logic pocket_bridge_dt_busy,
@@ -58,9 +57,6 @@ module pocket_bridge (
     output logic pocket_bridge_run,
     output logic pocket_bridge_slot_set,
     output logic [31:0] pocket_bridge_slot_len,
-    output logic pocket_bridge_upd_set,
-    output logic [15:0] pocket_bridge_upd_id,
-    output logic [31:0] pocket_bridge_upd_len,
     /* Instrumentation. Counted where the events land, on the host's own
      * clock, so a count that rises while the machine saw nothing says
      * the loss is ours and not the host's silence. */
@@ -109,20 +105,14 @@ module pocket_bridge (
      * upd_n counts the pulses here where they arrive and the machine
      * counts the deliveries at the other end. Two against none is this
      * module's fault; none against none is the host's silence. */
-    logic [15:0] upd_id_74;
-    logic [31:0] upd_len_74;
     logic upd_t;
     logic [7:0] upd_n, upd_g_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
-            upd_id_74 <= '0;
-            upd_len_74 <= '0;
             upd_t <= 1'b0;
             upd_n <= '0;
             upd_g_74 <= '0;
         end else if (dataslot_update) begin
-            upd_id_74 <= dataslot_update_id;
-            upd_len_74 <= dataslot_update_size;
             upd_t <= !upd_t;
             upd_n <= upd_n + 8'd1;
             /* Coded here and not at the far end. What crosses has to be
@@ -305,7 +295,6 @@ module pocket_bridge (
      * equivalent, and without a reset to tell them apart the fitter
      * merges them and the crossing loses its synchroniser. */
     (* preserve *) logic settle_t1, settle_t2, settle_t3;
-    (* preserve *) logic upd_t1, upd_t2, upd_t3;
     (* preserve *) logic [7:0] upd_g_s1;
     logic [7:0] upd_g_s2, upd_n_sys;
     (* preserve *) logic reset_n_s1, reset_n_s2;
@@ -316,15 +305,9 @@ module pocket_bridge (
         settle_t1 = 1'b0;
         settle_t2 = 1'b0;
         settle_t3 = 1'b0;
-        upd_t1 = 1'b0;
-        upd_t2 = 1'b0;
-        upd_t3 = 1'b0;
         upd_g_s1 = '0;
         upd_g_s2 = '0;
         upd_n_sys = '0;
-        pocket_bridge_upd_set = 1'b0;
-        pocket_bridge_upd_id = '0;
-        pocket_bridge_upd_len = '0;
         reset_n_s1 = 1'b0;
         reset_n_s2 = 1'b0;
         settled = 1'b0;
@@ -337,21 +320,12 @@ module pocket_bridge (
         settle_t1 <= settle_t;
         settle_t2 <= settle_t1;
         settle_t3 <= settle_t2;
-        upd_t1 <= upd_t;
-        upd_t2 <= upd_t1;
-        upd_t3 <= upd_t2;
         upd_g_s1 <= upd_g_74;
         upd_g_s2 <= upd_g_s1;
         /* Decoded into a register rather than into the read path: the
          * conversion is a seven-deep XOR chain and the machine's MMIO
          * mux has no room for it. */
         upd_n_sys <= g2b(upd_g_s2);
-        pocket_bridge_upd_set <= 1'b0;
-        if (upd_t2 != upd_t3) begin
-            pocket_bridge_upd_set <= 1'b1;
-            pocket_bridge_upd_id <= upd_id_74;
-            pocket_bridge_upd_len <= upd_len_74;
-        end
         reset_n_s1 <= reset_n;
         reset_n_s2 <= reset_n_s1;
         run_q <= pocket_bridge_run;

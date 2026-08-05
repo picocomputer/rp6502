@@ -374,10 +374,10 @@ static void stop(void)
  * machine keeps running and this is the only news it gets. Bit 6 set
  * would restart the firmware instead, and take the terminal with it.
  *
- * The count is what is watched rather than the event, because the id and
- * length cross on a toggle that two announcements can cancel, and the
- * count is incremented on the host's own clock where nothing here can
- * lose it. What changed is the question the data table answers. */
+ * A count rather than an event, incremented on the host's own clock
+ * where nothing between here and there can drop one. What the new image
+ * is remains a question for the data table, which is where the loader
+ * asks it anyway. */
 static bool main_restage;
 static uint8_t main_upd_seen;
 

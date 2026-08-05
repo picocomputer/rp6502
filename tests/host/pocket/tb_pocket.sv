@@ -23,8 +23,6 @@ module tb_pocket (
     /* The host naming a slot it touched, so a test can fire the event
      * the bench used to have no way to produce. */
     input logic dataslot_update,
-    input logic [15:0] dataslot_update_id,
-    input logic [31:0] dataslot_update_size,
     input logic reset_n,
     output logic [9:0] tb_pocket_dt_addr,
     input logic [31:0] datatable_q,
@@ -94,8 +92,6 @@ module tb_pocket (
         .rst_n(rst_n),
         .arst_n(arst_n),
         .dataslot_update(dataslot_update),
-        .dataslot_update_id(dataslot_update_id),
-        .dataslot_update_size(dataslot_update_size),
         .bridge_wr(bridge_wr),
         .bridge_addr(bridge_addr),
         .bridge_rd(bridge_rd),

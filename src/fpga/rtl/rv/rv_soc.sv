@@ -21,9 +21,6 @@ module rv_soc #(
 
     input logic slot_set,
     input logic [31:0] slot_len,
-    input logic upd_set,
-    input logic [15:0] upd_id,
-    input logic [31:0] upd_len,
     input logic [7:0] upd_n,
     input logic key_set,
     input logic [8:0] key_code,
@@ -265,10 +262,6 @@ module rv_soc #(
     logic mmio_key_valid /*verilator public_flat_rw*/;
     always_comb rv_soc_key_pending = mmio_key_valid;
     logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
-    /* The last slot the host said it touched, and how big it called it.
-     * The id carries a flag above it so a slot 0 update is not silence. */
-    logic [31:0] mmio_upd_id /*verilator public_flat_rw*/;
-    logic [31:0] mmio_upd_len /*verilator public_flat_rw*/;
 
     logic [63:0] mtime_us /*verilator public_flat_rd*/;
     logic [15:0] mtime_acc;
@@ -297,8 +290,6 @@ module rv_soc #(
                 7'h10: hrdata = mtime_us[31:0];
                 7'h14: hrdata = mtime_us[63:32];
                 7'h18: hrdata = mmio_slot_len;
-                7'h44: hrdata = mmio_upd_id;
-                7'h48: hrdata = mmio_upd_len;
                 7'h4C: hrdata = {24'd0, upd_n};
                 7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
                 7'h20: hrdata = pad_key;
@@ -333,8 +324,6 @@ module rv_soc #(
         mmio_key_valid = 1'b0;
         mmio_key_data = 9'h000;
         mmio_slot_len = 32'h0;
-        mmio_upd_id = 32'h0;
-        mmio_upd_len = 32'h0;
         /* The machine runs at its fastest until told otherwise, so a
          * firmware that never sets it still gets the default. */
         rv_soc_phi2_khz = 16'd8000;
@@ -347,10 +336,6 @@ module rv_soc #(
                 mmio_key_valid <= 1'b0;
             if (slot_set)
                 mmio_slot_len <= slot_len;
-            if (upd_set) begin
-                mmio_upd_id <= {15'd0, 1'b1, upd_id};
-                mmio_upd_len <= upd_len;
-            end
             if (key_set) begin
                 mmio_key_data <= key_code;
                 mmio_key_valid <= 1'b1;
@@ -367,8 +352,6 @@ module rv_soc #(
                     end
                     7'h0C: rv_soc_phi2_khz <= hwdata[15:0];
                     7'h18: mmio_slot_len <= hwdata;
-                    7'h44: mmio_upd_id <= hwdata;
-                    7'h48: mmio_upd_len <= hwdata;
                     default: ;
                 endcase
             end
