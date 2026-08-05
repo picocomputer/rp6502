@@ -25,6 +25,7 @@
 #include "mmio.h"
 #include "mou.h"
 #include "msc.h"
+#include "probe.h"
 #include "pad.h"
 #include "rom.h"
 #include "vga.h"
@@ -415,12 +416,18 @@ int main(void)
      * that staged nothing — which leaves nothing to run. */
     uint32_t len;
     bool runnable = false;
+#ifdef RP6502_POCKET_PROBE
+    /* No image: the screen is the instrument. */
+    probe_dump();
+    (void)len;
+#else
     if (main_rom_len(&len))
     {
         runnable = rom_load_staged(len);
         if (!runnable)
             printf("rom: bad image\n");
     }
+#endif
     /* Cleared once the image is dealt with and not before: it is how
      * anything watching tells a load in progress from a finished one,
      * and a windowed load takes longer than a frame. */
@@ -463,6 +470,9 @@ int main(void)
         term_task();
         vid_task();
         api_task();
+#ifdef RP6502_POCKET_PROBE
+        probe_task();
+#endif
         /* Slot 0 restaged under a running core: the Core Settings menu
          * can swap the ROM without reloading the part, and the length
          * arriving is the only announcement. */

@@ -33,6 +33,10 @@
  * whole; the eight below them are the open-file descriptors. */
 #define MSC_SLOT_ROM 8
 
+/* One data table word, by word index and not by slot. The table is 256
+ * words of id/size pairs and the host decides where each pair lands. */
+uint32_t msc_dt(uint32_t word);
+
 /* A slot's size, by id. The host places the table's pairs where it likes,
  * so this looks the id up rather than indexing. Blocking. */
 bool msc_slot_len(uint32_t slot, uint32_t *len);

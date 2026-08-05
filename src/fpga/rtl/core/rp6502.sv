@@ -66,6 +66,11 @@ module rp6502
 
     input logic slot_set,
     input logic [31:0] slot_len,
+    /* The host naming a slot it touched, which is ground truth where a
+     * table word is a guess. Zero on a platform with no such news. */
+    input logic upd_set,
+    input logic [15:0] upd_id,
+    input logic [31:0] upd_len,
     input logic key_set,
     input logic [8:0] key_code,
     input logic [31:0] pad_key,
@@ -249,7 +254,7 @@ module rp6502
      * key_set are held for two so an edge always sees them. */
     logic bus_stb_raw, bus_stb_n, bus_stb_q;
     logic rv_tx_valid_raw, rv_tx_valid_q;
-    logic slot_set_q, key_set_q;
+    logic slot_set_q, key_set_q, upd_set_q;
 
     /* The two clocks rise together, so a question asked on the rising
      * edge is asked while the answer is changing. bus_stb_raw is worse
@@ -276,12 +281,14 @@ module rp6502
         bus_stb_q = 1'b0;
         rv_tx_valid_q = 1'b0;
         slot_set_q = 1'b0;
+        upd_set_q = 1'b0;
         key_set_q = 1'b0;
     end
     always_ff @(posedge clk_sys) begin
         bus_stb_q <= bus_stb_n;
         rv_tx_valid_q <= rv_tx_valid_raw;
         slot_set_q <= slot_set;
+        upd_set_q <= upd_set;
         key_set_q <= key_set;
     end
     /* This one stays on the rising edge. rv_tx_valid_raw is a clean flop
@@ -327,6 +334,9 @@ module rp6502
         .rv_soc_exit_code(rp6502_rv_exit_code),
         .slot_set(slot_set || slot_set_q),
         .slot_len(slot_len),
+        .upd_set(upd_set || upd_set_q),
+        .upd_id(upd_id),
+        .upd_len(upd_len),
         .key_set(key_set || key_set_q),
         .pad_key(pad_key),
         .pad_joy(pad_joy),

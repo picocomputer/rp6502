@@ -106,6 +106,15 @@ find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
 if(RISCV_GCC AND RISCV_OBJCOPY)
     set(RP6502_SOFT_CPU ON)
     set(SW_SRC ${RP6502_SRC}/fpga/sw)
+    # Measure the host's data slots instead of booting a ROM. A hardware
+    # instrument, not a test: -DRP6502_POCKET_PROBE=ON, fit, package, run,
+    # photograph, then turn it off.
+    option(RP6502_POCKET_PROBE "Build the data slot probe firmware" OFF)
+    if(RP6502_POCKET_PROBE)
+        set(SW_PROBE_DEF -DRP6502_POCKET_PROBE)
+    else()
+        set(SW_PROBE_DEF "")
+    endif()
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
     # The firmware's own headers carry the hardware's addresses, so a
     # window that moves has to rebuild the image that writes to it.
@@ -114,7 +123,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c ${SW_SRC}/cfg.c
         ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
         ${SW_SRC}/mou.c ${SW_SRC}/msc.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
-        ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
+        ${SW_SRC}/pro.c ${SW_SRC}/probe.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/ria/aud/bel_presets.c
         ${SW_SRC}/bel.c
@@ -154,6 +163,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # here keeps the die out of its last rows of LABs; other
             # fabrics with room leave it on.
             -DTERM_ALT_SCREEN=0
+            ${SW_PROBE_DEF}
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}

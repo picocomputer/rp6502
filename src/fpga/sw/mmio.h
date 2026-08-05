@@ -19,6 +19,11 @@
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
 #define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
+/* The last data slot the host said it touched, and the size it named.
+ * Bit 16 flags that anything was said at all, because slot 0 is a real
+ * id. Written to clear. Zero forever on a platform with no such news. */
+#define MMIO_UPD_ID (*(volatile uint32_t *)0xF0000044u)
+#define MMIO_UPD_LEN (*(volatile uint32_t *)0xF0000048u)
 /* The controller and the dock's keyboard. State, not events: a pad's
  * release is the absence of a bit, and a keyboard report is a set whose
  * order APF does not promise. The mouse below is the opposite — a

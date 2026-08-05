@@ -22,6 +22,13 @@ module pocket_bridge (
     input logic [31:0] bridge_addr,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
+    /* Host command 0x008A, which the vendor comment says is sent on
+     * deferload slots only. It names the slot and its size outright, so
+     * nothing downstream has to work out which word of the table to
+     * believe. Dangling until now. */
+    input logic dataslot_update,
+    input logic [15:0] dataslot_update_id,
+    input logic [31:0] dataslot_update_size,
     input logic reset_n,
     output logic [9:0] pocket_bridge_dt_addr,
     output logic pocket_bridge_dt_busy,
@@ -45,6 +52,9 @@ module pocket_bridge (
     output logic pocket_bridge_run,
     output logic pocket_bridge_slot_set,
     output logic [31:0] pocket_bridge_slot_len,
+    output logic pocket_bridge_upd_set,
+    output logic [15:0] pocket_bridge_upd_id,
+    output logic [31:0] pocket_bridge_upd_len,
     output logic [31:0] pocket_bridge_pad_key,
     output logic [31:0] pocket_bridge_pad_joy,
     output logic [15:0] pocket_bridge_pad_trig,
@@ -77,6 +87,24 @@ module pocket_bridge (
     logic [40:0] wf_wdata;
     logic slot_wr;
     always_comb slot_wr = bridge_wr && bridge_addr[31:28] == 4'h0;
+
+    /* What the host named, held until the machine reads it. A pulse on
+     * clk_74a, so it crosses as a toggle with the payload standing
+     * beside it. */
+    logic [15:0] upd_id_74;
+    logic [31:0] upd_len_74;
+    logic upd_t;
+    always_ff @(posedge clk_74a or negedge arst_n) begin
+        if (!arst_n) begin
+            upd_id_74 <= '0;
+            upd_len_74 <= '0;
+            upd_t <= 1'b0;
+        end else if (dataslot_update) begin
+            upd_id_74 <= dataslot_update_id;
+            upd_len_74 <= dataslot_update_size;
+            upd_t <= !upd_t;
+        end
+    end
 
     /* The menu's settings cross as levels, because that is what they
      * are. The host replays a persisted value once at load and then only
@@ -229,6 +257,7 @@ module pocket_bridge (
      * equivalent, and without a reset to tell them apart the fitter
      * merges them and the crossing loses its synchroniser. */
     (* preserve *) logic settle_t1, settle_t2, settle_t3;
+    (* preserve *) logic upd_t1, upd_t2, upd_t3;
     (* preserve *) logic reset_n_s1, reset_n_s2;
     logic settled;
     logic run_q;
@@ -237,6 +266,12 @@ module pocket_bridge (
         settle_t1 = 1'b0;
         settle_t2 = 1'b0;
         settle_t3 = 1'b0;
+        upd_t1 = 1'b0;
+        upd_t2 = 1'b0;
+        upd_t3 = 1'b0;
+        pocket_bridge_upd_set = 1'b0;
+        pocket_bridge_upd_id = '0;
+        pocket_bridge_upd_len = '0;
         reset_n_s1 = 1'b0;
         reset_n_s2 = 1'b0;
         settled = 1'b0;
@@ -249,6 +284,15 @@ module pocket_bridge (
         settle_t1 <= settle_t;
         settle_t2 <= settle_t1;
         settle_t3 <= settle_t2;
+        upd_t1 <= upd_t;
+        upd_t2 <= upd_t1;
+        upd_t3 <= upd_t2;
+        pocket_bridge_upd_set <= 1'b0;
+        if (upd_t2 != upd_t3) begin
+            pocket_bridge_upd_set <= 1'b1;
+            pocket_bridge_upd_id <= upd_id_74;
+            pocket_bridge_upd_len <= upd_len_74;
+        end
         reset_n_s1 <= reset_n;
         reset_n_s2 <= reset_n_s1;
         run_q <= pocket_bridge_run;
