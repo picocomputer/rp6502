@@ -83,6 +83,29 @@ set_max_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
 set_min_delay -from [get_registers {*pocket_bridge*|slot_size[*]}] \
     -to [get_registers {*pocket_bridge*|pocket_bridge_slot_len[*]}] 0
 
+# The slot the host named, and the size it gave it. Same shape as the
+# length above and for the same reason: written once on the host's clock,
+# read on the machine's when the toggle beside it settles. Bounded rather
+# than cut — a false path here would outrank nothing and say nothing, and
+# the requirement is that the word arrives before the toggle does.
+set_max_delay -from [get_registers {*pocket_bridge*|upd_id_74[*]}] \
+    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_id[*]}] 13.468
+set_min_delay -from [get_registers {*pocket_bridge*|upd_id_74[*]}] \
+    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_id[*]}] 0
+set_max_delay -from [get_registers {*pocket_bridge*|upd_len_74[*]}] \
+    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_len[*]}] 13.468
+set_min_delay -from [get_registers {*pocket_bridge*|upd_len_74[*]}] \
+    -to [get_registers {*pocket_bridge*|pocket_bridge_upd_len[*]}] 0
+
+# And the same onward leg into the soft CPU, for the reason the length's
+# has: rv_soc captures only under the enable, which follows the payload.
+set_false_path -hold \
+    -from [get_registers {*pocket_bridge*|pocket_bridge_upd_id[*]}] \
+    -to [get_registers {*|mmio_upd_id[*]}]
+set_false_path -hold \
+    -from [get_registers {*pocket_bridge*|pocket_bridge_upd_len[*]}] \
+    -to [get_registers {*|mmio_upd_len[*]}]
+
 # The same length, crossing on into the soft CPU. This leg is
 # synchronous — 50.4 into 25.2, rising together — but the bus still
 # stands still when it is sampled: the bridge writes it on the settle
@@ -107,6 +130,12 @@ set_false_path -hold \
 # actually untrusted is the corner model on this crossing, by tens of
 # picoseconds, so say exactly that: sixty picoseconds of added hold
 # uncertainty, three times the worst observed miss, in both directions.
+#
+# Raising it does not scale. A later fit missed by 124 ps on rv_soc's
+# dph_addr into the staging read port; 190 ps of uncertainty moved that
+# to 73 and took setup from 1.129 to 0.906, because the demand rises
+# faster than the fitter can pay it. That path wanted an exception, not
+# a bigger number — see the staging capture below.
 # The fitter then pads every such path to clear it and the signoff
 # demands the same. A flat minimum delay was tried instead and asked
 # too much of paths into MLAB address ports, which have almost no
@@ -117,6 +146,29 @@ set_clock_uncertainty -add -hold 0.060 \
 set_clock_uncertainty -add -hold 0.060 \
     -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+
+# The staging capture, which is the path that kept coming up short. The
+# soft CPU's address reaches a clk_sys register enabled by bus_stb, and
+# the analyzer checks it against the same-edge relationship above.
+#
+# That check guards something the logic cannot do. In rv_soc,
+# hready = !(dph_active && dph_ext && !dph_waited) and bus_pend is that
+# same expression un-negated, off the same three registers — so hready
+# is exactly !pend. dph_addr is written under "if (hready)" and nowhere
+# else, and bus_stb requires pend. Whenever the strobe fires the write
+# enable is off, so the address cannot launch on the edge that captures
+# it. Not a timing separation, an interlock: it holds however the two
+# clocks skew and whatever the fit does with them.
+#
+# Worth saying because the obvious argument is wrong. "The strobe is a
+# clk_sys edge later than the address" is false — a staging read that
+# stalls and unstalls mid-period puts bus_stb on an edge that is also a
+# clk_rv edge. Three independent attempts to break the interlock instead
+# found nothing, one of them reading the fitted netlist to confirm both
+# negedge flops and the enable's fanin survived.
+set_false_path -hold \
+    -from [get_registers {*rv_soc*|dph_addr[*]}] \
+    -to [get_registers {*|stage_addr_q[*]}]
 
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first

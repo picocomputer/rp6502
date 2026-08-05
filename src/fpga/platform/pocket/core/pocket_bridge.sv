@@ -220,11 +220,16 @@ module pocket_bridge (
      * on an edge and cannot be asked to wait, so it says when it holds
      * the address and the other side stands off.
      *
-     * Word 17 is the size beside id 8, which is the ROM. The firmware
-     * looks a slot's size up by scanning for its id because the host
-     * decides where the pairs land, and this cannot scan — so what it
-     * posts is only ever the news that something staged. The size is a
-     * question the firmware asks the table itself. */
+     * Word 17 is the size beside id 8, which is the ROM — measured, not
+     * assumed. A probe core dumped the table on hardware: the pairs sit
+     * at 2N and 2N+1, and 0xF000 and 0x13D8 stand beside ids 9 and 10,
+     * exactly the two assets' size_exact. The firmware still scans for
+     * the id rather than indexing, because Analogue documents no layout
+     * and the scan costs nothing at boot.
+     *
+     * This cannot scan, and it does not need to: re-reading this word on
+     * a Reset Exit or a completion is what tells a running machine its
+     * ROM changed, and on hardware that arrives every time. */
     logic dt_trig;
     always_comb begin
         pocket_bridge_dt_addr = 10'd17;
