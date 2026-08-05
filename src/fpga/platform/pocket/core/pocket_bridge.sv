@@ -200,39 +200,34 @@ module pocket_bridge (
         end
     end
 
-    /* Two hundred and fifty six, and the depth is a safety margin rather
-     * than a speed one.
+    /* Eight, and the number is arithmetic rather than nerve.
      *
-     * This queue has no backpressure to the host. APF's bridge writes
-     * arrive at the host's pace and w_stb is gated on !wf_full, so an
-     * overrun is not stalled — it is dropped, one halfword of the image
-     * goes missing, the SDRAM keeps whatever was at that address, and the
-     * only complaint is an $error that exists in simulation alone. On
-     * hardware the load reports success and the program is quietly wrong,
-     * which is the worst shape a fault can have here.
+     * The queue has no backpressure to the host: w_stb is gated on
+     * !wf_full, so an overrun is dropped rather than stalled, one
+     * halfword of the image goes missing, and the load still reports
+     * success. That is worth being careful about, and being careful
+     * turned out to mean reading Analogue's own bridge peripheral:
      *
-     * So the depth has to cover the longest the controller can go without
-     * accepting a word, and that is not a number this side can bound: a
-     * refresh, a self-refresh wake with its tXSR, and a row miss all
-     * stack, and a file read streams into this same queue while a program
-     * runs. Eight was never shown to be enough — it was only never seen
-     * to fail in a bench that peaks at two entries.
+     *   "the worst-case read/write timing is every 88 cycles @ 74.25mhz
+     *    which is about 1180ns."
      *
-     * It was raised while chasing ROM loads that failed one time in five.
-     * That turned out to be a write-timing fault on the SRAM's port B and
-     * had nothing to do with this queue, so nothing here is evidence for
-     * the depth. It stays because the failure it guards against is silent,
-     * not because it ever caught anything.
+     * So the host cannot present a word faster than 1,185 ns. Each one
+     * becomes two halfword entries here, so this fills at one entry per
+     * 592 ns, and eight of them are 4.7 microseconds of tolerance. The
+     * longest the controller can go without taking one is a self-refresh
+     * wake, tXSR and all, at about 317 ns. Fifteen times the margin it
+     * needs.
      *
-     * What it costs, from the fit report rather than from arithmetic:
-     * 10,496 bits as MLAB across twenty-four LABs, and no M10K at all —
-     * which is why the block count never moved when this grew. Twenty-four
-     * LABs is not free on a die at ninety-four percent, so if something
-     * ever has to give, this is a real thing to weigh rather than the
-     * rounding error it was once described as. */
+     * It was two hundred and fifty six for a day, raised while chasing
+     * ROM loads that failed one time in five — which turned out to be a
+     * write-timing fault on the SRAM's port B and nothing to do with
+     * this queue. The depth was defended on the grounds that the far
+     * side could not be bounded. The far side is bounded, by the vendor,
+     * in a comment, and it cost 10,496 bits of MLAB across twenty-four
+     * LABs to not have read it. */
     pocket_fifo #(
         .WIDTH(41),
-        .DEPTH_LOG2(8)
+        .DEPTH_LOG2(3)
     ) wfifo (
         .wclk(clk_74a),
         .w_stb(wf_stb && !wf_full),
