@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The pocket port of the .rp6502 loader, from emu/emu/rom.c: the emulator's
- * is buffer-based already, and this machine's buffer is the staging window
- * the platform filled — the APF data slot, or the bridge model in
+ * streams the image from a host file, and this machine's is a buffer
+ * already — the staging window the platform filled — the APF data slot, or the bridge model in
  * simulation. Same format, same rules: text records stream raw bytes into
  * the 6502's memory, a load never writes $FF00-$FFF9, the $FFFA-$FFFF
  * vectors land in the register cells with the SRAM keeping the shadow, and
@@ -32,8 +32,7 @@
 #include <string.h>
 
 static uint32_t rom_pos, rom_end;
-/* Where the asset directory starts, or 0 for an image without one.
- * The loader already computes this bound and used to discard it. */
+/* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
 
 static uint32_t rom_crc32(uint32_t crc, uint8_t byte)
@@ -206,7 +205,7 @@ bool rom_load_staged(uint32_t len)
  * An asset is named in UTF-8 and a program's path is code page bytes, so
  * the comparison converts as it walks. The two agree for the ASCII names
  * every toolchain actually emits and would disagree above 0x7F, which is
- * the whole reason the code page tables are loaded.
+ * why the comparison goes through the code page tables.
  * ---- */
 
 /* One window per stdio descriptor, so the pool is never what runs out
@@ -372,7 +371,7 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
         return -1;
     }
     int32_t np = from + off;
-    if ((uint32_t)np > rom_win_pool[desc].len) /* clamp to the asset */
+    if ((uint32_t)np > rom_win_pool[desc].len)
         np = (int32_t)rom_win_pool[desc].len;
     rom_win_pool[desc].pos = (uint32_t)np;
     *pos = np;

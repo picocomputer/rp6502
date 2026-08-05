@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Where this machine keeps its code page tables. Five kilobytes will
- * not fit in a 48 KB tightly coupled memory that already holds the
- * firmware, so they ride in the staging store beside the fonts, loaded
+ * Where this machine keeps its code page tables. Five kilobytes of table is
+ * more than the tightly coupled memory can spare beside the firmware,
+ * so they ride in the staging store beside the fonts, loaded
  * from oemcp.bin the same way and by the same data slot machinery.
  *
  * The staging window is byte-wide by construction — a read there puts

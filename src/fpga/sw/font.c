@@ -22,9 +22,8 @@
 
 #include "vid_font_asset.h"
 
-/* The asset is halfword-aligned in the staging window at worst, and the
- * bus serves it a byte at a time, so a word is gathered rather than
- * read. */
+/* The staging bus serves a byte at a time, so a word is gathered rather
+ * than read. */
 static uint32_t font_word(uint32_t at)
 {
     return (uint32_t)FONTS[at] | ((uint32_t)FONTS[at + 1] << 8)

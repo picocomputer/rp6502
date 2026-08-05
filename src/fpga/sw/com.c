@@ -7,11 +7,12 @@
  * input rings merged behind com_getchar for the shared readline and stdin
  * sources, CRLF expansion on the console TX primitives. The manifold's
  * wires are this machine's: com_task drains the 6502's hardware TX ring to
- * the console, polls the platform keyboard, and keeps the $FFE2 offer slot
- * topped up — the greedy latch refill emu/sys/ria.c does on demand.
+ * the console, answers the $FFE2 offer slot when the 6502 asks for it, and
+ * polls the platform keyboard.
  *
- * The console sink is the simulation console until the terminal arrives;
- * the BEL scan at the sink rings the platform bell.
+ * The console sink feeds the simulation console and the terminal driver
+ * term.c registers at init, both, for every byte; the BEL scan at the sink
+ * rings the platform bell.
  */
 
 #include "bel.h"
@@ -36,7 +37,6 @@ static ring_t kbd_ring;
 static ring_t uart_ring;
 
 static bool com_bel_enabled = true;
-static uint32_t com_moved_count;
 
 static ring_t *ring_for(com_source_t src)
 {
@@ -132,7 +132,6 @@ static void com_tx_write(const char *buf, int len)
     }
     if (com_term_out)
         com_term_out(buf, len);
-    com_moved_count += (uint32_t)len;
 }
 
 void com_in_write_reply(const char *s, size_t n)
@@ -220,11 +219,6 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-uint32_t com_moved(void)
-{
-    return com_moved_count;
-}
-
 // Cold-boot flush: clear queued input and reset the BEL default. NOT run
 // per program — type-ahead survives an exec; com_run resets the BEL alone.
 void com_init(void)
@@ -251,8 +245,8 @@ void com_task(void)
         com_tx_write(&c, 1);
     }
 
-    /* Answer the 6502's ask for a byte, and only the ask — the lazy pull
-     * emu/sys/ria.c does at the moment of the read. Offering eagerly would
+    /* Answer the 6502's ask for a byte, and only the ask. Offering
+     * eagerly would
      * commit bytes the console side's own readers still want; and an ask
      * with nothing queued is answered with nothing, never remembered into
      * a byte typed later. Served before the keyboard poll below so a byte
@@ -265,7 +259,6 @@ void com_task(void)
         if (c >= 0)
         {
             RX_OFFER = (uint32_t)c;
-            com_moved_count++;
         }
         else
         {
@@ -273,11 +266,10 @@ void com_task(void)
         }
     }
 
-    /* The platform keyboard feeds the KBD ring. */
+    /* Bit 8 is the valid flag, not part of the code. */
     uint32_t k = MMIO_KBD;
     if (k & 0x100)
     {
         ring_push(&kbd_ring, (uint8_t)k);
-        com_moved_count++;
     }
 }

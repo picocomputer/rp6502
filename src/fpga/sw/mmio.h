@@ -19,9 +19,10 @@
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
 #define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
-/* The controller and the dock's keyboard, as they stand. State, not
- * events: a pad's release is the absence of a bit, and a keyboard
- * report is a set whose order APF does not promise. */
+/* The controller and the dock's keyboard. State, not events: a pad's
+ * release is the absence of a bit, and a keyboard report is a set whose
+ * order APF does not promise. The mouse below is the opposite — a
+ * stamped report of deltas, counted rather than sampled. */
 #define MMIO_PAD_KEY (*(volatile uint32_t *)0xF0000020u)
 #define MMIO_PAD_JOY (*(volatile uint32_t *)0xF0000024u)
 #define MMIO_PAD_TRIG (*(volatile uint32_t *)0xF0000028u)
@@ -46,9 +47,8 @@
 #define FILE_STAGE ((volatile const uint8_t *)0x63FE0000u)
 #define FILE_STAGE_BRIDGE 0x03FE0000u
 #define OEMCP ((volatile const uint8_t *)0x63FD0000u)
-/* The most the host will move in one slot operation. The ceiling is not
- * arbitrary: it is half the staging region, which keeps a transfer
- * clear of the font and code-page assets pinned above it. */
+/* The chunk one slot operation moves; a larger file is several of
+ * them. */
 #define FILE_XFER_MAX 0x8000u
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
@@ -90,10 +90,9 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_WRITE 2u
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
-/* The only command that answers with more than a result code, and the
- * only one where the host writes us: the name bound to a slot lands
- * wherever FILE_BRIDGE points, so it takes a Slot Read's staging buffer
- * rather than the outbound window. */
+/* The one command whose answer is a name rather than a number, and the
+ * one direction the outbound window cannot carry: it lands wherever
+ * FILE_BRIDGE points, so it takes a Slot Read's staging buffer. */
 #define FILE_OP_GETFILE 5u
 /* Analogue documents 0x0188 but never implemented it in its own
  * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
@@ -142,7 +141,7 @@ static inline int32_t set_tz_minutes(void)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
-/* The bell's voice, a channel block's six bytes in its own order:
+/* The bell's voice, a channel block's seven bytes in its own order:
  * freq, duty, vol_attack / vol_decay, wave_release, pan_gate. */
 #define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
 #define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)

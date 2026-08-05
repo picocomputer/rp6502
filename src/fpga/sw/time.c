@@ -11,8 +11,7 @@
  * no idea what a time zone is, so the menu's UTC offset — three list
  * entries the host persists, combined by set_tz_minutes into signed
  * minutes east — turns that local reading into the UTC the API serves.
- * Moving the clock for DST is the user's job, exactly as the menu
- * says.
+ * Moving the clock for DST is the user's job.
  *
  * The offset also becomes a POSIX TZ string handed to the C library,
  * so localtime, mktime and strftime's %z all agree through the one

@@ -6,10 +6,11 @@
  * psg_xreg's validation over this machine's engine: the same rejects —
  * odd, out of bounds, or a block crossing its 256-byte page — and the
  * pointer lands in the device register, whose write also resets the
- * envelopes, the noise seeds, and the gate queue in hardware.
+ * envelopes, the noise seeds, and every gate in hardware.
  *
  * Setting up either engine resets the other: the PSG is reset when an OPL
- * xreg setup is attempted, and the OPL when a PSG one is. Writing a
+ * xreg setup succeeds, and the OPL when a PSG one does; a rejected word
+ * parks only its own engine. Writing a
  * pointer register is what resets an engine, 0xFFFF included, so parking
  * the other one is the reset.
  *

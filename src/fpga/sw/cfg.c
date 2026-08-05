@@ -13,10 +13,6 @@
  * applied last. A value that changed twice between two visits costs
  * nothing, and one that arrived while the machine was resetting is not
  * lost.
- *
- * Zero means the menu has never said, which is the state at power-on
- * before the host replays anything: leave the machine's own default
- * alone rather than clamp it to whatever zero would mean.
  */
 
 #include "cfg.h"
@@ -32,8 +28,8 @@ void cfg_task(void)
 {
     /* Three menu entries make one offset, so any of them moving is the
      * same event and the combined number is what to watch. The offset's
-     * zero is a real value — UTC — so unlike the others it applies
-     * as-is; time.c ignores a write that changes nothing. */
+     * zero is a real value — UTC — so it applies as-is; time.c ignores a
+     * write that changes nothing. */
     int32_t tz = set_tz_minutes();
     if (tz != cfg_tz)
     {

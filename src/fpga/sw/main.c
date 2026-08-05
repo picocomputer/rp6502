@@ -8,9 +8,9 @@
  * dispatch from here.
  *
  * No break. A break drops the RIA to its monitor, and there is no monitor
- * on a Pocket — the machine runs one program and the way to run another
- * is the host's menu reloading the core. Nothing can ask for one, so
- * nothing implements one.
+ * on a Pocket — a program that wants another one execs it, and there is
+ * nothing a break could drop into. Nothing can ask for one, so nothing
+ * implements one.
  */
 
 #include <stdio.h>
@@ -58,7 +58,6 @@ bool ria_active(void)
 
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
 {
-    /* HID report blocks and audio; the rest arrive with their engines. */
     if (channel == 0 && address == 0)
         return kbd_set_xram(word);
     if (channel == 0 && address == 1)
@@ -161,8 +160,8 @@ bool main_api(uint8_t operation)
     case 0x01:
         return pix_api_xreg();
     case 0x02:
-        /* atr_api_phi2's shape: a report, not a control. What sets the
-         * clock is the Pocket's own menu. */
+        /* atr_api_phi2's shape: a report, not a control. Attribute
+         * 0x01 is what sets it. */
         return api_return_ax(cpu_get_phi2_khz_run());
     case 0x03:
         /* atr_api_code_page's shape: the glyphs. The conversion tables
@@ -182,7 +181,6 @@ bool main_api(uint8_t operation)
     case 0x09:
         return pro_api_exec();
     case 0x0A:
-        /* Attributes grow with their engines; these exist now. */
         switch (API_A)
         {
         case 0x00:
@@ -312,10 +310,7 @@ bool main_api(uint8_t operation)
     default:
         /* What lands here now is the directory family — the drive has
          * one directory and nothing to enumerate — plus unlink, rename
-         * and stat, which the host's API cannot express. Sleep needs no
-         * special care from a stub: waking is a fresh core load with
-         * every slot restaged, so no program is ever mid-anything
-         * across it. */
+         * and stat, which the host's API cannot express. */
         return api_return_errno(API_ENOSYS);
     }
 }
@@ -365,8 +360,9 @@ static void stop(void)
     mou_stop();
     pad_stop();
     aud_stop();
-    /* No pro_stop: argv is the loaded ROM's, not the run's, and nothing
-     * short of the Pocket's menu reloading the core can change it. */
+    /* No pro_stop: argv belongs to the image, not the run. An exec is
+     * the one thing that replaces it, and it brings its own before the
+     * stop it asks for. */
 }
 
 static enum state {

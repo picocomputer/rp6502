@@ -9,11 +9,6 @@
 
 #include "ria/sys/com.h"
 
-/* Bytes moved through the manifold since boot, every direction summed.
- * The simulation's main loop watches it to know when the machine went
- * quiet; real hardware never exits and never asks. */
-uint32_t com_moved(void);
-
 /* The wire to the terminal: term.c's captured stdio driver, registered
  * through the pico/stdio/driver.h shim. */
 void com_set_term_out(void (*out_chars)(const char *buf, int len));

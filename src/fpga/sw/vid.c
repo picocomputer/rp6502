@@ -22,7 +22,8 @@
 
 /* mode0_prog over this machine's view: same defaults and validation, the
  * raster window landing in the scanout register instead of a prog entry.
- * Rendering the terminal on a graphics canvas is deferred; the ACK still
+ * On a graphics canvas the composite drops the
+ * terminal, so this programs a window nothing shows; the ACK still
  * matches the oracle's. */
 bool vid_mode0_prog(uint16_t *xregs)
 {

@@ -50,7 +50,7 @@ uint16_t cpu_get_phi2_khz(void)
     return cpu_phi2_khz_set;
 }
 
-/* RESB low before anything else, the way the RP2350's cpu_init drives
+/* RESB low before anything else, the way the RP2350's cpu_main drives
  * it. Both registers here are the OS's alone — no reset reaches either —
  * so this line is what holds the 6502 and what decides the clock. Without
  * it a host reset comes back with the last program still running at

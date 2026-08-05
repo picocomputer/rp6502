@@ -9,11 +9,14 @@
  * how long the file is. pocket_file does the asking; this decides what
  * to ask.
  *
- * Where a name resolves was measured on hardware: the host runs every
- * relative name against /Saves/rp6502/common/, a working directory it
- * pins there and never moves, and a leading slash names the card's
- * root. The drive passes both through verbatim, so a bare name is a
- * saved game in the platform's folder and MSC0:/ is the card.
+ * Where a name resolves was measured on hardware: the host has no
+ * working directory and does not resolve a relative name at all, so the
+ * drive spells one out. There is no single root to spell, either — a
+ * program opening a file means its own saves folder, and a program being
+ * exec'd is browsed for where the menu browses, so each side of the API
+ * pins its own. A leading slash names the card's root and travels
+ * untouched, which is why MSC0:/ is the card and argv[0] keeps its
+ * prefix.
  *
  * A program's path is code page bytes and the host's is UTF-8, so the
  * name is converted on its way out. Three bytes per character is the
@@ -67,8 +70,9 @@ static struct
 } msc_pool[MSC_OPEN_MAX];
 
 /* A command in two halves, because the task loop does not wait for
- * anything. The bridge gives a silent host 1.8 seconds before it retires
- * the command, and spinning that out stops every other task: the 6502's
+ * anything. The bridge gives a silent host about 0.9 seconds
+ * before it retires the command and pocket_file's own backstop is twice
+ * that, and spinning either out stops every other task: the 6502's
  * console output, the video frames, and the next file operation with
  * them. Start it, and poll it once per pass. */
 static void msc_start(uint32_t op)
@@ -157,7 +161,7 @@ static bool msc_slot_len(uint32_t slot, uint32_t *len)
  *
  * Analogue documents the command and not the shape of what comes back.
  * This reads a NUL-terminated name at offset 0, which is where Open
- * File's parameter struct carries one; hardware is what settles it. */
+ * File's parameter struct carries one. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap)
 {
     FILE_ID = slot;
@@ -236,8 +240,9 @@ static uint32_t msc_try_open_start(uint32_t slot, const char *name,
     return MSC_RC_STARTED;
 }
 
-/* A command the host never picked up reads as MSC_RC_MALFORMED, which
- * every caller already treats as a refusal. */
+/* A bridge that stopped answering reads as MSC_RC_MALFORMED, which
+ * every caller already treats as a refusal. A host that never picked the
+ * command up is not that: it comes back as an ordinary result 7. */
 static bool msc_try_open_poll(uint32_t *rc)
 {
     uint32_t st;
@@ -247,7 +252,7 @@ static bool msc_try_open_poll(uint32_t *rc)
     return true;
 }
 
-/* The blocking form, for open and for boot-time staging. */
+/* The blocking form, for open and for exec's staging. */
 static uint32_t msc_try_open(uint32_t slot, const char *name,
                              uint32_t flags, uint32_t size,
                              const char *root)

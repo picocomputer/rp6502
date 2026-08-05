@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The emulator's generator (emu/app/rand.c): an LCG step feeding a
- * Murmur3 fmix64 finalizer. The state starts at the emulator's seeded
- * origin so a simulation and its oracle draw the same stream; platform
- * entropy arrives with the hardware bring-up.
+ * Murmur3 fmix64 finalizer. The state starts at 1, which is what the
+ * emulator's rand_set_seed(0) produces, so a test that wants both
+ * machines on one stream can pin the oracle to it.
  */
 
 #include <pico/rand.h>

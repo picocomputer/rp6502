@@ -15,7 +15,6 @@
 void vid_init(void);
 void vid_task(void);
 
-/* The mode 0 program, this machine's terminal view. */
 bool vid_mode0_prog(uint16_t *xregs);
 
 

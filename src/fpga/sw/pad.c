@@ -136,7 +136,8 @@ void pad_task(void)
     }
 
     /* Players two through four stay the zero record a disconnected
-     * player reads as, since the Pocket only ever fills the first. */
+     * player reads as: only cont1 is routed into the pad registers, so a
+     * second controller never reaches us. */
     memcpy((void *)&XRAM_WIN[pad_xram], rec, sizeof rec);
 }
 
