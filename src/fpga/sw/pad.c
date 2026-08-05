@@ -56,9 +56,9 @@ static uint8_t pad_encode_stick(int8_t x, int8_t y)
     uint8_t bits = 0;
     if (ax <= PAD_DEADZONE && ay <= PAD_DEADZONE)
         return 0;
-    if (ax > PAD_DEADZONE && ay * 2 <= ax * 1 + ax)
+    if (ax > PAD_DEADZONE && ay < ax * 2)
         bits |= x < 0 ? 0x04 : 0x08;
-    if (ay > PAD_DEADZONE && ax * 2 <= ay * 1 + ay)
+    if (ay > PAD_DEADZONE && ax < ay * 2)
         bits |= y < 0 ? 0x01 : 0x02;
     return bits;
 }
@@ -97,15 +97,17 @@ void pad_task(void)
             ry = pad_axis((uint8_t)(joy >> 24));
             lt = (uint8_t)trig;
             rt = (uint8_t)(trig >> 8);
-            /* The d-pad is its own input and says so. */
-            rec[0] = (uint8_t)(key & 0x0F);
         } else {
             lx = (key & 0x04) ? -128 : (key & 0x08) ? 127 : 0;
             ly = (key & 0x01) ? -128 : (key & 0x02) ? 127 : 0;
             rx = ry = 0;
             lt = rt = 0;
         }
-        rec[0] |= 0x80; /* connected */
+        /* The d-pad is its own input and belongs to every pad. A stick
+         * synthesised from it is not a substitute: a program that reads
+         * only the direction nibble sees a pad with no analog as a pad
+         * with nothing held. */
+        rec[0] = (uint8_t)(key & 0x0F) | 0x80;
         rec[1] = pad_encode_stick(lx, ly)
                | (uint8_t)(pad_encode_stick(rx, ry) << 4);
         rec[2] = (uint8_t)(((key >> 4) & 0x03)          /* A, B      */

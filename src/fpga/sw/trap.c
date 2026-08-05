@@ -131,8 +131,7 @@ void trap_dispatch(trap_frame_t *frame)
             else if (funct3 == 2) /* sw */
                 store_bytes(addr, 4, reg_get(frame, rs2));
             else
-                for (;;)
-                    ;
+                trap_spin(cause, epc, addr);
         }
     }
     else

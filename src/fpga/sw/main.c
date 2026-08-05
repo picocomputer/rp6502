@@ -265,8 +265,12 @@ bool main_api(uint8_t operation)
         return std_api_close();
     case 0x16:
         return std_api_read_xstack();
+    case 0x17:
+        return std_api_read_xram();
     case 0x18:
         return std_api_write_xstack();
+    case 0x19:
+        return std_api_write_xram();
     case 0x0F:
         return clk_api_clock();
     case 0x10:

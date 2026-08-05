@@ -194,8 +194,7 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
  * one folder the drive needs. And it does not resolve a relative name,
  * so the drive spells the path out. A name that arrives absolute is the
  * program reaching for the card's root and travels untouched. */
-#define MSC_PATH MSC_SAVES_PATH
-#define MSC_PATH_LEN (sizeof MSC_PATH - 1)
+#define MSC_SAVES_LEN (sizeof MSC_SAVES_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 
 /* Bind a slot to a name. Open File answers 0 when the file was there
@@ -208,15 +207,16 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
 /* Builds the name into the window and starts the command. Answers
  * MSC_RC_MALFORMED without starting one when the name will not fit. */
 static uint32_t msc_try_open_start(uint32_t slot, const char *name,
-                                   uint32_t flags, uint32_t size)
+                                   uint32_t flags, uint32_t size,
+                                   const char *root)
 {
     uint8_t pad[MSC_NAME_MAX];
     uint16_t page = font_get_code_page();
     size_t n = 0;
     if (*name != '/')
     {
-        memcpy(pad, MSC_PATH, MSC_PATH_LEN);
-        n = MSC_PATH_LEN;
+        n = strlen(root);
+        memcpy(pad, root, n);
     }
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
@@ -249,9 +249,10 @@ static bool msc_try_open_poll(uint32_t *rc)
 
 /* The blocking form, for open and for boot-time staging. */
 static uint32_t msc_try_open(uint32_t slot, const char *name,
-                             uint32_t flags, uint32_t size)
+                             uint32_t flags, uint32_t size,
+                             const char *root)
 {
-    uint32_t rc = msc_try_open_start(slot, name, flags, size);
+    uint32_t rc = msc_try_open_start(slot, name, flags, size, root);
     if (rc == MSC_RC_STARTED)
         while (!msc_try_open_poll(&rc))
             ;
@@ -261,7 +262,7 @@ static uint32_t msc_try_open(uint32_t slot, const char *name,
 static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
-    return msc_try_open(slot, name, flags, size) <= 1;
+    return msc_try_open(slot, name, flags, size, MSC_SAVES_PATH) <= 1;
 }
 
 /* Only the drive prefix is stripped; the slash after it, or its
@@ -321,7 +322,7 @@ bool msc_stage_rom(const char *path, uint32_t *len)
     if (!p || !*p)
         return false;
     uint32_t slot = MSC_SLOT_FIRST;
-    if (msc_try_open(slot, p, 0, 0) > 1)
+    if (msc_try_open(slot, p, 0, 0, MSC_ASSETS_PATH) > 1)
         return false;
     uint32_t total;
     if (!msc_slot_len(slot, &total) || !total)
@@ -357,7 +358,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENODEV;
         return -1;
     }
-    if (!*path || strlen(path) >= MSC_NAME_MAX - MSC_PATH_LEN)
+    if (!*path || strlen(path) >= MSC_NAME_MAX - MSC_SAVES_LEN)
     {
         *err = API_EINVAL;
         return -1;
@@ -510,7 +511,8 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
         if (!msc_grow)
         {
             if (msc_try_open_start(slot, msc_pool[desc].name,
-                                   MSC_DS_CREATE | MSC_DS_RESIZE, pos + want)
+                                   MSC_DS_CREATE | MSC_DS_RESIZE, pos + want,
+                                   MSC_SAVES_PATH)
                 != MSC_RC_STARTED)
             {
                 *err = API_ENOSPC;
