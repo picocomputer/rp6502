@@ -536,6 +536,13 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     ASSERT_EQ(memcmp(f.data(), want.data(), want.size()), 0);
     ASSERT_GT(g_writes, 0);
     ASSERT_GT(g_reads, 0);
+    /* Exactly one, and which one matters. The ROM closes twice and syncs
+     * never, so this is the writable close flushing and the read-only
+     * close declining to. There is no close command to send the host, so
+     * a close that does not flush is a write left in the air — and exec
+     * hands the same slot to the next image as soon as the machine
+     * stops. */
+    ASSERT_EQ(g_flushes, 1);
     /* argv[0] is asked for once, before the 6502 is released. A core
      * that stopped asking would still pass everything above it and
      * would have no idea what it was running. */

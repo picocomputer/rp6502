@@ -438,6 +438,15 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return d;
 }
 
+/* A close flushes. There is no close command to send, so the flush is
+ * the only thing that puts a write on the card before the slot is handed
+ * to someone else — and exec hands slot 2 to the incoming image the
+ * moment the machine stops, which is the same slot the first open file
+ * was using.
+ *
+ * It blocks, unlike sync, because std_stop discards what close returns.
+ * A flush that answered STD_PENDING there would be dropped on the one
+ * path that has to have it. */
 std_rw_result msc_std_close(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
@@ -445,8 +454,35 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    std_rw_result res = STD_OK;
+    if (msc_pool[desc].writable && msc_flush_state != MSC_FLUSH_NEVER)
+    {
+        uint32_t st;
+        /* A read or write left in flight has to land before the flush
+         * can start; the descriptor is going away either way. */
+        if (msc_busy)
+        {
+            while (!msc_poll(&st))
+                ;
+            msc_busy = false;
+        }
+        FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+        st = msc_command(FILE_OP_FLUSH);
+        if (msc_unanswered(st))
+            msc_flush_state = MSC_FLUSH_NEVER;
+        else
+        {
+            msc_flush_state = MSC_FLUSH_WORKS;
+            if (st & FILE_ST_ERR)
+            {
+                *err = API_EIO;
+                res = STD_ERROR;
+            }
+        }
+    }
+    /* Released even when the flush failed, the way close always does. */
     msc_pool[desc].used = false;
-    return STD_OK;
+    return res;
 }
 
 std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
