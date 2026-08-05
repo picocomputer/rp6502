@@ -175,8 +175,9 @@ from want different answers:
 
 Saved games belong in Saves; programs are in Assets, because that is
 where the Pocket's menu browses and where the host bound slot 0 from.
-The second row is the rule `exec` will need when it arrives — it is
-not implemented today.
+Both rows are live: the open path takes the root it should resolve
+against, so `exec` spells a bare program name out under Assets and
+everything else under Saves.
 
 **argv[0] keeps the prefix the host gave it.** It arrives absolute,
 `/Assets/rp6502/common/name.rp6502`, and is passed through untouched.
@@ -198,8 +199,9 @@ released.
 
 Analogue documents the command and not the shape of its response
 struct. We read a NUL-terminated name at offset 0, which is where
-Open File's *parameter* struct carries one. That is a guess with a
-good reason behind it, not a specification.
+Open File's *parameter* struct carries one. That began as a guess with
+a good reason behind it; hardware settled it, and argv[0] comes back
+correct on a Pocket.
 
 There is no delete, rename or mkdir: the target command list ends at
 Open File, and those calls answer ENOSYS. Existence is probed with a
