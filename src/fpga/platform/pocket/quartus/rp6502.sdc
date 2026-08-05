@@ -193,3 +193,35 @@ if {[get_collection_size [get_ports -nowarn {sram_a[0]}]] > 0} {
     set_max_delay -from [get_ports {sram_dq[*]}] 11.0
     set_min_delay -from [get_ports {sram_dq[*]}] 0.0
 }
+
+# The bridge's payloads cross clk_74a to clk_sys on a toggle, not on a
+# clock relationship. The word is written once on the host's clock and
+# then stands still while a three-flop synchroniser walks the toggle
+# across; by the time the far side is enabled the data has been standing
+# for the better part of sixty nanoseconds, and the next write is a user
+# picking a file. Analysing it against the two clocks' worst edge
+# alignment measures a race the handshake has already removed.
+#
+# Measured, and the two numbers are the reason this is here rather than
+# left alone: the slot update payload missed setup by 6.5 ns with no
+# exception, and slot_size — same structure, same module, same two
+# clocks, also no exception — reported +9.0. Why they differ by fifteen
+# nanoseconds is not established. Both are the same kind of path, so
+# both get the same statement.
+#
+# What bounds bit skew is the handshake and not a constraint.
+# set_max_skew was tried here and Quartus answers "no path is found
+# satisfying assignment" once the false path is declared, which is
+# correct — the path it would measure has been removed. The margin is
+# the three clk_sys the toggle spends in the synchroniser before the
+# destination is enabled, against inter-bit routing skew measured in
+# single nanoseconds.
+set bridge_cross { \
+    {*pocket_bridge*upd_id_74[*]}   {*pocket_bridge*pocket_bridge_upd_id[*]} \
+    {*pocket_bridge*upd_len_74[*]}  {*pocket_bridge*pocket_bridge_upd_len[*]} \
+    {*pocket_bridge*slot_size[*]}   {*pocket_bridge*pocket_bridge_slot_len[*]} }
+foreach {src dst} $bridge_cross {
+    if {[get_collection_size [get_registers -nowarn $src]] > 0} {
+        set_false_path -from [get_registers $src] -to [get_registers $dst]
+    }
+}
