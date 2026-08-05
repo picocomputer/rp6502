@@ -142,6 +142,28 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
         -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 1
 }
 
+# The soft CPU's own path into that launch register is ONE clk_sys edge,
+# not four. The rule above is one-ended and sweeps it up with the 6502's,
+# which is a lie in the direction that corrupts memory: WE# goes low at
+# phase zero, so an address still settling means the write pulse is live
+# across every address the bus sweeps through on its way. A program
+# loaded through this port then has bytes scattered at addresses nobody
+# chose, the image CRC passes because the CRC is taken on the way out of
+# the SDRAM, and the 6502 runs into whatever landed.
+#
+# That is the intermittent one-in-five load failure: staged fine, parsed
+# fine, and then nothing. The eight-clock port B access was written on
+# the reasoning that a late address still leaves enough stable time for
+# tAA, which is true of a read and worthless for a write.
+set_multicycle_path -setup -from [get_registers {*rv_soc*}] \
+    -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 1
+set_multicycle_path -hold  -from [get_registers {*rv_soc*}] \
+    -to [get_registers {*pocket_sram*pocket_sram_a[*]}] 0
+set_multicycle_path -setup -from [get_registers {*rv_soc*}] \
+    -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 1
+set_multicycle_path -hold  -from [get_registers {*rv_soc*}] \
+    -to [get_registers {*pocket_sram*pocket_sram_dq_out[*]}] 0
+
 # The board's SRAM, AS6C2016-55BIN. It has no clock, so there is no
 # input or output delay to declare against one — what bounds this
 # interface is the round trip, and the round trip has a budget:
