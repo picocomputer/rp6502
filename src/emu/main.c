@@ -38,6 +38,7 @@
 #include "ria/sys/sys.h"
 #include "vga/term/font.h"
 #include "vga/term/term.h"
+#include "vga/modes/mode0.h"
 #include "vga/modes/mode1.h"
 #include "vga/modes/mode2.h"
 #include "vga/modes/mode3.h"
@@ -146,7 +147,7 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
             switch (word)
             {
             case 0:
-                ok = term_prog(xregs);
+                ok = mode0_prog(xregs);
                 break;
             case 1:
                 ok = mode1_prog(xregs);

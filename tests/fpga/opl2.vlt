@@ -1,0 +1,17 @@
+// Copyright (c) 2026 Rumbledethumps
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Vendored code is linted by its own project; ours is held to -Wall.
+// The OPL2's truncating assignments are how a fixed-point pipeline is
+// written, and its files carry a timescale ours do not.
+//
+// GENUNNAMED and UNOPTFLAT are raised during elaboration, where -file
+// does not scope them, so they are off by rule. That is broader than it
+// looks: this file is passed only to the targets that build the OPL2,
+// the way hazard3.vlt is, so no other module loses the check. UNOPTFLAT
+// here is the operator bank's array read as a loop it is not.
+`verilator_config
+lint_off -file "*opl2_fpga*"
+lint_off -rule TIMESCALEMOD
+lint_off -rule GENUNNAMED
+lint_off -rule UNOPTFLAT

@@ -13,6 +13,21 @@ else()
     message(FATAL_ERROR "Unknown board: ${PICO_BOARD}")
 endif()
 
+
+# The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
+# generator so the logic in api/uni.c can be read without a
+# preprocessor. See src/fpga/codegen/oem_table_gen.py.
+set(OEMCP_GEN ${RP6502_ROOT}/src/fpga/codegen/oem_table_gen.py)
+set(OEMCP_SRC ${RP6502_ROOT}/vendor/fatfs/ffunicode.c)
+set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
+set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
+add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${OEMCP_GEN}
+        --ffunicode ${OEMCP_SRC} --emit-c ${OEMCP_C} --emit-h ${OEMCP_H}
+    DEPENDS ${OEMCP_GEN} ${OEMCP_SRC}
+    COMMENT "Generating the OEM code page tables"
+    VERBATIM)
+
 add_executable(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 pico_add_extra_outputs(${RIA_TARGET})
@@ -54,6 +69,7 @@ set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=overri
 #    PROPERTIES COMPILE_OPTIONS "-fno-lto")
 
 target_include_directories(${RIA_TARGET} PRIVATE
+    ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_LIST_DIR}
     ${RP6502_ROOT}/src
     ${RP6502_ROOT}/vendor
@@ -77,6 +93,8 @@ target_sources(${RIA_TARGET} PRIVATE
     api/fat.c
     api/oem.c
     api/pro.c
+    api/uni.c
+    ${OEMCP_C}
     api/std.c
     api/tim.c
     aud/aud.c
@@ -134,7 +152,6 @@ rp6502_use_version_header(${RIA_TARGET}
 target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/vendor/emu8950/emu8950.c
     ${RP6502_ROOT}/vendor/fatfs/ff.c
-    ${RP6502_ROOT}/vendor/fatfs/ffunicode.c
     ${RP6502_ROOT}/vendor/littlefs/lfs.c
     ${RP6502_ROOT}/vendor/littlefs/lfs_util.c
 )

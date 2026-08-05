@@ -1,0 +1,6 @@
+// Copyright (c) 2026 Rumbledethumps
+// SPDX-License-Identifier: BSD-3-Clause
+//
+// Vendored code is linted by its own project; ours is held to -Wall.
+`verilator_config
+lint_off -file "*vendor/hazard3*"

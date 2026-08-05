@@ -128,6 +128,22 @@
             "problemMatcher": "$gcc"
         },
         {
+            "label": "vectors: download",
+            "type": "process",
+            "command": "python3",
+            "args": [
+                "${workspaceFolder}/tests/cpu/vectors.py"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": [],
+            "windows": {
+                "command": "python"
+            }
+        },
+        {
             "label": "emsdk: install",
             "type": "process",
             "command": "${workspaceFolder}/vendor/emsdk/emsdk",

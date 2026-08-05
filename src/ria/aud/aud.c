@@ -30,7 +30,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
-int8_t aud_sine_table[256];
+int16_t aud_sine_table[256];
 
 static irq_handler_t aud_irq_fn;
 
@@ -56,7 +56,7 @@ void __in_flash("aud_init") aud_init(void)
 
     // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
-        aud_sine_table[i] = lround(cos(M_PI * 2.0 / 256 * i) * -127);
+        aud_sine_table[i] = lround(cos(M_PI * 2.0 / 256 * i) * -32767);
 
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
     bel_setup();
@@ -84,10 +84,21 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
     }
 }
 
-void __time_critical_func(aud_out)(uint16_t left, uint16_t right)
+/* The narrowing, and the only one on the path. A driver hands over a signed
+ * sample at full scale; this chip's PWM wraps at 1023, so sixteen bits
+ * become ten. Rounded, not floored — a floor here is a systematic half-LSB
+ * downward bias on every sample, which is DC, not noise. */
+void __time_critical_func(aud_out)(int16_t left, int16_t right)
 {
-    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, left);
-    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, right);
+    const int shift = 16 - AUD_PWM_BITS;
+    int l = (left + (1 << (shift - 1))) >> shift;
+    int r = (right + (1 << (shift - 1))) >> shift;
+    if (l > (int)AUD_PWM_CENTER - 1)
+        l = AUD_PWM_CENTER - 1;
+    if (r > (int)AUD_PWM_CENTER - 1)
+        r = AUD_PWM_CENTER - 1;
+    pwm_set_chan_level(AUD_L_SLICE, AUD_L_CHAN, l + AUD_PWM_CENTER);
+    pwm_set_chan_level(AUD_R_SLICE, AUD_R_CHAN, r + AUD_PWM_CENTER);
 }
 
 void __time_critical_func(aud_clear_irq)(void)

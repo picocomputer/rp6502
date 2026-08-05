@@ -14,7 +14,7 @@
 #include <math.h>
 #include <string.h>
 
-int8_t aud_sine_table[256];
+int16_t aud_sine_table[256];
 
 /* The active device's sample handler + rate, installed by aud_setup. */
 static void (*aud_irq_fn)(void);
@@ -24,7 +24,7 @@ void aud_init(void)
 {
     // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
-        aud_sine_table[i] = (int8_t)lround(cos(M_PI * 2.0 / 256 * i) * -127);
+        aud_sine_table[i] = (int16_t)lround(cos(M_PI * 2.0 / 256 * i) * -32767);
     aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
 }
 
@@ -38,11 +38,12 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate)
 /* Stereo output capture: the seam the audio drivers write through.    */
 /* ------------------------------------------------------------------ */
 
-/* The last stereo level the active handler wrote (centered on AUD_PWM_CENTER =
- * silence); aud_task reads it back each sample. */
-static uint16_t g_out_l = AUD_PWM_CENTER, g_out_r = AUD_PWM_CENTER;
+/* The last stereo level the active handler wrote, signed with silence at
+ * zero; aud_task reads it back each sample and scales it to the float the
+ * host wants. Nothing here knows the RP2350's PWM depth any more. */
+static int16_t g_out_l, g_out_r;
 
-void aud_out(uint16_t left, uint16_t right)
+void aud_out(int16_t left, int16_t right)
 {
     g_out_l = left;
     g_out_r = right;
@@ -109,9 +110,7 @@ void aud_task(void)
     for (unsigned i = 0; i < n; i++)
     {
         handler(); /* advances the synth + writes g_out_l/g_out_r via aud_out */
-        int l = (int)g_out_l - AUD_PWM_CENTER;
-        int r = (int)g_out_r - AUD_PWM_CENTER;
-        ring_push((float)l / AUD_PWM_CENTER, (float)r / AUD_PWM_CENTER);
+        ring_push(g_out_l / 32768.0f, g_out_r / 32768.0f);
     }
 }
 
@@ -206,7 +205,7 @@ void aud_stop(void)
     g_sample_acc = 0;
     xram_queue_head = xram_queue_tail = 0;
     xram_queue_page = 0;
-    g_out_l = g_out_r = AUD_PWM_CENTER;
+    g_out_l = g_out_r = 0;
     memset(g_viz, 0, sizeof g_viz);
     g_viz_pos = 0;
 }

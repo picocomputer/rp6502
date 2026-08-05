@@ -18,6 +18,10 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define BEL_DEFAULT_RATE 24000
 #define BEL_QUEUE_SIZE 8
 
+/* As psg.c: full scale, and the value a closed duty gate rails to. */
+#define BEL_PEAK 32767
+#define BEL_RAIL (-32767)
+
 enum bel_adsr_state
 {
     release,
@@ -99,7 +103,7 @@ static volatile uint8_t bel_queue_tail;
 
 static struct
 {
-    int8_t sample;
+    int16_t sample;
     uint8_t adsr;
     uint32_t vol;
     uint32_t phase;
@@ -256,43 +260,46 @@ generate:;
     uint32_t phase = bel_state.phase >> 24;
     uint32_t duty = snd->duty;
 
+    /* Same generators as psg.c, and widened the same way: the duty gate
+     * still compares the top byte so the shape is untouched, and the ramps
+     * take eight more bits off the accumulator they were already using. */
     switch (snd->wave_release >> 4)
     {
     case 0: // sine
         duty >>= 1;
         if (phase < 128u - duty || phase >= 128u + duty)
-            bel_state.sample = -127;
+            bel_state.sample = BEL_RAIL;
         else
             bel_state.sample = aud_sine_table[phase];
         break;
     case 1: // square
         if (phase > duty)
-            bel_state.sample = -127;
+            bel_state.sample = BEL_RAIL;
         else
-            bel_state.sample = 127;
+            bel_state.sample = BEL_PEAK;
         break;
     case 2: // sawtooth
         if (phase > duty)
-            bel_state.sample = -127;
+            bel_state.sample = BEL_RAIL;
         else
-            bel_state.sample = 127 - phase;
+            bel_state.sample = (int16_t)(BEL_PEAK - (int32_t)(bel_state.phase >> 16));
         break;
     case 3: // triangle
         duty >>= 1;
         if (phase < 128u - duty || phase >= 128u + duty)
-            bel_state.sample = -127;
+            bel_state.sample = BEL_RAIL;
         else if (phase >= 128)
-            bel_state.sample = 127 - (int8_t)(bel_state.phase >> 23);
+            bel_state.sample = (int16_t)(BEL_PEAK - (int16_t)(bel_state.phase >> 15));
         else
-            bel_state.sample = (int8_t)(bel_state.phase >> 23) - 128;
+            bel_state.sample = (int16_t)((int16_t)(bel_state.phase >> 15) - 32768);
         break;
     case 4: // noise
         if (phase > duty)
-            bel_state.sample = -127;
+            bel_state.sample = BEL_RAIL;
         else
         {
             bel_state.noise1 ^= bel_state.noise2;
-            bel_state.sample = bel_state.noise2 & 0xFF;
+            bel_state.sample = (int16_t)(bel_state.noise2 & 0xFFFF);
             bel_state.noise2 += bel_state.noise1;
         }
         break;
@@ -339,11 +346,13 @@ generate:;
         break;
     }
 
-    // Apply envelope to sample
-    int16_t out = ((int32_t)bel_state.sample * (bel_state.vol >> 16)) >> 8;
-    // Scale to PWM bits
-    out <<= (AUD_PWM_BITS - 8);
-    return out;
+    /* Apply the envelope. Thirteen bits of it, rounded, and no second
+     * shift afterwards — this used to truncate to eight and then re-add
+     * the discarded bits as zeros on the way to the PWM. */
+    return (int16_t)(((int32_t)bel_state.sample
+                          * (int32_t)(bel_state.vol >> 12)
+                      + (1 << 11))
+                     >> 12);
 }
 
 static __isr void
@@ -351,16 +360,10 @@ __time_critical_func(bel_irq_handler)(void)
 {
     aud_clear_irq();
 
+    /* bel_sample already answers at full scale and cannot exceed it, so
+     * there is nothing to clamp; the platform's aud_out narrows. */
     int16_t sample = bel_sample(BEL_DEFAULT_RATE);
-
-    int16_t max_val = (1 << (AUD_PWM_BITS - 1)) - 1;
-    int16_t min_val = -(1 << (AUD_PWM_BITS - 1));
-    if (sample < min_val)
-        sample = min_val;
-    if (sample > max_val)
-        sample = max_val;
-
-    aud_out(sample + AUD_PWM_CENTER, sample + AUD_PWM_CENTER);
+    aud_out(sample, sample);
 }
 #pragma GCC pop_options
 

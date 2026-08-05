@@ -24,4 +24,6 @@ void font_init(void);
 
 void font_set_code_page(uint16_t cp);
 
+uint16_t font_get_code_page(void);
+
 #endif /* _VGA_TERM_FONT_H_ */

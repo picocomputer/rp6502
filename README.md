@@ -30,6 +30,21 @@ which downloads much more than needed:
 $ git -C vendor/cppdap submodule update --init third_party/json
 ```
 
+Both 65C02 implementations, the emulator's and the FPGA core's, are held to the
+same two suites so neither can drift alone. Klaus Dormann's functional tests
+come with the submodules above and run long self-checking sequences.
+
+The other suite replays per-cycle bus traces from
+[SingleStepTests](https://github.com/SingleStepTests/65x02), one instruction per
+case. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
+one-time developer download rather than a submodule. Run the VS Code
+**vectors: download** task, or from the command line:
+```
+$ python3 tests/cpu/vectors.py
+```
+This blobless sparse clone takes about a minute and lands roughly a gigabyte in
+`vendor/65x02`. Without it, the conformance tests are skipped and CMake says so.
+
 The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
 submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
 activate the toolchain into that submodule (a one-time ~270 MB download). The same
