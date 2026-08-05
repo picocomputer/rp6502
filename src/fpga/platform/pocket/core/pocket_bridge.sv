@@ -112,18 +112,24 @@ module pocket_bridge (
     logic [15:0] upd_id_74;
     logic [31:0] upd_len_74;
     logic upd_t;
-    logic [7:0] upd_n;
+    logic [7:0] upd_n, upd_g_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             upd_id_74 <= '0;
             upd_len_74 <= '0;
             upd_t <= 1'b0;
             upd_n <= '0;
+            upd_g_74 <= '0;
         end else if (dataslot_update) begin
             upd_id_74 <= dataslot_update_id;
             upd_len_74 <= dataslot_update_size;
             upd_t <= !upd_t;
             upd_n <= upd_n + 8'd1;
+            /* Coded here and not at the far end. What crosses has to be
+             * the Gray value already registered on this clock; converting
+             * after the crossing samples the binary counter instead and
+             * the coding buys nothing at all. */
+            upd_g_74 <= b2g(upd_n + 8'd1);
         end
     end
 
@@ -300,8 +306,8 @@ module pocket_bridge (
      * merges them and the crossing loses its synchroniser. */
     (* preserve *) logic settle_t1, settle_t2, settle_t3;
     (* preserve *) logic upd_t1, upd_t2, upd_t3;
-    (* preserve *) logic [7:0] g_upd1;
-    logic [7:0] g_upd2;
+    (* preserve *) logic [7:0] upd_g_s1;
+    logic [7:0] upd_g_s2, upd_n_sys;
     (* preserve *) logic reset_n_s1, reset_n_s2;
     logic settled;
     logic run_q;
@@ -313,8 +319,9 @@ module pocket_bridge (
         upd_t1 = 1'b0;
         upd_t2 = 1'b0;
         upd_t3 = 1'b0;
-        g_upd1 = '0;
-        g_upd2 = '0;
+        upd_g_s1 = '0;
+        upd_g_s2 = '0;
+        upd_n_sys = '0;
         pocket_bridge_upd_set = 1'b0;
         pocket_bridge_upd_id = '0;
         pocket_bridge_upd_len = '0;
@@ -333,8 +340,12 @@ module pocket_bridge (
         upd_t1 <= upd_t;
         upd_t2 <= upd_t1;
         upd_t3 <= upd_t2;
-        g_upd1 <= b2g(upd_n);
-        g_upd2 <= g_upd1;
+        upd_g_s1 <= upd_g_74;
+        upd_g_s2 <= upd_g_s1;
+        /* Decoded into a register rather than into the read path: the
+         * conversion is a seven-deep XOR chain and the machine's MMIO
+         * mux has no room for it. */
+        upd_n_sys <= g2b(upd_g_s2);
         pocket_bridge_upd_set <= 1'b0;
         if (upd_t2 != upd_t3) begin
             pocket_bridge_upd_set <= 1'b1;
@@ -360,7 +371,7 @@ module pocket_bridge (
     end
     always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready;
 
-    always_comb pocket_bridge_upd_n = g2b(g_upd2);
+    always_comb pocket_bridge_upd_n = upd_n_sys;
 
     /* --- The controller, and the dock's keyboard. ---
      *
