@@ -22,10 +22,16 @@ module pocket_bridge (
     input logic [31:0] bridge_addr,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
-    /* Host command 0x008A, which the vendor comment says is sent on
-     * deferload slots only. It names the slot and its size outright, so
-     * nothing downstream has to work out which word of the table to
-     * believe. Dangling until now. */
+    /* Host command 0x008A, and for a user-reloadable slot whose
+     * parameters leave bit 6 clear it is the whole announcement: Analogue
+     * documents that APF then sends this instead of a request write and
+     * an access-all-complete, and without bit 6 there is no Reset Enter
+     * and Exit either. So the machine keeps running and this is the only
+     * thing that tells it the user picked a different file.
+     *
+     * It arrives on the host's clock as a pulse. The payload crosses on a
+     * toggle beside it, which two announcements close together would
+     * cancel, so the count below is what the firmware watches. */
     input logic dataslot_update,
     input logic [15:0] dataslot_update_id,
     input logic [31:0] dataslot_update_size,
@@ -249,16 +255,18 @@ module pocket_bridge (
      * on an edge and cannot be asked to wait, so it says when it holds
      * the address and the other side stands off.
      *
-     * Word 17 is the size beside id 8, which is the ROM — measured, not
-     * assumed. A probe core dumped the table on hardware: the pairs sit
-     * at 2N and 2N+1, and 0xF000 and 0x13D8 stand beside ids 9 and 10,
-     * exactly the two assets' size_exact. The firmware still scans for
-     * the id rather than indexing, because Analogue documents no layout
-     * and the scan costs nothing at boot.
+     * Word 17 is the size beside id 8, which is the ROM. Analogue
+     * documents the table as 32 entries of eight bytes, word 0 the slot
+     * id and word 1 the size, and a probe confirmed it on hardware:
+     * 0xF000 and 0x13D8 stand beside ids 9 and 10, exactly the two
+     * assets' size_exact. The firmware scans for the id anyway, because
+     * a scan costs nothing at boot and does not care whether a slot is
+     * ever renumbered again.
      *
-     * This cannot scan, and it does not need to: re-reading this word on
-     * a Reset Exit or a completion is what tells a running machine its
-     * ROM changed, and on hardware that arrives every time. */
+     * This read is boot's alone now. A user-reloadable slot without bit
+     * 6 gets no Reset Exit and no completion when its file changes, so
+     * nothing re-triggers it; a running machine hears about a change
+     * through the update count instead. */
     logic dt_trig;
     always_comb begin
         pocket_bridge_dt_addr = 10'd17;
