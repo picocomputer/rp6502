@@ -57,6 +57,17 @@ bool vid_mode0_prog(uint16_t *xregs)
     return true;
 }
 
+/* The console reset, which is what the VGA chip does for xreg $1:F:00:
+ * canvas back to the console, the terminal reset without clearing what is
+ * on it, and the glyphs back to the page a program has not chosen yet.
+ * Run-only state belongs to the run that set it. */
+void vid_stop(void)
+{
+    vga_set_canvas(vga_canvas_console);
+    term_RIS_no_clear();
+    font_set_code_page(437);
+}
+
 void vid_init(void)
 {
     font_init();

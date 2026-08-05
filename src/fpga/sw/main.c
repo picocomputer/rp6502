@@ -353,6 +353,7 @@ static void run(void)
 static void stop(void)
 {
     cpu_stop(); /* Must be first. */
+    vid_stop();
     rln_stop();
     api_stop();
     std_stop();
@@ -364,6 +365,9 @@ static void stop(void)
      * the one thing that replaces it, and it brings its own before the
      * stop it asks for. */
 }
+
+/* A length the host staged while we were running, applied at the stop. */
+static uint32_t main_restage;
 
 static enum state {
     stopped,
@@ -447,6 +451,15 @@ int main(void)
         term_task();
         vid_task();
         api_task();
+        /* Slot 0 restaged under a running core: the Core Settings menu
+         * can swap the ROM without reloading the part, and the length
+         * arriving is the only announcement. */
+        if (MMIO_SLOT)
+        {
+            main_restage = MMIO_SLOT;
+            MMIO_SLOT = 0;
+            main_stop();
+        }
         if (main_state == starting)
         {
             run();
@@ -459,7 +472,16 @@ int main(void)
             /* An exec loads here rather than inside the syscall that
              * asked for it: stopping is what closes the descriptors the
              * outgoing program left open, and the read needs one. */
-            if (pro_exec_take())
+            if (main_restage)
+            {
+                uint32_t len = main_restage;
+                main_restage = 0;
+                if (rom_load_staged(len))
+                    main_run();
+                else
+                    printf("rom: bad image\n");
+            }
+            else if (pro_exec_take())
                 main_run();
         }
     }

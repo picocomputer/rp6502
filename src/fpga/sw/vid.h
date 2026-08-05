@@ -14,6 +14,7 @@
  * window; task publishes the model's scanout state once per frame. */
 void vid_init(void);
 void vid_task(void);
+void vid_stop(void);
 
 bool vid_mode0_prog(uint16_t *xregs);
 
