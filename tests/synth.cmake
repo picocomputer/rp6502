@@ -158,7 +158,20 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         list(APPEND BS_LINES
             "set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to ${pin}")
     endforeach()
+    # The SDRAM's read return is the tight direction and always was: the
+    # memory clock is forwarded half a period late so the chip has time
+    # to sample what we launch, which charges the return path for it.
+    # The chip puts data out tAC 6.0 ns after its own edge and we capture
+    # on the next clk_sys, so the whole pad crossing has 3.92 ns. In
+    # fabric that crossing measures over eight; in the I/O element it is
+    # under two.
+    foreach(pin dram_a dram_ba dram_dq dram_dqm dram_cke
+            dram_ras_n dram_cas_n dram_we_n)
+        list(APPEND BS_LINES
+            "set_instance_assignment -name FAST_OUTPUT_REGISTER ON -to ${pin}")
+    endforeach()
     list(APPEND BS_LINES
+        "set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq"
         "set_instance_assignment -name FAST_INPUT_REGISTER ON -to sram_dq"
         "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"

@@ -147,7 +147,21 @@ module pocket_sdram #(
     logic held_valid;
     always_comb pocket_sdram_rvalid = held_valid && held_addr == rd_addr;
 
-    logic [2:0] rd_pipe;
+    /* Four, not three, and the fourth is a wait state on the read
+     * return. The chip launches data on dram_clk, half a period after
+     * clk_sys, and tAC gives it 6 ns to arrive — so a capture on the
+     * very next clk_sys leaves 3.92 ns for the pad crossing, which on
+     * this part is about seven. One more clock turns that budget into
+     * 23.76 ns and the path closes with margin to spare.
+     *
+     * The half period of shift is what makes the WRITE direction
+     * comfortable and it is charged entirely to the read. A wait state
+     * is the whole fix; register placement is not, because the pad
+     * crossing is the same length wherever the flop sits.
+     *
+     * Nine clocks an access instead of eight, on a store that is the
+     * machine's pseudo-ROM and idle almost always. */
+    logic [3:0] rd_pipe;
 
     /* What each bank is holding open. Every access used to set A10 and
      * throw the row away, which made the activate the price of every
@@ -229,8 +243,8 @@ module pocket_sdram #(
 
         /* The registered command plus CL2: data stands three
          * edges after the read state. */
-        rd_pipe <= {rd_pipe[1:0], 1'b0};
-        if (rd_pipe[2]) begin
+        rd_pipe <= {rd_pipe[2:0], 1'b0};
+        if (rd_pipe[3]) begin
             pocket_sdram_rdata <= dram_dq_in;
             held_addr <= op_addr;
             held_valid <= 1'b1;
@@ -409,7 +423,7 @@ module pocket_sdram #(
                 dram_ba <= op_addr[24:23];
                 dram_a <= {3'b000, op_addr[9:0]};
                 rd_pipe[0] <= 1'b1;
-                wait_cnt <= 15'd2;
+                wait_cnt <= 15'd3;
                 after <= S_IDLE;
                 state <= S_WAIT;
             end

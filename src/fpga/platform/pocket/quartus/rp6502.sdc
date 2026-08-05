@@ -124,6 +124,22 @@ if {[get_collection_size [get_ports -nowarn {dram_clk}]] > 0} {
     set_output_delay -clock dram_clk_pin -min -1.0 $dram_out
     set_input_delay  -clock dram_clk_pin -max  6.0 [get_ports {dram_dq[*]}]
     set_input_delay  -clock dram_clk_pin -min  2.5 [get_ports {dram_dq[*]}]
+
+    # The read return takes a wait state, and a wait state is invisible
+    # to the analyzer unless it is declared. rd_pipe is an ENABLE on the
+    # capture register, so STA sees a flop clocked every clk_sys and
+    # analyses the launch against the very next edge — 9.92 ns, of which
+    # tAC takes 6, leaving 3.92 for a pad crossing that is about seven.
+    # Adding the wait state in RTL moved that number by fourteen
+    # picoseconds, because the RTL was never what STA was reading.
+    #
+    # Two, counted off the FSM: S_READ sets rd_pipe[0] and the capture is
+    # gated on rd_pipe[3], one clk_sys later than it used to be. That
+    # turns 3.92 ns into 23.76.
+    set_multicycle_path -setup -from [get_ports {dram_dq[*]}] \
+        -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 2
+    set_multicycle_path -hold  -from [get_ports {dram_dq[*]}] \
+        -to [get_registers {*pocket_sdram*pocket_sdram_rdata*}] 1
 }
 
 # The board's SRAM, AS6C2016-55BIN. It has no clock, so there is no
