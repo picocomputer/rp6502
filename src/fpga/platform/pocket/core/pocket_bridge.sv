@@ -141,9 +141,29 @@ module pocket_bridge (
         end
     end
 
+    /* Two hundred and fifty six, not eight, and the eight is what broke
+     * every ROM loaded after the first.
+     *
+     * This queue has no backpressure to the host — APF's bridge writes
+     * arrive at the host's pace and w_stb is gated on !wf_full, so an
+     * overrun is silently dropped and the only complaint is an $error
+     * that exists in simulation alone. Eight entries covers a controller
+     * that answers promptly, which the store did until it learned to
+     * sleep. On a reload the machine is held in reset, nothing reads the
+     * store, it enters self refresh, and the host then streams an image
+     * into a controller that needs a wake, tXSR and an access — around
+     * half a microsecond — before it accepts the first word. Eight words
+     * do not cover half a microsecond, so the image arrives with holes
+     * in it and the loader parses whatever survived.
+     *
+     * Depth is the honest fix because the hazard is not really self
+     * refresh: a file read streams into this same queue while a program
+     * runs, and any stall long enough will do it. One M10K buys 256
+     * words, which is five microseconds at the host's fastest, and this
+     * design has sixty-five blocks spare. */
     pocket_fifo #(
         .WIDTH(41),
-        .DEPTH_LOG2(3)
+        .DEPTH_LOG2(8)
     ) wfifo (
         .wclk(clk_74a),
         .w_stb(wf_stb && !wf_full),
