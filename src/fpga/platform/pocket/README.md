@@ -28,23 +28,27 @@ every signal but those. On the SRAM: *"Available to user cores.
 Latency is marginally faster than PSRAM but possible bandwidth is
 lower."*
 
-**The SRAM is the interesting one and it has been tied off dead** since
-the port began, in `core_top.sv` — `sram_a`, `sram_dq`, `sram_oe_n`,
-`sram_we_n`, `sram_ub_n`, `sram_lb_n` all driven to their idle states.
-Note what is *not* in that port list: there is no chip enable, so the
-board holds the part selected and `OE#`/`WE#` are the whole protocol.
-The byte enables are there, which matters for an 8-bit machine writing
-into a 16-bit part. The PSRAM (`cram0_*`, `cram1_*`) is untouched too.
-
-Why that matters here: the 6502's 64 KB currently lives in block RAM,
-and block RAM is what this design runs out of first — the fit sits at
+**The SRAM holds the 6502's 64 KB**, and it was tied off dead in
+`core_top.sv` for most of this port's life while block memory did that
+job. Block memory is what this design runs out of first: the fit sat at
 275 of 308 M10K with `sram64k`, `xram64k` and the firmware's TCM taking
-64 blocks each. An asynchronous part answering in 55 ns is a
-comfortable fit for a bus that allows 119 ns at 8 MHz, and unlike the
-SDRAM it answers in 55 ns *every* time: no rows, no refresh, no bank
-conflicts, no variance to design around. That is the natural home for
-the 6502's memory, and moving it there frees exactly the 64 blocks that
-doubling the TCM costs.
+64 blocks each. Moving the 6502 off-chip freed exactly the 64 that
+doubling the TCM to 96 KB cost — 243 of 308 now, and the firmware went
+from 5,048 bytes of stack and heap to 39,584.
+
+An asynchronous part answering in 55 ns fits a bus that allows 119 ns
+at 8 MHz, and unlike the SDRAM it answers in 55 ns *every* time: no
+rows, no refresh, no bank conflicts, nothing a program can do to make
+it slower. For a machine whose contract is that the clock you asked for
+is the clock you get, deterministic beats fast-on-average.
+
+Note what is *not* in that port list: there is no chip enable, so the
+board holds the part selected and `OE#`/`WE#` are the whole protocol —
+which makes `WE#` the only interlock against a stray write, and it is
+registered with a known power-on state for that reason. The byte
+enables are there and constant: `pocket_sram` uses 64K x 8, the low
+lane only, because a 16-bit read buys nothing when tAA is 55 ns for one
+byte or for two. The PSRAM (`cram0_*`, `cram1_*`) is still untouched.
 
 The SDRAM's own geometry is worth writing down because the controller
 decodes it: 4 banks × 8192 rows × 1024 columns × 16 bits, which makes a
@@ -52,13 +56,29 @@ row **2 KB** and puts the 6502's whole address space inside 32 rows.
 Refresh is 8192 cycles per 64 ms, so 7.8 µs a cycle; `REFRESH_EVERY` is
 390 clocks at 50.4 MHz, which is 7.74 µs.
 
-Core AC timings below are from the 3.3 V sibling `AS4C32M16SA-7` and
-are here as a reference point, **not** as the Pocket's part — the mobile
-`-6` differs and the controller should be retimed against its own
-datasheet: tRCD 15 ns, tRP 15 ns, tRAS 45 ns min and 100 µs max, tRC
-65 ns, tRRD 15 ns, tCCD 1 clock, tDPL 2 clocks, CL2 to 100 MHz and CL3
-to 143 MHz. At 50.4 MHz — 19.84 ns a clock — CL2 is not close to
-marginal and every one of those delays is one or two clocks.
+Its AC timings, from the `-6` mobile datasheet itself, at 50.4 MHz
+where a clock is 19.841 ns:
+
+| | ns | clocks | | ns | clocks |
+| --- | ---: | ---: | --- | ---: | ---: |
+| tRCD | 18 | 1 | tRAS min | 48 | 3 |
+| tRP | 18 | 1 | tRAS max | 100 µs | 5040 |
+| tRC | 60 | **4** | tRFC | 80 | **5** |
+| tDPL | 2 tCK | 2 | tXSR | 80 | 5 |
+
+Three of those round the wrong way if you are careless. tRC at 3 clocks
+is 59.5 ns and misses 60 by half a nanosecond; tRFC at 4 misses 80 by
+the same; and the refresh interval is a **ceiling that rounds down** —
+393 clocks fits inside 7812.5 ns and 394 does not. CL2 is rated to
+83 MHz, so it is not close to marginal here; CL1 would be illegal,
+rated to 50 MHz against our 50.4.
+
+The extended mode register matters more than it looks. It holds
+Partial Array Self Refresh and driver strength, powers up in a state
+the datasheet declines to name, and this controller did not write it
+for a long time. That was survivable only while the store never slept:
+PASR governs self refresh alone, and an auto refresh covers the whole
+array whatever it says.
 
 ## Suspend
 
@@ -361,8 +381,10 @@ specific.
 `dist/` carries everything the card needs except the
 binaries, which the build supplies:
 
-- `Cores/Rumbledethumps.RP6502/bitstream.rbf_r` comes from the Quartus
-  build through `src/gen/rbf_r_gen.py` (byte-wise bit reversal).
+- `Cores/Rumbledethumps.RP6502/rp6502.bin` comes from the Quartus build
+  through `src/gen/rbf_r_gen.py` (byte-wise bit reversal). `core.json`
+  names it; the conventional name is `bitstream.rbf_r` and the loader
+  reads whatever the manifest says.
 - `Assets/rp6502/common/fonts.bin` is the glyph image, generated by
   `src/gen/vid_font_gen.py --emit-bin` from `vga/term/font.c`
   and dropped in the FPGA build tree. It carries every face and all

@@ -5,7 +5,7 @@
 #
 # Refuse to package a bitstream older than the fit it claims to be.
 #
-# The package target copies bitstream.rbf_r and does not depend on the
+# The package target copies the reversed bitstream and does not depend on the
 # bitstream target, deliberately: assembling a card should not cost a
 # refit. The cost of that is a build where the fit ran, a gate after it
 # failed, rbf_r_gen never ran, and the copy took the previous one
@@ -24,7 +24,7 @@ from pathlib import Path
 
 def main() -> int:
     if len(sys.argv) != 3:
-        print("usage: rbf_fresh.py <rp6502.rbf> <bitstream.rbf_r>",
+        print("usage: rbf_fresh.py <rp6502.rbf> <rp6502.bin>",
               file=sys.stderr)
         return 2
     rbf, rbf_r = Path(sys.argv[1]), Path(sys.argv[2])

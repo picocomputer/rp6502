@@ -27,7 +27,7 @@
             {
                 "name": "default",
                 "id": 0,
-                "filename": "bitstream.rbf_r"
+                "filename": "rp6502.bin"
             }
         ]
     }

@@ -211,7 +211,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     add_custom_target(package
         # Never package a bitstream older than the fit it claims to be.
         COMMAND python3 ${RP6502_SRC}/gen/rbf_fresh.py
-            ${BS_DIR}/output_files/rp6502.rbf ${BS_DIR}/bitstream.rbf_r
+            ${BS_DIR}/output_files/rp6502.rbf ${BS_DIR}/rp6502.bin
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -220,8 +220,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
-        COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/bitstream.rbf_r
-            ${PKG_DIR}/Cores/Rumbledethumps.RP6502/bitstream.rbf_r
+        COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/rp6502.bin
+            ${PKG_DIR}/Cores/Rumbledethumps.RP6502/rp6502.bin
         DEPENDS vid_font_rom
         COMMENT "Assembling the Pocket core package (run `bitstream` first)"
         VERBATIM)
@@ -252,7 +252,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
         COMMAND python3 ${RP6502_SRC}/gen/rbf_r_gen.py
             ${BS_DIR}/output_files/rp6502.rbf
-            ${BS_DIR}/bitstream.rbf_r
+            ${BS_DIR}/rp6502.bin
         WORKING_DIRECTORY ${BS_DIR}
         DEPENDS sw_bin cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Building the Pocket bitstream"

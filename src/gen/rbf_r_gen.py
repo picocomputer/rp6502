@@ -3,9 +3,15 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # The Pocket loads its bitstream with each byte's bits reversed:
-# bitstream.rbf_r is the Quartus .rbf with every byte bit-flipped,
-# nothing more. Verified against the official core template's shipped
-# pair. Reversal is an involution, so running this twice is identity.
+# the packaged bitstream is the Quartus .rbf with every byte
+# bit-flipped, nothing more. Verified against the official core
+# template's shipped pair. Reversal is an involution, so running this
+# twice is identity.
+#
+# core.json names the file, and this core calls it rp6502.bin. The
+# conventional name is bitstream.rbf_r; the loader reads whatever the
+# manifest says, and the reversal is about the bytes rather than the
+# name.
 
 import sys
 
@@ -24,7 +30,7 @@ def main() -> int:
         assert reverse(reverse(probe)) == probe
         return 0
     if len(sys.argv) != 3:
-        print("usage: rbf_r_gen.py <in.rbf> <out.rbf_r>", file=sys.stderr)
+        print("usage: rbf_r_gen.py <in.rbf> <out.bin>", file=sys.stderr)
         return 2
     with open(sys.argv[1], "rb") as f:
         data = f.read()
