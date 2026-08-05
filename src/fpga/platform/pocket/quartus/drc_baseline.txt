@@ -60,7 +60,14 @@ D101 599
 #       which is reached only after go_t2 != go_t3, three clk_74a flops
 #       behind the toggle. Its four siblings are already here and under
 #       D103 on the same argument.
-D102 23
+#
+#       24 since the slot announcement got a count. It is Gray by the
+#       same argument as the queue pointers above — coded on clk_74a
+#       beside the increment, so one bit changes per step and a sampler
+#       reads the old value or the new one and never a third. The tool
+#       counts eight bits crossing and cannot see the encoding, which is
+#       what this whole entry is about.
+D102 24
 #
 # D103  Data bits not correctly synchronised. pocket_file's command
 #       word: r_op, and the flush, write and getfile strobes beside it.
