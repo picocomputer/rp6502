@@ -25,7 +25,6 @@
 #include "mmio.h"
 #include "mou.h"
 #include "msc.h"
-#include "probe.h"
 #include "pad.h"
 #include "rom.h"
 #include "vga.h"
@@ -367,12 +366,20 @@ static void stop(void)
      * stop it asks for. */
 }
 
-/* The host staged something while we were running, applied at the stop.
- * A flag and not a length: the bridge latches one fixed word of the data
- * table, so what MMIO_SLOT carries belongs to whichever slot that word
- * is. The announcement is the news; the size is a question for the
- * table, by id. */
+/* The host announced a slot while we were running, applied at the stop.
+ *
+ * Slot 8 is user-reloadable and does not ask for a reset: with bit 6 of
+ * its parameters clear, APF sends command 0x008A alone — no request
+ * write, no access-all-complete, no Reset Enter and Exit — so the
+ * machine keeps running and this is the only news it gets. Bit 6 set
+ * would restart the firmware instead, and take the terminal with it.
+ *
+ * The count is what is watched rather than the event, because the id and
+ * length cross on a toggle that two announcements can cancel, and the
+ * count is incremented on the host's own clock where nothing here can
+ * lose it. What changed is the question the data table answers. */
 static bool main_restage;
+static uint8_t main_upd_seen;
 
 static bool main_rom_len(uint32_t *len)
 {
@@ -416,22 +423,18 @@ int main(void)
      * that staged nothing — which leaves nothing to run. */
     uint32_t len;
     bool runnable = false;
-#ifdef RP6502_POCKET_PROBE
-    /* No image: the screen is the instrument. */
-    probe_dump();
-    (void)len;
-#else
     if (main_rom_len(&len))
     {
         runnable = rom_load_staged(len);
         if (!runnable)
             printf("rom: bad image\n");
     }
-#endif
     /* Cleared once the image is dealt with and not before: it is how
      * anything watching tells a load in progress from a finished one,
      * and a windowed load takes longer than a frame. */
     MMIO_SLOT = 0;
+    /* Whatever the host has announced up to here is this image. */
+    main_upd_seen = (uint8_t)MMIO_UPD_N;
 
     if (runnable)
         main_run();
@@ -470,16 +473,15 @@ int main(void)
         term_task();
         vid_task();
         api_task();
-#ifdef RP6502_POCKET_PROBE
-        probe_task();
-#endif
-        /* Slot 0 restaged under a running core: the Core Settings menu
-         * can swap the ROM without reloading the part, and the length
-         * arriving is the only announcement. */
-        if (MMIO_SLOT && !main_restage)
+        uint8_t upd = (uint8_t)MMIO_UPD_N;
+        if (upd != main_upd_seen)
         {
-            main_restage = true;
-            main_stop();
+            main_upd_seen = upd;
+            if (!main_restage)
+            {
+                main_restage = true;
+                main_stop();
+            }
         }
         if (main_state == starting)
         {

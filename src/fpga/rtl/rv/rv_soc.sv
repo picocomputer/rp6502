@@ -24,6 +24,7 @@ module rv_soc #(
     input logic upd_set,
     input logic [15:0] upd_id,
     input logic [31:0] upd_len,
+    input logic [7:0] upd_n,
     input logic key_set,
     input logic [8:0] key_code,
     /* A level needs no mailbox and would be wrong in one. */
@@ -298,6 +299,7 @@ module rv_soc #(
                 7'h18: hrdata = mmio_slot_len;
                 7'h44: hrdata = mmio_upd_id;
                 7'h48: hrdata = mmio_upd_len;
+                7'h4C: hrdata = {24'd0, upd_n};
                 7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
                 7'h20: hrdata = pad_key;
                 7'h24: hrdata = pad_joy;

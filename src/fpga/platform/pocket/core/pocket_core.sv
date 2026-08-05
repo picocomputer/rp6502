@@ -147,6 +147,7 @@ module pocket_core #(
     logic upd_set;
     logic [15:0] upd_id;
     logic [31:0] upd_len;
+    logic [7:0] upd_n;
     /* The Pocket sends no key events; its keyboard arrives as a report
      * and its pad as state. The machine's event mailbox stays for the
      * testbenches, which is the only thing that fills it. */
@@ -201,6 +202,7 @@ module pocket_core #(
         .pocket_bridge_upd_set(upd_set),
         .pocket_bridge_upd_id(upd_id),
         .pocket_bridge_upd_len(upd_len),
+        .pocket_bridge_upd_n(upd_n),
         .pocket_bridge_pad_key(pad_key),
         .pocket_bridge_pad_joy(pad_joy),
         .pocket_bridge_pad_trig(pad_trig),
@@ -352,6 +354,7 @@ module pocket_core #(
         .upd_set(upd_set),
         .upd_id(upd_id),
         .upd_len(upd_len),
+        .upd_n(upd_n),
         .key_set(1'b0),
         .key_code(9'd0),
         .pad_key(pad_key),

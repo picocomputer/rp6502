@@ -71,6 +71,9 @@ module rp6502
     input logic upd_set,
     input logic [15:0] upd_id,
     input logic [31:0] upd_len,
+    /* How many times the host has announced a slot. Zero forever on a
+     * platform that never announces one. */
+    input logic [7:0] upd_n,
     input logic key_set,
     input logic [8:0] key_code,
     input logic [31:0] pad_key,
@@ -337,6 +340,7 @@ module rp6502
         .upd_set(upd_set || upd_set_q),
         .upd_id(upd_id),
         .upd_len(upd_len),
+        .upd_n(upd_n),
         .key_set(key_set || key_set_q),
         .pad_key(pad_key),
         .pad_joy(pad_joy),

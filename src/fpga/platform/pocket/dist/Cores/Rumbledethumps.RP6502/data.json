@@ -70,7 +70,7 @@
         "name": "RP6502 ROM",
         "id": 8,
         "required": true,
-        "parameters": "0x041",
+        "parameters": "0x001",
         "extensions": [
           "rp6502"
         ],

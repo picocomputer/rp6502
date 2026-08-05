@@ -1,5 +1,15 @@
 This is a RP2350 project, not RP2040 as some legacy filenames may suggest.
 
+Analogue publishes the Pocket's developer documentation and it is the
+authority on APF — host/target commands, the data slot parameters bitmap,
+data.json's fields, the ID/size table layout. READ IT BEFORE WRITING OR
+DEBUGGING ANY POCKET CODE. It is not optional and it is not a last resort:
+https://www.analogue.co/developer/docs/host-target-commands
+https://www.analogue.co/developer/docs/core-definition-files/data-json
+Six hours went into reverse-engineering a slot reload from photographs
+that the parameters bitmap explains in one line. When behaviour surprises
+you, the answer is likely already written down.
+
 Docs live in ~/picocomputer.github.io (Sphinx, source in docs/source/*.rst).
 When a change alters observable behavior — syscalls/API, device pipes,
 monitor commands — update the matching docs in the same change. Match the

@@ -55,6 +55,10 @@ module pocket_bridge (
     output logic pocket_bridge_upd_set,
     output logic [15:0] pocket_bridge_upd_id,
     output logic [31:0] pocket_bridge_upd_len,
+    /* Instrumentation. Counted where the events land, on the host's own
+     * clock, so a count that rises while the machine saw nothing says
+     * the loss is ours and not the host's silence. */
+    output logic [7:0] pocket_bridge_upd_n,
     output logic [31:0] pocket_bridge_pad_key,
     output logic [31:0] pocket_bridge_pad_joy,
     output logic [15:0] pocket_bridge_pad_trig,
@@ -90,21 +94,46 @@ module pocket_bridge (
 
     /* What the host named, held until the machine reads it. A pulse on
      * clk_74a, so it crosses as a toggle with the payload standing
-     * beside it. */
+     * beside it.
+     *
+     * The toggle has a hole and the counters below are how it gets
+     * measured: two events closer together than the synchroniser is deep
+     * flip it twice, the far side sees no change, and both are lost with
+     * no trace. Whether that is what happens is exactly the question, so
+     * upd_n counts the pulses here where they arrive and the machine
+     * counts the deliveries at the other end. Two against none is this
+     * module's fault; none against none is the host's silence. */
     logic [15:0] upd_id_74;
     logic [31:0] upd_len_74;
     logic upd_t;
+    logic [7:0] upd_n;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             upd_id_74 <= '0;
             upd_len_74 <= '0;
             upd_t <= 1'b0;
+            upd_n <= '0;
         end else if (dataslot_update) begin
             upd_id_74 <= dataslot_update_id;
             upd_len_74 <= dataslot_update_size;
             upd_t <= !upd_t;
+            upd_n <= upd_n + 8'd1;
         end
     end
+
+    /* Gray, so a count read while it increments cannot come back as a
+     * value it never held. One bit changes per step, so the worst a
+     * sampler sees is the old number or the new one. */
+    function automatic logic [7:0] b2g(input logic [7:0] b);
+        return b ^ (b >> 1);
+    endfunction
+    function automatic logic [7:0] g2b(input logic [7:0] g);
+        logic [7:0] b;
+        b[7] = g[7];
+        for (int i = 6; i >= 0; i--)
+            b[i] = b[i+1] ^ g[i];
+        return b;
+    endfunction
 
     /* The menu's settings cross as levels, because that is what they
      * are. The host replays a persisted value once at load and then only
@@ -263,6 +292,8 @@ module pocket_bridge (
      * merges them and the crossing loses its synchroniser. */
     (* preserve *) logic settle_t1, settle_t2, settle_t3;
     (* preserve *) logic upd_t1, upd_t2, upd_t3;
+    (* preserve *) logic [7:0] g_upd1;
+    logic [7:0] g_upd2;
     (* preserve *) logic reset_n_s1, reset_n_s2;
     logic settled;
     logic run_q;
@@ -274,6 +305,8 @@ module pocket_bridge (
         upd_t1 = 1'b0;
         upd_t2 = 1'b0;
         upd_t3 = 1'b0;
+        g_upd1 = '0;
+        g_upd2 = '0;
         pocket_bridge_upd_set = 1'b0;
         pocket_bridge_upd_id = '0;
         pocket_bridge_upd_len = '0;
@@ -292,6 +325,8 @@ module pocket_bridge (
         upd_t1 <= upd_t;
         upd_t2 <= upd_t1;
         upd_t3 <= upd_t2;
+        g_upd1 <= b2g(upd_n);
+        g_upd2 <= g_upd1;
         pocket_bridge_upd_set <= 1'b0;
         if (upd_t2 != upd_t3) begin
             pocket_bridge_upd_set <= 1'b1;
@@ -316,6 +351,8 @@ module pocket_bridge (
             pocket_bridge_slot_set <= 1'b1;
     end
     always_comb pocket_bridge_run = reset_n_s2 && settled && sdram_ready;
+
+    always_comb pocket_bridge_upd_n = g2b(g_upd2);
 
     /* --- The controller, and the dock's keyboard. ---
      *

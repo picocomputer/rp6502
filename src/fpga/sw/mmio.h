@@ -24,6 +24,12 @@
  * id. Written to clear. Zero forever on a platform with no such news. */
 #define MMIO_UPD_ID (*(volatile uint32_t *)0xF0000044u)
 #define MMIO_UPD_LEN (*(volatile uint32_t *)0xF0000048u)
+/* How many slot announcements the host has made, counted on its own
+ * clock before anything here can drop one. The id and length above
+ * cross on a toggle, and two announcements closer together than that
+ * synchroniser is deep cancel each other; this cannot. Watch the count,
+ * read the payload after it moves. */
+#define MMIO_UPD_N (*(volatile uint32_t *)0xF000004Cu)
 /* The controller and the dock's keyboard. State, not events: a pad's
  * release is the absence of a bit, and a keyboard report is a set whose
  * order APF does not promise. The mouse below is the opposite — a
