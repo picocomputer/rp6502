@@ -83,6 +83,7 @@ module sdram_model (
     int since_ref;
     int since_any;
     int since_srex;
+    int since_sren;
     logic in_sref;
 
     logic [2:0] cmd;
@@ -111,6 +112,7 @@ module sdram_model (
             since_ref <= 100;
             since_any <= 100;
             since_srex <= 100;
+            since_sren <= 100;
             in_sref <= 1'b0;
             rd_p0 <= '0;
             rd_p1 <= '0;
@@ -131,6 +133,7 @@ module sdram_model (
             since_ref <= since_ref + 1;
             since_any <= since_any + 1;
             since_srex <= since_srex + 1;
+            since_sren <= since_sren + 1;
 
             if (in_sref) begin
                 sdram_model_sref_clocks <= sdram_model_sref_clocks + 32'd1;
@@ -138,6 +141,12 @@ module sdram_model (
                  * is sampled. CKE going high is the only thing it sees,
                  * and the array is good as of that moment. */
                 if (cke) begin
+                    /* "The SDRAM must remain in self refresh mode for a
+                     * minimum period equal to tRAS." Leaving sooner
+                     * aborts an internal refresh cycle in flight, and
+                     * nothing downstream would ever report it. */
+                    if (since_sren < 3)
+                        $fatal(1, "sdram_model: self refresh shorter than tRAS");
                     in_sref <= 1'b0;
                     since_srex <= 0;
                     since_ref <= 0;
@@ -158,6 +167,7 @@ module sdram_model (
                           || b == 0))                          /* quarter or less */
                         bank_lost[b] <= 1'b1;
                 in_sref <= 1'b1;
+                since_sren <= 0;
             end else
             case (cmd)
                 3'b111: ;  /* NOP */

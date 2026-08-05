@@ -110,6 +110,21 @@ module pocket_sdram #(
     localparam int IDLE_CLOSE = 64;  /* 1.3 us */
     localparam int IDLE_SREF = 256;  /* 5.1 us */
 
+    /* Once asleep, stay asleep. The datasheet: "The SDRAM must remain
+     * in self refresh mode for a minimum period equal to tRAS" — 48 ns,
+     * three clocks. Without this the store could enter and leave in one
+     * clock, because entry is decided by an idle counter and the wake by
+     * a request that may arrive the very next clock. That is not a nap,
+     * it is a glitch on CKE: entry issues an AUTO REFRESH and the chip
+     * begins an internal cycle, and taking CKE back up aborts it in
+     * flight. It is what broke every ROM that reads a bundled asset,
+     * because only sporadic traffic ever reaches this timer.
+     *
+     * Eight rather than three: it also clears tRFC's five, which is the
+     * more honest floor when an AUTO REFRESH is what was issued, and
+     * 159 ns on the first access after an idle period is nothing. */
+    localparam int SREF_MIN = 8;
+
     typedef enum logic [4:0] {
         S_BOOT, S_PALL, S_REF0, S_REF1, S_MRS, S_EMRS,
         S_IDLE, S_REFRESH, S_PALL_R, S_PALL_I, S_PRE, S_ACT, S_READ,
@@ -121,6 +136,7 @@ module pocket_sdram #(
     logic [9:0] ref_cnt;
     logic [1:0] ref_due;
     logic [9:0] idle_cnt;
+    logic [3:0] sref_cnt;
 
     logic op_is_read;
     logic [24:0] op_addr;
@@ -170,6 +186,7 @@ module pocket_sdram #(
         ref_cnt = '0;
         ref_due = '0;
         idle_cnt = '0;
+        sref_cnt = '0;
         dram_cke = 1'b1;
         op_is_read = 1'b0;
         op_addr = '0;
@@ -328,10 +345,13 @@ module pocket_sdram #(
             S_SREF_ENT: begin
                 {dram_ras_n, dram_cas_n, dram_we_n} <= 3'b001;
                 dram_cke <= 1'b0;
+                sref_cnt <= '0;
                 state <= S_SREF;
             end
             S_SREF:
-                if (rd_pend || w_avail) begin
+                if (sref_cnt != 4'(SREF_MIN))
+                    sref_cnt <= sref_cnt + 4'd1;
+                else if (rd_pend || w_avail) begin
                     dram_cke <= 1'b1;
                     /* tXSR 80 ns, and at least two command-inhibit
                      * clocks; five covers both. The chip refreshed while

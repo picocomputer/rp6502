@@ -163,3 +163,130 @@ int main(int argc, const char *const argv[])
     delete dut;
     return rc;
 }
+
+/* ---- TEMPORARY INVESTIGATION ---- */
+
+static void idle_for(int n)
+{
+    dut->rd_pend = 0;
+    dut->w_avail = 0;
+    for (int i = 0; i < n; i++)
+        clock_cycle();
+}
+
+/* Runs after load_soak_and_refresh, so the chip is already awake and
+ * initialised; the controller has no reset port and must not be re-woken. */
+UTEST(inv, sporadic_asset_reads)
+{
+    std::map<uint32_t, uint16_t> ref;
+    const uint32_t rom = 0x000000u;  /* STAGE+0, bank 0: the ROM image */
+    const uint32_t oem = 0x1FE8000u; /* byte 0x3FD0000, bank 3: OEMCP */
+    for (uint32_t i = 0; i < 48; i++)
+    {
+        uint16_t v = (uint16_t)rng();
+        wr(rom + i * 0x401u, v); /* strides across rows inside bank 0 */
+        ref[rom + i * 0x401u] = v;
+        v = (uint16_t)rng();
+        wr(oem + i, v);
+        ref[oem + i] = v;
+    }
+    const int gaps[] = {0, 5, 63, 64, 65, 66, 67, 70, 100, 255, 256, 257,
+                        258, 259, 260, 261, 262, 263, 264, 265, 266, 300,
+                        389, 390, 391, 400, 700, 1200, 4000};
+    for (int g = 0; g < (int)(sizeof(gaps) / sizeof(gaps[0])); g++)
+        for (uint32_t i = 0; i < 48; i++)
+        {
+            idle_for(gaps[g]);
+            ASSERT_EQ(rd(rom + i * 0x401u), ref[rom + i * 0x401u]);
+            idle_for(gaps[g]);
+            ASSERT_EQ(rd(oem + i), ref[oem + i]);
+        }
+}
+
+/* Per-trial self-calibration: idle until the chip is observed to go
+ * under, then wait k more clocks and ask.  Immune to refresh phase. */
+UTEST(inv, self_refresh_residency)
+{
+    wr(0x000100u, 0x1111);
+    wr(0x000900u, 0x2222);
+    int worst = 1 << 30;
+    for (int k = -8; k <= 10; k++)
+    {
+        (void)rd(0x000100u);
+        uint32_t s0 = dut->tb_psdram_sref_clocks;
+        int guard = 0;
+        while (dut->tb_psdram_sref_clocks == s0 && guard++ < 2000)
+            idle_for(1);
+        ASSERT_LT(guard, 2000); /* it did go under */
+        if (k < 0)
+        {
+            /* Re-run the same idle, stopping k clocks short of entry, so
+             * the ask lands in the entry window itself. */
+            int e = guard;
+            (void)rd(0x000100u);
+            s0 = dut->tb_psdram_sref_clocks;
+            idle_for(e + k);
+        }
+        else
+            idle_for(k);
+        uint32_t before = dut->tb_psdram_sref_clocks;
+        dut->rd_pend = 1;
+        dut->rd_addr = 0x000900u;
+        dut->eval();
+        int n = 0;
+        while (!dut->tb_psdram_rvalid && n++ < 300)
+            clock_cycle();
+        ASSERT_EQ((int)dut->tb_psdram_rdata, 0x2222);
+        dut->rd_pend = 0;
+        clock_cycle();
+        int total = (int)(dut->tb_psdram_sref_clocks - s0);
+        int after = (int)(dut->tb_psdram_sref_clocks - before);
+        printf("  ask %2d clocks after entry -> total nap %2d clocks"
+               " (%.0f ns), %d of them after the ask\n",
+               k, total, total * 19.841, after);
+        if (total > 0 && total < worst)
+            worst = total;
+    }
+    printf("shortest self refresh: %d clocks (%.0f ns)\n",
+           worst, worst * 19.841);
+    ASSERT_GE(worst, 3); /* tRAS min 48 ns is the floor a nap must clear */
+}
+
+/* S_SREF wakes on bare rd_pend, but S_IDLE's idle counter ignores a read
+ * that the hold already answers.  Hold rd_pend on a held address and the
+ * two disagree: the store keeps deciding to sleep and being woken by the
+ * same request. */
+UTEST(inv, held_read_vs_sleep)
+{
+    const uint32_t a = 0x000100u;
+    wr(a, 0x1111);
+    ASSERT_EQ(rd(a), 0x1111);
+
+    dut->rd_pend = 1;
+    dut->rd_addr = a; /* already held: rvalid stands, no fetch wanted */
+    dut->eval();
+    ASSERT_TRUE(dut->tb_psdram_rvalid);
+
+    uint32_t s0 = dut->tb_psdram_sref_clocks;
+    int naps = 0, nap_clocks = 0, in_nap = 0;
+    uint32_t prev = s0;
+    for (int i = 0; i < 3000; i++)
+    {
+        dut->clk = 1; dut->eval(); dut->clk = 0; dut->eval();
+        uint32_t now = dut->tb_psdram_sref_clocks;
+        if (now != prev)
+        {
+            if (!in_nap) { naps++; in_nap = 1; }
+            nap_clocks++;
+        }
+        else
+            in_nap = 0;
+        prev = now;
+    }
+    dut->rd_pend = 0;
+    clock_cycle();
+    printf("3000 clocks with a held read pending: %d naps, %d nap clocks,"
+           " mean nap %.1f clocks\n", naps, nap_clocks,
+           naps ? (double)nap_clocks / naps : 0.0);
+    ASSERT_TRUE(naps == 0 || (double)nap_clocks / naps >= 3.0);
+}

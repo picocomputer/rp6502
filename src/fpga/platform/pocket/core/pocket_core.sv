@@ -219,7 +219,7 @@ module pocket_core #(
         stage_stall = stage_pend && !stage_rvalid;
     end
 
-    pocket_sdram #(.SELF_REFRESH(1'b0)) sdram (
+    pocket_sdram sdram (
         .clk(clk_sys),
         .rd_pend(stage_pend),
         .rd_addr(stage_addr[25:1]),
