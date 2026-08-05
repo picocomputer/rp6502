@@ -152,20 +152,6 @@ UTEST(psdram, load_soak_and_refresh)
         ASSERT_EQ(rd(0x7FF400u + i), ref[0x7FF400u + i]);
 }
 
-UTEST_STATE();
-
-int main(int argc, const char *const argv[])
-{
-    Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vtb_psdram;
-    int rc = utest_main(argc, argv);
-    dut->final();
-    delete dut;
-    return rc;
-}
-
-/* ---- TEMPORARY INVESTIGATION ---- */
-
 static void idle_for(int n)
 {
     dut->rd_pend = 0;
@@ -176,7 +162,7 @@ static void idle_for(int n)
 
 /* Runs after load_soak_and_refresh, so the chip is already awake and
  * initialised; the controller has no reset port and must not be re-woken. */
-UTEST(inv, sporadic_asset_reads)
+UTEST(psdram, sporadic_asset_reads)
 {
     std::map<uint32_t, uint16_t> ref;
     const uint32_t rom = 0x000000u;  /* STAGE+0, bank 0: the ROM image */
@@ -205,7 +191,7 @@ UTEST(inv, sporadic_asset_reads)
 
 /* Per-trial self-calibration: idle until the chip is observed to go
  * under, then wait k more clocks and ask.  Immune to refresh phase. */
-UTEST(inv, self_refresh_residency)
+UTEST(psdram, self_refresh_residency)
 {
     wr(0x000100u, 0x1111);
     wr(0x000900u, 0x2222);
@@ -229,7 +215,6 @@ UTEST(inv, self_refresh_residency)
         }
         else
             idle_for(k);
-        uint32_t before = dut->tb_psdram_sref_clocks;
         dut->rd_pend = 1;
         dut->rd_addr = 0x000900u;
         dut->eval();
@@ -240,23 +225,19 @@ UTEST(inv, self_refresh_residency)
         dut->rd_pend = 0;
         clock_cycle();
         int total = (int)(dut->tb_psdram_sref_clocks - s0);
-        int after = (int)(dut->tb_psdram_sref_clocks - before);
-        printf("  ask %2d clocks after entry -> total nap %2d clocks"
-               " (%.0f ns), %d of them after the ask\n",
-               k, total, total * 19.841, after);
         if (total > 0 && total < worst)
             worst = total;
     }
-    printf("shortest self refresh: %d clocks (%.0f ns)\n",
-           worst, worst * 19.841);
     ASSERT_GE(worst, 3); /* tRAS min 48 ns is the floor a nap must clear */
 }
 
-/* S_SREF wakes on bare rd_pend, but S_IDLE's idle counter ignores a read
- * that the hold already answers.  Hold rd_pend on a held address and the
- * two disagree: the store keeps deciding to sleep and being woken by the
- * same request. */
-UTEST(inv, held_read_vs_sleep)
+/* A read the hold already answers is not a reason to stay awake, so the
+ * store may sleep with rd_pend standing. What it must not do is treat
+ * that same request as a reason to wake, because then it sleeps and wakes
+ * on one signal forever, and every nap is shorter than the tRAS the chip
+ * needs to finish an internal refresh — a residency the model checks but
+ * only for naps it is actually given. */
+UTEST(psdram, held_read_vs_sleep)
 {
     const uint32_t a = 0x000100u;
     wr(a, 0x1111);
@@ -285,8 +266,17 @@ UTEST(inv, held_read_vs_sleep)
     }
     dut->rd_pend = 0;
     clock_cycle();
-    printf("3000 clocks with a held read pending: %d naps, %d nap clocks,"
-           " mean nap %.1f clocks\n", naps, nap_clocks,
-           naps ? (double)nap_clocks / naps : 0.0);
     ASSERT_TRUE(naps == 0 || (double)nap_clocks / naps >= 3.0);
+}
+
+UTEST_STATE();
+
+int main(int argc, const char *const argv[])
+{
+    Verilated::commandArgs(argc, const_cast<char **>(argv));
+    dut = new Vtb_psdram;
+    int rc = utest_main(argc, argv);
+    dut->final();
+    delete dut;
+    return rc;
 }
