@@ -221,8 +221,15 @@ module pocket_bridge (
      * It was raised while chasing ROM loads that failed one time in five.
      * That turned out to be a write-timing fault on the SRAM's port B and
      * had nothing to do with this queue, so nothing here is evidence for
-     * the depth. It stays because the failure it guards against is silent
-     * and the guard is cheap, not because it ever caught anything. */
+     * the depth. It stays because the failure it guards against is silent,
+     * not because it ever caught anything.
+     *
+     * What it costs, from the fit report rather than from arithmetic:
+     * 10,496 bits as MLAB across twenty-four LABs, and no M10K at all —
+     * which is why the block count never moved when this grew. Twenty-four
+     * LABs is not free on a die at ninety-four percent, so if something
+     * ever has to give, this is a real thing to weigh rather than the
+     * rounding error it was once described as. */
     pocket_fifo #(
         .WIDTH(41),
         .DEPTH_LOG2(8)

@@ -15,20 +15,20 @@
 #       and reaches nothing but the 6502 and the 6522.
 R101 1
 #
-# D101  Data crossing clock domains without a synchroniser. All 599 are
+# D101  Data crossing clock domains without a synchroniser. All 551 are
 #       clk_74a into clk_sys. Not one is the clk_sys/clk_rv seam, which
 #       is what this entry used to say:
 #
 #         240  io_pad_controller  the controller and dock inputs
-#         206  pocket_bridge      timezone, RTC, the input chains, and
-#                                 the slot update payload
+#         158  pocket_bridge      timezone, RTC, and the input chains
 #         151  pocket_file        the command parameters and result
 #          32  core_bridge_cmd    Analogue's own
 #
-#       The last 48 arrived with the slot update event: 16 bits of slot
-#       id and 32 of size, written once when the host names a slot and
-#       read behind the same toggle the rest of this module uses. The
-#       tool counts the bits; it cannot count the handshake.
+#       It went to 599 for a day, when the slot announcement carried its
+#       id and size across as well — 48 bits behind a toggle. The count
+#       replaced them and it came back here exactly, which is the number
+#       doing its job: a baseline that only ever rises stops being a
+#       measurement.
 #
 #       These are host-clock buses that stand still behind a handshake,
 #       or levels read whenever the machine looks. The tool sees the bits
@@ -43,7 +43,7 @@ R101 1
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.
-D101 599
+D101 551
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
