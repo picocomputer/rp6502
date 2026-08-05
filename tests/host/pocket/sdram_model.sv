@@ -18,11 +18,18 @@
  *   tRC   60 ns    4 clk      tRFC      80 ns     5 clk
  *   tDPL   2 tCK   2 clk      tXSR      80 ns     5 clk
  *
- * Three of those are close calls that round the wrong way if you are
+ * Two of those are close calls that round the wrong way if you are
  * careless: tRC at 3 clk is 59.5 ns and misses 60 by half a nanosecond,
- * tRFC at 4 clk misses 80 by the same, and the refresh interval is a
- * ceiling that rounds DOWN — 393 clk fits inside 7812.5 ns and 394 does
- * not.
+ * and tRFC at 4 clk misses 80 by the same.
+ *
+ * The refresh interval is NOT among them and is not checked here. It is
+ * a ceiling rather than a floor — 8192 rows in 64 ms, so 393 clk fits
+ * inside 7812.5 ns and 394 does not — and a ceiling cannot be caught the
+ * way the floors are. Falling behind it by enough to lose data takes a
+ * third of a second of simulated time, which no test in this suite runs
+ * for, and any tighter bound would be this model inventing a rule the
+ * datasheet does not state. The controller's rate is set at
+ * pocket_sdram.sv REFRESH_EVERY and is reviewed there, not here.
  *
  * What is still ours is the behaviour around those numbers, and it can
  * still be wrong. This model has already been wrong once in a way that
@@ -89,9 +96,26 @@ module sdram_model (
     logic [2:0] cmd;
     always_comb cmd = {ras_n, cas_n, we_n};
 
-    /* CL2: the answer crosses two registers after the READ command. */
-    logic [15:0] rd_p0, rd_p1;
-    always_comb dq_out = rd_p1;
+    /* CL2 is what the chip does to itself; it is not what the controller
+     * sees. The chip runs on dram_clk, half a period behind clk_sys, and
+     * tAC plus the trip across the pads puts the answer past the clk_sys
+     * edge that CL2 alone would point at. So the answer stands one edge
+     * later than two, and it stands for one edge only — burst length is
+     * one, and the chip stops driving after it.
+     *
+     * Both halves of that matter. Without the third register a controller
+     * that captures a clock early passes here and fails on hardware, which
+     * is what a real fit already had to be talked out of. Without the
+     * window a controller that captures late passes too, because a model
+     * that drives the last answer forever will agree with anything.
+     *
+     * dq_float is a changing value rather than 'x: the suite runs
+     * two-state, where 'x collapses to zero and would only be caught when
+     * the true data happened to be non-zero. */
+    logic [15:0] rd_p0, rd_p1, rd_p2;
+    logic rd_v0, rd_v1, rd_v2;
+    logic [15:0] dq_float;
+    always_comb dq_out = rd_v2 ? rd_p2 : dq_float;
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -116,10 +140,20 @@ module sdram_model (
             in_sref <= 1'b0;
             rd_p0 <= '0;
             rd_p1 <= '0;
+            rd_p2 <= '0;
+            rd_v0 <= 1'b0;
+            rd_v1 <= 1'b0;
+            rd_v2 <= 1'b0;
+            dq_float <= 16'hFACE;
             sdram_model_refreshes <= '0;
             sdram_model_sref_clocks <= '0;
         end else begin
             rd_p1 <= rd_p0;
+            rd_p2 <= rd_p1;
+            rd_v0 <= 1'b0;
+            rd_v1 <= rd_v0;
+            rd_v2 <= rd_v1;
+            dq_float <= dq_float + 16'h9E37;
             for (int b = 0; b < 4; b++) begin
                 since_act[b] <= since_act[b] + 1;
                 since_pre[b] <= since_pre[b] + 1;
@@ -262,6 +296,7 @@ module sdram_model (
                     if (since_act[ba] < 1)
                         $fatal(1, "sdram_model: tRCD violated on read");
                     rd_p0 <= mem[{ba, row[ba], a[9:0]}];
+                    rd_v0 <= 1'b1;
                     if (a[10]) begin
                         row_open[ba] <= 1'b0;
                         since_pre[ba] <= 0;
