@@ -10,9 +10,11 @@
  * keeps a copy because its PIO divider quantizes and it has to report
  * what it actually got.
  *
- * There is no configuration file behind the setting either. The Pocket's
- * own menu holds it, so set and load are the same act and the only
- * difference left between the two verbs is who clamped first.
+ * There is no configuration store behind the setting either, and nothing
+ * off-machine sets it: the Pocket's menu carries the timezone and
+ * nothing else. The default stands until a ROM asks for something else,
+ * so set and load are the same act and the only difference left between
+ * the two verbs is who clamped first.
  */
 
 #include "mmio.h"
