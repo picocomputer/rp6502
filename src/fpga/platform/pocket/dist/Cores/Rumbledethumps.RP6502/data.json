@@ -7,7 +7,6 @@
         "id": 0,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FA0000"
       },
@@ -16,7 +15,6 @@
         "id": 1,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FA8000"
       },
@@ -25,7 +23,6 @@
         "id": 2,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FB0000"
       },
@@ -34,7 +31,6 @@
         "id": 3,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FB8000"
       },
@@ -43,7 +39,6 @@
         "id": 4,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FC0000"
       },
@@ -52,7 +47,6 @@
         "id": 5,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FC8000"
       },
@@ -61,7 +55,6 @@
         "id": 6,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FD0000"
       },
@@ -70,7 +63,6 @@
         "id": 7,
         "required": false,
         "parameters": "0x0",
-        "size_maximum": "0x00008000",
         "deferload": true,
         "address": "0x03FD8000"
       },
@@ -82,7 +74,7 @@
         "extensions": [
           "rp6502"
         ],
-        "size_maximum": "0x00008000",
+        "deferload": true,
         "address": "0x03FE0000"
       },
       {
@@ -91,7 +83,7 @@
         "required": true,
         "parameters": "0x0",
         "filename": "fonts.bin",
-        "size_maximum": "0x0000F000",
+        "size_exact": "61440",
         "address": "0x03FEA000"
       },
       {
@@ -100,7 +92,7 @@
         "required": true,
         "parameters": "0x0",
         "filename": "oemcp.bin",
-        "size_maximum": "0x00002000",
+        "size_exact": "5080",
         "address": "0x03FE8000"
       }
     ]

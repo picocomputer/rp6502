@@ -110,11 +110,13 @@ static void tick()
             uint32_t len = dut->tb_pocket_ds_length;
             auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
             if (dut->tb_pocket_ds_id == 8)
-                for (uint32_t i = 0; i + 1 < len; i += 2)
+                for (uint32_t i = 0; i < len; i += 2)
                 {
                     size_t a = off + i;
                     uint8_t lo = a < g_rom.size() ? g_rom[a] : 0;
-                    uint8_t hi = a + 1 < g_rom.size() ? g_rom[a + 1] : 0;
+                    uint8_t hi = (i + 1 < len && a + 1 < g_rom.size())
+                                     ? g_rom[a + 1]
+                                     : 0;
                     chip[(br + i) >> 1] = (uint16_t)(lo | (hi << 8));
                 }
             dut->target_dataslot_done = 0;
@@ -306,9 +308,10 @@ static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
     }
 }
 
-/* Host slot load: the next request drops the completion level, the first
- * window lands, completion returns and stays. The rest of the image the
- * core fetches for itself, which is what a card does. */
+/* Host slot load: the next request drops the completion level, the table
+ * says how long the image is, completion returns and stays. None of the
+ * image is streamed — slot 8 defers, so the core asks for the windows it
+ * wants and the read handler above answers them. */
 static void host_load(const std::vector<uint8_t> &rom)
 {
     dut->dataslot_allcomplete = 0;
@@ -316,11 +319,11 @@ static void host_load(const std::vector<uint8_t> &rom)
     memset(g_dt, 0, sizeof g_dt);
     g_dt[8 * 2] = 8;
     g_dt[8 * 2 + 1] = (uint32_t)rom.size();
-    std::vector<uint8_t> first(rom.begin(),
-                               rom.begin() + (rom.size() < 0x8000u
-                                                  ? (long)rom.size()
-                                                  : 0x8000L));
-    host_stream(first, 0x03FE0000u);
+    /* The drop has to be clocked before the rise, or the settle has no
+     * edge to fire on. The stream used to provide those clocks; nothing
+     * is streamed now, so the wait is explicit. */
+    for (int i = 0; i < 40; i++)
+        a_edge();
     dut->dataslot_allcomplete = 1;
 }
 
@@ -397,6 +400,10 @@ static void power_on(int *utest_result)
      * what proves a command was taken. */
     dut->target_dataslot_done = 1;
     g_gf_prev = g_gf_hold = 0;
+    /* The read handshake's edge memory too: a case that ended mid-strobe
+     * leaves the next one's first read looking like no edge at all. */
+    g_rd_prev = g_rd_hold = 0;
+    dt_pipe[0] = dt_pipe[1] = 0;
     for (int i = 0; i < 32; i++)
         tick();
     dut->rst_n = 1;

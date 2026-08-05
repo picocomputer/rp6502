@@ -481,12 +481,10 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     for (int i = 0; i < 40000 && !dut->tb_pocket_ready; i++)
         tick();
 
-    /* The host's load: the ROM's first window into slot 8, the fonts and
-     * the code page tables whole where data.json puts them, then the
-     * table and completion. The rest of the image the core fetches for
-     * itself, a window at a time, the way it will on a card. */
-    host_put_bytes(0x03FE0000u, rom.data(),
-                   rom.size() < 0x8000u ? rom.size() : 0x8000u);
+    /* The host's load: the fonts and the code page tables whole where
+     * data.json puts them, then the table and completion. Nothing of the
+     * ROM — slot 8 defers, so the core reads every byte of it for itself,
+     * a window at a time. */
     std::vector<uint8_t> fonts = read_file(FONTS_BIN);
     host_put_bytes(0x03FEA000u, fonts.data(), fonts.size());
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);

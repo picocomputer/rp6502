@@ -181,7 +181,7 @@ module pocket_bridge (
 
     /* --- The slot settling, clk_74a side. ---
      * Completion or a host reset-exit rereads the table; the size is
-     * quasi-static behind its toggle. Word 1 carries slot 0's size. */
+     * quasi-static behind its toggle. */
     logic reset_n_q;
     logic allcomplete_q;
     logic [1:0] dt_read;
@@ -190,10 +190,16 @@ module pocket_bridge (
     /* The word this reads is fixed, so sharing the table's one port with
      * pocket_file costs nothing but the right of way: this read starts
      * on an edge and cannot be asked to wait, so it says when it holds
-     * the address and the other side stands off. */
+     * the address and the other side stands off.
+     *
+     * Word 17 is the size beside id 8, which is the ROM. The firmware
+     * looks a slot's size up by scanning for its id because the host
+     * decides where the pairs land, and this cannot scan — so what it
+     * posts is only ever the news that something staged. The size is a
+     * question the firmware asks the table itself. */
     logic dt_trig;
     always_comb begin
-        pocket_bridge_dt_addr = 10'd1;
+        pocket_bridge_dt_addr = 10'd17;
         dt_trig = (dataslot_allcomplete && !allcomplete_q)
             || (reset_n && !reset_n_q);
         pocket_bridge_dt_busy = dt_trig || |dt_read;
