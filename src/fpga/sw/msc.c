@@ -41,6 +41,7 @@
 #include <string.h>
 
 /* Slot 0 is the ROM and slot 1 the fonts; data.json declares the rest. */
+#define MSC_SLOT_ROM 0
 #define MSC_SLOT_FIRST 2
 #define MSC_OPEN_MAX 8
 
@@ -319,6 +320,13 @@ static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
  * which is the point. The 6502 is stopped and its memory already holds
  * the old program; nothing reads the store until the loader does.
  *
+ * Through the ROM slot, because that is the slot this is: data.json
+ * gives slot 0 the .rp6502 extension, a maximum the size of the staging
+ * region, and bridge address zero — the address this walks from. A file
+ * slot has a 64 KB maximum and would put a ceiling on what exec can run.
+ * It also shares its number with the first std descriptor, so staging
+ * there lands on whatever a program left open.
+ *
  * A slot operation moves at most FILE_XFER_MAX, so a large image is
  * several reads into consecutive windows. */
 bool msc_stage_rom(const char *path, uint32_t *len)
@@ -326,7 +334,7 @@ bool msc_stage_rom(const char *path, uint32_t *len)
     const char *p = msc_strip_drive(path);
     if (!p || !*p)
         return false;
-    uint32_t slot = MSC_SLOT_FIRST;
+    uint32_t slot = MSC_SLOT_ROM;
     if (msc_try_open(slot, p, 0, 0, MSC_ASSETS_PATH) > 1)
         return false;
     uint32_t total;
