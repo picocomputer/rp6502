@@ -357,8 +357,19 @@ jobs:
   # FPGA simulation: verilate the machine and run it against the emu_core oracle.
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
+  #
+  # The longest job here by a wide margin, so it runs on the same question the
+  # fit does: did src/rtl change. What it reads is wider than what it is gated
+  # on — the benches are in tests/ and the oracle is emu_core out of src/emu —
+  # so a commit that touches only those skips the suite that covers it. Tags
+  # and dispatches run it either way.
   # ---------------------------------------------------------------------------
   test-rtl:
+    needs: rtl-changes
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || startsWith(github.ref, 'refs/tags/')
+      || needs['rtl-changes'].outputs.rtl == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -389,7 +400,7 @@ jobs:
 
   # Whether this commit touched the machine. GitHub filters a whole workflow
   # by path, never one job, so the question is asked here and answered once.
-  changes:
+  rtl-changes:
     runs-on: ubuntu-24.04
     outputs:
       rtl: ${{ steps.rtl.outputs.changed }}
@@ -434,11 +445,11 @@ jobs:
   # dispatches fit unconditionally, so nothing is ever released on a core
   # this gate declined to build.
   pocket:
-    needs: changes
+    needs: rtl-changes
     if: >-
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs.changes.outputs.rtl == 'true'
+      || needs['rtl-changes'].outputs.rtl == 'true'
     runs-on: ubuntu-24.04
     container: raetro/quartus:21.1
     steps:
