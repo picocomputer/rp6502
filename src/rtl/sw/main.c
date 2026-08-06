@@ -536,7 +536,16 @@ int main(void)
         if (main_state == stopped)
         {
             if (restage)
+            {
+                /* The RIA ends every stop with com_stop's soft reset. This
+                 * host has no such thing, and a program the user replaced
+                 * from the menu would otherwise run its first line into
+                 * the last line of the one before. An exec gets nothing:
+                 * the outgoing program chose its successor and the two
+                 * read as one session. */
+                com_putchar('\n');
                 main_stage();
+            }
             else if (pro_exec_take())
                 main_run();
         }
