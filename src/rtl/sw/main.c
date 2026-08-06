@@ -189,8 +189,11 @@ bool main_api(uint8_t operation)
     case 0x03:
         /* atr_api_code_page's shape: the glyphs. The conversion tables
          * are a separate asset on a separate slot and fail separately,
-         * so a font page is not refused on their account. */
-        if (API_AX)
+         * so a font page is not refused on their account. A page this
+         * machine does not carry is a no-op — 0 is not a page, so the
+         * guard is also the old non-zero test — and the get that
+         * follows says which page is actually in force. */
+        if (font_has_code_page(API_AX))
             font_set_code_page(API_AX);
         return api_return_ax(font_get_code_page());
     case 0x04:
@@ -210,6 +213,8 @@ bool main_api(uint8_t operation)
             return api_return_axsreg(api_get_errno_opt());
         case 0x01:
             return api_return_axsreg(cpu_get_phi2_khz_run());
+        case 0x02:
+            return api_return_axsreg(font_get_code_page());
         case 0x03:
             return api_return_axsreg(rln_get_max_length());
         case 0x04:
@@ -224,6 +229,14 @@ bool main_api(uint8_t operation)
             return api_return_axsreg(rln_get_term_height());
         case 0x0C:
             return api_return_axsreg(rln_get_suppress_nl());
+        case 0x10:
+            return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
+        case 0x11:
+            return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
+        case 0x12:
+            return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
+        case 0x13:
+            return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
         default:
             return api_return_errno(API_EINVAL);
         }
@@ -244,6 +257,17 @@ bool main_api(uint8_t operation)
             if (value < CPU_PHI2_MIN_KHZ || value > CPU_PHI2_MAX_KHZ)
                 return api_return_errno(API_EINVAL);
             cpu_set_phi2_khz_run((uint16_t)value);
+            break;
+        case 0x02:
+            /* oem_set_code_page_run's shape, which is a void: a page
+             * f_setcp will not take leaves the RIA's page where it was
+             * and still answers the set with success. The seventeen
+             * FatFs carries there are the seventeen this asset carries
+             * here, so the same request is refused the same way. */
+            if (value > UINT16_MAX)
+                return api_return_errno(API_EINVAL);
+            if (font_has_code_page((uint16_t)value))
+                font_set_code_page((uint16_t)value);
             break;
         case 0x03:
             if (value > UINT8_MAX)

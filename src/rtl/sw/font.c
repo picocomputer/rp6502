@@ -67,15 +67,27 @@ static void font_load_page(int page)
     }
 }
 
-void font_set_code_page(uint16_t cp)
+static int font_find_page(uint16_t cp)
 {
-    int page = -1;
     for (int i = 0; i < VID_FONT_PAGE_COUNT; i++)
         if (VID_FONT_PAGES[i] == cp)
-        {
-            page = i;
-            break;
-        }
+            return i;
+    return -1;
+}
+
+bool font_has_code_page(uint16_t cp)
+{
+    return font_find_page(cp) >= 0;
+}
+
+/* A page with no glyphs blanks the high half rather than leaving the one
+ * before it standing, which is the VGA chip's font.c rule and this
+ * store's. Nothing a program asks for arrives here: main.c filters with
+ * font_has_code_page first, and the VGA control channel that also lands
+ * here is RIA-private and only ever carries 437. */
+void font_set_code_page(uint16_t cp)
+{
+    int page = font_find_page(cp);
     if (page < 0)
         cp = 0;
     if (font_code_page == cp)

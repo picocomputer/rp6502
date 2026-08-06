@@ -72,11 +72,23 @@ static void rom_record(std::vector<uint8_t> &rom, uint32_t addr,
     rom.insert(rom.end(), data, data + len);
 }
 
+static std::vector<uint8_t> rom_image(const std::vector<uint8_t> &prog)
+{
+    const uint8_t vectors[] = {0x00, 0x03};
+    std::vector<uint8_t> rom;
+    const char magic[] = "#!RP6502\n";
+    rom.insert(rom.end(), magic, magic + strlen(magic));
+    rom_record(rom, 0x0300, prog.data(), prog.size());
+    rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
+    return rom;
+}
+
 /* A program that asks for one code page and stops: the two API
- * registers, the operation, the trampoline. */
+ * registers, the operation, the trampoline, and the answer to the
+ * console so the bench reads the page the program was given. */
 static std::vector<uint8_t> rom_code_page(uint16_t cp)
 {
-    const uint8_t prog[] = {
+    const std::vector<uint8_t> prog = {
         0xA9, (uint8_t)(cp & 0xFF),  /* lda #cp_lo    */
         0x8D, 0xF4, 0xFF,            /* sta $FFF4     ; API_A  */
         0xA9, (uint8_t)(cp >> 8),    /* lda #cp_hi    */
@@ -84,15 +96,46 @@ static std::vector<uint8_t> rom_code_page(uint16_t cp)
         0xA9, 0x03,                  /* lda #3        */
         0x8D, 0xEF, 0xFF,            /* sta $FFEF     ; API_OP */
         0x20, 0xF1, 0xFF,            /* jsr $FFF1     */
+        0x8D, 0xE1, 0xFF,            /* sta $FFE1     ; page lo */
+        0x8E, 0xE1, 0xFF,            /* stx $FFE1     ; page hi */
         0xDB,                        /* stp           */
     };
-    const uint8_t vectors[] = {0x00, 0x03};
-    std::vector<uint8_t> rom;
-    const char magic[] = "#!RP6502\n";
-    rom.insert(rom.end(), magic, magic + strlen(magic));
-    rom_record(rom, 0x0300, prog, sizeof(prog));
-    rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
-    return rom;
+    return rom_image(prog);
+}
+
+/* The path the libraries actually take: code_page() is ria_attr_set
+ * followed by ria_attr_get. The value is a 32-bit xstack push, most
+ * significant byte first so the least significant is the one on top,
+ * which is what api_pop_uint32_end reads. Every answer goes to the
+ * console, A then X, so the bench reads exactly what the program read. */
+static std::vector<uint8_t> rom_attr_code_page(const std::vector<uint16_t> &sets)
+{
+    std::vector<uint8_t> p;
+    auto lda = [&](uint8_t v) { p.insert(p.end(), {0xA9, v}); };
+    auto sta = [&](uint16_t a) {
+        p.insert(p.end(), {0x8D, (uint8_t)a, (uint8_t)(a >> 8)});
+    };
+    auto push = [&](uint8_t v) { lda(v); sta(0xFFEC); };
+    auto call = [&](uint8_t op) {
+        lda(0x02); /* RIA_ATTR_CODE_PAGE */
+        sta(0xFFF4);
+        lda(op);
+        sta(0xFFEF);
+        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
+        sta(0xFFE1);
+        p.insert(p.end(), {0x8E, 0xE1, 0xFF});
+    };
+    for (uint16_t cp : sets)
+    {
+        push(0);
+        push(0);
+        push((uint8_t)(cp >> 8));
+        push((uint8_t)cp);
+        call(0x0B);
+    }
+    call(0x0A);
+    p.push_back(0xDB); /* stp */
+    return rom_image(p);
 }
 
 /* The store answers a word at a time; the faces are word arrays in the
@@ -103,7 +146,9 @@ static uint8_t face_byte(Face &face, size_t at)
     return (uint8_t)(face[at / 4] >> (8 * (at % 4)));
 }
 
-static bool boot(const std::vector<uint8_t> &rom)
+/* The console is the 6502's own TX register; the firmware's printf goes
+ * out a separate one, so what lands in `out` is the program's alone. */
+static bool boot(const std::vector<uint8_t> &rom, std::string *out = nullptr)
 {
     auto *r = dut->rootp;
     if (!tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
@@ -120,7 +165,15 @@ static bool boot(const std::vector<uint8_t> &rom)
         tb_host_tick(dut, rom);
         dut->stage_rdata = tb_stage(rom, dut->rp6502_stage_addr);
         clock_cycle();
+        if (out && dut->rp6502_tx_valid)
+            out->push_back((char)dut->rp6502_tx_data);
     });
+}
+
+/* The page a program was handed back, as its two console bytes. */
+static uint16_t reported(const std::string &out, size_t at)
+{
+    return (uint16_t)((uint8_t)out[at] | ((uint8_t)out[at + 1] << 8));
 }
 
 UTEST(fontstore, boot_image_matches_font_init)
@@ -146,7 +199,10 @@ UTEST(fontstore, boot_image_matches_font_init)
  * to pass this while doing four times the work. */
 static void one_page(int *utest_result, uint16_t cp)
 {
-    ASSERT_TRUE(boot(rom_code_page(cp)));
+    std::string out;
+    ASSERT_TRUE(boot(rom_code_page(cp), &out));
+    ASSERT_EQ(out.size(), (size_t)2);
+    ASSERT_EQ(reported(out, 0), cp);
     font_init();
     font_set_code_page(cp);
     auto *r = dut->rootp;
@@ -161,27 +217,58 @@ UTEST(fontstore, code_page_775) { one_page(utest_result, 775); }
 UTEST(fontstore, code_page_866) { one_page(utest_result, 866); }
 UTEST(fontstore, code_page_869) { one_page(utest_result, 869); }
 
-/* A page nobody carries blanks the high half rather than keeping the
- * one before it, which is font_set_code_page's rule. */
-UTEST(fontstore, unknown_code_page_blanks_the_high_half)
+/* A page nobody carries changes nothing. This blanked the high half
+ * until the API learned to filter: font_set_code_page still blanks for a
+ * page with no glyphs — the store's rule, and the VGA chip's — but that
+ * is the platform's business now and not something a program can ask
+ * for. The RIA refuses the same request through f_setcp, whose valid
+ * list is these same seventeen pages. */
+UTEST(fontstore, unknown_code_page_keeps_the_one_in_force)
 {
-    ASSERT_TRUE(boot(rom_code_page(999)));
-    auto *r = dut->rootp;
-    for (int row = 0; row < 16; row++)
-        for (int code = 128; code < 256; code++)
-            ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f16,
-                                (size_t)row * 256 + code), 0);
-    for (int row = 0; row < 8; row++)
-        for (int code = 128; code < 256; code++)
-            ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f8,
-                                (size_t)row * 256 + code), 0);
-    /* and the ASCII half is still there */
+    std::string out;
+    ASSERT_TRUE(boot(rom_code_page(999), &out));
+    ASSERT_EQ(out.size(), (size_t)2);
+    ASSERT_EQ(reported(out, 0), (uint16_t)437);
     font_init();
-    for (int row = 0; row < 16; row++)
-        for (int code = 0; code < 128; code++)
-            ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f16,
-                                (size_t)row * 256 + code),
-                      font16[row * 256 + code]);
+    auto *r = dut->rootp;
+    for (size_t i = 0; i < 4096; i++)
+        ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f16, i), font16[i]);
+    for (size_t i = 0; i < 2048; i++)
+        ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f8, i), font8[i]);
+}
+
+/* The bug this all came from: a program that asks the attribute API what
+ * page it is on was told -1, and skipped its CP437 path on a machine
+ * that was already on 437. */
+UTEST(fontstore, attribute_get_reports_the_boot_default)
+{
+    std::string out;
+    ASSERT_TRUE(boot(rom_attr_code_page({}), &out));
+    ASSERT_EQ(out.size(), (size_t)2);
+    ASSERT_EQ(reported(out, 0), (uint16_t)437);
+}
+
+/* One boot, four claims: the attribute set moves the glyphs, a page the
+ * asset does not carry is a no-op rather than a refusal, the set still
+ * answers success, and the get afterwards names the page actually in
+ * force. The store must hold 850's — not blanks, which is what the
+ * second set used to leave, and not 437's, which is what a revert
+ * would. */
+UTEST(fontstore, attribute_set_takes_a_page_and_ignores_the_rest)
+{
+    std::string out;
+    ASSERT_TRUE(boot(rom_attr_code_page({850, 1252}), &out));
+    ASSERT_EQ(out.size(), (size_t)6);
+    ASSERT_EQ(reported(out, 0), (uint16_t)0); /* both sets succeeded */
+    ASSERT_EQ(reported(out, 2), (uint16_t)0);
+    ASSERT_EQ(reported(out, 4), (uint16_t)850);
+    font_init();
+    font_set_code_page(850);
+    auto *r = dut->rootp;
+    for (size_t i = 0; i < 4096; i++)
+        ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f16, i), font16[i]);
+    for (size_t i = 0; i < 2048; i++)
+        ASSERT_EQ(face_byte(r->rp6502__DOT__vid_font__DOT__f8, i), font8[i]);
 }
 
 UTEST_STATE();

@@ -10,6 +10,12 @@
  * pointer runs the soft CPU's validation both ways, and ATR_BEL mutes
  * and unmutes the teletype bell around two rung BELs — the strike must
  * land exactly once.
+ *
+ * The attribute API rides along, because the same console comparison
+ * makes the RIA's own atr.c the judge of the soft CPU's answers:
+ * ATR_CODE_PAGE moves to a page both machines carry and then to one
+ * neither does, and the four ATR_CLK_RUN_* reads say their cases exist
+ * without saying what time it is.
  */
 
 #include "Vrp6502.h"
@@ -85,6 +91,48 @@ UTEST(xreg, dispatch_matches_the_oracle)
         ldaa(0xFFEE);
         sta(0xFFE1);
     };
+    auto opn = [&](uint8_t op, uint8_t a) {
+        lda(a);
+        sta(0xFFF4);
+        lda(op);
+        sta(0xFFEF);
+        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
+        sta(0xFFE1);
+        p.insert(p.end(), {0x8E, 0xE1, 0xFF});
+        ldaa(0xFFED);
+        sta(0xFFE1);
+        ldaa(0xFFEE);
+        sta(0xFFE1);
+    };
+    auto opn_errno = [&](uint8_t op, uint8_t a) {
+        lda(a);
+        sta(0xFFF4);
+        lda(op);
+        sta(0xFFEF);
+        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
+        ldaa(0xFFED);
+        sta(0xFFE1);
+        ldaa(0xFFEE);
+        sta(0xFFE1);
+    };
+
+    /* ATR_ERRNO_OPT first, because until a program picks a map every
+     * errno reads back as -1 — which is also what api_run left in the
+     * register, so nothing below could tell a refusal from a success
+     * without this. */
+    push(0); push(0); push(0); push(1); /* cc65 */
+    opn(0x0B, 0);
+
+    /* ATR_CLK_RUN_*, before anything that fails: errno is sticky, so
+     * only here is 0xFFFF still the untouched value and an absent case
+     * still visible. The run clock itself is not compared; it is a
+     * different number of microseconds on a simulated machine than on
+     * an emulated one, and comparing it would be comparing the benches
+     * rather than the dispatch. */
+    opn_errno(0x0A, 0x10);
+    opn_errno(0x0A, 0x11);
+    opn_errno(0x0A, 0x12);
+    opn_errno(0x0A, 0x13);
 
     /* VGA control channel: RIA-private, EACCES. */
     push(1); push(15); push(0); pushw(0);
@@ -140,19 +188,6 @@ UTEST(xreg, dispatch_matches_the_oracle)
 
     /* ATR_BEL: read the default, mute, ring silently, reject a bad
      * value, unmute, ring for real. */
-    auto opn = [&](uint8_t op, uint8_t a) {
-        lda(a);
-        sta(0xFFF4);
-        lda(op);
-        sta(0xFFEF);
-        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
-        sta(0xFFE1);
-        p.insert(p.end(), {0x8E, 0xE1, 0xFF});
-        ldaa(0xFFED);
-        sta(0xFFE1);
-        ldaa(0xFFEE);
-        sta(0xFFE1);
-    };
     opn(0x0A, 5);
     push(0); push(0); push(0); push(0);
     opn(0x0B, 5);
@@ -163,6 +198,21 @@ UTEST(xreg, dispatch_matches_the_oracle)
     push(0); push(0); push(0); push(1);
     opn(0x0B, 5);
     lda(0x07); sta(0xFFE1); /* BEL, rings */
+
+    /* ATR_CODE_PAGE: a page both machines carry, one neither does — a
+     * no-op that still answers success — and back to 437. Relative
+     * moves only, so this does not also assert that two machines boot
+     * the same locale. The soft CPU's page list is the font asset's and
+     * the RIA's is f_setcp's; this is what says they agree. */
+    push(0); push(0); push(3); push(0x52); /* 850 */
+    opn(0x0B, 2);
+    opn(0x0A, 2);
+    push(0); push(0); push(4); push(0xE4); /* 1252 */
+    opn(0x0B, 2);
+    opn(0x0A, 2);
+    push(0); push(0); push(1); push(0xB5); /* 437 */
+    opn(0x0B, 2);
+    opn(0x0A, 2);
     p.push_back(0xDB);
 
     static const uint8_t vectors[] = {0x00, 0x03};
@@ -228,9 +278,9 @@ UTEST(xreg, dispatch_matches_the_oracle)
         bel_gate_prev = bg;
     }));
 
-    /* Eighteen results, four bytes each, plus the two BEL characters,
-     * identical on both machines. */
-    ASSERT_EQ(cpu_out.size(), (size_t)(20 * 4 + 2));
+    /* Twenty-seven results at four bytes each, four errno-only ones at
+     * two, plus the two BEL characters, identical on both machines. */
+    ASSERT_EQ(cpu_out.size(), (size_t)(27 * 4 + 4 * 2 + 2));
 
     /* The muted BEL never struck; the unmuted one did. */
     ASSERT_EQ(strikes, 1);
