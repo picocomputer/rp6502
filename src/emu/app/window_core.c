@@ -37,7 +37,7 @@
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
 #include "emu/sys/sys.h"
-#include "emu/host/host.h"
+#include "host/host.h"
 #include "emu/sys/vga.h"
 #include <math.h>
 #include <stdint.h>

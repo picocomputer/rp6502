@@ -36,7 +36,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram pocket_sram
             pocket_bridge pocket_file pocket_core)
         list(APPEND PSYNTH_LINES
-            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
+            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_HOST_POCKET}/${src}.sv")
     endforeach()
     string(REPLACE ";" "\n" PSYNTH_QSF_TEXT "${PSYNTH_LINES}")
     file(MAKE_DIRECTORY ${PSYNTH_DIR})
@@ -53,7 +53,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # it is often absent — CI checks out only what it builds.
     # The array the firmware is loaded into is sized in the RTL, so read
     # the size from there rather than keeping a second copy in step.
-    file(STRINGS ${RP6502_SRC}/fpga/rtl/rv/rv_soc.sv TCM_WORDS_LINE
+    file(STRINGS ${RP6502_SRC}/rtl/rv/rv_soc.sv TCM_WORDS_LINE
         REGEX "localparam int TCM_WORDS")
     string(REGEX MATCH "[0-9]+" TCM_WORDS "${TCM_WORDS_LINE}")
 
@@ -67,7 +67,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # and letting the vendor's read fail as a Critical Warning every run.
     # Ours, not the template's: vendor/openfpga's copy groups a PLL this
     # core does not instantiate, so its four filters matched nothing.
-    file(COPY ${RP6502_SRC}/fpga/platform/pocket/quartus/core_constraints.sdc
+    file(COPY ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         DESTINATION ${POCKET_DIR}/core)
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
@@ -126,10 +126,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
         "set_global_assignment -name VERILOG_FILE ${APF}/core/pin_ddio_clk.v"
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
-        "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/core_top.sv"
-        "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/pocket_pll.v"
+        "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/host/pocket/core_top.sv"
+        "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/host/pocket/pocket_pll.v"
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
-        "set_global_assignment -name SDC_FILE ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc"
+        "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
         # Shift-register recognition was off while M10K was the scarce
@@ -162,8 +162,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             pocket_bridge pocket_file pocket_bars pocket_dbg pocket_dbglog
             pocket_core)
         list(APPEND BS_LINES
-            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_FPGA_POCKET}/${src}.sv")
-        list(APPEND BS_POCKET_SOURCES ${RP6502_FPGA_POCKET}/${src}.sv)
+            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_HOST_POCKET}/${src}.sv")
+        list(APPEND BS_POCKET_SOURCES ${RP6502_HOST_POCKET}/${src}.sv)
     endforeach()
     string(REPLACE ";" "\n" BS_QSF_TEXT "${BS_LINES}")
     file(GENERATE OUTPUT ${BS_QSF} CONTENT "${BS_QSF_TEXT}\n")
@@ -183,18 +183,18 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # anyone typed anything. What actually decides the QSF's content is the
     # code below, so that is what the fit is held to.
     set(BS_SOURCES ${BS_MACHINE_SOURCES} ${BS_POCKET_SOURCES}
-        ${RP6502_SRC}/fpga/platform/pocket/core_top.sv
-        ${RP6502_SRC}/fpga/platform/pocket/pocket_pll.v
+        ${RP6502_SRC}/host/pocket/core_top.sv
+        ${RP6502_SRC}/host/pocket/pocket_pll.v
         ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v
         ${APF}/core/pin_ddio_clk.v
         ${APF}/apf/apf_constraints.sdc
         ${APF}/ap_core.qsf
         ${RP6502_SDC}
-        ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc
-        ${RP6502_SRC}/fpga/platform/pocket/quartus/core_constraints.sdc
+        ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
+        ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_DIR}/pocket.cmake
-        ${RP6502_SRC}/fpga/rtl.cmake
-        ${RP6502_SRC}/fpga/quartus.cmake)
+        ${RP6502_SRC}/rtl/machine.cmake
+        ${RP6502_SRC}/rtl/quartus.cmake)
 
     # Three costs, three rules, and CMake decides which of them a change
     # has to pay for. Placing and routing this design is nine minutes and
@@ -232,7 +232,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_DRC} rp6502
         COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
             ${POCKET_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
+            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         # Last, so a gate that fails leaves no stamp and the fit is still
         # owed the next time anyone asks.
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
@@ -240,7 +240,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS ${BS_SOURCES} sw_bin
             ${RP6502_SRC}/gen/rv_tcm_gen.py
             ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
-            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
+            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Fitting the Pocket core"
         VERBATIM)
 
@@ -276,7 +276,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # asset are built. dist/ carries Saves/rp6502/common/ because the
     # host will not create it and the drive is nothing without it.
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
-    set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
+    set(PKG_DIST ${RP6502_SRC}/host/pocket/dist)
     file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
     add_custom_command(OUTPUT ${POCKET_DIR}/package.stamp
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}

@@ -8,8 +8,8 @@
  * driver's merged RX; here com.c's rings are that merge.
  */
 
-#ifndef _FPGA_SW_SHIM_PICO_STDIO_H_
-#define _FPGA_SW_SHIM_PICO_STDIO_H_
+#ifndef _RTL_SW_SHIM_PICO_STDIO_H_
+#define _RTL_SW_SHIM_PICO_STDIO_H_
 
 #include "ria/sys/com.h"
 #include <stdint.h>
@@ -23,4 +23,4 @@ static inline int stdio_getchar_timeout_us(uint32_t timeout_us)
     return com_getchar(&src);
 }
 
-#endif /* _FPGA_SW_SHIM_PICO_STDIO_H_ */
+#endif /* _RTL_SW_SHIM_PICO_STDIO_H_ */

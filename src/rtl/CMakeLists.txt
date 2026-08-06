@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(rp6502-fpga C CXX)
+project(rp6502-rtl C CXX)
 
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -14,7 +14,7 @@ endif()
 # Quartus and a RISC-V compiler and nothing else, and saying so is what lets
 # the Pocket be built on a machine with no Verilator installed at all - which
 # is what CI's bitstream runner is.
-option(RP6502_FPGA_SIM "Verilated machine and the test suite" ON)
+option(RP6502_RTL_SIM "Verilated machine and the test suite" ON)
 
 # Ninja, the way CI configures this tree. Under Makefiles `cmake --build`
 # takes one core unless told otherwise, and the pocket testbench is worse
@@ -25,7 +25,7 @@ option(RP6502_FPGA_SIM "Verilated machine and the test suite" ON)
 # its cause, and one of them reports a green suite from stale binaries.
 #
 # Only the simulation has that problem; Quartus runs one project at a time.
-if(RP6502_FPGA_SIM AND NOT CMAKE_GENERATOR STREQUAL "Ninja")
+if(RP6502_RTL_SIM AND NOT CMAKE_GENERATOR STREQUAL "Ninja")
     message(FATAL_ERROR
         "This tree wants Ninja; ${CMAKE_GENERATOR} miscompiles the shared "
         "verilated models and builds single-core.\n"
@@ -44,14 +44,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
-set(RP6502_FPGA_RTL ${CMAKE_CURRENT_LIST_DIR}/rtl)
-set(RP6502_FPGA_POCKET ${CMAKE_CURRENT_LIST_DIR}/platform/pocket/core)
+set(RP6502_HOST_POCKET ${RP6502_SRC}/host/pocket/core)
 
 # The machine as a list of files, the generated packages, and the soft CPU's
 # firmware. Every configuration needs these; none of them needs a simulator.
-include(${CMAKE_CURRENT_LIST_DIR}/rtl.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)
 
-if(RP6502_FPGA_SIM)
+if(RP6502_RTL_SIM)
     # emu_core is the reference oracle. Core-only: no window, debugger or its
     # own tests, so the simulation needs none of the desktop dev stack.
     set(RP6502_EMU_CORE_ONLY ON CACHE BOOL "" FORCE)
@@ -76,6 +75,10 @@ endif()
 
 # Synthesis. Each of these registers nothing at all without Quartus, so a
 # machine with only a simulator still configures every one of them.
+#
+# The hosts are the one thing this tree reaches sideways for. src/host is not
+# ours — the emulator's backends live there too — so a host is included by
+# absolute path rather than owned, and adding MiSTer is one more line here.
 include(${CMAKE_CURRENT_LIST_DIR}/quartus.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/synth.cmake)
-include(${CMAKE_CURRENT_LIST_DIR}/platform/pocket/pocket.cmake)
+include(${RP6502_SRC}/host/pocket/pocket.cmake)

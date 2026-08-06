@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows filesystem primitives (emu/host/host.h fs_*), the Win32 counterpart of
+ * Windows filesystem primitives (host/host.h fs_*), the Win32 counterpart of
  * posix/fs.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
@@ -21,9 +21,9 @@
  *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
  */
 
-#include "emu/host/host.h"
+#include "host/host.h"
 #include "ria/api/oem.h"
-#include "emu/host/win/win.h"
+#include "host/win/win.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>

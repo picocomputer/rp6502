@@ -7,14 +7,14 @@
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
-    ${RP6502_FPGA_POCKET}/pocket_fifo.sv
-    ${RP6502_FPGA_POCKET}/pocket_video.sv
-    ${RP6502_FPGA_POCKET}/pocket_i2s.sv
-    ${RP6502_FPGA_POCKET}/pocket_sdram.sv
-    ${RP6502_FPGA_POCKET}/pocket_sram.sv
-    ${RP6502_FPGA_POCKET}/pocket_bridge.sv
-    ${RP6502_FPGA_POCKET}/pocket_file.sv
-    ${RP6502_FPGA_POCKET}/pocket_core.sv
+    ${RP6502_HOST_POCKET}/pocket_fifo.sv
+    ${RP6502_HOST_POCKET}/pocket_video.sv
+    ${RP6502_HOST_POCKET}/pocket_i2s.sv
+    ${RP6502_HOST_POCKET}/pocket_sdram.sv
+    ${RP6502_HOST_POCKET}/pocket_sram.sv
+    ${RP6502_HOST_POCKET}/pocket_bridge.sv
+    ${RP6502_HOST_POCKET}/pocket_file.sv
+    ${RP6502_HOST_POCKET}/pocket_core.sv
     ${POCKET_TB}/sdram_model.sv
     ${POCKET_TB}/asram_model.sv
     ${POCKET_TB}/tb_pocket.sv)
@@ -22,36 +22,36 @@ set(POCKET_STACK
 # --- The platform FIFO under hostile clocking ---
 rp6502_add_module_test(fifo
     TOP pocket_fifo
-    RTL ${RP6502_FPGA_POCKET}/pocket_fifo.sv
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
     TIMEOUT 120)
 
 # --- The scaler-side raster from a replayed beam ---
 rp6502_add_module_test(pvideo
     TOP pocket_video
-    RTL ${RP6502_FPGA_POCKET}/pocket_fifo.sv
-        ${RP6502_FPGA_POCKET}/pocket_video.sv
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_video.sv
     TIMEOUT 120)
 
 # --- The codec-side I2S from replayed samples ---
 rp6502_add_module_test(pi2s
     TOP pocket_i2s
-    RTL ${RP6502_FPGA_POCKET}/pocket_fifo.sv
-        ${RP6502_FPGA_POCKET}/pocket_i2s.sv
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_i2s.sv
     TIMEOUT 120)
 
 # --- The staging SDRAM controller against a behavioral chip ---
 rp6502_add_module_test(psdram
     TOP tb_psdram
-    RTL ${RP6502_FPGA_POCKET}/pocket_sdram.sv
+    RTL ${RP6502_HOST_POCKET}/pocket_sdram.sv
         ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_psdram.sv
     TIMEOUT 300)
 
 # --- The bridge chain, played like the host ---
 rp6502_add_module_test(pbridge
     TOP tb_pbridge
-    RTL ${RP6502_FPGA_POCKET}/pocket_fifo.sv
-        ${RP6502_FPGA_POCKET}/pocket_sdram.sv
-        ${RP6502_FPGA_POCKET}/pocket_bridge.sv
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_sdram.sv
+        ${RP6502_HOST_POCKET}/pocket_bridge.sv
         ${POCKET_TB}/sdram_model.sv ${POCKET_TB}/tb_pbridge.sv
     TIMEOUT 300)
 

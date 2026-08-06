@@ -1,7 +1,7 @@
 # One entry point for both build trees.
 #
 # The directories below are the machine's subsystems, not its hosts: aud, vid,
-# mem, ria, rv and cpu65 are the same names src/fpga/rtl uses. Each one holds
+# mem, ria, rv and cpu65 are the same names src/rtl uses. Each one holds
 # whatever evidence exists for its subsystem — the C suites, the RTL suites,
 # and where they can be, the same suite against both — because a reader
 # looking for "how is the PSG proven" should find it all in one place rather
@@ -11,9 +11,9 @@
 # Pocket bridge FIFO genuinely is about the host and not about the machine.
 #
 # src/emu adds this with nothing set, and gets the C suites.
-# src/fpga adds it with RP6502_TESTS_RTL, and gets those plus the RTL. It adds
-# it only when RP6502_FPGA_SIM is on; a Pocket bitstream needs the RTL source
-# list, which lives in src/fpga/rtl.cmake, and none of what is here.
+# src/rtl adds it with RP6502_TESTS_RTL, and gets those plus the RTL. It adds
+# it only when RP6502_RTL_SIM is on; a Pocket bitstream needs the RTL source
+# list, which lives in src/rtl/machine.cmake, and none of what is here.
 
 include(${CMAKE_CURRENT_LIST_DIR}/rp6502_tests.cmake)
 

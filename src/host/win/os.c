@@ -3,15 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows host-OS primitives (emu/host/host.h os_*), the Win32 counterpart of
+ * Windows host-OS primitives (host/host.h os_*), the Win32 counterpart of
  * posix/os.c. Several are documented no-ops because the Win32 presentation path
  * already provides the behavior (D3D11 Present paces the frame loop; MSVC's
  * struct tm has no timezone fields and strftime uses the thread locale).
  */
 
-#include "emu/host/host.h"
+#include "host/host.h"
 #include "ria/api/oem.h"
-#include "emu/host/win/win.h"
+#include "host/win/win.h"
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>

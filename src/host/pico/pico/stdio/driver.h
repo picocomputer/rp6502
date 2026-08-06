@@ -8,8 +8,8 @@
  * feed bytes straight into the terminal (collapsing the UART/PIX path).
  */
 
-#ifndef _EMU_SHIM_PICO_STDIO_DRIVER_H_
-#define _EMU_SHIM_PICO_STDIO_DRIVER_H_
+#ifndef _HOST_PICO_PICO_STDIO_DRIVER_H_
+#define _HOST_PICO_PICO_STDIO_DRIVER_H_
 
 #include "emu/sys/com.h"
 #include <stdbool.h>
@@ -29,4 +29,4 @@ static inline void stdio_set_driver_enabled(stdio_driver_t *driver, bool enabled
     com_set_term_out(enabled && driver ? driver->out_chars : NULL);
 }
 
-#endif /* _EMU_SHIM_PICO_STDIO_DRIVER_H_ */
+#endif /* _HOST_PICO_PICO_STDIO_DRIVER_H_ */

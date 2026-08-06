@@ -336,12 +336,12 @@ jobs:
 
       - name: Build Android APK (Release)
         run: |
-          cd src/emu/host/android
+          cd src/host/android
           ./gradlew assembleRelease
 
       - name: Stage Android APK
         run: |
-          cp src/emu/host/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
+          cp src/host/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
 
       - uses: actions/upload-artifact@v7
         with:
@@ -354,7 +354,7 @@ jobs:
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   # ---------------------------------------------------------------------------
-  fpga-sim:
+  rtl-sim:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -376,18 +376,18 @@ jobs:
       - name: Configure & build simulation
         run: |
           set -euxo pipefail
-          cmake --preset fpga/verilator/Release
+          cmake --preset verilator/Release
           cmake --build --preset Tests
-        working-directory: src/fpga
+        working-directory: src/rtl
 
       - name: Run simulation tests
-        run: ctest --test-dir build/fpga/release --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
 
   # The bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
   # by-product. Not on pull requests: a fit is tens of minutes and needs
   # a 20 GB toolchain, and nothing about a fit is decided by a diff.
-  fpga-bitstream:
+  pocket-bitstream:
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     container: raetro/quartus:21.1
@@ -404,7 +404,7 @@ jobs:
             build-essential cmake ninja-build python3 \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      # One preset and one target. The fpga/pocket tree is Quartus and the
+      # One preset and one target. The pocket tree is Quartus and the
       # RISC-V compiler and nothing else — no Verilator, which this runner
       # does not install and which a bitstream never needed.
       #
@@ -416,14 +416,14 @@ jobs:
       - name: Build the core package
         run: |
           set -euxo pipefail
-          cmake --preset fpga/pocket
+          cmake --preset pocket
           cmake --build --preset "Card package"
-        working-directory: src/fpga
+        working-directory: src/rtl
 
       - uses: actions/upload-artifact@v4
         with:
           name: pocket-core
-          path: build/fpga/pocket/package
+          path: build/pocket/package
 
   # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).

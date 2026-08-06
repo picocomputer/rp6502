@@ -8,12 +8,12 @@
  * under MSVC, so every other host resolves <strings.h> to its own.
  */
 
-#ifndef _EMU_HOST_WIN_STRINGS_H_
-#define _EMU_HOST_WIN_STRINGS_H_
+#ifndef _HOST_WIN_STRINGS_H_
+#define _HOST_WIN_STRINGS_H_
 
 #include <string.h>
 
 #define strcasecmp _stricmp
 #define strncasecmp _strnicmp
 
-#endif /* _EMU_HOST_WIN_STRINGS_H_ */
+#endif /* _HOST_WIN_STRINGS_H_ */

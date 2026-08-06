@@ -29,7 +29,7 @@ set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(uni
     SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c ${OEMCP_C}
         ${RP6502_VENDOR}/fatfs/ffunicode.c
-    INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/emu/host/pico
+    INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/host/pico
         ${OEMCP_DIR})
 add_dependencies(test_uni oemcp)
 set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c

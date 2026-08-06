@@ -6,7 +6,7 @@
  */
 
 #include "emu/app/rand.h"
-#include "emu/host/host.h"
+#include "host/host.h"
 #include "pico/rand.h"
 #include <stdbool.h>
 #include <stdint.h>

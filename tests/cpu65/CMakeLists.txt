@@ -66,7 +66,7 @@ if(RP6502_VERILATE)
     if(VECTORS AND EXISTS ${KLAUS}/6502_functional_test.bin)
         rp6502_add_module_test(cpu65
             TOP cpu65
-            RTL ${CPU65_ROM} ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
+            RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
             SOURCES test_cpu65.cpp cpu65_dut.cpp vec.c klaus.c
             INCLUDES ${CMAKE_CURRENT_LIST_DIR}
             DEFS
@@ -80,7 +80,7 @@ if(RP6502_VERILATE)
         # lockstep under scripted pins — coverage the vectors cannot express.
         rp6502_add_module_test(lockstep
             TOP cpu65
-            RTL ${CPU65_ROM} ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
+            RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
             SOURCES test_lockstep.cpp cpu65_dut.cpp chips_dut.c lockstep.c
             INCLUDES ${CPU_INCLUDES}
             DEPENDS cpu65_rom
@@ -94,13 +94,13 @@ if(RP6502_VERILATE)
     # emu/emu/via.c for the wiring this reproduces.
     rp6502_add_module_test(via
         TOP via
-        RTL ${RP6502_FPGA_RTL}/cpu65/via.sv
+        RTL ${RP6502_SRC}/rtl/cpu65/via.sv
         INCLUDES ${RP6502_VENDOR}/chips_rp6502 ${RP6502_VENDOR}
         TIMEOUT 300)
 
     # --- Every whole kilohertz, exactly ---
     rp6502_add_module_test(phi2
         TOP phi2_div
-        RTL ${RP6502_FPGA_RTL}/cpu65/phi2_div.sv
+        RTL ${RP6502_SRC}/rtl/cpu65/phi2_div.sv
         TIMEOUT 120)
 endif()

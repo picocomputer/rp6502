@@ -6,7 +6,7 @@
  * Testbench around the verilated rp6502 machine. Single instance, like the chip
  * models in emu/sys — the machine is a singleton in a test process too.
  *
- * Set RP6502_FPGA_TRACE to a path to write an FST trace of the run.
+ * Set RP6502_RTL_TRACE to a path to write an FST trace of the run.
  */
 
 #ifndef _TESTS_FPGA_TB_CORE_H_

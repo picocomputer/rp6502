@@ -10,8 +10,8 @@
  * reused firmware ria/ sources (dir.c, str.c).
  */
 
-#ifndef _EMU_SHIM_PICO_H_
-#define _EMU_SHIM_PICO_H_
+#ifndef _HOST_PICO_PICO_H_
+#define _HOST_PICO_PICO_H_
 
 #include <assert.h>
 #include <stddef.h>
@@ -44,4 +44,4 @@
 #endif
 #endif
 
-#endif /* _EMU_SHIM_PICO_H_ */
+#endif /* _HOST_PICO_PICO_H_ */

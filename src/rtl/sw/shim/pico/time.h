@@ -8,8 +8,8 @@
  * time_us_64; time.c serves it from the machine's microsecond counter.
  */
 
-#ifndef _FPGA_SW_SHIM_PICO_TIME_H_
-#define _FPGA_SW_SHIM_PICO_TIME_H_
+#ifndef _RTL_SW_SHIM_PICO_TIME_H_
+#define _RTL_SW_SHIM_PICO_TIME_H_
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -33,4 +33,4 @@ static inline bool time_reached(absolute_time_t t)
     return time_us_64() >= t;
 }
 
-#endif /* _FPGA_SW_SHIM_PICO_TIME_H_ */
+#endif /* _RTL_SW_SHIM_PICO_TIME_H_ */

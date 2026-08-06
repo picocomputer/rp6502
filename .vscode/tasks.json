@@ -126,7 +126,7 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "fpga: Firmware",
+            "label": "rtl: Firmware",
             "type": "process",
             "command": "cmake",
             "args": [
@@ -135,7 +135,7 @@
                 "Firmware"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
+                "cwd": "${workspaceFolder}/src/rtl"
             },
             "presentation": {
                 "reveal": "always",
@@ -144,15 +144,15 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "fpga: Tests",
+            "label": "rtl: Tests",
             "type": "process",
             "command": "ctest",
             "args": [
                 "--preset",
-                "fpga/verilator/Release"
+                "verilator/Release"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
+                "cwd": "${workspaceFolder}/src/rtl"
             },
             "presentation": {
                 "reveal": "always",
@@ -161,7 +161,7 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "fpga: Area and timing",
+            "label": "rtl: Area and timing",
             "type": "process",
             "command": "cmake",
             "args": [
@@ -170,7 +170,7 @@
                 "Machine"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
+                "cwd": "${workspaceFolder}/src/rtl"
             },
             "presentation": {
                 "reveal": "always",
@@ -188,7 +188,7 @@
                 "Bitstream"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
+                "cwd": "${workspaceFolder}/src/rtl"
             },
             "presentation": {
                 "reveal": "always",
@@ -206,7 +206,7 @@
                 "Card package"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
+                "cwd": "${workspaceFolder}/src/rtl"
             },
             "presentation": {
                 "reveal": "always",
@@ -224,7 +224,7 @@
                 "Pocket core"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
+                "cwd": "${workspaceFolder}/src/rtl"
             },
             "presentation": {
                 "reveal": "always",

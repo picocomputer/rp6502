@@ -137,15 +137,15 @@ target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
-To build the FPGA core, select Folder:fpga. Its Configure list is one entry per
+To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
 job, each with a build directory of its own:
 
-    fpga/verilator/Release   the simulation and its tests
-    fpga/verilator/Debug     the same, unoptimised, for stepping a testbench
-    fpga/pocket              the Analogue Pocket core
-    fpga/quartus/synth       area and timing, all pins virtual
+    verilator/Release   the simulation and its tests
+    verilator/Debug     the same, unoptimised, for stepping a testbench
+    pocket              the Analogue Pocket core
+    quartus/synth       area and timing, all pins virtual
 
-Pick one and the Build list changes with it — under `fpga/pocket` it offers
+Pick one and the Build list changes with it — under `pocket` it offers
 **Card package** and **Bitstream**, under the Verilator presets **Tests** and
 **Firmware**. F7 builds whichever is selected. Naming every host explicitly is
 so MiSTer can arrive without renaming anything.
@@ -154,7 +154,7 @@ Ask for the card and CMake works out what has to happen: change a line of soft
 CPU C and you pay the twenty seconds that puts it in the bitstream, not the
 nine minutes that placed the design. The Pocket tree needs Quartus and
 `gcc-riscv64-unknown-elf` and nothing else — no Verilator. See
-`src/fpga/README.md` for the RTL and `src/fpga/platform/pocket/README.md` for
+`src/rtl/README.md` for the RTL and `src/host/pocket/README.md` for
 the Pocket itself.
 
 To build the emulator, ensure your seatbelt is fastened and tray tables in their

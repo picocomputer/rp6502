@@ -11,8 +11,8 @@
  * everywhere else, for LTO).
  */
 
-#ifndef _EMU_SHIM_PICO_TIME_H_
-#define _EMU_SHIM_PICO_TIME_H_
+#ifndef _HOST_PICO_PICO_TIME_H_
+#define _HOST_PICO_PICO_TIME_H_
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -41,4 +41,4 @@ static inline bool time_reached(absolute_time_t t)
     return time_us_64() >= t;
 }
 
-#endif /* _EMU_SHIM_PICO_TIME_H_ */
+#endif /* _HOST_PICO_PICO_TIME_H_ */

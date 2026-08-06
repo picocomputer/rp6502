@@ -1,8 +1,8 @@
 # RP6502 FPGA core
 
 The Picocomputer 6502 as an FPGA core. The Analogue Pocket (openFPGA) is the
-first target; MiSTer is planned. Both are Cyclone V, so `rtl/` stays platform
-independent and each host gets a thin wrapper under `platform/`.
+first target; MiSTer is planned. Both are Cyclone V, so this directory stays
+platform independent and each host gets a thin wrapper in `src/host/`.
 
 The 6502, VIA, video renderers and audio are RTL. A Hazard3 soft RISC-V runs a
 trimmed build of the real `src/ria` firmware C for the OS layer — syscalls, HID
@@ -13,7 +13,7 @@ and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
 The PSG is RTL and agrees with `ria/aud/psg.c` sample for sample in lockstep.
 Its ninth voice is the console bell, configured by the soft CPU: the sounds
 are `ria/aud/bel_presets.c` and the queue and lifetime are
-`src/fpga/sw/bel.c`, so fabric holds a voice and software holds the bell.
+`src/rtl/sw/bel.c`, so fabric holds a voice and software holds the bell.
 
 Nothing gates the mix. Every engine and the bell sum, on one sample tick —
 the PSG's divider — and an engine with no program answers zero.
@@ -37,8 +37,14 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 ## Layout
 
-    rtl/core/       the machine, independent of the FPGA platform
-    platform/       per-host wrappers (Pocket APF, MiSTer), Quartus projects
+    src/rtl/        the machine: aud core cpu65 mem ria rv vid, and its CMake
+    src/rtl/sw/     the soft CPU's firmware, C for the Hazard3
+    src/host/       every host the machine runs on, emulated or fabric
+
+`src/host/pocket` sits beside `src/host/web` and `src/host/linux` because they
+are the same kind of thing — a wrapper binding one machine to one host. Only
+the Pocket's happens to be SystemVerilog. MiSTer arrives as `src/host/mister`
+and one more `include()` line in `CMakeLists.txt`; nothing here changes.
 
 Tests live with every other test, in `tests/`, filed by subsystem rather than
 by host: the verilated `aud_psg` is in `tests/aud` beside the `psg.c` it is
@@ -53,10 +59,10 @@ machine and on `emu_core`, then compare — the emulator is the reference for
 behavior the RTL must reproduce.
 
     sudo apt-get install verilator gtkwave ninja-build
-    cd src/fpga
-    cmake --preset fpga/verilator/Release
+    cd src/rtl
+    cmake --preset verilator/Release
     cmake --build --preset Tests
-    ctest --preset fpga/verilator/Release
+    ctest --preset verilator/Release
 
 Ninja is required, not preferred, and CMake stops if it is missing: the
 pocket testbench builds one verilated model that two tests link, which
@@ -66,14 +72,14 @@ make will build twice at once and then link half-written or stale.
 
 `CMakePresets.json` has one entry per job this source tree can do, and each
 is a build directory of its own. What varies is whether the verilated
-machine and its tests are part of it — `RP6502_FPGA_SIM`.
+machine and its tests are part of it — `RP6502_RTL_SIM`.
 
 | preset | builds in | what it is for |
 | --- | --- | --- |
-| `fpga/verilator/Release` | `build/fpga/release` | the simulation and the whole suite |
-| `fpga/verilator/Debug` | `build/fpga/debug` | the same, unoptimised, for stepping a testbench |
-| `fpga/pocket` | `build/fpga/pocket` | the Analogue Pocket core |
-| `fpga/quartus/synth` | `build/fpga/synth` | area and timing, all pins virtual |
+| `verilator/Release` | `build/verilator/release` | the simulation and the whole suite |
+| `verilator/Debug` | `build/verilator/debug` | the same, unoptimised, for stepping a testbench |
+| `pocket` | `build/pocket` | the Analogue Pocket core |
+| `quartus/synth` | `build/quartus/synth` | area and timing, all pins virtual |
 
 **A bitstream needs Quartus and `gcc-riscv64-unknown-elf`, and nothing
 else.** No Verilator, no host test suite. That was not true for a while:
@@ -86,9 +92,12 @@ thing tested.
 
 Without Verilator only the oracle tests build; CMake warns and continues.
 
-Set `RP6502_FPGA_TRACE` to a path to capture an FST trace, viewable in gtkwave:
+Set `RP6502_RTL_TRACE` to a path to capture an FST trace, viewable in gtkwave:
 
-    RP6502_FPGA_TRACE=rtl.fst ./build/fpga/release/tests/test_rtl
+    RP6502_RTL_TRACE=rtl.fst ./build/verilator/release/tests/vid/test_raster
+
+`test_raster` is the one built with `TRACE_FST`, because the trace costs
+simulation speed and only the test that reads waveforms wants it.
 
 ## Measuring the render budget
 

@@ -1,10 +1,10 @@
 # The RTL half of the suite: the simulator, and two helpers that hide it.
 #
 # Only what genuinely needs Verilator is here. What to verilate — the machine's
-# source list — and the soft CPU firmware are in src/fpga/rtl.cmake, because a
+# source list — and the soft CPU firmware are in src/rtl/machine.cmake, because a
 # Quartus project needs both and needs no simulator to read them.
 #
-# Included only when RP6502_FPGA_SIM is on. A machine without Verilator or
+# Included only when RP6502_RTL_SIM is on. A machine without Verilator or
 # without the RISC-V toolchain still configures and still runs every C test; it
 # just registers fewer of them.
 #
@@ -18,7 +18,7 @@ target_link_libraries(fpga_oracle PUBLIC emu_core)
 target_include_directories(fpga_oracle PUBLIC ${RP6502_BENCH})
 
 # --- The verilated machine ---
-# Platform wrappers under src/fpga/platform are not verilated; the simulation
+# Host wrappers under src/host are not verilated; the simulation
 # models the host bridge in C++ instead, so one harness serves every target.
 find_package(verilator CONFIG QUIET HINTS $ENV{VERILATOR_ROOT} /usr/share/verilator)
 if(NOT verilator_FOUND)

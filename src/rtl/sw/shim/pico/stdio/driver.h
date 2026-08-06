@@ -9,8 +9,8 @@
  * firmware's UART/PIX fanout target.
  */
 
-#ifndef _FPGA_SW_SHIM_PICO_STDIO_DRIVER_H_
-#define _FPGA_SW_SHIM_PICO_STDIO_DRIVER_H_
+#ifndef _RTL_SW_SHIM_PICO_STDIO_DRIVER_H_
+#define _RTL_SW_SHIM_PICO_STDIO_DRIVER_H_
 
 #include <stdbool.h>
 
@@ -29,4 +29,4 @@ static inline void stdio_set_driver_enabled(stdio_driver_t *driver, bool enabled
     com_set_term_out(enabled && driver ? driver->out_chars : 0);
 }
 
-#endif /* _FPGA_SW_SHIM_PICO_STDIO_DRIVER_H_ */
+#endif /* _RTL_SW_SHIM_PICO_STDIO_DRIVER_H_ */

@@ -36,7 +36,7 @@ get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSO
 set(OEMCP_GEN ${RP6502_SRC}/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
 # Cached, so tests/ can see them from either tree: src/emu adds tests/ as a
-# sibling, but src/fpga adds it directly and never enters this scope.
+# sibling, but src/rtl adds it directly and never enters this scope.
 set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c CACHE INTERNAL "")
 set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h CACHE INTERNAL "")
 add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
@@ -116,38 +116,38 @@ add_library(emu_core STATIC
 
 if(WIN32)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/host/win/dir.c
-        ${RP6502_SRC}/emu/host/win/fs.c
-        ${RP6502_SRC}/emu/host/win/os.c
-        ${RP6502_SRC}/emu/host/win/win.c)
+        ${RP6502_SRC}/host/win/dir.c
+        ${RP6502_SRC}/host/win/fs.c
+        ${RP6502_SRC}/host/win/os.c
+        ${RP6502_SRC}/host/win/win.c)
 elseif(EMSCRIPTEN)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/host/posix/dir.c
-        ${RP6502_SRC}/emu/host/web/fs.c
-        ${RP6502_SRC}/emu/host/posix/os.c
-        ${RP6502_SRC}/emu/host/web/os.c)
+        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/host/web/fs.c
+        ${RP6502_SRC}/host/posix/os.c
+        ${RP6502_SRC}/host/web/os.c)
 elseif(ANDROID)
     # Bionic has no <aio.h> and we don't thread host I/O, so Android gets its own
     # synchronous fs seam (like web). dir stays on posix; os = posix common + android.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/host/posix/dir.c
-        ${RP6502_SRC}/emu/host/android/fs.c
-        ${RP6502_SRC}/emu/host/posix/os.c
-        ${RP6502_SRC}/emu/host/android/os.c)
+        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/host/android/fs.c
+        ${RP6502_SRC}/host/posix/os.c
+        ${RP6502_SRC}/host/android/os.c)
 elseif(APPLE)
     # macOS: POSIX aio_read is in libc (no librt needed); os = posix common + macos.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/host/posix/dir.c
-        ${RP6502_SRC}/emu/host/posix/fs.c
-        ${RP6502_SRC}/emu/host/posix/os.c
-        ${RP6502_SRC}/emu/host/macos/os.c)
+        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/host/posix/fs.c
+        ${RP6502_SRC}/host/posix/os.c
+        ${RP6502_SRC}/host/macos/os.c)
 else()
     # Linux / BSD: os = posix common + linux; POSIX AIO required.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/emu/host/posix/dir.c
-        ${RP6502_SRC}/emu/host/posix/fs.c
-        ${RP6502_SRC}/emu/host/posix/os.c
-        ${RP6502_SRC}/emu/host/linux/os.c)
+        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/host/posix/fs.c
+        ${RP6502_SRC}/host/posix/os.c
+        ${RP6502_SRC}/host/linux/os.c)
     include(CheckSymbolExists)
     find_library(RT_LIBRARY rt)
     if(RT_LIBRARY)
@@ -209,7 +209,7 @@ endif()
 add_dependencies(emu_core rsmp_coef)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${RP6502_SRC}/emu/host/pico
+    ${RP6502_SRC}/host/pico
     ${RP6502_SRC}
     ${RP6502_VENDOR}/chips_rp6502 # shadows vendor/chips; must precede it
     ${RP6502_VENDOR}
@@ -224,7 +224,7 @@ if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 else()
     # Shims MSVC alone needs, including a <strings.h> it has no system header for.
-    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/emu/host/win)
+    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/win)
     target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.
@@ -258,7 +258,7 @@ if(NOT ANDROID)
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/main.c)
 endif()
 if(EMSCRIPTEN)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/web/exports.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/web/exports.c)
 endif()
 # The shared render core + exactly one host's window.
 list(APPEND APP_SOURCES
@@ -266,15 +266,15 @@ list(APPEND APP_SOURCES
     ${RP6502_SRC}/emu/app/icon.c
     ${RP6502_SRC}/emu/app/window_core.c)
 if(WIN32)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/win/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/win/window.c)
 elseif(APPLE)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/macos/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/macos/window.c)
 elseif(EMSCRIPTEN)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/web/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/web/window.c)
 elseif(ANDROID)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/android/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/android/window.c)
 else()
-    list(APPEND APP_SOURCES ${RP6502_SRC}/emu/host/linux/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/linux/window.c)
 endif()
 
 if(ANDROID)
@@ -313,7 +313,7 @@ elseif(APPLE)
     # sokol on macOS needs Objective-C; compile the impl units as .m and
     # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-    set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/emu/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
+    set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
     target_link_libraries(rp6502-emu PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit" "-framework AudioToolbox")
@@ -406,7 +406,7 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    # The C half of every subsystem's suite. src/fpga adds the same directory
+    # The C half of every subsystem's suite. src/rtl adds the same directory
     # with RP6502_TESTS_RTL and gets the verilated half as well.
     add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()

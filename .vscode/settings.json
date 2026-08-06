@@ -9,7 +9,7 @@
     "cmake.sourceDirectory": [
         "${workspaceFolder}",
         "${workspaceFolder}/src/emu",
-        "${workspaceFolder}/src/fpga"
+        "${workspaceFolder}/src/rtl"
     ],
     "cmake.buildDirectory": "${sourceDirectory}/build",
     "cmake.configureOnEdit": true,

@@ -42,36 +42,36 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${OPL2_SOURCES}
     ${CPU65_ROM}
-    ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv
-    ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
-    ${RP6502_FPGA_RTL}/cpu65/via.sv
-    ${RP6502_FPGA_RTL}/cpu65/phi2_div.sv
-    ${RP6502_FPGA_RTL}/mem/sram64k.sv
-    ${RP6502_FPGA_RTL}/mem/xram64k.sv
-    ${RP6502_FPGA_RTL}/ria/ria_regs.sv
-    ${RP6502_FPGA_RTL}/rv/rv_soc.sv
-    ${RP6502_FPGA_RTL}/vid/vid_timing.sv
+    ${RP6502_SRC}/rtl/core/rp6502_pkg.sv
+    ${RP6502_SRC}/rtl/cpu65/cpu65.sv
+    ${RP6502_SRC}/rtl/cpu65/via.sv
+    ${RP6502_SRC}/rtl/cpu65/phi2_div.sv
+    ${RP6502_SRC}/rtl/mem/sram64k.sv
+    ${RP6502_SRC}/rtl/mem/xram64k.sv
+    ${RP6502_SRC}/rtl/ria/ria_regs.sv
+    ${RP6502_SRC}/rtl/rv/rv_soc.sv
+    ${RP6502_SRC}/rtl/vid/vid_timing.sv
     ${AUD_SINE_PKG}
-    ${RP6502_FPGA_RTL}/aud/aud_psg.sv
-    ${RP6502_FPGA_RTL}/aud/aud_opl.sv
+    ${RP6502_SRC}/rtl/aud/aud_psg.sv
+    ${RP6502_SRC}/rtl/aud/aud_opl.sv
     ${RSMP_COEF_PKG}
-    ${RP6502_FPGA_RTL}/aud/aud_rsmp.sv
+    ${RP6502_SRC}/rtl/aud/aud_rsmp.sv
     ${VID_PALETTE_PKG}
-    ${RP6502_FPGA_RTL}/vid/vid_font.sv
-    ${RP6502_FPGA_RTL}/vid/vid_palram.sv
-    ${RP6502_FPGA_RTL}/vid/vid_pixtail.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode1.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode2.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode3.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode4.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode5.sv
-    ${RP6502_FPGA_RTL}/vid/vid_palcache.sv
-    ${RP6502_FPGA_RTL}/vid/vid_sprite.sv
-    ${RP6502_FPGA_RTL}/vid/vid_prog.sv
-    ${RP6502_FPGA_RTL}/vid/vid_term.sv
-    ${RP6502_FPGA_RTL}/vid/vid_compose.sv
-    ${RP6502_FPGA_RTL}/core/rp6502.sv)
+    ${RP6502_SRC}/rtl/vid/vid_font.sv
+    ${RP6502_SRC}/rtl/vid/vid_palram.sv
+    ${RP6502_SRC}/rtl/vid/vid_pixtail.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode1.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode2.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode3.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode4.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode5.sv
+    ${RP6502_SRC}/rtl/vid/vid_palcache.sv
+    ${RP6502_SRC}/rtl/vid/vid_sprite.sv
+    ${RP6502_SRC}/rtl/vid/vid_prog.sv
+    ${RP6502_SRC}/rtl/vid/vid_term.sv
+    ${RP6502_SRC}/rtl/vid/vid_compose.sv
+    ${RP6502_SRC}/rtl/core/rp6502.sv)
 set(RP6502_MACHINE_VERILATOR_ARGS
     -y ${RP6502_VENDOR}/hazard3/hdl
     -y ${RP6502_VENDOR}/hazard3/hdl/arith
@@ -84,11 +84,11 @@ find_program(RISCV_GCC riscv64-unknown-elf-gcc)
 find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
 if(RISCV_GCC AND RISCV_OBJCOPY)
     set(RP6502_SOFT_CPU ON)
-    set(SW_SRC ${RP6502_SRC}/fpga/sw)
+    set(SW_SRC ${RP6502_SRC}/rtl/sw)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
     # The firmware's own headers carry the hardware's addresses, so a
     # window that moves has to rebuild the image that writes to it.
-    file(GLOB SW_HEADERS ${RP6502_SRC}/fpga/sw/*.h)
+    file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c ${SW_SRC}/cfg.c
         ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
@@ -125,7 +125,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -I ${RP6502_SRC}
             -I ${SW_SRC}/shim
             -I ${RP6502_ASSETS}
-            -I ${RP6502_SRC}/emu/host/pico
+            -I ${RP6502_SRC}/host/pico
             -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             # The alternate screen buffer doubles term.c's cell store,

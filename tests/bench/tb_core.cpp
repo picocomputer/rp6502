@@ -48,7 +48,7 @@ void tb_core_init()
     tb_core_dut = new Vrp6502;
     tb_core_time = 0;
 
-    if (const char *path = getenv("RP6502_FPGA_TRACE"))
+    if (const char *path = getenv("RP6502_RTL_TRACE"))
     {
         Verilated::traceEverOn(true);
         tb_core_trace = new VerilatedFstC;

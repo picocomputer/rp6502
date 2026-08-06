@@ -9,8 +9,8 @@
  * nowhere. pio1 is never loaded: every entry point here ignores it.
  */
 
-#ifndef _FPGA_SW_SHIM_HARDWARE_PIO_H_
-#define _FPGA_SW_SHIM_HARDWARE_PIO_H_
+#ifndef _RTL_SW_SHIM_HARDWARE_PIO_H_
+#define _RTL_SW_SHIM_HARDWARE_PIO_H_
 
 #include <stdint.h>
 
@@ -37,4 +37,4 @@ static inline void pio_sm_put(pio_hw_t *pio, unsigned sm, uint32_t msg)
 
 #define tight_loop_contents() ((void)0)
 
-#endif /* _FPGA_SW_SHIM_HARDWARE_PIO_H_ */
+#endif /* _RTL_SW_SHIM_HARDWARE_PIO_H_ */

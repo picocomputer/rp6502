@@ -9,11 +9,11 @@
  * uses is declared.
  */
 
-#ifndef _EMU_SHIM_PICO_RAND_H_
-#define _EMU_SHIM_PICO_RAND_H_
+#ifndef _HOST_PICO_PICO_RAND_H_
+#define _HOST_PICO_PICO_RAND_H_
 
 #include <stdint.h>
 
 uint64_t get_rand_64(void);
 
-#endif /* _EMU_SHIM_PICO_RAND_H_ */
+#endif /* _HOST_PICO_PICO_RAND_H_ */

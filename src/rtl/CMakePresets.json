@@ -15,47 +15,47 @@
             }
         },
         {
-            "name": "fpga/verilator/Release",
-            "displayName": "fpga/verilator/Release",
+            "name": "verilator/Release",
+            "displayName": "verilator/Release",
             "description": "The verilated machine and the whole test suite, optimized.",
             "inherits": "base",
-            "binaryDir": "${sourceDir}/../../build/fpga/release",
+            "binaryDir": "${sourceDir}/../../build/verilator/release",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "RP6502_FPGA_SIM": "ON"
+                "RP6502_RTL_SIM": "ON"
             }
         },
         {
-            "name": "fpga/verilator/Debug",
-            "displayName": "fpga/verilator/Debug",
+            "name": "verilator/Debug",
+            "displayName": "verilator/Debug",
             "description": "The same, unoptimized, for stepping through a testbench.",
             "inherits": "base",
-            "binaryDir": "${sourceDir}/../../build/fpga/debug",
+            "binaryDir": "${sourceDir}/../../build/verilator/debug",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
-                "RP6502_FPGA_SIM": "ON"
+                "RP6502_RTL_SIM": "ON"
             }
         },
         {
-            "name": "fpga/pocket",
-            "displayName": "fpga/pocket",
+            "name": "pocket",
+            "displayName": "pocket",
             "description": "The Analogue Pocket core. Quartus and a RISC-V compiler; no Verilator, no tests. There is no Debug because CMAKE_BUILD_TYPE does not reach a bitstream.",
             "inherits": "base",
-            "binaryDir": "${sourceDir}/../../build/fpga/pocket",
+            "binaryDir": "${sourceDir}/../../build/pocket",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "RP6502_FPGA_SIM": "OFF"
+                "RP6502_RTL_SIM": "OFF"
             }
         },
         {
-            "name": "fpga/quartus/synth",
-            "displayName": "fpga/quartus/synth",
+            "name": "quartus/synth",
+            "displayName": "quartus/synth",
             "description": "Area and timing only, all pins virtual. A tree of its own so a measurement never disturbs a real fit.",
             "inherits": "base",
-            "binaryDir": "${sourceDir}/../../build/fpga/synth",
+            "binaryDir": "${sourceDir}/../../build/quartus/synth",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
-                "RP6502_FPGA_SIM": "OFF"
+                "RP6502_RTL_SIM": "OFF"
             }
         }
     ],
@@ -63,63 +63,63 @@
         {
             "name": "Tests",
             "displayName": "Tests",
-            "configurePreset": "fpga/verilator/Release"
+            "configurePreset": "verilator/Release"
         },
         {
             "name": "Firmware",
             "displayName": "Firmware",
-            "configurePreset": "fpga/verilator/Release",
+            "configurePreset": "verilator/Release",
             "targets": ["sw_bin"]
         },
         {
             "name": "Tests (Debug)",
             "displayName": "Tests",
-            "configurePreset": "fpga/verilator/Debug"
+            "configurePreset": "verilator/Debug"
         },
         {
             "name": "Firmware (Debug)",
             "displayName": "Firmware",
-            "configurePreset": "fpga/verilator/Debug",
+            "configurePreset": "verilator/Debug",
             "targets": ["sw_bin"]
         },
         {
             "name": "Card package",
             "displayName": "Card package",
-            "configurePreset": "fpga/pocket",
+            "configurePreset": "pocket",
             "targets": ["pocket"]
         },
         {
             "name": "Bitstream",
             "displayName": "Bitstream",
-            "configurePreset": "fpga/pocket",
+            "configurePreset": "pocket",
             "targets": ["pocket-bitstream"]
         },
         {
             "name": "Machine",
             "displayName": "Machine",
-            "configurePreset": "fpga/quartus/synth",
+            "configurePreset": "quartus/synth",
             "targets": ["synth"]
         },
         {
             "name": "Pocket core",
             "displayName": "Pocket core",
-            "configurePreset": "fpga/quartus/synth",
+            "configurePreset": "quartus/synth",
             "targets": ["pocket-synth"]
         }
     ],
     "testPresets": [
         {
-            "name": "fpga/verilator/Release",
+            "name": "verilator/Release",
             "displayName": "Tests",
-            "configurePreset": "fpga/verilator/Release",
+            "configurePreset": "verilator/Release",
             "output": {
                 "outputOnFailure": true
             }
         },
         {
-            "name": "fpga/verilator/Debug",
+            "name": "verilator/Debug",
             "displayName": "Tests",
-            "configurePreset": "fpga/verilator/Debug",
+            "configurePreset": "verilator/Debug",
             "output": {
                 "outputOnFailure": true
             }

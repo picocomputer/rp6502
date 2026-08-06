@@ -25,14 +25,14 @@ rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 
 if(RP6502_VERILATE)
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
-        ${RP6502_SRC} ${RP6502_SRC}/emu/host/pico)
+        ${RP6502_SRC} ${RP6502_SRC}/host/pico)
 
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
     rp6502_add_module_test(psg
         TOP aud_psg
-        RTL ${AUD_SINE_PKG} ${RP6502_FPGA_RTL}/aud/aud_psg.sv
+        RTL ${AUD_SINE_PKG} ${RP6502_SRC}/rtl/aud/aud_psg.sv
         SOURCES test_psg.cpp psg_shim.c
             ${RP6502_SRC}/ria/aud/psg.c ${RP6502_SRC}/ria/aud/bel.c
             ${RP6502_SRC}/ria/aud/bel_presets.c
@@ -48,7 +48,7 @@ if(RP6502_VERILATE)
     # fabric copies it exactly. Both read one generated coefficient design.
     rp6502_add_module_test(rsmp_rtl
         TOP aud_rsmp
-        RTL ${RSMP_COEF_PKG} ${RP6502_FPGA_RTL}/aud/aud_rsmp.sv
+        RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/rtl/aud/aud_rsmp.sv
         SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/emu/emu/rsmp.c
         INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
         DEPENDS rsmp_coef rsmp_coef_pkg
@@ -69,7 +69,7 @@ if(RP6502_VERILATE)
     rp6502_add_module_test(opl
         TOP aud_opl
         RTL ${OPL2_SOURCES}
-            ${RP6502_FPGA_RTL}/aud/aud_opl.sv
+            ${RP6502_SRC}/rtl/aud/aud_opl.sv
         INCLUDES ${RP6502_BENCH}
         DEPENDS opl2_lut_rom
         TIMEOUT 300)
