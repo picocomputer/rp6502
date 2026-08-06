@@ -272,11 +272,16 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
 
     # Everything the SD card needs, assembled. The JSONs, the images and
-    # the tree come from dist/ as they are; the bitstream and the glyph
-    # asset are built. dist/ carries Saves/rp6502/common/ because the
-    # host will not create it and the drive is nothing without it.
+    # the tree come from src/dist/pocket as they are; the bitstream and the
+    # glyph asset are built. It carries Saves/rp6502/common/ because the host
+    # will not create it and the drive is nothing without it.
+    #
+    # The shipped tree lives with the other shipped trees — src/dist/html and
+    # src/dist/itch.io — rather than under the wrapper that happens to build
+    # it. Nothing in it is SystemVerilog or Quartus; it is a folder of JSON
+    # and artwork that goes on a card.
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
-    set(PKG_DIST ${RP6502_SRC}/host/pocket/dist)
+    set(PKG_DIST ${RP6502_SRC}/dist/pocket)
     file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
     add_custom_command(OUTPUT ${POCKET_DIR}/package.stamp
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}

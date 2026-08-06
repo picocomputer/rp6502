@@ -1,7 +1,7 @@
 # Porting to the Analogue Pocket
 
 Notes for working on this core. Nothing here is needed to use it — the
-distribution tree is described in `dist/rp6502.txt`.
+distribution tree is described in `src/dist/pocket/rp6502.txt`.
 
 ## The board's memory
 
@@ -210,7 +210,7 @@ anything; trying `save00.dat` upward is the directory listing this
 host will ever have.
 
 **The drive's folder ships in the package.** The host creates no
-directories, so `dist/` carries `Saves/rp6502/common/` with a readme
+directories, so `src/dist/pocket/` carries `Saves/rp6502/common/` with a readme
 in it and the card has the folder from the moment the core is
 installed.
 
@@ -380,7 +380,7 @@ specific.
 
 ## What the card tree is made of
 
-`dist/` carries everything the card needs except the
+`src/dist/pocket/` carries everything the card needs except the
 binaries, which the build supplies:
 
 - `Cores/Rumbledethumps.RP6502/core.bin` comes from the Quartus build
