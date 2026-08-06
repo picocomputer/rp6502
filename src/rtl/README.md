@@ -108,11 +108,16 @@ simulation speed and only the test that reads waveforms wants it.
 
 ## Measuring the render budget
 
-`test_budget` counts, for every scanline of the heaviest fixtures, the clocks
+`test_modes` counts, for every scanline of the heaviest fixtures, the clocks
 from the line boundary to the last engine going idle, and reports XRAM port A's
 occupancy beside it. The beam's deadline is pixel 799 — the next line's pixel
 zero is read then — so a line is `2 * 799` clocks today and would be `799`
 at half the system clock.
+
+It rides along with the pixel comparison rather than standing as its own suite:
+every fixture heavy enough to be worth measuring is already one the comparison
+boots, and two suites over the same ten images meant loading each of them
+twice.
 
 Read those numbers as a floor. Every fixture stops its 6502 before the
 measurement and none of them make sound, so neither takes the port A slot a

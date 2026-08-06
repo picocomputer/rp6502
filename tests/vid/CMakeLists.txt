@@ -58,18 +58,16 @@ if(RP6502_SOFT_CPU)
     # The glyphs end to end: the asset beside the core reaches the store.
     rp6502_add_machine_test(fontstore ORACLE FIRMWARE TIMEOUT 900)
 
-    # What the render actually spends: the engines race the beam.
-    rp6502_add_machine_test(budget ORACLE FIRMWARE SPLIT
-        DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
-        TIMEOUT 1200)
-
     # The corpus again, this time pixel-exact against the oracle: mode 1
     # character cells per format; mode 2 tile maps per depth and tile size
     # with trims, wraps and the composite; mode 3 bitmaps per depth and
     # canvas; mode 4 raw sixteen-bit sprites with opacity metadata; mode 5
     # the foreground walk, clips and per-sprite palettes. One binary, and
     # SPLIT gives each fixture its own ctest name — mode1.* through
-    # mode5.*, the names the five separate suites used to register.
+    # mode5.*, the names the five separate suites used to register. It
+    # also measures what the render spends — the engines race the beam —
+    # on the fixtures heavy enough to be worth asking, because those are
+    # these fixtures and a second suite over them was a second boot.
     rp6502_add_machine_test(modes ORACLE FIRMWARE SPLIT
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 900)
