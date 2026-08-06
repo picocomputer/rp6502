@@ -135,13 +135,9 @@ static uint32_t tb_rgba8(uint16_t px)
     return r | (g << 8) | (b << 16) | 0xFF000000u;
 }
 
-/* One frame, from the top. The machine's de is the canvas — each pixel
- * once, each row once, no letterbox — so a frame is exactly
- * canvas-many pixels and the count is the only sync needed. `each` runs
- * before every clock, for a test holding something still while the beam
- * passes. */
+/* Walk to the top of the next frame. */
 template <typename Dut, typename Each>
-static void tb_capture_each(Dut *dut, uint32_t *fb, size_t px, Each each)
+static void tb_frame_start(Dut *dut, Each each)
 {
     while (dut->rp6502_scanline != 524)
     {
@@ -153,6 +149,28 @@ static void tb_capture_each(Dut *dut, uint32_t *fb, size_t px, Each each)
         each();
         tb_clock(dut);
     }
+}
+
+/* One frame, from the top. The machine's de is the canvas — each pixel
+ * once, each row once, no letterbox — so a frame is exactly
+ * canvas-many pixels and the count is the only sync needed. `each` runs
+ * before every clock, for a test holding something still while the beam
+ * passes.
+ *
+ * The walk to the top comes first, and the frame it spends is not
+ * waste. tb_run returns on the clock that starts a frame, so a capture
+ * that began there would take the frame immediately after the run — and
+ * vid_prog latches the canvas at scanline 524, one line before the
+ * beam's frame, so a program whose last xreg landed after that point
+ * renders its old canvas for one more frame. The picture a stopped
+ * program leaves is the frame after that one. mode3_2bppr is the
+ * fixture that proves it: it finishes inside a single frame, and
+ * capturing from the boundary tb_run returns on gives two frames that
+ * differ. */
+template <typename Dut, typename Each>
+static void tb_capture_each(Dut *dut, uint32_t *fb, size_t px, Each each)
+{
+    tb_frame_start(dut, each);
     size_t at = 0;
     while (at < px)
     {
