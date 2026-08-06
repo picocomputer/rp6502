@@ -15,6 +15,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name DEVICE 5CEBA4F23C8"
         "set_global_assignment -name TOP_LEVEL_ENTITY rp6502"
         "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
+        "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"

@@ -156,7 +156,7 @@ jobs:
           cmake --build build/emulator/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/emulator/release --output-on-failure
+        run: ctest --test-dir build/emulator/release --output-on-failure --parallel $(nproc)
 
       - name: Stage Linux emulator binary
         run: |
@@ -193,7 +193,7 @@ jobs:
           cmake --build build/emulator/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/emulator/release --output-on-failure
+        run: ctest --test-dir build/emulator/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
       - name: Assemble rp6502-emu.app
         run: |
@@ -304,8 +304,11 @@ jobs:
           cmake --build --preset release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      # pwsh is the default here, but this file mixes shells, and the core
+      # count is spelled a different way in each of them.
       - name: Run emulator tests
-        run: ctest --test-dir build/emulator/release --output-on-failure
+        shell: pwsh
+        run: ctest --test-dir build/emulator/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
 
       - name: Stage Windows emulator binary
         shell: bash

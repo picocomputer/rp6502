@@ -20,6 +20,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name DEVICE 5CEBA4F23C8"
         "set_global_assignment -name TOP_LEVEL_ENTITY pocket_core"
         "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
+        "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
@@ -78,6 +79,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     endforeach()
     list(APPEND BS_LINES
         "set_global_assignment -name GENERATE_RBF_FILE ON"
+        # Quartus fits on one processor unless told otherwise, and a fit is
+        # the longest thing this project builds. Intel's parallelism is
+        # inside a stage rather than across them, so the result does not
+        # depend on the count — check the slack against a known fit if that
+        # ever looks doubtful.
+        "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
         # Analogue's template asks for Auto Fit, which stops optimizing
         # the moment timing is met. That is why hold on the soft CPU's
         # crossing into the machine landed at a single picosecond: met,
