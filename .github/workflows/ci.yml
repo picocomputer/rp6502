@@ -362,14 +362,16 @@ jobs:
   # fit does: did src/rtl change. What it reads is wider than what it is gated
   # on — the benches are in tests/ and the oracle is emu_core out of src/emu —
   # so a commit that touches only those skips the suite that covers it. Tags
-  # and dispatches run it either way.
+  # and dispatches run it either way, and so does an rtl-changes that failed
+  # to answer: unanswered is not the same as no.
   # ---------------------------------------------------------------------------
   test-rtl:
     needs: rtl-changes
     if: >-
+      ${{ !cancelled() && (
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changes'].outputs.rtl == 'true'
+      || needs['rtl-changes'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -444,12 +446,20 @@ jobs:
   # to any of those alters the core without triggering a fit here. Tags and
   # dispatches fit unconditionally, so nothing is ever released on a core
   # this gate declined to build.
+  #
+  # !cancelled() and != 'false' are what make that last sentence true. A
+  # dependency that does not succeed skips what depends on it whatever the
+  # condition says, so an rtl-changes that dies takes the fit with it —
+  # and package tolerates a skipped pocket, which on a tag would publish a
+  # release with no core in it and nothing to say so. Unanswered is not the
+  # same as no: only a job that ran and said false skips the fit.
   pocket:
     needs: rtl-changes
     if: >-
+      ${{ !cancelled() && (
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changes'].outputs.rtl == 'true'
+      || needs['rtl-changes'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
