@@ -66,6 +66,13 @@ For the emulator, install the GL/X11/ALSA dev headers:
 $ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev libasound2-dev
 ```
 
+For the FPGA core, install Verilator and the RISC-V toolchain the soft CPU's
+firmware is built with. Without these the FPGA tree still configures; it just
+registers fewer tests and offers no bitstream.
+```
+$ sudo apt install verilator gtkwave ninja-build gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+```
+
 ## Windows
 
 The Pi Pico VS Code Extension should only need the install from
@@ -129,6 +136,15 @@ panel. Select either the Debug or Release variant. You must select the launch
 target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
+
+To build the FPGA core, select Folder:fpga and Configure:FPGA. Pressing F7
+builds the verilated machine and its tests; `ctest --test-dir build/fpga` runs
+them, and the **fpga: Test** task does both. This tree also holds the Pocket's
+Quartus targets, which are not part of F7 because each one costs minutes:
+`bitstream` fits the core, `bitstream_sw` puts newly built firmware into the
+last fit without refitting it, and `package` assembles the SD card tree. The
+tasks list carries all three. See `src/fpga/README.md` for the RTL and
+`src/fpga/platform/pocket/README.md` for the Pocket itself.
 
 To build the emulator, ensure your seatbelt is fastened and tray tables in their
 upright position; we have some bumpy weather ahead. From the CMake side panel

@@ -8,7 +8,7 @@
 # template's shipped pair. Reversal is an involution, so running this
 # twice is identity.
 #
-# core.json names the file, and this core calls it rp6502.bin. The
+# core.json names the file, and this core calls it core.bin. The
 # conventional name is bitstream.rbf_r; the loader reads whatever the
 # manifest says, and the reversal is about the bytes rather than the
 # name.

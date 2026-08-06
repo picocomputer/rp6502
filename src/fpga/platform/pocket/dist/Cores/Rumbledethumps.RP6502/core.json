@@ -27,7 +27,7 @@
             {
                 "name": "default",
                 "id": 0,
-                "filename": "rp6502.bin"
+                "filename": "core.bin"
             }
         ]
     }

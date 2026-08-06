@@ -383,7 +383,7 @@ specific.
 `dist/` carries everything the card needs except the
 binaries, which the build supplies:
 
-- `Cores/Rumbledethumps.RP6502/rp6502.bin` comes from the Quartus build
+- `Cores/Rumbledethumps.RP6502/core.bin` comes from the Quartus build
   through `src/gen/rbf_r_gen.py` (byte-wise bit reversal). `core.json`
   names it; the conventional name is `bitstream.rbf_r` and the loader
   reads whatever the manifest says.
@@ -433,6 +433,41 @@ debug log shows:
 assembles the card tree into `build/fpga/tests/package`. Zip the three
 top directories at the archive root as
 `Rumbledethumps.RP6502_<version>_<date>.zip`.
+
+## Changing the firmware without refitting
+
+`bitstream` is about ten minutes and seven of them are the fitter, which
+is a poor price for a line of C. `bitstream_sw` is the same bitstream with
+new firmware in it, in under one.
+
+The firmware is not logic. It is the initial contents of four M10K arrays,
+so a new image places nothing, routes nothing and moves no timing arc —
+the fit on disk is still the fit that comes out. Quartus keeps a MIF of
+each array under `db/`, generated from `rv_soc`'s `$readmemh` while
+mapping, and those are what `quartus_cdb --update_mif` reads back rather
+than the lane files they came from. So `rv_mif_gen.py` rewrites the four,
+`--update_mif` takes them into the database, and the assembler makes a
+programming file out of the placement that was already there.
+
+Nothing reruns the timing analyzer or the Design Assistant, because
+rerunning them would re-measure a fit that has not changed. What makes
+that a fact rather than a hope is `fit_fresh.cmake`, which refuses if any
+RTL, constraint, generated package or the `synth.cmake` that writes the
+project file is newer than the fit report. Edit `rv_soc.sv` and reach for
+the fast target and it stops you; without it you would get a working
+bitstream made of last week's fabric and today's software, with nothing
+anywhere saying so.
+
+The project file cannot be its own witness, which is why `synth.cmake`
+stands in for it. The fitter writes the `.qsf` back — restamping the
+Quartus version, dropping the template's `AUTO FIT` now that ours
+overrides it, rewriting every path relative — so it differs from what
+CMake generated the moment a fit ends. A fit that depended on it would be
+stale again before anyone typed anything.
+
+`bitstream` is incremental now, so the honest loop is to type it whenever
+unsure — an unchanged tree costs nothing, and a changed one needs the fit
+anyway.
 
 The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe` —
 are built into `build/fpga/tests/` and are deliberately not in the

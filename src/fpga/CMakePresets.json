@@ -1,0 +1,36 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "fpga",
+            "displayName": "FPGA",
+            "description": "Verilated machine, its tests, and the Pocket's Quartus targets.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/../../build/fpga",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "fpga",
+            "configurePreset": "fpga"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "fpga",
+            "configurePreset": "fpga",
+            "output": {
+                "outputOnFailure": true
+            }
+        }
+    ]
+}

@@ -8,7 +8,8 @@
     },
     "cmake.sourceDirectory": [
         "${workspaceFolder}",
-        "${workspaceFolder}/src/emu"
+        "${workspaceFolder}/src/emu",
+        "${workspaceFolder}/src/fpga"
     ],
     "cmake.buildDirectory": "${sourceDirectory}/build",
     "cmake.configureOnEdit": true,

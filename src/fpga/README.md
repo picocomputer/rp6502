@@ -57,6 +57,9 @@ behavior the RTL must reproduce.
     cmake --build build/fpga
     ctest --test-dir build/fpga
 
+`CMakePresets.json` says the same thing, so `cmake --preset fpga` from here
+is the shorter spelling and is what VS Code's Folder:fpga uses.
+
 Ninja is required, not preferred, and CMake stops if it is missing: the
 pocket testbench builds one verilated model that two tests link, which
 make will build twice at once and then link half-written or stale. One

@@ -19,16 +19,32 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # not: verilate() reads its sources when cmake configures, so a package that
 # only appears at build time is missing when the model is elaborated. The
 # build-time rule is what keeps it fresh when the generator changes.
+#
+# Existence is the whole of what configure needs, so it generates only when
+# something is missing. Running unconditionally moved every asset's timestamp
+# on every configure, and the extension configures on every edit to a
+# CMakeLists — which put a fresh mtime on five packages the bitstream is fitted
+# from, so a comment reworded here read downstream as a design that had
+# changed. That costs a ten minute refit, and it makes the fit's own freshness
+# gate refuse a fit nothing had actually touched.
 function(rp6502_asset target)
     cmake_parse_arguments(A "" "GEN;WORKDIR;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
     set(_wd)
     if(A_WORKDIR)
         set(_wd WORKING_DIRECTORY ${A_WORKDIR})
     endif()
-    execute_process(COMMAND python3 ${A_GEN} ${A_ARGS} ${_wd} RESULT_VARIABLE _rc)
-    if(_rc)
-        get_filename_component(_name ${A_GEN} NAME)
-        message(FATAL_ERROR "${_name} failed")
+    set(_absent FALSE)
+    foreach(_out IN LISTS A_OUTPUTS)
+        if(NOT EXISTS ${_out})
+            set(_absent TRUE)
+        endif()
+    endforeach()
+    if(_absent)
+        execute_process(COMMAND python3 ${A_GEN} ${A_ARGS} ${_wd} RESULT_VARIABLE _rc)
+        if(_rc)
+            get_filename_component(_name ${A_GEN} NAME)
+            message(FATAL_ERROR "${_name} failed")
+        endif()
     endif()
     add_custom_command(OUTPUT ${A_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${A_GEN} ${A_ARGS}
