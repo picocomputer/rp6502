@@ -59,7 +59,7 @@ if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(fontstore ORACLE FIRMWARE TIMEOUT 900)
 
     # What the render actually spends: the engines race the beam.
-    rp6502_add_machine_test(budget ORACLE FIRMWARE
+    rp6502_add_machine_test(budget ORACLE FIRMWARE SPLIT
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 1200)
 
@@ -69,7 +69,7 @@ if(RP6502_SOFT_CPU)
     # canvas; mode 4 raw sixteen-bit sprites with opacity metadata; mode 5
     # the foreground walk, clips and per-sprite palettes.
     foreach(m mode1 mode2 mode3 mode4 mode5)
-        rp6502_add_machine_test(${m} ORACLE FIRMWARE
+        rp6502_add_machine_test(${m} ORACLE FIRMWARE SPLIT
             DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
             TIMEOUT 900)
     endforeach()

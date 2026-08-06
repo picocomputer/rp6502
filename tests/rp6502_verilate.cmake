@@ -42,6 +42,63 @@ list(PREPEND RP6502_MACHINE_SOURCES
     ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/opl2.vlt)
 endif() # verilator_FOUND
 
+# rp6502_model(<out> TOP <module> PREFIX <V...> RTL <file>... [TRACE]
+#              [ARGS ...] [INCLUDE_DIRS ...] [DEPENDS ...])
+#
+# A verilated model as a library, made once and linked by every test that wants
+# it. Sets <out> to the library's target name.
+#
+# verilate() writes into CMakeFiles/<the target that asked>.dir, so asking from
+# a test meant a model per test: nineteen identical elaborations of the machine
+# and nineteen compiles of the five megabytes of C++ they each produced, which
+# was half the build. A library is asked once. Its include directory and the
+# Verilator runtime are PUBLIC, so linking it is all a test has to do.
+function(rp6502_model out)
+    cmake_parse_arguments(V "TRACE" "TOP;PREFIX" "RTL;ARGS;INCLUDE_DIRS;DEPENDS" ${ARGN})
+    set(_target model_${V_PREFIX})
+    if(V_TRACE)
+        set(_target ${_target}_trace)
+    endif()
+    set(${out} ${_target} PARENT_SCOPE)
+
+    # Two tests wanting the same model is the point. Two tests wanting the same
+    # name from different sources is not, and it would link one test against
+    # the other's machine without saying so.
+    set(_key "${V_TOP}|${V_RTL}|${V_ARGS}|${V_INCLUDE_DIRS}")
+    if(TARGET ${_target})
+        get_target_property(_was ${_target} RP6502_MODEL_KEY)
+        if(NOT _was STREQUAL _key)
+            message(FATAL_ERROR
+                "${_target} was already built from a different design.\n"
+                "  had: ${_was}\n"
+                "  now: ${_key}")
+        endif()
+        return()
+    endif()
+
+    # TRACE_FST costs simulation speed, so only the model the waveform test
+    # reads carries it; the rest take -O3 instead.
+    set(_trace)
+    set(_opt -O3)
+    if(V_TRACE)
+        set(_trace TRACE_FST)
+        set(_opt)
+    endif()
+
+    add_library(${_target} STATIC)
+    set_target_properties(${_target} PROPERTIES RP6502_MODEL_KEY "${_key}")
+    verilate(${_target}
+        SOURCES ${V_RTL}
+        TOP_MODULE ${V_TOP}
+        PREFIX ${V_PREFIX}
+        ${_trace}
+        INCLUDE_DIRS ${V_INCLUDE_DIRS}
+        VERILATOR_ARGS -Wall --assert ${_opt} ${V_ARGS})
+    if(V_DEPENDS)
+        add_dependencies(${_target} ${V_DEPENDS})
+    endif()
+endfunction()
+
 # rp6502_add_module_test(<name> TOP <module> [PREFIX <V...>] RTL <file>...
 #                        [SOURCES ...] [INCLUDES ...] [DEFS ...] [LIBS ...]
 #                        [DEPENDS ...] [ARGS <verilator arg>...] [TIMEOUT n])
@@ -65,19 +122,23 @@ function(rp6502_add_module_test name)
         endif()
     endforeach()
     rp6502_add_test(${name} ${_args})
+    # A module test's DEPENDS name the generators of its own RTL as often as
+    # they name a fixture, and both sides are cheap here, so both get them.
     if(U_DEPENDS)
         add_dependencies(test_${name} ${U_DEPENDS})
     endif()
-    verilate(test_${name}
-        SOURCES ${U_RTL}
-        TOP_MODULE ${U_TOP}
+    rp6502_model(_model
+        TOP ${U_TOP}
         PREFIX ${U_PREFIX}
-        VERILATOR_ARGS -Wall --assert -O3 ${U_ARGS})
+        RTL ${U_RTL}
+        ARGS ${U_ARGS}
+        DEPENDS ${U_DEPENDS})
+    target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()
 
-# rp6502_add_machine_test(<name> [ORACLE] [TRACE] [FIRMWARE] [SOURCES ...]
-#                         [DEFS ...] [RTL <extra>...] [TOP <m>] [PREFIX <V>]
-#                         [DEPENDS ...] [TIMEOUT n])
+# rp6502_add_machine_test(<name> [ORACLE] [TRACE] [FIRMWARE] [SPLIT]
+#                         [SOURCES ...] [DEFS ...] [RTL <extra>...] [TOP <m>]
+#                         [PREFIX <V>] [DEPENDS ...] [TIMEOUT n])
 #
 # The whole machine. FIRMWARE means the test boots the soft CPU rather than
 # staging the 6502's memory directly, so it needs the cross-compiled image and
@@ -86,7 +147,7 @@ endfunction()
 # which is how one of them came to name FONTS_BIN without depending on the
 # rule that writes it.
 function(rp6502_add_machine_test name)
-    cmake_parse_arguments(M "ORACLE;TRACE;FIRMWARE" "TOP;PREFIX;TIMEOUT"
+    cmake_parse_arguments(M "ORACLE;TRACE;FIRMWARE;SPLIT" "TOP;PREFIX;TIMEOUT"
         "SOURCES;DEFS;RTL;DEPENDS" ${ARGN})
     if(NOT M_SOURCES)
         set(M_SOURCES test_${name}.cpp)
@@ -99,7 +160,10 @@ function(rp6502_add_machine_test name)
     endif()
 
     set(_args SOURCES ${M_SOURCES} INCLUDES ${RP6502_BENCH} ${RP6502_ASSETS} ${RP6502_SRC})
-    set(_deps cpu65_rom ${M_DEPENDS})
+    if(M_SPLIT)
+        list(APPEND _args SPLIT)
+    endif()
+    set(_deps ${M_DEPENDS})
     if(M_ORACLE)
         list(APPEND _args LIBS fpga_oracle)
     endif()
@@ -114,21 +178,26 @@ function(rp6502_add_machine_test name)
         list(APPEND _args TIMEOUT ${M_TIMEOUT})
     endif()
     rp6502_add_test(${name} ${_args})
-    add_dependencies(test_${name} ${_deps})
-
-    # TRACE_FST costs simulation speed, so only the test that reads waveforms
-    # asks for it; the rest take -O3 instead.
-    set(_trace)
-    set(_opt -O3)
-    if(M_TRACE)
-        set(_trace TRACE_FST)
-        set(_opt)
+    if(_deps)
+        add_dependencies(test_${name} ${_deps})
     endif()
-    verilate(test_${name}
-        SOURCES ${RP6502_MACHINE_SOURCES} ${M_RTL}
-        TOP_MODULE ${M_TOP}
+
+    # The model's dependencies are the generators of the packages in
+    # RP6502_MACHINE_SOURCES, and only those. sw_bin and the fonts are files a
+    # test opens at run time, and the machine is shared now — holding its
+    # elaboration behind a RISC-V compile would put the firmware on the
+    # critical path of the whole suite.
+    set(_trace)
+    if(M_TRACE)
+        set(_trace TRACE)
+    endif()
+    rp6502_model(_model
+        TOP ${M_TOP}
         PREFIX ${M_PREFIX}
+        RTL ${RP6502_MACHINE_SOURCES} ${M_RTL}
         ${_trace}
+        ARGS ${RP6502_MACHINE_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-        VERILATOR_ARGS -Wall --assert ${_opt} ${RP6502_MACHINE_VERILATOR_ARGS})
+        DEPENDS cpu65_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
+    target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()

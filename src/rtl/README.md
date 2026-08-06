@@ -64,9 +64,16 @@ behavior the RTL must reproduce.
     cmake --build --preset Tests
     ctest --preset verilator/Release
 
-Ninja is required, not preferred, and CMake stops if it is missing: the
-pocket testbench builds one verilated model that two tests link, which
-make will build twice at once and then link half-written or stale.
+Ninja is required, not preferred, and CMake stops if it is missing: this is
+two dozen test binaries over a handful of shared verilated models, and make
+builds one recipe at a time unless told otherwise.
+
+Each model is verilated once, into a library the tests link. It used to be
+verilated once per test, which meant nineteen identical elaborations of the
+machine and nineteen compiles of the five megabytes of C++ each one produced
+— half the build, spent making the same thing twenty times. The tests that
+take the longest are registered a case at a time, so the suite is bounded by
+its slowest case rather than by its slowest binary.
 
 ## The four trees
 

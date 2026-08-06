@@ -111,9 +111,13 @@
         {
             "name": "verilator/Release",
             "displayName": "Tests",
+            "description": "A fixed count, because a preset has no way to say one per core and ctest reads 0 as one at a time. High is the safe side: the suite is CPU-bound and short, so a smaller machine oversubscribes cheaply while a larger one is used. CI passes its own --parallel $(nproc).",
             "configurePreset": "verilator/Release",
             "output": {
                 "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
             }
         },
         {
@@ -122,6 +126,9 @@
             "configurePreset": "verilator/Debug",
             "output": {
                 "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
             }
         }
     ]

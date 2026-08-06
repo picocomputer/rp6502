@@ -17,18 +17,12 @@ endif()
 option(RP6502_RTL_SIM "Verilated machine and the test suite" ON)
 
 # Ninja, the way CI configures this tree. Under Makefiles `cmake --build`
-# takes one core unless told otherwise, and the pocket testbench is worse
-# than slow there: test_pocket and test_pfile share one verilated model,
-# and make will run both recipes for it at once, so the link fails on a
-# half-written model or succeeds against a stale one. Ninja knows the two
-# targets want the same output and builds it once. Neither failure names
-# its cause, and one of them reports a green suite from stale binaries.
-#
-# Only the simulation has that problem; Quartus runs one project at a time.
+# takes one core unless told otherwise, and this tree is twenty-odd test
+# binaries over a handful of shared verilated models — the shape that gains
+# most from a build graph and least from one recipe at a time.
 if(RP6502_RTL_SIM AND NOT CMAKE_GENERATOR STREQUAL "Ninja")
     message(FATAL_ERROR
-        "This tree wants Ninja; ${CMAKE_GENERATOR} miscompiles the shared "
-        "verilated models and builds single-core.\n"
+        "This tree wants Ninja; ${CMAKE_GENERATOR} builds single-core.\n"
         "  rm -rf ${CMAKE_BINARY_DIR}\n"
         "  cmake -S ${CMAKE_CURRENT_LIST_DIR} -B ${CMAKE_BINARY_DIR} "
         "-G Ninja -DCMAKE_BUILD_TYPE=Release")

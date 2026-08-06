@@ -57,14 +57,14 @@ rp6502_add_module_test(pbridge
 
 if(RP6502_SOFT_CPU)
     # --- The whole Pocket stack, frame-exact against the oracle ---
-    rp6502_add_machine_test(pocket ORACLE FIRMWARE
+    rp6502_add_machine_test(pocket ORACLE FIRMWARE SPLIT
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 1200)
 
     # --- The file bridge, with the bench playing the host ---
-    rp6502_add_machine_test(pfile FIRMWARE
+    rp6502_add_machine_test(pfile FIRMWARE SPLIT
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" FSTEST_ROM="${FSTEST_ROM}"

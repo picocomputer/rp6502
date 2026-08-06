@@ -31,14 +31,20 @@ if(NOT TARGET rp6502_test_corpus)
 endif()
 
 # rp6502_add_test(<name> [SOURCES ...] [LIBS ...] [INCLUDES ...] [DEFS ...]
-#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>])
+#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT])
 #
 # Builds test_<name> from test_<name>.c unless SOURCES says otherwise, and
 # registers it as CTest <name>. FIXTURE becomes TEST_FIXTURE, the absolute path
 # a test opens — every test uses at most one. TEST_SCRATCH is where a test
 # writes throwaway files, so a run from any directory never litters the tree.
+#
+# SPLIT registers each UTEST case as its own CTest test instead. For the long
+# ones that is the difference between a suite bounded by its slowest binary and
+# one bounded by its slowest case; for the forty that finish in a fifth of a
+# second it would cost more in process starts than it saves, which is why it is
+# asked for rather than assumed.
 function(rp6502_add_test name)
-    cmake_parse_arguments(T "" "FIXTURE;TIMEOUT" "SOURCES;LIBS;INCLUDES;DEFS" ${ARGN})
+    cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT" "SOURCES;LIBS;INCLUDES;DEFS" ${ARGN})
 
     if(NOT T_SOURCES)
         set(T_SOURCES test_${name}.c)
@@ -66,8 +72,43 @@ function(rp6502_add_test name)
 
     add_dependencies(test_${name} rp6502_test_corpus)
 
-    add_test(NAME ${name} COMMAND test_${name})
-    if(T_TIMEOUT)
-        set_tests_properties(${name} PROPERTIES TIMEOUT ${T_TIMEOUT})
+    set(_cases ${name})
+    if(T_SPLIT)
+        # utest.h takes --filter but cannot list what it holds, so the cases are
+        # read out of the source. Every one of them is a plain one-line UTEST(),
+        # and the file is a configure dependency, so adding a case is enough to
+        # register it.
+        list(GET T_SOURCES 0 _src)
+        if(NOT IS_ABSOLUTE ${_src})
+            set(_src ${CMAKE_CURRENT_LIST_DIR}/${_src})
+        endif()
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_src})
+        set(_cases)
+        file(STRINGS ${_src} _decls REGEX "^UTEST\\(")
+        foreach(_decl IN LISTS _decls)
+            string(REGEX REPLACE "^UTEST\\( *([A-Za-z0-9_]+) *, *([A-Za-z0-9_]+).*"
+                "\\1.\\2" _case "${_decl}")
+            list(APPEND _cases ${_case})
+        endforeach()
+        if(NOT _cases)
+            message(FATAL_ERROR "${_src} declares no UTEST cases to split")
+        endif()
+    endif()
+
+    foreach(_case IN LISTS _cases)
+        set(_filter)
+        if(T_SPLIT)
+            set(_filter --filter=${_case})
+        endif()
+        add_test(NAME ${_case} COMMAND test_${name} ${_filter})
+        if(T_TIMEOUT)
+            set_tests_properties(${_case} PROPERTIES TIMEOUT ${T_TIMEOUT})
+        endif()
+    endforeach()
+    if(T_SPLIT)
+        # A filter that matches nothing runs nothing and exits zero, which is a
+        # green test that never ran.
+        set_tests_properties(${_cases} PROPERTIES
+            FAIL_REGULAR_EXPRESSION "Running 0 test cases")
     endif()
 endfunction()
