@@ -79,14 +79,14 @@ machine and its tests are part of it — `RP6502_RTL_SIM`.
 | `verilator/Release` | `build/verilator/release` | the simulation and the whole suite |
 | `verilator/Debug` | `build/verilator/debug` | the same, unoptimised, for stepping a testbench |
 | `pocket` | `build/pocket` | the Analogue Pocket core |
-| `quartus/synth` | `build/quartus/synth` | area and timing, all pins virtual |
+| `quartus` | `build/quartus` | area and timing, all pins virtual |
 
 **A bitstream needs Quartus and `gcc-riscv64-unknown-elf`, and nothing
 else.** No Verilator, no host test suite. That was not true for a while:
 the Quartus projects were built from a source list defined inside a
 `verilator_FOUND` guard, so a machine without a simulator had no bitstream
 target at all — including the CI runner whose whole job is fitting one. The
-list moved to `rtl.cmake`, which every configuration includes, and it is
+list moved to `machine.cmake`, which every configuration includes, and it is
 still the list the simulation verilates, so the thing measured is still the
 thing tested.
 

@@ -32,7 +32,7 @@ if(verilator_FOUND)
 set(RP6502_VERILATE ON)
 
 # The waivers ride with the simulator rather than with the manifest in
-# rtl.cmake, because that is what they are: Verilator's own lint, waived.
+# machine.cmake, because that is what they are: Verilator's own lint, waived.
 # Quartus never sees them — its lists are filtered by extension — and a
 # tree built without a simulator has no business naming a file in tests/.
 #

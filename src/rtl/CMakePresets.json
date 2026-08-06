@@ -48,11 +48,11 @@
             }
         },
         {
-            "name": "quartus/synth",
-            "displayName": "quartus/synth",
+            "name": "quartus",
+            "displayName": "quartus",
             "description": "Area and timing only, all pins virtual. A tree of its own so a measurement never disturbs a real fit.",
             "inherits": "base",
-            "binaryDir": "${sourceDir}/../../build/quartus/synth",
+            "binaryDir": "${sourceDir}/../../build/quartus",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "RP6502_RTL_SIM": "OFF"
@@ -97,13 +97,13 @@
         {
             "name": "Machine",
             "displayName": "Machine",
-            "configurePreset": "quartus/synth",
+            "configurePreset": "quartus",
             "targets": ["synth"]
         },
         {
             "name": "Pocket core",
             "displayName": "Pocket core",
-            "configurePreset": "quartus/synth",
+            "configurePreset": "quartus",
             "targets": ["pocket-synth"]
         }
     ],

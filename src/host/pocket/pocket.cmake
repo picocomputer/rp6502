@@ -2,8 +2,8 @@
 # end of it, and the SD card tree that carries it.
 #
 # Everything here needs Quartus, the APF submodule and the soft CPU firmware.
-# None of it needs Verilator: the source list comes from rtl.cmake, which is a
-# list either way. MiSTer gets a file beside this one.
+# None of it needs Verilator: the source list comes from machine.cmake, which
+# is a list either way. MiSTer gets a file beside this one.
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)

@@ -143,7 +143,7 @@ job, each with a build directory of its own:
     verilator/Release   the simulation and its tests
     verilator/Debug     the same, unoptimised, for stepping a testbench
     pocket              the Analogue Pocket core
-    quartus/synth       area and timing, all pins virtual
+    quartus             area and timing, all pins virtual
 
 Pick one and the Build list changes with it — under `pocket` it offers
 **Card package** and **Bitstream**, under the Verilator presets **Tests** and

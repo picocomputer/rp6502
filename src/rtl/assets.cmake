@@ -6,7 +6,7 @@
 # the font image. So they are built once here rather than by whoever asked
 # first.
 #
-# Included by rtl.cmake, which every configuration of this tree includes. The
+# Included by machine.cmake, which every configuration of this tree includes. The
 # emulator's tree needs none of this.
 
 set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
