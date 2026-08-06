@@ -163,7 +163,14 @@ class Asm:
         self.push(v & 0xFF)
 
     def push_str(self, s):
-        for c in reversed(s.encode() + b"\0"):
+        """latin-1, which is to say the byte you wrote. The machine reads
+        a filename in its code page, so str.encode()'s UTF-8 default
+        would push two bytes for anything over 0x7F and hand the API a
+        name it never spelled. ASCII is the same either way, which is
+        why this went unnoticed until the C++ spelling disagreed."""
+        if isinstance(s, str):
+            s = s.encode("latin-1")
+        for c in reversed(s + b"\0"):
             self.push(c)
 
     def call(self, op):

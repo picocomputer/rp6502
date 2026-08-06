@@ -1,5 +1,23 @@
 # The RIA: the xreg dispatch, the API surface, the ROM loader and the clock.
 
+# --- The two assemblers are one instruction set ---
+# A .rp6502 is built by a generator writing a file and by a bench
+# building one in memory, so the encoding has a Python spelling and a
+# C++ one. asm_ref.py writes the reference; test_asm.cpp writes the same
+# program the other way and compares the images byte for byte. No
+# emulator and no simulator, so it runs wherever the suite does.
+set(ASM_REF ${CMAKE_CURRENT_BINARY_DIR}/asm_ref.rp6502)
+add_custom_command(OUTPUT ${ASM_REF}
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit ${ASM_REF}
+    DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py
+        ${RP6502_ROOT}/src/gen/rp6502_rom.py
+    COMMENT "Assembling the reference image"
+    VERBATIM)
+add_custom_target(asm_ref DEPENDS ${ASM_REF})
+rp6502_add_test(asm SOURCES test_asm.cpp DEFS ASM_REF="${ASM_REF}")
+add_dependencies(test_asm asm_ref)
+
 # --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
 rp6502_add_test(units
     SOURCES test_units.c ${RP6502_SRC}/emu/app/cli.c
@@ -35,6 +53,26 @@ add_dependencies(test_uni oemcp)
 set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
     TARGET_DIRECTORY test_uni PROPERTIES COMPILE_DEFINITIONS
     "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
+
+# --- The same suite over the Pocket's copy of the tables ---
+# uni_word is the one thing a port writes, and there are two ports: one
+# links oemcp.c and reads an array, one stages oemcp.bin and reads a
+# window. Both come out of one generator and nothing compared them, so
+# uni_bin.c is the second port and this is test_uni.c over it. Only the
+# tree that builds the .bin can run it; the emulator has no staged
+# tables to be wrong about.
+if(OEMCP_BIN)
+    rp6502_add_test(uni_bin
+        SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c uni_bin.c
+            ${RP6502_VENDOR}/fatfs/ffunicode.c
+        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/host/pico
+            ${OEMCP_DIR}
+        DEFS OEMCP_BIN_PATH="${OEMCP_BIN}")
+    add_dependencies(test_uni_bin oemcp oemcp_bin)
+    set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
+        TARGET_DIRECTORY test_uni_bin PROPERTIES COMPILE_DEFINITIONS
+        "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
+endif()
 
 if(RP6502_VERILATE)
     # The whole machine so far boots a program that talks through the RIA's
