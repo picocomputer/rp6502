@@ -451,7 +451,8 @@ jobs:
       || startsWith(github.ref, 'refs/tags/')
       || needs['rtl-changes'].outputs.rtl == 'true'
     runs-on: ubuntu-24.04
-    container: raetro/quartus:21.1
+    env:
+      QUARTUS_IMAGE: raetro/quartus:21.1
     steps:
       - uses: actions/checkout@v7
 
@@ -460,10 +461,46 @@ jobs:
 
       - name: Install build dependencies + RISC-V toolchain
         run: |
-          apt-get update
-          apt-get install -y --no-install-recommends \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build python3 \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+      # Quartus is the only thing here that needs the old image, so it is the
+      # only thing that goes inside it. The image is Ubuntu 16.04 and every
+      # tag of it was built in one week of July 2022: its glibc is older than
+      # any Node the checkout action runs on, and its archives never carried a
+      # RISC-V compiler. Running the job in the container fails on the first
+      # of those before it can fail on the second.
+      #
+      # So the container stops being the environment and becomes six programs.
+      # Each shim is a docker run over the same workspace mounted at the same
+      # path, which is what lets the absolute paths in the generated .qsf mean
+      # the same thing on both sides of the mount. find_program() in
+      # quartus.cmake takes them off PATH like any other binary — its HINTS
+      # name a local install that a runner does not have.
+      #
+      # --user keeps what Quartus writes owned by the runner, so the host side
+      # of the build can still write into the directories it created.
+      - name: Quartus by way of the container
+        run: |
+          set -euxo pipefail
+          docker pull "$QUARTUS_IMAGE"
+          shims="$HOME/.quartus-shims"
+          mkdir -p "$shims"
+          for tool in quartus_map quartus_fit quartus_sta \
+                      quartus_asm quartus_drc quartus_cdb; do
+            printf '%s\n' \
+              '#!/usr/bin/env bash' \
+              'exec docker run --rm \' \
+              '  --user "$(id -u):$(id -g)" -e HOME=/tmp \' \
+              "  -v \"$GITHUB_WORKSPACE:$GITHUB_WORKSPACE\" -w \"\$PWD\" \\" \
+              "  \"$QUARTUS_IMAGE\" $tool \"\$@\"" \
+              > "$shims/$tool"
+            chmod +x "$shims/$tool"
+          done
+          echo "$shims" >> "$GITHUB_PATH"
+          "$shims/quartus_sta" --version
 
       # One preset and one target. The pocket tree is Quartus and the
       # RISC-V compiler and nothing else — no Verilator, which this runner
@@ -481,7 +518,7 @@ jobs:
           cmake --build --preset "Card package"
         working-directory: src/rtl
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pocket
           path: build/pocket/package
