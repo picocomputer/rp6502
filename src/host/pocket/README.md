@@ -188,14 +188,17 @@ be relative to something before `exec` ever got to apply the rule
 above.
 
 **argv[0] is asked for, not known.** The core is handed a staged
-image and never told what it was called. Get File (`0x0190`) on slot
-0 is the only way to learn the name, and it is the one data slot
-command whose answer is more than a result code: the host writes the
-filename into memory the core nominates. That has to be the SDRAM
+image and never told what it was called. Get File (`0x0190`) on the
+ROM slot is the only way to learn the name, and it is the one data
+slot command whose answer is more than a result code: the host writes
+the filename into memory the core nominates. That has to be the SDRAM
 staging buffer, since the bridge writes nowhere else — the outbound
 window Open File uses is write-only from the host's side. The
-firmware asks once, at the first `pro_run()`, before the 6502 is
-released.
+firmware asks once per staged image, in `pro_restage()`, and asks
+before the loader fills that window rather than after: the answer
+lands in the ROM slot's own window, which is the buffer `rom.c`
+caches. An `exec` does not ask — the outgoing program has already
+said what the arguments are.
 
 Analogue documents the command and not the shape of its response
 struct. We read a NUL-terminated name at offset 0, which is where

@@ -361,7 +361,7 @@ void vga_set_display(vga_display_t display)
 
 // Also accepts NULL for reset to vga_console.
 // When xregs is non-NULL (pix xreg), sends ACK/NAK via backchannel.
-// ACK is deferred until vga_scanvideo_switch() when a mode switch is pending.
+// The ACK goes out here, not after the switch vga_scanvideo_update queues.
 void vga_xreg_canvas(uint16_t *xregs)
 {
     vga_canvas_t canvas = xregs ? xregs[0] : vga_console;

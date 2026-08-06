@@ -33,6 +33,10 @@
  * whole; the eight below them are the open-file descriptors. */
 #define MSC_SLOT_ROM 8
 
+/* The 6502 going into reset. Lands whatever a worker left at the bridge,
+ * so the next command does not stack on top of it. */
+void msc_stop(void);
+
 /* One data table word, by word index and not by slot. The table is 256
  * words of id/size pairs and the host decides where each pair lands. */
 uint32_t msc_dt(uint32_t word);
@@ -47,8 +51,10 @@ bool msc_slot_read(uint32_t slot, uint32_t off, uint32_t len);
 
 /* The host's name for whatever file is bound to a slot, converted to
  * code page bytes, refused rather than truncated if it will not fit.
- * Blocking, so boot only — this is how the core learns the name of the
- * ROM the user picked, which arrives staged and otherwise anonymous. */
+ * Blocking, so staging time only — this is how the core learns the name
+ * of the ROM the user picked, which arrives staged and otherwise
+ * anonymous. The answer lands in the slot's own window, so a caller
+ * holding anything else there loses it. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap);
 
 /* Pull a .rp6502 into the staging store where the host puts one, so the

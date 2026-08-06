@@ -39,6 +39,11 @@ static uint32_t rom_pos, rom_end;
  * costs one round trip per window and an asset seek costs one. */
 static uint32_t rom_win_base, rom_win_len;
 
+void rom_win_invalidate(void)
+{
+    rom_win_len = 0;
+}
+
 static bool rom_window(uint32_t at)
 {
     if (rom_win_len && at >= rom_win_base && at < rom_win_base + rom_win_len)

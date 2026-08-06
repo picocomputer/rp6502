@@ -17,6 +17,11 @@
  * window. True when the program and its reset vector are in place. */
 bool rom_load_staged(uint32_t len);
 
+/* Drop the cached window. Anything else that puts bytes in the ROM
+ * slot's window owes this call: the cache is keyed on file offsets and
+ * cannot see that what is there is no longer the file. */
+void rom_win_invalidate(void);
+
 /* The ROM: drive: read-only windows onto the staged image's assets,
  * registered in main_std_drivers. */
 bool rom_std_handles(const char *path);

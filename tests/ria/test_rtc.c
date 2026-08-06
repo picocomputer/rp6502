@@ -134,16 +134,19 @@ UTEST(rtc, code_page_drives_oem_mapping)
     ASSERT_EQ((unsigned char)out[0], 0xC6); /* CP850 'ã' */
 }
 
-/* An exec'd program inherits the current code page (it reads it back via the
- * attribute), so the exec reload (main_stop/main_run) must NOT revert it — else the
- * font (untouched by exec) and the code page would desync. */
-UTEST(rtc, exec_preserves_code_page)
+/* A run-only code page belongs to the run that set it. The stop every program
+ * change goes through puts it back, which is oem_stop in the firmware's stop
+ * fan-out; the font cannot desync from it, because the revert goes out over the
+ * same vga_set_code_page the change did. */
+UTEST(rtc, stop_reverts_run_code_page)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    oem_set_code_page_run(850); /* a guest program changed the run page */
-    main_stop();                /* the exec-reload path: stop + (load) + run */
-    main_run();
-    ASSERT_EQ(oem_get_code_page_run(), (uint16_t)850); /* preserved across the restart */
+    const uint16_t resolved = oem_get_code_page_run(); /* the config's, or the locale's */
+    const uint16_t guest = resolved == 850 ? 437 : 850;
+    oem_set_code_page_run(guest); /* a guest program changed the run page */
+    ASSERT_EQ(oem_get_code_page_run(), guest);
+    main_stop();
+    ASSERT_EQ(oem_get_code_page_run(), resolved);
 }
 
 /* The RTC is machine state, not program state: a guest settime rides through a

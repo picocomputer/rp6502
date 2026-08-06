@@ -112,6 +112,22 @@ static bool msc_busy;
  * that makes room before the WRITE that fills it. */
 static bool msc_grow;
 
+/* std_stop's closes drain only a descriptor they are going to flush, so
+ * a read-only one arrives here still in flight. Left there, the bridge
+ * keeps holding the command and the next one stacks a toggle on top of
+ * it. Nothing is owed the bytes: the program that asked is gone. */
+void msc_stop(void)
+{
+    if (msc_busy || msc_grow)
+    {
+        uint32_t st;
+        while (!msc_poll(&st))
+            ;
+    }
+    msc_busy = false;
+    msc_grow = false;
+}
+
 static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i += 4)

@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * argv and exec. The core is handed a staged image and never told what
- * it was called, so argv[0] has to be asked for — Get File on slot 0,
- * the ROM slot — and it is kept exactly as the host spells it, absolute
- * path and all. That is what lets a program open itself, and what lets
- * exec hand a path back.
+ * it was called, so argv[0] has to be asked for — Get File on the ROM
+ * slot — and it is kept exactly as the host spells it, absolute path and
+ * all. That is what lets a program open itself, and what lets exec hand
+ * a path back.
  *
  * Exec is the machine staging its own next program. The RIA reaches
  * into a filesystem; here the same thing is Open File to bind a slot,
@@ -22,6 +22,7 @@
  */
 
 #include "msc.h"
+#include "pro.h"
 #include "rom.h"
 
 #include "ria/api/api.h"
@@ -41,21 +42,18 @@ static char pro_argv0[PRO_ARGV0_MAX];
 static char pro_exec_path[PRO_ARGV0_MAX];
 static bool pro_exec_pending;
 
-/* Slot 0's binding cannot change without a core reload, and asking is a
- * blocking bridge command. Once is enough — and after an exec the
- * argument buffer holds what the outgoing program passed, which must
- * not be overwritten by the name of the image the user picked. */
-static bool pro_asked;
-
-void pro_run(void)
+/* Asked once per staged image rather than once per run, because asking
+ * is a blocking bridge command and a run does not change the answer.
+ * Never on an exec: the argument buffer already holds what the outgoing
+ * program passed, and that is the whole point of passing it. */
+void pro_restage(void)
 {
-    if (pro_asked)
-        return;
-    pro_asked = true;
-    if (!msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
-        return;
+    pro_exec_pending = false;
     arg_clear();
-    arg_append(pro_argv0);
+    if (msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
+        arg_append(pro_argv0);
+    /* The answer landed in the window rom.c reads the image through. */
+    rom_win_invalidate();
 }
 
 bool pro_api_argv(void)

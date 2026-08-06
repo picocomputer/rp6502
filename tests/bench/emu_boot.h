@@ -12,9 +12,11 @@
 #include "emu/emu/rom.h"
 #include "utest.h"
 
-/* The emulator lifecycle is init-once + stop/run per program (see emu/main.c).
- * A test binary initializes the drivers exactly once, in a custom main(), then
- * each case (re)starts the machine on its ROM via a stop + load + run. */
+/* The emulator lifecycle is init-once + load/run/stop per program (see
+ * emu/main.c): the stop belongs to the program that ran, not to the one about
+ * to. A test binary initializes the drivers exactly once, in a custom main(),
+ * and each case ends the program the previous case left running before loading
+ * its own. */
 
 /* Replaces UTEST_MAIN(): declares the utest state and a main() that inits the
  * drivers once before running the cases. */
@@ -26,7 +28,7 @@
         return utest_main(argc, argv);               \
     }
 
-/* Program change: stop the previous program, load rom, start it — what an exec
+/* Program change: end the previous program, load rom, start it — what an exec
  * and a ROM drop do. The first call per process runs on the just-inited, not-yet-
  * running machine, so its main_stop is a harmless no-op on the idle drivers. */
 static inline bool emu_restart(const char *rom)

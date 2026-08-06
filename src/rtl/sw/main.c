@@ -26,6 +26,7 @@
 #include "mou.h"
 #include "msc.h"
 #include "pad.h"
+#include "pro.h"
 #include "rom.h"
 #include "vga.h"
 #include "vid.h"
@@ -119,6 +120,28 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
             return ok;
         }
         return true;
+    }
+    if (channel == 0x0F)
+    {
+        /* The VGA control channel, RIA-private: pix_api_xreg refuses a
+         * guest write, so these arrive only from stop(). The registers
+         * with an analog on this fabric, false for the rest — the
+         * emulator's rule. */
+        switch (address)
+        {
+        case 0x00:
+            /* DISPLAY, which is also the console reset. The word names a
+             * display type and this machine has one, so nothing reads it. */
+            vga_set_canvas(vga_canvas_console);
+            term_RIS_no_clear();
+            for (int i = 0; i < 16; i++)
+                main_xregs[i] = 0;
+            return true;
+        case 0x01:
+            font_set_code_page(word);
+            return true;
+        }
+        return false;
     }
     /* Channels 1-14 reach external bus devices with no ACK; none exist,
      * so a no-op success — the emulator's rule. */
@@ -339,7 +362,6 @@ static void init(void)
 /* The 6502 coming out of reset. */
 static void run(void)
 {
-    pro_run();
     com_run();
     rln_run();
     api_run();
@@ -353,10 +375,10 @@ static void run(void)
 static void stop(void)
 {
     cpu_stop(); /* Must be first. */
-    vid_stop();
     rln_stop();
     api_stop();
     std_stop();
+    msc_stop(); /* after std_stop: its closes are what park a read */
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -364,6 +386,10 @@ static void stop(void)
     /* No pro_stop: argv belongs to the image, not the run. An exec is
      * the one thing that replaces it, and it brings its own before the
      * stop it asks for. */
+    /* The VGA control channel last, where the RIA's deferred vga_task
+     * puts it. Two registers: the code page is oem_stop's job there. */
+    main_xreg_1(0x0F, 0x01, 437);
+    main_xreg_1(0x0F, 0x00, vga_get_display_type());
 }
 
 /* The host announced a slot while we were running, applied at the stop.
@@ -378,7 +404,6 @@ static void stop(void)
  * where nothing between here and there can drop one. What the new image
  * is remains a question for the data table, which is where the loader
  * asks it anyway. */
-static bool main_restage;
 static uint8_t main_upd_seen;
 
 static bool main_rom_len(uint32_t *len)
@@ -393,6 +418,8 @@ static enum state {
     stopping,
 } volatile main_state;
 
+/* Callers belong in the loop's stopped block and nowhere else: promoted
+ * out of stopping, this would skip the outgoing program's teardown. */
 void main_run(void)
 {
     if (main_state != running)
@@ -413,31 +440,37 @@ bool main_active(void)
     return main_state != stopped;
 }
 
-int main(void)
+/* The loader parses the image straight out of the platform's staging
+ * window. data.json marks slot 8 required, so the host will not launch
+ * this core without one and a missing length means a platform that
+ * staged nothing — which leaves nothing to run and nothing to say. */
+static void main_stage(void)
 {
-    init();
-
-    /* The loader parses the image straight out of the platform's
-     * staging window. data.json marks slot 0 required, so the host will
-     * not launch this core without one and a zero here means a platform
-     * that staged nothing — which leaves nothing to run. */
     uint32_t len;
-    bool runnable = false;
-    if (main_rom_len(&len))
-    {
-        runnable = rom_load_staged(len);
-        if (!runnable)
-            printf("rom: bad image\n");
-    }
+    bool staged = main_rom_len(&len);
+    bool ok = staged && rom_load_staged(len);
+    /* After the load, not before. At boot the core is already running
+     * when the host is still staging, and the data table answers from
+     * the bridge while Get File needs the host: asked first, it waits
+     * out the bridge's whole deadline and the machine never starts. */
+    pro_restage();
     /* Cleared once the image is dealt with and not before: it is how
      * anything watching tells a load in progress from a finished one,
      * and a windowed load takes longer than a frame. */
     MMIO_SLOT = 0;
+    if (ok)
+        main_run();
+    else if (staged)
+        printf("rom: bad image\n");
+}
+
+int main(void)
+{
+    init();
+
+    main_stage();
     /* Whatever the host has announced up to here is this image. */
     main_upd_seen = (uint8_t)MMIO_UPD_N;
-
-    if (runnable)
-        main_run();
 
     /* The OS loop, in the firmware's task order with api last. The real
      * api.c latches the op and dispatches through main_api; the
@@ -446,6 +479,12 @@ int main(void)
      * for itself when a run is over. */
     for (;;)
     {
+        /* Loop-local: main_stop() leaves stopping or stopped, and both
+         * are handled below, so the news cannot outlive the pass that
+         * took it. A static one that missed its branch would strand the
+         * machine, which has no monitor to recover into. */
+        bool restage = false;
+
         if (API_PENDING)
         {
             /* ZXSTACK and EXIT run inside the $FFEF write on the RIA
@@ -477,11 +516,8 @@ int main(void)
         if (upd != main_upd_seen)
         {
             main_upd_seen = upd;
-            if (!main_restage)
-            {
-                main_restage = true;
-                main_stop();
-            }
+            restage = true;
+            main_stop();
         }
         if (main_state == starting)
         {
@@ -492,24 +528,15 @@ int main(void)
         {
             stop();
             main_state = stopped;
-            /* An exec loads here rather than inside the syscall that
-             * asked for it: stopping is what closes the descriptors the
-             * outgoing program left open, and the read needs one. */
-            if (main_restage)
-            {
-                uint32_t len;
-                main_restage = false;
-                bool ok = main_rom_len(&len) && rom_load_staged(len);
-                /* Cleared once the image is dealt with and not before:
-                 * it is how anything watching tells a load in progress
-                 * from a finished one, and a windowed load takes longer
-                 * than a frame. */
-                MMIO_SLOT = 0;
-                if (ok)
-                    main_run();
-                else
-                    printf("rom: bad image\n");
-            }
+        }
+        /* Below both branches rather than inside stopping, because a
+         * machine already stopped is owed no stop and would otherwise
+         * never launch: a program that exited, an exec that failed, or a
+         * pick that landed before the last one had begun to run. */
+        if (main_state == stopped)
+        {
+            if (restage)
+                main_stage();
             else if (pro_exec_take())
                 main_run();
         }
