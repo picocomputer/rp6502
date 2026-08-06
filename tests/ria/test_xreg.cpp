@@ -22,10 +22,9 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
-#include "tb_quiet.h"
-#include "tb_host.h"
-#include "tb_stage.h"
-#include "tb_tcm.h"
+#include "tb_asm.h"
+#include "tb_machine.h"
+#include "tb_rom.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -34,86 +33,28 @@
 #include <vector>
 
 static Vrp6502 *dut;
-/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
-static bool rv_phase;
-
-static bool load_firmware(const char *path)
-{
-    auto *r = dut->rootp;
-    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
-                       r->rp6502__DOT__rv__DOT__tcm1,
-                       r->rp6502__DOT__rv__DOT__tcm2,
-                       r->rp6502__DOT__rv__DOT__tcm3, path);
-}
-
-static uint32_t crc32_buf(const uint8_t *p, size_t n)
-{
-    uint32_t crc = 0xFFFFFFFFu;
-    while (n--)
-    {
-        crc ^= *p++;
-        for (int k = 0; k < 8; k++)
-            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1)));
-    }
-    return crc ^ 0xFFFFFFFFu;
-}
-
-static void rom_record(std::vector<uint8_t> &rom, uint32_t addr,
-                       const uint8_t *data, size_t len)
-{
-    char line[64];
-    snprintf(line, sizeof(line), "$%05X $%zX $%08X\n",
-             addr, len, crc32_buf(data, len));
-    rom.insert(rom.end(), line, line + strlen(line));
-    rom.insert(rom.end(), data, data + len);
-}
 
 UTEST(xreg, dispatch_matches_the_oracle)
 {
-    std::vector<uint8_t> p;
-    auto lda = [&](uint8_t v) { p.insert(p.end(), {0xA9, v}); };
-    auto sta = [&](uint16_t a) {
-        p.insert(p.end(), {0x8D, (uint8_t)a, (uint8_t)(a >> 8)});
-    };
-    auto ldaa = [&](uint16_t a) {
-        p.insert(p.end(), {0xAD, (uint8_t)a, (uint8_t)(a >> 8)});
-    };
-    auto push = [&](uint8_t v) { lda(v); sta(0xFFEC); };
-    auto pushw = [&](uint16_t w) { push((uint8_t)(w >> 8)); push((uint8_t)w); };
+    tb_asm p;
+    auto push = [&](uint8_t v) { p.push(v); };
+    auto pushw = [&](uint16_t w) { p.pushw(w); };
+    /* Four bytes a result: what the call returned, then the errno it
+     * left. The oracle runs the same program, so a difference anywhere
+     * in the dispatch shows up as a byte. */
     auto op1 = [&]() {
-        lda(0x01);
-        sta(0xFFEF);
-        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
-        sta(0xFFE1);                           /* print A */
-        p.insert(p.end(), {0x8E, 0xE1, 0xFF}); /* print X */
-        ldaa(0xFFED);
-        sta(0xFFE1);
-        ldaa(0xFFEE);
-        sta(0xFFE1);
+        p.call(0x01);
+        p.put_ax();
+        p.put_errno();
     };
     auto opn = [&](uint8_t op, uint8_t a) {
-        lda(a);
-        sta(0xFFF4);
-        lda(op);
-        sta(0xFFEF);
-        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
-        sta(0xFFE1);
-        p.insert(p.end(), {0x8E, 0xE1, 0xFF});
-        ldaa(0xFFED);
-        sta(0xFFE1);
-        ldaa(0xFFEE);
-        sta(0xFFE1);
+        p.call_a(op, a);
+        p.put_ax();
+        p.put_errno();
     };
     auto opn_errno = [&](uint8_t op, uint8_t a) {
-        lda(a);
-        sta(0xFFF4);
-        lda(op);
-        sta(0xFFEF);
-        p.insert(p.end(), {0x20, 0xF1, 0xFF}); /* jsr $FFF1 */
-        ldaa(0xFFED);
-        sta(0xFFE1);
-        ldaa(0xFFEE);
-        sta(0xFFE1);
+        p.call_a(op, a);
+        p.put_errno();
     };
 
     /* ATR_ERRNO_OPT first, because until a program picks a map every
@@ -192,12 +133,12 @@ UTEST(xreg, dispatch_matches_the_oracle)
     push(0); push(0); push(0); push(0);
     opn(0x0B, 5);
     opn(0x0A, 5);
-    lda(0x07); sta(0xFFE1); /* BEL, muted */
+    p.store(TB_RIA_TX, 0x07); /* BEL, muted */
     push(0); push(0); push(0); push(2); /* out of range */
     opn(0x0B, 5);
     push(0); push(0); push(0); push(1);
     opn(0x0B, 5);
-    lda(0x07); sta(0xFFE1); /* BEL, rings */
+    p.store(TB_RIA_TX, 0x07); /* BEL, rings */
 
     /* ATR_CODE_PAGE: a page both machines carry, one neither does — a
      * no-op that still answers success — and back to 437. Relative
@@ -213,19 +154,10 @@ UTEST(xreg, dispatch_matches_the_oracle)
     push(0); push(0); push(1); push(0xB5); /* 437 */
     opn(0x0B, 2);
     opn(0x0A, 2);
-    p.push_back(0xDB);
+    p.stp();
 
-    static const uint8_t vectors[] = {0x00, 0x03};
-    std::vector<uint8_t> rom;
-    const char magic[] = "#!RP6502\n";
-    rom.insert(rom.end(), magic, magic + strlen(magic));
-    rom_record(rom, 0x0300, p.data(), p.size());
-    rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
-
-    FILE *f = fopen(TEST_SCRATCH "/test_xreg.rp6502", "wb");
-    ASSERT_TRUE(f != NULL);
-    fwrite(rom.data(), 1, rom.size(), f);
-    fclose(f);
+    std::vector<uint8_t> rom = tb_rom_image(TB_ORG, p.b);
+    ASSERT_TRUE(tb_rom_write(TEST_SCRATCH "/test_xreg.rp6502", rom));
     oracle_init();
     oracle_tap_start();
     ASSERT_TRUE(oracle_restart(TEST_SCRATCH "/test_xreg.rp6502"));
@@ -238,37 +170,10 @@ UTEST(xreg, dispatch_matches_the_oracle)
     const char *tap = oracle_tap_data(&tap_len);
     std::string oracle_out(tap, tap_len);
 
-    ASSERT_TRUE(load_firmware(SW_BIN));
-    dut->rst_n = 0;
-    for (int i = 0; i < 4; i++)
-    {
-        rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-        dut->eval();
-        dut->clk_rv = 0;
-    dut->clk_sys = 0;
-        dut->eval();
-    }
-    dut->rst_n = 1;
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
-
     std::string cpu_out;
     int strikes = 0;
     bool bel_gate_prev = false;
-    ASSERT_TRUE(tb_quiet(dut, [&] {
-        uint32_t a = dut->rp6502_stage_addr;
-        tb_host_tick(dut, rom);
-        dut->stage_rdata = tb_stage(rom, a);
-        rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-        dut->eval();
-        dut->clk_rv = 0;
-    dut->clk_sys = 0;
-        dut->eval();
-        if (dut->rp6502_tx_valid)
-            cpu_out.push_back((char)dut->rp6502_tx_data);
+    ASSERT_TRUE(tb_boot_each(dut, rom, &cpu_out, [&] {
         /* The bell is a voice of the PSG now and the soft CPU rings it by
          * writing the voice's gate, so a strike is that bit going up. */
         const bool bg =

@@ -18,6 +18,7 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
+#include "tb_machine.h"
 #include "utest.h"
 
 #include <cstdint>
@@ -26,16 +27,6 @@ static Vrp6502 *dut;
 static bool rv_phase;
 
 /* One call is one clk_sys period. clk_rv is half of it, rising with it. */
-static void clock_cycle()
-{
-    rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-    dut->eval();
-    dut->clk_rv = 0;
-    dut->clk_sys = 0;
-    dut->eval();
-}
 
 static uint64_t mtime()
 {
@@ -45,15 +36,15 @@ static uint64_t mtime()
 UTEST(mtime, counts_real_microseconds)
 {
     dut->rst_n = 0;
-    clock_cycle();
-    clock_cycle();
+    tb_clock(dut);
+    tb_clock(dut);
     dut->rst_n = 1;
     ASSERT_EQ(mtime(), (uint64_t)0);
 
     /* Ten milliseconds of clk_sys at 50.4 MHz. The accumulator is exact
      * over any whole hundred microseconds, so this lands on the nose. */
     for (int i = 0; i < 504000; i++)
-        clock_cycle();
+        tb_clock(dut);
     ASSERT_EQ(mtime(), (uint64_t)10000);
 }
 
@@ -63,15 +54,15 @@ UTEST(mtime, is_monotonic_and_never_skips)
      * rate check with a loose bound; stepping by exactly one, always,
      * is the property the accumulator has to hold. */
     dut->rst_n = 0;
-    clock_cycle();
-    clock_cycle();
+    tb_clock(dut);
+    tb_clock(dut);
     dut->rst_n = 1;
 
     uint64_t prev = mtime();
     int steps = 0;
     for (int i = 0; i < 50400; i++)
     {
-        clock_cycle();
+        tb_clock(dut);
         uint64_t now = mtime();
         if (now == prev)
             continue;

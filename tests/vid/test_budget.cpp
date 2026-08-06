@@ -33,10 +33,7 @@
 #include "Vrp6502___024root.h"
 
 #include "oracle.h"
-#include "tb_quiet.h"
-#include "tb_host.h"
-#include "tb_stage.h"
-#include "tb_tcm.h"
+#include "tb_machine.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -45,8 +42,6 @@
 #include <vector>
 
 static Vrp6502 *dut;
-/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
-static bool rv_phase;
 
 #define PLANE_STATE(n) \
     dut->rootp->rp6502__DOT__gen_mode__BRA__##n##__KET____DOT__vid_mode__DOT__state
@@ -87,17 +82,6 @@ struct budget_t
     long lines;
 };
 
-static void clock_cycle()
-{
-    rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-    dut->eval();
-    dut->clk_rv = 0;
-    dut->clk_sys = 0;
-    dut->eval();
-}
-
 static bool render_idle()
 {
     return PLANE_STATE(0) == 0 && PLANE_STATE(1) == 0 && PLANE_STATE(2) == 0
@@ -127,7 +111,7 @@ static void measure_frame(budget_t *b)
     /* Start at a line boundary so the first count is whole. */
     uint16_t prev = dut->rp6502_scanline;
     while (dut->rp6502_scanline == prev)
-        clock_cycle();
+        tb_clock(dut);
 
     for (int line = 0; line < 525; line++)
     {
@@ -138,7 +122,7 @@ static void measure_frame(budget_t *b)
         long spst[6] = {0, 0, 0, 0, 0, 0};
         while (dut->rp6502_scanline == prev)
         {
-            clock_cycle();
+            tb_clock(dut);
             clocks++;
             if (!render_idle())
                 busy_until = clocks;
@@ -203,15 +187,12 @@ static void run_case(int *utest_result, const char *name,
                             r->rp6502__DOT__rv__DOT__tcm1,
                             r->rp6502__DOT__rv__DOT__tcm2,
                             r->rp6502__DOT__rv__DOT__tcm3, SW_BIN));
-    dut->rst_n = 0;
-    for (int i = 0; i < 4; i++)
-        clock_cycle();
-    dut->rst_n = 1;
+    tb_reset(dut);
     r->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
     ASSERT_TRUE(tb_quiet(dut, [&] {
         tb_host_tick(dut, rom);
         dut->stage_rdata = tb_stage(rom, dut->rp6502_stage_addr);
-        clock_cycle();
+        tb_clock(dut);
     }));
 
     /* One frame is every line: the walk starts on a boundary and takes

@@ -30,10 +30,8 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
-#include "tb_quiet.h"
-#include "tb_host.h"
-#include "tb_stage.h"
-#include "tb_tcm.h"
+#include "tb_machine.h"
+#include "tb_rom.h"
 #include "utest.h"
 
 #include <cstdio>
@@ -41,35 +39,18 @@
 #include <vector>
 
 static Vrp6502 *dut;
-/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
-static bool rv_phase;
 static std::vector<uint8_t> rom;
 
 static long g_valids;
 static long g_energy;
 static int g_peak;
 
-static bool load_firmware(const char *path)
+/* The platform clock with the codec tapped: every sample the machine
+ * puts out is counted, so a frame's worth of them is what "heard" means
+ * below. */
+static void aud_clock()
 {
-    auto *r = dut->rootp;
-    return tb_load_tcm(r->rp6502__DOT__rv__DOT__tcm0,
-                       r->rp6502__DOT__rv__DOT__tcm1,
-                       r->rp6502__DOT__rv__DOT__tcm2,
-                       r->rp6502__DOT__rv__DOT__tcm3, path);
-}
-
-static void clock_cycle()
-{
-    uint32_t a = dut->rp6502_stage_addr;
-    tb_host_tick(dut, rom);
-    dut->stage_rdata = tb_stage(rom, a);
-    rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-    dut->eval();
-    dut->clk_rv = 0;
-    dut->clk_sys = 0;
-    dut->eval();
+    tb_platform_clock(dut, rom, nullptr);
     if (dut->rp6502_aud_valid)
     {
         g_valids++;
@@ -94,29 +75,19 @@ static void clock_cycle()
 static void run_frame()
 {
     while (dut->rp6502_scanline != 524)
-        clock_cycle();
+        aud_clock();
     while (dut->rp6502_scanline != 0)
-        clock_cycle();
+        aud_clock();
 }
 
 static bool load_rom(const char *path)
 {
-    FILE *f = fopen(path, "rb");
-    if (!f)
-        return false;
     rom.clear();
-    uint8_t buf[4096];
-    size_t n;
-    while ((n = fread(buf, 1, sizeof buf, f)) > 0)
-        rom.insert(rom.end(), buf, buf + n);
-    fclose(f);
-
-    if (!load_firmware(SW_BIN))
+    if (!tb_rom_read(path, rom))
         return false;
-    dut->rst_n = 0;
-    for (int i = 0; i < 4; i++)
-        clock_cycle();
-    dut->rst_n = 1;
+    if (!tb_firmware(dut, SW_BIN))
+        return false;
+    tb_reset(dut);
     dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
     g_valids = g_energy = 0;
     g_peak = 0;
@@ -210,14 +181,14 @@ UTEST(aud, the_machine_runs_while_the_6502_is_held)
         int prev = dut->rp6502_scanline;
         while (dut->rp6502_scanline != 524)
         {
-            clock_cycle();
+            aud_clock();
             if (dut->rp6502_rv_tx_valid)
                 rv_bytes++;
             if (dut->rp6502_scanline != prev)
                 prev = dut->rp6502_scanline;
         }
         while (dut->rp6502_scanline != 0)
-            clock_cycle();
+            aud_clock();
         frames++;
     }
 

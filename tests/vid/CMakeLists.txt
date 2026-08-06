@@ -67,10 +67,10 @@ if(RP6502_SOFT_CPU)
     # character cells per format; mode 2 tile maps per depth and tile size
     # with trims, wraps and the composite; mode 3 bitmaps per depth and
     # canvas; mode 4 raw sixteen-bit sprites with opacity metadata; mode 5
-    # the foreground walk, clips and per-sprite palettes.
-    foreach(m mode1 mode2 mode3 mode4 mode5)
-        rp6502_add_machine_test(${m} ORACLE FIRMWARE SPLIT
-            DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
-            TIMEOUT 900)
-    endforeach()
+    # the foreground walk, clips and per-sprite palettes. One binary, and
+    # SPLIT gives each fixture its own ctest name — mode1.* through
+    # mode5.*, the names the five separate suites used to register.
+    rp6502_add_machine_test(modes ORACLE FIRMWARE SPLIT
+        DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+        TIMEOUT 900)
 endif()

@@ -18,6 +18,7 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
+#include "tb_machine.h"
 #include "utest.h"
 
 #include <cstdint>
@@ -26,16 +27,6 @@ static Vrp6502 *dut;
 static bool rv_phase;
 
 /* One call is one clk_sys period. clk_rv is half of it, rising with it. */
-static void clock_cycle()
-{
-    rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-    dut->eval();
-    dut->clk_rv = 0;
-    dut->clk_sys = 0;
-    dut->eval();
-}
 
 static void tcm_poke(uint32_t byte_addr, uint32_t word)
 {
@@ -58,15 +49,15 @@ static uint32_t tcm_peek(uint32_t byte_addr)
 static void run_program(const uint32_t *prog, unsigned words)
 {
     dut->rst_n = 0;
-    clock_cycle();
-    clock_cycle();
+    tb_clock(dut);
+    tb_clock(dut);
     for (unsigned i = 0; i < words; i++)
         tcm_poke(i * 4, prog[i]);
     tcm_poke(0x1000, 0);
     tcm_poke(0x1004, 0);
     dut->rst_n = 1;
     for (int i = 0; i < 2000; i++)
-        clock_cycle();
+        tb_clock(dut);
 }
 
 UTEST(tcm, load_after_store_sees_the_store)

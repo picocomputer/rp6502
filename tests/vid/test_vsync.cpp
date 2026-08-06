@@ -13,6 +13,7 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
+#include "tb_machine.h"
 #include "utest.h"
 
 #include <cstdint>
@@ -20,19 +21,6 @@
 #include <vector>
 
 static Vrp6502 *dut;
-/* Half clk_sys, rising with it: the PLL's shape, not a divider's. */
-static bool rv_phase;
-
-static void clock_cycle()
-{
-    rv_phase = !rv_phase;
-    dut->clk_rv = rv_phase;
-    dut->clk_sys = 1;
-    dut->eval();
-    dut->clk_rv = 0;
-    dut->clk_sys = 0;
-    dut->eval();
-}
 
 /* RESB is the OS's line and takes no reset, so a case that wants the
  * machine held starts a new one. */
@@ -48,8 +36,8 @@ static void machine_reset()
     dut->clk_rv = 0;
     dut->rst_n = 0;
     dut->eval();
-    clock_cycle();
-    clock_cycle();
+    tb_clock(dut);
+    tb_clock(dut);
     dut->rst_n = 1;
     dut->rootp->rp6502__DOT__resb = 1;
 }
@@ -96,7 +84,7 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
     std::vector<uint64_t> at;
     for (uint64_t i = 0; i < 16000000; i++)
     {
-        clock_cycle();
+        tb_clock(dut);
         if (dut->rp6502_tx_valid)
         {
             out.push_back((char)dut->rp6502_tx_data);
@@ -151,7 +139,7 @@ UTEST(vsync, movable_line_keeps_the_cadence)
     std::vector<uint64_t> at;
     for (uint64_t i = 0; i < 16000000; i++)
     {
-        clock_cycle();
+        tb_clock(dut);
         if (dut->rp6502_tx_valid)
             at.push_back(i);
         if (r->rp6502__DOT__cpu__DOT__stop_flag)
