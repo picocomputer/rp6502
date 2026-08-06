@@ -115,12 +115,19 @@ module vid_mode (
     logic [15:0] attr /*verilator public_flat_rd*/;
     logic [15:0] config_ptr /*verilator public_flat_rd*/;
 
-    /* Five words hold any mode's config, and they land already aligned:
-     * the halfword offset is settled before the first read is issued, so
-     * the shift belongs on the capture rather than in front of every
-     * pipeline's arithmetic. */
-    logic [2:0] cfg_i, cfg_c;
+    /* Sixteen bytes shifted in a halfword at a time, low half first and
+     * entered at the top, so the config ends flush against bit 127 wherever
+     * it started. A halfword base is a fifth fetch and a ninth shift, and
+     * the junk halfword ahead of it falls out the bottom. vid_palram
+     * forgives a halfword palette pointer the same way. */
+    logic [2:0] cfg_i, cfg_n;
+    logic [3:0] sh_c, sh_n;
     logic [127:0] cfgw;
+    logic [15:0] hi_hold;
+    logic hi_pend;
+    logic gnt_d;
+    logic [15:0] sh_in;
+    always_comb sh_in = gnt_d ? a_rdata[15:0] : hi_hold;
 
     logic [9:0] cw;
     always_comb cw = x_shift ? 10'd320 : 10'd640;
@@ -418,7 +425,9 @@ module vid_mode (
 
     always_comb begin
         if (state == S_CFG) begin
-            vid_mode_a_req = cfg_i < 3'd4;
+            /* One word in flight: the half held back has to shift before
+             * the next word's low half arrives. */
+            vid_mode_a_req = cfg_i < cfg_n && !gnt_d;
             vid_mode_a_addr = config_ptr[15:2] + {11'd0, cfg_i};
         end else begin
             vid_mode_a_req = state == S_MODE && sub_a_req;
@@ -433,8 +442,6 @@ module vid_mode (
             linebuf[{wr_bank, sp_addr}] <= sp_data;
     end
 
-    logic gnt_d;
-
     initial begin
         wr_bank = 1'b0;
         filled_q[0] = 1'b0;
@@ -445,8 +452,12 @@ module vid_mode (
         attr = '0;
         config_ptr = '0;
         cfgw = '0;
+        hi_hold = '0;
+        hi_pend = 1'b0;
         cfg_i = '0;
-        cfg_c = '0;
+        cfg_n = '0;
+        sh_c = '0;
+        sh_n = '0;
         m3_start = 1'b0;
         m2_start = 1'b0;
         m1_start = 1'b0;
@@ -514,29 +525,25 @@ module vid_mode (
                         flip_next <= 1'b1;
                         filled_q[wr_bank] <= 1'b0;
                     end else begin
+                        /* config_ptr takes p_config on this same clock. */
                         cfg_i <= '0;
-                        cfg_c <= '0;
+                        sh_c <= '0;
+                        hi_pend <= 1'b0;
+                        cfg_n <= p_config[1] ? 3'd5 : 3'd4;
+                        sh_n <= p_config[1] ? 4'd9 : 4'd8;
                         state <= S_CFG;
                     end
                 end
                 S_CFG: begin
                     if (a_gnt)
                         cfg_i <= cfg_i + 3'd1;
-                    if (gnt_d) begin
-                        /* config_ptr is 32-bit aligned, so the struct
-                         * lands word for word and there is no second,
-                         * offset-by-two capture to select between. Four
-                         * words: the widest config any engine reads is
-                         * sixteen bytes, and the fifth fetch this used to
-                         * make was discarded. */
-                        case (cfg_c)
-                            3'd0: cfgw[31:0] <= a_rdata;
-                            3'd1: cfgw[63:32] <= a_rdata;
-                            3'd2: cfgw[95:64] <= a_rdata;
-                            default: cfgw[127:96] <= a_rdata;
-                        endcase
-                        cfg_c <= cfg_c + 3'd1;
-                        if (cfg_c == 3'd3) begin
+                    hi_pend <= gnt_d;
+                    if (gnt_d)
+                        hi_hold <= a_rdata[31:16];
+                    if (gnt_d || hi_pend) begin
+                        cfgw <= {sh_in, cfgw[127:16]};
+                        sh_c <= sh_c + 4'd1;
+                        if (sh_c + 4'd1 == sh_n) begin
                             if (mode_q == 3'd1)
                                 m1_start <= 1'b1;
                             else if (mode_q == 3'd2)
@@ -561,8 +568,7 @@ module vid_mode (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode;
-    always_comb unused_vid_mode = ^{t_cv, p_entry[30:19],
-                                    config_ptr[1:0]};
+    always_comb unused_vid_mode = ^{t_cv, p_entry[30:19], config_ptr[0]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

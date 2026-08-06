@@ -184,15 +184,22 @@ module aud_psg
     logic [VOL_W-1:0] ld_vol;
     always_comb ld_vol = clr && !ch[3] ? '0 : ch_vol[ch];
 
-    /* xaddr is 32-bit aligned, so the block is sixteen whole words and no
-     * half of one is carried across a fetch. */
+    /* An odd pointer is the only thing rejected, so a block can start on
+     * a halfword and straddle seventeen words rather than sixteen. */
+    logic [15:0] carry_hi;
     logic cw_en;
     logic [3:0] cw_word;
     logic [31:0] cw_data;
     always_comb begin
-        cw_en = gnt_d && fw_c < 5'd16;
-        cw_word = 4'(fw_c);
-        cw_data = a_rdata;
+        if (xaddr[1]) begin
+            cw_en = gnt_d && fw_c != 5'd0;
+            cw_word = 4'(fw_c - 5'd1);
+            cw_data = {a_rdata[15:0], carry_hi};
+        end else begin
+            cw_en = gnt_d && fw_c < 5'd16;
+            cw_word = 4'(fw_c);
+            cw_data = a_rdata;
+        end
     end
     logic [15:0] cf_freq;
     logic [7:0] cf_duty, cf_va, cf_vd, cf_wr, cf_pan;
@@ -223,7 +230,8 @@ module aud_psg
     state_t state;
 
     logic [12:0] tickctr;
-    logic [4:0] fw_i, fw_c;
+    logic [4:0] fw_i, fw_c, fw_n;
+    always_comb fw_n = xaddr[1] ? 5'd17 : 5'd16;
     logic gnt_d;
 
     /* Unshifted, rounding once at P_OUT: two truncations in series bias
@@ -396,7 +404,7 @@ module aud_psg
     end
 
     always_comb begin
-        aud_psg_a_req = state == P_FETCH && fw_i < 5'd16;
+        aud_psg_a_req = state == P_FETCH && {1'b0, fw_i} < {1'b0, fw_n};
         aud_psg_a_addr = xaddr[15:2] + {9'd0, fw_i};
     end
 
@@ -497,8 +505,9 @@ module aud_psg
                 if (a_gnt)
                     fw_i <= fw_i + 5'd1;
                 if (gnt_d) begin
+                    carry_hi <= a_rdata[31:16];
                     fw_c <= fw_c + 5'd1;
-                    if (fw_c == 5'd15) begin
+                    if (fw_c + 5'd1 == fw_n) begin
                         ch <= '0;
                         mix_l <= '0;
                         mix_r <= '0;

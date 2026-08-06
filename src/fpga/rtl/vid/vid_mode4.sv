@@ -45,17 +45,28 @@ module vid_mode4 (
 
     logic [15:0] idx;
 
-    /* cfg is 32-bit aligned and both descriptor strides are multiples of
-     * four, so a descriptor never straddles a word: nothing to shift out
-     * and the gather lands where it is read. */
+    /* The gather is a halfword shift register entered at the top, so whatever
+     * went in last sits highest and the descriptor ends flush against bit 159
+     * wherever it started. A halfword base is one more fetch and one more
+     * shift, and the junk halfword ahead of the descriptor falls out below the
+     * window rather than being shifted out of the way.
+     *
+     * mode4_asprite_t is transform[6] followed by mode4_sprite_t's own fields,
+     * so flush against the top puts both descriptors' position, pointer, log
+     * and metadata flag in the same bits and there is nothing to select. */
     logic [159:0] gather;
+    logic [15:0] hi_hold;
+    logic hi_pend;
     logic [16:0] daddr;
     always_comb daddr = {1'b0, cfg}
         + (affine
            ? 17'(17'(idx[12:0]) * 17'd20)
            : {1'd0, idx[12:0], 3'b000});
-    logic [2:0] fw_i, fw_c, fw_n;
+    logic [2:0] fw_i, fw_n;
+    logic [3:0] sh_c, sh_n;
     logic gnt_d;
+    logic [15:0] sh_in;
+    always_comb sh_in = gnt_d ? a_rdata[15:0] : hi_hold;
     logic signed [15:0] dc_x, dc_y;
     logic [15:0] dc_sptr;
     logic [7:0] dc_log;
@@ -64,11 +75,11 @@ module vid_mode4 (
     always_comb begin
         for (int j = 0; j < 6; j++)
             dc_t[j] = gather[16 * j+:16];
-        dc_x = affine ? gather[111:96] : gather[15:0];
-        dc_y = affine ? gather[127:112] : gather[31:16];
-        dc_sptr = affine ? gather[143:128] : gather[47:32];
-        dc_log = affine ? gather[151:144] : gather[55:48];
-        dc_meta = (affine ? gather[159:152] : gather[63:56]) != 8'h00;
+        dc_x = gather[111:96];
+        dc_y = gather[127:112];
+        dc_sptr = gather[143:128];
+        dc_log = gather[151:144];
+        dc_meta = gather[159:152] != 8'h00;
     end
 
     /* Decoded once into registers. Hanging the guard arithmetic, texel
@@ -235,7 +246,10 @@ module vid_mode4 (
         vid_mode4_a_req = 1'b0;
         vid_mode4_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
-            M4_DESC: vid_mode4_a_req = fw_i < fw_n;
+            /* One word in flight: the half held back has to shift before the
+             * next word's low half arrives, and dropping the request for the
+             * grant's own clock is what spaces them. */
+            M4_DESC: vid_mode4_a_req = fw_i < fw_n && !gnt_d;
             M4_META: begin
                 vid_mode4_a_req = fw_i == 3'd0;
                 vid_mode4_a_addr = meta_addr[15:2];
@@ -306,9 +320,12 @@ module vid_mode4 (
         d_over = '0;
         for (int j = 0; j < 6; j++)
             d_t[j] = '0;
+        hi_hold = '0;
+        hi_pend = 1'b0;
         fw_i = '0;
-        fw_c = '0;
         fw_n = '0;
+        sh_c = '0;
+        sh_n = '0;
         gnt_d = 1'b0;
         tex_x = '0;
         span_end = '0;
@@ -348,26 +365,28 @@ module vid_mode4 (
             case (state)
                 M4_IDLE: ;
                 M4_NEXT: begin
+                    /* cfg[1] rather than daddr[1]: both strides are multiples
+                     * of four, so the array's alignment is every descriptor's,
+                     * and the address adder stays out of it. */
                     fw_i <= '0;
-                    fw_c <= '0;
-                    fw_n <= affine ? 3'd5 : 3'd2;
-                    gather <= '0;
+                    sh_c <= '0;
+                    hi_pend <= 1'b0;
+                    fw_n <= affine ? (cfg[1] ? 3'd6 : 3'd5)
+                                   : (cfg[1] ? 3'd3 : 3'd2);
+                    sh_n <= affine ? (cfg[1] ? 4'd11 : 4'd10)
+                                   : (cfg[1] ? 4'd5 : 4'd4);
                     state <= M4_DESC;
                 end
                 M4_DESC: begin
                     if (a_gnt)
                         fw_i <= fw_i + 3'd1;
-                    if (gnt_d) begin
-                        case (fw_c)
-                            3'd0: gather[31:0] <= a_rdata;
-                            3'd1: gather[63:32] <= a_rdata;
-                            3'd2: gather[95:64] <= a_rdata;
-                            3'd3: gather[127:96] <= a_rdata;
-                            3'd4: gather[159:128] <= a_rdata;
-                            default: ;
-                        endcase
-                        fw_c <= fw_c + 3'd1;
-                        if (fw_c + 3'd1 == fw_n)
+                    hi_pend <= gnt_d;
+                    if (gnt_d)
+                        hi_hold <= a_rdata[31:16];
+                    if (gnt_d || hi_pend) begin
+                        gather <= {sh_in, gather[159:16]};
+                        sh_c <= sh_c + 4'd1;
+                        if (sh_c + 4'd1 == sh_n)
                             state <= M4_DECODE;
                     end
                 end

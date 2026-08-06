@@ -81,14 +81,20 @@ module vid_mode5
 
     logic [15:0] idx;
 
-    /* The descriptor gather: eight bytes, always exactly two words. cfg is
-     * 32-bit aligned and the stride is eight, so a descriptor never straddles
-     * and there is nothing to shift out. */
+    /* Eight bytes shifted in a halfword at a time, low half first and entered
+     * at the top, so the descriptor ends flush against bit 63 wherever it
+     * started. A halfword base is one more fetch and one more shift, and the
+     * junk halfword ahead of the descriptor falls out the bottom rather than
+     * being shifted out of the way. */
     logic [63:0] gather;
+    logic [15:0] hi_hold;
+    logic hi_pend;
     logic [16:0] daddr;
     always_comb daddr = {1'b0, cfg} + {1'd0, idx[12:0], 3'b000};
-    logic [2:0] fw_i, fw_c;
+    logic [2:0] fw_i, fw_n, sh_c, sh_n;
     logic gnt_d;
+    logic [15:0] sh_in;
+    always_comb sh_in = gnt_d ? a_rdata[15:0] : hi_hold;
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr, d_pptr;
     always_comb begin
@@ -160,7 +166,10 @@ module vid_mode5
         vid_mode5_a_req = 1'b0;
         vid_mode5_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
-            M5_DESC: vid_mode5_a_req = fw_i < 3'd2;
+            /* One word in flight: the half held back has to shift before the
+             * next word's low half arrives, and dropping the request for the
+             * grant's own clock is what spaces them. */
+            M5_DESC: vid_mode5_a_req = fw_i < fw_n && !gnt_d;
             M5_PIX: begin
                 if (!dhit) begin
                     vid_mode5_a_req = fw_i == 3'd0;
@@ -205,8 +214,12 @@ module vid_mode5
         state = M5_IDLE;
         idx = '0;
         gather = '0;
+        hi_hold = '0;
+        hi_pend = 1'b0;
         fw_i = '0;
-        fw_c = '0;
+        fw_n = '0;
+        sh_c = '0;
+        sh_n = '0;
         gnt_d = 1'b0;
         tex_x = '0;
         size_x = '0;
@@ -246,23 +259,27 @@ module vid_mode5
             case (state)
                 M5_IDLE: ;
                 M5_NEXT: begin
-                    /* Aim the gather at descriptor idx. */
+                    /* Aim the gather at descriptor idx. cfg[1] rather than
+                     * daddr[1]: the stride is a multiple of four, so the
+                     * array's alignment is every descriptor's, and the
+                     * address adder stays out of it. */
                     fw_i <= '0;
-                    fw_c <= '0;
-                    gather <= '0;
+                    sh_c <= '0;
+                    hi_pend <= 1'b0;
+                    fw_n <= cfg[1] ? 3'd3 : 3'd2;
+                    sh_n <= cfg[1] ? 3'd5 : 3'd4;
                     state <= M5_DESC;
                 end
                 M5_DESC: begin
                     if (a_gnt)
                         fw_i <= fw_i + 3'd1;
-                    if (gnt_d) begin
-                        case (fw_c)
-                            3'd0: gather[31:0] <= a_rdata;
-                            3'd1: gather[63:32] <= a_rdata;
-                            default: ;
-                        endcase
-                        fw_c <= fw_c + 3'd1;
-                        if (fw_c == 3'd1)
+                    hi_pend <= gnt_d;
+                    if (gnt_d)
+                        hi_hold <= a_rdata[31:16];
+                    if (gnt_d || hi_pend) begin
+                        gather <= {sh_in, gather[63:16]};
+                        sh_c <= sh_c + 3'd1;
+                        if (sh_c + 3'd1 == sh_n)
                             state <= M5_JUDGE;
                     end
                 end
