@@ -13,7 +13,7 @@ set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
 file(MAKE_DIRECTORY ${RP6502_ASSETS})
 
 # rp6502_asset(<target> GEN <script> OUTPUTS <file>... [ARGS <arg>...]
-#              [DEPENDS <file>...] [WORKDIR <dir>] COMMENT <text>)
+#              [DEPENDS <file>...] COMMENT <text>)
 #
 # Generates at configure time AND at build time, which looks redundant and is
 # not: verilate() reads its sources when cmake configures, so a package that
@@ -28,11 +28,7 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # changed. That costs a ten minute refit, and it makes the fit's own freshness
 # gate refuse a fit nothing had actually touched.
 function(rp6502_asset target)
-    cmake_parse_arguments(A "" "GEN;WORKDIR;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
-    set(_wd)
-    if(A_WORKDIR)
-        set(_wd WORKING_DIRECTORY ${A_WORKDIR})
-    endif()
+    cmake_parse_arguments(A "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
     set(_absent FALSE)
     foreach(_out IN LISTS A_OUTPUTS)
         if(NOT EXISTS ${_out})
@@ -40,7 +36,7 @@ function(rp6502_asset target)
         endif()
     endforeach()
     if(_absent)
-        execute_process(COMMAND python3 ${A_GEN} ${A_ARGS} ${_wd} RESULT_VARIABLE _rc)
+        execute_process(COMMAND python3 ${A_GEN} ${A_ARGS} RESULT_VARIABLE _rc)
         if(_rc)
             get_filename_component(_name ${A_GEN} NAME)
             message(FATAL_ERROR "${_name} failed")
@@ -48,7 +44,6 @@ function(rp6502_asset target)
     endif()
     add_custom_command(OUTPUT ${A_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${A_GEN} ${A_ARGS}
-        ${_wd}
         DEPENDS ${A_GEN} ${A_DEPENDS}
         COMMENT ${A_COMMENT}
         VERBATIM)
@@ -125,6 +120,10 @@ rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
 # the machine's own diagnostics stay readable while a device is driven.
 # test_aud runs these same files, which is what keeps a note that sounds
 # on hardware and a note the simulation asserts from drifting apart.
+# The assembler and the .rp6502 container every one of these generators
+# writes through. A change to it changes every ROM, so every ROM names it.
+set(RP6502_ROM_GEN ${RP6502_SRC}/gen/rp6502_rom.py)
+
 set(AUD_ROM_PSG ${RP6502_ASSETS}/psg.rp6502)
 set(AUD_ROM_OPL ${RP6502_ASSETS}/opl.rp6502)
 set(AUD_ROM_OPL_EXIT ${RP6502_ASSETS}/opl_exit.rp6502)
@@ -136,6 +135,7 @@ rp6502_asset(aud_roms GEN ${RP6502_SRC}/gen/aud_rom_gen.py
         --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
     OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_OPL} ${AUD_ROM_OPL_EXIT}
         ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
+    DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the audio bring-up ROMs")
 
 # The resampler's coefficients, as the package the RTL reads. The same
@@ -162,17 +162,18 @@ set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)
 rp6502_asset(file_rom GEN ${RP6502_SRC}/gen/file_rom_gen.py
     ARGS --emit ${FILE_ROM}
     OUTPUTS ${FILE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the file round-trip ROM")
 
 # The same round trip past the transfer window. It ships but is not a
 # test: what it exists to ask — whether the Pocket's resize keeps what
 # was already in the file — has no answer in simulation, because the
 # bench answers the way we assumed.
-set(BIGFILE_ROM_GEN ${RP6502_SRC}/gen/bigfile_rom_gen.py)
 set(BIGFILE_ROM ${RP6502_ASSETS}/bigfile.rp6502)
-rp6502_asset(bigfile_rom GEN ${BIGFILE_ROM_GEN}
+rp6502_asset(bigfile_rom GEN ${RP6502_SRC}/gen/bigfile_rom_gen.py
     ARGS --emit ${BIGFILE_ROM}
     OUTPUTS ${BIGFILE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the multi-chunk file ROM")
 
 # The create path has never worked on hardware and the name turned out
@@ -182,8 +183,7 @@ set(PROBE_ROM ${RP6502_ASSETS}/probe.rp6502)
 rp6502_asset(probe_rom GEN ${RP6502_SRC}/gen/probe_rom_gen.py
     ARGS --emit ${PROBE_ROM}
     OUTPUTS ${PROBE_ROM}
-    DEPENDS ${BIGFILE_ROM_GEN}
-    WORKDIR ${RP6502_SRC}/gen
+    DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the open-file probe ROM")
 
 # The whole drive in one boot: forty-seven checks the machine decides
@@ -193,6 +193,5 @@ set(FSTEST_ROM ${RP6502_ASSETS}/fstest.rp6502)
 rp6502_asset(fstest_rom GEN ${RP6502_SRC}/gen/fstest_rom_gen.py
     ARGS --emit ${FSTEST_ROM}
     OUTPUTS ${FSTEST_ROM}
-    DEPENDS ${BIGFILE_ROM_GEN}
-    WORKDIR ${RP6502_SRC}/gen
+    DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the filesystem conformance ROM")

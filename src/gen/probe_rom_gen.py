@@ -30,12 +30,11 @@
 # whether the host creates the tree on its way to a file.
 
 import argparse
-import zlib
-from pathlib import Path
 
-from bigfile_rom_gen import (ORG, API_A, API_OP, API_CALL, RIA_TX, RIA_READY,
-                             OP_OPEN, OP_CLOSE, O_RDONLY, O_WRONLY, O_CREAT,
-                             O_TRUNC, Prog)
+from rp6502_rom import (API_A, ORG, OP_CLOSE, OP_LSEEK, OP_OPEN, O_CREAT,
+                        O_RDONLY, O_TRUNC, O_WRONLY, RIA_READY, RIA_TX, Asm,
+                        image)
+
 
 # api_pop_int8 takes whence before api_pop_int32_end takes the offset, so
 # whence is pushed last. cc65 spells END as 1, not 2.
@@ -51,7 +50,7 @@ NEW = "n2.bin"
 
 
 def build():
-    p = Prog()
+    p = Asm()
     p.emit(0x4C, 0x00, 0x00)  # jmp main
     jmp_main = 1
 
@@ -147,7 +146,7 @@ def build():
 
     text("DONE\r\n")
     p.emit(0xDB)  # stp
-    return bytes(p.b)
+    return p
 
 
 def main():
@@ -155,14 +154,8 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        body = build()
-        rom = b"#!RP6502\n"
-        for addr, data in ((ORG, body),
-                           (0xFFFC, bytes((ORG & 0xFF, ORG >> 8)))):
-            crc = zlib.crc32(data) & 0xFFFFFFFF
-            rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
-        Path(a.emit).write_bytes(rom)
-        print(f"probe.rp6502 {len(rom)} bytes, shrink probe on {OLD}, create {NEW}")
+        n = image(build()).write(a.emit)
+        print(f"probe.rp6502 {n} bytes, shrink probe on {OLD}, create {NEW}")
     return 0
 
 

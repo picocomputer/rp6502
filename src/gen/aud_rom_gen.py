@@ -14,72 +14,30 @@
 # Pocket and what the simulation asserts cannot drift apart.
 
 import argparse
-import zlib
-from pathlib import Path
 
-ORG = 0x0300
-
-# RIA registers the programs touch.
-RW0_DATA = 0xFFE4
-RW0_ADDR = 0xFFE6
-XSTACK = 0xFFEC
-UART_TX = 0xFFE1
-API_OP = 0xFFEF
-API_CALL = 0xFFF1
+from rp6502_rom import API_OP, RIA_TX, Asm, image
 
 
-class Prog:
-    def __init__(self):
-        self.b = bytearray()
-
-    def lda(self, v):
-        self.b += bytes((0xA9, v))
-
-    def sta(self, a):
-        self.b += bytes((0x8D, a & 0xFF, a >> 8))
-
-    def push(self, v):
-        self.lda(v)
-        self.sta(XSTACK)
-
-    def pushw(self, w):
-        self.push((w >> 8) & 0xFF)
-        self.push(w & 0xFF)
-
-    def xreg(self, dev, ch, addr, word):
-        self.push(dev)
-        self.push(ch)
-        self.push(addr)
-        self.pushw(word)
-        self.lda(0x01)
-        self.sta(API_OP)
-        self.b += bytes((0x20, API_CALL & 0xFF, API_CALL >> 8))
-
-    def poke(self, addr, val):
-        """One XRAM byte through RW0, which is what the device snoops."""
-        self.lda(addr & 0xFF)
-        self.sta(RW0_ADDR)
-        self.lda(addr >> 8)
-        self.sta(RW0_ADDR + 1)
-        self.lda(val)
-        self.sta(RW0_DATA)
+class Prog(Asm):
+    """The base assembler plus the two things only an audio program
+    needs: waiting out a note, and a clean exit that proves the
+    firmware parks the engines."""
 
     def settle(self):
         """About 1,280 cycles. The PSG applies its pointer at a sample
         boundary rather than on the write, so a gate edge landing in the
         period right after xreg returns is never snooped."""
-        self.b += bytes((0xA2, 0x00, 0xCA, 0xD0, 0xFD))
+        self.emit(0xA2, 0x00, 0xCA, 0xD0, 0xFD)
 
     def spin(self):
-        here = ORG + len(self.b)
-        self.b += bytes((0x4C, here & 0xFF, here >> 8))
+        self.jmp(self.here())
 
     def delay(self, outer):
         """About outer * 1,280 cycles of nothing."""
-        self.b += bytes((0xA0, outer & 0xFF))       # LDY #outer
-        self.b += bytes((0xA2, 0x00))               # outer: LDX #0
-        self.b += bytes((0xCA, 0xD0, 0xFD))         # inner: DEX BNE inner
-        self.b += bytes((0x88, 0xD0, 0xF8))         # DEY BNE outer (to the LDX)
+        self.emit(0xA0, outer & 0xFF)       # LDY #outer
+        self.emit(0xA2, 0x00)               # outer: LDX #0
+        self.emit(0xCA, 0xD0, 0xFD)         # inner: DEX BNE inner
+        self.emit(0x88, 0xD0, 0xF8)         # DEY BNE outer (to the LDX)
 
     def exit(self):
         """API exit: the firmware parks both audio engines and stops the
@@ -155,7 +113,7 @@ def bel_prog():
     holding an engine — which is the console's own case."""
     p = Prog()
     p.lda(0x07)
-    p.sta(UART_TX)
+    p.sta(RIA_TX)
     p.spin()
     return p.b
 
@@ -174,22 +132,13 @@ def opl_bel_prog():
     ):
         p.poke(page + reg, val)
     p.lda(0x07)
-    p.sta(UART_TX)
+    p.sta(RIA_TX)
     p.spin()
     return p.b
 
 
-def record(addr, data):
-    head = f"${addr:05X} ${len(data):X} ${zlib.crc32(data) & 0xFFFFFFFF:08X}\n"
-    return head.encode() + data
-
-
 def emit(path, body):
-    rom = b"#!RP6502\n"
-    rom += record(ORG, body)
-    rom += record(0xFFFC, bytes((ORG & 0xFF, ORG >> 8)))
-    Path(path).write_bytes(rom)
-    return len(rom)
+    return image(body).write(path)
 
 
 def main():

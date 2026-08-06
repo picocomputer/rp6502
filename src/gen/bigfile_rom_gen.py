@@ -29,27 +29,11 @@
 # phone can read.
 
 import argparse
-import zlib
-from pathlib import Path
 
-ORG = 0x0300
-
-XSTACK = 0xFFEC
-API_OP = 0xFFEF
-API_CALL = 0xFFF1
-API_A = 0xFFF4
-RIA_TX = 0xFFE1
-RIA_READY = 0xFFE0
-
-OP_OPEN = 0x14
-OP_CLOSE = 0x15
-OP_READ_XSTACK = 0x16
-OP_WRITE_XSTACK = 0x18
-
-O_RDONLY = 0x01
-O_WRONLY = 0x02
-O_CREAT = 0x10
-O_TRUNC = 0x20
+from rp6502_rom import (API_A, API_CALL, API_OP, ORG, OP_CLOSE, OP_OPEN,
+                        OP_READ_XSTACK, OP_WRITE_XSTACK, O_CREAT, O_RDONLY,
+                        O_TRUNC, O_WRONLY, RIA_READY, RIA_TX, XSTACK, Asm,
+                        image)
 
 NAME = "T2.DAT"
 # The read syscall answers with api_return_ax: A is the count's low byte
@@ -77,81 +61,9 @@ def val(chunk, i):
     return (chunk * 37 + i * 7) & 0xFF
 
 
-class Prog:
-    def __init__(self):
-        self.b = bytearray()
-
-    def emit(self, *by):
-        self.b += bytes(by)
-
-    def here(self):
-        return ORG + len(self.b)
-
-    def lda(self, v):
-        self.emit(0xA9, v & 0xFF)
-
-    def ldx(self, v):
-        self.emit(0xA2, v & 0xFF)
-
-    def sta(self, a):
-        self.emit(0x8D, a & 0xFF, a >> 8)
-
-    def lda_abs(self, a):
-        self.emit(0xAD, a & 0xFF, a >> 8)
-
-    def ldx_abs(self, a):
-        self.emit(0xAE, a & 0xFF, a >> 8)
-
-    def cmp_abs(self, a):
-        self.emit(0xCD, a & 0xFF, a >> 8)
-
-    def ora_abs(self, a):
-        self.emit(0x0D, a & 0xFF, a >> 8)
-
-    def inc_abs(self, a):
-        self.emit(0xEE, a & 0xFF, a >> 8)
-
-    def jsr(self, a):
-        self.emit(0x20, a & 0xFF, a >> 8)
-
-    def jmp(self, a):
-        self.emit(0x4C, a & 0xFF, a >> 8)
-
-    def rts(self):
-        self.emit(0x60)
-
-    def store(self, a, v):
-        self.lda(v)
-        self.sta(a)
-
-    def push(self, v):
-        self.store(XSTACK, v)
-
-    def call(self, op):
-        self.store(API_OP, op)
-        self.jsr(API_CALL)
-
-    def push_str(self, s):
-        for c in reversed(s.encode() + b"\0"):
-            self.push(c)
-
-    def inc16(self, lo, hi):
-        """++[hi:lo], carrying without disturbing A."""
-        self.inc_abs(lo)
-        self.emit(0xD0, 0x03)  # bne over
-        self.inc_abs(hi)
-
-    def branch(self, op):
-        """Emit a forward branch and return a handle to close it."""
-        self.emit(op, 0x00)
-        return len(self.b)
-
-    def close(self, h):
-        self.b[h - 1] = len(self.b) - h
-
 
 def build():
-    p = Prog()
+    p = Asm()
     p.emit(0x4C, 0x00, 0x00)  # jmp main
     jmp_main = 1
 
@@ -348,8 +260,8 @@ def build():
     end = p.here()
     p.b[endj] = end & 0xFF
     p.b[endj + 1] = end >> 8
-    p.emit(0xDB)  # stp
-    return bytes(p.b)
+    p.stp()
+    return p
 
 
 def main():
@@ -357,14 +269,8 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        body = build()
-        rom = b"#!RP6502\n"
-        for addr, data in ((ORG, body),
-                           (0xFFFC, bytes((ORG & 0xFF, ORG >> 8)))):
-            crc = zlib.crc32(data) & 0xFFFFFFFF
-            rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
-        Path(a.emit).write_bytes(rom)
-        print(f"bigfile.rp6502 {len(rom)} bytes, {TOTAL} byte payload")
+        n = image(build()).write(a.emit)
+        print(f"bigfile.rp6502 {n} bytes, {TOTAL} byte payload")
     return 0
 
 

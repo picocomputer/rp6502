@@ -25,13 +25,12 @@
 # Leaves fs1.dat, fs2.dat, pfx.dat and s0..s7.dat in /Saves/rp6502/common/.
 
 import argparse
-import zlib
-from pathlib import Path
 
-from bigfile_rom_gen import (ORG, XSTACK, API_A, API_OP, API_CALL, RIA_TX,
-                             RIA_READY, OP_OPEN, OP_CLOSE, OP_READ_XSTACK,
-                             OP_WRITE_XSTACK, O_RDONLY, O_WRONLY, O_CREAT,
-                             O_TRUNC, Prog)
+from rp6502_rom import (API_A, ORG, OP_CLOSE, OP_LSEEK, OP_OPEN,
+                        OP_READ_XSTACK, OP_WRITE_XSTACK, O_CREAT, O_RDONLY,
+                        O_TRUNC, O_WRONLY, RIA_READY, RIA_TX, XSTACK, Asm,
+                        image)
+
 
 O_APPEND = 0x40
 O_EXCL = 0x80
@@ -68,7 +67,7 @@ NAME2 = "fs2.dat"
 
 
 def build():
-    p = Prog()
+    p = Asm()
     p.emit(0x4C, 0x00, 0x00)
     jmp_main = 1
 
@@ -721,7 +720,7 @@ def build():
     p.close(none)
     text("\r\n")
     p.emit(0xDB)
-    return bytes(p.b)
+    return p
 
 
 def main():
@@ -729,14 +728,8 @@ def main():
     ap.add_argument("--emit")
     a = ap.parse_args()
     if a.emit:
-        body = build()
-        rom = b"#!RP6502\n"
-        for addr, data in ((ORG, body),
-                           (0xFFFC, bytes((ORG & 0xFF, ORG >> 8)))):
-            crc = zlib.crc32(data) & 0xFFFFFFFF
-            rom += f"${addr:05X} ${len(data):X} ${crc:08X}\n".encode() + data
-        Path(a.emit).write_bytes(rom)
-        print(f"fstest.rp6502 {len(rom)} bytes, 48 checks, {TOTAL} byte payload")
+        n = image(build()).write(a.emit)
+        print(f"fstest.rp6502 {n} bytes, 48 checks, {TOTAL} byte payload")
     return 0
 
 

@@ -17,8 +17,13 @@
 # are real cc65-built programs with no generator, which is why they stay.
 
 import argparse
-import zlib
+import sys
 from pathlib import Path
+
+# The assembler and the container live with the other generators; this
+# one lives beside the corpus it writes.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
+from rp6502_rom import Asm, Rom  # noqa: E402
 
 ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument("--out", type=Path, required=True,
@@ -27,51 +32,20 @@ OUT = ap.parse_args().out
 OUT.mkdir(parents=True, exist_ok=True)
 
 
-def record(addr, data):
-    line = f"${addr:05X} ${len(data):X} ${zlib.crc32(bytes(data)) & 0xFFFFFFFF:08X}\n"
-    return line.encode() + bytes(data)
-
-
 def prog(canvas, progs):
-    p = bytearray()
-
-    def lda(v):
-        p.extend((0xA9, v & 0xFF))
-
-    def sta(a):
-        p.extend((0x8D, a & 0xFF, a >> 8))
-
-    def push(v):
-        lda(v)
-        sta(0xFFEC)
-
-    def pushw(w):
-        push(w >> 8)
-        push(w & 0xFF)
-
-    def op1():
-        lda(0x01)
-        sta(0xFFEF)
-        p.extend((0x20, 0xF1, 0xFF))
-
-    push(1), push(0), push(0), pushw(canvas)
-    op1()
+    p = Asm()
+    p.xreg(1, 0, 0, canvas)
     for words in progs:
-        push(1), push(0), push(1)
-        for w in words:
-            pushw(w)
-        op1()
-    p.append(0xDB)
+        p.xreg(1, 0, 1, *words)
+    p.stp()
     return p
 
 
 def rom(name, canvas, progs, xram_chunks):
-    body = b"#!RP6502\n"
-    body += record(0x0300, prog(canvas, progs))
-    body += record(0xFFFC, b"\x00\x03")
+    r = Rom().program(prog(canvas, progs))
     for addr, data in xram_chunks:
-        body += record(0x10000 + addr, data)
-    (OUT / f"{name}.rp6502").write_bytes(body)
+        r.record(0x10000 + addr, data)
+    r.write(OUT / f"{name}.rp6502")
 
 
 def le16(*vals):
