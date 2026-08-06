@@ -466,8 +466,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # The machine's own two, and the two the generated packages come out
+      # of: assets.cmake writes cpu65's decode table and the OPL2's lookup
+      # ROM at configure time, and it reads chips/codegen and opl2_fpga to
+      # do it. This job needs no simulator and no test fixtures, which is
+      # why it is not simply test-rtl's list.
       - name: Init submodules
-        run: git submodule update --init --depth 1 vendor/hazard3 vendor/openfpga
+        run: >-
+          git submodule update --init --depth 1
+          vendor/hazard3 vendor/openfpga vendor/chips vendor/opl2_fpga
 
       - name: Install build dependencies + RISC-V toolchain
         run: |
