@@ -126,58 +126,6 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "fpga: Configure",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--preset",
-                "fpga"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "fpga: Build",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "--preset",
-                "fpga"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/src/fpga"
-            },
-            "dependsOn": "fpga: Configure",
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": "$gcc"
-        },
-        {
-            "label": "fpga: Test",
-            "type": "process",
-            "command": "ctest",
-            "args": [
-                "--test-dir",
-                "${workspaceFolder}/build/fpga",
-                "--output-on-failure"
-            ],
-            "dependsOn": "fpga: Build",
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": "$gcc"
-        },
-        {
             "label": "fpga: Firmware",
             "type": "process",
             "command": "cmake",
@@ -194,14 +142,29 @@
             "problemMatcher": "$gcc"
         },
         {
-            "label": "fpga: Bitstream",
+            "label": "fpga: Tests",
+            "type": "process",
+            "command": "ctest",
+            "args": [
+                "--test-dir",
+                "${workspaceFolder}/build/fpga",
+                "--output-on-failure"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "fpga: Area and timing",
             "type": "process",
             "command": "cmake",
             "args": [
                 "--build",
                 "${workspaceFolder}/build/fpga",
                 "--target",
-                "bitstream"
+                "synth"
             ],
             "presentation": {
                 "reveal": "always",
@@ -210,14 +173,14 @@
             "problemMatcher": []
         },
         {
-            "label": "fpga: Firmware into bitstream",
+            "label": "pocket: Bitstream",
             "type": "process",
             "command": "cmake",
             "args": [
                 "--build",
                 "${workspaceFolder}/build/fpga",
                 "--target",
-                "bitstream_sw"
+                "pocket-bitstream"
             ],
             "presentation": {
                 "reveal": "always",
@@ -226,14 +189,30 @@
             "problemMatcher": []
         },
         {
-            "label": "fpga: Package",
+            "label": "pocket: Card package",
             "type": "process",
             "command": "cmake",
             "args": [
                 "--build",
                 "${workspaceFolder}/build/fpga",
                 "--target",
-                "package"
+                "pocket"
+            ],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "pocket: Area and timing",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "${workspaceFolder}/build/fpga",
+                "--target",
+                "pocket-synth"
             ],
             "presentation": {
                 "reveal": "always",

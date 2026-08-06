@@ -1,6 +1,12 @@
 # Synthesis: the same RTL through Quartus, for area, timing and a bitstream.
 # Not a test, but it needs the source lists rp6502_verilate.cmake builds, so
 # it is included from tests/ rather than duplicating them in src/fpga.
+#
+# Nothing it makes belongs to tests/, so nothing it makes lands there. The
+# machine's own area probe is build/fpga/synth, and everything with a host in
+# it is under that host: build/fpga/pocket holds the Quartus project, the
+# bitstream and the card tree. MiSTer gets build/fpga/mister beside it, which
+# is also why every target that has a host in it is named for one.
 
 # project into the build tree and runs the fitter and the analyzer. The
 # source list is the verilated one, so the thing measured is the thing
@@ -9,8 +15,12 @@
 find_program(QUARTUS_MAP quartus_map HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 find_program(QUARTUS_FIT quartus_fit HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 find_program(QUARTUS_STA quartus_sta HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+find_program(QUARTUS_DRC quartus_drc HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+find_program(QUARTUS_CDB quartus_cdb HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
-    set(SYNTH_DIR ${CMAKE_CURRENT_BINARY_DIR}/synth)
+    set(SYNTH_DIR ${CMAKE_BINARY_DIR}/synth)
+    set(POCKET_DIR ${CMAKE_BINARY_DIR}/pocket)
     set(SYNTH_QSF ${SYNTH_DIR}/rp6502.qsf)
     set(SYNTH_SDC ${RP6502_SRC}/fpga/platform/pocket/quartus/rp6502.sdc)
     set(SYNTH_LINES
@@ -64,7 +74,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # are virtual because pocket_core presents more signals than the
     # package has pins — Analogue's core_top is what binds them to pads,
     # and it is not vendored yet.
-    set(PSYNTH_DIR ${CMAKE_CURRENT_BINARY_DIR}/synth_pocket)
+    set(PSYNTH_DIR ${POCKET_DIR}/synth)
     set(PSYNTH_QSF ${PSYNTH_DIR}/pocket.qsf)
     set(PSYNTH_LINES
         "set_global_assignment -name FAMILY \"Cyclone V\""
@@ -98,8 +108,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # pins and device come from the vendored project verbatim — only its
     # own source list is dropped, because those files are what we
     # replace.
-    set(BS_DIR ${CMAKE_CURRENT_BINARY_DIR}/bitstream)
-    set(BS_QSF ${BS_DIR}/rp6502.qsf)
+    set(BS_QSF ${POCKET_DIR}/rp6502.qsf)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
     # Analogue's framework is a submodule the simulation never needs, so
     # it is often absent — CI checks out only what it builds.
@@ -111,8 +120,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
 
     # No firmware, no bitstream. A bitstream without it boots to a soft
     # CPU fetching zeros, which looks like dead hardware and is not.
-    if(EXISTS ${APF}/ap_core.qsf AND SW_BIN)
-    file(MAKE_DIRECTORY ${BS_DIR})
+    if(EXISTS ${APF}/ap_core.qsf AND SW_BIN AND QUARTUS_ASM AND QUARTUS_CDB)
+    file(MAKE_DIRECTORY ${POCKET_DIR})
     # apf_constraints.sdc reads core/core_constraints.sdc relative to the
     # project directory — the framework's hook for a core's own groups.
     # Stage it where that read looks, instead of listing it a second time
@@ -120,7 +129,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # Ours, not the template's: vendor/openfpga's copy groups a PLL this
     # core does not instantiate, so its four filters matched nothing.
     file(COPY ${RP6502_SRC}/fpga/platform/pocket/quartus/core_constraints.sdc
-        DESTINATION ${BS_DIR}/core)
+        DESTINATION ${POCKET_DIR}/core)
     file(STRINGS ${APF}/ap_core.qsf BS_TEMPLATE)
     set(BS_LINES "")
     foreach(line ${BS_TEMPLATE})
@@ -173,7 +182,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     list(APPEND BS_LINES
         "set_instance_assignment -name FAST_INPUT_REGISTER ON -to dram_dq"
         "set_instance_assignment -name FAST_INPUT_REGISTER ON -to sram_dq"
-        "set_global_assignment -name SEARCH_PATH ${BS_DIR}"
+        "set_global_assignment -name SEARCH_PATH ${POCKET_DIR}"
         "set_global_assignment -name QIP_FILE ${APF}/apf/apf.qip"
         "set_global_assignment -name VERILOG_FILE ${RP6502_VENDOR}/openfpga_rp6502/core_bridge_cmd.v"
         "set_global_assignment -name VERILOG_FILE ${APF}/core/pin_ddio_clk.v"
@@ -219,10 +228,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     endforeach()
     string(REPLACE ";" "\n" BS_QSF_TEXT "${BS_LINES}")
     file(GENERATE OUTPUT ${BS_QSF} CONTENT "${BS_QSF_TEXT}\n")
-    file(WRITE ${BS_DIR}/rp6502.qpf "PROJECT_REVISION = \"rp6502\"\n")
-    find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-    find_program(QUARTUS_DRC quartus_drc HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-    find_program(QUARTUS_CDB quartus_cdb HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
+    file(WRITE ${POCKET_DIR}/rp6502.qpf "PROJECT_REVISION = \"rp6502\"\n")
 
     # Everything the fit is made from, which is everything the fit has to be
     # newer than. The machine list already carries the generated packages —
@@ -249,86 +255,89 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/fpga/platform/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_DIR}/synth.cmake)
 
-    # The two gates, written here rather than kept in src/gen, because a
-    # gate is mtime arithmetic and CMake does that natively — and writing
-    # them here is what lets them carry the file lists CMake already holds
-    # instead of a manifest invented for something else to parse. The root
-    # CMakeLists generates its version-header script the same way.
+    # Three costs, three rules, and CMake decides which of them a change
+    # has to pay for. Placing and routing this design is nine minutes and
+    # turns on the RTL. Putting an image into four M10K arrays is twenty
+    # seconds and turns on the firmware. Copying a card tree is instant.
     #
-    # IS_NEWER_THAN is true when the two stamps are equal, so an exact tie
-    # refuses. That is the direction to be wrong in: a needless refit costs
-    # ten minutes, and a stale one measures a design nobody wrote.
-    string(REPLACE ";" "\"\n    \"" FIT_SOURCE_LINES "${BS_SOURCES}")
-    file(WRITE ${BS_DIR}/fit_fresh.cmake
-"# Generated by tests/synth.cmake. Edits here are overwritten.\n"
-"set(FIT_RPT \"${BS_DIR}/output_files/rp6502.fit.rpt\")\n"
-"set(FIT_SOURCES\n    \"${FIT_SOURCE_LINES}\")\n"
-[[
-# Refuse to put firmware into a fit that no longer describes the tree.
-#
-# The fast path reassembles the placement that is already on disk, and that
-# is only honest while nothing but the firmware has moved. Editing rv_soc.sv
-# and reaching for it would otherwise ship last week's RTL carrying today's
-# software, with a working bitstream to prove it and nothing anywhere saying
-# which halves it was made of.
-if(NOT EXISTS "${FIT_RPT}")
-    message(FATAL_ERROR
-        "fit_fresh: no fit to put firmware into - run `bitstream` first")
-endif()
-set(FIT_MOVED "")
-foreach(src IN LISTS FIT_SOURCES)
-    if("${src}" IS_NEWER_THAN "${FIT_RPT}")
-        list(APPEND FIT_MOVED "${src}")
-    endif()
-endforeach()
-if(FIT_MOVED)
-    string(REPLACE ";" "\n  " FIT_MOVED "${FIT_MOVED}")
-    message(FATAL_ERROR
-        "fit_fresh: these are newer than the fit, or gone:\n  ${FIT_MOVED}\n"
-        "The firmware is not the only thing that changed, so this fit "
-        "cannot carry it - run `bitstream`.")
-endif()
-message(STATUS "fit_fresh: nothing but the firmware has moved since the fit")
-]])
+    # That split is also why nothing here checks whether the fit still
+    # matches the tree, or whether the bitstream is older than the fit
+    # that claims it. Those were gates once, hand-written, because the
+    # bitstream was one target that always ran and the package did not
+    # depend on it. A rule cannot run against a stale input, so the graph
+    # is the check now, and a check the build cannot forget beats one it
+    # could.
 
-    file(WRITE ${BS_DIR}/rbf_fresh.cmake
-"# Generated by tests/synth.cmake. Edits here are overwritten.\n"
-"set(RBF \"${BS_DIR}/output_files/rp6502.rbf\")\n"
-"set(RBF_R \"${BS_DIR}/core.bin\")\n"
-[[
-# Refuse to package a bitstream older than the fit it claims to be.
-#
-# The package target copies the reversed bitstream and does not depend on
-# the bitstream target, deliberately: assembling a card should not cost a
-# refit. The cost of that is a build where the fit ran, a gate after it
-# failed, rbf_r_gen never ran, and the copy took the previous one without a
-# word. That happened - a bitstream from twenty minutes and one RTL change
-# earlier was packaged and very nearly tested, which would have measured the
-# wrong design and sent the search somewhere it did not belong.
-#
-# The assembler's own output is the witness: if output_files/*.rbf is newer
-# than the .rbf_r beside it, the reverser did not run for this fit.
-foreach(f "${RBF}" "${RBF_R}")
-    if(NOT EXISTS "${f}")
-        message(FATAL_ERROR "rbf_fresh: ${f} missing - run `bitstream` first")
-    endif()
-endforeach()
-if("${RBF}" IS_NEWER_THAN "${RBF_R}")
-    message(FATAL_ERROR
-        "rbf_fresh: core.bin is older than rp6502.rbf - the last fit did "
-        "not finish its gates, so this would package the bitstream before it")
-endif()
-message(STATUS "rbf_fresh: the bitstream is the one this fit made")
-]])
+    # The lanes are what $readmemh reads while mapping. They seed the
+    # arrays; the assemble step below replaces their contents in the
+    # database, so what is in them does not decide the placement. That is
+    # why sw_bin is named as a target rather than a file: it orders the
+    # firmware ahead of the fit without making a firmware change cost one.
+    add_custom_command(OUTPUT ${POCKET_DIR}/fit.stamp
+        COMMAND python3 ${RP6502_SRC}/gen/rv_tcm_gen.py
+            ${SW_BIN} ${POCKET_DIR}/sw ${TCM_WORDS}
+        COMMAND ${QUARTUS_MAP} rp6502
+        COMMAND ${QUARTUS_FIT} rp6502
+        COMMAND ${QUARTUS_STA} rp6502
+        # No bitstream from a fit that did not close. One that misses
+        # timing assembles and runs, and only stops running when the part
+        # is warm or the fitter's luck turns.
+        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
+            ${POCKET_DIR}/output_files/rp6502.sta.rpt
+        # Nor from one that grew a violation timing cannot see. An
+        # unsynchronised reset and a torn opcode both close every corner
+        # and both fail on a different fit; the Design Assistant is the
+        # only thing in the flow that looks for them.
+        COMMAND ${QUARTUS_DRC} rp6502
+        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
+            ${POCKET_DIR}/output_files/rp6502.drc.rpt
+            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
+        # Last, so a gate that fails leaves no stamp and the fit is still
+        # owed the next time anyone asks.
+        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
+        WORKING_DIRECTORY ${POCKET_DIR}
+        DEPENDS ${BS_SOURCES} sw_bin
+            ${RP6502_SRC}/gen/rv_tcm_gen.py
+            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
+        COMMENT "Fitting the Pocket core"
+        VERBATIM)
+
+    # The firmware has to be IN the bitstream: simulation loads it into the
+    # verilated arrays from C++, so nothing in the synthesis path ever
+    # needed it, and for a long time nothing supplied it — the soft CPU
+    # came up fetching zeros.
+    #
+    # It is not logic. It is the initial contents of four M10K arrays, so a
+    # new image places nothing and routes nothing, and the fit above stands.
+    # Quartus keeps a MIF of each array under db/; rv_mif_gen rewrites those
+    # four, --update_mif takes them into the database, and the assembler
+    # makes a programming file out of the placement that was already there.
+    # Verified the only way worth trusting: the same firmware fitted from
+    # scratch and assembled this way produce the same bytes.
+    add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
+        COMMAND python3 ${RP6502_SRC}/gen/rv_mif_gen.py
+            ${SW_BIN} ${POCKET_DIR}/db ${TCM_WORDS}
+        COMMAND ${QUARTUS_CDB} rp6502 --update_mif
+        COMMAND ${QUARTUS_ASM} rp6502
+        COMMAND python3 ${RP6502_SRC}/gen/rbf_r_gen.py
+            ${POCKET_DIR}/output_files/rp6502.rbf
+            ${POCKET_DIR}/core.bin
+        WORKING_DIRECTORY ${POCKET_DIR}
+        DEPENDS ${POCKET_DIR}/fit.stamp ${SW_BIN}
+            ${RP6502_SRC}/gen/rv_mif_gen.py ${RP6502_SRC}/gen/rbf_r_gen.py
+        COMMENT "Putting the firmware into the Pocket bitstream"
+        VERBATIM)
+    add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
+
     # Everything the SD card needs, assembled. The JSONs, the images and
     # the tree come from dist/ as they are; the bitstream and the glyph
     # asset are built. dist/ carries Saves/rp6502/common/ because the
     # host will not create it and the drive is nothing without it.
-    set(PKG_DIR ${CMAKE_CURRENT_BINARY_DIR}/package)
+    set(PKG_DIR ${POCKET_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
-    add_custom_target(package
-        # Never package a bitstream older than the fit it claims to be.
-        COMMAND ${CMAKE_COMMAND} -P ${BS_DIR}/rbf_fresh.cmake
+    file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
+    add_custom_command(OUTPUT ${POCKET_DIR}/package.stamp
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -337,101 +346,29 @@ message(STATUS "rbf_fresh: the bitstream is the one this fit made")
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
-        COMMAND ${CMAKE_COMMAND} -E copy ${BS_DIR}/core.bin
+        COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
-        DEPENDS vid_font_rom
-        COMMENT "Assembling the Pocket core package (run `bitstream` first)"
+        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
+        DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN}
+            ${PKG_DIST_FILES}
+        COMMENT "Assembling the Pocket core package"
         VERBATIM)
+    add_custom_target(pocket DEPENDS ${POCKET_DIR}/package.stamp)
 
-    # The firmware has to be IN the bitstream. Simulation loads it into
-    # the verilated arrays from C++, so nothing in the synthesis path
-    # ever needed it and for a long time nothing supplied it — the soft
-    # CPU came up fetching zeros.
-    #
-    # A rule of its own rather than the first line of the fit, so the
-    # lanes have one writer and the fit has a dependency it can see.
-    set(TCM_LANES ${BS_DIR}/sw.0 ${BS_DIR}/sw.1 ${BS_DIR}/sw.2 ${BS_DIR}/sw.3)
-    add_custom_command(OUTPUT ${TCM_LANES}
-        COMMAND python3 ${RP6502_SRC}/gen/rv_tcm_gen.py
-            ${SW_BIN} ${BS_DIR}/sw ${TCM_WORDS}
-        DEPENDS ${SW_BIN} ${RP6502_SRC}/gen/rv_tcm_gen.py
-        COMMENT "Splitting the firmware into TCM byte lanes"
-        VERBATIM)
-
-    add_custom_command(OUTPUT ${BS_DIR}/core.bin
-        COMMAND ${QUARTUS_MAP} rp6502
-        COMMAND ${QUARTUS_FIT} rp6502
-        COMMAND ${QUARTUS_ASM} rp6502
-        COMMAND ${QUARTUS_STA} rp6502
-        # No .rbf_r from a fit that did not close. A bitstream that
-        # misses timing assembles and runs, and only stops running when
-        # the part is warm or the fitter's luck turns.
-        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
-            ${BS_DIR}/output_files/rp6502.sta.rpt
-        # Nor from one that grew a violation timing cannot see. An
-        # unsynchronised reset and a torn opcode both close every corner
-        # and both fail on a different fit; the Design Assistant is the
-        # only thing in the flow that looks for them.
-        COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
-            ${BS_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
-        COMMAND python3 ${RP6502_SRC}/gen/rbf_r_gen.py
-            ${BS_DIR}/output_files/rp6502.rbf
-            ${BS_DIR}/core.bin
-        WORKING_DIRECTORY ${BS_DIR}
-        DEPENDS ${TCM_LANES} ${BS_SOURCES}
-            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
-            ${RP6502_SRC}/gen/rbf_r_gen.py
-            ${RP6502_SRC}/fpga/platform/pocket/quartus/drc_baseline.txt
-        COMMENT "Building the Pocket bitstream"
-        VERBATIM)
-    add_custom_target(bitstream DEPENDS ${BS_DIR}/core.bin)
-
-    # The same bitstream with different firmware in it, for the loop that
-    # is nearly all of development: change some C, look at the machine.
-    #
-    # The firmware is not logic. It is the initial contents of four M10K
-    # arrays, so a new image places nothing, routes nothing and moves no
-    # timing arc — which is why the fitter can be skipped and why the
-    # gates it already passed still hold. Quartus keeps its own MIF of
-    # each array under db/; rv_mif_gen rewrites those four, --update_mif
-    # takes them into the database, and the assembler makes a programming
-    # file out of the placement that was there all along. Ten minutes
-    # becomes under one.
-    #
-    # No sta_gate and no drc_gate here on purpose: rerunning them would
-    # re-measure the fit that already cleared them. fit_fresh is what
-    # makes that a fact rather than an assumption.
-    if(QUARTUS_CDB)
-        add_custom_target(bitstream_sw
-            COMMAND ${CMAKE_COMMAND} -P ${BS_DIR}/fit_fresh.cmake
-            COMMAND python3 ${RP6502_SRC}/gen/rv_mif_gen.py
-                ${SW_BIN} ${BS_DIR}/db ${TCM_WORDS}
-            COMMAND ${QUARTUS_CDB} rp6502 --update_mif
-            COMMAND ${QUARTUS_ASM} rp6502
-            COMMAND python3 ${RP6502_SRC}/gen/rbf_r_gen.py
-                ${BS_DIR}/output_files/rp6502.rbf
-                ${BS_DIR}/core.bin
-            WORKING_DIRECTORY ${BS_DIR}
-            DEPENDS ${TCM_LANES}
-            COMMENT "Putting new firmware into the last fit's bitstream"
-            VERBATIM)
-    else()
-        message(STATUS
-            "quartus_cdb not found - no bitstream_sw target.")
-    endif()
     elseif(NOT EXISTS ${APF}/ap_core.qsf)
         message(STATUS
-            "vendor/openfpga absent - no bitstream target. "
+            "vendor/openfpga absent - no pocket target. "
             "git submodule update --init vendor/openfpga")
+    elseif(NOT SW_BIN)
+        message(STATUS
+            "no RISC-V toolchain - no pocket target. "
+            "apt install gcc-riscv64-unknown-elf")
     else()
         message(STATUS
-            "no RISC-V toolchain - no bitstream target. "
-            "apt install gcc-riscv64-unknown-elf")
+            "quartus_asm or quartus_cdb missing - no pocket target.")
     endif()
 
-    add_custom_target(synth_pocket
+    add_custom_target(pocket-synth
         COMMAND ${QUARTUS_MAP} pocket
         COMMAND ${QUARTUS_FIT} pocket
         COMMAND ${QUARTUS_STA} pocket

@@ -403,22 +403,21 @@ jobs:
             build-essential cmake ninja-build python3 \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      # The firmware has to exist before the bitstream can carry it; a
-      # core built without it boots a soft CPU fetching zeros, which
-      # looks exactly like dead hardware and is not.
-      - name: Build bitstream
+      # One target. The firmware, the fit, the bitstream it goes into and
+      # the card tree are one graph, so asking for the card asks for all
+      # of it in the order it has to happen. A core built without the
+      # firmware boots a soft CPU fetching zeros, which looks exactly
+      # like dead hardware and is not.
+      - name: Build the core package
         run: |
           set -euxo pipefail
           cmake -S src/fpga -B build/fpga -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/fpga --target bitstream
-
-      - name: Assemble the core package
-        run: cmake --build build/fpga --target package
+          cmake --build build/fpga --target pocket
 
       - uses: actions/upload-artifact@v4
         with:
           name: pocket-core
-          path: build/fpga/tests/package
+          path: build/fpga/pocket/package
 
   # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).

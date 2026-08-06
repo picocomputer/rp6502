@@ -429,41 +429,48 @@ debug log shows:
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 
-`cmake --build build/fpga --target bitstream` then `--target package`
-assembles the card tree into `build/fpga/tests/package`. Zip the three
-top directories at the archive root as
-`Rumbledethumps.RP6502_<version>_<date>.zip`.
+`cmake --build build/fpga --target pocket` assembles the card tree into
+`build/fpga/pocket/package`. Zip the three top directories at the archive
+root as `Rumbledethumps.RP6502_<version>_<date>.zip`. `pocket-bitstream`
+stops one step earlier, at `build/fpga/pocket/core.bin`.
 
-## Changing the firmware without refitting
+## What each change costs
 
-`bitstream` is about ten minutes and seven of them are the fitter, which
-is a poor price for a line of C. `bitstream_sw` is the same bitstream with
-new firmware in it, in under one.
+There is one target to ask for and no decision to make, because the three
+things this build does cost wildly different amounts and CMake knows which
+of them your edit touched.
 
-The firmware is not logic. It is the initial contents of four M10K arrays,
-so a new image places nothing, routes nothing and moves no timing arc —
-the fit on disk is still the fit that comes out. Quartus keeps a MIF of
-each array under `db/`, generated from `rv_soc`'s `$readmemh` while
-mapping, and those are what `quartus_cdb --update_mif` reads back rather
-than the lane files they came from. So `rv_mif_gen.py` rewrites the four,
-`--update_mif` takes them into the database, and the assembler makes a
-programming file out of the placement that was already there.
+Placing and routing is about nine minutes and turns on the RTL, the
+constraints and the fitter assignments. Putting firmware into the
+bitstream is about twenty seconds and turns on `src/fpga/sw`. Copying the
+card tree is instant.
 
-Nothing reruns the timing analyzer or the Design Assistant, because
-rerunning them would re-measure a fit that has not changed. What makes
-that a fact rather than a hope is `fit_fresh.cmake`, which refuses if any
-RTL, constraint, generated package or the `synth.cmake` that writes the
-project file is newer than the fit report. Edit `rv_soc.sv` and reach for
-the fast target and it stops you; without it you would get a working
-bitstream made of last week's fabric and today's software, with nothing
-anywhere saying so.
+The firmware is cheap because it is not logic. It is the initial contents
+of four M10K arrays, so a new image places nothing, routes nothing and
+moves no timing arc, and the fit already on disk is still the fit that
+comes out. Quartus keeps a MIF of each array under `db/`, generated from
+`rv_soc`'s `$readmemh` while mapping, and those are what
+`quartus_cdb --update_mif` reads back rather than the lane files they came
+from. `rv_mif_gen.py` rewrites the four, `--update_mif` takes them into the
+database, and the assembler makes a programming file out of the placement
+that was already there. The claim was settled by fitting one firmware from
+scratch and assembling another this way: the bytes match.
 
-The project file cannot be its own witness, which is why `synth.cmake`
-stands in for it. The fitter writes the `.qsf` back — restamping the
-Quartus version, dropping the template's `AUTO FIT` now that ours
-overrides it, rewriting every path relative — so it differs from what
-CMake generated the moment a fit ends. A fit that depended on it would be
-stale again before anyone typed anything.
+So the timing analyzer and the Design Assistant run with the fitter and
+not with the firmware, which is correct rather than a shortcut — rerunning
+them would re-measure a fit that has not changed. Nothing checks whether
+the fit still matches the tree, either. That check was a hand-written gate
+for a while, and it is now the shape of the build: a rule cannot run
+against a stale input, and a check the build cannot forget beats one it
+could.
+
+One trap worth writing down, because it cost a wasted refit to find. **The
+project file cannot be a dependency of the fit.** The fitter writes the
+`.qsf` back — restamping the Quartus version, dropping the template's
+`AUTO FIT` now that ours overrides it, rewriting every path relative — so
+it differs from what CMake generated the moment a fit ends, and a fit that
+depended on it would be out of date again before anyone typed anything.
+`synth.cmake` stands in for it, being what decides its content.
 
 `bitstream` is incremental now, so the honest loop is to type it whenever
 unsure — an unchanged tree costs nothing, and a changed one needs the fit

@@ -139,12 +139,20 @@ matches your debugging setup (probably Cortex-Debug), then press F5.
 
 To build the FPGA core, select Folder:fpga and Configure:FPGA. Pressing F7
 builds the verilated machine and its tests; `ctest --test-dir build/fpga` runs
-them, and the **fpga: Test** task does both. This tree also holds the Pocket's
-Quartus targets, which are not part of F7 because each one costs minutes:
-`bitstream` fits the core, `bitstream_sw` puts newly built firmware into the
-last fit without refitting it, and `package` assembles the SD card tree. The
-tasks list carries all three. See `src/fpga/README.md` for the RTL and
-`src/fpga/platform/pocket/README.md` for the Pocket itself.
+them.
+
+The Quartus targets live in the same tree but are not part of F7, because each
+one can cost minutes. Every target that has a host in it is named for one, so
+MiSTer can arrive without renaming anything:
+
+    cmake --build build/fpga --target pocket
+
+is the whole card tree in `build/fpga/pocket/package`. `pocket-bitstream` stops
+after the bitstream, and `pocket-synth` is the area and timing report. Ask for
+whichever you want and CMake works out what has to happen: change a line of
+soft CPU C and you pay for the twenty seconds that puts it in the bitstream,
+not the nine minutes that placed the design. See `src/fpga/README.md` for the
+RTL and `src/fpga/platform/pocket/README.md` for the Pocket itself.
 
 To build the emulator, ensure your seatbelt is fastened and tray tables in their
 upright position; we have some bumpy weather ahead. From the CMake side panel
