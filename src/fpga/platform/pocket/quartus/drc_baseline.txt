@@ -39,7 +39,7 @@ R101 1
 #       change. This number does not fall.
 #
 #       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
-#       anyway, in tests/synth.cmake: without it Quartus found all 78
+#       anyway, in platform/pocket/pocket.cmake: without it Quartus found all 78
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.

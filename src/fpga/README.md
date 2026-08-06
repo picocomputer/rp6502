@@ -53,23 +53,42 @@ machine and on `emu_core`, then compare — the emulator is the reference for
 behavior the RTL must reproduce.
 
     sudo apt-get install verilator gtkwave ninja-build
-    cmake -B build/fpga -S src/fpga -G Ninja
-    cmake --build build/fpga
-    ctest --test-dir build/fpga
-
-`CMakePresets.json` says the same thing, so `cmake --preset fpga` from here
-is the shorter spelling and is what VS Code's Folder:fpga uses.
+    cd src/fpga
+    cmake --preset fpga/verilator/Release
+    cmake --build --preset Tests
+    ctest --preset fpga/verilator/Release
 
 Ninja is required, not preferred, and CMake stops if it is missing: the
 pocket testbench builds one verilated model that two tests link, which
-make will build twice at once and then link half-written or stale. One
-tree, `build/fpga`, is what CI configures and what these commands assume.
+make will build twice at once and then link half-written or stale.
+
+## The four trees
+
+`CMakePresets.json` has one entry per job this source tree can do, and each
+is a build directory of its own. What varies is whether the verilated
+machine and its tests are part of it — `RP6502_FPGA_SIM`.
+
+| preset | builds in | what it is for |
+| --- | --- | --- |
+| `fpga/verilator/Release` | `build/fpga/release` | the simulation and the whole suite |
+| `fpga/verilator/Debug` | `build/fpga/debug` | the same, unoptimised, for stepping a testbench |
+| `fpga/pocket` | `build/fpga/pocket` | the Analogue Pocket core |
+| `fpga/quartus/synth` | `build/fpga/synth` | area and timing, all pins virtual |
+
+**A bitstream needs Quartus and `gcc-riscv64-unknown-elf`, and nothing
+else.** No Verilator, no host test suite. That was not true for a while:
+the Quartus projects were built from a source list defined inside a
+`verilator_FOUND` guard, so a machine without a simulator had no bitstream
+target at all — including the CI runner whose whole job is fitting one. The
+list moved to `rtl.cmake`, which every configuration includes, and it is
+still the list the simulation verilates, so the thing measured is still the
+thing tested.
 
 Without Verilator only the oracle tests build; CMake warns and continues.
 
 Set `RP6502_FPGA_TRACE` to a path to capture an FST trace, viewable in gtkwave:
 
-    RP6502_FPGA_TRACE=rtl.fst ./build/fpga/tests/test_rtl
+    RP6502_FPGA_TRACE=rtl.fst ./build/fpga/release/tests/test_rtl
 
 ## Measuring the render budget
 

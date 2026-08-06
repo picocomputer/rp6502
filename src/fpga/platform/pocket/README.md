@@ -346,7 +346,7 @@ the people who wrote the firmware.
 
 `fstest.rp6502` exercises the whole drive in one boot and prints its own
 verdict, in the simulator as well as on the card. The build leaves it in
-`build/fpga/tests/` with the other bring-up ROMs; they are not part of
+`build/fpga/release/tests/` with the other bring-up ROMs; they are not part of
 the distribution. When this prose and that ROM disagree, the ROM is
 right.
 
@@ -429,10 +429,14 @@ debug log shows:
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 
-`cmake --build build/fpga --target pocket` assembles the card tree into
+From `src/fpga`, `cmake --preset fpga/pocket` then
+`cmake --build --preset "Card package"` assembles the card tree into
 `build/fpga/pocket/package`. Zip the three top directories at the archive
-root as `Rumbledethumps.RP6502_<version>_<date>.zip`. `pocket-bitstream`
-stops one step earlier, at `build/fpga/pocket/core.bin`.
+root as `Rumbledethumps.RP6502_<version>_<date>.zip`. The `Bitstream` build
+preset stops one step earlier, at `build/fpga/pocket/bitstream/core.bin`.
+
+That tree needs Quartus and `gcc-riscv64-unknown-elf` and nothing else — no
+Verilator, no test suite.
 
 ## What each change costs
 
@@ -477,7 +481,7 @@ unsure — an unchanged tree costs nothing, and a changed one needs the fit
 anyway.
 
 The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe` —
-are built into `build/fpga/tests/` and are deliberately not in the
+are built into `build/fpga/release/tests/` and are deliberately not in the
 package. Copy the ones you want into `Assets/rp6502/common/` on a card
 when testing. The root-spelling `roots` probe answered its question —
 relative names resolve against a pinned `/Saves/rp6502/common/` —

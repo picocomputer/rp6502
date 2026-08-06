@@ -6,8 +6,8 @@
 # the font image. So they are built once here rather than by whoever asked
 # first.
 #
-# Included by rp6502_verilate.cmake, which is included only by the tree that
-# has RTL. The emulator's tree needs none of this.
+# Included by rtl.cmake, which every configuration of this tree includes. The
+# emulator's tree needs none of this.
 
 set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
 file(MAKE_DIRECTORY ${RP6502_ASSETS})

@@ -1,14 +1,14 @@
-# The RTL half of the suite: what to verilate, and two helpers that hide it.
+# The RTL half of the suite: the simulator, and two helpers that hide it.
 #
-# Included only by src/fpga, which is the tree that has RTL. Everything below
-# is guarded, so a machine without verilator or the RISC-V toolchain still
-# configures and still runs every C test — it just registers fewer of them.
+# Only what genuinely needs Verilator is here. What to verilate — the machine's
+# source list — and the soft CPU firmware are in src/fpga/rtl.cmake, because a
+# Quartus project needs both and needs no simulator to read them.
+#
+# Included only when RP6502_FPGA_SIM is on. A machine without Verilator or
+# without the RISC-V toolchain still configures and still runs every C test; it
+# just registers fewer of them.
 #
 # RP6502_VERILATE  verilator is present; RTL tests can be registered.
-# RP6502_SOFT_CPU  the RISC-V toolchain is present too, so tests that need a
-#                  booted soft CPU can be registered.
-
-include(${CMAKE_CURRENT_LIST_DIR}/rp6502_assets.cmake)
 
 # --- The reference oracle (emu_core driven headless) ---
 # Every RTL comparison test runs the same program here and on the verilated
@@ -31,143 +31,15 @@ endif()
 if(verilator_FOUND)
 set(RP6502_VERILATE ON)
 
-# The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
-# distribution README. Our fixes shadow their originals by being named
-# first and the vendor copies dropped from the glob, so the submodule
-# stays untouched. The package has to lead; nothing else cares.
+# The waivers ride with the simulator rather than with the manifest in
+# rtl.cmake, because that is what they are: Verilator's own lint, waived.
+# Quartus never sees them — its lists are filtered by extension — and a
+# tree built without a simulator has no business naming a file in tests/.
 #
-# Every file is listed rather than found on a search path, because
-# Quartus resolves .name port shorthand only against modules it has
-# already been given, and the OPL2's memory wrappers are written that
-# way. i2s is the dev board's audio out, and we have our own.
-set(OPL2_DIR ${RP6502_VENDOR}/opl2_fpga/fpga/modules)
-set(OPL2_SOURCES
-    ${RP6502_BENCH}/opl2.vlt
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
-    ${OPL2_LUT_PKG}
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_lut_rom.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/phase_generator.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_single_bank.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/mem_simple_dual_port.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/trick_sw_detection.sv
-    ${RP6502_VENDOR}/opl2_fpga_rp6502/afifo.v)
-foreach(dir top_level channels operator timers host_if misc clks)
-    file(GLOB _opl_dir_src ${OPL2_DIR}/${dir}/src/*.sv ${OPL2_DIR}/${dir}/src/*.v)
-    list(FILTER _opl_dir_src EXCLUDE REGEX
-        "/(i2s|mem_single_bank|mem_simple_dual_port|trick_sw_detection|phase_generator|opl2_log_sine_lut|opl2_exp_lut)\\.sv$|/afifo\\.v$")
-    list(APPEND OPL2_SOURCES ${_opl_dir_src})
-endforeach()
-
-set(RP6502_MACHINE_SOURCES
-    ${RP6502_BENCH}/hazard3.vlt
-    ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
-    ${OPL2_SOURCES}
-    ${CPU65_ROM}
-    ${RP6502_FPGA_RTL}/core/rp6502_pkg.sv
-    ${RP6502_FPGA_RTL}/cpu65/cpu65.sv
-    ${RP6502_FPGA_RTL}/cpu65/via.sv
-    ${RP6502_FPGA_RTL}/cpu65/phi2_div.sv
-    ${RP6502_FPGA_RTL}/mem/sram64k.sv
-    ${RP6502_FPGA_RTL}/mem/xram64k.sv
-    ${RP6502_FPGA_RTL}/ria/ria_regs.sv
-    ${RP6502_FPGA_RTL}/rv/rv_soc.sv
-    ${RP6502_FPGA_RTL}/vid/vid_timing.sv
-    ${AUD_SINE_PKG}
-    ${RP6502_FPGA_RTL}/aud/aud_psg.sv
-    ${RP6502_FPGA_RTL}/aud/aud_opl.sv
-    ${RSMP_COEF_PKG}
-    ${RP6502_FPGA_RTL}/aud/aud_rsmp.sv
-    ${VID_PALETTE_PKG}
-    ${RP6502_FPGA_RTL}/vid/vid_font.sv
-    ${RP6502_FPGA_RTL}/vid/vid_palram.sv
-    ${RP6502_FPGA_RTL}/vid/vid_pixtail.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode1.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode2.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode3.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode4.sv
-    ${RP6502_FPGA_RTL}/vid/vid_mode5.sv
-    ${RP6502_FPGA_RTL}/vid/vid_palcache.sv
-    ${RP6502_FPGA_RTL}/vid/vid_sprite.sv
-    ${RP6502_FPGA_RTL}/vid/vid_prog.sv
-    ${RP6502_FPGA_RTL}/vid/vid_term.sv
-    ${RP6502_FPGA_RTL}/vid/vid_compose.sv
-    ${RP6502_FPGA_RTL}/core/rp6502.sv)
-set(RP6502_MACHINE_VERILATOR_ARGS
-    -y ${RP6502_VENDOR}/hazard3/hdl
-    -y ${RP6502_VENDOR}/hazard3/hdl/arith
-    -y ${RP6502_VENDOR}/hazard3/hdl/debug/dm
-    -y ${RP6502_VENDOR}/hazard3/hdl/debug/dtm)
-
-# --- The soft CPU: Hazard3 boots the cross-compiled firmware ---
-# Toolchain per README: apt install gcc-riscv64-unknown-elf.
-find_program(RISCV_GCC riscv64-unknown-elf-gcc)
-find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
-if(RISCV_GCC AND RISCV_OBJCOPY)
-    set(RP6502_SOFT_CPU ON)
-    set(SW_SRC ${RP6502_SRC}/fpga/sw)
-    set(SW_BIN ${RP6502_ASSETS}/sw.bin)
-    # The firmware's own headers carry the hardware's addresses, so a
-    # window that moves has to rebuild the image that writes to it.
-    file(GLOB SW_HEADERS ${RP6502_SRC}/fpga/sw/*.h)
-    set(SW_SOURCES
-        ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c ${SW_SRC}/cfg.c
-        ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
-        ${SW_SRC}/mou.c ${SW_SRC}/msc.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
-        ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
-        ${RP6502_SRC}/ria/aud/bel_presets.c
-        ${SW_SRC}/bel.c
-        ${RP6502_SRC}/ria/api/api.c
-        ${RP6502_SRC}/ria/api/arg.c
-        ${RP6502_SRC}/ria/api/clk.c
-        ${RP6502_SRC}/ria/api/std.c
-        ${RP6502_SRC}/ria/api/uni.c
-        ${RP6502_SRC}/ria/str/rln.c
-        ${RP6502_SRC}/ria/str/str.c
-        ${RP6502_SRC}/vga/modes/mode1.c
-        ${RP6502_SRC}/vga/modes/mode2.c
-        ${RP6502_SRC}/vga/modes/mode3.c
-        ${RP6502_SRC}/vga/modes/mode4.c
-        ${RP6502_SRC}/vga/modes/mode5.c
-        ${RP6502_SRC}/vga/term/color.c
-        ${RP6502_SRC}/vga/term/term.c)
-    add_custom_command(OUTPUT ${SW_BIN}
-        COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-            # Prologues and epilogues become calls into libgcc's
-            # __riscv_save_N/__riscv_restore_N instead of a run of
-            # stores. 1,768 bytes on this image, measured, for a few
-            # cycles a call — and the TCM is 64 KB with the whole
-            # firmware in it, so text is the scarce thing, not cycles.
-            -msave-restore
-            -Os -ffreestanding -nostartfiles
-            --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
-            -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
-            -I ${RP6502_SRC}
-            -I ${SW_SRC}/shim
-            -I ${RP6502_ASSETS}
-            -I ${RP6502_SRC}/emu/host/pico
-            -I ${RP6502_VENDOR}
-            "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
-            # The alternate screen buffer doubles term.c's cell store,
-            # and on this platform the cells are block memory. Off
-            # here keeps the die out of its last rows of LABs; other
-            # fabrics with room leave it on.
-            -DTERM_ALT_SCREEN=0
-            -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
-            -o ${RP6502_ASSETS}/sw.elf
-            ${SW_SOURCES}
-        COMMAND ${RISCV_OBJCOPY} -O binary ${RP6502_ASSETS}/sw.elf ${SW_BIN}
-        DEPENDS ${SW_SOURCES} ${SW_HEADERS} ${VID_FONT_ASSET_H}
-            ${SW_SRC}/link.ld
-        COMMENT "Cross-compiling the soft CPU firmware"
-        VERBATIM)
-    add_custom_target(sw_bin DEPENDS ${SW_BIN})
-else()
-    message(WARNING
-        "riscv64-unknown-elf-gcc not found — soft CPU tests skipped.\n"
-        "  sudo apt-get install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf")
-endif()
+# They lead, because a waiver read after the file it waives is not applied.
+list(PREPEND OPL2_SOURCES ${RP6502_BENCH}/opl2.vlt)
+list(PREPEND RP6502_MACHINE_SOURCES
+    ${RP6502_BENCH}/hazard3.vlt ${RP6502_BENCH}/opl2.vlt)
 endif() # verilator_FOUND
 
 # rp6502_add_module_test(<name> TOP <module> [PREFIX <V...>] RTL <file>...

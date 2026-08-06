@@ -376,11 +376,12 @@ jobs:
       - name: Configure & build simulation
         run: |
           set -euxo pipefail
-          cmake -S src/fpga -B build/fpga -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/fpga
+          cmake --preset fpga/verilator/Release
+          cmake --build --preset Tests
+        working-directory: src/fpga
 
       - name: Run simulation tests
-        run: ctest --test-dir build/fpga --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/fpga/release --output-on-failure --parallel $(nproc)
 
   # The bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
@@ -403,16 +404,21 @@ jobs:
             build-essential cmake ninja-build python3 \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      # One target. The firmware, the fit, the bitstream it goes into and
-      # the card tree are one graph, so asking for the card asks for all
-      # of it in the order it has to happen. A core built without the
-      # firmware boots a soft CPU fetching zeros, which looks exactly
-      # like dead hardware and is not.
+      # One preset and one target. The fpga/pocket tree is Quartus and the
+      # RISC-V compiler and nothing else — no Verilator, which this runner
+      # does not install and which a bitstream never needed.
+      #
+      # The firmware, the fit, the bitstream it goes into and the card tree
+      # are one graph, so asking for the card asks for all of it in the
+      # order it has to happen. A core built without the firmware boots a
+      # soft CPU fetching zeros, which looks exactly like dead hardware and
+      # is not.
       - name: Build the core package
         run: |
           set -euxo pipefail
-          cmake -S src/fpga -B build/fpga -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/fpga --target pocket
+          cmake --preset fpga/pocket
+          cmake --build --preset "Card package"
+        working-directory: src/fpga
 
       - uses: actions/upload-artifact@v4
         with:

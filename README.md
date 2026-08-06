@@ -137,22 +137,25 @@ target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
-To build the FPGA core, select Folder:fpga and Configure:FPGA. Pressing F7
-builds the verilated machine and its tests; `ctest --test-dir build/fpga` runs
-them.
+To build the FPGA core, select Folder:fpga. Its Configure list is one entry per
+job, each with a build directory of its own:
 
-The Quartus targets live in the same tree but are not part of F7, because each
-one can cost minutes. Every target that has a host in it is named for one, so
-MiSTer can arrive without renaming anything:
+    fpga/verilator/Release   the simulation and its tests
+    fpga/verilator/Debug     the same, unoptimised, for stepping a testbench
+    fpga/pocket              the Analogue Pocket core
+    fpga/quartus/synth       area and timing, all pins virtual
 
-    cmake --build build/fpga --target pocket
+Pick one and the Build list changes with it — under `fpga/pocket` it offers
+**Card package** and **Bitstream**, under the Verilator presets **Tests** and
+**Firmware**. F7 builds whichever is selected. Naming every host explicitly is
+so MiSTer can arrive without renaming anything.
 
-is the whole card tree in `build/fpga/pocket/package`. `pocket-bitstream` stops
-after the bitstream, and `pocket-synth` is the area and timing report. Ask for
-whichever you want and CMake works out what has to happen: change a line of
-soft CPU C and you pay for the twenty seconds that puts it in the bitstream,
-not the nine minutes that placed the design. See `src/fpga/README.md` for the
-RTL and `src/fpga/platform/pocket/README.md` for the Pocket itself.
+Ask for the card and CMake works out what has to happen: change a line of soft
+CPU C and you pay the twenty seconds that puts it in the bitstream, not the
+nine minutes that placed the design. The Pocket tree needs Quartus and
+`gcc-riscv64-unknown-elf` and nothing else — no Verilator. See
+`src/fpga/README.md` for the RTL and `src/fpga/platform/pocket/README.md` for
+the Pocket itself.
 
 To build the emulator, ensure your seatbelt is fastened and tray tables in their
 upright position; we have some bumpy weather ahead. From the CMake side panel

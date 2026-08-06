@@ -1,87 +1,26 @@
-# Synthesis: the same RTL through Quartus, for area, timing and a bitstream.
-# Not a test, but it needs the source lists rp6502_verilate.cmake builds, so
-# it is included from tests/ rather than duplicating them in src/fpga.
+# The Pocket: Analogue's framework on top of the machine, a bitstream at the
+# end of it, and the SD card tree that carries it.
 #
-# Nothing it makes belongs to tests/, so nothing it makes lands there. The
-# machine's own area probe is build/fpga/synth, and everything with a host in
-# it is under that host: build/fpga/pocket holds the Quartus project, the
-# bitstream and the card tree. MiSTer gets build/fpga/mister beside it, which
-# is also why every target that has a host in it is named for one.
+# Everything here needs Quartus, the APF submodule and the soft CPU firmware.
+# None of it needs Verilator: the source list comes from rtl.cmake, which is a
+# list either way. MiSTer gets a file beside this one.
 
-# project into the build tree and runs the fitter and the analyzer. The
-# source list is the verilated one, so the thing measured is the thing
-# tested, and the generated packages come from this build rather than a
-# copy that can drift.
-find_program(QUARTUS_MAP quartus_map HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-find_program(QUARTUS_FIT quartus_fit HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-find_program(QUARTUS_STA quartus_sta HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-find_program(QUARTUS_ASM quartus_asm HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-find_program(QUARTUS_DRC quartus_drc HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
-find_program(QUARTUS_CDB quartus_cdb HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
-    set(SYNTH_DIR ${CMAKE_BINARY_DIR}/synth)
-    set(POCKET_DIR ${CMAKE_BINARY_DIR}/pocket)
-    set(SYNTH_QSF ${SYNTH_DIR}/rp6502.qsf)
-    set(SYNTH_SDC ${RP6502_SRC}/fpga/platform/pocket/quartus/rp6502.sdc)
-    set(SYNTH_LINES
-        "set_global_assignment -name FAMILY \"Cyclone V\""
-        "set_global_assignment -name DEVICE 5CEBA4F23C8"
-        "set_global_assignment -name TOP_LEVEL_ENTITY rp6502"
-        "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
-        "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
-        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
-        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        # A shift register the fitter recognises becomes an M10K, and the
-        # ones here are short enough that a block is a poor trade: three
-        # blocks go back for a handful of ALMs. Blocks are what this
-        # device is short of, not logic.
-        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
-        # The machine's own ports outnumber the package's pins — the host
-        # window alone is a hundred of them — and this target exists to
-        # measure area, not to be bound to pads.
-        "set_instance_assignment -name VIRTUAL_PIN ON -to *"
-        # -to * means Quartus reports every node it declined to make a
-        # virtual pin, which is ten thousand messages — its cap — and
-        # buries the hundred and sixty that mean something. Only this
-        # project has the assignment, so only this project hides it.
-        "set_global_assignment -name MESSAGE_DISABLE 15720")
-    foreach(src ${RP6502_MACHINE_SOURCES})
-        if(src MATCHES "\\.sv$")
-            list(APPEND SYNTH_LINES
-                "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
-        elseif(src MATCHES "\\.v$")
-            list(APPEND SYNTH_LINES
-                "set_global_assignment -name VERILOG_FILE ${src}")
-        endif()
-    endforeach()
-    string(REPLACE ";" "\n" SYNTH_QSF_TEXT "${SYNTH_LINES}")
-    file(MAKE_DIRECTORY ${SYNTH_DIR})
-    file(WRITE ${SYNTH_QSF} "${SYNTH_QSF_TEXT}\n")
-    file(WRITE ${SYNTH_DIR}/rp6502.qpf
-        "PROJECT_REVISION = \"rp6502\"\n")
-    add_custom_target(synth
-        COMMAND ${QUARTUS_MAP} rp6502
-        COMMAND ${QUARTUS_FIT} rp6502
-        COMMAND ${QUARTUS_STA} rp6502
-        WORKING_DIRECTORY ${SYNTH_DIR}
-        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
-        COMMENT "Synthesizing the machine for the Pocket's Cyclone V"
-        VERBATIM)
-
+    set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
     # And the same again with the Pocket's own layer on top, which is
     # what actually has to fit: the machine alone leaves out the bridge,
     # the SDRAM controller, the I2S and the video crossing. The ports
     # are virtual because pocket_core presents more signals than the
     # package has pins — Analogue's core_top is what binds them to pads,
     # and it is not vendored yet.
-    set(PSYNTH_DIR ${POCKET_DIR}/synth)
+    set(PSYNTH_DIR ${CMAKE_BINARY_DIR}/synth-pocket)
     set(PSYNTH_QSF ${PSYNTH_DIR}/pocket.qsf)
     set(PSYNTH_LINES
         "set_global_assignment -name FAMILY \"Cyclone V\""
         "set_global_assignment -name DEVICE 5CEBA4F23C8"
         "set_global_assignment -name TOP_LEVEL_ENTITY pocket_core"
         "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
-        "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
+        "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
         "set_instance_assignment -name VIRTUAL_PIN ON -to *")
@@ -189,7 +128,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${APF}/apf/apf_constraints.sdc"
         "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/core_top.sv"
         "set_global_assignment -name VERILOG_FILE ${RP6502_SRC}/fpga/platform/pocket/pocket_pll.v"
-        "set_global_assignment -name SDC_FILE ${SYNTH_SDC}"
+        "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
@@ -235,7 +174,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # the decode table, the palettes, the sine and OPL2 ROMs — so a
     # regenerated asset counts as a moved source without naming it twice.
     #
-    # This file stands in for the QSF, which cannot stand for itself: the
+    # These three files stand in for the QSF, which cannot stand for itself: the
     # fitter writes the project file back. It restamps LAST_QUARTUS_VERSION,
     # drops the template's AUTO FIT and HIGH PERFORMANCE EFFORT now that ours
     # override them, and rewrites every path relative. So the QSF differs from
@@ -250,10 +189,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${APF}/core/pin_ddio_clk.v
         ${APF}/apf/apf_constraints.sdc
         ${APF}/ap_core.qsf
-        ${SYNTH_SDC}
+        ${RP6502_SDC}
         ${RP6502_SRC}/fpga/platform/pocket/quartus/pocket.sdc
         ${RP6502_SRC}/fpga/platform/pocket/quartus/core_constraints.sdc
-        ${CMAKE_CURRENT_LIST_DIR}/synth.cmake)
+        ${CMAKE_CURRENT_LIST_DIR}/pocket.cmake
+        ${RP6502_SRC}/fpga/rtl.cmake
+        ${RP6502_SRC}/fpga/quartus.cmake)
 
     # Three costs, three rules, and CMake decides which of them a change
     # has to pay for. Placing and routing this design is nine minutes and
@@ -334,7 +275,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # the tree come from dist/ as they are; the bitstream and the glyph
     # asset are built. dist/ carries Saves/rp6502/common/ because the
     # host will not create it and the drive is nothing without it.
-    set(PKG_DIR ${POCKET_DIR}/package)
+    set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/fpga/platform/pocket/dist)
     file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
     add_custom_command(OUTPUT ${POCKET_DIR}/package.stamp

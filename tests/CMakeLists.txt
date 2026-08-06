@@ -11,7 +11,9 @@
 # Pocket bridge FIFO genuinely is about the host and not about the machine.
 #
 # src/emu adds this with nothing set, and gets the C suites.
-# src/fpga adds it with RP6502_TESTS_RTL, and gets those plus the RTL.
+# src/fpga adds it with RP6502_TESTS_RTL, and gets those plus the RTL. It adds
+# it only when RP6502_FPGA_SIM is on; a Pocket bitstream needs the RTL source
+# list, which lives in src/fpga/rtl.cmake, and none of what is here.
 
 include(${CMAKE_CURRENT_LIST_DIR}/rp6502_tests.cmake)
 
@@ -32,6 +34,4 @@ add_subdirectory(hid)
 
 if(RP6502_VERILATE)
     add_subdirectory(host/pocket)
-    # The bitstream, which is not a test but needs the same source lists.
-    include(${CMAKE_CURRENT_LIST_DIR}/synth.cmake)
 endif()

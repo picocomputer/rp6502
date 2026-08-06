@@ -131,10 +131,12 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/fpga",
-                "--target",
-                "sw_bin"
+                "--preset",
+                "Firmware"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/fpga"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -146,10 +148,12 @@
             "type": "process",
             "command": "ctest",
             "args": [
-                "--test-dir",
-                "${workspaceFolder}/build/fpga",
-                "--output-on-failure"
+                "--preset",
+                "fpga/verilator/Release"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/fpga"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -162,10 +166,12 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/fpga",
-                "--target",
-                "synth"
+                "--preset",
+                "Machine"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/fpga"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -178,10 +184,12 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/fpga",
-                "--target",
-                "pocket-bitstream"
+                "--preset",
+                "Bitstream"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/fpga"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -194,10 +202,12 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/fpga",
-                "--target",
-                "pocket"
+                "--preset",
+                "Card package"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/fpga"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
@@ -210,10 +220,12 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "${workspaceFolder}/build/fpga",
-                "--target",
-                "pocket-synth"
+                "--preset",
+                "Pocket core"
             ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/fpga"
+            },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
