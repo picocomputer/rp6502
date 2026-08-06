@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, openfpga]
+    branches: [main]
     tags: ['v[0-9]*']
   pull_request:
     branches: [main]
@@ -25,7 +25,7 @@ jobs:
   # Firmware: one pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2.
   # A second pico2 build is a CI-only regression check (not shipped).
   # ---------------------------------------------------------------------------
-  firmware:
+  rp6502-ria-vga:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -115,7 +115,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: firmware
+          name: rp6502-ria-vga
           path: out/*.uf2
           if-no-files-found: error
 
@@ -123,7 +123,8 @@ jobs:
   # Emulator (Linux x86_64 + arm64): build the windowed emu, run the CTest suite,
   # ship a bare arch-suffixed binary.
   # ---------------------------------------------------------------------------
-  emu-linux:
+  linux:
+    name: linux-${{ matrix.arch }}
     strategy:
       fail-fast: false
       matrix:
@@ -165,14 +166,14 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: emu-linux-${{ matrix.arch }}
+          name: linux-${{ matrix.arch }}
           path: rp6502-emu-${{ matrix.arch }}.tar.gz
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Emulator (macOS, arm64): build, test, wrap the binary in an unsigned .app.
   # ---------------------------------------------------------------------------
-  emu-macos:
+  macos:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -224,14 +225,14 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: emu-macos
+          name: macos
           path: rp6502-emu-app.tar.gz
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Emulator (WebAssembly): build the emsdk web target, ship the itch.io bundle.
   # ---------------------------------------------------------------------------
-  emu-wasm:
+  itch-io:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -274,7 +275,7 @@ jobs:
   # Emulator (Windows, x64): build the D3D11 emu with MSVC + Ninja, run the
   # CTest suite, ship the bare rp6502-emu.exe.
   # ---------------------------------------------------------------------------
-  emu-windows:
+  windows:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v7
@@ -314,14 +315,14 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: emu-windows
+          name: windows
           path: rp6502-emu.exe
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # Emulator (Android, arm64-v8a): build the optimized APK, ship the APK.
   # ---------------------------------------------------------------------------
-  emu-android:
+  android:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -345,7 +346,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: emu-android-apk
+          name: android
           path: rp6502-emu.apk
           if-no-files-found: error
 
@@ -354,7 +355,7 @@ jobs:
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   # ---------------------------------------------------------------------------
-  rtl-sim:
+  test-rtl:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -383,12 +384,58 @@ jobs:
       - name: Run simulation tests
         run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
 
+  # Whether this commit touched the machine. GitHub filters a whole workflow
+  # by path, never one job, so the question is asked here and answered once.
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      rtl: ${{ steps.rtl.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Did src/rtl change
+        id: rtl
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base="origin/${{ github.base_ref }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          # A new branch has no before, a force push can leave one that is
+          # gone, and a dispatch has none at all. Yes is the safe answer to
+          # all three — a fit that was not needed costs time, one that was
+          # skipped ships a stale core.
+          if [[ -z "$base" ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            changed=true
+          else
+            # Captured rather than piped: grep -q closes early, and under
+            # pipefail that returns git's SIGPIPE status, so the step would
+            # fail on precisely the commits that matched.
+            files=$(git diff --name-only "$base" HEAD)
+            if grep -q '^src/rtl/' <<< "$files"; then changed=true; else changed=false; fi
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
   # The bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
-  # by-product. Not on pull requests: a fit is tens of minutes and needs
-  # a 20 GB toolchain, and nothing about a fit is decided by a diff.
-  pocket-bitstream:
-    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+  # by-product. A fit is tens of minutes and needs a 20 GB toolchain, so it
+  # runs when a diff touched the RTL, and always for a tag or a dispatch.
+  #
+  # src/rtl is not the whole of what decides a bitstream. The soft CPU
+  # firmware compiles sources from src/ria and src/vga, and the font and
+  # palette ROMs in the fabric are generated from src/vga/term — a change
+  # to any of those alters the core without triggering a fit here. Tags and
+  # dispatches fit unconditionally, so nothing is ever released on a core
+  # this gate declined to build.
+  pocket:
+    needs: changes
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || startsWith(github.ref, 'refs/tags/')
+      || needs.changes.outputs.rtl == 'true'
     runs-on: ubuntu-24.04
     container: raetro/quartus:21.1
     steps:
@@ -422,14 +469,20 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: pocket-core
+          name: pocket
           path: build/pocket/package
 
   # ---------------------------------------------------------------------------
   # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).
   # ---------------------------------------------------------------------------
   package:
-    needs: [firmware, emu-linux, emu-macos, emu-wasm, emu-windows, emu-android]
+    needs: [rp6502-ria-vga, linux, macos, itch-io, windows, android, pocket]
+    # pocket is skipped on every commit that left the RTL alone, and a skipped
+    # dependency skips what depends on it unless the condition says otherwise.
+    # !failure() keeps a real failure blocking, which is what needs meant on
+    # its own — so a tag still waits for the fit and a fit that did not close
+    # still stops the release.
+    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -450,21 +503,26 @@ jobs:
 
           mkdir stage
           # Firmware
-          cp _artifacts/firmware/rp6502-ria-w.uf2 stage/
-          cp _artifacts/firmware/rp6502-vga.uf2   stage/
+          cp _artifacts/rp6502-ria-vga/rp6502-ria-w.uf2 stage/
+          cp _artifacts/rp6502-ria-vga/rp6502-vga.uf2   stage/
           # Linux emulators (tar preserves the +x bit lost by upload-artifact)
-          tar -xzf _artifacts/emu-linux-x86_64/rp6502-emu-x86_64.tar.gz   -C stage
-          tar -xzf _artifacts/emu-linux-aarch64/rp6502-emu-aarch64.tar.gz -C stage
+          tar -xzf _artifacts/linux-x86_64/rp6502-emu-x86_64.tar.gz   -C stage
+          tar -xzf _artifacts/linux-aarch64/rp6502-emu-aarch64.tar.gz -C stage
           chmod +x stage/rp6502-emu-x86_64 stage/rp6502-emu-aarch64
           # macOS app
-          tar -xzf _artifacts/emu-macos/rp6502-emu-app.tar.gz -C stage
+          tar -xzf _artifacts/macos/rp6502-emu-app.tar.gz -C stage
           chmod +x stage/rp6502-emu.app/Contents/MacOS/rp6502-emu
           # Windows emulator
-          cp _artifacts/emu-windows/rp6502-emu.exe stage/
+          cp _artifacts/windows/rp6502-emu.exe stage/
           # WebAssembly itch.io bundle (shipped as a nested zip)
           cp _artifacts/itch-io/itch.io.zip stage/
           # Android APK
-          cp _artifacts/emu-android-apk/rp6502-emu.apk stage/
+          cp _artifacts/android/rp6502-emu.apk stage/
+          # The Pocket card tree, a nested zip the way itch.io's is, with the
+          # card's own root at the zip's root. Absent when the fit did not run.
+          if [ -d _artifacts/pocket ]; then
+            ( cd _artifacts/pocket && zip -r -y "$GITHUB_WORKSPACE/stage/pocket.zip" . )
+          fi
           # Static distribution files + sample ROM
           cp src/dist/release/README.txt tests/roms/adventure.rp6502 stage/
           # One zip, everything at the root
