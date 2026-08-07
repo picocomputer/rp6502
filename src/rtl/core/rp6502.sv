@@ -21,7 +21,7 @@ module rp6502
      * memory, which is what every bench wants and what a platform with
      * blocks to spare should do. One exports the two ports and lets the
      * platform find the storage — on the Pocket that is a real SRAM
-     * chip, and the 64 M10K it gives back are the soft CPU's TCM. */
+     * chip, and the 64 blocks it gives back stay with the fabric. */
     parameter bit EXT_RAM = 0
 ) (
     input logic clk_sys,

@@ -392,7 +392,7 @@ end
     // time. So SRAM, XRAM, TCM and every register come back out of the
     // bitstream, and no amount of care in the firmware can continue a
     // program across a nap — only a real savestate could, and that is
-    // 200 KB of machine to marshal with 153 ALMs spare.
+    // the whole machine's state to marshal out and back.
     //
     // A sleep that silently restarts the user's program is worse than
     // no sleep, so the core no longer claims to support it. These stay

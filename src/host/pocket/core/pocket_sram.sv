@@ -4,14 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The 6502's 64 KB, on the Pocket's own SRAM chip instead of block
- * memory. AS6C2016-55BIN: 128K x 16, asynchronous, 55 ns, and it has
- * been tied off dead in core_top.sv since this port began.
+ * memory. AS6C2016-55BIN: 128K x 16, asynchronous, 55 ns. Only 64 KB of
+ * the chip is addressed and only its low byte lane, for the reasons
+ * below.
  *
- * It is worth 64 M10K blocks, which is exactly what doubling the soft
- * CPU's TCM costs, and it is a better fit for this job than the SDRAM
- * could ever be. The 6502 gets 119 ns per access at 8 MHz — six clocks
- * at the accumulator's tightest — and this part answers in 55 ns every
- * time. No rows, no refresh, no banks, no pattern that defeats it.
+ * The 64 KB it takes off the fabric is block memory the rest of the
+ * machine gets to keep, and it is a better fit for this job than the
+ * SDRAM could ever be. The 6502 gets 119 ns per access at 8 MHz — six
+ * clocks at the accumulator's tightest — and this part answers in 55 ns
+ * every time. No rows, no refresh, no banks, no pattern that defeats it.
  * The SDRAM is fast on average and slow when it is unlucky, which is
  * the wrong shape for a machine whose contract is that the clock you
  * asked for is the clock you get.
