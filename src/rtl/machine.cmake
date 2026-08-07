@@ -91,7 +91,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
     # The firmware's own headers carry the hardware's addresses, so a
     # window that moves has to rebuild the image that writes to it.
-    file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h)
+    file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h
+        ${RP6502_SRC}/rtl/sw/shim/*/*.h ${RP6502_SRC}/rtl/sw/shim/*/*/*.h)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c ${SW_SRC}/cfg.c
         ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
