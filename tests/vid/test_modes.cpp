@@ -70,10 +70,9 @@ struct budget_t
     long grants_at_worst;
     long grants_planes;    /* to requesters 0-2, the three fills */
     long grants_sprite;    /* to requester 3, the sprite stage */
-    /* The terminal renders every line whatever the canvas — vid_term
-     * raises run at every line_start — and it neither shares the XRAM
-     * nor waits for the planes, so its cost is concurrent, not added.
-     * It still has to fit the line on its own. */
+    /* The terminal renders every line whatever the canvas — vid_mode0
+     * raises run at every line_start — and its cost is concurrent, not
+     * added. It still has to fit the line on its own. */
     long worst_term;
     /* Where the line's clocks go: each plane's resolution — its fill's
      * finish on the shared engine, or the decision that skipped it —
@@ -136,7 +135,7 @@ static void measure_frame(budget_t *b)
             if (dut->rootp->rp6502__DOT__vid_sprite__DOT__state != 0)
                 sprite_until = clocks;
             spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 3]++;
-            if (dut->rootp->rp6502__DOT__vid_term__DOT__run)
+            if (dut->rootp->rp6502__DOT__vid_mode0__DOT__run)
                 term_until = clocks;
             if (dut->rootp->rp6502__DOT__a_any)
             {

@@ -648,17 +648,17 @@ module rp6502
         .vid_prog_b_rdata(vid_prog_b_rdata)
     );
 
-    logic [15:0] term_pix;
-    vid_term vid_term (
+    logic [15:0] mode0_pix;
+    vid_mode0 vid_mode0 (
         .clk(clk_sys),
         .frame_start(vid_frame_start),
         .h(vid_h),
         .v(vid_v),
         .px_last(vid_px_last),
         .line_start(vid_line_start),
-        .vid_term_pix(term_pix),
-        .vid_term_f_req(mf_req[1]),
-        .vid_term_f_addr(mf_addr[1]),
+        .vid_mode0_pix(mode0_pix),
+        .vid_mode0_f_req(mf_req[1]),
+        .vid_mode0_f_addr(mf_addr[1]),
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
@@ -667,7 +667,7 @@ module rp6502
         .b_addr(bus_addr[16:0]),
         .b_wstrb(bus_wstrb),
         .b_wdata(bus_wdata),
-        .vid_term_b_rdata(vid_b_rdata)
+        .vid_mode0_b_rdata(vid_b_rdata)
     );
 
     logic [15:0] m_pix[3];
@@ -880,7 +880,7 @@ module rp6502
         .clk(clk_sys),
         .de(vid_de),
         .console(vid_console),
-        .term_pix(term_pix),
+        .term_pix(mode0_pix),
         .p0_pix(m_pix[0]),
         .p0_filled(m_filled[0]),
         .s0_pix(sp_pix[0]),

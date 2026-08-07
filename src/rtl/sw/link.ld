@@ -7,7 +7,7 @@
  * reset vector is address zero. The stack grows down from the top.
  *
  * VIDCELLS is the terminal's cell window, and its length is the one in
- * vid_term.sv — the linker's view of an array the fabric owns. Both
+ * vid_mode0.sv — the linker's view of an array the fabric owns. Both
  * screens, so it moves with TERM_ALT_SCREEN in vga/term/term.h.
  */
 

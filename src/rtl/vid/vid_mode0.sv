@@ -14,7 +14,7 @@
  * there is no boot-time clear.
  */
 
-module vid_term (
+module vid_mode0 (
     input logic clk,
     input logic frame_start,
 
@@ -23,10 +23,10 @@ module vid_term (
     input logic [9:0] v,
     input logic px_last,
     input logic line_start,
-    output logic [15:0] vid_term_pix,
+    output logic [15:0] vid_mode0_pix,
 
-    output logic vid_term_f_req,
-    output logic [13:0] vid_term_f_addr,
+    output logic vid_mode0_f_req,
+    output logic [13:0] vid_mode0_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
 
@@ -35,7 +35,7 @@ module vid_term (
     input logic [16:0] b_addr,
     input logic [3:0] b_wstrb,
     input logic [31:0] b_wdata,
-    output logic [31:0] vid_term_b_rdata
+    output logic [31:0] vid_mode0_b_rdata
 );
 
     /* One array per byte lane: a byte-enabled write keeps a true
@@ -80,7 +80,7 @@ module vid_term (
 
     logic [31:0] cells_q, regs_q;
     logic sel_cells;
-    always_comb vid_term_b_rdata = sel_cells ? cells_q : regs_q;
+    always_comb vid_mode0_b_rdata = sel_cells ? cells_q : regs_q;
 
     always_ff @(posedge clk) begin
         if (b_stb) begin
@@ -225,11 +225,11 @@ module vid_term (
      * the request stands and the byte is there in time. */
     always_comb begin
         case (font_sel)
-            2'd1: vid_term_f_addr = {2'b11, 3'b000, scanrow, font_code[4:0]};
-            2'd2: vid_term_f_addr = {2'b10, 1'b0, scanrow, font_code[6:0]};
-            default: vid_term_f_addr = {2'b00, scanrow, font_code};
+            2'd1: vid_mode0_f_addr = {2'b11, 3'b000, scanrow, font_code[4:0]};
+            2'd2: vid_mode0_f_addr = {2'b10, 1'b0, scanrow, font_code[6:0]};
+            default: vid_mode0_f_addr = {2'b00, scanrow, font_code};
         endcase
-        vid_term_f_req = run;
+        vid_mode0_f_req = run;
     end
 
     /* The store answers the clock the resolve wants it, so the arriving
@@ -426,11 +426,11 @@ module vid_term (
             lb_blank <= !(h == 10'd799 || h < 10'd639);
         end
     end
-    always_comb vid_term_pix = lb_blank ? 16'h0000 : lb_q;
+    always_comb vid_mode0_pix = lb_blank ? 16'h0000 : lb_q;
 
     /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_vid_term;
-    always_comb unused_vid_term = ^{b_addr[1:0], bits, cur_bar,
+    logic unused_vid_mode0;
+    always_comb unused_vid_mode0 = ^{b_addr[1:0], bits, cur_bar,
                                     prog_q[30:26], prog_q[15:10],
                                     cursor_q[31:26], cursor_q[23:19], t[9]};
     /* verilator lint_on UNUSEDSIGNAL */

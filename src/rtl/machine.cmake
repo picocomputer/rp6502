@@ -72,7 +72,7 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/rtl/vid/vid_sbuf.sv
     ${RP6502_SRC}/rtl/vid/vid_sprite.sv
     ${RP6502_SRC}/rtl/vid/vid_prog.sv
-    ${RP6502_SRC}/rtl/vid/vid_term.sv
+    ${RP6502_SRC}/rtl/vid/vid_mode0.sv
     ${RP6502_SRC}/rtl/vid/vid_compose.sv
     ${RP6502_SRC}/rtl/core/rp6502.sv)
 set(RP6502_MACHINE_VERILATOR_ARGS
