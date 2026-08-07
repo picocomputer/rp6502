@@ -20,11 +20,9 @@
 
 #include <stdint.h>
 
-/* mode0_prog over this machine's view: same defaults and validation, the
- * raster window landing in the scanout register instead of a prog entry.
- * On a graphics canvas the composite drops the
- * terminal, so this programs a window nothing shows; the ACK still
- * matches the oracle's. */
+/* mode0_prog over this machine's view: the same defaults and checks,
+ * then vga_prog_exclusive names the plane in the slot table and the
+ * window register aims the scanout engine. */
 bool vid_mode0_prog(uint16_t *xregs)
 {
     int16_t plane = (int16_t)xregs[2];
@@ -44,9 +42,7 @@ bool vid_mode0_prog(uint16_t *xregs)
     bool use_40 = height == 180 || height == 240;
     if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
         return false;
-    /* vga_prog_valid's checks, in the oracle's order. */
-    if (plane < 0 || plane >= 3 || scanline_begin < 0 ||
-        scanline_end > height || scanline_count < 1)
+    if (!vga_prog_exclusive(plane, scanline_begin, scanline_end, 0))
         return false;
     if (use_40)
         term_set_height(40, (uint8_t)(scanline_count / 8));

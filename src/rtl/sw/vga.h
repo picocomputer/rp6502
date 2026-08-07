@@ -37,6 +37,12 @@ int16_t vga_vsync_scanline(void);
 /* The mode dispatch announces what the next vga_prog_fill publishes —
  * a fill-function pointer means nothing to hardware. */
 void vga_prog_mode(uint8_t mode, uint16_t attr);
+bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
+                    int16_t *scanline_end);
+/* Mode 0's registration: one instance globally — the previous entries
+ * are swept wherever they survive, contiguous or not. */
+bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
+                        int16_t scanline_end, uint16_t config_ptr);
 bool vga_set_canvas(uint16_t canvas);
 
 #endif /* _FPGA_SW_VGA_H_ */

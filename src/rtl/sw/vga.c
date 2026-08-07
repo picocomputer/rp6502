@@ -56,8 +56,8 @@ void vga_prog_mode(uint8_t mode, uint16_t attr)
     vga_pub_attr = attr;
 }
 
-static bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
-                           int16_t *scanline_end)
+bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
+                    int16_t *scanline_end)
 {
     if (!*scanline_end)
         *scanline_end = vga_canvas_h;
@@ -81,6 +81,32 @@ static bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
     return true;
 }
 
+/* The oracle's exclusive sweep keys on the fill-function pointer stored
+ * in each entry; this table is write-only from the bus, so the sweep's
+ * one bit per line lives here instead. */
+static uint32_t vga_mode0_mask[16];
+static int16_t vga_mode0_plane;
+
+bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
+                        int16_t scanline_end, uint16_t config_ptr)
+{
+    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
+        return false;
+    for (int16_t i = 0; i < 512; i++)
+        if (vga_mode0_mask[i >> 5] & (1u << (i & 31)))
+            VID_XPROG(i, vga_mode0_plane, 0) = 0;
+    for (int16_t i = 0; i < 16; i++)
+        vga_mode0_mask[i] = 0;
+    for (int16_t i = scanline_begin; i < scanline_end; i++)
+    {
+        VID_XPROG(i, plane, 0) = 0x80000000u;
+        VID_XPROG(i, plane, 1) = config_ptr;
+        vga_mode0_mask[i >> 5] |= 1u << (i & 31);
+    }
+    vga_mode0_plane = plane;
+    return true;
+}
+
 bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                    uint16_t config_ptr,
                    bool (*fill_fn)(int16_t, int16_t, int16_t,
@@ -97,6 +123,9 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
             | ((uint32_t)(vga_pub_mode & 7) << 16) | vga_pub_attr;
         VID_XPROG(i, plane, 1) = config_ptr;
     }
+    if (plane == vga_mode0_plane)
+        for (int16_t i = scanline_begin; i < scanline_end; i++)
+            vga_mode0_mask[i >> 5] &= ~(1u << (i & 31));
     return true;
 }
 
@@ -144,6 +173,8 @@ bool vga_set_canvas(uint16_t canvas)
         for (int16_t p = 0; p < 3; p++)
             for (int16_t w = 0; w < 4; w++)
                 VID_XPROG(i, p, w) = 0;
+    for (int16_t i = 0; i < 16; i++)
+        vga_mode0_mask[i] = 0;
     vga_highest_scanline = 0;
     VID_CANVAS = canvas;
     if (canvas == vga_canvas_console)
