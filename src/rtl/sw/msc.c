@@ -37,7 +37,6 @@
 
 #include "ria/api/uni.h"
 
-#include <pico/time.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -78,17 +77,8 @@ static struct
  * that, and spinning either out stops every other task: the 6502's
  * console output, the video frames, and the next file operation with
  * them. Start it, and poll it once per pass. */
-/* A command the bridge never retires is invisible from the outside: no
- * error, no timeout, the poll just never ends and the next stop() would
- * spin forever. Every legitimate command resolves inside the ~1.8 s
- * backstop, so a status still pending at two seconds is wedged — keep
- * saying what the word holds while the console still runs; successive
- * values tell a stuck bit from a streaming one. */
-static uint64_t msc_started_us;
-
 static void msc_start(uint32_t op)
 {
-    msc_started_us = time_us_64();
     FILE_CTL = op;
 }
 
@@ -96,15 +86,7 @@ static bool msc_poll(uint32_t *st)
 {
     uint32_t v = FILE_CTL;
     if (v & (FILE_ST_BUSY | FILE_ST_DRAIN))
-    {
-        uint64_t now = time_us_64();
-        if (now - msc_started_us > 2000000)
-        {
-            msc_started_us = now;
-            printf("?MSC CTL=%02lX\n", (unsigned long)v);
-        }
         return false;
-    }
     *st = v;
     return true;
 }
