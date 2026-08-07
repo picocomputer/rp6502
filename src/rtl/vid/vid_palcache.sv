@@ -106,9 +106,9 @@ module vid_palcache
         || (hit_a && (!need_b || hit_b));
 
     /* A register stands between the tag compare and the channel: the
-     * lookup's arithmetic is a full-period cone already, and crossing to
-     * the XRAM's address port in the same cycle broke the fit. The miss
-     * pays a cycle it was spending stalled anyway. */
+     * lookup's arithmetic is a full-period cone already, and reaching
+     * the XRAM's address port in the same cycle puts two of them end to
+     * end. The miss pays a cycle it was spending stalled anyway. */
     logic pending;
     logic [13:0] pend_wa;
     logic filling;

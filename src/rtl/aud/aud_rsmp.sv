@@ -20,7 +20,7 @@
  * between input samples.
  *
  * Only rows 0..64 are stored; the rest are those read backwards, exact
- * because a windowed sinc is even in its argument. Six M10K, measured.
+ * because a windowed sinc is even in its argument.
  */
 
 module aud_rsmp

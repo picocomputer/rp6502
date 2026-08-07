@@ -3,14 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One RAM: the 64 KB tightly-coupled memory at zero, code first because the
+ * One RAM: the tightly-coupled memory at zero, code first because the
  * reset vector is address zero. The stack grows down from the top.
  *
- * The alternate screen buffer was off while the cells and the TCM were
- * competing for the same blocks: turning it off halved the cell store and
- * paid for the TCM's growth. The block budget carries both screens again,
- * so the window is back to 61,440 bytes. See TERM_ALT_SCREEN in
- * vga/term/term.h.
+ * VIDCELLS is the terminal's cell window, and its length is the one in
+ * vid_term.sv — the linker's view of an array the fabric owns. Both
+ * screens, so it moves with TERM_ALT_SCREEN in vga/term/term.h.
  */
 
 MEMORY

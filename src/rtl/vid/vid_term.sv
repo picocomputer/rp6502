@@ -45,12 +45,11 @@ module vid_term (
      * 15360 words is the tallest terminal the engine can build with both
      * screens, the alternate behind the primary at the offsets the
      * firmware's row table publishes. This firmware uses 14400, and the
-     * slack is free — both round to a depth of 16384 and cost sixteen
-     * blocks a lane.
+     * slack is free — both round to the same depth.
      *
-     * Flat rather than banked: hand-banking the depth into power-of-two
-     * chunks would save four blocks and cost 112 ALMs of addressing when
-     * it was tried, and this device is shorter of LABs than of blocks. */
+     * Flat rather than banked. Hand-banking into power-of-two chunks
+     * gives the blocks back a little more exactly and buys the saving
+     * with an adder and a mux on the scanout's address. */
     (* ramstyle = "no_rw_check" *)
     logic [7:0] cell0[15360] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)

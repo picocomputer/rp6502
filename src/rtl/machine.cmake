@@ -115,9 +115,9 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
             # Prologues and epilogues become calls into libgcc's
             # __riscv_save_N/__riscv_restore_N instead of a run of
-            # stores. 1,768 bytes on this image, measured, for a few
-            # cycles a call — and the TCM is 64 KB with the whole
-            # firmware in it, so text is the scarce thing, not cycles.
+            # stores. Kilobytes of text for a few cycles a call, and the
+            # whole firmware shares one TCM with the stack and the heap,
+            # so text is the scarce thing here, not cycles.
             -msave-restore
             -Os -ffreestanding -nostartfiles
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF

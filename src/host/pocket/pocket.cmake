@@ -86,28 +86,27 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # ever looks doubtful.
         "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
         # Analogue's template asks for Auto Fit, which stops optimizing
-        # the moment timing is met. That is why hold on the soft CPU's
-        # crossing into the machine landed at a single picosecond: met,
-        # and abandoned there. Standard Fit keeps going, and the margin
-        # it finds is what survives the next fit's placement.
+        # the moment timing is met and leaves hold sitting wherever it
+        # first closed. Standard Fit keeps going, and the margin it finds
+        # is what survives the next fit's placement.
         "set_global_assignment -name FITTER_EFFORT \"STANDARD FIT\""
-        # Name the synchronisers. Quartus finds all 78 chains on its own
-        # and then discards them — "the design MTBF is not calculated
-        # because there are no specified synchronizers" — so every
-        # crossing into a chain's own first stage was reported as
-        # unsynchronised, and the design had no reliability figure at
-        # all. IF ASYNCHRONOUS rather than FORCED because the clk_sys and
+        # Name the synchronisers. Quartus finds the chains on its own and
+        # then discards them — "the design MTBF is not calculated because
+        # there are no specified synchronizers" — so every crossing into
+        # a chain's own first stage was reported as unsynchronised, and
+        # the design had no reliability figure at all. STA prints the
+        # chain count and the MTBF once this is set; read it there rather
+        # than from a number written down here. IF ASYNCHRONOUS rather
+        # than FORCED because the clk_sys and
         # clk_rv pair is deliberately one synchronous group: forcing
         # would invent synchronisers across a seam that is not a
         # crossing.
         "set_global_assignment -name SYNCHRONIZER_IDENTIFICATION \"FORCED IF ASYNCHRONOUS\""
-        # Put the SRAM's launch and capture flops in the pads. In fabric
-        # they measure about 8.2 ns each way on this part; in the I/O
-        # element they are around 3. The interface has 24.4 ns for both
-        # crossings once tAA has taken its 55 out of the 6502's four
-        # clocks, so fabric spends two thirds of the budget on routing
-        # and the IOE spends a quarter. It is also the only way the
-        # placement stays put between fits.
+        # Put the SRAM's launch and capture flops in the pads. The 6502's
+        # four clocks less the chip's tAA is what both pad crossings have
+        # to share; an IOE flop is a fixed short hop where a fabric one
+        # is a route the fitter re-finds every placement, and the budget
+        # does not cover the fabric version.
         )
     foreach(pin sram_a sram_dq sram_oe_n sram_we_n sram_ub_n sram_lb_n)
         list(APPEND BS_LINES
@@ -116,10 +115,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # The SDRAM's read return is the tight direction and always was: the
     # memory clock is forwarded half a period late so the chip has time
     # to sample what we launch, which charges the return path for it.
-    # The chip puts data out tAC 6.0 ns after its own edge and we capture
-    # on the next clk_sys, so the whole pad crossing has 3.92 ns. In
-    # fabric that crossing measures over eight; in the I/O element it is
-    # under two.
+    # What is left after the chip's tAC does not cover a fabric flop's
+    # route, so these go in the pads for the same reason the SRAM's do.
     foreach(pin dram_a dram_ba dram_dq dram_dqm dram_cke
             dram_ras_n dram_cas_n dram_we_n)
         list(APPEND BS_LINES
@@ -139,16 +136,15 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        # Shift-register recognition was off while M10K was the scarce
-        # currency: three blocks went back for a handful of ALMs. The
-        # scarcity inverted — the filesystem batch tipped the device to
-        # 1853 LABs of 1848 with four blocks idle — so the trade flips
-        # with it: the fitter may spend blocks on shift registers again.
+        # Let the fitter turn shift registers into blocks. This trades
+        # whichever currency is scarce for whichever is not, so it is
+        # only right while logic is the tighter of the two — check the
+        # fit report before trusting it, not this line.
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION ON"
-        # And area mode: setup closes with more than a nanosecond and a
-        # half to spare, which is margin the packer can spend. The old
-        # per-knob register packing assignment is gone from 25.1std
-        # ("no longer supported -- removing"); the umbrella remains.
+        # And area mode, on the same terms: it spends timing margin to
+        # buy logic. The old per-knob register packing assignment is
+        # gone from 25.1std ("no longer supported -- removing"); the
+        # umbrella remains.
         "set_global_assignment -name OPTIMIZATION_MODE \"AGGRESSIVE AREA\"")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")

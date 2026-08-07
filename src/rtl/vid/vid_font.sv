@@ -53,12 +53,10 @@ module vid_font (
     /* The write port takes a clock of its own, and the reason is hold
      * rather than setup. The soft CPU's address reaches these arrays
      * through nothing but wiring, so at the fast corner the data can
-     * arrive before the clock edge that was supposed to launch it —
-     * measured at -0.122 ns against the dec MLAB's address port, after
-     * three fits walking toward it at +0.119, +0.088, -0.122. The
-     * fitter normally pads such a route with delay and has less room to
-     * do it every fit; a register ends the drift instead of deferring
-     * it.
+     * arrive before the clock edge that was supposed to launch it. A
+     * route that short is held open by padding the fitter has to find
+     * again every placement; a register ends the drift rather than
+     * deferring it.
      *
      * It costs nothing. Nothing reads a face until the firmware has
      * finished writing it, and the firmware only writes these at boot

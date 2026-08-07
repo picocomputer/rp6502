@@ -803,7 +803,7 @@ module rp6502
      * the surplus instead lost about 1,700 samples a second, unfiltered.
      *
      * One instance: a YM3812 is mono, so resampling it twice would buy
-     * nothing and cost four more M10K. */
+     * nothing and pay a second filter's coefficient store for it. */
     logic signed [15:0] opl_rs;
     /* verilator lint_off PINCONNECTEMPTY */
     aud_rsmp aud_rsmp (
