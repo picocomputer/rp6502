@@ -124,10 +124,21 @@ module vid_mode5
     logic pal_xram;
     logic [16:0] row_addr;
 
-    /* One cached XRAM word feeds the index bytes. */
+    /* One cached XRAM word feeds the index bytes. The walk is
+     * sequential bytes through the row, so while one word emits the
+     * spare clocks ask for the next, and the boundary costs one clock
+     * promoting the answer into the cache instead of a fetch's round
+     * trip. Emitting straight from the prefetch register would be that
+     * clock back, bought with a mux ahead of the palette lookup — the
+     * machine's long path, which is why mode 4 emits from its prefetch
+     * and this engine does not. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
+    logic [31:0] pre_data;
+    logic [13:0] pre_word;
+    logic pre_v;     /* the next word is here */
+    logic pre_pend;  /* ...or it has been asked for */
     logic signed [15:0] px_i;   /* pixel within the sprite row */
     logic [9:0] dst;
 
@@ -159,8 +170,19 @@ module vid_mode5
     logic [15:0] pal_color;
     always_comb pal_color = pal_q;
 
+    /* A live prefetch needs no address compare: it is only ever issued
+     * from a hit at dcache_word + 1, and the walk is sequential, so the
+     * word it holds is exactly the one the walk stands on when the hit
+     * drops. Two fourteen-bit comparators would hang off the pixel
+     * address adder — the long path's root — to prove what the walk
+     * already guarantees. */
     logic dhit;
     always_comb dhit = dcache_v && dcache_word == pix_byte_addr[15:2];
+    logic [13:0] pre_next;
+    always_comb pre_next = dcache_word + 14'd1;
+    logic pre_want;
+    always_comb pre_want = state == M5_PIX && dhit
+        && !pre_v && !pre_pend;
 
     always_comb begin
         vid_mode5_a_req = 1'b0;
@@ -171,9 +193,16 @@ module vid_mode5
              * grant's own clock is what spaces them. */
             M5_DESC: vid_mode5_a_req = fw_i < fw_n && !gnt_d;
             M5_PIX: begin
-                if (!dhit) begin
+                /* A prefetch of this word may still be in flight; a
+                 * duplicate miss fetch would land on a clock the
+                 * promote path already covers, leaving fw_i raised and
+                 * the request line silent — vid_mode4 learned this. */
+                if (!dhit && !pre_v && !pre_pend) begin
                     vid_mode5_a_req = fw_i == 3'd0;
                     vid_mode5_a_addr = pix_byte_addr[15:2];
+                end else if (pre_want) begin
+                    vid_mode5_a_req = 1'b1;
+                    vid_mode5_a_addr = pre_next;
                 end
             end
             default: ;
@@ -192,6 +221,9 @@ module vid_mode5
     end
 
     task automatic next_sprite();
+        /* Whatever was read ahead belonged to the sprite just finished. */
+        pre_v <= 1'b0;
+        pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
             vid_mode5_done <= 1'b1;
             state <= M5_IDLE;
@@ -228,6 +260,10 @@ module vid_mode5
         dcache = '0;
         dcache_word = '0;
         dcache_v = 1'b0;
+        pre_data = '0;
+        pre_word = '0;
+        pre_v = 1'b0;
+        pre_pend = 1'b0;
         px_i = '0;
         dst = '0;
         bpp_log = '0;
@@ -245,6 +281,8 @@ module vid_mode5
         end else if (start) begin
             idx <= '0;
             dcache_v <= 1'b0;
+            pre_v <= 1'b0;
+            pre_pend <= 1'b0;
             bpp_log <= attr[1:0];
             size <= size_w;
             bytes_per_row <= bytes_per_row_w;
@@ -305,17 +343,37 @@ module vid_mode5
                         state <= M5_PIX;
                 end
                 M5_PIX: begin
+                    /* The prefetch's own answer, told apart from the
+                     * miss fetch's by which one is pending — only ever
+                     * one is outstanding, because the request logic
+                     * asks for one or the other. */
+                    if (pre_pend && gnt_d) begin
+                        pre_data <= a_rdata;
+                        pre_v <= 1'b1;
+                        pre_pend <= 1'b0;
+                    end else if (pre_want && a_gnt) begin
+                        pre_word <= pre_next;
+                        pre_pend <= 1'b1;
+                    end
                     if (!dhit) begin
-                        /* The index word misses; refetch. */
-                        if (a_gnt) begin
-                            fw_i <= 3'd1;
-                            dcache_word <= pix_byte_addr[15:2];
-                            dcache_v <= 1'b0;
-                        end
-                        if (gnt_d) begin
-                            dcache <= a_rdata;
+                        if (pre_v) begin
+                            /* The boundary's one clock: the promote. */
+                            dcache <= pre_data;
+                            dcache_word <= pre_word;
                             dcache_v <= 1'b1;
-                            fw_i <= '0;
+                            pre_v <= 1'b0;
+                        end else begin
+                            /* The index word misses; refetch. */
+                            if (a_gnt && !pre_want) begin
+                                fw_i <= 3'd1;
+                                dcache_word <= pix_byte_addr[15:2];
+                                dcache_v <= 1'b0;
+                            end
+                            if (gnt_d && !pre_pend) begin
+                                dcache <= a_rdata;
+                                dcache_v <= 1'b1;
+                                fw_i <= '0;
+                            end
                         end
                     end else if (pal_hit)
                         step_pixel();

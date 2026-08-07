@@ -126,7 +126,7 @@ module vid_sprite (
         .cw(cw),
         .vid_mode5_a_req(m5_a_req),
         .vid_mode5_a_addr(m5_a_addr),
-        .a_gnt(a_gnt),
+        .a_gnt(a_gnt && !pc_req),
         .a_rdata(a_rdata),
         .vid_mode5_px_we(m5_px_we),
         .vid_mode5_px_addr(m5_px_addr),
@@ -177,9 +177,11 @@ module vid_sprite (
      * says why; this is the same thing one level up. */
     logic run4;
 
-    /* The cache's fill preempts mode 5's own requests, which is safe by
-     * construction: a palette lookup only exists while the index word is
-     * in hand, so the two never ask together. */
+    /* The cache's fill preempts mode 5's own requests. Its miss fetch
+     * never collides — a palette lookup only exists while the index
+     * word is in hand — but the prefetch asks precisely then, so a
+     * grant while the cache is asking is the cache's, and mode 5's
+     * grant says so. */
     always_comb begin
         vid_sprite_a_req = state == SP_RUN
             && (run4 ? m4_a_req : (pc_req || m5_a_req));
