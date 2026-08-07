@@ -116,11 +116,11 @@ module aud_psg
     logic xreg_pend;
     logic [15:0] xreg_word;
 
-    /* One array a field, never one wide array: past 136 bits Quartus
-     * refuses MLAB, falls back to a block and adds pass-through logic for
-     * a read-during-write nobody asked for. Two addresses (w_ch and ch)
-     * for the same reason — one address is a single port, which has no
-     * asynchronous read to offer.
+    /* One array a field, never one wide array: a wide enough array runs
+     * past what LUT memory can hold and falls back to a block, which
+     * adds pass-through logic for a read-during-write nobody asked for.
+     * Two addresses (w_ch and ch) for the same reason — one address is a
+     * single port, which has no asynchronous read to offer.
      *
      * Initialized rather than reset, which is what lets them be memory at
      * all; the zeros ride in the bitstream as a .mif.
@@ -148,8 +148,8 @@ module aud_psg
     end
     logic [1:0] ch_adsr[9];
 
-    /* Eight entries the walk indexes; MLAB reads asynchronously, so cf
-     * stays combinational and no state moves by a cycle. Two 32-bit
+    /* Eight entries the walk indexes, read asynchronously, so cf stays
+     * combinational and no state moves by a cycle. Two 32-bit
      * halves rather than one 64: the fetch arrives a word at a time, and
      * one wide array would need a half-width write enable.
      *

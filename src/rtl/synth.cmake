@@ -19,10 +19,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        # A shift register the fitter recognises becomes an M10K. Held
-        # off here so this target measures the machine's own logic
-        # rather than a trade the fitter made; the Pocket, which has to
-        # fit rather than be measured, sets it the other way.
+        # A shift register the fitter recognises becomes an M10K. Off
+        # here as it is on the Pocket, so this target measures the
+        # machine's own logic rather than a trade the fitter made.
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
         # The machine's own ports outnumber the package's pins — the host
         # window alone is a hundred of them — and this target exists to

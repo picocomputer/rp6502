@@ -86,10 +86,10 @@ module ria_regs (
     end
     always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
-    /* Sixteen bytes against an M10K's 10,240: left alone Quartus spends
-     * a whole block on 128 bits and adds pass-through registers, because
-     * the read below is asynchronous and a block's read address is not.
-     * An MLAB answers where it is used. */
+    /* Sixteen bytes, and the read below is asynchronous where a block's
+     * read address is registered. Left to itself Quartus does not reach
+     * for LUT memory here — it builds the array out of flip-flops, which
+     * is why the style is named rather than inferred. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] txf[16];
     logic [3:0] txf_w, txf_r;

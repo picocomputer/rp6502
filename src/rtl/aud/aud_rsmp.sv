@@ -56,14 +56,14 @@ module aud_rsmp
     localparam int HALF_ROWS = RSMP_PHASES / 2;  /* rows 0..64 are stored */
 
     /* A circular buffer, not a shift register: 24 taps read one per cycle
-     * is 384 flops as a shift register and one MLAB plus a counter as a
-     * memory. */
-    (* ramstyle = "MLAB, no_rw_check" *)
+     * is 384 flops as a shift register, and a small memory plus a counter
+     * either way the fitter builds it. */
+    (* ramstyle = "no_rw_check" *)
     logic signed [15:0] hist[32];
     logic [4:0] wptr;
     logic primed;
 
-    (* ramstyle = "M10K, no_rw_check" *)
+    (* ramstyle = "no_rw_check" *)
     logic signed [RSMP_COEF_W-1:0] coef[RSMP_HALF_N];
     initial begin
         for (int i = 0; i < RSMP_HALF_N; i++) coef[i] = RSMP_HALF[i];

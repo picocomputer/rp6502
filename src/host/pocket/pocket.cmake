@@ -136,16 +136,17 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         "set_global_assignment -name SDC_FILE ${RP6502_SRC}/host/pocket/quartus/pocket.sdc"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
         "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        # Let the fitter turn shift registers into blocks. This trades
-        # whichever currency is scarce for whichever is not, so it is
-        # only right while logic is the tighter of the two — check the
-        # fit report before trusting it, not this line.
-        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION ON"
-        # And area mode, on the same terms: it spends timing margin to
-        # buy logic. The old per-knob register packing assignment is
-        # gone from 25.1std ("no longer supported -- removing"); the
-        # umbrella remains.
-        "set_global_assignment -name OPTIMIZATION_MODE \"AGGRESSIVE AREA\"")
+        # A shift register the fitter recognises becomes a block. Held
+        # off so the trade is not made behind the report: what the
+        # design costs in logic should read as logic.
+        "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
+        # Quartus's own default, stated because Analogue's template asks
+        # for HIGH PERFORMANCE EFFORT and something has to displace it.
+        # Neither bias is ours to want: a mode that trades area for
+        # timing or timing for area is worth setting when a fit is
+        # actually short of one of them, and this one is short of
+        # neither.
+        "set_global_assignment -name OPTIMIZATION_MODE \"BALANCED\"")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
             list(APPEND BS_LINES

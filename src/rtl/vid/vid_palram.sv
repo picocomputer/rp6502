@@ -43,6 +43,10 @@ module vid_palram
     output logic [15:0] vid_palram_qb
 );
 
+    /* Named, not inferred. Both reads are asynchronous, so a block is
+     * out; but left to itself Quartus does not fall back to LUT memory,
+     * it falls back to flip-flops — eight thousand of them an instance,
+     * three instances, and the device stops fitting. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [15:0] pal_a_even[128];
     (* ramstyle = "MLAB, no_rw_check" *)

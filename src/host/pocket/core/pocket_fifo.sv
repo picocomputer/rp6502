@@ -28,12 +28,10 @@ module pocket_fifo #(
 
     localparam int PW = DEPTH_LOG2 + 1;
 
-    /* LUT memory, not block memory. These queues are four to sixteen
-     * words deep and the deepest is forty-one bits wide, which will not
-     * fit a block RAM's forty-bit mode and so costs two of them for
-     * three hundred and twenty-eight bits. The read is already
-     * asynchronous, which is exactly what a LAB's memory does natively,
-     * so the only thing keeping them out of it was not saying so. */
+    /* These queues are four to sixteen words deep and the deepest is
+     * forty-one bits wide, which does not fit a block RAM's forty-bit
+     * mode. The read is asynchronous, which is what a LAB's memory does
+     * natively and a block cannot do at all. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [WIDTH-1:0] mem[1 << DEPTH_LOG2];
 
