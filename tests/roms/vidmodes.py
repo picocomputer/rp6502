@@ -32,8 +32,21 @@ OUT = ap.parse_args().out
 OUT.mkdir(parents=True, exist_ok=True)
 
 
-def prog(canvas, progs):
+def say(p, text):
+    # Print through the console before anything else: LDA the byte, spin
+    # on the TX-ready bit, store it. The terminal model keeps the text
+    # across canvas switches, so a mode-0 slot shows it anywhere.
+    for ch in text.encode("latin-1"):
+        p.lda(ch)
+        p.bit(0xFFE0)
+        p.emit(0x10, 0xFB)
+        p.sta(0xFFE1)
+
+
+def prog(canvas, progs, speak=None):
     p = Asm()
+    if speak:
+        say(p, speak)
     p.xreg(1, 0, 0, canvas)
     for words in progs:
         p.xreg(1, 0, 1, *words)
@@ -41,8 +54,8 @@ def prog(canvas, progs):
     return p
 
 
-def rom(name, canvas, progs, xram_chunks):
-    r = Rom().program(prog(canvas, progs))
+def rom(name, canvas, progs, xram_chunks, speak=None):
+    r = Rom().program(prog(canvas, progs, speak))
     for addr, data in xram_chunks:
         r.record(0x10000 + addr, data)
     r.write(OUT / f"{name}.rp6502")
@@ -423,6 +436,45 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
 
 mode5("sprite_overrun", 1, 27, 0,
       [(i * 6, 40, 0, 0) for i in range(48)])
+
+# Mode 0 as a slot: the terminal over a mode-3 bitmap, its
+# default-background cells transparent and its inked ones opaque, on
+# every canvas geometry — the 80-column faces at 640 wide, the
+# 40-column 8x8 faces at 320, DEC graphics on both. The script hides
+# the cursor or the frames never settle.
+MODE0_SAY = ("\33[0m\33[2J\33[H\33[?25l"
+             "term over bitmap\r\n"
+             "\33(0lqqqqk\33(B\r\n"
+             "\33[43;34m opaque \33[0m done")
+
+
+def mode0mix(name, canvas, plane, begin, end):
+    cfg = bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF)
+    rom(name, canvas,
+        [(3, 3, 0x0100, 0, 0, 0), (0, plane, begin, end)],
+        [(0x0100, cfg),
+         (0x0800, bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))],
+        speak=MODE0_SAY)
+
+
+mode0mix("mode0_overlay", 3, 1, 32, 464)
+mode0mix("mode0_win360", 4, 1, 0, 0)
+mode0mix("mode0_win240", 1, 1, 0, 0)
+mode0mix("mode0_win180", 2, 1, 0, 0)
+
+# The graphics round trip home: a canvas, a fill, then the console
+# again — the return must republish the vsync line and the console
+# must still be whole.
+p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY)
+p.b.pop()  # the STP; two canvas xregs need a hand-built tail
+p.xreg(1, 0, 0, 0)
+p.stp()
+r = Rom().program(p)
+r.record(0x10000 + 0x0100,
+         bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF))
+r.record(0x10000 + 0x0800,
+         bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))
+r.write(OUT / "mode0_return.rp6502")
 
 # The serial fill canary: two 8bpp XRAM-palette fills — the costliest
 # prologue — on the wide canvas, overlapping so the stacking shows,

@@ -23,6 +23,7 @@ module vid_mode0 (
     input logic [9:0] v,
     input logic px_last,
     input logic line_start,
+    input logic [9:0] cw,
     output logic [15:0] vid_mode0_pix,
 
     output logic vid_mode0_f_req,
@@ -215,7 +216,7 @@ module vid_mode0 (
     always_comb begin
         if (w0_n[14])  /* ATTR_DEC */
             font_sel = 2'd1;
-        else if (w0_n[15] && !w0_n[7])  /* ATTR_ITALIC, low half only */
+        else if (!use_40 && w0_n[15] && !w0_n[7])  /* ATTR_ITALIC, 8x16 only */
             font_sel = 2'd2;
         else
             font_sel = 2'd0;
@@ -225,9 +226,13 @@ module vid_mode0 (
      * the request stands and the byte is there in time. */
     always_comb begin
         case (font_sel)
-            2'd1: vid_mode0_f_addr = {2'b11, 3'b000, scanrow, font_code[4:0]};
+            2'd1: vid_mode0_f_addr = use_40
+                ? {2'b11, 3'b001, 1'b0, scanrow[2:0], font_code[4:0]}
+                : {2'b11, 3'b000, scanrow, font_code[4:0]};
             2'd2: vid_mode0_f_addr = {2'b10, 1'b0, scanrow, font_code[6:0]};
-            default: vid_mode0_f_addr = {2'b00, scanrow, font_code};
+            default: vid_mode0_f_addr = use_40
+                ? {2'b01, 1'b0, scanrow[2:0], font_code}
+                : {2'b00, scanrow, font_code};
         endcase
         vid_mode0_f_req = run;
     end
@@ -243,16 +248,32 @@ module vid_mode0 (
     end
     always_comb font_bits = f_gnt_d ? f_data : font_hold;
 
+    /* 320-wide canvases run the 40-column terminal: 8x8 cells, so one
+     * fewer row bit everywhere and the 8-row attribute lines. */
+    logic use_40;
+    always_comb use_40 = cw == 10'd320;
     always_comb begin
-        scanrow = term_line[3:0];
-        logical_row = term_line[8:4];
-        line_mask = {2'b00,
-                     scanrow == 4'd0,                    /* ATTR_OVERLINE */
-                     scanrow == 4'd8,                    /* ATTR_STRIKE */
-                     scanrow == 4'd15 || scanrow == 4'd13, /* ATTR_DBL_UL */
-                     scanrow == 4'd15,                   /* ATTR_UNDERLINE */
-                     2'b00};
-        ul_row = scanrow == 4'd15 || scanrow == 4'd13;
+        if (use_40) begin
+            scanrow = {1'b0, term_line[2:0]};
+            logical_row = term_line[7:3];
+            line_mask = {2'b00,
+                         scanrow == 4'd0,                  /* ATTR_OVERLINE */
+                         scanrow == 4'd4,                  /* ATTR_STRIKE */
+                         scanrow == 4'd7 || scanrow == 4'd5, /* ATTR_DBL_UL */
+                         scanrow == 4'd7,                  /* ATTR_UNDERLINE */
+                         2'b00};
+            ul_row = scanrow == 4'd7 || scanrow == 4'd5;
+        end else begin
+            scanrow = term_line[3:0];
+            logical_row = term_line[8:4];
+            line_mask = {2'b00,
+                         scanrow == 4'd0,                    /* ATTR_OVERLINE */
+                         scanrow == 4'd8,                    /* ATTR_STRIKE */
+                         scanrow == 4'd15 || scanrow == 4'd13, /* ATTR_DBL_UL */
+                         scanrow == 4'd15,                   /* ATTR_UNDERLINE */
+                         2'b00};
+            ul_row = scanrow == 4'd15 || scanrow == 4'd13;
+        end
     end
 
     /* The C renderer's exact order: blink darkens unless the block
@@ -283,7 +304,8 @@ module vid_mode0 (
             bg_res = cursor_color_q;
         end
         if (cur_here && (cur_style == 3'd3 || cur_style == 3'd4)
-            && (scanrow == 4'd14 || scanrow == 4'd15)) begin
+            && (use_40 ? scanrow == 4'd7
+                       : scanrow == 4'd14 || scanrow == 4'd15)) begin
             bits_res = 8'hFF;
             fg_res = cursor_color_q;
             bg_res = cursor_color_q;
@@ -336,9 +358,9 @@ module vid_mode0 (
                             || cursor_q[18:16] == 3'd4
                             || cursor_q[18:16] == 3'd6)
                         && cursor_q[15:8] == {3'd0, logical_row};
-                    cur_cx <= cursor_q[7:0] >= 8'd80
-                        ? 7'd79 : cursor_q[6:0];
-                    cur_style <= cursor_q[7:0] >= 8'd80
+                    cur_cx <= cursor_q[7:0] >= (use_40 ? 8'd40 : 8'd80)
+                        ? (use_40 ? 7'd39 : 7'd79) : cursor_q[6:0];
+                    cur_style <= cursor_q[7:0] >= (use_40 ? 8'd40 : 8'd80)
                         ? 3'd1 : cursor_q[18:16];
                     fetch_word <= row_base[logical_row][15:2];
                     step <= 4'd2;
@@ -370,7 +392,7 @@ module vid_mode0 (
                     lb_bank <= wr_bank;
                     lb_addr <= px;
                     lb_data <= t_active
-                        ? ((cur_bar_out && px[2:0] < 3'd2)
+                        ? ((cur_bar_out && px[2:0] < (use_40 ? 3'd1 : 3'd2))
                                ? cursor_color_q
                                : (shreg[7] ? fg_r : bg_r))
                         : 16'h0000;
@@ -388,7 +410,7 @@ module vid_mode0 (
                             shreg <= bits_res;
                             rescol <= rescol + 7'd1;
                             fetch_word <= fetch_word + 14'd1;
-                            if (px == 10'd639)
+                            if (px == (use_40 ? 10'd319 : 10'd639))
                                 run <= 1'b0;
                         end
                         default: ;
@@ -423,7 +445,8 @@ module vid_mode0 (
     always_ff @(posedge clk) begin
         if (px_last) begin
             lb_q <= linebuf[lb_rd];
-            lb_blank <= !(h == 10'd799 || h < 10'd639);
+            lb_blank <= !(h == 10'd799
+                          || h < (use_40 ? 10'd319 : 10'd639));
         end
     end
     always_comb vid_mode0_pix = lb_blank ? 16'h0000 : lb_q;

@@ -18,6 +18,7 @@
  *   1  font8     {2'b01, 1'b0, row[2:0], code[7:0]}   2048 B
  *   2  italic16  {2'b10, 1'b0, row[3:0], code[6:0]}   2048 B
  *   3  dec16     {2'b11, 3'b000, row[3:0], idx[4:0]}   512 B
+ *      dec8      {2'b11, 3'b001, 1'b0, row[2:0], idx[4:0]} above it
  *
  * Each face is a word wide with byte lanes because that is the shape a
  * block RAM holds cheaply — a byte-wide array of the same depth costs
@@ -48,7 +49,7 @@ module vid_font (
     /* The smallest face by a long way, and nothing reads it while
      * writing it. */
     (* ramstyle = "no_rw_check" *)
-    logic [31:0] dec[128] /*verilator public_flat_rd*/;
+    logic [31:0] dec[256] /*verilator public_flat_rd*/;
 
     /* The write port takes a clock of its own, and the reason is hold
      * rather than setup. The soft CPU's address reaches these arrays
@@ -86,7 +87,7 @@ module vid_font (
         if (w_stb_q && w_face == 2'd2)
             ital[w_addr_q[10:2]] <= w_data_q;
         if (w_stb_q && w_face == 2'd3)
-            dec[w_addr_q[8:2]] <= w_data_q;
+            dec[w_addr_q[9:2]] <= w_data_q;
     end
 
     logic [31:0] q16, q8, q_ital, q_dec;
@@ -96,7 +97,7 @@ module vid_font (
         q16 <= f16[addr[11:2]];
         q8 <= f8[addr[10:2]];
         q_ital <= ital[addr[10:2]];
-        q_dec <= dec[addr[8:2]];
+        q_dec <= dec[addr[9:2]];
         face_q <= addr[13:12];
         byte_q <= addr[1:0];
     end

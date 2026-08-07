@@ -6,10 +6,9 @@
  * Every video mode against the oracle, one fixture at a time. The ROMs
  * come from tests/roms — the corpus vidmodes.py generates and the
  * emulator suite also boots — so both machines run the identical file
- * and settle. The oracle renders canvas-native; the RTL does the
- * doubling and letterboxing itself, and its de is the canvas, so a
- * captured frame is exactly canvas-many pixels and the two framebuffers
- * compare word for word.
+ * and settle. Both machines render canvas-native and the RTL's de is
+ * the canvas, so a captured frame is exactly canvas-many pixels and
+ * the two framebuffers compare word for word.
  *
  * One file for five modes because there was never five of anything: the
  * suites were the same hundred lines with a different list of fixture
@@ -452,7 +451,7 @@ UTEST(mode4, affine_small_and_large_320x240)
 
 /* Mode 5 sprites: a sprite-only plane claiming a zeroed layer, sprites
  * over a fill on their own plane, sprites under a text plane above, and
- * the big squares from a non-zero plane on the letterboxed canvas —
+ * the big squares from a non-zero plane on the 320x180 canvas —
  * clips off every edge, overlap, per-sprite palettes with the builtin
  * fallback and a halfword-aligned read. */
 
@@ -489,6 +488,37 @@ UTEST(mode5, bpp1_128_halfword_descs_320x240)
 UTEST(mode5, bpp4_256_640x480)
 {
     run_case(utest_result, "mode5_4bpp256", budget_under);
+}
+
+/* Mode 0 as a slot: the terminal over a mode-3 bitmap on plane 1 —
+ * default-background cells transparent, inked cells opaque — proven
+ * pixel-exact against the oracle on every canvas geometry. win240 and
+ * win180 walk the 40-column 8x8 path, DEC graphics included. */
+
+UTEST(mode0, overlay_windowed_640x480)
+{
+    run_case(utest_result, "mode0_overlay");
+}
+
+UTEST(mode0, defaults_640x360)
+{
+    run_case(utest_result, "mode0_win360");
+}
+
+UTEST(mode0, forty_column_320x240)
+{
+    run_case(utest_result, "mode0_win240");
+}
+
+UTEST(mode0, forty_column_320x180)
+{
+    run_case(utest_result, "mode0_win180");
+}
+
+UTEST(mode0, console_return_restores_vsync_line)
+{
+    run_case(utest_result, "mode0_return");
+    ASSERT_EQ(dut->rootp->rp6502__DOT__vid_prog__DOT__vsync_shadow, 480);
 }
 
 /* The one case with no oracle: more sprites than the engine can fetch,

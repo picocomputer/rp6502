@@ -220,7 +220,7 @@ static bool run_until_quiet(long *presses = nullptr)
  * slot request there, rgb[2:0] the function code. The frame is over at
  * the next vs; the caller asserts the pixel count, because the count IS
  * the claim now: a canvas-native stream has exactly canvas-many pixels,
- * and a duplicated or letterboxed one shows up as the wrong total before
+ * and a duplicated or shifted one shows up as the wrong total before
  * any color is compared. */
 static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
 {
@@ -345,8 +345,7 @@ static void run_and_compare(int *utest_result, const char *name,
     if (wait)
         ASSERT_TRUE(run_until_quiet());
 
-    /* Canvas-native now: the adapter undoes the beam's doubling and
-     * letterboxing, so the stream is exactly ow x oh pixels and lines up
+    /* Canvas-native: the stream is exactly ow x oh pixels and lines up
      * with the oracle's framebuffer one to one. The old compare here
      * re-implemented the duplication in C to expand the oracle up to
      * 640x480 — the hardware stopped pretending, so the test stops
@@ -475,12 +474,12 @@ UTEST(pocket, canvas1_320x240)
     run_case(utest_result, "mode3_1bpp");
 }
 
-UTEST(pocket, canvas2_320x180_letterbox)
+UTEST(pocket, canvas2_320x180_native)
 {
     run_case(utest_result, "mode3_4bppr");
 }
 
-UTEST(pocket, canvas4_640x360_letterbox)
+UTEST(pocket, canvas4_640x360_native)
 {
     run_case(utest_result, "mode3_16bpp");
 }

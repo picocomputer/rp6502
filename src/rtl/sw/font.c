@@ -107,6 +107,7 @@ void font_init(void)
     font_copy(VID_FONT8, VID_FONT_OFF_FONT8, 2048);
     font_copy(VID_ITALIC16, VID_FONT_OFF_ITALIC16, 2048);
     font_copy(VID_FONT_DEC16, VID_FONT_OFF_DEC16, 512);
+    font_copy(VID_FONT_DEC8, VID_FONT_OFF_DEC8, 256);
     font_code_page = 0;
     font_set_code_page(437);
 }

@@ -263,4 +263,29 @@ UTEST(vidmodes, fill_heavy640)
     run_case(utest_result, "fill_heavy640", 640, 480);
 }
 
+UTEST(vidmodes, mode0_overlay)
+{
+    run_case(utest_result, "mode0_overlay", 640, 480);
+}
+
+UTEST(vidmodes, mode0_win360)
+{
+    run_case(utest_result, "mode0_win360", 640, 360);
+}
+
+UTEST(vidmodes, mode0_win240)
+{
+    run_case(utest_result, "mode0_win240", 320, 240);
+}
+
+UTEST(vidmodes, mode0_win180)
+{
+    run_case(utest_result, "mode0_win180", 320, 180);
+}
+
+UTEST(vidmodes, mode0_return)
+{
+    run_case(utest_result, "mode0_return", 640, 480);
+}
+
 UTEST_MAIN_EMU()

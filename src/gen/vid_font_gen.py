@@ -32,6 +32,7 @@ OFF_FONT16 = 0x0000
 OFF_FONT8 = 0x1000
 OFF_ITALIC16 = 0x1800
 OFF_DEC16 = 0x2000
+OFF_DEC8 = 0x2200
 OFF_PAGES = 0x2400
 
 # One code page: sixteen 128-byte rows of font16's high half, then eight
@@ -94,6 +95,7 @@ def build_tables():
     cp437_16 = parse_array(text, "FONT16_CP437")
     italic_src = parse_array(text, "FONT16_ASCII_ITALIC")
     ascii8 = parse_array(text, "FONT8_ASCII")
+    cp437_8 = parse_array(text, "FONT8_CP437")
     for name, arr, want in (("FONT16_ASCII", ascii16, 2048),
                             ("FONT16_ASCII_ITALIC", italic_src, 2048),
                             ("FONT8_ASCII", ascii8, 1024)):
@@ -127,6 +129,18 @@ def build_tables():
             else:
                 dec16[row * 32 + idx] = cp437_16[row * 128 + ((m & 0xFF) - 0x80)]
 
+    # font_dec_8, the same window over the 8-row faces.
+    dec8 = [0] * 256
+    for row in range(8):
+        for idx in range(0x20):
+            m = dec_map[idx]
+            if m == DEC_MAP_BLANK:
+                continue
+            if m & DEC_MAP_ASCII:
+                dec8[row * 32 + idx] = ascii8[row * 128 + (m & 0xFF)]
+            else:
+                dec8[row * 32 + idx] = cp437_8[row * 128 + ((m & 0xFF) - 0x80)]
+
     # italic16, row-major, 128-byte stride, low half only.
     italic16 = [0] * 2048
     for row in range(16):
@@ -138,15 +152,16 @@ def build_tables():
     for cp in pages:
         highs.append((parse_array(text, f"FONT16_CP{cp}"),
                       parse_array(text, f"FONT8_CP{cp}")))
-    return font16, dec16, italic16, font8, pages, highs
+    return font16, dec16, dec8, italic16, font8, pages, highs
 
 
-def build_asset(font16, dec16, italic16, font8, highs):
+def build_asset(font16, dec16, dec8, italic16, font8, highs):
     img = bytearray(OFF_PAGES + PAGE_STRIDE * len(highs))
     img[OFF_FONT16:OFF_FONT16 + 4096] = bytes(font16)
     img[OFF_FONT8:OFF_FONT8 + 2048] = bytes(font8)
     img[OFF_ITALIC16:OFF_ITALIC16 + 2048] = bytes(italic16)
     img[OFF_DEC16:OFF_DEC16 + 512] = bytes(dec16)
+    img[OFF_DEC8:OFF_DEC8 + 256] = bytes(dec8)
     for i, (hi16, hi8) in enumerate(highs):
         at = OFF_PAGES + PAGE_STRIDE * i
         img[at:at + PAGE_16] = bytes(hi16)
@@ -184,6 +199,7 @@ def emit_firmware_header(path, pages):
            f"#define VID_FONT_OFF_FONT8 0x{OFF_FONT8:04X}",
            f"#define VID_FONT_OFF_ITALIC16 0x{OFF_ITALIC16:04X}",
            f"#define VID_FONT_OFF_DEC16 0x{OFF_DEC16:04X}",
+           f"#define VID_FONT_OFF_DEC8 0x{OFF_DEC8:04X}",
            f"#define VID_FONT_OFF_PAGES 0x{OFF_PAGES:04X}",
            f"#define VID_FONT_PAGE_16 {PAGE_16}",
            f"#define VID_FONT_PAGE_8 {PAGE_8}",
@@ -202,10 +218,10 @@ def main():
     ap.add_argument("--emit-h", metavar="FILE")
     ap.add_argument("--emit-asset-h", metavar="FILE")
     args = ap.parse_args()
-    font16, dec16, italic16, font8, pages, highs = build_tables()
+    font16, dec16, dec8, italic16, font8, pages, highs = build_tables()
     if args.emit_bin:
         Path(args.emit_bin).write_bytes(
-            build_asset(font16, dec16, italic16, font8, highs))
+            build_asset(font16, dec16, dec8, italic16, font8, highs))
     if args.emit_asset_h:
         emit_firmware_header(args.emit_asset_h, pages)
     if args.emit_h:
@@ -224,6 +240,7 @@ def main():
                "", "#include <stdint.h>", "",
                c_array("VID_FONT16", f16), "",
                c_array("VID_FONT_DEC16", dec16), "",
+               c_array("VID_FONT_DEC8", dec8), "",
                c_array("VID_ITALIC16", italic16), "",
                c_array("VID_FONT8", f8), "",
                "#endif /* _VID_FONT_TABLES_H_ */", ""]

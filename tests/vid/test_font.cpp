@@ -32,6 +32,8 @@ UTEST(font, generated_rom_matches_font_init)
         ASSERT_EQ(VID_FONT16[i], font16[i]);
     for (int i = 0; i < 512; i++)
         ASSERT_EQ(VID_FONT_DEC16[i], font_dec_16[i]);
+    for (size_t i = 0; i < sizeof(font_dec_8); i++)
+        ASSERT_EQ(VID_FONT_DEC8[i], font_dec_8[i]);
     for (int i = 0; i < 2048; i++)
         ASSERT_EQ(VID_ITALIC16[i], italic16[i]);
     for (int i = 0; i < 2048; i++)

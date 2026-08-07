@@ -651,6 +651,7 @@ module rp6502
         .v(vid_v),
         .px_last(vid_px_last),
         .line_start(vid_line_start),
+        .cw(vid_cw),
         .vid_mode0_pix(mode0_pix),
         .vid_mode0_f_req(mf_req[1]),
         .vid_mode0_f_addr(mf_addr[1]),
