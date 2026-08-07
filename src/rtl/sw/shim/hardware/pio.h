@@ -29,7 +29,7 @@ static inline unsigned pio_sm_get_tx_fifo_level(pio_hw_t *pio, unsigned sm)
 {
     (void)pio;
     (void)sm;
-    return 8;
+    return 0;
 }
 
 static inline void pio_sm_put(pio_hw_t *pio, unsigned sm, uint32_t msg)

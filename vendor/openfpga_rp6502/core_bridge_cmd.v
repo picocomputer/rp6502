@@ -644,7 +644,13 @@ always @(posedge clk) begin
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;
         end else if(&target_dso_timeout) begin
-            // about 0.9s at 74.25MHz - the host never picked it up
+            // about 0.9s at 74.25MHz - the host never picked it up.
+            // Take the sign down too: a mailbox left reading 'cm' is a
+            // command the host discovers anew on every poll until the
+            // next dispatch overwrites it - measured at thousands of
+            // discoveries in two seconds against Pocket OS 2_6's
+            // unanswered 0x0188.
+            target_0 <= 32'h0;
             target_dataslot_err <= 3'd7;
             target_dataslot_done <= 1;
             tstate <= TARG_ST_IDLE;
