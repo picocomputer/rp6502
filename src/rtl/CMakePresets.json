@@ -101,10 +101,10 @@
             "targets": ["synth"]
         },
         {
-            "name": "Pocket core",
-            "displayName": "Pocket core",
-            "configurePreset": "quartus",
-            "targets": ["pocket-synth"]
+            "name": "Fit",
+            "displayName": "Fit",
+            "configurePreset": "pocket",
+            "targets": ["pocket-fit"]
         }
     ],
     "testPresets": [

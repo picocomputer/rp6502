@@ -7,42 +7,6 @@
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
-    # And the same again with the Pocket's own layer on top, which is
-    # what actually has to fit: the machine alone leaves out the bridge,
-    # the SDRAM controller, the I2S and the video crossing. The ports
-    # are virtual because pocket_core presents more signals than the
-    # package has pins — Analogue's core_top is what binds them to pads,
-    # and it is not vendored yet.
-    set(PSYNTH_DIR ${CMAKE_BINARY_DIR}/synth-pocket)
-    set(PSYNTH_QSF ${PSYNTH_DIR}/pocket.qsf)
-    set(PSYNTH_LINES
-        "set_global_assignment -name FAMILY \"Cyclone V\""
-        "set_global_assignment -name DEVICE 5CEBA4F23C8"
-        "set_global_assignment -name TOP_LEVEL_ENTITY pocket_core"
-        "set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files"
-        "set_global_assignment -name NUM_PARALLEL_PROCESSORS ALL"
-        "set_global_assignment -name SDC_FILE ${RP6502_SDC}"
-        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl"
-        "set_global_assignment -name SEARCH_PATH ${RP6502_VENDOR}/hazard3/hdl/arith"
-        "set_instance_assignment -name VIRTUAL_PIN ON -to *")
-    foreach(src ${RP6502_MACHINE_SOURCES})
-        if(src MATCHES "\\.sv$")
-            list(APPEND PSYNTH_LINES
-                "set_global_assignment -name SYSTEMVERILOG_FILE ${src}")
-        elseif(src MATCHES "\\.v$")
-            list(APPEND PSYNTH_LINES
-                "set_global_assignment -name VERILOG_FILE ${src}")
-        endif()
-    endforeach()
-    foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram pocket_sram
-            pocket_bridge pocket_file pocket_core)
-        list(APPEND PSYNTH_LINES
-            "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_HOST_POCKET}/${src}.sv")
-    endforeach()
-    string(REPLACE ";" "\n" PSYNTH_QSF_TEXT "${PSYNTH_LINES}")
-    file(MAKE_DIRECTORY ${PSYNTH_DIR})
-    file(WRITE ${PSYNTH_QSF} "${PSYNTH_QSF_TEXT}\n")
-    file(WRITE ${PSYNTH_DIR}/pocket.qpf "PROJECT_REVISION = \"pocket\"\n")
     # The real thing: Analogue's framework on top, their pin assignments,
     # their apf_top as the root, and a bitstream at the end of it. The
     # pins and device come from the vendored project verbatim — only its
@@ -247,6 +211,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Fitting the Pocket core"
         VERBATIM)
+    # The fit alone, named: point a measurement at the same fit the
+    # package consumes and the package finds it already paid.
+    add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/fit.stamp)
 
     # The firmware has to be IN the bitstream: simulation loads it into the
     # verilated arrays from C++, so nothing in the synthesis path ever
@@ -317,13 +284,4 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         message(STATUS
             "quartus_asm or quartus_cdb missing - no pocket target.")
     endif()
-
-    add_custom_target(pocket-synth
-        COMMAND ${QUARTUS_MAP} pocket
-        COMMAND ${QUARTUS_FIT} pocket
-        COMMAND ${QUARTUS_STA} pocket
-        WORKING_DIRECTORY ${PSYNTH_DIR}
-        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
-        COMMENT "Synthesizing the whole Pocket core"
-        VERBATIM)
 endif()
