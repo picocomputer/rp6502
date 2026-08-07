@@ -128,11 +128,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -I ${RP6502_SRC}/host/pico
             -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
-            # The alternate screen buffer doubles term.c's cell store,
-            # and on this platform the cells are block memory. Off
-            # here keeps the die out of its last rows of LABs; other
-            # fabrics with room leave it on.
-            -DTERM_ALT_SCREEN=0
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}

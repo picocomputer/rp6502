@@ -42,24 +42,26 @@ module vid_term (
      * dual-port RAM from being inferred at all, and the lanes cost the
      * same bits.
      *
-     * 7680 words is the tallest terminal the engine can build. This
-     * firmware uses 7200, and the slack is free — both round to a depth
-     * of 8192 and cost eight blocks a lane.
+     * 15360 words is the tallest terminal the engine can build with both
+     * screens, the alternate behind the primary at the offsets the
+     * firmware's row table publishes. This firmware uses 14400, and the
+     * slack is free — both round to a depth of 16384 and cost sixteen
+     * blocks a lane.
      *
-     * No alternate screen buffer: at 15360 the device ran out of LABs
-     * before ALMs or blocks, and packing the die that hard made every
-     * fit a coin toss. */
+     * Flat rather than banked: hand-banking the depth into power-of-two
+     * chunks would save four blocks and cost 112 ALMs of addressing when
+     * it was tried, and this device is shorter of LABs than of blocks. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell0[7680] /*verilator public_flat_rw*/;
+    logic [7:0] cell0[15360] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell1[7680] /*verilator public_flat_rw*/;
+    logic [7:0] cell1[15360] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell2[7680] /*verilator public_flat_rw*/;
+    logic [7:0] cell2[15360] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] cell3[7680] /*verilator public_flat_rw*/;
+    logic [7:0] cell3[15360] /*verilator public_flat_rw*/;
 
-    logic [12:0] cell_idx;
-    always_comb cell_idx = b_addr[14:2];
+    logic [13:0] cell_idx;
+    always_comb cell_idx = b_addr[15:2];
 
     /* cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
      * prog {enable[31], end[25:16], begin[9:0]}. */
@@ -201,7 +203,7 @@ module vid_term (
     logic run /*verilator public_flat_rd*/;
 
     logic [31:0] w0_n, w1_n;
-    logic [12:0] fetch_word;
+    logic [13:0] fetch_word;
     logic [31:0] fetch_q;
     logic [7:0] bits;
     logic [15:0] fg_r, bg_r;
@@ -339,11 +341,11 @@ module vid_term (
                         ? 7'd79 : cursor_q[6:0];
                     cur_style <= cursor_q[7:0] >= 8'd80
                         ? 3'd1 : cursor_q[18:16];
-                    fetch_word <= row_base[logical_row][14:2];
+                    fetch_word <= row_base[logical_row][15:2];
                     step <= 4'd2;
                 end
                 4'd2: begin
-                    fetch_word <= fetch_word + 13'd1;
+                    fetch_word <= fetch_word + 14'd1;
                     step <= 4'd3;
                 end
                 4'd3: begin
@@ -352,7 +354,7 @@ module vid_term (
                 end
                 4'd4: begin
                     w1_n <= fetch_q;
-                    fetch_word <= fetch_word + 13'd1;
+                    fetch_word <= fetch_word + 14'd1;
                     step <= 4'd5;
                 end
                 4'd5: begin
@@ -361,7 +363,7 @@ module vid_term (
                     bg_r <= bg_res;
                     shreg <= bits_res;
                     rescol <= 7'd1;
-                    fetch_word <= fetch_word + 13'd1;
+                    fetch_word <= fetch_word + 14'd1;
                     step <= 4'd6;
                 end
                 default: begin
@@ -378,7 +380,7 @@ module vid_term (
                     case (px[2:0])
                         3'd0: w0_n <= fetch_q;
                         3'd1: w1_n <= fetch_q;
-                        3'd6: fetch_word <= fetch_word + 13'd1;
+                        3'd6: fetch_word <= fetch_word + 14'd1;
                         3'd7: begin
                             /* Load the resolved next cell. */
                             bits <= bits_res;
@@ -386,7 +388,7 @@ module vid_term (
                             bg_r <= bg_res;
                             shreg <= bits_res;
                             rescol <= rescol + 7'd1;
-                            fetch_word <= fetch_word + 13'd1;
+                            fetch_word <= fetch_word + 14'd1;
                             if (px == 10'd639)
                                 run <= 1'b0;
                         end
@@ -429,7 +431,7 @@ module vid_term (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_term;
-    always_comb unused_vid_term = ^{b_addr[1:0], b_addr[15], bits, cur_bar,
+    always_comb unused_vid_term = ^{b_addr[1:0], bits, cur_bar,
                                     prog_q[30:26], prog_q[15:10],
                                     cursor_q[31:26], cursor_q[23:19], t[9]};
     /* verilator lint_on UNUSEDSIGNAL */

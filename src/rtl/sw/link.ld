@@ -6,18 +6,17 @@
  * One RAM: the 64 KB tightly-coupled memory at zero, code first because the
  * reset vector is address zero. The stack grows down from the top.
  *
- * The TCM was 48 KB for a while, and the alternate screen buffer paid for
- * the growth to 64: turning it off halved the cell store while the blocks
- * were not there. The buffer came back for a day when the blocks did, and
- * went back out when the device ran short of LABs instead — packing the
- * die to its last rows made every fit a coin toss. See TERM_ALT_SCREEN in
+ * The alternate screen buffer was off while the cells and the TCM were
+ * competing for the same blocks: turning it off halved the cell store and
+ * paid for the TCM's growth. The block budget carries both screens again,
+ * so the window is back to 61,440 bytes. See TERM_ALT_SCREEN in
  * vga/term/term.h.
  */
 
 MEMORY
 {
     TCM (rwx) : ORIGIN = 0x00000000, LENGTH = 96K
-    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 30720
+    VIDCELLS (rw) : ORIGIN = 0x50000000, LENGTH = 61440
 }
 
 ENTRY(_start)
