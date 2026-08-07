@@ -52,21 +52,20 @@ static Vrp6502 *dut;
 static const long LINE_CLOCKS = 1600;
 static const long LINE_DEADLINE = 2 * 799;
 
-/* The sprite stage walks planes in order and waits only for the plane
- * each sprite lands in (vid_sprite.sv SP_WAIT — it used to wait for all
- * three, and this comment used to say so). Sprites on a light plane
- * overlap a heavy fill for free; the planes+sprites sums below are the
- * coupled case, where the sprites target the plane that was slow. */
+/* The sprite stage owns its three line buffers and never waits on a
+ * fill or clears a bank (the buffers erase themselves behind the beam),
+ * so it runs the whole line concurrent with the planes. The two shares
+ * below overlap; they only couple through port A, where sprite fetches
+ * now contend with fills instead of following them. */
 struct budget_t
 {
     long worst;        /* most clocks any one line took, end to end */
     int worst_line;
-    long planes_at_worst;  /* of which, the planes' share */
-    long sprite_at_worst;  /* and the sprite stage's */
+    long planes_at_worst;  /* the planes' own finish on that line */
+    long sprite_at_worst;  /* the sprite stage's, concurrent not added */
     long worst_planes;     /* the planes' own worst, any line */
     /* Port A on the worst line: how many of those clocks actually
-     * carried a word. Serialising the sprites behind the planes only
-     * costs time if the port was idle while they waited. */
+     * carried a word, and whose it was. */
     long grants_at_worst;
     long grants_planes;    /* to requesters 0-2, the three fills */
     long grants_sprite;    /* to requester 3, the sprite stage */
@@ -76,10 +75,9 @@ struct budget_t
      * It still has to fit the line on its own. */
     long worst_term;
     /* Where the line's clocks go: each plane's own finish, and the
-     * sprite stage's time by state. SP_IDLE=0 SLOT=1 WAIT=2 PLAN=3
-     * CLEAR=4 RUN=5. */
+     * sprite stage's time by state. SP_IDLE=0 SLOT=1 PLAN=2 RUN=3. */
     long plane_done[3];
-    long sp_state[6];
+    long sp_state[4];
     long lines;
 };
 
@@ -105,7 +103,7 @@ static void measure_frame(budget_t *b)
     b->worst_term = 0;
     for (int i = 0; i < 3; i++)
         b->plane_done[i] = 0;
-    for (int i = 0; i < 6; i++)
+    for (int i = 0; i < 4; i++)
         b->sp_state[i] = 0;
     b->lines = 0;
 
@@ -117,10 +115,10 @@ static void measure_frame(budget_t *b)
     for (int line = 0; line < 525; line++)
     {
         prev = dut->rp6502_scanline;
-        long clocks = 0, busy_until = 0, planes_until = 0;
+        long clocks = 0, busy_until = 0, planes_until = 0, sprite_until = 0;
         long grants = 0, g_planes = 0, g_sprite = 0, term_until = 0;
         long pdone[3] = {0, 0, 0};
-        long spst[6] = {0, 0, 0, 0, 0, 0};
+        long spst[4] = {0, 0, 0, 0};
         while (dut->rp6502_scanline == prev)
         {
             tb_clock(dut);
@@ -133,7 +131,9 @@ static void measure_frame(budget_t *b)
             if (PLANE_STATE(0) != 0) pdone[0] = clocks;
             if (PLANE_STATE(1) != 0) pdone[1] = clocks;
             if (PLANE_STATE(2) != 0) pdone[2] = clocks;
-            spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 7]++;
+            if (dut->rootp->rp6502__DOT__vid_sprite__DOT__state != 0)
+                sprite_until = clocks;
+            spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 3]++;
             if (dut->rootp->rp6502__DOT__vid_term__DOT__run)
                 term_until = clocks;
             if (dut->rootp->rp6502__DOT__a_any)
@@ -156,13 +156,13 @@ static void measure_frame(budget_t *b)
             b->worst = busy_until;
             b->worst_line = (int)prev;
             b->planes_at_worst = planes_until;
-            b->sprite_at_worst = busy_until - planes_until;
+            b->sprite_at_worst = sprite_until;
             b->grants_at_worst = grants;
             b->grants_planes = g_planes;
             b->grants_sprite = g_sprite;
             for (int i = 0; i < 3; i++)
                 b->plane_done[i] = pdone[i];
-            for (int i = 0; i < 6; i++)
+            for (int i = 0; i < 4; i++)
                 b->sp_state[i] = spst[i];
         }
     }
@@ -187,7 +187,7 @@ static void measure(int *utest_result, const char *name, budget_claim claim)
     budget_t b;
     measure_frame(&b);
     printf("  %-18s worst %4ld of %ld (%2ld%%) on line %3d"
-           "  =  planes %4ld + sprites %4ld"
+           "  =  planes %4ld, sprites %4ld, concurrent"
            "   |  against the deadline %4ld/%ld = %3ld%%%s\n",
            name, b.worst, LINE_CLOCKS, b.worst * 100 / LINE_CLOCKS,
            b.worst_line, b.planes_at_worst, b.sprite_at_worst,
@@ -201,10 +201,9 @@ static void measure(int *utest_result, const char *name, budget_claim claim)
     printf("  %-18s   terminal %4ld clocks a line, every line, "
            "concurrent with all of it\n", name, b.worst_term);
     printf("  %-18s   planes done at %4ld %4ld %4ld  |  sprite stage: "
-           "slot %3ld wait %4ld plan %3ld clear %4ld run %4ld\n",
+           "slot %3ld plan %3ld run %4ld\n",
            name, b.plane_done[0], b.plane_done[1], b.plane_done[2],
-           b.sp_state[1], b.sp_state[2], b.sp_state[3], b.sp_state[4],
-           b.sp_state[5]);
+           b.sp_state[1], b.sp_state[2], b.sp_state[3]);
     fflush(stdout);
 
     ASSERT_EQ(b.lines, 525);

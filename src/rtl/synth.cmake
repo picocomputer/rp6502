@@ -23,6 +23,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # here as it is on the Pocket, so this target measures the
         # machine's own logic rather than a trade the fitter made.
         "set_global_assignment -name AUTO_SHIFT_REGISTER_RECOGNITION OFF"
+        # The Pocket brings the 6502's RAM in on the cart bus —
+        # EXT_RAM(1) at pocket_core.sv — and the BRAM fallback it
+        # replaces is sixty-odd blocks this device cannot also spend.
+        # Measure the machine the product builds.
+        "set_parameter -name EXT_RAM 1"
         # The machine's own ports outnumber the package's pins — the host
         # window alone is a hundred of them — and this target exists to
         # measure area, not to be bound to pads.

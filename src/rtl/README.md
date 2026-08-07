@@ -119,6 +119,11 @@ every fixture heavy enough to be worth measuring is already one the comparison
 boots, and two suites over the same ten images meant loading each of them
 twice.
 
+The planes' and sprites' clocks overlap: the sprite stage owns its three
+line buffers, erased behind the beam, and runs beside the fills from the
+moment its slots decode — the two couple only through port A's rotor, so a
+worst line is whichever engine finished last, not a sum.
+
 Read those numbers as a floor. Every fixture stops its 6502 before the
 measurement and none of them make sound, so neither takes the port A slot a
 running machine would, and no fixture puts a heavy sprite load over mode 3's

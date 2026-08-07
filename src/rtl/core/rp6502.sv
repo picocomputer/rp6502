@@ -676,13 +676,9 @@ module rp6502
 
     logic [15:0] m_pix[3];
     logic [2:0] m_filled;
-    logic [2:0] m_busy, m_rnew, m_rfilled;
     logic [12:0] sp_s_idx;
     logic [31:0] sp_s_data;
-    logic [1:0] sp_plane;
-    logic sp_we, sp_force;
-    logic [9:0] sp_addr;
-    logic [15:0] sp_data;
+    logic [16:0] sp_pix[3];
     genvar gi;
     generate
         for (gi = 0; gi < 3; gi++) begin : gen_mode
@@ -710,14 +706,7 @@ module rp6502
                 .a_gnt(a_any && a_sel == 3'(gi)),
                 .a_rdata(xram_a_rdata),
                 .vid_mode_pix(m_pix[gi]),
-                .vid_mode_filled(m_filled[gi]),
-                .vid_mode_busy(m_busy[gi]),
-                .vid_mode_rnew(m_rnew[gi]),
-                .vid_mode_rfilled(m_rfilled[gi]),
-                .sp_we(sp_we && sp_plane == 2'(gi)),
-                .sp_addr(sp_addr),
-                .sp_data(sp_data),
-                .sp_force(sp_force && sp_plane == 2'(gi))
+                .vid_mode_filled(m_filled[gi])
             );
         end
     endgenerate
@@ -727,6 +716,7 @@ module rp6502
         .clk(clk_sys),
         .v(vid_v),
         .h(vid_h),
+        .px_last(vid_px_last),
         .line_start(vid_line_start),
         .console(vid_console),
         .x_shift(vid_x_shift),
@@ -734,14 +724,7 @@ module rp6502
         .y_offset(vid_y_offset),
         .vid_sprite_s_idx(sp_s_idx),
         .s_data(sp_s_data),
-        .busy(m_busy),
-        .rnew(m_rnew),
-        .rfilled(m_rfilled),
-        .vid_sprite_plane(sp_plane),
-        .vid_sprite_we(sp_we),
-        .vid_sprite_addr(sp_addr),
-        .vid_sprite_data(sp_data),
-        .vid_sprite_force(sp_force),
+        .vid_sprite_pix(sp_pix),
         .vid_sprite_overrun(),
         .vid_sprite_a_req(ma_req[3]),
         .vid_sprite_a_addr(ma_addr[3]),
@@ -854,10 +837,13 @@ module rp6502
         .term_pix(term_pix),
         .p0_pix(m_pix[0]),
         .p0_filled(m_filled[0]),
+        .s0_pix(sp_pix[0]),
         .p1_pix(m_pix[1]),
         .p1_filled(m_filled[1]),
+        .s1_pix(sp_pix[1]),
         .p2_pix(m_pix[2]),
         .p2_filled(m_filled[2]),
+        .s2_pix(sp_pix[2]),
         .vid_compose_pix(rp6502_vid_pixel),
         .vid_compose_de(rp6502_vid_de)
     );

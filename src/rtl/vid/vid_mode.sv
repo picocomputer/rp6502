@@ -47,17 +47,7 @@ module vid_mode (
     input logic [31:0] a_rdata,
 
     output logic [15:0] vid_mode_pix,
-    output logic vid_mode_filled,
-
-    output logic vid_mode_busy,
-    output logic vid_mode_rnew,
-    output logic vid_mode_rfilled,
-    /* A fill that missed its deadline re-scans the line before it with
-     * nothing to say so, so hardware counts these. */
-    input logic sp_we,
-    input logic [9:0] sp_addr,
-    input logic [15:0] sp_data,
-    input logic sp_force
+    output logic vid_mode_filled
 );
 
     /* The bank rides inside the address and the output register carries
@@ -91,9 +81,6 @@ module vid_mode (
     always_comb vid_mode_pix = lb_blank ? 16'h0000 : lb_q;
     always_comb vid_mode_filled = filled_q[!wr_bank];
 
-    always_comb vid_mode_rnew = flip_next;
-    always_comb vid_mode_rfilled = filled_q[wr_bank];
-
     logic [9:0] t /*verilator public_flat_rd*/;
     logic [9:0] t_cv;
     logic render_now;
@@ -105,7 +92,6 @@ module vid_mode (
     logic [8:0] t_row;
     always_comb t_row = y_shift ? t_cv[9:1] : t_cv[8:0];
     always_comb vid_mode_p_line = t_row;
-    always_comb vid_mode_busy = state != S_IDLE;
 
     typedef enum logic [2:0] {
         S_IDLE, S_PROG, S_PROG_W, S_CFG, S_MODE
@@ -438,8 +424,6 @@ module vid_mode (
     always_ff @(posedge clk) begin
         if (state == S_MODE && sub_px_we)
             linebuf[{wr_bank, sub_px_addr}] <= sub_px_data;
-        else if (sp_we)
-            linebuf[{wr_bank, sp_addr}] <= sp_data;
     end
 
     initial begin
@@ -483,16 +467,12 @@ module vid_mode (
         m3_start <= 1'b0;
         m2_start <= 1'b0;
         m1_start <= 1'b0;
-        if (sp_force) begin
-            flip_next <= 1'b1;
-            filled_q[wr_bank] <= 1'b1;
-        end
         /* The next line's pixel 0 is read during h==799, so the flip
          * must land before it or that pixel comes up stale. */
 `ifdef VERILATOR
-        /* The counter above still counts them; only the stop waits one
-         * frame, which is what a reset costs a beam that does not take
-         * one — a frame of the black screen the machine boots to. */
+        /* The stop waits one frame, which is what a reset costs a beam
+         * that does not take one — a frame of the black screen the
+         * machine boots to. */
         if (settled && h == 10'd799 && state != S_IDLE)
             $fatal(1, "vid_mode underrun");
 `endif
@@ -518,9 +498,8 @@ module vid_mode (
                     if (!p_entry[31] || p_entry[18:16] == 3'd0
                         || p_entry[18:16] > 3'd3) begin
                         /* Marked unfilled and left unwritten: the
-                         * compose skips an unfilled plane, and the
-                         * one reader that would care — the sprite
-                         * stage — clears the buffer itself. */
+                         * compose skips an unfilled plane, and
+                         * nothing else reads the buffer. */
                         state <= S_IDLE;
                         flip_next <= 1'b1;
                         filled_q[wr_bank] <= 1'b0;

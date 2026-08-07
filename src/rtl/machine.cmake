@@ -67,6 +67,7 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/rtl/vid/vid_mode4.sv
     ${RP6502_SRC}/rtl/vid/vid_mode5.sv
     ${RP6502_SRC}/rtl/vid/vid_palcache.sv
+    ${RP6502_SRC}/rtl/vid/vid_sbuf.sv
     ${RP6502_SRC}/rtl/vid/vid_sprite.sv
     ${RP6502_SRC}/rtl/vid/vid_prog.sv
     ${RP6502_SRC}/rtl/vid/vid_term.sv

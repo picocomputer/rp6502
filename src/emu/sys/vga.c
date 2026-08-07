@@ -241,9 +241,10 @@ void vga_set_framebuffer(uint32_t *fb)
  * (g_canvas_w). Mirrors firmware vga_render_scanline: run each plane's fill then
  * sprite, where sprites draw onto the current "foreground" (the most recently
  * filled plane, or their own zeroed buffer if none); the filled planes are then
- * composited bottom-to-top — the lowest is the opaque base and higher planes
- * overlay where their pixel's alpha bit is set, so e.g. a sprite layer shows
- * through the transparent background of a text layer above it. */
+ * composited as scanvideo's PIO does — plane 0 is the unconditional base, black
+ * when unfilled, and higher planes overlay where their pixel's alpha bit is
+ * set, so e.g. a sprite layer shows through the transparent background of a
+ * text layer above it. */
 static void render_scanline(int y, uint32_t *fb)
 {
     const int W = g_canvas_w;
@@ -272,23 +273,10 @@ static void render_scanline(int y, uint32_t *fb)
     }
 
     uint32_t *dst = fb + (size_t)y * W;
-    int base = -1;
-    for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
-        if (filled[i])
-        {
-            base = i;
-            break;
-        }
-    if (base < 0)
-    {
-        for (int x = 0; x < W; x++)
-            dst[x] = 0xFF000000u;
-        return;
-    }
     for (int x = 0; x < W; x++)
     {
-        uint16_t px = plane[base][x];
-        for (int i = base + 1; i < SCANVIDEO_PLANE_COUNT; i++)
+        uint16_t px = filled[0] ? plane[0][x] : 0;
+        for (int i = 1; i < SCANVIDEO_PLANE_COUNT; i++)
             if (filled[i] && (plane[i][x] & SCANVIDEO_ALPHA_MASK))
                 px = plane[i][x];
         dst[x] = rgb555_to_rgba8(px);

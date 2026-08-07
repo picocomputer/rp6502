@@ -255,7 +255,15 @@ module vid_mode4 (
                 vid_mode4_a_addr = meta_addr[15:2];
             end
             M4_PIX: begin
-                if (!dhit && !(pre_v && pre_word == cur_byte_addr[15:2]))
+                /* A prefetch of this word may still be in flight: a
+                 * grant on a boundary clock parks its answer in
+                 * pre_data, and a duplicate miss fetch would land on a
+                 * clock the promote path already covers — leaving fw_i
+                 * raised and the request line silent for the rest of
+                 * the walk. */
+                if (!dhit
+                    && !((pre_v || pre_pend)
+                         && pre_word == cur_byte_addr[15:2]))
                 begin
                     vid_mode4_a_req = fw_i == 3'd0;
                     vid_mode4_a_addr = tex_byte_addr[15:2];

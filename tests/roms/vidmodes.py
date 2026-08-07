@@ -422,4 +422,4 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
      (0x4000, le16(*(((t * 7 + 3) & 0xFFFF) for t in range(4096))))])
 
 mode5("sprite_overrun", 1, 27, 0,
-      [(i * 12, 40, 0, 0) for i in range(24)])
+      [(i * 6, 40, 0, 0) for i in range(48)])

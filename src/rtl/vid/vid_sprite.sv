@@ -3,11 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The sprite stage, run once per rendered line after every plane's fill
- * has finished. Sprites own no buffer: they paint into the foreground —
- * the most recently filled plane at or below their own — and only zero
- * and claim a bank when no plane below has filled. Plane order is paint
- * order, so the walk is sequential where the fills raced.
+ * The sprite stage: three slots, one per plane, each with a ping-pong
+ * line buffer of its own. Nothing here waits on a fill and nothing
+ * clears — the buffers erase themselves behind the beam (vid_sbuf), so
+ * a slot's stream is its alpha-set pixels over transparent zeros and
+ * the walk starts the moment the slots are decoded. Plane order is
+ * paint order only inside a slot; across slots the compose stacks them.
  */
 
 module vid_sprite (
@@ -15,6 +16,7 @@ module vid_sprite (
 
     input logic [9:0] v,
     input logic [9:0] h,
+    input logic px_last,
     input logic line_start,
 
     input logic console,
@@ -25,15 +27,7 @@ module vid_sprite (
     output logic [12:0] vid_sprite_s_idx,
     input logic [31:0] s_data,
 
-    input logic [2:0] busy,
-    input logic [2:0] rnew,
-    input logic [2:0] rfilled,
-
-    output logic [1:0] vid_sprite_plane,
-    output logic vid_sprite_we,
-    output logic [9:0] vid_sprite_addr,
-    output logic [15:0] vid_sprite_data,
-    output logic vid_sprite_force,
+    output logic [16:0] vid_sprite_pix[3],
 
     /* A line whose sprites missed the beam shows its partial paint, the
      * way hardware racing a beam does. */
@@ -58,8 +52,8 @@ module vid_sprite (
     logic [9:0] cw;
     always_comb cw = x_shift ? 10'd320 : 10'd640;
 
-    typedef enum logic [2:0] {
-        SP_IDLE, SP_SLOT, SP_WAIT, SP_PLAN, SP_CLEAR, SP_RUN
+    typedef enum logic [1:0] {
+        SP_IDLE, SP_SLOT, SP_PLAN, SP_RUN
     } state_t;
     state_t state;
 
@@ -72,9 +66,6 @@ module vid_sprite (
     always_comb vid_sprite_s_idx = {t_row, s_n[2:1], 1'b1, s_n[0]};
 
     logic [1:0] p;       /* the plane being walked */
-    logic fg_v;
-    logic [1:0] fg;
-    logic [9:0] clr;
 
     /* The two sprite engines; the slot's mode bits pick one. */
     logic m5_start;
@@ -201,27 +192,64 @@ module vid_sprite (
     always_comb sp_en = slot_entry[p][31]
         && (slot_entry[p][18:16] == 3'd5 || sp_is4);
 
+    logic wr_bank;
+    logic flip_next;
+
+    /* The beam reads one ahead of itself, on each pixel's last tick, and
+     * the bank flip lands on h==0's first tick — so only the pixel-0
+     * read at the end of h==799 sees the fresh line under its write-side
+     * label. Every first tick is the eraser's, one pixel behind the
+     * read, on every line unconditionally: a held bank's later reads
+     * are never displayed, so nothing an erase could blank is ever
+     * seen, and the scan bank is zero by the time it flips to write
+     * duty. Erasing the whole bank rather than to cw is what keeps a
+     * canvas switch from stranding pixels. */
+    logic [10:0] sb_rd;
+    always_comb sb_rd = h == 10'd799
+        ? {flip_next ? wr_bank : !wr_bank, 10'd0}
+        : {!wr_bank, h + 10'd1};
+    logic sb_we;
+    always_comb sb_we = !px_last;
+
+    /* Presence rides above the pixel: mode 4's continuous-span blit
+     * writes texels whose alpha bit may be clear, and whether those
+     * show depends on the plane the oracle would have painted — a call
+     * that belongs to the compose, which needs the texel's own alpha
+     * bit intact to make it. */
+    logic eng_we;
+    logic [9:0] eng_addr;
+    logic [16:0] eng_data;
     always_comb begin
-        vid_sprite_plane = state == SP_CLEAR ? p : fg;
-        vid_sprite_we = 1'b0;
-        vid_sprite_addr = clr;
-        vid_sprite_data = 16'h0000;
-        if (state == SP_CLEAR)
-            vid_sprite_we = 1'b1;
-        else if (state == SP_RUN) begin
-            vid_sprite_we = run4 ? m4_px_we : m5_px_we;
-            vid_sprite_addr = run4 ? m4_px_addr : m5_px_addr;
-            vid_sprite_data = run4 ? m4_px_data : m5_px_data;
-        end
+        eng_we = state == SP_RUN && (run4 ? m4_px_we : m5_px_we);
+        eng_addr = run4 ? m4_px_addr : m5_px_addr;
+        eng_data = {1'b1, run4 ? m4_px_data : m5_px_data};
     end
+
+    genvar gi;
+    generate
+        for (gi = 0; gi < 3; gi++) begin : gen_sbuf
+            vid_sbuf vid_sbuf (
+                .clk(clk),
+                .wr_bank(wr_bank),
+                .a_we(eng_we && p == 2'(gi)),
+                .a_addr(eng_addr),
+                .a_data(eng_data),
+                .sc_we(sb_we),
+                .sc_addr(h - 10'd1),
+                .rd_en(px_last),
+                .rd_addr(sb_rd[9:0]),
+                .rd_bank(sb_rd[10]),
+                .vid_sbuf_pix(vid_sprite_pix[gi])
+            );
+        end
+    endgenerate
 
     task automatic next_plane();
         if (p == 2'd2)
             state <= SP_IDLE;
         else begin
             p <= p + 2'd1;
-            /* Only stop if there is something to wait for. */
-            state <= busy[p + 2'd1] ? SP_WAIT : SP_PLAN;
+            state <= SP_PLAN;
         end
     endtask
 
@@ -238,19 +266,16 @@ module vid_sprite (
         s_cap = '0;
         s_cap_v = 1'b0;
         p = '0;
-        fg_v = 1'b0;
-        fg = '0;
-        clr = '0;
         m4_start = 1'b0;
         m5_start = 1'b0;
         run4 = 1'b0;
-        vid_sprite_force = 1'b0;
+        wr_bank = 1'b0;
+        flip_next = 1'b0;
         vid_sprite_overrun = '0;
     end
     always_ff @(posedge clk) begin
         m4_start <= 1'b0;
         m5_start <= 1'b0;
-        vid_sprite_force <= 1'b0;
         if (h == 10'd799 && state != SP_IDLE) begin
             /* The lost race: count it once and drop the line; the
              * engines die at the next line_start. */
@@ -259,6 +284,9 @@ module vid_sprite (
             state <= SP_IDLE;
         end else if (line_start) begin
             t <= v == 10'd524 ? 10'd0 : v + 10'd1;
+            if (flip_next)
+                wr_bank <= !wr_bank;
+            flip_next <= 1'b0;
             s_n <= '0;
             s_cap_v <= 1'b0;
             state <= SP_SLOT;
@@ -269,6 +297,10 @@ module vid_sprite (
                     if (!render_now)
                         state <= SP_IDLE;
                     else begin
+                        /* The next line's pixel 0 is read during h==799,
+                         * so the flip must land before it or that pixel
+                         * comes up stale. */
+                        flip_next <= 1'b1;
                         if (s_n < 3'd6)
                             s_n <= s_n + 3'd1;
                         s_cap <= s_n;
@@ -280,55 +312,15 @@ module vid_sprite (
                                 slot_entry[s_cap[2:1]] <= s_data;
                             if (s_cap == 3'd5) begin
                                 p <= '0;
-                                fg_v <= 1'b0;
-                                state <= busy[0] ? SP_WAIT : SP_PLAN;
+                                state <= SP_PLAN;
                             end
                         end
                     end
                 end
-                SP_WAIT: begin
-                    /* This plane's fill, not everyone's. The three
-                     * line buffers are separate and the merge is
-                     * vid_compose's job at scanout, so a plane's
-                     * sprites need only the plane they land in —
-                     * plane 1's fill covering plane 0's sprite
-                     * happens later, by alpha, not by ordering
-                     * here. Waiting for all three made the sprite
-                     * stage idle through the slowest fill.
-                     *
-                     * Narrow is safe even for a plane with sprites
-                     * and no fill of its own: those composite onto
-                     * fg, and fg is only ever set from an earlier
-                     * step of an ascending walk, so that plane has
-                     * already been waited for. */
-                    if (!busy[p])
-                        state <= SP_PLAN;
-                end
                 SP_PLAN: begin
-                    if (rnew[p] && rfilled[p]) begin
-                        fg_v <= 1'b1;
-                        fg <= p;
-                    end
                     if (!sp_en)
                         next_plane();
-                    else if (!(rnew[p] && rfilled[p]) && !fg_v) begin
-                        clr <= '0;
-                        state <= SP_CLEAR;
-                    end else begin
-                        run4 <= sp_is4;
-                        if (sp_is4)
-                            m4_start <= 1'b1;
-                        else
-                            m5_start <= 1'b1;
-                        state <= SP_RUN;
-                    end
-                end
-                SP_CLEAR: begin
-                    clr <= clr + 10'd1;
-                    if (clr == cw - 10'd1) begin
-                        vid_sprite_force <= 1'b1;
-                        fg_v <= 1'b1;
-                        fg <= p;
+                    else begin
                         run4 <= sp_is4;
                         if (sp_is4)
                             m4_start <= 1'b1;
@@ -341,7 +333,6 @@ module vid_sprite (
                     if (run4 ? m4_done : m5_done)
                         next_plane();
                 end
-                default: state <= SP_IDLE;
             endcase
         end
     end
