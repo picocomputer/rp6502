@@ -423,3 +423,16 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
 
 mode5("sprite_overrun", 1, 27, 0,
       [(i * 6, 40, 0, 0) for i in range(48)])
+
+# The serial fill canary: two 8bpp XRAM-palette fills — the costliest
+# prologue — on the wide canvas, overlapping so the stacking shows,
+# where the one engine runs them back-to-back against the beam.
+cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
+cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)
+rom("fill_heavy640", 3,
+    [(3, 3, 0x0100, 0, 0, 0), (3, 3, 0x0140, 1, 0, 0)],
+    [(0x0100, cfg0), (0x0140, cfg1),
+     (0x0800, bytes((i * 13 + 7) & 0xFF for i in range(64 * 64))),
+     (0x1800, bytes((i * 11 + 3) & 0xFF for i in range(64 * 64))),
+     (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
+     (0x0600, le16(*((0x0020 | (i * 1031 + 5)) for i in range(256))))])

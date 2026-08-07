@@ -44,8 +44,9 @@
 
 static Vrp6502 *dut;
 
-#define PLANE_STATE(n) \
-    dut->rootp->rp6502__DOT__gen_mode__BRA__##n##__KET____DOT__vid_mode__DOT__state
+#define FILL_STATE dut->rootp->rp6502__DOT__vid_fill__DOT__state
+#define SCHED_STATE dut->rootp->rp6502__DOT__vid_sched__DOT__state
+#define SCHED_PENDING dut->rootp->rp6502__DOT__vid_sched__DOT__plane_pending
 
 /* A scanline is 800 pixels at two clocks; the deadline is the last of
  * them, not the end of the line. */
@@ -74,8 +75,10 @@ struct budget_t
      * nor waits for the planes, so its cost is concurrent, not added.
      * It still has to fit the line on its own. */
     long worst_term;
-    /* Where the line's clocks go: each plane's own finish, and the
-     * sprite stage's time by state. SP_IDLE=0 SLOT=1 PLAN=2 RUN=3. */
+    /* Where the line's clocks go: each plane's resolution — its fill's
+     * finish on the shared engine, or the decision that skipped it —
+     * and the sprite stage's time by state. SP_IDLE=0 SLOT=1 PLAN=2
+     * RUN=3. */
     long plane_done[3];
     long sp_state[4];
     long lines;
@@ -83,7 +86,7 @@ struct budget_t
 
 static bool render_idle()
 {
-    return PLANE_STATE(0) == 0 && PLANE_STATE(1) == 0 && PLANE_STATE(2) == 0
+    return SCHED_STATE == 0 && FILL_STATE == 0
            && dut->rootp->rp6502__DOT__vid_sprite__DOT__state == 0;
 }
 
@@ -125,12 +128,11 @@ static void measure_frame(budget_t *b)
             clocks++;
             if (!render_idle())
                 busy_until = clocks;
-            if (PLANE_STATE(0) != 0 || PLANE_STATE(1) != 0
-                || PLANE_STATE(2) != 0)
+            if (SCHED_STATE != 0)
                 planes_until = clocks;
-            if (PLANE_STATE(0) != 0) pdone[0] = clocks;
-            if (PLANE_STATE(1) != 0) pdone[1] = clocks;
-            if (PLANE_STATE(2) != 0) pdone[2] = clocks;
+            if (SCHED_PENDING & 1) pdone[0] = clocks;
+            if (SCHED_PENDING & 2) pdone[1] = clocks;
+            if (SCHED_PENDING & 4) pdone[2] = clocks;
             if (dut->rootp->rp6502__DOT__vid_sprite__DOT__state != 0)
                 sprite_until = clocks;
             spst[dut->rootp->rp6502__DOT__vid_sprite__DOT__state & 3]++;
@@ -140,9 +142,9 @@ static void measure_frame(budget_t *b)
             {
                 grants++;
                 unsigned sel = dut->rootp->rp6502__DOT__a_sel;
-                if (sel < 3)
+                if (sel == 0)
                     g_planes++;
-                else if (sel == 3)
+                else if (sel == 1)
                     g_sprite++;
             }
         }
@@ -349,6 +351,14 @@ UTEST(mode2, bpp1_8px_ytrim_320x180)
 UTEST(mode3, bpp8_xram_palette_640x480)
 {
     run_case(utest_result, "mode3_8bpp", budget_under);
+}
+
+/* The serial canary: the wide canvas's two fills, both with the 8bpp
+ * XRAM-palette prologue, back to back on the one engine — the tightest
+ * legal line the machine can be asked for. */
+UTEST(mode3, two_bpp8_fills_serial_640x480)
+{
+    run_case(utest_result, "fill_heavy640", budget_under);
 }
 
 UTEST(mode3, bpp1_builtin_320x240)

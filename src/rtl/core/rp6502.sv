@@ -538,30 +538,29 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    /* The terminal and the planes never read the font together — a plane
+    /* The terminal and the fill never read the font together — a fill
      * renders only off the console canvas — so the rotor is fairness
-     * between the planes more than arbitration. Mod four, so the wrap is
-     * free. */
-    logic [3:0] mf_req;
-    logic [13:0] mf_addr[4];
-    logic [1:0] f_rotor, f_sel;
+     * more than arbitration. Mod two, so the wrap is free. */
+    logic [1:0] mf_req;
+    logic [13:0] mf_addr[2];
+    logic f_rotor, f_sel;
     logic f_any;
     always_comb begin
         f_sel = f_rotor;
         f_any = 1'b0;
-        for (int i = 0; i < 4; i++) begin
-            logic [1:0] cand;
-            cand = f_rotor + 2'(i);
+        for (int i = 0; i < 2; i++) begin
+            logic cand;
+            cand = f_rotor ^ 1'(i);
             if (!f_any && mf_req[cand]) begin
                 f_sel = cand;
                 f_any = 1'b1;
             end
         end
     end
-    initial f_rotor = 2'd0;
+    initial f_rotor = 1'd0;
     always_ff @(posedge clk_sys)
         if (f_any)
-            f_rotor <= f_sel + 2'd1;
+            f_rotor <= f_sel + 1'd1;
 
     logic [7:0] font_bits;
     vid_font vid_font (
@@ -573,24 +572,24 @@ module rp6502
         .w_data(bus_wdata)
     );
 
-    logic [4:0] ma_req;
-    logic [13:0] ma_addr[5];
-    logic [2:0] a_rotor, a_sel;
+    logic [2:0] ma_req;
+    logic [13:0] ma_addr[3];
+    logic [1:0] a_rotor, a_sel;
     logic a_any;
     /* Every rotor position solved at once, so the rotor only chooses
      * between answers that settled while it arrived from a register.
-     * Scanning from the live rotor instead put five priority steps in
+     * Scanning from the live rotor instead put a priority scan in
      * front of the address mux. The lowest offset with a request wins:
      * the loop counts down and the last assignment stands. */
-    logic [2:0] sel_at[5];
-    logic any_at[5];
+    logic [1:0] sel_at[3];
+    logic any_at[3];
     always_comb begin
-        for (int r = 0; r < 5; r++) begin
-            sel_at[r] = 3'(r);
+        for (int r = 0; r < 3; r++) begin
+            sel_at[r] = 2'(r);
             any_at[r] = 1'b0;
-            for (int i = 4; i >= 0; i--) begin
-                if (ma_req[(r + i) % 5]) begin
-                    sel_at[r] = 3'((r + i) % 5);
+            for (int i = 2; i >= 0; i--) begin
+                if (ma_req[(r + i) % 3]) begin
+                    sel_at[r] = 2'((r + i) % 3);
                     any_at[r] = 1'b1;
                 end
             end
@@ -598,10 +597,10 @@ module rp6502
         a_sel = sel_at[a_rotor];
         a_any = any_at[a_rotor];
     end
-    initial a_rotor = 3'd0;
+    initial a_rotor = 2'd0;
     always_ff @(posedge clk_sys)
         if (a_any)
-            a_rotor <= a_sel == 3'd4 ? 3'd0 : a_sel + 3'd1;
+            a_rotor <= a_sel == 2'd2 ? 2'd0 : a_sel + 2'd1;
     xram64k xram (
         .clk(clk_sys),
         .a_addr(ma_addr[a_sel]),
@@ -618,13 +617,10 @@ module rp6502
     logic vid_console, vid_x_shift, vid_y_shift;
     logic [9:0] vid_y_offset;
 
-    logic [1:0] p_rotor;
-    logic [8:0] pm_line[3];
+    logic [8:0] sched_p_line;
+    logic [1:0] sched_p_plane;
     logic [31:0] pm_entry;
     logic [15:0] pm_config;
-    initial p_rotor = 2'd0;
-    always_ff @(posedge clk_sys)
-        p_rotor <= p_rotor == 2'd2 ? 2'd0 : p_rotor + 2'd1;
 
     vid_prog vid_prog (
         .clk(clk_sys),
@@ -638,8 +634,8 @@ module rp6502
         .vid_prog_x_shift(vid_x_shift),
         .vid_prog_y_shift(vid_y_shift),
         .vid_prog_y_offset(vid_y_offset),
-        .p_line(pm_line[p_rotor]),
-        .p_plane(p_rotor),
+        .p_line(sched_p_line),
+        .p_plane(sched_p_plane),
         .vid_prog_p_entry(pm_entry),
         .vid_prog_p_config(pm_config),
         .s_idx(sp_s_idx),
@@ -661,9 +657,9 @@ module rp6502
         .px_last(vid_px_last),
         .line_start(vid_line_start),
         .vid_term_pix(term_pix),
-        .vid_term_f_req(mf_req[3]),
-        .vid_term_f_addr(mf_addr[3]),
-        .f_gnt(f_any && f_sel == 2'd3),
+        .vid_term_f_req(mf_req[1]),
+        .vid_term_f_addr(mf_addr[1]),
+        .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && !bus_addr[17]),
@@ -679,32 +675,82 @@ module rp6502
     logic [12:0] sp_s_idx;
     logic [31:0] sp_s_data;
     logic [16:0] sp_pix[3];
+
+    logic [9:0] vid_cw;
+    always_comb vid_cw = vid_x_shift ? 10'd320 : 10'd640;
+
+    logic fl_start;
+    logic [2:0] fl_mode;
+    logic [15:0] fl_attr, fl_config;
+    logic fl_done, fl_filled;
+    logic fl_px_we;
+    logic [9:0] fl_px_addr;
+    logic [15:0] fl_px_data;
+    logic [2:0] m_px_we;
+    logic [2:0] m_done;
+    logic m_filled_v;
+    vid_sched vid_sched (
+        .clk(clk_sys),
+        .rst_n(rst_n),
+        .v(vid_v),
+        .h(vid_h),
+        .line_start(vid_line_start),
+        .console(vid_console),
+        .x_shift(vid_x_shift),
+        .y_shift(vid_y_shift),
+        .y_offset(vid_y_offset),
+        .vid_sched_p_line(sched_p_line),
+        .vid_sched_p_plane(sched_p_plane),
+        .p_entry(pm_entry),
+        .p_config(pm_config),
+        .vid_sched_e_start(fl_start),
+        .vid_sched_e_mode(fl_mode),
+        .vid_sched_e_attr(fl_attr),
+        .vid_sched_e_config(fl_config),
+        .e_done(fl_done),
+        .e_filled(fl_filled),
+        .e_px_we(fl_px_we),
+        .vid_sched_px_we(m_px_we),
+        .vid_sched_done(m_done),
+        .vid_sched_filled(m_filled_v)
+    );
+    vid_fill vid_fill (
+        .clk(clk_sys),
+        .line_start(vid_line_start),
+        .start(fl_start),
+        .mode(fl_mode),
+        .attr_i(fl_attr),
+        .config_ptr_i(fl_config),
+        .t_row(sched_p_line),
+        .cw(vid_cw),
+        .vid_fill_a_req(ma_req[0]),
+        .vid_fill_a_addr(ma_addr[0]),
+        .a_gnt(a_any && a_sel == 2'd0),
+        .a_rdata(xram_a_rdata),
+        .vid_fill_f_req(mf_req[0]),
+        .vid_fill_f_addr(mf_addr[0]),
+        .f_gnt(f_any && f_sel == 1'd0),
+        .f_data(font_bits),
+        .vid_fill_px_we(fl_px_we),
+        .vid_fill_px_addr(fl_px_addr),
+        .vid_fill_px_data(fl_px_data),
+        .vid_fill_done(fl_done),
+        .vid_fill_filled(fl_filled)
+    );
     genvar gi;
     generate
         for (gi = 0; gi < 3; gi++) begin : gen_mode
             vid_mode vid_mode (
                 .clk(clk_sys),
-        .rst_n(rst_n),
-                .v(vid_v),
                 .h(vid_h),
                 .px_last(vid_px_last),
                 .line_start(vid_line_start),
-                .console(vid_console),
-                .x_shift(vid_x_shift),
-                .y_shift(vid_y_shift),
-                .y_offset(vid_y_offset),
-                .vid_mode_p_line(pm_line[gi]),
-                .p_gnt(p_rotor == 2'(gi)),
-                .p_entry(pm_entry),
-                .p_config(pm_config),
-                .vid_mode_a_req(ma_req[gi]),
-                .vid_mode_a_addr(ma_addr[gi]),
-                .vid_mode_f_req(mf_req[gi]),
-                .vid_mode_f_addr(mf_addr[gi]),
-                .f_gnt(f_any && f_sel == 2'(gi)),
-                .f_data(font_bits),
-                .a_gnt(a_any && a_sel == 3'(gi)),
-                .a_rdata(xram_a_rdata),
+                .cw(vid_cw),
+                .px_we(m_px_we[gi]),
+                .px_addr(fl_px_addr),
+                .px_data(fl_px_data),
+                .done_i(m_done[gi]),
+                .filled_i(m_filled_v),
                 .vid_mode_pix(m_pix[gi]),
                 .vid_mode_filled(m_filled[gi])
             );
@@ -726,9 +772,9 @@ module rp6502
         .s_data(sp_s_data),
         .vid_sprite_pix(sp_pix),
         .vid_sprite_overrun(),
-        .vid_sprite_a_req(ma_req[3]),
-        .vid_sprite_a_addr(ma_addr[3]),
-        .a_gnt(a_any && a_sel == 3'd3),
+        .vid_sprite_a_req(ma_req[1]),
+        .vid_sprite_a_addr(ma_addr[1]),
+        .a_gnt(a_any && a_sel == 2'd1),
         .a_rdata(xram_a_rdata)
     );
     /* verilator lint_on PINCONNECTEMPTY */
@@ -746,9 +792,9 @@ module rp6502
         .clk(clk_sys),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
-        .aud_psg_a_req(ma_req[4]),
-        .aud_psg_a_addr(ma_addr[4]),
-        .a_gnt(a_any && a_sel == 3'd4),
+        .aud_psg_a_req(ma_req[2]),
+        .aud_psg_a_addr(ma_addr[2]),
+        .a_gnt(a_any && a_sel == 2'd2),
         .a_rdata(xram_a_rdata),
         .q_we(xr_busy && xr_we),
         .q_addr(xr_addr),

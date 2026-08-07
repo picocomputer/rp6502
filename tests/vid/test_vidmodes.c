@@ -258,4 +258,9 @@ UTEST(vidmodes, sprite_overrun_rom)
     run_case(utest_result, "sprite_overrun", 320, 240);
 }
 
+UTEST(vidmodes, fill_heavy640)
+{
+    run_case(utest_result, "fill_heavy640", 640, 480);
+}
+
 UTEST_MAIN_EMU()
