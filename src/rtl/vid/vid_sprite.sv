@@ -19,10 +19,8 @@ module vid_sprite (
     input logic px_last,
     input logic line_start,
 
-    input logic console,
-    input logic x_shift,
-    input logic y_shift,
-    input logic [9:0] y_offset,
+    input logic [9:0] cw,
+    input logic [9:0] ch,
 
     output logic [12:0] vid_sprite_s_idx,
     input logic [31:0] s_data,
@@ -40,17 +38,10 @@ module vid_sprite (
 );
 
     logic [9:0] t;
-    logic [9:0] t_cv;
     logic render_now;
-    always_comb begin
-        t_cv = t - y_offset;
-        render_now = !console && t >= y_offset && t < 10'd480
-            && !(y_shift && t_cv[0]);
-    end
+    always_comb render_now = t < ch;
     logic [8:0] t_row;
-    always_comb t_row = y_shift ? t_cv[9:1] : t_cv[8:0];
-    logic [9:0] cw;
-    always_comb cw = x_shift ? 10'd320 : 10'd640;
+    always_comb t_row = t[8:0];
 
     typedef enum logic [1:0] {
         SP_IDLE, SP_SLOT, SP_PLAN, SP_RUN
@@ -213,11 +204,10 @@ module vid_sprite (
     logic sb_we;
     always_comb sb_we = !px_last;
 
-    /* Presence rides above the pixel: mode 4's continuous-span blit
-     * writes texels whose alpha bit may be clear, and whether those
-     * show depends on the plane the oracle would have painted — a call
-     * that belongs to the compose, which needs the texel's own alpha
-     * bit intact to make it. */
+    /* Presence rides above the pixel: a written sprite pixel replaces
+     * the fill's in the compose — the in-buffer overwrite — and the
+     * texel's own alpha bit then faces the plane's rule, so both must
+     * arrive intact. */
     logic eng_we;
     logic [9:0] eng_addr;
     logic [16:0] eng_data;
@@ -341,7 +331,7 @@ module vid_sprite (
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_sprite;
-    always_comb unused_vid_sprite = ^{t_cv, slot_entry[0][30:19],
+    always_comb unused_vid_sprite = ^{t[9], slot_entry[0][30:19],
                                       slot_entry[1][30:19],
                                       slot_entry[2][30:19]};
     /* verilator lint_on UNUSEDSIGNAL */

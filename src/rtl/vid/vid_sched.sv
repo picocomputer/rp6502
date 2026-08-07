@@ -4,15 +4,15 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The fill scheduler: one engine for three planes. At line start it
- * reads the three fill slots, queues the enabled ones ascending, and
- * runs them through vid_fill one at a time; planes that do not run —
- * disabled, or past the canvas's fill rate — resolve unfilled at the
- * decision, which is all the compose needs to skip them. A 640-wide
- * canvas has serial fill rate for two planes, a 320-wide for three;
- * the lowest-numbered fills win.
- *
- * On the console canvas the fills idle, which is the oracle's fill
- * guard and also shields the unreset prog BRAM across a warm reset.
+ * reads the three fill slots, queues the enabled fills ascending, and
+ * runs them through vid_fill one at a time; a plane that does not run
+ * simply never flips, and its scan bank is the eraser's zeros. A
+ * 640-wide canvas has serial fill rate for two planes, a 320-wide for
+ * three; the lowest-numbered fills win. A mode-0 slot runs no fill —
+ * it marks the plane whose stream is the terminal engine's, the same
+ * way the sprite stage is its own engine beside this one. The firmware
+ * registers mode 0 exclusively, so the marker is a plain mask with no
+ * defense against several.
  */
 
 module vid_sched (
@@ -23,10 +23,8 @@ module vid_sched (
     input logic [9:0] h,
     input logic line_start,
 
-    input logic console,
-    input logic x_shift,
-    input logic y_shift,
-    input logic [9:0] y_offset,
+    input logic [9:0] cw,
+    input logic [9:0] ch,
 
     output logic [8:0] vid_sched_p_line,
     output logic [1:0] vid_sched_p_plane,
@@ -38,24 +36,18 @@ module vid_sched (
     output logic [15:0] vid_sched_e_attr,
     output logic [15:0] vid_sched_e_config,
     input logic e_done,
-    input logic e_filled,
     input logic e_px_we,
 
     output logic [2:0] vid_sched_px_we,
     output logic [2:0] vid_sched_done,
-    output logic vid_sched_filled
+    output logic [2:0] vid_sched_term
 );
 
     logic [9:0] t /*verilator public_flat_rd*/;
-    logic [9:0] t_cv;
     logic render_now;
-    always_comb begin
-        t_cv = t - y_offset;
-        render_now = !console && t >= y_offset && t < 10'd480
-            && !(y_shift && t_cv[0]);
-    end
+    always_comb render_now = t < ch;
     logic [8:0] t_row;
-    always_comb t_row = y_shift ? t_cv[9:1] : t_cv[8:0];
+    always_comb t_row = t[8:0];
     always_comb vid_sched_p_line = t_row;
 
     typedef enum logic [1:0] {
@@ -69,6 +61,7 @@ module vid_sched (
     always_comb vid_sched_p_plane = rd_i[1:0];
 
     logic pl_en[3];
+    logic pl_term[3];
     logic [2:0] pl_mode[3];
     logic [15:0] pl_attr[3];
     logic [15:0] pl_cfg[3];
@@ -86,7 +79,7 @@ module vid_sched (
                 dec_q[dec_n] = 2'(i);
                 dec_n = dec_n + 2'd1;
             end
-        if (!x_shift && dec_n == 2'd3)
+        if (cw == 10'd640 && dec_n == 2'd3)
             dec_n = 2'd2;
         dec_run = '0;
         for (int i = 0; i < 3; i++)
@@ -98,19 +91,23 @@ module vid_sched (
     logic [1:0] q_n, q_i;
     logic [1:0] cur;
     always_comb cur = q[q_i];
-    logic [2:0] skip_q;
     logic [2:0] plane_pending /*verilator public_flat_rd*/;
 
+    /* The marker the compose sees updates with the bank flips: decided
+     * mid-render-line, taken at the next line_start, held with the
+     * banks otherwise. */
+    logic [2:0] term_q, term_dec;
+    logic term_armed;
+    always_comb term_dec = {pl_term[2], pl_term[1], pl_term[0]};
+    always_comb vid_sched_term = term_q;
+
     /* The done a shell sees is the engine's own edge, forwarded without
-     * a register: the filled latch and the flip must land on sub_done's
-     * clock or the h==799 pixel-0 pre-read comes up stale. */
-    logic [2:0] fwd;
+     * a register: the flip must land on sub_done's clock or the h==799
+     * pixel-0 pre-read comes up stale. */
     always_comb begin
-        fwd = '0;
+        vid_sched_done = '0;
         if (state == SCH_RUN && e_done)
-            fwd[cur] = 1'b1;
-        vid_sched_done = skip_q | fwd;
-        vid_sched_filled = state == SCH_RUN && e_done && e_filled;
+            vid_sched_done[cur] = 1'b1;
         vid_sched_px_we = '0;
         if (state == SCH_RUN && e_px_we)
             vid_sched_px_we[cur] = 1'b1;
@@ -136,6 +133,7 @@ module vid_sched (
         rd_i = '0;
         for (int i = 0; i < 3; i++) begin
             pl_en[i] = 1'b0;
+            pl_term[i] = 1'b0;
             pl_mode[i] = '0;
             pl_attr[i] = '0;
             pl_cfg[i] = '0;
@@ -143,8 +141,9 @@ module vid_sched (
         end
         q_n = '0;
         q_i = '0;
-        skip_q = '0;
         plane_pending = '0;
+        term_q = '0;
+        term_armed = 1'b0;
         vid_sched_e_start = 1'b0;
         vid_sched_e_mode = '0;
         vid_sched_e_attr = '0;
@@ -152,7 +151,6 @@ module vid_sched (
     end
     always_ff @(posedge clk) begin
         vid_sched_e_start <= 1'b0;
-        skip_q <= '0;
 `ifdef VERILATOR
         /* The stop waits one frame, which is what a reset costs a beam
          * that does not take one — a frame of the black screen the
@@ -164,6 +162,9 @@ module vid_sched (
             t <= v == 10'd524 ? 10'd0 : v + 10'd1;
             rd_i <= '0;
             plane_pending <= '0;
+            if (term_armed)
+                term_q <= term_dec;
+            term_armed <= 1'b0;
             state <= SCH_READ;
         end else begin
             case (state)
@@ -177,6 +178,8 @@ module vid_sched (
                             pl_en[2'(rd_i - 3'd1)] <= p_entry[31]
                                 && p_entry[18:16] != 3'd0
                                 && p_entry[18:16] <= 3'd3;
+                            pl_term[2'(rd_i - 3'd1)] <= p_entry[31]
+                                && p_entry[18:16] == 3'd0;
                             pl_mode[2'(rd_i - 3'd1)] <= p_entry[18:16];
                             pl_attr[2'(rd_i - 3'd1)] <= p_entry[15:0];
                             pl_cfg[2'(rd_i - 3'd1)] <= p_config;
@@ -186,12 +189,8 @@ module vid_sched (
                                 q[i] <= dec_q[i];
                             q_n <= dec_n;
                             q_i <= 2'd0;
-                            /* Not run this line — disabled or past the
-                             * fill rate — is resolved unfilled here,
-                             * mirroring the old disabled path: buffer
-                             * unwritten, flip armed, compose skips. */
-                            skip_q <= ~dec_run;
                             plane_pending <= dec_run;
+                            term_armed <= 1'b1;
                             if (dec_n != 2'd0) begin
                                 vid_sched_e_start <= 1'b1;
                                 vid_sched_e_mode <= pl_mode[dec_q[0]];

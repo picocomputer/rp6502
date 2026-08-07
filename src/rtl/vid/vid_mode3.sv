@@ -36,10 +36,7 @@ module vid_mode3 (
     output logic vid_mode3_seg_imm,
     output logic [22:0] vid_mode3_seg_bits,
     output logic [9:0] vid_mode3_seg_px,
-    input logic seg_take,
-
-    /* Whether the plane counts as filled, valid from tl_start on. */
-    output logic vid_mode3_filled
+    input logic seg_take
 );
 
     logic cf_x_wrap, cf_y_wrap;
@@ -130,7 +127,6 @@ module vid_mode3 (
         vid_mode3_pal_xram = 1'b0;
         vid_mode3_bpp = '0;
         vid_mode3_reversed = 1'b0;
-        vid_mode3_filled = 1'b0;
     end
     always_ff @(posedge clk) begin
         vid_mode3_tl_start <= 1'b0;
@@ -203,11 +199,6 @@ module vid_mode3 (
                                 - (17'd2 << {12'd0, 5'd1 << bpp_log});
                     vid_mode3_bpp <= bpp_log;
                     vid_mode3_reversed <= reversed;
-                    vid_mode3_filled <= !blank
-                        && !(35'(cf_height[14:0]) * 35'(sizeof_row)
-                             > 35'(17'h10000) - 35'({1'b0, cf_data})
-                             || (bpp_log == 3'd4
-                                 && (cf_data[0] ^ row_off[0])));
                     vid_mode3_tl_start <= 1'b1;
                     px_rem <= cw;
                     state <= S3_SEG;

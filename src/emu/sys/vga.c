@@ -238,37 +238,32 @@ void vga_set_framebuffer(uint32_t *fb)
 }
 
 /* Render ONE scanline y of the canvas into fb at the canvas's native stride
- * (g_canvas_w). Mirrors firmware vga_render_scanline: run each plane's fill then
- * sprite, where sprites draw onto the current "foreground" (the most recently
- * filled plane, or their own zeroed buffer if none); the filled planes are then
- * composited as scanvideo's PIO does — plane 0 is the unconditional base, black
- * when unfilled, and higher planes overlay where their pixel's alpha bit is
- * set, so e.g. a sprite layer shows through the transparent background of a
- * text layer above it. */
+ * (g_canvas_w). Each plane runs its fill and then its own sprites — slot k's
+ * sprites belong to plane k, over a zeroed buffer when no fill ran. (The RIA
+ * firmware paints sprites into the lowest filled buffer to skip the memset;
+ * that is a bandwidth optimization whose artifacts are not modeled.) The
+ * planes composite as scanvideo's PIO does — plane 0 is the unconditional
+ * base, black when unfilled, and higher planes overlay where their pixel's
+ * alpha bit is set, so e.g. a sprite layer shows through the transparent
+ * background of a text layer above it. */
 static void render_scanline(int y, uint32_t *fb)
 {
     const int W = g_canvas_w;
     uint16_t plane[SCANVIDEO_PLANE_COUNT][VGA_MAX_WIDTH];
     const vga_prog_t *p = &g_prog[y];
     bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
-    uint16_t *foreground = NULL;
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         if (p->fill_fn[i])
-        {
             filled[i] = p->fill_fn[i](i, (int16_t)y, (int16_t)W, plane[i], p->fill_config[i]);
-            if (filled[i])
-                foreground = plane[i];
-        }
         if (p->sprite_fn[i])
         {
-            if (!foreground)
+            if (!filled[i])
             {
-                foreground = plane[i];
-                memset(foreground, 0, (size_t)W * sizeof(uint16_t));
+                memset(plane[i], 0, (size_t)W * sizeof(uint16_t));
                 filled[i] = true;
             }
-            p->sprite_fn[i]((int16_t)y, (int16_t)W, foreground, p->sprite_config[i], p->sprite_length[i]);
+            p->sprite_fn[i]((int16_t)y, (int16_t)W, plane[i], p->sprite_config[i], p->sprite_length[i]);
         }
     }
 

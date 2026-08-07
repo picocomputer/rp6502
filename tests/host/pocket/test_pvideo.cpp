@@ -150,15 +150,15 @@ UTEST(pvideo, raster_and_pixels_exact)
 }
 
 /* A 320x180 canvas, decoded the way the scaler latches it. The machine
- * emits the canvas natively — 320 de strobes on the first line of each
- * doubled pair inside the letterbox window, nothing anywhere else — so
- * the bench feeds exactly that, and this stage is pure clock alignment:
- * each row goes out in the same 800-clock slot the machine sends it as
- * one hs, 320 pixels over 320 clocks, then 1280 clocks of porch to the
- * next row's hs. skip stays zero: nothing duplicated exists to skip.
- * The end-of-line word names scaler slot 3 after every row. The counts
- * are the claim: a duplicated or letterboxed pixel reaching the scaler
- * breaks the totals before any color is compared. */
+ * emits the canvas natively — 320 de strobes on each of the first 180
+ * lines, nothing anywhere else — so the bench feeds exactly that, and
+ * this stage is pure clock alignment: each row goes out in the same
+ * 800-clock slot the machine sends it, 320 pixels over 320 clocks,
+ * then porch to the next slot's hs. skip stays zero: nothing
+ * duplicated exists to skip. The end-of-line word names scaler slot 3
+ * after every row. The counts are the claim: a duplicated or shifted
+ * pixel reaching the scaler breaks the totals before any color is
+ * compared. */
 UTEST(pvideo, canvas_native_de_skip_and_slot)
 {
     if (dut)
@@ -192,9 +192,9 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
             for (int c = 0; c < 1600; c++)
             {
                 dut->vid_frame = line == 0 && c == 0;
-                /* The machine's native de: rows on even lines inside the
-                 * letterbox window, 320 strobes back to back. */
-                bool row = line >= 60 && line < 420 && !(line & 1);
+                /* The machine's native de: the canvas's rows from the
+                 * top, 320 strobes back to back. */
+                bool row = line < 180;
                 bool de = row && c < 640 && (c & 1) == 1;
                 dut->vid_de = de;
                 if (de)
@@ -221,15 +221,14 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                     {
                         int px = rx - 9;
                         int py = ry;
-                        /* Same slot the machine sends it: rows on even
-                         * lines inside the letterbox window. */
-                        bool dump = py >= 60 && py < 420 && !(py & 1);
+                        /* Same slot the machine sends it. */
+                        bool dump = py < 180;
                         bool win = px >= 0 && px < 320 && py < 480;
                         ASSERT_EQ(dut->pocket_video_de, win && dump);
                         ASSERT_EQ(dut->pocket_video_skip, 0);
-                        /* hs at row periods: every other slot here. */
+                        /* One hs per slot. */
                         if (rx == 3)
-                            ASSERT_EQ(dut->pocket_video_hs, !(py & 1));
+                            ASSERT_TRUE(dut->pocket_video_hs);
                         if (dut->pocket_video_de)
                         {
                             int pf = (int)(latched / (320L * 180));

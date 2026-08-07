@@ -68,15 +68,7 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
     if (*scanline_end > vga_highest_scanline)
     {
         vga_highest_scanline = *scanline_end;
-        /* The raster line: canvas rows scale and offset onto 480. */
-        int16_t line = vga_highest_scanline;
-        if (vga_canvas_code == vga_canvas_320_240)
-            line = (int16_t)(line * 2);
-        if (vga_canvas_code == vga_canvas_320_180)
-            line = (int16_t)(line * 2 + 60);
-        if (vga_canvas_code == vga_canvas_640_360)
-            line = (int16_t)(line + 60);
-        VID_VSYNC_LINE = (uint32_t)line;
+        VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
     }
     return true;
 }

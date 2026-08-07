@@ -56,10 +56,7 @@ module vid_mode1 (
     output logic [15:0] vid_mode1_seg_fg,
     output logic [15:0] vid_mode1_seg_bg,
     output logic [9:0] vid_mode1_seg_px,
-    input logic seg_take,
-
-    /* Whether the plane counts as filled, valid from tl_start on. */
-    output logic vid_mode1_filled
+    input logic seg_take
 );
 
     logic cf_x_wrap, cf_y_wrap;
@@ -310,7 +307,6 @@ module vid_mode1 (
         nxt_bg = '0;
         font_gather = '0;
         vid_mode1_tl_start = 1'b0;
-        vid_mode1_filled = 1'b0;
     end
     always_ff @(posedge clk) begin
         gnt_d <= a_gnt;
@@ -369,7 +365,6 @@ module vid_mode1 (
                     row_base <= {1'b0, cf_data} + row_off[16:0];
                     if (overrun)
                         blank <= 1'b1;
-                    vid_mode1_filled <= !blank && !overrun;
                     vid_mode1_tl_start <= 1'b1;
                     px_rem <= cw;
                     if (blank || overrun)

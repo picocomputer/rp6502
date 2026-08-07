@@ -3,15 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One plane's line buffer: the ping-pong pair the shared fill engine
- * writes through vid_sched's routing, and the beam reads one line
- * behind. The plane keeps only what is truly its own — the buffer, its
- * banks, and the filled flag; the engine that fills it is vid_fill,
- * one for all three planes.
- *
- * On line-doubled canvases a row renders once, on the raster line where
- * it first appears, and the buffer holds through the repeat — never a
- * re-render the oracle could not have seen.
+ * One plane's line buffer: ping-pong banks as two arrays, the engine
+ * writing one while the beam reads and erases the other — the eraser
+ * rides one pixel behind the read, so every bank returns to write duty
+ * holding zeros, and a line nothing filled IS its zeros: black under
+ * the base plane's rule, transparent under an overlay's. done arms the
+ * bank flip and nothing else. Banks as two arrays because one array
+ * with two writers needs a true dual port, and no conditional shape
+ * survives extraction.
  */
 
 module vid_mode (
@@ -20,62 +19,82 @@ module vid_mode (
     input logic [9:0] h,
     input logic px_last,
     input logic line_start,
-    input logic [9:0] cw,
 
     input logic px_we,
     input logic [9:0] px_addr,
     input logic [15:0] px_data,
-
-    /* done says the line resolved; filled says the buffer holds it. A
-     * done without filled leaves the buffer unwritten — the compose
-     * skips an unfilled plane, and nothing else reads it. */
     input logic done_i,
-    input logic filled_i,
 
-    output logic [15:0] vid_mode_pix,
-    output logic vid_mode_filled
+    output logic [15:0] vid_mode_pix
 );
 
-    /* The bank rides inside the address and the output register carries
-     * only the buffer: either one broken keeps the line out of block
-     * memory. */
     (* ramstyle = "no_rw_check" *)
-    logic [15:0] linebuf[2048];
+    logic [15:0] b0[1024];
+    (* ramstyle = "no_rw_check" *)
+    logic [15:0] b1[1024];
+
+    /* The zeros are load-bearing from the first frame: hardware
+     * configures block RAM to zero, and simulation must agree. */
+    initial
+        for (int i = 0; i < 1024; i++) begin
+            b0[i] = 16'h0000;
+            b1[i] = 16'h0000;
+        end
+
     logic wr_bank;
-    logic filled_q[2] /*verilator public_flat_rd*/;
     logic flip_next;
+
+    logic b0_we, b1_we;
+    logic [9:0] b0_addr, b1_addr;
+    logic [15:0] b0_data, b1_data;
+    logic sc_we;
+    always_comb begin
+        sc_we = !px_last;
+        b0_we = wr_bank ? sc_we : px_we;
+        b0_addr = wr_bank ? h - 10'd1 : px_addr;
+        b0_data = wr_bank ? 16'h0000 : px_data;
+        b1_we = wr_bank ? px_we : sc_we;
+        b1_addr = wr_bank ? px_addr : h - 10'd1;
+        b1_data = wr_bank ? px_data : 16'h0000;
+    end
+
+    always_ff @(posedge clk)
+        if (b0_we)
+            b0[b0_addr] <= b0_data;
+    always_ff @(posedge clk)
+        if (b1_we)
+            b1[b1_addr] <= b1_data;
 
     /* The beam reads one ahead of itself, on each pixel's last tick, and
      * the bank flip lands on h==0's first tick — so only the pixel-0
      * read at the end of h==799 sees the fresh line under its write-side
-     * label. A repeat line never flips and reads the held bank. */
-    logic [9:0] rd_next;
-    always_comb rd_next = h + 10'd1;
-    logic [10:0] lb_rd;
-    always_comb lb_rd = h == 10'd799
-        ? {flip_next ? wr_bank : !wr_bank, 10'd0}
-        : {!wr_bank, rd_next};
-
-    logic [15:0] lb_q;
-    logic lb_blank;
-    always_ff @(posedge clk) begin
+     * label. Both banks read every pixel and the select is registered
+     * beside them: a mux after the output registers costs fabric, not
+     * the block-memory inference. */
+    logic [9:0] rd_addr;
+    logic rd_bank;
+    always_comb begin
+        rd_addr = h == 10'd799 ? 10'd0 : h + 10'd1;
+        rd_bank = h == 10'd799 ? (flip_next ? wr_bank : !wr_bank)
+                               : !wr_bank;
+    end
+    logic [15:0] q0, q1;
+    logic q_sel;
+    initial begin
+        q0 = 16'h0000;
+        q1 = 16'h0000;
+        q_sel = 1'b0;
+    end
+    always_ff @(posedge clk)
         if (px_last) begin
-            lb_q <= linebuf[lb_rd];
-            lb_blank <= !(h == 10'd799 || h < cw - 10'd1);
+            q0 <= b0[rd_addr];
+            q1 <= b1[rd_addr];
+            q_sel <= rd_bank;
         end
-    end
-    always_comb vid_mode_pix = lb_blank ? 16'h0000 : lb_q;
-    always_comb vid_mode_filled = filled_q[!wr_bank];
-
-    always_ff @(posedge clk) begin
-        if (px_we)
-            linebuf[{wr_bank, px_addr}] <= px_data;
-    end
+    always_comb vid_mode_pix = q_sel ? q1 : q0;
 
     initial begin
         wr_bank = 1'b0;
-        filled_q[0] = 1'b0;
-        filled_q[1] = 1'b0;
         flip_next = 1'b0;
     end
     /* The next line's pixel 0 is read during h==799, so the flip must
@@ -85,10 +104,8 @@ module vid_mode (
             if (flip_next)
                 wr_bank <= !wr_bank;
             flip_next <= 1'b0;
-        end else if (done_i) begin
-            filled_q[wr_bank] <= filled_i;
+        end else if (done_i)
             flip_next <= 1'b1;
-        end
     end
 
 endmodule

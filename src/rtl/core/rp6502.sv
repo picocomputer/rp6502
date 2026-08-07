@@ -82,8 +82,7 @@ module rp6502
     input logic [15:0] mou_trig,
     output logic rp6502_key_pending,
 
-    /* The canvas says how to undo the beam's doubling and letterboxing.
-     * A scaler that only wants 640x480 ignores it. */
+    /* The canvas names the scaler's mode; de already is the canvas. */
     output logic [15:0] rp6502_vid_pixel,
     output logic rp6502_vid_de,
     output logic [2:0] rp6502_vid_canvas,
@@ -538,9 +537,8 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    /* The terminal and the fill never read the font together — a fill
-     * renders only off the console canvas — so the rotor is fairness
-     * more than arbitration. Mod two, so the wrap is free. */
+    /* The terminal and a mode-1 fill share the font store, so the
+     * rotor is real arbitration. Mod two, so the wrap is free. */
     logic [1:0] mf_req;
     logic [13:0] mf_addr[2];
     logic f_rotor, f_sel;
@@ -614,8 +612,7 @@ module rp6502
     logic [31:0] vid_prog_b_rdata;
     logic [2:0] vid_canvas;
     always_comb rp6502_vid_canvas = vid_canvas;
-    logic vid_console, vid_x_shift, vid_y_shift;
-    logic [9:0] vid_y_offset;
+    logic [9:0] vid_cw, vid_ch;
 
     logic [8:0] sched_p_line;
     logic [1:0] sched_p_plane;
@@ -630,10 +627,8 @@ module rp6502
         .vid_prog_vsync_pulse(prog_vsync_pulse),
         .h(vid_h),
         .vid_prog_canvas(vid_canvas),
-        .vid_prog_console(vid_console),
-        .vid_prog_x_shift(vid_x_shift),
-        .vid_prog_y_shift(vid_y_shift),
-        .vid_prog_y_offset(vid_y_offset),
+        .vid_prog_cw(vid_cw),
+        .vid_prog_ch(vid_ch),
         .p_line(sched_p_line),
         .p_plane(sched_p_plane),
         .vid_prog_p_entry(pm_entry),
@@ -671,34 +666,28 @@ module rp6502
     );
 
     logic [15:0] m_pix[3];
-    logic [2:0] m_filled;
     logic [12:0] sp_s_idx;
     logic [31:0] sp_s_data;
     logic [16:0] sp_pix[3];
 
-    logic [9:0] vid_cw;
-    always_comb vid_cw = vid_x_shift ? 10'd320 : 10'd640;
-
     logic fl_start;
     logic [2:0] fl_mode;
     logic [15:0] fl_attr, fl_config;
-    logic fl_done, fl_filled;
+    logic fl_done;
     logic fl_px_we;
     logic [9:0] fl_px_addr;
     logic [15:0] fl_px_data;
     logic [2:0] m_px_we;
     logic [2:0] m_done;
-    logic m_filled_v;
+    logic [2:0] sched_term;
     vid_sched vid_sched (
         .clk(clk_sys),
         .rst_n(rst_n),
         .v(vid_v),
         .h(vid_h),
         .line_start(vid_line_start),
-        .console(vid_console),
-        .x_shift(vid_x_shift),
-        .y_shift(vid_y_shift),
-        .y_offset(vid_y_offset),
+        .cw(vid_cw),
+        .ch(vid_ch),
         .vid_sched_p_line(sched_p_line),
         .vid_sched_p_plane(sched_p_plane),
         .p_entry(pm_entry),
@@ -708,11 +697,10 @@ module rp6502
         .vid_sched_e_attr(fl_attr),
         .vid_sched_e_config(fl_config),
         .e_done(fl_done),
-        .e_filled(fl_filled),
         .e_px_we(fl_px_we),
         .vid_sched_px_we(m_px_we),
         .vid_sched_done(m_done),
-        .vid_sched_filled(m_filled_v)
+        .vid_sched_term(sched_term)
     );
     vid_fill vid_fill (
         .clk(clk_sys),
@@ -734,8 +722,7 @@ module rp6502
         .vid_fill_px_we(fl_px_we),
         .vid_fill_px_addr(fl_px_addr),
         .vid_fill_px_data(fl_px_data),
-        .vid_fill_done(fl_done),
-        .vid_fill_filled(fl_filled)
+        .vid_fill_done(fl_done)
     );
     genvar gi;
     generate
@@ -745,14 +732,11 @@ module rp6502
                 .h(vid_h),
                 .px_last(vid_px_last),
                 .line_start(vid_line_start),
-                .cw(vid_cw),
                 .px_we(m_px_we[gi]),
                 .px_addr(fl_px_addr),
                 .px_data(fl_px_data),
                 .done_i(m_done[gi]),
-                .filled_i(m_filled_v),
-                .vid_mode_pix(m_pix[gi]),
-                .vid_mode_filled(m_filled[gi])
+                .vid_mode_pix(m_pix[gi])
             );
         end
     endgenerate
@@ -764,10 +748,8 @@ module rp6502
         .h(vid_h),
         .px_last(vid_px_last),
         .line_start(vid_line_start),
-        .console(vid_console),
-        .x_shift(vid_x_shift),
-        .y_shift(vid_y_shift),
-        .y_offset(vid_y_offset),
+        .cw(vid_cw),
+        .ch(vid_ch),
         .vid_sprite_s_idx(sp_s_idx),
         .s_data(sp_s_data),
         .vid_sprite_pix(sp_pix),
@@ -862,33 +844,24 @@ module rp6502
         rp6502_aud_valid = psg_tick;
     end
 
-    /* Every canvas pixel exactly once, no doubling and no letterbox:
-     * that is presentation and it belongs to the platform. Repeating
-     * pixels is free for a sink that wants 640x480; un-repeating them
-     * costs a buffer. */
-    always_comb begin
-        vid_de = vid_de_full;
-        if (vid_x_shift)
-            vid_de = vid_de && vid_h < 10'd320;
-        if (vid_y_shift)
-            vid_de = vid_de && !vid_v[0];
-        if (vid_y_offset != 10'd0)
-            vid_de = vid_de && vid_v >= 10'd60 && vid_v < 10'd420;
-    end
+    /* de IS the canvas: its rows on the first canvas_h lines, its own
+     * width, and the scaler does the rest. */
+    always_comb vid_de = vid_de_full && vid_h < vid_cw && vid_v < vid_ch;
 
+    /* A mode-0 slot swaps the plane's fill stream for the terminal
+     * engine's; sprites still merge on top. */
+    logic [15:0] c_pix[3];
+    always_comb
+        for (int i = 0; i < 3; i++)
+            c_pix[i] = sched_term[i] ? mode0_pix : m_pix[i];
     vid_compose vid_compose (
         .clk(clk_sys),
         .de(vid_de),
-        .console(vid_console),
-        .term_pix(mode0_pix),
-        .p0_pix(m_pix[0]),
-        .p0_filled(m_filled[0]),
+        .p0_pix(c_pix[0]),
         .s0_pix(sp_pix[0]),
-        .p1_pix(m_pix[1]),
-        .p1_filled(m_filled[1]),
+        .p1_pix(c_pix[1]),
         .s1_pix(sp_pix[1]),
-        .p2_pix(m_pix[2]),
-        .p2_filled(m_filled[2]),
+        .p2_pix(c_pix[2]),
         .s2_pix(sp_pix[2]),
         .vid_compose_pix(rp6502_vid_pixel),
         .vid_compose_de(rp6502_vid_de)

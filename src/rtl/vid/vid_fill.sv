@@ -9,8 +9,11 @@
  * contract — a mode that reads the palette always reloads it first —
  * and by the line buffers living outside: this engine only ever writes
  * the plane it was dispatched to. The subengine owns the XRAM channel
- * and the pixel port until it reports done and whether the plane counts
- * as filled.
+ * and the pixel port until it reports done.
+ *
+ * A rejected line — blank, out of range — is emitted as a full line of
+ * padding zeros, and the compose leans on that: zeros ARE the unfilled
+ * line, black under the base plane's rule, transparent above.
  */
 
 module vid_fill (
@@ -41,8 +44,7 @@ module vid_fill (
     output logic [9:0] vid_fill_px_addr,
     output logic [15:0] vid_fill_px_data,
 
-    output logic vid_fill_done,
-    output logic vid_fill_filled
+    output logic vid_fill_done
 );
 
     typedef enum logic [1:0] {
@@ -77,7 +79,6 @@ module vid_fill (
     logic m3_seg_valid, m3_seg_imm;
     logic [22:0] m3_seg_bits;
     logic [9:0] m3_seg_px;
-    logic m3_filled;
     logic tl_take;
     logic tl_a_req;
     logic [13:0] tl_a_addr;
@@ -98,7 +99,6 @@ module vid_fill (
     logic [7:0] m1_seg_ibits;
     logic [15:0] m1_seg_fg, m1_seg_bg;
     logic [9:0] m1_seg_px;
-    logic m1_filled;
     logic m2_start;
     logic m2_a_req;
     logic [13:0] m2_a_addr;
@@ -109,7 +109,6 @@ module vid_fill (
     logic m2_seg_valid, m2_seg_imm;
     logic [22:0] m2_seg_bits;
     logic [9:0] m2_seg_px;
-    logic m2_filled;
 
     /* Only the mode holding the engine can be loading, so the write side
      * is a select rather than an arbiter. */
@@ -186,8 +185,7 @@ module vid_fill (
         .vid_mode1_seg_fg(m1_seg_fg),
         .vid_mode1_seg_bg(m1_seg_bg),
         .vid_mode1_seg_px(m1_seg_px),
-        .seg_take(tl_take),
-        .vid_mode1_filled(m1_filled)
+        .seg_take(tl_take)
     );
     vid_mode2 vid_mode2 (
         .clk(clk),
@@ -209,8 +207,7 @@ module vid_fill (
         .vid_mode2_seg_imm(m2_seg_imm),
         .vid_mode2_seg_bits(m2_seg_bits),
         .vid_mode2_seg_px(m2_seg_px),
-        .seg_take(tl_take),
-        .vid_mode2_filled(m2_filled)
+        .seg_take(tl_take)
     );
     vid_mode3 vid_mode3 (
         .clk(clk),
@@ -229,8 +226,7 @@ module vid_fill (
         .vid_mode3_seg_imm(m3_seg_imm),
         .vid_mode3_seg_bits(m3_seg_bits),
         .vid_mode3_seg_px(m3_seg_px),
-        .seg_take(tl_take),
-        .vid_mode3_filled(m3_filled)
+        .seg_take(tl_take)
     );
 
     /* The tail's grants are only the cycles the front is not asking, so
@@ -329,7 +325,7 @@ module vid_fill (
     logic sub_px_we;
     logic [9:0] sub_px_addr;
     logic [15:0] sub_px_data;
-    logic sub_done, sub_filled;
+    logic sub_done;
     always_comb begin
         if (mode_q == 3'd1) begin
             sub_a_req = m1_a_req;
@@ -338,7 +334,6 @@ module vid_fill (
             sub_px_addr = tl_px_addr;
             sub_px_data = tl_px_data;
             sub_done = tl_done;
-            sub_filled = m1_filled;
         end else if (mode_q == 3'd2) begin
             sub_a_req = m2_a_req || tl_a_req;
             sub_a_addr = m2_a_req ? m2_a_addr : tl_a_addr;
@@ -346,7 +341,6 @@ module vid_fill (
             sub_px_addr = tl_px_addr;
             sub_px_data = tl_px_data;
             sub_done = tl_done;
-            sub_filled = m2_filled;
         end else begin
             sub_a_req = tl_a_req;
             sub_a_addr = tl_a_addr;
@@ -354,7 +348,6 @@ module vid_fill (
             sub_px_addr = tl_px_addr;
             sub_px_data = tl_px_data;
             sub_done = tl_done;
-            sub_filled = m3_filled;
         end
     end
 
@@ -375,7 +368,6 @@ module vid_fill (
         vid_fill_px_addr = sub_px_addr;
         vid_fill_px_data = sub_px_data;
         vid_fill_done = state == F_MODE && sub_done;
-        vid_fill_filled = sub_filled;
     end
 
     initial begin

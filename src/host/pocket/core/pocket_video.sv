@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The machine's picture handed to the Pocket's scaler. No CRT and no
- * beam is modelled: the raster is 800x525 CLOCKS at 25.2 MHz, and each
- * canvas row is one hs, its own pixels back to back, then porch — so a
- * 320-wide row spans two 800-clock slots and the shorter canvases come
- * out at their own heights.
+ * beam is modelled: the raster is 800x525 CLOCKS at 25.2 MHz, one row
+ * a slot — the canvas's rows on the first canvas-height slots, each
+ * its own pixels back to back, then porch. The scaler mode names the
+ * shape and the scaler does the rest.
  *
  * Analogue's filters, and the CRT mode that documents duplicated pixels
  * breaking it, work because no duplicated pixel ever arrives.
@@ -52,20 +52,19 @@ module pocket_video (
     localparam logic [2:0] CV_320_180 = 3'd2;
     localparam logic [2:0] CV_640_360 = 3'd4;
 
-    function automatic logic cv_is_x2(input logic [2:0] cv);
-        cv_is_x2 = cv == CV_320_240 || cv == CV_320_180;
+    function automatic logic cv_w320(input logic [2:0] cv);
+        cv_w320 = cv == CV_320_240 || cv == CV_320_180;
     endfunction
 
-    /* Which raster lines carry rows — the machine's own schedule: canvas
-     * rows on the first line of each doubled pair, the 16:9 heights
-     * between lines 60 and 420, nothing anywhere else. */
+    /* Which slots carry rows — the canvas's height, from the top. */
+    function automatic logic [9:0] cv_ch(input logic [2:0] cv);
+        cv_ch = cv == CV_320_240 ? 10'd240
+            : cv == CV_320_180 ? 10'd180
+            : cv == CV_640_360 ? 10'd360 : 10'(V_ACTIVE);
+    endfunction
     function automatic logic cv_row_sel(input logic [2:0] cv,
                                         input logic [9:0] line);
-        cv_row_sel = line < 10'(V_ACTIVE);
-        if (cv == CV_320_180 || cv == CV_640_360)
-            cv_row_sel = line >= 10'd60 && line < 10'd420;
-        if (cv_is_x2(cv))
-            cv_row_sel = cv_row_sel && !line[0];
+        cv_row_sel = line < cv_ch(cv);
     endfunction
 
     /* The frame pulse crosses as a toggle. */
@@ -155,7 +154,7 @@ module pocket_video (
     logic [9:0] cw;   /* the canvas's width: the de run and the pops */
     logic [2:0] slot; /* video.json's scaler_modes, same order */
     always_comb begin
-        cw = cv_is_x2(canvas) ? 10'd320 : 10'd640;
+        cw = cv_w320(canvas) ? 10'd320 : 10'd640;
         unique case (canvas)
             CV_640_360: slot = 3'd1;
             CV_320_240: slot = 3'd2;
@@ -213,11 +212,9 @@ module pocket_video (
         pocket_video_vs <= (running && x == 10'(H_TOTAL - 1)
                             && y == 10'(V_TOTAL - 1))
             || (!running && frame_pulse);
-        /* One hs per row period: every 800-clock slot at full width,
-         * every second one when a row's period spans two — so the
-         * order on the wire is always hs, pixels, porch. */
-        pocket_video_hs <= running && x == 10'd2
-            && (!cv_is_x2(canvas) || !y[0]);
+        /* One hs per slot: the order on the wire is always hs,
+         * pixels, porch. */
+        pocket_video_hs <= running && x == 10'd2;
         pocket_video_de <= de_sel;
         pocket_video_rgb <= de_sel ? {r8, g8, b8}
             : endline_now ? {11'(slot), 13'd0}

@@ -23,9 +23,8 @@
  * lines than the raster — and it resets to 480 so the console machine
  * keeps its M3 cadence.
  *
- * Geometry decodes from the canvas per the VGA side's view table: 320-wide
- * canvases double each pixel, 240/180-line canvases double each line, and
- * the 180/360 canvases sit under a 60-line letterbox.
+ * Geometry decodes from the canvas: a width and a height, which is all
+ * a canvas is. The scaler owns presentation.
  */
 
 module vid_prog (
@@ -39,10 +38,8 @@ module vid_prog (
 
     /* Latched geometry for the engines and the scanout. */
     output logic [2:0] vid_prog_canvas,
-    output logic vid_prog_console,
-    output logic vid_prog_x_shift,
-    output logic vid_prog_y_shift,
-    output logic [9:0] vid_prog_y_offset,
+    output logic [9:0] vid_prog_cw,
+    output logic [9:0] vid_prog_ch,
 
     /* Engine read port: one entry, registered. */
     input logic [8:0] p_line,
@@ -140,11 +137,11 @@ module vid_prog (
 
 
     always_comb begin
-        vid_prog_console = vid_prog_canvas == 3'd0;
-        vid_prog_x_shift = vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2;
-        vid_prog_y_shift = vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2;
-        vid_prog_y_offset = (vid_prog_canvas == 3'd2
-                             || vid_prog_canvas == 3'd4) ? 10'd60 : 10'd0;
+        vid_prog_cw = (vid_prog_canvas == 3'd1 || vid_prog_canvas == 3'd2)
+            ? 10'd320 : 10'd640;
+        vid_prog_ch = vid_prog_canvas == 3'd1 ? 10'd240
+            : vid_prog_canvas == 3'd2 ? 10'd180
+            : vid_prog_canvas == 3'd4 ? 10'd360 : 10'd480;
         vid_prog_vsync_pulse = h == 10'd0 && px_first && v == vsync_q;
     end
 

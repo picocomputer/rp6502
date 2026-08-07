@@ -44,10 +44,7 @@ module vid_mode2 (
     output logic vid_mode2_seg_imm,
     output logic [22:0] vid_mode2_seg_bits,
     output logic [9:0] vid_mode2_seg_px,
-    input logic seg_take,
-
-    /* Whether the plane counts as filled, valid from tl_start on. */
-    output logic vid_mode2_filled
+    input logic seg_take
 );
 
     logic cf_x_wrap, cf_y_wrap;
@@ -225,7 +222,6 @@ module vid_mode2 (
         vid_mode2_pal_ptr = '0;
         vid_mode2_pal_xram = 1'b0;
         vid_mode2_bpp = '0;
-        vid_mode2_filled = 1'b0;
     end
     always_ff @(posedge clk) begin
         gnt_d <= a_gnt;
@@ -300,7 +296,6 @@ module vid_mode2 (
                             <= 17'h10000
                                 - (17'd2 << {12'd0, 5'd1 << bpp_log});
                     vid_mode2_bpp <= {1'b0, bpp_log};
-                    vid_mode2_filled <= !blank && !overrun;
                     vid_mode2_tl_start <= 1'b1;
                     px_rem <= cw;
                     mstate <= M_IDLE;
