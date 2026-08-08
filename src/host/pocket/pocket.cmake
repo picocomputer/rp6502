@@ -188,11 +188,18 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_MAP} rp6502
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
+        # The worst paths by name, kept beside the signoff numbers: a
+        # gate failure in CI is a fit nobody can reproduce, so the
+        # report has to say which pair failed while the fit still
+        # exists.
+        COMMAND ${QUARTUS_STA} -t
+            ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
         # No bitstream from a fit that did not close. One that misses
         # timing assembles and runs, and only stops running when the part
         # is warm or the fitter's luck turns.
         COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
             ${POCKET_DIR}/output_files/rp6502.sta.rpt
+            ${POCKET_DIR}/output_files/rp6502.paths.rpt
         # Nor from one that grew a violation timing cannot see. An
         # unsynchronised reset and a torn opcode both close every corner
         # and both fail on a different fit; the Design Assistant is the
@@ -208,6 +215,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS ${BS_SOURCES} sw_bin
             ${RP6502_SRC}/gen/rv_tcm_gen.py
             ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Fitting the Pocket core"
         VERBATIM)

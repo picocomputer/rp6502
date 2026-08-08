@@ -22,9 +22,26 @@ from pathlib import Path
 COLUMNS = ("Setup", "Hold", "Recovery", "Removal", "Minimum Pulse Width")
 
 
+# The paths report is sta_paths.tcl's, written beside the signoff
+# numbers so a failure can say which register pair it was. A CI fit is
+# gone the moment the runner is; a slack with no name cannot be fixed.
+def print_paths(report: Path) -> None:
+    if not report.exists():
+        return
+    keep = re.compile(r"^;\s*-?\d|^; Slack\b")
+    lines = [ln for ln in report.read_text(errors="replace").splitlines()
+             if keep.match(ln)]
+    if lines:
+        print("\nthe worst paths of this fit, from "
+              f"{report.name}:", file=sys.stderr)
+        for ln in lines:
+            print(ln, file=sys.stderr)
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
-        print("usage: sta_gate.py <project.sta.rpt>", file=sys.stderr)
+    if len(sys.argv) not in (2, 3):
+        print("usage: sta_gate.py <project.sta.rpt> [project.paths.rpt]",
+              file=sys.stderr)
         return 2
     path = Path(sys.argv[1])
     if not path.exists():
@@ -57,6 +74,8 @@ def main() -> int:
     if bad:
         print("\nsta_gate: " + ", ".join(f"{n} {v:+.3f}" for n, v in bad)
               + " — the bitstream is not closed", file=sys.stderr)
+        if len(sys.argv) == 3:
+            print_paths(Path(sys.argv[2]))
         return 1
     print("\nsta_gate: closed on every corner")
     return 0

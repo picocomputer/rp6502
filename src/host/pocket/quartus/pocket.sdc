@@ -124,6 +124,24 @@ set_clock_uncertainty -add -hold 0.060 \
     -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
+# The same distrust, within one network. A CI fit missed hold by 26 ps
+# on a pair its report could not name, and with the crossing above
+# already padded, every fit here floors in the same two places: the
+# sprite gatherer's registers into d_t on the machine clock, and the
+# vendor SPI receiver on its own — ordinary same-clock transfers whose
+# launch and capture drew distant leaves of one global tree. Real
+# paths, so no exception can apply; the fitter pads them against its
+# own delay estimate and the fast corner keeps finding tens of
+# picoseconds it did not. Three times the worst observed miss, on the
+# two clocks whose floors are thin, and nothing on clk_74a, whose
+# quietest path clears three times this demand already.
+set_clock_uncertainty -add -hold 0.080 \
+    -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+set_clock_uncertainty -add -hold 0.080 \
+    -from [get_clocks {bridge_spiclk}] \
+    -to [get_clocks {bridge_spiclk}]
+
 # The staging capture, which is the path that kept coming up short. The
 # soft CPU's address reaches a clk_sys register enabled by bus_stb, and
 # the analyzer checks it against the same-edge relationship above.
