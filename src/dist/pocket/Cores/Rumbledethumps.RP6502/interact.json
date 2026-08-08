@@ -12,8 +12,8 @@
                 "writeonly": true,
                 "defaultval": 0,
                 "options": [
-                    { "value": "0x0", "name": "East of Greenwich +" },
-                    { "value": "0x1", "name": "West of Greenwich -" }
+                    { "value": "0x0", "name": "East of Zulu +" },
+                    { "value": "0x1", "name": "West of Zulu -" }
                 ]
             },
             {

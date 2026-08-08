@@ -1,12 +1,9 @@
-This folder is the RP6502's drive.
+Rumbledethumps' Picocomputer 6502
+https://picocomputer.github.io/
 
-A program running on the core sees it as MSC0:, and a plain
-open("game.save", ...) lands here. Files you put here are visible to
-the program by name.
-
-It ships with the core because the openFPGA host will not create a
-folder: asked to make a file in a path that is not there, it answers
-with a descriptor and writes nothing at all. So the folder has to
-arrive with the package, or the drive is read-only forever.
+This folder is the RP6502's current working directory. The Analogue Pocket
+does not provide directory management or even an unlink, but you can save
+and load data here. Best practice for game hiscore and save data is a plain
+open("mygame.save", ...) which lands here.
 
 Deleting this file is harmless. Deleting the folder is not.
