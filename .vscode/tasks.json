@@ -126,11 +126,118 @@
             "problemMatcher": "$gcc"
         },
         {
+            "label": "rtl: Firmware",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Firmware"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "rtl: Tests",
+            "type": "process",
+            "command": "ctest",
+            "args": [
+                "--preset",
+                "verilator/Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "rtl: Area and timing",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Machine"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "pocket: Bitstream",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Bitstream"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "pocket: Card package",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Card package"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "pocket: Area and timing",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "Pocket core"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/src/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "vectors: download",
             "type": "process",
             "command": "python3",
             "args": [
-                "${workspaceFolder}/tests/cpu/vectors.py"
+                "${workspaceFolder}/tests/cpu65/vectors.py"
             ],
             "presentation": {
                 "reveal": "always",

@@ -1,7 +1,0 @@
-Picocomputer 6502
-
-* W65C02 with VIA, VGA, and PSG audio
-* Load .rp6502 ROMs from Assets/rp6502/common
-* Dpad to arrows, A/Start Enter, B Escape, X Space, Y Backspace
-* L/R to Page Up/Down, Select to Tab
-* https://picocomputer.github.io

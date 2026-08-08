@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 VENDOR_CODEGEN = os.path.abspath(os.path.join(HERE, '..', 'chips', 'codegen'))
 
 # Loaded by path under a name of its own: this file shares the vendored file's
-# name, so a plain import would find itself. src/fpga/codegen imports this to
+# name, so a plain import would find itself. src/gen imports this to
 # generate RTL from the same corrected tables.
 sys.path.insert(0, VENDOR_CODEGEN)  # for the vendored generator's own imports
 _spec = importlib.util.spec_from_file_location(

@@ -1,0 +1,100 @@
+{
+  "data": {
+    "magic": "APF_VER_1",
+    "data_slots": [
+      {
+        "name": "RP6502 ROM",
+        "id": 0,
+        "required": true,
+        "parameters": "0x001",
+        "extensions": [
+          "rp6502"
+        ],
+        "size_maximum": "0x03FA0000",
+        "address": "0x00000000"
+      },
+      {
+        "name": "File 1",
+        "id": 1,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FA0000"
+      },
+      {
+        "name": "File 2",
+        "id": 2,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FA8000"
+      },
+      {
+        "name": "File 3",
+        "id": 3,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FB0000"
+      },
+      {
+        "name": "File 4",
+        "id": 4,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FB8000"
+      },
+      {
+        "name": "File 5",
+        "id": 5,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FC0000"
+      },
+      {
+        "name": "File 6",
+        "id": 6,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FC8000"
+      },
+      {
+        "name": "File 7",
+        "id": 7,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FD0000"
+      },
+      {
+        "name": "File 8",
+        "id": 8,
+        "required": false,
+        "parameters": "0x0",
+        "deferload": true,
+        "address": "0x03FD8000"
+      },
+      {
+        "name": "Fonts",
+        "id": 9,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "fonts.bin",
+        "size_exact": "61440",
+        "address": "0x03FE0000"
+      },
+      {
+        "name": "Code pages",
+        "id": 10,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "oemcp.bin",
+        "size_exact": "5080",
+        "address": "0x03FEF000"
+      }
+    ]
+  }
+}

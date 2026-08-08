@@ -26,20 +26,16 @@ void term_RIS_no_clear(void);
  * hosts with their own scanout hardware bring their own.
  */
 
-/* TERM_ALT_SCREEN: the ?47 / ?1047 / ?1049 alternate screen buffer.
+/* The cell store is the largest thing term.c owns, and two things size
+ * it: this switch, and TERM_MAX_HEIGHT in term.c — 32 rows only where
+ * the device's 512-line SXGA console exists, 30 everywhere else.
+ *
+ * TERM_ALT_SCREEN: the ?47 / ?1047 / ?1049 alternate screen buffer.
  *
  * It doubles the cell memory, and on a platform whose cells live in FPGA
  * block memory that is the difference between a feature and a firmware.
- * The Pocket turns it off, which takes its cell store from sixty-four
- * M10K to thirty-two and pays for the soft CPU's 64 KB TCM; MiSTer has
- * room and leaves it on, which is why this is a switch and not a
- * deletion.
- *
- * The Pocket is meant to get it back. Thirty-two blocks is what that
- * costs, and 61,440 bytes is sixty blocks of content however it is
- * arranged, so there is no clever packing waiting to be found — it has
- * to come out of the device's budget. Turning it back on is a matter of
- * finding those blocks, not of changing anything here.
+ * A fabric that cannot spare the blocks compiles it out and still builds,
+ * which is why this is a switch and not a deletion.
  *
  * Off, the escape sequences still parse and the cursor still saves and
  * restores — only the buffer swap is skipped, so a full-screen program

@@ -16,8 +16,8 @@ endif()
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in api/uni.c can be read without a
-# preprocessor. See src/fpga/codegen/oem_table_gen.py.
-set(OEMCP_GEN ${RP6502_ROOT}/src/fpga/codegen/oem_table_gen.py)
+# preprocessor. See src/gen/oem_table_gen.py.
+set(OEMCP_GEN ${RP6502_ROOT}/src/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_ROOT}/vendor/fatfs/ffunicode.c)
 set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
 set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
@@ -92,6 +92,7 @@ target_sources(${RIA_TARGET} PRIVATE
     api/tim.c
     aud/aud.c
     aud/bel.c
+    aud/bel_presets.c
     aud/opl.c
     aud/psg.c
     ble/ble.c

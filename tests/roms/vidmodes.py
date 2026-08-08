@@ -9,60 +9,56 @@
 # emulator suite boots them and asserts a settled, non-empty picture; the
 # FPGA suite runs the same files on both machines and demands pixel
 # equality, so these ROMs are the shared corpus that keeps the two
-# implementations honest. Committed alongside their generator; rerun it
-# only to change the corpus.
+# implementations honest.
+#
+# Output is a build artifact, not a commit. Every byte here is derived from
+# this file, so committing the results only makes a second copy that can
+# disagree with the generator. The .rp6502 files that remain in tests/roms
+# are real cc65-built programs with no generator, which is why they stay.
 
-import zlib
+import argparse
+import sys
 from pathlib import Path
 
-OUT = Path(__file__).resolve().parent
+# The assembler and the container live with the other generators; this
+# one lives beside the corpus it writes.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
+from rp6502_rom import Asm, Rom  # noqa: E402
+
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument("--out", type=Path, required=True,
+                help="directory to write the corpus into")
+OUT = ap.parse_args().out
+OUT.mkdir(parents=True, exist_ok=True)
 
 
-def record(addr, data):
-    line = f"${addr:05X} ${len(data):X} ${zlib.crc32(bytes(data)) & 0xFFFFFFFF:08X}\n"
-    return line.encode() + bytes(data)
+def say(p, text):
+    # Print through the console before anything else: LDA the byte, spin
+    # on the TX-ready bit, store it. The terminal model keeps the text
+    # across canvas switches, so a mode-0 slot shows it anywhere.
+    for ch in text.encode("latin-1"):
+        p.lda(ch)
+        p.bit(0xFFE0)
+        p.emit(0x10, 0xFB)
+        p.sta(0xFFE1)
 
 
-def prog(canvas, progs):
-    p = bytearray()
-
-    def lda(v):
-        p.extend((0xA9, v & 0xFF))
-
-    def sta(a):
-        p.extend((0x8D, a & 0xFF, a >> 8))
-
-    def push(v):
-        lda(v)
-        sta(0xFFEC)
-
-    def pushw(w):
-        push(w >> 8)
-        push(w & 0xFF)
-
-    def op1():
-        lda(0x01)
-        sta(0xFFEF)
-        p.extend((0x20, 0xF1, 0xFF))
-
-    push(1), push(0), push(0), pushw(canvas)
-    op1()
+def prog(canvas, progs, speak=None):
+    p = Asm()
+    if speak:
+        say(p, speak)
+    p.xreg(1, 0, 0, canvas)
     for words in progs:
-        push(1), push(0), push(1)
-        for w in words:
-            pushw(w)
-        op1()
-    p.append(0xDB)
+        p.xreg(1, 0, 1, *words)
+    p.stp()
     return p
 
 
-def rom(name, canvas, progs, xram_chunks):
-    body = b"#!RP6502\n"
-    body += record(0x0300, prog(canvas, progs))
-    body += record(0xFFFC, b"\x00\x03")
+def rom(name, canvas, progs, xram_chunks, speak=None):
+    r = Rom().program(prog(canvas, progs, speak))
     for addr, data in xram_chunks:
-        body += record(0x10000 + addr, data)
-    (OUT / f"{name}.rp6502").write_bytes(body)
+        r.record(0x10000 + addr, data)
+    r.write(OUT / f"{name}.rp6502")
 
 
 def le16(*vals):
@@ -89,7 +85,7 @@ def mode3(name, canvas, attr, bpp, w, h, x, y, xram_pal,
 
 
 def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
-          x_wrap=False, y_wrap=False, pal_ptr=0x0200):
+          x_wrap=False, y_wrap=False, pal_ptr=0x0200, config_ptr=0x0100):
     fmt = attr & 7
     fh = 16 if attr & 8 else 8
     if not xram_pal:
@@ -111,7 +107,7 @@ def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
             cells.append(glyph)
             cells.append(i & 0xFF)  # reserved, ignored
             cells += le16(0x0020 | (i * 3141), 0x0020 | (i * 2718 + 9))
-    chunks = [(0x0100, cfg), (data_ptr, cells)]
+    chunks = [(config_ptr, cfg), (data_ptr, cells)]
     if xram_pal:
         entries = 2 if fmt == 0 else (256 if fmt == 3 else 16)
         chunks.append((pal_ptr, le16(*((0x0020 | (i * 2657 + 5))
@@ -119,7 +115,7 @@ def mode1(name, canvas, attr, wchars, hchars, x, y, xram_pal, xram_font,
     if xram_font:
         chunks.append((0x4000, bytes((i * 7 + 3) & 0xFF
                                      for i in range(256 * fh))))
-    rom(name, canvas, [(1, attr, 0x0100, 0, 0, 0)], chunks)
+    rom(name, canvas, [(1, attr, config_ptr, 0, 0, 0)], chunks)
 
 
 def mode2(name, canvas, attr, wt, ht, x, y, x_wrap, y_wrap, xram_pal,
@@ -263,7 +259,9 @@ mode3("mode3_4bppr", 2, 10, 4, 40, 30, 0, 0, False)
 mode3("mode3_16bpp", 4, 4, 16, 32, 16, 100, 50, False)
 # The rest of the depth matrix, a halfword-aligned config and palette,
 # content below row 180 on the undoubled 640x360 canvas, wraparound with
-# negative positions, and both pointers at their exact XRAM bounds.
+# negative positions, and both pointers at their exact XRAM bounds. 0xFFF2
+# puts the config's fifth fetch past the top of XRAM: it wraps to word zero
+# and lands in a slot mode 3 does not read.
 mode3("mode3_2bpp", 1, 1, 2, 80, 60, 3, 5, True,
       config_ptr=0x0102, pal_ptr=0x0202)
 mode3("mode3_4bpp", 3, 2, 4, 100, 80, 17, 9, False)
@@ -275,7 +273,7 @@ mode3("mode3_wrap", 1, 3, 8, 50, 40, -37, -23, True,
 mode1("mode1_1bpp8x8", 3, 0, 30, 12, 4, 6, False, False)
 mode1("mode1_4bpp8x16", 1, 10, 20, 8, 8, 5, True, False)
 mode1("mode1_4bppr8x8", 2, 1, 24, 10, 0, 0, False, False)
-mode1("mode1_8bpp8x8", 1, 3, 16, 9, 3, 2, True, True)
+mode1("mode1_8bpp8x8", 1, 3, 16, 9, 3, 2, True, True, config_ptr=0x0102)
 mode1("mode1_16bpp8x16", 4, 12, 12, 6, 40, 30, False, False)
 # Wraparound with a mid-cell window entry, halfword-aligned palette.
 mode1("mode1_wrap", 1, 0, 20, 6, -13, -9, True,
@@ -437,4 +435,56 @@ rom("mode4a_sizes", 1, [(4, 1, 0x0102, 2, 0, 0, 0)],
      (0x4000, le16(*(((t * 7 + 3) & 0xFFFF) for t in range(4096))))])
 
 mode5("sprite_overrun", 1, 27, 0,
-      [(i * 12, 40, 0, 0) for i in range(24)])
+      [(i * 6, 40, 0, 0) for i in range(48)])
+
+# Mode 0 as a slot: the terminal over a mode-3 bitmap, its
+# default-background cells transparent and its inked ones opaque, on
+# every canvas geometry — the 80-column faces at 640 wide, the
+# 40-column 8x8 faces at 320, DEC graphics on both. The script hides
+# the cursor or the frames never settle.
+MODE0_SAY = ("\33[0m\33[2J\33[H\33[?25l"
+             "term over bitmap\r\n"
+             "\33(0lqqqqk\33(B\r\n"
+             "\33[43;34m opaque \33[0m done")
+
+
+def mode0mix(name, canvas, plane, begin, end):
+    cfg = bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF)
+    rom(name, canvas,
+        [(3, 3, 0x0100, 0, 0, 0), (0, plane, begin, end)],
+        [(0x0100, cfg),
+         (0x0800, bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))],
+        speak=MODE0_SAY)
+
+
+mode0mix("mode0_overlay", 3, 1, 32, 464)
+mode0mix("mode0_win360", 4, 1, 0, 0)
+mode0mix("mode0_win240", 1, 1, 0, 0)
+mode0mix("mode0_win180", 2, 1, 0, 0)
+
+# The graphics round trip home: a canvas, a fill, then the console
+# again — the return must republish the vsync line and the console
+# must still be whole.
+p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY)
+p.b.pop()  # the STP; two canvas xregs need a hand-built tail
+p.xreg(1, 0, 0, 0)
+p.stp()
+r = Rom().program(p)
+r.record(0x10000 + 0x0100,
+         bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF))
+r.record(0x10000 + 0x0800,
+         bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))
+r.write(OUT / "mode0_return.rp6502")
+
+# The serial fill canary: two 8bpp XRAM-palette fills — the costliest
+# prologue — on the wide canvas, overlapping so the stacking shows,
+# where the one engine runs them back-to-back against the beam.
+cfg0 = bytearray((0, 0)) + le16(10, 20, 64, 64, 0x0800, 0x0200)
+cfg1 = bytearray((0, 0)) + le16(40, 30, 64, 64, 0x1800, 0x0600)
+rom("fill_heavy640", 3,
+    [(3, 3, 0x0100, 0, 0, 0), (3, 3, 0x0140, 1, 0, 0)],
+    [(0x0100, cfg0), (0x0140, cfg1),
+     (0x0800, bytes((i * 13 + 7) & 0xFF for i in range(64 * 64))),
+     (0x1800, bytes((i * 11 + 3) & 0xFF for i in range(64 * 64))),
+     (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
+     (0x0600, le16(*((0x0020 | (i * 1031 + 5)) for i in range(256))))])
