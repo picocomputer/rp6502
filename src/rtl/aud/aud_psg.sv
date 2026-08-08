@@ -22,11 +22,16 @@
  * The walk always runs — parking cleared the volumes, and a silent voice
  * makes no sound.
  *
- * One multiplier, one divider, one subtractor, and the voice state in
- * memories the cursor addresses. Under four hundred clocks of the
- * thousand are used, and the spare six hundred are what pays for it.
+ * One multiplier for the mix, one for the phase, a subtractor, and the
+ * voice state in memories the cursor addresses. Fifty-five clocks of the
+ * thousand are used; the spare are what a serial walk is paid in.
  *
- * aud_psg_tick is the divider itself, not the end of a walk; everything
+ * The constants are in memories too — the circle and the envelope's two
+ * rate tables in one block, read a clock ahead of the step that spends
+ * them. A table of constants indexed by a register is a mux, and these
+ * were the largest logic in the module before they were a read.
+ *
+ * aud_psg_tick is the sample divider, not the end of a walk; everything
  * downstream runs off that pulse.
  */
 
@@ -237,6 +242,7 @@ module aud_psg
     /* The address is registered rather than retaken from the cursor: two
      * addresses is a dual port and a dual port is an MLAB. */
     logic [31:0] w_phase, w_noise1, w_noise2;
+    logic [31:0] w_inc;
     logic [VOL_W-1:0] w_vol;
     logic [3:0] w_ch;
 
@@ -262,14 +268,18 @@ module aud_psg
     end
 
     typedef enum logic [2:0] {
-        P_IDLE, P_MIX, P_OUT, P_LOAD, P_DIV, P_PH, P_STEP
+        P_IDLE, P_MIX, P_OUT, P_LOAD, P_PH, P_STEP
     } state_t;
     state_t state;
 
     logic [12:0] tickctr;
 
-    /* Unshifted, rounding once at P_OUT: two truncations in series bias
-     * every sounding channel downward, which is DC, not noise. */
+    /* Unshifted, rounded once: two truncations in series bias every
+     * sounding channel downward, which is DC, not noise. The half is
+     * carried in from the start of the walk rather than added at the
+     * end — a sum does not care when its terms arrive, and there it is
+     * a constant the accumulators load instead of an adder they feed. */
+    localparam logic signed [26:0] MIX_ROUND = 27'sd64;
     logic signed [26:0] mix_l, mix_r;
     /* The oracle's int8 division truncates toward zero. Taken once for
      * the channel, on the clock its envelope is: the oracle reads
@@ -304,38 +314,43 @@ module aud_psg
         mul_p = 31'(mul_a) * 31'(mul_b);
     end
 
-    /* The phase increment: freq * 2^32 over three times the rate.
+    /* The phase increment: freq * 2^32 over three times the rate, which
+     * the oracle divides for and this multiplies for.
      *
-     * Sized from the divisor rather than assumed. A restoring divider's
-     * remainder runs below its divisor and the compare sees it shifted up
-     * one bit, so 72000 fitted seventeen and eighteen and 144000 fits
-     * neither: at 48 kHz the old widths would have dropped the top bit of
-     * every remainder and detuned the whole engine, silently. */
+     * A restoring divider stood here and spent thirty-two clocks a voice
+     * to arrive at floor(freq * 2^32 / 144000). The same number comes out
+     * of one multiply: 144000 is 2^7 * 1125, and (2^51 + 127) / 1125 is a
+     * whole number, so freq * that, shifted down twenty-six, is the
+     * quotient — not nearly it, exactly it, for every frequency there is.
+     * The remainder 127 is what makes the shift twenty-six and not less:
+     * the error a frequency can accumulate is freq * 127, and 65535 * 127
+     * has to stay under the shift. It does, eight times over. No narrower
+     * constant is exact, and the test walks all sixty-five thousand of
+     * them against a real division to say so.
+     *
+     * Forty-one bits, so this is a DSP and must stay one: the constant
+     * has seventeen bits set, and a fitter that decided to build it from
+     * adders instead would spend more logic than the divider ever did. */
     localparam logic [31:0] PHASE_DIV = 32'(3 * RATE);
-    localparam int REM_W = $clog2(PHASE_DIV);
-    /* What the shortened division below rests on, said where it can fail
-     * loudly. A rate under 21,846 puts the divisor inside sixteen bits and
-     * a frequency could then reach it, which would detune the engine
-     * quietly rather than not build. */
-    initial if (PHASE_DIV <= 32'd65535)
-        $fatal(1, "aud_psg: RATE too low for the divider preload");
+    localparam logic [40:0] PHASE_MAGIC = 41'd2001599834387;
+    localparam int PHASE_SHIFT = 26;
+    /* Said where it can fail loudly: the constant above is 48 kHz's, and
+     * a rate that moves without it is an engine detuned quietly. */
+    initial if (PHASE_DIV != 32'd144000)
+        $fatal(1, "aud_psg: RATE moved and the phase magic did not");
+    initial if (64'(PHASE_MAGIC) * 64'd1125 != (64'd1 << 51) + 64'd127)
+        $fatal(1, "aud_psg: phase magic is not (2^51 + 127) / 1125");
 
-    /* Thirty-two iterations, not forty-eight: the dividend's top sixteen
-     * bits are the frequency, which is below the divisor, so those steps
-     * only shift it into the remainder and put zeros in the quotient. */
-    logic [31:0] div_q;
-    logic [REM_W-1:0] div_rem;
-    logic [4:0] div_i;
-    logic [REM_W:0] div_t;
-    logic [REM_W-1:0] div_next;
-    logic div_ge;
-    always_comb begin
-        div_t = {div_rem, div_q[31]};
-        div_ge = div_t >= PHASE_DIV[REM_W:0];
-        /* Narrower than div_t on purpose: both arms land below the divisor,
-         * so the extra bit is provably zero. */
-        div_next = REM_W'(div_ge ? div_t - PHASE_DIV[REM_W:0] : div_t);
-    end
+    (* multstyle = "dsp" *)
+    logic [56:0] inc_prod;
+    always_comb inc_prod = 57'(cf_freq) * 57'(PHASE_MAGIC);
+
+    /* The phase the walk is about to stand on. P_PH lands it in w_phase
+     * and the block above is addressed from the same wires, so the read
+     * and the register move together. */
+    logic [31:0] ph_next;
+    always_comb ph_next = w_phase + w_inc;
+    logic [ROM_W-1:0] sine_q, env_q;
 
     logic [7:0] ph;
     always_comb ph = w_phase[31:24];
@@ -361,20 +376,46 @@ module aud_psg
         tri_up = {~w_phase[30], w_phase[29:15]};
     end
 
-    /* A quarter table folded back out: a localparam array indexed by a
-     * register is a mux of constants, so a quarter of the entries is a
-     * quarter of the mux. The fold is exact — the same 256 words the C
-     * reads. */
-    logic [6:0] sine_a, sine_b;
-    logic sine_neg;
-    always_comb begin
-        sine_a = ph[6:0];
-        sine_neg = ph[7] ^ (sine_a > 7'd64);
-        sine_b = sine_a > 7'd64 ? 7'(8'd128 - 8'(sine_a)) : sine_a;
+    /* The circle in a block, read a clock ahead of the step that spends
+     * it. Indexed by a register, a table of constants is a mux, and this
+     * one was two hundred and fifty-six sixteen-bit words of it — folded
+     * to a quarter to make the mux small, and still logic. The address is
+     * the phase the step is about to stand on, taken off the adder rather
+     * than the register it lands in, so the word is waiting and the walk
+     * grows no state.
+     *
+     * Initialized, not written: the zeros and the sine both ride in the
+     * bitstream as a .mif, and nothing at runtime puts them there. */
+    /* The envelope's two rate tables ride in the same block, above the
+     * circle: sixteen attack steps at 256 and sixteen decay-and-release
+     * steps at 272. A voice reads one or the other and never both — the
+     * arm it is in decides — so they share the second port, and the
+     * widest thing in the block is the eighteen bits they need.
+     *
+     * The rate is fetched a clock ahead of the step that spends it, so a
+     * gate landing exactly on the fetch turns the arm the step reads but
+     * not the address the fetch used: that one step moves at the old
+     * arm's rate. One tick of a 48 kHz envelope, and the arm itself still
+     * turns on the clock the write lands. The firmware replays its gates
+     * between samples and cannot see inside one, so there is nothing on
+     * the other side to hold this against. */
+    localparam int ROM_W = 20;
+    localparam int ROM_ATK = 256;
+    localparam int ROM_DR = 272;
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [ROM_W-1:0] aud_rom[512];
+    initial begin
+        for (int i = 0; i < 512; i++)
+            aud_rom[i] = '0;
+        for (int i = 0; i < 256; i++)
+            aud_rom[i] = ROM_W'(AUD_SINE[i]);
+        for (int i = 0; i < 16; i++) begin
+            aud_rom[ROM_ATK+i] = ROM_W'(ATTACK_TABLE[i]);
+            aud_rom[ROM_DR+i] = ROM_W'(DR_TABLE[i]);
+        end
     end
     logic signed [15:0] sine;
-    always_comb sine = sine_neg ? -$signed(AUD_SINE_Q[sine_b])
-                                : $signed(AUD_SINE_Q[sine_b]);
+    always_comb sine = $signed(sine_q[15:0]);
 
     logic signed [15:0] wave;
     always_comb begin
@@ -406,9 +447,14 @@ module aud_psg
      * nibbles, so the nibble is what gets muxed. */
     logic [3:0] dr_idx;
     always_comb dr_idx = ch_adsr[ch] == ADSR_DECAY ? cf_vd[3:0] : cf_wr[3:0];
+    /* Which of the two tables this voice's step will spend, and where. */
+    logic [8:0] env_addr;
+    always_comb env_addr = ch_adsr[ch] == ADSR_ATTACK
+        ? 9'(ROM_ATK) + {5'd0, cf_va[3:0]}
+        : 9'(ROM_DR) + {5'd0, dr_idx};
     logic [VOL_W-1:0] dr_val, dr_next;
     always_comb begin
-        dr_val = VOL_W'(DR_TABLE[dr_idx]);
+        dr_val = VOL_W'(env_q[ENV_W-1:0]);
         dr_next = w_vol <= dr_val ? '0 : w_vol - dr_val;
     end
 
@@ -419,7 +465,7 @@ module aud_psg
         adsr_next = ch_adsr[ch];
         case (ch_adsr[ch])
             ADSR_ATTACK: begin
-                vol_next = w_vol + VOL_W'(ATTACK_TABLE[cf_va[3:0]]);
+                vol_next = w_vol + VOL_W'(env_q[ENV_W-1:0]);
                 if (vol_next >= vol_peak) begin
                     vol_next = vol_peak;
                     adsr_next = ADSR_DECAY;
@@ -482,13 +528,13 @@ module aud_psg
         state = P_IDLE;
         tickctr = '0;
         pan = '0;
-        mix_l = '0;
-        mix_r = '0;
+        mix_l = MIX_ROUND;
+        mix_r = MIX_ROUND;
         mix_i = '0;
         mix_s = '0;
-        div_q = '0;
-        div_rem = '0;
-        div_i = '0;
+        w_inc = '0;
+        sine_q = '0;
+        env_q = '0;
         aud_psg_l = '0;
         aud_psg_r = '0;
         aud_psg_valid = 1'b0;
@@ -522,8 +568,8 @@ module aud_psg
                     /* The walk always runs: the bell does not wait on a
                      * program. */
                     ch <= '0;
-                    mix_l <= '0;
-                    mix_r <= '0;
+                    mix_l <= MIX_ROUND;
+                    mix_r <= MIX_ROUND;
                     mix_i <= '0;
                     state <= P_MIX;
                 end
@@ -547,8 +593,8 @@ module aud_psg
                 mix_i <= mix_i == 2'd2 ? 2'd0 : mix_i + 2'd1;
             end
             P_OUT: begin
-                aud_psg_l <= clamped(21'((mix_l + 27'sd64) >>> 7));
-                aud_psg_r <= clamped(21'((mix_r + 27'sd64) >>> 7));
+                aud_psg_l <= clamped(21'(mix_l >>> 7));
+                aud_psg_r <= clamped(21'(mix_r >>> 7));
                 ch <= '0;
                 state <= P_LOAD;
             end
@@ -559,23 +605,16 @@ module aud_psg
                 w_vol <= ld_vol;
                 w_noise1 <= clr && !ch[3] ? 32'h67452301 : ch_noise1[ch];
                 w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : ch_noise2[ch];
-                div_q <= '0;
-                div_rem <= REM_W'(cf_freq);
-                div_i <= '0;
-                state <= P_DIV;
-            end
-            P_DIV: begin
-                div_q <= {div_q[30:0], div_ge};
-                div_rem <= div_next;
-                div_i <= div_i + 5'd1;
-                if (div_i == 5'd31)
-                    state <= P_PH;
+                w_inc <= 32'(inc_prod[56:PHASE_SHIFT]);
+                state <= P_PH;
             end
             P_PH: begin
                 /* A clock of its own, so the wave reads a standing
                  * phase rather than a 32-bit add. The machine has under
                  * two nanoseconds spare; this costs eight clocks. */
-                w_phase <= w_phase + div_q;
+                w_phase <= ph_next;
+                sine_q <= aud_rom[{1'b0, ph_next[31:24]}];
+                env_q <= aud_rom[env_addr];
                 state <= P_STEP;
             end
             P_STEP: begin
@@ -635,7 +674,9 @@ module aud_psg
      * of cf. Only the gate has to be caught at the moment it moves. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{cf[63:56], bel_wdata[31:24]};
+    always_comb unused_aud_psg = ^{cf[63:56], bel_wdata[31:24],
+                                   inc_prod[PHASE_SHIFT-1:0],
+                                   sine_q[ROM_W-1:16], env_q[ROM_W-1:ENV_W]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

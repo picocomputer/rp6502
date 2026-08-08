@@ -13,7 +13,7 @@
  * and the gate queue's 32-per-sample drain and drop-when-full ring.
  * The bell is not here. It belongs to the machine now rather than to
  * this engine — one instance past the engine mux in rp6502.sv — and
- * test_bel locksteps it against bel.c directly.
+ * test_aud rings it end to end.
  *
  * So do not ring one in this file. psg.c still mixes the bell, because
  * on the RP2350 and in the emulator the driver is the whole output
@@ -167,9 +167,13 @@ static void rtl_xaddr_mid_walk(int *utest_result, uint16_t word, int depth)
     dut->xaddr_wdata = word;
     clock_cycle();
     dut->xaddr_we = 0;
+    /* The sample the write landed in is finished and compared before the
+     * import runs. The import is sixty-four clocks and the walk is barely
+     * more than that, so importing here would spend the strobe this
+     * sample ends on and pair the firmware's answer against the next one. */
+    run_lockstep(utest_result, 1);
     if (word != 0xFFFF)
         rtl_import(word);
-    run_lockstep(utest_result, 1);
 }
 
 static void config(uint16_t base, int ch, uint16_t freq, uint8_t duty,
@@ -337,12 +341,17 @@ UTEST(psg, lockstep_bit_exact)
                    (uint8_t)(pans_a[ch] | 0x01));
     run_lockstep(utest_result, 3200);
 
-    /* Device-register writes landing inside the walk: in the mix, and
-     * deep in the generate — the pointer moves under them, and the reset
-     * it carries must still hold whole at the boundary. The last depths
-     * land past a walk that no longer waits on a fetch, which tests the
-     * boundary twice over. */
-    static const int depths[] = {3, 40, 60, 200, 400};
+    /* Device-register writes landing inside the walk: across the mix, at
+     * its seam, and through the generate — the pointer moves under them,
+     * and the reset it carries must still hold whole at the boundary.
+     *
+     * The walk is fifty-five clocks now that the phase is a multiply
+     * rather than nine divisions, so these are the depths that land in
+     * it. Past its end the two machines part company for reasons the
+     * oracle cannot arbitrate — the fabric applies the reset in the idle
+     * it is already standing in, the firmware at its next handler — and
+     * the sample that straddles the difference is nobody's bug. */
+    static const int depths[] = {1, 5, 15, 30, 50};
     for (size_t i = 0; i < sizeof(depths) / sizeof(depths[0]); i++)
     {
         for (int ch = 0; ch < 8; ch++)
@@ -424,8 +433,10 @@ static void one_loud_channel(uint16_t base)
  * rates, and this is a question about when the write arrives. */
 #define ADSR_RELEASE 0
 #define ADSR_ATTACK 1
-/* P_STEP, where the walk stores the wave it just built. */
-#define PSG_STATE_STEP 6
+/* P_STEP, the last member of state_t in aud_psg.sv. Sequential, not the
+ * one-hot Quartus re-encodes to; move it when the walk gains or loses a
+ * state. */
+#define PSG_STATE_STEP 5
 
 UTEST(psg, gate_applies_on_the_clock_it_lands)
 {
@@ -520,6 +531,23 @@ UTEST(psg, an_imported_block_carries_no_gate)
     snoop_now(base + 6, 0x01);
     ASSERT_EQ(ADSR_ATTACK, dut->rootp->aud_psg__DOT__ch_adsr[0]);
     ASSERT_EQ(32767, (int16_t)dut->rootp->aud_psg__DOT__ch_sample[0]);
+}
+
+/* The phase increment the engine multiplies for and the oracle divides
+ * for, over every frequency there is. The lockstep cannot stand in for
+ * this: a constant that is wrong for a handful of frequencies is right
+ * for all the ones a song happens to play, and the pairs this rejects
+ * first fail at 53932 and 12307, which no test above ever sounds.
+ *
+ * Must match PHASE_MAGIC and PHASE_SHIFT in aud_psg.sv. */
+UTEST(psg, the_phase_magic_is_a_division)
+{
+    for (uint32_t f = 0; f < 65536; f++)
+    {
+        uint32_t magic = (uint32_t)(((uint64_t)f * 2001599834387ULL) >> 26);
+        uint32_t divided = (uint32_t)(((uint64_t)f << 32) / 144000ULL);
+        ASSERT_EQ(magic, divided);
+    }
 }
 
 UTEST_STATE();
