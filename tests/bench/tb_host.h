@@ -7,13 +7,13 @@
  * window out to rp6502_host_*, and a platform puts a file bridge there —
  * pocket_file on the Pocket. A bench that boots the firmware has to
  * answer the same registers, because the ROM is a slot: the loader asks
- * the data table how long the image is and then reads it a window at a
- * time, and a bench that answers neither leaves it spinning on a status
- * that never clears.
+ * the data table how long the image is before parsing it out of the
+ * store, and a bench that answers nothing leaves it spinning on a
+ * status that never clears.
  *
- * Only what the loader uses is modelled — the data table, a slot read,
- * and the name behind Get File. Open, write and flush are the drive's,
- * and tests/host/pocket has a fuller host for those.
+ * Only what the loader uses is modelled — the data table, a slot read
+ * for exec's pull, and the name behind Get File. Open, write and flush
+ * are the drive's, and tests/host/pocket has a fuller host for those.
  *
  * Commands complete in the cycle they are issued. Nothing here is trying
  * to be a timing model; pocket_file's own bench is where the deadlines
@@ -31,9 +31,9 @@
 #include <vector>
 
 /* Slot ids, which data.json declares and msc.h mirrors. */
-#define TB_HOST_SLOT_ROM 8u
-#define TB_HOST_SLOT_FONTS 9u
-#define TB_HOST_SLOT_OEMCP 10u
+#define TB_HOST_SLOT_FONTS 8u
+#define TB_HOST_SLOT_OEMCP 9u
+#define TB_HOST_SLOT_ROM 10u
 
 class tb_host
 {

@@ -48,25 +48,31 @@
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
-/* The fonts and the code page tables are whole files: the fabric reads
- * glyphs at random and the tables are looked up by codepoint, so neither
- * can be a window. They are sized to what they hold and nothing more.
- *
- * Everything a slot moves goes through a window instead, one per slot,
+/* The staging store, one ascending walk: data.json's list order, its
+ * slot ids, and these addresses all climb the SDRAM together, and the
+ * three must be changed together — data.json is strict JSON and cannot
+ * carry this comment. Eight 32 KB windows for the open-file descriptors,
  * because the bridge writes the staging store and knows no other way to
- * write us at all. Thirty-two kilobytes each, which is the most any slot
- * operation carries. data.json declares all eleven addresses and must
- * agree with what is here. */
-#define FONTS ((volatile const uint8_t *)0x63FEA000u)
-#define OEMCP ((volatile const uint8_t *)0x63FE8000u)
-
+ * write us at all; then the fonts and the code page tables, whole files
+ * the fabric reads at random, sized to what they hold; then Get File's
+ * scratch, the one address here data.json does not declare because it is
+ * not a slot; then the ROM, whole, owning everything to the store's top.
+ * ROM_MAX is data.json's size_maximum and ROM_BRIDGE + ROM_MAX is the
+ * end of the SDRAM exactly. */
 #define SLOT_WIN_SIZE 0x8000u
 #define SLOT_WIN(i) \
-    ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(i) * SLOT_WIN_SIZE))
-#define SLOT_WIN_BRIDGE(i) (0x03FA0000u + (uint32_t)(i) * SLOT_WIN_SIZE)
+    ((volatile const uint8_t *)(0x60000000u + (uint32_t)(i) * SLOT_WIN_SIZE))
+#define SLOT_WIN_BRIDGE(i) ((uint32_t)(i) * SLOT_WIN_SIZE)
 /* The chunk one slot operation moves, which is a whole window; a larger
  * file is several of them. */
 #define FILE_XFER_MAX SLOT_WIN_SIZE
+#define FONTS ((volatile const uint8_t *)0x60040000u)
+#define OEMCP ((volatile const uint8_t *)0x6004F000u)
+#define GETFILE_WIN ((volatile const uint8_t *)0x60051000u)
+#define GETFILE_BRIDGE 0x00051000u
+#define ROM_IMG ((volatile const uint8_t *)0x60060000u)
+#define ROM_BRIDGE 0x00060000u
+#define ROM_MAX 0x03FA0000u
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
  * other port is the bridge's, so it is word-wide and write-only: the

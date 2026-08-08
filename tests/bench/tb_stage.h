@@ -3,12 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The staging store, as the platform presents it. The fonts and the code
- * page tables are whole files the host places once and the machine reads
- * at random. Everything else a slot moves arrives through that slot's own
- * 32 KB window, written by the host when it performs a read — so this is
- * a store and not a function of the ROM: the picked image is a file on
- * the host now, not a copy sitting at address zero.
+ * The staging store, as the platform presents it. The picked image is a
+ * whole copy the host pushes to TB_STAGE_ROM_BASE; the fonts and the
+ * code page tables are whole files the host places once and the machine
+ * reads at random; a descriptor's bytes arrive through that slot's own
+ * 32 KB window, written by the host when it performs a read.
  *
  * The assets are the core's own files, not fixtures, so they load once
  * and every test shares them.
@@ -22,13 +21,15 @@
 #include <map>
 #include <vector>
 
-/* All six must agree with the firmware's mmio.h and with data.json. */
-#define TB_STAGE_FONT_BASE 0x03FEA000u
-#define TB_STAGE_FONT_SIZE 0x0000F000u
-#define TB_STAGE_OEMCP_BASE 0x03FE8000u
-#define TB_STAGE_OEMCP_SIZE 0x00002000u
-#define TB_STAGE_WIN_BASE 0x03FA0000u
+/* All of these must agree with the firmware's mmio.h and with data.json,
+ * whose list order, slot ids, and addresses climb the SDRAM together. */
+#define TB_STAGE_WIN_BASE 0x00000000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
+#define TB_STAGE_FONT_BASE 0x00040000u
+#define TB_STAGE_FONT_SIZE 0x0000F000u
+#define TB_STAGE_OEMCP_BASE 0x0004F000u
+#define TB_STAGE_OEMCP_SIZE 0x00002000u
+#define TB_STAGE_ROM_BASE 0x00060000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
                                                  std::vector<uint8_t> &v)
@@ -76,11 +77,15 @@ static void tb_stage_clear()
     tb_stage_store().clear();
 }
 
-/* The rom argument is vestigial now that the host model serves the image,
- * and kept so the clock loops that call this need no edit. */
+/* The rom argument is the image as the host's boot push left it, at
+ * TB_STAGE_ROM_BASE. The store's writes shadow it, the way a reload or
+ * an exec pull overwrites the image on hardware. */
 static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
 {
-    (void)rom;
+    std::map<uint32_t, uint8_t> &m = tb_stage_store();
+    std::map<uint32_t, uint8_t>::const_iterator it = m.find(addr);
+    if (it != m.end())
+        return it->second;
     if (addr >= TB_STAGE_FONT_BASE
         && addr < TB_STAGE_FONT_BASE + TB_STAGE_FONT_SIZE)
     {
@@ -95,9 +100,10 @@ static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
         uint32_t i = addr - TB_STAGE_OEMCP_BASE;
         return i < t.size() ? t[i] : 0;
     }
-    std::map<uint32_t, uint8_t> &m = tb_stage_store();
-    std::map<uint32_t, uint8_t>::const_iterator it = m.find(addr);
-    return it == m.end() ? 0 : it->second;
+    if (addr >= TB_STAGE_ROM_BASE
+        && addr - TB_STAGE_ROM_BASE < rom.size())
+        return rom[addr - TB_STAGE_ROM_BASE];
+    return 0;
 }
 
 #endif /* _TESTS_FPGA_TB_STAGE_H_ */

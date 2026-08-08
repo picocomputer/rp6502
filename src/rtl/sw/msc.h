@@ -29,9 +29,10 @@
 #define MSC_SAVES_PATH "/Saves/rp6502/common/"
 #define MSC_ASSETS_PATH "/Assets/rp6502/common/"
 
-/* The slots the machine never opens as files. data.json stages all three
- * whole; the eight below them are the open-file descriptors. */
-#define MSC_SLOT_ROM 8
+/* The one slot the machine reads without opening: the host stages the
+ * whole image at ROM_BRIDGE. The fonts and code pages above the windows
+ * are staged too, but only the fabric asks for those. */
+#define MSC_SLOT_ROM 10
 
 /* The 6502 going into reset. Lands whatever a worker left at the bridge,
  * so the next command does not stack on top of it. */
@@ -45,21 +46,16 @@ uint32_t msc_dt(uint32_t word);
  * so this looks the id up rather than indexing. Blocking. */
 bool msc_slot_len(uint32_t slot, uint32_t *len);
 
-/* Fill a slot's 32 KB window from its file, starting at off. Blocking.
- * The caller clamps len to what the file holds. */
-bool msc_slot_read(uint32_t slot, uint32_t off, uint32_t len);
-
 /* The host's name for whatever file is bound to a slot, converted to
  * code page bytes, refused rather than truncated if it will not fit.
  * Blocking, so staging time only — this is how the core learns the name
  * of the ROM the user picked, which arrives staged and otherwise
- * anonymous. The answer lands in the slot's own window, so a caller
- * holding anything else there loses it. */
+ * anonymous. The answer lands in GETFILE_WIN's scratch. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap);
 
-/* Pull a .rp6502 into the staging store where the host puts one, so the
- * loader parses it the same way either arrived. This is what exec is:
- * the machine staging its own next program. Blocking, and only ever
+/* Pull a whole .rp6502 into the staging store where the host puts one,
+ * so the loader parses it the same way either arrived. This is what exec
+ * is: the machine staging its own next program. Blocking, and only ever
  * called with the 6502 stopped. */
 bool msc_stage_rom(const char *path, uint32_t *len);
 

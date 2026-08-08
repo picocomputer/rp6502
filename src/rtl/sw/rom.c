@@ -3,26 +3,25 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The pocket port of the .rp6502 loader, from emu/emu/rom.c: the emulator's
- * streams the image from a host file, and this machine's is a buffer
- * already — the staging window the platform filled — the APF data slot, or the bridge model in
- * simulation. Same format, same rules: text records stream raw bytes into
- * the 6502's memory, a load never writes $FF00-$FFF9, the $FFFA-$FFFF
- * vectors land in the register cells with the SRAM keeping the shadow, and
- * both reset vector bytes must arrive or the image is rejected.
+ * The pocket port of the .rp6502 loader, from emu/emu/rom.c: the
+ * emulator's streams the image from a host file, and this machine's is a
+ * buffer already — the whole image in the staging store, host-pushed at
+ * boot and on a reload, pulled by exec. Same format, same rules: text
+ * records stream raw bytes into the 6502's memory, a load never writes
+ * $FF00-$FFF9, the $FFFA-$FFFF vectors land in the register cells with
+ * the SRAM keeping the shadow, and both reset vector bytes must arrive
+ * or the image is rejected.
  *
- * Suspend, for whoever tries it: this file is the reason it is not a
- * flag flip. A ROM with bundled assets keeps reading its file for as
- * long as the program runs — a load is not a copy that finishes — and
- * what it reads through is a 32 KB window in the SDRAM. If the Pocket
- * cuts power to the store while asleep, the window and the fonts above
- * it come back holding whatever survived, and the program will not know.
- * Waking has to refill them, or prove the store persists.
+ * Suspend, for whoever tries it: the image, the fonts and the tables all
+ * live in the SDRAM, and a program keeps reading its bundled assets for
+ * as long as it runs. If the Pocket cuts power to the store while
+ * asleep, all of it comes back holding whatever survived, and the
+ * program will not know. Waking has to restage everything, or prove the
+ * store persists.
  */
 
 #include "font.h"
 #include "mmio.h"
-#include "msc.h"
 #include "rom.h"
 
 #include "ria/api/uni.h"
@@ -33,42 +32,9 @@
 
 static uint32_t rom_pos, rom_end;
 
-/* The image is a file on the host, not a copy in memory: slot 8 is bound
- * to it and this is the 32 KB of it currently in hand. A read outside
- * fetches the aligned window that holds it, so walking the image forward
- * costs one round trip per window and an asset seek costs one. */
-static uint32_t rom_win_base, rom_win_len;
-
-void rom_win_invalidate(void)
-{
-    rom_win_len = 0;
-}
-
-static bool rom_window(uint32_t at)
-{
-    if (rom_win_len && at >= rom_win_base && at < rom_win_base + rom_win_len)
-        return true;
-    if (at >= rom_end)
-        return false;
-    uint32_t base = at & ~(SLOT_WIN_SIZE - 1);
-    uint32_t len = rom_end - base;
-    if (len > SLOT_WIN_SIZE)
-        len = SLOT_WIN_SIZE;
-    if (!msc_slot_read(MSC_SLOT_ROM, base, len))
-    {
-        rom_win_len = 0;
-        return false;
-    }
-    rom_win_base = base;
-    rom_win_len = len;
-    return true;
-}
-
 static uint8_t rom_byte(uint32_t at)
 {
-    if (!rom_window(at))
-        return 0;
-    return SLOT_WIN(MSC_SLOT_ROM)[at - rom_win_base];
+    return at < rom_end ? ROM_IMG[at] : 0;
 }
 /* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
@@ -183,7 +149,6 @@ bool rom_load_staged(uint32_t len)
     char line[512];
     rom_pos = 0;
     rom_end = len;
-    rom_win_len = 0;
     rom_assets = 0;
 
     if (rom_gets(line, sizeof(line)) < 0 ||
@@ -256,9 +221,8 @@ bool rom_load_staged(uint32_t len)
 /* ---- The ROM: drive: read-only windows onto assets in the staged image.
  *
  * emu/emu/rom.c does this against a host file and keeps an fd positioned
- * for each window. Here the image is a host file too — slot 8 is bound to
- * it — so a window is an offset and a length, and a read is a copy when
- * the bytes are in hand and a round trip when they are not.
+ * for each window. Here the whole image is resident in the staging
+ * store, so a window is an offset and a length and a read is a copy.
  *
  * An asset is named in UTF-8 and a program's path is code page bytes, so
  * the comparison converts as it walks. The two agree for the ASCII names

@@ -10,10 +10,10 @@
  * a path back.
  *
  * Exec is the machine staging its own next program. The RIA reaches
- * into a filesystem; here the same thing is Open File to bind a slot,
- * Slot Read to pull the image into the window the host stages into, and
- * the ordinary loader on top. The image lands where the host would have
- * put it, so its bundled assets arrive with it and the ROM: driver
+ * into a filesystem; here the same thing is Open File to bind the ROM
+ * slot, Slot Reads to pull the whole image to where the host stages one,
+ * and the ordinary loader on top. The image lands where the host would
+ * have put it, so its bundled assets arrive with it and the ROM: driver
  * needs to know nothing about how it got there.
  *
  * The load happens after the machine has stopped rather than inside the
@@ -52,8 +52,6 @@ void pro_restage(void)
     arg_clear();
     if (msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
         arg_append(pro_argv0);
-    /* The answer landed in the window rom.c reads the image through. */
-    rom_win_invalidate();
 }
 
 bool pro_api_argv(void)

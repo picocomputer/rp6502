@@ -23,11 +23,12 @@ module pocket_bridge (
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
     /* Host command 0x008A, and for a user-reloadable slot whose
-     * parameters leave bit 6 clear it is the whole announcement: Analogue
-     * documents that APF then sends this instead of a request write and
-     * an access-all-complete, and without bit 6 there is no Reset Enter
-     * and Exit either. So the machine keeps running and this is the only
-     * thing that tells it the user picked a different file.
+     * parameters leave bit 6 clear it is the only announcement: Analogue
+     * documents that APF sends this instead of a request write and an
+     * access-all-complete, and without bit 6 there is no Reset Enter and
+     * Exit either. The slot is not deferload, so the host rewrites the
+     * image at the slot's address first; this says it finished. The
+     * machine keeps running and this is the only news it gets.
      *
      * It arrives as a pulse on the host's clock and is counted there.
      * The count is all that crosses: the machine asks the data table how
@@ -253,13 +254,13 @@ module pocket_bridge (
      * on an edge and cannot be asked to wait, so it says when it holds
      * the address and the other side stands off.
      *
-     * Word 17 is the size beside id 8, which is the ROM. Analogue
+     * Word 21 is the size beside id 10, which is the ROM. Analogue
      * documents the table as 32 entries of eight bytes, word 0 the slot
      * id and word 1 the size, and a probe confirmed it on hardware:
-     * 0xF000 and 0x13D8 stand beside ids 9 and 10, exactly the two
-     * assets' size_exact. The firmware scans for the id anyway, because
-     * a scan costs nothing at boot and does not care whether a slot is
-     * ever renumbered again.
+     * the asset sizes stand beside their own ids, entry index equal to
+     * id for as long as data.json lists the slots in id order. The
+     * firmware scans for the id anyway, because a scan costs nothing at
+     * boot and does not care whether a slot is ever renumbered again.
      *
      * This read is boot's alone now. A user-reloadable slot without bit
      * 6 gets no Reset Exit and no completion when its file changes, so
@@ -267,7 +268,7 @@ module pocket_bridge (
      * through the update count instead. */
     logic dt_trig;
     always_comb begin
-        pocket_bridge_dt_addr = 10'd17;
+        pocket_bridge_dt_addr = 10'd21;
         dt_trig = (dataslot_allcomplete && !allcomplete_q)
             || (reset_n && !reset_n_q);
         pocket_bridge_dt_busy = dt_trig || |dt_read;

@@ -418,11 +418,12 @@ static void stop(void)
 
 /* The host announced a slot while we were running, applied at the stop.
  *
- * Slot 8 is user-reloadable and does not ask for a reset: with bit 6 of
- * its parameters clear, APF sends command 0x008A alone — no request
- * write, no access-all-complete, no Reset Enter and Exit — so the
- * machine keeps running and this is the only news it gets. Bit 6 set
- * would restart the firmware instead, and take the terminal with it.
+ * The ROM slot is user-reloadable and does not ask for a reset: with
+ * bit 6 of its parameters clear, APF rewrites the image at the slot's
+ * address and sends command 0x008A alone — no request write, no
+ * access-all-complete, no Reset Enter and Exit — so the machine keeps
+ * running and this is the only news it gets. Bit 6 set would restart
+ * the firmware instead, and take the terminal with it.
  *
  * A count rather than an event, incremented on the host's own clock
  * where nothing between here and there can drop one. What the new image
@@ -465,9 +466,9 @@ bool main_active(void)
 }
 
 /* The loader parses the image straight out of the platform's staging
- * window. data.json marks slot 8 required, so the host will not launch
- * this core without one and a missing length means a platform that
- * staged nothing — which leaves nothing to run and nothing to say. */
+ * store. data.json marks the ROM slot required, so the host will not
+ * launch this core without one and a missing length means a platform
+ * that staged nothing — which leaves nothing to run and nothing to say. */
 static void main_stage(void)
 {
     uint32_t len;
@@ -479,8 +480,7 @@ static void main_stage(void)
      * out the bridge's whole deadline and the machine never starts. */
     pro_restage();
     /* Cleared once the image is dealt with and not before: it is how
-     * anything watching tells a load in progress from a finished one,
-     * and a windowed load takes longer than a frame. */
+     * anything watching tells a load in progress from a finished one. */
     MMIO_SLOT = 0;
     if (ok)
         main_run();

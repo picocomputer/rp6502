@@ -8,7 +8,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FA0000"
+        "address": "0x00000000"
       },
       {
         "name": "File 1",
@@ -16,7 +16,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FA8000"
+        "address": "0x00008000"
       },
       {
         "name": "File 2",
@@ -24,7 +24,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FB0000"
+        "address": "0x00010000"
       },
       {
         "name": "File 3",
@@ -32,7 +32,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FB8000"
+        "address": "0x00018000"
       },
       {
         "name": "File 4",
@@ -40,7 +40,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FC0000"
+        "address": "0x00020000"
       },
       {
         "name": "File 5",
@@ -48,7 +48,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FC8000"
+        "address": "0x00028000"
       },
       {
         "name": "File 6",
@@ -56,7 +56,7 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FD0000"
+        "address": "0x00030000"
       },
       {
         "name": "File 7",
@@ -64,36 +64,36 @@
         "required": false,
         "parameters": "0x0",
         "deferload": true,
-        "address": "0x03FD8000"
+        "address": "0x00038000"
+      },
+      {
+        "name": "Fonts",
+        "id": 8,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "fonts.bin",
+        "size_exact": "61440",
+        "address": "0x00040000"
+      },
+      {
+        "name": "Code pages",
+        "id": 9,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "oemcp.bin",
+        "size_exact": "5080",
+        "address": "0x0004F000"
       },
       {
         "name": "RP6502 ROM",
-        "id": 8,
+        "id": 10,
         "required": true,
         "parameters": "0x001",
         "extensions": [
           "rp6502"
         ],
-        "deferload": true,
-        "address": "0x03FE0000"
-      },
-      {
-        "name": "Fonts",
-        "id": 9,
-        "required": true,
-        "parameters": "0x0",
-        "filename": "fonts.bin",
-        "size_exact": "61440",
-        "address": "0x03FEA000"
-      },
-      {
-        "name": "Code pages",
-        "id": 10,
-        "required": true,
-        "parameters": "0x0",
-        "filename": "oemcp.bin",
-        "size_exact": "5080",
-        "address": "0x03FE8000"
+        "size_maximum": "0x03FA0000",
+        "address": "0x00060000"
       }
     ]
   }

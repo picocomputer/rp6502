@@ -174,25 +174,10 @@ bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* Fill a slot's window from its file. Blocking, like open: the loader
- * runs with the machine stopped, and an asset read is a fault the program
- * asking for it is already waiting on. The caller clamps to the file's
- * length; the host is not asked what it has twice. */
-bool msc_slot_read(uint32_t slot, uint32_t off, uint32_t len)
-{
-    if (len > SLOT_WIN_SIZE)
-        len = SLOT_WIN_SIZE;
-    FILE_ID = slot;
-    FILE_OFFSET = off;
-    FILE_BRIDGE = SLOT_WIN_BRIDGE(slot);
-    FILE_LENGTH = len;
-    uint32_t st = msc_command(FILE_OP_READ);
-    return !(st & (FILE_ST_ERR | FILE_ST_TIMEOUT));
-}
-
 /* The one command the host answers with something other than a result
  * code, and the one direction the outbound window cannot carry: the
- * bridge writes the store, so the name lands where a Slot Read lands.
+ * bridge writes the store, so the name lands in the scratch between the
+ * assets and the ROM.
  *
  * Analogue documents the command and not the shape of what comes back.
  * This reads a NUL-terminated name at offset 0, which is where Open
@@ -200,16 +185,15 @@ bool msc_slot_read(uint32_t slot, uint32_t off, uint32_t len)
 bool msc_getfile(uint32_t slot, char *out, size_t cap)
 {
     FILE_ID = slot;
-    FILE_BRIDGE = SLOT_WIN_BRIDGE(slot);
+    FILE_BRIDGE = GETFILE_BRIDGE;
     uint32_t st = msc_command(FILE_OP_GETFILE);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
 
     char utf8[MSC_NAME_MAX];
     size_t n = 0;
-    volatile const uint8_t *win = SLOT_WIN(slot);
-    while (n < MSC_NAME_MAX - 1 && win[n])
-        utf8[n] = (char)win[n], n++;
+    while (n < MSC_NAME_MAX - 1 && GETFILE_WIN[n])
+        utf8[n] = (char)GETFILE_WIN[n], n++;
     utf8[n] = 0;
 
     uint16_t page = font_get_code_page();
@@ -350,11 +334,16 @@ static bool msc_unanswered(uint32_t st)
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
-/* Exec's staging, which is now a binding and not a copy. Slot 8 is the
- * ROM's, so pointing it at the next image is the whole operation — what
- * the loader and the ROM: drive read afterwards comes through the slot's
- * window, a fault at a time, and an image with megabytes of assets costs
- * nothing until something asks for them. */
+/* Exec's staging: bind the ROM slot to the next image and pull the whole
+ * of it to where the host stages one, so the loader and the ROM: drive
+ * read it the same way however it arrived.
+ *
+ * Chunked because the bridge's ~0.9 s deadline times the whole slot
+ * operation — the host's ack does not reset it — and the host writes at
+ * worst one word per ~1185 ns, about 3.4 MB/s. Half a megabyte leaves
+ * the card read and four fifths of the deadline in hand. */
+#define MSC_STAGE_CHUNK 0x80000u
+
 bool msc_stage_rom(const char *path, uint32_t *len)
 {
     const char *p = msc_strip_drive(path);
@@ -362,7 +351,22 @@ bool msc_stage_rom(const char *path, uint32_t *len)
         return false;
     if (msc_try_open(MSC_SLOT_ROM, p, 0, 0, MSC_ASSETS_PATH) > 1)
         return false;
-    return msc_slot_len(MSC_SLOT_ROM, len) && *len;
+    if (!msc_slot_len(MSC_SLOT_ROM, len) || !*len || *len > ROM_MAX)
+        return false;
+    for (uint32_t at = 0; at < *len; at += MSC_STAGE_CHUNK)
+    {
+        uint32_t n = *len - at;
+        if (n > MSC_STAGE_CHUNK)
+            n = MSC_STAGE_CHUNK;
+        FILE_ID = MSC_SLOT_ROM;
+        FILE_OFFSET = at;
+        FILE_BRIDGE = ROM_BRIDGE + at;
+        FILE_LENGTH = n;
+        uint32_t st = msc_command(FILE_OP_READ);
+        if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+            return false;
+    }
+    return true;
 }
 
 bool msc_std_handles(const char *path)

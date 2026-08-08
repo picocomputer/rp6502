@@ -174,7 +174,8 @@ from want different answers:
 | a program, through argv   | `/Assets/rp6502/common/` |
 
 Saved games belong in Saves; programs are in Assets, because that is
-where the Pocket's menu browses and where the host bound slot 0 from.
+where the Pocket's menu browses and where the host bound the ROM slot
+from.
 Both rows are live: the open path takes the root it should resolve
 against, so `exec` spells a bare program name out under Assets and
 everything else under Saves.
@@ -192,13 +193,12 @@ image and never told what it was called. Get File (`0x0190`) on the
 ROM slot is the only way to learn the name, and it is the one data
 slot command whose answer is more than a result code: the host writes
 the filename into memory the core nominates. That has to be the SDRAM
-staging buffer, since the bridge writes nowhere else — the outbound
-window Open File uses is write-only from the host's side. The
-firmware asks once per staged image, in `pro_restage()`, and asks
-before the loader fills that window rather than after: the answer
-lands in the ROM slot's own window, which is the buffer `rom.c`
-caches. An `exec` does not ask — the outgoing program has already
-said what the arguments are.
+staging store, since the bridge writes nowhere else — the outbound
+window Open File uses is write-only from the host's side — so the
+answer lands in a dedicated scratch between the assets and the ROM.
+The firmware asks once per staged image, in `pro_restage()`. An
+`exec` does not ask — the outgoing program has already said what the
+arguments are.
 
 Analogue documents the command and not the shape of its response
 struct. We read a NUL-terminated name at offset 0, which is where
@@ -394,9 +394,11 @@ binaries, which the build supplies:
   `src/gen/vid_font_gen.py --emit-bin` from `vga/term/font.c`
   and dropped in the FPGA build tree. It carries every face and all
   seventeen code pages; nothing about the fonts is in the bitstream, so
-  a core without it comes up with a blank screen. It loads into the
-  last 64 KB of the SDRAM, above the ROM slot's own ceiling, and the
-  firmware copies it to the video device at every boot.
+  a core without it comes up with a blank screen. It loads just above
+  the file slots' windows at the bottom of the SDRAM — the staging map
+  climbs in slot id order, and the ROM above the assets owns the rest
+  of the store — and the firmware copies it to the video device at
+  every boot.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made from the logo by
   `src/gen/pocket_image_gen.py`. Analogue documents one format

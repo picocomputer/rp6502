@@ -42,9 +42,9 @@ extern "C" {
 #include <vector>
 
 static Vtb_pocket *dut;
-/* The host's id/size pairs, and the image behind slot 8. The ROM is a
- * file the core reads a window at a time now, so the bench has to answer
- * the reads rather than pre-loading the store. */
+/* The host's id/size pairs, and the image behind the ROM slot. The host
+ * pushes the whole image into the store at boot; the copy here answers
+ * the slot reads an exec pull would make. */
 static uint32_t g_dt[64];
 static uint32_t dt_pipe[2];
 static std::vector<uint8_t> g_rom;
@@ -86,8 +86,8 @@ static void tick()
     dut->eval();
     if (aedge)
     {
-        /* argv: the core asks for slot 0's name before it releases the
-         * 6502, and a command the host never retires costs it the
+        /* argv: the core asks for the ROM slot's name before it releases
+         * the 6502, and a command the host never retires costs it the
          * bridge's whole deadline — 134 million clocks, which is not a
          * test, it is a hang. These cases do not check the name, and
          * the staging store answers zeros, which is the empty name a
@@ -109,7 +109,7 @@ static void tick()
             uint32_t br = dut->tb_pocket_ds_bridgeaddr;
             uint32_t len = dut->tb_pocket_ds_length;
             auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
-            if (dut->tb_pocket_ds_id == 8)
+            if (dut->tb_pocket_ds_id == 10)
                 for (uint32_t i = 0; i < len; i += 2)
                 {
                     size_t a = off + i;
@@ -308,20 +308,21 @@ static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
     }
 }
 
-/* Host slot load: the next request drops the completion level, the table
- * says how long the image is, completion returns and stays. None of the
- * image is streamed — slot 8 defers, so the core asks for the windows it
- * wants and the read handler above answers them. */
+/* Host slot load, in the host's own order: the next request drops the
+ * completion level, the whole image streams over the bridge to the ROM's
+ * address, the table says how long it is, completion returns and stays.
+ * The copy kept in g_rom answers any exec pull afterwards. */
 static void host_load(const std::vector<uint8_t> &rom)
 {
     dut->dataslot_allcomplete = 0;
     g_rom = rom;
+    host_stream(rom, TB_STAGE_ROM_BASE);
     memset(g_dt, 0, sizeof g_dt);
-    g_dt[8 * 2] = 8;
-    g_dt[8 * 2 + 1] = (uint32_t)rom.size();
+    g_dt[10 * 2] = 10;
+    g_dt[10 * 2 + 1] = (uint32_t)rom.size();
     /* The drop has to be clocked before the rise, or the settle has no
-     * edge to fire on. The stream used to provide those clocks; nothing
-     * is streamed now, so the wait is explicit. */
+     * edge to fire on; the stream's clocks are that, and the wait keeps
+     * the guarantee even for an empty image. */
     for (int i = 0; i < 40; i++)
         a_edge();
     dut->dataslot_allcomplete = 1;
@@ -414,9 +415,8 @@ static void power_on(int *utest_result)
     /* The core's own asset, loaded once before the machine runs and
      * never reloaded. Written straight into the chip rather than
      * streamed: sixty kilobytes over the bridge is six hundred thousand
-     * clocks a case, and the bridge's own path is already proven by the
-     * ROM beside it. One case still streams it, so nothing about the
-     * loader goes unexercised. */
+     * clocks a case, and the bridge's own path is proven by the ROM,
+     * which streams in every case. */
     const std::vector<uint8_t> &fonts = tb_stage_fonts();
     auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
     for (size_t i = 0; i + 1 < fonts.size(); i += 2)

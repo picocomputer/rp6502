@@ -47,12 +47,6 @@ static uint32_t dt_pipe[2];
 /* The host's id/size table, as pairs. */
 static uint32_t g_dt[64];
 
-/* Where msc.c stages a Slot Read, and where the host reads a Slot
- * Write out of. Both are firmware and RTL constants; a test that
- * guessed them would pass against the wrong hardware. */
-static const uint32_t STAGE_BRIDGE = 0x03FA0000u;
-static const uint32_t WINDOW_BASE = 0x20000000u;
-
 /* The host's filesystem, and which slot is bound to which file. Files
  * are keyed by their absolute card path, folders modeled because the
  * real host will not create one: a create into a folder that is not
@@ -342,8 +336,8 @@ static void do_flush()
 
 /* Get File, the only command that answers with more than a code: the
  * host writes back the name bound to the slot. It lands wherever the
- * response struct points, which for this core is the same staging
- * buffer a Slot Read uses, because the bridge writes nowhere else.
+ * response struct points, which for this core is the scratch between
+ * the assets and the ROM, because the bridge writes only the store.
  *
  * Analogue documents the command and not the shape of the answer. A
  * NUL-terminated name at offset 0 is what Open File's parameter struct
@@ -445,15 +439,12 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
-    /* Slot 8 is the ROM the user picked, bound before the core ever
-     * runs — which is the whole reason argv has to ask, and what lets
-     * the loader read the image a window at a time instead of being
-     * handed all of it. In the assets folder, spelled absolute, the way
-     * the host answers. */
-    g_bound[8] = "/Assets/rp6502/common/pfile.rp6502";
-    /* And the file behind it, because the loader reads the image through
-     * the slot now rather than finding it already in the store. */
-    g_files[g_bound[8]] = rom;
+    /* Slot 10 is the ROM the user picked, bound before the core ever
+     * runs — which is the whole reason argv has to ask. In the assets
+     * folder, spelled absolute, the way the host answers. */
+    g_bound[10] = "/Assets/rp6502/common/pfile.rp6502";
+    /* And the file behind it, for the slot reads an exec pull makes. */
+    g_files[g_bound[10]] = rom;
     g_dirs.insert("/Assets");
     g_dirs.insert("/Assets/rp6502");
     g_dirs.insert("/Assets/rp6502/common");
@@ -481,15 +472,15 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     for (int i = 0; i < 40000 && !dut->tb_pocket_ready; i++)
         tick();
 
-    /* The host's load: the fonts and the code page tables whole where
-     * data.json puts them, then the table and completion. Nothing of the
-     * ROM — slot 8 defers, so the core reads every byte of it for itself,
-     * a window at a time. */
+    /* The host's load, whole files where data.json puts them: the fonts,
+     * the code page tables, and every byte of the ROM, then the table
+     * and completion. */
     std::vector<uint8_t> fonts = read_file(FONTS_BIN);
-    host_put_bytes(0x03FEA000u, fonts.data(), fonts.size());
+    host_put_bytes(TB_STAGE_FONT_BASE, fonts.data(), fonts.size());
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
-    host_put_bytes(0x03FE8000u, oemcp.data(), oemcp.size());
-    dt_set(8, (uint32_t)rom.size());
+    host_put_bytes(TB_STAGE_OEMCP_BASE, oemcp.data(), oemcp.size());
+    host_put_bytes(TB_STAGE_ROM_BASE, rom.data(), rom.size());
+    dt_set(10, (uint32_t)rom.size());
     /* The host's clock, local time behind the valid, as command 0x0090
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
@@ -545,7 +536,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
              = g_files.begin();
          it != g_files.end(); ++it)
-        if (it->first != g_bound[8])
+        if (it->first != g_bound[10])
         {
             made++;
             f = &it->second;
@@ -637,7 +628,7 @@ UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
     for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
              = g_files.begin();
          it != g_files.end(); ++it)
-        if (it->first != g_bound[8])
+        if (it->first != g_bound[10])
             made++;
     ASSERT_EQ(made, (size_t)0);
     teardown();
