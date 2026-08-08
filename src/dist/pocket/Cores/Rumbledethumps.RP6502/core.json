@@ -4,11 +4,11 @@
         "metadata": {
             "platform_ids": ["rp6502"],
             "shortname": "RP6502",
-            "description": "Picocomputer 6502: W65C02, VGA, PSG.",
+            "description": "8-bit retro gaming computer",
             "author": "Rumbledethumps",
-            "url": "https://picocomputer.github.io",
-            "version": "0.2.0",
-            "date_release": "2026-08-01"
+            "url": "https://picocomputer.github.io/",
+            "version": "0.0",
+            "date_release": "2000-00-00"
         },
         "framework": {
             "target_product": "Analogue Pocket",

@@ -1,7 +1,7 @@
 Rumbledethumps' Picocomputer 6502
 https://picocomputer.github.io/
 
-WDC 65C02 CPU and 65C22 VIA at 8.0 MHz
+WDC 65C02 CPU and 65C22 VIA
 64 KB RAM plus 64 KB XRAM
 16-bit color tile and sprite engine
 PSG (8 voices) or OPL2 FM (9 voices)

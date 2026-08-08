@@ -71,13 +71,15 @@ jobs:
           curl -fSL -o /tmp/pico-sdk-tools.tar.gz "$base/pico-sdk-tools-${PICO_SDK_VERSION}-x86_64-lin.tar.gz"
           tar -xzf /tmp/pico-sdk-tools.tar.gz -C "$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}"
 
-      - name: Derive firmware version (tag → version, off-tag → build timestamp)
+      - name: Derive firmware version (tag → version, off-tag → CI run id)
         id: fwver
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "ci=" >> "$GITHUB_OUTPUT"
           else
             echo "value=" >> "$GITHUB_OUTPUT"
+            echo "ci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build firmware (pico2_w) — rp6502-ria-w + rp6502-vga
@@ -88,6 +90,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2_w \
             -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
+            -DRP6502_CI="${{ steps.fwver.outputs.ci }}" \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
@@ -101,6 +104,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2 \
             -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
+            -DRP6502_CI="${{ steps.fwver.outputs.ci }}" \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
@@ -531,7 +535,12 @@ jobs:
       - name: Build the core package
         run: |
           set -euxo pipefail
-          cmake --preset pocket
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            FWVER="${GITHUB_REF_NAME#v}"; FWCI=""
+          else
+            FWVER=""; FWCI="$GITHUB_RUN_ID"
+          fi
+          cmake --preset pocket -DRP6502_VERSION="$FWVER" -DRP6502_CI="$FWCI"
           cmake --build --preset "Card package"
         working-directory: src/rtl
 

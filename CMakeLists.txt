@@ -51,10 +51,20 @@ if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
     set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
 endif()
 
+# -DRP6502_CI=<run id> stamps untagged CI builds; never cached so a
+# reconfigure cannot resurrect another run's id.
+set(RP6502_CI_VALUE "")
+if(DEFINED RP6502_CI AND NOT RP6502_CI STREQUAL "")
+    set(RP6502_CI_VALUE "${RP6502_CI}")
+endif()
+unset(RP6502_CI CACHE)
+
 set(RP6502_GEN_VERSION_SCRIPT ${CMAKE_BINARY_DIR}/gen_rp6502_version_header.cmake)
 file(WRITE ${RP6502_GEN_VERSION_SCRIPT} [[
 if(VERSION)
     set(_stamp "Version ${VERSION}")
+elseif(CI)
+    set(_stamp "CI ${CI}")
 else()
     string(TIMESTAMP _stamp "%b %d %Y %H:%M:%S %Z")
 endif()
@@ -115,6 +125,7 @@ function(rp6502_use_version_header tgt src)
         COMMAND ${CMAKE_COMMAND}
             -DOUTPUT=${hdr}
             "-DVERSION=${RP6502_VERSION_VALUE}"
+            "-DCI=${RP6502_CI_VALUE}"
             -P ${RP6502_GEN_VERSION_SCRIPT}
         COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
         VERBATIM

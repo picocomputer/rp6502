@@ -5,6 +5,15 @@
 # None of it needs Verilator: the source list comes from machine.cmake, which
 # is a list either way. MiSTer gets a file beside this one.
 
+# -DRP6502_VERSION / -DRP6502_CI reach core.json's metadata, the same
+# contract as the firmware root. CI is never cached so a reconfigure
+# cannot resurrect another run's id.
+set(RP6502_CI_VALUE "")
+if(DEFINED RP6502_CI AND NOT RP6502_CI STREQUAL "")
+    set(RP6502_CI_VALUE "${RP6502_CI}")
+endif()
+unset(RP6502_CI CACHE)
+
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
     # The real thing: Analogue's framework on top, their pin assignments,
@@ -265,6 +274,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     add_custom_command(OUTPUT ${POCKET_DIR}/package.stamp
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
+        COMMAND ${CMAKE_COMMAND}
+            -DCORE_JSON=${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.json
+            "-DVERSION=${RP6502_VERSION}"
+            "-DCI=${RP6502_CI_VALUE}"
+            -P ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
         COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
@@ -276,6 +290,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
         DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN}
             ${PKG_DIST_FILES}
+            ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
     add_custom_target(pocket DEPENDS ${POCKET_DIR}/package.stamp)
