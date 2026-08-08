@@ -31,9 +31,9 @@
 #include <vector>
 
 /* Slot ids, which data.json declares and msc.h mirrors. */
-#define TB_HOST_SLOT_FONTS 8u
-#define TB_HOST_SLOT_OEMCP 9u
-#define TB_HOST_SLOT_ROM 10u
+#define TB_HOST_SLOT_ROM 0u
+#define TB_HOST_SLOT_FONTS 9u
+#define TB_HOST_SLOT_OEMCP 10u
 
 class tb_host
 {

@@ -109,7 +109,7 @@ static void tick()
             uint32_t br = dut->tb_pocket_ds_bridgeaddr;
             uint32_t len = dut->tb_pocket_ds_length;
             auto &chip = dut->rootp->tb_pocket__DOT__chip__DOT__mem;
-            if (dut->tb_pocket_ds_id == 10)
+            if (dut->tb_pocket_ds_id == 0)
                 for (uint32_t i = 0; i < len; i += 2)
                 {
                     size_t a = off + i;
@@ -309,17 +309,20 @@ static void host_stream(const std::vector<uint8_t> &data, uint32_t base)
 }
 
 /* Host slot load, in the host's own order: the next request drops the
- * completion level, the whole image streams over the bridge to the ROM's
- * address, the table says how long it is, completion returns and stays.
- * The copy kept in g_rom answers any exec pull afterwards. */
+ * completion level, the whole image streams over the bridge to the
+ * primary slot's address, the table says how long it is, completion
+ * returns and stays. The copy kept in g_rom answers any exec pull
+ * afterwards. A hot reload from the Core Settings menu was measured
+ * doing exactly this sequence again mid-run — no 0x008A — so this one
+ * function is boot and reload both. */
 static void host_load(const std::vector<uint8_t> &rom)
 {
     dut->dataslot_allcomplete = 0;
     g_rom = rom;
     host_stream(rom, TB_STAGE_ROM_BASE);
     memset(g_dt, 0, sizeof g_dt);
-    g_dt[10 * 2] = 10;
-    g_dt[10 * 2 + 1] = (uint32_t)rom.size();
+    g_dt[0] = 0;
+    g_dt[1] = (uint32_t)rom.size();
     /* The drop has to be clocked before the rise, or the settle has no
      * edge to fire on; the stream's clocks are that, and the wait keeps
      * the guarantee even for an empty image. */
@@ -514,6 +517,28 @@ UTEST(pocket, reload_with_a_button_held)
     ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__pad_key, 0u);
 
     /* And the scaler re-armed on the new machine's frame. */
+    run_and_compare(utest_result, "mode3_1bpp", false);
+}
+
+UTEST(pocket, hot_reload_without_a_reset)
+{
+    std::vector<uint8_t> first = read_rom("mode3_8bpp");
+    ASSERT_TRUE(first.size() > 0);
+    power_on(utest_result);
+    host_load(first);
+    dut->reset_n = 1;
+    run_and_compare(utest_result, "mode3_8bpp");
+
+    /* The Core Settings pick, as the debug log spells it: no Reset
+     * Enter, no 0x008A — the request write drops completion, the new
+     * image and the table entry arrive, and the closing
+     * access-all-complete is the only announcement the machine gets.
+     * The firmware has to notice off the posted size alone. */
+    std::vector<uint8_t> second = read_rom("mode3_1bpp");
+    ASSERT_TRUE(second.size() > 0);
+    host_load(second);
+
+    ASSERT_TRUE(run_until_quiet(nullptr));
     run_and_compare(utest_result, "mode3_1bpp", false);
 }
 

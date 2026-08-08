@@ -22,14 +22,15 @@
 #include <vector>
 
 /* All of these must agree with the firmware's mmio.h and with data.json,
- * whose list order, slot ids, and addresses climb the SDRAM together. */
-#define TB_STAGE_WIN_BASE 0x00000000u
+ * whose list order, slot ids, and addresses climb the SDRAM together —
+ * the ROM first at the store's base, because it is the primary slot. */
+#define TB_STAGE_ROM_BASE 0x00000000u
+#define TB_STAGE_WIN_BASE 0x03FA0000u
 #define TB_STAGE_WIN_SIZE 0x00008000u
-#define TB_STAGE_FONT_BASE 0x00040000u
+#define TB_STAGE_FONT_BASE 0x03FE0000u
 #define TB_STAGE_FONT_SIZE 0x0000F000u
-#define TB_STAGE_OEMCP_BASE 0x0004F000u
+#define TB_STAGE_OEMCP_BASE 0x03FEF000u
 #define TB_STAGE_OEMCP_SIZE 0x00002000u
-#define TB_STAGE_ROM_BASE 0x00060000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
                                                  std::vector<uint8_t> &v)

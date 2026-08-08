@@ -439,12 +439,12 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
         b.clear();
-    /* Slot 10 is the ROM the user picked, bound before the core ever
+    /* Slot 0 is the ROM the user picked, bound before the core ever
      * runs — which is the whole reason argv has to ask. In the assets
      * folder, spelled absolute, the way the host answers. */
-    g_bound[10] = "/Assets/rp6502/common/pfile.rp6502";
+    g_bound[0] = "/Assets/rp6502/common/pfile.rp6502";
     /* And the file behind it, for the slot reads an exec pull makes. */
-    g_files[g_bound[10]] = rom;
+    g_files[g_bound[0]] = rom;
     g_dirs.insert("/Assets");
     g_dirs.insert("/Assets/rp6502");
     g_dirs.insert("/Assets/rp6502/common");
@@ -480,7 +480,7 @@ static void boot(const std::vector<uint8_t> &rom, bool homeless)
     std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
     host_put_bytes(TB_STAGE_OEMCP_BASE, oemcp.data(), oemcp.size());
     host_put_bytes(TB_STAGE_ROM_BASE, rom.data(), rom.size());
-    dt_set(10, (uint32_t)rom.size());
+    dt_set(0, (uint32_t)rom.size());
     /* The host's clock, local time behind the valid, as command 0x0090
      * leaves it: 2001-09-09 01:46:40, a billion seconds. */
     dut->rtc_epoch = 1000000000u;
@@ -536,7 +536,7 @@ UTEST(pfile, a_program_writes_a_file_and_reads_it_back)
     for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
              = g_files.begin();
          it != g_files.end(); ++it)
-        if (it->first != g_bound[10])
+        if (it->first != g_bound[0])
         {
             made++;
             f = &it->second;
@@ -628,7 +628,7 @@ UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
     for (std::map<std::string, std::vector<uint8_t>>::const_iterator it
              = g_files.begin();
          it != g_files.end(); ++it)
-        if (it->first != g_bound[10])
+        if (it->first != g_bound[0])
             made++;
     ASSERT_EQ(made, (size_t)0);
     teardown();

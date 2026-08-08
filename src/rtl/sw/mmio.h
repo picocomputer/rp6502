@@ -51,28 +51,32 @@
 /* The staging store, one ascending walk: data.json's list order, its
  * slot ids, and these addresses all climb the SDRAM together, and the
  * three must be changed together — data.json is strict JSON and cannot
- * carry this comment. Eight 32 KB windows for the open-file descriptors,
- * because the bridge writes the staging store and knows no other way to
- * write us at all; then the fonts and the code page tables, whole files
- * the fabric reads at random, sized to what they hold; then Get File's
- * scratch, the one address here data.json does not declare because it is
- * not a slot; then the ROM, whole, owning everything to the store's top.
- * ROM_MAX is data.json's size_maximum and ROM_BRIDGE + ROM_MAX is the
- * end of the SDRAM exactly. */
+ * carry this comment. The ROM comes first, whole, at the store's base,
+ * because it is the primary slot: a hot reload was measured writing the
+ * new image through the first slot record, so the first slot must be
+ * the one the user reloads. Above its ceiling sit eight 32 KB windows
+ * for the open-file descriptors — the bridge writes the staging store
+ * and knows no other way to write us at all — then the fonts and the
+ * code page tables, whole files the fabric reads at random, sized to
+ * what they hold, then Get File's scratch, the one address here that
+ * data.json does not declare because it is not a slot. ROM_MAX is
+ * data.json's size_maximum and the windows begin there exactly. */
+#define ROM_IMG ((volatile const uint8_t *)0x60000000u)
+#define ROM_BRIDGE 0x00000000u
+#define ROM_MAX 0x03FA0000u
 #define SLOT_WIN_SIZE 0x8000u
-#define SLOT_WIN(i) \
-    ((volatile const uint8_t *)(0x60000000u + (uint32_t)(i) * SLOT_WIN_SIZE))
-#define SLOT_WIN_BRIDGE(i) ((uint32_t)(i) * SLOT_WIN_SIZE)
+/* By descriptor, not by slot id: descriptor d is slot 1 + d, and its
+ * window is the d'th above the ROM's ceiling. */
+#define SLOT_WIN(d) \
+    ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE))
+#define SLOT_WIN_BRIDGE(d) (0x03FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE)
 /* The chunk one slot operation moves, which is a whole window; a larger
  * file is several of them. */
 #define FILE_XFER_MAX SLOT_WIN_SIZE
-#define FONTS ((volatile const uint8_t *)0x60040000u)
-#define OEMCP ((volatile const uint8_t *)0x6004F000u)
-#define GETFILE_WIN ((volatile const uint8_t *)0x60051000u)
-#define GETFILE_BRIDGE 0x00051000u
-#define ROM_IMG ((volatile const uint8_t *)0x60060000u)
-#define ROM_BRIDGE 0x00060000u
-#define ROM_MAX 0x03FA0000u
+#define FONTS ((volatile const uint8_t *)0x63FE0000u)
+#define OEMCP ((volatile const uint8_t *)0x63FEF000u)
+#define GETFILE_WIN ((volatile const uint8_t *)0x63FF1000u)
+#define GETFILE_BRIDGE 0x03FF1000u
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
  * other port is the bridge's, so it is word-wide and write-only: the
@@ -115,7 +119,7 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_DT 4u
 /* The one command whose answer is a name rather than a number, and the
  * one direction the outbound window cannot carry: it lands wherever
- * FILE_BRIDGE points, so it takes a Slot Read's staging buffer. */
+ * FILE_BRIDGE points, which is GETFILE_WIN's scratch. */
 #define FILE_OP_GETFILE 5u
 /* Analogue documents 0x0188 but never implemented it in its own
  * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes

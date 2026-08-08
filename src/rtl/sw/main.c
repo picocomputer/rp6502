@@ -416,19 +416,22 @@ static void stop(void)
     main_xreg_1(0x0F, 0x00, vga_get_display_type());
 }
 
-/* The host announced a slot while we were running, applied at the stop.
+/* The host reloaded the primary slot while we were running, applied at
+ * the stop.
  *
- * The ROM slot is user-reloadable and does not ask for a reset: with
- * bit 6 of its parameters clear, APF rewrites the image at the slot's
- * address and sends command 0x008A alone — no request write, no
- * access-all-complete, no Reset Enter and Exit — so the machine keeps
- * running and this is the only news it gets. Bit 6 set would restart
- * the firmware instead, and take the terminal with it.
+ * Measured, and not what the documentation promises: a hot reload with
+ * bit 6 clear sends no 0x008A. The host rewrites the image at the
+ * first slot's address, rewrites the table entry, and closes with a
+ * second access-all-complete — which re-fires the bridge's settle and
+ * posts the size into MMIO_SLOT while the machine runs. That post is
+ * the whole announcement, and the loop below treats it as the reload
+ * it is. Bit 6 set would restart the firmware instead, and take the
+ * terminal with it.
  *
- * A count rather than an event, incremented on the host's own clock
- * where nothing between here and there can drop one. What the new image
- * is remains a question for the data table, which is where the loader
- * asks it anyway. */
+ * The 0x008A count is still watched beside it, because that is the
+ * documented announcement and a platform that sends it should work.
+ * Either way, what the new image is remains a question for the data
+ * table, which is where the loader asks it anyway. */
 static uint8_t main_upd_seen;
 
 static bool main_rom_len(uint32_t *len)
@@ -540,6 +543,16 @@ int main(void)
         if (upd != main_upd_seen)
         {
             main_upd_seen = upd;
+            restage = true;
+            main_stop();
+        }
+        /* The hot reload's own announcement: main_stage cleared this
+         * after the boot image, so anything standing here again is a
+         * fresh settle — the host wrote a new image and re-completed.
+         * Left set until the restage clears it, so tb_quiet's reading
+         * of it as a load in progress stays true. */
+        if (MMIO_SLOT)
+        {
             restage = true;
             main_stop();
         }

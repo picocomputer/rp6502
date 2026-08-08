@@ -139,6 +139,19 @@ parameter bitmap set — "persist browsed filename" — which makes APF
 remember the file and reload it on every core load, overriding the
 browser. Cleared, so the core asks each time.
 
+**A hot reload goes through the first slot, whatever slot was asked.**
+Measured, with the ROM temporarily at id 10: picking a new file from
+this menu made the host write the image through the *first* slot
+record — the debug log says `Load 0x00000000 ... slot name [File 0]` —
+while the request write and the table entry both named id 10
+correctly. Its own docs call slot 0 "the primary data slot", and the
+reload path plainly assumes the reloadable slot is that one. No
+`0x008A` is sent for a non-deferload slot either, documentation
+notwithstanding; the reload is a request write, the image, the table
+entry, and a second access-all-complete. So the ROM is the first slot
+at address zero, and the firmware treats the size that completion
+posts mid-run as the announcement it is.
+
 ## The host's filesystem
 
 `MSC0:` is the card, and the drive writes. The drive prefix is
@@ -195,8 +208,8 @@ slot command whose answer is more than a result code: the host writes
 the filename into memory the core nominates. That has to be the SDRAM
 staging store, since the bridge writes nowhere else — the outbound
 window Open File uses is write-only from the host's side — so the
-answer lands in a dedicated scratch between the assets and the ROM.
-The firmware asks once per staged image, in `pro_restage()`. An
+answer lands in a dedicated scratch above the assets at the top of the
+store. The firmware asks once per staged image, in `pro_restage()`. An
 `exec` does not ask — the outgoing program has already said what the
 arguments are.
 
@@ -394,11 +407,11 @@ binaries, which the build supplies:
   `src/gen/vid_font_gen.py --emit-bin` from `vga/term/font.c`
   and dropped in the FPGA build tree. It carries every face and all
   seventeen code pages; nothing about the fonts is in the bitstream, so
-  a core without it comes up with a blank screen. It loads just above
-  the file slots' windows at the bottom of the SDRAM — the staging map
-  climbs in slot id order, and the ROM above the assets owns the rest
-  of the store — and the firmware copies it to the video device at
-  every boot.
+  a core without it comes up with a blank screen. It loads near the top
+  of the SDRAM, above the file slots' windows — the staging map climbs
+  in slot id order, with the ROM first at address zero owning
+  everything below its `size_maximum` ceiling — and the firmware copies
+  it to the video device at every boot.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made from the logo by
   `src/gen/pocket_image_gen.py`. Analogue documents one format

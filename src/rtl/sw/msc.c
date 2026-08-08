@@ -40,10 +40,10 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Slots 0-7 are the open files, one per descriptor. Above them sit the
- * three the machine never opens: the ROM, the fonts and the code page
- * tables, which the host stages whole. */
-#define MSC_SLOT_FIRST 0
+/* Slots 1-8 are the open files, one per descriptor, above the ROM's
+ * slot 0 the way their windows sit above its ceiling. The fonts and
+ * the code page tables close the list, staged whole. */
+#define MSC_SLOT_FIRST 1
 #define MSC_OPEN_MAX 8
 
 #define MSC_NAME_MAX 256

@@ -29,10 +29,11 @@
 #define MSC_SAVES_PATH "/Saves/rp6502/common/"
 #define MSC_ASSETS_PATH "/Assets/rp6502/common/"
 
-/* The one slot the machine reads without opening: the host stages the
- * whole image at ROM_BRIDGE. The fonts and code pages above the windows
- * are staged too, but only the fabric asks for those. */
-#define MSC_SLOT_ROM 10
+/* The primary slot, staged whole at the store's base — first in
+ * data.json because a hot reload writes the new image through the
+ * first slot record. The fonts and code pages above the windows are
+ * staged too, but only the fabric asks for those. */
+#define MSC_SLOT_ROM 0
 
 /* The 6502 going into reset. Lands whatever a worker left at the bridge,
  * so the next command does not stack on top of it. */

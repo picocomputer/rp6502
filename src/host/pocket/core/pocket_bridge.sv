@@ -22,18 +22,15 @@ module pocket_bridge (
     input logic [31:0] bridge_addr,
     input logic [31:0] bridge_wr_data,
     input logic dataslot_allcomplete,
-    /* Host command 0x008A, and for a user-reloadable slot whose
-     * parameters leave bit 6 clear it is the only announcement: Analogue
-     * documents that APF sends this instead of a request write and an
-     * access-all-complete, and without bit 6 there is no Reset Enter and
-     * Exit either. The slot is not deferload, so the host rewrites the
-     * image at the slot's address first; this says it finished. The
-     * machine keeps running and this is the only news it gets.
-     *
-     * It arrives as a pulse on the host's clock and is counted there.
-     * The count is all that crosses: the machine asks the data table how
-     * big the file is, so carrying the announcement's own id and size
-     * would only be a second answer to a question already answered. */
+    /* Host command 0x008A. Analogue documents it as the reload
+     * announcement, and for a deferload slot that is what was measured.
+     * For the non-deferload primary slot the host was measured doing
+     * something else entirely: a hot reload is a request write, the
+     * image rewritten at the first slot's address, the table entry, and
+     * a second access-all-complete — no 0x008A anywhere in it. The
+     * running machine hears about that reload through the settle below;
+     * this pulse is still counted for the platforms and slots that do
+     * announce the documented way. */
     input logic dataslot_update,
     input logic reset_n,
     output logic [9:0] pocket_bridge_dt_addr,
@@ -254,21 +251,23 @@ module pocket_bridge (
      * on an edge and cannot be asked to wait, so it says when it holds
      * the address and the other side stands off.
      *
-     * Word 21 is the size beside id 10, which is the ROM. Analogue
+     * Word 1 is the size beside id 0, which is the ROM — the primary
+     * slot, because a hot reload was measured writing the new image
+     * through the first slot record and nowhere else. Analogue
      * documents the table as 32 entries of eight bytes, word 0 the slot
      * id and word 1 the size, and a probe confirmed it on hardware:
-     * the asset sizes stand beside their own ids, entry index equal to
-     * id for as long as data.json lists the slots in id order. The
-     * firmware scans for the id anyway, because a scan costs nothing at
-     * boot and does not care whether a slot is ever renumbered again.
+     * the sizes stand beside their own ids, entry index equal to id for
+     * as long as data.json lists the slots in id order. The firmware
+     * scans for the id anyway, because a scan costs nothing at boot and
+     * does not care whether a slot is ever renumbered again.
      *
-     * This read is boot's alone now. A user-reloadable slot without bit
-     * 6 gets no Reset Exit and no completion when its file changes, so
-     * nothing re-triggers it; a running machine hears about a change
-     * through the update count instead. */
+     * Boot fires this read, and so does a hot reload: the request write
+     * drops completion, the image and the table entry arrive, and the
+     * closing access-all-complete is a fresh edge. The size posts to
+     * the machine mid-run, and that post is the whole announcement. */
     logic dt_trig;
     always_comb begin
-        pocket_bridge_dt_addr = 10'd21;
+        pocket_bridge_dt_addr = 10'd1;
         dt_trig = (dataslot_allcomplete && !allcomplete_q)
             || (reset_n && !reset_n_q);
         pocket_bridge_dt_busy = dt_trig || |dt_read;
