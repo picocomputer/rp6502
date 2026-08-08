@@ -124,17 +124,18 @@ set_clock_uncertainty -add -hold 0.060 \
     -from [get_clocks {*|general[1].gpll~PLL_OUTPUT_COUNTER|divclk}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
-# The same distrust, within one network. A CI fit missed hold by 26 ps
-# on a pair its report could not name, and with the crossing above
-# already padded, every fit here floors in the same two places: the
+# The same distrust, within one network. With the crossing padded,
+# every fit floors its fast-corner hold in the same two places: the
 # sprite gatherer's registers into d_t on the machine clock, and the
 # vendor SPI receiver on its own — ordinary same-clock transfers whose
 # launch and capture drew distant leaves of one global tree. Real
-# paths, so no exception can apply; the fitter pads them against its
-# own delay estimate and the fast corner keeps finding tens of
-# picoseconds it did not. Three times the worst observed miss, on the
-# two clocks whose floors are thin, and nothing on clk_74a, whose
-# quietest path clears three times this demand already.
+# paths, so no exception can apply. A CI miss was once pinned on this
+# family from these local floors, wrongly — the paths report later
+# named that miss as the crossing's — but the floors are thin all the
+# same and the refit priced the pad at nothing: eighty picoseconds,
+# three times the misses this seam class produces, on the two clocks
+# that floor thin, and nothing on clk_74a, whose quietest path clears
+# three times this demand already.
 set_clock_uncertainty -add -hold 0.080 \
     -from [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
@@ -142,18 +143,16 @@ set_clock_uncertainty -add -hold 0.080 \
     -from [get_clocks {bridge_spiclk}] \
     -to [get_clocks {bridge_spiclk}]
 
-# The staging capture, which is the path that kept coming up short. The
-# soft CPU's address reaches a clk_sys register enabled by bus_stb, and
-# the analyzer checks it against the same-edge relationship above.
-#
-# That check guards something the logic cannot do. In rv_soc,
-# hready = !(dph_active && dph_ext && !dph_waited) and bus_pend is that
-# same expression un-negated, off the same three registers — so hready
-# is exactly !pend. dph_addr is written under "if (hready)" and nowhere
-# else, and bus_stb requires pend. Whenever the strobe fires the write
-# enable is off, so the address cannot launch on the edge that captures
-# it. Not a timing separation, an interlock: it holds however the two
-# clocks skew and whatever the fit does with them.
+# The data-phase payload, cut at the protocol rather than an endpoint
+# at a time. In rv_soc, dph_addr and dph_strb are written under
+# "if (hready)" and nowhere else; hready = !(dph_active && dph_ext &&
+# !dph_waited) and bus_pend is that same expression un-negated, off the
+# same three registers — so hready is exactly !pend. Every machine-side
+# capture of the payload is gated on pend, as an enable, a write
+# strobe, or an AND that masks the payload when the strobe is low. The
+# payload cannot launch on an edge that captures it. Not a timing
+# separation, an interlock: it holds however the two clocks skew and
+# whatever the fit does with them.
 #
 # Worth saying because the obvious argument is wrong. "The strobe is a
 # clk_sys edge later than the address" is false — a staging read that
@@ -161,23 +160,22 @@ set_clock_uncertainty -add -hold 0.080 \
 # clk_rv edge. Three independent attempts to break the interlock instead
 # found nothing, one of them reading the fitted netlist to confirm both
 # negedge flops and the enable's fanin survived.
+#
+# This began as one endpoint and the fit lottery walked the family a
+# pair at a time: dph_addr into stage_addr_q, then into pocket_sdram's
+# op_addr seven picoseconds short, then dph_strb into ria_regs' write
+# enables and dph_addr into the font store's strobe, twenty-six short —
+# each of them physically holding by ninety-odd picoseconds and going
+# negative only under the uncertainty stacked on the crossing above.
+# The check is void wherever the payload lands, so it is cut at the
+# clock and the lottery is out of tickets. Setup stays, and matters:
+# the payload must still cross before the strobe does.
 set_false_path -hold \
     -from [get_registers {*rv_soc*|dph_addr[*]}] \
-    -to [get_registers {*|stage_addr_q[*]}]
-
-# The same interlock, one register further in: the address the mux in
-# rp6502 passes while a staging read pends lands in pocket_sdram's
-# op_addr, captured only under rd_pend — which is bus_pend with the
-# staging decode beside it, and bus_pend is hready un-negated. The
-# capture cannot fire on an edge the address launches on, for exactly
-# the reason above. This pair is where the seam actually failed a fit:
-# dph_addr into op_addr, seven picoseconds short in the fast corner,
-# while stage_addr_q sat excepted beside it. The endpoint pattern is
-# unbracketed because the fitter duplicates op_addr and the duplicates
-# draw the same seam.
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 set_false_path -hold \
-    -from [get_registers {*rv_soc*|dph_addr[*]}] \
-    -to [get_registers {*pocket_sdram*|op_addr*}]
+    -from [get_registers {*rv_soc*|dph_strb[*]}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first
