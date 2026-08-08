@@ -147,6 +147,20 @@ set_false_path -hold \
     -from [get_registers {*rv_soc*|dph_addr[*]}] \
     -to [get_registers {*|stage_addr_q[*]}]
 
+# The same interlock, one register further in: the address the mux in
+# rp6502 passes while a staging read pends lands in pocket_sdram's
+# op_addr, captured only under rd_pend — which is bus_pend with the
+# staging decode beside it, and bus_pend is hready un-negated. The
+# capture cannot fire on an edge the address launches on, for exactly
+# the reason above. This pair is where the seam actually failed a fit:
+# dph_addr into op_addr, seven picoseconds short in the fast corner,
+# while stage_addr_q sat excepted beside it. The endpoint pattern is
+# unbracketed because the fitter duplicates op_addr and the duplicates
+# draw the same seam.
+set_false_path -hold \
+    -from [get_registers {*rv_soc*|dph_addr[*]}] \
+    -to [get_registers {*pocket_sdram*|op_addr*}]
+
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first
 # stage is cut by the rule above. Bound the parameters instead of
