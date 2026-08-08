@@ -56,6 +56,18 @@ bool aud_psg_xreg(uint16_t word)
     }
     AUD_OPL_XADDR = 0xFFFF;
     AUD_PSG_XADDR = word;
+    /* The engine learns its registers from writes and never reads the
+     * block back, so a block programmed before the pointer would be
+     * invisible to it — where the RP2350 reads XRAM every sample and
+     * finds it. Writing each byte back over itself is that block
+     * arriving. It must come from here rather than the 6502: only the
+     * 6502's writes strike gates, so this cannot start a note the other
+     * machine leaves silent. */
+    for (uint8_t i = 0; i < 64; i++)
+    {
+        uint8_t v = XRAM_WIN[word + i];
+        XRAM_WIN[word + i] = v;
+    }
     return true;
 }
 

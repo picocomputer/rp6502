@@ -125,15 +125,18 @@ rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
 set(RP6502_ROM_GEN ${RP6502_SRC}/gen/rp6502_rom.py)
 
 set(AUD_ROM_PSG ${RP6502_ASSETS}/psg.rp6502)
+set(AUD_ROM_PSG_PRE ${RP6502_ASSETS}/psg_pre.rp6502)
 set(AUD_ROM_OPL ${RP6502_ASSETS}/opl.rp6502)
 set(AUD_ROM_OPL_EXIT ${RP6502_ASSETS}/opl_exit.rp6502)
 set(AUD_ROM_BEL ${RP6502_ASSETS}/bel.rp6502)
 set(AUD_ROM_OPL_BEL ${RP6502_ASSETS}/opl_bel.rp6502)
 rp6502_asset(aud_roms GEN ${RP6502_SRC}/gen/aud_rom_gen.py
-    ARGS --emit-psg ${AUD_ROM_PSG} --emit-opl ${AUD_ROM_OPL}
+    ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
+        --emit-opl ${AUD_ROM_OPL}
         --emit-opl-exit ${AUD_ROM_OPL_EXIT}
         --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
-    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_OPL} ${AUD_ROM_OPL_EXIT}
+    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
+        ${AUD_ROM_OPL_EXIT}
         ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the audio bring-up ROMs")

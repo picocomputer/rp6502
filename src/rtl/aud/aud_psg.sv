@@ -7,12 +7,20 @@
  * same accumulator widths, the same wrapping. The two must agree sample
  * for sample, which is what fixes every width below.
  *
- * Eight voices are the program's, out of its XRAM block. The ninth is
- * the bell, six bytes the soft CPU writes, because a bell has to ring
- * whether or not a program installed a pointer.
+ * Eight voices are the program's. Their registers arrive as writes and
+ * are held here, so the engine never reads XRAM and never asks the read
+ * port for a turn. The RP2350 re-reads the block every sample instead,
+ * and the two meet because a held write and a re-read byte are the same
+ * byte. Only the 6502's writes strike a gate: a block programmed before
+ * the pointer is imported by the soft CPU, whose writes fill these
+ * registers and start nothing, which is the machine that polls saying
+ * a gate is an edge and there was no edge.
  *
- * The walk always runs. A parked pointer skips the fetch and nothing
- * else — parking cleared the volumes, and a silent voice makes no sound.
+ * The ninth voice is the bell, six bytes the soft CPU writes, because a
+ * bell has to ring whether or not a program installed a pointer.
+ *
+ * The walk always runs — parking cleared the volumes, and a silent voice
+ * makes no sound.
  *
  * One multiplier, one divider, one subtractor, and the voice state in
  * memories the cursor addresses. Under four hundred clocks of the
@@ -38,12 +46,10 @@ module aud_psg
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
-    output logic aud_psg_a_req,
-    output logic [13:0] aud_psg_a_addr,
-    input logic a_gnt,
-    input logic [31:0] a_rdata,
-
+    /* Every write to XRAM. q_host marks the 6502's own, which are the
+     * only ones a gate answers. */
     input logic q_we,
+    input logic q_host,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
@@ -111,10 +117,32 @@ module aud_psg
     logic enabled;
     always_comb enabled = xaddr != 16'hFFFF;
 
-    /* Held to the next walk boundary: a write landing mid-walk would
-     * tear the in-flight sample's state. */
+    /* The pointer moves on the write, because the import that follows it
+     * has to land inside the new window. What the pointer resets is held
+     * to the next walk boundary: the clear reaches the mix through
+     * ld_vol, and a clear landing mid-walk would tear the in-flight
+     * sample. */
     logic xreg_pend;
-    logic [15:0] xreg_word;
+
+    /* The walk's cursor, nine voices around. */
+    logic [3:0] ch;
+
+    /* Decoded where it lands, on the clock it lands. Software rejects an
+     * odd pointer and a block that crosses its page, so a write inside
+     * the page and under sixty-four of the base is a write to the
+     * structure and nothing else can be. */
+    logic snoop;
+    always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
+    logic [15:0] snoop_off;
+    always_comb snoop_off = q_addr - xaddr;
+    logic [2:0] snoop_ch;
+    always_comb snoop_ch = snoop_off[5:3];
+    logic snoop_cfg;
+    always_comb snoop_cfg = snoop && snoop_off[15:6] == 10'd0;
+    /* A gate is an edge, and only the 6502 makes one. The soft CPU's
+     * import carries the same byte and must not strike the note. */
+    logic snoop_gate;
+    always_comb snoop_gate = snoop_cfg && q_host && snoop_off[2:0] == 3'd6;
 
     /* One array a field, never one wide array: a wide enough array runs
      * past what LUT memory can hold and falls back to a block, which
@@ -148,25 +176,63 @@ module aud_psg
     end
     logic [1:0] ch_adsr[9];
 
-    /* Eight entries the walk indexes, read asynchronously, so cf stays
-     * combinational and no state moves by a cycle. Two 32-bit
-     * halves rather than one 64: the fetch arrives a word at a time, and
-     * one wide array would need a half-width write enable.
+    /* The program's registers, a byte of the structure to an array for
+     * the reason above: writes arrive a byte at a time and one wide
+     * array would need a byte's worth of write enable. Eight entries
+     * each, read asynchronously, so cf stays combinational and no state
+     * moves by a cycle. The structure's seventh byte is its padding and
+     * is not stored.
      *
-     * Not reset, which is what lets them be memory at all. Nothing reads
-     * them before P_FETCH has written all sixteen words. */
+     * Initialized, and that matters here: the walk reads these from the
+     * first sample, with nothing between power-on and a program's first
+     * write to put a number in them. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] cfg_lo[8];
+    logic [7:0] cfg_freq_lo[8];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] cfg_hi[8];
+    logic [7:0] cfg_freq_hi[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_duty[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_va[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_vd[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_wr[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_pan[8];
+    initial begin
+        for (int i = 0; i < 8; i++) begin
+            cfg_freq_lo[i] = '0;
+            cfg_freq_hi[i] = '0;
+            cfg_duty[i] = '0;
+            cfg_va[i] = '0;
+            cfg_vd[i] = '0;
+            cfg_wr[i] = '0;
+            cfg_pan[i] = '0;
+        end
+    end
     logic [63:0] cf;
-    logic [3:0] ch;
 
     logic [31:0] bel_lo;
     logic [23:0] bel_hi;
     logic bel_gate_q;
-    always_comb cf = ch[3] ? {8'd0, bel_hi, bel_lo}
-                           : {cfg_hi[ch[2:0]], cfg_lo[ch[2:0]]};
+    /* A write to the voice the cursor is standing on is forwarded around
+     * the array it is landing in. The walk reads a voice on four of its
+     * clocks and a write is answered on the clock it lands — the gate's
+     * rule, and the whole structure keeps it. An unforwarded read of an
+     * array being written is undefined in the silicon, and one bad byte
+     * of wave_release latches an envelope that never releases. */
+    logic fwd;
+    always_comb fwd = snoop_cfg && !ch[3] && snoop_ch == ch[2:0];
+    logic [63:0] cfg_word;
+    always_comb begin
+        cfg_word = {8'd0, cfg_pan[ch[2:0]], cfg_wr[ch[2:0]], cfg_vd[ch[2:0]],
+                    cfg_va[ch[2:0]], cfg_duty[ch[2:0]], cfg_freq_hi[ch[2:0]],
+                    cfg_freq_lo[ch[2:0]]};
+        if (fwd)
+            cfg_word[{snoop_off[2:0], 3'd0}+:8] = q_val;
+    end
+    always_comb cf = ch[3] ? {8'd0, bel_hi, bel_lo} : cfg_word;
 
     /* The address is registered rather than retaken from the cursor: two
      * addresses is a dual port and a dual port is an MLAB. */
@@ -184,23 +250,6 @@ module aud_psg
     logic [VOL_W-1:0] ld_vol;
     always_comb ld_vol = clr && !ch[3] ? '0 : ch_vol[ch];
 
-    /* An odd pointer is the only thing rejected, so a block can start on
-     * a halfword and straddle seventeen words rather than sixteen. */
-    logic [15:0] carry_hi;
-    logic cw_en;
-    logic [3:0] cw_word;
-    logic [31:0] cw_data;
-    always_comb begin
-        if (xaddr[1]) begin
-            cw_en = gnt_d && fw_c != 5'd0;
-            cw_word = 4'(fw_c - 5'd1);
-            cw_data = {a_rdata[15:0], carry_hi};
-        end else begin
-            cw_en = gnt_d && fw_c < 5'd16;
-            cw_word = 4'(fw_c);
-            cw_data = a_rdata;
-        end
-    end
     logic [15:0] cf_freq;
     logic [7:0] cf_duty, cf_va, cf_vd, cf_wr, cf_pan;
     always_comb begin
@@ -212,36 +261,25 @@ module aud_psg
         cf_pan = cf[55:48];
     end
 
-    /* Decoded where it lands, on the clock it lands. The gate is all the
-     * page means today. */
-    logic snoop;
-    always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
-    logic [15:0] snoop_off;
-    always_comb snoop_off = q_addr - xaddr;
-    logic [2:0] snoop_ch;
-    always_comb snoop_ch = snoop_off[5:3];
-    logic snoop_gate;
-    always_comb snoop_gate = snoop && snoop_off[2:0] == 3'd6
-        && snoop_off[15:3] < 13'd8;
-
     typedef enum logic [2:0] {
-        P_IDLE, P_FETCH, P_MIX, P_OUT, P_LOAD, P_DIV, P_PH, P_STEP
+        P_IDLE, P_MIX, P_OUT, P_LOAD, P_DIV, P_PH, P_STEP
     } state_t;
     state_t state;
 
     logic [12:0] tickctr;
-    logic [4:0] fw_i, fw_c, fw_n;
-    always_comb fw_n = xaddr[1] ? 5'd17 : 5'd16;
-    logic gnt_d;
 
     /* Unshifted, rounding once at P_OUT: two truncations in series bias
      * every sounding channel downward, which is DC, not noise. */
     logic signed [26:0] mix_l, mix_r;
-    /* The oracle's int8 division truncates toward zero. */
-    logic signed [7:0] pan;
-    always_comb pan = cf_pan[7]
+    /* The oracle's int8 division truncates toward zero. Taken once for
+     * the channel, on the clock its envelope is: the oracle reads
+     * pan_gate once too, and a write landing between the two sides
+     * would otherwise place the same voice twice. */
+    logic signed [7:0] pan_c;
+    always_comb pan_c = cf_pan[7]
         ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
         : 8'($signed(cf_pan) >>> 1);
+    logic signed [7:0] pan;
     /* One multiplier walked three times a channel — the envelope's
      * product, then that against each side's pan. In series on one clock
      * it was the module's longest path, and the walk has seven hundred
@@ -403,11 +441,6 @@ module aud_psg
         endcase
     end
 
-    always_comb begin
-        aud_psg_a_req = state == P_FETCH && {1'b0, fw_i} < {1'b0, fw_n};
-        aud_psg_a_addr = xaddr[15:2] + {9'd0, fw_i};
-    end
-
     /* Unreset: a reset here would make these flops again. */
     always_ff @(posedge clk) begin
         if (state == P_STEP) begin
@@ -417,19 +450,23 @@ module aud_psg
             ch_noise1[w_ch] <= noise_step ? noise1_x : w_noise1;
             ch_noise2[w_ch] <= noise_step ? w_noise2 + noise1_x : w_noise2;
         end
-        if (cw_en) begin
-            if (cw_word[0]) begin
-                cfg_hi[cw_word[3:1]] <= cw_data;
-            end else begin
-                cfg_lo[cw_word[3:1]] <= cw_data;
-            end
+        if (snoop_cfg) begin
+            case (snoop_off[2:0])
+                3'd0: cfg_freq_lo[snoop_ch] <= q_val;
+                3'd1: cfg_freq_hi[snoop_ch] <= q_val;
+                3'd2: cfg_duty[snoop_ch] <= q_val;
+                3'd3: cfg_va[snoop_ch] <= q_val;
+                3'd4: cfg_vd[snoop_ch] <= q_val;
+                3'd5: cfg_wr[snoop_ch] <= q_val;
+                3'd6: cfg_pan[snoop_ch] <= q_val;
+                default: ;  /* the structure's padding */
+            endcase
         end
     end
 
     initial begin
         xaddr = 16'hFFFF;
         xreg_pend = 1'b0;
-        xreg_word = 16'hFFFF;
         for (int i = 0; i < 9; i++)
             ch_adsr[i] = ADSR_RELEASE;
         clr = 1'b0;
@@ -444,9 +481,7 @@ module aud_psg
         ch = '0;
         state = P_IDLE;
         tickctr = '0;
-        fw_i = '0;
-        fw_c = '0;
-        gnt_d = 1'b0;
+        pan = '0;
         mix_l = '0;
         mix_r = '0;
         mix_i = '0;
@@ -460,7 +495,6 @@ module aud_psg
         aud_psg_tick = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d <= a_gnt;
         aud_psg_valid <= 1'b0;
         aud_psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
 
@@ -480,7 +514,6 @@ module aud_psg
                     /* The phase persists across an xreg; the envelopes
                      * and noise go with clr. */
                     xreg_pend <= 1'b0;
-                    xaddr <= xreg_word;
                     clr <= 1'b1;
                     for (int i = 0; i < 8; i++)
                         ch_adsr[i] <= ADSR_RELEASE;
@@ -492,33 +525,15 @@ module aud_psg
                     mix_l <= '0;
                     mix_r <= '0;
                     mix_i <= '0;
-                    if (xreg_pend ? xreg_word != 16'hFFFF : enabled)
-                    begin
-                        fw_i <= '0;
-                        fw_c <= '0;
-                        state <= P_FETCH;
-                    end else
-                        state <= P_MIX;
-                end
-            end
-            P_FETCH: begin
-                if (a_gnt)
-                    fw_i <= fw_i + 5'd1;
-                if (gnt_d) begin
-                    carry_hi <= a_rdata[31:16];
-                    fw_c <= fw_c + 5'd1;
-                    if (fw_c + 5'd1 == fw_n) begin
-                        ch <= '0;
-                        mix_l <= '0;
-                        mix_r <= '0;
-                        mix_i <= '0;
-                        state <= P_MIX;
-                    end
+                    state <= P_MIX;
                 end
             end
             P_MIX: begin
                 case (mix_i)
-                    2'd0: mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
+                    2'd0: begin
+                        mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
+                        pan <= pan_c;
+                    end
                     2'd1: if (pan != -8'sd64)
                         mix_l <= mix_l + 27'(mul_p);
                     default: begin
@@ -602,8 +617,8 @@ module aud_psg
         /* After the case, so a write on an apply clock is kept for
          * the next boundary instead of vanishing under the clear. */
         if (xaddr_we) begin
+            xaddr <= xaddr_wdata;
             xreg_pend <= 1'b1;
-            xreg_word <= xaddr_wdata;
         end
     end
 
@@ -616,12 +631,11 @@ module aud_psg
     endfunction
 
     /* The rest of pan_gate is the pan, and the pan is not edge
-     * triggered — it arrives with the rest of the config on the fetch,
-     * every sample, and is read out of cf. Only the gate has to be
-     * caught at the moment it moves. */
+     * triggered — it is held with the rest of the structure and read out
+     * of cf. Only the gate has to be caught at the moment it moves. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{cf[63:56], q_val[7:1], bel_wdata[31:24]};
+    always_comb unused_aud_psg = ^{cf[63:56], bel_wdata[31:24]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

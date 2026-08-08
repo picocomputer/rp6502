@@ -570,42 +570,69 @@ module rp6502
         .w_data(bus_wdata)
     );
 
-    logic [2:0] ma_req;
-    logic [13:0] ma_addr[3];
-    logic [1:0] a_rotor, a_sel;
+    /* The two renderers. Mod two, so the wrap is free. */
+    logic [1:0] ma_req;
+    logic [13:0] ma_addr[2];
+    logic a_rotor, a_sel;
     logic a_any;
-    /* Every rotor position solved at once, so the rotor only chooses
-     * between answers that settled while it arrived from a register.
-     * Scanning from the live rotor instead put a priority scan in
-     * front of the address mux. The lowest offset with a request wins:
-     * the loop counts down and the last assignment stands. */
-    logic [1:0] sel_at[3];
-    logic any_at[3];
     always_comb begin
-        for (int r = 0; r < 3; r++) begin
-            sel_at[r] = 2'(r);
-            any_at[r] = 1'b0;
-            for (int i = 2; i >= 0; i--) begin
-                if (ma_req[(r + i) % 3]) begin
-                    sel_at[r] = 2'((r + i) % 3);
-                    any_at[r] = 1'b1;
-                end
+        a_sel = a_rotor;
+        a_any = 1'b0;
+        for (int i = 0; i < 2; i++) begin
+            logic cand;
+            cand = a_rotor ^ 1'(i);
+            if (!a_any && ma_req[cand]) begin
+                a_sel = cand;
+                a_any = 1'b1;
             end
         end
-        a_sel = sel_at[a_rotor];
-        a_any = any_at[a_rotor];
     end
-    initial a_rotor = 2'd0;
+    initial a_rotor = 1'd0;
     always_ff @(posedge clk_sys)
         if (a_any)
-            a_rotor <= a_sel == 2'd2 ? 2'd0 : a_sel + 2'd1;
+            a_rotor <= a_sel + 1'd1;
+
+    /* Port B's write, named because the PSG watches it. The RW engine's
+     * is the 6502's, and only the 6502's strikes a gate. */
+    logic xw_we, xw_host;
+    logic [15:0] xw_addr;
+    logic [7:0] xw_wdata;
+    always_comb begin
+        xw_host = xr_busy;
+        xw_we = xr_busy ? xr_we : (bus_stb && bus_we && bus_sel_xram);
+        xw_addr = xr_busy ? xr_addr : bus_addr[15:0];
+        xw_wdata = xr_busy ? xr_wdata : bus_wbyte;
+    end
+    /* The PSG's copy, a clock behind. The soft CPU's half of that mux is
+     * combinational off its bus, and what it reaches inside the engine
+     * is the byte the envelope's comparators are built on — handing it
+     * over unregistered ran a foreign bus through the deepest arithmetic
+     * in the machine and cost three and a half nanoseconds it does not
+     * have. Nothing can tell the difference: the engine reads no XRAM,
+     * so all the clock moves is when a gate strikes, by one of fifty
+     * million. */
+    logic qs_we, qs_host;
+    logic [15:0] qs_addr;
+    logic [7:0] qs_val;
+    initial begin
+        qs_we = 1'b0;
+        qs_host = 1'b0;
+        qs_addr = '0;
+        qs_val = '0;
+    end
+    always_ff @(posedge clk_sys) begin
+        qs_we <= xw_we;
+        qs_host <= xw_host;
+        qs_addr <= xw_addr;
+        qs_val <= xw_wdata;
+    end
     xram64k xram (
         .clk(clk_sys),
         .a_addr(ma_addr[a_sel]),
         .xram64k_a_rdata(xram_a_rdata),
-        .b_addr(xr_busy ? xr_addr : bus_addr[15:0]),
-        .b_wdata(xr_busy ? xr_wdata : bus_wbyte),
-        .b_we(xr_busy ? xr_we : (bus_stb && bus_we && bus_sel_xram)),
+        .b_addr(xw_addr),
+        .b_wdata(xw_wdata),
+        .b_we(xw_we),
         .xram64k_b_rdata(xram_b_rdata)
     );
 
@@ -714,7 +741,7 @@ module rp6502
         .cw(vid_cw),
         .vid_fill_a_req(ma_req[0]),
         .vid_fill_a_addr(ma_addr[0]),
-        .a_gnt(a_any && a_sel == 2'd0),
+        .a_gnt(a_any && a_sel == 1'd0),
         .a_rdata(xram_a_rdata),
         .vid_fill_f_req(mf_req[0]),
         .vid_fill_f_addr(mf_addr[0]),
@@ -757,7 +784,7 @@ module rp6502
         .vid_sprite_overrun(),
         .vid_sprite_a_req(ma_req[1]),
         .vid_sprite_a_addr(ma_addr[1]),
-        .a_gnt(a_any && a_sel == 2'd1),
+        .a_gnt(a_any && a_sel == 1'd1),
         .a_rdata(xram_a_rdata)
     );
     /* verilator lint_on PINCONNECTEMPTY */
@@ -775,13 +802,10 @@ module rp6502
         .clk(clk_sys),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
-        .aud_psg_a_req(ma_req[2]),
-        .aud_psg_a_addr(ma_addr[2]),
-        .a_gnt(a_any && a_sel == 2'd2),
-        .a_rdata(xram_a_rdata),
-        .q_we(xr_busy && xr_we),
-        .q_addr(xr_addr),
-        .q_val(xr_wdata),
+        .q_we(qs_we),
+        .q_host(qs_host),
+        .q_addr(qs_addr),
+        .q_val(qs_val),
         .bel_lo_we(aud_we && bus_addr[5:2] == 4'h4),
         .bel_hi_we(aud_we && bus_addr[5:2] == 4'h5),
         .bel_wdata(bus_wdata),
