@@ -8,8 +8,9 @@
 #include "emu/emu/aud.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
-#include "emu/emu/aud.h"
+#include "emu/emu/rsmp.h"
 #include "ria/aud/bel.h"
+#include "ria/aud/psg.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 #include <math.h>
 #include <string.h>
@@ -20,12 +21,34 @@ int16_t aud_sine_table[256];
 static void (*aud_irq_fn)(void);
 static uint32_t aud_irq_rate;
 
+/* What the machine generates at. The default is what we ask the host for;
+ * aud_set_native_rate replaces it with what the host actually gave, so the
+ * voices whose rate is ours to choose are generated at the device's rate
+ * and aud_pump has nothing to do for them. */
+#define AUD_NATIVE_RATE 48000
+static uint32_t g_native_rate = AUD_NATIVE_RATE;
+
+uint32_t aud_native_rate(void) { return g_native_rate; }
+
 void aud_init(void)
 {
     // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
     for (unsigned i = 0; i < 256; i++)
         aud_sine_table[i] = (int16_t)lround(cos(M_PI * 2.0 / 256 * i) * -32767);
+    psg_setup(aud_native_rate());
     aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
+}
+
+void aud_set_native_rate(uint32_t rate)
+{
+    if (!rate || rate == g_native_rate)
+        return;
+    g_native_rate = rate;
+    /* The PSG's envelope tables and phase divisor come out of the rate, and
+     * the standing bell is registered with it, so both have to be rebuilt.
+     * aud_stop does the bell and drains the ring. */
+    psg_setup(rate);
+    aud_stop();
 }
 
 void aud_setup(void (*irq_fn)(void), uint32_t rate)
@@ -134,56 +157,85 @@ int aud_read(float *dst, int max_frames)
     return got;
 }
 
-/* Linear resampler carry across frames so interpolation is continuous: the read
- * position between the previous and current native input sample, and that
- * previous sample. */
-static struct
+/* One resampler per channel, carried across frames so the phase is
+ * continuous. Only the OPL2 ever reaches these: everything else is generated
+ * at aud_native_rate(), which is the device's own rate. */
+static rsmp_t g_rs_l, g_rs_r;
+
+/* The ring is float only because that is what the host wants; every value in
+ * it is an exact int16 over 32768, so this round trip loses nothing. */
+static inline int32_t to_i(float f) { return (int32_t)lrintf(f * 32768.0f); }
+
+static inline float to_f(int32_t v)
 {
-    double frac;
-    float prev_l, prev_r;
-    bool primed;
-} g_rs;
+    /* The filter overshoots on transients, which is a sinc doing its job.
+     * The host's converter is the sink, so this is where it stops. */
+    if (v > 32767)
+        v = 32767;
+    if (v < -32768)
+        v = -32768;
+    return (float)v / 32768.0f;
+}
+
+/* saudio_push returns how many frames it took. A full device FIFO means the
+ * machine is ahead of the converter, and the remainder is dropped rather than
+ * waited on — blocking here would trade a click for a stall, and the ring
+ * upstream already drops its oldest for the same reason. */
+static void push_all(const float *f, int n,
+                     int (*push)(const float *frames, int num_frames))
+{
+    int done = 0;
+    while (done < n)
+    {
+        const int got = push(f + done * 2, n - done);
+        if (got <= 0)
+            break;
+        done += got;
+    }
+}
 
 void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames))
 {
-    int in_rate = aud_rate();
+    const int in_rate = aud_rate();
     if (in_rate <= 0 || out_rate <= 0)
         return;
-    const double step = (double)in_rate / out_rate; /* input frames per output frame */
 
     static float in[4096 * 2];
     static float out[4096 * 2];
     int navail;
+
+    /* The usual case, and not merely an optimisation: a resampler run at
+     * unity still rounds, and a voice generated at the device's own rate has
+     * nothing to gain from being filtered. */
+    if (in_rate == out_rate)
+    {
+        while ((navail = aud_read(in, 4096)) > 0)
+            push_all(in, navail, push);
+        return;
+    }
+
+    const uint64_t step = rsmp_step((uint32_t)in_rate, (uint32_t)out_rate);
     while ((navail = aud_read(in, 4096)) > 0)
     {
         int oc = 0;
         for (int i = 0; i < navail; i++)
         {
-            float cl = in[i * 2 + 0], cr = in[i * 2 + 1];
-            if (!g_rs.primed)
+            int32_t bl[8], br[8];
+            const int n = rsmp_push(&g_rs_l, to_i(in[i * 2 + 0]), step, bl, 8);
+            rsmp_push(&g_rs_r, to_i(in[i * 2 + 1]), step, br, 8);
+            for (int k = 0; k < n; k++)
             {
-                g_rs.prev_l = cl;
-                g_rs.prev_r = cr;
-                g_rs.primed = true;
-            }
-            /* Emit every output sample that falls between prev and cur. */
-            while (g_rs.frac < 1.0)
-            {
-                out[oc * 2 + 0] = g_rs.prev_l + (cl - g_rs.prev_l) * (float)g_rs.frac;
-                out[oc * 2 + 1] = g_rs.prev_r + (cr - g_rs.prev_r) * (float)g_rs.frac;
+                out[oc * 2 + 0] = to_f(bl[k]);
+                out[oc * 2 + 1] = to_f(br[k]);
                 if (++oc == 4096)
                 {
-                    push(out, oc);
+                    push_all(out, oc, push);
                     oc = 0;
                 }
-                g_rs.frac += step;
             }
-            g_rs.frac -= 1.0;
-            g_rs.prev_l = cl;
-            g_rs.prev_r = cr;
         }
         if (oc > 0)
-            push(out, oc);
+            push_all(out, oc, push);
     }
 }
 
@@ -208,4 +260,8 @@ void aud_stop(void)
     g_out_l = g_out_r = 0;
     memset(g_viz, 0, sizeof g_viz);
     g_viz_pos = 0;
+    /* The resampler's phase and history outlived a program stop and put a
+     * discontinuity at the start of the next one. */
+    rsmp_reset(&g_rs_l);
+    rsmp_reset(&g_rs_r);
 }

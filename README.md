@@ -40,7 +40,7 @@ case. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
 one-time developer download rather than a submodule. Run the VS Code
 **vectors: download** task, or from the command line:
 ```
-$ python3 tests/cpu/vectors.py
+$ python3 tests/cpu65/vectors.py
 ```
 This blobless sparse clone takes about a minute and lands roughly a gigabyte in
 `vendor/65x02`. Without it, the conformance tests are skipped and CMake says so.
@@ -64,6 +64,13 @@ $ sudo apt install python3 git tar build-essential gdb-multiarch pkg-config libf
 For the emulator, install the GL/X11/ALSA dev headers:
 ```
 $ sudo apt install libgl-dev libx11-dev libxi-dev libxcursor-dev libasound2-dev
+```
+
+For the FPGA core, install Verilator and the RISC-V toolchain the soft CPU's
+firmware is built with. Without these the FPGA tree still configures; it just
+registers fewer tests and offers no bitstream.
+```
+$ sudo apt install verilator gtkwave ninja-build gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 ```
 
 ## Windows
@@ -129,6 +136,26 @@ panel. Select either the Debug or Release variant. You must select the launch
 target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
+
+To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
+job, each with a build directory of its own:
+
+    verilator/Release   the simulation and its tests
+    verilator/Debug     the same, unoptimised, for stepping a testbench
+    pocket              the Analogue Pocket core
+    quartus             area and timing, all pins virtual
+
+Pick one and the Build list changes with it — under `pocket` it offers
+**Card package** and **Bitstream**, under the Verilator presets **Tests** and
+**Firmware**. F7 builds whichever is selected. Naming every host explicitly is
+so MiSTer can arrive without renaming anything.
+
+Ask for the card and CMake works out what has to happen: change a line of soft
+CPU C and you pay the twenty seconds that puts it in the bitstream, not the
+nine minutes that placed the design. The Pocket tree needs Quartus and
+`gcc-riscv64-unknown-elf` and nothing else — no Verilator. See
+`src/rtl/README.md` for the RTL and `src/host/pocket/README.md` for
+the Pocket itself.
 
 To build the emulator, ensure your seatbelt is fastened and tray tables in their
 upright position; we have some bumpy weather ahead. From the CMake side panel

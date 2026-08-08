@@ -1,0 +1,117 @@
+# What the Design Assistant finds today, and why each entry is still
+# here. Anything above these numbers fails the build; see
+# src/gen/drc_gate.py. Lower a line when a fix lands.
+#
+# Every count and every attribution below was read out of the report
+# rather than reasoned about. The D101 entry used to claim the opposite
+# of what the report says, which is what an unchecked justification is
+# worth.
+#
+# R101  Combinational logic used as a reset, unsynchronised.
+#       aud_opl's Equal2~1 — the chip_rst == 0 comparator — reaching the
+#       reset of the vendored OPL's own afifo. It is a counter compared
+#       against zero, held for 255 clocks at a time, and the core it
+#       resets is the vendor's. The machine's own reset is one flop now
+#       and reaches nothing but the 6502 and the 6522.
+R101 1
+#
+# D101  Data crossing clock domains without a synchroniser. All 551 are
+#       clk_74a into clk_sys. Not one is the clk_sys/clk_rv seam, which
+#       is what this entry used to say:
+#
+#         240  io_pad_controller  the controller and dock inputs
+#         158  pocket_bridge      timezone, RTC, and the input chains
+#         151  pocket_file        the command parameters and result
+#          32  core_bridge_cmd    Analogue's own
+#
+#       It went to 599 for a day, when the slot announcement carried its
+#       id and size across as well — 48 bits behind a toggle. The count
+#       replaced them and it came back here exactly, which is the number
+#       doing its job: a baseline that only ever rises stops being a
+#       measurement.
+#
+#       These are host-clock buses that stand still behind a handshake,
+#       or levels read whenever the machine looks. The tool sees the bits
+#       cross and cannot see what holds them, which is the same blind
+#       spot that reports every gray pointer under D102.
+#
+#       272 of them are inside Analogue's own code and are not ours to
+#       change. This number does not fall.
+#
+#       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
+#       anyway, in platform/pocket/pocket.cmake: without it Quartus found all 78
+#       chains and discarded them, calculating no MTBF for the design at
+#       all. With it the tool identifies 476 chains, fails to rate 1.7%
+#       of them rather than 100%, and puts the design at 1e+09 years.
+D101 551
+#
+# D102  Multi-bit crossings that are synchronised but may land
+#       misaligned. pocket_fifo's gray pointers, where one bit changes
+#       per step and misalignment is safe by construction — the tool
+#       cannot know the encoding — and the bridge's held buses.
+#
+#       23 rather than 22 since RESB stopped taking a reset. Measured,
+#       not assumed: the same tree fits at 22 with that one reset put
+#       back. Nothing connects them logically — resb is clk_sys inside
+#       the machine and the arrival is pocket_file_openfile crossing to
+#       clk_74a — so it is packing, the same way losing a reset let the
+#       fitter merge a synchroniser once before. The crossing itself is
+#       the documented one: openfile is decoded from r_op in F_START,
+#       which is reached only after go_t2 != go_t3, three clk_74a flops
+#       behind the toggle. Its four siblings are already here and under
+#       D103 on the same argument.
+#
+#       24 since the slot announcement got a count. It is Gray by the
+#       same argument as the queue pointers above — coded on clk_74a
+#       beside the increment, so one bit changes per step and a sampler
+#       reads the old value or the new one and never a third. The tool
+#       counts eight bits crossing and cannot see the encoding, which is
+#       what this whole entry is about.
+#
+#       The gate has asked for 23. Do not take it: a fit reported 23 and
+#       the next reported 24 with only vid_mode's config fetch changed
+#       between them, and that touches none of these structures — all 24
+#       are named above and every one is in the platform layer. The count
+#       is packing-sensitive, so one observation is not a new floor.
+D102 24
+#
+# D103  Data bits not correctly synchronised. pocket_file's command
+#       word: r_op, and the flush, write and getfile strobes beside it.
+#       Written once per command and unable to change again until busy
+#       clears, and the host does not read them until go_t2 != go_t3,
+#       three clk_74a flops after the toggle that announced them. Data
+#       held still behind a synchronised toggle is the correct
+#       handshake; the tool can see the bits and not the handshake.
+D103 3
+#
+# C104  A clock source driving something other than a clock port:
+#       clk_74a, which Analogue's own framework also uses as data.
+C104 1
+#
+# R102  An external reset not double-registered: bridge_spiss, from the
+#       platform.
+R102 1
+#
+# C106  One clock driving both edges, and it stays. rp6502.sv takes the
+#       soft CPU's bus strobe on negedge clk_sys.
+#
+#       This was first written down as a hack to be backed out, and that
+#       was wrong. The signal being narrowed is rv_soc_bus_stb, which is
+#       rv_soc_bus_pend AND bus_rdy — one term a clk_rv flop, the other
+#       from clk_sys logic decoding a clk_rv address. It settles partway
+#       through the clk_sys period by construction, so a rising-edge
+#       sample asks while it is still moving, and what a wrong answer
+#       costs is not a wrong value but a bus access that never happens.
+#
+#       Narrowing bus_pend instead does not help: the edge that matters
+#       is the one where the machine becomes ready, so detecting
+#       bus_pend and merely gating the pulse with bus_rdy would consume
+#       the edge on a cycle the machine could not serve and lose the
+#       access for good. And bus_rdy cannot be made single-rate — it
+#       decodes a clk_rv address against a clk_sys busy.
+#
+#       A signal that settles mid-period wants sampling late in the
+#       period. That is the falling edge. The duty-cycle dependency it
+#       brings is real and is the price; 9.9 ns nominal against a race
+#       that had none.
+C106 1

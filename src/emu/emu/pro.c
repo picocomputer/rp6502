@@ -7,7 +7,7 @@
 
 #include "emu/emu/pro.h"
 #include "emu/emu/msc.h"
-#include "emu/host/host.h"
+#include "host/host.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "ria/api/api.h"

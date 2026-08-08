@@ -82,6 +82,7 @@ void main_stop(void)
     vga_stop();
     rln_stop();
     api_stop();
+    oem_stop(); /* a run-only code page belongs to the run that set it */
     std_stop();
     fat_stop();
     msc_stop();

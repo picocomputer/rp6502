@@ -15,7 +15,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define BEL_DEFAULT_RATE 24000
 #define BEL_QUEUE_SIZE 8
 
 /* As psg.c: full scale, and the value a closed duty gate rails to. */
@@ -113,54 +112,6 @@ static struct
     volatile bool active;
 } bel_state;
 
-// Teletype bell: restrike-capable
-__in_flash("bel_teletype") const ria_bel_t bel_teletype = {
-    .freq = 1760,
-    .duty = 215,          // hint of grit
-    .vol_attack = 0x51,   // attack to -5vol in 8ms
-    .vol_decay = 0x60,    // decay to -6vol in 6ms
-    .wave_release = 0x39, // triangle wave, release to zero in 750ms
-    .restrike_ms = 100,   // restrike 10 Hz
-    .release_ms = 20,
-    .end_ms = 800,
-};
-
-// NFC fail/error: low square buzz
-__in_flash("bel_nfc_fail") const ria_bel_t bel_nfc_fail = {
-    .freq = 330,
-    .duty = 127,          // 50% square
-    .vol_attack = 0x80,   // attack to -8vol in 2ms
-    .vol_decay = 0x80,    // sustain at -8vol
-    .wave_release = 0x15, // square, release to zero in 168ms
-    .restrike_ms = 0,
-    .release_ms = 200,
-    .end_ms = 420,
-};
-
-// NFC success note 1
-__in_flash("bel_nfc_success_1") const ria_bel_t bel_nfc_success_1 = {
-    .freq = 784,
-    .duty = 255,          // full cycle
-    .vol_attack = 0x60,   // attack to -6vol in 2ms
-    .vol_decay = 0x60,    // sustain at -6vol
-    .wave_release = 0x03, // sine, release to zero in 72ms
-    .restrike_ms = 0,
-    .release_ms = 90,
-    .end_ms = 170,
-};
-
-// NFC success note 2
-__in_flash("bel_nfc_success_2") const ria_bel_t bel_nfc_success_2 = {
-    .freq = 1568,
-    .duty = 255,          // full cycle
-    .vol_attack = 0x60,   // attack to -6vol in 2ms
-    .vol_decay = 0x60,    // sustain at -6vol
-    .wave_release = 0x06, // sine, release to zero in 204ms
-    .restrike_ms = 0,
-    .release_ms = 130,
-    .end_ms = 350,
-};
-
 void bel_add(const ria_bel_t *sound)
 {
     uint8_t next = (bel_queue_head + 1) % BEL_QUEUE_SIZE;
@@ -180,14 +131,18 @@ void bel_add(const ria_bel_t *sound)
     }
 }
 
+/* (rate * ms) / 1000, not (rate / 1000) * ms. The old form threw away the
+ * part of the rate below a kilohertz, which is exact at 24000 and 48000 and
+ * 1.44% fast at the OPL's 49716 — the one rate the bell is stepped at that
+ * is not a round number of samples per millisecond. */
 static inline uint32_t bel_attack_rate(uint8_t nibble, uint32_t rate)
 {
-    return (1 << 24) / (rate / 1000 * bel_attack_ms_table[nibble]);
+    return (1 << 24) / (uint32_t)(((uint64_t)rate * bel_attack_ms_table[nibble]) / 1000);
 }
 
 static inline uint32_t bel_decay_release_rate(uint8_t nibble, uint32_t rate)
 {
-    return (1 << 24) / (rate / 1000 * bel_decay_release_ms_table[nibble]);
+    return (1 << 24) / (uint32_t)(((uint64_t)rate * bel_decay_release_ms_table[nibble]) / 1000);
 }
 
 #pragma GCC push_options
@@ -362,7 +317,7 @@ __time_critical_func(bel_irq_handler)(void)
 
     /* bel_sample already answers at full scale and cannot exceed it, so
      * there is nothing to clamp; the platform's aud_out narrows. */
-    int16_t sample = bel_sample(BEL_DEFAULT_RATE);
+    int16_t sample = bel_sample(aud_native_rate());
     aud_out(sample, sample);
 }
 #pragma GCC pop_options
@@ -371,5 +326,5 @@ void bel_setup(void)
 {
     bel_state.noise1 = 0x67452301;
     bel_state.noise2 = 0xEFCDAB89;
-    aud_setup(bel_irq_handler, BEL_DEFAULT_RATE);
+    aud_setup(bel_irq_handler, aud_native_rate());
 }

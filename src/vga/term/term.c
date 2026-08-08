@@ -37,7 +37,16 @@
 //    pays only a 1-byte load and a predicted-not-taken branch.
 
 #define TERM_STD_HEIGHT 30
+/* The tallest terminal any view can ask for. Only the device's SXGA
+ * console reaches 32 — 512 scanlines over a 16-line font — and it is
+ * the sole reason the number is not 30. Every other target tops out
+ * at 480, so on those two rows of cells are bought and never shown,
+ * which is 1,920 bytes of the largest thing this file owns. */
+#if PICO_ON_DEVICE
 #define TERM_MAX_HEIGHT 32
+#else
+#define TERM_MAX_HEIGHT 30
+#endif
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
 #define TERM_CSI_PARAM_MAX_LEN 16

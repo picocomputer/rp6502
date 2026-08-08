@@ -42,6 +42,15 @@ void aud_setup(void (*irq_fn)(void), uint32_t rate);
 void aud_out(int16_t left, int16_t right);
 void aud_clear_irq(void);
 
+/* The rate this host wants generated, for the drivers that get to choose.
+ * The RP2350's PWM will carry any rate; the Pocket's fabric is fixed at
+ * 48 kHz; the emulator answers with whatever the sound card returned. The
+ * OPL2 is the exception and ignores this — a YM3812 runs at 49716 Hz or it
+ * is not a YM3812 — which is the whole reason a resampler exists.
+ */
+
+uint32_t aud_native_rate(void);
+
 /* Full scale of the shared sample path. Sixteen bits because that is what
  * the Pocket's I2S wants and what the OPL2 already produces; the RP2350's
  * PWM is the narrow one and it narrows in its own aud_out.
