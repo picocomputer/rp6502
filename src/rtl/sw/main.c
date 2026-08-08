@@ -27,6 +27,7 @@
 #include "msc.h"
 #include "pad.h"
 #include "pro.h"
+#include "rand.h"
 #include "rom.h"
 #include "vga.h"
 #include "vid.h"
@@ -381,6 +382,7 @@ static void init(void)
         printf("oem: no tables\n");
     vid_init();
     tim_init();
+    rand_init();
 }
 
 /* The 6502 coming out of reset. */
