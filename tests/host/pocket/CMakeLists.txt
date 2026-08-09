@@ -25,6 +25,13 @@ rp6502_add_module_test(fifo
     RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
     TIMEOUT 120)
 
+# --- The debug log, playing both the console and the host ---
+rp6502_add_module_test(pdbglog
+    TOP pocket_dbglog
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_dbglog.sv
+    TIMEOUT 120)
+
 # --- The scaler-side raster from a replayed beam ---
 rp6502_add_module_test(pvideo
     TOP pocket_video

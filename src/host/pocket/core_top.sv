@@ -685,13 +685,16 @@ wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
     .clk_sys     ( clk_sys ),
-    .rst_n       ( core_rst_n_sys ),
     .tx_data     ( con_tx_data ),
     .tx_valid    ( con_tx_valid ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),
     .clk_74a     ( clk_74a ),
     .arst_n      ( core_rst_n_74 ),
+    .bridge_wr            ( bridge_wr ),
+    .bridge_endian_little ( bridge_endian_little ),
+    .bridge_addr          ( bridge_addr ),
+    .bridge_wr_data       ( bridge_wr_data ),
     .target_debug_done   ( dbglog_done ),
     .pocket_dbglog_event ( dbglog_event ),
     .pocket_dbglog_id    ( dbglog_id )
