@@ -19,40 +19,30 @@ This project is for building emulation or firmware. For writing 6502 software, s
 Begin by installing VS Code and the Pi Pico VS Code Extension as described in
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-Some dependencies are submodules. Don't forget to grab them:
-```
-$ git submodule update --init
-```
-
-The emulator's debugger needs one nested submodule. Don't use `--recursive`,
-which downloads much more than needed:
-```
-$ git -C vendor/cppdap submodule update --init third_party/json
-```
+Most dependencies are submodules, and CMake fetches the ones your build needs
+the first time you configure — the firmware wants two, the emulator six, the
+FPGA core four or five. No tree fetches another tree's, none of them fetches a
+submodule's own submodules, and the first configure of a fresh clone takes an
+extra half minute saying so. `-DRP6502_FETCH_SUBMODULES=OFF` leaves `vendor/`
+entirely to you. The web build's toolchain arrives the same way, which is a
+few hundred megabytes the first time.
 
 Both 65C02 implementations, the emulator's and the FPGA core's, are held to the
 same two suites so neither can drift alone. Klaus Dormann's functional tests
-come with the submodules above and run long self-checking sequences.
+arrive with the rest and run long self-checking sequences.
 
 The other suite replays per-cycle bus traces from
 [SingleStepTests](https://github.com/SingleStepTests/65x02), one instruction per
-case. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
-one-time developer download rather than a submodule. Run the VS Code
-**vectors: download** task, or from the command line:
+case. Upstream carries five CPU families and checks out at 4.8 GB, so this is
+the one thing CMake will not fetch behind your back: a blobless sparse clone of
+the single directory we run, about a gigabyte, and a minute. Run the VS Code
+**vectors: download** task, or from a configured tree:
 ```
-$ python3 tests/cpu65/vectors.py
+$ cmake --build build/emulator/release --target vectors-download
 ```
-This blobless sparse clone takes about a minute and lands roughly a gigabyte in
-`vendor/65x02`. Without it, the conformance tests are skipped and CMake says so.
-
-The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
-submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
-activate the toolchain into that submodule (a one-time ~270 MB download). The same
-thing may be done from the command line (Windows: emsdk.bat) :
-```
-$ vendor/emsdk/emsdk install latest
-$ vendor/emsdk/emsdk activate latest
-```
+Configure again afterwards — a suite cannot be registered by a configure that
+has already finished. Without it the conformance tests are skipped and CMake
+says so.
 
 ## Linux
 
@@ -88,8 +78,7 @@ cmake --build --preset debug
 ```
 
 The binary is `build\emulator\debug\rp6502-emu.exe`. Release uses `--preset release`.
-Ninja must be on PATH. Initialize submodules first (`git submodule update --init`,
-then `git -C vendor/cppdap submodule update --init third_party/json`).
+Ninja must be on PATH.
 
 ## MacOs
 
@@ -121,8 +110,8 @@ The rp6502 and emu project use different CMake models on purpose. The first
 thing you need to remember is that F7 builds with the CMake extension settings
 and F5 launches a debug session with the Debug settings.
 
-To build for web, make sure you ran **emsdk: install and activate** after the submodule init.
-From the CMake side panel select Folder:emu and Configure:WebAssembly.
+To build for web, select Folder:emu and Configure:WebAssembly from the CMake
+side panel; the toolchain installs itself the first time.
 Pressing F7 builds two bundles. `build/web/html` is the tester: a menu shell
 that runs every test ROM. `build/web/itch.io` is a ready-to-publish itch.io
 sample that plays one program (`adventure.rp6502` by default) — see
