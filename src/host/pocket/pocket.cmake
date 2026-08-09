@@ -23,8 +23,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # replace.
     set(BS_QSF ${POCKET_DIR}/rp6502.qsf)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
-    # Analogue's framework is a submodule the simulation never needs, so
-    # it is often absent — CI checks out only what it builds.
+    # Analogue's framework is only wanted once Quartus is here, which is why
+    # this is asked for inside that guard rather than beside the rest.
+    rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf
+        WANTS "the Pocket bitstream" OPTIONAL RESULT RP6502_HAVE_APF)
     # The array the firmware is loaded into is sized in the RTL, so read
     # the size from there rather than keeping a second copy in step.
     file(STRINGS ${RP6502_SRC}/rtl/rv/rv_soc.sv TCM_WORDS_LINE
@@ -33,7 +35,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
 
     # No firmware, no bitstream. A bitstream without it boots to a soft
     # CPU fetching zeros, which looks like dead hardware and is not.
-    if(EXISTS ${APF}/ap_core.qsf AND SW_BIN AND QUARTUS_ASM AND QUARTUS_CDB)
+    if(RP6502_HAVE_APF AND SW_BIN AND QUARTUS_ASM AND QUARTUS_CDB)
     file(MAKE_DIRECTORY ${POCKET_DIR})
     # apf_constraints.sdc reads core/core_constraints.sdc relative to the
     # project directory — the framework's hook for a core's own groups.
@@ -295,10 +297,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         VERBATIM)
     add_custom_target(pocket DEPENDS ${POCKET_DIR}/package.stamp)
 
-    elseif(NOT EXISTS ${APF}/ap_core.qsf)
-        message(STATUS
-            "vendor/openfpga absent - no pocket target. "
-            "git submodule update --init vendor/openfpga")
+    elseif(NOT RP6502_HAVE_APF)
+        message(STATUS "vendor/openfpga absent - no pocket target.")
     elseif(NOT SW_BIN)
         message(STATUS
             "no RISC-V toolchain - no pocket target. "

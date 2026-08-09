@@ -50,6 +50,16 @@ function(rp6502_asset target)
     add_custom_target(${target} ALL DEPENDS ${A_OUTPUTS})
 endfunction()
 
+# Asked for here and not inside rp6502_asset, which only generates when an
+# output is missing: a warm tree whose submodule went away would otherwise
+# configure clean and fail at the build rule instead.
+include(${RP6502_ROOT}/rp6502_submodule.cmake)
+rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
+    WANTS "the cpu65 decode table generator")
+rp6502_submodule(vendor/opl2_fpga
+    SENTINEL fpga/modules/operator/src/opl2_log_sine_lut.sv
+    WANTS "the OPL2 core and its lookup tables")
+
 # --- The generator agrees with the C it generates from ---
 # cpu65's decode tables come from vendor/chips_rp6502, so an upstream change to
 # the addressing or the cycle sequences has to be modelled here before it can

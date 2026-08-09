@@ -20,6 +20,15 @@ set(RP6502_PROJECT_DEFINITIONS
 # firmware build). Reference sources and vendored deps via RP6502_ROOT.
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 
+# The two the firmware reads, asked for here because the SDK is handed
+# PICO_TINYUSB_PATH below and looks inside it during pico_sdk_init().
+include(${RP6502_ROOT}/rp6502_submodule.cmake)
+rp6502_submodule(vendor/tinyusb
+    SENTINEL src/portable/raspberrypi/rp2040/rp2040_usb.c
+    WANTS "the firmware's USB stack")
+rp6502_submodule(vendor/littlefs SENTINEL lfs.c
+    WANTS "the firmware's flash filesystem")
+
 # Project subdirectories (under ${RP6502_ROOT}/src).
 set(RP6502_PROJECT_DIRECTORIES
     ria

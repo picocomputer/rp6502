@@ -75,6 +75,11 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/rtl/vid/vid_mode0.sv
     ${RP6502_SRC}/rtl/vid/vid_compose.sv
     ${RP6502_SRC}/rtl/core/rp6502.sv)
+# Verilator elaborates while cmake configures, so an unresolved module here
+# is a configure error, not a build one. Nothing recursive: Hazard3 has six
+# submodules of its own and this tree reads none of them.
+rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
+    WANTS "the soft CPU")
 set(RP6502_MACHINE_VERILATOR_ARGS
     -y ${RP6502_VENDOR}/hazard3/hdl
     -y ${RP6502_VENDOR}/hazard3/hdl/arith

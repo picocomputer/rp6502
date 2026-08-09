@@ -42,9 +42,12 @@ endif()
 # --- Klaus Dormann: long self-checking sequences ---
 # GPL-3.0, so it stays a submodule reference rather than bytes in this BSD-3
 # tree. The images are data the tests read; nothing is linked or shipped.
+rp6502_submodule(vendor/6502_65C02_functional_tests
+    SENTINEL bin_files/6502_functional_test.bin
+    WANTS "the functional soak" OPTIONAL RESULT RP6502_HAVE_KLAUS)
 set(KLAUS ${RP6502_ROOT}/vendor/6502_65C02_functional_tests/bin_files)
 
-if(EXISTS ${KLAUS}/6502_functional_test.bin)
+if(RP6502_HAVE_KLAUS)
     rp6502_add_test(klaus
         SOURCES test_klaus.c klaus.c ${CPU_DUT}
         INCLUDES ${CPU_INCLUDES}
@@ -53,9 +56,7 @@ if(EXISTS ${KLAUS}/6502_functional_test.bin)
             KLAUS_65C02="${KLAUS}/65C02_extended_opcodes_test.bin"
         TIMEOUT 300)
 else()
-    message(WARNING
-        "Klaus Dormann images absent — functional soak skipped.\n"
-        "  git submodule update --init vendor/6502_65C02_functional_tests")
+    message(WARNING "Klaus Dormann images absent — functional soak skipped.")
 endif()
 
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
@@ -63,7 +64,7 @@ rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
 
 if(RP6502_VERILATE)
     # --- The same two suites again, against the verilated cpu65 ---
-    if(VECTORS AND EXISTS ${KLAUS}/6502_functional_test.bin)
+    if(VECTORS AND RP6502_HAVE_KLAUS)
         rp6502_add_module_test(cpu65
             TOP cpu65
             RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv

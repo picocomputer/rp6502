@@ -2,6 +2,12 @@
 # can run; this file carries what all of them need. Uses utest.h (vendored
 # with sokol).
 
+# Entered from both trees, so it asks rather than assuming the emulator's
+# side already did.
+include(${RP6502_ROOT}/rp6502_submodule.cmake)
+rp6502_submodule(vendor/sokol SENTINEL tests/functional/utest.h
+    WANTS "the test harness")
+
 set(RP6502_UTEST_DIR ${RP6502_VENDOR}/sokol/tests/functional)
 set(RP6502_TESTS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)

@@ -29,6 +29,10 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
+include(${RP6502_ROOT}/rp6502_submodule.cmake)
+rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
+    WANTS "the emulated 6502 and 6522")
+
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in ria/api/uni.c can be read without a
@@ -236,6 +240,9 @@ if(RP6502_EMU_CORE_ONLY)
     return()
 endif()
 
+rp6502_submodule(vendor/sokol SENTINEL sokol_app.h
+    WANTS "the emulator's window, input and audio")
+
 # The desktop window + audio stack. Windows/macOS/web/Android carry their own
 # (D3D11/Metal/WebGL/AAudio); Linux/BSD needs GL + X11 (+ Xi/Xcursor) and ALSA.
 # These are hard requirements — a windowless or silent emulator ships nowhere —
@@ -288,6 +295,8 @@ endif()
 
 # Windows is only platform without getopt
 if(WIN32)
+    rp6502_submodule(vendor/wingetopt SENTINEL src/getopt.c
+        WANTS "getopt on Windows")
     add_subdirectory(${RP6502_VENDOR}/wingetopt wingetopt)
     target_link_libraries(rp6502-emu PRIVATE wingetopt)
     target_compile_definitions(rp6502-emu PRIVATE _BSD_SOURCE)
@@ -366,6 +375,16 @@ endif()
 
 # Include debugging except on web and Android versions
 if(NOT EMSCRIPTEN AND NOT ANDROID)
+    rp6502_submodule(vendor/imgui SENTINEL imgui.cpp
+        WANTS "the debugger's interface")
+    # cppdap carries its own JSON library as a submodule, and fails hard
+    # without it rather than degrading, so it is asked for by name.
+    rp6502_submodule(vendor/cppdap SENTINEL CMakeLists.txt
+        WANTS "the debug adapter")
+    rp6502_submodule(third_party/json SUPER ${RP6502_VENDOR}/cppdap
+        SENTINEL include/nlohmann/json.hpp
+        WANTS "cppdap's JSON backend")
+
     # cppdap (the DAP server library): no examples/tests/fuzzer, vendored
     # nlohmann/json. Exposes the `cppdap` target with its include dir.
     set(CPPDAP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
