@@ -10,7 +10,7 @@
         "extensions": [
           "rp6502"
         ],
-        "size_maximum": "0x03FA0000",
+        "size_maximum": "0x03F00000",
         "address": "0x00000000"
       },
       {

@@ -190,6 +190,15 @@ add_test(NAME kbdlay_json
         --check-interact ${POCKET_CORE_JSON}/interact.json
         --check-data ${POCKET_CORE_JSON}/data.json)
 
+# Where the host writes each slot and where the firmware reads it are
+# the same map kept in two files, and a disagreement is silent.
+add_test(NAME stage_map
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/gen/stage_map_gate.py
+        --data ${POCKET_CORE_JSON}/data.json
+        --mmio ${RP6502_SRC}/rtl/sw/mmio.h
+        --bench ${RP6502_ROOT}/tests/bench/tb_stage.h)
+
 # The file round trip, generated the same way and shipped the same way.
 set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)
 rp6502_asset(file_rom GEN ${RP6502_SRC}/gen/file_rom_gen.py

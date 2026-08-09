@@ -43,12 +43,22 @@
  * together and must be changed together; data.json is strict JSON and
  * cannot carry this comment. The ROM is first because a hot reload
  * writes the new image through the primary slot record. Get File's
- * scratch is the one address here data.json does not declare, since it
- * is not a slot, and the layouts sit above its page so the slots stay in
- * one ascending run. ROM_MAX is data.json's size_maximum. */
+ * scratch and the savestate blob are the two addresses here data.json
+ * does not declare, since neither is a slot, and the layouts sit above
+ * the scratch page so the slots stay in one ascending run. ROM_MAX is
+ * data.json's size_maximum. stage_map_gate.py checks all of it. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
-#define ROM_MAX 0x03FA0000u
+#define ROM_MAX 0x03F00000u
+/* The savestate blob, in the gap the ROM's ceiling gave up for it. The
+ * host writes a blob here as ordinary bridge writes before it asks for
+ * the load, so it arrives in the staging store and is read back through
+ * the window like any other staged image. Reads of this range are the
+ * one thing the host takes out of the machine, and pocket_sst answers
+ * them from the stream the firmware is pushing. */
+#define SST_BLOB_BRIDGE 0x03F00000u
+#define SST_BLOB ((volatile const uint8_t *)0x63F00000u)
+#define SST_BLOB_MAX 0x000A0000u
 #define SLOT_WIN_SIZE 0x8000u
 /* By descriptor, not by slot id: descriptor d is slot 1 + d, and its
  * window is the d'th above the ROM's ceiling. */
