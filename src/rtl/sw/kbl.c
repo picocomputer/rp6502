@@ -4,12 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The keyboard layouts out of the staging store, one word at a time.
- *
- * Same trade as uni.c beside it: twenty kilobytes of table has no room
- * in a 96 KB tightly coupled memory, so the layouts ride in on their
- * own data slot and are read through a window that cannot fetch
- * anything wider than a byte. That only works if every access goes
- * through one function, which is why there is one.
+ * Same trade as uni.c: twenty kilobytes has no room in the TCM, and the
+ * window cannot fetch anything wider than a byte, so every access goes
+ * through this one function.
  */
 
 #include "mmio.h"

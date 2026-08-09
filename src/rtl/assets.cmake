@@ -21,12 +21,9 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # build-time rule is what keeps it fresh when the generator changes.
 #
 # Existence is the whole of what configure needs, so it generates only when
-# something is missing. Running unconditionally moved every asset's timestamp
-# on every configure, and the extension configures on every edit to a
-# CMakeLists — which put a fresh mtime on five packages the bitstream is fitted
-# from, so a comment reworded here read downstream as a design that had
-# changed. That costs a ten minute refit, and it makes the fit's own freshness
-# gate refuse a fit nothing had actually touched.
+# something is missing. Running unconditionally moves every asset's timestamp
+# on every configure, and the IDE configures on every CMakeLists edit — which
+# reads downstream as a changed design and costs a ten minute refit.
 function(rp6502_asset target)
     cmake_parse_arguments(A "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
     set(_absent FALSE)

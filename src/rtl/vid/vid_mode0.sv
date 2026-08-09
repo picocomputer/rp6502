@@ -18,7 +18,6 @@ module vid_mode0 (
     input logic clk,
     input logic frame_start,
 
-    /* The renderer works one line ahead of the beam. */
     input logic [9:0] h,
     input logic [9:0] v,
     input logic px_last,
@@ -44,13 +43,11 @@ module vid_mode0 (
      * same bits.
      *
      * 15360 words is the tallest terminal the engine can build with both
-     * screens, the alternate behind the primary at the offsets the
-     * firmware's row table publishes. This firmware uses 14400, and the
-     * slack is free — both round to the same depth.
+     * screens. This firmware uses 14400; both round to the same depth.
      *
-     * Flat rather than banked. Hand-banking into power-of-two chunks
-     * gives the blocks back a little more exactly and buys the saving
-     * with an adder and a mux on the scanout's address. */
+     * Flat rather than banked: hand-banking gives the blocks back more
+     * exactly and pays for it with an adder and a mux on the scanout's
+     * address. */
     (* ramstyle = "no_rw_check" *)
     logic [7:0] cell0[15360] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
@@ -167,12 +164,10 @@ module vid_mode0 (
         end
     end
 
-    /* Eight clocks a cell in steady state — two cell words and a font
-     * byte, fetched under the previous cell's pixel writes — against a
-     * line of 800. The margin is why the fetches can be serial. */
-    /* The bank rides in the address: a bank index outside it reads both
-     * halves and muxes, which is an asynchronous read and no block RAM
-     * at all. */
+    /* Eight clocks a cell against a line of 800; the margin is why the
+     * fetches can be serial. The bank rides in the address, because a
+     * bank index outside it reads both halves and muxes, which is an
+     * asynchronous read and no block RAM at all. */
     (* ramstyle = "no_rw_check" *)
     logic [15:0] linebuf[2048];
 
@@ -403,7 +398,6 @@ module vid_mode0 (
                         3'd1: w1_n <= fetch_q;
                         3'd6: fetch_word <= fetch_word + 14'd1;
                         3'd7: begin
-                            /* Load the resolved next cell. */
                             bits <= bits_res;
                             fg_r <= fg_res;
                             bg_r <= bg_res;
@@ -427,19 +421,17 @@ module vid_mode0 (
         && px[9:3] == cur_cx
         && (cur_style == 3'd5 || cur_style == 3'd6);
 
-    /* The beam reads one position ahead of itself, on each pixel's last
-     * tick. The bank toggle lands on h==0's first tick, so only the
-     * pixel-0 read at the end of h==799 still sees the line under its
-     * write-side label. */
+    /* The bank toggle lands on h==0's first tick, so only the pixel-0
+     * read at the end of h==799 still sees the line under its write-side
+     * label. */
     logic [10:0] lb_rd;
     always_comb lb_rd = h == 10'd799
         ? {wr_bank, 10'd0}
         : {!wr_bank, 10'(h + 10'd1)};
 
     /* The buffer's output register carries nothing but the buffer: a
-     * branch that hands it a constant instead makes the fabric read
-     * combinationally and mux, and the whole line buffer leaves
-     * memory. The blanking rides alongside and mixes after. */
+     * branch handing it a constant makes the fabric read combinationally
+     * and mux, and the line buffer leaves memory. */
     logic [15:0] lb_q;
     logic lb_blank;
     always_ff @(posedge clk) begin

@@ -10,13 +10,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Both sides of the VGA contract on one machine, the emu/sys/vga.h shape:
- * the RIA-side status the shared readline consults, plus the mode
- * announcement vga.c's prog layer publishes with. The fill and sprite
- * entry points the mode programs call are vga/sys/vga.h's, implemented
- * in vga.c. Self-contained like the emulator's header
- * because ria/sys/vga.h and vga/sys/vga.h each define their own canvas
- * enum; definitions here stay ABI-compatible with both.
+/* Both sides of the VGA contract on one machine, the emu/sys/vga.h
+ * shape. Self-contained because ria/sys/vga.h and vga/sys/vga.h each
+ * define their own canvas enum; these stay ABI-compatible with both.
  */
 
 typedef enum

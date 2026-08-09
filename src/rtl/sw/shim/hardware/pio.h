@@ -3,13 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Soft-CPU shim for <hardware/pio.h>, shadowing the emulator's shim via
- * include-path precedence. This machine has no PIX bus — the video device
- * shares the fabric — so a put goes nowhere and the TX FIFO reads
- * permanently empty. Empty, not full: std.c retires its xram forwarding
- * count through pix_ready(), and a FIFO that never readies would park
- * read_xram in its drain forever. pio1 is never loaded: every entry point
- * here ignores it.
+ * Soft-CPU shim for <hardware/pio.h>. No PIX bus here, so a put goes
+ * nowhere and the TX FIFO reads permanently empty. Empty, not full:
+ * std.c retires its xram forwarding count through pix_ready(), and a
+ * FIFO that never readies would park read_xram in its drain forever.
  */
 
 #ifndef _RTL_SW_SHIM_HARDWARE_PIO_H_

@@ -5,23 +5,12 @@
  *
  * APF's controller slots as HID devices — this platform's usb.c.
  *
- * The dock's keyboard, its mouse and up to four gamepads all arrive as
- * three registers per slot, and the machine already has drivers for all
- * of them: ria/hid, which speaks report descriptors. So rather than a
- * second set of drivers that republish the same XRAM by hand, each slot
- * is mounted with a descriptor written here and its registers are
- * handed over as the report that descriptor describes. ria/usb/xin.c
- * does exactly this for XInput, which has no descriptor either.
+ * Each slot is mounted with a descriptor written here and its registers
+ * handed over as the report that descriptor describes, so ria/hid drives
+ * them. ria/usb/xin.c does the same for XInput.
  *
- * What that buys is everything the hand-written ones did not have: the
- * keyboard's layouts, dead keys, repeat and console, the mouse landing
- * in the tablet driver as well, the pad's straight-through mapping, and
- * four players instead of one.
- *
- * A slot says what it holds in the top nibble of its key word, and
- * Analogue's own note is that the assignment is the framework's to
- * make. So the nibble is what is trusted, not the slot number: any
- * slot may hold any device, and a slot whose nibble changes is a device
+ * A slot's type is the top nibble of its key word, not the slot number:
+ * any slot may hold any device, and a changed nibble is a device
  * unplugged and another plugged in.
  */
 
@@ -45,13 +34,9 @@
 #define APF_TYPE_KBD 4
 #define APF_TYPE_MOU 5
 
-/* The gamepad. Sixteen buttons in APF's own bit order, then the four
- * stick axes and the two triggers, which is exactly the eight bytes
- * assembled below. The button usages are what puts each one where the
- * XRAM report wants it: pad.c files button usage n at index n-1, packs
- * indices 0-15 into its two button bytes, and reads indices 16-19 as
- * the d-pad. Straight through, every one of them — the dpad is a dpad
- * and the sticks are sticks. */
+/* The button usages put each bit where the XRAM report wants it: pad.c
+ * files usage n at index n-1, packs 0-15 into its two button bytes, and
+ * reads 16-19 as the d-pad. */
 static const uint8_t apf_pad_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop)
     0x09, 0x05, // Usage (Game Pad)
@@ -117,9 +102,7 @@ static const uint8_t apf_pad_desc[] = {
     0xc0, // End Collection
 };
 
-/* The keyboard, which is a boot keyboard: the modifier byte, a byte
- * nobody uses, and six scan codes. That is the shape APF sends and the
- * shape kbd.c has always parsed. */
+/* A boot keyboard: modifier byte, unused byte, six scan codes. */
 static const uint8_t apf_kbd_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop)
     0x09, 0x06, // Usage (Keyboard)
@@ -147,11 +130,8 @@ static const uint8_t apf_kbd_desc[] = {
     0xc0, // End Collection
 };
 
-/* The mouse: eight buttons and two sixteen-bit movements. Analogue
- * documents buttons, X and Y for the docked mouse and nothing else, so
- * there is no wheel here to describe. mou.c takes it as a mouse and
- * tab.c takes the same report as a pointer, the way a USB mouse lands
- * in both. */
+/* Eight buttons and two 16-bit movements. Buttons, X and Y are all the
+ * docked mouse documents, so there is no wheel to describe. */
 static const uint8_t apf_mou_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop)
     0x09, 0x02, // Usage (Mouse)
@@ -185,20 +165,10 @@ static const uint8_t apf_mou_desc[] = {
     0xc0, // End Collection
 };
 
-/* A sixteen-bit field, the way one actually arrives.
- *
- * APF packs the bytes of a word most significant first — its own table
- * puts the keyboard's first scan code in joy[31:24] and its fourth in
- * joy[7:0] — and then documents three fields as "little endian byte
- * order": the keyboard's modifiers and the mouse's two movements. Byte
- * order is only worth stating for a value made of more than one byte,
- * and taken together the two statements put such a field's low byte in
- * the high half of its half word.
- *
- * Read as it stands, a movement of three is 0x0300 and a keyboard's
- * shift is eight bits from where it is looked for. The six scan codes
- * are single bytes and need none of this, which is why typing worked
- * while nothing else did. */
+/* APF packs word bytes most significant first, then documents the
+ * keyboard's modifiers and the mouse's movements as little endian. Taken
+ * together, such a field's low byte sits in the high half of its
+ * halfword. Single-byte fields need none of this. */
 static inline uint16_t apf_swap16(uint32_t word)
 {
     return (uint16_t)(((word & 0xFFu) << 8) | ((word >> 8) & 0xFFu));
@@ -221,9 +191,7 @@ static int apf_hid_slot(int slot)
 }
 
 /* Offered to every driver, the way a USB report descriptor is: each one
- * looks at what it was given and keeps what it recognizes. A mouse is
- * a mouse to mou.c and a pointer to tab.c, and this is where that
- * happens rather than something decided here. */
+ * keeps what it recognizes. */
 static void apf_mount(int slot, const uint8_t *desc, uint16_t len)
 {
     int hid_slot = apf_hid_slot(slot);
@@ -251,9 +219,6 @@ static void apf_report(int slot, const uint8_t *report, uint8_t len)
     pad_report(hid_slot, report, len);
 }
 
-/* True when this is news. The registers are levels, so a report that
- * has not changed is the same report and sending it again would be a
- * key repeating itself at the speed of the loop. */
 static bool apf_changed(int slot, const uint8_t *report, uint8_t len)
 {
     if (apf_slots[slot].len == len &&
@@ -264,10 +229,8 @@ static bool apf_changed(int slot, const uint8_t *report, uint8_t len)
     return true;
 }
 
-/* The registers of one slot as the report its descriptor describes.
- * Nothing here reads hardware, which is what lets tests/hid ask what a
- * given set of registers types, points at or presses. Returns the
- * report's length, or zero for a slot holding nothing. */
+/* Reads no hardware, so tests/hid can ask what a given set of registers
+ * types, points at or presses. Zero for a slot holding nothing. */
 static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
                          uint16_t trig, bool first, uint8_t *report)
 {
@@ -275,10 +238,8 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
     {
     case APF_TYPE_POCKET:
     case APF_TYPE_PAD:
-        /* A pad without analog carries no axes, so the sticks are
-         * centered rather than left at whatever the words held. The
-         * triggers stay at zero; pad.c reads a pressed L2 or R2 as a
-         * trigger fully down, so a digital pad still has both. */
+        /* No axes, so centre the sticks rather than leave whatever the
+         * words held. pad.c reads a pressed L2/R2 as a full trigger. */
         joy = 0x80808080u;
         trig = 0;
         /* fall through */
@@ -293,8 +254,8 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         report[7] = (uint8_t)(trig >> 8);
         return 8;
     case APF_TYPE_KBD:
-        /* The HID modifier byte, which is the modifier field's first
-         * byte and so the high half of its half word. */
+        /* The modifier field's first byte, so the high half of its
+         * halfword. */
         report[0] = (uint8_t)(key >> 8);
         report[1] = 0;
         report[2] = (uint8_t)(joy >> 24);
@@ -306,9 +267,8 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         return 8;
     case APF_TYPE_MOU:
     {
-        /* The first report after a mouse appears carries no movement:
-         * its deltas are however far the hand went before anyone was
-         * listening. */
+        /* The first report's deltas are however far the hand went before
+         * anyone was listening. */
         uint16_t dx = first ? 0 : apf_swap16(joy);
         uint16_t dy = first ? 0 : apf_swap16(trig);
         report[0] = (uint8_t)(joy >> 16);
@@ -349,15 +309,12 @@ static void apf_slot_task(int slot)
         }
     }
 
-    /* A mouse sends reports and everything else holds a level. The
-     * counter it stamps each report with is the only way to tell a hand
-     * that did not move from a report that never came, and reading the
-     * same delta twice would slide the pointer on its own. */
+    /* A mouse sends reports; everything else holds a level. Its counter
+     * is the only way to tell a hand that did not move from a report that
+     * never came, and reading the same delta twice slides the pointer. */
     bool first = false;
     if (type == APF_TYPE_MOU)
     {
-        /* Swapped like the movements beside it, though only inequality
-         * is ever asked of it. */
         uint16_t count = apf_swap16(key);
         if (apf_slots[slot].mou_have_seen && count == apf_slots[slot].mou_seen)
             return;
@@ -371,24 +328,17 @@ static void apf_slot_task(int slot)
                             (uint16_t)MMIO_CONT_TRIG(slot), first, report);
     if (!len)
         return;
-    /* A level that has not moved is the same report, and sending it
-     * again would be a key repeating itself at the speed of the loop.
-     * A mouse got past the counter above, so it is always news. */
+    /* An unmoved level is the same report, and resending it would repeat
+     * a key at the speed of the loop. A mouse passed its counter above. */
     if (type == APF_TYPE_MOU || apf_changed(slot, report, len))
         apf_report(slot, report, len);
 }
 
-/* A program just mapped one of the drivers, and mapping blanks the
- * record it maps: pad_xreg and tab_xreg both write an empty one, on the
- * reasoning that a device will report again in a moment. That holds
- * over USB and does not hold here, where the registers are levels — a
- * stick held off centre produces the same report forever, the dedup
- * below never sends it, and the program reads the blank until the hand
- * moves. So forget what was last sent and let the next pass be news.
- *
- * The mouse is paced by its counter rather than the cache, so it is
- * marked unseen instead: the report that follows carries the buttons
- * and no movement, which is what a hand that has not moved is. */
+/* Mapping blanks the record, on the reasoning that a device will report
+ * again shortly. That holds over USB but not for levels: a stick held
+ * off centre produces the same report forever, the dedup never sends it,
+ * and the program reads the blank until the hand moves. The mouse is
+ * paced by its counter instead, so it is marked unseen. */
 void apf_refresh(void)
 {
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)

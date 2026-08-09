@@ -10,15 +10,12 @@
  * Read data is combinational from pre-tick state; side effects land at
  * the enabled edge.
  *
- * The RW ports read and write XRAM at their address registers, and the
- * cells at $FFE4/$FFE8 are staging mirrors the engine keeps loaded — a
- * background refresh when the port is free, an urgent restage after
- * every access — so a writer to XRAM heals the stage before the next
- * PHI2 and the 6502's combinational read is still the emulator's.
+ * The cells at $FFE4/$FFE8 are staging mirrors the engine keeps loaded —
+ * a background refresh when the port is free, an urgent restage after
+ * every access — so the 6502's combinational read stays the emulator's.
  *
  * A write to $FFEF arms the BRA -2 block at $FFF1 in the same cycle the
- * op lands, so the 6502 can JSR into the trampoline immediately and
- * never outruns the OS.
+ * op lands, so the 6502 can JSR into the trampoline immediately.
  */
 
 module ria_regs (
@@ -51,9 +48,9 @@ module ria_regs (
     input logic [7:0] xr_rdata,
     input logic xr_cpu_want,
 
-    /* The OS side. The RX ask is the emulator's lazy pull made visible:
-     * it is served exactly once and never remembered into a later byte's
-     * arrival, so the OS never commits a byte the console still wants. */
+    /* The RX ask is served exactly once and never remembered into a
+     * later byte's arrival, so the OS never commits a byte the console
+     * still wants. */
     input logic b_we,
     input logic b_re,
     input logic [7:0] b_word,
@@ -86,10 +83,9 @@ module ria_regs (
     end
     always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
-    /* Sixteen bytes, and the read below is asynchronous where a block's
-     * read address is registered. Left to itself Quartus does not reach
-     * for LUT memory here — it builds the array out of flip-flops, which
-     * is why the style is named rather than inferred. */
+    /* The read below is asynchronous where a block's read address is
+     * registered. Left to itself Quartus builds this out of flip-flops,
+     * which is why the style is named rather than inferred. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic [7:0] txf[16];
     logic [3:0] txf_w, txf_r;
@@ -317,7 +313,6 @@ module ria_regs (
                                 + {{8{regs[5'h09][7]}}, regs[5'h09]};
                         end
                         5'h0C: begin
-                            /* Push: the mirror is the byte just pushed. */
                             if (xsp != 10'd0)
                                 regs[5'h0C] <= data_i;
                         end
@@ -341,7 +336,6 @@ module ria_regs (
                             end
                         end
                         5'h04: begin
-                            /* The staged byte answered; step the address. */
                             {regs[5'h07], regs[5'h06]} <=
                                 {regs[5'h07], regs[5'h06]}
                                 + {{8{regs[5'h05][7]}}, regs[5'h05]};
@@ -353,7 +347,6 @@ module ria_regs (
                         end
                         5'h0C: ;  /* pop: pointer and mirror move below */
                         5'h02: begin
-                            /* Return the latch, then refill or empty it. */
                             if (pull) begin
                                 regs[2] <= eff_rx_data;
                                 regs[0] <= regs[0] | RX_READY;
@@ -387,14 +380,13 @@ module ria_regs (
             regs[5'h04] <= xr_rdata;
         if (xr_cap1)
             regs[5'h08] <= xr_rdata;
-        /* A pop's mirror refill arrives from the RAM one clock after the
-         * pointer moved, always between 6502 cycles; an OS write below still
-         * outranks it. */
+        /* A pop's mirror refill arrives one clock after the pointer
+         * moved, always between 6502 cycles; an OS write still outranks
+         * it. */
         if (xs_fill)
             regs[5'h0C] <= xs_fill_byte;
-        /* The OS side is plain shared memory at the system clock; it lands
-         * regardless of the 6502's enable, and a same-cell collision goes to
-         * the OS, as arbitrary as it is on the real dual-core part. */
+        /* Plain shared memory at the system clock: it lands regardless of
+         * the 6502's enable, and a same-cell collision goes to the OS. */
         if (b_we && b_word < 8'd8) begin
             if (b_wstrb[0])
                 regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
@@ -407,9 +399,8 @@ module ria_regs (
         end
     end
 
-    /* The rings live at the system clock: the 6502 pushes on its enable, the
-     * OS pops and offers whenever its strobe lands. The push's data lands
-     * in the reset-free block above; only the pointer belongs here. */
+    /* The push's data lands in the reset-free block above; only the
+     * pointer belongs here. */
     initial begin
         txf_w = 4'd0;
         txf_r = 4'd0;

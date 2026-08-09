@@ -3,14 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Both sides of the VGA contract on one machine, emu/sys/vga.c's shape:
- * the RIA-side status the shared readline consults, and the VGA-side prog
- * layer the mode programs call. There is no g_prog array here — the RTL
- * scanline program is the storage, and vga_prog_fill publishes entries
- * directly, tagged with the mode and attribute the dispatcher announced,
- * because a fill-function pointer means nothing to hardware. The vsync
- * line republishes whenever the highest programmed scanline rises, which
- * is where the oracle counts frames.
+ * Both sides of the VGA contract on one machine, emu/sys/vga.c's shape.
+ * There is no g_prog array: the RTL scanline program is the storage, and
+ * entries are published tagged with the mode and attribute the
+ * dispatcher announced, because a fill-function pointer means nothing to
+ * hardware.
  */
 
 #include "mmio.h"
@@ -45,9 +42,8 @@ int16_t vga_canvas_height(void)
     return vga_canvas_h;
 }
 
-/* ria/sys/vga.h's, for the tablet driver: the space an absolute pointer
- * is placed in. Its declaration comes from there rather than from this
- * platform's header, because tab.c is shared. */
+/* Declared in ria/sys/vga.h rather than this platform's header, because
+ * tab.c is shared. */
 void vga_canvas_size(int *w, int *h)
 {
     switch (vga_canvas_code)
@@ -89,9 +85,8 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
     return true;
 }
 
-/* The oracle's exclusive sweep keys on the fill-function pointer stored
- * in each entry; this table is write-only from the bus, so the sweep's
- * one bit per line lives here instead. */
+/* The table is write-only from the bus, so the exclusive sweep's one bit
+ * per line lives here. */
 static uint32_t vga_mode0_mask[16];
 static int16_t vga_mode0_plane;
 

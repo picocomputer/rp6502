@@ -6,21 +6,19 @@
  * Misaligned load/store emulation. The shared firmware does unaligned
  * halfword access to the register window — REGSW($FFF1) and API_ERRNO at
  * $FFED sit at odd offsets — which ARM shrugs at and RISC-V traps on.
- * Hazard3 has no hardware misalign path, so the trap handler splits the
- * access into bytes. The register window's byte lanes make that exact.
+ * Hazard3 has no hardware misalign path, so this splits the access into
+ * bytes; the register window's byte lanes make that exact.
  *
- * Handles the standard RV32 LH/LHU/LW/SH/SW and the compressed C.LW/C.SW.
- * Anything else that traps is a real bug, and spinning here under the
- * simulator's eye beats corrupting state.
+ * Handles RV32 LH/LHU/LW/SH/SW and compressed C.LW/C.SW. Anything else
+ * is a real bug, and spinning beats corrupting state.
  *
  * Hazard3 hardwires mtval to zero, so the faulting address is recomputed
- * from the instruction's own base register and immediate.
+ * from the instruction's base register and immediate.
  */
 
 #include <stdint.h>
 
-/* An unexpected trap narrates before it spins; the simulator's console is
- * the only debugger this machine has. */
+/* The simulator's console is the only debugger this machine has. */
 #define TRAP_CONSOLE (*(volatile uint32_t *)0xF0000000u)
 
 static void trap_hex(uint32_t v)

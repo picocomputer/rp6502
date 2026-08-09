@@ -4,18 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The keyboard constants of the USB HID usage tables, for a machine
- * with no USB.
+ * with no USB. ria/hid/kbd.c reaches for TinyUSB's copy; pulling in a
+ * whole USB stack to learn that Escape is 0x29 is not worth it, and the
+ * numbers are the specification's rather than TinyUSB's.
  *
- * ria/hid/kbd.c reaches for TinyUSB's copy of these, which is the right
- * place for them on a machine whose keyboards arrive over USB. This one
- * has an APF bus and would have to drag in a whole USB stack — an
- * option header, a config header, and a device tree it does not have —
- * to learn that Escape is 0x29. The numbers are the specification's,
- * not TinyUSB's, so they are written out here and the shim is what the
- * include resolves to.
- *
- * The list is only what kbd.c uses. tests/hid checks every one of them
- * against the vendored header, so the two cannot drift.
+ * Only what kbd.c uses. tests/hid checks every one against the vendored
+ * header, so the two cannot drift.
  */
 
 #ifndef _FPGA_SW_SHIM_HID_H_

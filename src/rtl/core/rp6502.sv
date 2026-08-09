@@ -18,17 +18,14 @@ module rp6502
     /* clk_sys in kHz, which the PHI2 accumulator counts against. */
     parameter int SYS_KHZ = 50400,
     /* Where the 6502's 64 KB lives. Zero builds it here out of block
-     * memory, which is what every bench wants and what a platform with
-     * blocks to spare should do. One exports the two ports and lets the
-     * platform find the storage — on the Pocket that is a real SRAM
-     * chip, and the 64 blocks it gives back stay with the fabric. */
+     * memory; one exports the two ports and lets the platform find the
+     * storage, which on the Pocket is a real SRAM chip. */
     parameter bit EXT_RAM = 0
 ) (
     input logic clk_sys,
     /* Half clk_sys, rising with it. Made outside: a divider made here
-     * would rise after this module's own registers settle on the same
-     * edge, and a master clocked that late reads a ready the machine has
-     * not published. */
+     * would rise after this module's registers settle on the same edge,
+     * and a master clocked that late reads a ready not yet published. */
     input logic clk_rv,
     input logic rst_n,
 
@@ -39,25 +36,21 @@ module rp6502
     input logic [7:0] rx_data,
     output logic rp6502_rx_taken,
 
-    /* The soft CPU's own console and the testbench halt. */
     output logic [7:0] rp6502_rv_tx_data,
     output logic rp6502_rv_tx_valid,
     output logic rp6502_rv_halted,
     output logic [31:0] rp6502_rv_exit_code,
 
-    /* Staging window: the address holds from the pending request; a
-     * combinational platform answers the byte before the next system
-     * clock, a slow one holds stage_stall until its byte stands on
-     * stage_rdata — the strobe waits. */
+    /* The address holds from the pending request. A combinational
+     * platform answers before the next system clock; a slow one holds
+     * stage_stall until its byte stands on stage_rdata. */
     output logic [27:0] rp6502_stage_addr,
     output logic rp6502_stage_pend,
     input logic stage_stall,
     input logic [7:0] stage_rdata,
 
-    /* The platform window: a word-wide read/write port onto whatever the
-     * board has that the machine does not. The strobe is one clock, and
-     * the answer is expected the clock after it, as the video window's
-     * is. */
+    /* A word-wide port onto whatever the board has that the machine does
+     * not. One-clock strobe, answer the clock after. */
     output logic [27:0] rp6502_host_addr,
     output logic rp6502_host_stb,
     output logic rp6502_host_we,
@@ -71,7 +64,6 @@ module rp6502
     input logic [7:0] upd_n,
     input logic key_set,
     input logic [8:0] key_code,
-    /* The platform's controller slots, as it polls them. */
     input logic [3:0][31:0] cont_key,
     input logic [3:0][31:0] cont_joy,
     input logic [3:0][15:0] cont_trig,
@@ -89,10 +81,8 @@ module rp6502
     output logic [RP6502_SCANLINE_W-1:0] rp6502_scanline,
     output logic rp6502_vid_frame,
 
-    /* The 6502's 64 KB when EXT_RAM says the platform holds it. Port A
-     * is the machine's own and answers within the PHI2 period; port B is
-     * the soft CPU's window and can be told to wait. Unconnected and
-     * ignored when EXT_RAM is zero. */
+    /* Port A is the machine's own and answers within the PHI2 period;
+     * port B is the soft CPU's window and can be told to wait. */
     output logic [15:0] rp6502_ram_a_addr,
     output logic [7:0] rp6502_ram_a_wdata,
     output logic rp6502_ram_a_we,
@@ -103,12 +93,9 @@ module rp6502
     output logic rp6502_ram_b_stb,
     input logic [7:0] ram_b_rdata,
     input logic ram_b_stall,
-    /* The platform's request to stand the machine still for a cycle. */
     input logic ram_hold,
-    /* What the platform's memory needs to know about the machine: the
-     * cycle it is actually taking, and whether it is running at all.
-     * This is the gated pulse — a cycle the hold suppressed is a cycle
-     * the 6502 did not take, and must not be fetched for. */
+    /* The gated pulse: a cycle the hold suppressed is a cycle the 6502
+     * did not take, and must not be fetched for. */
     output logic rp6502_phi2_en,
     output logic rp6502_cpu_run
 );
@@ -118,12 +105,10 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    /* The platform can stand the machine still for a cycle — the soft
-     * CPU's window onto the 6502's RAM shares one port with the 6502
-     * when the RAM is off-chip, and something has to give way. Nothing
-     * asks for this today: both users of that window run with the 6502
-     * halted. It exists so that a firmware which did ask would be slow
-     * rather than deadlocked. */
+    /* The soft CPU's window onto the 6502's RAM shares a port with the
+     * 6502 when the RAM is off-chip. Nothing asks for this today; it
+     * exists so a firmware that did would be slow rather than
+     * deadlocked. */
     always_comb phi2_en = phi2_raw_en && !ram_hold;
     always_comb rp6502_phi2_en = phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
@@ -144,10 +129,8 @@ module rp6502
     always_comb unused_sync = cpu_sync;
 
     /* RESB inverted, reaching the 6502 and the 6522 and nothing else. A
-     * register, not a gate of one with the platform's reset: the platform
-     * already clears this flop asynchronously, so the gate would say
-     * nothing the flop does not while putting a combinational term on a
-     * reset network. */
+     * register rather than a gate with the platform's reset, which
+     * already clears this flop asynchronously. */
     logic resb /*verilator public_flat_rw*/;
     always_comb rp6502_cpu_run = resb;
     logic cpu_stp;
@@ -238,33 +221,24 @@ module rp6502
         .via_irq(via_irq)
     );
 
-    /* The soft CPU's clock is half this one, so every level it drives
-     * stands for two machine clocks and every pulse the machine sends can
-     * fall between two of its edges. Fixed here rather than in rv_soc,
-     * which does not know it is clocked slowly: the strobe and the
-     * console valid are narrowed to one machine clock, while slot_set and
-     * key_set are held for two so an edge always sees them. */
+    /* The soft CPU's clock is half this one. Fixed here rather than in
+     * rv_soc, which does not know it is clocked slowly: the strobe and
+     * the console valid narrow to one machine clock, while slot_set and
+     * key_set hold for two so an edge always sees them. */
     logic bus_stb_raw, bus_stb_n, bus_stb_q;
     logic rv_tx_valid_raw, rv_tx_valid_q;
     logic slot_set_q, key_set_q;
 
-    /* The two clocks rise together, so a question asked on the rising
-     * edge is asked while the answer is changing. bus_stb_raw is worse
-     * than a crossing: rv_soc builds it out of its own bus_pend and the
-     * machine's bus_rdy, a term from both clocks. Compared live against a
-     * copy that caught the new value one edge early, it reads 1 && !1 —
-     * the pulse never fires, and the whole access disappears silently.
-     * Which accesses go depends on skew between two global networks, so
-     * it is a different set every fit and none of it in simulation.
+    /* The two clocks rise together, so a rising-edge sample of
+     * bus_stb_raw compares it against a copy that caught the new value an
+     * edge early: it reads 1 && !1, the pulse never fires, and the access
+     * disappears silently. Which accesses go depends on skew between two
+     * global networks, so it differs every fit and never in simulation.
+     * On the falling edge the value has been still for half a period.
      *
-     * On the falling edge the value has been still for half a period and
-     * the comparison is between two registers on this clock. */
-    /* The two halves are one mechanism and must stay one. Asynchronous
-     * clear is a control signal a LAB shares, so a half that needs it
-     * and a half that does not cannot be packed together: give them
-     * different control and the fitter is free to separate them, which
-     * is the separation this whole arrangement exists to deny. They
-     * carry no state worth keeping, so neither takes the reset. */
+     * Neither half takes a reset: asynchronous clear is a control signal
+     * a LAB shares, and giving the two halves different control frees the
+     * fitter to separate them. */
     initial bus_stb_n = 1'b0;
     always_ff @(negedge clk_sys) begin
         bus_stb_n <= bus_stb_raw;
@@ -281,18 +255,16 @@ module rp6502
         slot_set_q <= slot_set;
         key_set_q <= key_set;
     end
-    /* This one stays on the rising edge. rv_tx_valid_raw is a clean flop
-     * from the soft CPU's clock — no bus_rdy, no term from this clock, so
-     * a later sample buys nothing and only narrows the pulse to a half
-     * period, which rising-edge consumers then catch at its expiry. */
+    /* Rising edge: rv_tx_valid_raw is a clean flop from the soft CPU's
+     * clock with no term from this one, so a later sample only narrows
+     * the pulse to a half period. */
     always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
 
     logic bus_stb, bus_we, bus_pend;
     always_comb bus_stb = bus_stb_n && !bus_stb_q;
 
     /* Held until the request it answers goes away, because the other
-     * clock looks only every second one. A register the analyzer can see,
-     * where the term it replaces was a glitch it cannot. */
+     * clock looks only every second one. */
     logic bus_taken;
     initial bus_taken = 1'b0;
     always_ff @(posedge clk_sys) begin
@@ -306,10 +278,8 @@ module rp6502
     logic [31:0] bus_rdata;
 
     /* RV_KHZ, not SYS_KHZ: mtime_acc is clocked by clk_rv, and a
-     * microsecond is 25.2 of those — not whole. Ten per clock wrapping at
-     * a hundredth of the rate keeps the fraction exact. Left at the
-     * module's 1/1 the clock runs 25.2x fast, which nothing in simulation
-     * waits on a real second to catch. */
+     * microsecond is 25.2 of those. Ten per clock wrapping at a
+     * hundredth of the rate keeps the fraction exact. */
     rv_soc #(
         .MTIME_ADD(10),
         .MTIME_WRAP(RV_KHZ / 100),
@@ -419,8 +389,7 @@ module rp6502
     end
 
     /* Held at power-on and the firmware's from then on. The platform's
-     * reset does not reach it: RESB is the OS's line, the way it is on
-     * the RP2350, and cpu_init drives it low before anything else runs. */
+     * reset does not reach it: cpu_init drives it low first. */
     initial resb = 1'b0;
     always_ff @(posedge clk_sys)
         if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
@@ -526,8 +495,8 @@ module rp6502
     logic [15:0] xr_addr;
     logic [7:0] xr_wdata;
     logic [31:0] xram_a_rdata;
-    /* The terminal and a mode-1 fill share the font store, so the
-     * rotor is real arbitration. Mod two, so the wrap is free. */
+    /* The terminal and a mode-1 fill share the font store, so the rotor
+     * is real arbitration. Mod two, so the wrap is free. */
     logic [1:0] mf_req;
     logic [13:0] mf_addr[2];
     logic f_rotor, f_sel;
@@ -592,14 +561,11 @@ module rp6502
         xw_addr = xr_busy ? xr_addr : bus_addr[15:0];
         xw_wdata = xr_busy ? xr_wdata : bus_wbyte;
     end
-    /* The PSG's copy, a clock behind. The soft CPU's half of that mux is
-     * combinational off its bus, and what it reaches inside the engine
-     * is the byte the envelope's comparators are built on — handing it
-     * over unregistered ran a foreign bus through the deepest arithmetic
-     * in the machine and cost three and a half nanoseconds it does not
-     * have. Nothing can tell the difference: the engine reads no XRAM,
-     * so all the clock moves is when a gate strikes, by one of fifty
-     * million. */
+    /* A clock behind, because the soft CPU's half of that mux is
+     * combinational off its bus and reaches the byte the envelope's
+     * comparators are built on. Unregistered it ran a foreign bus through
+     * the deepest arithmetic in the machine. The engine reads no XRAM, so
+     * all the extra clock moves is when a gate strikes. */
     logic qs_we, qs_host;
     logic [15:0] qs_addr;
     logic [7:0] qs_val;
@@ -824,11 +790,8 @@ module rp6502
     /* verilator lint_on PINCONNECTEMPTY */
 
     /* A YM3812 samples every 1014 clk_sys and the codec every 1050, so
-     * this is the one voice whose rate is not ours to choose. Dropping
-     * the surplus instead lost about 1,700 samples a second, unfiltered.
-     *
-     * One instance: a YM3812 is mono, so resampling it twice would buy
-     * nothing and pay a second filter's coefficient store for it. */
+     * this is the one voice whose rate is not ours to choose. One
+     * instance, because a YM3812 is mono. */
     logic signed [15:0] opl_rs;
     /* verilator lint_off PINCONNECTEMPTY */
     aud_rsmp aud_rsmp (
@@ -843,10 +806,8 @@ module rp6502
     /* verilator lint_on PINCONNECTEMPTY */
 
     /* Nothing selects and nothing gates: an engine making no sound
-     * contributes zero. One heartbeat, the PSG's divider — the tick
-     * itself, not the end of a walk, whose length moves with the XRAM
-     * rotor. The OPL's resampler is pulled by the same tick, so every
-     * voice reaching the codec was taken on the same clock. */
+     * contributes zero. One heartbeat, the PSG's divider — the tick, not
+     * the end of a walk, whose length moves with the XRAM rotor. */
     logic signed [16:0] eng_l, eng_r;
     always_comb begin
         eng_l = 17'(opl_rs) + 17'(psg_l);

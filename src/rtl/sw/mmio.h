@@ -19,23 +19,17 @@
 #define MTIME_HI (*(volatile uint32_t *)0xF0000014u)
 #define MMIO_SLOT (*(volatile uint32_t *)0xF0000018u)
 #define MMIO_HIDKEY (*(volatile uint32_t *)0xF000001Cu)
-/* The last data slot the host said it touched, and the size it named.
- * Bit 16 flags that anything was said at all, because slot 0 is a real
- * id. Written to clear. Zero forever on a platform with no such news. */
+/* Bit 16 flags that anything was said at all, because slot 0 is a real
+ * id. Written to clear. */
 #define MMIO_UPD_ID (*(volatile uint32_t *)0xF0000044u)
 #define MMIO_UPD_LEN (*(volatile uint32_t *)0xF0000048u)
-/* How many slot announcements the host has made, counted on its own
- * clock before anything here can drop one. The id and length above
- * cross on a toggle, and two announcements closer together than that
- * synchroniser is deep cancel each other; this cannot. Watch the count,
- * read the payload after it moves. */
+/* The id and length above cross on a toggle, so two announcements closer
+ * together than that synchroniser is deep cancel each other. This count
+ * cannot: watch it, and read the payload after it moves. */
 #define MMIO_UPD_N (*(volatile uint32_t *)0xF000004Cu)
-/* APF's four controller slots, three words each. State, not events: a
- * pad's release is the absence of a bit, and a keyboard report is a set
- * whose order APF does not promise. A mouse is the opposite — a stamped
- * report of deltas, counted rather than sampled — and its counter is in
- * the same key word another slot puts buttons in. What a slot holds is
- * the type nibble's to say; see apf.c, which is the only reader. */
+/* Four controller slots, three words each. State, not events. A mouse is
+ * the exception, counting stamped delta reports in the same word another
+ * slot puts buttons in; the type nibble says which. See apf.c. */
 #define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(0xF0000050u + (s) * 12u))
 #define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(0xF0000054u + (s) * 12u))
 #define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(0xF0000058u + (s) * 12u))
@@ -45,21 +39,13 @@
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
 #define STAGE ((volatile const uint8_t *)0x60000000u)
 
-/* The staging store, one ascending walk: data.json's list order, its
- * slot ids, and these addresses all climb the SDRAM together, and the
- * three must be changed together — data.json is strict JSON and cannot
- * carry this comment. The ROM comes first, whole, at the store's base,
- * because it is the primary slot: a hot reload was measured writing the
- * new image through the first slot record, so the first slot must be
- * the one the user reloads. Above its ceiling sit eight 32 KB windows
- * for the open-file descriptors — the bridge writes the staging store
- * and knows no other way to write us at all — then the fonts and the
- * code page tables and the keyboard layouts, whole files the fabric
- * reads at random, sized to what they hold. Get File's scratch is the
- * one address here that data.json does not declare, because it is not
- * a slot; the layouts sit above its page rather than below, so the
- * slots stay in one ascending run. ROM_MAX is data.json's size_maximum
- * and the windows begin there exactly. */
+/* data.json's list order, its slot ids, and these addresses climb
+ * together and must be changed together; data.json is strict JSON and
+ * cannot carry this comment. The ROM is first because a hot reload
+ * writes the new image through the primary slot record. Get File's
+ * scratch is the one address here data.json does not declare, since it
+ * is not a slot, and the layouts sit above its page so the slots stay in
+ * one ascending run. ROM_MAX is data.json's size_maximum. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
 #define ROM_MAX 0x03FA0000u
@@ -69,8 +55,6 @@
 #define SLOT_WIN(d) \
     ((volatile const uint8_t *)(0x63FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE))
 #define SLOT_WIN_BRIDGE(d) (0x03FA0000u + (uint32_t)(d) * SLOT_WIN_SIZE)
-/* The chunk one slot operation moves, which is a whole window; a larger
- * file is several of them. */
 #define FILE_XFER_MAX SLOT_WIN_SIZE
 #define FONTS ((volatile const uint8_t *)0x63FE0000u)
 #define OEMCP ((volatile const uint8_t *)0x63FEF000u)
@@ -78,10 +62,8 @@
 #define GETFILE_BRIDGE 0x03FF1000u
 #define KBDLAY ((volatile const uint8_t *)0x63FF2000u)
 
-/* The host's file bridge. FILE_WIN is one port of a block RAM whose
- * other port is the bridge's, so it is word-wide and write-only: the
- * machine fills it and the host reads it, for Open File's parameter
- * struct and for Slot Write's payload. FILE_WIN_BASE is where the host
+/* FILE_WIN is one port of a block RAM whose other port is the bridge's,
+ * so it is word-wide and write-only. FILE_WIN_BASE is where the host
  * sees it, and must agree with pocket_file's WINDOW_BASE. */
 #define FILE_ID (*(volatile uint32_t *)0x80000000u)
 #define FILE_OFFSET (*(volatile uint32_t *)0x80000004u)
@@ -90,14 +72,11 @@
 #define FILE_CTL (*(volatile uint32_t *)0x80000010u)
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
-/* The interact menu's persisted settings, read-only, and the host's
- * clock. The UTC offset arrives in three pieces — hours, quarter hour,
- * and which side of Greenwich — because a menu list holds sixteen
- * options and the offset spans twenty-seven whole hours. The keyboard
- * names a layout by its position in def/kbd.def plus one, so a zero is
- * a menu that has said nothing rather than a layout. RTC_EPOCH is the
- * Pocket's local wall time as seconds since 1970, written once at core
- * boot by host command 0x0090, and RTC_VALID says it ever was. */
+/* The interact menu's persisted settings, read-only. The UTC offset
+ * arrives in three pieces because a menu list holds sixteen options and
+ * the offset spans twenty-seven whole hours. SET_KB is a position in
+ * def/kbd.def plus one, so zero is a menu that has said nothing.
+ * RTC_EPOCH is local wall time, written once at boot by 0x0090. */
 #define SET_KB (*(volatile uint32_t *)0x80010000u)
 #define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
 #define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
@@ -105,9 +84,8 @@
 #define SET_TZ_MIN (*(volatile uint32_t *)0x80010014u)
 #define SET_TZ_WEST (*(volatile uint32_t *)0x80010018u)
 
-/* The three pieces as the one number everything downstream wants:
- * minutes east of UTC. Defined once here because both the boot read
- * and the menu poll need it and they must not drift apart. */
+/* Minutes east of UTC. Defined once because the boot read and the menu
+ * poll both need it and must not drift apart. */
 static inline int32_t set_tz_minutes(void)
 {
     int32_t m = (int32_t)((SET_TZ_HOUR & 0xFFu) * 60u + (SET_TZ_MIN & 0xFFu));
@@ -120,30 +98,22 @@ static inline int32_t set_tz_minutes(void)
 #define FILE_OP_WRITE 2u
 #define FILE_OP_OPEN 3u
 #define FILE_OP_DT 4u
-/* The one command whose answer is a name rather than a number, and the
- * one direction the outbound window cannot carry: it lands wherever
- * FILE_BRIDGE points, which is GETFILE_WIN's scratch. */
+/* Answers with a name, landing wherever FILE_BRIDGE points. */
 #define FILE_OP_GETFILE 5u
-/* Analogue documents 0x0188 but never implemented it in its own
- * core_bridge_cmd.v; vendor/openfpga_rp6502 adds it. Its result codes
- * are not Open File's: 0 is written, 1 is slot not defined; 7 is the
- * override's own bridge deadline, a command no host ever picked up.
- * A 7 arrives as an ordinary answer, not as FILE_ST_TIMEOUT — the
- * bridge's deadline is deliberately the shorter one, so it retires
- * its own parked command while this side is still listening. The
- * timeout bit now means the bridge itself stopped answering. */
+/* 0x0188 is documented but absent from core_bridge_cmd.v;
+ * vendor/openfpga_rp6502 adds it. Result codes are not Open File's:
+ * 0 written, 1 slot not defined, 7 the bridge's own deadline. The
+ * bridge's deadline is deliberately shorter than ours, so a 7 arrives
+ * as an ordinary answer and FILE_ST_TIMEOUT means the bridge stopped. */
 #define FILE_OP_FLUSH 6u
 
 #define FILE_ST_BUSY 0x01u
 #define FILE_ST_ERR 0x0Eu
 #define FILE_ST_TIMEOUT 0x10u
-/* Halfwords the host wrote that have not reached the store yet. The
- * bridge reports a slot operation complete while its own queue is still
- * draining, so a read of what just arrived waits for this to clear. */
+/* The bridge reports a slot operation complete while its own queue is
+ * still draining, so a read of what just arrived waits for this. */
 #define FILE_ST_DRAIN 0x20u
 
-/* The terminal cell window is where the linker places term.c's screen
- * buffers; the register bank above it is the scanout seam. */
 #define VID_ROW(i) (((volatile uint32_t *)0x50010000u)[i])
 #define VID_CURSOR (*(volatile uint32_t *)0x50010080u)
 #define VID_CURSOR_COLOR (*(volatile uint32_t *)0x50010084u)
@@ -151,15 +121,12 @@ static inline int32_t set_tz_minutes(void)
 #define VID_PROG (*(volatile uint32_t *)0x5001008Cu)
 #define VID_FRAME (*(volatile uint32_t *)0x500100A0u)
 
-/* The scanline program: per line per plane, the fill slot's
- * enable/mode/attr word and config pointer, then the sprite slot's
- * matching word and its count-over-config word; the canvas and
- * vsync-line registers sit above the table. */
+/* Per line per plane: the fill slot's enable/mode/attr word and config
+ * pointer, then the sprite slot's matching word and its count word. */
 #define VID_XPROG(line, plane, w) \
     (((volatile uint32_t *)0x50020000u)[(line) * 16 + (plane) * 4 + (w)])
-/* The font store, a word at a time — byte lanes are what stop the fabric
- * inferring a block RAM, so every write is aligned and whole. One face
- * per 4 KB, in the store's own order. */
+/* Word at a time: byte lanes stop the fabric inferring a block RAM, so
+ * every write is aligned and whole. One face per 4 KB. */
 #define VID_FONT16 ((volatile uint32_t *)0x50040000u)
 #define VID_FONT8 ((volatile uint32_t *)0x50041000u)
 #define VID_ITALIC16 ((volatile uint32_t *)0x50042000u)
@@ -172,8 +139,8 @@ static inline int32_t set_tz_minutes(void)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
-/* The bell's voice, a channel block's seven bytes in its own order:
- * freq, duty, vol_attack / vol_decay, wave_release, pan_gate. */
+/* A channel block's seven bytes in order: freq, duty, vol_attack,
+ * vol_decay, wave_release, pan_gate. */
 #define AUD_BEL_LO (*(volatile uint32_t *)0x70000010u)
 #define AUD_BEL_HI (*(volatile uint32_t *)0x70000014u)
 #define CPU_RESB (*(volatile uint8_t *)0x40000000u)

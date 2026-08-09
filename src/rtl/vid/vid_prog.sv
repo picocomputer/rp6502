@@ -11,10 +11,7 @@
  * ports and this table has four readers. Split by word each array has
  * one writer and one reader, which is what the fabric can build; kept
  * whole it becomes a quarter of a million registers. The bus side is
- * write-only, since nothing reads the table back. The config word is
- * sixteen bits because that is all a config pointer is, which makes the
- * split cost less memory than the
- * single table did.
+ * write-only, since nothing reads the table back.
  *
  * The canvas and the vsync line are shadows: the canvas latches where
  * the render takes the frame's first row, the vsync line at the beam's
@@ -36,23 +33,17 @@ module vid_prog (
     output logic vid_prog_vsync_pulse,
     input logic [9:0] h,
 
-    /* Latched geometry for the engines and the scanout. */
     output logic [2:0] vid_prog_canvas,
     output logic [9:0] vid_prog_cw,
     output logic [9:0] vid_prog_ch,
 
-    /* Engine read port: one entry, registered. */
     input logic [8:0] p_line,
     input logic [1:0] p_plane,
     output logic [31:0] vid_prog_p_entry,
     output logic [15:0] vid_prog_p_config,
 
-    /* Sprite stage read port: any word, registered. */
     input logic [12:0] s_idx,
     output logic [31:0] vid_prog_s_data,
-
-    /* The render's lost races: the sprite stage's in the low half, the
-     * planes' missed fills in the high. A write clears both. */
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
      * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
@@ -70,13 +61,11 @@ module vid_prog (
     logic [31:0] fill_e[2048] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
     logic [15:0] fill_c[2048] /*verilator public_flat_rw*/;
-    /* Twenty bits, not thirty-two. A sprite entry is an enable, a
-     * three-bit mode and sixteen bits of attribute; vid_sprite marks
-     * [30:19] unused and means it. Quartus trims fill_e to sixteen by
-     * itself but cannot trim this one, because the read mux below ties
-     * its width to spr_c's, and spr_c really does use all thirty-two.
-     * Narrowing by hand is three M10K at a depth where a block holds
-     * 10,240 bits: 2048x20 is four, 2048x32 is seven. */
+    /* Twenty bits, not thirty-two: a sprite entry is an enable, a
+     * three-bit mode and sixteen bits of attribute. Quartus cannot trim
+     * this one itself, because the read mux below ties its width to
+     * spr_c's, and spr_c does use all thirty-two. Narrowing by hand is
+     * three M10K — 2048x20 is four blocks, 2048x32 is seven. */
     (* ramstyle = "no_rw_check" *)
     logic [19:0] spr_e[2048] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)

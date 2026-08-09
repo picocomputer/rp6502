@@ -114,11 +114,10 @@ module vid_sched (
     end
 
 `ifdef VERILATOR
-    /* Simulation's own reset, and the only thing in this module that
-     * takes one — VERILATOR is defined by the simulator and by nothing
-     * in the synthesis flow, so the fabric never sees the port. A
-     * machine reset costs the beam a frame, because the beam does not
-     * take one; this is what tells the stop below to expect it. */
+    /* Simulation only: VERILATOR is defined by the simulator and by
+     * nothing in the synthesis flow, so the fabric never sees the port.
+     * A machine reset costs the beam a frame, because the beam does not
+     * take one; this tells the stop below to expect it. */
     logic settled;
     always_ff @(posedge clk or negedge rst_n)
         if (!rst_n)

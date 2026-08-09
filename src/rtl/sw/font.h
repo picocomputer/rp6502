@@ -19,10 +19,8 @@ void font_init(void);
 void font_set_code_page(uint16_t cp);
 uint16_t font_get_code_page(void);
 
-/* Whether the asset carries a page, which is the API's question and not
- * the store's: a program that asks for one that is not here is answered
- * with the page still in force, the way f_setcp's refusal answers the
- * same request on the RIA. The seventeen are the same seventeen. */
+/* A program asking for a page the asset does not carry is answered with
+ * the page still in force. */
 bool font_has_code_page(uint16_t cp);
 
 #endif /* _FPGA_SW_FONT_H_ */

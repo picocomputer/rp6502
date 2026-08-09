@@ -4,11 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's terminal view: mode0.c's role, over scanout hardware.
- * term.c owns the model; vid_init programs the raster window and the
- * terminal geometry, and once per frame vid_task snapshots the visible
- * terminal — resolved row bases, cursor, blink — into the vid register
- * shadows the raster latches at the next frame start. One frame of
- * latency, never a tear.
+ * term.c owns the model; once per frame vid_task snapshots it into the
+ * register shadows the raster latches at the next frame start. One frame
+ * of latency, never a tear.
  */
 
 #include "font.h"
@@ -20,9 +18,6 @@
 
 #include <stdint.h>
 
-/* mode0_prog over this machine's view: the same defaults and checks,
- * then vga_prog_exclusive names the plane in the slot table and the
- * window register aims the scanout engine. */
 bool vid_mode0_prog(uint16_t *xregs)
 {
     int16_t plane = (int16_t)xregs[2];

@@ -3,19 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The console bell. The fabric holds the voice — a ninth channel of
- * aud_psg, configured by two words at the audio window — and everything
- * that decides what the voice is doing lives here: which sound is
- * playing, what is queued behind it, when to let the note go, and when it
- * has finished.
+ * The console bell. The fabric holds the voice, a ninth channel of
+ * aud_psg; this side decides what it plays and when.
  *
- * The split is where the clocks are. A voice wants an oscillator and an
- * envelope stepped forty-eight thousand times a second, and this
- * processor has neither the interrupt nor the cycles for that: it runs at
- * half the machine, takes no interrupts at all, multiplies a bit per
- * clock, and can sit inside a file operation for milliseconds. The events
- * it does own are twenty to eight hundred milliseconds apart, which a
- * polled task and a microsecond clock are comfortable with.
+ * The split is where the clocks are. A voice steps 48000 times a second,
+ * which this processor cannot do — no interrupts, and it can sit inside
+ * a file operation for milliseconds. The events it does own are 20 to
+ * 800 ms apart, which a polled task handles.
  */
 
 #include "bel.h"
@@ -30,9 +24,8 @@ static uint8_t bel_head, bel_tail;
 static bool bel_active;
 static absolute_time_t bel_restrike_at, bel_release_at, bel_end_at;
 
-/* The voice's six bytes, in a channel block's order, so what goes out is
- * the descriptor rather than a set of fields. The pan is centre and the
- * gate is its low bit; the fabric takes the edge off the register. */
+/* The pan is centre and the gate is its low bit; the fabric takes the
+ * edge off the register. */
 static void bel_voice(const ria_bel_t *snd, bool gate)
 {
     AUD_BEL_LO = (uint32_t)snd->freq
@@ -43,10 +36,8 @@ static void bel_voice(const ria_bel_t *snd, bool gate)
                  | ((uint32_t)(gate ? 1u : 0u) << 16);
 }
 
-/* The voice is the fabric's and keeps what the last session gated into
- * it; the queue that drives it is only this side's, and starts empty. A
- * host reset that left a note sounding would otherwise ring forever with
- * nothing here still counting down its release. */
+/* The voice keeps what the last session gated into it, so a host reset
+ * would ring forever with nothing here counting down its release. */
 void bel_init(void)
 {
     AUD_BEL_LO = 0;
@@ -110,9 +101,8 @@ void bel_task(void)
         }
         else
         {
-            /* Nothing behind it. Zero the voice rather than leave it in a
-             * release with nobody watching: the release nibble a cleared
-             * word carries is the shortest one there is. */
+            /* Zero rather than leave it in a release with nobody
+             * watching; a cleared word's release nibble is the shortest. */
             AUD_BEL_LO = 0;
             AUD_BEL_HI = 0;
             bel_restrike_at = 0;

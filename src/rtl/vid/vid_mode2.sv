@@ -3,19 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 2, the tile map of vga/modes/mode2.c — now only the part that is
- * genuinely mode 2: rows mapped with true wraparound, the oracle's
- * rejects, the restoring divider that trimmed geometry needs, and one
- * map byte fetched per tile. Each tile's on-screen slice goes to the
- * shared pixel tail as one xram segment — a trim is nothing more than a
- * shorter count — and the tail streams the tile's row bytes itself. The
- * five-word gather this file used to carry, and the copy it emitted
- * from, are gone: the segment is the gather.
+ * Mode 2, the tile map of vga/modes/mode2.c: rows mapped with true
+ * wraparound, the oracle's rejects, the restoring divider that trimmed
+ * geometry needs, and one map byte fetched per tile. Each tile's
+ * on-screen slice goes to the shared pixel tail as one xram segment — a
+ * trim is nothing more than a shorter count — and the tail streams the
+ * tile's row bytes itself.
  *
  * The map fetch and the tail's streaming share the plane's one XRAM
- * slot; the wrapper gives the front priority, and the next tile's map
- * byte hides under the current tile's pixels the way the old
- * prefetcher hid its whole gather.
+ * slot; the wrapper gives the front priority, so the next tile's map
+ * byte hides under the current tile's pixels.
  */
 
 module vid_mode2 (
@@ -35,7 +32,6 @@ module vid_mode2 (
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    /* The tail: a palette plan at tl_start, then segments on demand. */
     output logic vid_mode2_tl_start,
     output logic [15:0] vid_mode2_pal_ptr,
     output logic vid_mode2_pal_xram,
@@ -62,7 +58,6 @@ module vid_mode2 (
         cf_tile = cfgw[127:112];
     end
 
-    /* The validated options word: depth, tile size, trims. */
     logic tile16;
     logic [1:0] bpp_log;
     logic [3:0] x_trim, y_trim;
@@ -155,13 +150,11 @@ module vid_mode2 (
         vid_mode2_a_addr = map_addr[15:2];
     end
 
-    /* Where the served tile's slice lives, as the tail's bit origin. */
     logic [17:0] tile_row_addr;
     always_comb tile_row_addr = {2'd0, cf_tile}
         + 18'(18'({9'd0, mem_size}) * 18'({10'd0, tile_id}))
         + 18'(18'({13'd0, row_size}) * 18'({14'd0, r_row}));
 
-    /* The next segment, purely from where col stands. */
     logic [20:0] pad_left;
     always_comb pad_left = 21'(-col);
     logic [20:0] run_w;
@@ -175,10 +168,8 @@ module vid_mode2 (
         vid_mode2_seg_px = px_rem;
         if (state == S2_SEG && px_rem != 10'd0) begin
             if (blank || col >= win_w_s) begin
-                /* A rejected line, or the right padding: the rest. */
                 vid_mode2_seg_valid = 1'b1;
             end else if (col < 0) begin
-                /* Left padding up to the map's edge. */
                 vid_mode2_seg_valid = 1'b1;
                 if (pad_left < {11'd0, px_rem})
                     vid_mode2_seg_px = pad_left[9:0];

@@ -45,15 +45,13 @@ module vid_mode4 (
 
     logic [15:0] idx;
 
-    /* The gather is a halfword shift register entered at the top, so whatever
-     * went in last sits highest and the descriptor ends flush against bit 159
-     * wherever it started. A halfword base is one more fetch and one more
-     * shift, and the junk halfword ahead of the descriptor falls out below the
-     * window rather than being shifted out of the way.
+    /* A halfword shift register entered at the top, so the descriptor
+     * ends flush against bit 159 wherever it started and the junk
+     * halfword ahead of it falls out below the window.
      *
-     * mode4_asprite_t is transform[6] followed by mode4_sprite_t's own fields,
-     * so flush against the top puts both descriptors' position, pointer, log
-     * and metadata flag in the same bits and there is nothing to select. */
+     * mode4_asprite_t is transform[6] followed by mode4_sprite_t's own
+     * fields, so flush against the top puts both descriptors' position,
+     * pointer, log and metadata flag in the same bits. */
     logic [159:0] gather;
     logic [15:0] hi_hold;
     logic hi_pend;
@@ -82,21 +80,19 @@ module vid_mode4 (
         dc_meta = gather[159:152] != 8'h00;
     end
 
-    /* Decoded once into registers. Hanging the guard arithmetic, texel
-     * address and affine setup off the gathered words instead put the
-     * whole decode and the address adder in one clock — and since the
-     * sprite's address is what the XRAM arbiter selects on, every other
-     * engine's grant arrived through that cone too. One clock per
-     * descriptor against sixteen hundred in a line. */
+    /* Decoded once into registers: off the gathered words the whole
+     * decode and the address adder land in one clock, and the sprite's
+     * address is what the XRAM arbiter selects on, so every other
+     * engine's grant arrives through that cone too. */
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr;
     logic [7:0] d_log;
     logic d_meta;
     logic signed [15:0] d_t[6];
 
-    /* Kept as registers rather than recomputed: each stood in front of
-     * the address adder, so a variable shift and an add had to happen
-     * between a register and the XRAM's address port. */
+    /* Registers rather than recomputed: each stood in front of the
+     * address adder, putting a variable shift and an add between a
+     * register and the XRAM's address port. */
     logic [7:0] size;
     logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
     logic [31:0] d_over;  /* the affine walk's out-of-square mask */
@@ -182,23 +178,16 @@ module vid_mode4 (
     /* The span's first sample, one past its end — four fixed-point
      * multiplies, every term wrapping mod 2^32 like the oracle's.
      *
-     * Each term was written the way the oracle computes it, a
-     * sign-extended (t << 8) against a sign-extended k in thirty-two
-     * bits. But (t << 8) * k and (t * k) << 8 agree on their low
-     * thirty-two bits — the shift only moves the product — and the
-     * second is a sixteen-by-eighteen multiply the fabric has a DSP
-     * for, rather than a thirty-two square one it has to build out of
-     * four and a carry tree. Twenty-four bits of each product survive
-     * the shift, which is why the slice is exact and not a rounding. */
+     * (t << 8) * k and (t * k) << 8 agree on their low thirty-two bits,
+     * and the second is a 16x18 the fabric has a DSP for rather than a
+     * 32-square it must build. Twenty-four bits of each product survive
+     * the shift, so the slice is exact and not a rounding. */
     logic signed [17:0] kx;
     always_comb kx = 18'(tex_offs_x0) + size_x0;
-    /* The products stand in registers, so the multiply and the sum
-     * that follows it are not the same clock's work. Everything they
-     * are made of was registered by the decode, and the setup that
-     * consumes them is a clock later than that, so this costs no state
-     * and no time — only the flops. Together in one hop it was the
-     * longest path in the machine: a size bit through the width adder,
-     * through a 24-bit multiply, through a three-way 32-bit add. */
+    /* Registered, so the multiply and the sum after it are not one
+     * clock's work. Together in one hop this was the longest path in the
+     * machine: a size bit through the width adder, a 24-bit multiply,
+     * then a three-way 32-bit add. */
     logic signed [23:0] pu_x, pu_y, pv_x, pv_y;
     always_ff @(posedge clk) begin
         pu_x <= 24'(d_t[0] * kx);
@@ -214,17 +203,14 @@ module vid_mode4 (
                 + {{8{d_t[5][15]}}, d_t[5], 8'd0};
     end
 
-    /* The word after the one in hand. The walk is a byte at a time
-     * through a sequential texture, so this is simply the next. */
     logic [13:0] pre_next;
     logic pre_want;
     logic [17:0] cur_byte_addr;
     always_comb cur_byte_addr =
         state == M4_APOP ? af_byte_addr : tex_byte_addr;
-    /* The word in hand, or the one that arrived early. A prefetch hit
-     * emits and promotes in the same clock — promoting first and
-     * emitting after would give the boundary back the clock the
-     * prefetch was there to save. */
+    /* A prefetch hit emits and promotes in the same clock; promoting
+     * first would give the boundary back the clock it was there to
+     * save. */
     logic dhit, pre_hit, hit_any;
     always_comb begin
         dhit = dcache_v && dcache_word == cur_byte_addr[15:2];
@@ -237,7 +223,6 @@ module vid_mode4 (
     logic [15:0] texel;
     always_comb texel = cur_byte_addr[1] ? hit_data[31:16]
                                          : hit_data[15:0];
-    /* The word after the one being emitted from. */
     always_comb pre_next = (pre_hit ? pre_word : dcache_word) + 14'd1;
     always_comb pre_want = state == M4_PIX && hit_any && dcache_v
         && !pre_v && !pre_pend;
@@ -255,12 +240,10 @@ module vid_mode4 (
                 vid_mode4_a_addr = meta_addr[15:2];
             end
             M4_PIX: begin
-                /* A prefetch of this word may still be in flight: a
-                 * grant on a boundary clock parks its answer in
-                 * pre_data, and a duplicate miss fetch would land on a
-                 * clock the promote path already covers — leaving fw_i
-                 * raised and the request line silent for the rest of
-                 * the walk. */
+                /* A prefetch of this word may still be in flight, and a
+                 * duplicate miss fetch would land on a clock the promote
+                 * path already covers — leaving fw_i raised and the
+                 * request line silent for the rest of the walk. */
                 if (!dhit
                     && !((pre_v || pre_pend)
                          && pre_word == cur_byte_addr[15:2]))

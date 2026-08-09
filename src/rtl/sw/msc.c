@@ -3,32 +3,20 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The Pocket's drive. Eight data slots stand in for eight open files:
- * Open File binds one to a name, Slot Read and Slot Write move bytes
- * between it and memory the bridge can reach, and the data table says
- * how long the file is. pocket_file does the asking; this decides what
- * to ask.
+ * The Pocket's drive. Eight data slots stand in for eight open files.
  *
- * Where a name resolves was measured on hardware: the host has no
- * working directory and does not resolve a relative name at all, so the
- * drive spells one out. There is no single root to spell, either — a
- * program opening a file means its own saves folder, and a program being
- * exec'd is browsed for where the menu browses, so each side of the API
- * pins its own. A leading slash names the card's root and travels
- * untouched, which is why MSC0:/ is the card and argv[0] keeps its
- * prefix.
+ * The host has no working directory and will not resolve a relative
+ * name, so the drive spells one out. There is no single root to spell:
+ * an open means the program's own saves folder and an exec means where
+ * the menu browses, so each side of the API pins its own. A leading
+ * slash names the card's root and travels untouched.
  *
- * A program's path is code page bytes and the host's is UTF-8, so the
- * name is converted on its way out. Three bytes per character is the
- * worst case, and a name that will not fit the struct that way is
+ * Paths are code page bytes going out and UTF-8 at the host, worst case
+ * three bytes per character. A name that will not fit the struct is
  * refused rather than truncated into a different file.
  *
  * A slot's file has a length, not a high-water mark, so a write past the
- * end reopens the slot with the resize flag and the new length before
- * sending the bytes. That costs a round trip per extension.
- *
- * The two integers in Open File's struct are words, not bytes of the
- * stream the path rides in. See msc_win_u32.
+ * end costs a resize-open round trip before the bytes.
  */
 
 #include "font.h"
@@ -40,9 +28,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Slots 1-8 are the open files, one per descriptor, above the ROM's
- * slot 0 the way their windows sit above its ceiling. The fonts and
- * the code page tables close the list, staged whole. */
+/* Slots 1-8 are the open files, above the ROM's slot 0. */
 #define MSC_SLOT_FIRST 1
 #define MSC_OPEN_MAX 8
 
@@ -71,12 +57,9 @@ static struct
     char name[MSC_NAME_MAX];
 } msc_pool[MSC_OPEN_MAX];
 
-/* A command in two halves, because the task loop does not wait for
- * anything. The bridge gives a silent host about 0.9 seconds
- * before it retires the command and pocket_file's own backstop is twice
- * that, and spinning either out stops every other task: the 6502's
- * console output, the video frames, and the next file operation with
- * them. Start it, and poll it once per pass. */
+/* Two halves, because the task loop does not wait: a silent host holds
+ * the bridge for about 0.9 seconds and spinning that out stops every
+ * other task. Start it, and poll once per pass. */
 static void msc_start(uint32_t op)
 {
     FILE_CTL = op;
@@ -91,10 +74,8 @@ static bool msc_poll(uint32_t *st)
     return true;
 }
 
-/* The blocking form, for open and for boot-time staging, and it stays
- * blocking: open happens once per file and the 6502 is parked in its
- * syscall for it either way. Everything the machine does at volume —
- * read, write, sync — goes the other way and is re-entered. */
+/* The blocking form, for open and boot-time staging: once per file, and
+ * the 6502 is parked in its syscall either way. */
 static uint32_t msc_command(uint32_t op)
 {
     uint32_t st;
@@ -112,10 +93,9 @@ static bool msc_busy;
  * that makes room before the WRITE that fills it. */
 static bool msc_grow;
 
-/* std_stop's closes drain only a descriptor they are going to flush, so
- * a read-only one arrives here still in flight. Left there, the bridge
- * keeps holding the command and the next one stacks a toggle on top of
- * it. Nothing is owed the bytes: the program that asked is gone. */
+/* std_stop drains only descriptors it will flush, so a read-only one
+ * arrives still in flight. Left there, the next command stacks a toggle
+ * on top of it. */
 void msc_stop(void)
 {
     if (msc_busy || msc_grow)
@@ -141,19 +121,15 @@ static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
 }
 
 /* Words, not bytes. The path rides the byte stream and arrives intact,
- * but the host takes an integer field as the bridge word stands: written
- * low byte first, flags of 3 arrive as 0x03000000 — every documented bit
- * clear, every reserved bit set — and the host opens the file without
- * creating or resizing it. Which looks like success on a file that
- * exists and "not found" on one that does not. */
+ * but an integer field is taken as the bridge word stands: written low
+ * byte first, flags of 3 arrive as 0x03000000. */
 static void msc_win_u32(uint32_t off, uint32_t v)
 {
     FILE_WIN[off >> 2] = v;
 }
 
-/* The table is id/size pairs and the host decides where each one lands —
- * Analogue's side is a RAM the host writes, and defines no layout — so a
- * slot's size is looked up by its id. */
+/* The table is id/size pairs with no defined layout, so a slot's size is
+ * looked up by its id. */
 #define MSC_DT_PAIRS 20
 
 uint32_t msc_dt(uint32_t word)
@@ -174,14 +150,8 @@ bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* The one command the host answers with something other than a result
- * code, and the one direction the outbound window cannot carry: the
- * bridge writes the store, so the name lands in the scratch between the
- * assets and the ROM.
- *
- * Analogue documents the command and not the shape of what comes back.
- * This reads a NUL-terminated name at offset 0, which is where Open
- * File's parameter struct carries one. */
+/* The shape of the reply is undocumented. This reads a NUL-terminated
+ * name at offset 0, where Open File's parameter struct carries one. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap)
 {
     FILE_ID = slot;
@@ -212,24 +182,17 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
     return o != 0;
 }
 
-/* Measured on hardware, both of them. The host does not create folders
- * and does not say so — a create into a missing folder answers with a
- * descriptor and leaves nothing on the card — so the package ships the
- * one folder the drive needs. And it does not resolve a relative name,
- * so the drive spells the path out. A name that arrives absolute is the
- * program reaching for the card's root and travels untouched. */
+/* The host does not create folders and does not say so, so the package
+ * ships the one folder the drive needs. */
 #define MSC_SAVES_LEN (sizeof MSC_SAVES_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 
-/* Bind a slot to a name. Open File answers 0 when the file was there
- * and 1 when it had to make it, and both of those are yes — the rest
- * are 2 slot not defined, 3 not found, 4 malformed path, 5 general. */
 /* Not a host answer: the command is on its way and the caller must come
  * back for it. */
 #define MSC_RC_STARTED 0xFFu
 
-/* Builds the name into the window and starts the command. Answers
- * MSC_RC_MALFORMED without starting one when the name will not fit. */
+/* Answers MSC_RC_MALFORMED without starting a command when the name will
+ * not fit. */
 static uint32_t msc_try_open_start(uint32_t slot, const char *name,
                                    uint32_t flags, uint32_t size,
                                    const char *root)
@@ -260,9 +223,8 @@ static uint32_t msc_try_open_start(uint32_t slot, const char *name,
     return MSC_RC_STARTED;
 }
 
-/* A bridge that stopped answering reads as MSC_RC_MALFORMED, which
- * every caller already treats as a refusal. A host that never picked the
- * command up is not that: it comes back as an ordinary result 7. */
+/* A bridge that stopped answering reads as MSC_RC_MALFORMED, which every
+ * caller already treats as a refusal. */
 static bool msc_try_open_poll(uint32_t *rc)
 {
     uint32_t st;
@@ -290,11 +252,9 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
     return msc_try_open(slot, name, flags, size, MSC_SAVES_PATH) <= 1;
 }
 
-/* Only the drive prefix is stripped; the slash after it, or its
- * absence, is what decides where the name lands. "foo.txt" and
- * "MSC0:foo.txt" are the same saved game in the drive's folder, the way
- * open("save.dat") should land anywhere; "MSC0:/foo.txt" starts at the
- * card's root. A named drive that is not 0 is refused, not aliased. */
+/* Only the prefix is stripped; the slash after it, or its absence, is
+ * what decides where the name lands. A drive that is not 0 is refused,
+ * not aliased. */
 static const char *msc_strip_drive(const char *path)
 {
     const char *p = path;
@@ -316,9 +276,8 @@ static int msc_desc(int desc)
     return desc;
 }
 
-/* The bridge's deadline expires before pocket_file's and retires the
- * command itself, so a host that never picked it up arrives as result 7
- * rather than as our own timeout. Either way nobody ran it. */
+/* The bridge retires the command before pocket_file's deadline, so a host
+ * that never picked it up arrives as result 7, not as our own timeout. */
 #define MSC_RC_NO_HOST 7u
 
 static bool msc_unanswered(uint32_t st)
@@ -327,21 +286,13 @@ static bool msc_unanswered(uint32_t st)
            || ((st & FILE_ST_ERR) >> 1) == MSC_RC_NO_HOST;
 }
 
-/* Flush, 0x0188: documented by Analogue and absent from its own
- * core_bridge_cmd.v, which was the warning. Asking costs one deadline
- * rather than the session, so the first ask decides and the answer is
- * remembered. */
+/* Flush, 0x0188, is documented but absent from core_bridge_cmd.v. Asking
+ * costs one deadline, so the first ask decides and is remembered. */
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
-/* Exec's staging: bind the ROM slot to the next image and pull the whole
- * of it to where the host stages one, so the loader and the ROM: drive
- * read it the same way however it arrived.
- *
- * Chunked because the bridge's ~0.9 s deadline times the whole slot
- * operation — the host's ack does not reset it — and the host writes at
- * worst one word per ~1185 ns, about 3.4 MB/s. Half a megabyte leaves
- * the card read and four fifths of the deadline in hand. */
+/* Chunked because the bridge's ~0.9 s deadline times the whole slot
+ * operation, and the host writes at worst ~3.4 MB/s. */
 #define MSC_STAGE_CHUNK 0x80000u
 
 bool msc_stage_rom(const char *path, uint32_t *len)
@@ -402,11 +353,8 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
 
-    /* Creating takes both bits: the create bit alone answers with a
-     * descriptor and makes nothing, and resize is what puts the file
-     * there. So a create must first know whether the file exists —
-     * both bits against one that does would cut it to nothing — which
-     * is the same question exclusive creation asks. */
+    /* Creating takes both bits: create alone makes nothing, and both bits
+     * against a file that exists would cut it to nothing. So probe first. */
     bool exists = msc_open_slot(slot, path, 0, 0);
     if (exists && (flags & (MSC_O_CREAT | MSC_O_EXCL))
                       == (MSC_O_CREAT | MSC_O_EXCL))
@@ -419,23 +367,16 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    /* Nothing to keep, either because it is new or because the program
-     * asked for it gone. The host holds a file at no length, so this is
-     * a resize to nothing and a length of nothing on both sides.
-     *
-     * Truncating one that is already there cannot be a missing folder —
-     * the probe above just found it — so the conjure below has nothing
-     * to offer and a failure here is the host's, and final. */
+    /* The probe above found the file, so a failure here is the host's and
+     * final; the retry below has nothing to offer. */
     bool empty = !exists || (flags & MSC_O_TRUNC);
     if (empty && exists && !msc_open_slot(slot, path, MSC_DS_RESIZE, 0))
     {
         *err = API_EIO;
         return -1;
     }
-    /* A create is answered the same way whether or not one happened: ask
-     * for a file in a folder the card does not have and the host returns
-     * a descriptor, having written nothing. Nothing in the result tells
-     * the two apart, so ask again plainly and take that answer. */
+    /* A create into a missing folder returns a descriptor having written
+     * nothing, and the result cannot tell the two apart. Ask again plainly. */
     if (!exists
         && !(msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 0)
              && msc_open_slot(slot, path, 0, 0)))
@@ -458,14 +399,9 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return d;
 }
 
-/* A close flushes. There is no close command to send the host, so this
- * is the only thing that puts a write on the card: a program that writes
- * and closes without syncing has asked for durability the only way the
- * API offers, and getting it is not optional.
- *
- * It blocks, unlike sync, because std_stop discards what close returns.
- * A flush that answered STD_PENDING there would be dropped on the path
- * every exiting program takes. */
+/* A close flushes: there is no close command, so this is the only thing
+ * that puts a write on the card. It blocks, unlike sync, because
+ * std_stop discards what close returns and would drop a STD_PENDING. */
 std_rw_result msc_std_close(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
@@ -669,11 +605,8 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     return 0;
 }
 
-/* Synthetic: the host cannot be asked, but it was measured and it cannot
- * move. Spelled from the drive so appending a name to it opens the same
- * file the bare name does. chdir fails whatever it names — even the
- * directory getcwd answered — so nothing concludes that directories
- * work. */
+/* Synthetic: the host cannot be asked. Spelled from the drive so
+ * appending a name opens the same file the bare name does. */
 bool msc_api_getcwd(void)
 {
     static const char cwd[] = "MSC0:/Saves/rp6502/common/";

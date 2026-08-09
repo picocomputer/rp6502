@@ -5,13 +5,12 @@
  *
  * One plane's palette, shared by the three renderers that can hold it.
  *
- * A plane runs exactly one of mode 1, 2 or 3 on any scanline, so the
- * three carried three stores to use one. They can share, because a mode
- * that reads the palette always reloads it first: the config decides
- * pal_xram at the top of the line, and the S_PAL state fetches every
- * entry that mode will index before a pixel is emitted. A mode that
- * leaves pal_xram clear reads the built-in colors instead and never
- * looks here at all.
+ * A plane runs exactly one of mode 1, 2 or 3 on any scanline, and they
+ * can share because a mode that reads the palette always reloads it
+ * first: the config decides pal_xram at the top of the line, and the
+ * S_PAL state fetches every entry that mode will index before a pixel is
+ * emitted. A mode that leaves pal_xram clear reads the built-in colors
+ * and never looks here.
  *
  * The parity split gives the load one write per XRAM word, which carries
  * two entries. The second copy gives mode 1 a foreground and a
@@ -24,7 +23,6 @@ module vid_palram
 (
     input logic clk,
 
-    /* The load, from whichever renderer holds the plane. */
     input logic ld,
     input logic [7:0] w,
     input logic [8:0] words,

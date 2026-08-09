@@ -2,12 +2,13 @@
 
 The Picocomputer 6502 is a real 6502 computer built from a WDC 65C02, a couple
 of Raspberry Pi Picos, and very little else. This repository holds everything
-that runs on the Picos plus a desktop/web emulator of the whole machine.
+that runs on the Picos plus a desktop/web emulator and FPGA cores of the whole
+machine.
 
 The main documentation starts here:<br>
 https://picocomputer.github.io/
 
-Pre-built `.uf2` firmware images for Pi Pico 2 boards:<br>
+Pre-built firmware and executables:<br>
 https://github.com/picocomputer/rp6502/releases
 
 This project is for building emulation or firmware. For writing 6502 software, see
@@ -20,16 +21,9 @@ Begin by installing VS Code and the Pi Pico VS Code Extension as described in
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
 Most dependencies are submodules, and CMake fetches the ones your build needs
-the first time you configure — the firmware wants two, the emulator six, the
-FPGA core four or five. No tree fetches another tree's, none of them fetches a
-submodule's own submodules, and the first configure of a fresh clone takes an
-extra half minute saying so. `-DRP6502_FETCH_SUBMODULES=OFF` leaves `vendor/`
+the first time you configure. `-DRP6502_FETCH_SUBMODULES=OFF` leaves `vendor/`
 entirely to you. The web build's toolchain arrives the same way, which is a
 few hundred megabytes the first time.
-
-Both 65C02 implementations, the emulator's and the FPGA core's, are held to the
-same two suites so neither can drift alone. Klaus Dormann's functional tests
-arrive with the rest and run long self-checking sequences.
 
 The other suite replays per-cycle bus traces from
 [SingleStepTests](https://github.com/SingleStepTests/65x02), one instruction per
@@ -146,8 +140,7 @@ nine minutes that placed the design. The Pocket tree needs Quartus and
 `src/rtl/README.md` for the RTL and `src/host/pocket/README.md` for
 the Pocket itself.
 
-To build the emulator, ensure your seatbelt is fastened and tray tables in their
-upright position; we have some bumpy weather ahead. From the CMake side panel
+To build the emulator, from the CMake side panel
 select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
 panel you select "Emulator Debug" and press F5. You'll get prompted to select
 one of the included test roms to run. You'll also have a binary in build/emulator

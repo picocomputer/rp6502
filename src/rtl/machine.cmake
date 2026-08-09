@@ -2,10 +2,8 @@
 #
 # Both halves of this tree need these and neither needs a simulator to have
 # them: the verilated model is built from this list, and so is every Quartus
-# project. They lived inside rp6502_verilate.cmake's verilator_FOUND guard for
-# a while, which meant a bitstream could not be built without Verilator
-# installed - and CI's bitstream job does not install it, so on that runner the
-# pocket target did not exist at all.
+# project. Guarding them behind verilator_FOUND would mean no bitstream
+# without Verilator installed, which CI's bitstream runner does not have.
 #
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.

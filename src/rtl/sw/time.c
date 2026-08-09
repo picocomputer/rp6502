@@ -4,23 +4,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The machine's clocks. The microsecond counter is the fabric's,
- * monotonic since power-on — nothing resets it — and read hi-lo-hi so a
- * carry between the two words never shows a torn value. Wall time starts from the one thing
- * the host ever says about it: command 0x0090 at core boot, local
- * time as seconds since 1970, latched behind RTC_VALID. The Pocket has
- * no idea what a time zone is, so the menu's UTC offset — three list
- * entries the host persists, combined by set_tz_minutes into signed
- * minutes east — turns that local reading into the UTC the API serves.
- * Moving the clock for DST is the user's job.
+ * monotonic since power-on, read hi-lo-hi so a carry never shows a torn
+ * value. Wall time starts from command 0x0090 at core boot: local time
+ * as seconds since 1970, latched behind RTC_VALID. The Pocket knows
+ * nothing of time zones, so the menu's UTC offset turns that local
+ * reading into the UTC the API serves. DST is the user's job.
  *
- * The offset also becomes a POSIX TZ string handed to the C library,
- * so localtime, mktime and strftime's %z all agree through the one
- * mechanism the shared clk.c already uses on the RP2350. POSIX signs
- * the offset westward, hence the negation.
+ * The offset also becomes a POSIX TZ string, so localtime, mktime and
+ * strftime's %z all agree. POSIX signs the offset westward, hence the
+ * negation.
  *
- * A program that sets the clock owns it from then on: it set UTC, and
- * a later menu fiddle with the offset must not drag UTC around — the
- * offset only re-derives the base while the base is still the host's.
+ * A program that sets the clock owns it: the offset only re-derives the
+ * base while the base is still the host's.
  */
 
 #include "mmio.h"
@@ -46,8 +41,7 @@ uint64_t time_us_64(void)
     return ((uint64_t)hi << 32) | lo;
 }
 
-/* Noon UTC keeps localtime on day 0 for any offset — the RP2350's own
- * convention for a clock nothing has set. */
+/* Noon UTC keeps localtime on day 0 for any offset. */
 #define TIM_DEFAULT_EPOCH 43200
 
 static int32_t tim_tz_min;     /* minutes east of UTC, from the menu */
@@ -57,25 +51,15 @@ static int32_t tim_base_nsec;
 static uint64_t tim_base_us;
 static bool tim_program_set;   /* a program set UTC; the menu lets go */
 
-/* The zone has no name, so it is spelled as its own offset: the
- * bracketed form, "<-0700>+7:00", which POSIX provides for exactly
- * this case and which makes %Z print "-0700".
+/* The zone has no name, so it is spelled as its own offset in POSIX's
+ * bracketed form, "<-0700>+7:00". The two halves disagree on sign and
+ * both are right: inside the brackets is a name, written east positive;
+ * outside is the POSIX offset, which is what must be added to local time
+ * to reach UTC.
  *
- * The two halves disagree on sign and both are right. Inside the
- * brackets is the name, and a name reads the way people write offsets,
- * east positive. Outside is the POSIX offset, which states what must
- * be *added to local time to reach UTC* and so runs the other way: the
- * same zone seven hours east is "-0700" and "+7:00" in one string.
- * The tree's own table keeps the outside convention — CET is "CET-1",
- * SAST is "SAST-2".
- *
- * A plain name here must be three characters or more; POSIX says so
- * and the C library enforces it by giving up without a word. "LT"
- * parsed as no zone at all, TZ stayed unset, and localtime quietly
- * returned UTC — both clocks reading GMT on hardware while the offset
- * itself was arriving perfectly. The brackets sidestep the rule, and
- * fstest now checks that the two clocks disagree, so a string this
- * library will not parse cannot ship again. */
+ * The brackets are also what makes it parse at all — a plain name must
+ * be three characters or more, and the C library enforces that by giving
+ * up silently and leaving TZ unset. */
 static void tim_apply_tz(void)
 {
     char tz[24];
@@ -97,9 +81,8 @@ void tim_init(void)
     tim_apply_tz();
 }
 
-/* The menu moved the offset. UTC re-derives from the host's local
- * reading only while that reading is still the base; a clock a program
- * set is UTC already and stays put. */
+/* UTC re-derives from the host's local reading only while that reading
+ * is still the base; a clock a program set is UTC already. */
 void tim_set_tz_minutes(int32_t min)
 {
     if (min == tim_tz_min)

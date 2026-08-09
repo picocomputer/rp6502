@@ -58,7 +58,6 @@ module vid_sprite (
 
     logic [1:0] p;       /* the plane being walked */
 
-    /* The two sprite engines; the slot's mode bits pick one. */
     logic m5_start;
     logic m5_a_req;
     logic [13:0] m5_a_addr;
@@ -67,12 +66,10 @@ module vid_sprite (
     logic [15:0] m5_px_data;
     logic m5_done;
 
-    /* Mode 5's palette cache. The engine's per-pixel palette reads used
-     * to be one arbitrated XRAM round trip each; the cache answers
-     * repeats combinationally and fills misses through the same channel
-     * while the pixel stalls. Coherence is by row: line_start empties
-     * it, so a palette write lands by the next row — the owner's call,
-     * and the reason there is no write snoop. */
+    /* Mode 5's palette cache: repeats answer combinationally, misses
+     * fill through the same channel while the pixel stalls. Coherence is
+     * by row — line_start empties it, so a palette write lands by the
+     * next row and there is no write snoop. */
     logic pal_lookup, pal_xram, pal_one_bpp;
     logic [15:0] pal_base;
     logic [7:0] pal_idx;
@@ -160,12 +157,10 @@ module vid_sprite (
     logic sp_is4;
     always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
 
-    /* The engine this plane's slot picked, taken when the plane was
-     * planned. sp_is4 reads slot_entry[p], a three-way mux on thirty-two
-     * bits, and it stood in the pixel port's data path and in the XRAM
-     * arbiter's — on every clock of a walk, for a bit that cannot change
-     * while the walk runs. vid_mode4 keeps its descriptor this way and
-     * says why; this is the same thing one level up. */
+    /* Taken when the plane was planned: sp_is4 reads slot_entry[p], a
+     * three-way mux on thirty-two bits, and it stood in both the pixel
+     * port's data path and the XRAM arbiter's for a bit that cannot
+     * change while the walk runs. */
     logic run4;
 
     /* The cache's fill preempts mode 5's own requests. Its miss fetch
@@ -188,15 +183,13 @@ module vid_sprite (
     logic wr_bank;
     logic flip_next;
 
-    /* The beam reads one ahead of itself, on each pixel's last tick, and
-     * the bank flip lands on h==0's first tick — so only the pixel-0
-     * read at the end of h==799 sees the fresh line under its write-side
-     * label. Every first tick is the eraser's, one pixel behind the
-     * read, on every line unconditionally: a held bank's later reads
-     * are never displayed, so nothing an erase could blank is ever
-     * seen, and the scan bank is zero by the time it flips to write
-     * duty. Erasing the whole bank rather than to cw is what keeps a
-     * canvas switch from stranding pixels. */
+    /* The bank flip lands on h==0's first tick, so only the pixel-0 read
+     * at the end of h==799 sees the fresh line under its write-side
+     * label. Every first tick is the eraser's, one pixel behind the read
+     * and unconditional: a held bank's later reads are never displayed,
+     * so the scan bank is zero by the time it flips to write duty.
+     * Erasing the whole bank rather than to cw is what keeps a canvas
+     * switch from stranding pixels. */
     logic [10:0] sb_rd;
     always_comb sb_rd = h == 10'd799
         ? {flip_next ? wr_bank : !wr_bank, 10'd0}

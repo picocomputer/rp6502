@@ -4,13 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The pocket port of the op 0x01 xreg dispatcher, emu/sys/pix.c's
- * synchronous shape: there is no PIX bus — the video device shares the
- * fabric — so delivery is a function call and a handler's false is the
- * NAK. Device 0 is the RIA-local virtual xreg with the address held
- * constant; the VGA's canvas word goes first from a channel-0 address-0
- * burst so it cannot clear the mode programming that follows; the rest
- * land high address to low, each register after the parameters it
- * consumes.
+ * synchronous shape: no PIX bus, so delivery is a function call and a
+ * handler's false is the NAK. The canvas word goes first from a
+ * channel-0 address-0 burst so it cannot clear the mode programming that
+ * follows; the rest land high address to low, each register after the
+ * parameters it consumes.
  */
 
 #include "main.h"
