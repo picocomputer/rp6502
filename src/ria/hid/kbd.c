@@ -656,8 +656,12 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned)
+/* The width the caller would like is ignored: the list sets its own
+ * from the longest name it has. Named rather than left off, because
+ * this file is compiled by MSVC now that tests/hid links it. */
+int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
 {
+    (void)width;
     if (state < 0 || state >= kbl_count())
         return -1;
     char name[KBL_NAME_MAX];

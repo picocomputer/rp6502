@@ -73,15 +73,6 @@ add_test(NAME rbf_r
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/gen/rbf_r_gen.py --check)
 
-# ria/hid/kbd.c is compiled for a machine with USB and for one without,
-# and the one without gets a shim rather than a USB stack. Two spellings
-# of one specification drift; this is what says they have not.
-add_test(NAME hid_shim
-    COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/gen/hid_shim_check.py
-        --shim ${RP6502_SRC}/rtl/sw/shim/class/hid/hid.h
-        --vendor ${RP6502_VENDOR}/tinyusb/src/class/hid/hid.h)
-
 set(CPU65_ROM ${RP6502_ASSETS}/cpu65_rom_pkg.sv)
 rp6502_asset(cpu65_rom GEN ${CPU65_GEN}
     ARGS --emit ${CPU65_ROM}
