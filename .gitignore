@@ -1,6 +1,4 @@
 /build/
 /.venv/
-# Android Studio writes this and Gradle hardcodes where it reads it from.
-# Everything else Gradle generates goes to /build/ above.
-src/host/android/local.properties
 __pycache__/
+/src/host/android/local.properties
