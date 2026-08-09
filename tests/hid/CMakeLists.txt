@@ -29,3 +29,10 @@ rp6502_add_test(apf
     INCLUDES ${RP6502_SRC} ${RP6502_SRC}/host/pico ${KBDLAY_DIR} ${OEMCP_DIR}
         ${RP6502_SRC}/rtl/sw/shim)
 add_dependencies(test_apf kbdlay oemcp)
+if(MSVC)
+    # The shims emu_core hands the shared firmware sources, which this
+    # test compiles without linking it: a <strings.h> MSVC has no system
+    # header for, and the idioms it dislikes where GCC does not.
+    target_include_directories(test_apf PRIVATE ${RP6502_SRC}/host/win)
+    target_compile_options(test_apf PRIVATE /utf-8 /FIcompat.h /wd4068 /wd4098)
+endif()
