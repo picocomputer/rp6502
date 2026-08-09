@@ -2,9 +2,7 @@
 #
 # The emulator's CPU and the FPGA core's answer the same dut.h, so one set of
 # suites holds both: vec.c and klaus.c are the evidence, chips_dut.c and
-# cpu65_dut.cpp are the two implementations under it. Each suite is guarded on
-# its own fixtures — the Klaus images arrive with the rest, the
-# SingleStepTests corpus is asked for by a target because of its size.
+# cpu65_dut.cpp are the two implementations under it.
 
 set(CPU_DUT ${CMAKE_CURRENT_LIST_DIR}/chips_dut.c)
 set(CPU_INCLUDES
@@ -13,13 +11,9 @@ set(CPU_INCLUDES
     ${RP6502_VENDOR})
 
 # --- SingleStepTests: per-cycle bus traces, one instruction per case ---
-# Upstream is five CPU families and 4.8 GB where we run one of them, so this
-# one is asked for rather than fetched: a gigabyte is not something to spend
-# during a configure, and a fixture that arrives at build time cannot be
-# registered as a test by the configure that has already finished. So the
-# corpus is offered by a target, and the configure after it sees the suite.
+# Upstream carries five CPU families, so SPARSE takes the one we run.
 rp6502_submodule(vendor/65x02 SENTINEL wdc65c02/v1/00.json
-    SPARSE wdc65c02/v1 LAZY vectors-download
+    SPARSE wdc65c02/v1 TARGET vectors-download OPTIONAL
     WANTS "per-cycle conformance" RESULT RP6502_HAVE_SSTESTS)
 set(SSTESTS ${RP6502_ROOT}/vendor/65x02/wdc65c02/v1)
 set(SSVEC_COUNT 100 CACHE STRING "SingleStepTests cases per opcode")
@@ -43,7 +37,7 @@ if(RP6502_HAVE_SSTESTS)
     add_dependencies(test_vectors cpu_vectors)
 else()
     message(WARNING "SingleStepTests corpus absent — per-cycle conformance"
-        " skipped. The line above says how to fetch it.")
+        " skipped.")
 endif()
 
 # --- Klaus Dormann: long self-checking sequences ---

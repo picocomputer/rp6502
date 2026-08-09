@@ -22,21 +22,7 @@ Begin by installing VS Code and the Pi Pico VS Code Extension as described in
 
 Most dependencies are submodules, and CMake fetches the ones your build needs
 the first time you configure. `-DRP6502_FETCH_SUBMODULES=OFF` leaves `vendor/`
-entirely to you. The web build's toolchain arrives the same way, which is a
-few hundred megabytes the first time.
-
-The other suite replays per-cycle bus traces from
-[SingleStepTests](https://github.com/SingleStepTests/65x02), one instruction per
-case. Upstream carries five CPU families and checks out at 4.8 GB, so this is
-the one thing CMake will not fetch behind your back: a blobless sparse clone of
-the single directory we run, about a gigabyte, and a minute. Run the VS Code
-**vectors: download** task, or from a configured tree:
-```
-$ cmake --build build/emulator/release --target vectors-download
-```
-Configure again afterwards — a suite cannot be registered by a configure that
-has already finished. Without it the conformance tests are skipped and CMake
-says so.
+entirely to you.
 
 ## Linux
 

@@ -371,14 +371,6 @@ jobs:
             build-essential cmake ninja-build verilator \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      # Blobless sparse clone of one directory; the full repo is 4.8 GB. It
-      # has to precede the configure that registers the suite reading it.
-      - name: Fetch SingleStepTests CPU vectors
-        run: >-
-          cmake -DRP6502_ROOT=$GITHUB_WORKSPACE -DFETCH_SUPER=$GITHUB_WORKSPACE
-          -DFETCH_PATH=vendor/65x02 -DFETCH_SPARSE=wdc65c02/v1
-          -P rp6502_submodule.cmake
-
       - name: Configure & build simulation
         run: |
           set -euxo pipefail
