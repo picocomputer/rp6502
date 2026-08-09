@@ -100,7 +100,7 @@
         "id": 11,
         "required": true,
         "parameters": "0x0",
-        "filename": "kbdlay.bin",
+        "filename": "keyboard.bin",
         "size_exact": "8056",
         "address": "0x03FF2000"
       }

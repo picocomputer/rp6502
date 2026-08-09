@@ -479,7 +479,7 @@ binaries, which the build supplies:
   everything below its `size_maximum` ceiling — and the firmware copies
   it to the video device at every boot.
 - `Assets/rp6502/common/oemcp.bin` and
-  `Assets/rp6502/common/kbdlay.bin` ride the same way, from
+  `Assets/rp6502/common/keyboard.bin` ride the same way, from
   `src/gen/oem_table_gen.py` and `src/gen/kbd_layout_gen.py`. They are
   the code page conversion tables and the keyboard layouts, both far
   too large to link into a 96 KB tightly coupled memory and both read a

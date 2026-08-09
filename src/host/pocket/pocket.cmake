@@ -288,7 +288,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${KBDLAY_BIN}
-            ${PKG_DIR}/Assets/rp6502/common/kbdlay.bin
+            ${PKG_DIR}/Assets/rp6502/common/keyboard.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp

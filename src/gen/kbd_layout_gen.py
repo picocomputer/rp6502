@@ -381,9 +381,9 @@ def check_interact(path, layouts):
 def check_data(path, words):
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
     slots = doc["data"]["data_slots"]
-    found = [s for s in slots if s.get("filename") == "kbdlay.bin"]
+    found = [s for s in slots if s.get("filename") == "keyboard.bin"]
     if len(found) != 1:
-        raise SystemExit("kbd_layout_gen: data.json has no kbdlay.bin slot")
+        raise SystemExit("kbd_layout_gen: data.json has no keyboard.bin slot")
     size = int(found[0]["size_exact"], 0)
     if size != len(words) * 2:
         raise SystemExit(f"kbd_layout_gen: data.json says {size} bytes, "

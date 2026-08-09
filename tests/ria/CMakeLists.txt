@@ -87,7 +87,7 @@ add_dependencies(test_kbl kbdlay)
 
 # --- The same suite over the Pocket's copy of the layouts ---
 # kbl_word is the one thing a port writes: one links kbdlay.c and reads
-# an array, one stages kbdlay.bin and reads a window. Only the tree that
+# an array, one stages keyboard.bin and reads a window. Only the tree that
 # builds the .bin can run this.
 if(KBDLAY_BIN)
     rp6502_add_test(kbl_bin

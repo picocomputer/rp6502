@@ -7,7 +7,7 @@
  *
  * src/ria/hid/kbl.h calls this the one thing a port has to write, and
  * there are two ports: a machine with flash links kbdlay.c and reads an
- * array, and a machine without stages kbdlay.bin and reads a window.
+ * array, and a machine without stages keyboard.bin and reads a window.
  * Both come out of one generator, so both are checked — the same
  * test_kbl.c over the staged bytes instead.
  */

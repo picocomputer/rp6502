@@ -184,7 +184,7 @@ rp6502_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
 # for either in a 96 KB tightly coupled memory.
 set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def)
 file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
-set(KBDLAY_BIN ${RP6502_ASSETS}/kbdlay.bin)
+set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
 rp6502_asset(kbdlay_bin GEN ${RP6502_SRC}/gen/kbd_layout_gen.py
     ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
     OUTPUTS ${KBDLAY_BIN}
