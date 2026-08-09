@@ -1,11 +1,6 @@
 /build/
 /.venv/
-src/host/android/build/
-src/host/android/.gradle/
-src/host/android/.idea/
-src/host/android/.cxx/
+# Android Studio writes this and Gradle hardcodes where it reads it from.
+# Everything else Gradle generates goes to /build/ above.
 src/host/android/local.properties
-src/host/android/*.keystore
-src/host/android/*.jks
-src/host/android/release/
 __pycache__/

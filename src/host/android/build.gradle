@@ -4,33 +4,38 @@ buildscript {
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.0.2'
-    }
-}
-
-allprojects {
-    repositories {
-        google()
-        mavenCentral()
+        classpath 'com.android.tools.build:gradle:8.7.3'
     }
 }
 
 apply plugin: 'com.android.application'
 
+// Everything Gradle generates goes to the repository's build/, which is
+// already ignored, so this host needs one ignore line instead of eight.
+// Three separate knobs because they are three separate mechanisms: the
+// project's own output, the NDK's staging, and Gradle's project cache
+// (that last one is in gradle.properties, which is where Gradle reads it).
+def out = "$rootDir/../../../build/android"
+layout.buildDirectory = file("$out/gradle")
+
 android {
     namespace 'com.picocomputer.rp6502'
-    compileSdk 33
+    compileSdk 35
+
+    // Pinned, because unpinned means CI and a desktop can compile the same
+    // source against different NDKs and only one of them finds out.
+    ndkVersion '27.2.12479018'
 
     defaultConfig {
         applicationId "com.picocomputer.rp6502"
         minSdk 28
-        targetSdk 33
+        targetSdk 35
         versionCode 1
         versionName "1.0"
 
         externalNativeBuild {
             cmake {
-                cppFlags "-std=c++17"
+                // The standard is src/emu/CMakeLists.txt's to set.
                 arguments "-DANDROID_STL=c++_shared"
             }
         }
@@ -50,9 +55,10 @@ android {
     externalNativeBuild {
         cmake {
             path "../../emu/CMakeLists.txt"
+            buildStagingDirectory file("$out/cxx")
         }
     }
-    
+
     sourceSets {
         main {
             manifest.srcFile 'AndroidManifest.xml'

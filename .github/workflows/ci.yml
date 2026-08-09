@@ -333,7 +333,7 @@ jobs:
 
       - name: Stage Android APK
         run: |
-          cp src/host/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
+          cp build/android/gradle/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
 
       - uses: actions/upload-artifact@v7
         with:

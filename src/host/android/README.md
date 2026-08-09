@@ -10,7 +10,8 @@ Before building, ensure you have the following installed on your machine:
 1. **Java JDK 17** (e.g., installable via Homebrew: `brew install openjdk@17`).
 2. **Android SDK & NDK**:
    - Can be installed via Android Studio.
-   - Recommended NDK version: **25.1.8937393** (configured automatically in `build.gradle`).
+   - NDK **27.2.12479018**, pinned in `build.gradle`; Gradle fetches it if the
+     SDK does not already have it.
 3. **ADB (Android Debug Bridge)**:
    - Part of the Android SDK platform tools, used to install APKs and push files.
 
@@ -30,13 +31,13 @@ cd src/host/android
   ```bash
   ./gradlew assembleDebug
   ```
-  Generates: `build/outputs/apk/debug/rp6502-emu-debug.apk`
+  Generates: `../../../build/android/gradle/outputs/apk/debug/rp6502-emu-debug.apk`
 
 * **Release Build** (fully optimized with `-O3`, runs at full speed):
   ```bash
   ./gradlew assembleRelease
   ```
-  Generates: `build/outputs/apk/release/rp6502-emu-release.apk`
+  Generates: `../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk`
   *(Note: The release build is configured in `build.gradle` to be signed with your local debug key, making it directly deployable via ADB for development).*
 
 ---
@@ -50,7 +51,7 @@ cd src/host/android
    ```
 3. Install the optimized Release APK:
    ```bash
-   adb install -r build/outputs/apk/release/rp6502-emu-release.apk
+   adb install -r ../../../build/android/gradle/outputs/apk/release/rp6502-emu-release.apk
    ```
 
 ---
