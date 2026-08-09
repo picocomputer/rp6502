@@ -8,6 +8,17 @@ buildscript {
     }
 }
 
+// Not redundant with the block above, which only feeds the build script its
+// own classpath. AGP resolves tools of its own at build time — aapt2 among
+// them — against the project's repositories, and allprojects includes the
+// root project, which in a single-module build is the app.
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
 apply plugin: 'com.android.application'
 
 // Everything Gradle generates goes to the repository's build/, which is
