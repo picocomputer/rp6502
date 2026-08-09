@@ -400,6 +400,20 @@ your code works:
   it. Issue one through the stock bridge and it never retires; every
   data slot command after it queues forever. One call killed the drive
   for the session until the override grew its own deadline. Not a word.
+- The controller page packs a word's bytes most significant first — its
+  own table puts the keyboard's first scan code in `joy[31:24]` — and
+  then calls three fields "little endian byte order" without saying
+  that this is the value's order and not the register's. So a sixteen
+  bit field arrives with its low byte in the high half. A keyboard that
+  types but never shifts, and a pointer at 256 times the speed of your
+  hand, are the same sentence read the obvious way. Confirmed on
+  hardware after the swap: shift works and the mouse tracks both
+  directions, which also settles that the deltas really are sixteen
+  bits rather than eight in the high byte.
+- An interact list's `defaultval` is an index into its options and not
+  one of their values. Documented for a slider only; for a list, their
+  sample file is the whole of the evidence. Every setting whose options
+  begin at zero and count by one hides it.
 - Nothing anywhere distinguishes "that failed" from "that did nothing".
 
 That last one is what actually costs. Errors are silent, so every
