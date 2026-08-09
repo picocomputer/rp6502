@@ -3,8 +3,8 @@
 # The emulator's CPU and the FPGA core's answer the same dut.h, so one set of
 # suites holds both: vec.c and klaus.c are the evidence, chips_dut.c and
 # cpu65_dut.cpp are the two implementations under it. Each suite is guarded on
-# its own fixtures — the Klaus images arrive with the submodules, the
-# SingleStepTests vectors are a developer download (see README).
+# its own fixtures — the Klaus images arrive with the rest, the
+# SingleStepTests corpus is asked for by a target because of its size.
 
 set(CPU_DUT ${CMAKE_CURRENT_LIST_DIR}/chips_dut.c)
 set(CPU_INCLUDES
@@ -13,10 +13,18 @@ set(CPU_INCLUDES
     ${RP6502_VENDOR})
 
 # --- SingleStepTests: per-cycle bus traces, one instruction per case ---
+# Upstream is five CPU families and 4.8 GB where we run one of them, so this
+# one is asked for rather than fetched: a gigabyte is not something to spend
+# during a configure, and a fixture that arrives at build time cannot be
+# registered as a test by the configure that has already finished. So the
+# corpus is offered by a target, and the configure after it sees the suite.
+rp6502_submodule(vendor/65x02 SENTINEL wdc65c02/v1/00.json
+    SPARSE wdc65c02/v1 LAZY vectors-download
+    WANTS "per-cycle conformance" RESULT RP6502_HAVE_SSTESTS)
 set(SSTESTS ${RP6502_ROOT}/vendor/65x02/wdc65c02/v1)
 set(SSVEC_COUNT 100 CACHE STRING "SingleStepTests cases per opcode")
 
-if(EXISTS ${SSTESTS})
+if(RP6502_HAVE_SSTESTS)
     set(VECTORS ${CMAKE_CURRENT_BINARY_DIR}/wdc65c02.vec)
     add_custom_command(OUTPUT ${VECTORS}
         COMMAND ${CMAKE_COMMAND} -E env python3
@@ -34,9 +42,8 @@ if(EXISTS ${SSTESTS})
         TIMEOUT 300)
     add_dependencies(test_vectors cpu_vectors)
 else()
-    message(WARNING
-        "SingleStepTests vectors absent — per-cycle conformance skipped.\n"
-        "  python3 tests/cpu65/vectors.py")
+    message(WARNING "SingleStepTests corpus absent — per-cycle conformance"
+        " skipped. The line above says how to fetch it.")
 endif()
 
 # --- Klaus Dormann: long self-checking sequences ---

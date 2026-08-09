@@ -69,6 +69,19 @@ function(rp6502_submodule path)
     endif()
     set(_dir ${S_SUPER}/${path})
 
+    # Offered whether or not it is needed, so the way to fetch or refresh it
+    # is the same command either way.
+    if(S_LAZY AND NOT TARGET ${S_LAZY})
+        add_custom_target(${S_LAZY}
+            COMMAND ${CMAKE_COMMAND}
+                -DRP6502_ROOT=${RP6502_ROOT}
+                -DFETCH_SUPER=${S_SUPER} -DFETCH_PATH=${path}
+                -DFETCH_SPARSE=${S_SPARSE}
+                -P ${RP6502_ROOT}/rp6502_submodule.cmake
+            COMMENT "Fetching ${path}"
+            VERBATIM)
+    endif()
+
     # The only path a warm configure takes, and it spawns nothing.
     _rp6502_submodule_ready(_ok)
     if(_ok)
@@ -83,17 +96,9 @@ function(rp6502_submodule path)
     set(_why "")
 
     if(S_LAZY)
-        # Never during configure. The target is the whole of the offer.
-        if(NOT TARGET ${S_LAZY})
-            add_custom_target(${S_LAZY}
-                COMMAND ${CMAKE_COMMAND}
-                    -DRP6502_ROOT=${RP6502_ROOT}
-                    -DFETCH_SUPER=${S_SUPER} -DFETCH_PATH=${path}
-                    -DFETCH_SPARSE=${S_SPARSE}
-                    -P ${RP6502_ROOT}/rp6502_submodule.cmake
-                COMMENT "Fetching ${path}"
-                VERBATIM)
-        endif()
+        # Never during configure: a gigabyte is not something to spend there,
+        # and cmake cannot register a test for a fixture that arrives later
+        # anyway. The target is the whole of the offer.
         set(S_OPTIONAL TRUE)
     elseif(NOT RP6502_FETCH_SUBMODULES)
         set(_why "RP6502_FETCH_SUBMODULES is OFF")
