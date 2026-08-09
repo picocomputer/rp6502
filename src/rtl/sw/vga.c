@@ -45,6 +45,22 @@ int16_t vga_canvas_height(void)
     return vga_canvas_h;
 }
 
+/* ria/sys/vga.h's, for the tablet driver: the space an absolute pointer
+ * is placed in. Its declaration comes from there rather than from this
+ * platform's header, because tab.c is shared. */
+void vga_canvas_size(int *w, int *h)
+{
+    switch (vga_canvas_code)
+    {
+    case vga_canvas_320_240: *w = 320; *h = 240; break;
+    case vga_canvas_320_180: *w = 320; *h = 180; break;
+    case vga_canvas_640_360: *w = 640; *h = 360; break;
+    case vga_canvas_console:
+    case vga_canvas_640_480:
+    default: *w = 640; *h = 480; break;
+    }
+}
+
 int16_t vga_vsync_scanline(void)
 {
     return vga_highest_scanline;

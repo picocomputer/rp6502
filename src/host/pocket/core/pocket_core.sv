@@ -48,17 +48,14 @@ module pocket_core #(
     output logic [31:0] pocket_core_dataslot_length,
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
-    input logic [31:0] cont1_key,
-    input logic [31:0] cont1_joy,
-    input logic [15:0] cont1_trig,
-    /* The dock's keyboard: six scan codes across joy and trig. */
-    input logic [31:0] cont3_key,
-    input logic [31:0] cont3_joy,
-    input logic [15:0] cont3_trig,
-    /* The dock's mouse: a report counter, buttons, two movements. */
-    input logic [31:0] cont4_key,
-    input logic [31:0] cont4_joy,
-    input logic [15:0] cont4_trig,
+    /* APF's four controller slots. A slot holds a gamepad, the dock's
+     * keyboard as six scan codes across joy and trig, the dock's mouse
+     * as a report counter and two movements, or nothing at all — and
+     * says which in the top nibble of its key word. The firmware asks;
+     * nothing between here and there cares. */
+    input logic [3:0][31:0] cont_key,
+    input logic [3:0][31:0] cont_joy,
+    input logic [3:0][15:0] cont_trig,
 
     /* The scaler. */
     output logic [23:0] pocket_core_rgb,
@@ -149,8 +146,8 @@ module pocket_core #(
     /* The machine still offers its key mailbox; nothing on the Pocket
      * fills it, so nothing here reads whether it is full. */
     logic key_pending;
-    logic [31:0] pad_key, pad_joy, kbd_key, kbd_joy, mou_key, mou_joy;
-    logic [15:0] pad_trig, kbd_trig, mou_trig;
+    logic [3:0][31:0] cont_key_sys, cont_joy_sys;
+    logic [3:0][15:0] cont_trig_sys;
     logic [31:0] slot_len;
 
     logic w_avail, w_take;
@@ -174,15 +171,9 @@ module pocket_core #(
         .pocket_bridge_dt_addr(bridge_dt_addr),
         .pocket_bridge_dt_busy(dt_busy),
         .datatable_q(datatable_q),
-        .cont1_key(cont1_key),
-        .cont1_joy(cont1_joy),
-        .cont1_trig(cont1_trig),
-        .cont3_key(cont3_key),
-        .cont3_joy(cont3_joy),
-        .cont3_trig(cont3_trig),
-        .cont4_key(cont4_key),
-        .cont4_joy(cont4_joy),
-        .cont4_trig(cont4_trig),
+        .cont_key(cont_key),
+        .cont_joy(cont_joy),
+        .cont_trig(cont_trig),
         .clk_sys(clk_sys),
         .sdram_ready(pocket_core_ready),
         .w_take(w_take),
@@ -193,18 +184,14 @@ module pocket_core #(
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
         .pocket_bridge_upd_n(upd_n),
-        .pocket_bridge_pad_key(pad_key),
-        .pocket_bridge_pad_joy(pad_joy),
-        .pocket_bridge_pad_trig(pad_trig),
-        .pocket_bridge_kbd_key(kbd_key),
-        .pocket_bridge_kbd_joy(kbd_joy),
-        .pocket_bridge_kbd_trig(kbd_trig),
-        .pocket_bridge_mou_key(mou_key),
-        .pocket_bridge_mou_joy(mou_joy),
-        .pocket_bridge_mou_trig(mou_trig),
+        .pocket_bridge_cont_key(cont_key_sys),
+        .pocket_bridge_cont_joy(cont_joy_sys),
+        .pocket_bridge_cont_trig(cont_trig_sys),
         .pocket_bridge_set_tz(set_tz),
         .pocket_bridge_set_tz_min(set_tz_min),
         .pocket_bridge_set_tz_sign(set_tz_sign),
+        .pocket_bridge_set_kb(set_kb),
+        .pocket_bridge_set_kb_alt(set_kb_alt),
         .rtc_epoch(rtc_epoch),
         .rtc_valid(rtc_valid),
         .pocket_bridge_rtc_epoch(rtc_epoch_sys),
@@ -280,6 +267,7 @@ module pocket_core #(
     logic host_stb, host_we;
     logic [31:0] host_wdata, host_rdata, file_rdata;
     logic [31:0] set_tz, set_tz_min, set_tz_sign;
+    logic [31:0] set_kb, set_kb_alt;
     logic [31:0] rtc_epoch_sys;
     logic rtc_valid_sys;
 
@@ -292,6 +280,8 @@ module pocket_core #(
     always_ff @(posedge clk_sys) begin
         if (host_stb)
             case (host_addr[4:2])
+                3'd0: set_rdata <= set_kb;
+                3'd1: set_rdata <= set_kb_alt;
                 3'd2: set_rdata <= set_tz;
                 3'd3: set_rdata <= rtc_epoch_sys;
                 3'd4: set_rdata <= {31'd0, rtc_valid_sys};
@@ -344,15 +334,9 @@ module pocket_core #(
         .upd_n(upd_n),
         .key_set(1'b0),
         .key_code(9'd0),
-        .pad_key(pad_key),
-        .pad_joy(pad_joy),
-        .pad_trig(pad_trig),
-        .kbd_key(kbd_key),
-        .kbd_joy(kbd_joy),
-        .kbd_trig(kbd_trig),
-        .mou_key(mou_key),
-        .mou_joy(mou_joy),
-        .mou_trig(mou_trig),
+        .cont_key(cont_key_sys),
+        .cont_joy(cont_joy_sys),
+        .cont_trig(cont_trig_sys),
         .rp6502_key_pending(key_pending),
         .rp6502_vid_pixel(vid_pixel),
         .rp6502_vid_de(vid_de),

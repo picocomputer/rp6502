@@ -67,7 +67,6 @@ X(STR_INTERNAL_ERROR, "erreur interne")
 
 // System errors
 X(STR_ERR_MONITOR_RESPONSE_OVERFLOW, "?Dépassement de réponse du moniteur\n")
-X(STR_ERR_DEAD_KEY_CACHE_OVERFLOW, "?Dépassement du cache des touches mortes\n")
 X(STR_ERR_UNKNOWN_COMMAND, "?Commande inconnue\n")
 X(STR_ERR_INVALID_ARGUMENT, "?Argument invalide\n")
 X(STR_ERR_NO_HELP_FOUND, "?Aucune aide trouvée\n")

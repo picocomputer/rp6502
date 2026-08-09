@@ -114,7 +114,19 @@ than a floating one.
 
 ## The Core Settings menu
 
-Three things live there and one used to that should not.
+Five things live there and one used to that should not.
+
+**The keyboard is two entries.** "Keyboard" is required and defaults to
+US; "Keyboard, alt" adds a second and offers None. Together they are
+the layout list the machine's own keyboard driver takes, so GUI+Space
+cycles between them exactly as it does on a RIA. Both name a layout by
+its position in `def/kbd.def` plus one, which leaves zero meaning a
+menu that has said nothing — the alternate's own zero is its None. A
+ctest reads `interact.json` against the manifest, so adding a layout
+and forgetting the menu fails the build rather than shipping a list
+that names the wrong one. Append new layouts at the end of the
+manifest: the host persists this setting by its value, and inserting
+one in the middle would renumber what a user already chose.
 
 **The time zone is three entries, not one.** The Pocket knows nothing
 about time zones, so the offset has to be set by hand — and it cannot
@@ -129,10 +141,10 @@ put back together.
 
 **The Controls submenu is gone.** APF builds it from `input.json`,
 which claimed the Pocket's buttons were Enter, Escape, Space and so
-on. This core does no such thing: it hands `cont1_key` to the firmware
-as a gamepad report, buttons and axes, exactly as the machine's own
-HID API expects. The file is now an empty controller list, since the
-menu was documenting a mapping that does not exist.
+on. This core does no such thing: it hands every controller slot to
+the firmware as a HID report, buttons and axes, exactly as the
+machine's own HID API expects. The file is now an empty controller
+list, since the menu was documenting a mapping that does not exist.
 
 **The last ROM no longer relaunches itself.** Slot 0 had bit 9 of its
 parameter bitmap set — "persist browsed filename" — which makes APF
@@ -151,6 +163,38 @@ notwithstanding; the reload is a request write, the image, the table
 entry, and a second access-all-complete. So the ROM is the first slot
 at address zero, and the firmware treats the size that completion
 posts mid-run as the announcement it is.
+
+## The dock, as HID
+
+APF polls its four controller slots and hands the core three registers
+for each one. What a slot holds is the top nibble of its key word:
+nothing, the Pocket's own buttons, a docked controller with or without
+analog, the docked keyboard, or the docked mouse. Analogue assigns the
+keyboard and the mouse to particular slots today and says the
+assignment is the framework's to make, so the firmware trusts the
+nibble and not the slot number. All four cross the clock domain
+identically and none of them is named for a device.
+
+The firmware does not have its own drivers for any of this. `apf.c`
+mounts each slot with a HID report descriptor written by hand and
+hands the registers over as the report that descriptor describes,
+which is what `ria/usb/xin.c` does for XInput — a device with no
+descriptor of its own. `ria/hid` then does the rest: layouts, dead
+keys, key repeat, the escape sequences a terminal expects, the mouse
+landing in the tablet driver as well as the mouse one, four players in
+slot order, and a d-pad that is a d-pad rather than a left stick
+pretending.
+
+Three descriptors carry the whole mapping, so a wrong one would build
+clean and boot clean and be wrong only under a hand on a controller.
+`tests/hid/test_apf.c` is what stands in for that hand: registers in,
+XRAM records out, against the real drivers.
+
+Two things a RIA has are not here. There is no monitor, so
+Ctrl-Alt-Del is an ordinary key — `main_break` says no and the
+keystroke falls through. Alt-F4 works when a launcher is registered,
+because then there is somewhere to go; from inside the launcher, or
+with none registered, it says no too.
 
 ## The host's filesystem
 
@@ -412,6 +456,15 @@ binaries, which the build supplies:
   in slot id order, with the ROM first at address zero owning
   everything below its `size_maximum` ceiling — and the firmware copies
   it to the video device at every boot.
+- `Assets/rp6502/common/oemcp.bin` and
+  `Assets/rp6502/common/kbdlay.bin` ride the same way, from
+  `src/gen/oem_table_gen.py` and `src/gen/kbd_layout_gen.py`. They are
+  the code page conversion tables and the keyboard layouts, both far
+  too large to link into a 96 KB tightly coupled memory and both read a
+  word at a time through a window that cannot fetch anything wider than
+  a byte. A core without either still runs: filenames fold to U+FFFD
+  without the one, and the keys that type a character type nothing
+  without the other while the arrows and the hotkeys go on working.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made from the logo by
   `src/gen/pocket_image_gen.py`. Analogue documents one format
@@ -444,6 +497,7 @@ debug log shows:
 | --- | --- |
 | *no 0x0152 traffic at all* | the soft CPU is not executing, or the host is not answering the log — turn on `CORE_TEST_PATTERN` to tell those apart |
 | `oem: no tables` | the code page slot did not stage; accented filenames will fold to U+FFFD |
+| `kbd: no layouts` | the layout slot did not stage; keys that type a character type nothing |
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 

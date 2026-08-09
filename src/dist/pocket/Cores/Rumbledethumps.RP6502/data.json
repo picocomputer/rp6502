@@ -94,6 +94,15 @@
         "filename": "oemcp.bin",
         "size_exact": "5080",
         "address": "0x03FEF000"
+      },
+      {
+        "name": "Keyboard layouts",
+        "id": 11,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "kbdlay.bin",
+        "size_exact": "8056",
+        "address": "0x03FF2000"
       }
     ]
   }

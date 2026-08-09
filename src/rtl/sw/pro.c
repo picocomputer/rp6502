@@ -19,6 +19,13 @@
  * The load happens after the machine has stopped rather than inside the
  * syscall, because stopping closes the descriptors the outgoing program
  * left open and one of those slots is what the read needs.
+ *
+ * The launcher chain is the RIA's, with this machine's staging in place
+ * of its filesystem. A program registers itself as the launcher and
+ * every program that exits afterwards comes back to it — which on a
+ * Pocket is the whole of what a break used to be for: there is no
+ * monitor to drop into, so alt-f4 either has a launcher to return to or
+ * does nothing at all.
  */
 
 #include "msc.h"
@@ -40,6 +47,11 @@
 
 static char pro_argv0[PRO_ARGV0_MAX];
 static char pro_exec_path[PRO_ARGV0_MAX];
+/* What is running now, and what to come back to when it ends. The
+ * staged name above is the host's answer and does not change on an
+ * exec, so the chain tracks argv[0] of each run instead. */
+static char pro_running_path[PRO_ARGV0_MAX];
+static char pro_launcher_path[PRO_ARGV0_MAX];
 static bool pro_exec_pending;
 
 /* Asked once per staged image rather than once per run, because asking
@@ -49,9 +61,69 @@ static bool pro_exec_pending;
 void pro_restage(void)
 {
     pro_exec_pending = false;
+    /* A program the user picked from the menu supersedes the chain the
+     * one before it was in. */
+    pro_launcher_path[0] = '\0';
+    pro_running_path[0] = '\0';
     arg_clear();
     if (msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
         arg_append(pro_argv0);
+}
+
+/* The machine is starting: whatever argv holds now is what runs. */
+void pro_run(void)
+{
+    const char *argv0 = arg_index(0);
+    if (argv0 && strlen(argv0) < sizeof pro_running_path)
+        memcpy(pro_running_path, argv0, strlen(argv0) + 1);
+    else
+        pro_running_path[0] = '\0';
+}
+
+bool pro_has_launcher(void)
+{
+    return pro_launcher_path[0] != '\0';
+}
+
+void pro_set_launcher(bool is_launcher)
+{
+    if (is_launcher)
+        memcpy(pro_launcher_path, pro_running_path,
+               strlen(pro_running_path) + 1);
+    else
+        pro_launcher_path[0] = '\0';
+}
+
+bool pro_is_launcher(void)
+{
+    return pro_launcher_path[0] != '\0' &&
+           strcmp(pro_running_path, pro_launcher_path) == 0;
+}
+
+void pro_cancel_launcher(void)
+{
+    pro_launcher_path[0] = '\0';
+}
+
+/* The program stopped. An exec it asked for wins — it named its own
+ * successor — and otherwise the launcher is what it comes back to. The
+ * launcher's own exit ends the chain, because there is nothing above it
+ * to return to. */
+void pro_stop(void)
+{
+    bool relaunch = !pro_exec_pending && pro_has_launcher() &&
+                    !pro_is_launcher();
+    pro_running_path[0] = '\0';
+    if (!relaunch)
+    {
+        if (!pro_exec_pending)
+            pro_launcher_path[0] = '\0';
+        return;
+    }
+    memcpy(pro_exec_path, pro_launcher_path, strlen(pro_launcher_path) + 1);
+    pro_exec_pending = true;
+    arg_clear();
+    arg_append(pro_exec_path);
 }
 
 bool pro_api_argv(void)

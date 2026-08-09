@@ -99,9 +99,11 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h
         ${RP6502_SRC}/rtl/sw/shim/*/*.h ${RP6502_SRC}/rtl/sw/shim/*/*/*.h)
     set(SW_SOURCES
-        ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c ${SW_SRC}/cfg.c
-        ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
-        ${SW_SRC}/mou.c ${SW_SRC}/msc.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
+        ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
+        ${SW_SRC}/cfg.c
+        ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${SW_SRC}/kbl.c ${SW_SRC}/mem.c
+        ${SW_SRC}/msc.c ${SW_SRC}/pix.c
         ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/ria/aud/bel_presets.c
@@ -111,6 +113,15 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/ria/api/clk.c
         ${RP6502_SRC}/ria/api/std.c
         ${RP6502_SRC}/ria/api/uni.c
+        # The real HID drivers, fed synthetic descriptors by apf.c. The
+        # layouts are an asset, so kbl.c reads them rather than linking
+        # twenty kilobytes of table into a 96 KB memory.
+        ${RP6502_SRC}/ria/hid/hid.c
+        ${RP6502_SRC}/ria/hid/kbd.c
+        ${RP6502_SRC}/ria/hid/kbl.c
+        ${RP6502_SRC}/ria/hid/mou.c
+        ${RP6502_SRC}/ria/hid/pad.c
+        ${RP6502_SRC}/ria/hid/tab.c
         ${RP6502_SRC}/ria/str/rln.c
         ${RP6502_SRC}/ria/str/str.c
         ${RP6502_SRC}/vga/modes/mode1.c

@@ -287,10 +287,12 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
+        COMMAND ${CMAKE_COMMAND} -E copy ${KBDLAY_BIN}
+            ${PKG_DIR}/Assets/rp6502/common/kbdlay.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
-        DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN}
+        DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN} ${KBDLAY_BIN}
             ${PKG_DIST_FILES}
             ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
         COMMENT "Assembling the Pocket core package"

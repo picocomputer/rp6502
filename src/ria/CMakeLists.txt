@@ -28,6 +28,20 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     COMMENT "Generating the OEM code page tables"
     VERBATIM)
 
+# The keyboard layouts, out of def/kbd_*.def and into one image hid/kbl.c
+# reads a word at a time. See src/gen/kbd_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_ROOT}/src/gen/kbd_layout_gen.py)
+set(KBDLAY_MANIFEST ${CMAKE_CURRENT_LIST_DIR}/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${CMAKE_CURRENT_LIST_DIR}/def/kbd_*.def)
+set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
+set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
+add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
+        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
+    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts"
+    VERBATIM)
+
 add_executable(${RIA_TARGET})
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 pico_add_extra_outputs(${RIA_TARGET})
@@ -99,6 +113,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ble/tlv.c
     hid/hid.c
     hid/kbd.c
+    hid/kbl.c
+    ${KBDLAY_C}
     hid/mou.c
     hid/pad.c
     hid/tab.c

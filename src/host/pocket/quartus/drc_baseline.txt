@@ -15,12 +15,12 @@
 #       and reaches nothing but the 6502 and the 6522.
 R101 1
 #
-# D101  Data crossing clock domains without a synchroniser. All 551 are
+# D101  Data crossing clock domains without a synchroniser. All 695 are
 #       clk_74a into clk_sys. Not one is the clk_sys/clk_rv seam, which
 #       is what this entry used to say:
 #
-#         240  io_pad_controller  the controller and dock inputs
-#         158  pocket_bridge      timezone, RTC, and the input chains
+#         320  io_pad_controller  the four controller slots
+#         222  pocket_bridge      timezone, keyboards, RTC, the inputs
 #         151  pocket_file        the command parameters and result
 #          32  core_bridge_cmd    Analogue's own
 #
@@ -29,6 +29,20 @@ R101 1
 #       replaced them and it came back here exactly, which is the number
 #       doing its job: a baseline that only ever rises stops being a
 #       measurement.
+#
+#       551 until the dock was finished, and the 144 it rose by are named
+#       in the report rather than argued for here:
+#
+#          80  io_pad_controller  cont2_key, cont2_joy, cont2_trig
+#          64  pocket_bridge      kb_74, kba_74
+#
+#       The second controller slot was declared and never connected, so
+#       the machine had one player where both it and the Pocket have
+#       four; the two registers are the keyboard layout menu. Every one
+#       of them lands beside a sibling already counted here at the same
+#       width — cont1, cont3 and cont4 at 80 apiece, the three timezone
+#       registers at 32 — and crosses on the same two flops, landing only
+#       when two consecutive samples agree.
 #
 #       These are host-clock buses that stand still behind a handshake,
 #       or levels read whenever the machine looks. The tool sees the bits
@@ -43,7 +57,7 @@ R101 1
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.
-D101 551
+D101 695
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
@@ -73,7 +87,21 @@ D101 551
 #       between them, and that touches none of these structures — all 24
 #       are named above and every one is in the platform layer. The count
 #       is packing-sensitive, so one observation is not a new floor.
-D102 24
+#
+#       29 since the dock was finished, and unlike D101 the five are not
+#       simply five new things. The report names what is there now:
+#       cont2_key, cont2_joy and cont2_trig, beside the three slots that
+#       were already routed; kb_74 and kba_74, beside the three timezone
+#       registers; and the crossing's own first-stage flops, which are
+#       now three arrays — ck_s1, cj_s1, ct_s1 at four apiece — where
+#       they used to be nine separate registers at one apiece. So more
+#       names arrived than the count rose by, because the packed array
+#       let some of them merge. That is the packing sensitivity this
+#       entry already warns about, and it is why the number is taken as
+#       measured rather than derived: every name in the report is a
+#       level bus crossing on two flops that land only when consecutive
+#       samples agree, which is the same argument as everything above.
+D102 29
 #
 # D103  Data bits not correctly synchronised. pocket_file's command
 #       word: r_op, and the flush, write and getfile strobes beside it.

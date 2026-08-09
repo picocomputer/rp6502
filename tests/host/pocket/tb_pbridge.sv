@@ -19,9 +19,14 @@ module tb_pbridge (
     input logic reset_n,
     output logic [9:0] tb_pbridge_dt_addr,
     input logic [31:0] datatable_q,
+    /* Flat here and packed at the instance, the way core_top does it,
+     * so the C++ can drive one slot by name. */
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
     input logic [15:0] cont1_trig,
+    input logic [31:0] cont2_key,
+    input logic [31:0] cont2_joy,
+    input logic [15:0] cont2_trig,
     input logic [31:0] cont3_key,
     input logic [31:0] cont3_joy,
     input logic [15:0] cont3_trig,
@@ -34,15 +39,18 @@ module tb_pbridge (
     output logic tb_pbridge_run,
     output logic tb_pbridge_slot_set,
     output logic [31:0] tb_pbridge_slot_len,
-    output logic [31:0] tb_pbridge_pad_key,
-    output logic [31:0] tb_pbridge_pad_joy,
-    output logic [15:0] tb_pbridge_pad_trig,
-    output logic [31:0] tb_pbridge_kbd_key,
-    output logic [31:0] tb_pbridge_kbd_joy,
-    output logic [15:0] tb_pbridge_kbd_trig,
-    output logic [31:0] tb_pbridge_mou_key,
-    output logic [31:0] tb_pbridge_mou_joy,
-    output logic [15:0] tb_pbridge_mou_trig,
+    output logic [31:0] tb_pbridge_cont1_key,
+    output logic [31:0] tb_pbridge_cont1_joy,
+    output logic [15:0] tb_pbridge_cont1_trig,
+    output logic [31:0] tb_pbridge_cont2_key,
+    output logic [31:0] tb_pbridge_cont2_joy,
+    output logic [15:0] tb_pbridge_cont2_trig,
+    output logic [31:0] tb_pbridge_cont3_key,
+    output logic [31:0] tb_pbridge_cont3_joy,
+    output logic [15:0] tb_pbridge_cont3_trig,
+    output logic [31:0] tb_pbridge_cont4_key,
+    output logic [31:0] tb_pbridge_cont4_joy,
+    output logic [15:0] tb_pbridge_cont4_trig,
     output logic tb_pbridge_ready,
 
     input logic rd_pend,
@@ -54,7 +62,18 @@ module tb_pbridge (
     logic dt_busy;
     logic [31:0] set_tz, rtc_epoch_s;
     logic [31:0] set_tz_min, set_tz_sign;
+    logic [31:0] set_kb, set_kb_alt;
     logic rtc_valid_s;
+    logic [3:0][31:0] cont_key_s, cont_joy_s;
+    logic [3:0][15:0] cont_trig_s;
+    always_comb begin
+        {tb_pbridge_cont4_key, tb_pbridge_cont3_key,
+         tb_pbridge_cont2_key, tb_pbridge_cont1_key} = cont_key_s;
+        {tb_pbridge_cont4_joy, tb_pbridge_cont3_joy,
+         tb_pbridge_cont2_joy, tb_pbridge_cont1_joy} = cont_joy_s;
+        {tb_pbridge_cont4_trig, tb_pbridge_cont3_trig,
+         tb_pbridge_cont2_trig, tb_pbridge_cont1_trig} = cont_trig_s;
+    end
     logic w_avail, w_take;
     logic [24:0] w_addr;
     logic [15:0] w_data;
@@ -72,15 +91,9 @@ module tb_pbridge (
         .pocket_bridge_dt_addr(tb_pbridge_dt_addr),
         .pocket_bridge_dt_busy(dt_busy),
         .datatable_q(datatable_q),
-        .cont1_key(cont1_key),
-        .cont1_joy(cont1_joy),
-        .cont1_trig(cont1_trig),
-        .cont3_key(cont3_key),
-        .cont3_joy(cont3_joy),
-        .cont3_trig(cont3_trig),
-        .cont4_key(cont4_key),
-        .cont4_joy(cont4_joy),
-        .cont4_trig(cont4_trig),
+        .cont_key({cont4_key, cont3_key, cont2_key, cont1_key}),
+        .cont_joy({cont4_joy, cont3_joy, cont2_joy, cont1_joy}),
+        .cont_trig({cont4_trig, cont3_trig, cont2_trig, cont1_trig}),
         .clk_sys(clk_sys),
         .sdram_ready(tb_pbridge_ready),
         .w_take(w_take),
@@ -90,18 +103,14 @@ module tb_pbridge (
         .pocket_bridge_run(tb_pbridge_run),
         .pocket_bridge_slot_set(tb_pbridge_slot_set),
         .pocket_bridge_slot_len(tb_pbridge_slot_len),
-        .pocket_bridge_pad_key(tb_pbridge_pad_key),
-        .pocket_bridge_pad_joy(tb_pbridge_pad_joy),
-        .pocket_bridge_pad_trig(tb_pbridge_pad_trig),
-        .pocket_bridge_kbd_key(tb_pbridge_kbd_key),
-        .pocket_bridge_kbd_joy(tb_pbridge_kbd_joy),
-        .pocket_bridge_kbd_trig(tb_pbridge_kbd_trig),
-        .pocket_bridge_mou_key(tb_pbridge_mou_key),
-        .pocket_bridge_mou_joy(tb_pbridge_mou_joy),
-        .pocket_bridge_mou_trig(tb_pbridge_mou_trig),
+        .pocket_bridge_cont_key(cont_key_s),
+        .pocket_bridge_cont_joy(cont_joy_s),
+        .pocket_bridge_cont_trig(cont_trig_s),
         .pocket_bridge_set_tz(set_tz),
         .pocket_bridge_set_tz_min(set_tz_min),
         .pocket_bridge_set_tz_sign(set_tz_sign),
+        .pocket_bridge_set_kb(set_kb),
+        .pocket_bridge_set_kb_alt(set_kb_alt),
         .rtc_epoch(32'd0),
         .rtc_valid(1'b0),
         .pocket_bridge_rtc_epoch(rtc_epoch_s),
@@ -160,8 +169,8 @@ module tb_pbridge (
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
     always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks, dt_busy, set_tz, set_tz_min,
-                                      set_tz_sign, rtc_epoch_s,
-                                      rtc_valid_s};
+                                      set_tz_sign, set_kb, set_kb_alt,
+                                      rtc_epoch_s, rtc_valid_s};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

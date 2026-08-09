@@ -19,6 +19,7 @@
 #include "com.h"
 #include "mmio.h"
 #include "ria/aud/bel.h"
+#include "ria/hid/kbd.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -266,10 +267,20 @@ void com_task(void)
         }
     }
 
-    /* Bit 8 is the valid flag, not part of the code. */
+    /* Bit 8 is the valid flag, not part of the code. This register is
+     * the testbench's way in and nothing on hardware drives it; the
+     * dock's keyboard arrives below. */
     uint32_t k = MMIO_KBD;
     if (k & 0x100)
     {
         ring_push(&kbd_ring, (uint8_t)k);
     }
+
+    /* What the keyboard driver made of the dock's scan codes: a layout
+     * applied, dead keys composed, the arrows and function keys as the
+     * escape sequences a terminal expects. */
+    char buf[16];
+    size_t n = kbd_stdio_in_chars(buf, sizeof buf);
+    for (size_t i = 0; i < n; i++)
+        ring_push(&kbd_ring, (uint8_t)buf[i]);
 }

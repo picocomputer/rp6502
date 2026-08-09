@@ -73,6 +73,15 @@ add_test(NAME rbf_r
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/gen/rbf_r_gen.py --check)
 
+# ria/hid/kbd.c is compiled for a machine with USB and for one without,
+# and the one without gets a shim rather than a USB stack. Two spellings
+# of one specification drift; this is what says they have not.
+add_test(NAME hid_shim
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/gen/hid_shim_check.py
+        --shim ${RP6502_SRC}/rtl/sw/shim/class/hid/hid.h
+        --vendor ${RP6502_VENDOR}/tinyusb/src/class/hid/hid.h)
+
 set(CPU65_ROM ${RP6502_ASSETS}/cpu65_rom_pkg.sv)
 rp6502_asset(cpu65_rom GEN ${CPU65_GEN}
     ARGS --emit ${CPU65_ROM}
@@ -169,6 +178,29 @@ rp6502_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
     OUTPUTS ${OEMCP_BIN}
     DEPENDS ${OEMCP_SRC}
     COMMENT "Generating the OEM code page tables")
+
+# The keyboard layouts, for the same reason: twenty kilobytes of table
+# as a compiler lays it out, eight as the generator does, and no room
+# for either in a 96 KB tightly coupled memory.
+set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
+set(KBDLAY_BIN ${RP6502_ASSETS}/kbdlay.bin)
+rp6502_asset(kbdlay_bin GEN ${RP6502_SRC}/gen/kbd_layout_gen.py
+    ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
+    OUTPUTS ${KBDLAY_BIN}
+    DEPENDS ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts")
+
+# The menu picks a layout by its position in the manifest and the data
+# slot declares the image's exact size, so both are checked against
+# def/kbd.def rather than kept in step by hand.
+set(POCKET_CORE_JSON
+    ${RP6502_SRC}/dist/pocket/Cores/Rumbledethumps.RP6502)
+add_test(NAME kbdlay_json
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/gen/kbd_layout_gen.py --manifest ${KBDLAY_MANIFEST}
+        --check-interact ${POCKET_CORE_JSON}/interact.json
+        --check-data ${POCKET_CORE_JSON}/data.json)
 
 # The file round trip, generated the same way and shipped the same way.
 set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)

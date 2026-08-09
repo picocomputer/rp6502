@@ -631,15 +631,9 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .target_dataslot_done            ( target_dataslot_done ),
     .target_dataslot_err             ( target_dataslot_err ),
 
-    .cont1_key ( cont1_key ),
-    .cont1_joy ( cont1_joy ),
-    .cont1_trig ( cont1_trig ),
-    .cont3_key ( cont3_key ),
-    .cont3_joy ( cont3_joy ),
-    .cont3_trig ( cont3_trig ),
-    .cont4_key ( cont4_key ),
-    .cont4_joy ( cont4_joy ),
-    .cont4_trig ( cont4_trig ),
+    .cont_key  ( {cont4_key,  cont3_key,  cont2_key,  cont1_key}  ),
+    .cont_joy  ( {cont4_joy,  cont3_joy,  cont2_joy,  cont1_joy}  ),
+    .cont_trig ( {cont4_trig, cont3_trig, cont2_trig, cont1_trig} ),
 
     .pocket_core_rgb  ( m_rgb ),
     .pocket_core_de   ( m_de ),

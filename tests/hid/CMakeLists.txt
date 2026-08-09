@@ -8,3 +8,24 @@ rp6502_add_test(paint_tab LIBS emu_core FIXTURE paint_tab.rp6502 TIMEOUT 60)
 
 # --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
 rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
+
+# --- The Pocket's synthetic descriptors against the drivers they feed ---
+# The dock's registers are handed to ria/hid as HID reports, and three
+# descriptors written by hand are what says where every bit went. Wrong
+# ones build clean and boot clean, so the registers go in here and the
+# XRAM records come back out. The real drivers, not the emulator's
+# twins: it is the firmware's mapping being asked about.
+rp6502_add_test(apf
+    SOURCES test_apf.c
+        ${RP6502_SRC}/ria/hid/hid.c
+        ${RP6502_SRC}/ria/hid/kbd.c
+        ${RP6502_SRC}/ria/hid/kbl.c
+        ${RP6502_SRC}/ria/hid/mou.c
+        ${RP6502_SRC}/ria/hid/pad.c
+        ${RP6502_SRC}/ria/hid/tab.c
+        ${RP6502_SRC}/ria/api/uni.c
+        ${KBDLAY_C} ${OEMCP_C}
+        apf_host.c
+    INCLUDES ${RP6502_SRC} ${RP6502_SRC}/host/pico ${KBDLAY_DIR} ${OEMCP_DIR}
+        ${RP6502_SRC}/rtl/sw/shim)
+add_dependencies(test_apf kbdlay oemcp)

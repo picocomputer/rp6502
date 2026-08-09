@@ -34,11 +34,16 @@ void main_stop(void);
 // Request to "break the system".
 // A break is triggered by CTRL-ALT-DEL or UART breaks.
 // If the 6502 is running, stop events will be called first.
-void main_break(void);
+// False when this platform has nowhere to break to, which is a machine
+// with no monitor; the key that asked is then an ordinary key.
+bool main_break(void);
 
 // Like main_break, but keeps the launcher/exec chain so the launcher
 // re-runs instead of dropping to the monitor. Triggered by Alt-F4.
-void main_break_to_launcher(void);
+// False when there is nowhere to go: from the launcher itself on any
+// platform, and with none registered on a platform that has no monitor
+// to fall back to. A RIA with none registered breaks to the monitor.
+bool main_break_to_launcher(void);
 
 /* Special events dispatched from main.c
  */

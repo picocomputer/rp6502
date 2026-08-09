@@ -24,18 +24,13 @@ module rv_soc #(
     input logic [7:0] upd_n,
     input logic key_set,
     input logic [8:0] key_code,
-    /* A level needs no mailbox and would be wrong in one. */
-    input logic [31:0] pad_key,
-    input logic [31:0] pad_joy,
-    input logic [15:0] pad_trig,
-    input logic [31:0] kbd_key,
-    input logic [31:0] kbd_joy,
-    input logic [15:0] kbd_trig,
-    /* The counter is how a new report is told from a still hand: the
-     * deltas are the same zero either way. */
-    input logic [31:0] mou_key,
-    input logic [31:0] mou_joy,
-    input logic [15:0] mou_trig,
+    /* The platform's controller slots, whatever each one holds. A level
+     * needs no mailbox and would be wrong in one; a mouse's counter,
+     * which is how a new report is told from a still hand, rides in its
+     * own key word because the deltas are the same zero either way. */
+    input logic [3:0][31:0] cont_key,
+    input logic [3:0][31:0] cont_joy,
+    input logic [3:0][15:0] cont_trig,
     output logic rv_soc_key_pending,
 
     output logic [7:0] rv_soc_tx_data,
@@ -292,15 +287,21 @@ module rv_soc #(
                 7'h18: hrdata = mmio_slot_len;
                 7'h4C: hrdata = {24'd0, upd_n};
                 7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
-                7'h20: hrdata = pad_key;
-                7'h24: hrdata = pad_joy;
-                7'h28: hrdata = {16'd0, pad_trig};
-                7'h2C: hrdata = kbd_key;
-                7'h30: hrdata = kbd_joy;
-                7'h34: hrdata = {16'd0, kbd_trig};
-                7'h38: hrdata = mou_key;
-                7'h3C: hrdata = mou_joy;
-                7'h40: hrdata = {16'd0, mou_trig};
+                /* The controller slots, three words each in APF's own
+                 * order. Written out rather than indexed because the
+                 * twelve-byte stride is not a bit slice. */
+                7'h50: hrdata = cont_key[0];
+                7'h54: hrdata = cont_joy[0];
+                7'h58: hrdata = {16'd0, cont_trig[0]};
+                7'h5C: hrdata = cont_key[1];
+                7'h60: hrdata = cont_joy[1];
+                7'h64: hrdata = {16'd0, cont_trig[1]};
+                7'h68: hrdata = cont_key[2];
+                7'h6C: hrdata = cont_joy[2];
+                7'h70: hrdata = {16'd0, cont_trig[2]};
+                7'h74: hrdata = cont_key[3];
+                7'h78: hrdata = cont_joy[3];
+                7'h7C: hrdata = {16'd0, cont_trig[3]};
                 default: hrdata = 32'h0;
             endcase
         else

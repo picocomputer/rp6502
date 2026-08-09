@@ -9,23 +9,22 @@
  *
  * No break. A break drops the RIA to its monitor, and there is no monitor
  * on a Pocket — a program that wants another one execs it, and there is
- * nothing a break could drop into. Nothing can ask for one, so nothing
- * implements one.
+ * nothing a break could drop into. So main_break says no and ctrl-alt-del
+ * is an ordinary key here. Alt-F4 is the one that survives, because a
+ * launcher is somewhere to go; without one registered it says no too.
  */
 
 #include <stdio.h>
 
+#include "apf.h"
 #include "aud.h"
 #include "bel.h"
 #include "cfg.h"
 #include "com.h"
 #include "font.h"
-#include "kbd.h"
 #include "main.h"
 #include "mmio.h"
-#include "mou.h"
 #include "msc.h"
-#include "pad.h"
 #include "pro.h"
 #include "rand.h"
 #include "rom.h"
@@ -37,6 +36,11 @@
 #include "ria/api/std.h"
 #include "ria/api/tim.h"
 #include "ria/api/uni.h"
+#include "ria/hid/kbd.h"
+#include "ria/hid/kbl.h"
+#include "ria/hid/mou.h"
+#include "ria/hid/pad.h"
+#include "ria/hid/tab.h"
 #include "ria/main.h"
 #include "ria/str/rln.h"
 #include "ria/sys/cpu.h"
@@ -58,14 +62,38 @@ bool ria_active(void)
     return false;
 }
 
+/* The RIA latches a SIGINT for a console that is not draining. Nothing
+ * here consumes one yet; the shared keyboard driver still offers it. */
+void ria_trigger_sigint(void)
+{
+}
+
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
 {
-    if (channel == 0 && address == 0)
-        return kbd_set_xram(word);
-    if (channel == 0 && address == 1)
-        return mou_set_xram(word);
-    if (channel == 0 && address == 2)
-        return pad_set_xram(word);
+    if (channel == 0 && address <= 3)
+    {
+        bool ok;
+        switch (address)
+        {
+        case 0:
+            ok = kbd_xreg(word);
+            break;
+        case 1:
+            ok = mou_xreg(word);
+            break;
+        case 2:
+            ok = pad_xreg(word);
+            break;
+        default:
+            ok = tab_xreg(word);
+            break;
+        }
+        /* Mapping a driver blanks the record it maps, and what fills it
+         * again is the next report — which on this platform only comes
+         * when something moves. Say the next one is news. */
+        apf_refresh();
+        return ok;
+    }
     if (channel == 1 && address == 0)
         return aud_psg_xreg(word);
     if (channel == 1 && address == 1)
@@ -222,6 +250,8 @@ bool main_api(uint8_t operation)
             return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
         case 0x05:
             return api_return_axsreg(com_get_bel());
+        case 0x06:
+            return api_return_axsreg(pro_has_launcher());
         case 0x09:
             return api_return_axsreg(rln_get_caps());
         case 0x0A:
@@ -279,6 +309,11 @@ bool main_api(uint8_t operation)
             if (value > 1)
                 return api_return_errno(API_EINVAL);
             com_set_bel(value);
+            break;
+        case 0x06:
+            if (value > 1)
+                return api_return_errno(API_EINVAL);
+            pro_set_launcher(value);
             break;
         case 0x09:
             if (value > 2)
@@ -380,6 +415,17 @@ static void init(void)
      * matching. Halting over a text table would be the worse trade. */
     if (!uni_init())
         printf("oem: no tables\n");
+    /* And the layouts, on their own slot and on the same terms: without
+     * them the keys that type a character type nothing, while the ones
+     * that do not — the arrows, the function keys, the hotkeys — go on
+     * working. Say so rather than halt over a table. */
+    if (!kbl_init())
+        printf("kbd: no layouts\n");
+    kbd_init();
+    mou_init();
+    pad_init();
+    tab_init();
+    apf_init();
     vid_init();
     tim_init();
     rand_init();
@@ -388,6 +434,7 @@ static void init(void)
 /* The 6502 coming out of reset. */
 static void run(void)
 {
+    pro_run();
     com_run();
     rln_run();
     api_run();
@@ -408,10 +455,12 @@ static void stop(void)
     kbd_stop();
     mou_stop();
     pad_stop();
+    tab_stop();
     aud_stop();
-    /* No pro_stop: argv belongs to the image, not the run. An exec is
-     * the one thing that replaces it, and it brings its own before the
-     * stop it asks for. */
+    /* argv belongs to the image and not to the run, so this is not
+     * where it is cleared. What pro_stop decides is where the machine
+     * goes next: back to a registered launcher, or nowhere. */
+    pro_stop();
     /* The VGA control channel last, where the RIA's deferred vga_task
      * puts it. Two registers: the code page is oem_stop's job there. */
     main_xreg_1(0x0F, 0x01, 437);
@@ -468,6 +517,25 @@ void main_stop(void)
 bool main_active(void)
 {
     return main_state != stopped;
+}
+
+/* There is no monitor here, so there is nothing a break could drop
+ * into. Ctrl-alt-del is an ordinary key on this machine. */
+bool main_break(void)
+{
+    return false;
+}
+
+/* Alt-F4, which does have somewhere to go when a launcher is
+ * registered: stopping is enough, because pro_stop is what puts the
+ * launcher back. From inside the launcher there is nothing above it. */
+bool main_break_to_launcher(void)
+{
+    if (!pro_has_launcher() || pro_is_launcher())
+        return false;
+    api_set_ax(0xFFFF);
+    main_stop();
+    return true;
 }
 
 /* The loader parses the image straight out of the platform's staging
@@ -531,9 +599,8 @@ int main(void)
             }
         }
         cfg_task();
-        kbd_task();
-        pad_task();
-        mou_task();
+        apf_task();
+        kbd_task(); /* the repeat timer; apf_task does the reports */
         std_task();
         com_task();
         bel_task();

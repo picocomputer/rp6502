@@ -71,7 +71,6 @@ X(STR_INTERNAL_ERROR, "błąd wewnętrzny")
 
 // System errors
 X(STR_ERR_MONITOR_RESPONSE_OVERFLOW, "?Przepełnienie odpowiedzi monitora\n")
-X(STR_ERR_DEAD_KEY_CACHE_OVERFLOW, "?Przepełnienie pamięci martwych klawiszy\n")
 X(STR_ERR_UNKNOWN_COMMAND, "?Nieznana komenda\n")
 X(STR_ERR_INVALID_ARGUMENT, "?Nieprawidłowy argument\n")
 X(STR_ERR_NO_HELP_FOUND, "?Nie znaleziono pomocy\n")

@@ -30,19 +30,16 @@
  * synchroniser is deep cancel each other; this cannot. Watch the count,
  * read the payload after it moves. */
 #define MMIO_UPD_N (*(volatile uint32_t *)0xF000004Cu)
-/* The controller and the dock's keyboard. State, not events: a pad's
- * release is the absence of a bit, and a keyboard report is a set whose
- * order APF does not promise. The mouse below is the opposite — a
- * stamped report of deltas, counted rather than sampled. */
-#define MMIO_PAD_KEY (*(volatile uint32_t *)0xF0000020u)
-#define MMIO_PAD_JOY (*(volatile uint32_t *)0xF0000024u)
-#define MMIO_PAD_TRIG (*(volatile uint32_t *)0xF0000028u)
-#define MMIO_KBD_KEY (*(volatile uint32_t *)0xF000002Cu)
-#define MMIO_KBD_JOY (*(volatile uint32_t *)0xF0000030u)
-#define MMIO_KBD_TRIG (*(volatile uint32_t *)0xF0000034u)
-#define MMIO_MOU_KEY (*(volatile uint32_t *)0xF0000038u)
-#define MMIO_MOU_JOY (*(volatile uint32_t *)0xF000003Cu)
-#define MMIO_MOU_TRIG (*(volatile uint32_t *)0xF0000040u)
+/* APF's four controller slots, three words each. State, not events: a
+ * pad's release is the absence of a bit, and a keyboard report is a set
+ * whose order APF does not promise. A mouse is the opposite — a stamped
+ * report of deltas, counted rather than sampled — and its counter is in
+ * the same key word another slot puts buttons in. What a slot holds is
+ * the type nibble's to say; see apf.c, which is the only reader. */
+#define MMIO_CONT_KEY(s) (*(volatile uint32_t *)(0xF0000050u + (s) * 12u))
+#define MMIO_CONT_JOY(s) (*(volatile uint32_t *)(0xF0000054u + (s) * 12u))
+#define MMIO_CONT_TRIG(s) (*(volatile uint32_t *)(0xF0000058u + (s) * 12u))
+#define MMIO_CONT_SLOTS 4
 
 #define SRAM ((volatile uint8_t *)0x10000000u)
 #define XRAM_WIN ((volatile uint8_t *)0x30000000u)
@@ -57,10 +54,12 @@
  * the one the user reloads. Above its ceiling sit eight 32 KB windows
  * for the open-file descriptors — the bridge writes the staging store
  * and knows no other way to write us at all — then the fonts and the
- * code page tables, whole files the fabric reads at random, sized to
- * what they hold, then Get File's scratch, the one address here that
- * data.json does not declare because it is not a slot. ROM_MAX is
- * data.json's size_maximum and the windows begin there exactly. */
+ * code page tables and the keyboard layouts, whole files the fabric
+ * reads at random, sized to what they hold. Get File's scratch is the
+ * one address here that data.json does not declare, because it is not
+ * a slot; the layouts sit above its page rather than below, so the
+ * slots stay in one ascending run. ROM_MAX is data.json's size_maximum
+ * and the windows begin there exactly. */
 #define ROM_IMG ((volatile const uint8_t *)0x60000000u)
 #define ROM_BRIDGE 0x00000000u
 #define ROM_MAX 0x03FA0000u
@@ -77,6 +76,7 @@
 #define OEMCP ((volatile const uint8_t *)0x63FEF000u)
 #define GETFILE_WIN ((volatile const uint8_t *)0x63FF1000u)
 #define GETFILE_BRIDGE 0x03FF1000u
+#define KBDLAY ((volatile const uint8_t *)0x63FF2000u)
 
 /* The host's file bridge. FILE_WIN is one port of a block RAM whose
  * other port is the bridge's, so it is word-wide and write-only: the
@@ -93,9 +93,14 @@
 /* The interact menu's persisted settings, read-only, and the host's
  * clock. The UTC offset arrives in three pieces — hours, quarter hour,
  * and which side of Greenwich — because a menu list holds sixteen
- * options and the offset spans twenty-seven whole hours. RTC_EPOCH is
- * the Pocket's local wall time as seconds since 1970, written once at
- * core boot by host command 0x0090, and RTC_VALID says it ever was. */
+ * options and the offset spans twenty-seven whole hours. The two
+ * keyboards name a layout by its position in def/kbd.def plus one, so
+ * a zero is a menu that has said nothing rather than a layout; the
+ * alternate's own zero is its None. RTC_EPOCH is the Pocket's local
+ * wall time as seconds since 1970, written once at core boot by host
+ * command 0x0090, and RTC_VALID says it ever was. */
+#define SET_KB (*(volatile uint32_t *)0x80010000u)
+#define SET_KB_ALT (*(volatile uint32_t *)0x80010004u)
 #define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
 #define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
 #define RTC_VALID (*(volatile uint32_t *)0x80010010u)
