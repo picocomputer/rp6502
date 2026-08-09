@@ -64,7 +64,6 @@ module pocket_bridge (
     output logic [31:0] pocket_bridge_set_tz_min,
     output logic [31:0] pocket_bridge_set_tz_sign,
     output logic [31:0] pocket_bridge_set_kb,
-    output logic [31:0] pocket_bridge_set_kb_alt,
 
     /* The host's clock, written once at core boot by command 0x0090:
      * local wall time as seconds since 1970, and the flag that it was
@@ -144,16 +143,15 @@ module pocket_bridge (
      * bridge answers reads elsewhere. The firmware puts the pieces back
      * together. */
     logic [31:0] utz_74, utzm_74, utzs_74;
-    /* The keyboard layouts, by their position in def/kbd.def plus one,
-     * so a register nobody has written yet names no layout at all. */
-    logic [31:0] kb_74, kba_74;
+    /* The keyboard layout, by its position in def/kbd.def plus one, so
+     * a register nobody has written yet names no layout at all. */
+    logic [31:0] kb_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             utz_74   <= '0;
             utzm_74  <= '0;
             utzs_74  <= '0;
             kb_74    <= '0;
-            kba_74   <= '0;
         end else if (bridge_wr) begin
             if (bridge_addr == 32'h1000_000C)
                 utz_74 <= bridge_wr_data;
@@ -163,8 +161,6 @@ module pocket_bridge (
                 utzs_74 <= bridge_wr_data;
             if (bridge_addr == 32'h1000_0018)
                 kb_74 <= bridge_wr_data;
-            if (bridge_addr == 32'h1000_001C)
-                kba_74 <= bridge_wr_data;
         end
     end
 
@@ -378,7 +374,7 @@ module pocket_bridge (
     (* preserve *) logic [3:0][15:0] ct_s1, ct_s2;
     (* preserve *) logic [31:0] ut_s1, ut_s2;
     (* preserve *) logic [31:0] um_s1, um_s2, us_s1, us_s2;
-    (* preserve *) logic [31:0] kb_s1, kb_s2, ka_s1, ka_s2;
+    (* preserve *) logic [31:0] kb_s1, kb_s2;
     (* preserve *) logic [31:0] re_s1, re_s2;
     (* preserve *) logic rv_s1, rv_s2;
     initial begin
@@ -389,14 +385,12 @@ module pocket_bridge (
         um_s1 = '0; um_s2 = '0;
         us_s1 = '0; us_s2 = '0;
         kb_s1 = '0; kb_s2 = '0;
-        ka_s1 = '0; ka_s2 = '0;
         re_s1 = '0; re_s2 = '0;
         rv_s1 = 1'b0; rv_s2 = 1'b0;
         pocket_bridge_set_tz = '0;
         pocket_bridge_set_tz_min = '0;
         pocket_bridge_set_tz_sign = '0;
         pocket_bridge_set_kb = '0;
-        pocket_bridge_set_kb_alt = '0;
         pocket_bridge_rtc_epoch = '0;
         pocket_bridge_rtc_valid = 1'b0;
         pocket_bridge_cont_key = '0;
@@ -416,14 +410,12 @@ module pocket_bridge (
         um_s1 <= utzm_74;  um_s2 <= um_s1;
         us_s1 <= utzs_74;  us_s2 <= us_s1;
         kb_s1 <= kb_74;    kb_s2 <= kb_s1;
-        ka_s1 <= kba_74;   ka_s2 <= ka_s1;
         re_s1 <= rtc_epoch; re_s2 <= re_s1;
         rv_s1 <= rtc_valid; rv_s2 <= rv_s1;
         if (ut_s1 == ut_s2) pocket_bridge_set_tz <= ut_s2;
         if (um_s1 == um_s2) pocket_bridge_set_tz_min <= um_s2;
         if (us_s1 == us_s2) pocket_bridge_set_tz_sign <= us_s2;
         if (kb_s1 == kb_s2) pocket_bridge_set_kb <= kb_s2;
-        if (ka_s1 == ka_s2) pocket_bridge_set_kb_alt <= ka_s2;
         if (re_s1 == re_s2) pocket_bridge_rtc_epoch <= re_s2;
         pocket_bridge_rtc_valid <= rv_s2;
     end

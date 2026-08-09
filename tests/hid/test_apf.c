@@ -251,10 +251,10 @@ UTEST(apf, a_keyboard_sets_the_bitmap)
     ASSERT_EQ(xram[AT_KBD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
     ASSERT_EQ(xram[AT_KBD] & 1, 0);
 
-    /* All six at once, and the four modifiers that are keycodes 0xE0
-     * and up. Left shift is bit 1 of the modifier byte, which is
-     * keycode 0xE1. */
-    feed(2, APF_TYPE_KBD, 0x40000002u, 0x04050607u, 0x0809, false);
+    /* All six at once, and the modifiers, which are keycodes 0xE0 and
+     * up. Left shift is bit 1 of the HID modifier byte — and that byte
+     * is the modifier field's first, so it arrives in [15:8]. */
+    feed(2, APF_TYPE_KBD, 0x40000200u, 0x04050607u, 0x0809, false);
     for (uint8_t kc = 0x04; kc <= 0x09; kc++)
         ASSERT_EQ(xram[AT_KBD + (kc >> 3)] & (1 << (kc & 7)), 1 << (kc & 7));
     ASSERT_EQ(xram[AT_KBD + (0xE1 >> 3)] & (1 << (0xE1 & 7)), 1 << (0xE1 & 7));
@@ -278,10 +278,11 @@ UTEST(apf, a_keyboard_types_through_its_layout)
     ASSERT_EQ(kbd_stdio_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'a');
 
-    /* Shift is the modifier byte's bit 1, and the layout's second
-     * column. */
+    /* Shift is the modifier byte's bit 1, in [15:8], and the layout's
+     * second column. Reading it from [7:0] is a keyboard that types
+     * but never shifts, which is what hardware showed. */
     feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    feed(2, APF_TYPE_KBD, 0x40000002u, 0x04000000u, 0x0000, false);
+    feed(2, APF_TYPE_KBD, 0x40000200u, 0x04000000u, 0x0000, false);
     ASSERT_EQ(kbd_stdio_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'A');
 
@@ -302,21 +303,23 @@ UTEST(apf, a_mouse_moves_and_clicks)
     mount(3, APF_TYPE_MOU);
 
     /* The first report after it appears carries no movement, however
-     * far the hand went before anyone was listening. */
-    feed(3, APF_TYPE_MOU, 0x50000001u, 0x00010040u, 0x0040, true);
+     * far the hand went before anyone was listening. The movements are
+     * byte swapped in the register, so +0x40 arrives as 0x4000. */
+    feed(3, APF_TYPE_MOU, 0x50000001u, 0x00014000u, 0x4000, true);
     uint8_t x0 = xram[AT_MOU + 1];
     uint8_t y0 = xram[AT_MOU + 2];
     ASSERT_EQ(xram[AT_MOU + 0], 0x01); /* joy[23:16] is the buttons */
 
     /* Then movement accumulates, published at half resolution. */
-    feed(3, APF_TYPE_MOU, 0x50000002u, 0x00000040u, 0x0020, false);
+    feed(3, APF_TYPE_MOU, 0x50000200u, 0x00004000u, 0x2000, false);
     ASSERT_EQ(xram[AT_MOU + 1], (uint8_t)(x0 + 0x20));
     ASSERT_EQ(xram[AT_MOU + 2], (uint8_t)(y0 + 0x10));
     ASSERT_EQ(xram[AT_MOU + 0], 0x00);
 
     /* Negative deltas go the other way, which is what the descriptor's
-     * signed sixteen-bit fields are for. */
-    feed(3, APF_TYPE_MOU, 0x50000003u, 0x0000FFC0u, 0xFFE0, false);
+     * signed sixteen-bit fields are for. -0x40 is 0xFFC0, and swapped
+     * that is 0xC0FF. */
+    feed(3, APF_TYPE_MOU, 0x50000300u, 0x0000C0FFu, 0xE0FF, false);
     ASSERT_EQ(xram[AT_MOU + 1], (uint8_t)(x0 + 0x20 - 0x20));
     ASSERT_EQ(xram[AT_MOU + 2], (uint8_t)(y0 + 0x10 - 0x10));
 
@@ -337,7 +340,7 @@ UTEST(apf, a_mouse_is_also_a_pointer)
     /* Contact zero's byte 0 carries the state bits; a pointer that has
      * reported at all is present. */
     uint8_t before = xram[0x4000 + 4];
-    feed(3, APF_TYPE_MOU, 0x50000002u, 0x00010100u, 0x0100, false);
+    feed(3, APF_TYPE_MOU, 0x50000200u, 0x00010001u, 0x0001, false);
     ASSERT_NE(xram[0x4000 + 4], (uint8_t)(before ^ 0xFF));
     /* The button reached it: tab.c's tip switch is the first button. */
     ASSERT_NE(xram[0x4000 + 4] & 1, 0);

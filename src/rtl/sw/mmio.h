@@ -93,14 +93,12 @@
 /* The interact menu's persisted settings, read-only, and the host's
  * clock. The UTC offset arrives in three pieces — hours, quarter hour,
  * and which side of Greenwich — because a menu list holds sixteen
- * options and the offset spans twenty-seven whole hours. The two
- * keyboards name a layout by its position in def/kbd.def plus one, so
- * a zero is a menu that has said nothing rather than a layout; the
- * alternate's own zero is its None. RTC_EPOCH is the Pocket's local
- * wall time as seconds since 1970, written once at core boot by host
- * command 0x0090, and RTC_VALID says it ever was. */
+ * options and the offset spans twenty-seven whole hours. The keyboard
+ * names a layout by its position in def/kbd.def plus one, so a zero is
+ * a menu that has said nothing rather than a layout. RTC_EPOCH is the
+ * Pocket's local wall time as seconds since 1970, written once at core
+ * boot by host command 0x0090, and RTC_VALID says it ever was. */
 #define SET_KB (*(volatile uint32_t *)0x80010000u)
-#define SET_KB_ALT (*(volatile uint32_t *)0x80010004u)
 #define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)
 #define RTC_EPOCH (*(volatile uint32_t *)0x8001000Cu)
 #define RTC_VALID (*(volatile uint32_t *)0x80010010u)

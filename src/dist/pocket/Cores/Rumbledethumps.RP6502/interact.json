@@ -22,26 +22,6 @@
                 ]
             },
             {
-                "name": "Keyboard, alt",
-                "id": 5,
-                "type": "list",
-                "enabled": true,
-                "address": "0x1000001C",
-                "persist": true,
-                "writeonly": true,
-                "defaultval": "0x0",
-                "options": [
-                    { "value": "0x0", "name": "None" },
-                    { "value": "0x1", "name": "DK" },
-                    { "value": "0x2", "name": "DE" },
-                    { "value": "0x3", "name": "FR" },
-                    { "value": "0x4", "name": "PL-PROG" },
-                    { "value": "0x5", "name": "SE" },
-                    { "value": "0x6", "name": "US" },
-                    { "value": "0x7", "name": "US-INTL" }
-                ]
-            },
-            {
                 "name": "UTC offset side",
                 "id": 1,
                 "type": "list",

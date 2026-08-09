@@ -114,19 +114,20 @@ than a floating one.
 
 ## The Core Settings menu
 
-Five things live there and one used to that should not.
+Four things live there and one used to that should not.
 
-**The keyboard is two entries.** "Keyboard" is required and defaults to
-US; "Keyboard, alt" adds a second and offers None. Together they are
-the layout list the machine's own keyboard driver takes, so GUI+Space
-cycles between them exactly as it does on a RIA. Both name a layout by
-its position in `def/kbd.def` plus one, which leaves zero meaning a
-menu that has said nothing — the alternate's own zero is its None. A
-ctest reads `interact.json` against the manifest, so adding a layout
-and forgetting the menu fails the build rather than shipping a list
-that names the wrong one. Append new layouts at the end of the
-manifest: the host persists this setting by its value, and inserting
-one in the middle would renumber what a user already chose.
+**The keyboard is one entry, and one on purpose.** The RIA carries a
+list of layouts because reaching its monitor to change one interrupts
+whatever you were doing, and GUI+Space cycling between two is worth the
+machinery there. This menu is two button presses away, so the layout
+that would have been the alternate is just the layout. The entry names
+one by its position in `def/kbd.def` plus one, which leaves zero
+meaning a menu that has said nothing — and the firmware then keeps the
+US default. A ctest reads `interact.json` against the manifest, so
+adding a layout and forgetting the menu fails the build rather than
+shipping a list that names the wrong one. Append new layouts at the end
+of the manifest: the host persists this setting by its value, and
+inserting one in the middle would renumber what a user already chose.
 
 **The time zone is three entries, not one.** The Pocket knows nothing
 about time zones, so the offset has to be set by hand — and it cannot

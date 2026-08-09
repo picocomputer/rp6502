@@ -242,13 +242,13 @@ def build(manifest):
     layouts = parse_manifest(manifest)
     n = len(layouts)
 
-    # An interact menu list holds sixteen options, and the alternate
-    # keyboard carries a None beside every layout. That is the ceiling
-    # on this manifest, and it is worth failing here rather than in a
-    # JSON file the host silently rejects.
-    if n + 1 > 16:
+    # An interact menu list holds sixteen options, and the Pocket's
+    # keyboard menu is one option per layout. That is the ceiling on
+    # this manifest, and it is worth failing here rather than in a JSON
+    # file the host silently rejects.
+    if n > 16:
         raise SystemExit(f"kbd_layout_gen: {n} layouts, and the Pocket's "
-                         "alternate keyboard menu holds fifteen plus None")
+                         "keyboard menu holds sixteen")
 
     records = []
     for lay in layouts:
@@ -348,14 +348,13 @@ def check_interact(path, layouts):
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
     variables = doc["interact"]["variables"]
     want = [(i + 1, lay["name"]) for i, lay in enumerate(layouts)]
-    for label, expect in (("Keyboard", want), ("Keyboard, alt", [(0, "None")] + want)):
-        found = [v for v in variables if v["name"] == label]
-        if len(found) != 1:
-            raise SystemExit(f"kbd_layout_gen: interact.json has no {label!r}")
-        got = [(int(o["value"], 0), o["name"]) for o in found[0]["options"]]
-        if got != expect:
-            raise SystemExit(f"kbd_layout_gen: interact.json {label!r} options "
-                             f"{got} do not match def/kbd.def {expect}")
+    found = [v for v in variables if v["name"] == "Keyboard"]
+    if len(found) != 1:
+        raise SystemExit("kbd_layout_gen: interact.json has no 'Keyboard'")
+    got = [(int(o["value"], 0), o["name"]) for o in found[0]["options"]]
+    if got != want:
+        raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' options "
+                         f"{got} do not match def/kbd.def {want}")
 
 
 def check_data(path, words):

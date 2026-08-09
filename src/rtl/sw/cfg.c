@@ -30,29 +30,25 @@ static int32_t cfg_tz;
 /* Not zero, which is a value the menu can hold: the first pass has to
  * apply whatever it finds, including a menu that has said nothing. */
 static int32_t cfg_kb = -1;
-static int32_t cfg_kb_alt = -1;
 
-/* The two menu entries as the layout list kbd.c wants. A layout is
- * named by its position in def/kbd.def plus one, so zero is a menu that
- * has said nothing — which leaves kbd_init's default standing — and the
- * alternate's zero is its None. Naming the same layout twice would be
- * a list that cycles to itself, so the alternate is dropped when it
- * matches. */
-static void cfg_apply_layouts(int32_t kb, int32_t alt)
+/* The menu entry as the layout list kbd.c wants, which here is one
+ * layout long. A layout is named by its position in def/kbd.def plus
+ * one, so zero is a menu that has said nothing and leaves kbd_init's
+ * default standing.
+ *
+ * One and not two. The RIA carries a list because reaching its monitor
+ * to change a setting interrupts what you were doing, and a Pocket's
+ * menu is two button presses away — so the layout that would have been
+ * the alternate is just the layout, and GUI+Space has nothing to cycle
+ * between. */
+static void cfg_apply_layout(int32_t kb)
 {
-    char list[KBL_NAME_MAX * 2];
+    char name[KBL_NAME_MAX];
     if (kb <= 0)
         return;
-    kbl_name((int)kb - 1, list);
-    if (!list[0])
-        return;
-    if (alt > 0 && alt != kb)
-    {
-        size_t len = strlen(list);
-        list[len++] = ' ';
-        kbl_name((int)alt - 1, list + len);
-    }
-    kbd_load_layout(list);
+    kbl_name((int)kb - 1, name);
+    if (name[0])
+        kbd_load_layout(name);
 }
 
 void cfg_task(void)
@@ -69,11 +65,9 @@ void cfg_task(void)
     }
 
     int32_t kb = (int32_t)SET_KB;
-    int32_t alt = (int32_t)SET_KB_ALT;
-    if (kb != cfg_kb || alt != cfg_kb_alt)
+    if (kb != cfg_kb)
     {
         cfg_kb = kb;
-        cfg_kb_alt = alt;
-        cfg_apply_layouts(kb, alt);
+        cfg_apply_layout(kb);
     }
 }

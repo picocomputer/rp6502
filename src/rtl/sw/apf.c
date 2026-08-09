@@ -185,6 +185,25 @@ static const uint8_t apf_mou_desc[] = {
     0xc0, // End Collection
 };
 
+/* A sixteen-bit field, the way one actually arrives.
+ *
+ * APF packs the bytes of a word most significant first — its own table
+ * puts the keyboard's first scan code in joy[31:24] and its fourth in
+ * joy[7:0] — and then documents three fields as "little endian byte
+ * order": the keyboard's modifiers and the mouse's two movements. Byte
+ * order is only worth stating for a value made of more than one byte,
+ * and taken together the two statements put such a field's low byte in
+ * the high half of its half word.
+ *
+ * Read as it stands, a movement of three is 0x0300 and a keyboard's
+ * shift is eight bits from where it is looked for. The six scan codes
+ * are single bytes and need none of this, which is why typing worked
+ * while nothing else did. */
+static inline uint16_t apf_swap16(uint32_t word)
+{
+    return (uint16_t)(((word & 0xFFu) << 8) | ((word >> 8) & 0xFFu));
+}
+
 #define APF_REPORT_MAX 8
 
 static struct
@@ -274,7 +293,9 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         report[7] = (uint8_t)(trig >> 8);
         return 8;
     case APF_TYPE_KBD:
-        report[0] = (uint8_t)key; /* the HID modifier byte */
+        /* The HID modifier byte, which is the modifier field's first
+         * byte and so the high half of its half word. */
+        report[0] = (uint8_t)(key >> 8);
         report[1] = 0;
         report[2] = (uint8_t)(joy >> 24);
         report[3] = (uint8_t)(joy >> 16);
@@ -288,8 +309,8 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         /* The first report after a mouse appears carries no movement:
          * its deltas are however far the hand went before anyone was
          * listening. */
-        uint16_t dx = first ? 0 : (uint16_t)joy;
-        uint16_t dy = first ? 0 : trig;
+        uint16_t dx = first ? 0 : apf_swap16(joy);
+        uint16_t dy = first ? 0 : apf_swap16(trig);
         report[0] = (uint8_t)(joy >> 16);
         report[1] = 0;
         report[2] = (uint8_t)dx;
@@ -335,7 +356,9 @@ static void apf_slot_task(int slot)
     bool first = false;
     if (type == APF_TYPE_MOU)
     {
-        uint16_t count = (uint16_t)key;
+        /* Swapped like the movements beside it, though only inequality
+         * is ever asked of it. */
+        uint16_t count = apf_swap16(key);
         if (apf_slots[slot].mou_have_seen && count == apf_slots[slot].mou_seen)
             return;
         first = !apf_slots[slot].mou_have_seen;

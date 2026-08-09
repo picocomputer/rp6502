@@ -62,7 +62,7 @@ module tb_pbridge (
     logic dt_busy;
     logic [31:0] set_tz, rtc_epoch_s;
     logic [31:0] set_tz_min, set_tz_sign;
-    logic [31:0] set_kb, set_kb_alt;
+    logic [31:0] set_kb;
     logic rtc_valid_s;
     logic [3:0][31:0] cont_key_s, cont_joy_s;
     logic [3:0][15:0] cont_trig_s;
@@ -110,7 +110,6 @@ module tb_pbridge (
         .pocket_bridge_set_tz_min(set_tz_min),
         .pocket_bridge_set_tz_sign(set_tz_sign),
         .pocket_bridge_set_kb(set_kb),
-        .pocket_bridge_set_kb_alt(set_kb_alt),
         .rtc_epoch(32'd0),
         .rtc_valid(1'b0),
         .pocket_bridge_rtc_epoch(rtc_epoch_s),
@@ -169,7 +168,7 @@ module tb_pbridge (
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_tb_pbridge;
     always_comb unused_tb_pbridge = ^{dqm, refreshes, sref_clocks, dt_busy, set_tz, set_tz_min,
-                                      set_tz_sign, set_kb, set_kb_alt,
+                                      set_tz_sign, set_kb,
                                       rtc_epoch_s, rtc_valid_s};
     /* verilator lint_on UNUSEDSIGNAL */
 

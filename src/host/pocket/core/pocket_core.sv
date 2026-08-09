@@ -191,7 +191,6 @@ module pocket_core #(
         .pocket_bridge_set_tz_min(set_tz_min),
         .pocket_bridge_set_tz_sign(set_tz_sign),
         .pocket_bridge_set_kb(set_kb),
-        .pocket_bridge_set_kb_alt(set_kb_alt),
         .rtc_epoch(rtc_epoch),
         .rtc_valid(rtc_valid),
         .pocket_bridge_rtc_epoch(rtc_epoch_sys),
@@ -267,7 +266,7 @@ module pocket_core #(
     logic host_stb, host_we;
     logic [31:0] host_wdata, host_rdata, file_rdata;
     logic [31:0] set_tz, set_tz_min, set_tz_sign;
-    logic [31:0] set_kb, set_kb_alt;
+    logic [31:0] set_kb;
     logic [31:0] rtc_epoch_sys;
     logic rtc_valid_sys;
 
@@ -281,7 +280,6 @@ module pocket_core #(
         if (host_stb)
             case (host_addr[4:2])
                 3'd0: set_rdata <= set_kb;
-                3'd1: set_rdata <= set_kb_alt;
                 3'd2: set_rdata <= set_tz;
                 3'd3: set_rdata <= rtc_epoch_sys;
                 3'd4: set_rdata <= {31'd0, rtc_valid_sys};
