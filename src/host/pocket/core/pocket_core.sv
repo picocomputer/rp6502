@@ -48,6 +48,20 @@ module pocket_core #(
     output logic [31:0] pocket_core_dataslot_length,
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
+
+    /* Sleep, which on this platform is a savestate. The command levels
+     * are edge-detected and acked in the fabric; everything after the
+     * ack is the firmware's. */
+    input logic savestate_start,
+    output logic pocket_core_savestate_start_ack,
+    output logic pocket_core_savestate_start_busy,
+    output logic pocket_core_savestate_start_ok,
+    output logic pocket_core_savestate_start_err,
+    input logic savestate_load,
+    output logic pocket_core_savestate_load_ack,
+    output logic pocket_core_savestate_load_busy,
+    output logic pocket_core_savestate_load_ok,
+    output logic pocket_core_savestate_load_err,
     /* APF's four controller slots. A slot holds a gamepad, the dock's
      * keyboard as six scan codes across joy and trig, the dock's mouse
      * as a report counter and two movements, or nothing at all — and
@@ -264,7 +278,7 @@ module pocket_core #(
 
     logic [27:0] host_addr;
     logic host_stb, host_we;
-    logic [31:0] host_wdata, host_rdata, file_rdata;
+    logic [31:0] host_wdata, host_rdata, file_rdata, sst_rdata;
     logic [31:0] set_tz, set_tz_min, set_tz_sign;
     logic [31:0] set_kb;
     logic [31:0] rtc_epoch_sys;
@@ -272,8 +286,8 @@ module pocket_core #(
 
     /* The platform window's second half is what the interact menu has
      * set plus the host's clock, read-only: the machine polls it and
-     * applies what changed. Bit 16 picks; the file bridge owns
-     * everything below it. */
+     * applies what changed. Bit 16 picks it and bit 17 the savestate
+     * bridge; the file bridge owns everything below both. */
     logic [31:0] set_rdata;
     initial set_rdata = '0;
     always_ff @(posedge clk_sys) begin
@@ -288,13 +302,15 @@ module pocket_core #(
                 default: set_rdata <= '0;
             endcase
     end
-    always_comb host_rdata = host_addr_q ? set_rdata : file_rdata;
+    always_comb
+        host_rdata = host_sel_q[1] ? sst_rdata
+            : (host_sel_q[0] ? set_rdata : file_rdata);
 
-    logic host_addr_q;
-    initial host_addr_q = 1'b0;
+    logic [1:0] host_sel_q;
+    initial host_sel_q = '0;
     always_ff @(posedge clk_sys)
         if (host_stb)
-            host_addr_q <= host_addr[16];
+            host_sel_q <= host_addr[17:16];
 
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;
@@ -365,7 +381,7 @@ module pocket_core #(
      * it asked. */
     pocket_file file (
         .clk_sys(clk_sys),
-        .stb(host_stb && !host_addr[16]),
+        .stb(host_stb && !host_addr[16] && !host_addr[17]),
         .we(host_we),
         .addr(host_addr),
         .wdata(host_wdata),
@@ -375,7 +391,7 @@ module pocket_core #(
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
         .bridge_rd(bridge_rd),
-        .pocket_file_rd_data(pocket_core_bridge_rd_data),
+        .pocket_file_rd_data(file_rd_data),
         .pocket_file_param_struct(pocket_core_param_struct),
         .pocket_file_resp_struct(pocket_core_resp_struct),
         .pocket_file_dt_req(file_dt_req),
@@ -394,6 +410,43 @@ module pocket_core #(
         .target_dataslot_done(target_dataslot_done),
         .target_dataslot_err(target_dataslot_err)
     );
+
+    /* Like the file bridge, on the platform's reset rather than the
+     * machine's: a savestate belongs to the host, and a reboot that
+     * dropped one would leave the bridge waiting. */
+    pocket_sst sst (
+        .clk_sys(clk_sys),
+        .stb(host_stb && host_addr[17]),
+        .we(host_we),
+        .addr(host_addr),
+        .wdata(host_wdata),
+        .pocket_sst_rdata(sst_rdata),
+        .clk_74a(clk_74a),
+        .arst_n(arst_n),
+        .bridge_wr(bridge_wr),
+        .bridge_rd(bridge_rd),
+        .bridge_addr(bridge_addr),
+        .pocket_sst_rd_data(sst_rd_data),
+        .pocket_sst_rd_sel(sst_rd_sel),
+        .savestate_start(savestate_start),
+        .pocket_sst_start_ack(pocket_core_savestate_start_ack),
+        .pocket_sst_start_busy(pocket_core_savestate_start_busy),
+        .pocket_sst_start_ok(pocket_core_savestate_start_ok),
+        .pocket_sst_start_err(pocket_core_savestate_start_err),
+        .savestate_load(savestate_load),
+        .pocket_sst_load_ack(pocket_core_savestate_load_ack),
+        .pocket_sst_load_busy(pocket_core_savestate_load_busy),
+        .pocket_sst_load_ok(pocket_core_savestate_load_ok),
+        .pocket_sst_load_err(pocket_core_savestate_load_err)
+    );
+
+    /* Two things in this core answer a bridge read, and which one is
+     * decided here rather than upstairs so the blob's window stays as
+     * exact as pocket_sst's own decode. */
+    logic [31:0] file_rd_data, sst_rd_data;
+    logic sst_rd_sel;
+    always_comb
+        pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
 
     pocket_video video (
         .clk_sys(clk_sys),

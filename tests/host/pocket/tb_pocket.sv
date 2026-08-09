@@ -46,6 +46,19 @@ module tb_pocket (
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
 
+    /* Sleep and the Memories menu. The bench plays the host on these
+     * the same way it plays it on the data slots. */
+    input logic savestate_start,
+    output logic tb_pocket_savestate_start_ack,
+    output logic tb_pocket_savestate_start_busy,
+    output logic tb_pocket_savestate_start_ok,
+    output logic tb_pocket_savestate_start_err,
+    input logic savestate_load,
+    output logic tb_pocket_savestate_load_ack,
+    output logic tb_pocket_savestate_load_busy,
+    output logic tb_pocket_savestate_load_ok,
+    output logic tb_pocket_savestate_load_err,
+
     /* Flat here and packed at the instance, the way core_top does it,
      * so the C++ can drive one slot by name. */
     input logic [31:0] cont1_key,
@@ -121,6 +134,16 @@ module tb_pocket (
         .pocket_core_dataslot_length(tb_pocket_ds_length),
         .target_dataslot_done(target_dataslot_done),
         .target_dataslot_err(target_dataslot_err),
+        .savestate_start(savestate_start),
+        .pocket_core_savestate_start_ack(tb_pocket_savestate_start_ack),
+        .pocket_core_savestate_start_busy(tb_pocket_savestate_start_busy),
+        .pocket_core_savestate_start_ok(tb_pocket_savestate_start_ok),
+        .pocket_core_savestate_start_err(tb_pocket_savestate_start_err),
+        .savestate_load(savestate_load),
+        .pocket_core_savestate_load_ack(tb_pocket_savestate_load_ack),
+        .pocket_core_savestate_load_busy(tb_pocket_savestate_load_busy),
+        .pocket_core_savestate_load_ok(tb_pocket_savestate_load_ok),
+        .pocket_core_savestate_load_err(tb_pocket_savestate_load_err),
         .cont_key({cont4_key, cont3_key, cont2_key, cont1_key}),
         .cont_joy({cont4_joy, cont3_joy, cont2_joy, cont1_joy}),
         .cont_trig({cont4_trig, cont3_trig, cont2_trig, cont1_trig}),

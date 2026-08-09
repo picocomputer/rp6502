@@ -329,13 +329,19 @@ assign vpll_feed = 1'bZ;
 // for bridge read data, we have to mux it
 // add your own devices here
 //
-// 0x0xxxxxxx is the staging store, which the host only ever writes; the
-// window at 0x2xxxxxxx is the file bridge's outbound buffer, and the one
-// thing here the host reads out of the machine.
+// 0x0xxxxxxx is the staging store, which the host only writes — except
+// for the savestate blob near the top of it, which is the one place the
+// host reads the store back and pocket_sst answers out of the stream the
+// firmware is pushing. The window at 0x2xxxxxxx is the file bridge's
+// outbound buffer. Both come up through pocket_core, which picks between
+// them on the exact blob window rather than the megabyte around it.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
+    end
+    32'h03Fxxxxx: begin
+        bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
         bridge_rd_data <= file_bridge_rd_data;
@@ -380,40 +386,40 @@ end
     wire     [31:0] rtc_time_bcd;
     wire            rtc_valid;
 
-    // Sleep is off in core.json, and this is why. Sleeping on openFPGA
-    // means handing the host a savestate: it asks 0x00A0 for a blob,
-    // powers down, and gives the blob back on wake. This core cannot
-    // make one, so it answers that it cannot, and the Pocket used to
-    // sleep anyway and wake into a cold boot.
+    // Sleep on openFPGA is a savestate: the host asks 0x00A0 for a blob,
+    // cuts the power, and hands the blob back at 0x00A4 on wake. Wake
+    // reconfigures the part — measured, with a marker in memory the
+    // bitstream would overwrite and a counter nothing but a reset can
+    // clear, and both were gone every time — so SRAM, XRAM, TCM and
+    // every register come out of the bitstream and the blob is the only
+    // thing that crosses.
     //
-    // Measured, with a marker in memory the bitstream would overwrite
-    // and a counter nothing but a reset can clear: wake reconfigures
-    // the part. The marker was gone and the counter back at zero every
-    // time. So SRAM, XRAM, TCM and every register come back out of the
-    // bitstream, and no amount of care in the firmware can continue a
-    // program across a nap — only a real savestate could, and that is
-    // the whole machine's state to marshal out and back.
+    // pocket_sst answers the handshake and serves the blob; the firmware
+    // fills it. The blob lives at the top of what the ROM slot gave up,
+    // so a load arrives as ordinary bridge writes into the staging store
+    // and needs no path of its own.
     //
-    // A sleep that silently restarts the user's program is worse than
-    // no sleep, so the core no longer claims to support it. These stay
-    // driven and denying: a host that asks anyway gets a real answer.
+    // supported stays low until the firmware behind this can do it. The
+    // ack does not: the bridge's command engine parks in the savestate
+    // state until it comes, and a core that claims support without
+    // answering takes every host command down with it.
     wire            savestate_supported = 1'b0;
-    wire    [31:0]  savestate_addr = 32'd0;
+    wire    [31:0]  savestate_addr = 32'h03F0_0000;
     wire    [31:0]  savestate_size = 32'd0;
     wire    [31:0]  savestate_maxloadsize = 32'd0;
 
     wire            savestate_start;
-    wire            savestate_start_ack = 1'b0;
-    wire            savestate_start_busy = 1'b0;
-    wire            savestate_start_ok = 1'b0;
-    wire            savestate_start_err = 1'b1;
+    wire            savestate_start_ack;
+    wire            savestate_start_busy;
+    wire            savestate_start_ok;
+    wire            savestate_start_err;
 
     wire            savestate_load;
-    wire            savestate_load_ack = 1'b0;
-    wire            savestate_load_busy = 1'b0;
-    wire            savestate_load_ok = 1'b0;
-    wire            savestate_load_err = 1'b1;
-    
+    wire            savestate_load_ack;
+    wire            savestate_load_busy;
+    wire            savestate_load_ok;
+    wire            savestate_load_err;
+
     wire            osnotify_inmenu;
 
 // bridge target commands
@@ -630,6 +636,18 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .pocket_core_dataslot_length     ( target_dataslot_length ),
     .target_dataslot_done            ( target_dataslot_done ),
     .target_dataslot_err             ( target_dataslot_err ),
+
+    // sleep, and the Memories menu, which are the same blob
+    .savestate_start                    ( savestate_start ),
+    .pocket_core_savestate_start_ack    ( savestate_start_ack ),
+    .pocket_core_savestate_start_busy   ( savestate_start_busy ),
+    .pocket_core_savestate_start_ok     ( savestate_start_ok ),
+    .pocket_core_savestate_start_err    ( savestate_start_err ),
+    .savestate_load                     ( savestate_load ),
+    .pocket_core_savestate_load_ack     ( savestate_load_ack ),
+    .pocket_core_savestate_load_busy    ( savestate_load_busy ),
+    .pocket_core_savestate_load_ok      ( savestate_load_ok ),
+    .pocket_core_savestate_load_err     ( savestate_load_err ),
 
     .cont_key  ( {cont4_key,  cont3_key,  cont2_key,  cont1_key}  ),
     .cont_joy  ( {cont4_joy,  cont3_joy,  cont2_joy,  cont1_joy}  ),

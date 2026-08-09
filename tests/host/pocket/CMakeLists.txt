@@ -14,6 +14,7 @@ set(POCKET_STACK
     ${RP6502_HOST_POCKET}/pocket_sram.sv
     ${RP6502_HOST_POCKET}/pocket_bridge.sv
     ${RP6502_HOST_POCKET}/pocket_file.sv
+    ${RP6502_HOST_POCKET}/pocket_sst.sv
     ${RP6502_HOST_POCKET}/pocket_core.sv
     ${POCKET_TB}/sdram_model.sv
     ${POCKET_TB}/asram_model.sv
@@ -23,6 +24,13 @@ set(POCKET_STACK
 rp6502_add_module_test(fifo
     TOP pocket_fifo
     RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+    TIMEOUT 120)
+
+# --- The savestate bridge: the handshake and the outbound stream ---
+rp6502_add_module_test(psst
+    TOP pocket_sst
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_sst.sv
     TIMEOUT 120)
 
 # --- The debug log, playing both the console and the host ---
