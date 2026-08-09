@@ -126,7 +126,11 @@ function(rp6502_submodule path)
             set(_msg "${_msg} (${_why})")
         endif()
         set(_msg "${_msg}.\n  ${_how}")
-        if(S_OPTIONAL AND NOT RP6502_STRICT_SUBMODULES)
+        # Strict is for a fetch that should have happened and did not. A lazy
+        # one deliberately has not happened yet, so it is never the failure
+        # strict is looking for — otherwise every tree that does not run the
+        # conformance suites would refuse to configure without a gigabyte.
+        if(S_OPTIONAL AND (S_LAZY OR NOT RP6502_STRICT_SUBMODULES))
             message(STATUS "${_msg}")
         else()
             message(FATAL_ERROR "${_msg}")

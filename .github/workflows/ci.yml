@@ -289,7 +289,7 @@ jobs:
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           cd src/emu
-          cmake --preset release
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build --preset release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
