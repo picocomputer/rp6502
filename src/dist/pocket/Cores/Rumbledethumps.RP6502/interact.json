@@ -10,7 +10,7 @@
                 "address": "0x10000018",
                 "persist": true,
                 "writeonly": true,
-                "defaultval": "0x6",
+                "defaultval": 5,
                 "options": [
                     { "value": "0x1", "name": "DK" },
                     { "value": "0x2", "name": "DE" },

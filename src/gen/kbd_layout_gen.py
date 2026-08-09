@@ -343,6 +343,9 @@ def emit_bin(path, words):
     Path(path).write_bytes(b)
 
 
+DEFAULT_LAYOUT = "US"  # kbd.c falls back to this; the menu must agree
+
+
 def check_interact(path, layouts):
     """The menu picks a layout by position, so the two must agree."""
     doc = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -351,10 +354,28 @@ def check_interact(path, layouts):
     found = [v for v in variables if v["name"] == "Keyboard"]
     if len(found) != 1:
         raise SystemExit("kbd_layout_gen: interact.json has no 'Keyboard'")
-    got = [(int(o["value"], 0), o["name"]) for o in found[0]["options"]]
+    options = found[0]["options"]
+    got = [(int(o["value"], 0), o["name"]) for o in options]
     if got != want:
         raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' options "
                          f"{got} do not match def/kbd.def {want}")
+
+    # defaultval indexes the options array — it is not one of their
+    # values. Analogue's page does not say so and its own sample is the
+    # only evidence; a Pocket booted with the value there came up on the
+    # layout one past the intended one. What the default has to be is
+    # whatever kbd.c falls back to when nothing has been chosen.
+    default = found[0]["defaultval"]
+    if isinstance(default, str):
+        raise SystemExit("kbd_layout_gen: interact.json 'Keyboard' defaultval "
+                         f"is the string {default!r}; it is an index")
+    if not 0 <= default < len(options):
+        raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' defaultval "
+                         f"{default} is not an option index")
+    if options[default]["name"] != DEFAULT_LAYOUT:
+        raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' defaults to "
+                         f"{options[default]['name']}, and kbd.c to "
+                         f"{DEFAULT_LAYOUT}")
 
 
 def check_data(path, words):

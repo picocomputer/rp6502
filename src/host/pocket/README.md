@@ -129,6 +129,13 @@ shipping a list that names the wrong one. Append new layouts at the end
 of the manifest: the host persists this setting by its value, and
 inserting one in the middle would renumber what a user already chose.
 
+`defaultval` is an index into the options array and not one of their
+values, which Analogue's page never says — only its sample shows it.
+A Pocket set to default came up one layout past the intended one, and
+that is the whole of the evidence. The ctest now checks that the option
+`defaultval` selects is the layout `kbd.c` falls back to, so the two
+defaults cannot disagree again.
+
 **The time zone is three entries, not one.** The Pocket knows nothing
 about time zones, so the offset has to be set by hand — and it cannot
 be one control. A list holds at most sixteen options and the offset
