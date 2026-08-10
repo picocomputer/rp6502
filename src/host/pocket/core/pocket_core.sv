@@ -323,7 +323,7 @@ module pocket_core #(
 
     /* The savestate engine holds the machine; nothing outside walks
      * its state port directly. */
-    logic sst_save, sst_ready, sst_rd_sel, sst_word_valid;
+    logic sst_save, sst_ready, sst_rd_sel, sst_word_valid, sst_rd_t;
     logic [17:0] sst_rd_idx;
     logic [31:0] sst_word, sst_rd_data;
 
@@ -356,6 +356,7 @@ module pocket_core #(
         .sst_save(sst_save),
         .rp6502_sst_ready(sst_ready),
         .sst_rd_idx(sst_rd_idx),
+        .sst_rd_t(sst_rd_t),
         .rp6502_sst_rdata(sst_word),
         .rp6502_sst_rvalid(sst_word_valid),
         .sst_phi2_we(1'b0),
@@ -470,6 +471,7 @@ module pocket_core #(
         .pocket_sst_save(sst_save),
         .sst_ready(sst_ready),
         .pocket_sst_rd_idx(sst_rd_idx),
+        .pocket_sst_rd_t(sst_rd_t),
         .sst_rdata(sst_word),
         .sst_rvalid(sst_word_valid),
         .savestate_start(savestate_start),

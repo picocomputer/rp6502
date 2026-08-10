@@ -106,6 +106,7 @@ static void power_on(void)
     dut->sst_freeze = 0;
     dut->sst_save = 0;
     dut->sst_rd_idx = 0;
+    dut->sst_rd_t = 0;
     dut->sst_dbg_halt = 0;
     dut->sst_dbg_halt_on_reset = 0;
     dut->sst_dbg_resume = 0;
@@ -140,8 +141,15 @@ static bool begin_save(void)
 
 static bool blob_word(uint32_t idx, uint32_t *out)
 {
+    /* The index is data; the toggle beside it is what says it has
+     * stopped moving, which is the only thing the engine acts on. */
     dut->sst_rd_idx = idx;
+    dut->sst_rd_t = !dut->sst_rd_t;
     dut->eval();
+    /* The answer to the last index is still standing while the engine
+     * notices this one, so wait for it to go away first. */
+    for (int i = 0; i < 20000 && dut->rp6502_sst_rvalid; i++)
+        clk();
     for (int i = 0; i < 20000; i++)
     {
         clk();

@@ -210,10 +210,16 @@ set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
 # the engine answers it, and the word stands still on clk_sys until a
 # different index is asked for; neither moves until its own handshake
 # says the other side is finished with it.
+#
+# Note which way each one goes. The file bridge's parameters above all
+# travel clk_sys to clk_74a and are stopped at clk_74a; the index goes
+# the other way and is stopped at the machine's clock instead. Bounding
+# it to the clock it starts on constrains nothing at all, which is what
+# it did for one fit.
 set_max_delay -from [get_registers {*pocket_sst*|want[*]}] \
-    -to [get_clocks {clk_74a}] 13.468
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 13.468
 set_min_delay -from [get_registers {*pocket_sst*|want[*]}] \
-    -to [get_clocks {clk_74a}] 0
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 0
 set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
     -to [get_registers {*pocket_sst*|pf_data[*]}] 13.468
 set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \

@@ -48,7 +48,14 @@ module sst_engine
      * sst_engine_rdata once sst_engine_rvalid is high, and holds until
      * a different index is asked for. */
     output logic sst_engine_ready,
+    /* The index is data, and the toggle beside it is what says the data
+     * has stopped moving. Nothing here looks at rd_idx until three
+     * flops after that toggle changed -- a state machine that branched
+     * on the raw crossing could take a transition on a value made of
+     * bits from two different indices, which is a value that never
+     * existed on either side. */
     input logic [17:0] rd_idx,
+    input logic rd_t,
     output logic [31:0] sst_engine_rdata,
     output logic sst_engine_rvalid,
 
@@ -176,7 +183,7 @@ module sst_engine
         sst_engine_ready = state == S_READY || state == S_READ
             || state == S_READ_WAIT;
         sst_engine_rdata = hold;
-        sst_engine_rvalid = hold_valid && hold_idx == rd_idx;
+        sst_engine_rvalid = hold_valid && hold_idx == req_idx;
         sst_engine_bus_own = state != S_IDLE;
         sst_engine_dbg_instr = spill_instr;
         sst_engine_dbg_instr_vld = state == S_SPILL_ARM
@@ -272,6 +279,12 @@ module sst_engine
     logic save_req;
     always_comb save_req = save_s2;
 
+    (* preserve *) logic idx_t1, idx_t2, idx_t3;
+    logic [17:0] req_idx;
+    logic req_pending;
+    logic req_new;
+    always_comb req_new = idx_t2 != idx_t3;
+
     always_ff @(posedge clk_sys) begin
         if (!rst_n) begin
             state <= S_IDLE;
@@ -289,9 +302,25 @@ module sst_engine
             sum_next <= '0;
             save_s1 <= 1'b0;
             save_s2 <= 1'b0;
+            idx_t1 <= 1'b0;
+            idx_t2 <= 1'b0;
+            idx_t3 <= 1'b0;
+            req_idx <= '0;
+            req_pending <= 1'b0;
         end else begin
             save_s1 <= sst_save;
             save_s2 <= save_s1;
+            idx_t1 <= rd_t;
+            idx_t2 <= idx_t1;
+            idx_t3 <= idx_t2;
+            /* A request is a thing that arrived, not a comparison
+             * that happens to be true: with nothing held yet, asking
+             * "is the held word the wrong one" is true of an index
+             * nobody has asked for. */
+            if (req_new) begin
+                req_idx <= rd_idx;
+                req_pending <= 1'b1;
+            end
             if (dbg_data0_wen) data0_q <= dbg_data0;
             case (state)
                 S_IDLE: begin
@@ -358,9 +387,9 @@ module sst_engine
 
                 S_READY: begin
                     if (!save_req) state <= S_IDLE;
-                    else if (save_req && !(hold_valid && hold_idx == rd_idx))
-                    begin
-                        hold_idx <= rd_idx;
+                    else if (save_req && req_pending) begin
+                        req_pending <= 1'b0;
+                        hold_idx <= req_idx;
                         hold_valid <= 1'b0;
                         byte_n <= '0;
                         acc <= '0;

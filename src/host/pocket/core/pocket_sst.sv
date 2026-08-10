@@ -59,6 +59,7 @@ module pocket_sst #(
     output logic pocket_sst_save,
     input logic sst_ready,
     output logic [17:0] pocket_sst_rd_idx,
+    output logic pocket_sst_rd_t,
     input logic [31:0] sst_rdata,
     input logic sst_rvalid,
 
@@ -103,6 +104,7 @@ module pocket_sst #(
     logic [17:0] want;
     logic [31:0] pf_data;
     logic pf_valid, pf_seen_low, underrun;
+    logic want_t;
     (* preserve *) logic rvalid_s1, rvalid_s2;
     (* preserve *) logic ready_s1, ready_s2;
 
@@ -121,6 +123,7 @@ module pocket_sst #(
          * same held-level crossing the file bridge's parameters use. */
         pocket_sst_save = start_pend;
         pocket_sst_rd_idx = want;
+        pocket_sst_rd_t = want_t;
     end
 
     logic blob_seen;
@@ -153,6 +156,7 @@ module pocket_sst #(
             last_idx <= '0;
             hold <= '0;
             want <= '0;
+            want_t <= 1'b0;
             pf_data <= '0;
             pf_valid <= 1'b0;
             pf_seen_low <= 1'b0;
@@ -195,6 +199,7 @@ module pocket_sst #(
                 if (pf_valid && want == rd_idx) hold <= pf_data;
                 else if (ready_s2) underrun <= 1'b1;
                 want <= rd_idx + 18'd1;
+                want_t <= !want_t;
                 pf_valid <= 1'b0;
                 pf_seen_low <= 1'b0;
             end
@@ -210,6 +215,7 @@ module pocket_sst #(
                 start_t <= !start_t;
                 /* A new blob starts at its first word. */
                 want <= 18'd0;
+                want_t <= !want_t;
                 pf_valid <= 1'b0;
                 pf_seen_low <= 1'b0;
                 have_last <= 1'b0;
