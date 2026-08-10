@@ -57,6 +57,9 @@ def main() -> int:
     ap.add_argument("--data", required=True)
     ap.add_argument("--mmio", required=True)
     ap.add_argument("--bench")
+    ap.add_argument("--engine")
+    ap.add_argument("--sst")
+    ap.add_argument("--top")
     a = ap.parse_args()
 
     ds = slots(Path(a.data))
@@ -144,13 +147,55 @@ def main() -> int:
                            f"{tb[f'TB_STAGE_{tag}_SIZE']:#x} is under "
                            f"slot {slot_id}'s {exact:#x}")
 
+    # The blob's length is written down in three places that cannot
+    # reference each other either: the engine counts the words, the
+    # bridge needs the last one to know the host has finished reading,
+    # and the host is told a size in bytes. A disagreement is a machine
+    # that never starts again after a state is taken, or a blob the
+    # host stops reading one word early.
+    words = None
+    if a.engine:
+        src = Path(a.engine).read_text(encoding="utf-8")
+        parts = dict(re.findall(r"localparam int (W_\w+) = (\d+);", src))
+        order = ["W_HDR", "W_STATE", "W_REGS", "W_SRAM", "W_XRAM",
+                 "W_CELLS", "W_XPROG", "W_TCM", "W_END"]
+        missing = [k for k in order if k not in parts]
+        if missing:
+            bad.append(f"sst_engine is missing {', '.join(missing)}")
+        else:
+            words = sum(int(parts[k]) for k in order)
+    if words is not None and a.sst:
+        src = Path(a.sst).read_text(encoding="utf-8")
+        m = re.search(r"parameter int BLOB_WORDS = (\d+)", src)
+        if not m:
+            bad.append("pocket_sst has no BLOB_WORDS")
+        else:
+            want("bridge blob words", int(m.group(1)), words)
+    if words is not None and a.top:
+        src = Path(a.top).read_text(encoding="utf-8")
+        m = re.search(r"savestate_size = 32'd(\d+)", src)
+        m2 = re.search(r"savestate_maxloadsize = 32'd(\d+)", src)
+        if not m or not m2:
+            bad.append("core_top has no savestate size")
+        else:
+            want("host blob size", int(m.group(1)), words * 4)
+            want("host max load size", int(m2.group(1)), words * 4)
+        if words * 4 > mm["SST_BLOB_MAX"]:
+            bad.append(f"blob {words * 4:#x} is over the window's "
+                       f"{mm['SST_BLOB_MAX']:#x}")
+        m3 = re.search(r"savestate_addr = 32'h([0-9A-Fa-f_]+)", src)
+        if m3:
+            want("host blob address",
+                 int(m3.group(1).replace("_", ""), 16), mm["SST_BLOB_BRIDGE"])
+
     if bad:
         raise SystemExit("stage_map_gate: the staging map disagrees\n"
                          + "\n".join(f"  {line}" for line in bad))
 
+    blob = f", state {words * 4 // 1024} KB" if words else ""
     print(f"stage map ok: {len(ds)} slots, ROM ceiling {mm['ROM_MAX']:#010x}, "
           f"blob {mm['SST_BLOB_MAX'] // 1024} KB at "
-          f"{mm['SST_BLOB_BRIDGE']:#010x}")
+          f"{mm['SST_BLOB_BRIDGE']:#010x}{blob}")
     return 0
 
 

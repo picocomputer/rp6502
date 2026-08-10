@@ -398,14 +398,19 @@ end
     // so a load arrives as ordinary bridge writes into the staging store
     // and needs no path of its own.
     //
-    // supported stays low until the firmware behind this can do it. The
-    // ack does not: the bridge's command engine parks in the savestate
-    // state until it comes, and a core that claims support without
-    // answering takes every host command down with it.
-    wire            savestate_supported = 1'b0;
+    // The size is sst_engine's word count times four, and pocket_sst
+    // has the same number: reading the last word is what tells the
+    // machine the host has finished with it. Nothing checks the three
+    // against each other, so they are written here together.
+    //
+    // The ack is answered in fabric whatever this says, because the
+    // bridge's command engine parks in the savestate state until it
+    // comes and a core that claims support without answering takes
+    // every host command down with it.
+    wire            savestate_supported = 1'b1;
     wire    [31:0]  savestate_addr = 32'h03F0_0000;
-    wire    [31:0]  savestate_size = 32'd0;
-    wire    [31:0]  savestate_maxloadsize = 32'd0;
+    wire    [31:0]  savestate_size = 32'd324944;
+    wire    [31:0]  savestate_maxloadsize = 32'd324944;
 
     wire            savestate_start;
     wire            savestate_start_ack;

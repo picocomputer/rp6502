@@ -197,7 +197,10 @@ add_test(NAME stage_map
         ${RP6502_SRC}/gen/stage_map_gate.py
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/rtl/sw/mmio.h
-        --bench ${RP6502_ROOT}/tests/bench/tb_stage.h)
+        --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
+        --engine ${RP6502_SRC}/rtl/core/sst_engine.sv
+        --sst ${RP6502_HOST_POCKET}/pocket_sst.sv
+        --top ${RP6502_SRC}/host/pocket/core_top.sv)
 
 # The file round trip, generated the same way and shipped the same way.
 set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)

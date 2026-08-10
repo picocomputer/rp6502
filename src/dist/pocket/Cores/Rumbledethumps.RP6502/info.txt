@@ -7,3 +7,4 @@ WDC 65C02 CPU and 65C22 VIA
 PSG (8 voices) or OPL2 FM (9 voices)
 Dock keyboard, mouse, and four controllers
 International keyboard layouts in Core Settings
+Sleep and save states keep the machine running

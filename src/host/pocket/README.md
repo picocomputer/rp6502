@@ -82,35 +82,134 @@ array whatever it says.
 
 ## Suspend
 
-`core.json` says `"sleep_supported": false`, and that is a decision
-rather than an omission.
+Sleeping on openFPGA means producing a savestate. At sleep the host asks
+0x00A0 for a blob, powers down, and hands it back on wake.
 
-Sleeping on openFPGA means producing a savestate. At sleep the host
-asks 0x00A0 for a blob, powers down, and hands it back on wake; a core
-that cannot make one is powered down without it. This core cannot, so
-for a while it declined the blob and let the Pocket sleep anyway,
-waking into a cold boot on the theory that a machine with a power
-switch wakes to a reset.
+For a long time this core declined, and the README said why: **wake
+reconfigures the part.** SRAM, XRAM, TCM and every register come back
+out of the bitstream. That was established on hardware rather than
+assumed — a marker in a `.noinit` section the bitstream overwrites and
+`crt0` leaves alone, printed beside the microsecond counter at every
+boot; across two sleep cycles the marker was gone and the counter back
+at nothing, every time. So a sleep that silently restarted the user's
+program was worse than no sleep, and the core stopped claiming it.
 
-Hardware disagreed, and the owner said so plainly: the ROM restarted
-instead of continuing. So the machine was asked what survives. A
-marker was written into the firmware's own memory — a `.noinit`
-section the bitstream would overwrite and `crt0` leaves alone —
-alongside the microsecond counter, which anything at all resets, and
-the pair was printed at every boot. Across two sleep cycles the marker
-was gone and the counter back at nothing, every time.
+It claims it now. The blob is 317 KB and the machine makes it itself.
 
-**Wake reconfigures the part.** SRAM, XRAM, TCM and every register come
-back out of the bitstream. Nothing the firmware can do continues a
-program through that; only a genuine savestate could, and that means
-marshalling something like 200 KB of machine state through the bridge
-with 153 ALMs spare — a feature that costs another feature.
+### How
 
-Since a sleep that silently restarts the user's program is worse than
-a Pocket that simply does not offer sleep for this core, the core stops
-claiming it. The savestate inputs in `core_top.sv` stay driven and
-denying, so a host that asks anyway still gets a real answer rather
-than a floating one.
+The first attempt had the firmware marshal the state through the
+bridge, and the measurement killed it: a word every 3,124 ns against
+the host's floor of one access per 88 clocks of `clk_74a`, 1,185 ns.
+2.6 times short, and short on *every* word rather than in bursts, which
+is the one shape no amount of buffering absorbs.
+
+So the firmware is not in it at all. **The machine is stopped and the
+bus master is swapped.**
+
+`sst_engine.sv` sits beside the internal bus in `rp6502.sv` and becomes
+its second master. On a create it stops the 6502 at an instruction
+boundary, halts the soft CPU at its debug port, and then reads the
+machine's own memories through the machine's own windows — nothing
+marshals anything and nothing is copied twice. `pocket_sst.sv` holds one
+word ready ahead of a host that reads in order, which is a register in
+front of a sequential reader rather than a queue with a backlog to fall
+behind on.
+
+The freeze waits for `cpu65_sync`, `stp` or `wai`. Sync alone is not
+enough: neither WAI nor STP ever fetches again, so a gate that waited
+for an opcode fetch would never let go of a core sitting in one.
+
+Three things are not on that bus and travel their own way. The soft
+CPU's memory is reached by muxing its single TCM port while it is
+halted. The state that lives in flops rather than memory — the 6502's
+registers and interrupt pipelines, the VIA's timers and their pipelines,
+whether the 6502 is out of reset at all, and the rate it runs at — moves
+through small indexed ports. And the soft CPU's own registers come out
+through its debug interface a few instructions at a time: `csrw dmdata0,
+xN` followed by an `ebreak`, which is the only thing that says the
+instruction before it retired.
+
+The scanline program used to look impossible. It is four block RAMs
+with one writer and one reader each, and both readers belong to the
+render — reading it back appeared to mean duplicating twenty blocks of
+memory. It does not: the render is stopped, by this engine, before
+anything is read, so the bus side borrows the render's own ports. What
+the beam draws while a blob is being read is whatever the engine is
+reading. For a sleep that is a screen about to go dark.
+
+### Restoring
+
+A restore needs nothing from the host beyond the blob, because the host
+has already delivered it: it writes the blob in as ordinary bridge
+writes, which land in the staging store, and only then asks 0x00A4. So
+the engine reads it back out of the store through the machine's own
+window and writes it where each index says.
+
+It reads the whole thing twice. The first pass adds it up against the
+same rolling sum the create wrote into the trailer and writes nothing;
+a restore that got halfway and then found out would leave nothing to
+find out about. The sum is there for the failure the header cannot
+catch, since the host reads the blob out in whatever order it likes and
+a blob served out of order has all of its words present and in the
+wrong places. What does not add up is refused with the machine exactly
+as it was.
+
+**The soft CPU resumes; it does not boot.** Its registers go back in
+through the same debug port they came out of, the program counter
+travelling through `x31`, and then it is released at the instruction it
+was stopped in front of. There is no restore path in the firmware and no
+flag it reads at startup, because it never starts.
+
+What it does find is a bit saying it has been somewhere, and one job:
+put back the fabric no blob carries. The font store is rebuilt from the
+code page. The audio engines get their pointers back and their register
+blocks written over themselves, because an engine that learns only from
+writes has heard nothing about the block that arrived underneath it.
+Every open file is opened again, because a data slot's path is a binding
+the host forgets when the core is reconfigured. The clock is re-derived
+from the host's reading, which is also the only way the machine learns
+how long it was gone. And the loop's restage triggers are re-synced, or
+the host's fresh slot announcements read as the user picking a new
+program and the machine restages over the one it just restored.
+
+The 6502 is held stopped through all of that. Clearing the bit is what
+starts it, which is why clearing it is the last thing that happens.
+
+### What a sleep does not carry
+
+- The PSG's envelopes, phase and noise, and the OPL's internal
+  generators. The registers come back; what the engines made of them
+  starts again, which is a click on a held note.
+- Up to sixteen undrained console bytes. Word 16 of the regs window is
+  the console's outgoing byte and *reading it takes it off the queue*,
+  so a savestate that read it would eat a character every time one was
+  made. It is a hole in the blob instead.
+- One in-flight type-ahead byte at the instant of the freeze.
+- An LR/SC reservation open across the sleep fails its store
+  conditional, which the ISA permits.
+- The phi2 pulses that ticked during the freeze, from the 6502's point
+  of view.
+- Hazard3's three trigger CSRs, which are zero at reset and which this
+  firmware never touches.
+- A clock a program set for itself. The host's reading wins after a
+  sleep.
+
+### What only hardware can answer
+
+Whether the host ever reads the blob out of order. The word held ready
+ahead assumes sequential-with-repeats, which is what ships in agg23's
+NES core; a blob served any other way is caught by the trailer on the
+way back in rather than silently restored.
+
+Whether the host answers target commands while a load is in flight. If
+it does not, the file slots re-open as EIO.
+
+And the wake ordering itself — where the blob write falls relative to
+the slot streaming, and therefore whether the boot-time check that
+declines to start the ROM under an incoming restore ever fires early.
+That one reads straight off the device: the debug log carries every
+host command and its parameter, which is what `pocket_dbglog.sv` is for.
 
 ## The Core Settings menu
 
