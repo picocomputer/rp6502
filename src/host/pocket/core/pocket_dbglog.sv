@@ -116,6 +116,9 @@ module pocket_dbglog #(
             || wr_data[15:0] == 16'h00A4;
 
     localparam int CQ_LOG2 = 3;
+    /* Eight words. Left to itself the fitter gives 256 bits a whole
+     * block, which is one of twenty this design has left. */
+    (* ramstyle = "MLAB, no_rw_check" *)
     logic [31:0] cq[1 << CQ_LOG2];
     logic [CQ_LOG2-1:0] cq_w, cq_r;
     logic cq_empty, cq_full, cq_push;
