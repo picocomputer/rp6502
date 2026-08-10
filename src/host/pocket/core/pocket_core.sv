@@ -331,11 +331,6 @@ module pocket_core #(
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
         .sst_freeze(1'b0),
         .rp6502_sst_frozen(),
-        .sst_st_via(1'b0),
-        .sst_st_idx(3'd0),
-        .sst_st_we(1'b0),
-        .sst_st_wdata(32'd0),
-        .rp6502_sst_st_rdata(),
         .sst_tcm_sel(1'b0),
         .sst_tcm_addr(15'd0),
         .sst_tcm_we(1'b0),

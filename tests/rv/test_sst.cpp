@@ -40,6 +40,13 @@
 #define B_HDR 0u
 #define B_STATE (B_HDR + W_HDR)
 #define B_REGS (B_STATE + W_STATE)
+/* Inside the state page: the machine's own flops first, because whether
+ * the 6502 is out of reset decides whether jamming its registers means
+ * anything, then the 6502, the VIA, and the soft CPU's registers. */
+#define ST_MACH 0u
+#define ST_CPU 4u
+#define ST_VIA 9u
+#define ST_RV 16u
 #define B_SRAM (B_REGS + W_REGS)
 #define B_XRAM (B_SRAM + W_SRAM)
 #define B_CELLS (B_XRAM + W_XRAM)
@@ -142,7 +149,6 @@ static void power_on(void)
     dut->sst_dbg_instr = 0;
     dut->sst_dbg_instr_vld = 0;
     dut->sst_dbg_data0 = 0;
-    dut->sst_st_we = 0;
     dut->sst_tcm_sel = 0;
     dut->sst_tcm_we = 0;
     dut->sst_phi2_we = 0;
@@ -290,28 +296,28 @@ UTEST(sst, the_flops_are_in_there_too)
      * through the state port, which the engine is holding. */
     auto *r = dut->rootp;
     uint32_t w = 0;
-    ASSERT_TRUE(blob_word(B_STATE + 0, &w));
+    ASSERT_TRUE(blob_word(B_STATE + ST_CPU + 0, &w));
     ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__a
                   | ((uint32_t)r->rp6502__DOT__cpu__DOT__x << 8)
                   | ((uint32_t)r->rp6502__DOT__cpu__DOT__y << 16)
                   | ((uint32_t)r->rp6502__DOT__cpu__DOT__s << 24),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + 1, &w));
+    ASSERT_TRUE(blob_word(B_STATE + ST_CPU + 1, &w));
     ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__pc
                   | ((uint32_t)r->rp6502__DOT__cpu__DOT__p << 16)
                   | ((uint32_t)r->rp6502__DOT__cpu__DOT__ir << 24),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + 3, &w));
+    ASSERT_TRUE(blob_word(B_STATE + ST_CPU + 3, &w));
     ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__nmi_pip
                   | ((uint32_t)r->rp6502__DOT__cpu__DOT__irq_pip << 16),
               w);
 
     /* The VIA's timers, which nothing else can read at all. */
-    ASSERT_TRUE(blob_word(B_STATE + 5 + 2, &w));
+    ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 2, &w));
     ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t1_latch
                   | ((uint32_t)r->rp6502__DOT__via__DOT__t1_counter << 16),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + 5 + 4, &w));
+    ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 4, &w));
     ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t2_pip
                   | ((uint32_t)r->rp6502__DOT__via__DOT__t1_pip << 16),
               w);
@@ -335,9 +341,9 @@ UTEST(sst, the_soft_cpus_registers_are_in_there)
     ASSERT_TRUE(count > 2);
 
     uint32_t x5 = 0, x6 = 0, dpc = 0;
-    ASSERT_TRUE(blob_word(B_STATE + 12 + 5, &x5));
-    ASSERT_TRUE(blob_word(B_STATE + 12 + 6, &x6));
-    ASSERT_TRUE(blob_word(B_STATE + 12 + 0, &dpc));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 5, &x5));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 6, &x6));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 0, &dpc));
     /* The count is incremented and then stored, so at the instant the
      * machine stopped x5 is either the last value written or the one
      * about to be. x6 is the store pointer and only moves after a
@@ -384,15 +390,26 @@ UTEST(sst, a_load_puts_the_blob_back)
     for (int i = 0; i < 2000; i++)
         clk();
 
-    /* A blob whose XRAM section is recognisable, and whose every other
-     * word is what is already there so nothing else moves. */
+    /* Every window the blob writes through, each recognisably its own:
+     * the two byte windows, the word window the cells answer on, the
+     * soft CPU's memory, and the flops that are on no window at all. */
     g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
     for (uint32_t i = 0; i < W_TOTAL; i++)
         stage_word(i, 0);
     for (uint32_t i = 0; i < 8; i++)
+    {
+        stage_word(B_SRAM + i, 0x5A5A0000u + i);
         stage_word(B_XRAM + i, 0xC0DE0000u + i);
+        stage_word(B_CELLS + i, 0xCE110000u + i);
+        stage_word(B_TCM + i, 0x7C700000u + i);
+    }
+    /* The 6502 out of reset, then what it was holding. */
+    stage_word(B_STATE + ST_MACH + 0, 1);
+    stage_word(B_STATE + ST_CPU + 0, 0x11223344u);
+    stage_word(B_STATE + ST_CPU + 1, 0xA5B5C0DEu);
+    stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
 
-    /* Scribble over the destination first, so a load that did nothing
+    /* Scribble over the destinations first, so a load that did nothing
      * would be caught. */
     auto *r = dut->rootp;
     for (uint32_t i = 0; i < 8; i++)
@@ -401,7 +418,13 @@ UTEST(sst, a_load_puts_the_blob_back)
         r->rp6502__DOT__xram__DOT__mem1[i] = 0xEE;
         r->rp6502__DOT__xram__DOT__mem2[i] = 0xEE;
         r->rp6502__DOT__xram__DOT__mem3[i] = 0xEE;
+        r->rp6502__DOT__vid_mode0__DOT__cell0[i] = 0xEE;
+        r->rp6502__DOT__vid_mode0__DOT__cell1[i] = 0xEE;
+        r->rp6502__DOT__vid_mode0__DOT__cell2[i] = 0xEE;
+        r->rp6502__DOT__vid_mode0__DOT__cell3[i] = 0xEE;
     }
+    for (uint32_t i = 0; i < 32; i++)
+        r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i] = 0xEE;
 
     dut->sst_load = 1;
     dut->eval();
@@ -409,18 +432,101 @@ UTEST(sst, a_load_puts_the_blob_back)
     while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
         clk();
     ASSERT_TRUE((int)dut->rp6502_sst_load_done);
-    /* Both halves were stopped for it. */
+    /* The 6502 is held until the request is let go of, so that the soft
+     * CPU is the only thing moving while it finds its feet. */
     ASSERT_TRUE((int)dut->rp6502_sst_frozen);
-    ASSERT_TRUE((int)dut->rp6502_sst_dbg_halted);
 
     for (uint32_t i = 0; i < 8; i++)
+    {
         ASSERT_EQ(0xC0DE0000u + i, xram_word(i));
+        ASSERT_EQ(0x7C700000u + i, tcm_word(i));
+        /* The byte window takes the lowest address from the top of the
+         * word, which is the order the store hands it back in. */
+        ASSERT_EQ(0x5Au, r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4]);
+        ASSERT_EQ(0x5Au,
+                  r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 1]);
+        ASSERT_EQ(0x00u,
+                  r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 2]);
+        ASSERT_EQ(i, (uint32_t)r
+                         ->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 3]);
+        /* The cells answer as a word, so the lanes go back as they came. */
+        ASSERT_EQ(i, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell0[i]);
+        ASSERT_EQ(0x00u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell1[i]);
+        ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell2[i]);
+        ASSERT_EQ(0xCEu, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell3[i]);
+    }
+
+    /* The flops, jammed while the clock they belong to is stopped. */
+    ASSERT_EQ(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
+    ASSERT_EQ(0x33u, (uint32_t)r->rp6502__DOT__cpu__DOT__x);
+    ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__cpu__DOT__y);
+    ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__cpu__DOT__s);
+    ASSERT_EQ(0xC0DEu, (uint32_t)r->rp6502__DOT__cpu__DOT__pc);
+    ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__cpu__DOT__p);
+    ASSERT_EQ(0xA5u, (uint32_t)r->rp6502__DOT__cpu__DOT__ir);
+    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__via__DOT__t1_latch);
+    ASSERT_EQ(0xBEEFu, (uint32_t)r->rp6502__DOT__via__DOT__t1_counter);
 
     dut->sst_load = 0;
     dut->eval();
     for (int i = 0; i < 200; i++)
         clk();
     ASSERT_FALSE((int)dut->rp6502_sst_frozen);
+}
+
+/* The registers are the half of a restore that no memory carries. They
+ * go back in through the same debug port they came out of, and the only
+ * proof they landed is the soft CPU doing something with them: it is
+ * put down in front of a store instruction with a pointer and a value
+ * it never computed, and what it writes says whether it believed them.
+ *
+ * The blob's copy of the program's records is blank and the pointer is
+ * put where the program could never have reached, so a core that
+ * started over writes in one place and a core that resumed writes in
+ * the other, and neither can be mistaken for the other. */
+UTEST(sst, the_soft_cpus_registers_go_back_in)
+{
+    power_on();
+    for (int i = 0; i < 3000; i++)
+        clk();
+
+    /* The blob keeps the program, because a load overwrites the soft
+     * CPU's memory along with everything else and a core resumed into
+     * an erased one has nowhere to go. */
+    g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        stage_word(i, 0);
+    for (uint32_t i = 0; i < COUNTER.size(); i++)
+        stage_word(B_TCM + i, COUNTER[i]);
+
+    /* Stopped in front of `sw x5, 0(x6)` -- the third word of the loop
+     * -- holding a pointer and a value of our choosing. */
+    const uint32_t MARK = 0x11110000u;
+    const uint32_t PTR = 0x4000u;
+    stage_word(B_STATE + ST_RV + 0, 0x14u);
+    stage_word(B_STATE + ST_RV + 5, MARK);
+    stage_word(B_STATE + ST_RV + 6, PTR);
+
+    dut->sst_load = 1;
+    dut->eval();
+    long guard = 0;
+    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+        clk();
+    ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+
+    dut->sst_load = 0;
+    dut->eval();
+    for (int i = 0; i < 6000; i++)
+        clk();
+
+    /* It took the pointer and the value, and then went on around the
+     * loop from there. */
+    ASSERT_EQ(MARK, tcm_word(PTR / 4));
+    ASSERT_EQ(MARK + 1, tcm_word(PTR / 4 + 1));
+    /* And it did not start over: the two words the program writes on
+     * its way into the loop are still as the blob left them. */
+    ASSERT_EQ(0u, tcm_word(255));
+    ASSERT_EQ(0u, tcm_word(256));
 }
 
 UTEST_STATE();

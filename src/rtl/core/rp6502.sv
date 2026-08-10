@@ -56,16 +56,11 @@ module rp6502
      * neither fetches, so a gate that waited only for an opcode fetch
      * would never let go of a core sitting in one.
      *
-     * While frozen, the state that is in flops rather than memory reads
-     * and writes a word at a time. Everything else the machine is can
-     * be reached through its windows by whoever is holding it. */
+     * While frozen, the state that is in flops rather than memory is
+     * the engine's to read and write a word at a time. Everything else
+     * the machine is can be reached through its windows. */
     input logic sst_freeze,
     output logic rp6502_sst_frozen,
-    input logic sst_st_via,
-    input logic [2:0] sst_st_idx,
-    input logic sst_st_we,
-    input logic [31:0] sst_st_wdata,
-    output logic [31:0] rp6502_sst_st_rdata,
     /* The soft CPU's own memory, which is not on the machine's bus. */
     input logic sst_tcm_sel,
     input logic [14:0] sst_tcm_addr,
@@ -207,15 +202,20 @@ module rp6502
     logic resb /*verilator public_flat_rw*/;
     always_comb rp6502_cpu_run = resb;
     logic cpu_stp, cpu_wai;
-    logic [31:0] cpu65_st_rdata, via_st_rdata;
-    /* The engine asks while it holds the machine; anyone outside asks
-     * when it does not. */
-    logic st_via_any;
-    logic [2:0] st_idx_any;
+    /* Three sets of flops share one indexed port: the machine's own,
+     * the 6502's, and the VIA's. */
+    localparam logic [1:0] SEL_MACH = 2'd0;
+    localparam logic [1:0] SEL_CPU = 2'd1;
+    localparam logic [1:0] SEL_VIA = 2'd2;
+
+    logic [31:0] cpu65_st_rdata, via_st_rdata, mach_st_rdata, st_rdata;
     always_comb begin
-        st_via_any = eng_own ? eng_st_via : sst_st_via;
-        st_idx_any = eng_own ? eng_st_idx : sst_st_idx;
-        rp6502_sst_st_rdata = st_via_any ? via_st_rdata : cpu65_st_rdata;
+        mach_st_rdata = {31'd0, resb};
+        case (eng_st_sel)
+            SEL_MACH: st_rdata = mach_st_rdata;
+            SEL_CPU:  st_rdata = cpu65_st_rdata;
+            default:  st_rdata = via_st_rdata;
+        endcase
     end
 
     cpu65 cpu (
@@ -233,20 +233,23 @@ module rp6502
         .cpu65_sync(cpu_sync),
         .cpu65_stp(cpu_stp),
         .cpu65_wai(cpu_wai),
-        .st_idx(st_idx_any),
+        .st_idx(eng_st_idx),
         .cpu65_st_rdata(cpu65_st_rdata),
-        .st_we(sst_st_we && !sst_st_via),
-        .st_wdata(sst_st_wdata),
+        .st_we(eng_st_we && eng_st_sel == SEL_CPU),
+        .st_wdata(eng_st_wdata),
         .cpu65_next_addr(cpu_next_addr),
         .cpu65_next_data(cpu_next_data),
         .cpu65_next_we(cpu_next_we)
     );
 
-    logic eng_tcm_sel, eng_st_via, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
+    logic eng_tcm_sel, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
+    logic [1:0] eng_st_sel;
     logic [31:0] eng_tcm_wdata;
     logic [14:0] eng_tcm_addr;
     logic [2:0] eng_st_idx;
-    logic [31:0] eng_dbg_instr;
+    logic [31:0] eng_dbg_instr, eng_dbg_data0;
+    logic eng_dbg_resume, eng_st_we;
+    logic [31:0] eng_st_wdata;
 
     sst_engine engine (
         .clk_sys(clk_sys),
@@ -277,9 +280,13 @@ module rp6502
         .sst_engine_tcm_we(eng_tcm_we),
         .sst_engine_tcm_wdata(eng_tcm_wdata),
         .tcm_rdata(rp6502_sst_tcm_rdata),
-        .sst_engine_st_via(eng_st_via),
+        .sst_engine_st_sel(eng_st_sel),
         .sst_engine_st_idx(eng_st_idx),
-        .st_rdata(rp6502_sst_st_rdata),
+        .st_rdata(st_rdata),
+        .sst_engine_st_we(eng_st_we),
+        .sst_engine_st_wdata(eng_st_wdata),
+        .sst_engine_dbg_data0(eng_dbg_data0),
+        .sst_engine_dbg_resume(eng_dbg_resume),
         .sst_engine_dbg_instr(eng_dbg_instr),
         .sst_engine_dbg_instr_vld(eng_dbg_vld),
         .dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
@@ -353,10 +360,10 @@ module rp6502
         .data_i(cpu_dout),
         .via_data(via_data),
         .via_irq(via_irq),
-        .st_idx(st_idx_any),
+        .st_idx(eng_st_idx),
         .via_st_rdata(via_st_rdata),
-        .st_we(sst_st_we && sst_st_via),
-        .st_wdata(sst_st_wdata)
+        .st_we(eng_st_we && eng_st_sel == SEL_VIA),
+        .st_wdata(eng_st_wdata)
     );
 
     /* The soft CPU's clock is half this one. Fixed here rather than in
@@ -461,9 +468,9 @@ module rp6502
         .sst_time_hold(frz_held),
         .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
         .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
-        .sst_dbg_resume(sst_dbg_resume),
+        .sst_dbg_resume(sst_dbg_resume || eng_dbg_resume),
         .rv_soc_dbg_halted(rp6502_sst_dbg_halted),
-        .sst_dbg_data0(sst_dbg_data0),
+        .sst_dbg_data0(eng_own ? eng_dbg_data0 : sst_dbg_data0),
         .rv_soc_dbg_data0(rp6502_sst_dbg_data0),
         .rv_soc_dbg_data0_wen(rp6502_sst_dbg_data0_wen),
         .sst_dbg_instr(eng_own ? eng_dbg_instr : sst_dbg_instr),
@@ -577,10 +584,18 @@ module rp6502
     end
 
     /* Held at power-on and the firmware's from then on. The platform's
-     * reset does not reach it: cpu_init drives it low first. */
+     * reset does not reach it: cpu_init drives it low first.
+     *
+     * A restore puts it back before anything else, because it is what
+     * holds the 6502 and the VIA in reset and a register jammed into a
+     * part in reset is gone by the next clock. Waking is a reconfigure,
+     * so it always comes up low and the blob is the only thing that
+     * knows any different. */
     initial resb = 1'b0;
     always_ff @(posedge clk_sys)
-        if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
+        if (eng_st_we && eng_st_sel == SEL_MACH && eng_st_idx == 3'd0)
+            resb <= eng_st_wdata[0];
+        else if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
             resb <= bus_wbyte[0];
 
     /* The byte-wide windows put their byte on every lane, so the master's

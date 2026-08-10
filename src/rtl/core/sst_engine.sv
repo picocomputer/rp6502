@@ -84,12 +84,18 @@ module sst_engine
     output logic [31:0] sst_engine_tcm_wdata,
     input logic [31:0] tcm_rdata,
 
-    /* The flops. */
-    output logic sst_engine_st_via,
+    /* The flops: the machine's own, the 6502's and the VIA's. */
+    output logic [1:0] sst_engine_st_sel,
     output logic [2:0] sst_engine_st_idx,
     input logic [31:0] st_rdata,
+    output logic sst_engine_st_we,
+    output logic [31:0] sst_engine_st_wdata,
 
     /* The soft CPU's registers, through its debug port. */
+    /* What the core reads back out of dmdata0 when a register is put
+     * in, and the release that starts it running again. */
+    output logic [31:0] sst_engine_dbg_data0,
+    output logic sst_engine_dbg_resume,
     output logic [31:0] sst_engine_dbg_instr,
     output logic sst_engine_dbg_instr_vld,
     input logic dbg_instr_rdy,
@@ -132,6 +138,18 @@ module sst_engine
      * window onto the staging store. */
     localparam logic [31:0] A_STAGE = 32'h63F0_0000;
 
+    /* The state page, in the order a restore has to put it back. What
+     * the machine is -- whether the 6502 is out of reset at all -- comes
+     * before what it holds, because registers jammed into a core that is
+     * still in reset are overwritten by the reset the next clock, so the
+     * machine's own words are the ones at zero. */
+    localparam int ST_CPU = 4;
+    localparam int ST_VIA = 9;
+    localparam int ST_RV = 16;
+    localparam logic [1:0] SEL_MACH = 2'd0;
+    localparam logic [1:0] SEL_CPU = 2'd1;
+    localparam logic [1:0] SEL_VIA = 2'd2;
+
     /* The soft CPU's state, once it has been asked for it: thirty-one
      * registers and the program counter it will start from. */
     localparam int RV_WORDS = 32;
@@ -146,6 +164,16 @@ module sst_engine
      * register lands on the debug port and nothing is read back. */
     function automatic logic [31:0] i_reg_out(input logic [4:0] n);
         return {CSR_DMDATA0, n, 3'b001, 5'd0, 7'b1110011};
+    endfunction
+    /* csrr xN, dmdata0: what the engine put on the port lands in the
+     * register. csrrs with x0 for a source writes nothing back. */
+    function automatic logic [31:0] i_reg_in(input logic [4:0] n);
+        return {CSR_DMDATA0, 5'd0, 3'b010, n, 7'b1110011};
+    endfunction
+    /* csrw csr, xN, which is csrrw with x0 for a destination. */
+    function automatic logic [31:0] i_csr_write(input logic [11:0] csr,
+                                                input logic [4:0] n);
+        return {csr, n, 3'b001, 5'd0, 7'b1110011};
     endfunction
     /* csrr xN, csr, which is csrrs with x0 for a source: the CSR is
      * read and not written. */
@@ -173,7 +201,15 @@ module sst_engine
         S_LD_FETCH_WAIT,
         S_LD_PUT,
         S_LD_PUT_WAIT,
-        S_LD_DONE
+        S_LD_PUT_DONE,
+        S_LD_DONE,
+        S_LD_ACK,
+        S_INJ_ARM,
+        S_INJ_ISSUE,
+        S_INJ_TAKE,
+        S_INJ_BRK_ARM,
+        S_INJ_BRK,
+        S_INJ_WAIT
     } state_t;
     state_t state;
 
@@ -208,8 +244,9 @@ module sst_engine
     logic ready_q, rvalid_q;
     always_comb begin
         sst_engine_freeze = state != S_IDLE;
-        sst_engine_dbg_halt = state != S_IDLE;
-        sst_engine_load_done = state == S_LD_DONE;
+        sst_engine_dbg_halt = state != S_IDLE && state != S_LD_DONE
+            && state != S_LD_ACK;
+        sst_engine_load_done = state == S_LD_DONE || state == S_LD_ACK;
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
         sst_engine_rvalid = rvalid_q;
@@ -217,7 +254,13 @@ module sst_engine
         sst_engine_dbg_instr = spill_instr;
         sst_engine_dbg_instr_vld = state == S_SPILL_ARM
             || state == S_SPILL_ISSUE || state == S_SPILL_BRK_ARM
-            || state == S_SPILL_BRK;
+            || state == S_SPILL_BRK || state == S_INJ_ARM
+            || state == S_INJ_ISSUE || state == S_INJ_BRK_ARM
+            || state == S_INJ_BRK;
+        /* The value stands on the port for as long as the instruction
+         * that reads it is in flight. */
+        sst_engine_dbg_data0 = inj_val;
+        sst_engine_dbg_resume = state == S_LD_DONE;
     end
 
     /* Which window answers this word, and where in it. Byte windows
@@ -249,8 +292,8 @@ module sst_engine
 
     logic on_bus, on_tcm;
     always_comb begin
-        on_tcm = hold_idx >= 18'(B_TCM) && hold_idx < 18'(B_END);
-        on_bus = dec_idx >= 18'(B_REGS) && hold_idx < 18'(B_TCM);
+        on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
+        on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_TCM);
         sst_engine_tcm_sel = on_tcm && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
@@ -265,8 +308,10 @@ module sst_engine
         /* A fetch reads the store; a put writes wherever the index
          * says. Byte windows take one byte per access either way. */
         sst_engine_bus_we = state == S_LD_PUT;
-        sst_engine_bus_wstrb = state == S_LD_PUT
-            ? (bytewise ? 4'b1111 : 4'b1111) : 4'b0000;
+        /* The byte windows take the addressed lane off whichever byte
+         * the master offers, so a write puts the same byte on all four
+         * and the window picks it up; a word window takes the word. */
+        sst_engine_bus_wstrb = state == S_LD_PUT ? 4'b1111 : 4'b0000;
         sst_engine_bus_wdata = bytewise
             ? {4{ld_word[31 - {byte_n, 3'd0} -: 8]}} : ld_word;
         sst_engine_bus_pend = (on_bus && state == S_READ)
@@ -275,15 +320,31 @@ module sst_engine
             || state == S_LD_FETCH || (on_bus && state == S_LD_PUT));
     end
 
-    /* The flops, which answer combinationally and need no access. */
+    /* The flops, which answer combinationally and need no access. Five
+     * words of 6502 and seven of VIA, and the soft CPU's registers after
+     * them -- those come from and go back through the debug port, so
+     * they only pass through here. */
     logic [31:0] state_word;
+    logic on_flops;
+    logic [17:0] st_off;
     always_comb begin
-        sst_engine_st_via = hold_idx >= 18'(B_STATE + 5);
-        sst_engine_st_idx = sst_engine_st_via
-            ? 3'(hold_idx - 18'(B_STATE + 5)) : 3'(hold_idx - 18'(B_STATE));
+        st_off = dec_idx - 18'(B_STATE);
+        on_flops = dec_idx >= 18'(B_STATE) && dec_idx < 18'(B_STATE + ST_RV);
+        if (st_off >= 18'(ST_VIA)) begin
+            sst_engine_st_sel = SEL_VIA;
+            sst_engine_st_idx = 3'(st_off - 18'(ST_VIA));
+        end else if (st_off >= 18'(ST_CPU)) begin
+            sst_engine_st_sel = SEL_CPU;
+            sst_engine_st_idx = 3'(st_off - 18'(ST_CPU));
+        end else begin
+            sst_engine_st_sel = SEL_MACH;
+            sst_engine_st_idx = 3'(st_off);
+        end
+        sst_engine_st_we = on_flops && state == S_LD_PUT;
+        sst_engine_st_wdata = ld_word;
         state_word = st_rdata;
-        if (hold_idx >= 18'(B_STATE + 12))
-            state_word = rvreg[5'(hold_idx - 18'(B_STATE + 12))];
+        if (hold_idx >= 18'(B_STATE + ST_RV))
+            state_word = rvreg[5'(hold_idx - 18'(B_STATE + ST_RV))];
     end
 
     logic [31:0] hdr_word;
@@ -321,6 +382,12 @@ module sst_engine
     /* A load walks the blob in order rather than being asked for words:
      * four bytes out of the store, one word into whatever the index
      * says, and on to the next. */
+    /* The inject walks the program counter first and the registers
+     * after, because the counter needs one to travel through and
+     * nothing may disturb a register once it is set. */
+    logic [31:0] inj_val;
+    logic inj_dpc;
+    logic [1:0] inj_step;
     logic [17:0] ld_idx;
     logic [31:0] ld_word;
     logic ld_writing;
@@ -363,6 +430,9 @@ module sst_engine
             ld_idx <= '0;
             ld_word <= '0;
             ld_writing <= 1'b0;
+            inj_val <= '0;
+            inj_dpc <= 1'b0;
+            inj_step <= '0;
             idx_t1 <= 1'b0;
             idx_t2 <= 1'b0;
             idx_t3 <= 1'b0;
@@ -457,7 +527,7 @@ module sst_engine
                 S_LD_FREEZE: if (frozen) state <= S_LD_HALT;
                 S_LD_HALT:
                 if (dbg_halted) begin
-                    ld_idx <= 18'(B_REGS);
+                    ld_idx <= 18'(B_STATE);
                     byte_n <= '0;
                     acc <= '0;
                     ld_writing <= 1'b1;
@@ -477,9 +547,17 @@ module sst_engine
                     end
                 end
 
-                S_LD_PUT:
-                if (on_tcm) state <= S_LD_PUT_WAIT;
-                else if (bus_rdy) state <= S_LD_PUT_WAIT;
+                S_LD_PUT: begin
+                    /* The soft CPU's registers are not memory: they are
+                     * kept here until the walk is finished and then put
+                     * back through the debug port. */
+                    if (ld_idx >= 18'(B_STATE + ST_RV)
+                        && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS))
+                        rvreg[5'(ld_idx - 18'(B_STATE + ST_RV))] <= ld_word;
+                    if (on_tcm) state <= S_LD_PUT_WAIT;
+                    else if (bus_rdy) state <= S_LD_PUT_WAIT;
+                    else if (!on_bus) state <= S_LD_PUT_WAIT;
+                end
                 S_LD_PUT_WAIT:
                 if (!on_tcm && bytewise && byte_n != 2'd3) begin
                     byte_n <= byte_n + 2'd1;
@@ -488,18 +566,74 @@ module sst_engine
                     byte_n <= '0;
                     if (ld_idx == 18'(B_END - 1)) begin
                         ld_writing <= 1'b0;
-                        state <= S_LD_DONE;
+                        state <= S_LD_PUT_DONE;
                     end else begin
                         ld_idx <= ld_idx + 18'd1;
                         state <= S_LD_FETCH;
                     end
                 end
 
+                /* Everything is in memory; what is left is the soft
+                 * CPU's own registers, which are not. The counter goes
+                 * first through x31, then x1 upward, so the register it
+                 * borrowed is put right along with the rest. */
+                S_LD_PUT_DONE: begin
+                    inj_dpc <= 1'b1;
+                    inj_step <= 2'd0;
+                    inj_val <= rvreg[0];
+                    rv_n <= 5'd31;
+                    spill_instr <= i_reg_in(5'd31);
+                    state <= S_INJ_ARM;
+                end
+
+                S_INJ_ARM: if (dbg_instr_rdy) state <= S_INJ_ISSUE;
+                S_INJ_ISSUE: if (!dbg_instr_rdy) state <= S_INJ_TAKE;
+                S_INJ_TAKE: begin
+                    if (inj_dpc && inj_step == 2'd0) begin
+                        inj_step <= 2'd1;
+                        spill_instr <= i_csr_write(CSR_DPC, 5'd31);
+                        state <= S_INJ_ARM;
+                    end else begin
+                        spill_instr <= I_EBREAK;
+                        state <= S_INJ_BRK_ARM;
+                    end
+                end
+                S_INJ_BRK_ARM: if (dbg_instr_rdy) state <= S_INJ_BRK;
+                S_INJ_BRK: if (!dbg_instr_rdy) state <= S_INJ_WAIT;
+                S_INJ_WAIT:
+                if (dbg_ebreak) begin
+                    if (inj_dpc) begin
+                        inj_dpc <= 1'b0;
+                        rv_n <= 5'd1;
+                        inj_val <= rvreg[1];
+                        spill_instr <= i_reg_in(5'd1);
+                        state <= S_INJ_ARM;
+                    end else if (rv_n == 5'd31) begin
+                        state <= S_LD_DONE;
+                    end else begin
+                        rv_n <= rv_n + 5'd1;
+                        inj_val <= rvreg[5'(rv_n + 5'd1)];
+                        spill_instr <= i_reg_in(rv_n + 5'd1);
+                        state <= S_INJ_ARM;
+                    end
+                end
+
+                /* Released, and held released until the core is seen
+                 * to be running. The soft CPU's clock is half this one
+                 * and the request that ends the load is cleared by the
+                 * firmware on it, so a resume that let go on the
+                 * request would be asking the core to answer before it
+                 * has had a clock edge to hear the question in. */
+                S_LD_DONE: if (!dbg_halted) state <= S_LD_ACK;
+
                 /* Leaves on the same signal it arrived on. Waiting on
                  * the raw level instead lets go two clocks before the
                  * synchronised copy does, and idle starts the load
-                 * again on the stale one. */
-                S_LD_DONE: if (!load_req) state <= S_IDLE;
+                 * again on the stale one. The 6502 stays stopped for
+                 * all of it: the firmware has fabric to put back that
+                 * no blob carries, and it does that before the machine
+                 * it belongs to takes another cycle. */
+                S_LD_ACK: if (!load_req) state <= S_IDLE;
 
                 S_READY: begin
                     if (!save_req) state <= S_IDLE;
