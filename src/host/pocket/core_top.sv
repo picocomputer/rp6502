@@ -329,13 +329,18 @@ assign vpll_feed = 1'bZ;
 // for bridge read data, we have to mux it
 // add your own devices here
 //
-// 0x0xxxxxxx is the staging store, which the host only ever writes; the
-// window at 0x2xxxxxxx is the file bridge's outbound buffer, and the one
-// thing here the host reads out of the machine.
+// 0x0xxxxxxx is the staging store, which the host only writes -- except
+// the savestate blob near the top of it, which is where it reads the
+// machine back out. The window at 0x2xxxxxxx is the file bridge's
+// outbound buffer. Both arrive through pocket_core, which picks between
+// them on the blob's exact window rather than the megabyte around it.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
+    end
+    32'h03Fxxxxx: begin
+        bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
         bridge_rd_data <= file_bridge_rd_data;

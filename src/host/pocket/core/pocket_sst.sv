@@ -48,7 +48,20 @@ module pocket_sst #(
     input logic clk_74a,
     input logic arst_n,
     input logic bridge_wr,
+    input logic bridge_rd,
     input logic [31:0] bridge_addr,
+    output logic [31:0] pocket_sst_rd_data,
+    output logic pocket_sst_rd_sel,
+
+    /* The engine, on the machine's clock. It is asked for one word at a
+     * time and holds it until a different one is asked for, so the
+     * index goes across as a level and the answer comes back as one. */
+    output logic pocket_sst_save,
+    input logic sst_ready,
+    output logic [17:0] pocket_sst_rd_idx,
+    output logic pocket_sst_rd_req,
+    input logic [31:0] sst_rdata,
+    input logic sst_rvalid,
 
     /* A level the core edge-detects, held until acknowledged. */
     input logic savestate_start,
@@ -76,10 +89,41 @@ module pocket_sst #(
 
     /* --- The host's side. --- */
 
+    /* Where in the blob the host is reading, in words. */
+    logic in_window, rd_edge, dup;
+    logic [17:0] rd_idx;
+    logic bridge_rd_q, have_last;
+    logic [17:0] last_idx;
+    logic [31:0] hold;
+
+    /* One word fetched ahead. The host cannot ask faster than every
+     * eighty-eight clocks and the engine answers in a handful, so the
+     * word for the next address is already standing by the time it is
+     * wanted -- a register in front of a reader that walks in order,
+     * not a queue with a backlog to fall behind on. */
+    logic [17:0] want;
+    logic [31:0] pf_data;
+    logic pf_valid, pf_seen_low, underrun;
+    (* preserve *) logic rvalid_s1, rvalid_s2;
+    (* preserve *) logic ready_s1, ready_s2;
+
     logic blob_hit;
-    always_comb
-        blob_hit = bridge_wr && bridge_addr[31:20] == BLOB_BASE[31:20]
+    always_comb begin
+        in_window = bridge_addr[31:20] == BLOB_BASE[31:20]
             && bridge_addr[19:0] < BLOB_WINDOW[19:0];
+        blob_hit = bridge_wr && in_window;
+        rd_idx = bridge_addr[19:2];
+        rd_edge = bridge_rd && !bridge_rd_q && in_window;
+        dup = have_last && rd_idx == last_idx;
+        pocket_sst_rd_data = hold;
+        pocket_sst_rd_sel = in_window;
+        /* The machine is held for as long as a blob is being made, and
+         * the index stands still while the engine answers it -- the
+         * same held-level crossing the file bridge's parameters use. */
+        pocket_sst_save = start_pend;
+        pocket_sst_rd_idx = want;
+        pocket_sst_rd_req = start_pend;
+    end
 
     logic blob_seen;
     logic start_q, load_q, start_pend, load_pend;
@@ -106,6 +150,19 @@ module pocket_sst #(
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             blob_seen <= 1'b0;
+            bridge_rd_q <= 1'b0;
+            have_last <= 1'b0;
+            last_idx <= '0;
+            hold <= '0;
+            want <= '0;
+            pf_data <= '0;
+            pf_valid <= 1'b0;
+            pf_seen_low <= 1'b0;
+            underrun <= 1'b0;
+            rvalid_s1 <= 1'b0;
+            rvalid_s2 <= 1'b0;
+            ready_s1 <= 1'b0;
+            ready_s2 <= 1'b0;
             start_q <= 1'b0;
             load_q <= 1'b0;
             start_pend <= 1'b0;
@@ -119,6 +176,30 @@ module pocket_sst #(
         end else begin
             start_q <= savestate_start;
             load_q <= savestate_load;
+            bridge_rd_q <= bridge_rd;
+            rvalid_s1 <= sst_rvalid;
+            rvalid_s2 <= rvalid_s1;
+            ready_s1 <= sst_ready;
+            ready_s2 <= ready_s1;
+
+            /* The answer to the last index is still standing while the
+             * engine notices a new one, so it is believed only after it
+             * has gone away once. */
+            if (!rvalid_s2) pf_seen_low <= 1'b1;
+            else if (pf_seen_low && !pf_valid) begin
+                pf_data <= sst_rdata;
+                pf_valid <= 1'b1;
+            end
+
+            if (rd_edge && !dup) begin
+                last_idx <= rd_idx;
+                have_last <= 1'b1;
+                if (pf_valid && want == rd_idx) hold <= pf_data;
+                else if (ready_s2) underrun <= 1'b1;
+                want <= rd_idx + 18'd1;
+                pf_valid <= 1'b0;
+                pf_seen_low <= 1'b0;
+            end
 
             /* Sticky for the life of the core: at boot it is the whole
              * question of whether this is a wake or an ordinary load,
@@ -129,6 +210,12 @@ module pocket_sst #(
                 start_pend <= 1'b1;
                 result <= RES_NONE;
                 start_t <= !start_t;
+                /* A new blob starts at its first word. */
+                want <= 18'd0;
+                pf_valid <= 1'b0;
+                pf_seen_low <= 1'b0;
+                have_last <= 1'b0;
+                underrun <= 1'b0;
             end
             if (savestate_load && !load_q) begin
                 load_pend <= 1'b1;
@@ -155,6 +242,7 @@ module pocket_sst #(
     (* preserve *) logic start_s1, start_s2, start_s3;
     (* preserve *) logic load_s1, load_s2, load_s3;
     (* preserve *) logic seen_s1, seen_s2;
+    (* preserve *) logic under_s1, under_s2;
 
     initial begin
         pocket_sst_rdata = '0;
@@ -170,6 +258,8 @@ module pocket_sst #(
         load_s3 = 1'b0;
         seen_s1 = 1'b0;
         seen_s2 = 1'b0;
+        under_s1 = 1'b0;
+        under_s2 = 1'b0;
     end
 
     always_ff @(posedge clk_sys) begin
@@ -181,6 +271,8 @@ module pocket_sst #(
         load_s3 <= load_s2;
         seen_s1 <= blob_seen;
         seen_s2 <= seen_s1;
+        under_s1 <= underrun;
+        under_s2 <= under_s1;
 
         if (stb && we)
             case (addr[3:2])
@@ -203,7 +295,7 @@ module pocket_sst #(
 
         if (stb)
             pocket_sst_rdata <= addr[3:2] == REG_CTL
-                ? {29'd0, seen_s2, load_req, start_req}
+                ? {28'd0, under_s2, seen_s2, load_req, start_req}
                 : 32'd0;
     end
 

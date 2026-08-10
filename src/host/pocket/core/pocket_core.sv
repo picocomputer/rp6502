@@ -321,8 +321,12 @@ module pocket_core #(
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
-    /* Nothing holds the machine still yet, so it is never asked to
-     * stop and its state port is never walked. */
+    /* The savestate engine holds the machine; nothing outside walks
+     * its state port directly. */
+    logic sst_save, sst_ready, sst_rd_req, sst_rd_sel, sst_word_valid;
+    logic [17:0] sst_rd_idx;
+    logic [31:0] sst_word, sst_rd_data;
+
     /* verilator lint_off PINCONNECTEMPTY */
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
         .sst_freeze(1'b0),
@@ -349,12 +353,12 @@ module pocket_core #(
         .rp6502_sst_dbg_instr_rdy(),
         .rp6502_sst_dbg_ebreak(),
         .rp6502_sst_dbg_fault(),
-        .sst_save(1'b0),
-        .rp6502_sst_ready(),
-        .sst_rd_idx(18'd0),
-        .sst_rd_req(1'b0),
-        .rp6502_sst_rdata(),
-        .rp6502_sst_rvalid(),
+        .sst_save(sst_save),
+        .rp6502_sst_ready(sst_ready),
+        .sst_rd_idx(sst_rd_idx),
+        .sst_rd_req(sst_rd_req),
+        .rp6502_sst_rdata(sst_word),
+        .rp6502_sst_rvalid(sst_word_valid),
         .sst_phi2_we(1'b0),
         .sst_phi2_wdata(16'd0),
         .clk_sys(clk_sys),
@@ -427,7 +431,7 @@ module pocket_core #(
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
         .bridge_rd(bridge_rd),
-        .pocket_file_rd_data(pocket_core_bridge_rd_data),
+        .pocket_file_rd_data(file_rd_data),
         .pocket_file_param_struct(pocket_core_param_struct),
         .pocket_file_resp_struct(pocket_core_resp_struct),
         .pocket_file_dt_req(file_dt_req),
@@ -460,7 +464,16 @@ module pocket_core #(
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_wr(bridge_wr),
+        .bridge_rd(bridge_rd),
         .bridge_addr(bridge_addr),
+        .pocket_sst_rd_data(sst_rd_data),
+        .pocket_sst_rd_sel(sst_rd_sel),
+        .pocket_sst_save(sst_save),
+        .sst_ready(sst_ready),
+        .pocket_sst_rd_idx(sst_rd_idx),
+        .pocket_sst_rd_req(sst_rd_req),
+        .sst_rdata(sst_word),
+        .sst_rvalid(sst_word_valid),
         .savestate_start(savestate_start),
         .pocket_sst_start_ack(pocket_core_savestate_start_ack),
         .pocket_sst_start_busy(pocket_core_savestate_start_busy),
@@ -472,6 +485,12 @@ module pocket_core #(
         .pocket_sst_load_ok(pocket_core_savestate_load_ok),
         .pocket_sst_load_err(pocket_core_savestate_load_err)
     );
+
+    /* Two things answer a bridge read, and the blob's window is decoded
+     * exactly rather than by the megabyte around it. */
+    logic [31:0] file_rd_data;
+    always_comb
+        pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
 
     pocket_video video (
         .clk_sys(clk_sys),
