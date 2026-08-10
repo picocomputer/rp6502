@@ -201,6 +201,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND python3 ${RP6502_SRC}/gen/rv_tcm_gen.py
             ${SW_BIN} ${POCKET_DIR}/sw ${TCM_WORDS}
         COMMAND ${QUARTUS_MAP} rp6502
+        # A design that cannot fit says so in the map's register count;
+        # the fitter only says it half an hour slower. This has to run
+        # between the two, or it is decoration.
+        COMMAND python3 ${RP6502_SRC}/gen/map_gate.py
+            ${POCKET_DIR}/output_files/rp6502.map.rpt
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
         # The worst paths by name, kept beside the signoff numbers: a
@@ -230,6 +235,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         DEPENDS ${BS_SOURCES} sw_bin
             ${RP6502_SRC}/gen/rv_tcm_gen.py
             ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/gen/map_gate.py
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Fitting the Pocket core"
