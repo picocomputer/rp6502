@@ -114,6 +114,9 @@ module sst_engine
     localparam int W_SRAM = 16384;
     localparam int W_XRAM = 16384;
     localparam int W_CELLS = 15360;
+    /* The scanline program: two thousand entries of four words, which
+     * the render reads and nothing else could until now. */
+    localparam int W_XPROG = 8192;
     localparam int W_TCM = 24576;
     localparam int W_END = 4;
 
@@ -123,7 +126,8 @@ module sst_engine
     localparam int B_SRAM = B_REGS + W_REGS;
     localparam int B_XRAM = B_SRAM + W_SRAM;
     localparam int B_CELLS = B_XRAM + W_XRAM;
-    localparam int B_TCM = B_CELLS + W_CELLS;
+    localparam int B_XPROG = B_CELLS + W_CELLS;
+    localparam int B_TCM = B_XPROG + W_XPROG;
     localparam int B_END = B_TCM + W_TCM;
     localparam int W_TOTAL = B_END + W_END;
 
@@ -136,6 +140,7 @@ module sst_engine
     localparam logic [31:0] A_SRAM = 32'h1000_0000;
     localparam logic [31:0] A_XRAM = 32'h3000_0000;
     localparam logic [31:0] A_CELLS = 32'h5000_0000;
+    localparam logic [31:0] A_XPROG = 32'h5002_0000;
     /* The blob, where the host left it, seen through the machine's
      * window onto the staging store. */
     localparam logic [31:0] A_STAGE = 32'h63F0_0000;
@@ -285,7 +290,10 @@ module sst_engine
         off = '0;
         dec_idx = ld_writing ? ld_idx : hold_idx;
         if (dec_idx >= 18'(B_TCM)) off = dec_idx - 18'(B_TCM);
-        else if (dec_idx >= 18'(B_CELLS)) begin
+        else if (dec_idx >= 18'(B_XPROG)) begin
+            off = dec_idx - 18'(B_XPROG);
+            region_addr = A_XPROG;
+        end else if (dec_idx >= 18'(B_CELLS)) begin
             off = dec_idx - 18'(B_CELLS);
             region_addr = A_CELLS;
         end else if (dec_idx >= 18'(B_XRAM)) begin

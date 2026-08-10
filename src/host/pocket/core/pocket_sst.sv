@@ -51,7 +51,7 @@ module pocket_sst #(
     parameter logic [31:0] BLOB_WINDOW = 32'h000A_0000,
     /* sst_engine's word count, and core_top's savestate_size divided by
      * four. Reading the last of them is what ends a create. */
-    parameter int BLOB_WORDS = 73044
+    parameter int BLOB_WORDS = 81236
 ) (
     input logic clk_sys,
     input logic stb,

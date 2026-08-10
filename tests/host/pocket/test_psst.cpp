@@ -37,7 +37,7 @@
 
 /* pocket_sst's BLOB_WORDS. Reading the last of them is what ends a
  * create, because there is no host command that says so. */
-#define BLOB_WORDS 73044u
+#define BLOB_WORDS 81236u
 
 static Vpocket_sst *dut;
 static long t;

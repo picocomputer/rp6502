@@ -34,6 +34,7 @@
 #define W_SRAM 16384u
 #define W_XRAM 16384u
 #define W_CELLS 15360u
+#define W_XPROG 8192u
 #define W_TCM 24576u
 #define W_END 4u
 
@@ -50,7 +51,8 @@
 #define B_SRAM (B_REGS + W_REGS)
 #define B_XRAM (B_SRAM + W_SRAM)
 #define B_CELLS (B_XRAM + W_XRAM)
-#define B_TCM (B_CELLS + W_CELLS)
+#define B_XPROG (B_CELLS + W_CELLS)
+#define B_TCM (B_XPROG + W_XPROG)
 #define B_END (B_TCM + W_TCM)
 #define W_TOTAL (B_END + W_END)
 
@@ -305,6 +307,41 @@ UTEST(sst, xram_comes_back_word_for_word)
     }
 }
 
+/* The scanline program is the one thing in the machine that nothing
+ * could read back: four arrays with a writer and a reader each, and
+ * both readers belong to the render. The engine borrows them, which it
+ * is allowed to do because it has stopped the render to get there. */
+UTEST(sst, the_scanline_program_comes_back)
+{
+    power_on();
+    for (int i = 0; i < 2000; i++)
+        clk();
+    auto *r = dut->rootp;
+    for (uint32_t e = 0; e < 4; e++)
+    {
+        r->rp6502__DOT__vid_prog__DOT__fill_e[e] = 0x8001C000u + e;
+        r->rp6502__DOT__vid_prog__DOT__fill_c[e] = (uint16_t)(0x4400u + e);
+        r->rp6502__DOT__vid_prog__DOT__spr_e[e] = 0x80000u + e;
+        r->rp6502__DOT__vid_prog__DOT__spr_c[e] = 0x77000000u + e;
+    }
+    ASSERT_TRUE(begin_save());
+
+    for (uint32_t e = 0; e < 4; e++)
+    {
+        uint32_t w = 0;
+        ASSERT_TRUE(blob_word(B_XPROG + e * 4 + 0, &w));
+        ASSERT_EQ(0x8001C000u + e, w);
+        ASSERT_TRUE(blob_word(B_XPROG + e * 4 + 1, &w));
+        ASSERT_EQ(0x4400u + e, w);
+        /* The sprite enable is twenty bits kept as a top bit and
+         * nineteen below it, which is how the render reads it. */
+        ASSERT_TRUE(blob_word(B_XPROG + e * 4 + 2, &w));
+        ASSERT_EQ(0x80000000u | e, w);
+        ASSERT_TRUE(blob_word(B_XPROG + e * 4 + 3, &w));
+        ASSERT_EQ(0x77000000u + e, w);
+    }
+}
+
 UTEST(sst, the_flops_are_in_there_too)
 {
     power_on();
@@ -423,6 +460,13 @@ UTEST(sst, a_load_puts_the_blob_back)
         stage_word(B_CELLS + i, 0xCE110000u + i);
         stage_word(B_TCM + i, 0x7C700000u + i);
     }
+    for (uint32_t e = 0; e < 4; e++)
+    {
+        stage_word(B_XPROG + e * 4 + 0, 0x80012000u + e);
+        stage_word(B_XPROG + e * 4 + 1, 0x3300u + e);
+        stage_word(B_XPROG + e * 4 + 2, 0x80000000u | (0x1000u + e));
+        stage_word(B_XPROG + e * 4 + 3, 0x66000000u + e);
+    }
     /* The 6502 out of reset and running at a rate nothing else would
      * have chosen, then what it was holding. */
     stage_word(B_STATE + ST_MACH + 0, 1);
@@ -477,6 +521,18 @@ UTEST(sst, a_load_puts_the_blob_back)
         ASSERT_EQ(0x00u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell1[i]);
         ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell2[i]);
         ASSERT_EQ(0xCEu, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell3[i]);
+    }
+
+    for (uint32_t e = 0; e < 4; e++)
+    {
+        ASSERT_EQ(0x80012000u + e,
+                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__fill_e[e]);
+        ASSERT_EQ(0x3300u + e,
+                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__fill_c[e]);
+        ASSERT_EQ(0x80000u | (0x1000u + e),
+                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__spr_e[e]);
+        ASSERT_EQ(0x66000000u + e,
+                  (uint32_t)r->rp6502__DOT__vid_prog__DOT__spr_c[e]);
     }
 
     /* The flops, jammed while the clock they belong to is stopped. */

@@ -825,6 +825,7 @@ module rp6502
         .vid_prog_p_config(pm_config),
         .s_idx(sp_s_idx),
         .vid_prog_s_data(sp_s_data),
+        .sst_own(eng_own),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && bus_addr[17]),
         .b_we(bus_we),

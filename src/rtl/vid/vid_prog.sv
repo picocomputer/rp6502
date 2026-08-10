@@ -10,8 +10,15 @@
  * Four arrays, one per word of a slot pair, because a block RAM has two
  * ports and this table has four readers. Split by word each array has
  * one writer and one reader, which is what the fabric can build; kept
- * whole it becomes a quarter of a million registers. The bus side is
- * write-only, since nothing reads the table back.
+ * whole it becomes a quarter of a million registers.
+ *
+ * The bus side reads by borrowing the render's own read ports rather
+ * than by having any of its own. It is allowed to because the only
+ * reader is the savestate engine and the engine does not read until it
+ * has stopped the machine, so the render is standing still and its
+ * ports are going spare. What the beam draws while that is happening is
+ * whatever the engine is reading, which for the length of a savestate
+ * is the honest price of not duplicating twenty blocks of memory.
  *
  * The canvas and the vsync line are shadows: the canvas latches where
  * the render takes the frame's first row, the vsync line at the beam's
@@ -45,6 +52,10 @@ module vid_prog (
     input logic [12:0] s_idx,
     output logic [31:0] vid_prog_s_data,
 
+    /* The savestate engine holds the machine, and the read ports with
+     * it. */
+    input logic sst_own,
+
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
      * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
      * overrun count. */
@@ -74,31 +85,60 @@ module vid_prog (
     logic [10:0] b_idx;
     always_comb b_idx = b_addr[14:4];
 
+    logic [10:0] p_a, s_a;
+    always_comb begin
+        p_a = sst_own ? b_idx : {p_line, p_plane};
+        s_a = sst_own ? b_idx : s_idx[12:2];
+    end
+
     logic [2:0] canvas_shadow /*verilator public_flat_rd*/;
     logic [9:0] vsync_shadow /*verilator public_flat_rw*/;
     logic [9:0] vsync_q;
 
+    /* The table's answer is not registered here: the arrays latch it on
+     * the strobe into the render's own outputs, and the word arrives
+     * the clock after, which is what the bus asks for anyway. */
+    logic b_tbl_q;
+    logic [1:0] b_word_q;
+    logic [31:0] b_reg_q;
+    initial begin
+        b_tbl_q = 1'b0;
+        b_word_q = 2'd0;
+        b_reg_q = 32'd0;
+    end
     always_ff @(posedge clk) begin
         if (b_stb) begin
-            if (!b_addr[15]) begin
-                vid_prog_b_rdata <= 32'd0;
-                if (b_we) begin
-                    if (!b_addr[3] && !b_addr[2])
-                        fill_e[b_idx] <= b_wdata;
-                    if (!b_addr[3] && b_addr[2])
-                        fill_c[b_idx] <= b_wdata[15:0];
-                    if (b_addr[3] && !b_addr[2])
-                        spr_e[b_idx] <= {b_wdata[31], b_wdata[18:0]};
-                    if (b_addr[3] && b_addr[2])
-                        spr_c[b_idx] <= b_wdata;
-                end
-            end else begin
-                vid_prog_b_rdata <= b_addr[3]
-                    ? 32'd0
-                    : (b_addr[2] ? {22'd0, vsync_shadow}
-                                 : {29'd0, canvas_shadow});
+            b_tbl_q <= !b_addr[15];
+            b_word_q <= b_addr[3:2];
+            b_reg_q <= !b_addr[15] || b_addr[3] ? 32'd0
+                : (b_addr[2] ? {22'd0, vsync_shadow}
+                             : {29'd0, canvas_shadow});
+            if (!b_addr[15] && b_we) begin
+                if (!b_addr[3] && !b_addr[2])
+                    fill_e[b_idx] <= b_wdata;
+                if (!b_addr[3] && b_addr[2])
+                    fill_c[b_idx] <= b_wdata[15:0];
+                if (b_addr[3] && !b_addr[2])
+                    spr_e[b_idx] <= {b_wdata[31], b_wdata[18:0]};
+                if (b_addr[3] && b_addr[2])
+                    spr_c[b_idx] <= b_wdata;
             end
         end
+    end
+
+    logic [19:0] s_e_q;
+    logic [31:0] s_c_q;
+    logic s_half_q;
+
+    logic [31:0] b_tbl;
+    always_comb begin
+        case (b_word_q)
+            2'd0: b_tbl = vid_prog_p_entry;
+            2'd1: b_tbl = {16'd0, vid_prog_p_config};
+            2'd2: b_tbl = {s_e_q[19], 12'd0, s_e_q[18:0]};
+            default: b_tbl = s_c_q;
+        endcase
+        vid_prog_b_rdata = b_tbl_q ? b_tbl : b_reg_q;
     end
 
     initial begin
@@ -137,14 +177,11 @@ module vid_prog (
     /* The sprite stage only ever asks for words 2 and 3 — its index
      * carries a hard 1 in the word's high bit — so its two arrays
      * answer together and the low bit picks between them. */
-    logic [19:0] s_e_q;
-    logic [31:0] s_c_q;
-    logic s_half_q;
     always_ff @(posedge clk) begin
-        vid_prog_p_entry <= fill_e[{p_line, p_plane}];
-        vid_prog_p_config <= fill_c[{p_line, p_plane}];
-        s_e_q <= spr_e[s_idx[12:2]];
-        s_c_q <= spr_c[s_idx[12:2]];
+        vid_prog_p_entry <= fill_e[p_a];
+        vid_prog_p_config <= fill_c[p_a];
+        s_e_q <= spr_e[s_a];
+        s_c_q <= spr_c[s_a];
         s_half_q <= s_idx[0];
     end
     always_comb vid_prog_s_data =
