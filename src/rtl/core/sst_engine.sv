@@ -177,13 +177,19 @@ module sst_engine
     logic [31:0] region_addr;
     logic [17:0] off;
 
+    /* Both of these cross to the host's clock, so both are flops rather
+     * than the logic behind them. A comparator or an OR of state bits
+     * glitches while its inputs settle, and a synchroniser fed from a
+     * cone can latch a transient that was never a state the design was
+     * in -- which is what the Design Assistant means by data that is
+     * not correctly synchronised, as opposed to merely unsynchronised. */
+    logic ready_q, rvalid_q;
     always_comb begin
         sst_engine_freeze = state != S_IDLE;
         sst_engine_dbg_halt = state != S_IDLE;
-        sst_engine_ready = state == S_READY || state == S_READ
-            || state == S_READ_WAIT;
+        sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
-        sst_engine_rvalid = hold_valid && hold_idx == req_idx;
+        sst_engine_rvalid = rvalid_q;
         sst_engine_bus_own = state != S_IDLE;
         sst_engine_dbg_instr = spill_instr;
         sst_engine_dbg_instr_vld = state == S_SPILL_ARM
@@ -300,6 +306,8 @@ module sst_engine
             data0_q <= '0;
             sum <= '0;
             sum_next <= '0;
+            ready_q <= 1'b0;
+            rvalid_q <= 1'b0;
             save_s1 <= 1'b0;
             save_s2 <= 1'b0;
             idx_t1 <= 1'b0;
@@ -308,6 +316,9 @@ module sst_engine
             req_idx <= '0;
             req_pending <= 1'b0;
         end else begin
+            ready_q <= state == S_READY || state == S_READ
+                || state == S_READ_WAIT;
+            rvalid_q <= hold_valid && hold_idx == req_idx;
             save_s1 <= sst_save;
             save_s2 <= save_s1;
             idx_t1 <= rd_t;
