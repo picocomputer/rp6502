@@ -32,7 +32,10 @@ module sst_engine
     input logic clk_sys,
     input logic rst_n,
 
-    /* Held for as long as a savestate is being made. */
+    /* Held for as long as a savestate is being made, and asked for on
+     * the host's clock rather than this one, so it lands on two flops
+     * before anything acts on it. The read request beside it is the
+     * same signal and takes the same path. */
     input logic sst_save,
 
     /* The machine, stopped. */
@@ -46,7 +49,6 @@ module sst_engine
      * a different index is asked for. */
     output logic sst_engine_ready,
     input logic [17:0] rd_idx,
-    input logic rd_req,
     output logic [31:0] sst_engine_rdata,
     output logic sst_engine_rvalid,
 
@@ -265,6 +267,11 @@ module sst_engine
 
     logic [17:0] sum_next;
 
+    /* Named _s1 so the platform's standing rule cuts the arrival. */
+    (* preserve *) logic save_s1, save_s2;
+    logic save_req;
+    always_comb save_req = save_s2;
+
     always_ff @(posedge clk_sys) begin
         if (!rst_n) begin
             state <= S_IDLE;
@@ -280,7 +287,11 @@ module sst_engine
             data0_q <= '0;
             sum <= '0;
             sum_next <= '0;
+            save_s1 <= 1'b0;
+            save_s2 <= 1'b0;
         end else begin
+            save_s1 <= sst_save;
+            save_s2 <= save_s1;
             if (dbg_data0_wen) data0_q <= dbg_data0;
             case (state)
                 S_IDLE: begin
@@ -290,7 +301,7 @@ module sst_engine
                     rv_n <= 5'd1;
                     spill_dpc <= 1'b0;
                     spill_step <= '0;
-                    if (sst_save) state <= S_FREEZE;
+                    if (save_req) state <= S_FREEZE;
                 end
 
                 /* Both halves of the machine, in either order; the
@@ -346,8 +357,8 @@ module sst_engine
                 end
 
                 S_READY: begin
-                    if (!sst_save) state <= S_IDLE;
-                    else if (rd_req && !(hold_valid && hold_idx == rd_idx))
+                    if (!save_req) state <= S_IDLE;
+                    else if (save_req && !(hold_valid && hold_idx == rd_idx))
                     begin
                         hold_idx <= rd_idx;
                         hold_valid <= 1'b0;

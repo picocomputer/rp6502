@@ -59,7 +59,6 @@ module pocket_sst #(
     output logic pocket_sst_save,
     input logic sst_ready,
     output logic [17:0] pocket_sst_rd_idx,
-    output logic pocket_sst_rd_req,
     input logic [31:0] sst_rdata,
     input logic sst_rvalid,
 
@@ -122,7 +121,6 @@ module pocket_sst #(
          * same held-level crossing the file bridge's parameters use. */
         pocket_sst_save = start_pend;
         pocket_sst_rd_idx = want;
-        pocket_sst_rd_req = start_pend;
     end
 
     logic blob_seen;

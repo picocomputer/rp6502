@@ -205,6 +205,20 @@ set_max_delay -from [get_registers {*pocket_file*|r_op[*]}] \
 set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
     -to [get_clocks {clk_74a}] 0
 
+# The blob crosses both ways for the same reason and takes the same
+# bound. The index the host is reading stands still on clk_74a while
+# the engine answers it, and the word stands still on clk_sys until a
+# different index is asked for; neither moves until its own handshake
+# says the other side is finished with it.
+set_max_delay -from [get_registers {*pocket_sst*|want[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_sst*|want[*]}] \
+    -to [get_clocks {clk_74a}] 0
+set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
+    -to [get_registers {*pocket_sst*|pf_data[*]}] 13.468
+set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \
+    -to [get_registers {*pocket_sst*|pf_data[*]}] 0
+
 # The savestate result crosses the same way and needs the same bound:
 # the machine writes a code and flips a toggle beside it, and the code
 # has to be there when the toggle arrives three flops later.

@@ -79,7 +79,6 @@ module rp6502
     input logic sst_save,
     output logic rp6502_sst_ready,
     input logic [17:0] sst_rd_idx,
-    input logic sst_rd_req,
     output logic [31:0] rp6502_sst_rdata,
     output logic rp6502_sst_rvalid,
     /* The soft CPU's own halt, and the port its registers come out
@@ -255,7 +254,6 @@ module rp6502
         .dbg_halted(rp6502_sst_dbg_halted),
         .sst_engine_ready(rp6502_sst_ready),
         .rd_idx(sst_rd_idx),
-        .rd_req(sst_rd_req),
         .sst_engine_rdata(rp6502_sst_rdata),
         .sst_engine_rvalid(rp6502_sst_rvalid),
         .sst_engine_bus_own(eng_own),

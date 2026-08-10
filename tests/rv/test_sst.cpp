@@ -105,7 +105,6 @@ static void power_on(void)
     dut->rst_n = 0;
     dut->sst_freeze = 0;
     dut->sst_save = 0;
-    dut->sst_rd_req = 0;
     dut->sst_rd_idx = 0;
     dut->sst_dbg_halt = 0;
     dut->sst_dbg_halt_on_reset = 0;
@@ -142,7 +141,6 @@ static bool begin_save(void)
 static bool blob_word(uint32_t idx, uint32_t *out)
 {
     dut->sst_rd_idx = idx;
-    dut->sst_rd_req = 1;
     dut->eval();
     for (int i = 0; i < 20000; i++)
     {
@@ -150,13 +148,9 @@ static bool blob_word(uint32_t idx, uint32_t *out)
         if (dut->rp6502_sst_rvalid)
         {
             *out = dut->rp6502_sst_rdata;
-            dut->sst_rd_req = 0;
-            dut->eval();
             return true;
         }
     }
-    dut->sst_rd_req = 0;
-    dut->eval();
     return false;
 }
 
@@ -304,7 +298,11 @@ UTEST(sst, the_soft_cpus_registers_are_in_there)
     ASSERT_TRUE(blob_word(B_STATE + 12 + 5, &x5));
     ASSERT_TRUE(blob_word(B_STATE + 12 + 6, &x6));
     ASSERT_TRUE(blob_word(B_STATE + 12 + 0, &dpc));
-    ASSERT_EQ(count, x5);
+    /* The count is incremented and then stored, so at the instant the
+     * machine stopped x5 is either the last value written or the one
+     * about to be. x6 is the store pointer and only moves after a
+     * store, so it follows the record exactly. */
+    ASSERT_TRUE(x5 == count || x5 == count + 1);
     ASSERT_EQ(1024u + count * 4u, x6);
     /* Stopped inside the loop, which is words four to seven. */
     ASSERT_TRUE(dpc >= 16 && dpc <= 28);
