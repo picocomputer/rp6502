@@ -52,10 +52,12 @@
 #define ROM_MAX 0x03F00000u
 /* The savestate blob, in the gap the ROM's ceiling gave up for it. The
  * host writes a blob here as ordinary bridge writes before it asks for
- * the load, so it arrives in the staging store and is read back through
- * the window like any other staged image. Reads of this range are the
- * one thing the host takes out of the machine, and pocket_sst answers
- * them from the stream the firmware is pushing. */
+ * the load, so it arrives in the staging store and the engine reads it
+ * back through the window like any other staged image. Reads of this
+ * range are the one thing the host takes out of the machine, and
+ * nothing here answers them: the engine stops the machine and reads its
+ * memories through its own bus, and pocket_sst holds one word ready
+ * ahead of the host. The firmware carries none of it either way. */
 #define SST_BLOB_BRIDGE 0x03F00000u
 #define SST_BLOB ((volatile const uint8_t *)0x63F00000u)
 #define SST_BLOB_MAX 0x000A0000u
@@ -82,6 +84,37 @@
 #define FILE_CTL (*(volatile uint32_t *)0x80000010u)
 #define FILE_RESULT (*(volatile uint32_t *)0x80000014u)
 #define FILE_WIN ((volatile uint32_t *)0x80001000u)
+
+/* Sleep and savestates. The engine does both; these two words are the
+ * whole of what the firmware has to do with them.
+ *
+ * A create is the firmware's to answer: the host asks, SST_CREATE
+ * appears, the engine has already stopped the machine and is serving
+ * the blob, and the firmware writes SST_RES_CREATE_OK when the host is
+ * done with it. A restore is not -- by the time there is a firmware to
+ * tell, it is the one the blob brought. SST_RESTORED says so, and
+ * clearing it is what lets the 6502 run again, so whatever fabric no
+ * blob carries is put back first.
+ *
+ * SST_BLOB_SEEN is sticky from the first bridge write into the blob
+ * window. It is how a boot learns it is a wake before any command
+ * arrives, and it means: do not start the ROM, one is coming. */
+#define SST_CTL (*(volatile uint32_t *)0x80020000u)
+#define SST_RESULT (*(volatile uint32_t *)0x80020004u)
+
+#define SST_CREATE 0x01u
+#define SST_RESTORED 0x02u
+#define SST_BLOB_SEEN 0x04u
+/* The host asked for a word the engine had not got to. It cannot
+ * happen at the documented one-access-per-88-clocks; if it ever does,
+ * the blob is short and the create must answer an error. */
+#define SST_UNDERRUN 0x08u
+#define SST_RESTORE_ERR 0x10u
+
+#define SST_RES_CREATE_OK 1u
+#define SST_RES_CREATE_ERR 2u
+#define SST_RES_RESTORE_OK 3u
+#define SST_RES_RESTORE_ERR 4u
 /* The interact menu's persisted settings, read-only. The UTC offset
  * arrives in three pieces because a menu list holds sixteen options and
  * the offset spans twenty-seven whole hours. SET_KB is a position in
