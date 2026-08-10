@@ -6,24 +6,26 @@
  * A savestate is the whole machine as a list of words, and this is the
  * thing that counts through it.
  *
- * The machine is stopped first — the 6502 at an instruction boundary,
- * the soft CPU halted at its debug port — and then nothing is running
- * that could move a byte underneath the count. So the engine takes the
- * machine's own bus, which the soft CPU has stopped using, and reads
- * the memories through the same windows the firmware would. Nothing
- * marshals anything; nothing is copied twice.
+ * The machine is stopped first — the soft CPU halted at its debug
+ * port, then everything else by losing its clock at the source, all of
+ * it on one edge — and after that nothing is running that could move a
+ * byte underneath the count. The engine keeps the clock the machine
+ * lost and reads every memory through its own port on the array,
+ * beside the machine's frozen one. Nothing marshals anything; nothing
+ * is copied twice.
  *
- * It is deliberately slow. A word costs a bus access and sometimes four,
- * and every access waits for the window to say it is ready. The only
- * deadline anywhere is at the far end, where the host asks for a word
- * every eighty-eight of its own clocks, and one word held ready ahead
- * of a sequential reader covers that with room to spare.
+ * It is deliberately slow. A word is a cycle and sometimes four, and
+ * anything with a wait is waited for. The only deadline anywhere is at
+ * the far end, where the host may ask for the next word as soon as it
+ * has taken this one, and one word held ready ahead of a sequential
+ * reader covers that with room to spare.
  *
- * Two things are not on the bus and are fetched their own way: the soft
- * CPU's memory, which rv_soc decodes internally, and the state that
- * lives in flops rather than memory — the 6502's registers, the VIA's
- * timers and pipelines, and the soft CPU's own registers, which come
- * out through its debug port a few instructions at a time.
+ * What is not in any array is fetched its own way: the state that
+ * lives in flops — the 6502's registers, the VIA's timers and
+ * pipelines, the regs window's corners — is captured while stopped and
+ * jammed back on the machine's first clocked edge, and the soft CPU's
+ * own registers come out through its debug port a few instructions at
+ * a time, before the clock goes, because its clock never does.
  */
 
 module sst_engine

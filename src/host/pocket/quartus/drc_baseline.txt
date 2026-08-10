@@ -13,7 +13,16 @@
 #       against zero, held for 255 clocks at a time, and the core it
 #       resets is the vendor's. The machine's own reset is one flop now
 #       and reaches nothing but the 6502 and the 6522.
-R101 1
+#
+#       2 since the clock gate: resb_eff, the AND of resb and the
+#       restore hold, reaching the 6502 and 6522 async resets. It is
+#       combinational on purpose — the hold must own the reset from the
+#       first returned clock edge, before any flop could sample — and
+#       both of its terms are flops on the one clock the machine has.
+#       What the rule fears is an unrelated-clock release, and that is
+#       timed instead: recovery and removal both close in the same
+#       report that names this node.
+R101 2
 #
 # D101  Data crossing clock domains without a synchroniser. All 663 are
 #       clk_74a into clk_sys. Not one is the clk_sys/clk_rv seam, which
@@ -83,7 +92,20 @@ R101 1
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.
-D101 687
+#
+#       716 since the machine stops by losing its clock. Named in the
+#       report: sst_engine's hold at 32 — the word the host is reading,
+#       moved here from D102 when the serving was rebuilt to the
+#       documented contract — and mach_clk_en at 1, the gate enable
+#       crossing into the engine's own running synchroniser. hold
+#       stands still until a different index is asked for and carries
+#       the same max-delay bound in the SDC as the index that asks;
+#       mach_clk_en is a single bit into a named two-flop chain.
+#       want, want_t and start_pend above are ask, ask_t and start_hold
+#       now, at the same widths. res_code's three left with the
+#       redesign — the register no longer exists; how a savestate ended
+#       rides the blob itself.
+D101 716
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
@@ -127,12 +149,11 @@ D101 687
 #       measured rather than derived: every name in the report is a
 #       level bus crossing on two flops that land only when consecutive
 #       samples agree, which is the same argument as everything above.
-#       29 since the savestate serving: sst_engine's hold, the word the
-#       host is reading. It stands still until a different index is
-#       asked for, and the valid flag that says so is a flop on this
-#       side rather than the comparator behind it -- which is what
-#       moved D103 back to three rather than leaving it at forty-three.
-D102 29
+#       29 for as long as sst_engine's hold was credited with a
+#       synchroniser, and 28 now that the serving rebuild moved it to
+#       D101, where it is argued above. Same crossing, same bound, one
+#       rule over.
+D102 28
 #
 # D103  Data bits not correctly synchronised. pocket_file's command
 #       word: r_op, and the flush, write and getfile strobes beside it.
