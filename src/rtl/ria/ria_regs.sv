@@ -256,6 +256,11 @@ module ria_regs (
     always_comb begin
         case (b_word)
             8'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
+            /* The interrupt enable has no other way out: the 6502
+             * writes $FFF0 and nothing reads it back, and the pending
+             * cell in regs is a mirror rewritten every clock. A
+             * savestate needs both, so they share a word. */
+            8'd17: ria_regs_b_rdata = {16'd0, irq_pending, irq_enabled};
             8'd18: ria_regs_b_rdata = {30'd0, rx_req, !os_rx_valid};
             8'd200: ria_regs_b_rdata = {22'd0, xsp};
             default: begin
@@ -374,6 +379,14 @@ module ria_regs (
                 irq_enabled <= data_i;
             irq_pending <= pend_next;
             regs[5'h10] <= pend_next;
+            /* Last, so a restore beats the resolution above rather than
+             * being overwritten by it on the same edge. */
+            if (b_we && b_word == 8'd17) begin
+                if (b_wstrb[0])
+                    irq_enabled <= b_wdata[7:0];
+                if (b_wstrb[1])
+                    irq_pending <= b_wdata[15:8];
+            end
         /* The RW stages reload one clock after their issue; a same-edge
          * 6502 or OS write is repaired by the restage that follows it. */
         if (xr_cap0)

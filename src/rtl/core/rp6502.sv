@@ -66,6 +66,16 @@ module rp6502
     input logic sst_st_we,
     input logic [31:0] sst_st_wdata,
     output logic [31:0] rp6502_sst_st_rdata,
+    /* The soft CPU's own memory, which is not on the machine's bus. */
+    input logic sst_tcm_sel,
+    input logic [14:0] sst_tcm_addr,
+    input logic sst_tcm_we,
+    input logic [31:0] sst_tcm_wdata,
+    output logic [31:0] rp6502_sst_tcm_rdata,
+    /* The 6502's clock rate, which the soft CPU owns and a restore has
+     * to put back. */
+    input logic sst_phi2_we,
+    input logic [15:0] sst_phi2_wdata,
 
     /* A word-wide port onto whatever the board has that the machine does
      * not. One-clock strobe, answer the clock after. */
@@ -330,6 +340,17 @@ module rp6502
         .clk(clk_rv),
         .rst_n(rst_n),
         .rv_soc_phi2_khz(phi2_khz),
+        /* Time stops with the machine. A savestate is meant to be
+         * invisible to the firmware, and a firmware that woke to find
+         * its deadlines already past would notice at once. */
+        .sst_time_hold(frz_held),
+        .sst_phi2_we(sst_phi2_we),
+        .sst_phi2_wdata(sst_phi2_wdata),
+        .sst_tcm_sel(sst_tcm_sel),
+        .sst_tcm_addr(sst_tcm_addr),
+        .sst_tcm_we(sst_tcm_we),
+        .sst_tcm_wdata(sst_tcm_wdata),
+        .rv_soc_tcm_rdata(rp6502_sst_tcm_rdata),
         .rv_soc_tx_data(rp6502_rv_tx_data),
         .rv_soc_tx_valid(rv_tx_valid_raw),
         .rv_soc_halted(rp6502_rv_halted),

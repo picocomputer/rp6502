@@ -12,6 +12,9 @@
  */
 
 module rv_soc #(
+    /* Ahead of the port list, which names the width. */
+    localparam int TCM_WORDS = 24576,  // 96 KB
+    localparam int TCM_AW = $clog2(TCM_WORDS),
     parameter int MTIME_ADD = 1,
     parameter int MTIME_WRAP = 1,
     parameter TCM_INIT_FILE = ""
@@ -37,6 +40,29 @@ module rv_soc #(
 
     output logic [15:0] rv_soc_phi2_khz,
 
+    /* Held still with the rest of the machine. Hazard3 hardwires
+     * dcsr.stoptime, which is the core saying it expects its timebase
+     * to stop while it is halted, so a machine stopped for a savestate
+     * measures no time passing and comes back with every deadline it
+     * was holding the same distance away.
+     *
+     * It only counts up. Wall time is the host's to say, and a machine
+     * that has been asleep asks it again rather than being told what
+     * its own counter should have reached.
+     *
+     * The soft CPU's own memory is reached the same way. It is not on
+     * the machine's bus -- rv_soc decodes it here rather than sending
+     * it out -- so a savestate walks it through this port, which steals
+     * the array's one port while the core is halted and not using it. */
+    input logic sst_time_hold,
+    input logic sst_phi2_we,
+    input logic [15:0] sst_phi2_wdata,
+    input logic sst_tcm_sel,
+    input logic [TCM_AW-1:0] sst_tcm_addr,
+    input logic sst_tcm_we,
+    input logic [31:0] sst_tcm_wdata,
+    output logic [31:0] rv_soc_tcm_rdata,
+
     output logic rv_soc_halted,
     output logic [31:0] rv_soc_exit_code,
 
@@ -55,8 +81,6 @@ module rv_soc #(
     input logic [31:0] bus_rdata
 );
 
-    localparam int TCM_WORDS = 24576;  // 96 KB
-    localparam int TCM_AW = $clog2(TCM_WORDS);
 
     logic [31:0] haddr /*verilator public_flat_rd*/;
     logic hwrite /*verilator public_flat_rd*/;
@@ -176,7 +200,8 @@ module rv_soc #(
 
     logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
     logic [TCM_AW-1:0] word_addr;
-    always_comb word_addr = haddr[TCM_AW+1:2];
+    always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[TCM_AW+1:2];
+    always_comb rv_soc_tcm_rdata = tcm_rdata;
 
     /* A store's data phase overlaps the next load's address phase, so a
      * load of the word just stored samples the array on the same edge
@@ -188,6 +213,19 @@ module rv_soc #(
     logic [31:0] tcm_q;
     logic tcm_wr;
     always_comb tcm_wr = dph_active && dph_write && !dph_mmio && !dph_ext;
+
+    /* One port, two possible owners, and only ever one at a time: the
+     * engine asks while the core is halted and issuing nothing. */
+    logic tcm_wen;
+    logic [TCM_AW-1:0] tcm_wword;
+    logic [3:0] tcm_wstrb;
+    logic [31:0] tcm_wdata;
+    always_comb begin
+        tcm_wen = sst_tcm_sel ? sst_tcm_we : tcm_wr;
+        tcm_wword = sst_tcm_sel ? sst_tcm_addr : dph_word;
+        tcm_wstrb = sst_tcm_sel ? 4'b1111 : dph_strb;
+        tcm_wdata = sst_tcm_sel ? sst_tcm_wdata : hwdata;
+    end
 
     initial begin
         dph_active = 1'b0;
@@ -237,15 +275,15 @@ module rv_soc #(
                       tcm1[word_addr], tcm0[word_addr]};
         tcm_fwd <= (tcm_wr && dph_word == word_addr) ? dph_strb : 4'b0000;
         tcm_fwd_data <= hwdata;
-        if (tcm_wr) begin
-            if (dph_strb[0])
-                tcm0[dph_word] <= hwdata[7:0];
-            if (dph_strb[1])
-                tcm1[dph_word] <= hwdata[15:8];
-            if (dph_strb[2])
-                tcm2[dph_word] <= hwdata[23:16];
-            if (dph_strb[3])
-                tcm3[dph_word] <= hwdata[31:24];
+        if (tcm_wen) begin
+            if (tcm_wstrb[0])
+                tcm0[tcm_wword] <= tcm_wdata[7:0];
+            if (tcm_wstrb[1])
+                tcm1[tcm_wword] <= tcm_wdata[15:8];
+            if (tcm_wstrb[2])
+                tcm2[tcm_wword] <= tcm_wdata[23:16];
+            if (tcm_wstrb[3])
+                tcm3[tcm_wword] <= tcm_wdata[31:24];
         end
     end
 
@@ -263,13 +301,15 @@ module rv_soc #(
         mtime_acc = '0;
     end
     always_ff @(posedge clk) begin
-        if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
-        begin
-            mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
-                             - 32'(MTIME_WRAP));
-            mtime_us <= mtime_us + 64'd1;
-        end else begin
-            mtime_acc <= mtime_acc + 16'(MTIME_ADD);
+        if (!sst_time_hold) begin
+            if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
+            begin
+                mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)
+                                 - 32'(MTIME_WRAP));
+                mtime_us <= mtime_us + 64'd1;
+            end else begin
+                mtime_acc <= mtime_acc + 16'(MTIME_ADD);
+            end
         end
     end
 
@@ -354,6 +394,9 @@ module rv_soc #(
                     default: ;
                 endcase
             end
+            /* After the register block, so a restore is not undone by
+             * whatever the halted core's last data phase was. */
+            if (sst_phi2_we) rv_soc_phi2_khz <= sst_phi2_wdata;
     end
 
 endmodule
