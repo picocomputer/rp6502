@@ -78,6 +78,14 @@ if(RP6502_SOFT_CPU)
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 1200)
 
+    # --- Sleep, with the reconfigure in it ---
+    rp6502_add_machine_test(psleep FIRMWARE SPLIT
+        TOP tb_pocket
+        RTL ${POCKET_STACK}
+        DEFS FILE_ROM="${FILE_ROM}"
+        DEPENDS file_rom
+        TIMEOUT 1200)
+
     # --- The file bridge, with the bench playing the host ---
     rp6502_add_machine_test(pfile FIRMWARE SPLIT
         TOP tb_pocket

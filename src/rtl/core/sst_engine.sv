@@ -207,6 +207,7 @@ module sst_engine
         S_SPILL_BRK,
         S_SPILL_WAIT,
         S_READY,
+        S_READ_ARM,
         S_READ,
         S_READ_WAIT,
         S_LD_FREEZE,
@@ -227,7 +228,7 @@ module sst_engine
         S_INJ_BRK,
         S_INJ_WAIT
     } state_t;
-    state_t state;
+    state_t state /*verilator public_flat_rd*/;
 
     /* What the core last put on the debug port. Latched on the write
      * enable, because the value only stands while that is asserted --
@@ -267,7 +268,14 @@ module sst_engine
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
         sst_engine_rvalid = rvalid_q;
-        sst_engine_bus_own = state != S_IDLE;
+        /* Only while it is using it. The two states at the end of a
+         * restore are the engine waiting for the firmware to say it has
+         * put back what no blob carries, and that firmware is running
+         * again by then -- holding its bus would stop it at its first
+         * memory access, which is the one that reads the request it is
+         * being waited on for. */
+        sst_engine_bus_own = state != S_IDLE && state != S_LD_DONE
+            && state != S_LD_ACK;
         sst_engine_dbg_instr = spill_instr;
         sst_engine_dbg_instr_vld = state == S_SPILL_ARM
             || state == S_SPILL_ISSUE || state == S_SPILL_BRK_ARM
@@ -310,22 +318,35 @@ module sst_engine
         end
     end
 
+    /* The decode is a flop, not a wire. Six eighteen-bit comparators
+     * and an adder stand between the index and the strobe, and the
+     * strobe goes on to pick a window in every memory the machine has;
+     * as one cone that is three nanoseconds past the clock. The engine
+     * has clocks to spare -- it is the slowest thing in the machine on
+     * purpose -- so it spends one letting the decode settle. */
+    logic bytewise_q, on_bus_q, on_tcm_q, on_flops_q;
+    logic [31:0] region_addr_q;
+    logic [17:0] off_q;
+    logic [1:0] st_sel_q;
+    logic [2:0] st_idx_q;
+
     logic on_bus, on_tcm, on_hole;
     always_comb begin
         on_hole = dec_idx == 18'(B_REGS + REGS_HOLE);
         on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
         on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_TCM) && !on_hole;
-        sst_engine_tcm_sel = on_tcm && (state == S_READ
+        sst_engine_tcm_sel = on_tcm_q && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
-        sst_engine_tcm_addr = off[14:0];
-        sst_engine_tcm_we = on_tcm && state == S_LD_PUT;
+        sst_engine_tcm_addr = off_q[14:0];
+        sst_engine_tcm_we = on_tcm_q && state == S_LD_PUT;
         sst_engine_tcm_wdata = ld_word;
         sst_engine_bus_addr = (state == S_LD_FETCH
                 || state == S_LD_FETCH_WAIT)
             ? A_STAGE + {12'd0, ld_idx, 2'd0} + {30'd0, byte_n}
-            : region_addr + (bytewise ? {12'd0, off, 2'd0} + {30'd0, byte_n}
-                                      : {12'd0, off, 2'd0});
+            : region_addr_q + (bytewise_q
+                               ? {12'd0, off_q, 2'd0} + {30'd0, byte_n}
+                               : {12'd0, off_q, 2'd0});
         /* A fetch reads the store; a put writes wherever the index
          * says. Byte windows take one byte per access either way. */
         sst_engine_bus_we = state == S_LD_PUT;
@@ -333,12 +354,12 @@ module sst_engine
          * the master offers, so a write puts the same byte on all four
          * and the window picks it up; a word window takes the word. */
         sst_engine_bus_wstrb = state == S_LD_PUT ? 4'b1111 : 4'b0000;
-        sst_engine_bus_wdata = bytewise
+        sst_engine_bus_wdata = bytewise_q
             ? {4{ld_word[31 - {byte_n, 3'd0} -: 8]}} : ld_word;
-        sst_engine_bus_pend = (on_bus && state == S_READ)
-            || state == S_LD_FETCH || (on_bus && state == S_LD_PUT);
-        sst_engine_bus_stb = bus_rdy && ((on_bus && state == S_READ)
-            || state == S_LD_FETCH || (on_bus && state == S_LD_PUT));
+        sst_engine_bus_pend = (on_bus_q && state == S_READ)
+            || state == S_LD_FETCH || (on_bus_q && state == S_LD_PUT);
+        sst_engine_bus_stb = bus_rdy && ((on_bus_q && state == S_READ)
+            || state == S_LD_FETCH || (on_bus_q && state == S_LD_PUT));
     end
 
     /* The flops, which answer combinationally and need no access. Five
@@ -348,20 +369,24 @@ module sst_engine
     logic [31:0] state_word;
     logic on_flops;
     logic [17:0] st_off;
+    logic [1:0] st_sel;
+    logic [2:0] st_idx;
     always_comb begin
         st_off = dec_idx - 18'(B_STATE);
         on_flops = dec_idx >= 18'(B_STATE) && dec_idx < 18'(B_STATE + ST_RV);
         if (st_off >= 18'(ST_VIA)) begin
-            sst_engine_st_sel = SEL_VIA;
-            sst_engine_st_idx = 3'(st_off - 18'(ST_VIA));
+            st_sel = SEL_VIA;
+            st_idx = 3'(st_off - 18'(ST_VIA));
         end else if (st_off >= 18'(ST_CPU)) begin
-            sst_engine_st_sel = SEL_CPU;
-            sst_engine_st_idx = 3'(st_off - 18'(ST_CPU));
+            st_sel = SEL_CPU;
+            st_idx = 3'(st_off - 18'(ST_CPU));
         end else begin
-            sst_engine_st_sel = SEL_MACH;
-            sst_engine_st_idx = 3'(st_off);
+            st_sel = SEL_MACH;
+            st_idx = 3'(st_off);
         end
-        sst_engine_st_we = on_flops && state == S_LD_PUT;
+        sst_engine_st_sel = st_sel_q;
+        sst_engine_st_idx = st_idx_q;
+        sst_engine_st_we = on_flops_q && state == S_LD_PUT;
         sst_engine_st_wdata = ld_word;
         state_word = st_rdata;
         if (hold_idx >= 18'(B_STATE + ST_RV))
@@ -453,6 +478,14 @@ module sst_engine
             ready_q <= 1'b0;
             rvalid_q <= 1'b0;
             done_q <= 1'b0;
+            bytewise_q <= 1'b0;
+            on_bus_q <= 1'b0;
+            on_tcm_q <= 1'b0;
+            on_flops_q <= 1'b0;
+            region_addr_q <= A_REGS;
+            off_q <= '0;
+            st_sel_q <= SEL_MACH;
+            st_idx_q <= '0;
             save_s1 <= 1'b0;
             save_s2 <= 1'b0;
             load_s1 <= 1'b0;
@@ -472,8 +505,16 @@ module sst_engine
             req_idx <= '0;
             req_pending <= 1'b0;
         end else begin
-            ready_q <= state == S_READY || state == S_READ
-                || state == S_READ_WAIT;
+            ready_q <= state == S_READY || state == S_READ_ARM
+                || state == S_READ || state == S_READ_WAIT;
+            bytewise_q <= bytewise;
+            on_bus_q <= on_bus;
+            on_tcm_q <= on_tcm;
+            on_flops_q <= on_flops;
+            region_addr_q <= region_addr;
+            off_q <= off;
+            st_sel_q <= st_sel;
+            st_idx_q <= st_idx;
             done_q <= state == S_LD_DONE || state == S_LD_ACK;
             rvalid_q <= hold_valid && hold_idx == req_idx;
             save_s1 <= sst_save;
@@ -729,9 +770,13 @@ module sst_engine
                         hold_valid <= 1'b0;
                         byte_n <= '0;
                         acc <= '0;
-                        state <= S_READ;
+                        state <= S_READ_ARM;
                     end
                 end
+
+                /* One clock for the decode to catch up with the index
+                 * that was just asked for. */
+                S_READ_ARM: state <= S_READ;
 
                 /* Pend, wait for the window, take one strobe, and read
                  * the answer the clock after. */

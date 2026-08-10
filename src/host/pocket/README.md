@@ -195,6 +195,30 @@ starts it, which is why clearing it is the last thing that happens.
 - A clock a program set for itself. The host's reading wins after a
   sleep.
 
+### What a state cannot be taken in the middle of
+
+A file operation. The host is the one part of this machine a blob cannot
+carry: its slot-to-path bindings belong to the session the wake ended,
+and so does whatever a slot read left in the staging window. The
+firmware re-opens the files it knows about, but an operation caught
+mid-sequence — between the open that creates a file and the open that
+follows it, say — comes back to a device that never heard of it, and the
+program waiting on it stops.
+
+The obvious fix was tried and is worse. Holding the freeze off while a
+host command is in flight moves it into the *gap* between two commands
+of one operation, which is the moment with the most to lose; the machine
+went from surviving a sleep to not surviving one. The hold has to span
+the whole operation, which is firmware work in `msc.c` — a depth around
+every entry point, carried across passes by the worker flags — not a
+wire in the fabric.
+
+Until that is done, a sleep during disk activity loses the program.
+`test_psleep` takes its state a few thousand cycles after the 6502
+starts and before the program's first file call, which is the case that
+is proven; the numbers in it are measured and commented for exactly this
+reason.
+
 ### What only hardware can answer
 
 Whether the host ever reads the blob out of order. The word held ready

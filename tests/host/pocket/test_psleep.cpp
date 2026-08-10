@@ -1,0 +1,697 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Sleep, end to end, with the reconfigure in it.
+ *
+ * The Pocket does not suspend a core; it takes a savestate and cuts the
+ * power, and on wake it loads a fresh bitstream and hands the blob
+ * back. Every memory and every register comes back out of that
+ * bitstream, which is why nothing short of a real savestate can carry a
+ * running machine across one. So the bench does the whole thing
+ * honestly: it boots a machine, marks every memory the blob claims to
+ * carry, asks the host command for a state and reads the blob out over
+ * the bridge at the documented one access per eighty-eight clocks --
+ * then destroys the model.
+ *
+ * The second model is the wake. A new device with a cold store, the
+ * host streaming its slots again, the blob written into the window as
+ * ordinary bridge writes before any command arrives, and then 0x00A4.
+ * If the marks are all there afterwards and the console never printed a
+ * second boot, then the machine that came back is the machine that went
+ * away.
+ *
+ * THE HOST MODELLED HERE IS OURS, NOT ANALOGUE'S -- the same caveat as
+ * every other bench on this board. The order a wake does things in is
+ * the part of it least likely to be right, and the one the device's own
+ * debug log will settle.
+ */
+
+#include "Vtb_pocket.h"
+#include "Vtb_pocket___024root.h"
+
+#include "tb_stage.h"
+#include "tb_tcm.h"
+#include "utest.h"
+
+#include <cstdio>
+#include <cstring>
+#include <map>
+#include <set>
+#include <string>
+#include <vector>
+
+static Vtb_pocket *dut;
+static long a_next, s_next, g_sys;
+static uint32_t dt_pipe[2];
+/* The host's id/size table, as pairs. */
+static uint32_t g_dt[64];
+
+/* The host's filesystem, and which slot is bound to which file. Files
+ * are keyed by their absolute card path, folders modeled because the
+ * real host will not create one: a create into a folder that is not
+ * there answers with a descriptor and writes nothing. */
+static std::map<std::string, std::vector<uint8_t>> g_files;
+static std::set<std::string> g_dirs;
+static std::string g_bound[16];
+static std::string g_console;
+static std::string g_rv;
+static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
+
+static void tick()
+{
+    long next = a_next < s_next ? a_next : s_next;
+    bool sedge = next == s_next;
+    bool aedge = next == a_next;
+    if (sedge)
+    {
+        dut->clk_sys = 1;
+        if ((g_sys & 1) == 0)
+        {
+            dut->clk_vid = 1;
+            dut->clk_rv = 1;
+        }
+    }
+    if (aedge)
+    {
+        /* mf_datatable answers two clk_74a later than the address: an
+         * address register and an output register, both on CLOCK0.
+         * Driving datatable_q combinationally let a core that captured
+         * a clock early pass here, and on hardware that core read the
+         * address the loader leaves standing — a constant 1 — so every
+         * slot came back holding slot 0's size. */
+        dut->datatable_q = dt_pipe[1];
+        dt_pipe[1] = dt_pipe[0];
+        dt_pipe[0] = g_dt[dut->tb_pocket_dt_addr & 63];
+        dut->clk_74a = 1;
+    }
+    dut->eval();
+    /* Once per machine clock: the valid is a level for that clock and
+     * the bridge's edges fall inside it. */
+    if (sedge && dut->tb_pocket_tx_valid)
+        g_console += (char)dut->tb_pocket_tx_data;
+    if (sedge && dut->tb_pocket_rv_tx_valid)
+        g_rv += (char)dut->tb_pocket_rv_tx_data;
+    if (sedge)
+    {
+        dut->clk_sys = 0;
+        dut->clk_vid = 0;
+        dut->clk_rv = 0;
+        s_next += 330;
+        g_sys++;
+    }
+    if (aedge)
+    {
+        dut->clk_74a = 0;
+        a_next += 224;
+    }
+    dut->eval();
+}
+
+static void a_edge()
+{
+    long t = a_next;
+    while (a_next == t)
+        tick();
+}
+
+/* --- The bridge, from the host's end --- */
+
+static void host_write(uint32_t addr, uint32_t w)
+{
+    dut->bridge_wr = 1;
+    dut->bridge_addr = addr;
+    dut->bridge_wr_data = w;
+    a_edge();
+    dut->bridge_wr = 0;
+    for (int k = 0; k < 39; k++)
+        a_edge();
+}
+
+/* A read is a strobe, and the word it names is held until the next one:
+ * "the core may not immediately provide the read data and has up until
+ * the next read strobe to drive bridge_rd_data". The bench used to set
+ * an address and sample, never pulsing bridge_rd at all, so a core that
+ * simply chased bridge_addr passed here and handed hardware the word
+ * after the one it was asked for. */
+static uint32_t host_read(uint32_t addr)
+{
+    dut->bridge_addr = addr;
+    a_edge();
+    dut->bridge_rd = 1;
+    a_edge();
+    dut->bridge_rd = 0;
+    /* The host moves the address on to the next word before it takes
+     * this one — that is what the buffering buys it. Holding the address
+     * still here is what let a core that chases bridge_addr pass, and
+     * then hand hardware the word after the one it asked for. */
+    dut->bridge_addr = addr + 4;
+    for (int k = 0; k < 6; k++)
+        a_edge();
+    return dut->tb_pocket_bridge_rd_data;
+}
+
+/* Byte zero of a word rides the top eight bits: bridge_endian_little
+ * is clear, and the ROM loader has depended on that since the first
+ * image landed. */
+static void host_put_bytes(uint32_t base, const uint8_t *p, size_t n)
+{
+    for (size_t i = 0; i < n; i += 4)
+    {
+        uint32_t w = 0;
+        for (size_t k = 0; k < 4; k++)
+            if (i + k < n)
+                w |= (uint32_t)p[i + k] << (24 - 8 * k);
+        host_write(base + (uint32_t)i, w);
+    }
+}
+
+static void host_get_bytes(uint32_t base, uint8_t *p, size_t n)
+{
+    for (size_t i = 0; i < n; i += 4)
+    {
+        uint32_t w = host_read(base + (uint32_t)i);
+        for (size_t k = 0; k < 4; k++)
+            if (i + k < n)
+                p[i + k] = (uint8_t)(w >> (24 - 8 * k));
+    }
+}
+
+/* --- The data table --- */
+
+
+static void dt_set(uint32_t slot, uint32_t size)
+{
+    g_dt[slot * 2] = slot;
+    g_dt[slot * 2 + 1] = size;
+}
+
+/* --- Target commands --- */
+
+static void target_done()
+{
+    dut->target_dataslot_done = 1;
+    dut->target_dataslot_err = 0;
+    for (int k = 0; k < 4; k++)
+        a_edge();
+}
+
+static void do_openfile()
+{
+    dut->target_dataslot_done = 0;
+    uint32_t slot = dut->tb_pocket_ds_id;
+    uint8_t param[264];
+    host_get_bytes(dut->tb_pocket_param_struct, param, sizeof param);
+    std::string name((const char *)param);
+    /* The host resolves nothing. A name reaches it as an absolute path
+     * or not at all — measured, when the same run wrote 004.bin spelled
+     * in full and never produced 000.bin spelled bare. Refusing the
+     * relative form here is what holds the drive to spelling it out. */
+    if (name.empty() || name[0] != '/')
+    {
+        g_opens++;
+        dut->target_dataslot_done = 1;
+        dut->target_dataslot_err = 4; /* malformed path */
+        for (int k = 0; k < 4; k++)
+            a_edge();
+        return;
+    }
+    std::string key = name;
+    std::string parent = key.substr(0, key.rfind('/'));
+    if (parent.empty())
+        parent = "/";
+    /* The struct's integers are bridge words, not bytes of the stream the
+     * path rides in. The bench had them the other way round and so agreed
+     * with a firmware that wrote them reversed, which is how a create
+     * that never once worked on hardware kept a green suite: the host
+     * saw flags of 3 as 0x03000000 and opened without creating. Read
+     * them the way the real host does, and put the byte order back in
+     * msc_win_u32 to watch this test go red. */
+    uint32_t flags = ((uint32_t)param[256] << 24) | ((uint32_t)param[257] << 16)
+                     | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
+    uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
+                    | ((uint32_t)param[262] << 8) | (uint32_t)param[263];
+    g_opens++;
+    bool created = false;
+    auto it = g_files.find(key);
+    /* Zero-length files are allowed here, and the reason that is not
+     * obvious: they were once refused, because every create the machine
+     * had ever made came back "not found" and a length of zero looked
+     * like the cause. It was not — the flags word was arriving swapped
+     * and the host was seeing no create bit at all. Whether the real
+     * host will hold a file at zero is a hardware question; do not put
+     * a refusal back here on the strength of the old runs, because
+     * every one of them was made through that bug. */
+    if (it == g_files.end())
+    {
+        if (!(flags & 1))
+        {
+            dut->target_dataslot_done = 1;
+            dut->target_dataslot_err = 3; /* file not found */
+            for (int k = 0; k < 4; k++)
+                a_edge();
+            return;
+        }
+        /* Create takes both bits. Bit 0 on its own is answered with a
+         * descriptor and makes nothing: measured, eight opens asking for
+         * O_CREAT without O_TRUNC each came back a handle and none of
+         * them left a file. Resize is what puts it there, so a create
+         * without it succeeds loudly and does nothing at all — and so
+         * does a create into a folder the card does not have, which is
+         * the hollow answer the firmware's conjure exists for. */
+        if (!(flags & 2) || !g_dirs.count(parent))
+        {
+            dut->target_dataslot_done = 1;
+            dut->target_dataslot_err = 1; /* created and opened, it says */
+            for (int k = 0; k < 4; k++)
+                a_edge();
+            return;
+        }
+        it = g_files.emplace(key, std::vector<uint8_t>()).first;
+        created = true;
+    }
+    if (flags & 2)
+        it->second.resize(size, 0);
+    g_bound[slot] = key;
+    dt_set(slot, (uint32_t)it->second.size());
+    /* 0 opened, 1 created and opened; the host tells them apart and only
+     * 2 and up are failures. */
+    dut->target_dataslot_done = 1;
+    dut->target_dataslot_err = created ? 1 : 0;
+    for (int k = 0; k < 4; k++)
+        a_edge();
+}
+
+static void do_slotread()
+{
+    dut->target_dataslot_done = 0;
+    uint32_t slot = dut->tb_pocket_ds_id;
+    uint32_t off = dut->tb_pocket_ds_slotoffset;
+    uint32_t len = dut->tb_pocket_ds_length;
+    uint32_t at = dut->tb_pocket_ds_bridgeaddr;
+    g_reads++;
+    std::vector<uint8_t> &f = g_files[g_bound[slot]];
+    std::vector<uint8_t> chunk(len, 0);
+    for (uint32_t i = 0; i < len && off + i < f.size(); i++)
+        chunk[i] = f[off + i];
+    host_put_bytes(at, chunk.data(), chunk.size());
+    target_done();
+}
+
+static void do_slotwrite()
+{
+    dut->target_dataslot_done = 0;
+    uint32_t slot = dut->tb_pocket_ds_id;
+    uint32_t off = dut->tb_pocket_ds_slotoffset;
+    uint32_t len = dut->tb_pocket_ds_length;
+    uint32_t at = dut->tb_pocket_ds_bridgeaddr;
+    g_writes++;
+    std::vector<uint8_t> chunk(len, 0);
+    host_get_bytes(at, chunk.data(), chunk.size());
+    std::vector<uint8_t> &f = g_files[g_bound[slot]];
+    if (f.size() < off + len)
+        f.resize(off + len, 0);
+    for (uint32_t i = 0; i < len; i++)
+        f[off + i] = chunk[i];
+    dt_set(slot, (uint32_t)f.size());
+    target_done();
+}
+
+/* Flush commits a slot to the card. Nothing here buffers, so the answer
+ * is simply yes — but it has to be answered, because a command the host
+ * never retires leaves the machine waiting out its deadline. */
+static void do_flush()
+{
+    dut->target_dataslot_done = 0;
+    g_flushes++;
+    /* The core proves its command was taken by watching done fall before
+     * it rises again, so the fall has to last long enough to be seen.
+     * Every other handler gets that for free from the clocks its host
+     * memory access burns; this one touches nothing and would otherwise
+     * hand back an answer to a question the core never saw asked. */
+    for (int k = 0; k < 4; k++)
+        a_edge();
+    target_done();
+}
+
+/* Get File, the only command that answers with more than a code: the
+ * host writes back the name bound to the slot. It lands wherever the
+ * response struct points, which for this core is the scratch between
+ * the assets and the ROM, because the bridge writes only the store.
+ *
+ * Analogue documents the command and not the shape of the answer. A
+ * NUL-terminated name at offset 0 is what Open File's parameter struct
+ * carries and what the firmware reads back; the real host is what
+ * settles whether that is right. */
+static void do_getfile()
+{
+    dut->target_dataslot_done = 0;
+    uint32_t slot = dut->tb_pocket_ds_id;
+    uint32_t at = dut->tb_pocket_resp_struct;
+    g_getfiles++;
+    const std::string &name = g_bound[slot];
+    std::vector<uint8_t> resp(256, 0);
+    for (size_t i = 0; i < name.size() && i + 1 < resp.size(); i++)
+        resp[i] = (uint8_t)name[i];
+    host_put_bytes(at, resp.data(), resp.size());
+    target_done();
+}
+
+/* One clk_sys step with the host watching for a command. The request
+ * lines are one pulse wide, so this samples every clock. */
+static void step()
+{
+    static int prev_r, prev_w, prev_o, prev_f, prev_g;
+    tick();
+    int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
+        o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
+        g = dut->tb_pocket_ds_getfile;
+    if (o && !prev_o)
+    {
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
+        do_openfile();
+        return;
+    }
+    if (f && !prev_f)
+    {
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
+        do_flush();
+        return;
+    }
+    if (g && !prev_g)
+    {
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
+        do_getfile();
+        return;
+    }
+    if (r && !prev_r)
+    {
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
+        do_slotread();
+        return;
+    }
+    if (w && !prev_w)
+    {
+        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
+        do_slotwrite();
+        return;
+    }
+    prev_r = r;
+    prev_w = w;
+    prev_o = o;
+    prev_f = f;
+    prev_g = g;
+}
+
+static std::vector<uint8_t> read_file(const char *path)
+{
+    std::vector<uint8_t> v;
+    FILE *f = fopen(path, "rb");
+    if (!f)
+        return v;
+    uint8_t buf[4096];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+        v.insert(v.end(), buf, buf + n);
+    fclose(f);
+    return v;
+}
+
+
+/* Where the host reads and writes a state. core_top declares the same
+ * address and the same length, and stage_map_gate holds them together
+ * with the engine's own word count. */
+#define BLOB_BRIDGE 0x03F00000u
+#define BLOB_BYTES 324944u
+
+/* The floor Analogue documents: one bridge access per eighty-eight
+ * clocks of clk_74a. Reading faster than the machine can answer is what
+ * the underrun bit is for, and a bench that read at its own speed would
+ * find it every time and prove nothing. */
+#define HOST_FLOOR 88
+
+static long g_underrun_at;
+
+/* The card as installed, with the ROM the user picked already bound.
+ * A blob handed in means this is a wake: it goes into the window before
+ * the core is let out of reset, which is where the host puts it. */
+static void boot(const std::vector<uint8_t> &rom,
+                 const std::vector<uint8_t> *blob)
+{
+    dut = new Vtb_pocket;
+    a_next = s_next = g_sys = 0;
+    g_console.clear();
+    g_rv.clear();
+    g_files.clear();
+    g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
+              "/Saves", "/Saves/rp6502", "/Saves/rp6502/common"};
+    g_opens = g_reads = g_writes = g_flushes = g_getfiles = 0;
+    memset(g_dt, 0, sizeof g_dt);
+    for (auto &b : g_bound)
+        b.clear();
+    g_bound[0] = "/Assets/rp6502/common/file.rp6502";
+    g_files[g_bound[0]] = rom;
+
+    dut->rst_n = 0;
+    dut->arst_n = 0;
+    dut->reset_n = 0;
+    dut->savestate_start = 0;
+    dut->savestate_load = 0;
+    dut->dataslot_allcomplete = 0;
+    dut->target_dataslot_done = 1;
+    dut->target_dataslot_err = 0;
+    for (int i = 0; i < 40; i++)
+        tick();
+
+    auto *r = dut->rootp;
+    tb_load_tcm(r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm0,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm1,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm2,
+                r->tb_pocket__DOT__core__DOT__machine__DOT__rv__DOT__tcm3,
+                SW_BIN);
+
+    dut->rst_n = 1;
+    dut->arst_n = 1;
+    for (int i = 0; i < 40000 && !dut->tb_pocket_ready; i++)
+        tick();
+
+    std::vector<uint8_t> fonts = read_file(FONTS_BIN);
+    host_put_bytes(TB_STAGE_FONT_BASE, fonts.data(), fonts.size());
+    std::vector<uint8_t> oemcp = read_file(OEMCP_BIN);
+    host_put_bytes(TB_STAGE_OEMCP_BASE, oemcp.data(), oemcp.size());
+    host_put_bytes(TB_STAGE_ROM_BASE, rom.data(), rom.size());
+    dt_set(0, (uint32_t)rom.size());
+    dut->rtc_epoch = 1000000000u;
+    dut->rtc_valid = 1;
+    host_write(0x1000000Cu, 5);
+    host_write(0x10000010u, 30);
+    host_write(0x10000014u, 0);
+
+    /* Before the core runs, because the sticky bit it raises is what a
+     * boot asks to know whether a restore is coming. */
+    if (blob)
+        host_put_bytes(BLOB_BRIDGE, blob->data(), blob->size());
+
+    dut->datatable_q = g_dt[1];
+    dut->dataslot_allcomplete = 1;
+    dut->reset_n = 1;
+    for (int i = 0; i < 4000; i++)
+        step();
+}
+
+static void teardown()
+{
+    dut->final();
+    delete dut;
+    dut = nullptr;
+}
+
+/* 0x00A0 with the request bit, then the query the host polls with. */
+static bool create_state(std::vector<uint8_t> &blob)
+{
+    dut->savestate_start = 1;
+    dut->eval();
+    bool acked = false;
+    for (long i = 0; i < 200000L && !acked; i++)
+    {
+        step();
+        acked = dut->tb_pocket_savestate_start_ack;
+    }
+    /* The ack is combinational, so seeing it says nothing about the
+     * core having had a clock edge to latch the request on. The
+     * bridge's command engine does not let go the instant it is
+     * answered either -- it leaves for its done state, which is a few
+     * clocks. Hold it the same way. */
+    for (int k = 0; k < 4; k++)
+        a_edge();
+    dut->savestate_start = 0;
+    dut->eval();
+    if (!acked)
+        return false;
+    for (long i = 0; i < 40000000L && dut->tb_pocket_savestate_start_busy; i++)
+        step();
+    if (dut->tb_pocket_savestate_start_busy || !dut->tb_pocket_savestate_start_ok)
+        return false;
+
+    blob.assign(BLOB_BYTES, 0);
+    for (uint32_t i = 0; i < BLOB_BYTES; i += 4)
+    {
+        uint32_t w = host_read(BLOB_BRIDGE + i);
+        blob[i] = (uint8_t)(w >> 24);
+        blob[i + 1] = (uint8_t)(w >> 16);
+        blob[i + 2] = (uint8_t)(w >> 8);
+        blob[i + 3] = (uint8_t)w;
+        /* host_read has already spent some of the interval. */
+        for (int k = 0; k < HOST_FLOOR - 9; k++)
+            a_edge();
+        if (dut->tb_pocket_savestate_start_err && !g_underrun_at)
+            g_underrun_at = (long)i;
+    }
+    return true;
+}
+
+static bool load_state(void)
+{
+    dut->savestate_load = 1;
+    dut->eval();
+    bool acked = false;
+    for (long i = 0; i < 200000L && !acked; i++)
+    {
+        step();
+        acked = dut->tb_pocket_savestate_load_ack;
+    }
+    for (int k = 0; k < 4; k++)
+        a_edge();
+    dut->savestate_load = 0;
+    dut->eval();
+    if (!acked)
+    {
+        fprintf(stderr, "load: never acked\n");
+        return false;
+    }
+    for (long i = 0; i < 40000000L && dut->tb_pocket_savestate_load_busy; i++)
+        step();
+    if (dut->tb_pocket_savestate_load_busy)
+        fprintf(stderr, "load: still busy\n");
+    if (dut->tb_pocket_savestate_load_err)
+        fprintf(stderr, "load: refused\n");
+    return !dut->tb_pocket_savestate_load_busy
+           && dut->tb_pocket_savestate_load_ok
+           && !dut->tb_pocket_savestate_load_err;
+}
+
+/* The machine's own arrays, reached the way every other bench on this
+ * board reaches them: straight out of the model, not through the blob,
+ * so a blob that agreed with itself would still be caught. */
+#define MEM(f) (dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__##f)
+
+static const std::string DONE = "pocket file ok";
+
+/* Measured on this bench: the firmware finishes staging and lets the
+ * 6502 go at about 1,424,000 steps, and the program's first console
+ * byte is at about 1,766,000. So this is just inside the program's run
+ * and nowhere near the end of it.
+ *
+ * It is also before the program's first file operation, and that is
+ * not incidental. A state taken partway through one comes back to a
+ * host that never heard of it -- see the README. The machine holds off
+ * a freeze while a single command is outstanding, which is not the
+ * same as holding off across a whole operation, and this bench is
+ * where that difference was found. */
+#define SAVE_AT 1430000L
+
+UTEST_MAIN();
+
+UTEST(psleep, a_running_program_survives_the_reconfigure)
+{
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom, nullptr);
+
+    /* Far enough in that the machine is real -- the firmware up, the
+     * ROM staged and running, the program partway through writing a
+     * file -- and nowhere near finished, because a program that has
+     * already stopped proves nothing about carrying one across. */
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+    /* The program works in silence and prints only when it is finished,
+     * so an empty console here is the whole point: what is about to be
+     * saved is a machine in the middle of a file. And the 6502 is out
+     * of reset, or what is being saved is the firmware still staging
+     * and no program at all. */
+    ASSERT_EQ(0u, g_console.size());
+    ASSERT_TRUE((int)MEM(resb));
+    /* The program works in silence and prints only when it is finished,
+     * so an empty console here is the whole point: what is about to be
+     * saved is a machine in the middle of a file. */
+    ASSERT_EQ(0u, g_console.size());
+    /* diagnostic */
+
+    /* Marks in the memories the program itself will not touch, so that
+     * every window the engine reads through is checked and not only the
+     * ones the program happens to use. */
+    for (uint32_t i = 0; i < 16; i++)
+    {
+        MEM(xram__DOT__mem0)[i] = (uint8_t)(0xA0 + i);
+        MEM(xram__DOT__mem1)[i] = (uint8_t)(0xB0 + i);
+        MEM(xram__DOT__mem2)[i] = (uint8_t)(0xC0 + i);
+        MEM(xram__DOT__mem3)[i] = (uint8_t)(0xD0 + i);
+        MEM(vid_mode0__DOT__cell0)[i] = (uint8_t)(0x10 + i);
+        MEM(vid_mode0__DOT__cell1)[i] = (uint8_t)(0x20 + i);
+        MEM(vid_prog__DOT__fill_e)[i] = 0x80005000u + i;
+        MEM(vid_prog__DOT__spr_c)[i] = 0x99000000u + i;
+    }
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    /* Served whole, and none of it late. */
+    if (g_underrun_at)
+        fprintf(stderr, "underrun at byte %ld, word %ld\n",
+                g_underrun_at, g_underrun_at / 4);
+    ASSERT_FALSE((int)dut->tb_pocket_savestate_start_err);
+
+    teardown();
+
+    /* The wake: a new device with a cold store, the host streaming its
+     * slots again, and the blob written into the window before the core
+     * is let out of reset. */
+    boot(rom, &blob);
+    /* Nothing of the old machine crossed by itself. */
+    ASSERT_NE(0xA0u, (uint32_t)MEM(xram__DOT__mem0)[0]);
+    /* And the boot declined to start the ROM under the restore that is
+     * coming, which is what the sticky blob bit is for. */
+    ASSERT_TRUE(g_console.find(DONE) == std::string::npos);
+
+    ASSERT_TRUE(load_state());
+
+    for (uint32_t i = 0; i < 16; i++)
+    {
+        ASSERT_EQ(0xA0u + i, (uint32_t)MEM(xram__DOT__mem0)[i]);
+        ASSERT_EQ(0xB0u + i, (uint32_t)MEM(xram__DOT__mem1)[i]);
+        ASSERT_EQ(0xC0u + i, (uint32_t)MEM(xram__DOT__mem2)[i]);
+        ASSERT_EQ(0xD0u + i, (uint32_t)MEM(xram__DOT__mem3)[i]);
+        ASSERT_EQ(0x10u + i, (uint32_t)MEM(vid_mode0__DOT__cell0)[i]);
+        ASSERT_EQ(0x20u + i, (uint32_t)MEM(vid_mode0__DOT__cell1)[i]);
+        ASSERT_EQ(0x80005000u + i, (uint32_t)MEM(vid_prog__DOT__fill_e)[i]);
+        ASSERT_EQ(0x99000000u + i, (uint32_t)MEM(vid_prog__DOT__spr_c)[i]);
+    }
+
+    /* The whole claim, in one line of console. The 6502 program was
+     * halfway through a file when the power went; this device never
+     * staged it, never ran a line of it, and it finishes anyway. Its
+     * code and its stack are in the SRAM the blob carried, its place in
+     * the code is in the registers the engine jammed back, and the
+     * syscall it was inside belongs to a soft CPU that resumed at the
+     * instruction it was stopped in front of rather than booting. */
+    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+         i++)
+        step();
+    if (g_console.find(DONE) == std::string::npos)
+        fprintf(stderr,
+                "6502 pc %04x resb=%d frozen=%d engine=%d console=[%s]\n",
+                (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
+                (int)MEM(frz_held), (int)MEM(engine__DOT__state),
+                g_console.c_str());
+    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+}

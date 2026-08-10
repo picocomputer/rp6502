@@ -153,9 +153,10 @@ module pocket_sst #(
      * it, and anything slower is a cycle the command engine spends
      * parked for no reason.
      *
-     * Busy until the engine says the blob can be read, and then done for
-     * as long as it takes the host to read it -- the documented shape is
-     * one result that stands until the next request starts. */
+     * Busy until the first word of the blob is standing here, and then
+     * done for as long as it takes the host to read the rest -- the
+     * documented shape is one result that stands until the next request
+     * starts. */
     always_comb begin
         pocket_sst_start_ack = savestate_start;
         pocket_sst_load_ack = savestate_load;
@@ -237,7 +238,14 @@ module pocket_sst #(
              * and the firmware asks it once before it starts the ROM. */
             if (blob_hit) blob_seen <= 1'b1;
 
-            if (start_hold && ready_s2) start_done <= 1'b1;
+            /* Done when there is a word waiting, not when the engine
+             * has stopped the machine. The host is entitled to read the
+             * moment it is told, and between the engine saying it is
+             * ready and the first word standing here there are a
+             * handful of clocks in which it would be read early -- and
+             * a read with nothing behind it is an underrun, which is
+             * the create answering an error on its own first word. */
+            if (start_hold && pf_valid) start_done <= 1'b1;
             if (load_hold && ldone_s2) begin
                 load_kept <= 1'b1;
                 load_bad <= lerr_s2;
