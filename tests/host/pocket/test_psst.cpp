@@ -9,10 +9,9 @@
  * The handshake is the part that cannot be got wrong: the bridge's
  * command engine parks in the savestate state until the ack, so a core
  * that claims support and does not answer takes every host command down
- * with it. Everything else here is the stream — order, the duplicate
- * read the host makes, and the two sticky flags that are the only
- * things standing between a blob that is wrong and a blob that is wrong
- * and handed over anyway.
+ * with it. The other half is the sticky bit that says a blob is
+ * arriving, which is how a wake announces itself before any command
+ * does.
  */
 
 #include "Vpocket_sst.h"
@@ -26,23 +25,15 @@
 #define BRG_PERIOD 2
 #define SYS_PERIOD 3
 
-/* Analogue's floor, in clk_74a cycles. */
-#define HOST_FLOOR 88
-
 #define BLOB_BASE 0x03F00000u
 #define BLOB_WINDOW 0x000A0000u
 
 #define REG_CTL 0x00u
 #define REG_RESULT 0x04u
-#define REG_DATA 0x08u
 
 #define CTL_START_REQ (1u << 0)
 #define CTL_LOAD_REQ (1u << 1)
 #define CTL_BLOB_SEEN (1u << 2)
-#define CTL_UNDERRUN (1u << 3)
-#define CTL_OVERRUN (1u << 4)
-#define CTL_FULL (1u << 5)
-#define CTL_DRAINED (1u << 6)
 
 #define RES_START_OK 1u
 #define RES_START_ERR 2u
@@ -96,7 +87,6 @@ static void reset(void)
     dut->addr = 0;
     dut->wdata = 0;
     dut->bridge_wr = 0;
-    dut->bridge_rd = 0;
     dut->bridge_addr = 0;
     dut->savestate_start = 0;
     dut->savestate_load = 0;
@@ -132,20 +122,6 @@ static uint32_t mmio_read(uint32_t off)
     dut->stb = 0;
     tick();
     return dut->pocket_sst_rdata;
-}
-
-/* The host's side. It presents an address, and samples the answer some
- * clocks later; the gap here is longer than the bridge's four. */
-static uint32_t bridge_read(uint32_t byte_addr)
-{
-    dut->bridge_addr = byte_addr;
-    dut->bridge_rd = 1;
-    do
-        tick();
-    while (t % BRG_PERIOD != 0);
-    dut->bridge_rd = 0;
-    run(8 * BRG_PERIOD);
-    return dut->pocket_sst_rd_data;
 }
 
 /* Only that a write landed, and where. What the host put there goes to
@@ -283,68 +259,6 @@ UTEST(psst, a_load_result_does_not_answer_a_create)
     ASSERT_FALSE((int)dut->pocket_sst_load_busy);
 }
 
-UTEST(psst, the_stream_comes_back_in_order)
-{
-    reset();
-    for (uint32_t i = 0; i < 4; i++)
-        mmio_write(REG_DATA, 0xA5000000u + i);
-    run(64);
-    for (uint32_t i = 0; i < 4; i++)
-        ASSERT_EQ(0xA5000000u + i, bridge_read(BLOB_BASE + i * 4));
-}
-
-UTEST(psst, a_repeated_address_is_served_the_same_word)
-{
-    reset();
-    mmio_write(REG_DATA, 0x11112222u);
-    mmio_write(REG_DATA, 0x33334444u);
-    run(64);
-    ASSERT_EQ(0x11112222u, bridge_read(BLOB_BASE));
-    /* The host re-reads; it must not consume the next word. */
-    ASSERT_EQ(0x11112222u, bridge_read(BLOB_BASE));
-    ASSERT_EQ(0x11112222u, bridge_read(BLOB_BASE));
-    ASSERT_EQ(0x33334444u, bridge_read(BLOB_BASE + 4));
-}
-
-UTEST(psst, an_empty_queue_on_a_new_address_is_an_underrun)
-{
-    reset();
-    ASSERT_TRUE(hold_until_ack(0));
-    run(64);
-    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
-    (void)bridge_read(BLOB_BASE);
-    run(64);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
-}
-
-UTEST(psst, a_push_into_a_full_queue_is_an_overrun)
-{
-    reset();
-    /* Thirty-two deep, so this is well past it and nothing is reading. */
-    for (int i = 0; i < 64; i++)
-        mmio_write(REG_DATA, 0xDEAD0000u + (uint32_t)i);
-    run(32);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_OVERRUN) != 0);
-    mmio_write(REG_CTL, CTL_OVERRUN);
-    run(16);
-    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_OVERRUN) != 0);
-}
-
-UTEST(psst, a_new_create_drains_what_the_last_one_left)
-{
-    reset();
-    for (uint32_t i = 0; i < 8; i++)
-        mmio_write(REG_DATA, 0xBAD00000u + i);
-    run(64);
-    ASSERT_TRUE(hold_until_ack(0));
-    run(256);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_DRAINED) != 0);
-    /* The queue is this save's from here, not the abandoned one's. */
-    mmio_write(REG_DATA, 0x600DF00Du);
-    run(64);
-    ASSERT_EQ(0x600DF00Du, bridge_read(BLOB_BASE));
-}
-
 UTEST(psst, a_write_into_the_window_is_a_blob_arriving)
 {
     reset();
@@ -362,37 +276,6 @@ UTEST(psst, a_write_outside_the_window_is_not)
     bridge_write(BLOB_BASE + BLOB_WINDOW);
     run(64);
     ASSERT_FALSE((mmio_read(REG_CTL) & CTL_BLOB_SEEN) != 0);
-}
-
-UTEST(psst, a_long_stream_holds_up_at_the_hosts_floor)
-{
-    reset();
-    ASSERT_TRUE(hold_until_ack(0));
-    run(64);
-    mmio_write(REG_CTL, CTL_START_REQ);
-
-    const uint32_t words = 300;
-    uint32_t pushed = 0, read = 0;
-    long next_read = t + HOST_FLOOR * BRG_PERIOD;
-
-    while (read < words)
-    {
-        if (pushed < words && !(mmio_read(REG_CTL) & CTL_FULL))
-            mmio_write(REG_DATA, 0x5A5A0000u + pushed++);
-        else
-            run(4);
-
-        if (t >= next_read && read < pushed)
-        {
-            ASSERT_EQ(0x5A5A0000u + read, bridge_read(BLOB_BASE + read * 4));
-            read++;
-            next_read = t + HOST_FLOOR * BRG_PERIOD;
-        }
-    }
-
-    uint32_t ctl = mmio_read(REG_CTL);
-    ASSERT_FALSE((ctl & CTL_UNDERRUN) != 0);
-    ASSERT_FALSE((ctl & CTL_OVERRUN) != 0);
 }
 
 UTEST_MAIN()

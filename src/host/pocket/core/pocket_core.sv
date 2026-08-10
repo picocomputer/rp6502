@@ -391,7 +391,7 @@ module pocket_core #(
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
         .bridge_rd(bridge_rd),
-        .pocket_file_rd_data(file_rd_data),
+        .pocket_file_rd_data(pocket_core_bridge_rd_data),
         .pocket_file_param_struct(pocket_core_param_struct),
         .pocket_file_resp_struct(pocket_core_resp_struct),
         .pocket_file_dt_req(file_dt_req),
@@ -424,10 +424,7 @@ module pocket_core #(
         .clk_74a(clk_74a),
         .arst_n(arst_n),
         .bridge_wr(bridge_wr),
-        .bridge_rd(bridge_rd),
         .bridge_addr(bridge_addr),
-        .pocket_sst_rd_data(sst_rd_data),
-        .pocket_sst_rd_sel(sst_rd_sel),
         .savestate_start(savestate_start),
         .pocket_sst_start_ack(pocket_core_savestate_start_ack),
         .pocket_sst_start_busy(pocket_core_savestate_start_busy),
@@ -439,14 +436,6 @@ module pocket_core #(
         .pocket_sst_load_ok(pocket_core_savestate_load_ok),
         .pocket_sst_load_err(pocket_core_savestate_load_err)
     );
-
-    /* Two things in this core answer a bridge read, and which one is
-     * decided here rather than upstairs so the blob's window stays as
-     * exact as pocket_sst's own decode. */
-    logic [31:0] file_rd_data, sst_rd_data;
-    logic sst_rd_sel;
-    always_comb
-        pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
 
     pocket_video video (
         .clk_sys(clk_sys),
