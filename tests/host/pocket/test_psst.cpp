@@ -34,6 +34,7 @@
 #define CTL_START_REQ (1u << 0)
 #define CTL_LOAD_REQ (1u << 1)
 #define CTL_BLOB_SEEN (1u << 2)
+#define CTL_UNDERRUN (1u << 3)
 
 #define RES_START_OK 1u
 #define RES_START_ERR 2u
@@ -42,6 +43,50 @@
 
 static Vpocket_sst *dut;
 static long t;
+
+/* The engine, played by the bench: it holds a word for whatever index
+ * is asked of it and answers after a few clocks, which is what the
+ * prefetch is written against. */
+static uint32_t eng_word(uint32_t idx) { return 0xA5000000u | idx; }
+
+static int eng_delay;
+static uint32_t eng_seen_idx;
+static bool eng_stopped;
+static int eng_freeze;
+
+/* The real engine says nothing until it has stopped the machine, so
+ * neither does this: ready and the answer both stay low until the
+ * freeze it was asked for has happened. */
+static void eng_step(void)
+{
+    if (eng_stopped || !dut->pocket_sst_save)
+    {
+        eng_freeze = 40;
+        dut->sst_rvalid = 0;
+        dut->sst_ready = 0;
+        eng_seen_idx = 0xFFFFFFFFu;
+        return;
+    }
+    if (eng_freeze > 0)
+    {
+        eng_freeze--;
+        dut->sst_rvalid = 0;
+        dut->sst_ready = 0;
+        return;
+    }
+    dut->sst_ready = 1;
+    if (dut->pocket_sst_rd_idx != eng_seen_idx)
+    {
+        eng_seen_idx = dut->pocket_sst_rd_idx;
+        eng_delay = 6;
+        dut->sst_rvalid = 0;
+    }
+    else if (eng_delay > 0 && --eng_delay == 0)
+    {
+        dut->sst_rdata = eng_word(eng_seen_idx);
+        dut->sst_rvalid = 1;
+    }
+}
 
 static void tick(void)
 {
@@ -56,6 +101,7 @@ static void tick(void)
     }
     if (t % BRG_PERIOD == 0)
     {
+        eng_step();
         dut->eval();
         dut->clk_74a = 1;
         dut->eval();
@@ -90,6 +136,14 @@ static void reset(void)
     dut->bridge_addr = 0;
     dut->savestate_start = 0;
     dut->savestate_load = 0;
+    dut->bridge_rd = 0;
+    dut->sst_ready = 0;
+    dut->sst_rvalid = 0;
+    dut->sst_rdata = 0;
+    eng_delay = 0;
+    eng_seen_idx = 0xFFFFFFFFu;
+    eng_stopped = false;
+    eng_freeze = 40;
     dut->eval();
     run(16);
     dut->arst_n = 1;
@@ -166,6 +220,81 @@ static int hold_until_ack(int is_load)
     else
         dut->savestate_start = 0;
     return 0;
+}
+
+/* One bridge read at a blob address, sampled the way the host does:
+ * present the address, then look a few clocks later. */
+static uint32_t blob_read(uint32_t idx)
+{
+    dut->bridge_addr = BLOB_BASE + idx * 4;
+    dut->bridge_rd = 1;
+    do
+        tick();
+    while (t % BRG_PERIOD != 0);
+    dut->bridge_rd = 0;
+    run(8 * BRG_PERIOD);
+    return dut->pocket_sst_rd_data;
+}
+
+/* Paced at the host's floor, because that is the contract: one word
+ * fetched ahead covers a reader that cannot ask faster than every
+ * eighty-eight clocks. Read faster than the host can and the prefetch
+ * is behind by construction, which is what the underrun flag is for. */
+UTEST(psst, the_blob_comes_out_in_order)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(0));
+    /* Time for the first word to be fetched ahead. */
+    run(200);
+    for (uint32_t i = 0; i < 16; i++)
+    {
+        ASSERT_EQ(eng_word(i), blob_read(i));
+        run((88 - 9) * BRG_PERIOD);
+    }
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
+}
+
+UTEST(psst, a_repeated_address_is_served_the_same_word)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(0));
+    run(200);
+    ASSERT_EQ(eng_word(0), blob_read(0));
+    /* The host re-reads; it must not be given the next word. */
+    ASSERT_EQ(eng_word(0), blob_read(0));
+    ASSERT_EQ(eng_word(0), blob_read(0));
+    ASSERT_EQ(eng_word(1), blob_read(1));
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
+}
+
+UTEST(psst, it_keeps_up_at_the_hosts_floor)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(0));
+    run(200);
+    for (uint32_t i = 0; i < 40; i++)
+    {
+        ASSERT_EQ(eng_word(i), blob_read(i));
+        /* The floor is eighty-eight clocks between accesses, and
+         * blob_read has already spent nine of them. */
+        run((88 - 9) * BRG_PERIOD);
+    }
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
+}
+
+/* An engine that has not answered yet is the one thing the prefetch
+ * cannot cover, and it has to say so rather than serve a stale word. */
+UTEST(psst, a_word_that_is_not_ready_is_an_underrun)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(0));
+    run(200);
+    ASSERT_EQ(eng_word(0), blob_read(0));
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
+    /* Jump somewhere the prefetch was not aimed. */
+    (void)blob_read(900);
+    run(32);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
 }
 
 UTEST(psst, a_create_is_acked_without_the_firmware)
