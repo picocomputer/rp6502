@@ -58,6 +58,14 @@ module pocket_sst #(
      * index goes across as a level and the answer comes back as one. */
     output logic pocket_sst_save,
     input logic sst_ready,
+    /* A load runs itself. The host command raises this, the engine
+     * takes it and does the whole thing, and the firmware -- the one
+     * that comes back out of the blob -- lets go of it once the fabric
+     * no blob carries has been put back. The 6502 is stopped for all of
+     * it, which is the point of making the firmware the one to let go. */
+    output logic pocket_sst_load,
+    input logic sst_load_done,
+    input logic sst_load_err,
     output logic [17:0] pocket_sst_rd_idx,
     output logic pocket_sst_rd_t,
     input logic [31:0] sst_rdata,
@@ -122,6 +130,7 @@ module pocket_sst #(
          * the index stands still while the engine answers it -- the
          * same held-level crossing the file bridge's parameters use. */
         pocket_sst_save = start_pend;
+        pocket_sst_load = load_req;
         pocket_sst_rd_idx = want;
         pocket_sst_rd_t = want_t;
     end
@@ -297,9 +306,14 @@ module pocket_sst #(
         if (start_s2 != start_s3) start_req <= 1'b1;
         if (load_s2 != load_s3) load_req <= 1'b1;
 
+        /* The load bit reads back as the engine's answer rather than
+         * the host's question: the firmware that acts on it is the one
+         * the blob brought, and it has nothing to say until the blob is
+         * in. Clearing it is what lets the 6502 run again. */
         if (stb)
             pocket_sst_rdata <= addr[3:2] == REG_CTL
-                ? {28'd0, under_s2, seen_s2, load_req, start_req}
+                ? {27'd0, sst_load_err, under_s2, seen_s2, sst_load_done,
+                   start_req}
                 : 32'd0;
     end
 

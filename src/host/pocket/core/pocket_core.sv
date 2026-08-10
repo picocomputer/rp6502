@@ -324,6 +324,7 @@ module pocket_core #(
     /* The savestate engine holds the machine; nothing outside walks
      * its state port directly. */
     logic sst_save, sst_ready, sst_rd_sel, sst_word_valid, sst_rd_t;
+    logic sst_load, sst_load_done, sst_load_err;
     logic [17:0] sst_rd_idx;
     logic [31:0] sst_word, sst_rd_data;
 
@@ -349,9 +350,9 @@ module pocket_core #(
         .rp6502_sst_dbg_ebreak(),
         .rp6502_sst_dbg_fault(),
         .sst_save(sst_save),
-        .sst_load(1'b0),
-        .rp6502_sst_load_done(),
-        .rp6502_sst_load_err(),
+        .sst_load(sst_load),
+        .rp6502_sst_load_done(sst_load_done),
+        .rp6502_sst_load_err(sst_load_err),
         .rp6502_sst_ready(sst_ready),
         .sst_rd_idx(sst_rd_idx),
         .sst_rd_t(sst_rd_t),
@@ -467,6 +468,9 @@ module pocket_core #(
         .pocket_sst_rd_data(sst_rd_data),
         .pocket_sst_rd_sel(sst_rd_sel),
         .pocket_sst_save(sst_save),
+        .pocket_sst_load(sst_load),
+        .sst_load_done(sst_load_done),
+        .sst_load_err(sst_load_err),
         .sst_ready(sst_ready),
         .pocket_sst_rd_idx(sst_rd_idx),
         .pocket_sst_rd_t(sst_rd_t),

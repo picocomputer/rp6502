@@ -35,6 +35,7 @@
 #define CTL_LOAD_REQ (1u << 1)
 #define CTL_BLOB_SEEN (1u << 2)
 #define CTL_UNDERRUN (1u << 3)
+#define CTL_LOAD_ERR (1u << 4)
 
 #define RES_START_OK 1u
 #define RES_START_ERR 2u
@@ -140,6 +141,8 @@ static void reset(void)
     dut->sst_ready = 0;
     dut->sst_rvalid = 0;
     dut->sst_rdata = 0;
+    dut->sst_load_done = 0;
+    dut->sst_load_err = 0;
     eng_delay = 0;
     eng_seen_idx = 0xFFFFFFFFu;
     eng_stopped = false;
@@ -331,9 +334,46 @@ UTEST(psst, the_two_requests_do_not_collide)
     reset();
     ASSERT_TRUE(hold_until_ack(1));
     run(64);
+    ASSERT_TRUE((int)dut->pocket_sst_load_busy);
+    ASSERT_FALSE((int)dut->pocket_sst_start_busy);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_START_REQ) != 0);
+}
+
+/* A load is not a request the firmware services; it is one the engine
+ * services and the firmware is told about afterwards, because the
+ * firmware that is told is the one the blob brought. So the host's
+ * command goes to the engine, and the bit the firmware reads is the
+ * engine's answer -- which is also why clearing that bit is what lets
+ * the machine run again. */
+UTEST(psst, a_load_goes_to_the_engine_and_the_answer_comes_back)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(1));
+    run(64);
+    ASSERT_TRUE((int)dut->pocket_sst_load);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_LOAD_REQ) != 0);
+
+    dut->sst_load_done = 1;
+    run(16);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_LOAD_REQ) != 0);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_LOAD_ERR) != 0);
+
+    mmio_write(REG_CTL, CTL_LOAD_REQ);
+    run(16);
+    ASSERT_FALSE((int)dut->pocket_sst_load);
+}
+
+UTEST(psst, a_refused_load_says_so)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(1));
+    run(64);
+    dut->sst_load_done = 1;
+    dut->sst_load_err = 1;
+    run(16);
     uint32_t ctl = mmio_read(REG_CTL);
     ASSERT_TRUE((ctl & CTL_LOAD_REQ) != 0);
-    ASSERT_FALSE((ctl & CTL_START_REQ) != 0);
+    ASSERT_TRUE((ctl & CTL_LOAD_ERR) != 0);
 }
 
 UTEST(psst, a_result_ends_busy_and_stands)
