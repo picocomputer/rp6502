@@ -22,7 +22,15 @@ module rp6502
      * storage, which on the Pocket is a real SRAM chip. */
     parameter bit EXT_RAM = 0
 ) (
+    /* Two clocks, and only one of them stops. clk_sys carries the
+     * arrays and the savestate serializer, which have to keep working
+     * while the machine does not; clk_mach carries the machine -- the
+     * 6502, the VIA, the RIA, the video, the audio -- and is taken away
+     * at a stroke when a savestate is being made. Nothing in the
+     * machine is gated, because there is nothing to gate: it simply has
+     * no clock. */
     input logic clk_sys,
+    input logic clk_mach,
     /* Half clk_sys, rising with it. Made outside: a divider made here
      * would rise after this module's registers settle on the same edge,
      * and a master clocked that late reads a ready not yet published. */
@@ -49,14 +57,9 @@ module rp6502
     input logic stage_stall,
     input logic [7:0] stage_rdata,
 
-    /* Where the clock may be cut, which is the only thing the machine
-     * has to say about being stopped. Stopping it is done by taking its
-     * clock away at the source; there is no enable anywhere in here to
-     * hold low, and nothing inside knows it happened.
-     *
-     * While the clock is off, the state that is in flops rather than
-     * memory is the engine's to read and write a word at a time. */
-    output logic rp6502_at_boundary,
+    /* Whether the machine has its clock. Whoever owns the clock tree
+     * answers this; the serializer waits on it both ways. */
+    input logic mach_running,
     /* Raised while a savestate wants the machine stopped. Whoever owns
      * the clocks cuts them when this and the boundary are both true,
      * and puts them back when it drops. */
@@ -138,6 +141,8 @@ module rp6502
     output logic [7:0] rp6502_ram_b_wdata,
     output logic rp6502_ram_b_we,
     output logic rp6502_ram_b_stb,
+    /* One port-A fetch for the jammed address, at the restore's end. */
+    output logic rp6502_ram_refill,
     input logic [7:0] ram_b_rdata,
     input logic ram_b_stall,
     input logic ram_hold,
@@ -152,15 +157,6 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    /* Where the clock may be cut. Nothing in here acts on it: the
-     * machine is stopped by taking its clock away at the source, not by
-     * holding an enable low in every subsystem that has one. All this
-     * says is that the 6502 is in front of an instruction rather than
-     * inside one, which is the only moment at which stopping it is
-     * reversible. WAI and STP are boundaries too -- neither ever
-     * fetches again, so waiting for an opcode fetch would never let go
-     * of a core sitting in one. */
-    always_comb rp6502_at_boundary = cpu_sync || cpu_stp || cpu_wai;
     always_comb bus_rdy = !(bus_sel_xram && xr_busy)
         && !(bus_sel_stage && stage_stall)
         && !(bus_sel_sram && ram_b_stall);
@@ -172,7 +168,7 @@ module rp6502
     always_comb phi2_en = phi2_raw_en && !ram_hold;
     always_comb rp6502_phi2_en = phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .phi2_khz(phi2_khz),
         .phi2_div_en(phi2_raw_en)
     );
@@ -182,19 +178,31 @@ module rp6502
     logic cpu_we, cpu_next_we;
     logic via_irq;
     /* Opcode-fetch marker, which is where a freeze is allowed to land. */
-    logic cpu_sync;
 
     /* RESB inverted, reaching the 6502 and the 6522 and nothing else. A
      * register rather than a gate with the platform's reset, which
      * already clears this flop asynchronously. */
     logic resb /*verilator public_flat_rw*/;
-    always_comb rp6502_cpu_run = resb;
-    logic cpu_stp, cpu_wai;
+    /* What the 6502 and the VIA actually see. The hold is a restore's:
+     * asynchronous, so it lands while the machine has no clock, and the
+     * clock then returns over a core already in reset. */
+    logic resb_eff;
+    always_comb resb_eff = resb && !eng_hold_res;
+    always_comb rp6502_cpu_run = resb_eff;
+    logic cpu_stp;
+    /* Read a word at a time and written all at once. The read needs no
+     * clock -- a flop's output is simply there -- and the write needs
+     * one edge for the lot, because a restore lands with the machine's
+     * clock already back and a jam spread over twelve edges would let
+     * it run through eleven of them. */
+    logic eng_st_jam;
+    logic [31:0] eng_jam_mach[4], eng_jam_cpu[5], eng_jam_via[7];
+    logic [31:0] eng_jam_ria[12];
+
     /* Three sets of flops share one indexed port: the machine's own,
      * the 6502's, and the VIA's. */
     localparam logic [1:0] SEL_MACH = 2'd0;
     localparam logic [1:0] SEL_CPU = 2'd1;
-    localparam logic [1:0] SEL_VIA = 2'd2;
 
     logic [31:0] cpu65_st_rdata, via_st_rdata, mach_st_rdata, st_rdata;
     always_comb begin
@@ -214,8 +222,8 @@ module rp6502
     end
 
     cpu65 cpu (
-        .clk(clk_sys),
-        .rst_n(resb),
+        .clk(clk_mach),
+        .rst_n(resb_eff),
         .en(phi2_en),
         .data_i(cpu_din),
         .irq_i(via_irq || ria_irq),
@@ -225,13 +233,11 @@ module rp6502
         .cpu65_addr(cpu_addr),
         .cpu65_data(cpu_dout),
         .cpu65_we(cpu_we),
-        .cpu65_sync(cpu_sync),
         .cpu65_stp(cpu_stp),
-        .cpu65_wai(cpu_wai),
         .st_idx(eng_st_idx),
         .cpu65_st_rdata(cpu65_st_rdata),
-        .st_we(eng_st_we && eng_st_sel == SEL_CPU),
-        .st_wdata(eng_st_wdata),
+        .st_jam(eng_st_jam),
+        .st_jam_data(eng_jam_cpu),
         .cpu65_next_addr(cpu_next_addr),
         .cpu65_next_data(cpu_next_data),
         .cpu65_next_we(cpu_next_we)
@@ -239,22 +245,32 @@ module rp6502
 
     logic eng_freeze;
     always_comb rp6502_sst_stop_req = eng_freeze;
+    always_comb rp6502_ram_refill = eng_st_jam;
+
     /* The serializer owns the soft CPU's debug port and its memory for
-     * as long as it has the machine. */
+     * as long as it is doing anything -- which starts before the clock
+     * is cut, because the registers come out through that port while
+     * the core still has one, and ends after it is back, because they
+     * go in the same way. */
     logic eng_own;
-    always_comb eng_own = eng_freeze;
 
     /* The serializer's own way into every array. It does not go through
      * the machine's bus any more: the bus is machine logic and machine
      * logic has no clock while a savestate is being made. The arrays do
      * -- their addresses come from logic that is standing still, so
      * they sit there doing nothing until this side asks. */
-    logic eng_mem_own;
+    /* The serializer's ownership of every array, held for the whole
+     * stopped window rather than per access: machine logic freezes
+     * wherever it was, and a write enable frozen high would otherwise
+     * re-fire into an array that kept its clock. And the reset hold a
+     * restore raises before the clock returns, so the 6502 and the VIA
+     * come back into a rebuilt world already in reset. */
+    logic eng_arr_own, eng_hold_res;
     logic [13:0] eng_mem_addr;
     logic [31:0] eng_mem_wdata;
     logic [1:0] eng_xprog_word;
     logic eng_xram_we, eng_cell_we, eng_xprog_we;
-    logic eng_sram_sel, eng_sram_we, eng_regs_own, eng_regs_we;
+    logic eng_sram_sel, eng_sram_we, eng_regs_we;
     logic eng_stage_pend;
     logic [27:0] eng_stage_addr;
     logic [7:0] eng_regs_word;
@@ -269,8 +285,7 @@ module rp6502
     logic [14:0] eng_tcm_addr;
     logic [2:0] eng_st_idx;
     logic [31:0] eng_dbg_instr, eng_dbg_data0;
-    logic eng_dbg_resume, eng_st_we;
-    logic [31:0] eng_st_wdata;
+    logic eng_dbg_resume;
 
     sst_engine engine (
         .clk_sys(clk_sys),
@@ -279,8 +294,9 @@ module rp6502
         .sst_load(sst_load),
         .sst_engine_load_done(rp6502_sst_load_done),
         .sst_engine_load_err(rp6502_sst_load_err),
+        .sst_engine_busy(eng_own),
         .sst_engine_freeze(eng_freeze),
-        .at_boundary(rp6502_at_boundary),
+        .running(mach_running),
         .sst_engine_dbg_halt(eng_dbg_halt),
         .dbg_halted(rp6502_sst_dbg_halted),
         .sst_engine_ready(rp6502_sst_ready),
@@ -292,11 +308,11 @@ module rp6502
         .sst_engine_stage_addr(eng_stage_addr),
         .stage_stall(stage_stall),
         .stage_rdata(stage_rdata),
-        .sst_engine_mem_own(eng_mem_own),
+        .sst_engine_arr_own(eng_arr_own),
+        .sst_engine_hold_res(eng_hold_res),
         .sst_engine_mem_addr(eng_mem_addr),
         .sst_engine_mem_wdata(eng_mem_wdata),
         .sst_engine_xram_we(eng_xram_we),
-        .sst_engine_regs_own(eng_regs_own),
         .sst_engine_regs_word(eng_regs_word),
         .sst_engine_regs_we(eng_regs_we),
         .sst_engine_regs_wdata(eng_regs_wdata),
@@ -321,8 +337,11 @@ module rp6502
         .sst_engine_st_sel(eng_st_sel),
         .sst_engine_st_idx(eng_st_idx),
         .st_rdata(st_rdata),
-        .sst_engine_st_we(eng_st_we),
-        .sst_engine_st_wdata(eng_st_wdata),
+        .sst_engine_st_jam(eng_st_jam),
+        .sst_engine_jam_mach(eng_jam_mach),
+        .sst_engine_jam_cpu(eng_jam_cpu),
+        .sst_engine_jam_via(eng_jam_via),
+        .sst_engine_jam_ria(eng_jam_ria),
         .sst_engine_dbg_data0(eng_dbg_data0),
         .sst_engine_dbg_resume(eng_dbg_resume),
         .sst_engine_dbg_instr(eng_dbg_instr),
@@ -346,23 +365,30 @@ module rp6502
     generate
         if (EXT_RAM) begin : g_ram_ext
             always_comb begin
-                rp6502_ram_a_addr = cpu_next_addr;
+                /* On the jam, port A refetches the RESTORED current
+                 * address: the read the frozen pipeline had in flight
+                 * happened in another session, and the first enable
+                 * after a restore consumes whatever port A last
+                 * fetched. The BRAM build gets this for free from its
+                 * always-on read register. */
+                rp6502_ram_a_addr = eng_st_jam ? cpu_addr : cpu_next_addr;
                 rp6502_ram_a_wdata = cpu_next_data;
-                rp6502_ram_a_we = cpu_next_we;
+                rp6502_ram_a_we = cpu_next_we && !eng_st_jam;
                 rp6502_ram_b_addr = eng_sram_sel
                     ? eng_sram_addr : bus_addr[15:0];
                 rp6502_ram_b_wdata = eng_sram_sel
                     ? eng_sram_wdata : bus_wbyte;
-                rp6502_ram_b_we = eng_sram_sel ? eng_sram_we : bus_we;
+                rp6502_ram_b_we = eng_sram_sel ? eng_sram_we
+                    : (bus_we && !eng_arr_own);
                 rp6502_ram_b_stb = eng_sram_sel
-                    || (bus_pend && bus_sel_sram);
+                    || (bus_pend && bus_sel_sram && !eng_arr_own);
                 sram_rdata = ram_a_rdata;
                 sram_b_rdata = ram_b_rdata;
             end
         end else begin : g_ram_bram
             sram64k sram (
                 .clk(clk_sys),
-                .sst_own(eng_sram_sel),
+                .sst_own(eng_arr_own),
                 .sst_addr(eng_sram_addr),
                 .sst_we(eng_sram_we),
                 .sst_wdata(eng_sram_wdata),
@@ -388,7 +414,7 @@ module rp6502
             logic unused_ram;
             always_comb unused_ram = ^{ram_a_rdata, ram_b_rdata,
                                        cpu_next_addr, cpu_next_data,
-                                       cpu_next_we};
+                                       cpu_next_we, eng_sram_sel};
             /* verilator lint_on UNUSEDSIGNAL */
         end
     endgenerate
@@ -396,8 +422,8 @@ module rp6502
     logic ria_irq;
     logic [7:0] via_data;
     via via (
-        .clk(clk_sys),
-        .rst_n(resb),
+        .clk(clk_mach),
+        .rst_n(resb_eff),
         .en(phi2_en),
         .cs(sel_via),
         .we(cpu_we),
@@ -407,8 +433,8 @@ module rp6502
         .via_irq(via_irq),
         .st_idx(eng_st_idx),
         .via_st_rdata(via_st_rdata),
-        .st_we(eng_st_we && eng_st_sel == SEL_VIA),
-        .st_wdata(eng_st_wdata)
+        .st_jam(eng_st_jam),
+        .st_jam_data(eng_jam_via)
     );
 
     /* The soft CPU's clock is half this one. Fixed here rather than in
@@ -439,7 +465,7 @@ module rp6502
         slot_set_q = 1'b0;
         key_set_q = 1'b0;
     end
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk_mach) begin
         bus_stb_q <= bus_stb_n;
         rv_tx_valid_q <= rv_tx_valid_raw;
         slot_set_q <= slot_set;
@@ -477,7 +503,7 @@ module rp6502
      * clock looks only every second one. */
     logic bus_taken;
     initial bus_taken = 1'b0;
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk_mach) begin
         if (!bus_pend)
             bus_taken <= 1'b0;
         else if (bus_stb)
@@ -496,7 +522,6 @@ module rp6502
         .MTIME_WRAP(RV_KHZ / 100),
         .TCM_INIT_FILE(TCM_INIT_FILE)
     ) rv (
-        .clk_mem(clk_sys),
         .clk(clk_rv),
         .rst_n(rst_n),
         .rv_soc_phi2_khz(phi2_khz),
@@ -515,9 +540,8 @@ module rp6502
         .rv_soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
         .rv_soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
         .rv_soc_dbg_fault(rp6502_sst_dbg_fault),
-        .sst_phi2_we(eng_st_we && eng_st_sel == SEL_MACH
-                     && eng_st_idx == 3'd1),
-        .sst_phi2_wdata(eng_st_wdata[15:0]),
+        .sst_phi2_we(eng_st_jam),
+        .sst_phi2_wdata(eng_jam_mach[1][15:0]),
         .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
@@ -607,7 +631,7 @@ module rp6502
         bus_vid_prog = 1'b0;
         stage_addr_q = '0;
     end
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk_mach) begin
         if (bus_stb) begin
             bus_rsel <= bus_sel_regs ? 3'd1
                 : (bus_sel_ctl ? 3'd2
@@ -633,9 +657,8 @@ module rp6502
      * so it always comes up low and the blob is the only thing that
      * knows any different. */
     initial resb = 1'b0;
-    always_ff @(posedge clk_sys)
-        if (eng_st_we && eng_st_sel == SEL_MACH && eng_st_idx == 3'd0)
-            resb <= eng_st_wdata[0];
+    always_ff @(posedge clk_mach)
+        if (eng_st_jam) resb <= eng_jam_mach[0][0];
         else if (bus_stb && bus_we && bus_sel_ctl && !bus_addr[2])
             resb <= bus_wbyte[0];
 
@@ -645,7 +668,7 @@ module rp6502
     always_comb begin
         case (bus_rsel)
             3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
-                : {6'b0, cpu_stp, resb};
+                : {6'b0, cpu_stp, resb_eff};
             3'd3: bus_rbyte = stage_rdata;
             3'd5: bus_rbyte = xram_b_rdata;
             default: bus_rbyte = sram_b_rdata;
@@ -658,7 +681,8 @@ module rp6502
 
     logic [7:0] ria_data;
     ria_regs ria (
-        .clk(clk_sys),
+        .clk(clk_mach),
+        .clk_mem(clk_sys),
         .en(phi2_en),
         .cs(sel_ria),
         .we(cpu_we),
@@ -678,7 +702,9 @@ module rp6502
         .ria_regs_xr_wdata(xr_wdata),
         .xr_rdata(xram_b_rdata),
         .xr_cpu_want(bus_pend && bus_sel_xram),
-        .sst_own(eng_regs_own),
+        .sst_jam(eng_st_jam),
+        .sst_jam_data(eng_jam_ria),
+        .sst_own(eng_arr_own),
         .sst_word(eng_regs_word),
         .sst_we(eng_regs_we),
         .sst_wdata(eng_regs_wdata),
@@ -706,7 +732,7 @@ module rp6502
     end
 
     initial bus_hold = 8'h00;
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk_mach)
         if (phi2_en && !cpu_we)
             bus_hold <= cpu_din;
 
@@ -722,7 +748,7 @@ module rp6502
     logic prog_vsync_pulse;
     logic vid_px_first, vid_px_last;
     vid_timing vid_timing (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .vid_timing_h(vid_h),
         .vid_timing_v(vid_v),
         .vid_timing_px_first(vid_px_first),
@@ -762,13 +788,13 @@ module rp6502
         end
     end
     initial f_rotor = 1'd0;
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk_mach)
         if (f_any)
             f_rotor <= f_sel + 1'd1;
 
     logic [7:0] font_bits;
     vid_font vid_font (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .addr(mf_addr[f_sel]),
         .vid_font_bits(font_bits),
         .w_stb(bus_stb && bus_we && bus_sel_vid && bus_addr[18]),
@@ -794,7 +820,7 @@ module rp6502
         end
     end
     initial a_rotor = 1'd0;
-    always_ff @(posedge clk_sys)
+    always_ff @(posedge clk_mach)
         if (a_any)
             a_rotor <= a_sel + 1'd1;
 
@@ -805,7 +831,14 @@ module rp6502
     logic [7:0] xw_wdata;
     always_comb begin
         xw_host = xr_busy;
-        xw_we = xr_busy ? xr_we : (bus_stb && bus_we && bus_sel_xram);
+        /* The xr term's mask is the one write in the machine that
+         * neither reset nor the jam reaches: the RW engine has no
+         * reset, so an op suspended by the clock cut resumes when the
+         * clock returns and would land one stale byte in freshly
+         * restored XRAM. It is old-session work; it is discarded. */
+        xw_we = xr_busy ? (xr_we && !eng_arr_own && !eng_hold_res)
+                        : (bus_stb && bus_we && bus_sel_xram
+                           && !eng_arr_own);
         xw_addr = xr_busy ? xr_addr : bus_addr[15:0];
         xw_wdata = xr_busy ? xr_wdata : bus_wbyte;
     end
@@ -823,7 +856,7 @@ module rp6502
         qs_addr = '0;
         qs_val = '0;
     end
-    always_ff @(posedge clk_sys) begin
+    always_ff @(posedge clk_mach) begin
         qs_we <= xw_we;
         qs_host <= xw_host;
         qs_addr <= xw_addr;
@@ -831,7 +864,7 @@ module rp6502
     end
     xram64k xram (
         .clk(clk_sys),
-        .sst_own(eng_mem_own),
+        .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr),
         .sst_we(eng_xram_we),
         .sst_wdata(eng_mem_wdata),
@@ -854,7 +887,8 @@ module rp6502
     logic [15:0] pm_config;
 
     vid_prog vid_prog (
-        .clk(clk_sys),
+        .clk(clk_mach),
+        .clk_mem(clk_sys),
         .frame_start(vid_frame_start),
         .v(vid_v),
         .px_first(vid_px_first),
@@ -869,7 +903,7 @@ module rp6502
         .vid_prog_p_config(pm_config),
         .s_idx(sp_s_idx),
         .vid_prog_s_data(sp_s_data),
-        .sst_own(eng_mem_own),
+        .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr[10:0]),
         .sst_word(eng_xprog_word),
         .sst_we(eng_xprog_we),
@@ -885,7 +919,8 @@ module rp6502
 
     logic [15:0] mode0_pix;
     vid_mode0 vid_mode0 (
-        .clk(clk_sys),
+        .clk(clk_mach),
+        .clk_mem(clk_sys),
         .frame_start(vid_frame_start),
         .h(vid_h),
         .v(vid_v),
@@ -897,7 +932,7 @@ module rp6502
         .vid_mode0_f_addr(mf_addr[1]),
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
-        .sst_own(eng_mem_own),
+        .sst_own(eng_arr_own),
         .sst_addr(eng_mem_addr),
         .sst_we(eng_cell_we),
         .sst_wdata(eng_mem_wdata),
@@ -927,7 +962,7 @@ module rp6502
     logic [2:0] m_done;
     logic [2:0] sched_term;
     vid_sched vid_sched (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .rst_n(rst_n),
         .v(vid_v),
         .h(vid_h),
@@ -949,7 +984,7 @@ module rp6502
         .vid_sched_term(sched_term)
     );
     vid_fill vid_fill (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .line_start(vid_line_start),
         .start(fl_start),
         .mode(fl_mode),
@@ -974,7 +1009,7 @@ module rp6502
     generate
         for (gi = 0; gi < 3; gi++) begin : gen_mode
             vid_mode vid_mode (
-                .clk(clk_sys),
+                .clk(clk_mach),
                 .h(vid_h),
                 .px_last(vid_px_last),
                 .line_start(vid_line_start),
@@ -989,7 +1024,7 @@ module rp6502
 
     /* verilator lint_off PINCONNECTEMPTY */
     vid_sprite vid_sprite (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .v(vid_v),
         .h(vid_h),
         .px_last(vid_px_last),
@@ -1017,7 +1052,7 @@ module rp6502
     logic signed [15:0] psg_l, psg_r;
     /* verilator lint_off PINCONNECTEMPTY */
     aud_psg aud_psg (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
         .q_we(qs_we),
@@ -1040,7 +1075,7 @@ module rp6502
     logic opl_valid;
     /* verilator lint_off PINCONNECTEMPTY */
     aud_opl aud_opl (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h2),
         .xaddr_wdata(bus_wdata[15:0]),
         /* The same mux the PSG watches, not the 6502's engine alone: a
@@ -1062,7 +1097,7 @@ module rp6502
     logic signed [15:0] opl_rs;
     /* verilator lint_off PINCONNECTEMPTY */
     aud_rsmp aud_rsmp (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .in_sample(opl_l),
         .in_valid(opl_valid),
         .step(psg_tick),
@@ -1097,7 +1132,7 @@ module rp6502
         for (int i = 0; i < 3; i++)
             c_pix[i] = sched_term[i] ? mode0_pix : m_pix[i];
     vid_compose vid_compose (
-        .clk(clk_sys),
+        .clk(clk_mach),
         .de(vid_de),
         .p0_pix(c_pix[0]),
         .s0_pix(sp_pix[0]),

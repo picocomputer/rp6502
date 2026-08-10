@@ -216,14 +216,31 @@ set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
 # the other way and is stopped at the machine's clock instead. Bounding
 # it to the clock it starts on constrains nothing at all, which is what
 # it did for one fit.
-set_max_delay -from [get_registers {*pocket_sst*|want[*]}] \
+set_max_delay -from [get_registers {*pocket_sst*|ask[*]}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 13.468
-set_min_delay -from [get_registers {*pocket_sst*|want[*]}] \
+set_min_delay -from [get_registers {*pocket_sst*|ask[*]}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 0
 set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
-    -to [get_registers {*pocket_sst*|pf_data[*]}] 13.468
+    -to [get_registers {*pocket_sst*|hold[*]}] 13.468
 set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \
-    -to [get_registers {*pocket_sst*|pf_data[*]}] 0
+    -to [get_registers {*pocket_sst*|hold[*]}] 0
+
+# The machine-clock enable is a clk_74a flop and everything that reads
+# it lands on a named synchronizer first, which the _s1 rule above
+# false-paths. The one reader that is not a flop is the clock gate's
+# own ena register, inside the clkctrl cell, which takes it on the
+# falling edge of the clock it gates; that hop is not a data path worth
+# timing.
+set_false_path -from [get_registers {*|mach_clk_en}] \
+    -to [get_cells {*|gate_sys*}]
+
+# clk_mach is clk_sys through the clock control block: TimeQuest
+# propagates the same clock object through the cell, so paths between
+# the gated and ungated halves -- the serializer's jam into the
+# machine's flops among them -- are timed as one domain. If the fit's
+# clock report ever shows clk_mach as a separate or unconstrained
+# clock, that assumption broke and this file owes it a
+# create_generated_clock.
 
 # And the answer, coming back behind its own toggle.
 set_max_delay -from [get_registers {*pocket_file*|err_q[*]}] \

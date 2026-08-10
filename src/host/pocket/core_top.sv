@@ -602,23 +602,35 @@ wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
-// The machine's clocks stop at the source when it asks and the 6502 is
-// in front of an instruction. Nothing inside is gated: its state is
-// flops and SRAM, which hold what they have with no clock at all, and
-// the only things still running are this bridge and the memory chip.
-wire core_stop_req, core_at_boundary;
-wire core_stop_req_74, core_at_boundary_74;
+// The machine's clock stops at the source when the serializer asks --
+// all of it, at once, wherever the machine happens to be. That is
+// coherent because it is atomic: every register in the domain freezes
+// on the same missing edge and resumes on the same returned one.
+// Nothing inside is gated; its state is flops and SRAM, which hold
+// what they have with no clock at all. The soft CPU is not here: it
+// keeps its clock and is halted at its debug port instead. Still
+// running: this bridge, the memory chips, the serializer, the arrays.
+wire core_stop_req, core_stop_req_74;
 synch_3 s_stopreq (core_stop_req, core_stop_req_74, clk_74a);
-synch_3 s_atbound (core_at_boundary, core_at_boundary_74, clk_74a);
 reg mach_clk_en = 1'b1;
-always @(posedge clk_74a) begin
-    if (!core_stop_req_74) mach_clk_en <= 1'b1;
-    else if (core_at_boundary_74) mach_clk_en <= 1'b0;
-end
+always @(posedge clk_74a)
+    mach_clk_en <= !core_stop_req_74;
+// The gate itself. The ena register inside takes the enable on the
+// falling edge of the clock it gates, so no period is ever shortened.
+wire clk_mach;
+altclkctrl #(
+    .clock_type("AUTO"),
+    .ena_register_mode("falling edge"),
+    .number_of_clocks(1),
+    .use_glitch_free_switch_over_implementation("OFF"),
+    .width_clkselect(1)
+) gate_sys ( .inclk(clk_sys), .ena(mach_clk_en), .clkselect(1'b0),
+             .outclk(clk_mach) );
 
 pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
+    .mach_running ( mach_clk_en ),
+    .clk_mach     ( clk_mach ),
     .pocket_core_stop_req    ( core_stop_req ),
-    .pocket_core_at_boundary ( core_at_boundary ),
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
     .clk_rv   ( clk_rv ),

@@ -52,14 +52,14 @@ static void rtl_begin(const dut_regs_t *regs)
     /* Stand at the opcode fetch, the way the vectors start. */
     dut->cpu65_addr = regs->pc;
     dut->cpu65_we = 0;
-    dut->cpu65_sync = 1;
+    r->cpu65__DOT__cpu65_sync = 1;
 }
 
 static void rtl_bus(uint16_t *addr, bool *read, bool *sync)
 {
     *addr = dut->cpu65_addr;
     *read = !dut->cpu65_we;
-    *sync = dut->cpu65_sync;
+    *sync = dut->rootp->cpu65__DOT__cpu65_sync;
 }
 
 static void rtl_tick(uint8_t *data)

@@ -53,7 +53,6 @@ module tb_pocket (
      * in front of an instruction, which is what the clock control does
      * on hardware. */
     output logic tb_pocket_stop_req,
-    output logic tb_pocket_at_boundary,
 
     input logic savestate_start,
     output logic tb_pocket_savestate_start_ack,
@@ -109,12 +108,31 @@ module tb_pocket (
     logic [31:0] refreshes;
     logic [31:0] sref_clocks;
 
+    /* The clock gate, which on hardware is a clock control block at
+     * the source. The machine simply stops having a clock, all of it
+     * at once, wherever it happens to be -- atomic, so coherent. The
+     * enable is taken on the low half so the gated clock never
+     * shortens a period. The soft CPU's clock is not here: it keeps
+     * running and the core is halted at its debug port instead. */
+    logic mach_clk_en;
+    initial mach_clk_en = 1'b1;
+    always_ff @(posedge clk_74a or negedge arst_n) begin
+        if (!arst_n) mach_clk_en <= 1'b1;
+        else mach_clk_en <= !tb_pocket_stop_req;
+    end
+    logic en_sys;
+    always_latch if (!clk_sys) en_sys = mach_clk_en;
+    logic clk_mach;
+    always_comb clk_mach = clk_sys & en_sys;
+
     pocket_core core (
+        .mach_running(mach_clk_en),
+        .clk_mach(clk_mach),
+        .clk_rv(clk_rv),
         .pocket_core_stop_req(tb_pocket_stop_req),
-        .pocket_core_at_boundary(tb_pocket_at_boundary),
         .clk_74a(clk_74a),
         .clk_sys(clk_sys),
-        .clk_rv(clk_rv),
+
         .clk_vid(clk_vid),
         .rst_n(rst_n),
         .arst_n(arst_n),

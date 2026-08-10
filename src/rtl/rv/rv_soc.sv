@@ -78,12 +78,6 @@ module rv_soc
 
     input logic sst_phi2_we,
     input logic [15:0] sst_phi2_wdata,
-    /* The soft CPU's memory runs on the clock that does not stop. Its
-     * address and its write enable come from a core that does, so it
-     * sits there doing nothing until the savestate serializer asks --
-     * which is a serializer on the same clock, so a word costs one
-     * access rather than a wait for a slower domain. */
-    input logic clk_mem,
     input logic sst_tcm_sel,
     input logic [RP6502_TCM_AW-1:0] sst_tcm_addr,
     input logic sst_tcm_we,
@@ -299,12 +293,10 @@ module rv_soc
     /* The decode matters: an external-window write must not also land
      * here, or the loader overwrites the firmware under its own feet. */
     always_ff @(posedge clk) begin
-        tcm_fwd <= (tcm_wr && dph_word == word_addr) ? dph_strb : 4'b0000;
-        tcm_fwd_data <= hwdata;
-    end
-    always_ff @(posedge clk_mem) begin
         tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
                       tcm1[word_addr], tcm0[word_addr]};
+        tcm_fwd <= (tcm_wr && dph_word == word_addr) ? dph_strb : 4'b0000;
+        tcm_fwd_data <= hwdata;
         if (tcm_wen) begin
             if (tcm_wstrb[0])
                 tcm0[tcm_wword] <= tcm_wdata[7:0];
@@ -330,10 +322,12 @@ module rv_soc
         mtime_us = 64'd0;
         mtime_acc = '0;
     end
-    /* No hold on this. A savestate stops the clock this counts on, so
-     * it stops counting by having nothing to count. */
+    /* Held while the core is halted at its debug port, which is
+     * exactly the span of a savestate: the core's clock never stops,
+     * so the counter has to be told. dcsr.stoptime is hardwired 1 --
+     * the core already expects time to stand still while it does. */
     always_ff @(posedge clk) begin
-        begin
+        if (!rv_soc_dbg_halted) begin
             if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
             begin
                 mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)

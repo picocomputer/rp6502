@@ -534,21 +534,34 @@ static bool create_state(std::vector<uint8_t> &blob)
     if (!acked)
         return false;
     for (long i = 0; i < 80000000L && dut->tb_pocket_savestate_start_busy; i++)
+    {
         step();
+    }
     if (dut->tb_pocket_savestate_start_busy || !dut->tb_pocket_savestate_start_ok)
         return false;
 
     blob.assign(BLOB_BYTES, 0);
     for (uint32_t i = 0; i < BLOB_BYTES; i += 4)
     {
-        uint32_t w = host_read(BLOB_BRIDGE + i);
+        /* Not host_read: that helper samples six cycles after the
+         * strobe, which suits the file window's held registers. The
+         * documented contract gives the core until the NEXT strobe to
+         * drive the data, and the serializer uses most of that -- so
+         * the blob is taken the way the contract describes, at the end
+         * of the gap. */
+        dut->bridge_addr = BLOB_BRIDGE + i;
+        a_edge();
+        dut->bridge_rd = 1;
+        a_edge();
+        dut->bridge_rd = 0;
+        dut->bridge_addr = BLOB_BRIDGE + i + 4;
+        for (int k = 0; k < HOST_GAP; k++)
+            a_edge();
+        uint32_t w = dut->tb_pocket_bridge_rd_data;
         blob[i] = (uint8_t)(w >> 24);
         blob[i + 1] = (uint8_t)(w >> 16);
         blob[i + 2] = (uint8_t)(w >> 8);
         blob[i + 3] = (uint8_t)w;
-        /* host_read has already spent some of the interval. */
-        for (int k = 0; k < HOST_GAP - 9; k++)
-            a_edge();
         if (dut->tb_pocket_savestate_start_err && !g_underrun_at)
             g_underrun_at = (long)i;
     }
@@ -570,16 +583,17 @@ static bool load_state(void)
     dut->savestate_load = 0;
     dut->eval();
     if (!acked)
-    {
-        fprintf(stderr, "load: never acked\n");
         return false;
-    }
     for (long i = 0; i < 40000000L && dut->tb_pocket_savestate_load_busy; i++)
         step();
     if (dut->tb_pocket_savestate_load_busy)
         fprintf(stderr, "load: still busy\n");
     if (dut->tb_pocket_savestate_load_err)
-        fprintf(stderr, "load: refused\n");
+        fprintf(stderr, "load: refused at word %u (saw %08X)\n",
+                (unsigned)dut->rootp
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__bad_idx,
+                dut->rootp
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__bad_word);
     return !dut->tb_pocket_savestate_load_busy
            && dut->tb_pocket_savestate_load_ok
            && !dut->tb_pocket_savestate_load_err;
@@ -626,12 +640,6 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
      * and no program at all. */
     ASSERT_EQ(0u, g_console.size());
     ASSERT_TRUE((int)MEM(resb));
-    /* The program works in silence and prints only when it is finished,
-     * so an empty console here is the whole point: what is about to be
-     * saved is a machine in the middle of a file. */
-    ASSERT_EQ(0u, g_console.size());
-    /* diagnostic */
-
     /* Marks in the memories the program itself will not touch, so that
      * every window the engine reads through is checked and not only the
      * ones the program happens to use. */
@@ -649,6 +657,38 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
 
     std::vector<uint8_t> blob;
     ASSERT_TRUE(create_state(blob));
+    /* The blob must agree with its own trailer before it goes anywhere:
+     * a mismatch here is the create mis-serving, which the load would
+     * otherwise report as a refusal and leave ambiguous. */
+    {
+        uint32_t sum = 0;
+        const uint32_t words = (uint32_t)blob.size() / 4;
+        for (uint32_t i = 0; i < words - 4; i++)
+        {
+            uint32_t w = ((uint32_t)blob[i * 4] << 24)
+                         | ((uint32_t)blob[i * 4 + 1] << 16)
+                         | ((uint32_t)blob[i * 4 + 2] << 8)
+                         | (uint32_t)blob[i * 4 + 3];
+            sum = ((sum << 1) | (sum >> 31)) + w;
+        }
+        uint32_t tr = ((uint32_t)blob[(words - 4) * 4] << 24)
+                      | ((uint32_t)blob[(words - 4) * 4 + 1] << 16)
+                      | ((uint32_t)blob[(words - 4) * 4 + 2] << 8)
+                      | (uint32_t)blob[(words - 4) * 4 + 3];
+        if (sum != tr)
+            fprintf(stderr,
+                    "blob self-check: sum %08X trailer %08X engine sum %08X "
+                    "sum_idx %u summing %d hdr %02X%02X%02X%02X\n",
+                    sum, tr,
+                    dut->rootp
+                        ->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__sum,
+                    (unsigned)dut->rootp
+                        ->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__sum_idx,
+                    (int)dut->rootp
+                        ->tb_pocket__DOT__core__DOT__machine__DOT__engine__DOT__summing,
+                    blob[0], blob[1], blob[2], blob[3]);
+        ASSERT_EQ(sum, tr);
+    }
     /* Served whole, and none of it late. */
     if (g_underrun_at)
         fprintf(stderr, "underrun at byte %ld, word %ld\n",
@@ -690,12 +730,14 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
      * instruction it was stopped in front of rather than booting. */
     for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
          i++)
+    {
         step();
+    }
     if (g_console.find(DONE) == std::string::npos)
         fprintf(stderr,
-                "6502 pc %04x resb=%d frozen=%d engine=%d console=[%s]\n",
+                "6502 pc %04x resb=%d running=%d engine=%d console=[%s]\n",
                 (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
-                (int)MEM(frz_held), (int)MEM(engine__DOT__state),
+                (int)dut->rootp->tb_pocket__DOT__mach_clk_en, (int)MEM(engine__DOT__state),
                 g_console.c_str());
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
 }

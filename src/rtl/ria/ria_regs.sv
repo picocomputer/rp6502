@@ -20,6 +20,13 @@
 
 module ria_regs (
     input logic clk,
+    /* The register file, the stack and the console queue run on the
+     * clock that does not stop, so the savestate serializer reaches
+     * them with the rest of the machine standing still. Nothing in them
+     * moves while it is: every signal they are driven by comes from
+     * logic that has no clock, so they settle where they were and stay
+     * there. */
+    input logic clk_mem,
     input logic en,
 
     input logic cs,
@@ -65,6 +72,15 @@ module ria_regs (
     input logic [7:0] sst_word,
     input logic sst_we,
     input logic [31:0] sst_wdata,
+    /* The window is half array and half flops. The arrays are on the
+     * clock that survives a savestate and take their words as they
+     * come; the flops are on the machine's clock and cannot be written
+     * at all while it is stopped, so they arrive together on the first
+     * edge it gets back. The order is the window's own: eight words of
+     * the shared register file, then the interrupt pair, the receive
+     * handshake, the stack guard and the stack pointer. */
+    input logic sst_jam,
+    input logic [31:0] sst_jam_data[12],
     output logic [31:0] ria_regs_b_rdata,
 
     output logic ria_regs_api_pending,
@@ -101,7 +117,12 @@ module ria_regs (
     logic [4:0] txf_count;
     logic txf_pop;
     logic push_now;
-    always_comb push_now = en && cs && we && rs == 5'h01 && txf_count < 5'd16;
+    /* The !sst_own terms: machine logic freezes wherever it was when
+     * the clock is cut, and an enable that froze high would re-fire
+     * into these arrays -- which keep their clock -- every cycle of
+     * the savestate. */
+    always_comb push_now = en && cs && we && rs == 5'h01
+        && txf_count < 5'd16 && !sst_own;
 
     logic xr_wr_pend;
     logic [15:0] xr_wr_addr;
@@ -214,7 +235,8 @@ module ria_regs (
     logic [6:0] xs_waddr0, xs_waddr1, xs_waddr2, xs_waddr3;
     logic [7:0] xs_wdat0, xs_wdat1, xs_wdat2, xs_wdat3;
     always_comb begin
-        xs_push = en && cs && we && rs == 5'h0C && xsp != 10'd0;
+        xs_push = en && cs && we && rs == 5'h0C && xsp != 10'd0
+            && !sst_own;
         xs_push_at = 9'(xsp - 10'd1);
         xs_os_lane = {4{w_we && xs_win && !xs_word[7]}} & w_strb;
         xs_we = xs_os_lane | ({3'd0, xs_push} << xs_push_at[1:0]);
@@ -242,7 +264,7 @@ module ria_regs (
 
     /* Outside the reset: an array an asynchronous reset can reach
      * infers as flip-flops, never as memory. */
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk_mem) begin
         if (push_now)
             txf[txf_w] <= data_i;
         if (xs_we[0]) begin
@@ -281,7 +303,13 @@ module ria_regs (
              * cell in regs is a mirror rewritten every clock. A
              * savestate needs both, so they share a word. */
             8'd17: ria_regs_b_rdata = {16'd0, irq_pending, irq_enabled};
-            8'd18: ria_regs_b_rdata = {30'd0, rx_req, !os_rx_valid};
+            /* Bit 2 is here for the savestate and nothing else: a
+             * state taken mid-API-call has to carry the pending flag,
+             * or the restored 6502 spins in its trampoline waiting on
+             * a call the soft CPU was never told about. */
+            8'd18: ria_regs_b_rdata = {16'd0, os_rx_data, 5'd0,
+                                       ria_regs_api_pending, rx_req,
+                                       !os_rx_valid};
             8'd200: ria_regs_b_rdata = {22'd0, xsp};
             default: begin
                 if (xs_win)
@@ -300,6 +328,7 @@ module ria_regs (
 
     always_comb txf_pop = b_re && b_word == 8'd16 && txf_count != 5'd0;
 
+
     initial begin
         for (int i = 0; i < 32; i++)
             regs[i] = 8'h00;
@@ -310,6 +339,17 @@ module ria_regs (
         irq_pending = 8'h00;
         irq_enabled = 8'h00;
     end
+    /* The machine's clock, not the one that survives a savestate. Every
+     * branch below is under `en`, the 6502's enable, which is machine
+     * logic and stops wherever it was. Whether that is high or low is a
+     * race: the clock is cut from the host's clock, which knows nothing
+     * about where the enable's pulse train had got to. Frozen high, on
+     * a clock that kept running, this block would re-execute the last
+     * access the 6502 made for the whole length of the savestate -- and
+     * the address arithmetic in it adds to itself, so the machine would
+     * come back with its RW pointer wound on by however long the host
+     * took to read the blob. A one-in-a-few chance of that is not a
+     * chance worth having. */
     always_ff @(posedge clk) begin
         if (en) begin
             ria_regs_tx_valid <= 1'b0;
@@ -401,7 +441,11 @@ module ria_regs (
             regs[5'h10] <= pend_next;
             /* Last, so a restore beats the resolution above rather than
              * being overwritten by it on the same edge. */
-            if (w_we && w_word == 8'd17) begin
+            if (sst_jam) begin
+                irq_enabled <= sst_jam_data[8][7:0];
+                irq_pending <= sst_jam_data[8][15:8];
+                ria_regs_api_pending <= sst_jam_data[9][2];
+            end else if (w_we && w_word == 8'd17) begin
                 if (w_strb[0])
                     irq_enabled <= w_data[7:0];
                 if (w_strb[1])
@@ -420,7 +464,14 @@ module ria_regs (
             regs[5'h0C] <= xs_fill_byte;
         /* Plain shared memory at the system clock: it lands regardless of
          * the 6502's enable, and a same-cell collision goes to the OS. */
-        if (w_we && w_word < 8'd8) begin
+        if (sst_jam)
+            for (int i = 0; i < 8; i++) begin
+                regs[{i[2:0], 2'd0}] <= sst_jam_data[i][7:0];
+                regs[{i[2:0], 2'd1}] <= sst_jam_data[i][15:8];
+                regs[{i[2:0], 2'd2}] <= sst_jam_data[i][23:16];
+                regs[{i[2:0], 2'd3}] <= sst_jam_data[i][31:24];
+            end
+        else if (w_we && w_word < 8'd8) begin
             if (w_strb[0])
                 regs[{w_word[2:0], 2'd0}] <= w_data[7:0];
             if (w_strb[1])
@@ -502,7 +553,8 @@ module ria_regs (
         end
         /* The xstack bytes land in their own block above; the
          * pointer is the OS's other door. */
-        if (w_we && w_word == 8'd200)
+        if (sst_jam) xsp <= sst_jam_data[11][9:0];
+        else if (w_we && w_word == 8'd200)
             xsp <= w_data[9:0];
         if (push_now)
             txf_w <= txf_w + 4'd1;
@@ -517,7 +569,14 @@ module ria_regs (
             rx_req <= 1'b1;
         if (en && pull)
             rx_req <= 1'b0;
-        if (w_we && w_word == 8'd18 && w_data[9])
+        if (sst_jam) begin
+            rx_req <= sst_jam_data[9][1];
+            /* Bit 0 rides the window's own polarity -- the OS reads it
+             * as "the offer slot is free" -- so the jam undoes the
+             * inversion the readback applied. */
+            os_rx_valid <= !sst_jam_data[9][0];
+            os_rx_data <= sst_jam_data[9][15:8];
+        end else if (w_we && w_word == 8'd18 && w_data[9])
             rx_req <= 1'b0;
         else if (w_we && w_word == 8'd18 && !os_rx_valid) begin
             os_rx_valid <= 1'b1;

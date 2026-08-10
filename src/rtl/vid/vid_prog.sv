@@ -33,6 +33,8 @@
 
 module vid_prog (
     input logic clk,
+    /* The table runs on the clock that does not stop. */
+    input logic clk_mem,
     input logic frame_start,
 
     input logic [9:0] v,
@@ -112,7 +114,7 @@ module vid_prog (
         b_word_q = 2'd0;
         b_reg_q = 32'd0;
     end
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk_mem) begin
         if (sst_own && sst_we) begin
             if (sst_word == 2'd0) fill_e[sst_addr] <= sst_wdata;
             if (sst_word == 2'd1) fill_c[sst_addr] <= sst_wdata[15:0];
@@ -120,7 +122,7 @@ module vid_prog (
                 spr_e[sst_addr] <= {sst_wdata[31], sst_wdata[18:0]};
             if (sst_word == 2'd3) spr_c[sst_addr] <= sst_wdata;
         end
-        if (b_stb) begin
+        if (b_stb && !sst_own) begin
             b_tbl_q <= !b_addr[15];
             b_word_q <= b_addr[3:2];
             b_reg_q <= !b_addr[15] || b_addr[3] ? 32'd0
@@ -196,7 +198,7 @@ module vid_prog (
     /* The sprite stage only ever asks for words 2 and 3 — its index
      * carries a hard 1 in the word's high bit — so its two arrays
      * answer together and the low bit picks between them. */
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk_mem) begin
         vid_prog_p_entry <= fill_e[p_a];
         vid_prog_p_config <= fill_c[p_a];
         s_e_q <= spr_e[s_a];

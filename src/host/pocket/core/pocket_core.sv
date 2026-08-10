@@ -22,13 +22,19 @@ module pocket_core #(
      * control, at the source, instead of an enable in every subsystem
      * that has one. */
     output logic pocket_core_stop_req,
-    output logic pocket_core_at_boundary,
+    /* Whether the machine's clocks are being delivered. Whoever owns
+     * the clock tree answers. */
+    input logic mach_running,
+
+    /* The machine's clock, which stops. Every other clock here does
+     * not -- the soft CPU's included: it is halted at its debug port
+     * instead, so its clock keeps running. */
+    input logic clk_mach,
+    input logic clk_rv,
 
     input logic clk_74a,
     input logic clk_sys,
-    /* Half clk_sys, rising with it; see pocket_pll. */
-    input logic clk_rv,
-    input logic clk_vid,
+input logic clk_vid,
     input logic rst_n,
     input logic arst_n,
 
@@ -255,13 +261,38 @@ module pocket_core #(
         .dram_dq_in(dram_dq_in)
     );
 
-    logic [15:0] ram_a_addr, ram_b_addr;
+    logic [15:0] ram_a_addr, ram_b_addr /*verilator public_flat_rd*/;
     logic [7:0] ram_a_wdata, ram_b_wdata, ram_a_rdata, ram_b_rdata;
-    logic ram_a_we, ram_b_we, ram_b_stb, ram_b_stall, ram_hold;
+    logic ram_refill;
+    logic ram_a_we, ram_b_we /*verilator public_flat_rd*/,
+        ram_b_stb /*verilator public_flat_rd*/,
+        ram_b_stall /*verilator public_flat_rd*/, ram_hold;
+    /* machine_resb carries the machine's effective reset, which since
+     * the restore rework is resb AND the engine's reset hold -- a
+     * combinational term. It async-resets the 6502 and the VIA inside
+     * the machine and paces port A here synchronously; the lint that
+     * dislikes that mix is answered by construction: both sources are
+     * single flops and every orchestrated transition is monotonic. */
+    /* verilator lint_off SYNCASYNCNET */
     logic machine_phi2_en, machine_resb;
+    /* verilator lint_on SYNCASYNCNET */
+
+    /* The machine-clock enable, brought into this clock so port A's
+     * launch condition can be trusted while the machine is stopped. */
+    (* preserve *) logic run_s1, run_s2;
+    initial begin
+        run_s1 = 1'b1;
+        run_s2 = 1'b1;
+    end
+    always_ff @(posedge clk_sys) begin
+        run_s1 <= mach_running;
+        run_s2 <= run_s1;
+    end
 
     pocket_sram sram (
         .clk(clk_sys),
+        .run(run_s2),
+        .refill(ram_refill),
         .phi2_en(machine_phi2_en),
         .cpu_run(machine_resb),
         .a_addr(ram_a_addr),
@@ -339,7 +370,8 @@ module pocket_core #(
 
     /* verilator lint_off PINCONNECTEMPTY */
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
-        .rp6502_at_boundary(pocket_core_at_boundary),
+        .clk_mach(clk_mach),
+        .mach_running(mach_running),
         .rp6502_sst_stop_req(pocket_core_stop_req),
         .sst_tcm_sel(1'b0),
         .sst_tcm_addr(15'd0),
@@ -413,6 +445,7 @@ module pocket_core #(
         .rp6502_ram_b_wdata(ram_b_wdata),
         .rp6502_ram_b_we(ram_b_we),
         .rp6502_ram_b_stb(ram_b_stb),
+        .rp6502_ram_refill(ram_refill),
         .ram_b_rdata(ram_b_rdata),
         .ram_b_stall(ram_b_stall),
         .ram_hold(ram_hold),
@@ -502,6 +535,7 @@ module pocket_core #(
         pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
 
     pocket_video video (
+        .run(run_s2),
         .clk_sys(clk_sys),
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),

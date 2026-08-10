@@ -42,8 +42,11 @@ module via (
      * A write lands directly in the flops, sound only while en is low. */
     input logic [2:0] st_idx,
     output logic [31:0] via_st_rdata,
-    input logic st_we,
-    input logic [31:0] st_wdata
+    /* The whole of it at once: a restore lands with the clock already
+     * back, so a jam spread over seven edges would let the machine run
+     * through the six it was not being written on. */
+    input logic st_jam,
+    input logic [31:0] st_jam_data[7]
 );
 
     // Register indices
@@ -323,26 +326,22 @@ module via (
             ier <= 8'h00;
             int_pip <= 16'h0000;
             via_irq <= 1'b0;
-        end else if (st_we) begin
-            case (st_idx)
-                3'd0: {ddr_b, ddr_a, outr_b, outr_a} <= st_wdata;
-                3'd1: {pcr, acr, pins_b, pins_a} <= st_wdata;
-                3'd2: {t1_counter, t1_latch} <= st_wdata;
-                3'd3: {t2_counter, t2_latch} <= st_wdata;
-                3'd4: {t1_pip, t2_pip} <= st_wdata;
-                3'd5: begin
-                    ifr <= st_wdata[23:16];
-                    ier <= st_wdata[15:8];
-                    t2_tbit <= st_wdata[1];
-                    t1_tbit <= st_wdata[0];
-                    /* The pin follows the flags it is made of, so a
-                     * restored interrupt is asserted on the first clock
-                     * rather than waiting for a tick to re-derive it. */
-                    via_irq <= |(st_wdata[23:16] & st_wdata[15:8] & 8'h7F);
-                end
-                3'd6: int_pip <= st_wdata[15:0];
-                default: ;
-            endcase
+        end else if (st_jam) begin
+            {ddr_b, ddr_a, outr_b, outr_a} <= st_jam_data[0];
+            {pcr, acr, pins_b, pins_a} <= st_jam_data[1];
+            {t1_counter, t1_latch} <= st_jam_data[2];
+            {t2_counter, t2_latch} <= st_jam_data[3];
+            {t1_pip, t2_pip} <= st_jam_data[4];
+            ifr <= st_jam_data[5][23:16];
+            ier <= st_jam_data[5][15:8];
+            t2_tbit <= st_jam_data[5][1];
+            t1_tbit <= st_jam_data[5][0];
+            /* The pin follows the flags it is made of, so a restored
+             * interrupt is asserted on the first clock rather than
+             * waiting for a tick to re-derive it. */
+            via_irq <= |(st_jam_data[5][23:16] & st_jam_data[5][15:8]
+                         & 8'h7F);
+            int_pip <= st_jam_data[6][15:0];
         end else if (en) begin
             outr_a <= n_outr_a;
             outr_b <= n_outr_b;

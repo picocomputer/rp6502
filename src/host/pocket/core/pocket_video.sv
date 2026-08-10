@@ -31,6 +31,11 @@ module pocket_video (
      * vblank; the reader crosses it and mirrors the machine's own row
      * schedule with it. */
     input logic [2:0] vid_canvas,
+    /* Whether the machine has its clock. A savestate stops the beam
+     * mid-frame and the picture legitimately freezes; the underflow
+     * check below is a defect detector for a machine that is supposed
+     * to be running, so it stands down while the machine is not. */
+    input logic run,
 
     /* The scaler's domain. */
     input logic clk_vid,
@@ -115,16 +120,22 @@ module pocket_video (
      * in whatever order they come up in — a scanline of the black screen
      * the machine boots to. After that a full or empty FIFO is a real
      * defect and worth stopping on. */
+    /* One driver: the clear outranks the arm, or the two blocks race
+     * and the clear can lose entirely. A machine being stopped drains
+     * the FIFO legitimately, so the check stands down until the first
+     * whole frame after the clock returns. */
     logic checked = 1'b0;
     always_ff @(posedge clk_sys)
-        if (vid_frame)
+        if (!run)
+            checked <= 1'b0;
+        else if (vid_frame)
             checked <= 1'b1;
     always_ff @(posedge clk_sys) begin
-        if (checked && vid_de && fifo_full)
+        if (checked && run && vid_de && fifo_full)
             $error("pocket_video: pixel fifo overflow");
     end
     always_ff @(posedge clk_vid) begin
-        if (checked && take && fifo_empty)
+        if (checked && run && take && fifo_empty)
             $error("pocket_video: pixel fifo underflow");
     end
 `endif

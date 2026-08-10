@@ -133,15 +133,19 @@ static void tcm_put(uint32_t w, uint32_t v)
     r->rp6502__DOT__rv__DOT__tcm3[w] = (v >> 24) & 0xFF;
 }
 
-/* XRAM is four byte lanes indexed by the low two address bits, so a
- * word is one entry from each. */
+/* XRAM is four byte lanes indexed by the low two address bits. Its
+ * blob region is the array's own word order -- byte 0 in the low
+ * lane, as the render reads it -- the same both directions, which is
+ * all a round trip asks. Only the byte-stream regions (SRAM, and the
+ * staging store a blob arrives through) put the lowest address in the
+ * most significant byte. */
 static uint32_t xram_word(uint32_t w)
 {
     auto *r = dut->rootp;
-    return ((uint32_t)r->rp6502__DOT__xram__DOT__mem0[w] << 24)
-           | ((uint32_t)r->rp6502__DOT__xram__DOT__mem1[w] << 16)
-           | ((uint32_t)r->rp6502__DOT__xram__DOT__mem2[w] << 8)
-           | (uint32_t)r->rp6502__DOT__xram__DOT__mem3[w];
+    return ((uint32_t)r->rp6502__DOT__xram__DOT__mem3[w] << 24)
+           | ((uint32_t)r->rp6502__DOT__xram__DOT__mem2[w] << 16)
+           | ((uint32_t)r->rp6502__DOT__xram__DOT__mem1[w] << 8)
+           | (uint32_t)r->rp6502__DOT__xram__DOT__mem0[w];
 }
 
 /* The counter from the resume test, which gives the machine something
@@ -251,6 +255,23 @@ UTEST(sst, the_header_and_trailer_frame_the_blob)
         clk();
     ASSERT_TRUE(begin_save());
 
+    /* The trailer must be the sum of the words as served, or a restore
+     * refuses the machine's own blob. Walking all eighty-one thousand
+     * words here costs seconds and catches a divergence between the
+     * checksum pass and the serving path exactly where it happens. */
+    {
+        uint32_t sum = 0;
+        for (uint32_t i = 0; i < B_END; i++)
+        {
+            uint32_t w = 0;
+            ASSERT_TRUE(blob_word(i, &w));
+            sum = ((sum << 1) | (sum >> 31)) + w;
+        }
+        uint32_t tr = 0;
+        ASSERT_TRUE(blob_word(B_END + 0, &tr));
+        ASSERT_EQ(sum, tr);
+    }
+
     uint32_t w = 0;
     ASSERT_TRUE(blob_word(B_HDR + 0, &w));
     ASSERT_EQ(SST_MAGIC, w);
@@ -305,6 +326,9 @@ UTEST(sst, xram_comes_back_word_for_word)
     {
         uint32_t w = 0;
         ASSERT_TRUE(blob_word(B_XRAM + at[i], &w));
+        if (xram_word(at[i]) != w)
+            fprintf(stderr, "xram idx %u: model %08X blob %08X\n",
+                    at[i], xram_word(at[i]), w);
         ASSERT_EQ(xram_word(at[i]), w);
     }
 }
@@ -420,6 +444,14 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
         clk();
     ASSERT_TRUE(begin_save());
     uint32_t held = tcm_word(255 + 1);
+    /* How far the program had got. The strict-advance check below is
+     * the whole test: every assertion the old version made was
+     * satisfiable by a soft CPU that stayed halted forever, which is
+     * exactly the bug the engine had -- dropping the halt request is
+     * not a resume. */
+    uint32_t count_before = 0;
+    for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
+        count_before++;
 
     dut->sst_save = 0;
     dut->eval();
@@ -428,14 +460,14 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
     ASSERT_FALSE((int)dut->rp6502_sst_ready);
     ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
 
-    for (int i = 0; i < 4000; i++)
+    for (int i = 0; i < 8000; i++)
         clk();
     /* It carried on from where it was rather than starting over. */
     ASSERT_EQ(held, tcm_word(256));
     uint32_t count = 0;
     for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
         count++;
-    ASSERT_TRUE(count > 3);
+    ASSERT_GT(count, count_before);
     for (uint32_t i = 0; i < count; i++)
         ASSERT_EQ(i + 1, tcm_word(256 + i));
 }
@@ -470,12 +502,19 @@ UTEST(sst, a_load_puts_the_blob_back)
         stage_word(B_XPROG + e * 4 + 3, 0x66000000u + e);
     }
     /* The 6502 out of reset and running at a rate nothing else would
-     * have chosen, then what it was holding. */
+     * have chosen, then what it was holding. Its program counter is
+     * aimed at a run of WAI opcodes staged into SRAM, because after
+     * the release the machine is genuinely running -- the only way to
+     * assert its registers is to have it resume into an instruction
+     * that holds them still. */
     stage_word(B_STATE + ST_MACH + 0, 1);
     stage_word(B_STATE + ST_MACH + 1, 3000);
     stage_word(B_STATE + ST_CPU + 0, 0x11223344u);
-    stage_word(B_STATE + ST_CPU + 1, 0xA5B5C0DEu);
+    stage_word(B_STATE + ST_CPU + 1, 0xA5B50010u);
+    stage_word(B_STATE + ST_CPU + 4, 0x00100001u);
     stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
+    for (uint32_t i = 4; i < 8; i++)
+        stage_word(B_SRAM + i, 0xCBCBCBCBu);
     stage_seal();
 
     /* Scribble over the destinations first, so a load that did nothing
@@ -501,14 +540,14 @@ UTEST(sst, a_load_puts_the_blob_back)
     while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
         clk();
     ASSERT_TRUE((int)dut->rp6502_sst_load_done);
-    /* The 6502 is held until the request is let go of, so that the soft
-     * CPU is the only thing moving while it finds its feet. */
-    ASSERT_TRUE((int)dut->rp6502_sst_stop_req);
 
     for (uint32_t i = 0; i < 8; i++)
     {
         ASSERT_EQ(0xC0DE0000u + i, xram_word(i));
         ASSERT_EQ(0x7C700000u + i, tcm_word(i));
+    }
+    for (uint32_t i = 0; i < 4; i++)
+    {
         /* The byte window takes the lowest address from the top of the
          * word, which is the order the store hands it back in. */
         ASSERT_EQ(0x5Au, r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4]);
@@ -518,6 +557,12 @@ UTEST(sst, a_load_puts_the_blob_back)
                   r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 2]);
         ASSERT_EQ(i, (uint32_t)r
                          ->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i * 4 + 3]);
+    }
+    for (uint32_t i = 16; i < 32; i++)
+        ASSERT_EQ(0xCBu,
+                  (uint32_t)r->rp6502__DOT__g_ram_bram__DOT__sram__DOT__mem[i]);
+    for (uint32_t i = 0; i < 8; i++)
+    {
         /* The cells answer as a word, so the lanes go back as they came. */
         ASSERT_EQ(i, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell0[i]);
         ASSERT_EQ(0x00u, (uint32_t)r->rp6502__DOT__vid_mode0__DOT__cell1[i]);
@@ -537,22 +582,24 @@ UTEST(sst, a_load_puts_the_blob_back)
                   (uint32_t)r->rp6502__DOT__vid_prog__DOT__spr_c[e]);
     }
 
-    /* The flops, jammed while the clock they belong to is stopped. */
-    ASSERT_EQ(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
-    ASSERT_EQ(0x33u, (uint32_t)r->rp6502__DOT__cpu__DOT__x);
-    ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__cpu__DOT__y);
-    ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__cpu__DOT__s);
-    ASSERT_EQ(0xC0DEu, (uint32_t)r->rp6502__DOT__cpu__DOT__pc);
-    ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__cpu__DOT__p);
-    ASSERT_EQ(0xA5u, (uint32_t)r->rp6502__DOT__cpu__DOT__ir);
-    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__via__DOT__t1_latch);
-    ASSERT_EQ(0xBEEFu, (uint32_t)r->rp6502__DOT__via__DOT__t1_counter);
+    /* Before the release, the flops still hold the old world: the jam
+     * is the release's consequence, because the 6502's async reset
+     * dominates any jam attempted while it is still held. */
+    ASSERT_NE(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
 
     dut->sst_load = 0;
     dut->eval();
     for (int i = 0; i < 200; i++)
         clk();
     ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
+
+    /* The flops, jammed on the release with the resets let go first. */
+    ASSERT_EQ(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
+    ASSERT_EQ(0x33u, (uint32_t)r->rp6502__DOT__cpu__DOT__x);
+    ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__cpu__DOT__y);
+    ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__cpu__DOT__s);
+    ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__cpu__DOT__p);
+    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__via__DOT__t1_latch);
 
     /* The machine's own flops have no other way out, so the proof they
      * landed is the next blob carrying them. */

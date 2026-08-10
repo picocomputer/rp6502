@@ -39,8 +39,12 @@ module sram64k (
     (* ramstyle = "no_rw_check" *)
     logic [7:0] mem[65536] /*verilator public_flat_rw*/;
 
+    /* The !sst_own: port A's write enable is machine logic, and when
+     * the machine's clock is cut it freezes wherever it was. Frozen
+     * high, it would re-write its stale byte here -- on a clock that
+     * did not stop -- every cycle of the savestate. */
     always_ff @(posedge clk) begin
-        if (a_we)
+        if (a_we && !sst_own)
             mem[a_addr] <= a_wdata;
         a_rdata <= mem[a_addr];
     end

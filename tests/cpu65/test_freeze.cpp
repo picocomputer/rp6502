@@ -69,8 +69,9 @@ static void make_dut(void)
     dut->res_i = 0;
     dut->data_i = 0;
     dut->st_idx = 0;
-    dut->st_we = 0;
-    dut->st_wdata = 0;
+    dut->st_jam = 0;
+    for (int i = 0; i < ST_WORDS; i++)
+        dut->st_jam_data[i] = 0;
     dut->rst_n = 0;
     dut->eval();
     clock_cycle();
@@ -86,7 +87,7 @@ static Cycle step(void)
     Cycle c;
     c.addr = dut->cpu65_addr;
     c.we = dut->cpu65_we;
-    c.sync = dut->cpu65_sync;
+    c.sync = dut->rootp->cpu65__DOT__cpu65_sync;
     if (c.we)
     {
         c.data = dut->cpu65_data;
@@ -102,14 +103,10 @@ static Cycle step(void)
     return c;
 }
 
-/* A cycle with the enable withheld — what the freeze does. Nothing may
- * move. */
+/* A cycle with no clock at all — what a savestate does. Nothing may
+ * move, and nothing here has to be told not to. */
 static void step_frozen(void)
 {
-    dut->en = 0;
-    dut->eval();
-    clock_cycle();
-    dut->en = 1;
     dut->eval();
 }
 
@@ -125,21 +122,17 @@ static void capture(uint32_t *st)
     dut->eval();
 }
 
+/* Every word on one edge. A restore lands with the clock already back,
+ * so a jam spread over five would let the core run through four of
+ * them. */
 static void restore(const uint32_t *st)
 {
-    dut->en = 0;
     for (int i = 0; i < ST_WORDS; i++)
-    {
-        dut->st_idx = i;
-        dut->st_wdata = st[i];
-        dut->st_we = 1;
-        dut->eval();
-        clock_cycle();
-    }
-    dut->st_we = 0;
-    dut->st_idx = 0;
+        dut->st_jam_data[i] = st[i];
+    dut->st_jam = 1;
     dut->eval();
-    dut->en = 1;
+    clock_cycle();
+    dut->st_jam = 0;
     dut->eval();
 }
 
@@ -201,8 +194,9 @@ static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
         }
         if (i >= freeze_at
             && (land == LAND_STALLED
-                    ? (dut->cpu65_stp || dut->cpu65_wai)
-                    : (dut->cpu65_sync || dut->cpu65_stp || dut->cpu65_wai)))
+                    ? (dut->cpu65_stp || dut->rootp->cpu65__DOT__wait_flag)
+                    : (dut->rootp->cpu65__DOT__cpu65_sync || dut->cpu65_stp
+                       || dut->rootp->cpu65__DOT__wait_flag)))
             break;
         t.push_back(step());
     }
@@ -210,7 +204,8 @@ static std::vector<Cycle> frozen(bool *landed, int cycles, int freeze_at,
      * somewhere other than where it meant to would otherwise pass while
      * testing nothing. */
     *landed = i < cycles
-        && (land != LAND_STALLED || dut->cpu65_stp || dut->cpu65_wai);
+        && (land != LAND_STALLED || dut->cpu65_stp
+            || dut->rootp->cpu65__DOT__wait_flag);
 
     uint32_t st[ST_WORDS];
     capture(st);

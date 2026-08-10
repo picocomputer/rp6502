@@ -16,6 +16,9 @@
 
 module vid_mode0 (
     input logic clk,
+    /* The cells run on the clock that does not stop, so the savestate
+     * serializer can read them with the render standing still. */
+    input logic clk_mem,
     input logic frame_start,
 
     input logic [9:0] h,
@@ -81,7 +84,7 @@ module vid_mode0 (
     /* The scanout read stands alone and unreset: a block RAM's output
      * register has no asynchronous clear, and a read inside the
      * pipeline's reset would keep the cells out of memory entirely. */
-    always_ff @(posedge clk)
+    always_ff @(posedge clk_mem)
         fetch_q <= {cell3[fetch_word], cell2[fetch_word],
                     cell1[fetch_word], cell0[fetch_word]};
 
@@ -105,7 +108,7 @@ module vid_mode0 (
         cell_d = sst_own ? sst_wdata : b_wdata;
     end
 
-    always_ff @(posedge clk) begin
+    always_ff @(posedge clk_mem) begin
         if (sst_own || b_stb) begin
             cells_q <= {cell3[cell_idx], cell2[cell_idx],
                         cell1[cell_idx], cell0[cell_idx]};
@@ -114,6 +117,8 @@ module vid_mode0 (
             if (cell_w2) cell2[cell_idx] <= cell_d[23:16];
             if (cell_w3) cell3[cell_idx] <= cell_d[31:24];
         end
+    end
+    always_ff @(posedge clk) begin
         if (b_stb) begin
             sel_cells <= !b_addr[16];
             if (!b_addr[16]) begin

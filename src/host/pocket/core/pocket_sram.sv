@@ -44,6 +44,17 @@ module pocket_sram (
     input logic clk,
 
     /* The 6502's advance, before this module's own hold is applied. */
+    /* Whether the machine has its clock. phi2_en and everything else
+     * port A is launched from is machine logic: when the machine's
+     * clock is cut those signals freeze wherever they were, and a
+     * pulse frozen high would launch the same access -- including the
+     * same write -- every few cycles of this clock, which does not
+     * stop. Port B belongs to the serializer and stays live. */
+    input logic run,
+    /* A restore's one forced port-A fetch: the jam put a new machine
+     * into the flops, and the read its pipeline had in flight belongs
+     * to the old one. */
+    input logic refill,
     input logic phi2_en,
     input logic cpu_run,
 
@@ -170,7 +181,8 @@ module pocket_sram (
                 /* tWP wants 45 ns; three clocks is 59.5. */
                 pocket_sram_we_n <= !(serving_we && ph < 2'(PH_LAST));
             end
-        end else if (phi2_en && cpu_run && !pocket_sram_hold) begin
+        end else if ((refill || (phi2_en && cpu_run && run))
+                     && !pocket_sram_hold) begin
             busy_a <= 1'b1;
             ph <= 2'd0;
             serving_we <= a_we;
