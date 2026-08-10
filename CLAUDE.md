@@ -48,3 +48,8 @@ Use the vendored wasm/EMSCRIPTEN toolchain for web builds.
 Comments. Default to NOT adding one. Add a comment only for a non-obvious
 *why* — never a play-by-play of the *what*. Commentary about work in progress
 must never be added.
+
+The Quartus fitter is not a linter. It takes 10 minutes to run on the latest
+hardware so do not run multiple fits to solve a problem another method will
+work on. Do no run tests sequentially, we're deep into the 21st century and
+even the cheapest computer has multiple cores.
