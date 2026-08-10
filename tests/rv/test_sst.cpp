@@ -172,7 +172,6 @@ static void power_on(void)
     dut->sst_dbg_data0 = 0;
     dut->sst_tcm_sel = 0;
     dut->sst_tcm_we = 0;
-    dut->sst_phi2_we = 0;
     dut->sst_load = 0;
     dut->stage_stall = 0;
     dut->stage_rdata = 0;
@@ -424,8 +423,10 @@ UTEST(sst, a_load_puts_the_blob_back)
         stage_word(B_CELLS + i, 0xCE110000u + i);
         stage_word(B_TCM + i, 0x7C700000u + i);
     }
-    /* The 6502 out of reset, then what it was holding. */
+    /* The 6502 out of reset and running at a rate nothing else would
+     * have chosen, then what it was holding. */
     stage_word(B_STATE + ST_MACH + 0, 1);
+    stage_word(B_STATE + ST_MACH + 1, 3000);
     stage_word(B_STATE + ST_CPU + 0, 0x11223344u);
     stage_word(B_STATE + ST_CPU + 1, 0xA5B5C0DEu);
     stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
@@ -494,6 +495,15 @@ UTEST(sst, a_load_puts_the_blob_back)
     for (int i = 0; i < 200; i++)
         clk();
     ASSERT_FALSE((int)dut->rp6502_sst_frozen);
+
+    /* The machine's own flops have no other way out, so the proof they
+     * landed is the next blob carrying them. */
+    ASSERT_TRUE(begin_save());
+    uint32_t w = 0;
+    ASSERT_TRUE(blob_word(B_STATE + ST_MACH + 0, &w));
+    ASSERT_EQ(1u, w);
+    ASSERT_TRUE(blob_word(B_STATE + ST_MACH + 1, &w));
+    ASSERT_EQ(3000u, w);
 }
 
 /* The registers are the half of a restore that no memory carries. They
@@ -578,10 +588,12 @@ static void load_and_wait(void)
 
 UTEST(sst, a_blob_that_does_not_add_up_is_refused)
 {
-    auto *r = dut->rootp;
     for (int pass = 0; pass < 2; pass++)
     {
         power_on();
+        /* After power_on, which builds a new model: the old root is
+         * freed and writing through it is writing nowhere. */
+        auto *r = dut->rootp;
         for (int i = 0; i < 3000; i++)
             clk();
 

@@ -358,8 +358,6 @@ module pocket_core #(
         .sst_rd_t(sst_rd_t),
         .rp6502_sst_rdata(sst_word),
         .rp6502_sst_rvalid(sst_word_valid),
-        .sst_phi2_we(1'b0),
-        .sst_phi2_wdata(16'd0),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
         .rst_n(mrst_sys_n),

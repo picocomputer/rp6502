@@ -96,11 +96,6 @@ module rp6502
     output logic rp6502_sst_dbg_ebreak,
     output logic rp6502_sst_dbg_fault,
 
-    /* The 6502's clock rate, which the soft CPU owns and a restore has
-     * to put back. */
-    input logic sst_phi2_we,
-    input logic [15:0] sst_phi2_wdata,
-
     /* A word-wide port onto whatever the board has that the machine does
      * not. One-clock strobe, answer the clock after. */
     output logic [27:0] rp6502_host_addr,
@@ -211,7 +206,14 @@ module rp6502
 
     logic [31:0] cpu65_st_rdata, via_st_rdata, mach_st_rdata, st_rdata;
     always_comb begin
-        mach_st_rdata = {31'd0, resb};
+        /* The 6502's clock rate is the soft CPU's to set and it sets it
+         * once, so a wake that came up at the reset rate would run the
+         * machine at a speed nothing was going to correct. */
+        case (eng_st_idx)
+            3'd0: mach_st_rdata = {31'd0, resb};
+            3'd1: mach_st_rdata = {16'd0, phi2_khz};
+            default: mach_st_rdata = '0;
+        endcase
         case (eng_st_sel)
             SEL_MACH: st_rdata = mach_st_rdata;
             SEL_CPU:  st_rdata = cpu65_st_rdata;
@@ -480,8 +482,9 @@ module rp6502
         .rv_soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
         .rv_soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
         .rv_soc_dbg_fault(rp6502_sst_dbg_fault),
-        .sst_phi2_we(sst_phi2_we),
-        .sst_phi2_wdata(sst_phi2_wdata),
+        .sst_phi2_we(eng_st_we && eng_st_sel == SEL_MACH
+                     && eng_st_idx == 3'd1),
+        .sst_phi2_wdata(eng_st_wdata[15:0]),
         .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),

@@ -619,12 +619,15 @@ module sst_engine
                     if (ld_idx >= 18'(B_STATE + ST_RV)
                         && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS))
                         rvreg[5'(ld_idx - 18'(B_STATE + ST_RV))] <= ld_word;
-                    /* The soft CPU's memory is written on its own
-                     * clock, which is half this one, so the word is
-                     * held out for four of these -- two of its own --
-                     * rather than offered for one and missed depending
-                     * on which half of its period the offer fell in. */
-                    if (on_tcm) begin
+                    /* The soft CPU's memory and one of the machine's
+                     * own words are written on its clock, which is half
+                     * this one, so the word is held out for four of
+                     * these -- two of its own -- rather than offered
+                     * for one and missed depending on which half of its
+                     * period the offer fell in. The flops that are on
+                     * this clock take the same word four times and are
+                     * none the worse for it. */
+                    if (on_tcm || on_flops) begin
                         byte_n <= byte_n + 2'd1;
                         if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
                     end else if (bus_rdy) state <= S_LD_PUT_WAIT;
