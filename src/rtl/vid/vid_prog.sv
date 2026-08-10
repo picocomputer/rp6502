@@ -52,9 +52,15 @@ module vid_prog (
     input logic [12:0] s_idx,
     output logic [31:0] vid_prog_s_data,
 
-    /* The savestate engine holds the machine, and the read ports with
-     * it. */
+    /* The savestate serializer holds the machine, and the render's read
+     * ports with it: the render is stopped, so both of them are going
+     * spare. Word 0 and 1 are the fill slot, 2 and 3 the sprite slot. */
     input logic sst_own,
+    input logic [10:0] sst_addr,
+    input logic [1:0] sst_word,
+    input logic sst_we,
+    input logic [31:0] sst_wdata,
+    output logic [31:0] vid_prog_sst_rdata,
 
     /* The soft CPU: words 0-8191 the table at line*16 + plane*4 + word,
      * then bit 15 the registers — 0 canvas, 1 vsync line, 2 the
@@ -87,8 +93,8 @@ module vid_prog (
 
     logic [10:0] p_a, s_a;
     always_comb begin
-        p_a = sst_own ? b_idx : {p_line, p_plane};
-        s_a = sst_own ? b_idx : s_idx[12:2];
+        p_a = sst_own ? sst_addr : {p_line, p_plane};
+        s_a = sst_own ? sst_addr : s_idx[12:2];
     end
 
     logic [2:0] canvas_shadow /*verilator public_flat_rd*/;
@@ -107,6 +113,13 @@ module vid_prog (
         b_reg_q = 32'd0;
     end
     always_ff @(posedge clk) begin
+        if (sst_own && sst_we) begin
+            if (sst_word == 2'd0) fill_e[sst_addr] <= sst_wdata;
+            if (sst_word == 2'd1) fill_c[sst_addr] <= sst_wdata[15:0];
+            if (sst_word == 2'd2)
+                spr_e[sst_addr] <= {sst_wdata[31], sst_wdata[18:0]};
+            if (sst_word == 2'd3) spr_c[sst_addr] <= sst_wdata;
+        end
         if (b_stb) begin
             b_tbl_q <= !b_addr[15];
             b_word_q <= b_addr[3:2];
@@ -139,6 +152,12 @@ module vid_prog (
             default: b_tbl = s_c_q;
         endcase
         vid_prog_b_rdata = b_tbl_q ? b_tbl : b_reg_q;
+        case (sst_word)
+            2'd0: vid_prog_sst_rdata = vid_prog_p_entry;
+            2'd1: vid_prog_sst_rdata = {16'd0, vid_prog_p_config};
+            2'd2: vid_prog_sst_rdata = {s_e_q[19], 12'd0, s_e_q[18:0]};
+            default: vid_prog_sst_rdata = s_c_q;
+        endcase
     end
 
     initial begin

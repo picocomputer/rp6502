@@ -239,6 +239,37 @@ module rp6502
 
     logic eng_freeze;
     always_comb rp6502_sst_stop_req = eng_freeze;
+
+    /* The serializer's own way into every array. It does not go through
+     * the machine's bus any more: the bus is machine logic and machine
+     * logic has no clock while a savestate is being made. The arrays do
+     * -- their addresses come from logic that is standing still, so
+     * they sit there doing nothing until this side asks. */
+    logic eng_mem_own;
+    logic [15:0] eng_mem_addr;
+    logic [31:0] eng_mem_wdata;
+    logic [1:0] eng_xprog_word;
+    logic eng_sram_we, eng_xram_we, eng_cell_we, eng_xprog_we;
+    logic [31:0] eng_cell_rdata, eng_xprog_rdata;
+    /* Not yet driven: the engine still reaches the arrays through the
+     * machine's bus. */
+    always_comb begin
+        eng_mem_own = 1'b0;
+        eng_mem_addr = '0;
+        eng_mem_wdata = '0;
+        eng_xprog_word = '0;
+        eng_sram_we = 1'b0;
+        eng_xram_we = 1'b0;
+        eng_cell_we = 1'b0;
+        eng_xprog_we = 1'b0;
+    end
+    /* verilator lint_off UNUSEDSIGNAL */
+    logic unused_eng_mem;
+    always_comb unused_eng_mem = ^eng_cell_rdata ^ ^eng_xprog_rdata
+        ^ (^eng_mem_addr) ^ (^eng_mem_wdata) ^ (^eng_xprog_word)
+        ^ eng_sram_we ^ eng_xram_we ^ eng_cell_we ^ eng_xprog_we
+        ^ eng_mem_own;
+    /* verilator lint_on UNUSEDSIGNAL */
     logic eng_tcm_sel, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
     logic [1:0] eng_st_sel;
     logic [31:0] eng_tcm_wdata;
@@ -319,6 +350,10 @@ module rp6502
         end else begin : g_ram_bram
             sram64k sram (
                 .clk(clk_sys),
+                .sst_own(eng_mem_own),
+                .sst_addr(eng_mem_addr[15:0]),
+                .sst_we(eng_sram_we),
+                .sst_wdata(eng_mem_wdata[7:0]),
                 .a_addr(cpu_addr),
                 .a_wdata(cpu_dout),
                 .a_we(cpu_we && phi2_en),
@@ -784,6 +819,10 @@ module rp6502
     end
     xram64k xram (
         .clk(clk_sys),
+        .sst_own(eng_mem_own),
+        .sst_addr(eng_mem_addr[13:0]),
+        .sst_we(eng_xram_we),
+        .sst_wdata(eng_mem_wdata),
         .a_addr(ma_addr[a_sel]),
         .xram64k_a_rdata(xram_a_rdata),
         .b_addr(xw_addr),
@@ -818,7 +857,12 @@ module rp6502
         .vid_prog_p_config(pm_config),
         .s_idx(sp_s_idx),
         .vid_prog_s_data(sp_s_data),
-        .sst_own(eng_own),
+        .sst_own(eng_mem_own),
+        .sst_addr(eng_mem_addr[10:0]),
+        .sst_word(eng_xprog_word),
+        .sst_we(eng_xprog_we),
+        .sst_wdata(eng_mem_wdata),
+        .vid_prog_sst_rdata(eng_xprog_rdata),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && bus_addr[17]),
         .b_we(bus_we),
@@ -841,6 +885,11 @@ module rp6502
         .vid_mode0_f_addr(mf_addr[1]),
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
+        .sst_own(eng_mem_own),
+        .sst_addr(eng_mem_addr[13:0]),
+        .sst_we(eng_cell_we),
+        .sst_wdata(eng_mem_wdata),
+        .vid_mode0_sst_rdata(eng_cell_rdata),
         .b_stb(bus_stb && bus_sel_vid && !bus_addr[18]
                && !bus_addr[17]),
         .b_we(bus_we),
