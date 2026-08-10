@@ -72,6 +72,7 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/rtl/vid/vid_prog.sv
     ${RP6502_SRC}/rtl/vid/vid_mode0.sv
     ${RP6502_SRC}/rtl/vid/vid_compose.sv
+    ${RP6502_SRC}/rtl/core/sst_engine.sv
     ${RP6502_SRC}/rtl/core/rp6502.sv)
 # Verilator elaborates while cmake configures, so an unresolved module here
 # is a configure error, not a build one. Nothing recursive: Hazard3 has six

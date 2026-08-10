@@ -12,4 +12,8 @@ if(RP6502_VERILATE)
     # Halt, take everything, put it in a core that has just come out of
     # reset, and carry on: the soft CPU resuming rather than booting.
     rp6502_add_machine_test(resume TIMEOUT 300)
+
+    # The engine reading the stopped machine out, against the same bytes
+    # fetched straight from the model.
+    rp6502_add_machine_test(sst TIMEOUT 600)
 endif()

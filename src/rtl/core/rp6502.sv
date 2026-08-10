@@ -72,6 +72,16 @@ module rp6502
     input logic sst_tcm_we,
     input logic [31:0] sst_tcm_wdata,
     output logic [31:0] rp6502_sst_tcm_rdata,
+
+    /* A savestate, asked for and read back a word at a time. Holding
+     * sst_save stops the machine and keeps it stopped; the blob stands
+     * still underneath the reader until it is let go. */
+    input logic sst_save,
+    output logic rp6502_sst_ready,
+    input logic [17:0] sst_rd_idx,
+    input logic sst_rd_req,
+    output logic [31:0] rp6502_sst_rdata,
+    output logic rp6502_sst_rvalid,
     /* The soft CPU's own halt, and the port its registers come out
      * through. It resumes at the instruction it stopped in front of;
      * nothing here restarts it. */
@@ -154,14 +164,19 @@ module rp6502
      * the opcode already on the bus, stopping the core in the middle of
      * an instruction rather than in front of one. */
     logic frz_at, frz_now, frz_held;
+    logic eng_freeze, freeze_any;
+    always_comb freeze_any = sst_freeze || eng_freeze;
     always_comb frz_at = cpu_sync || cpu_stp || cpu_wai;
-    always_comb frz_now = frz_held || (sst_freeze && frz_at);
+    always_comb frz_now = frz_held || (freeze_any && frz_at);
     always_comb rp6502_sst_frozen = frz_held;
+    always_comb bus_rdy = !(bus_sel_xram && xr_busy)
+        && !(bus_sel_stage && stage_stall)
+        && !(bus_sel_sram && ram_b_stall);
 
     initial frz_held = 1'b0;
     always_ff @(posedge clk_sys) begin
         if (!rst_n) frz_held <= 1'b0;
-        else if (!sst_freeze) frz_held <= 1'b0;
+        else if (!freeze_any) frz_held <= 1'b0;
         else if (frz_at) frz_held <= 1'b1;
     end
 
@@ -191,8 +206,15 @@ module rp6502
     always_comb rp6502_cpu_run = resb;
     logic cpu_stp, cpu_wai;
     logic [31:0] cpu65_st_rdata, via_st_rdata;
-    always_comb rp6502_sst_st_rdata = sst_st_via ? via_st_rdata
-                                                 : cpu65_st_rdata;
+    /* The engine asks while it holds the machine; anyone outside asks
+     * when it does not. */
+    logic st_via_any;
+    logic [2:0] st_idx_any;
+    always_comb begin
+        st_via_any = eng_own ? eng_st_via : sst_st_via;
+        st_idx_any = eng_own ? eng_st_idx : sst_st_idx;
+        rp6502_sst_st_rdata = st_via_any ? via_st_rdata : cpu65_st_rdata;
+    end
 
     cpu65 cpu (
         .clk(clk_sys),
@@ -209,13 +231,51 @@ module rp6502
         .cpu65_sync(cpu_sync),
         .cpu65_stp(cpu_stp),
         .cpu65_wai(cpu_wai),
-        .st_idx(sst_st_idx),
+        .st_idx(st_idx_any),
         .cpu65_st_rdata(cpu65_st_rdata),
         .st_we(sst_st_we && !sst_st_via),
         .st_wdata(sst_st_wdata),
         .cpu65_next_addr(cpu_next_addr),
         .cpu65_next_data(cpu_next_data),
         .cpu65_next_we(cpu_next_we)
+    );
+
+    logic eng_tcm_sel, eng_st_via, eng_dbg_halt, eng_dbg_vld;
+    logic [14:0] eng_tcm_addr;
+    logic [2:0] eng_st_idx;
+    logic [31:0] eng_dbg_instr;
+
+    sst_engine engine (
+        .clk_sys(clk_sys),
+        .rst_n(rst_n),
+        .sst_save(sst_save),
+        .sst_engine_freeze(eng_freeze),
+        .frozen(frz_held),
+        .sst_engine_dbg_halt(eng_dbg_halt),
+        .dbg_halted(rp6502_sst_dbg_halted),
+        .sst_engine_ready(rp6502_sst_ready),
+        .rd_idx(sst_rd_idx),
+        .rd_req(sst_rd_req),
+        .sst_engine_rdata(rp6502_sst_rdata),
+        .sst_engine_rvalid(rp6502_sst_rvalid),
+        .sst_engine_bus_own(eng_own),
+        .sst_engine_bus_pend(eng_pend),
+        .sst_engine_bus_stb(eng_stb),
+        .sst_engine_bus_addr(eng_addr),
+        .bus_rdy(bus_rdy),
+        .bus_rdata(bus_rdata),
+        .sst_engine_tcm_sel(eng_tcm_sel),
+        .sst_engine_tcm_addr(eng_tcm_addr),
+        .tcm_rdata(rp6502_sst_tcm_rdata),
+        .sst_engine_st_via(eng_st_via),
+        .sst_engine_st_idx(eng_st_idx),
+        .st_rdata(rp6502_sst_st_rdata),
+        .sst_engine_dbg_instr(eng_dbg_instr),
+        .sst_engine_dbg_instr_vld(eng_dbg_vld),
+        .dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
+        .dbg_ebreak(rp6502_sst_dbg_ebreak),
+        .dbg_data0(rp6502_sst_dbg_data0),
+        .dbg_data0_wen(rp6502_sst_dbg_data0_wen)
     );
 
     logic sel_via, sel_ria, sel_open;
@@ -283,7 +343,7 @@ module rp6502
         .data_i(cpu_dout),
         .via_data(via_data),
         .via_irq(via_irq),
-        .st_idx(sst_st_idx),
+        .st_idx(st_idx_any),
         .via_st_rdata(via_st_rdata),
         .st_we(sst_st_we && sst_st_via),
         .st_wdata(sst_st_wdata)
@@ -328,8 +388,35 @@ module rp6502
      * the pulse to a half period. */
     always_comb rp6502_rv_tx_valid = rv_tx_valid_raw && !rv_tx_valid_q;
 
+    /* Two masters, and only ever one at a time. The soft CPU's accesses
+     * arrive on its own slower clock and are narrowed to one system
+     * clock by the pair of flops above; the engine already runs on this
+     * clock and needs none of that, so the mux is after the narrowing
+     * rather than in front of it. The engine only ever holds the bus
+     * while the soft CPU is halted and issuing nothing. */
     logic bus_stb, bus_we, bus_pend;
-    always_comb bus_stb = bus_stb_n && !bus_stb_q;
+    logic rv_bus_pend, rv_bus_we;
+    logic [31:0] rv_bus_addr, rv_bus_wdata;
+    logic [3:0] rv_bus_wstrb;
+    logic eng_own, eng_pend, eng_stb;
+    logic [31:0] eng_addr;
+    always_comb begin
+        if (eng_own) begin
+            bus_pend = eng_pend;
+            bus_stb = eng_stb;
+            bus_we = 1'b0;
+            bus_addr = eng_addr;
+            bus_wdata = '0;
+            bus_wstrb = '0;
+        end else begin
+            bus_pend = rv_bus_pend;
+            bus_stb = bus_stb_n && !bus_stb_q;
+            bus_we = rv_bus_we;
+            bus_addr = rv_bus_addr;
+            bus_wdata = rv_bus_wdata;
+            bus_wstrb = rv_bus_wstrb;
+        end
+    end
 
     /* Held until the request it answers goes away, because the other
      * clock looks only every second one. */
@@ -344,6 +431,7 @@ module rp6502
     logic [31:0] bus_addr, bus_wdata;
     logic [3:0] bus_wstrb;
     logic [31:0] bus_rdata;
+    logic bus_rdy;
 
     /* RV_KHZ, not SYS_KHZ: mtime_acc is clocked by clk_rv, and a
      * microsecond is 25.2 of those. Ten per clock wrapping at a
@@ -360,22 +448,22 @@ module rp6502
          * invisible to the firmware, and a firmware that woke to find
          * its deadlines already past would notice at once. */
         .sst_time_hold(frz_held),
-        .sst_dbg_halt(sst_dbg_halt),
+        .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
         .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
         .sst_dbg_resume(sst_dbg_resume),
         .rv_soc_dbg_halted(rp6502_sst_dbg_halted),
         .sst_dbg_data0(sst_dbg_data0),
         .rv_soc_dbg_data0(rp6502_sst_dbg_data0),
         .rv_soc_dbg_data0_wen(rp6502_sst_dbg_data0_wen),
-        .sst_dbg_instr(sst_dbg_instr),
-        .sst_dbg_instr_vld(sst_dbg_instr_vld),
+        .sst_dbg_instr(eng_own ? eng_dbg_instr : sst_dbg_instr),
+        .sst_dbg_instr_vld(eng_own ? eng_dbg_vld : sst_dbg_instr_vld),
         .rv_soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
         .rv_soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
         .rv_soc_dbg_fault(rp6502_sst_dbg_fault),
         .sst_phi2_we(sst_phi2_we),
         .sst_phi2_wdata(sst_phi2_wdata),
-        .sst_tcm_sel(sst_tcm_sel),
-        .sst_tcm_addr(sst_tcm_addr),
+        .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
+        .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(sst_tcm_we),
         .sst_tcm_wdata(sst_tcm_wdata),
         .rv_soc_tcm_rdata(rp6502_sst_tcm_rdata),
@@ -392,16 +480,14 @@ module rp6502
         .cont_trig(cont_trig),
         .key_code(key_code),
         .rv_soc_key_pending(rp6502_key_pending),
-        .bus_rdy(!(bus_sel_xram && xr_busy)
-                 && !(bus_sel_stage && stage_stall)
-                 && !(bus_sel_sram && ram_b_stall)),
+        .bus_rdy(bus_rdy),
         .bus_taken(bus_taken),
-        .rv_soc_bus_pend(bus_pend),
+        .rv_soc_bus_pend(rv_bus_pend),
         .rv_soc_bus_stb(bus_stb_raw),
-        .rv_soc_bus_we(bus_we),
-        .rv_soc_bus_addr(bus_addr),
-        .rv_soc_bus_wdata(bus_wdata),
-        .rv_soc_bus_wstrb(bus_wstrb),
+        .rv_soc_bus_we(rv_bus_we),
+        .rv_soc_bus_addr(rv_bus_addr),
+        .rv_soc_bus_wdata(rv_bus_wdata),
+        .rv_soc_bus_wstrb(rv_bus_wstrb),
         .bus_rdata(bus_rdata)
     );
 
