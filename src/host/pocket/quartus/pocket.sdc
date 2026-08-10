@@ -143,6 +143,20 @@ set_clock_uncertainty -add -hold 0.080 \
     -from [get_clocks {bridge_spiclk}] \
     -to [get_clocks {bridge_spiclk}]
 
+# The OPL's own reset, which the R101 baseline already names: a
+# comparator that holds the vendored afifo's clear for 255 clocks at a
+# time, released through reset_sync's two flops on the same clock. A CI
+# fit paid 52 ps through the seam pad for a hold check on pins that do
+# not change for two hundred and fifty-five cycles. An exception, not a
+# bigger number: the pad above stays what the seam class measured. The
+# -hold cuts the whole min-delay family on this pair, removal included,
+# and that is the point of a synchronised release — r2 holds the level,
+# so skew can only choose which edge each endpoint releases on, never
+# hand any of them a pulse.
+set_false_path -hold \
+    -from [get_registers {*|aud_opl:*|reset_sync:*|r2}] \
+    -to [get_registers {*|aud_opl:*|afifo:*}]
+
 # The data-phase payload, cut at the protocol rather than an endpoint
 # at a time. In rv_soc, dph_addr and dph_strb are written under
 # "if (hready)" and nowhere else; hready = !(dph_active && dph_ext &&

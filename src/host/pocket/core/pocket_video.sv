@@ -16,9 +16,19 @@
  * canvas — so this stage is only clock alignment: pixels arrive at one
  * per two clk_sys and leave at one per clk_vid, the same rate, and the
  * FIFO buffers jitter, not content. Both clocks come off the same PLL;
- * the reader's raster starts on the first crossed frame pulse and
- * never resynchronizes, and its window trails the writer by a few
- * pixels so the writer is always ahead.
+ * the reader's raster starts on the first crossed frame pulse and its
+ * window trails the writer by a few pixels so the writer is always
+ * ahead.
+ *
+ * That phase lock is the whole design, and a savestate breaks it: the
+ * machine's beam stops mid-frame — or comes back from a blob at a
+ * different mid-frame — while this reader's clock never stops. A
+ * reader that free-ran through it would come back popping at times
+ * unrelated to the writer's pushes and the FIFO would tear on every
+ * line thereafter; that was the scrambled picture every savestate
+ * left behind on hardware. So a stop is a power-on here: the reader
+ * stands down, drains what the frozen beam left in the FIFO, and
+ * re-arms on the first frame pulse after the clock returns.
  */
 
 module pocket_video (
@@ -140,11 +150,22 @@ module pocket_video (
     end
 `endif
 
-    /* The reader's raster: armed by the first frame pulse, then free
-     * running at the writer's exact rate. */
+    /* The reader's raster: armed by a frame pulse, then free running
+     * at the writer's exact rate — for as long as the writer runs. */
     logic running;
     logic [9:0] x;
     logic [9:0] y;
+
+    /* The machine's clock state, in the reader's domain. */
+    (* preserve *) logic run_v1, run_v2;
+    initial begin
+        run_v1 = 1'b1;
+        run_v2 = 1'b1;
+    end
+    always_ff @(posedge clk_vid) begin
+        run_v1 <= run;
+        run_v2 <= run_v1;
+    end
 
     /* The reader's copy of the canvas, crossed and held for a whole
      * frame so the window cannot tear mid-picture. */
@@ -175,12 +196,15 @@ module pocket_video (
     end
 
     /* de is the canvas, in the same slot the machine sends it: its own
-     * width, back to back, one pop per asserted cycle. */
+     * width, back to back, one pop per asserted cycle. While standing
+     * down, the pops drain instead: whatever half a line the frozen
+     * beam left behind must be gone before the re-arm, or the lock
+     * comes back a few pixels out of phase and stays there. */
     logic de_sel;
     always_comb de_sel = running
         && x >= 10'(X_DE0) && x < 10'(X_DE0) + cw
         && cv_row_sel(canvas, y);
-    always_comb take = de_sel;
+    always_comb take = de_sel || (!running && !fifo_empty);
 
     /* The end-of-line word: the cycle after de falls on every row, rgb
      * names the scaler slot — endline[23:13] the parameter, [2:0] the
@@ -207,7 +231,9 @@ module pocket_video (
         pocket_video_hs = 1'b0;
     end
     always_ff @(posedge clk_vid) begin
-        if (!running) begin
+        if (!run_v2) begin
+            running <= 1'b0;
+        end else if (!running) begin
             if (frame_pulse) begin
                 running <= 1'b1;
                 x <= '0;

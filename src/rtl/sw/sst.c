@@ -48,6 +48,17 @@ void sst_task(void)
     if (!(SST_CTL & SST_RESTORED))
         return;
 
+    /* Refused, and nothing was written: this is still the session it
+     * was, so there is nothing to fix up and every fixup would be
+     * wrong -- the clock re-based mid-run, the canvas repainted under
+     * a live program. The engine still holds the machine's release
+     * hostage to the ack, so the ack is all this path does. */
+    if (SST_CTL & SST_RESTORE_ERR)
+    {
+        SST_CTL = SST_RESTORED;
+        return;
+    }
+
     /* Write-only fabric, all of it, and all of it derived from
      * something the blob did carry: the code page, the pointer each
      * audio engine is at and the block it reads. */

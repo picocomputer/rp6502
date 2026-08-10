@@ -298,6 +298,7 @@ module sst_engine
         S_LD_FREEZE,
         S_LD_HALT,
         S_LD_FETCH,
+        S_LD_SCAN,
         S_LD_CHK,
         S_LD_BAD,
         S_LD_PUT,
@@ -454,7 +455,8 @@ module sst_engine
         sst_engine_tcm_wdata = ld_word;
         sst_engine_stage_pend = state == S_LD_FETCH;
         sst_engine_stage_addr = 28'(A_STAGE_OFF)
-            + {8'd0, ld_idx, 2'd0} + {26'd0, byte_n};
+            + {8'd0, ld_idx, 2'd0} + {16'd0, ld_off, 2'd0}
+            + {26'd0, byte_n};
     end
 
     /* The flops, which answer combinationally and need no access. Five
@@ -553,6 +555,13 @@ module sst_engine
     logic want_stop, hold_res, arr_own, sram_gap;
     (* preserve *) logic running_s1, running_s2;
     logic ld_verify, ld_bad;
+    /* Where the blob begins inside what the host handed back, in
+     * words: zero for a naked blob, 149 for the header measured off a
+     * real device, and anything up to a page of tolerance for an OS
+     * that grows its wrapper. */
+    localparam logic [9:0] SCAN_CAP = 10'd1023;
+    logic [9:0] ld_off;
+    logic ld_scan;
     logic [31:0] vsum /*verilator public_flat_rd*/;
     /* Which word refused the blob, kept until the next load: the one
      * question hardware bring-up will ask a refusal is "where". */
@@ -616,6 +625,8 @@ module sst_engine
             ld_writing <= 1'b0;
             want_stop <= 1'b0;
             ld_verify <= 1'b0;
+            ld_off <= '0;
+            ld_scan <= 1'b0;
             ld_bad <= 1'b0;
             vsum <= '0;
             bad_idx <= '0;
@@ -747,11 +758,13 @@ module sst_engine
                 S_LD_HALT:
                 if (dbg_halted && !running_s2) begin
                     ld_idx <= '0;
+                    ld_off <= '0;
+                    ld_scan <= 1'b1;
                     byte_n <= '0;
                     acc <= '0;
                     vsum <= '0;
                     ld_bad <= 1'b0;
-                    ld_verify <= 1'b1;
+                    ld_verify <= 1'b0;
                     state <= S_LD_FETCH;
                 end else if (dbg_halted) want_stop <= 1'b1;
 
@@ -773,8 +786,40 @@ module sst_engine
                     if (byte_n == 2'd3) begin
                         ld_word <= {acc, stage_rdata};
                         byte_n <= '0;
-                        state <= ld_verify ? S_LD_CHK : S_LD_PUT;
+                        state <= ld_scan ? S_LD_SCAN
+                            : (ld_verify ? S_LD_CHK : S_LD_PUT);
                     end else byte_n <= byte_n + 2'd1;
+                end
+
+                /* The host does not hand the blob back naked: the file
+                 * it kept carries the OS's own header in front and a
+                 * thumbnail behind, measured off a real device at 596
+                 * and 52764 bytes with the blob whole in between. So
+                 * the blob is found rather than assumed: slide a word
+                 * at a time until three words in a row read magic,
+                 * version and length, and verify the whole of it from
+                 * there. Nothing shorter is trusted -- one magic word
+                 * could sit in a thumbnail. */
+                S_LD_SCAN:
+                if ((ld_idx == 18'd0 && ld_word != SST_MAGIC)
+                    || (ld_idx == 18'd1 && ld_word != SST_VERSION)
+                    || (ld_idx == 18'd2
+                        && ld_word != (32'(W_TOTAL) << 2))) begin
+                    if (ld_off == SCAN_CAP) state <= S_LD_BAD;
+                    else begin
+                        ld_off <= ld_off + 10'd1;
+                        ld_idx <= '0;
+                        state <= S_LD_FETCH;
+                    end
+                end else if (ld_idx == 18'd2) begin
+                    ld_scan <= 1'b0;
+                    ld_verify <= 1'b1;
+                    ld_idx <= '0;
+                    vsum <= '0;
+                    state <= S_LD_FETCH;
+                end else begin
+                    ld_idx <= ld_idx + 18'd1;
+                    state <= S_LD_FETCH;
                 end
 
                 /* The same running sum the save wrote the blob with, so

@@ -179,7 +179,11 @@ def main() -> int:
             bad.append("core_top has no savestate size")
         else:
             want("host blob size", int(m.group(1)), words * 4)
-            want("host max load size", int(m2.group(1)), words * 4)
+            # Not the blob's size: the OS hands the blob back wrapped
+            # in its own file header and thumbnail, so the load budget
+            # is the whole window and the engine finds the magic.
+            want("host max load size", int(m2.group(1)),
+                 mm["SST_BLOB_MAX"])
         if words * 4 > mm["SST_BLOB_MAX"]:
             bad.append(f"blob {words * 4:#x} is over the window's "
                        f"{mm['SST_BLOB_MAX']:#x}")

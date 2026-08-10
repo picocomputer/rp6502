@@ -175,9 +175,9 @@ module ria_regs (
     logic xs_fill;  // a pop's mirror refill lands one clock later
     logic [9:0] xs_fill_at;
 
-    logic os_rx_valid;
+    logic os_rx_valid /*verilator public_flat_rd*/;
     logic [7:0] os_rx_data;
-    logic rx_req;
+    logic rx_req /*verilator public_flat_rd*/;
     logic eff_rx_valid;
     logic [7:0] eff_rx_data;
     always_comb begin

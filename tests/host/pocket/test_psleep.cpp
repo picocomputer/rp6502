@@ -438,10 +438,13 @@ static std::vector<uint8_t> read_file(const char *path)
 static long g_underrun_at;
 
 /* The card as installed, with the ROM the user picked already bound.
- * A blob handed in means this is a wake: it goes into the window before
- * the core is let out of reset, which is where the host puts it. */
-static void boot(const std::vector<uint8_t> &rom,
-                 const std::vector<uint8_t> *blob)
+ * There is no blob here on purpose: the real host streams the state in
+ * during Runtime, after Reset Exit, onto a machine that has already
+ * booted and started the ROM -- measured off a device, not assumed.
+ * The old shape of this bench wrote the blob before the core ran, and
+ * every restore it ever tested landed on an idle machine that had
+ * declined its ROM; hardware never once takes that path. */
+static void boot(const std::vector<uint8_t> &rom)
 {
     dut = new Vtb_pocket;
     a_next = s_next = g_sys = 0;
@@ -491,11 +494,6 @@ static void boot(const std::vector<uint8_t> &rom,
     host_write(0x1000000Cu, 5);
     host_write(0x10000010u, 30);
     host_write(0x10000014u, 0);
-
-    /* Before the core runs, because the sticky bit it raises is what a
-     * boot asks to know whether a restore is coming. */
-    if (blob)
-        host_put_bytes(BLOB_BRIDGE, blob->data(), blob->size());
 
     dut->datatable_q = g_dt[1];
     dut->dataslot_allcomplete = 1;
@@ -619,13 +617,31 @@ static const std::string DONE = "pocket file ok";
  * where that difference was found. */
 #define SAVE_AT 1430000L
 
+/* What the host actually hands back at a load: the blob inside the
+ * file the OS kept, with the OS's own header in front and a thumbnail
+ * behind. 596 and 52764 bytes on the device this was measured on; the
+ * junk here is patterned so no three consecutive words can pass for
+ * magic, version and length. */
+static std::vector<uint8_t> wrap_blob(const std::vector<uint8_t> &blob,
+                                      size_t head, size_t tail)
+{
+    std::vector<uint8_t> v;
+    v.reserve(head + blob.size() + tail);
+    for (size_t i = 0; i < head; i++)
+        v.push_back((uint8_t)(0x5A ^ (i * 7)));
+    v.insert(v.end(), blob.begin(), blob.end());
+    for (size_t i = 0; i < tail; i++)
+        v.push_back((uint8_t)(0xC3 ^ (i * 11)));
+    return v;
+}
+
 UTEST_MAIN();
 
 UTEST(psleep, a_running_program_survives_the_reconfigure)
 {
     std::vector<uint8_t> rom = read_file(FILE_ROM);
     ASSERT_GT(rom.size(), 0u);
-    boot(rom, nullptr);
+    boot(rom);
 
     /* Far enough in that the machine is real -- the firmware up, the
      * ROM staged and running, the program partway through writing a
@@ -695,17 +711,48 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
                 g_underrun_at, g_underrun_at / 4);
     ASSERT_FALSE((int)dut->tb_pocket_savestate_start_err);
 
+    /* A save is not a sleep: the OS takes a state and lets the machine
+     * carry on, and on the device it does that every time the user
+     * asks for one. The session that was stopped whole must therefore
+     * finish its own program before anything is restored anywhere --
+     * the machine got its clock back, and nothing about it is
+     * different for having been read. */
+    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+         i++)
+    {
+        step();
+        if ((i % 4000000L) == 3999999L)
+            fprintf(stderr, "after save t=%ldM pc=%04x resb=%d eng=%d "
+                            "con=%zu rv=%zu\n",
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
+                    (int)MEM(engine__DOT__state), g_console.size(),
+                    g_rv.size());
+    }
+    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+
     teardown();
 
-    /* The wake: a new device with a cold store, the host streaming its
-     * slots again, and the blob written into the window before the core
-     * is let out of reset. */
-    boot(rom, &blob);
+    /* The wake, the way the device actually does it: a new machine
+     * with a cold store boots NORMALLY -- slots streamed, Reset Exit,
+     * the firmware up and the ROM staged and running -- and only then,
+     * during Runtime, does the host write the state in and ask for the
+     * load. What it writes is the file it kept, wrapper and all: the
+     * OS header in front of the blob and the thumbnail behind it, at
+     * the sizes measured off a real device. The engine finds its magic
+     * inside. */
+    boot(rom);
     /* Nothing of the old machine crossed by itself. */
     ASSERT_NE(0xA0u, (uint32_t)MEM(xram__DOT__mem0)[0]);
-    /* And the boot declined to start the ROM under the restore that is
-     * coming, which is what the sticky blob bit is for. */
+    /* This device is mid-run of its own session -- the same spot the
+     * save was taken at, which on hardware is wherever the OS's wake
+     * flow happens to land. */
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+    ASSERT_TRUE((int)MEM(resb));
     ASSERT_TRUE(g_console.find(DONE) == std::string::npos);
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
 
     ASSERT_TRUE(load_state());
 
@@ -732,12 +779,58 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
          i++)
     {
         step();
+        if ((i % 2000000L) == 1999999L)
+            fprintf(stderr, "t=%ldM pc=%04x resb=%d con=%zu rv=%zu\n",
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc),
+                    (int)MEM(resb), g_console.size(), g_rv.size());
     }
     if (g_console.find(DONE) == std::string::npos)
         fprintf(stderr,
-                "6502 pc %04x resb=%d running=%d engine=%d console=[%s]\n",
+                "6502 pc %04x resb=%d running=%d engine=%d console=[%s] rv=[%s]\n",
                 (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                 (int)dut->rootp->tb_pocket__DOT__mach_clk_en, (int)MEM(engine__DOT__state),
-                g_console.c_str());
+                g_console.c_str(), g_rv.c_str());
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    teardown();
+}
+
+UTEST(psleep, a_file_with_no_blob_in_it_is_refused_and_the_session_lives)
+{
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+    ASSERT_TRUE((int)MEM(resb));
+
+    /* Control: with no savestate at all this session prints DONE well
+     * inside the budget below. */
+    /* A whole window of junk: nothing in it scans as magic, so the
+     * engine gives up at its cap, writes nothing, and says so. The
+     * session it interrupted -- stopped whole, resumed whole -- then
+     * finishes its own program as if nothing happened, which is also
+     * the firmware declining to run restore fixups on a machine that
+     * was never restored. */
+    std::vector<uint8_t> junk = wrap_blob({}, 8192, 0);
+    host_put_bytes(BLOB_BRIDGE, junk.data(), junk.size());
+    ASSERT_FALSE(load_state());
+    ASSERT_TRUE((int)dut->tb_pocket_savestate_load_err);
+
+    for (long i = 0; i < 20000000L && g_console.find(DONE) == std::string::npos;
+         i++)
+    {
+        step();
+        if ((i % 4000000L) == 3999999L)
+            fprintf(stderr, "refused t=%ldM pc=%04x resb=%d eng=%d con=%zu "
+                            "clken=%d rvpc=%08x rv=%zu api=%d rxr=%d rxv=%d sync=%d\n",
+                    i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
+                    (int)MEM(engine__DOT__state), g_console.size(),
+                    (int)dut->rootp->tb_pocket__DOT__mach_clk_en,
+                    (unsigned)MEM(rv__DOT__haddr), g_rv.size(),
+                    (int)MEM(ria__DOT__rx_req),
+                    (int)MEM(ria__DOT__os_rx_valid),
+                    (int)MEM(cpu__DOT__cpu65_sync));
+    }
+    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    teardown();
 }

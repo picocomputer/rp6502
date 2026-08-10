@@ -400,8 +400,16 @@ end
     //
     // The size is sst_engine's word count times four, and pocket_sst
     // has the same number: reading the last word is what tells the
-    // machine the host has finished with it. Nothing checks the three
-    // against each other, so they are written here together.
+    // machine the host has finished with it. stage_map_gate checks the
+    // copies against each other.
+    //
+    // maxloadsize is not the blob's size and saying it was cost a
+    // device: the OS keeps the blob wrapped in a file with its own
+    // header in front and a thumbnail behind -- 378304 bytes around a
+    // 324944-word... byte blob, measured -- and what comes back at a
+    // load is the wrapping too. maxloadsize is the window, the engine
+    // finds its magic inside whatever arrives, and an OS that sizes a
+    // buffer off this number gets one its file fits in.
     //
     // The ack is answered in fabric whatever this says, because the
     // bridge's command engine parks in the savestate state until it
@@ -410,7 +418,7 @@ end
     wire            savestate_supported = 1'b1;
     wire    [31:0]  savestate_addr = 32'h03F0_0000;
     wire    [31:0]  savestate_size = 32'd324944;
-    wire    [31:0]  savestate_maxloadsize = 32'd324944;
+    wire    [31:0]  savestate_maxloadsize = 32'd655360;
 
     wire            savestate_start;
     wire            savestate_start_ack;
