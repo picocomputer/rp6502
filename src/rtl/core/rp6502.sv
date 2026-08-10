@@ -239,6 +239,10 @@ module rp6502
 
     logic eng_freeze;
     always_comb rp6502_sst_stop_req = eng_freeze;
+    /* The serializer owns the soft CPU's debug port and its memory for
+     * as long as it has the machine. */
+    logic eng_own;
+    always_comb eng_own = eng_freeze;
 
     /* The serializer's own way into every array. It does not go through
      * the machine's bus any more: the bus is machine logic and machine
@@ -251,6 +255,8 @@ module rp6502
     logic [1:0] eng_xprog_word;
     logic eng_xram_we, eng_cell_we, eng_xprog_we;
     logic eng_sram_sel, eng_sram_we, eng_regs_own, eng_regs_we;
+    logic eng_stage_pend;
+    logic [27:0] eng_stage_addr;
     logic [7:0] eng_regs_word;
     logic [31:0] eng_regs_wdata;
     logic [15:0] eng_sram_addr;
@@ -282,15 +288,10 @@ module rp6502
         .rd_t(sst_rd_t),
         .sst_engine_rdata(rp6502_sst_rdata),
         .sst_engine_rvalid(rp6502_sst_rvalid),
-        .sst_engine_bus_own(eng_own),
-        .sst_engine_bus_pend(eng_pend),
-        .sst_engine_bus_stb(eng_stb),
-        .sst_engine_bus_addr(eng_addr),
-        .sst_engine_bus_we(eng_we),
-        .sst_engine_bus_wdata(eng_wdata),
-        .sst_engine_bus_wstrb(eng_wstrb),
-        .bus_rdy(bus_rdy),
-        .bus_rdata(bus_rdata),
+        .sst_engine_stage_pend(eng_stage_pend),
+        .sst_engine_stage_addr(eng_stage_addr),
+        .stage_stall(stage_stall),
+        .stage_rdata(stage_rdata),
         .sst_engine_mem_own(eng_mem_own),
         .sst_engine_mem_addr(eng_mem_addr),
         .sst_engine_mem_wdata(eng_mem_wdata),
@@ -459,25 +460,17 @@ module rp6502
     logic rv_bus_pend, rv_bus_we;
     logic [31:0] rv_bus_addr, rv_bus_wdata;
     logic [3:0] rv_bus_wstrb;
-    logic eng_own, eng_pend, eng_stb, eng_we;
-    logic [31:0] eng_addr, eng_wdata;
-    logic [3:0] eng_wstrb;
+    /* One master again. The savestate serializer used to take this bus
+     * over; it does not any more, because the bus is machine logic and
+     * machine logic has no clock while a savestate is being made. It
+     * reaches every array by a port of its own instead. */
     always_comb begin
-        if (eng_own) begin
-            bus_pend = eng_pend;
-            bus_stb = eng_stb;
-            bus_we = eng_we;
-            bus_addr = eng_addr;
-            bus_wdata = eng_wdata;
-            bus_wstrb = eng_wstrb;
-        end else begin
-            bus_pend = rv_bus_pend;
-            bus_stb = bus_stb_n && !bus_stb_q;
-            bus_we = rv_bus_we;
-            bus_addr = rv_bus_addr;
-            bus_wdata = rv_bus_wdata;
-            bus_wstrb = rv_bus_wstrb;
-        end
+        bus_pend = rv_bus_pend;
+        bus_stb = bus_stb_n && !bus_stb_q;
+        bus_we = rv_bus_we;
+        bus_addr = rv_bus_addr;
+        bus_wdata = rv_bus_wdata;
+        bus_wstrb = rv_bus_wstrb;
     end
 
     /* Held until the request it answers goes away, because the other
@@ -592,9 +585,12 @@ module rp6502
      * holds it through the answer cycle. */
     logic [27:0] stage_addr_q;
     always_comb begin
-        rp6502_stage_pend = bus_pend && bus_sel_stage;
-        rp6502_stage_addr = rp6502_stage_pend ? bus_addr[27:0]
-                                              : stage_addr_q;
+        /* The serializer reads the store directly; it is the board's
+         * memory, not the machine's, and it keeps its clock when the
+         * machine loses one. */
+        rp6502_stage_pend = eng_stage_pend || (bus_pend && bus_sel_stage);
+        rp6502_stage_addr = eng_stage_pend ? eng_stage_addr
+            : ((bus_pend && bus_sel_stage) ? bus_addr[27:0] : stage_addr_q);
     end
 
     logic api_pending;

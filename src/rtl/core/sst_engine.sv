@@ -69,16 +69,14 @@ module sst_engine
     output logic [31:0] sst_engine_rdata,
     output logic sst_engine_rvalid,
 
-    /* The machine's bus, which this drives while it holds the machine. */
-    output logic sst_engine_bus_own,
-    output logic sst_engine_bus_pend,
-    output logic sst_engine_bus_stb,
-    output logic [31:0] sst_engine_bus_addr,
-    output logic sst_engine_bus_we,
-    output logic [31:0] sst_engine_bus_wdata,
-    output logic [3:0] sst_engine_bus_wstrb,
-    input logic bus_rdy,
-    input logic [31:0] bus_rdata,
+    /* The staging store, where the host leaves a blob to be loaded. It
+     * is not the machine's -- it has its own clock and keeps it -- so
+     * this is a window onto the board rather than a bus master. A byte
+     * at a time, and it says when the byte is there. */
+    output logic sst_engine_stage_pend,
+    output logic [27:0] sst_engine_stage_addr,
+    input logic stage_stall,
+    input logic [7:0] stage_rdata,
 
     /* Every array the machine keeps, reached directly. The bus above
      * is machine logic and machine logic has no clock while a
@@ -169,15 +167,10 @@ module sst_engine
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
     localparam logic [31:0] SST_VERSION = 32'd1;
 
-    /* Where each window lives, as the machine's own addresses. */
-    localparam logic [31:0] A_REGS = 32'h2000_0000;
-    localparam logic [31:0] A_SRAM = 32'h1000_0000;
-    localparam logic [31:0] A_XRAM = 32'h3000_0000;
-    localparam logic [31:0] A_CELLS = 32'h5000_0000;
-    localparam logic [31:0] A_XPROG = 32'h5002_0000;
-    /* The blob, where the host left it, seen through the machine's
-     * window onto the staging store. */
-    localparam logic [31:0] A_STAGE = 32'h63F0_0000;
+    /* The blob, where the host left it: an offset into the staging
+     * store rather than an address in the machine, because the store is
+     * the board's and not the machine's. */
+    localparam int A_STAGE_OFF = 32'h03F0_0000;
 
     /* The one word of the regs window that cannot be read: word 16 is
      * the console's outgoing byte and reading it takes it off the
@@ -282,8 +275,6 @@ module sst_engine
     logic hold_valid;
     logic [1:0] byte_n;
     logic [23:0] acc;
-    logic bytewise;
-    logic [31:0] region_addr;
     logic [17:0] off, dec_idx;
 
     /* Both of these cross to the host's clock, so both are flops rather
@@ -302,14 +293,6 @@ module sst_engine
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
         sst_engine_rvalid = rvalid_q;
-        /* Only while it is using it. The two states at the end of a
-         * restore are the engine waiting for the firmware to say it has
-         * put back what no blob carries, and that firmware is running
-         * again by then -- holding its bus would stop it at its first
-         * memory access, which is the one that reads the request it is
-         * being waited on for. */
-        sst_engine_bus_own = state != S_IDLE && state != S_LD_DONE
-            && state != S_LD_ACK;
         sst_engine_dbg_instr = spill_instr;
         sst_engine_dbg_instr_vld = state == S_SPILL_ARM
             || state == S_SPILL_ISSUE || state == S_SPILL_BRK_ARM
@@ -322,34 +305,18 @@ module sst_engine
         sst_engine_dbg_resume = state == S_LD_DONE;
     end
 
-    /* Which window answers this word, and where in it. Byte windows
-     * cost four accesses and the word is assembled with the lowest
-     * address in the most significant byte, which is the order the
-     * staging store hands the blob back in. */
+    /* Where in its own array this word lives. There are no addresses
+     * here any more: each array has a port and an index of its own, so
+     * the only thing to work out is which one and how far in. */
     always_comb begin
-        bytewise = 1'b0;
-        region_addr = A_REGS;
         off = '0;
         dec_idx = ld_writing ? ld_idx : hold_idx;
         if (dec_idx >= 18'(B_TCM)) off = dec_idx - 18'(B_TCM);
-        else if (dec_idx >= 18'(B_XPROG)) begin
-            off = dec_idx - 18'(B_XPROG);
-            region_addr = A_XPROG;
-        end else if (dec_idx >= 18'(B_CELLS)) begin
-            off = dec_idx - 18'(B_CELLS);
-            region_addr = A_CELLS;
-        end else if (dec_idx >= 18'(B_XRAM)) begin
-            off = dec_idx - 18'(B_XRAM);
-            region_addr = A_XRAM;
-            bytewise = 1'b1;
-        end else if (dec_idx >= 18'(B_SRAM)) begin
-            off = dec_idx - 18'(B_SRAM);
-            region_addr = A_SRAM;
-            bytewise = 1'b1;
-        end else if (dec_idx >= 18'(B_REGS)) begin
-            off = dec_idx - 18'(B_REGS);
-            region_addr = A_REGS;
-        end
+        else if (dec_idx >= 18'(B_XPROG)) off = dec_idx - 18'(B_XPROG);
+        else if (dec_idx >= 18'(B_CELLS)) off = dec_idx - 18'(B_CELLS);
+        else if (dec_idx >= 18'(B_XRAM)) off = dec_idx - 18'(B_XRAM);
+        else if (dec_idx >= 18'(B_SRAM)) off = dec_idx - 18'(B_SRAM);
+        else if (dec_idx >= 18'(B_REGS)) off = dec_idx - 18'(B_REGS);
     end
 
     /* The decode is a flop, not a wire. Six eighteen-bit comparators
@@ -358,9 +325,8 @@ module sst_engine
      * as one cone that is three nanoseconds past the clock. The engine
      * has clocks to spare -- it is the slowest thing in the machine on
      * purpose -- so it spends one letting the decode settle. */
-    logic on_bus, on_tcm;
-    logic bytewise_q, on_bus_q, on_tcm_q, on_flops_q;
-    logic [31:0] region_addr_q;
+    logic on_tcm;
+    logic on_tcm_q, on_flops_q;
     logic [17:0] off_q;
     logic [1:0] st_sel_q;
     logic [2:0] st_idx_q;
@@ -404,32 +370,15 @@ module sst_engine
         on_regs = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_SRAM)
             && dec_idx != 18'(B_REGS + REGS_HOLE);
         on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
-        on_bus = 1'b0;
         sst_engine_tcm_sel = on_tcm_q && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
         sst_engine_tcm_addr = off_q[14:0];
         sst_engine_tcm_we = on_tcm_q && state == S_LD_PUT;
         sst_engine_tcm_wdata = ld_word;
-        sst_engine_bus_addr = (state == S_LD_FETCH
-                || state == S_LD_FETCH_WAIT)
-            ? A_STAGE + {12'd0, ld_idx, 2'd0} + {30'd0, byte_n}
-            : region_addr_q + (bytewise_q
-                               ? {12'd0, off_q, 2'd0} + {30'd0, byte_n}
-                               : {12'd0, off_q, 2'd0});
-        /* A fetch reads the store; a put writes wherever the index
-         * says. Byte windows take one byte per access either way. */
-        sst_engine_bus_we = state == S_LD_PUT;
-        /* The byte windows take the addressed lane off whichever byte
-         * the master offers, so a write puts the same byte on all four
-         * and the window picks it up; a word window takes the word. */
-        sst_engine_bus_wstrb = state == S_LD_PUT ? 4'b1111 : 4'b0000;
-        sst_engine_bus_wdata = bytewise_q
-            ? {4{ld_word[31 - {byte_n, 3'd0} -: 8]}} : ld_word;
-        sst_engine_bus_pend = (on_bus_q && state == S_READ)
-            || state == S_LD_FETCH || (on_bus_q && state == S_LD_PUT);
-        sst_engine_bus_stb = bus_rdy && ((on_bus_q && state == S_READ)
-            || state == S_LD_FETCH || (on_bus_q && state == S_LD_PUT));
+        sst_engine_stage_pend = state == S_LD_FETCH;
+        sst_engine_stage_addr = 28'(A_STAGE_OFF)
+            + {8'd0, ld_idx, 2'd0} + {26'd0, byte_n};
     end
 
     /* The flops, which answer combinationally and need no access. Five
@@ -488,7 +437,11 @@ module sst_engine
     logic direct;
     logic [31:0] direct_word;
     always_comb begin
-        direct = !on_bus && !on_tcm;
+        /* Everything that is not an array: the header, the flops and
+         * the trailer, plus the one word of the regs window that must
+         * not be read. */
+        direct = !on_sram && !on_xram && !on_cell && !on_xprog
+            && !on_regs && !on_tcm;
         direct_word = hold_idx < 18'(B_STATE) ? hdr_word
             : (hold_idx < 18'(B_REGS) ? state_word
                : (hold_idx >= 18'(B_END) ? end_word : 32'd0));
@@ -550,16 +503,13 @@ module sst_engine
             ready_q <= 1'b0;
             rvalid_q <= 1'b0;
             done_q <= 1'b0;
-            bytewise_q <= 1'b0;
             on_sram_q <= 1'b0;
             on_xram_q <= 1'b0;
             on_cell_q <= 1'b0;
             on_xprog_q <= 1'b0;
             on_regs_q <= 1'b0;
-            on_bus_q <= 1'b0;
             on_tcm_q <= 1'b0;
             on_flops_q <= 1'b0;
-            region_addr_q <= A_REGS;
             off_q <= '0;
             st_sel_q <= SEL_MACH;
             st_idx_q <= '0;
@@ -584,16 +534,13 @@ module sst_engine
         end else begin
             ready_q <= !summing && (state == S_READY || state == S_READ_ARM
                 || state == S_READ || state == S_READ_WAIT);
-            bytewise_q <= bytewise;
             on_sram_q <= on_sram;
             on_xram_q <= on_xram;
             on_cell_q <= on_cell;
             on_xprog_q <= on_xprog;
             on_regs_q <= on_regs;
-            on_bus_q <= on_bus;
             on_tcm_q <= on_tcm;
             on_flops_q <= on_flops;
-            region_addr_q <= region_addr;
             off_q <= off;
             st_sel_q <= st_sel;
             st_idx_q <= st_idx;
@@ -698,11 +645,11 @@ module sst_engine
                     state <= S_LD_FETCH;
                 end
 
-                S_LD_FETCH: if (bus_rdy) state <= S_LD_FETCH_WAIT;
+                S_LD_FETCH: if (!stage_stall) state <= S_LD_FETCH_WAIT;
                 S_LD_FETCH_WAIT: begin
-                    acc <= {acc[15:0], bus_rdata[7:0]};
+                    acc <= {acc[15:0], stage_rdata};
                     if (byte_n == 2'd3) begin
-                        ld_word <= {acc, bus_rdata[7:0]};
+                        ld_word <= {acc, stage_rdata};
                         byte_n <= '0;
                         state <= ld_verify ? S_LD_CHK : S_LD_PUT;
                     end else begin
@@ -775,15 +722,10 @@ module sst_engine
                             if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
                             else byte_n <= byte_n + 2'd1;
                         end
-                    end else if (bus_rdy) state <= S_LD_PUT_WAIT;
-                    else if (!on_bus) state <= S_LD_PUT_WAIT;
+                    end else state <= S_LD_PUT_WAIT;
                 end
                 S_LD_PUT_WAIT:
-                if (!on_tcm && !on_arr_q && !on_sram_q && !on_regs_q
-                    && bytewise && byte_n != 2'd3) begin
-                    byte_n <= byte_n + 2'd1;
-                    state <= S_LD_PUT;
-                end else begin
+                begin
                     byte_n <= '0;
                     if (ld_idx == 18'(B_END - 1)) begin
                         ld_writing <= 1'b0;
@@ -924,8 +866,6 @@ module sst_engine
                      * before the word is believed. */
                     byte_n <= byte_n + 2'd1;
                     if (byte_n == 2'd3) state <= S_READ_WAIT;
-                end else if (bus_rdy) begin
-                    state <= S_READ_WAIT;
                 end
 
                 S_READ_WAIT: begin
@@ -948,18 +888,7 @@ module sst_engine
                         hold <= tcm_rdata;
                         hold_valid <= 1'b1;
                         state <= S_READY;
-                    end else if (bytewise) begin
-                        acc <= {acc[15:0], bus_rdata[7:0]};
-                        if (byte_n == 2'd3) begin
-                            hold <= {acc, bus_rdata[7:0]};
-                            hold_valid <= 1'b1;
-                            state <= S_READY;
-                        end else begin
-                            byte_n <= byte_n + 2'd1;
-                            state <= S_READ;
-                        end
                     end else begin
-                        hold <= bus_rdata;
                         hold_valid <= 1'b1;
                         state <= S_READY;
                     end
@@ -973,7 +902,7 @@ module sst_engine
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_sst_engine;
-    always_comb unused_sst_engine = ^bus_rdata[31:8];
+    always_comb unused_sst_engine = 1'b0;
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
