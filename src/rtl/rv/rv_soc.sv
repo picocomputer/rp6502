@@ -55,6 +55,29 @@ module rv_soc #(
      * it out -- so a savestate walks it through this port, which steals
      * the array's one port while the core is halted and not using it. */
     input logic sst_time_hold,
+
+    /* The core's own halt. Hazard3 carries a debug port and this build
+     * has never driven it; a savestate does, because a core that boots
+     * again is not a core that resumed. Halt is a trap, so the pipeline
+     * flushes and dpc holds the first instruction that had not retired
+     * -- release, and it runs that one next.
+     *
+     * The registers come out through the same port: the core takes
+     * whole instructions here while halted, so a handful of csr moves
+     * through dmdata0 reads or writes any of them. */
+    input logic sst_dbg_halt,
+    input logic sst_dbg_halt_on_reset,
+    input logic sst_dbg_resume,
+    output logic rv_soc_dbg_halted,
+    input logic [31:0] sst_dbg_data0,
+    output logic [31:0] rv_soc_dbg_data0,
+    output logic rv_soc_dbg_data0_wen,
+    input logic [31:0] sst_dbg_instr,
+    input logic sst_dbg_instr_vld,
+    output logic rv_soc_dbg_instr_rdy,
+    output logic rv_soc_dbg_ebreak,
+    output logic rv_soc_dbg_fault,
+
     input logic sst_phi2_we,
     input logic [15:0] sst_phi2_wdata,
     input logic sst_tcm_sel,
@@ -98,7 +121,8 @@ module rv_soc #(
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
         .MTVEC_INIT(32'h0000_0000),
-        .NUM_IRQS(1)
+        .NUM_IRQS(1),
+        .DEBUG_SUPPORT(1)
     ) cpu (
         .clk(clk),
         .clk_always_on(clk),
@@ -125,19 +149,19 @@ module rv_soc #(
         .fence_i_vld(),
         .fence_d_vld(),
         .fence_rdy(1'b1),
-        .dbg_req_halt(1'b0),
-        .dbg_req_halt_on_reset(1'b0),
-        .dbg_req_resume(1'b0),
-        .dbg_halted(),
+        .dbg_req_halt(sst_dbg_halt),
+        .dbg_req_halt_on_reset(sst_dbg_halt_on_reset),
+        .dbg_req_resume(sst_dbg_resume),
+        .dbg_halted(rv_soc_dbg_halted),
         .dbg_running(),
-        .dbg_data0_rdata(32'h0),
-        .dbg_data0_wdata(),
-        .dbg_data0_wen(),
-        .dbg_instr_data(32'h0),
-        .dbg_instr_data_vld(1'b0),
-        .dbg_instr_data_rdy(),
-        .dbg_instr_caught_exception(),
-        .dbg_instr_caught_ebreak(),
+        .dbg_data0_rdata(sst_dbg_data0),
+        .dbg_data0_wdata(rv_soc_dbg_data0),
+        .dbg_data0_wen(rv_soc_dbg_data0_wen),
+        .dbg_instr_data(sst_dbg_instr),
+        .dbg_instr_data_vld(sst_dbg_instr_vld),
+        .dbg_instr_data_rdy(rv_soc_dbg_instr_rdy),
+        .dbg_instr_caught_exception(rv_soc_dbg_fault),
+        .dbg_instr_caught_ebreak(rv_soc_dbg_ebreak),
         .dbg_sbus_addr(32'h0),
         .dbg_sbus_write(1'b0),
         .dbg_sbus_size(2'h0),

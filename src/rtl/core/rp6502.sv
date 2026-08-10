@@ -72,6 +72,22 @@ module rp6502
     input logic sst_tcm_we,
     input logic [31:0] sst_tcm_wdata,
     output logic [31:0] rp6502_sst_tcm_rdata,
+    /* The soft CPU's own halt, and the port its registers come out
+     * through. It resumes at the instruction it stopped in front of;
+     * nothing here restarts it. */
+    input logic sst_dbg_halt,
+    input logic sst_dbg_halt_on_reset,
+    input logic sst_dbg_resume,
+    output logic rp6502_sst_dbg_halted,
+    input logic [31:0] sst_dbg_data0,
+    output logic [31:0] rp6502_sst_dbg_data0,
+    output logic rp6502_sst_dbg_data0_wen,
+    input logic [31:0] sst_dbg_instr,
+    input logic sst_dbg_instr_vld,
+    output logic rp6502_sst_dbg_instr_rdy,
+    output logic rp6502_sst_dbg_ebreak,
+    output logic rp6502_sst_dbg_fault,
+
     /* The 6502's clock rate, which the soft CPU owns and a restore has
      * to put back. */
     input logic sst_phi2_we,
@@ -344,6 +360,18 @@ module rp6502
          * invisible to the firmware, and a firmware that woke to find
          * its deadlines already past would notice at once. */
         .sst_time_hold(frz_held),
+        .sst_dbg_halt(sst_dbg_halt),
+        .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
+        .sst_dbg_resume(sst_dbg_resume),
+        .rv_soc_dbg_halted(rp6502_sst_dbg_halted),
+        .sst_dbg_data0(sst_dbg_data0),
+        .rv_soc_dbg_data0(rp6502_sst_dbg_data0),
+        .rv_soc_dbg_data0_wen(rp6502_sst_dbg_data0_wen),
+        .sst_dbg_instr(sst_dbg_instr),
+        .sst_dbg_instr_vld(sst_dbg_instr_vld),
+        .rv_soc_dbg_instr_rdy(rp6502_sst_dbg_instr_rdy),
+        .rv_soc_dbg_ebreak(rp6502_sst_dbg_ebreak),
+        .rv_soc_dbg_fault(rp6502_sst_dbg_fault),
         .sst_phi2_we(sst_phi2_we),
         .sst_phi2_wdata(sst_phi2_wdata),
         .sst_tcm_sel(sst_tcm_sel),

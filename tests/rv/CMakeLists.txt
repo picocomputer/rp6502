@@ -8,4 +8,8 @@ if(RP6502_VERILATE)
     # A load of the word a store just wrote, which the AHB overlaps onto
     # one edge and the block RAM answers stale.
     rp6502_add_machine_test(tcm TIMEOUT 120)
+
+    # Halt, take everything, put it in a core that has just come out of
+    # reset, and carry on: the soft CPU resuming rather than booting.
+    rp6502_add_machine_test(resume TIMEOUT 300)
 endif()
