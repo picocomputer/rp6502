@@ -99,6 +99,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/rtl/sw/shim/*/*.h ${RP6502_SRC}/rtl/sw/shim/*/*/*.h)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
+        ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
         ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
         ${SW_SRC}/kbl.c ${SW_SRC}/mem.c

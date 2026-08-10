@@ -18,12 +18,17 @@
 
 #include <string.h>
 
+/* Where each engine is pointed. The registers are write-only fabric and
+ * a savestate has to put them back, so the answer is kept here, in the
+ * soft CPU's memory, which is the one thing the blob does carry. */
+static uint16_t aud_psg_at = 0xFFFF;
+static uint16_t aud_opl_at = 0xFFFF;
+
 /* The platform's reset is not the engines': they hold what the last
  * session left them, so a host reset would come back still playing. */
 void aud_init(void)
 {
-    AUD_PSG_XADDR = 0xFFFF;
-    AUD_OPL_XADDR = 0xFFFF;
+    aud_stop();
     bel_init();
 }
 
@@ -33,6 +38,48 @@ void aud_stop(void)
 {
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
+    aud_psg_at = 0xFFFF;
+    aud_opl_at = 0xFFFF;
+}
+
+/* Every byte of a block written over itself, which is that block
+ * arriving as far as an engine that learns only from writes. */
+static void aud_replay(uint16_t at, uint16_t len)
+{
+    for (uint16_t i = 0; i < len; i++)
+    {
+        uint8_t v = XRAM_WIN[at + i];
+        XRAM_WIN[at + i] = v;
+    }
+}
+
+/* A restore brings back the block in XRAM and the pointer from here,
+ * but not what the engine made of them: the phase, the envelope and the
+ * noise are its own and they start again. The registers are replayed so
+ * that everything the block does say is back in force -- without it a
+ * restored machine plays whatever the engine happened to hold.
+ *
+ * The OPL's page is not zeroed on the way in the way a fresh program of
+ * it is. There is nothing to hide from a program reading back its own
+ * registers here; the page is already the one it wrote. */
+void aud_restore(void)
+{
+    uint16_t psg = aud_psg_at, opl = aud_opl_at;
+    AUD_PSG_XADDR = 0xFFFF;
+    AUD_OPL_XADDR = 0xFFFF;
+    if (psg != 0xFFFF)
+    {
+        AUD_PSG_XADDR = psg;
+        aud_replay(psg, 64);
+    }
+    else if (opl != 0xFFFF)
+    {
+        AUD_OPL_XADDR = opl;
+        aud_replay(opl, 256);
+    }
+    aud_psg_at = psg;
+    aud_opl_at = opl;
+    bel_init();
 }
 
 bool aud_psg_xreg(uint16_t word)
@@ -40,20 +87,18 @@ bool aud_psg_xreg(uint16_t word)
     if (word & 0x0001 || word > 0x10000 - 64 ||
         ((word >> 8) != ((word + 63) >> 8)))
     {
-        AUD_PSG_XADDR = 0xFFFF;
+        aud_stop();
         return word == 0xFFFF;
     }
     AUD_OPL_XADDR = 0xFFFF;
     AUD_PSG_XADDR = word;
+    aud_opl_at = 0xFFFF;
+    aud_psg_at = word;
     /* The engine learns from writes and never reads the block back, so a
      * block programmed before the pointer would be invisible. Writing
      * each byte over itself is that block arriving. From here and not the
      * 6502: only the 6502's writes strike gates. */
-    for (uint8_t i = 0; i < 64; i++)
-    {
-        uint8_t v = XRAM_WIN[word + i];
-        XRAM_WIN[word + i] = v;
-    }
+    aud_replay(word, 64);
     return true;
 }
 
@@ -64,11 +109,13 @@ bool aud_opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
     {
-        AUD_OPL_XADDR = 0xFFFF;
+        aud_stop();
         return word == 0xFFFF;
     }
     memset((void *)&XRAM_WIN[word], 0, 256);
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = word;
+    aud_psg_at = 0xFFFF;
+    aud_opl_at = word;
     return true;
 }

@@ -31,6 +31,10 @@
  * not stack on top of it. */
 void msc_stop(void);
 
+/* The open files opened again, because the host forgets which path
+ * each data slot was for when the core is reconfigured. */
+void msc_restore(void);
+
 /* By word index, not by slot: the table is id/size pairs and the host
  * decides where each pair lands. */
 uint32_t msc_dt(uint32_t word);

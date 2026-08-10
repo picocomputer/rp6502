@@ -20,6 +20,7 @@
 #include "pro.h"
 #include "rand.h"
 #include "rom.h"
+#include "sst.h"
 #include "vga.h"
 #include "vid.h"
 #include "ria/api/api.h"
@@ -481,6 +482,16 @@ bool main_break_to_launcher(void)
     return true;
 }
 
+/* A restore lands on a host that has just re-announced everything it
+ * has, and the loop below reads a change in either announcement as the
+ * user picking a new program. Neither is news here: what is staged is
+ * what this machine was already running when it went to sleep. */
+void main_restored(void)
+{
+    main_upd_seen = (uint8_t)MMIO_UPD_N;
+    MMIO_SLOT = 0;
+}
+
 static void main_stage(void)
 {
     uint32_t len;
@@ -502,7 +513,12 @@ int main(void)
 {
     init();
 
-    main_stage();
+    /* A blob already in the window means the host is waking this core
+     * rather than starting it, and the restore that is coming will
+     * replace everything a staged ROM would put here. Starting one
+     * under it is a cold boot the user watches get rolled back. */
+    if (!sst_pending())
+        main_stage();
     /* Whatever the host has announced up to here is this image. */
     main_upd_seen = (uint8_t)MMIO_UPD_N;
 
@@ -536,6 +552,7 @@ int main(void)
         term_task();
         vid_task();
         api_task();
+        sst_task();
         uint8_t upd = (uint8_t)MMIO_UPD_N;
         if (upd != main_upd_seen)
         {

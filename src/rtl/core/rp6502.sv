@@ -989,9 +989,13 @@ module rp6502
         .clk(clk_sys),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h2),
         .xaddr_wdata(bus_wdata[15:0]),
-        .q_we(xr_busy && xr_we),
-        .q_addr(xr_addr),
-        .q_val(xr_wdata),
+        /* The same mux the PSG watches, not the 6502's engine alone: a
+         * restore puts the register page back in XRAM and the firmware
+         * writes it over itself so the engine hears it, and those
+         * writes are the soft CPU's. */
+        .q_we(qs_we),
+        .q_addr(qs_addr),
+        .q_val(qs_val),
         .aud_opl_out(opl_l),
         .aud_opl_valid(opl_valid),
         .aud_opl_enabled()

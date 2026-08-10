@@ -15,6 +15,8 @@
 #include <stdint.h>
 
 void font_init(void);
+/* The store rebuilt from the code page, for a restore. */
+void font_restore(void);
 
 void font_set_code_page(uint16_t cp);
 uint16_t font_get_code_page(void);

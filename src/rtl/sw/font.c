@@ -91,6 +91,17 @@ uint16_t font_get_code_page(void)
     return font_code_page;
 }
 
+/* The font store is written and never read, so a savestate cannot carry
+ * it. It does not have to: every glyph in it came from the base faces
+ * and one code page, and the page is an ordinary number in memory the
+ * blob does carry. */
+void font_restore(void)
+{
+    uint16_t cp = font_code_page;
+    font_init();
+    font_set_code_page(cp);
+}
+
 void font_init(void)
 {
     font_copy(VID_FONT16, VID_FONT_OFF_FONT16, 4096);

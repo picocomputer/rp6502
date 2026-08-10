@@ -7,6 +7,10 @@
 #ifndef _FPGA_SW_MAIN_H_
 #define _FPGA_SW_MAIN_H_
 
+/* The restage triggers re-synced after a restore, so a wake's fresh
+ * host announcements do not read as a new program. */
+void main_restored(void);
+
 #include <stdint.h>
 #include <stdbool.h>
 

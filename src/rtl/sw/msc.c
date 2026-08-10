@@ -269,6 +269,23 @@ static const char *msc_strip_drive(const char *path)
     return path;
 }
 
+/* Every open file was a data slot the host had bound to a path, and
+ * those bindings belong to the session the wake ended. The name is kept
+ * beside the descriptor because the window it went out through cannot
+ * be read back, so each one is simply opened again. The position is the
+ * caller's own count and never went near the host.
+ *
+ * A slot that will not open again is left open here, so a program that
+ * goes on using it is told the read failed rather than that its file
+ * was never open. */
+void msc_restore(void)
+{
+    for (int d = 0; d < MSC_OPEN_MAX; d++)
+        if (msc_pool[d].used)
+            (void)msc_open_slot(MSC_SLOT_FIRST + (uint32_t)d,
+                                msc_pool[d].name, 0, 0);
+}
+
 static int msc_desc(int desc)
 {
     if (desc < 0 || desc >= MSC_OPEN_MAX || !msc_pool[desc].used)
