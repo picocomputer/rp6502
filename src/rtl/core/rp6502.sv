@@ -246,30 +246,12 @@ module rp6502
      * -- their addresses come from logic that is standing still, so
      * they sit there doing nothing until this side asks. */
     logic eng_mem_own;
-    logic [15:0] eng_mem_addr;
+    logic [13:0] eng_mem_addr;
     logic [31:0] eng_mem_wdata;
     logic [1:0] eng_xprog_word;
-    logic eng_sram_we, eng_xram_we, eng_cell_we, eng_xprog_we;
+    logic eng_xram_we, eng_cell_we, eng_xprog_we;
     logic [31:0] eng_cell_rdata, eng_xprog_rdata;
-    /* Not yet driven: the engine still reaches the arrays through the
-     * machine's bus. */
-    always_comb begin
-        eng_mem_own = 1'b0;
-        eng_mem_addr = '0;
-        eng_mem_wdata = '0;
-        eng_xprog_word = '0;
-        eng_sram_we = 1'b0;
-        eng_xram_we = 1'b0;
-        eng_cell_we = 1'b0;
-        eng_xprog_we = 1'b0;
-    end
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_eng_mem;
-    always_comb unused_eng_mem = ^eng_cell_rdata ^ ^eng_xprog_rdata
-        ^ (^eng_mem_addr) ^ (^eng_mem_wdata) ^ (^eng_xprog_word)
-        ^ eng_sram_we ^ eng_xram_we ^ eng_cell_we ^ eng_xprog_we
-        ^ eng_mem_own;
-    /* verilator lint_on UNUSEDSIGNAL */
+
     logic eng_tcm_sel, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
     logic [1:0] eng_st_sel;
     logic [31:0] eng_tcm_wdata;
@@ -304,6 +286,16 @@ module rp6502
         .sst_engine_bus_wstrb(eng_wstrb),
         .bus_rdy(bus_rdy),
         .bus_rdata(bus_rdata),
+        .sst_engine_mem_own(eng_mem_own),
+        .sst_engine_mem_addr(eng_mem_addr),
+        .sst_engine_mem_wdata(eng_mem_wdata),
+        .sst_engine_xram_we(eng_xram_we),
+        .sst_engine_cell_we(eng_cell_we),
+        .sst_engine_xprog_we(eng_xprog_we),
+        .sst_engine_xprog_word(eng_xprog_word),
+        .xram_rdata(xram_a_rdata),
+        .cell_rdata(eng_cell_rdata),
+        .xprog_rdata(eng_xprog_rdata),
         .sst_engine_tcm_sel(eng_tcm_sel),
         .sst_engine_tcm_addr(eng_tcm_addr),
         .sst_engine_tcm_we(eng_tcm_we),
@@ -350,10 +342,10 @@ module rp6502
         end else begin : g_ram_bram
             sram64k sram (
                 .clk(clk_sys),
-                .sst_own(eng_mem_own),
-                .sst_addr(eng_mem_addr[15:0]),
-                .sst_we(eng_sram_we),
-                .sst_wdata(eng_mem_wdata[7:0]),
+                .sst_own(1'b0),
+                .sst_addr(16'd0),
+                .sst_we(1'b0),
+                .sst_wdata(8'd0),
                 .a_addr(cpu_addr),
                 .a_wdata(cpu_dout),
                 .a_we(cpu_we && phi2_en),
@@ -820,7 +812,7 @@ module rp6502
     xram64k xram (
         .clk(clk_sys),
         .sst_own(eng_mem_own),
-        .sst_addr(eng_mem_addr[13:0]),
+        .sst_addr(eng_mem_addr),
         .sst_we(eng_xram_we),
         .sst_wdata(eng_mem_wdata),
         .a_addr(ma_addr[a_sel]),
@@ -886,7 +878,7 @@ module rp6502
         .f_gnt(f_any && f_sel == 1'd1),
         .f_data(font_bits),
         .sst_own(eng_mem_own),
-        .sst_addr(eng_mem_addr[13:0]),
+        .sst_addr(eng_mem_addr),
         .sst_we(eng_cell_we),
         .sst_wdata(eng_mem_wdata),
         .vid_mode0_sst_rdata(eng_cell_rdata),
