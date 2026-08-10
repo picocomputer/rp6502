@@ -704,18 +704,16 @@ module sst_engine
                     if (ld_idx >= 18'(B_STATE + ST_RV)
                         && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS))
                         rvreg[5'(ld_idx - 18'(B_STATE + ST_RV))] <= ld_word;
-                    /* The soft CPU's memory and one of the machine's
-                     * own words are written on its clock, which is half
-                     * this one, so the word is held out for four of
-                     * these -- two of its own -- rather than offered
-                     * for one and missed depending on which half of its
-                     * period the offer fell in. The flops that are on
-                     * this clock take the same word four times and are
-                     * none the worse for it. */
-                    if (on_tcm || on_flops) begin
+                    /* One of the machine's own words is written on the
+                     * soft CPU's clock, which is half this one, so it
+                     * is held out for four of these -- two of its own
+                     * -- rather than offered for one and missed
+                     * depending on which half of its period the offer
+                     * fell in. */
+                    if (on_flops) begin
                         byte_n <= byte_n + 2'd1;
                         if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
-                    end else if (on_arr_q || on_regs_q)
+                    end else if (on_tcm || on_arr_q || on_regs_q)
                         state <= S_LD_PUT_WAIT;
                     else if (on_sram_q) begin
                         if (!sram_stall) begin
@@ -861,11 +859,8 @@ module sst_engine
                         acc <= {acc[15:0], sram_rdata};
                     end
                 end else if (on_tcm) begin
-                    /* Registered on the soft CPU's own clock, which is
-                     * half this one, so the address stands for a few
-                     * before the word is believed. */
-                    byte_n <= byte_n + 2'd1;
-                    if (byte_n == 2'd3) state <= S_READ_WAIT;
+                    /* On this clock now, so one access like the rest. */
+                    state <= S_READ_WAIT;
                 end
 
                 S_READ_WAIT: begin

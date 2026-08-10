@@ -496,6 +496,7 @@ module rp6502
         .MTIME_WRAP(RV_KHZ / 100),
         .TCM_INIT_FILE(TCM_INIT_FILE)
     ) rv (
+        .clk_mem(clk_sys),
         .clk(clk_rv),
         .rst_n(rst_n),
         .rv_soc_phi2_khz(phi2_khz),
