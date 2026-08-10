@@ -321,7 +321,17 @@ module pocket_core #(
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
+    /* Nothing holds the machine still yet, so it is never asked to
+     * stop and its state port is never walked. */
+    /* verilator lint_off PINCONNECTEMPTY */
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
+        .sst_freeze(1'b0),
+        .rp6502_sst_frozen(),
+        .sst_st_via(1'b0),
+        .sst_st_idx(3'd0),
+        .sst_st_we(1'b0),
+        .sst_st_wdata(32'd0),
+        .rp6502_sst_st_rdata(),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
         .rst_n(mrst_sys_n),
@@ -374,6 +384,7 @@ module pocket_core #(
         .rp6502_phi2_en(machine_phi2_en),
         .rp6502_cpu_run(machine_resb)
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     /* The file bridge keeps the platform reset, not the machine's: a
      * command in flight belongs to the host, and a reboot that dropped

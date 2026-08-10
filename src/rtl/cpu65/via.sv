@@ -30,7 +30,20 @@ module via (
     input logic [7:0] data_i,
 
     output logic [7:0] via_data,
-    output logic via_irq
+    output logic via_irq,
+
+    /* All of it, as seven words, for a savestate. Not the architectural
+     * registers — those are readable already and would come back a
+     * timer short: the three pipelines carry the cycle the counters are
+     * actually going to fire on, and a restore without them resumes a
+     * timer at the wrong tick. Reads bypass the access side effects
+     * that make T1CL and T2CL unreadable from the 6502's side.
+     *
+     * A write lands directly in the flops, sound only while en is low. */
+    input logic [2:0] st_idx,
+    output logic [31:0] via_st_rdata,
+    input logic st_we,
+    input logic [31:0] st_wdata
 );
 
     // Register indices
@@ -75,6 +88,19 @@ module via (
     logic [7:0] ifr /*verilator public_flat_rw*/;
     logic [7:0] ier /*verilator public_flat_rw*/;
     logic [15:0] int_pip /*verilator public_flat_rw*/;
+
+    always_comb begin
+        case (st_idx)
+            3'd0: via_st_rdata = {ddr_b, ddr_a, outr_b, outr_a};
+            3'd1: via_st_rdata = {pcr, acr, pins_b, pins_a};
+            3'd2: via_st_rdata = {t1_counter, t1_latch};
+            3'd3: via_st_rdata = {t2_counter, t2_latch};
+            3'd4: via_st_rdata = {t1_pip, t2_pip};
+            3'd5: via_st_rdata = {8'd0, ifr, ier, 6'd0, t2_tbit, t1_tbit};
+            3'd6: via_st_rdata = {16'd0, int_pip};
+            default: via_st_rdata = 32'd0;
+        endcase
+    end
 
     // ------------------------------------------------------------------
     // Combinational read, from pre-tick state
@@ -297,6 +323,26 @@ module via (
             ier <= 8'h00;
             int_pip <= 16'h0000;
             via_irq <= 1'b0;
+        end else if (st_we) begin
+            case (st_idx)
+                3'd0: {ddr_b, ddr_a, outr_b, outr_a} <= st_wdata;
+                3'd1: {pcr, acr, pins_b, pins_a} <= st_wdata;
+                3'd2: {t1_counter, t1_latch} <= st_wdata;
+                3'd3: {t2_counter, t2_latch} <= st_wdata;
+                3'd4: {t1_pip, t2_pip} <= st_wdata;
+                3'd5: begin
+                    ifr <= st_wdata[23:16];
+                    ier <= st_wdata[15:8];
+                    t2_tbit <= st_wdata[1];
+                    t1_tbit <= st_wdata[0];
+                    /* The pin follows the flags it is made of, so a
+                     * restored interrupt is asserted on the first clock
+                     * rather than waiting for a tick to re-derive it. */
+                    via_irq <= |(st_wdata[23:16] & st_wdata[15:8] & 8'h7F);
+                end
+                3'd6: int_pip <= st_wdata[15:0];
+                default: ;
+            endcase
         end else if (en) begin
             outr_a <= n_outr_a;
             outr_b <= n_outr_b;

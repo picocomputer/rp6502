@@ -49,6 +49,24 @@ module rp6502
     input logic stage_stall,
     input logic [7:0] stage_rdata,
 
+    /* Stop, and look inside. Raising sst_freeze halts the 6502 at its
+     * next instruction boundary, taking the VIA and the RIA's own
+     * side effects with it — one enable feeds all three — and
+     * rp6502_sst_frozen says it took. WAI and STP are boundaries too:
+     * neither fetches, so a gate that waited only for an opcode fetch
+     * would never let go of a core sitting in one.
+     *
+     * While frozen, the state that is in flops rather than memory reads
+     * and writes a word at a time. Everything else the machine is can
+     * be reached through its windows by whoever is holding it. */
+    input logic sst_freeze,
+    output logic rp6502_sst_frozen,
+    input logic sst_st_via,
+    input logic [2:0] sst_st_idx,
+    input logic sst_st_we,
+    input logic [31:0] sst_st_wdata,
+    output logic [31:0] rp6502_sst_st_rdata,
+
     /* A word-wide port onto whatever the board has that the machine does
      * not. One-clock strobe, answer the clock after. */
     output logic [27:0] rp6502_host_addr,
@@ -105,11 +123,27 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
+    /* Combinational, not registered off the boundary: a freeze that
+     * latched one clock late would let through the enable that consumes
+     * the opcode already on the bus, stopping the core in the middle of
+     * an instruction rather than in front of one. */
+    logic frz_at, frz_now, frz_held;
+    always_comb frz_at = cpu_sync || cpu_stp || cpu_wai;
+    always_comb frz_now = frz_held || (sst_freeze && frz_at);
+    always_comb rp6502_sst_frozen = frz_held;
+
+    initial frz_held = 1'b0;
+    always_ff @(posedge clk_sys) begin
+        if (!rst_n) frz_held <= 1'b0;
+        else if (!sst_freeze) frz_held <= 1'b0;
+        else if (frz_at) frz_held <= 1'b1;
+    end
+
     /* The soft CPU's window onto the 6502's RAM shares a port with the
      * 6502 when the RAM is off-chip. Nothing asks for this today; it
      * exists so a firmware that did would be slow rather than
      * deadlocked. */
-    always_comb phi2_en = phi2_raw_en && !ram_hold;
+    always_comb phi2_en = phi2_raw_en && !ram_hold && !frz_now;
     always_comb rp6502_phi2_en = phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
         .clk(clk_sys),
@@ -121,19 +155,18 @@ module rp6502
     logic [7:0] cpu_dout, cpu_din, cpu_next_data;
     logic cpu_we, cpu_next_we;
     logic via_irq;
-    // Opcode-fetch marker; the debug tap will want it, nothing does yet.
+    /* Opcode-fetch marker, which is where a freeze is allowed to land. */
     logic cpu_sync;
-    /* verilator lint_off UNUSEDSIGNAL */
-    logic unused_sync;
-    /* verilator lint_on UNUSEDSIGNAL */
-    always_comb unused_sync = cpu_sync;
 
     /* RESB inverted, reaching the 6502 and the 6522 and nothing else. A
      * register rather than a gate with the platform's reset, which
      * already clears this flop asynchronously. */
     logic resb /*verilator public_flat_rw*/;
     always_comb rp6502_cpu_run = resb;
-    logic cpu_stp;
+    logic cpu_stp, cpu_wai;
+    logic [31:0] cpu65_st_rdata, via_st_rdata;
+    always_comb rp6502_sst_st_rdata = sst_st_via ? via_st_rdata
+                                                 : cpu65_st_rdata;
 
     cpu65 cpu (
         .clk(clk_sys),
@@ -149,6 +182,11 @@ module rp6502
         .cpu65_we(cpu_we),
         .cpu65_sync(cpu_sync),
         .cpu65_stp(cpu_stp),
+        .cpu65_wai(cpu_wai),
+        .st_idx(sst_st_idx),
+        .cpu65_st_rdata(cpu65_st_rdata),
+        .st_we(sst_st_we && !sst_st_via),
+        .st_wdata(sst_st_wdata),
         .cpu65_next_addr(cpu_next_addr),
         .cpu65_next_data(cpu_next_data),
         .cpu65_next_we(cpu_next_we)
@@ -218,7 +256,11 @@ module rp6502
         .rs(cpu_addr[3:0]),
         .data_i(cpu_dout),
         .via_data(via_data),
-        .via_irq(via_irq)
+        .via_irq(via_irq),
+        .st_idx(sst_st_idx),
+        .via_st_rdata(via_st_rdata),
+        .st_we(sst_st_we && sst_st_via),
+        .st_wdata(sst_st_wdata)
     );
 
     /* The soft CPU's clock is half this one. Fixed here rather than in

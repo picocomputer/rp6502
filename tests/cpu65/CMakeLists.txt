@@ -91,6 +91,15 @@ if(RP6502_VERILATE)
         message(WARNING "CPU fixtures absent — cpu65 RTL conformance skipped.")
     endif()
 
+    # --- Stopped here, started again there ---
+    # A savestate's whole claim about the 6502: the core that comes back
+    # continues rather than restarts, cycle for cycle.
+    rp6502_add_module_test(freeze
+        TOP cpu65
+        RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
+        DEPENDS cpu65_rom
+        TIMEOUT 300)
+
     # --- The VIA in RTL, against chips/m6522.h in lockstep ---
     # T1/T2 timers and their interrupts are live machine features; see
     # emu/emu/via.c for the wiring this reproduces.
