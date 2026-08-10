@@ -250,7 +250,9 @@ module rp6502
     logic [31:0] eng_mem_wdata;
     logic [1:0] eng_xprog_word;
     logic eng_xram_we, eng_cell_we, eng_xprog_we;
-    logic eng_sram_sel, eng_sram_we;
+    logic eng_sram_sel, eng_sram_we, eng_regs_own, eng_regs_we;
+    logic [7:0] eng_regs_word;
+    logic [31:0] eng_regs_wdata;
     logic [15:0] eng_sram_addr;
     logic [7:0] eng_sram_wdata;
     logic [31:0] eng_cell_rdata, eng_xprog_rdata;
@@ -293,6 +295,11 @@ module rp6502
         .sst_engine_mem_addr(eng_mem_addr),
         .sst_engine_mem_wdata(eng_mem_wdata),
         .sst_engine_xram_we(eng_xram_we),
+        .sst_engine_regs_own(eng_regs_own),
+        .sst_engine_regs_word(eng_regs_word),
+        .sst_engine_regs_we(eng_regs_we),
+        .sst_engine_regs_wdata(eng_regs_wdata),
+        .regs_rdata(regs_b_rdata),
         .sst_engine_sram_sel(eng_sram_sel),
         .sst_engine_sram_addr(eng_sram_addr),
         .sst_engine_sram_we(eng_sram_we),
@@ -674,6 +681,10 @@ module rp6502
         .ria_regs_xr_wdata(xr_wdata),
         .xr_rdata(xram_b_rdata),
         .xr_cpu_want(bus_pend && bus_sel_xram),
+        .sst_own(eng_regs_own),
+        .sst_word(eng_regs_word),
+        .sst_we(eng_regs_we),
+        .sst_wdata(eng_regs_wdata),
         .b_we(bus_stb && bus_we && bus_sel_regs),
         .b_re(bus_stb && !bus_we && bus_sel_regs),
         .b_word(bus_addr[9:2]),

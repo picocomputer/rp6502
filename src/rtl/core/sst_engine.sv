@@ -99,6 +99,13 @@ module sst_engine
     input logic [7:0] sram_rdata,
     input logic sram_stall,
 
+    /* The regs window, which answers combinationally. */
+    output logic sst_engine_regs_own,
+    output logic [7:0] sst_engine_regs_word,
+    output logic sst_engine_regs_we,
+    output logic [31:0] sst_engine_regs_wdata,
+    input logic [31:0] regs_rdata,
+
     output logic sst_engine_cell_we,
     output logic sst_engine_xprog_we,
     output logic [1:0] sst_engine_xprog_word,
@@ -351,7 +358,7 @@ module sst_engine
      * as one cone that is three nanoseconds past the clock. The engine
      * has clocks to spare -- it is the slowest thing in the machine on
      * purpose -- so it spends one letting the decode settle. */
-    logic on_bus, on_tcm, on_hole;
+    logic on_bus, on_tcm;
     logic bytewise_q, on_bus_q, on_tcm_q, on_flops_q;
     logic [31:0] region_addr_q;
     logic [17:0] off_q;
@@ -361,8 +368,8 @@ module sst_engine
     /* Which array, if any. The four with a port of their own are
      * answered here; the regs window and the staging store still go
      * through the machine's bus. */
-    logic on_sram, on_xram, on_cell, on_xprog;
-    logic on_sram_q, on_xram_q, on_cell_q, on_xprog_q;
+    logic on_sram, on_xram, on_cell, on_xprog, on_regs;
+    logic on_sram_q, on_xram_q, on_cell_q, on_xprog_q, on_regs_q;
     logic on_arr_q;
     always_comb begin
         on_sram = dec_idx >= 18'(B_SRAM) && dec_idx < 18'(B_XRAM);
@@ -376,6 +383,12 @@ module sst_engine
             || state == S_LD_PUT_WAIT);
         sst_engine_sram_sel = on_sram_q && (state == S_READ
             || state == S_LD_PUT);
+        sst_engine_regs_own = on_regs_q && (state == S_READ
+            || state == S_READ_WAIT || state == S_LD_PUT
+            || state == S_LD_PUT_WAIT);
+        sst_engine_regs_word = off_q[7:0];
+        sst_engine_regs_we = on_regs_q && state == S_LD_PUT;
+        sst_engine_regs_wdata = ld_word;
         sst_engine_sram_addr = 16'({off_q, 2'd0} + {18'd0, byte_n});
         sst_engine_sram_we = on_sram_q && state == S_LD_PUT;
         sst_engine_sram_wdata = ld_word[31 - {byte_n, 3'd0} -: 8];
@@ -388,9 +401,10 @@ module sst_engine
         sst_engine_xprog_we = on_xprog_q && state == S_LD_PUT;
         sst_engine_xprog_word = off_q[1:0];
 
-        on_hole = dec_idx == 18'(B_REGS + REGS_HOLE);
+        on_regs = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_SRAM)
+            && dec_idx != 18'(B_REGS + REGS_HOLE);
         on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
-        on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_SRAM) && !on_hole;
+        on_bus = 1'b0;
         sst_engine_tcm_sel = on_tcm_q && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
@@ -541,6 +555,7 @@ module sst_engine
             on_xram_q <= 1'b0;
             on_cell_q <= 1'b0;
             on_xprog_q <= 1'b0;
+            on_regs_q <= 1'b0;
             on_bus_q <= 1'b0;
             on_tcm_q <= 1'b0;
             on_flops_q <= 1'b0;
@@ -574,6 +589,7 @@ module sst_engine
             on_xram_q <= on_xram;
             on_cell_q <= on_cell;
             on_xprog_q <= on_xprog;
+            on_regs_q <= on_regs;
             on_bus_q <= on_bus;
             on_tcm_q <= on_tcm;
             on_flops_q <= on_flops;
@@ -752,7 +768,8 @@ module sst_engine
                     if (on_tcm || on_flops) begin
                         byte_n <= byte_n + 2'd1;
                         if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
-                    end else if (on_arr_q) state <= S_LD_PUT_WAIT;
+                    end else if (on_arr_q || on_regs_q)
+                        state <= S_LD_PUT_WAIT;
                     else if (on_sram_q) begin
                         if (!sram_stall) begin
                             if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
@@ -762,8 +779,8 @@ module sst_engine
                     else if (!on_bus) state <= S_LD_PUT_WAIT;
                 end
                 S_LD_PUT_WAIT:
-                if (!on_tcm && !on_arr_q && !on_sram_q && bytewise
-                    && byte_n != 2'd3) begin
+                if (!on_tcm && !on_arr_q && !on_sram_q && !on_regs_q
+                    && bytewise && byte_n != 2'd3) begin
                     byte_n <= byte_n + 2'd1;
                     state <= S_LD_PUT;
                 end else begin
@@ -893,6 +910,8 @@ module sst_engine
                     /* Address out now, word back the clock after --
                      * every one of these arrays registers its read. */
                     state <= S_READ_WAIT;
+                end else if (on_regs_q) begin
+                    state <= S_READ_WAIT;
                 end else if (on_sram_q) begin
                     if (!sram_stall) begin
                         if (byte_n == 2'd3) state <= S_READ_WAIT;
@@ -915,6 +934,10 @@ module sst_engine
                             : (on_cell_q ? cell_rdata : xprog_rdata);
                         hold_valid <= 1'b1;
                         byte_n <= '0;
+                        state <= S_READY;
+                    end else if (on_regs_q) begin
+                        hold <= regs_rdata;
+                        hold_valid <= 1'b1;
                         state <= S_READY;
                     end else if (on_sram_q) begin
                         hold <= {acc, sram_rdata};

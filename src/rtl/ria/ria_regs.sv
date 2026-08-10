@@ -56,6 +56,15 @@ module ria_regs (
     input logic [7:0] b_word,
     input logic [3:0] b_wstrb,
     input logic [31:0] b_wdata,
+
+    /* The savestate serializer, which owns this window while it has the
+     * machine. Whole words both ways, and never a read: reading word 16
+     * takes the console's outgoing byte off the queue, so the blob has
+     * a hole there instead. */
+    input logic sst_own,
+    input logic [7:0] sst_word,
+    input logic sst_we,
+    input logic [31:0] sst_wdata,
     output logic [31:0] ria_regs_b_rdata,
 
     output logic ria_regs_api_pending,
@@ -181,11 +190,22 @@ module ria_regs (
 
     /* Registered with the side effect it reports: the offered byte is
      * taken at the same edge that latches it, never a cycle before. */
+    logic [7:0] w_word;
+    logic w_we;
+    logic [3:0] w_strb;
+    logic [31:0] w_data;
+    always_comb begin
+        w_word = sst_own ? sst_word : b_word;
+        w_we = sst_own ? sst_we : b_we;
+        w_strb = sst_own ? 4'b1111 : b_wstrb;
+        w_data = sst_own ? sst_wdata : b_wdata;
+    end
+
     logic [7:0] xs_word;
     logic xs_win;
     always_comb begin
-        xs_word = b_word - 8'd64;
-        xs_win = b_word >= 8'd64 && b_word <= 8'd192;
+        xs_word = w_word - 8'd64;
+        xs_win = w_word >= 8'd64 && w_word <= 8'd192;
     end
 
     logic xs_push;
@@ -196,16 +216,16 @@ module ria_regs (
     always_comb begin
         xs_push = en && cs && we && rs == 5'h0C && xsp != 10'd0;
         xs_push_at = 9'(xsp - 10'd1);
-        xs_os_lane = {4{b_we && xs_win && !xs_word[7]}} & b_wstrb;
+        xs_os_lane = {4{w_we && xs_win && !xs_word[7]}} & w_strb;
         xs_we = xs_os_lane | ({3'd0, xs_push} << xs_push_at[1:0]);
         xs_waddr0 = xs_os_lane[0] ? xs_word[6:0] : xs_push_at[8:2];
         xs_waddr1 = xs_os_lane[1] ? xs_word[6:0] : xs_push_at[8:2];
         xs_waddr2 = xs_os_lane[2] ? xs_word[6:0] : xs_push_at[8:2];
         xs_waddr3 = xs_os_lane[3] ? xs_word[6:0] : xs_push_at[8:2];
-        xs_wdat0 = xs_os_lane[0] ? b_wdata[7:0] : data_i;
-        xs_wdat1 = xs_os_lane[1] ? b_wdata[15:8] : data_i;
-        xs_wdat2 = xs_os_lane[2] ? b_wdata[23:16] : data_i;
-        xs_wdat3 = xs_os_lane[3] ? b_wdata[31:24] : data_i;
+        xs_wdat0 = xs_os_lane[0] ? w_data[7:0] : data_i;
+        xs_wdat1 = xs_os_lane[1] ? w_data[15:8] : data_i;
+        xs_wdat2 = xs_os_lane[2] ? w_data[23:16] : data_i;
+        xs_wdat3 = xs_os_lane[3] ? w_data[31:24] : data_i;
     end
 
     logic [7:0] xs_fill_byte;
@@ -241,20 +261,20 @@ module ria_regs (
             xs3[xs_waddr3] <= xs_wdat3;
             xm3[xs_waddr3] <= xs_wdat3;
         end
-        if (b_we && xs_win && xs_word[7]) begin
-            if (b_wstrb[0])
-                xs_guard[7:0] <= b_wdata[7:0];
-            if (b_wstrb[1])
-                xs_guard[15:8] <= b_wdata[15:8];
-            if (b_wstrb[2])
-                xs_guard[23:16] <= b_wdata[23:16];
-            if (b_wstrb[3])
-                xs_guard[31:24] <= b_wdata[31:24];
+        if (w_we && xs_win && xs_word[7]) begin
+            if (w_strb[0])
+                xs_guard[7:0] <= w_data[7:0];
+            if (w_strb[1])
+                xs_guard[15:8] <= w_data[15:8];
+            if (w_strb[2])
+                xs_guard[23:16] <= w_data[23:16];
+            if (w_strb[3])
+                xs_guard[31:24] <= w_data[31:24];
         end
     end
 
     always_comb begin
-        case (b_word)
+        case (w_word)
             8'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
             /* The interrupt enable has no other way out: the 6502
              * writes $FFF0 and nothing reads it back, and the pending
@@ -271,8 +291,8 @@ module ria_regs (
                     };
                 else
                     ria_regs_b_rdata = {
-                        regs[{b_word[2:0], 2'd3}], regs[{b_word[2:0], 2'd2}],
-                        regs[{b_word[2:0], 2'd1}], regs[{b_word[2:0], 2'd0}]
+                        regs[{w_word[2:0], 2'd3}], regs[{w_word[2:0], 2'd2}],
+                        regs[{w_word[2:0], 2'd1}], regs[{w_word[2:0], 2'd0}]
                     };
             end
         endcase
@@ -381,11 +401,11 @@ module ria_regs (
             regs[5'h10] <= pend_next;
             /* Last, so a restore beats the resolution above rather than
              * being overwritten by it on the same edge. */
-            if (b_we && b_word == 8'd17) begin
-                if (b_wstrb[0])
-                    irq_enabled <= b_wdata[7:0];
-                if (b_wstrb[1])
-                    irq_pending <= b_wdata[15:8];
+            if (w_we && w_word == 8'd17) begin
+                if (w_strb[0])
+                    irq_enabled <= w_data[7:0];
+                if (w_strb[1])
+                    irq_pending <= w_data[15:8];
             end
         /* The RW stages reload one clock after their issue; a same-edge
          * 6502 or OS write is repaired by the restage that follows it. */
@@ -400,15 +420,15 @@ module ria_regs (
             regs[5'h0C] <= xs_fill_byte;
         /* Plain shared memory at the system clock: it lands regardless of
          * the 6502's enable, and a same-cell collision goes to the OS. */
-        if (b_we && b_word < 8'd8) begin
-            if (b_wstrb[0])
-                regs[{b_word[2:0], 2'd0}] <= b_wdata[7:0];
-            if (b_wstrb[1])
-                regs[{b_word[2:0], 2'd1}] <= b_wdata[15:8];
-            if (b_wstrb[2])
-                regs[{b_word[2:0], 2'd2}] <= b_wdata[23:16];
-            if (b_wstrb[3])
-                regs[{b_word[2:0], 2'd3}] <= b_wdata[31:24];
+        if (w_we && w_word < 8'd8) begin
+            if (w_strb[0])
+                regs[{w_word[2:0], 2'd0}] <= w_data[7:0];
+            if (w_strb[1])
+                regs[{w_word[2:0], 2'd1}] <= w_data[15:8];
+            if (w_strb[2])
+                regs[{w_word[2:0], 2'd2}] <= w_data[23:16];
+            if (w_strb[3])
+                regs[{w_word[2:0], 2'd3}] <= w_data[31:24];
         end
     end
 
@@ -482,8 +502,8 @@ module ria_regs (
         end
         /* The xstack bytes land in their own block above; the
          * pointer is the OS's other door. */
-        if (b_we && b_word == 8'd200)
-            xsp <= b_wdata[9:0];
+        if (w_we && w_word == 8'd200)
+            xsp <= w_data[9:0];
         if (push_now)
             txf_w <= txf_w + 4'd1;
         if (txf_pop)
@@ -497,11 +517,11 @@ module ria_regs (
             rx_req <= 1'b1;
         if (en && pull)
             rx_req <= 1'b0;
-        if (b_we && b_word == 8'd18 && b_wdata[9])
+        if (w_we && w_word == 8'd18 && w_data[9])
             rx_req <= 1'b0;
-        else if (b_we && b_word == 8'd18 && !os_rx_valid) begin
+        else if (w_we && w_word == 8'd18 && !os_rx_valid) begin
             os_rx_valid <= 1'b1;
-            os_rx_data <= b_wdata[7:0];
+            os_rx_data <= w_data[7:0];
             rx_req <= 1'b0;
         end else if (en && pull && !rx_valid) begin
             os_rx_valid <= 1'b0;
