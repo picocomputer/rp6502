@@ -214,35 +214,47 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # exists.
         COMMAND ${QUARTUS_STA} -t
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
-        # No bitstream from a fit that did not close. One that misses
-        # timing assembles and runs, and only stops running when the part
-        # is warm or the fitter's luck turns.
-        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
-            ${POCKET_DIR}/output_files/rp6502.sta.rpt
-            ${POCKET_DIR}/output_files/rp6502.paths.rpt
-        # Nor from one that grew a violation timing cannot see. An
-        # unsynchronised reset and a torn opcode both close every corner
-        # and both fail on a different fit; the Design Assistant is the
-        # only thing in the flow that looks for them.
-        COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
-            ${POCKET_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
-        # Last, so a gate that fails leaves no stamp and the fit is still
-        # owed the next time anyone asks.
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${BS_SOURCES} sw_bin
             ${RP6502_SRC}/gen/rv_tcm_gen.py
-            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
             ${RP6502_SRC}/gen/map_gate.py
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Fitting the Pocket core"
+        VERBATIM)
+
+    # Signoff is a reading of the fit, not part of making it, and the
+    # split is what that distinction costs or saves: a gate script or a
+    # baseline entry is a text edit, and a text edit that re-placed the
+    # design was nine minutes of fitter spent blessing a comment. This
+    # ran for real once, the other way around.
+    #
+    # No bitstream from a fit that did not close. One that misses
+    # timing assembles and runs, and only stops running when the part
+    # is warm or the fitter's luck turns. Nor from one that grew a
+    # violation timing cannot see: an unsynchronised reset and a torn
+    # opcode both close every corner and both fail on a different fit;
+    # the Design Assistant is the only thing in the flow that looks
+    # for them. A gate that fails leaves no stamp, and signoff is
+    # still owed against the same fit the next time anyone asks.
+    add_custom_command(OUTPUT ${POCKET_DIR}/signoff.stamp
+        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
+            ${POCKET_DIR}/output_files/rp6502.sta.rpt
+            ${POCKET_DIR}/output_files/rp6502.paths.rpt
+        COMMAND ${QUARTUS_DRC} rp6502
+        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
+            ${POCKET_DIR}/output_files/rp6502.drc.rpt
+            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
+        WORKING_DIRECTORY ${POCKET_DIR}
+        DEPENDS ${POCKET_DIR}/fit.stamp
+            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        COMMENT "Signing off the Pocket fit"
         VERBATIM)
     # The fit alone, named: point a measurement at the same fit the
     # package consumes and the package finds it already paid.
-    add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/fit.stamp)
+    add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/signoff.stamp)
 
     # The firmware has to be IN the bitstream: simulation loads it into the
     # verilated arrays from C++, so nothing in the synthesis path ever
@@ -265,7 +277,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${POCKET_DIR}/output_files/rp6502.rbf
             ${POCKET_DIR}/core.bin
         WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${POCKET_DIR}/fit.stamp ${SW_BIN}
+        DEPENDS ${POCKET_DIR}/signoff.stamp ${SW_BIN}
             ${RP6502_SRC}/gen/rv_mif_gen.py ${RP6502_SRC}/gen/rbf_r_gen.py
         COMMENT "Putting the firmware into the Pocket bitstream"
         VERBATIM)
