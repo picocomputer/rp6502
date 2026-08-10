@@ -38,6 +38,13 @@ module sst_engine
      * same signal and takes the same path. */
     input logic sst_save,
 
+    /* A load runs the other way and needs nothing from the host: the
+     * blob is already in the staging store, put there by the ordinary
+     * bridge writes that carried it, so the engine reads it back
+     * through the machine's own window and writes it where it goes. */
+    input logic sst_load,
+    output logic sst_engine_load_done,
+
     /* The machine, stopped. */
     output logic sst_engine_freeze,
     input logic frozen,
@@ -64,12 +71,17 @@ module sst_engine
     output logic sst_engine_bus_pend,
     output logic sst_engine_bus_stb,
     output logic [31:0] sst_engine_bus_addr,
+    output logic sst_engine_bus_we,
+    output logic [31:0] sst_engine_bus_wdata,
+    output logic [3:0] sst_engine_bus_wstrb,
     input logic bus_rdy,
     input logic [31:0] bus_rdata,
 
     /* The soft CPU's memory, which is not on that bus. */
     output logic sst_engine_tcm_sel,
     output logic [14:0] sst_engine_tcm_addr,
+    output logic sst_engine_tcm_we,
+    output logic [31:0] sst_engine_tcm_wdata,
     input logic [31:0] tcm_rdata,
 
     /* The flops. */
@@ -116,6 +128,9 @@ module sst_engine
     localparam logic [31:0] A_SRAM = 32'h1000_0000;
     localparam logic [31:0] A_XRAM = 32'h3000_0000;
     localparam logic [31:0] A_CELLS = 32'h5000_0000;
+    /* The blob, where the host left it, seen through the machine's
+     * window onto the staging store. */
+    localparam logic [31:0] A_STAGE = 32'h63F0_0000;
 
     /* The soft CPU's state, once it has been asked for it: thirty-one
      * registers and the program counter it will start from. */
@@ -139,7 +154,7 @@ module sst_engine
         return {csr, 5'd0, 3'b010, n, 7'b1110011};
     endfunction
 
-    typedef enum logic [3:0] {
+    typedef enum logic [4:0] {
         S_IDLE,
         S_FREEZE,
         S_HALT,
@@ -151,7 +166,14 @@ module sst_engine
         S_SPILL_WAIT,
         S_READY,
         S_READ,
-        S_READ_WAIT
+        S_READ_WAIT,
+        S_LD_FREEZE,
+        S_LD_HALT,
+        S_LD_FETCH,
+        S_LD_FETCH_WAIT,
+        S_LD_PUT,
+        S_LD_PUT_WAIT,
+        S_LD_DONE
     } state_t;
     state_t state;
 
@@ -175,7 +197,7 @@ module sst_engine
     logic [23:0] acc;
     logic bytewise;
     logic [31:0] region_addr;
-    logic [17:0] off;
+    logic [17:0] off, dec_idx;
 
     /* Both of these cross to the host's clock, so both are flops rather
      * than the logic behind them. A comparator or an OR of state bits
@@ -187,6 +209,7 @@ module sst_engine
     always_comb begin
         sst_engine_freeze = state != S_IDLE;
         sst_engine_dbg_halt = state != S_IDLE;
+        sst_engine_load_done = state == S_LD_DONE;
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
         sst_engine_rvalid = rvalid_q;
@@ -205,20 +228,21 @@ module sst_engine
         bytewise = 1'b0;
         region_addr = A_REGS;
         off = '0;
-        if (hold_idx >= 18'(B_TCM)) off = hold_idx - 18'(B_TCM);
-        else if (hold_idx >= 18'(B_CELLS)) begin
-            off = hold_idx - 18'(B_CELLS);
+        dec_idx = ld_writing ? ld_idx : hold_idx;
+        if (dec_idx >= 18'(B_TCM)) off = dec_idx - 18'(B_TCM);
+        else if (dec_idx >= 18'(B_CELLS)) begin
+            off = dec_idx - 18'(B_CELLS);
             region_addr = A_CELLS;
-        end else if (hold_idx >= 18'(B_XRAM)) begin
-            off = hold_idx - 18'(B_XRAM);
+        end else if (dec_idx >= 18'(B_XRAM)) begin
+            off = dec_idx - 18'(B_XRAM);
             region_addr = A_XRAM;
             bytewise = 1'b1;
-        end else if (hold_idx >= 18'(B_SRAM)) begin
-            off = hold_idx - 18'(B_SRAM);
+        end else if (dec_idx >= 18'(B_SRAM)) begin
+            off = dec_idx - 18'(B_SRAM);
             region_addr = A_SRAM;
             bytewise = 1'b1;
-        end else if (hold_idx >= 18'(B_REGS)) begin
-            off = hold_idx - 18'(B_REGS);
+        end else if (dec_idx >= 18'(B_REGS)) begin
+            off = dec_idx - 18'(B_REGS);
             region_addr = A_REGS;
         end
     end
@@ -226,15 +250,29 @@ module sst_engine
     logic on_bus, on_tcm;
     always_comb begin
         on_tcm = hold_idx >= 18'(B_TCM) && hold_idx < 18'(B_END);
-        on_bus = hold_idx >= 18'(B_REGS) && hold_idx < 18'(B_TCM);
+        on_bus = dec_idx >= 18'(B_REGS) && hold_idx < 18'(B_TCM);
         sst_engine_tcm_sel = on_tcm && (state == S_READ
-            || state == S_READ_WAIT);
+            || state == S_READ_WAIT || state == S_LD_PUT
+            || state == S_LD_PUT_WAIT);
         sst_engine_tcm_addr = off[14:0];
-        sst_engine_bus_addr = region_addr
-            + (bytewise ? {12'd0, off, 2'd0} + {30'd0, byte_n}
-                        : {12'd0, off, 2'd0});
-        sst_engine_bus_pend = on_bus && state == S_READ;
-        sst_engine_bus_stb = on_bus && state == S_READ && bus_rdy;
+        sst_engine_tcm_we = on_tcm && state == S_LD_PUT;
+        sst_engine_tcm_wdata = ld_word;
+        sst_engine_bus_addr = (state == S_LD_FETCH
+                || state == S_LD_FETCH_WAIT)
+            ? A_STAGE + {12'd0, ld_idx, 2'd0} + {30'd0, byte_n}
+            : region_addr + (bytewise ? {12'd0, off, 2'd0} + {30'd0, byte_n}
+                                      : {12'd0, off, 2'd0});
+        /* A fetch reads the store; a put writes wherever the index
+         * says. Byte windows take one byte per access either way. */
+        sst_engine_bus_we = state == S_LD_PUT;
+        sst_engine_bus_wstrb = state == S_LD_PUT
+            ? (bytewise ? 4'b1111 : 4'b1111) : 4'b0000;
+        sst_engine_bus_wdata = bytewise
+            ? {4{ld_word[31 - {byte_n, 3'd0} -: 8]}} : ld_word;
+        sst_engine_bus_pend = (on_bus && state == S_READ)
+            || state == S_LD_FETCH || (on_bus && state == S_LD_PUT);
+        sst_engine_bus_stb = bus_rdy && ((on_bus && state == S_READ)
+            || state == S_LD_FETCH || (on_bus && state == S_LD_PUT));
     end
 
     /* The flops, which answer combinationally and need no access. */
@@ -280,10 +318,20 @@ module sst_engine
 
     logic [17:0] sum_next;
 
+    /* A load walks the blob in order rather than being asked for words:
+     * four bytes out of the store, one word into whatever the index
+     * says, and on to the next. */
+    logic [17:0] ld_idx;
+    logic [31:0] ld_word;
+    logic ld_writing;
+
     /* Named _s1 so the platform's standing rule cuts the arrival. */
     (* preserve *) logic save_s1, save_s2;
     logic save_req;
     always_comb save_req = save_s2;
+    (* preserve *) logic load_s1, load_s2;
+    logic load_req;
+    always_comb load_req = load_s2;
 
     (* preserve *) logic idx_t1, idx_t2, idx_t3;
     logic [17:0] req_idx;
@@ -310,6 +358,11 @@ module sst_engine
             rvalid_q <= 1'b0;
             save_s1 <= 1'b0;
             save_s2 <= 1'b0;
+            load_s1 <= 1'b0;
+            load_s2 <= 1'b0;
+            ld_idx <= '0;
+            ld_word <= '0;
+            ld_writing <= 1'b0;
             idx_t1 <= 1'b0;
             idx_t2 <= 1'b0;
             idx_t3 <= 1'b0;
@@ -321,6 +374,8 @@ module sst_engine
             rvalid_q <= hold_valid && hold_idx == req_idx;
             save_s1 <= sst_save;
             save_s2 <= save_s1;
+            load_s1 <= sst_load;
+            load_s2 <= load_s1;
             idx_t1 <= rd_t;
             idx_t2 <= idx_t1;
             idx_t3 <= idx_t2;
@@ -342,6 +397,7 @@ module sst_engine
                     spill_dpc <= 1'b0;
                     spill_step <= '0;
                     if (save_req) state <= S_FREEZE;
+                    else if (load_req) state <= S_LD_FREEZE;
                 end
 
                 /* Both halves of the machine, in either order; the
@@ -395,6 +451,55 @@ module sst_engine
                         end
                     end
                 end
+
+                /* A load: stop the machine, then walk the blob out of
+                 * the store and into the machine a word at a time. */
+                S_LD_FREEZE: if (frozen) state <= S_LD_HALT;
+                S_LD_HALT:
+                if (dbg_halted) begin
+                    ld_idx <= 18'(B_REGS);
+                    byte_n <= '0;
+                    acc <= '0;
+                    ld_writing <= 1'b1;
+                    state <= S_LD_FETCH;
+                end
+
+                S_LD_FETCH: if (bus_rdy) state <= S_LD_FETCH_WAIT;
+                S_LD_FETCH_WAIT: begin
+                    acc <= {acc[15:0], bus_rdata[7:0]};
+                    if (byte_n == 2'd3) begin
+                        ld_word <= {acc, bus_rdata[7:0]};
+                        byte_n <= '0;
+                        state <= S_LD_PUT;
+                    end else begin
+                        byte_n <= byte_n + 2'd1;
+                        state <= S_LD_FETCH;
+                    end
+                end
+
+                S_LD_PUT:
+                if (on_tcm) state <= S_LD_PUT_WAIT;
+                else if (bus_rdy) state <= S_LD_PUT_WAIT;
+                S_LD_PUT_WAIT:
+                if (!on_tcm && bytewise && byte_n != 2'd3) begin
+                    byte_n <= byte_n + 2'd1;
+                    state <= S_LD_PUT;
+                end else begin
+                    byte_n <= '0;
+                    if (ld_idx == 18'(B_END - 1)) begin
+                        ld_writing <= 1'b0;
+                        state <= S_LD_DONE;
+                    end else begin
+                        ld_idx <= ld_idx + 18'd1;
+                        state <= S_LD_FETCH;
+                    end
+                end
+
+                /* Leaves on the same signal it arrived on. Waiting on
+                 * the raw level instead lets go two clocks before the
+                 * synchronised copy does, and idle starts the load
+                 * again on the stale one. */
+                S_LD_DONE: if (!load_req) state <= S_IDLE;
 
                 S_READY: begin
                     if (!save_req) state <= S_IDLE;

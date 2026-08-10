@@ -77,6 +77,8 @@ module rp6502
      * sst_save stops the machine and keeps it stopped; the blob stands
      * still underneath the reader until it is let go. */
     input logic sst_save,
+    input logic sst_load,
+    output logic rp6502_sst_load_done,
     output logic rp6502_sst_ready,
     input logic [17:0] sst_rd_idx,
     input logic sst_rd_t,
@@ -240,7 +242,8 @@ module rp6502
         .cpu65_next_we(cpu_next_we)
     );
 
-    logic eng_tcm_sel, eng_st_via, eng_dbg_halt, eng_dbg_vld;
+    logic eng_tcm_sel, eng_st_via, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
+    logic [31:0] eng_tcm_wdata;
     logic [14:0] eng_tcm_addr;
     logic [2:0] eng_st_idx;
     logic [31:0] eng_dbg_instr;
@@ -249,6 +252,8 @@ module rp6502
         .clk_sys(clk_sys),
         .rst_n(rst_n),
         .sst_save(sst_save),
+        .sst_load(sst_load),
+        .sst_engine_load_done(rp6502_sst_load_done),
         .sst_engine_freeze(eng_freeze),
         .frozen(frz_held),
         .sst_engine_dbg_halt(eng_dbg_halt),
@@ -262,10 +267,15 @@ module rp6502
         .sst_engine_bus_pend(eng_pend),
         .sst_engine_bus_stb(eng_stb),
         .sst_engine_bus_addr(eng_addr),
+        .sst_engine_bus_we(eng_we),
+        .sst_engine_bus_wdata(eng_wdata),
+        .sst_engine_bus_wstrb(eng_wstrb),
         .bus_rdy(bus_rdy),
         .bus_rdata(bus_rdata),
         .sst_engine_tcm_sel(eng_tcm_sel),
         .sst_engine_tcm_addr(eng_tcm_addr),
+        .sst_engine_tcm_we(eng_tcm_we),
+        .sst_engine_tcm_wdata(eng_tcm_wdata),
         .tcm_rdata(rp6502_sst_tcm_rdata),
         .sst_engine_st_via(eng_st_via),
         .sst_engine_st_idx(eng_st_idx),
@@ -398,16 +408,17 @@ module rp6502
     logic rv_bus_pend, rv_bus_we;
     logic [31:0] rv_bus_addr, rv_bus_wdata;
     logic [3:0] rv_bus_wstrb;
-    logic eng_own, eng_pend, eng_stb;
-    logic [31:0] eng_addr;
+    logic eng_own, eng_pend, eng_stb, eng_we;
+    logic [31:0] eng_addr, eng_wdata;
+    logic [3:0] eng_wstrb;
     always_comb begin
         if (eng_own) begin
             bus_pend = eng_pend;
             bus_stb = eng_stb;
-            bus_we = 1'b0;
+            bus_we = eng_we;
             bus_addr = eng_addr;
-            bus_wdata = '0;
-            bus_wstrb = '0;
+            bus_wdata = eng_wdata;
+            bus_wstrb = eng_wstrb;
         end else begin
             bus_pend = rv_bus_pend;
             bus_stb = bus_stb_n && !bus_stb_q;
@@ -464,8 +475,8 @@ module rp6502
         .sst_phi2_wdata(sst_phi2_wdata),
         .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
-        .sst_tcm_we(sst_tcm_we),
-        .sst_tcm_wdata(sst_tcm_wdata),
+        .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
+        .sst_tcm_wdata(eng_own ? eng_tcm_wdata : sst_tcm_wdata),
         .rv_soc_tcm_rdata(rp6502_sst_tcm_rdata),
         .rv_soc_tx_data(rp6502_rv_tx_data),
         .rv_soc_tx_valid(rv_tx_valid_raw),

@@ -354,6 +354,8 @@ module pocket_core #(
         .rp6502_sst_dbg_ebreak(),
         .rp6502_sst_dbg_fault(),
         .sst_save(sst_save),
+        .sst_load(1'b0),
+        .rp6502_sst_load_done(),
         .rp6502_sst_ready(sst_ready),
         .sst_rd_idx(sst_rd_idx),
         .sst_rd_t(sst_rd_t),

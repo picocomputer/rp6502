@@ -52,7 +52,36 @@
 
 static Vrp6502 *dut;
 
-static void clk(void) { tb_clock(dut); }
+/* The staging store lives outside the machine, so the bench is it: a
+ * byte answered the moment it is asked for, which is the fastest a
+ * platform is allowed to be and the easiest to reason about. */
+static std::vector<uint8_t> g_stage;
+
+static void clk(void)
+{
+    if (dut->rp6502_stage_pend)
+    {
+        uint32_t a = dut->rp6502_stage_addr;
+        dut->stage_rdata = a < g_stage.size() ? g_stage[a] : 0;
+    }
+    dut->stage_stall = 0;
+    dut->eval();
+    tb_clock(dut);
+}
+
+/* Where the host leaves a blob, in the store's own address space, with
+ * the lowest address in the most significant byte. */
+#define STAGE_BLOB 0x03F00000u
+static void stage_word(uint32_t idx, uint32_t v)
+{
+    uint32_t a = STAGE_BLOB + idx * 4;
+    if (g_stage.size() < a + 4)
+        g_stage.resize(a + 4, 0);
+    g_stage[a] = (uint8_t)(v >> 24);
+    g_stage[a + 1] = (uint8_t)(v >> 16);
+    g_stage[a + 2] = (uint8_t)(v >> 8);
+    g_stage[a + 3] = (uint8_t)v;
+}
 
 /* The same bytes, fetched a different way: straight out of the model's
  * arrays rather than through the engine and the machine's bus. */
@@ -117,6 +146,9 @@ static void power_on(void)
     dut->sst_tcm_sel = 0;
     dut->sst_tcm_we = 0;
     dut->sst_phi2_we = 0;
+    dut->sst_load = 0;
+    dut->stage_stall = 0;
+    dut->stage_rdata = 0;
     dut->eval();
     for (uint32_t i = 0; i < COUNTER.size(); i++)
         tcm_put(i, COUNTER[i]);
@@ -341,6 +373,54 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
     ASSERT_TRUE(count > 3);
     for (uint32_t i = 0; i < count; i++)
         ASSERT_EQ(i + 1, tcm_word(256 + i));
+}
+
+/* The other direction: the blob is already in the store, so the engine
+ * reads it back through the machine's own window and writes it where
+ * each index says. Nothing about it involves the host. */
+UTEST(sst, a_load_puts_the_blob_back)
+{
+    power_on();
+    for (int i = 0; i < 2000; i++)
+        clk();
+
+    /* A blob whose XRAM section is recognisable, and whose every other
+     * word is what is already there so nothing else moves. */
+    g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        stage_word(i, 0);
+    for (uint32_t i = 0; i < 8; i++)
+        stage_word(B_XRAM + i, 0xC0DE0000u + i);
+
+    /* Scribble over the destination first, so a load that did nothing
+     * would be caught. */
+    auto *r = dut->rootp;
+    for (uint32_t i = 0; i < 8; i++)
+    {
+        r->rp6502__DOT__xram__DOT__mem0[i] = 0xEE;
+        r->rp6502__DOT__xram__DOT__mem1[i] = 0xEE;
+        r->rp6502__DOT__xram__DOT__mem2[i] = 0xEE;
+        r->rp6502__DOT__xram__DOT__mem3[i] = 0xEE;
+    }
+
+    dut->sst_load = 1;
+    dut->eval();
+    long guard = 0;
+    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+        clk();
+    ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+    /* Both halves were stopped for it. */
+    ASSERT_TRUE((int)dut->rp6502_sst_frozen);
+    ASSERT_TRUE((int)dut->rp6502_sst_dbg_halted);
+
+    for (uint32_t i = 0; i < 8; i++)
+        ASSERT_EQ(0xC0DE0000u + i, xram_word(i));
+
+    dut->sst_load = 0;
+    dut->eval();
+    for (int i = 0; i < 200; i++)
+        clk();
+    ASSERT_FALSE((int)dut->rp6502_sst_frozen);
 }
 
 UTEST_STATE();
