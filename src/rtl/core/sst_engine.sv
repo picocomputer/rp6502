@@ -252,12 +252,12 @@ module sst_engine
      * cone can latch a transient that was never a state the design was
      * in -- which is what the Design Assistant means by data that is
      * not correctly synchronised, as opposed to merely unsynchronised. */
-    logic ready_q, rvalid_q;
+    logic ready_q, rvalid_q, done_q;
     always_comb begin
         sst_engine_freeze = state != S_IDLE;
         sst_engine_dbg_halt = state != S_IDLE && state != S_LD_DONE
             && state != S_LD_ACK;
-        sst_engine_load_done = state == S_LD_DONE || state == S_LD_ACK;
+        sst_engine_load_done = done_q;
         sst_engine_load_err = ld_bad;
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
@@ -444,6 +444,7 @@ module sst_engine
             sum_next <= '0;
             ready_q <= 1'b0;
             rvalid_q <= 1'b0;
+            done_q <= 1'b0;
             save_s1 <= 1'b0;
             save_s2 <= 1'b0;
             load_s1 <= 1'b0;
@@ -465,6 +466,7 @@ module sst_engine
         end else begin
             ready_q <= state == S_READY || state == S_READ
                 || state == S_READ_WAIT;
+            done_q <= state == S_LD_DONE || state == S_LD_ACK;
             rvalid_q <= hold_valid && hold_idx == req_idx;
             save_s1 <= sst_save;
             save_s2 <= save_s1;

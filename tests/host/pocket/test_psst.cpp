@@ -29,18 +29,15 @@
 #define BLOB_WINDOW 0x000A0000u
 
 #define REG_CTL 0x00u
-#define REG_RESULT 0x04u
 
-#define CTL_START_REQ (1u << 0)
-#define CTL_LOAD_REQ (1u << 1)
-#define CTL_BLOB_SEEN (1u << 2)
-#define CTL_UNDERRUN (1u << 3)
-#define CTL_LOAD_ERR (1u << 4)
+#define CTL_RESTORED (1u << 0)
+#define CTL_BLOB_SEEN (1u << 1)
+#define CTL_UNDERRUN (1u << 2)
+#define CTL_RESTORE_ERR (1u << 3)
 
-#define RES_START_OK 1u
-#define RES_START_ERR 2u
-#define RES_LOAD_OK 3u
-#define RES_LOAD_ERR 4u
+/* pocket_sst's BLOB_WORDS. Reading the last of them is what ends a
+ * create, because there is no host command that says so. */
+#define BLOB_WORDS 73044u
 
 static Vpocket_sst *dut;
 static long t;
@@ -318,15 +315,39 @@ UTEST(psst, a_load_is_acked_without_the_firmware)
     ASSERT_TRUE((int)dut->pocket_sst_load_busy);
 }
 
-UTEST(psst, the_request_reaches_the_machine_and_clears)
+/* The soft CPU is stopped along with the rest of the machine while a
+ * blob is made, so there is no firmware to answer a create and the
+ * fabric answers it: busy until the engine has the machine stopped and
+ * can be read, done from then on. */
+UTEST(psst, a_create_is_answered_without_the_firmware)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
-    run(64);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_START_REQ) != 0);
-    mmio_write(REG_CTL, CTL_START_REQ);
+    ASSERT_TRUE((int)dut->pocket_sst_start_busy);
+    ASSERT_FALSE((int)dut->pocket_sst_start_ok);
+    run(200);
+    ASSERT_FALSE((int)dut->pocket_sst_start_busy);
+    ASSERT_TRUE((int)dut->pocket_sst_start_ok);
+    ASSERT_FALSE((int)dut->pocket_sst_start_err);
+    /* Held, because the host polls for it in its own time. */
+    run(400);
+    ASSERT_TRUE((int)dut->pocket_sst_start_ok);
+}
+
+/* And it ends when the host has taken the last word, which is the only
+ * signal there is that the machine is no longer being read. */
+UTEST(psst, the_last_word_gives_the_machine_back)
+{
+    reset();
+    ASSERT_TRUE(hold_until_ack(0));
+    run(200);
+    ASSERT_TRUE((int)dut->pocket_sst_save);
+    (void)blob_read(BLOB_WORDS - 2);
     run(16);
-    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_START_REQ) != 0);
+    ASSERT_TRUE((int)dut->pocket_sst_save);
+    (void)blob_read(BLOB_WORDS - 1);
+    run(16);
+    ASSERT_FALSE((int)dut->pocket_sst_save);
 }
 
 UTEST(psst, the_two_requests_do_not_collide)
@@ -336,7 +357,7 @@ UTEST(psst, the_two_requests_do_not_collide)
     run(64);
     ASSERT_TRUE((int)dut->pocket_sst_load_busy);
     ASSERT_FALSE((int)dut->pocket_sst_start_busy);
-    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_START_REQ) != 0);
+    ASSERT_FALSE((int)dut->pocket_sst_save);
 }
 
 /* A load is not a request the firmware services; it is one the engine
@@ -351,16 +372,22 @@ UTEST(psst, a_load_goes_to_the_engine_and_the_answer_comes_back)
     ASSERT_TRUE(hold_until_ack(1));
     run(64);
     ASSERT_TRUE((int)dut->pocket_sst_load);
-    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_LOAD_REQ) != 0);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_RESTORED) != 0);
+
+    ASSERT_TRUE((int)dut->pocket_sst_load_busy);
 
     dut->sst_load_done = 1;
     run(16);
-    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_LOAD_REQ) != 0);
-    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_LOAD_ERR) != 0);
+    ASSERT_TRUE((mmio_read(REG_CTL) & CTL_RESTORED) != 0);
+    ASSERT_FALSE((mmio_read(REG_CTL) & CTL_RESTORE_ERR) != 0);
+    ASSERT_TRUE((int)dut->pocket_sst_load_ok);
+    ASSERT_FALSE((int)dut->pocket_sst_load_busy);
 
-    mmio_write(REG_CTL, CTL_LOAD_REQ);
+    mmio_write(REG_CTL, CTL_RESTORED);
     run(16);
     ASSERT_FALSE((int)dut->pocket_sst_load);
+    /* The host's answer stands even after the firmware has let go. */
+    ASSERT_TRUE((int)dut->pocket_sst_load_ok);
 }
 
 UTEST(psst, a_refused_load_says_so)
@@ -372,56 +399,59 @@ UTEST(psst, a_refused_load_says_so)
     dut->sst_load_err = 1;
     run(16);
     uint32_t ctl = mmio_read(REG_CTL);
-    ASSERT_TRUE((ctl & CTL_LOAD_REQ) != 0);
-    ASSERT_TRUE((ctl & CTL_LOAD_ERR) != 0);
+    ASSERT_TRUE((ctl & CTL_RESTORED) != 0);
+    ASSERT_TRUE((ctl & CTL_RESTORE_ERR) != 0);
+    ASSERT_TRUE((int)dut->pocket_sst_load_err);
+    ASSERT_FALSE((int)dut->pocket_sst_load_ok);
 }
 
-UTEST(psst, a_result_ends_busy_and_stands)
+/* The one way a create can go wrong: a word the engine had not got to.
+ * The blob the host took is short, so it must not be told the state is
+ * good. */
+UTEST(psst, an_underrun_is_reported_as_an_error)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
-    run(64);
-    mmio_write(REG_RESULT, RES_START_OK);
-    run(64);
-    ASSERT_FALSE((int)dut->pocket_sst_start_busy);
+    run(200);
     ASSERT_TRUE((int)dut->pocket_sst_start_ok);
-    ASSERT_FALSE((int)dut->pocket_sst_start_err);
-    /* Held, because the host polls for it in its own time. */
-    run(400);
-    ASSERT_TRUE((int)dut->pocket_sst_start_ok);
-}
-
-UTEST(psst, an_error_is_reported_as_an_error)
-{
-    reset();
-    ASSERT_TRUE(hold_until_ack(0));
-    run(64);
-    mmio_write(REG_RESULT, RES_START_ERR);
-    run(64);
+    ASSERT_EQ(eng_word(0), blob_read(0));
+    (void)blob_read(900);
+    run(32);
     ASSERT_TRUE((int)dut->pocket_sst_start_err);
     ASSERT_FALSE((int)dut->pocket_sst_start_ok);
-    ASSERT_FALSE((int)dut->pocket_sst_start_busy);
 }
 
+/* A second create after the machine has been given back starts over:
+ * busy while the engine stops it again, and none of the last one's
+ * answer left standing. An underrun in particular must not carry, or
+ * every state after a bad one reads as bad. */
 UTEST(psst, a_new_create_clears_the_last_result)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
-    run(64);
-    mmio_write(REG_RESULT, RES_START_OK);
-    run(64);
-    ASSERT_TRUE((int)dut->pocket_sst_start_ok);
+    run(200);
+    (void)blob_read(0);
+    (void)blob_read(900);
+    run(32);
+    ASSERT_TRUE((int)dut->pocket_sst_start_err);
+    (void)blob_read(BLOB_WORDS - 1);
+    run(32);
+    ASSERT_FALSE((int)dut->pocket_sst_save);
+
     ASSERT_TRUE(hold_until_ack(0));
     ASSERT_FALSE((int)dut->pocket_sst_start_ok);
+    ASSERT_FALSE((int)dut->pocket_sst_start_err);
     ASSERT_TRUE((int)dut->pocket_sst_start_busy);
+    run(200);
+    ASSERT_TRUE((int)dut->pocket_sst_start_ok);
+    ASSERT_FALSE((int)dut->pocket_sst_start_err);
 }
 
-UTEST(psst, a_load_result_does_not_answer_a_create)
+UTEST(psst, a_restore_does_not_answer_a_create)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(1));
-    run(64);
-    mmio_write(REG_RESULT, RES_LOAD_OK);
+    dut->sst_load_done = 1;
     run(64);
     ASSERT_TRUE((int)dut->pocket_sst_load_ok);
     ASSERT_FALSE((int)dut->pocket_sst_start_ok);

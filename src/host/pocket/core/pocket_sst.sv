@@ -8,11 +8,23 @@
  * back and the machine picks up where it was. Wake reconfigures the
  * part, so the blob is the only thing that crosses.
  *
- * This is the command half. The bridge's command engine parks in the
- * savestate state until the ack, so the ack is answered here in the
- * fabric and never waits on the firmware; the request is latched for
- * the machine to poll, and the machine answers with ok or error when it
- * is finished.
+ * This is the command half, and the firmware is in none of it. The
+ * engine stops the whole machine to make a blob -- the soft CPU with
+ * it, at its debug port -- so there is no firmware running to answer a
+ * create with, and a design that waited for one would wait forever. The
+ * bridge's command engine parks in the savestate state until the ack,
+ * so that is answered here too.
+ *
+ * A create ends when the host reads the last word. There is no command
+ * for "finished reading" and the machine cannot start again while the
+ * host is still looking at its memories, so the last word is the only
+ * signal there is; that is why the blob's length is a parameter here.
+ *
+ * A restore is the other way round: the engine does the whole thing and
+ * the firmware is told afterwards, because by then the firmware is the
+ * one the blob brought. Letting go of the restore is what starts the
+ * 6502 again, so whatever fabric no blob carries gets put back before
+ * the machine that uses it takes another cycle.
  *
  * A bridge write into the blob window raises a sticky bit, because that
  * is how a wake announces itself before any command arrives: the host
@@ -36,7 +48,10 @@ module pocket_sst #(
      * The base is a whole megabyte, which is what lets the window
      * decode be a compare on the low twenty bits. */
     parameter logic [31:0] BLOB_BASE = 32'h03F0_0000,
-    parameter logic [31:0] BLOB_WINDOW = 32'h000A_0000
+    parameter logic [31:0] BLOB_WINDOW = 32'h000A_0000,
+    /* sst_engine's word count, and core_top's savestate_size divided by
+     * four. Reading the last of them is what ends a create. */
+    parameter int BLOB_WORDS = 73044
 ) (
     input logic clk_sys,
     input logic stb,
@@ -58,18 +73,16 @@ module pocket_sst #(
      * index goes across as a level and the answer comes back as one. */
     output logic pocket_sst_save,
     input logic sst_ready,
-    /* A load runs itself. The host command raises this, the engine
-     * takes it and does the whole thing, and the firmware -- the one
-     * that comes back out of the blob -- lets go of it once the fabric
-     * no blob carries has been put back. The 6502 is stopped for all of
-     * it, which is the point of making the firmware the one to let go. */
-    output logic pocket_sst_load,
-    input logic sst_load_done,
-    input logic sst_load_err,
     output logic [17:0] pocket_sst_rd_idx,
     output logic pocket_sst_rd_t,
     input logic [31:0] sst_rdata,
     input logic sst_rvalid,
+
+    /* A restore runs itself. This is raised by the host's command and
+     * let go of by the firmware the blob brought. */
+    output logic pocket_sst_load,
+    input logic sst_load_done,
+    input logic sst_load_err,
 
     /* A level the core edge-detects, held until acknowledged. */
     input logic savestate_start,
@@ -85,15 +98,9 @@ module pocket_sst #(
     output logic pocket_sst_load_err
 );
 
-    /* What the firmware writes to SST_RESULT when it is finished. */
-    localparam logic [2:0] RES_NONE = 3'd0;
-    localparam logic [2:0] RES_START_OK = 3'd1;
-    localparam logic [2:0] RES_START_ERR = 3'd2;
-    localparam logic [2:0] RES_LOAD_OK = 3'd3;
-    localparam logic [2:0] RES_LOAD_ERR = 3'd4;
+    localparam logic [17:0] LAST_IDX = 18'(BLOB_WORDS - 1);
 
     localparam logic [1:0] REG_CTL = 2'd0;
-    localparam logic [1:0] REG_RESULT = 2'd1;
 
     /* --- The host's side. --- */
 
@@ -115,6 +122,8 @@ module pocket_sst #(
     logic want_t;
     (* preserve *) logic rvalid_s1, rvalid_s2;
     (* preserve *) logic ready_s1, ready_s2;
+    (* preserve *) logic ldone_s1, ldone_s2;
+    (* preserve *) logic lerr_s1, lerr_s2;
 
     logic blob_hit;
     always_comb begin
@@ -129,32 +138,33 @@ module pocket_sst #(
         /* The machine is held for as long as a blob is being made, and
          * the index stands still while the engine answers it -- the
          * same held-level crossing the file bridge's parameters use. */
-        pocket_sst_save = start_pend;
-        pocket_sst_load = load_req;
+        pocket_sst_save = start_hold;
         pocket_sst_rd_idx = want;
         pocket_sst_rd_t = want_t;
     end
 
     logic blob_seen;
-    logic start_q, load_q, start_pend, load_pend;
-    logic [2:0] result;
-    logic start_t, load_t;
-    (* preserve *) logic res_t1, res_t2, res_t3;
-    logic res_t;
-    logic [2:0] res_code;
+    logic start_q, load_q;
+    logic start_hold, start_done;
+    logic load_hold, load_kept, load_bad;
+    logic load_t;
 
     /* Answered from the level itself. The bridge only needs a cycle of
      * it, and anything slower is a cycle the command engine spends
-     * parked for no reason. */
+     * parked for no reason.
+     *
+     * Busy until the engine says the blob can be read, and then done for
+     * as long as it takes the host to read it -- the documented shape is
+     * one result that stands until the next request starts. */
     always_comb begin
         pocket_sst_start_ack = savestate_start;
         pocket_sst_load_ack = savestate_load;
-        pocket_sst_start_busy = start_pend;
-        pocket_sst_load_busy = load_pend;
-        pocket_sst_start_ok = result == RES_START_OK;
-        pocket_sst_start_err = result == RES_START_ERR;
-        pocket_sst_load_ok = result == RES_LOAD_OK;
-        pocket_sst_load_err = result == RES_LOAD_ERR;
+        pocket_sst_start_busy = start_hold && !start_done;
+        pocket_sst_start_ok = start_done && !underrun;
+        pocket_sst_start_err = start_done && underrun;
+        pocket_sst_load_busy = load_hold && !load_kept;
+        pocket_sst_load_ok = load_kept && !load_bad;
+        pocket_sst_load_err = load_kept && load_bad;
     end
 
     always_ff @(posedge clk_74a or negedge arst_n) begin
@@ -174,16 +184,18 @@ module pocket_sst #(
             rvalid_s2 <= 1'b0;
             ready_s1 <= 1'b0;
             ready_s2 <= 1'b0;
+            ldone_s1 <= 1'b0;
+            ldone_s2 <= 1'b0;
+            lerr_s1 <= 1'b0;
+            lerr_s2 <= 1'b0;
             start_q <= 1'b0;
             load_q <= 1'b0;
-            start_pend <= 1'b0;
-            load_pend <= 1'b0;
-            result <= RES_NONE;
-            start_t <= 1'b0;
+            start_hold <= 1'b0;
+            start_done <= 1'b0;
+            load_hold <= 1'b0;
+            load_kept <= 1'b0;
+            load_bad <= 1'b0;
             load_t <= 1'b0;
-            res_t1 <= 1'b0;
-            res_t2 <= 1'b0;
-            res_t3 <= 1'b0;
         end else begin
             start_q <= savestate_start;
             load_q <= savestate_load;
@@ -192,6 +204,10 @@ module pocket_sst #(
             rvalid_s2 <= rvalid_s1;
             ready_s1 <= sst_ready;
             ready_s2 <= ready_s1;
+            ldone_s1 <= sst_load_done;
+            ldone_s2 <= ldone_s1;
+            lerr_s1 <= sst_load_err;
+            lerr_s2 <= lerr_s1;
 
             /* The answer to the last index is still standing while the
              * engine notices a new one, so it is believed only after it
@@ -211,6 +227,9 @@ module pocket_sst #(
                 want_t <= !want_t;
                 pf_valid <= 1'b0;
                 pf_seen_low <= 1'b0;
+                /* The whole blob has been taken, so the machine is no
+                 * longer being read and can have itself back. */
+                if (rd_idx == LAST_IDX) start_hold <= 1'b0;
             end
 
             /* Sticky for the life of the core: at boot it is the whole
@@ -218,10 +237,15 @@ module pocket_sst #(
              * and the firmware asks it once before it starts the ROM. */
             if (blob_hit) blob_seen <= 1'b1;
 
+            if (start_hold && ready_s2) start_done <= 1'b1;
+            if (load_hold && ldone_s2) begin
+                load_kept <= 1'b1;
+                load_bad <= lerr_s2;
+            end
+
             if (savestate_start && !start_q) begin
-                start_pend <= 1'b1;
-                result <= RES_NONE;
-                start_t <= !start_t;
+                start_hold <= 1'b1;
+                start_done <= 1'b0;
                 /* A new blob starts at its first word. */
                 want <= 18'd0;
                 want_t <= !want_t;
@@ -231,41 +255,24 @@ module pocket_sst #(
                 underrun <= 1'b0;
             end
             if (savestate_load && !load_q) begin
-                load_pend <= 1'b1;
-                result <= RES_NONE;
+                load_hold <= 1'b1;
+                load_kept <= 1'b0;
+                load_bad <= 1'b0;
                 load_t <= !load_t;
-            end
-
-            res_t1 <= res_t;
-            res_t2 <= res_t1;
-            res_t3 <= res_t2;
-            if (res_t2 != res_t3) begin
-                result <= res_code;
-                if (res_code == RES_START_OK || res_code == RES_START_ERR)
-                    start_pend <= 1'b0;
-                if (res_code == RES_LOAD_OK || res_code == RES_LOAD_ERR)
-                    load_pend <= 1'b0;
             end
         end
     end
 
     /* --- The machine's side. --- */
 
-    logic start_req, load_req;
-    (* preserve *) logic start_s1, start_s2, start_s3;
+    logic load_req;
     (* preserve *) logic load_s1, load_s2, load_s3;
     (* preserve *) logic seen_s1, seen_s2;
     (* preserve *) logic under_s1, under_s2;
 
     initial begin
         pocket_sst_rdata = '0;
-        start_req = 1'b0;
         load_req = 1'b0;
-        res_code = RES_NONE;
-        res_t = 1'b0;
-        start_s1 = 1'b0;
-        start_s2 = 1'b0;
-        start_s3 = 1'b0;
         load_s1 = 1'b0;
         load_s2 = 1'b0;
         load_s3 = 1'b0;
@@ -275,10 +282,9 @@ module pocket_sst #(
         under_s2 = 1'b0;
     end
 
+    always_comb pocket_sst_load = load_req;
+
     always_ff @(posedge clk_sys) begin
-        start_s1 <= start_t;
-        start_s2 <= start_s1;
-        start_s3 <= start_s2;
         load_s1 <= load_t;
         load_s2 <= load_s1;
         load_s3 <= load_s2;
@@ -287,40 +293,27 @@ module pocket_sst #(
         under_s1 <= underrun;
         under_s2 <= under_s1;
 
-        if (stb && we)
-            case (addr[3:2])
-                REG_CTL: begin
-                    if (wdata[0]) start_req <= 1'b0;
-                    if (wdata[1]) load_req <= 1'b0;
-                end
-                REG_RESULT: begin
-                    res_code <= wdata[2:0];
-                    res_t <= !res_t;
-                end
-                default: ;
-            endcase
+        if (stb && we && addr[3:2] == REG_CTL && wdata[0]) load_req <= 1'b0;
 
         /* After the clear, so a request that lands in the same cycle
          * the firmware acknowledges the last one is not the one that
          * gets lost. */
-        if (start_s2 != start_s3) start_req <= 1'b1;
         if (load_s2 != load_s3) load_req <= 1'b1;
 
-        /* The load bit reads back as the engine's answer rather than
+        /* The restore bit reads back as the engine's answer rather than
          * the host's question: the firmware that acts on it is the one
          * the blob brought, and it has nothing to say until the blob is
          * in. Clearing it is what lets the 6502 run again. */
         if (stb)
             pocket_sst_rdata <= addr[3:2] == REG_CTL
-                ? {27'd0, sst_load_err, under_s2, seen_s2, sst_load_done,
-                   start_req}
+                ? {28'd0, sst_load_err, under_s2, seen_s2, sst_load_done}
                 : 32'd0;
     end
 
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_sst;
     always_comb unused_pocket_sst = we ^ (^addr[27:4]) ^ (^addr[1:0])
-        ^ (^wdata[31:3]) ^ (^bridge_addr[31:20]);
+        ^ (^wdata[31:1]) ^ (^bridge_addr[31:20]);
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
