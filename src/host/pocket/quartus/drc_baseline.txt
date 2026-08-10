@@ -65,12 +65,25 @@ R101 1
 #       Read out of the report, not worked out: the count rose by
 #       exactly three and the report says which three.
 #
+#       687 since the savestate serving. Named in the report:
+#
+#          18  pocket_sst  want, the blob index the host is reading
+#           1  pocket_sst  want_t, the toggle that announces it
+#           1  pocket_sst  start_pend, the save request
+#
+#       The index is the same shape as the file bridge's parameters
+#       above: it stands still on clk_74a while the engine answers it,
+#       and the engine will not look at it until the toggle beside it
+#       has come through three flops. The toggle and the request are
+#       single bits, which is the case this rule cannot distinguish
+#       from a bus.
+#
 #       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
 #       anyway, in platform/pocket/pocket.cmake: without it Quartus found all 78
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.
-D101 666
+D101 687
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
@@ -114,7 +127,12 @@ D101 666
 #       measured rather than derived: every name in the report is a
 #       level bus crossing on two flops that land only when consecutive
 #       samples agree, which is the same argument as everything above.
-D102 28
+#       29 since the savestate serving: sst_engine's hold, the word the
+#       host is reading. It stands still until a different index is
+#       asked for, and the valid flag that says so is a flop on this
+#       side rather than the comparator behind it -- which is what
+#       moved D103 back to three rather than leaving it at forty-three.
+D102 29
 #
 # D103  Data bits not correctly synchronised. pocket_file's command
 #       word: r_op, and the flush, write and getfile strobes beside it.
