@@ -56,12 +56,21 @@ R101 1
 #       272 of them are inside Analogue's own code and are not ours to
 #       change. This number does not fall.
 #
+#       666 since savestates, and the three are named in the report as
+#       structures 661 to 663: pocket_sst's res_code, the code the
+#       machine writes to say how a savestate ended. It is the same
+#       shape as pocket_file's command word already counted above --
+#       written once, then a toggle flipped beside it, and not read
+#       until that toggle has come through three flops on the far side.
+#       Read out of the report, not worked out: the count rose by
+#       exactly three and the report says which three.
+#
 #       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
 #       anyway, in platform/pocket/pocket.cmake: without it Quartus found all 78
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.
-D101 663
+D101 666
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes

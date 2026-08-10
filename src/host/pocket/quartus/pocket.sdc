@@ -205,6 +205,14 @@ set_max_delay -from [get_registers {*pocket_file*|r_op[*]}] \
 set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
     -to [get_clocks {clk_74a}] 0
 
+# The savestate result crosses the same way and needs the same bound:
+# the machine writes a code and flips a toggle beside it, and the code
+# has to be there when the toggle arrives three flops later.
+set_max_delay -from [get_registers {*pocket_sst*|res_code[*]}] \
+    -to [get_clocks {clk_74a}] 13.468
+set_min_delay -from [get_registers {*pocket_sst*|res_code[*]}] \
+    -to [get_clocks {clk_74a}] 0
+
 # And the answer, coming back behind its own toggle.
 set_max_delay -from [get_registers {*pocket_file*|err_q[*]}] \
     -to [get_registers {*pocket_file*|r_err[*]}] 13.468
