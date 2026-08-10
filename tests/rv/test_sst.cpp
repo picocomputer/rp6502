@@ -92,6 +92,27 @@ static void stage_word(uint32_t idx, uint32_t v)
 
 /* The same bytes, fetched a different way: straight out of the model's
  * arrays rather than through the engine and the machine's bus. */
+/* A blob is not believed until it adds up, so the bench has to make one
+ * that does: the same rolling sum the engine writes into the trailer,
+ * over every word ahead of it. */
+static void stage_seal(void)
+{
+    stage_word(B_HDR + 0, SST_MAGIC);
+    stage_word(B_HDR + 1, 1);
+    stage_word(B_HDR + 2, W_TOTAL * 4);
+    uint32_t sum = 0;
+    for (uint32_t i = 0; i < B_END; i++)
+    {
+        uint32_t a = STAGE_BLOB + i * 4;
+        uint32_t w = ((uint32_t)g_stage[a] << 24) | ((uint32_t)g_stage[a + 1] << 16)
+                     | ((uint32_t)g_stage[a + 2] << 8) | (uint32_t)g_stage[a + 3];
+        sum = ((sum << 1) | (sum >> 31)) + w;
+    }
+    stage_word(B_END + 0, sum);
+    stage_word(B_END + 1, W_TOTAL);
+    stage_word(B_END + 2, SST_END_MAGIC);
+}
+
 static uint32_t tcm_word(uint32_t w)
 {
     auto *r = dut->rootp;
@@ -408,6 +429,7 @@ UTEST(sst, a_load_puts_the_blob_back)
     stage_word(B_STATE + ST_CPU + 0, 0x11223344u);
     stage_word(B_STATE + ST_CPU + 1, 0xA5B5C0DEu);
     stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
+    stage_seal();
 
     /* Scribble over the destinations first, so a load that did nothing
      * would be caught. */
@@ -506,6 +528,10 @@ UTEST(sst, the_soft_cpus_registers_go_back_in)
     stage_word(B_STATE + ST_RV + 0, 0x14u);
     stage_word(B_STATE + ST_RV + 5, MARK);
     stage_word(B_STATE + ST_RV + 6, PTR);
+    /* The soft CPU is the thing being resumed, so the machine it runs
+     * has to be out of reset for the record to mean anything. */
+    stage_word(B_STATE + ST_MACH + 0, 1);
+    stage_seal();
 
     dut->sst_load = 1;
     dut->eval();
@@ -527,6 +553,80 @@ UTEST(sst, the_soft_cpus_registers_go_back_in)
      * its way into the loop are still as the blob left them. */
     ASSERT_EQ(0u, tcm_word(255));
     ASSERT_EQ(0u, tcm_word(256));
+}
+
+/* A restore is the one operation with nothing to fall back on: it
+ * overwrites every memory the machine has, so a blob that turns out to
+ * be wrong halfway through leaves nothing to be wrong about. The whole
+ * of it is therefore read and added up before a byte of it is written,
+ * and what does not add up is refused with the machine still standing.
+ *
+ * The two ways a blob goes wrong are not the same. A header that is not
+ * a header is caught on the first word. A body that has been changed is
+ * caught only by the sum, and that is the case the sum is for -- the
+ * host reads the blob out of the machine in whatever order it likes,
+ * and a blob served out of order is a blob whose words are all present
+ * and in the wrong places. */
+static void load_and_wait(void)
+{
+    dut->sst_load = 1;
+    dut->eval();
+    long guard = 0;
+    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+        clk();
+}
+
+UTEST(sst, a_blob_that_does_not_add_up_is_refused)
+{
+    auto *r = dut->rootp;
+    for (int pass = 0; pass < 2; pass++)
+    {
+        power_on();
+        for (int i = 0; i < 3000; i++)
+            clk();
+
+        g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+        for (uint32_t i = 0; i < W_TOTAL; i++)
+            stage_word(i, 0);
+        for (uint32_t i = 0; i < 8; i++)
+            stage_word(B_XRAM + i, 0xC0DE0000u + i);
+        stage_seal();
+        if (pass == 0)
+            stage_word(B_HDR + 0, 0x4E4F5045u);
+        else
+            stage_word(B_XRAM + 3, 0xDEADBEEFu);
+
+        for (uint32_t i = 0; i < 8; i++)
+        {
+            r->rp6502__DOT__xram__DOT__mem0[i] = 0xEE;
+            r->rp6502__DOT__xram__DOT__mem1[i] = 0xEE;
+            r->rp6502__DOT__xram__DOT__mem2[i] = 0xEE;
+            r->rp6502__DOT__xram__DOT__mem3[i] = 0xEE;
+        }
+        uint32_t held = tcm_word(256);
+
+        load_and_wait();
+        ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+        ASSERT_TRUE((int)dut->rp6502_sst_load_err);
+
+        /* Nothing written. */
+        for (uint32_t i = 0; i < 8; i++)
+            ASSERT_EQ(0xEEEEEEEEu, xram_word(i));
+
+        /* And the soft CPU was only ever halted, so letting it go puts
+         * it back where the halt found it. */
+        dut->sst_load = 0;
+        dut->eval();
+        for (int i = 0; i < 4000; i++)
+            clk();
+        ASSERT_EQ(held, tcm_word(256));
+        uint32_t count = 0;
+        for (uint32_t i = 0; i < W_TCM && tcm_word(256 + i); i++)
+            count++;
+        ASSERT_TRUE(count > 3);
+        for (uint32_t i = 0; i < count; i++)
+            ASSERT_EQ(i + 1, tcm_word(256 + i));
+    }
 }
 
 UTEST_STATE();

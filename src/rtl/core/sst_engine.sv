@@ -44,6 +44,8 @@ module sst_engine
      * through the machine's own window and writes it where it goes. */
     input logic sst_load,
     output logic sst_engine_load_done,
+    /* Refused, and nothing written: the machine is exactly as it was. */
+    output logic sst_engine_load_err,
 
     /* The machine, stopped. */
     output logic sst_engine_freeze,
@@ -138,6 +140,13 @@ module sst_engine
      * window onto the staging store. */
     localparam logic [31:0] A_STAGE = 32'h63F0_0000;
 
+    /* The one word of the regs window that cannot be read: word 16 is
+     * the console's outgoing byte and reading it takes it off the
+     * queue. A savestate that read it would eat a character every time
+     * one was made, so it is not read and not written -- the queue is
+     * one of the things a sleep is documented to lose. */
+    localparam int REGS_HOLE = 16;
+
     /* The state page, in the order a restore has to put it back. What
      * the machine is -- whether the 6502 is out of reset at all -- comes
      * before what it holds, because registers jammed into a core that is
@@ -199,6 +208,8 @@ module sst_engine
         S_LD_HALT,
         S_LD_FETCH,
         S_LD_FETCH_WAIT,
+        S_LD_CHK,
+        S_LD_BAD,
         S_LD_PUT,
         S_LD_PUT_WAIT,
         S_LD_PUT_DONE,
@@ -247,6 +258,7 @@ module sst_engine
         sst_engine_dbg_halt = state != S_IDLE && state != S_LD_DONE
             && state != S_LD_ACK;
         sst_engine_load_done = state == S_LD_DONE || state == S_LD_ACK;
+        sst_engine_load_err = ld_bad;
         sst_engine_ready = ready_q;
         sst_engine_rdata = hold;
         sst_engine_rvalid = rvalid_q;
@@ -290,10 +302,11 @@ module sst_engine
         end
     end
 
-    logic on_bus, on_tcm;
+    logic on_bus, on_tcm, on_hole;
     always_comb begin
+        on_hole = dec_idx == 18'(B_REGS + REGS_HOLE);
         on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
-        on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_TCM);
+        on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_TCM) && !on_hole;
         sst_engine_tcm_sel = on_tcm && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
@@ -374,7 +387,8 @@ module sst_engine
     always_comb begin
         direct = !on_bus && !on_tcm;
         direct_word = hold_idx < 18'(B_STATE) ? hdr_word
-            : (hold_idx < 18'(B_REGS) ? state_word : end_word);
+            : (hold_idx < 18'(B_REGS) ? state_word
+               : (hold_idx >= 18'(B_END) ? end_word : 32'd0));
     end
 
     logic [17:0] sum_next;
@@ -391,6 +405,13 @@ module sst_engine
     logic [17:0] ld_idx;
     logic [31:0] ld_word;
     logic ld_writing;
+
+    /* The blob is read twice: once to see whether it is one, and once
+     * to put it in. Nothing is written until the whole of it has been
+     * added up and the trailer agrees, because a restore that got
+     * halfway and found out is a machine that no longer exists. */
+    logic ld_verify, ld_bad;
+    logic [31:0] vsum;
 
     /* Named _s1 so the platform's standing rule cuts the arrival. */
     (* preserve *) logic save_s1, save_s2;
@@ -430,6 +451,9 @@ module sst_engine
             ld_idx <= '0;
             ld_word <= '0;
             ld_writing <= 1'b0;
+            ld_verify <= 1'b0;
+            ld_bad <= 1'b0;
+            vsum <= '0;
             inj_val <= '0;
             inj_dpc <= 1'b0;
             inj_step <= '0;
@@ -527,10 +551,12 @@ module sst_engine
                 S_LD_FREEZE: if (frozen) state <= S_LD_HALT;
                 S_LD_HALT:
                 if (dbg_halted) begin
-                    ld_idx <= 18'(B_STATE);
+                    ld_idx <= '0;
                     byte_n <= '0;
                     acc <= '0;
-                    ld_writing <= 1'b1;
+                    vsum <= '0;
+                    ld_bad <= 1'b0;
+                    ld_verify <= 1'b1;
                     state <= S_LD_FETCH;
                 end
 
@@ -540,11 +566,50 @@ module sst_engine
                     if (byte_n == 2'd3) begin
                         ld_word <= {acc, bus_rdata[7:0]};
                         byte_n <= '0;
-                        state <= S_LD_PUT;
+                        state <= ld_verify ? S_LD_CHK : S_LD_PUT;
                     end else begin
                         byte_n <= byte_n + 2'd1;
                         state <= S_LD_FETCH;
                     end
+                end
+
+                /* The same running sum the save wrote the blob with, so
+                 * a blob served out of order fails here rather than
+                 * being taken for the machine it is not. */
+                S_LD_CHK: begin
+                    if (ld_idx < 18'(B_END))
+                        vsum <= {vsum[30:0], vsum[31]} + ld_word;
+                    if ((ld_idx == 18'(B_HDR) && ld_word != SST_MAGIC)
+                        || (ld_idx == 18'(B_HDR + 1) && ld_word != SST_VERSION)
+                        || (ld_idx == 18'(B_HDR + 2)
+                            && ld_word != (32'(W_TOTAL) << 2))
+                        || (ld_idx == 18'(B_END) && ld_word != vsum)
+                        || (ld_idx == 18'(B_END + 1)
+                            && ld_word != 32'(W_TOTAL))
+                        || (ld_idx == 18'(B_END + 2)
+                            && ld_word != SST_END_MAGIC))
+                        state <= S_LD_BAD;
+                    else if (ld_idx == 18'(B_END + 2)) begin
+                        /* Whole and consistent. The state page first,
+                         * because the machine's own flops decide what
+                         * the rest of it means. */
+                        ld_idx <= 18'(B_STATE);
+                        ld_verify <= 1'b0;
+                        ld_writing <= 1'b1;
+                        state <= S_LD_FETCH;
+                    end else begin
+                        ld_idx <= ld_idx + 18'd1;
+                        state <= S_LD_FETCH;
+                    end
+                end
+
+                /* Not a blob this machine can use. Nothing has been
+                 * written, so letting the soft CPU go puts it back
+                 * exactly where the halt found it. */
+                S_LD_BAD: begin
+                    ld_bad <= 1'b1;
+                    ld_verify <= 1'b0;
+                    state <= S_LD_DONE;
                 end
 
                 S_LD_PUT: begin
@@ -554,8 +619,15 @@ module sst_engine
                     if (ld_idx >= 18'(B_STATE + ST_RV)
                         && ld_idx < 18'(B_STATE + ST_RV + RV_WORDS))
                         rvreg[5'(ld_idx - 18'(B_STATE + ST_RV))] <= ld_word;
-                    if (on_tcm) state <= S_LD_PUT_WAIT;
-                    else if (bus_rdy) state <= S_LD_PUT_WAIT;
+                    /* The soft CPU's memory is written on its own
+                     * clock, which is half this one, so the word is
+                     * held out for four of these -- two of its own --
+                     * rather than offered for one and missed depending
+                     * on which half of its period the offer fell in. */
+                    if (on_tcm) begin
+                        byte_n <= byte_n + 2'd1;
+                        if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
+                    end else if (bus_rdy) state <= S_LD_PUT_WAIT;
                     else if (!on_bus) state <= S_LD_PUT_WAIT;
                 end
                 S_LD_PUT_WAIT:
@@ -578,6 +650,7 @@ module sst_engine
                  * first through x31, then x1 upward, so the register it
                  * borrowed is put right along with the rest. */
                 S_LD_PUT_DONE: begin
+                    ld_bad <= 1'b0;
                     inj_dpc <= 1'b1;
                     inj_step <= 2'd0;
                     inj_val <= rvreg[0];
