@@ -89,6 +89,16 @@ module sst_engine
     output logic [13:0] sst_engine_mem_addr,
     output logic [31:0] sst_engine_mem_wdata,
     output logic sst_engine_xram_we,
+    /* The 6502's RAM is off-chip on this board and answers when it is
+     * ready rather than the clock after, so it gets a select and a
+     * stall of its own. Its port is a byte wide, so a word costs four. */
+    output logic sst_engine_sram_sel,
+    output logic [15:0] sst_engine_sram_addr,
+    output logic sst_engine_sram_we,
+    output logic [7:0] sst_engine_sram_wdata,
+    input logic [7:0] sram_rdata,
+    input logic sram_stall,
+
     output logic sst_engine_cell_we,
     output logic sst_engine_xprog_we,
     output logic [1:0] sst_engine_xprog_word,
@@ -355,17 +365,20 @@ module sst_engine
     logic on_sram_q, on_xram_q, on_cell_q, on_xprog_q;
     logic on_arr_q;
     always_comb begin
-        /* The 6502's RAM is off-chip on this board and answers with
-         * wait states, so it keeps the bus for now. */
-        on_sram = 1'b0;
+        on_sram = dec_idx >= 18'(B_SRAM) && dec_idx < 18'(B_XRAM);
         on_xram = dec_idx >= 18'(B_XRAM) && dec_idx < 18'(B_CELLS);
         on_cell = dec_idx >= 18'(B_CELLS) && dec_idx < 18'(B_XPROG);
         on_xprog = dec_idx >= 18'(B_XPROG) && dec_idx < 18'(B_TCM);
-        on_arr_q = on_sram_q || on_xram_q || on_cell_q || on_xprog_q;
+        on_arr_q = on_xram_q || on_cell_q || on_xprog_q;
 
         sst_engine_mem_own = on_arr_q && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
+        sst_engine_sram_sel = on_sram_q && (state == S_READ
+            || state == S_LD_PUT);
+        sst_engine_sram_addr = 16'({off_q, 2'd0} + {18'd0, byte_n});
+        sst_engine_sram_we = on_sram_q && state == S_LD_PUT;
+        sst_engine_sram_wdata = ld_word[31 - {byte_n, 3'd0} -: 8];
         /* SRAM is a byte port, so its word costs four; the rest take a
          * whole word at a time. */
         sst_engine_mem_addr = on_xprog_q ? 14'(off_q >> 2) : off_q[13:0];
@@ -377,7 +390,7 @@ module sst_engine
 
         on_hole = dec_idx == 18'(B_REGS + REGS_HOLE);
         on_tcm = dec_idx >= 18'(B_TCM) && dec_idx < 18'(B_END);
-        on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_XRAM) && !on_hole;
+        on_bus = dec_idx >= 18'(B_REGS) && dec_idx < 18'(B_SRAM) && !on_hole;
         sst_engine_tcm_sel = on_tcm_q && (state == S_READ
             || state == S_READ_WAIT || state == S_LD_PUT
             || state == S_LD_PUT_WAIT);
@@ -740,11 +753,17 @@ module sst_engine
                         byte_n <= byte_n + 2'd1;
                         if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
                     end else if (on_arr_q) state <= S_LD_PUT_WAIT;
-                    else if (bus_rdy) state <= S_LD_PUT_WAIT;
+                    else if (on_sram_q) begin
+                        if (!sram_stall) begin
+                            if (byte_n == 2'd3) state <= S_LD_PUT_WAIT;
+                            else byte_n <= byte_n + 2'd1;
+                        end
+                    end else if (bus_rdy) state <= S_LD_PUT_WAIT;
                     else if (!on_bus) state <= S_LD_PUT_WAIT;
                 end
                 S_LD_PUT_WAIT:
-                if (!on_tcm && !on_arr_q && bytewise && byte_n != 2'd3) begin
+                if (!on_tcm && !on_arr_q && !on_sram_q && bytewise
+                    && byte_n != 2'd3) begin
                     byte_n <= byte_n + 2'd1;
                     state <= S_LD_PUT;
                 end else begin
@@ -874,6 +893,12 @@ module sst_engine
                     /* Address out now, word back the clock after --
                      * every one of these arrays registers its read. */
                     state <= S_READ_WAIT;
+                end else if (on_sram_q) begin
+                    if (!sram_stall) begin
+                        if (byte_n == 2'd3) state <= S_READ_WAIT;
+                        else byte_n <= byte_n + 2'd1;
+                        acc <= {acc[15:0], sram_rdata};
+                    end
                 end else if (on_tcm) begin
                     /* Registered on the soft CPU's own clock, which is
                      * half this one, so the address stands for a few
@@ -888,6 +913,11 @@ module sst_engine
                     if (on_arr_q) begin
                         hold <= on_xram_q ? xram_rdata
                             : (on_cell_q ? cell_rdata : xprog_rdata);
+                        hold_valid <= 1'b1;
+                        byte_n <= '0;
+                        state <= S_READY;
+                    end else if (on_sram_q) begin
+                        hold <= {acc, sram_rdata};
                         hold_valid <= 1'b1;
                         byte_n <= '0;
                         state <= S_READY;

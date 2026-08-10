@@ -250,6 +250,9 @@ module rp6502
     logic [31:0] eng_mem_wdata;
     logic [1:0] eng_xprog_word;
     logic eng_xram_we, eng_cell_we, eng_xprog_we;
+    logic eng_sram_sel, eng_sram_we;
+    logic [15:0] eng_sram_addr;
+    logic [7:0] eng_sram_wdata;
     logic [31:0] eng_cell_rdata, eng_xprog_rdata;
 
     logic eng_tcm_sel, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
@@ -290,6 +293,12 @@ module rp6502
         .sst_engine_mem_addr(eng_mem_addr),
         .sst_engine_mem_wdata(eng_mem_wdata),
         .sst_engine_xram_we(eng_xram_we),
+        .sst_engine_sram_sel(eng_sram_sel),
+        .sst_engine_sram_addr(eng_sram_addr),
+        .sst_engine_sram_we(eng_sram_we),
+        .sst_engine_sram_wdata(eng_sram_wdata),
+        .sram_rdata(sram_b_rdata),
+        .sram_stall(ram_b_stall),
         .sst_engine_cell_we(eng_cell_we),
         .sst_engine_xprog_we(eng_xprog_we),
         .sst_engine_xprog_word(eng_xprog_word),
@@ -332,20 +341,23 @@ module rp6502
                 rp6502_ram_a_addr = cpu_next_addr;
                 rp6502_ram_a_wdata = cpu_next_data;
                 rp6502_ram_a_we = cpu_next_we;
-                rp6502_ram_b_addr = bus_addr[15:0];
-                rp6502_ram_b_wdata = bus_wbyte;
-                rp6502_ram_b_we = bus_we;
-                rp6502_ram_b_stb = bus_pend && bus_sel_sram;
+                rp6502_ram_b_addr = eng_sram_sel
+                    ? eng_sram_addr : bus_addr[15:0];
+                rp6502_ram_b_wdata = eng_sram_sel
+                    ? eng_sram_wdata : bus_wbyte;
+                rp6502_ram_b_we = eng_sram_sel ? eng_sram_we : bus_we;
+                rp6502_ram_b_stb = eng_sram_sel
+                    || (bus_pend && bus_sel_sram);
                 sram_rdata = ram_a_rdata;
                 sram_b_rdata = ram_b_rdata;
             end
         end else begin : g_ram_bram
             sram64k sram (
                 .clk(clk_sys),
-                .sst_own(1'b0),
-                .sst_addr(16'd0),
-                .sst_we(1'b0),
-                .sst_wdata(8'd0),
+                .sst_own(eng_sram_sel),
+                .sst_addr(eng_sram_addr),
+                .sst_we(eng_sram_we),
+                .sst_wdata(eng_sram_wdata),
                 .a_addr(cpu_addr),
                 .a_wdata(cpu_dout),
                 .a_we(cpu_we && phi2_en),
