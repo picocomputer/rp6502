@@ -48,13 +48,19 @@ static long t;
 static uint32_t eng_word(uint32_t idx) { return 0xA5000000u | idx; }
 
 static int eng_delay;
-static uint32_t eng_seen_idx;
+static int eng_seen_t;
 static bool eng_stopped;
 static int eng_freeze;
 
 /* The real engine says nothing until it has stopped the machine, so
  * neither does this: ready and the answer both stay low until the
- * freeze it was asked for has happened. */
+ * freeze it was asked for has happened.
+ *
+ * It re-arms on the toggle beside the index and not on the index
+ * changing, because that is what the engine does -- the same address
+ * asked for twice is two requests, and a model that noticed only the
+ * address would leave its answer standing and make the second one look
+ * like it had been served before it was asked. */
 static void eng_step(void)
 {
     if (eng_stopped || !dut->pocket_sst_save)
@@ -62,7 +68,7 @@ static void eng_step(void)
         eng_freeze = 40;
         dut->sst_rvalid = 0;
         dut->sst_ready = 0;
-        eng_seen_idx = 0xFFFFFFFFu;
+        eng_seen_t = -1;
         return;
     }
     if (eng_freeze > 0)
@@ -73,15 +79,15 @@ static void eng_step(void)
         return;
     }
     dut->sst_ready = 1;
-    if (dut->pocket_sst_rd_idx != eng_seen_idx)
+    if ((int)dut->pocket_sst_rd_t != eng_seen_t)
     {
-        eng_seen_idx = dut->pocket_sst_rd_idx;
+        eng_seen_t = (int)dut->pocket_sst_rd_t;
         eng_delay = 6;
         dut->sst_rvalid = 0;
     }
     else if (eng_delay > 0 && --eng_delay == 0)
     {
-        dut->sst_rdata = eng_word(eng_seen_idx);
+        dut->sst_rdata = eng_word(dut->pocket_sst_rd_idx);
         dut->sst_rvalid = 1;
     }
 }
@@ -141,7 +147,7 @@ static void reset(void)
     dut->sst_load_done = 0;
     dut->sst_load_err = 0;
     eng_delay = 0;
-    eng_seen_idx = 0xFFFFFFFFu;
+    eng_seen_t = -1;
     eng_stopped = false;
     eng_freeze = 40;
     dut->eval();
@@ -224,6 +230,17 @@ static int hold_until_ack(int is_load)
 
 /* One bridge read at a blob address, sampled the way the host does:
  * present the address, then look a few clocks later. */
+/* The read contract, quoted from the bus documentation: "Upon receiving
+ * a read the core may not immediately provide the read data and has up
+ * until the next read strobe to drive bridge_rd_data." So the strobe
+ * asks, and the word is taken later -- before the next strobe goes out.
+ *
+ * How much later is not published as a number. The same page gives the
+ * bus as "a few megabytes per second", which is about a microsecond for
+ * a thirty-two bit word, and that is where this gap comes from: a model
+ * of the host, not a rule it stated. */
+#define HOST_GAP 74
+
 static uint32_t blob_read(uint32_t idx)
 {
     dut->bridge_addr = BLOB_BASE + idx * 4;
@@ -232,25 +249,17 @@ static uint32_t blob_read(uint32_t idx)
         tick();
     while (t % BRG_PERIOD != 0);
     dut->bridge_rd = 0;
-    run(8 * BRG_PERIOD);
+    run(HOST_GAP * BRG_PERIOD);
     return dut->pocket_sst_rd_data;
 }
 
-/* Paced at the host's floor, because that is the contract: one word
- * fetched ahead covers a reader that cannot ask faster than every
- * eighty-eight clocks. Read faster than the host can and the prefetch
- * is behind by construction, which is what the underrun flag is for. */
 UTEST(psst, the_blob_comes_out_in_order)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
-    /* Time for the first word to be fetched ahead. */
     run(200);
     for (uint32_t i = 0; i < 16; i++)
-    {
         ASSERT_EQ(eng_word(i), blob_read(i));
-        run((88 - 9) * BRG_PERIOD);
-    }
     ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
 }
 
@@ -267,32 +276,41 @@ UTEST(psst, a_repeated_address_is_served_the_same_word)
     ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
 }
 
-UTEST(psst, it_keeps_up_at_the_hosts_floor)
+/* Every word answered inside the gap the host leaves, which is all
+ * "up until the next read strobe" asks of the core. */
+UTEST(psst, it_answers_inside_the_gap)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
     run(200);
     for (uint32_t i = 0; i < 40; i++)
-    {
         ASSERT_EQ(eng_word(i), blob_read(i));
-        /* The floor is eighty-eight clocks between accesses, and
-         * blob_read has already spent nine of them. */
-        run((88 - 9) * BRG_PERIOD);
-    }
     ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
 }
 
-/* An engine that has not answered yet is the one thing the prefetch
- * cannot cover, and it has to say so rather than serve a stale word. */
-UTEST(psst, a_word_that_is_not_ready_is_an_underrun)
+/* Any address, in any order, is a legal thing for the host to ask for:
+ * nothing published says it reads the blob start to end, and a core
+ * that only worked if it did would be trusting a guess. What is not
+ * legal is strobing again before the core has driven the last word, and
+ * that the core does report rather than let a stale word pass. */
+UTEST(psst, any_address_is_answered_and_a_rushed_strobe_is_not)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
     run(200);
-    ASSERT_EQ(eng_word(0), blob_read(0));
+    ASSERT_EQ(eng_word(900), blob_read(900));
+    ASSERT_EQ(eng_word(3), blob_read(3));
+    ASSERT_EQ(eng_word(1000), blob_read(1000));
     ASSERT_FALSE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
-    /* Jump somewhere the prefetch was not aimed. */
-    (void)blob_read(900);
+
+    dut->bridge_addr = BLOB_BASE + 4 * 4;
+    dut->bridge_rd = 1;
+    do
+        tick();
+    while (t % BRG_PERIOD != 0);
+    dut->bridge_rd = 0;
+    run(2 * BRG_PERIOD);
+    (void)blob_read(5);
     run(32);
     ASSERT_TRUE((mmio_read(REG_CTL) & CTL_UNDERRUN) != 0);
 }
@@ -346,7 +364,7 @@ UTEST(psst, the_last_word_gives_the_machine_back)
     run(16);
     ASSERT_TRUE((int)dut->pocket_sst_save);
     (void)blob_read(BLOB_WORDS - 1);
-    run(16);
+    run(32);
     ASSERT_FALSE((int)dut->pocket_sst_save);
 }
 
@@ -408,14 +426,20 @@ UTEST(psst, a_refused_load_says_so)
 /* The one way a create can go wrong: a word the engine had not got to.
  * The blob the host took is short, so it must not be told the state is
  * good. */
-UTEST(psst, an_underrun_is_reported_as_an_error)
+UTEST(psst, a_late_answer_is_reported_as_an_error)
 {
     reset();
     ASSERT_TRUE(hold_until_ack(0));
     run(200);
     ASSERT_TRUE((int)dut->pocket_sst_start_ok);
-    ASSERT_EQ(eng_word(0), blob_read(0));
-    (void)blob_read(900);
+    dut->bridge_addr = BLOB_BASE;
+    dut->bridge_rd = 1;
+    do
+        tick();
+    while (t % BRG_PERIOD != 0);
+    dut->bridge_rd = 0;
+    run(2 * BRG_PERIOD);
+    (void)blob_read(1);
     run(32);
     ASSERT_TRUE((int)dut->pocket_sst_start_err);
     ASSERT_FALSE((int)dut->pocket_sst_start_ok);
@@ -430,8 +454,14 @@ UTEST(psst, a_new_create_clears_the_last_result)
     reset();
     ASSERT_TRUE(hold_until_ack(0));
     run(200);
-    (void)blob_read(0);
-    (void)blob_read(900);
+    dut->bridge_addr = BLOB_BASE;
+    dut->bridge_rd = 1;
+    do
+        tick();
+    while (t % BRG_PERIOD != 0);
+    dut->bridge_rd = 0;
+    run(2 * BRG_PERIOD);
+    (void)blob_read(1);
     run(32);
     ASSERT_TRUE((int)dut->pocket_sst_start_err);
     (void)blob_read(BLOB_WORDS - 1);

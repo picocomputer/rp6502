@@ -602,7 +602,23 @@ wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
+// The machine's clocks stop at the source when it asks and the 6502 is
+// in front of an instruction. Nothing inside is gated: its state is
+// flops and SRAM, which hold what they have with no clock at all, and
+// the only things still running are this bridge and the memory chip.
+wire core_stop_req, core_at_boundary;
+wire core_stop_req_74, core_at_boundary_74;
+synch_3 s_stopreq (core_stop_req, core_stop_req_74, clk_74a);
+synch_3 s_atbound (core_at_boundary, core_at_boundary_74, clk_74a);
+reg mach_clk_en = 1'b1;
+always @(posedge clk_74a) begin
+    if (!core_stop_req_74) mach_clk_en <= 1'b1;
+    else if (core_at_boundary_74) mach_clk_en <= 1'b0;
+end
+
 pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
+    .pocket_core_stop_req    ( core_stop_req ),
+    .pocket_core_at_boundary ( core_at_boundary ),
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
     .clk_rv   ( clk_rv ),

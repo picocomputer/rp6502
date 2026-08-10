@@ -49,18 +49,18 @@ module rp6502
     input logic stage_stall,
     input logic [7:0] stage_rdata,
 
-    /* Stop, and look inside. Raising sst_freeze halts the 6502 at its
-     * next instruction boundary, taking the VIA and the RIA's own
-     * side effects with it — one enable feeds all three — and
-     * rp6502_sst_frozen says it took. WAI and STP are boundaries too:
-     * neither fetches, so a gate that waited only for an opcode fetch
-     * would never let go of a core sitting in one.
+    /* Where the clock may be cut, which is the only thing the machine
+     * has to say about being stopped. Stopping it is done by taking its
+     * clock away at the source; there is no enable anywhere in here to
+     * hold low, and nothing inside knows it happened.
      *
-     * While frozen, the state that is in flops rather than memory is
-     * the engine's to read and write a word at a time. Everything else
-     * the machine is can be reached through its windows. */
-    input logic sst_freeze,
-    output logic rp6502_sst_frozen,
+     * While the clock is off, the state that is in flops rather than
+     * memory is the engine's to read and write a word at a time. */
+    output logic rp6502_at_boundary,
+    /* Raised while a savestate wants the machine stopped. Whoever owns
+     * the clocks cuts them when this and the boundary are both true,
+     * and puts them back when it drops. */
+    output logic rp6502_sst_stop_req,
     /* The soft CPU's own memory, which is not on the machine's bus. */
     input logic sst_tcm_sel,
     input logic [14:0] sst_tcm_addr,
@@ -152,32 +152,24 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    /* Combinational, not registered off the boundary: a freeze that
-     * latched one clock late would let through the enable that consumes
-     * the opcode already on the bus, stopping the core in the middle of
-     * an instruction rather than in front of one. */
-    logic frz_at, frz_now, frz_held;
-    logic eng_freeze, freeze_any;
-    always_comb freeze_any = sst_freeze || eng_freeze;
-    always_comb frz_at = cpu_sync || cpu_stp || cpu_wai;
-    always_comb frz_now = frz_held || (freeze_any && frz_at);
-    always_comb rp6502_sst_frozen = frz_held;
+    /* Where the clock may be cut. Nothing in here acts on it: the
+     * machine is stopped by taking its clock away at the source, not by
+     * holding an enable low in every subsystem that has one. All this
+     * says is that the 6502 is in front of an instruction rather than
+     * inside one, which is the only moment at which stopping it is
+     * reversible. WAI and STP are boundaries too -- neither ever
+     * fetches again, so waiting for an opcode fetch would never let go
+     * of a core sitting in one. */
+    always_comb rp6502_at_boundary = cpu_sync || cpu_stp || cpu_wai;
     always_comb bus_rdy = !(bus_sel_xram && xr_busy)
         && !(bus_sel_stage && stage_stall)
         && !(bus_sel_sram && ram_b_stall);
-
-    initial frz_held = 1'b0;
-    always_ff @(posedge clk_sys) begin
-        if (!rst_n) frz_held <= 1'b0;
-        else if (!freeze_any) frz_held <= 1'b0;
-        else if (frz_at) frz_held <= 1'b1;
-    end
 
     /* The soft CPU's window onto the 6502's RAM shares a port with the
      * 6502 when the RAM is off-chip. Nothing asks for this today; it
      * exists so a firmware that did would be slow rather than
      * deadlocked. */
-    always_comb phi2_en = phi2_raw_en && !ram_hold && !frz_now;
+    always_comb phi2_en = phi2_raw_en && !ram_hold;
     always_comb rp6502_phi2_en = phi2_en;
     phi2_div #(.SYS_KHZ(SYS_KHZ)) phi2_div (
         .clk(clk_sys),
@@ -245,6 +237,8 @@ module rp6502
         .cpu65_next_we(cpu_next_we)
     );
 
+    logic eng_freeze;
+    always_comb rp6502_sst_stop_req = eng_freeze;
     logic eng_tcm_sel, eng_dbg_halt, eng_dbg_vld, eng_tcm_we;
     logic [1:0] eng_st_sel;
     logic [31:0] eng_tcm_wdata;
@@ -262,7 +256,7 @@ module rp6502
         .sst_engine_load_done(rp6502_sst_load_done),
         .sst_engine_load_err(rp6502_sst_load_err),
         .sst_engine_freeze(eng_freeze),
-        .frozen(frz_held),
+        .at_boundary(rp6502_at_boundary),
         .sst_engine_dbg_halt(eng_dbg_halt),
         .dbg_halted(rp6502_sst_dbg_halted),
         .sst_engine_ready(rp6502_sst_ready),
@@ -469,7 +463,6 @@ module rp6502
         /* Time stops with the machine. A savestate is meant to be
          * invisible to the firmware, and a firmware that woke to find
          * its deadlines already past would notice at once. */
-        .sst_time_hold(frz_held),
         .sst_dbg_halt(sst_dbg_halt || eng_dbg_halt),
         .sst_dbg_halt_on_reset(sst_dbg_halt_on_reset),
         .sst_dbg_resume(sst_dbg_resume || eng_dbg_resume),

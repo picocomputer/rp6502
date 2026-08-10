@@ -162,7 +162,6 @@ static void power_on(void)
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;
-    dut->sst_freeze = 0;
     dut->sst_save = 0;
     dut->sst_rd_idx = 0;
     dut->sst_rd_t = 0;
@@ -185,12 +184,15 @@ static void power_on(void)
     dut->rst_n = 1;
 }
 
-/* Ask for a savestate and wait for the machine to come to rest. */
+/* Ask for a savestate and wait for the machine to come to rest. The
+ * wait is long because the engine adds the whole blob up before it says
+ * a word of it can be read: the trailer has to be a fact about the blob
+ * rather than about the order somebody read it in. */
 static bool begin_save(void)
 {
     dut->sst_save = 1;
     dut->eval();
-    for (int i = 0; i < 40000; i++)
+    for (long i = 0; i < 20000000L; i++)
     {
         clk();
         if (dut->rp6502_sst_ready)
@@ -231,7 +233,7 @@ UTEST(sst, it_stops_the_machine_before_it_says_ready)
 
     ASSERT_TRUE(begin_save());
     /* Both halves are stopped, or the blob would move underneath it. */
-    ASSERT_TRUE((int)dut->rp6502_sst_frozen);
+    ASSERT_TRUE((int)dut->rp6502_sst_stop_req);
     ASSERT_TRUE((int)dut->rp6502_sst_dbg_halted);
 
     /* And they stay stopped while the blob is being read. */
@@ -424,7 +426,7 @@ UTEST(sst, letting_go_lets_the_machine_run_again)
     for (int i = 0; i < 200; i++)
         clk();
     ASSERT_FALSE((int)dut->rp6502_sst_ready);
-    ASSERT_FALSE((int)dut->rp6502_sst_frozen);
+    ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
 
     for (int i = 0; i < 4000; i++)
         clk();
@@ -501,7 +503,7 @@ UTEST(sst, a_load_puts_the_blob_back)
     ASSERT_TRUE((int)dut->rp6502_sst_load_done);
     /* The 6502 is held until the request is let go of, so that the soft
      * CPU is the only thing moving while it finds its feet. */
-    ASSERT_TRUE((int)dut->rp6502_sst_frozen);
+    ASSERT_TRUE((int)dut->rp6502_sst_stop_req);
 
     for (uint32_t i = 0; i < 8; i++)
     {
@@ -550,7 +552,7 @@ UTEST(sst, a_load_puts_the_blob_back)
     dut->eval();
     for (int i = 0; i < 200; i++)
         clk();
-    ASSERT_FALSE((int)dut->rp6502_sst_frozen);
+    ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
 
     /* The machine's own flops have no other way out, so the proof they
      * landed is the next blob carrying them. */

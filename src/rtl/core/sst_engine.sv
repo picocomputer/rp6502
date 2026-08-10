@@ -47,9 +47,10 @@ module sst_engine
     /* Refused, and nothing written: the machine is exactly as it was. */
     output logic sst_engine_load_err,
 
-    /* The machine, stopped. */
+    /* The machine, stopped: the clock goes when the 6502 is in front
+     * of an instruction, and nothing else in it moves after that. */
     output logic sst_engine_freeze,
-    input logic frozen,
+    input logic at_boundary,
     output logic sst_engine_dbg_halt,
     input logic dbg_halted,
 
@@ -424,7 +425,8 @@ module sst_engine
                : (hold_idx >= 18'(B_END) ? end_word : 32'd0));
     end
 
-    logic [17:0] sum_next;
+    logic summing;
+    logic [17:0] sum_idx;
 
     /* A load walks the blob in order rather than being asked for words:
      * four bytes out of the store, one word into whatever the index
@@ -474,7 +476,8 @@ module sst_engine
             spill_instr <= I_EBREAK;
             data0_q <= '0;
             sum <= '0;
-            sum_next <= '0;
+            summing <= 1'b0;
+            sum_idx <= '0;
             ready_q <= 1'b0;
             rvalid_q <= 1'b0;
             done_q <= 1'b0;
@@ -505,8 +508,8 @@ module sst_engine
             req_idx <= '0;
             req_pending <= 1'b0;
         end else begin
-            ready_q <= state == S_READY || state == S_READ_ARM
-                || state == S_READ || state == S_READ_WAIT;
+            ready_q <= !summing && (state == S_READY || state == S_READ_ARM
+                || state == S_READ || state == S_READ_WAIT);
             bytewise_q <= bytewise;
             on_bus_q <= on_bus;
             on_tcm_q <= on_tcm;
@@ -537,7 +540,8 @@ module sst_engine
                 S_IDLE: begin
                     hold_valid <= 1'b0;
                     sum <= '0;
-                    sum_next <= '0;
+                    sum_idx <= '0;
+                    summing <= 1'b0;
                     rv_n <= 5'd1;
                     spill_dpc <= 1'b0;
                     spill_step <= '0;
@@ -547,7 +551,7 @@ module sst_engine
 
                 /* Both halves of the machine, in either order; the
                  * blob is not touched until both have stopped. */
-                S_FREEZE: if (frozen) state <= S_HALT;
+                S_FREEZE: if (at_boundary) state <= S_HALT;
                 S_HALT: begin
                     if (dbg_halted) begin
                         spill_instr <= i_reg_out(rv_n);
@@ -581,6 +585,10 @@ module sst_engine
                         state <= S_SPILL_ARM;
                     end else if (spill_dpc) begin
                         rvreg[0] <= data0_q;
+                        summing <= 1'b1;
+                        sum_idx <= '0;
+                        sum <= '0;
+                        hold_valid <= 1'b0;
                         state <= S_READY;
                     end else begin
                         rvreg[rv_n] <= data0_q;
@@ -599,7 +607,7 @@ module sst_engine
 
                 /* A load: stop the machine, then walk the blob out of
                  * the store and into the machine a word at a time. */
-                S_LD_FREEZE: if (frozen) state <= S_LD_HALT;
+                S_LD_FREEZE: if (at_boundary) state <= S_LD_HALT;
                 S_LD_HALT:
                 if (dbg_halted) begin
                     ld_idx <= '0;
@@ -764,6 +772,32 @@ module sst_engine
 
                 S_READY: begin
                     if (!save_req) state <= S_IDLE;
+                    /* The blob is added up before the host is told it
+                     * can be read, by walking it here. Adding it up as
+                     * the host reads instead would only work if the
+                     * host read every word once and in order, and
+                     * nothing says it does -- a reader entitled to ask
+                     * for any address would produce a trailer that
+                     * disagreed with the blob it had just taken. */
+                    else if (summing) begin
+                        if (hold_valid) begin
+                            sum <= {sum[30:0], sum[31]} + hold;
+                            hold_valid <= 1'b0;
+                            if (sum_idx == 18'(B_END - 1)) summing <= 1'b0;
+                            else begin
+                                sum_idx <= sum_idx + 18'd1;
+                                hold_idx <= sum_idx + 18'd1;
+                                byte_n <= '0;
+                                acc <= '0;
+                                state <= S_READ_ARM;
+                            end
+                        end else begin
+                            hold_idx <= sum_idx;
+                            byte_n <= '0;
+                            acc <= '0;
+                            state <= S_READ_ARM;
+                        end
+                    end
                     else if (save_req && req_pending) begin
                         req_pending <= 1'b0;
                         hold_idx <= req_idx;
@@ -820,15 +854,6 @@ module sst_engine
                 default: state <= S_IDLE;
             endcase
 
-            /* The running sum only follows a reader that walks the blob
-             * in order, which is what the host does; the trailer says
-             * what it saw so a blob served any other way is caught on
-             * the way back in. */
-            if (hold_valid && hold_idx == sum_next
-                && sum_next < 18'(B_END)) begin
-                sum <= {sum[30:0], sum[31]} + hold;
-                sum_next <= sum_next + 18'd1;
-            end
         end
     end
 

@@ -15,6 +15,15 @@
 module pocket_core #(
     parameter TCM_INIT_FILE = ""
 ) (
+    /* The machine is stopped by taking its clocks away, which is not
+     * this module's to do. It says when it wants them gone and where it
+     * is safe to cut -- the 6502 in front of an instruction rather than
+     * inside one -- and whoever owns the clock tree does the rest. One
+     * control, at the source, instead of an enable in every subsystem
+     * that has one. */
+    output logic pocket_core_stop_req,
+    output logic pocket_core_at_boundary,
+
     input logic clk_74a,
     input logic clk_sys,
     /* Half clk_sys, rising with it; see pocket_pll. */
@@ -330,8 +339,8 @@ module pocket_core #(
 
     /* verilator lint_off PINCONNECTEMPTY */
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
-        .sst_freeze(1'b0),
-        .rp6502_sst_frozen(),
+        .rp6502_at_boundary(pocket_core_at_boundary),
+        .rp6502_sst_stop_req(pocket_core_stop_req),
         .sst_tcm_sel(1'b0),
         .sst_tcm_addr(15'd0),
         .sst_tcm_we(1'b0),

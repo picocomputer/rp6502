@@ -425,11 +425,15 @@ static std::vector<uint8_t> read_file(const char *path)
 #define BLOB_BRIDGE 0x03F00000u
 #define BLOB_BYTES 324944u
 
-/* The floor Analogue documents: one bridge access per eighty-eight
- * clocks of clk_74a. Reading faster than the machine can answer is what
- * the underrun bit is for, and a bench that read at its own speed would
- * find it every time and prove nothing. */
-#define HOST_FLOOR 88
+/* The read contract, quoted from the bus documentation: "Upon receiving
+ * a read the core may not immediately provide the read data and has up
+ * until the next read strobe to drive bridge_rd_data." The strobe asks
+ * and the word is taken before the next strobe goes out.
+ *
+ * How much later is not published as a number. The same page gives the
+ * bus as "a few megabytes per second", which is about a microsecond for
+ * a thirty-two bit word: a model of the host, not a rule it stated. */
+#define HOST_GAP 74
 
 static long g_underrun_at;
 
@@ -529,7 +533,7 @@ static bool create_state(std::vector<uint8_t> &blob)
     dut->eval();
     if (!acked)
         return false;
-    for (long i = 0; i < 40000000L && dut->tb_pocket_savestate_start_busy; i++)
+    for (long i = 0; i < 80000000L && dut->tb_pocket_savestate_start_busy; i++)
         step();
     if (dut->tb_pocket_savestate_start_busy || !dut->tb_pocket_savestate_start_ok)
         return false;
@@ -543,7 +547,7 @@ static bool create_state(std::vector<uint8_t> &blob)
         blob[i + 2] = (uint8_t)(w >> 8);
         blob[i + 3] = (uint8_t)w;
         /* host_read has already spent some of the interval. */
-        for (int k = 0; k < HOST_FLOOR - 9; k++)
+        for (int k = 0; k < HOST_GAP - 9; k++)
             a_edge();
         if (dut->tb_pocket_savestate_start_err && !g_underrun_at)
             g_underrun_at = (long)i;

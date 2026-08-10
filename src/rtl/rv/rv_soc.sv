@@ -53,7 +53,6 @@ module rv_soc
      * the machine's bus -- rv_soc decodes it here rather than sending
      * it out -- so a savestate walks it through this port, which steals
      * the array's one port while the core is halted and not using it. */
-    input logic sst_time_hold,
 
     /* The core's own halt. Hazard3 carries a debug port and this build
      * has never driven it; a savestate does, because a core that boots
@@ -323,8 +322,10 @@ module rv_soc
         mtime_us = 64'd0;
         mtime_acc = '0;
     end
+    /* No hold on this. A savestate stops the clock this counts on, so
+     * it stops counting by having nothing to count. */
     always_ff @(posedge clk) begin
-        if (!sst_time_hold) begin
+        begin
             if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
             begin
                 mtime_acc <= 16'(32'(mtime_acc) + 32'(MTIME_ADD)

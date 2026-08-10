@@ -48,6 +48,13 @@ module tb_pocket (
 
     /* Sleep and the Memories menu. The bench plays the host on these
      * the same way it plays it on the data slots. */
+    /* The machine's clocks are cut outside it, so the bench is what
+     * cuts them: it stops toggling when the core asks and the 6502 is
+     * in front of an instruction, which is what the clock control does
+     * on hardware. */
+    output logic tb_pocket_stop_req,
+    output logic tb_pocket_at_boundary,
+
     input logic savestate_start,
     output logic tb_pocket_savestate_start_ack,
     output logic tb_pocket_savestate_start_busy,
@@ -103,6 +110,8 @@ module tb_pocket (
     logic [31:0] sref_clocks;
 
     pocket_core core (
+        .pocket_core_stop_req(tb_pocket_stop_req),
+        .pocket_core_at_boundary(tb_pocket_at_boundary),
         .clk_74a(clk_74a),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),

@@ -93,7 +93,6 @@ static void power_on(const std::vector<uint32_t> &prog)
     dut->clk_sys = 0;
     dut->clk_rv = 0;
     dut->rst_n = 0;
-    dut->sst_freeze = 0;
     dut->sst_dbg_halt = 0;
     dut->sst_dbg_halt_on_reset = 0;
     dut->sst_dbg_resume = 0;
@@ -315,7 +314,6 @@ UTEST(resume, a_new_core_carries_on_rather_than_starting_over)
     dut = new Vrp6502;
     dut->clk_sys = 0;
     dut->clk_rv = 0;
-    dut->sst_freeze = 0;
     dut->sst_dbg_halt = 0;
     dut->sst_dbg_resume = 0;
     dut->sst_dbg_instr = 0;

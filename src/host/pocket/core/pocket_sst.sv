@@ -36,9 +36,22 @@
  * the machine's four memories; the thing that reads them is the
  * machine's own bus, with the machine frozen and this side holding it.
  * It was a queue fed by the firmware once, which measured at 3124 ns a
- * word against the host's 1185 ns floor -- 2.6 times short, and short
+ * word against about a microsecond a word from the host -- short on
  * every word rather than in bursts, which is the one thing a queue
  * cannot absorb.
+ *
+ * What this side does with a read is what the bus documentation says to
+ * do with one: "Upon receiving a read the core may not immediately
+ * provide the read data and has up until the next read strobe to drive
+ * bridge_rd_data." So a strobe asks the engine for that word and the
+ * answer is driven when it arrives, which is well inside the gap at the
+ * "few megabytes per second" the same page gives for the bus.
+ *
+ * Nothing here assumes the host reads in order. An earlier version held
+ * one word ahead of a sequential reader and called a miss an underrun;
+ * that was a guess about the host dressed up as a rule, and it made a
+ * read of any address but the expected one into an error. Each strobe
+ * is now answered on its own.
  */
 
 module pocket_sst #(
@@ -105,21 +118,17 @@ module pocket_sst #(
     /* --- The host's side. --- */
 
     /* Where in the blob the host is reading, in words. */
-    logic in_window, rd_edge, dup;
+    logic in_window, rd_edge;
     logic [17:0] rd_idx;
-    logic bridge_rd_q, have_last;
-    logic [17:0] last_idx;
+    logic bridge_rd_q;
     logic [31:0] hold;
 
-    /* One word fetched ahead. The host cannot ask faster than every
-     * eighty-eight clocks and the engine answers in a handful, so the
-     * word for the next address is already standing by the time it is
-     * wanted -- a register in front of a reader that walks in order,
-     * not a queue with a backlog to fall behind on. */
-    logic [17:0] want;
-    logic [31:0] pf_data;
-    logic pf_valid, pf_seen_low, underrun;
-    logic want_t;
+    /* The word a strobe asked for, on its way. The index goes across as
+     * a level with a toggle beside it, and the answer comes back as a
+     * level: the engine holds it until a different index is asked for,
+     * so it is believed only after the last one has gone away. */
+    logic [17:0] ask;
+    logic ask_t, asked, hold_valid, seen_low, late;
     (* preserve *) logic rvalid_s1, rvalid_s2;
     (* preserve *) logic ready_s1, ready_s2;
     (* preserve *) logic ldone_s1, ldone_s2;
@@ -132,15 +141,14 @@ module pocket_sst #(
         blob_hit = bridge_wr && in_window;
         rd_idx = bridge_addr[19:2];
         rd_edge = bridge_rd && !bridge_rd_q && in_window;
-        dup = have_last && rd_idx == last_idx;
         pocket_sst_rd_data = hold;
         pocket_sst_rd_sel = in_window;
         /* The machine is held for as long as a blob is being made, and
          * the index stands still while the engine answers it -- the
          * same held-level crossing the file bridge's parameters use. */
         pocket_sst_save = start_hold;
-        pocket_sst_rd_idx = want;
-        pocket_sst_rd_t = want_t;
+        pocket_sst_rd_idx = ask;
+        pocket_sst_rd_t = ask_t;
     end
 
     logic blob_seen;
@@ -161,8 +169,8 @@ module pocket_sst #(
         pocket_sst_start_ack = savestate_start;
         pocket_sst_load_ack = savestate_load;
         pocket_sst_start_busy = start_hold && !start_done;
-        pocket_sst_start_ok = start_done && !underrun;
-        pocket_sst_start_err = start_done && underrun;
+        pocket_sst_start_ok = start_done && !late;
+        pocket_sst_start_err = start_done && late;
         pocket_sst_load_busy = load_hold && !load_kept;
         pocket_sst_load_ok = load_kept && !load_bad;
         pocket_sst_load_err = load_kept && load_bad;
@@ -172,15 +180,13 @@ module pocket_sst #(
         if (!arst_n) begin
             blob_seen <= 1'b0;
             bridge_rd_q <= 1'b0;
-            have_last <= 1'b0;
-            last_idx <= '0;
             hold <= '0;
-            want <= '0;
-            want_t <= 1'b0;
-            pf_data <= '0;
-            pf_valid <= 1'b0;
-            pf_seen_low <= 1'b0;
-            underrun <= 1'b0;
+            ask <= '0;
+            ask_t <= 1'b0;
+            asked <= 1'b0;
+            hold_valid <= 1'b0;
+            seen_low <= 1'b0;
+            late <= 1'b0;
             rvalid_s1 <= 1'b0;
             rvalid_s2 <= 1'b0;
             ready_s1 <= 1'b0;
@@ -213,24 +219,28 @@ module pocket_sst #(
             /* The answer to the last index is still standing while the
              * engine notices a new one, so it is believed only after it
              * has gone away once. */
-            if (!rvalid_s2) pf_seen_low <= 1'b1;
-            else if (pf_seen_low && !pf_valid) begin
-                pf_data <= sst_rdata;
-                pf_valid <= 1'b1;
+            if (!rvalid_s2) seen_low <= 1'b1;
+            else if (seen_low && !hold_valid) begin
+                hold <= sst_rdata;
+                hold_valid <= 1'b1;
+                /* The last word is answered, so the host has everything
+                 * and the machine can have itself back. It is released
+                 * here and not at the strobe that asked, because the
+                 * engine is what serves the word and going idle at the
+                 * strobe would mean never serving it. */
+                if (asked && ask == LAST_IDX) start_hold <= 1'b0;
             end
 
-            if (rd_edge && !dup) begin
-                last_idx <= rd_idx;
-                have_last <= 1'b1;
-                if (pf_valid && want == rd_idx) hold <= pf_data;
-                else if (ready_s2) underrun <= 1'b1;
-                want <= rd_idx + 18'd1;
-                want_t <= !want_t;
-                pf_valid <= 1'b0;
-                pf_seen_low <= 1'b0;
-                /* The whole blob has been taken, so the machine is no
-                 * longer being read and can have itself back. */
-                if (rd_idx == LAST_IDX) start_hold <= 1'b0;
+            if (rd_edge) begin
+                /* The word from the strobe before this one never
+                 * arrived. The documented contract is that it had until
+                 * now, so this is the core failing to keep it. */
+                if (asked && !hold_valid) late <= 1'b1;
+                ask <= rd_idx;
+                ask_t <= !ask_t;
+                asked <= 1'b1;
+                hold_valid <= 1'b0;
+                seen_low <= 1'b0;
             end
 
             /* Sticky for the life of the core: at boot it is the whole
@@ -245,7 +255,7 @@ module pocket_sst #(
              * handful of clocks in which it would be read early -- and
              * a read with nothing behind it is an underrun, which is
              * the create answering an error on its own first word. */
-            if (start_hold && pf_valid) start_done <= 1'b1;
+            if (start_hold && ready_s2) start_done <= 1'b1;
             if (load_hold && ldone_s2) begin
                 load_kept <= 1'b1;
                 load_bad <= lerr_s2;
@@ -254,13 +264,10 @@ module pocket_sst #(
             if (savestate_start && !start_q) begin
                 start_hold <= 1'b1;
                 start_done <= 1'b0;
-                /* A new blob starts at its first word. */
-                want <= 18'd0;
-                want_t <= !want_t;
-                pf_valid <= 1'b0;
-                pf_seen_low <= 1'b0;
-                have_last <= 1'b0;
-                underrun <= 1'b0;
+                asked <= 1'b0;
+                hold_valid <= 1'b0;
+                seen_low <= 1'b0;
+                late <= 1'b0;
             end
             if (savestate_load && !load_q) begin
                 load_hold <= 1'b1;
@@ -298,7 +305,7 @@ module pocket_sst #(
         load_s3 <= load_s2;
         seen_s1 <= blob_seen;
         seen_s2 <= seen_s1;
-        under_s1 <= underrun;
+        under_s1 <= late;
         under_s2 <= under_s1;
 
         if (stb && we && addr[3:2] == REG_CTL && wdata[0]) load_req <= 1'b0;
@@ -321,7 +328,7 @@ module pocket_sst #(
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_sst;
     always_comb unused_pocket_sst = we ^ (^addr[27:4]) ^ (^addr[1:0])
-        ^ (^wdata[31:1]) ^ (^bridge_addr[31:20]);
+        ^ (^wdata[31:1]) ^ (^bridge_addr[31:20]) ^ ready_s1;
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
