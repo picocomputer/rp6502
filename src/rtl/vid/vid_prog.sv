@@ -114,13 +114,27 @@ module vid_prog (
         b_word_q = 2'd0;
         b_reg_q = 32'd0;
     end
+    /* One write port per array, whoever is writing: a block RAM has
+     * one, and a second conditional write -- even one that can never
+     * fire at the same time -- is a second port, which un-infers the
+     * RAM and builds the table out of registers. Two hundred kilobits
+     * of registers is eight of these chips. */
+    logic [10:0] w_a;
+    logic [1:0] w_word;
+    logic [31:0] w_d;
+    logic w_go;
+    always_comb begin
+        w_a = sst_own ? sst_addr : b_idx;
+        w_word = sst_own ? sst_word : b_addr[3:2];
+        w_d = sst_own ? sst_wdata : b_wdata;
+        w_go = sst_own ? sst_we : (b_stb && !b_addr[15] && b_we);
+    end
     always_ff @(posedge clk_mem) begin
-        if (sst_own && sst_we) begin
-            if (sst_word == 2'd0) fill_e[sst_addr] <= sst_wdata;
-            if (sst_word == 2'd1) fill_c[sst_addr] <= sst_wdata[15:0];
-            if (sst_word == 2'd2)
-                spr_e[sst_addr] <= {sst_wdata[31], sst_wdata[18:0]};
-            if (sst_word == 2'd3) spr_c[sst_addr] <= sst_wdata;
+        if (w_go) begin
+            if (w_word == 2'd0) fill_e[w_a] <= w_d;
+            if (w_word == 2'd1) fill_c[w_a] <= w_d[15:0];
+            if (w_word == 2'd2) spr_e[w_a] <= {w_d[31], w_d[18:0]};
+            if (w_word == 2'd3) spr_c[w_a] <= w_d;
         end
         if (b_stb && !sst_own) begin
             b_tbl_q <= !b_addr[15];
@@ -128,16 +142,6 @@ module vid_prog (
             b_reg_q <= !b_addr[15] || b_addr[3] ? 32'd0
                 : (b_addr[2] ? {22'd0, vsync_shadow}
                              : {29'd0, canvas_shadow});
-            if (!b_addr[15] && b_we) begin
-                if (!b_addr[3] && !b_addr[2])
-                    fill_e[b_idx] <= b_wdata;
-                if (!b_addr[3] && b_addr[2])
-                    fill_c[b_idx] <= b_wdata[15:0];
-                if (b_addr[3] && !b_addr[2])
-                    spr_e[b_idx] <= {b_wdata[31], b_wdata[18:0]};
-                if (b_addr[3] && b_addr[2])
-                    spr_c[b_idx] <= b_wdata;
-            end
         end
     end
 
