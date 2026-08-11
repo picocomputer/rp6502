@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Mode 5, the paletted sprites of vga/modes/mode5.c: an array of
- * descriptors — position, image, palette — each a fixed-size square at
- * 1, 2, 4 or 8 bits per pixel, walked in order so later sprites land on
- * earlier ones. The palette is read live per pixel, never snapshotted;
- * a color writes only where its alpha bit is set.
  */
 
 module vid_mode5
@@ -28,9 +22,6 @@ module vid_mode5
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    /* On a miss the cache fills through this engine's own channel while
-     * the pixel stalls. The two never request together: a palette lookup
-     * only exists while the index word is already in hand. */
     output logic vid_mode5_pal_lookup,
     output logic vid_mode5_pal_xram,
     output logic vid_mode5_pal_one_bpp,
@@ -46,13 +37,6 @@ module vid_mode5
     output logic vid_mode5_done
 );
 
-    /* attr[5:3] the square's size, attr[1:0] the depth; the prog
-     * validated the pairing.
-     *
-     * Taken once at the start rather than re-derived: the derivation is
-     * the plane's slot mux, two shifts and a seventeen-bit multiply, and
-     * it stood in front of every decision the walk makes. Nothing
-     * downstream reads these before M5_JUDGE. */
     logic [3:0] size_log;
     logic [9:0] size_w, bytes_per_row_w;
     always_comb begin
@@ -72,9 +56,6 @@ module vid_mode5
 
     logic [15:0] idx;
 
-    /* Entered at the top, so the descriptor ends flush against bit 63
-     * wherever it started and the junk halfword ahead of it falls out
-     * the bottom. */
     logic [63:0] gather;
     logic [15:0] hi_hold;
     logic hi_pend;
@@ -96,8 +77,6 @@ module vid_mode5
     logic [15:0] tex_y;
     always_comb tex_y = {7'd0, t_row} - 16'(d_y);
 
-    /* The span end under C's promoted compare: size_x assignments stay
-     * int16, the against-width clamp does not overflow. */
     logic signed [17:0] clip_end;
     logic signed [15:0] clip_size_x;
     always_comb begin
@@ -113,19 +92,14 @@ module vid_mode5
     logic pal_xram;
     logic [16:0] row_addr;
 
-    /* One cached XRAM word feeds the index bytes: while one word emits,
-     * the spare clocks ask for the next, and a boundary costs one clock
-     * promoting rather than a fetch's round trip. Emitting straight from
-     * the prefetch would buy that clock back with a mux ahead of the
-     * palette lookup, which is why mode 4 does it and this does not. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
     logic [31:0] pre_data;
     logic [13:0] pre_word;
-    logic pre_v;     /* the next word is here */
-    logic pre_pend;  /* ...or it has been asked for */
-    logic signed [15:0] px_i;   /* pixel within the sprite row */
+    logic pre_v;
+    logic pre_pend;
+    logic signed [15:0] px_i;
     logic [9:0] dst;
 
     logic [16:0] pix_byte_addr;
@@ -144,8 +118,6 @@ module vid_mode5
             default: pix_idx = cur_byte;
         endcase
     end
-    /* The cache resolves XRAM and builtin palettes alike into a
-     * finished color; this engine only names the question. */
     always_comb begin
         vid_mode5_pal_lookup = state == M5_PIX && dhit && pal_xram;
         vid_mode5_pal_xram = pal_xram;
@@ -156,10 +128,6 @@ module vid_mode5
     logic [15:0] pal_color;
     always_comb pal_color = pal_q;
 
-    /* No address compare: a prefetch is only ever issued from a hit at
-     * dcache_word + 1 and the walk is sequential, so two fourteen-bit
-     * comparators off the pixel address adder would prove what the walk
-     * already guarantees. */
     logic dhit;
     always_comb dhit = dcache_v && dcache_word == pix_byte_addr[15:2];
     logic [13:0] pre_next;
@@ -172,15 +140,8 @@ module vid_mode5
         vid_mode5_a_req = 1'b0;
         vid_mode5_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
-            /* One word in flight: the half held back has to shift before the
-             * next word's low half arrives, and dropping the request for the
-             * grant's own clock is what spaces them. */
             M5_DESC: vid_mode5_a_req = fw_i < fw_n && !gnt_d;
             M5_PIX: begin
-                /* A prefetch of this word may still be in flight; a
-                 * duplicate miss fetch would land on a clock the promote
-                 * path already covers, leaving fw_i raised and the
-                 * request line silent. */
                 if (!dhit && !pre_v && !pre_pend) begin
                     vid_mode5_a_req = fw_i == 3'd0;
                     vid_mode5_a_addr = pix_byte_addr[15:2];
@@ -193,9 +154,6 @@ module vid_mode5
         endcase
     end
 
-    /* The write lands only where the color carries alpha, and only when
-     * the cache has answered — a miss stalls the pixel, not the walk's
-     * correctness. Builtin palettes always hit. */
     always_comb begin
         vid_mode5_px_we = 1'b0;
         vid_mode5_px_addr = dst;
@@ -205,7 +163,6 @@ module vid_mode5
     end
 
     task automatic next_sprite();
-        /* Whatever was read ahead belonged to the sprite just finished. */
         pre_v <= 1'b0;
         pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
@@ -260,7 +217,6 @@ module vid_mode5
         gnt_d <= a_gnt;
         vid_mode5_done <= 1'b0;
         if (abort_i) begin
-            /* A lost race: the scaffold counted it; drop the line. */
             state <= M5_IDLE;
         end else if (start) begin
             idx <= '0;
@@ -281,10 +237,6 @@ module vid_mode5
             case (state)
                 M5_IDLE: ;
                 M5_NEXT: begin
-                    /* Aim the gather at descriptor idx. cfg[1] rather than
-                     * daddr[1]: the stride is a multiple of four, so the
-                     * array's alignment is every descriptor's, and the
-                     * address adder stays out of it. */
                     fw_i <= '0;
                     sh_c <= '0;
                     hi_pend <= 1'b0;
@@ -326,10 +278,6 @@ module vid_mode5
                         state <= M5_PIX;
                 end
                 M5_PIX: begin
-                    /* The prefetch's own answer, told apart from the
-                     * miss fetch's by which one is pending — only ever
-                     * one is outstanding, because the request logic
-                     * asks for one or the other. */
                     if (pre_pend && gnt_d) begin
                         pre_data <= a_rdata;
                         pre_v <= 1'b1;
@@ -358,19 +306,16 @@ module vid_mode5
                         end
                     end else if (pal_hit)
                         step_pixel();
-                    /* else: the cache is filling on this channel. */
                 end
                 default: state <= M5_IDLE;
             endcase
         end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode5;
     always_comb unused_vid_mode5 = ^{attr[15:6], attr[2], gather,
                                      daddr[16], daddr[1:0], tex_y[15:9],
                                      pix_byte_addr[16],
                                      idx[15:13]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

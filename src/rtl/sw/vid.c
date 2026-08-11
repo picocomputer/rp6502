@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * This machine's terminal view: mode0.c's role, over scanout hardware.
- * term.c owns the model; once per frame vid_task snapshots it into the
- * register shadows the raster latches at the next frame start. One frame
- * of latency, never a tear.
  */
 
 #include "font.h"
@@ -18,9 +13,6 @@
 
 #include <stdint.h>
 
-/* The window the terminal draws in, kept because the register it goes
- * to is written once here and read by nothing: after a wake there is
- * no way to ask the fabric what it used to be. */
 static uint32_t vid_prog_word;
 
 bool vid_mode0_prog(uint16_t *xregs)
@@ -84,11 +76,6 @@ void vid_task(void)
     vid_publish();
 }
 
-/* The row table and the cursor would come back on their own at the
- * next frame, so this is only the window -- and then the view, so the
- * frame in between is not a screenful of row zero. */
-/* For the wake log: the window nothing can read back out of the
- * fabric. */
 uint32_t vid_prog_word_get(void)
 {
     return vid_prog_word;

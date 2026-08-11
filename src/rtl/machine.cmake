@@ -1,24 +1,5 @@
-# The machine, as a list of files, and the firmware its soft CPU runs.
-#
-# Both halves of this tree need these and neither needs a simulator to have
-# them: the verilated model is built from this list, and so is every Quartus
-# project. Guarding them behind verilator_FOUND would mean no bitstream
-# without Verilator installed, which CI's bitstream runner does not have.
-#
-# RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
-#                  booted soft CPU can be registered.
-
 include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
 
-# The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
-# distribution README. Our fixes shadow their originals by being named
-# first and the vendor copies dropped from the glob, so the submodule
-# stays untouched. The package has to lead; nothing else cares.
-#
-# Every file is listed rather than found on a search path, because
-# Quartus resolves .name port shorthand only against modules it has
-# already been given, and the OPL2's memory wrappers are written that
-# way. i2s is the dev board's audio out, and we have our own.
 set(OPL2_DIR ${RP6502_VENDOR}/opl2_fpga/fpga/modules)
 set(OPL2_SOURCES
     ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_pkg.sv
@@ -74,9 +55,6 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/rtl/vid/vid_compose.sv
     ${RP6502_SRC}/rtl/core/sst_engine.sv
     ${RP6502_SRC}/rtl/core/rp6502.sv)
-# Verilator elaborates while cmake configures, so an unresolved module here
-# is a configure error, not a build one. Nothing recursive: Hazard3 has six
-# submodules of its own and this tree reads none of them.
 rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
     WANTS "the soft CPU")
 set(RP6502_MACHINE_VERILATOR_ARGS
@@ -85,16 +63,12 @@ set(RP6502_MACHINE_VERILATOR_ARGS
     -y ${RP6502_VENDOR}/hazard3/hdl/debug/dm
     -y ${RP6502_VENDOR}/hazard3/hdl/debug/dtm)
 
-# --- The soft CPU: Hazard3 boots the cross-compiled firmware ---
-# Toolchain per README: apt install gcc-riscv64-unknown-elf.
 find_program(RISCV_GCC riscv64-unknown-elf-gcc)
 find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
 if(RISCV_GCC AND RISCV_OBJCOPY)
     set(RP6502_SOFT_CPU ON)
     set(SW_SRC ${RP6502_SRC}/rtl/sw)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
-    # The firmware's own headers carry the hardware's addresses, so a
-    # window that moves has to rebuild the image that writes to it.
     file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h
         ${RP6502_SRC}/rtl/sw/shim/*/*.h ${RP6502_SRC}/rtl/sw/shim/*/*/*.h)
     set(SW_SOURCES
@@ -113,9 +87,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/ria/api/clk.c
         ${RP6502_SRC}/ria/api/std.c
         ${RP6502_SRC}/ria/api/uni.c
-        # The real HID drivers, fed synthetic descriptors by apf.c. The
-        # layouts are an asset, so kbl.c reads them rather than linking
-        # twenty kilobytes of table into a 96 KB memory.
         ${RP6502_SRC}/ria/hid/hid.c
         ${RP6502_SRC}/ria/hid/kbd.c
         ${RP6502_SRC}/ria/hid/kbl.c
@@ -133,11 +104,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/vga/term/term.c)
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
-            # Prologues and epilogues become calls into libgcc's
-            # __riscv_save_N/__riscv_restore_N instead of a run of
-            # stores. Kilobytes of text for a few cycles a call, and the
-            # whole firmware shares one TCM with the stack and the heap,
-            # so text is the scarce thing here, not cycles.
             -msave-restore
             -Os -ffreestanding -nostartfiles
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF

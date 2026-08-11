@@ -2,16 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * argv and exec. The core is never told what it was called, so argv[0]
- * is asked for with Get File on the ROM slot and kept exactly as the
- * host spells it, absolute path and all.
- *
- * Exec stages the next image where the host would have put it, so its
- * bundled assets arrive with it and rom.c needs to know nothing about
- * how it got there. The load happens after the machine has stopped
- * rather than inside the syscall, because stopping closes the
- * descriptors the outgoing program left open and the read needs one.
  */
 
 #include "msc.h"
@@ -26,25 +16,17 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Short of the host's 256-byte field because this is static RAM. */
 #define PRO_ARGV0_MAX 128
 
 static char pro_argv0[PRO_ARGV0_MAX];
 static char pro_exec_path[PRO_ARGV0_MAX];
-/* pro_argv0 is the host's answer and does not change on an exec, so the
- * chain tracks argv[0] of each run instead. */
 static char pro_running_path[PRO_ARGV0_MAX];
 static char pro_launcher_path[PRO_ARGV0_MAX];
 static bool pro_exec_pending;
 
-/* Once per staged image, not once per run: asking is a blocking bridge
- * command and a run does not change the answer. Never on an exec, where
- * the argument buffer already holds what the outgoing program passed. */
 void pro_restage(void)
 {
     pro_exec_pending = false;
-    /* A program the user picked from the menu supersedes the chain the
-     * one before it was in. */
     pro_launcher_path[0] = '\0';
     pro_running_path[0] = '\0';
     arg_clear();
@@ -86,8 +68,6 @@ void pro_cancel_launcher(void)
     pro_launcher_path[0] = '\0';
 }
 
-/* An exec the program asked for wins; otherwise it returns to the
- * launcher. The launcher's own exit ends the chain. */
 void pro_stop(void)
 {
     bool relaunch = !pro_exec_pending && pro_has_launcher() &&
@@ -119,8 +99,6 @@ bool pro_api_exec(void)
         return api_return_errno(API_EINVAL);
     memcpy(pro_exec_path, path, strlen(path) + 1);
     pro_exec_pending = true;
-    /* Committed: errors surface on the console, because the program that
-     * asked is already gone. */
     main_stop();
     return api_return_ax(0);
 }

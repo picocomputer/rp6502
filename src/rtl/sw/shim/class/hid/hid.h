@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The keyboard constants of the USB HID usage tables, for a machine
- * with no USB. ria/hid/kbd.c reaches for TinyUSB's copy; pulling in a
- * whole USB stack to learn that Escape is 0x29 is not worth it, and the
- * numbers are the specification's rather than TinyUSB's.
- *
- * Only what kbd.c uses. tests/hid checks every one against the vendored
- * header, so the two cannot drift.
  */
 
 #ifndef _FPGA_SW_SHIM_HID_H_
@@ -56,8 +48,6 @@
 #define HID_KEY_KEYPAD_DECIMAL 0x63
 #define HID_KEY_CONTROL_LEFT 0xE0
 
-/* The modifier byte of a keyboard report, and the lock lamps of its
- * output report. */
 #define KEYBOARD_MODIFIER_LEFTCTRL 0x01
 #define KEYBOARD_MODIFIER_LEFTSHIFT 0x02
 #define KEYBOARD_MODIFIER_LEFTALT 0x04
@@ -71,4 +61,4 @@
 #define KEYBOARD_LED_CAPSLOCK 0x02
 #define KEYBOARD_LED_SCROLLLOCK 0x04
 
-#endif /* _FPGA_SW_SHIM_HID_H_ */
+#endif

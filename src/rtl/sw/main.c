@@ -2,8 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The soft CPU's runner, this platform's ria/main.c.
  */
 
 #include <stdio.h>
@@ -79,8 +77,6 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
             ok = tab_xreg(word);
             break;
         }
-        /* Mapping blanks the record; reports only arrive on movement, so
-         * the next one has to count as news. */
         apf_refresh();
         return ok;
     }
@@ -141,12 +137,9 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
     }
     if (channel == 0x0F)
     {
-        /* RIA-private: pix_api_xreg refuses a guest write, so these
-         * arrive only from stop(). */
         switch (address)
         {
         case 0x00:
-            /* DISPLAY, which is also the console reset. */
             vga_set_canvas(vga_canvas_console);
             term_RIS_no_clear();
             for (int i = 0; i < 16; i++)
@@ -158,11 +151,9 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
         }
         return false;
     }
-    /* Channels 1-14 reach external bus devices with no ACK; none exist. */
     return true;
 }
 
-/* std.c wants the catch-all last, so the mass-storage drive follows ROM. */
 static const std_driver_t main_drivers[] = {
     {
         .handles = rom_std_handles,
@@ -197,8 +188,6 @@ bool main_api(uint8_t operation)
     case 0x02:
         return api_return_ax(cpu_get_phi2_khz_run());
     case 0x03:
-        /* A page this machine does not carry is a no-op; the get that
-         * follows says which page is actually in force. */
         if (font_has_code_page(API_AX))
             font_set_code_page(API_AX);
         return api_return_ax(font_get_code_page());
@@ -267,8 +256,6 @@ bool main_api(uint8_t operation)
             cpu_set_phi2_khz_run((uint16_t)value);
             break;
         case 0x02:
-            /* oem_set_code_page_run is a void: a page that will not take
-             * leaves the old one in force and still answers with success. */
             if (value > UINT16_MAX)
                 return api_return_errno(API_EINVAL);
             if (font_has_code_page((uint16_t)value))
@@ -369,8 +356,6 @@ bool main_api(uint8_t operation)
     }
 }
 
-/* No str_init: one locale and no S() callers, so the localized chain is
- * meant to collect under --gc-sections. */
 static void init(void)
 {
     cpu_init();
@@ -379,8 +364,6 @@ static void init(void)
     std_init();
     rln_init();
     term_init();
-    /* Both assets ride their own data slots. The machine runs without
-     * them, so a missing one is reported rather than fatal. */
     if (!uni_init())
         printf("oem: no tables\n");
     if (!kbl_init())
@@ -395,7 +378,6 @@ static void init(void)
     rand_init();
 }
 
-/* The 6502 coming out of reset. */
 static void run(void)
 {
     pro_run();
@@ -403,33 +385,26 @@ static void run(void)
     rln_run();
     api_run();
     clk_run();
-    cpu_run(); /* Must be last: this is RESB going high. */
+    cpu_run();
 }
 
-/* The 6502 going into reset. Nothing here is on the platform's reset, so
- * anything a program left running is the firmware's to put back. */
 static void stop(void)
 {
-    cpu_stop(); /* Must be first. */
+    cpu_stop();
     rln_stop();
     api_stop();
     std_stop();
-    msc_stop(); /* after std_stop: its closes are what park a read */
+    msc_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
     tab_stop();
     aud_stop();
-    /* argv belongs to the image, not the run, so it is not cleared here. */
     pro_stop();
-    /* Last, where the RIA's deferred vga_task puts it. */
     main_xreg_1(0x0F, 0x01, 437);
     main_xreg_1(0x0F, 0x00, vga_get_display_type());
 }
 
-/* A hot reload with bit 6 clear sends no 0x008A; the size posted into
- * MMIO_SLOT is the whole announcement. The 0x008A count is watched
- * beside it because that is what the documentation promises. */
 static uint8_t main_upd_seen;
 
 static bool main_rom_len(uint32_t *len)
@@ -444,8 +419,6 @@ static enum state {
     stopping,
 } volatile main_state;
 
-/* Callers belong in the loop's stopped block and nowhere else: promoted
- * out of stopping, this would skip the outgoing program's teardown. */
 void main_run(void)
 {
     if (main_state != running)
@@ -454,7 +427,7 @@ void main_run(void)
 
 void main_stop(void)
 {
-    cpu_stop(); /* RESB down now; the rest of the fan-out can wait. */
+    cpu_stop();
     if (main_state == starting)
         main_state = stopped;
     else if (main_state != stopped)
@@ -466,13 +439,11 @@ bool main_active(void)
     return main_state != stopped;
 }
 
-/* No monitor here, so there is nothing a break could drop into. */
 bool main_break(void)
 {
     return false;
 }
 
-/* Alt-F4. Stopping is enough, because pro_stop puts the launcher back. */
 bool main_break_to_launcher(void)
 {
     if (!pro_has_launcher() || pro_is_launcher())
@@ -484,24 +455,12 @@ bool main_break_to_launcher(void)
 
 static void main_stage(void);
 
-/* Whether this boot declined to stage a ROM because a blob was already
- * in the window. It has to be a state and not a moment: the host
- * re-announces its slots on every wake, and it does so AFTER the boot
- * check -- reset_n goes high only once the slots have been streamed --
- * so the loop below would read the announcement as the user picking a
- * new program and cold-boot the ROM one pass after the check declined
- * to. That is the boot the guard exists to prevent, arriving late. */
 static bool main_wake_pending;
 
-/* What the boot saw, for the wake log to say once the host is quiet. */
 bool main_boot_wake;
 uint32_t main_boot_slot;
 uint8_t main_boot_upd;
 
-/* A restore lands on a host that has just re-announced everything it
- * has, and the loop below reads a change in either announcement as the
- * user picking a new program. Neither is news here: what is staged is
- * what this machine was already running when it went to sleep. */
 void main_restored(void)
 {
     main_wake_pending = false;
@@ -509,9 +468,6 @@ void main_restored(void)
     MMIO_SLOT = 0;
 }
 
-/* The other way out. A refused blob leaves a wake boot with nothing at
- * all -- it never staged, and a refusal writes nothing -- so the ROM
- * the host announced is staged here after all. */
 void main_wake_failed(void)
 {
     if (!main_wake_pending)
@@ -525,11 +481,7 @@ static void main_stage(void)
     uint32_t len;
     bool staged = main_rom_len(&len);
     bool ok = staged && rom_load_staged(len);
-    /* After the load, not before: Get File needs the host, which at boot
-     * is still staging, and asking first burns the bridge's whole deadline. */
     pro_restage();
-    /* Cleared once the image is dealt with, so a watcher can tell a load
-     * in progress from a finished one. */
     MMIO_SLOT = 0;
     if (ok)
         main_run();
@@ -541,33 +493,16 @@ int main(void)
 {
     init();
 
-    /* A blob already in the window means the host is waking this core
-     * rather than starting it, and the restore that is coming will
-     * replace everything a staged ROM would put here. Starting one
-     * under it is a cold boot the user watches get rolled back. */
     main_wake_pending = sst_pending();
-    /* Kept, not printed: the moment it is knowable is the moment the
-     * host may be streaming a savestate in, and a console busy then
-     * starves the staging store's write drain against a bridge that
-     * does not wait. The bench stops on exactly that. It is said later,
-     * from the wake log, when nothing is in flight.
-     *
-     * Measured on hardware, this reads zero on every wake -- the host
-     * writes the blob only after Reset Exit -- so the check here is
-     * kept for the case where a blob does precede the boot, and the
-     * one that does the work is in the loop below. */
     main_boot_wake = main_wake_pending;
     main_boot_slot = MMIO_SLOT;
     main_boot_upd = (uint8_t)MMIO_UPD_N;
     if (!main_wake_pending)
         main_stage();
-    /* Whatever the host has announced up to here is this image. */
     main_upd_seen = (uint8_t)MMIO_UPD_N;
 
     for (;;)
     {
-        /* Loop-local: both states it can leave are handled below, so the
-         * news cannot outlive the pass that took it. */
         bool restage = false;
 
         if (API_PENDING)
@@ -586,7 +521,7 @@ int main(void)
         }
         cfg_task();
         apf_task();
-        kbd_task(); /* the repeat timer; apf_task does the reports */
+        kbd_task();
         std_task();
         com_task();
         bel_task();
@@ -595,28 +530,11 @@ int main(void)
         vid_task();
         api_task();
         sst_task();
-        /* Asked every pass, because at boot there was nothing to see.
-         * The host writes the blob after Reset Exit, so the first
-         * bridge write into the window arrives with this device's own
-         * cold-booted program already running -- and everything that
-         * program does from here is about to be replaced by the blob,
-         * while a file it creates or truncates on the way is not. So
-         * the moment a blob starts arriving the program is stopped,
-         * which is the most this side can do about a boot it was never
-         * given the chance to decline.
-         *
-         * The bit clears in fabric when the load lands, so this is a
-         * question and not a latch: a program launched after a wake
-         * still starts. */
         bool wake = sst_pending();
         if (wake && !main_wake_pending)
             main_stop();
         main_wake_pending = wake;
 
-        /* Both watchers stand down while a restore is expected. What
-         * the host is announcing then is the same program this machine
-         * already has, and main_restored takes both readings once the
-         * blob has landed. */
         uint8_t upd = (uint8_t)MMIO_UPD_N;
         if (upd != main_upd_seen && !main_wake_pending)
         {
@@ -624,9 +542,6 @@ int main(void)
             restage = true;
             main_stop();
         }
-        /* main_stage cleared this after the boot image, so anything
-         * standing here again is a fresh settle. Left set until the
-         * restage clears it, which is what tb_quiet reads. */
         if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
@@ -642,16 +557,10 @@ int main(void)
             stop();
             main_state = stopped;
         }
-        /* Below both branches rather than inside stopping: a machine
-         * already stopped is owed no stop and would otherwise never launch. */
         if (main_state == stopped)
         {
             if (restage)
             {
-                /* No com_stop soft reset on this host, so a replaced program
-                 * would otherwise run its first line into the last line of
-                 * the one before. An exec gets nothing — it reads as one
-                 * session. */
                 com_putchar('\n');
                 main_stage();
             }

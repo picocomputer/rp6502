@@ -2,20 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The 64 KB XRAM, one true-dual-port BRAM organized as words. Port A is
- * the render side's, read-only, one word per clock full-time — on hardware
- * it lives in the render domain, and the mixed pacing is why the array is
- * 32 bits wide. Port B is the system side's byte lane: the RW engine and
- * the soft CPU behind their arbiter. Reads are synchronous, one clock
- * behind the address, the sram64k discipline.
- *
- * The clock is the ungated one. When the machine is stopped its clock
- * is taken away, but the array is not part of the machine's logic --
- * its addresses and its write enable come from logic that is stopped,
- * so they stand still and it does nothing. That is what lets the
- * savestate serializer borrow a port: it takes the render's side, which
- * is going nowhere, rather than asking a block RAM for a third.
  */
 
 module xram64k (
@@ -29,26 +15,20 @@ module xram64k (
     input logic b_we,
     output logic [7:0] xram64k_b_rdata,
 
-    /* The serializer, which owns both ports while it has the machine:
-     * a word out of the render's side and a word in through the byte
-     * side, all four lanes at once. */
     input logic sst_own,
     input logic [13:0] sst_addr,
     input logic sst_we,
     input logic [31:0] sst_wdata
 );
 
-    /* One array per byte lane. The byte side writes a lane at a time,
-     * and a dynamic part-select into a wide word is something no block
-     * RAM can be built from — the lanes make each write whole. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] mem0[16384] /*verilator public_flat_rw*/;
+    logic [7:0] mem0[16384] ;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] mem1[16384] /*verilator public_flat_rw*/;
+    logic [7:0] mem1[16384] ;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] mem2[16384] /*verilator public_flat_rw*/;
+    logic [7:0] mem2[16384] ;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] mem3[16384] /*verilator public_flat_rw*/;
+    logic [7:0] mem3[16384] ;
 
     logic [13:0] a_a;
     always_comb a_a = sst_own ? sst_addr : a_addr;

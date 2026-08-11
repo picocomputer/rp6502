@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Mode 4: an array of descriptors, each a power-of-two square of raw
- * RGB555 texels, walked in order so later sprites land on earlier ones.
- * A texel writes where its alpha bit is set; opacity metadata narrows a
- * row to its opaque span and skips the alpha test when the row is marked
- * continuous.
  */
 
 module vid_mode4 (
@@ -33,7 +27,6 @@ module vid_mode4 (
     output logic vid_mode4_done
 );
 
-    /* attr 1 is the affine walk over twenty-byte descriptors. */
     logic affine;
     always_comb affine = attr[0];
 
@@ -45,13 +38,6 @@ module vid_mode4 (
 
     logic [15:0] idx;
 
-    /* A halfword shift register entered at the top, so the descriptor
-     * ends flush against bit 159 wherever it started and the junk
-     * halfword ahead of it falls out below the window.
-     *
-     * mode4_asprite_t is transform[6] followed by mode4_sprite_t's own
-     * fields, so flush against the top puts both descriptors' position,
-     * pointer, log and metadata flag in the same bits. */
     logic [159:0] gather;
     logic [15:0] hi_hold;
     logic hi_pend;
@@ -80,28 +66,17 @@ module vid_mode4 (
         dc_meta = gather[159:152] != 8'h00;
     end
 
-    /* Decoded once into registers: off the gathered words the whole
-     * decode and the address adder land in one clock, and the sprite's
-     * address is what the XRAM arbiter selects on, so every other
-     * engine's grant arrives through that cone too. */
     logic signed [15:0] d_x, d_y;
     logic [15:0] d_sptr;
     logic [7:0] d_log;
     logic d_meta;
     logic signed [15:0] d_t[6];
 
-    /* Registers rather than recomputed: each stood in front of the
-     * address adder, putting a variable shift and an add between a
-     * register and the XRAM's address port. */
     logic [7:0] size;
-    logic [6:0] d_mask;   /* the texel index mask, (1 << log) - 1 */
-    logic [31:0] d_over;  /* the affine walk's out-of-square mask */
+    logic [6:0] d_mask;
+    logic [31:0] d_over;
     logic log_big;
     always_comb log_big = d_log[7:3] != 5'd0;
-    /* The oracle wraps byte_size in 32 bits, so a plain sprite with log
-     * 16..31 and no metadata wraps to zero and passes both guards. Its
-     * zero row is defined C; deeper rows read past XRAM on the host, and
-     * the RTL re-reads row zero instead. */
     logic log_wrap;
     always_comb log_wrap = !affine && !d_meta
         && d_log >= 8'd16 && d_log < 8'd32;
@@ -130,23 +105,19 @@ module vid_mode4 (
 
     logic signed [16:0] tex_x, span_end;
     logic meta_cont;
-    logic [16:0] row_texel;  /* texel index of the row's first column */
+    logic [16:0] row_texel;
 
     logic [16:0] meta_addr;
     always_comb meta_addr = {1'b0, d_sptr} + img_bytes[16:0]
         + {8'd0, tex_offs_y[6:0], 2'b00};
 
-    /* A word carries two texels, so the plain walk has a spare clock and
-     * spends it asking for the next word — crossing a word boundary
-     * without stopping. Only the plain path prefetches; the affine
-     * walk's addresses are not sequential. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
     logic [31:0] pre_data;
     logic [13:0] pre_word;
-    logic pre_v;     /* the next word is here */
-    logic pre_pend;  /* ...or it has been asked for */
+    logic pre_v;
+    logic pre_pend;
     logic signed [16:0] px_i;
     logic [9:0] dst;
 
@@ -154,15 +125,11 @@ module vid_mode4 (
     always_comb tex_byte_addr = {1'b0, d_sptr}
         + {(17'(row_texel) + 17'(px_i[15:0])), 1'b0};
 
-    /* The affine accumulators, the SIO interpolator's arithmetic: the
-     * first sample sits one past the span and the walk runs backward,
-     * subtracting a00 and a10 in wrapping thirty-two bits — the exact
-     * uint32 stream the oracle's software interpolator produces. */
     logic signed [31:0] af_a00, af_a10;
     always_comb af_a00 = {{8{d_t[0][15]}}, d_t[0], 8'd0};
     always_comb af_a10 = {{8{d_t[3][15]}}, d_t[3], 8'd0};
     logic [31:0] af_u, af_v;
-    logic [16:0] af_left;   /* pops remaining */
+    logic [16:0] af_left;
     logic af_over;
     always_comb af_over = ((af_u | af_v) & d_over) != 32'd0;
     logic [17:0] af_byte_addr;
@@ -175,19 +142,8 @@ module vid_mode4 (
             + (18'({11'd0, vi}) << (d_log[2:0] + 4'd1));
     end
 
-    /* The span's first sample, one past its end — four fixed-point
-     * multiplies, every term wrapping mod 2^32 like the oracle's.
-     *
-     * (t << 8) * k and (t * k) << 8 agree on their low thirty-two bits,
-     * and the second is a 16x18 the fabric has a DSP for rather than a
-     * 32-square it must build. Twenty-four bits of each product survive
-     * the shift, so the slice is exact and not a rounding. */
     logic signed [17:0] kx;
     always_comb kx = 18'(tex_offs_x0) + size_x0;
-    /* Registered, so the multiply and the sum after it are not one
-     * clock's work. Together in one hop this was the longest path in the
-     * machine: a size bit through the width adder, a 24-bit multiply,
-     * then a three-way 32-bit add. */
     logic signed [23:0] pu_x, pu_y, pv_x, pv_y;
     always_ff @(posedge clk) begin
         pu_x <= 24'(d_t[0] * kx);
@@ -208,9 +164,6 @@ module vid_mode4 (
     logic [17:0] cur_byte_addr;
     always_comb cur_byte_addr =
         state == M4_APOP ? af_byte_addr : tex_byte_addr;
-    /* A prefetch hit emits and promotes in the same clock; promoting
-     * first would give the boundary back the clock it was there to
-     * save. */
     logic dhit, pre_hit, hit_any;
     always_comb begin
         dhit = dcache_v && dcache_word == cur_byte_addr[15:2];
@@ -231,19 +184,12 @@ module vid_mode4 (
         vid_mode4_a_req = 1'b0;
         vid_mode4_a_addr = daddr[15:2] + {11'd0, fw_i};
         case (state)
-            /* One word in flight: the half held back has to shift before the
-             * next word's low half arrives, and dropping the request for the
-             * grant's own clock is what spaces them. */
             M4_DESC: vid_mode4_a_req = fw_i < fw_n && !gnt_d;
             M4_META: begin
                 vid_mode4_a_req = fw_i == 3'd0;
                 vid_mode4_a_addr = meta_addr[15:2];
             end
             M4_PIX: begin
-                /* A prefetch of this word may still be in flight, and a
-                 * duplicate miss fetch would land on a clock the promote
-                 * path already covers — leaving fw_i raised and the
-                 * request line silent for the rest of the walk. */
                 if (!dhit
                     && !((pre_v || pre_pend)
                          && pre_word == cur_byte_addr[15:2]))
@@ -277,7 +223,6 @@ module vid_mode4 (
     end
 
     task automatic next_sprite();
-        /* Whatever was read ahead belonged to the sprite just finished. */
         pre_v <= 1'b0;
         pre_pend <= 1'b0;
         if (idx + 16'd1 == length) begin
@@ -340,7 +285,6 @@ module vid_mode4 (
         gnt_d <= a_gnt;
         vid_mode4_done <= 1'b0;
         if (abort_i) begin
-            /* A lost race: the scaffold counted it; drop the line. */
             state <= M4_IDLE;
         end else if (start) begin
             idx <= '0;
@@ -356,9 +300,6 @@ module vid_mode4 (
             case (state)
                 M4_IDLE: ;
                 M4_NEXT: begin
-                    /* cfg[1] rather than daddr[1]: both strides are multiples
-                     * of four, so the array's alignment is every descriptor's,
-                     * and the address adder stays out of it. */
                     fw_i <= '0;
                     sh_c <= '0;
                     hi_pend <= 1'b0;
@@ -452,8 +393,6 @@ module vid_mode4 (
                     if (a_gnt)
                         fw_i <= 3'd1;
                     if (gnt_d) begin
-                        /* Narrow to the row's opaque span; the walk
-                         * below skips when it comes up empty. */
                         if (17'($signed({2'd0, a_rdata[30:16]}))
                             > tex_x) begin
                             tex_x <= 17'({2'd0, a_rdata[30:16]});
@@ -470,10 +409,6 @@ module vid_mode4 (
                     end
                 end
                 M4_PIX: begin
-                    /* The prefetch's own answer, told apart from
-                     * the miss fetch's by which one is pending —
-                     * only ever one is outstanding, because the
-                     * request logic asks for one or the other. */
                     if (pre_pend && gnt_d) begin
                         pre_data <= a_rdata;
                         pre_v <= 1'b1;
@@ -511,7 +446,6 @@ module vid_mode4 (
         end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode4;
     always_comb unused_vid_mode4 = ^{gather, daddr[16], daddr[1:0],
                                      meta_addr[16], meta_addr[1:0],
@@ -522,6 +456,5 @@ module vid_mode4 (
                                      cur_byte_addr[0],
                                      af_byte_addr[17:16],
                                      af_byte_addr[0], af_u, af_v};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The pocket port of the .rp6502 loader, from emu/emu/rom.c. The
- * emulator streams from a host file; here the whole image is resident in
- * the staging store. Same format, same rules: a load never writes
- * $FF00-$FFF9, the $FFFA-$FFFF vectors land in the register cells with
- * the SRAM keeping the shadow, and both reset vector bytes must arrive
- * or the image is rejected.
  */
 
 #include "font.h"
@@ -27,12 +20,8 @@ static uint8_t rom_byte(uint32_t at)
 {
     return at < rom_end ? ROM_IMG[at] : 0;
 }
-/* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
 
-/* CRC-32/ISO-HDLC a nibble at a time; the image is checked byte by byte
- * as it lands, so this is the loader's inner loop. Reflected polynomial,
- * low nibble first: t[i] is 0xEDB88320 folded through i four times. */
 static const uint32_t rom_crc_nibble[16] = {
     0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu,
     0x76DC4190u, 0x6B6B51F4u, 0x4DB26158u, 0x5005713Cu,
@@ -48,9 +37,6 @@ static uint32_t rom_crc32(uint32_t crc, uint8_t byte)
     return crc;
 }
 
-/* One text line, NUL-terminated, CR/LF stripped, capped; length or -1 at
- * end with nothing read. The position is left at the first byte after the
- * newline — the start of a record's raw data, or the next header. */
 static long rom_gets(char *line, size_t cap)
 {
     size_t i = 0;
@@ -127,9 +113,6 @@ static int rom_strncasecmp(const char *a, const char *b, size_t n)
     return 0;
 }
 
-/* The ROM: drive reads the staging store live and no blob carries it,
- * so what a restore finds there is the one thing about this driver that
- * cannot be worked out from the firmware's own state. */
 void rom_log(void)
 {
     printf("rom: end=%u assets=%u magic=%u\n", (unsigned)rom_end,
@@ -149,8 +132,6 @@ bool rom_load_staged(uint32_t len)
         rom_strncasecmp(line, "#!RP6502", 8) != 0)
         return false;
 
-    /* Optional "#>$chunks_len $crc" header bounds the program records;
-     * named assets follow. Classic format runs records to the end. */
     uint32_t after_magic = rom_pos;
     uint32_t prog_end = rom_end;
     long n = rom_gets(line, sizeof(line));
@@ -179,7 +160,6 @@ bool rom_load_staged(uint32_t len)
         if (!parse_u32(&p, &addr) || !parse_u32(&p, &reclen) ||
             !parse_u32(&p, &crc) || !parse_end(p))
             return false;
-        /* RAM below 0x10000, XRAM above, never straddling. */
         if (addr > 0x1FFFF || reclen == 0 || reclen > 0x20000 - addr ||
             (addr < 0x10000 && reclen > 0x10000 - addr))
             return false;
@@ -193,8 +173,6 @@ bool rom_load_staged(uint32_t len)
             c = rom_crc32(c, b);
             if (a > 0xFFFF)
                 XRAM_WIN[a - 0x10000] = b;
-            /* A load never writes the RIA window's low page; the vectors
-             * land in the cells, the SRAM keeps the shadow. */
             else if (a < 0xFF00 || a >= 0xFFFA)
                 SRAM[a] = b;
             if (a >= 0xFFFA && a <= 0xFFFF)
@@ -211,13 +189,6 @@ bool rom_load_staged(uint32_t len)
     return reset_lo && reset_hi;
 }
 
-/* The ROM: drive: read-only windows onto assets in the staged image. An
- * asset is named in UTF-8 and a program's path is code page bytes, so
- * the comparison converts as it walks; the two disagree above 0x7F. */
-
-/* One window per stdio descriptor, so the pool is never what runs out
- * first. STD_FD_MAX is private to std.c; if that pool grows, this
- * follows it. */
 #define ROM_OPEN_MAX 16
 
 static struct
@@ -248,8 +219,6 @@ static bool rom_name_eq(const char *utf8, const char *oem)
     }
 }
 
-/* No index, so a program may carry any number of assets: walk the
- * "#>len crc name" headers, skipping each body. */
 static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
 {
     if (!rom_assets)
@@ -275,7 +244,7 @@ static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
             return true;
         }
         if (data + alen > rom_end)
-            return false; /* truncated: no more assets */
+            return false;
         rom_pos = data + alen;
     }
     return false;
@@ -295,7 +264,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    if (flags & 0x02) /* an asset is read-only */
+    if (flags & 0x02)
     {
         *err = API_EACCES;
         return -1;
@@ -353,7 +322,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
     for (uint32_t i = 0; i < want; i++)
         buf[i] = (char)rom_byte(at + i);
     rom_win_pool[desc].pos = pos + want;
-    *got = want; /* short or zero at the window's end, which is EOF */
+    *got = want;
     return STD_OK;
 }
 

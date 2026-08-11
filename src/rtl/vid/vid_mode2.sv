@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Mode 2, the tile map of vga/modes/mode2.c: rows mapped with true
- * wraparound, the oracle's rejects, the restoring divider that trimmed
- * geometry needs, and one map byte fetched per tile. Each tile's
- * on-screen slice goes to the shared pixel tail as one xram segment — a
- * trim is nothing more than a shorter count — and the tail streams the
- * tile's row bytes itself.
- *
- * The map fetch and the tail's streaming share the plane's one XRAM
- * slot; the wrapper gives the front priority, so the next tile's map
- * byte hides under the current tile's pixels.
  */
 
 module vid_mode2 (
@@ -25,8 +14,6 @@ module vid_mode2 (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    /* The map-byte channel, muxed ahead of the tail's by the wrapper;
-     * a_gnt here is only this front's own grants. */
     output logic vid_mode2_a_req,
     output logic [13:0] vid_mode2_a_addr,
     input logic a_gnt,
@@ -73,20 +60,18 @@ module vid_mode2 (
         eff_w = tile_size - {1'b0, x_trim};
         tile_h = tile_size - {1'b0, y_trim};
     end
-    logic [4:0] row_size;    /* bytes per stored tile row */
-    logic [8:0] mem_size;    /* bytes per stored tile */
+    logic [4:0] row_size;
+    logic [8:0] mem_size;
     always_comb begin
         row_size = 5'(8'({3'd0, tile_size} << bpp_log) >> 3);
         mem_size = 9'({4'd0, row_size} << (tile16 ? 4 : 3));
     end
 
-    /* The oracle computes these in int16, overflow and all. */
     logic [15:0] width_px, height_px;
     always_comb begin
         width_px = 16'(16'(cf_width) * 16'({11'd0, eff_w}));
         height_px = 16'(16'(cf_height) * 16'({11'd0, tile_h}));
     end
-    /* Latched at start so the window tests compare registers. */
     logic signed [20:0] win_w_s, height_px_s;
 
     typedef enum logic [2:0] {
@@ -95,28 +80,23 @@ module vid_mode2 (
     state_t state;
 
     logic signed [20:0] row;
-    logic [14:0] q_row;   /* tile row in the map */
-    logic [3:0] r_row;    /* row within the tile */
+    logic [14:0] q_row;
+    logic [3:0] r_row;
     logic [16:0] row_base;
     logic signed [20:0] col;
     logic [9:0] px_rem;
     logic blank;
-    logic [14:0] tile;    /* the tile column being served */
-    logic [3:0] tcol;     /* entry column within the first tile */
+    logic [14:0] tile;
+    logic [3:0] tcol;
 
-    /* int16 like the oracle: ±32768 wraps before the fold sees it. */
     logic [15:0] row16, col16;
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
-    /* The map overruns XRAM; the oracle's reject, folded where the
-     * plan latches because it lands on that same edge. */
     logic overrun;
     always_comb overrun = 35'(cf_height[14:0]) * 35'(cf_width[14:0])
         > 35'(17'h10000) - 35'({1'b0, cf_data});
 
-    /* The restoring divider for trimmed geometry: twenty steps resolve a
-     * quotient the shift path cannot. */
     logic [19:0] div_q;
     logic [5:0] div_rem;
     logic [4:0] div_i, div_den;
@@ -133,10 +113,6 @@ module vid_mode2 (
         div_rem_n = div_ge ? div_t - {1'b0, div_den} : div_t;
     end
 
-    /* The map byte for the tile being served, held until its segment
-     * is taken. Fetching starts the moment the tile is what the line
-     * needs next — during the left padding for tile zero, on the take
-     * for every tile after — so it hides under emission. */
     typedef enum logic [1:0] {
         M_IDLE, M_REQ, M_WAIT, M_HAVE
     } mstate_t;
@@ -174,8 +150,6 @@ module vid_mode2 (
                 if (pad_left < {11'd0, px_rem})
                     vid_mode2_seg_px = pad_left[9:0];
             end else if (mstate == M_HAVE) begin
-                /* This tile's slice, bounded by the tile, the window
-                 * and the line, whichever ends first. */
                 vid_mode2_seg_valid = 1'b1;
                 vid_mode2_seg_imm = 1'b0;
                 vid_mode2_seg_bits = {4'd0, tile_row_addr[15:0], 3'b000}
@@ -235,10 +209,6 @@ module vid_mode2 (
             case (state)
                 S2_IDLE: ;
                 S2_WRAP: begin
-                    /* Iterative wraparound; sane configs settle in a
-                     * step or two, and the beam's deadline bounds the
-                     * pathological ones. The oracle rejects on the
-                     * int16 height, not the tile count. */
                     if (cf_width < 16'sd1 || height_px_s < 21'sd1) begin
                         blank <= 1'b1;
                         state <= S2_ADDR;
@@ -359,12 +329,10 @@ module vid_mode2 (
         end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode2;
     always_comb unused_vid_mode2 = ^{cfgw, attr[15:12], attr[2],
                                      row[20:19], col[20:19], div_q,
                                      div_rem[5:4], map_addr[16],
                                      tile_row_addr[17:16]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

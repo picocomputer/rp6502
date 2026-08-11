@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The pocket port of ria/sys/com.c. Input rings merge behind com_getchar
- * for the shared readline and stdin sources; CRLF expansion sits on the
- * console TX primitives. com_task drains the 6502's TX ring, answers the
- * $FFE2 offer slot, and polls the keyboard.
  */
 
 #include "bel.h"
@@ -20,14 +15,14 @@
 #include <stdio.h>
 #include <string.h>
 
-#define RING_SIZE 512 /* power of two */
+#define RING_SIZE 512
 #define RING_MASK (RING_SIZE - 1)
 
 typedef struct
 {
     uint8_t buf[RING_SIZE];
-    uint16_t head; /* next write */
-    uint16_t tail; /* next read */
+    uint16_t head;
+    uint16_t tail;
 } ring_t;
 
 static ring_t kbd_ring;
@@ -53,7 +48,7 @@ static void ring_push(ring_t *r, uint8_t b)
 {
     uint16_t next = (uint16_t)((r->head + 1) & RING_MASK);
     if (next == r->tail)
-        return; /* full: drop */
+        return;
     r->buf[r->head] = b;
     r->head = next;
 }
@@ -78,9 +73,6 @@ int com_getchar(com_source_t *src)
 {
     if (*src == COM_SOURCE_ANY)
     {
-        /* Terminal replies before typed input: the CPR/DA handshake
-         * resolves promptly and the keyboard never starves, because the
-         * UART only fills in bounded reply bursts. */
         int c = ring_pop(&uart_ring);
         if (c >= 0)
         {
@@ -116,14 +108,6 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
     com_term_out = out_chars;
 }
 
-/* The debug log takes one byte at a time and an event is a whole host
- * round trip, so this waits. The channel is debug only -- the terminal
- * is com_term_out below and takes every byte regardless -- and a report
- * that arrives in pieces is worth less than the time it saves.
- *
- * A host that has stopped answering must not wedge the machine. The
- * bridge times out an unanswered command itself, so reaching the
- * deadline is a host that is gone rather than one that is slow. */
 #define COM_LOG_WAIT_US 20000
 
 static void com_tx_write(const char *buf, int len)
@@ -151,7 +135,6 @@ void com_in_write_reply(const char *s, size_t n)
         ring_push(&uart_ring, (uint8_t)s[i]);
 }
 
-/* The pico-SDK translation the shared sources were written against. */
 static void com_crlf_write(const char *buf, int len)
 {
     static char last;
@@ -186,9 +169,6 @@ int com_printf(const char *fmt, ...)
     return n;
 }
 
-/* picolibc wants a stream before printf will link. Pointing it at
- * com_putchar puts plain printf through the same CRLF expansion, BEL
- * scan and terminal tap as com_printf. */
 static int com_stdio_putc(char c, FILE *f)
 {
     (void)f;
@@ -200,8 +180,6 @@ static FILE com_stdio = FDEV_SETUP_STREAM(com_stdio_putc, NULL, NULL,
 FILE *const stdout = &com_stdio;
 FILE *const stderr = &com_stdio;
 
-/* The terminal, which never refuses. Waiting for the log's room is
- * com_tx_write's business and not a program's. */
 bool com_putchar_ready(void)
 {
     return true;
@@ -227,8 +205,6 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-// Cold boot only: type-ahead survives an exec, so com_run resets the BEL
-// alone.
 void com_init(void)
 {
     memset(&kbd_ring, 0, sizeof(kbd_ring));
@@ -243,7 +219,6 @@ void com_run(void)
 
 void com_task(void)
 {
-    /* Raw: the program speaks wire bytes, and a UART does not translate. */
     uint32_t v;
     while ((v = UART_POP) & 0x100)
     {
@@ -251,10 +226,6 @@ void com_task(void)
         com_tx_write(&c, 1);
     }
 
-    /* Only on the ask: offering eagerly would commit bytes the console's
-     * own readers still want, and an ask with nothing queued is answered
-     * with nothing rather than remembered. Served before the keyboard
-     * poll so a byte cannot arrive inside the same tick as an expired ask. */
     uint32_t st = RX_OFFER;
     if ((st & 3) == 3)
     {
@@ -270,8 +241,6 @@ void com_task(void)
         }
     }
 
-    /* Bit 8 is the valid flag. Testbench only; nothing on hardware
-     * drives this register. */
     uint32_t k = MMIO_KBD;
     if (k & 0x100)
     {

@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The keyboard layouts out of the staging store, one word at a time.
- * Same trade as uni.c: twenty kilobytes has no room in the TCM, and the
- * window cannot fetch anything wider than a byte, so every access goes
- * through this one function.
  */
 
 #include "mmio.h"

@@ -2,9 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Execution starts here, at the reset vector. The TCM arrives preloaded, so
- * there is no data copy — just a stack, a cleared BSS, and main.
  */
 
     .section .text.init
@@ -23,14 +20,11 @@ _start:
 2:
     call main
 
-    /* main returned: report its result and stop. */
     li t0, 0xF0000004
     sw a0, 0(t0)
 3:  wfi
     j 3b
 
-    /* Trap entry: all of x1..x31 to the stack, dispatch in C, restore.
-     * mtvec requires 4-byte alignment. */
     .align 2
     .global _trap_entry
 _trap_entry:
@@ -65,7 +59,6 @@ _trap_entry:
     sw x29, 112(sp)
     sw x30, 116(sp)
     sw x31, 120(sp)
-    /* x2 is sp itself: the frame slot holds its pre-trap value. */
     addi t0, sp, 124
     sw t0, 4(sp)
     mv a0, sp

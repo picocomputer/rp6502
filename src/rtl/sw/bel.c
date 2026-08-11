@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The console bell. The fabric holds the voice, a ninth channel of
- * aud_psg; this side decides what it plays and when.
- *
- * The split is where the clocks are. A voice steps 48000 times a second,
- * which this processor cannot do — no interrupts, and it can sit inside
- * a file operation for milliseconds. The events it does own are 20 to
- * 800 ms apart, which a polled task handles.
  */
 
 #include "bel.h"
@@ -24,8 +16,6 @@ static uint8_t bel_head, bel_tail;
 static bool bel_active;
 static absolute_time_t bel_restrike_at, bel_release_at, bel_end_at;
 
-/* The pan is centre and the gate is its low bit; the fabric takes the
- * edge off the register. */
 static void bel_voice(const ria_bel_t *snd, bool gate)
 {
     AUD_BEL_LO = (uint32_t)snd->freq
@@ -36,8 +26,6 @@ static void bel_voice(const ria_bel_t *snd, bool gate)
                  | ((uint32_t)(gate ? 1u : 0u) << 16);
 }
 
-/* The voice keeps what the last session gated into it, so a host reset
- * would ring forever with nothing here counting down its release. */
 void bel_init(void)
 {
     AUD_BEL_LO = 0;
@@ -60,7 +48,7 @@ void bel_add(const ria_bel_t *sound)
 {
     uint8_t next = (bel_head + 1) % BEL_QUEUE_SIZE;
     if (next == bel_tail)
-        return; // Queue full, drop
+        return;
     bel_queue[bel_head] = *sound;
     bel_head = next;
     if (!bel_active)
@@ -72,8 +60,6 @@ void bel_task(void)
     if (!bel_active)
         return;
 
-    /* A restrike takes both sounds asking for one. Where the next does
-     * not, this one runs out its own life instead. */
     if (bel_restrike_at && time_reached(bel_restrike_at))
     {
         uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
@@ -101,8 +87,6 @@ void bel_task(void)
         }
         else
         {
-            /* Zero rather than leave it in a release with nobody
-             * watching; a cleared word's release nibble is the shortest. */
             AUD_BEL_LO = 0;
             AUD_BEL_HI = 0;
             bel_restrike_at = 0;

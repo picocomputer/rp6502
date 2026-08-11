@@ -2,17 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The fill scheduler: one engine for three planes. At line start it
- * reads the three fill slots, queues the enabled fills ascending, and
- * runs them through vid_fill one at a time; a plane that does not run
- * simply never flips, and its scan bank is the eraser's zeros. A
- * 640-wide canvas has serial fill rate for two planes, a 320-wide for
- * three; the lowest-numbered fills win. A mode-0 slot runs no fill —
- * it marks the plane whose stream is the terminal engine's, the same
- * way the sprite stage is its own engine beside this one. The firmware
- * registers mode 0 exclusively, so the marker is a plain mask with no
- * defense against several.
  */
 
 module vid_sched (
@@ -43,7 +32,7 @@ module vid_sched (
     output logic [2:0] vid_sched_term
 );
 
-    logic [9:0] t /*verilator public_flat_rd*/;
+    logic [9:0] t ;
     logic render_now;
     always_comb render_now = t < ch;
     logic [8:0] t_row;
@@ -53,10 +42,8 @@ module vid_sched (
     typedef enum logic [1:0] {
         SCH_IDLE, SCH_READ, SCH_RUN
     } state_t;
-    state_t state /*verilator public_flat_rd*/;
+    state_t state ;
 
-    /* The slot sweep: present plane 0,1,2 on consecutive clocks, latch
-     * each registered answer a clock behind, decide on the fifth. */
     logic [2:0] rd_i;
     always_comb vid_sched_p_plane = rd_i[1:0];
 
@@ -91,19 +78,13 @@ module vid_sched (
     logic [1:0] q_n, q_i;
     logic [1:0] cur;
     always_comb cur = q[q_i];
-    logic [2:0] plane_pending /*verilator public_flat_rd*/;
+    logic [2:0] plane_pending ;
 
-    /* The marker the compose sees updates with the bank flips: decided
-     * mid-render-line, taken at the next line_start, held with the
-     * banks otherwise. */
     logic [2:0] term_q, term_dec;
     logic term_armed;
     always_comb term_dec = {pl_term[2], pl_term[1], pl_term[0]};
     always_comb vid_sched_term = term_q;
 
-    /* The done a shell sees is the engine's own edge, forwarded without
-     * a register: the flip must land on sub_done's clock or the h==799
-     * pixel-0 pre-read comes up stale. */
     always_comb begin
         vid_sched_done = '0;
         if (state == SCH_RUN && e_done)
@@ -114,10 +95,6 @@ module vid_sched (
     end
 
 `ifdef VERILATOR
-    /* Simulation only: VERILATOR is defined by the simulator and by
-     * nothing in the synthesis flow, so the fabric never sees the port.
-     * A machine reset costs the beam a frame, because the beam does not
-     * take one; this tells the stop below to expect it. */
     logic settled;
     always_ff @(posedge clk or negedge rst_n)
         if (!rst_n)
@@ -151,9 +128,6 @@ module vid_sched (
     always_ff @(posedge clk) begin
         vid_sched_e_start <= 1'b0;
 `ifdef VERILATOR
-        /* The stop waits one frame, which is what a reset costs a beam
-         * that does not take one — a frame of the black screen the
-         * machine boots to. */
         if (settled && h == 10'd799 && state != SCH_IDLE)
             $fatal(1, "vid_fill underrun");
 `endif
@@ -219,9 +193,7 @@ module vid_sched (
         end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_sched;
     always_comb unused_vid_sched = ^{p_entry[30:19]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

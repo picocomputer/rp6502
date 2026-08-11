@@ -2,11 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Soft-CPU shim for <hardware/pio.h>. No PIX bus here, so a put goes
- * nowhere and the TX FIFO reads permanently empty. Empty, not full:
- * std.c retires its xram forwarding count through pix_ready(), and a
- * FIFO that never readies would park read_xram in its drain forever.
  */
 
 #ifndef _RTL_SW_SHIM_HARDWARE_PIO_H_
@@ -38,4 +33,4 @@ static inline void pio_sm_put(pio_hw_t *pio, unsigned sm, uint32_t msg)
 
 #define tight_loop_contents() ((void)0)
 
-#endif /* _RTL_SW_SHIM_HARDWARE_PIO_H_ */
+#endif

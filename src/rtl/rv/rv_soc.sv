@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * A Hazard3, which is the RP2350's own core, so the firmware that runs
- * here is the firmware that runs there.
- *
- * The TCM and the local MMIO page answer inside the data phase. Anything
- * else costs a wait state, which is what gives the machine's
- * single-cycle devices one strobe per access.
  */
 
 module rv_soc
@@ -26,9 +19,6 @@ module rv_soc
     input logic [7:0] upd_n,
     input logic key_set,
     input logic [8:0] key_code,
-    /* Levels, so no mailbox. A mouse's counter — how a new report is
-     * told from a still hand — rides in its own key word, because the
-     * deltas are the same zero either way. */
     input logic [3:0][31:0] cont_key,
     input logic [3:0][31:0] cont_joy,
     input logic [3:0][15:0] cont_trig,
@@ -36,41 +26,10 @@ module rv_soc
 
     output logic [7:0] rv_soc_tx_data,
     output logic rv_soc_tx_valid,
-    /* No room left where the console goes. A platform that drops
-     * instead of stalling ties this low and the firmware never waits. */
     input logic tx_full,
 
     output logic [15:0] rv_soc_phi2_khz,
 
-    /* Held still with the rest of the machine. Hazard3 hardwires
-     * dcsr.stoptime, which is the core saying it expects its timebase
-     * to stop while it is halted, so a machine stopped for a savestate
-     * measures no time passing and comes back with every deadline it
-     * was holding the same distance away.
-     *
-     * Holding it is not enough across a sleep, because a sleep cuts the
-     * power and the counter comes back at zero out of the bitstream
-     * while every deadline the firmware is holding came back out of the
-     * blob at the value it had. A counter that restarted would put all
-     * of them the machine's whole previous uptime into the future, so
-     * the counter travels in the blob too and is written back here
-     * before the core is let go. Wall time is a separate question and
-     * still the host's to answer.
-     *
-     * The soft CPU's own memory is reached the same way. It is not on
-     * the machine's bus -- rv_soc decodes it here rather than sending
-     * it out -- so a savestate walks it through this port, which steals
-     * the array's one port while the core is halted and not using it. */
-
-    /* The core's own halt. Hazard3 carries a debug port and this build
-     * has never driven it; a savestate does, because a core that boots
-     * again is not a core that resumed. Halt is a trap, so the pipeline
-     * flushes and dpc holds the first instruction that had not retired
-     * -- release, and it runs that one next.
-     *
-     * The registers come out through the same port: the core takes
-     * whole instructions here while halted, so a handful of csr moves
-     * through dmdata0 reads or writes any of them. */
     input logic sst_dbg_halt,
     input logic sst_dbg_halt_on_reset,
     input logic sst_dbg_resume,
@@ -86,12 +45,6 @@ module rv_soc
 
     input logic sst_phi2_we,
     input logic [15:0] sst_phi2_wdata,
-    /* The counter, out for the blob and back from it. Read while the
-     * core is halted, which is when it is standing still anyway, and
-     * written as a level held for the whole of the register injection
-     * -- long enough that this half-rate clock cannot miss it, and
-     * early enough that the firmware's first reading is already the
-     * restored one. */
     output logic [63:0] rv_soc_mtime,
     input logic sst_mtime_we,
     input logic [63:0] sst_mtime_wdata,
@@ -105,10 +58,6 @@ module rv_soc
     output logic [31:0] rv_soc_exit_code,
 
     input logic bus_rdy,
-    /* Told, not worked out again from bus_rdy: that term moves on the
-     * machine's edge, which is this clock's edge, so a second answer
-     * here differs from the first and the access happens twice or not
-     * at all. */
     input logic bus_taken,
     output logic rv_soc_bus_pend,
     output logic rv_soc_bus_stb,
@@ -119,20 +68,16 @@ module rv_soc
     input logic [31:0] bus_rdata
 );
 
-
-    logic [31:0] haddr /*verilator public_flat_rd*/;
-    logic hwrite /*verilator public_flat_rd*/;
-    logic [1:0] htrans /*verilator public_flat_rd*/;
-    logic [2:0] hsize /*verilator public_flat_rd*/;
-    logic hready /*verilator public_flat_rd*/;
-    logic [31:0] hwdata /*verilator public_flat_rd*/;
-    logic [31:0] hrdata /*verilator public_flat_rd*/;
-    /* verilator lint_off UNUSEDSIGNAL */
+    logic [31:0] haddr ;
+    logic hwrite ;
+    logic [1:0] htrans ;
+    logic [2:0] hsize ;
+    logic hready ;
+    logic [31:0] hwdata ;
+    logic [31:0] hrdata ;
     logic unused_bits;
     always_comb unused_bits = ^{haddr[27:17], htrans[0], hsize[2]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
-    /* verilator lint_off PINCONNECTEMPTY */
     hazard3_cpu_1port #(
         .RESET_VECTOR(32'h0000_0000),
         .MTVEC_INIT(32'h0000_0000),
@@ -191,14 +136,13 @@ module rv_soc
         .soft_irq(1'b0),
         .timer_irq(1'b0)
     );
-    /* verilator lint_on PINCONNECTEMPTY */
 
-    logic dph_active /*verilator public_flat_rd*/;
-    logic dph_write /*verilator public_flat_rd*/;
-    logic dph_mmio /*verilator public_flat_rd*/;
-    logic dph_ext /*verilator public_flat_rd*/;
-    logic dph_waited /*verilator public_flat_rd*/;
-    logic [RP6502_TCM_AW-1:0] dph_word;  // TCM word; strb carries the lanes
+    logic dph_active ;
+    logic dph_write ;
+    logic dph_mmio ;
+    logic dph_ext ;
+    logic dph_waited ;
+    logic [RP6502_TCM_AW-1:0] dph_word;
     logic [31:0] dph_addr;
     logic [3:0] dph_strb;
     logic [6:0] mmio_reg;
@@ -214,17 +158,14 @@ module rv_soc
         endcase
     end
 
-    /* One array per byte lane. A byte-enabled write keeps a dual-port
-     * RAM from being inferred at all, and a megabit of code memory
-     * built from flip-flops does not fit in any device made. */
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm0[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm0[RP6502_TCM_WORDS] ;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm1[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm1[RP6502_TCM_WORDS] ;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm2[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm2[RP6502_TCM_WORDS] ;
     (* ramstyle = "no_rw_check" *)
-    logic [7:0] tcm3[RP6502_TCM_WORDS] /*verilator public_flat_rw*/;
+    logic [7:0] tcm3[RP6502_TCM_WORDS] ;
 
     generate
         if (TCM_INIT_FILE != "") begin : tcm_init
@@ -237,24 +178,17 @@ module rv_soc
         end
     endgenerate
 
-    logic [31:0] tcm_rdata /*verilator public_flat_rd*/;
+    logic [31:0] tcm_rdata ;
     logic [RP6502_TCM_AW-1:0] word_addr;
     always_comb word_addr = sst_tcm_sel ? sst_tcm_addr : haddr[RP6502_TCM_AW+1:2];
     always_comb rv_soc_tcm_rdata = tcm_rdata;
 
-    /* A store's data phase overlaps the next load's address phase, so a
-     * load of the word just stored samples the array on the same edge
-     * the write lands and reads what was there before. The compiler
-     * emits that pair, and the M10K is told no_rw_check, so these carry
-     * the write around. */
     logic [3:0] tcm_fwd;
     logic [31:0] tcm_fwd_data;
     logic [31:0] tcm_q;
     logic tcm_wr;
     always_comb tcm_wr = dph_active && dph_write && !dph_mmio && !dph_ext;
 
-    /* One port, two possible owners, and only ever one at a time: the
-     * engine asks while the core is halted and issuing nothing. */
     logic tcm_wen;
     logic [RP6502_TCM_AW-1:0] tcm_wword;
     logic [3:0] tcm_wstrb;
@@ -293,22 +227,15 @@ module rv_soc
         end
     end
 
-    /* pend has no rdy term; its own block keeps the scheduler from seeing
-     * a loop through the arbiter. */
     always_comb rv_soc_bus_pend = dph_active && dph_ext && !dph_waited;
     always_comb begin
         rv_soc_bus_stb = rv_soc_bus_pend && bus_rdy;
-        /* The data phase's alone. Qualified with the strobe it carried
-         * bus_rdy, answering live where the strobe answers from the
-         * falling edge, and a write that lands as a read is gone. */
         rv_soc_bus_we = dph_write;
         rv_soc_bus_addr = dph_addr;
         rv_soc_bus_wdata = hwdata;
         rv_soc_bus_wstrb = dph_strb;
     end
 
-    /* The decode matters: an external-window write must not also land
-     * here, or the loader overwrites the firmware under its own feet. */
     always_ff @(posedge clk) begin
         tcm_rdata <= {tcm3[word_addr], tcm2[word_addr],
                       tcm1[word_addr], tcm0[word_addr]};
@@ -326,23 +253,19 @@ module rv_soc
         end
     end
 
-    logic [7:0] mmio_kbd_data /*verilator public_flat_rw*/;
-    logic mmio_kbd_valid /*verilator public_flat_rw*/;
-    logic [8:0] mmio_key_data /*verilator public_flat_rw*/;
-    logic mmio_key_valid /*verilator public_flat_rw*/;
+    logic [7:0] mmio_kbd_data ;
+    logic mmio_kbd_valid ;
+    logic [8:0] mmio_key_data ;
+    logic mmio_key_valid ;
     always_comb rv_soc_key_pending = mmio_key_valid;
-    logic [31:0] mmio_slot_len /*verilator public_flat_rw*/;
+    logic [31:0] mmio_slot_len ;
 
-    logic [63:0] mtime_us /*verilator public_flat_rd*/;
+    logic [63:0] mtime_us ;
     logic [15:0] mtime_acc;
     initial begin
         mtime_us = 64'd0;
         mtime_acc = '0;
     end
-    /* Held while the core is halted at its debug port, which is
-     * exactly the span of a savestate: the core's clock never stops,
-     * so the counter has to be told. dcsr.stoptime is hardwired 1 --
-     * the core already expects time to stand still while it does. */
     always_comb rv_soc_mtime = mtime_us;
     always_ff @(posedge clk) begin
         if (!rv_soc_dbg_halted) begin
@@ -355,9 +278,6 @@ module rv_soc
                 mtime_acc <= mtime_acc + 16'(MTIME_ADD);
             end
         end
-        /* The fraction goes with it: a restore that kept the old
-         * accumulator would land the first microsecond after it up to
-         * one short. */
         if (sst_mtime_we) begin
             mtime_us <= sst_mtime_wdata;
             mtime_acc <= '0;
@@ -377,9 +297,6 @@ module rv_soc
                 7'h18: hrdata = mmio_slot_len;
                 7'h4C: hrdata = {24'd0, upd_n};
                 7'h1C: hrdata = {22'd0, mmio_key_valid, mmio_key_data};
-                /* The controller slots, three words each in APF's own
-                 * order. Written out rather than indexed because the
-                 * twelve-byte stride is not a bit slice. */
                 7'h50: hrdata = cont_key[0];
                 7'h54: hrdata = cont_joy[0];
                 7'h58: hrdata = {16'd0, cont_trig[0]};
@@ -415,8 +332,6 @@ module rv_soc
         mmio_key_valid = 1'b0;
         mmio_key_data = 9'h000;
         mmio_slot_len = 32'h0;
-        /* The machine runs at its fastest until told otherwise, so a
-         * firmware that never sets it still gets the default. */
         rv_soc_phi2_khz = 16'd8000;
     end
     always_ff @(posedge clk) begin
@@ -446,8 +361,6 @@ module rv_soc
                     default: ;
                 endcase
             end
-            /* After the register block, so a restore is not undone by
-             * whatever the halted core's last data phase was. */
             if (sst_phi2_we) rv_soc_phi2_khz <= sst_phi2_wdata;
     end
 

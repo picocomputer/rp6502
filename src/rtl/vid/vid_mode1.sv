@@ -2,16 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Mode 1, the character cells of vga/modes/mode1.c: rows mapped with
- * true wraparound, the oracle's rejects, the cell gather, the font fetch
- * from XRAM or the builtin store, and each cell's two colors resolved
- * through the plane's palette. A font row is a 1bpp bitmap and a cell's
- * fg/bg is a two-entry palette, so every cell reaches the shared pixel
- * tail as one immediate segment.
- *
- * The one front that keeps the palette store, because it resolves colors
- * before the tail sees them; the tail's own palette machinery idles.
  */
 
 module vid_mode1 (
@@ -34,9 +24,6 @@ module vid_mode1 (
     input logic f_gnt,
     input logic [7:0] f_data,
 
-    /* The plane's palette, still this front's: cells resolve their
-     * colors here, and a cell wants its foreground and background at
-     * once, so both read ports are its. */
     output logic vid_mode1_pal_ld,
     output logic [7:0] vid_mode1_pal_w,
     output logic [8:0] vid_mode1_pal_words,
@@ -71,11 +58,10 @@ module vid_mode1 (
         cf_font = cfgw[127:112];
     end
 
-    /* attr[3] picks the 8x16 font; attr[2:0] the cell format. */
     logic fh16;
     logic [2:0] fmt;
     logic [2:0] cell_size;
-    logic [3:0] pal_bpp;  // palette depth; 0 = raw colors
+    logic [3:0] pal_bpp;
     always_comb begin
         fh16 = attr[3];
         fmt = attr[2:0];
@@ -87,7 +73,6 @@ module vid_mode1 (
             default: begin cell_size = 3'd6; pal_bpp = 4'd0; end
         endcase
     end
-    /* The oracle computes these in int16, overflow and all. */
     logic [15:0] width_px;
     always_comb width_px = 16'(cf_wchars) << 3;
 
@@ -105,19 +90,14 @@ module vid_mode1 (
     logic [9:0] px_rem;
     logic blank;
 
-    /* int16 like the oracle: ±32768 wraps before the fold sees it. */
     logic [15:0] row16, col16;
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
-    /* The store is the plane's, in vid_palram; this front reloads every
-     * entry it will index before it serves a cell. */
     logic pal_xram;
     logic [8:0] pal_n;
     logic [8:0] pal_words;
     always_comb pal_words = 9'd1 << (pal_bpp - 4'd1);
-    /* A halfword-aligned palette straddles one more word, entry 0 in the
-     * first word's high half. */
     logic [8:0] pal_fetch;
     always_comb pal_fetch = pal_words + {8'd0, cf_palette[1]};
     logic [7:0] pal_w;
@@ -126,16 +106,14 @@ module vid_mode1 (
     always_comb font_xram = {1'b0, cf_font}
         <= 17'h10000 - (fh16 ? 17'd4096 : 17'd2048);
 
-    /* The cell prefetcher: while the tail emits, the next cell's bytes
-     * (up to three words) and its font byte gather here. */
     typedef enum logic [2:0] {
         F_IDLE, F_W, F_FONT, F_READY
     } fstate_t;
     fstate_t fstate;
-    logic [16:0] cell_addr;   // byte address of the cell being fetched
-    logic [1:0] fw_i, fw_c, fw_n;  // word issue/capture counts
-    logic [95:0] gather;           // up to three words, lane-aligned below
-    logic [1:0] cell_lane;         // the cell's byte offset in its word
+    logic [16:0] cell_addr;
+    logic [1:0] fw_i, fw_c, fw_n;
+    logic [95:0] gather;
+    logic [1:0] cell_lane;
     logic gnt_d;
 
     logic nxt_v;
@@ -180,9 +158,6 @@ module vid_mode1 (
         pal_bg = pal_qb;
     end
 
-    /* The font byte: gathered from XRAM, or fetched from the store the
-     * soft CPU owns. Both arrive through F_FONT, so the built-in path
-     * is the one the XRAM fixtures already exercise. */
     logic [7:0] font_gather;
     always_comb vid_mode1_f_addr = fh16
         ? {2'b00, scanrow, g_glyph}
@@ -190,8 +165,6 @@ module vid_mode1 (
     always_comb vid_mode1_f_req = state == S1_SEG && fstate == F_FONT
         && !font_xram && fw_i == 2'd0;
 
-    /* One channel or the other; font_xram holds for the whole line, so
-     * the choice cannot move across a grant. */
     logic f_gnt_d;
     logic fnt_gnt, fnt_gnt_d;
     logic [7:0] fnt_byte;
@@ -231,10 +204,6 @@ module vid_mode1 (
     always_comb font_line_addr = {1'b0, cf_font}
         + {5'd0, scanrow, 8'd0} + {9'd0, g_glyph};
 
-    /* The next segment, purely from where col stands. The entry cell
-     * may start mid-glyph; pre-shifting the row puts its first visible
-     * pixel at the segment's bit zero, and every cell after it is
-     * aligned. */
     logic [16:0] pad_left;
     always_comb pad_left = 17'(-col);
     logic [17:0] run_w;
@@ -255,8 +224,6 @@ module vid_mode1 (
                 if (pad_left < {7'd0, px_rem})
                     vid_mode1_seg_px = pad_left[9:0];
             end else if (nxt_v) begin
-                /* This cell, bounded by the cell, the window and the
-                 * line, whichever ends first. */
                 vid_mode1_seg_valid = 1'b1;
                 vid_mode1_seg_ibits = 8'(nxt_bits << col[2:0]);
                 vid_mode1_seg_fg = nxt_fg;
@@ -325,8 +292,6 @@ module vid_mode1 (
             case (state)
                 S1_IDLE: ;
                 S1_WRAP: begin
-                    /* The oracle rejects on the int16 height, not the
-                     * char count. */
                     if (cf_wchars < 16'sd1 || height_px_s < 18'sd1)
                     begin
                         blank <= 1'b1;
@@ -478,8 +443,6 @@ module vid_mode1 (
     logic signed [17:0] height_px_s;
     always_comb height_px_s = $signed({{2{height_px[15]}}, height_px});
 
-    /* The grid overruns XRAM; the oracle's reject, folded where the
-     * plan latches because it lands on that same edge. */
     logic overrun;
     always_comb overrun = 35'(cf_hchars[14:0]) * 35'(sizeof_row)
         > 35'(17'h10000) - 35'({1'b0, cf_data});
@@ -491,7 +454,6 @@ module vid_mode1 (
     logic [1:0] font_line_byte;
     always_comb font_line_byte = font_line_addr[1:0];
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode1;
     always_comb unused_vid_mode1 = ^{cfgw, attr[15:4], sizeof_row,
                                      row_off[19:17], gather,
@@ -499,6 +461,5 @@ module vid_mode1 (
                                      cell_addr[1:0],
                                      font_line_addr[16],
                                      pad_left[16:10], run_w[17:10]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

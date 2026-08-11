@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The sprite stage: three slots, one per plane, each with a ping-pong
- * line buffer of its own. Nothing here waits on a fill and nothing
- * clears — the buffers erase themselves behind the beam (vid_sbuf), so
- * a slot's stream is its alpha-set pixels over transparent zeros and
- * the walk starts the moment the slots are decoded. Plane order is
- * paint order only inside a slot; across slots the compose stacks them.
  */
 
 module vid_sprite (
@@ -27,9 +20,7 @@ module vid_sprite (
 
     output logic [16:0] vid_sprite_pix[3],
 
-    /* A line whose sprites missed the beam shows its partial paint, the
-     * way hardware racing a beam does. */
-    output logic [15:0] vid_sprite_overrun /*verilator public_flat_rd*/,
+    output logic [15:0] vid_sprite_overrun ,
 
     output logic vid_sprite_a_req,
     output logic [13:0] vid_sprite_a_addr,
@@ -48,15 +39,13 @@ module vid_sprite (
     } state_t;
     state_t state;
 
-    /* The three sprite slots, read at line start: present an index each
-     * clock, the word answers the next. */
     logic [31:0] slot_entry[3];
     logic [31:0] slot_cfg[3];
     logic [2:0] s_n, s_cap;
     logic s_cap_v;
     always_comb vid_sprite_s_idx = {t_row, s_n[2:1], 1'b1, s_n[0]};
 
-    logic [1:0] p;       /* the plane being walked */
+    logic [1:0] p;
 
     logic m5_start;
     logic m5_a_req;
@@ -66,10 +55,6 @@ module vid_sprite (
     logic [15:0] m5_px_data;
     logic m5_done;
 
-    /* Mode 5's palette cache: repeats answer combinationally, misses
-     * fill through the same channel while the pixel stalls. Coherence is
-     * by row — line_start empties it, so a palette write lands by the
-     * next row and there is no write snoop. */
     logic pal_lookup, pal_xram, pal_one_bpp;
     logic [15:0] pal_base;
     logic [7:0] pal_idx;
@@ -81,7 +66,6 @@ module vid_sprite (
     initial pc_rdy = 1'b0;
     always_ff @(posedge clk)
         pc_rdy <= pc_gnt;
-    /* verilator lint_off PINCONNECTEMPTY */
     vid_palcache vid_palcache (
         .clk(clk),
         .lookup(pal_lookup),
@@ -101,7 +85,6 @@ module vid_sprite (
         .a_rdata(a_rdata),
         .flush(line_start)
     );
-    /* verilator lint_on PINCONNECTEMPTY */
 
     vid_mode5 vid_mode5 (
         .clk(clk),
@@ -157,17 +140,8 @@ module vid_sprite (
     logic sp_is4;
     always_comb sp_is4 = slot_entry[p][18:16] == 3'd4;
 
-    /* Taken when the plane was planned: sp_is4 reads slot_entry[p], a
-     * three-way mux on thirty-two bits, and it stood in both the pixel
-     * port's data path and the XRAM arbiter's for a bit that cannot
-     * change while the walk runs. */
     logic run4;
 
-    /* The cache's fill preempts mode 5's own requests. Its miss fetch
-     * never collides — a palette lookup only exists while the index
-     * word is in hand — but the prefetch asks precisely then, so a
-     * grant while the cache is asking is the cache's, and mode 5's
-     * grant says so. */
     always_comb begin
         vid_sprite_a_req = state == SP_RUN
             && (run4 ? m4_a_req : (pc_req || m5_a_req));
@@ -183,13 +157,6 @@ module vid_sprite (
     logic wr_bank;
     logic flip_next;
 
-    /* The bank flip lands on h==0's first tick, so only the pixel-0 read
-     * at the end of h==799 sees the fresh line under its write-side
-     * label. Every first tick is the eraser's, one pixel behind the read
-     * and unconditional: a held bank's later reads are never displayed,
-     * so the scan bank is zero by the time it flips to write duty.
-     * Erasing the whole bank rather than to cw is what keeps a canvas
-     * switch from stranding pixels. */
     logic [10:0] sb_rd;
     always_comb sb_rd = h == 10'd799
         ? {flip_next ? wr_bank : !wr_bank, 10'd0}
@@ -197,10 +164,6 @@ module vid_sprite (
     logic sb_we;
     always_comb sb_we = !px_last;
 
-    /* Presence rides above the pixel: a written sprite pixel replaces
-     * the fill's in the compose — the in-buffer overwrite — and the
-     * texel's own alpha bit then faces the plane's rule, so both must
-     * arrive intact. */
     logic eng_we;
     logic [9:0] eng_addr;
     logic [16:0] eng_data;
@@ -262,8 +225,6 @@ module vid_sprite (
         m4_start <= 1'b0;
         m5_start <= 1'b0;
         if (h == 10'd799 && state != SP_IDLE) begin
-            /* The lost race: count it once and drop the line; the
-             * engines die at the next line_start. */
             vid_sprite_overrun <= vid_sprite_overrun
                 + 16'd1;
             state <= SP_IDLE;
@@ -282,9 +243,6 @@ module vid_sprite (
                     if (!render_now)
                         state <= SP_IDLE;
                     else begin
-                        /* The next line's pixel 0 is read during h==799,
-                         * so the flip must land before it or that pixel
-                         * comes up stale. */
                         flip_next <= 1'b1;
                         if (s_n < 3'd6)
                             s_n <= s_n + 3'd1;
@@ -322,11 +280,9 @@ module vid_sprite (
         end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_sprite;
     always_comb unused_vid_sprite = ^{t[9], slot_entry[0][30:19],
                                       slot_entry[1][30:19],
                                       slot_entry[2][30:19]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

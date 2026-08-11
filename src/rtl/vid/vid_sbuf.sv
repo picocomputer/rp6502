@@ -2,16 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * One sprite slot's line buffer: ping-pong banks as two arrays, so each
- * is a simple dual port the tool infers — the engine owns the write
- * bank's write port, the eraser owns the scan bank's, and the roles
- * swap with wr_bank. One array with both writers needs a true dual
- * port, and no conditional shape survived extraction. The eraser rides
- * the beam one pixel behind the scanout read, so every bank returns to
- * write duty already erased — no filled flag and no clear pass. Bit 16
- * is presence — written pixels carry it, the eraser clears it — and it
- * rides free: seventeen wide is the same block count as sixteen.
  */
 
 module vid_sbuf (
@@ -37,8 +27,6 @@ module vid_sbuf (
     (* ramstyle = "no_rw_check" *)
     logic [16:0] b1[1024];
 
-    /* The zeros are load-bearing from the first frame: hardware
-     * configures block RAM to zero, and simulation must agree. */
     initial
         for (int i = 0; i < 1024; i++) begin
             b0[i] = 17'd0;
@@ -64,9 +52,6 @@ module vid_sbuf (
         if (b1_we)
             b1[b1_addr] <= b1_data;
 
-    /* Both banks read every pixel and the select is registered beside
-     * them: a mux after the output registers costs fabric, not the
-     * block-memory inference. */
     logic [16:0] q0, q1;
     logic q_sel;
     initial begin

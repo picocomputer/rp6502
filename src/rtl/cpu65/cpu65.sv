@@ -2,18 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * W65C02S, per-cycle bus-identical to the emulator's chips/w65c02.h. The
- * decode table in cpu65_rom_pkg comes from the same generator as the C, and
- * the conformance suites in tests/cpu hold both to the same vectors.
- *
- * One clock per CPU cycle when en is high. Outputs are registered and describe
- * the bus cycle in flight: the memory system returns data_i for the address on
- * cpu65_addr in the same en period, exactly the contract of w65c02_tick.
- *
- * Statement order in the C decides evaluation order here: operations run
- * first, the address unit uses post-operation values, and post-steps land
- * last. RTS drives the program counter it just pulled.
  */
 
 module cpu65
@@ -33,49 +21,19 @@ module cpu65
     output logic [7:0] cpu65_data,
     output logic cpu65_we,
     output logic cpu65_stp,
-    /* Beside stp because a freeze has to know about both: neither stall
-     * cycle fetches, so a gate that waits for sync alone never lets go
-     * of a core sitting in WAI. */
 
-    /* Everything the core is, as five words, for stopping it in one
-     * place and starting it again somewhere else. Reads are free; a
-     * write lands directly in the flops, which is only sound while en
-     * is held low, and that is the caller's part of the bargain.
-     *
-     * The registers are the obvious half. The half that is not: the
-     * interrupt pipelines, because a detection is honoured two
-     * boundaries after it arrives and a core restored without them
-     * takes the interrupt late or never; and the wait and stop flags,
-     * because a core in WAI has to come back still in WAI.
-     *
-     * ad, ir, tick, the brk causes and res_seen are dead at an
-     * instruction boundary, which is the only place a freeze lands.
-     * They travel anyway — they cost nothing in words already being
-     * carried, and the port then describes the core rather than one
-     * moment in it. */
     input logic [2:0] st_idx,
     output logic [31:0] cpu65_st_rdata,
-    /* The whole of it at once, because a restore lands with the clock
-     * already back. */
     input logic st_jam,
     input logic [31:0] st_jam_data[5],
 
-    /* What the bus will carry after this enable — the same values the
-     * registers take at the edge, published before it. A memory that
-     * cannot answer inside one clock has to launch on the enable rather
-     * than a clock later, or its byte arrives with nothing left of the
-     * period for the address cone to consume it. */
     output logic [15:0] cpu65_next_addr,
     output logic [7:0] cpu65_next_data,
     output logic cpu65_next_we
 );
 
-    /* Fetch cycle marker. Once an output for the freeze boundary; the
-     * clock-stop design needs no boundary, so it is internal state
-     * again -- the interrupt takes and the blob still ride on it. */
-    logic cpu65_sync /*verilator public_flat_rd*/;
+    logic cpu65_sync ;
 
-    // P flag bits
     localparam int FC = 0;
     localparam int FZ = 1;
     localparam int FI = 2;
@@ -85,42 +43,26 @@ module cpu65
     localparam int FV = 6;
     localparam int FN = 7;
 
-    // Public for the conformance testbench, which adopts register state to
-    // start a vector mid-stream the way the C model can.
-    logic [15:0] pc /*verilator public_flat_rw*/;
-    logic [15:0] ad /*verilator public_flat_rw*/;
-    logic [7:0] a /*verilator public_flat_rw*/;
-    logic [7:0] x /*verilator public_flat_rw*/;
-    logic [7:0] y /*verilator public_flat_rw*/;
-    logic [7:0] s /*verilator public_flat_rw*/;
-    logic [7:0] p /*verilator public_flat_rw*/;
-    logic [7:0] ir /*verilator public_flat_rw*/;
-    logic [2:0] tick /*verilator public_flat_rw*/;
-    // Interrupt pipelines: detections enter at bit 8 and shift up each cycle,
-    // so a request is honored at the second SYNC after it, like the silicon.
-    logic [15:0] irq_pip /*verilator public_flat_rw*/;
-    logic [15:0] nmi_pip /*verilator public_flat_rw*/;
-    logic brk_irq /*verilator public_flat_rw*/;
-    logic brk_nmi /*verilator public_flat_rw*/;
-    logic brk_res /*verilator public_flat_rw*/;
-    logic wait_flag /*verilator public_flat_rw*/;
-    logic stop_flag /*verilator public_flat_rw*/;
+    logic [15:0] pc ;
+    logic [15:0] ad ;
+    logic [7:0] a ;
+    logic [7:0] x ;
+    logic [7:0] y ;
+    logic [7:0] s ;
+    logic [7:0] p ;
+    logic [7:0] ir ;
+    logic [2:0] tick ;
+    logic [15:0] irq_pip ;
+    logic [15:0] nmi_pip ;
+    logic brk_irq ;
+    logic brk_nmi ;
+    logic brk_res ;
+    logic wait_flag ;
+    logic stop_flag ;
     always_comb cpu65_stp = stop_flag;
-    logic nmi_prev /*verilator public_flat_rw*/;
-    // The power-on one-shot only: the C model comes out of init with RES
-    // pending for its first SYNC. At runtime RES is a level sampled at SYNC,
-    // exactly as the C does it; a pulse between opcode fetches is lost on
-    // both sides, and the machine holds RESB far longer than an instruction.
-    logic res_seen /*verilator public_flat_rw*/;
+    logic nmi_prev ;
+    logic res_seen ;
 
-    // ------------------------------------------------------------------
-    // Stalls, detection, and the SYNC prologue
-    // ------------------------------------------------------------------
-
-
-    /* The five words. Packed so a byte register never straddles one:
-     * the engine writes them back verbatim and nothing has to agree
-     * about bit order twice. */
     always_comb begin
         case (st_idx)
             3'd0: cpu65_st_rdata = {s, y, x, a};
@@ -149,7 +91,6 @@ module cpu65
     always_comb begin
         stop_stall = stop_flag && !res_i;
         wait_stall = wait_flag && !stop_stall && !(irq_i || nmi_i || res_i);
-        // RDY freezes read cycles only; the C checks it before decoding.
         rdy_stall = !stop_flag && !wait_flag && rdy_i && !cpu65_we;
     end
 
@@ -166,7 +107,7 @@ module cpu65
     logic take_irq, take_nmi, take_res, brk_now;
     logic [7:0] eff_ir;
     logic [2:0] eff_tick;
-    logic [15:0] pc_pro;  // after the prologue's PC increment
+    logic [15:0] pc_pro;
     always_comb begin
         take_irq = cpu65_sync && irq_pip_det[10];
         take_nmi = cpu65_sync && |nmi_pip_det[15:10];
@@ -186,8 +127,6 @@ module cpu65
     cpu65_cw_t cw;
     always_comb cw = cpu65_rom({eff_ir, eff_tick});
 
-    // brk_* as the executing BRK sequence sees them: forced entry latches its
-    // cause in the same cycle tick 0 runs.
     logic seq_irq, seq_nmi, seq_res;
     always_comb begin
         seq_irq = brk_irq || take_irq;
@@ -195,18 +134,10 @@ module cpu65
         seq_res = brk_res || take_res;
     end
 
-    // ------------------------------------------------------------------
-    // Operation execute: post-operation register values
-    // ------------------------------------------------------------------
-
-    // N and Z from a result; bits 7 and 1 of the incoming P are replaced.
-    /* verilator lint_off UNUSEDSIGNAL */
     function automatic logic [7:0] nz(input logic [7:0] pin, input logic [7:0] v);
         return {v[7], pin[6:2], v == 8'h00, pin[0]};
     endfunction
-    /* verilator lint_on UNUSEDSIGNAL */
 
-    // Shifts and rotates share one result-and-carry form.
     function automatic logic [8:0] shift(input cpu65_rom_pkg::cpu65_sel_t which,
                                          input logic [7:0] v,
                                          input logic cin);
@@ -214,7 +145,7 @@ module cpu65
             SEL_ASL: return {v[7], v[6:0], 1'b0};
             SEL_LSR: return {v[0], 1'b0, v[7:1]};
             SEL_ROL: return {v[7], v[6:0], cin};
-            default: return {v[0], cin, v[7:1]};  // SEL_ROR
+            default: return {v[0], cin, v[7:1]};
         endcase
     endfunction
 
@@ -222,11 +153,10 @@ module cpu65
     logic [7:0] n_a, n_x, n_y, n_s, n_p;
     logic n_wait, n_stop;
     logic n_brk_irq, n_brk_nmi, n_brk_res;
-    logic cond_fail;  // drive the alternate address, suppress fetch and skip
-    logic pip_hold;   // a taken same-page branch delays interrupt recognition
-    logic wr_gate;    // interrupt entry suppresses the reset variant's pushes
+    logic cond_fail;
+    logic pip_hold;
+    logic wr_gate;
 
-    // Scratch used across the big case
     logic [8:0] sum9;
     logic [15:0] cmp16, bin16;
     logic [7:0] gd, opnd;
@@ -244,8 +174,6 @@ module cpu65
         n_y = y;
         n_s = s;
         n_p = brk_now ? (p & ~(8'h01 << FB)) : p;
-        // A set flag only reaches this path on its release cycle, so the
-        // default is the C's clear-and-continue.
         n_wait = 1'b0;
         n_stop = 1'b0;
         n_brk_irq = seq_irq;
@@ -269,15 +197,12 @@ module cpu65
         unique case (cw.op)
             OP_NONE: ;
 
-            // ---- moving bytes ----
             OP_AD_LOAD: n_ad = {8'h00, gd};
             OP_AD_HI: n_ad = {gd, ad[7:0]};
             OP_AD_HI_INDEX: begin
                 n_ad = {gd, ad[7:0]};
-                // Page cross: the low-byte add carries. The index register is
-                // whichever the no-cross address uses.
                 sum9 = {1'b0, ad[7:0]} + {1'b0, (cw.off == OFF_X) ? x : y};
-                cond_fail = sum9[8];  // crossed: dummy read instead, no skip
+                cond_fail = sum9[8];
             end
             OP_AD_ADD_X_ZP: n_ad = {8'h00, ad[7:0] + x};
             OP_AD_ADD_X: n_ad = ad + {8'h00, x};
@@ -293,7 +218,6 @@ module cpu65
             OP_PCL_FROM_BUS: n_pc = {8'h00, gd};
             OP_PCH_FROM_BUS: n_pc = {gd, pc[7:0]};
 
-            // ---- arithmetic and logic ----
             OP_LOGIC: begin
                 case (cw.sel)
                     SEL_AND: n_a = a & gd;
@@ -331,7 +255,7 @@ module cpu65
                         : ((a[7] ^ gd[7]) & (a[7] ^ bin16[7]));
                     n_p[FC] = (cw.sel == SEL_ADC) ? |bin16[15:8] : ~|bin16[15:8];
                 end else begin
-                    cond_fail = 1'b1;  // decimal: spend the extra cycle
+                    cond_fail = 1'b1;
                 end
             end
             OP_ADDSUB_DECIMAL: begin
@@ -385,7 +309,6 @@ module cpu65
             OP_Y_INC: begin n_y = y + 8'd1; n_p = nz(n_p, n_y); end
             OP_Y_DEC: begin n_y = y - 8'd1; n_p = nz(n_p, n_y); end
 
-            // ---- bit instructions ----
             OP_BIT_SELECT: begin
                 bsel = 4'(32'(cw.sel) - 32'(SEL_B0));
                 n_ad = {15'h0, ad[bsel]};
@@ -409,7 +332,6 @@ module cpu65
                 n_ad = {ad[15:8], ad[7:0] & ~a};
             end
 
-            // ---- transfers ----
             OP_TAX: begin n_x = a; n_p = nz(n_p, a); end
             OP_TAY: begin n_y = a; n_p = nz(n_p, a); end
             OP_TXA: begin n_a = x; n_p = nz(n_p, x); end
@@ -417,7 +339,6 @@ module cpu65
             OP_TSX: begin n_x = s; n_p = nz(n_p, s); end
             OP_TXS: n_s = x;
 
-            // ---- flags ----
             OP_FLAG_CLEAR: begin
                 case (cw.sel)
                     SEL_I: n_p[FI] = 1'b0;
@@ -435,7 +356,6 @@ module cpu65
             OP_CLV: n_p[FV] = 1'b0;
             OP_PULL_P: n_p = (gd | (8'h01 << FX)) & ~(8'h01 << FB);
 
-            // ---- branches ----
             OP_BRANCH_TEST: begin
                 n_ad = pc + {{8{gd[7]}}, gd};
                 case (cw.sel)
@@ -449,7 +369,7 @@ module cpu65
                         branch_taken = ~flagbit;
                     default: branch_taken = flagbit;
                 endcase
-                cond_fail = branch_taken;  // taken: keep going, no fetch yet
+                cond_fail = branch_taken;
             end
             OP_BRANCH_ALWAYS: n_ad = pc + {{8{gd[7]}}, gd};
             OP_BRANCH_FIXUP, OP_BRANCH_FIXUP_PIP: begin
@@ -457,17 +377,16 @@ module cpu65
                     n_pc = ad;
                     pip_hold = cw.op == OP_BRANCH_FIXUP_PIP;
                 end else begin
-                    cond_fail = 1'b1;  // crossed: one more cycle to fix up
+                    cond_fail = 1'b1;
                 end
             end
             OP_BBR_TEST, OP_BBS_TEST: begin
                 branch_taken = (cw.op == OP_BBS_TEST) ? ad[0] : ~ad[0];
                 if (branch_taken)
                     n_ad = pc + {{8{gd[7]}}, gd};
-                cond_fail = branch_taken;  // taken: more cycles instead of fetch
+                cond_fail = branch_taken;
             end
 
-            // ---- interrupt entry and stalls ----
             OP_BRK_PUSH_PCH: begin
                 if (!(seq_irq || seq_nmi))
                     n_pc = pc + 16'd1;
@@ -486,21 +405,15 @@ module cpu65
                 n_brk_res = 1'b0;
             end
             OP_WAI: n_wait = 1'b1;
-            default: n_stop = 1'b1;  // OP_STP
+            default: n_stop = 1'b1;
         endcase
     end
 
-    // The cycle ends here on a conditional operation whose condition failed;
-    // fetch and skip belong to the condition holding.
     logic do_fetch, do_skip;
     always_comb begin
         do_fetch = cw.fetch && !cond_fail;
         do_skip = cw.skip && !cond_fail;
     end
-
-    // ------------------------------------------------------------------
-    // Address unit: post-operation values in, one bus address out
-    // ------------------------------------------------------------------
 
     logic [15:0] base16, off16, full_addr;
     cpu65_lo_t use_lo;
@@ -523,13 +436,11 @@ module cpu65
 
         case (use_lo)
             LO_PC: base16 = n_pc;
-            // A few cycles read through AD while replacing it; ad_pre marks
-            // them and the address takes the pre-operation value.
             LO_AD: base16 = cw.ad_pre ? ad : n_ad;
             LO_S: base16 = {8'h00, n_s};
             LO_GD: base16 = {8'h00, gd};
             LO_CONST_7F: base16 = 16'h007F;
-            default: base16 = 16'h0000;  // LO_ZERO, LO_HOLD
+            default: base16 = 16'h0000;
         endcase
 
         case (use_off)
@@ -538,7 +449,7 @@ module cpu65
             OFF_Y: off16 = {8'h00, y};
             OFF_M1: off16 = 16'hFFFF;
             OFF_M2: off16 = 16'hFFFE;
-            default: off16 = 16'h0000;  // OFF_0
+            default: off16 = 16'h0000;
         endcase
 
         case (use_hi)
@@ -550,16 +461,12 @@ module cpu65
                                 base16[7:0] + off16[7:0]};
             HI_GD: full_addr = {gd, base16[7:0]};
             HI_ZERO: full_addr = {8'h00, base16[7:0]};
-            default: full_addr = cpu65_addr;  // HI_HOLD
+            default: full_addr = cpu65_addr;
         endcase
 
         if (do_fetch)
             full_addr = n_pc;
     end
-
-    // ------------------------------------------------------------------
-    // Data out
-    // ------------------------------------------------------------------
 
     logic [7:0] dout;
     logic n_we;
@@ -574,14 +481,10 @@ module cpu65
             DOUT_P_BRK: dout = p | (8'h01 << FB) | (8'h01 << FX);
             DOUT_P_ENTRY: dout = p | (8'h01 << FX)
                 | ((seq_irq || seq_nmi) ? 8'h00 : (8'h01 << FB));
-            default: dout = 8'h00;  // DOUT_ZERO, DOUT_NONE
+            default: dout = 8'h00;
         endcase
         n_we = cw.wr && wr_gate;
     end
-
-    // ------------------------------------------------------------------
-    // Commit
-    // ------------------------------------------------------------------
 
     logic [15:0] post_pc, post_ad;
     logic [7:0] post_s;
@@ -594,15 +497,13 @@ module cpu65
             POST_AD_INC: post_ad = n_ad + 16'd1;
             POST_S_INC: post_s = n_s + 8'd1;
             POST_S_DEC: post_s = n_s - 8'd1;
-            default: ;  // POST_NONE
+            default: ;
         endcase
     end
 
     logic [15:0] pip_mask;
     always_comb pip_mask = cpu65_sync ? 16'h03FF : 16'hFFFF;
 
-    /* The bus one edge early. When the core is stalled the registers
-     * hold, so the answer is what they already carry. */
     always_comb begin
         if (stop_stall || wait_stall || rdy_stall) begin
             cpu65_next_addr = cpu65_addr;
@@ -617,8 +518,6 @@ module cpu65
 
     always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // The C model comes out of init with SYNC and RES pending at
-            // address zero, so the first cycle forces the reset sequence.
             pc <= 16'h0000;
             ad <= 16'h0000;
             a <= 8'h00;
@@ -642,11 +541,6 @@ module cpu65
             cpu65_we <= 1'b0;
             cpu65_sync <= 1'b1;
         end else if (st_jam) begin
-            /* All five words on one edge, ahead of en. A restore
-             * happens with the clock back on, and a jam spread over
-             * five edges would let the core run through the four it was
-             * not being written on. One edge is the whole state and no
-             * instruction in between. */
             {s, y, x, a} <= st_jam_data[0];
             {ir, p, pc} <= st_jam_data[1];
             ad <= st_jam_data[2][31:16];
@@ -666,7 +560,6 @@ module cpu65
         end else if (en) begin
             nmi_prev <= nmi_i;
             if (stop_stall || wait_stall) begin
-                // Only the pin moves; the C returns before its prologue.
             end else if (rdy_stall) begin
                 irq_pip <= irq_pip_det << 1;
                 nmi_pip <= nmi_pip_det;

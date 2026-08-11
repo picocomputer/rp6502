@@ -2,21 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * M6522 VIA, per-cycle identical to the emulator's model as the machine
- * wires it. The ports are unwired here as on the board — inputs read
- * low, CA/CB never see an edge — so the port-input machinery reduces to
- * constants rather than being carried dead.
- *
- * Operation order comes from the C: register access effects first, then
- * the timers on pipeline bits fed two cycles earlier, then the IRQ
- * flag's own one-cycle pipe, then the pipelines shift. One quirk is
- * deliberate: in PB6 count mode the C compares fresh port inputs (all
- * zero) against the pins it drove last cycle, so a driven-high PB6
- * reads as a falling edge every cycle.
- *
- * Read data is combinational from pre-tick state; read side effects land at
- * the clock edge with everything else.
  */
 
 module via (
@@ -32,24 +17,12 @@ module via (
     output logic [7:0] via_data,
     output logic via_irq,
 
-    /* All of it, as seven words, for a savestate. Not the architectural
-     * registers — those are readable already and would come back a
-     * timer short: the three pipelines carry the cycle the counters are
-     * actually going to fire on, and a restore without them resumes a
-     * timer at the wrong tick. Reads bypass the access side effects
-     * that make T1CL and T2CL unreadable from the 6502's side.
-     *
-     * A write lands directly in the flops, sound only while en is low. */
     input logic [2:0] st_idx,
     output logic [31:0] via_st_rdata,
-    /* The whole of it at once: a restore lands with the clock already
-     * back, so a jam spread over seven edges would let the machine run
-     * through the six it was not being written on. */
     input logic st_jam,
     input logic [31:0] st_jam_data[7]
 );
 
-    // Register indices
     localparam logic [3:0] REG_RB = 4'h0;
     localparam logic [3:0] REG_RA = 4'h1;
     localparam logic [3:0] REG_DDRB = 4'h2;
@@ -67,30 +40,29 @@ module via (
     localparam logic [3:0] REG_IER = 4'hE;
     localparam logic [3:0] REG_RA_NOH = 4'hF;
 
-    // IFR bits
     localparam int IRQ_T2 = 5;
     localparam int IRQ_T1 = 6;
     localparam int IRQ_ANY = 7;
 
-    logic [7:0] outr_a /*verilator public_flat_rw*/;
-    logic [7:0] outr_b /*verilator public_flat_rw*/;
-    logic [7:0] ddr_a /*verilator public_flat_rw*/;
-    logic [7:0] ddr_b /*verilator public_flat_rw*/;
-    logic [7:0] pins_a /*verilator public_flat_rw*/;
-    logic [7:0] pins_b /*verilator public_flat_rw*/;
-    logic [15:0] t1_latch /*verilator public_flat_rw*/;
-    logic [15:0] t1_counter /*verilator public_flat_rw*/;
-    logic t1_tbit /*verilator public_flat_rw*/;
-    logic [15:0] t1_pip /*verilator public_flat_rw*/;
-    logic [15:0] t2_latch /*verilator public_flat_rw*/;
-    logic [15:0] t2_counter /*verilator public_flat_rw*/;
-    logic t2_tbit /*verilator public_flat_rw*/;
-    logic [15:0] t2_pip /*verilator public_flat_rw*/;
-    logic [7:0] acr /*verilator public_flat_rw*/;
-    logic [7:0] pcr /*verilator public_flat_rw*/;
-    logic [7:0] ifr /*verilator public_flat_rw*/;
-    logic [7:0] ier /*verilator public_flat_rw*/;
-    logic [15:0] int_pip /*verilator public_flat_rw*/;
+    logic [7:0] outr_a ;
+    logic [7:0] outr_b ;
+    logic [7:0] ddr_a ;
+    logic [7:0] ddr_b ;
+    logic [7:0] pins_a ;
+    logic [7:0] pins_b ;
+    logic [15:0] t1_latch ;
+    logic [15:0] t1_counter ;
+    logic t1_tbit ;
+    logic [15:0] t1_pip ;
+    logic [15:0] t2_latch ;
+    logic [15:0] t2_counter ;
+    logic t2_tbit ;
+    logic [15:0] t2_pip ;
+    logic [7:0] acr ;
+    logic [7:0] pcr ;
+    logic [7:0] ifr ;
+    logic [7:0] ier ;
+    logic [15:0] int_pip ;
 
     always_comb begin
         case (st_idx)
@@ -105,16 +77,10 @@ module via (
         endcase
     end
 
-    // ------------------------------------------------------------------
-    // Combinational read, from pre-tick state
-    // ------------------------------------------------------------------
-
     always_comb begin
         via_data = 8'h00;
         if (cs && !we) begin
             case (rs)
-                // With port latching on, reads return the input latch, which
-                // never captures anything on unwired ports.
                 REG_RB: via_data = acr[1] ? 8'h00 : pins_b;
                 REG_RA, REG_RA_NOH: via_data = acr[0] ? 8'h00 : pins_a;
                 REG_DDRB: via_data = ddr_b;
@@ -135,10 +101,6 @@ module via (
         end
     end
 
-    // ------------------------------------------------------------------
-    // Tick: access effects, then timers, then IRQ, then pipelines
-    // ------------------------------------------------------------------
-
     logic [7:0] n_outr_a, n_outr_b, n_ddr_a, n_ddr_b;
     logic [15:0] n_t1_latch, n_t1_counter, n_t2_latch, n_t2_counter;
     logic n_t1_tbit, n_t2_tbit;
@@ -147,8 +109,6 @@ module via (
     logic [7:0] n_pins_a, n_pins_b;
     logic t1_out, t2_out;
 
-    // The C's _m6522_clear_intr: dropping the last enabled source also drops
-    // the master bit and anything in the IRQ delay pipe.
     function automatic logic [23:0] clear_intr(input logic [7:0] fr,
                                                input logic [7:0] er,
                                                input logic [15:0] pip,
@@ -188,7 +148,6 @@ module via (
         t2_out = 1'b0;
         ci = 24'h0;
 
-        // ---- register access effects ----
         if (cs) begin
             if (we) begin
                 case (rs)
@@ -218,7 +177,7 @@ module via (
                         n_t2_tbit = 1'b0;
                         n_t2_counter = n_t2_latch;
                     end
-                    REG_SR: ;  // unimplemented upstream too
+                    REG_SR: ;
                     REG_ACR: begin
                         n_acr = data_i;
                         if (!data_i[5])
@@ -248,13 +207,11 @@ module via (
                         ci = clear_intr(n_ifr, n_ier, n_int_pip, 8'h01 << IRQ_T2);
                         {n_ifr, n_int_pip} = ci;
                     end
-                    // RB/RA clear the CA/CB flags, which never set here.
                     default: ;
                 endcase
             end
         end
 
-        // ---- T1 ----
         if (n_t1_pip[0])
             n_t1_counter = n_t1_counter - 16'd1;
         t1_out = n_t1_counter == 16'hFFFF;
@@ -271,10 +228,7 @@ module via (
         if (n_t1_pip[8])
             n_t1_counter = n_t1_latch;
 
-        // ---- T2 ----
         if (n_acr[5]) begin
-            // The C compares fresh inputs (zero here) with the pins it drove
-            // last cycle, so PB6 driven high counts every cycle.
             if (pins_b[6])
                 n_t2_counter = n_t2_counter - 16'd1;
         end else if (n_t2_pip[0]) begin
@@ -286,17 +240,14 @@ module via (
             n_t2_tbit = 1'b1;
         end
 
-        // ---- IRQ, one cycle behind its sources ----
         if (n_int_pip[0])
             n_ifr[IRQ_ANY] = 1'b1;
 
-        // ---- ports: output drivers only, inputs read low ----
         n_pins_a = n_outr_a & n_ddr_a;
         n_pins_b = n_outr_b & n_ddr_b;
         if (n_acr[7])
             n_pins_b[7] = n_t1_tbit;
 
-        // ---- pipelines shift last ----
         n_t1_pip = ((n_t1_pip | 16'h0004) >> 1) & 16'h7F7F;
         n_t2_pip = ((n_t2_pip | 16'h0004) >> 1) & 16'h7F7F;
         if ((n_ifr & n_ier & 8'h7F) != 8'h00)
@@ -336,14 +287,6 @@ module via (
             ier <= st_jam_data[5][15:8];
             t2_tbit <= st_jam_data[5][1];
             t1_tbit <= st_jam_data[5][0];
-            /* The pin is IFR bit 7, which the blob carries, so it is
-             * taken and not worked out again. Re-deriving it from the
-             * flags is a different function from the one the running
-             * machine uses -- that one is n_ifr[IRQ_ANY], which the
-             * clear rule maintains with its own timing -- and a
-             * restored VIA whose pin disagreed with its own IFR would
-             * hand the 6502 an interrupt it had already taken, or drop
-             * one it had not. */
             via_irq <= st_jam_data[5][23];
             int_pip <= st_jam_data[6][15:0];
         end else if (en) begin

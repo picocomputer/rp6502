@@ -2,10 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * What the shared HID drivers reach for and this machine does not have.
- * The APF bus has no boot enumeration and no lock LEDs, and the font
- * asset is the only code page there is.
  */
 
 #include "font.h"

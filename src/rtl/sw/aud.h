@@ -12,13 +12,7 @@
 
 void aud_init(void);
 void aud_stop(void);
-/* A savestate carries the blocks and the pointers but not what the
- * engines made of them; this is the pointers put back and the blocks
- * replayed. */
 void aud_restore(void);
-/* What each engine was told to play, at both ends of a sleep: the same
- * bytes mean the block came back and the fault is downstream, different
- * bytes mean XRAM did not. */
 void aud_log_psg(const char *when);
 void aud_log_opl(const char *when);
 uint16_t aud_psg_at_get(void);
@@ -26,4 +20,4 @@ uint16_t aud_opl_at_get(void);
 bool aud_psg_xreg(uint16_t word);
 bool aud_opl_xreg(uint16_t word);
 
-#endif /* _FPGA_SW_AUD_H_ */
+#endif

@@ -2,15 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * One plane's line buffer: ping-pong banks as two arrays, the engine
- * writing one while the beam reads and erases the other — the eraser
- * rides one pixel behind the read, so every bank returns to write duty
- * holding zeros, and a line nothing filled IS its zeros: black under
- * the base plane's rule, transparent under an overlay's. done arms the
- * bank flip and nothing else. Banks as two arrays because one array
- * with two writers needs a true dual port, and no conditional shape
- * survives extraction.
  */
 
 module vid_mode (
@@ -33,8 +24,6 @@ module vid_mode (
     (* ramstyle = "no_rw_check" *)
     logic [15:0] b1[1024];
 
-    /* The zeros are load-bearing from the first frame: hardware
-     * configures block RAM to zero, and simulation must agree. */
     initial
         for (int i = 0; i < 1024; i++) begin
             b0[i] = 16'h0000;
@@ -65,12 +54,6 @@ module vid_mode (
         if (b1_we)
             b1[b1_addr] <= b1_data;
 
-    /* The beam reads one ahead of itself, on each pixel's last tick, and
-     * the bank flip lands on h==0's first tick — so only the pixel-0
-     * read at the end of h==799 sees the fresh line under its write-side
-     * label. Both banks read every pixel and the select is registered
-     * beside them: a mux after the output registers costs fabric, not
-     * the block-memory inference. */
     logic [9:0] rd_addr;
     logic rd_bank;
     always_comb begin
@@ -97,8 +80,6 @@ module vid_mode (
         wr_bank = 1'b0;
         flip_next = 1'b0;
     end
-    /* The next line's pixel 0 is read during h==799, so the flip must
-     * land before it or that pixel comes up stale. */
     always_ff @(posedge clk) begin
         if (line_start) begin
             if (flip_next)

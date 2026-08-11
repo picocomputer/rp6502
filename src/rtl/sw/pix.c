@@ -2,13 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The pocket port of the op 0x01 xreg dispatcher, emu/sys/pix.c's
- * synchronous shape: no PIX bus, so delivery is a function call and a
- * handler's false is the NAK. The canvas word goes first from a
- * channel-0 address-0 burst so it cannot clear the mode programming that
- * follows; the rest land high address to low, each register after the
- * parameters it consumes.
  */
 
 #include "main.h"
@@ -18,7 +11,6 @@
 
 #include <string.h>
 
-/* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */
 static uint16_t pix_word_at(int i)
 {
     uint16_t word;
@@ -37,7 +29,6 @@ bool pix_api_xreg(void)
     if (!aligned || count < 1 || count > XSTACK_SIZE / 2 ||
         device > 7 || channel > 15)
         return api_return_errno(API_EINVAL);
-    /* The VGA control channel is RIA-private. */
     if (device == PIX_DEVICE_VGA && channel == 0xF)
         return api_return_errno(API_EACCES);
     if (device == PIX_DEVICE_RIA)
@@ -57,6 +48,5 @@ bool pix_api_xreg(void)
                 return api_return_errno(API_EINVAL);
         return api_return_ax(0);
     }
-    /* Devices 2-7 go over a bus this machine does not have. */
     return api_return_ax(0);
 }

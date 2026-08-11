@@ -2,18 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The 640x480@60 raster, the only one this machine scans out: 800 pixels
- * a line, 525 lines a frame, syncs active-low per the VGA-side scanvideo
- * programming. The clock runs twice the pixel — the 50.4 MHz render
- * domain over the 25.2 MHz beam — so every pixel spans two clocks and
- * the engines racing the beam get their 1,600-clock line.
- * The pulses fire on a pixel's first clock; de strobes on its last, when
- * everything upstream has settled, so a de sample is one pixel.
- *
- * vsync_pulse fires once per frame at the 479-to-480 transition — the
- * moment the emulator's run_frame counts a frame for $FFE3, a pacing
- * signal at the start of vblank, not a beam-position latch.
  */
 
 module vid_timing

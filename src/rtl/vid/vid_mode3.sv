@@ -2,21 +2,11 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Mode 3, the linear bitmap of vga/modes/mode3.c: rows mapped with true
- * wraparound, the oracle's rejects (range, bitmap overrun, the 16bpp odd
- * row), and the line described to the shared pixel tail as segments. The
- * tail owns the fetching, slicing, palette and pixels; this front owns
- * the geometry. A wrapped bitmap is runs of the bitmap's width back to
- * back; a clipped one is a run with padding around it; a rejected line
- * is one padding segment.
  */
 
 module vid_mode3 (
     input logic clk,
 
-    /* One line of work: start when the config view is valid; abort_i is
-     * the next line's deadline. */
     input logic start,
     input logic abort_i,
     input logic [15:0] attr,
@@ -50,7 +40,6 @@ module vid_mode3 (
         cf_palette = cfgw[111:96];
     end
 
-    /* Attribute code to depth; 8-10 are the reversed 1/2/4. */
     logic reversed;
     logic [2:0] bpp_log;
     always_comb begin
@@ -77,8 +66,6 @@ module vid_mode3 (
     logic [9:0] px_rem;
     logic blank;
 
-    /* The oracle stores these in int16, so ±32768 wraps before the
-     * wraparound fold sees it. */
     logic [15:0] row16, col16;
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
@@ -104,7 +91,6 @@ module vid_mode3 (
             if (run_w < {7'd0, px_rem})
                 vid_mode3_seg_px = run_w[9:0];
         end
-        /* else: blank, or right padding — the rest of the line. */
     end
 
     initial begin
@@ -139,9 +125,6 @@ module vid_mode3 (
             case (state)
                 S3_IDLE: ;
                 S3_WRAP: begin
-                    /* Iterative wraparound; sane configs settle in a
-                     * step or two, and the beam's deadline bounds the
-                     * pathological ones. */
                     if (cf_width < 16'sd1 || cf_height < 16'sd1) begin
                         blank <= 1'b1;
                         state <= S3_ADDR;
@@ -169,17 +152,12 @@ module vid_mode3 (
                 end
                 S3_ADDR: begin
                     row_base <= {1'b0, cf_data} + row_off[16:0];
-                    /* Bitmap overrun, and 16bpp rejects an odd row. */
                     if (!blank
                         && (35'(cf_height[14:0]) * 35'(sizeof_row)
                             > 35'(17'h10000) - 35'({1'b0, cf_data})
                             || (bpp_log == 3'd4
                                 && (cf_data[0] ^ row_off[0]))))
                         blank <= 1'b1;
-                    /* The tail's plan: a blank line loads nothing.
-                     * The pal_xram test folds the blank decision in
-                     * combinationally, since blank may land on this
-                     * same edge. */
                     vid_mode3_pal_ptr <= cf_palette;
                     vid_mode3_pal_xram <= !blank
                         && !(35'(cf_height[14:0]) * 35'(sizeof_row)
@@ -216,11 +194,9 @@ module vid_mode3 (
         end
     end
 
-    /* verilator lint_off UNUSEDSIGNAL */
     logic unused_vid_mode3;
     always_comb unused_vid_mode3 = ^{row_off[19:17], sizeof_row, cfgw,
                                      attr[15:4], pad_left[16:10],
                                      run_w[16:10]};
-    /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

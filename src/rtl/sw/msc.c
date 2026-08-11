@@ -2,21 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The Pocket's drive. Eight data slots stand in for eight open files.
- *
- * The host has no working directory and will not resolve a relative
- * name, so the drive spells one out. There is no single root to spell:
- * an open means the program's own saves folder and an exec means where
- * the menu browses, so each side of the API pins its own. A leading
- * slash names the card's root and travels untouched.
- *
- * Paths are code page bytes going out and UTF-8 at the host, worst case
- * three bytes per character. A name that will not fit the struct is
- * refused rather than truncated into a different file.
- *
- * A slot's file has a length, not a high-water mark, so a write past the
- * end costs a resize-open round trip before the bytes.
  */
 
 #include "font.h"
@@ -28,7 +13,6 @@
 #include <stdio.h>
 #include <string.h>
 
-/* Slots 1-8 are the open files, above the ROM's slot 0. */
 #define MSC_SLOT_FIRST 1
 #define MSC_OPEN_MAX 8
 
@@ -52,14 +36,9 @@ static struct
     bool writable;
     uint32_t len;
     uint32_t pos;
-    /* Kept because growing the file means opening it again, and the
-     * window the name went out through cannot be read back. */
     char name[MSC_NAME_MAX];
 } msc_pool[MSC_OPEN_MAX];
 
-/* Two halves, because the task loop does not wait: a silent host holds
- * the bridge for about 0.9 seconds and spinning that out stops every
- * other task. Start it, and poll once per pass. */
 static void msc_start(uint32_t op)
 {
     FILE_CTL = op;
@@ -74,9 +53,6 @@ static bool msc_poll(uint32_t *st)
     return true;
 }
 
-/* Counted rather than printed at the point of failure: a stream that
- * goes wrong goes wrong every frame, and a console full of it would be
- * the second thing the user could not read. Reported once. */
 static uint16_t msc_n_tmo, msc_n_err, msc_n_defer;
 static uint32_t msc_last_st;
 
@@ -90,20 +66,6 @@ void msc_log(void)
     msc_n_tmo = msc_n_err = msc_n_defer = 0;
 }
 
-/* A restore has landed and the fixups have not finished. Between those
- * two moments this driver's word is worth nothing: the descriptor came
- * out of the blob, the slot it names belongs to whatever the wake booted
- * into, and pocket_file was reconfigured under a command the sleeping
- * session issued. The main loop makes the window unavoidable -- api_task
- * runs before sst_task, so a syscall carried across the sleep is
- * re-dispatched a whole pass before msc_restore rebinds anything -- so
- * the guard belongs here, at the driver, where it holds whatever order
- * the tasks run in.
- *
- * Answering STD_PENDING is lossless: pos is not advanced, msc_restore
- * clears msc_busy, and the next pass re-issues the same operation
- * against a slot that is its own again. The stall is one pass, because
- * sst_task clears the bit at the end of it. */
 static bool msc_adrift(void)
 {
     if (!(SST_CTL & SST_RESTORED))
@@ -112,9 +74,6 @@ static bool msc_adrift(void)
     return true;
 }
 
-/* A stream that fails, fails every frame. The first few say what
- * happened and the rest are counted, because a console nobody can read
- * is how this started. */
 #define MSC_SAY_MAX 4
 
 static bool msc_note(uint32_t st)
@@ -127,8 +86,6 @@ static bool msc_note(uint32_t st)
     return (unsigned)(msc_n_tmo + msc_n_err) <= MSC_SAY_MAX;
 }
 
-/* The blocking form, for open and boot-time staging: once per file, and
- * the 6502 is parked in its syscall either way. */
 static uint32_t msc_command(uint32_t op)
 {
     uint32_t st;
@@ -138,26 +95,12 @@ static uint32_t msc_command(uint32_t op)
     return st;
 }
 
-/* One record is enough: the 6502 is parked in a single syscall, so only
- * one worker is ever mid-op. */
 static bool msc_busy;
 
-/* A second command the write worker can have in flight: the resize-open
- * that makes room before the WRITE that fills it. */
 static bool msc_grow;
 
-/* std_stop drains only descriptors it will flush, so a read-only one
- * arrives still in flight. Left there, the next command stacks a toggle
- * on top of it. */
 void msc_stop(void)
 {
-    /* Unconditional, because the two flags below say what the session
-     * that wrote them was doing and the command in the fabric may
-     * belong to another one: a restore brings back a machine that
-     * thought it was idle over a pocket_file that is mid-command, and
-     * skipping the drain there stacks the next command's toggle onto a
-     * live one, where the bridge drops it outright and answers the
-     * previous command instead. Idle costs one read. */
     uint32_t st;
     bool waited = false;
     while (!msc_poll(&st))
@@ -182,16 +125,11 @@ static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
     }
 }
 
-/* Words, not bytes. The path rides the byte stream and arrives intact,
- * but an integer field is taken as the bridge word stands: written low
- * byte first, flags of 3 arrive as 0x03000000. */
 static void msc_win_u32(uint32_t off, uint32_t v)
 {
     FILE_WIN[off >> 2] = v;
 }
 
-/* The table is id/size pairs with no defined layout, so a slot's size is
- * looked up by its id. */
 #define MSC_DT_PAIRS 20
 
 uint32_t msc_dt(uint32_t word)
@@ -212,8 +150,6 @@ bool msc_slot_len(uint32_t slot, uint32_t *len)
     return false;
 }
 
-/* The shape of the reply is undocumented. This reads a NUL-terminated
- * name at offset 0, where Open File's parameter struct carries one. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap)
 {
     FILE_ID = slot;
@@ -244,17 +180,11 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
     return o != 0;
 }
 
-/* The host does not create folders and does not say so, so the package
- * ships the one folder the drive needs. */
 #define MSC_SAVES_LEN (sizeof MSC_SAVES_PATH - 1)
 #define MSC_RC_MALFORMED 4u
 
-/* Not a host answer: the command is on its way and the caller must come
- * back for it. */
 #define MSC_RC_STARTED 0xFFu
 
-/* Answers MSC_RC_MALFORMED without starting a command when the name will
- * not fit. */
 static uint32_t msc_try_open_start(uint32_t slot, const char *name,
                                    uint32_t flags, uint32_t size,
                                    const char *root)
@@ -285,8 +215,6 @@ static uint32_t msc_try_open_start(uint32_t slot, const char *name,
     return MSC_RC_STARTED;
 }
 
-/* A bridge that stopped answering reads as MSC_RC_MALFORMED, which every
- * caller already treats as a refusal. */
 static bool msc_try_open_poll(uint32_t *rc)
 {
     uint32_t st;
@@ -296,7 +224,6 @@ static bool msc_try_open_poll(uint32_t *rc)
     return true;
 }
 
-/* The blocking form, for open and for exec's staging. */
 static uint32_t msc_try_open(uint32_t slot, const char *name,
                              uint32_t flags, uint32_t size,
                              const char *root)
@@ -314,9 +241,6 @@ static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
     return msc_try_open(slot, name, flags, size, MSC_SAVES_PATH) <= 1;
 }
 
-/* Only the prefix is stripped; the slash after it, or its absence, is
- * what decides where the name lands. A drive that is not 0 is refused,
- * not aliased. */
 static const char *msc_strip_drive(const char *path)
 {
     const char *p = path;
@@ -331,11 +255,6 @@ static const char *msc_strip_drive(const char *path)
     return path;
 }
 
-/* What the host currently has this slot bound to, in the code page,
- * against what this descriptor was opened as. The name kept beside the
- * descriptor is the program's -- relative or absolute -- and the host
- * answers with the whole path, so the comparison rebuilds the prefix
- * the same way an open would have added it. */
 static bool msc_still_bound(int d)
 {
     char have[MSC_NAME_MAX];
@@ -353,27 +272,6 @@ static bool msc_still_bound(int d)
     return strcmp(at, want) == 0;
 }
 
-/* Every open file was a data slot the host had bound to a path. Whether
- * a wake keeps that binding is not written down anywhere -- Analogue's
- * boot process says the host loads the slots data.json describes, and
- * these eight are deferload with no filename in it, so there is nothing
- * for it to bind them to; but the docs never say what becomes of a
- * binding made at runtime with 0x0192, and this file asserted for a
- * while that they were simply gone.
- *
- * So it asks. 0x0190 answers with the path a slot is bound to, and a
- * slot that still holds the right file is left alone. That is right
- * whichever way the host behaves, and it is the difference between one
- * round trip per open file and none: a wake that kept its bindings pays
- * nothing, and one that did not is put back exactly as before.
- *
- * The name is kept beside the descriptor because the window it went out
- * through cannot be read back. The position is the
- * caller's own count and never went near the host.
- *
- * A slot that will not open again is left open here, so a program that
- * goes on using it is told the read failed rather than that its file
- * was never open. */
 void msc_restore(void)
 {
     msc_stop();
@@ -381,12 +279,6 @@ void msc_restore(void)
     {
         if (!msc_pool[d].used)
             continue;
-        /* The whole of what this side is unsure about, per descriptor
-         * and once per wake: whether the host still had the slot, what
-         * it said when asked to bind it again, and whether its idea of
-         * the file's length is the one the sleeping session had. Every
-         * one of those is a question Analogue documents nowhere and
-         * that only the device can answer. */
         bool kept = msc_still_bound(d);
         uint32_t rc = 0;
         if (!kept)
@@ -400,11 +292,6 @@ void msc_restore(void)
                (unsigned)msc_pool[d].pos, (unsigned)msc_pool[d].writable);
         if (!kept && rc > 1)
             continue;
-        /* The length is the host's to say for a file this side did not
-         * write: the card outlived the session and the file may not be
-         * the size the blob remembers. A writable descriptor keeps its
-         * own, because it is what resized the file and the host's table
-         * is only as fresh as the last open. */
         if (got && !msc_pool[d].writable)
             msc_pool[d].len = len;
         if (msc_pool[d].pos > msc_pool[d].len)
@@ -419,8 +306,6 @@ static int msc_desc(int desc)
     return desc;
 }
 
-/* The bridge retires the command before pocket_file's deadline, so a host
- * that never picked it up arrives as result 7, not as our own timeout. */
 #define MSC_RC_NO_HOST 7u
 
 static bool msc_unanswered(uint32_t st)
@@ -429,13 +314,9 @@ static bool msc_unanswered(uint32_t st)
            || ((st & FILE_ST_ERR) >> 1) == MSC_RC_NO_HOST;
 }
 
-/* Flush, 0x0188, is documented but absent from core_bridge_cmd.v. Asking
- * costs one deadline, so the first ask decides and is remembered. */
 static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
     msc_flush_state;
 
-/* Chunked because the bridge's ~0.9 s deadline times the whole slot
- * operation, and the host writes at worst ~3.4 MB/s. */
 #define MSC_STAGE_CHUNK 0x80000u
 
 bool msc_stage_rom(const char *path, uint32_t *len)
@@ -496,8 +377,6 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
 
-    /* Creating takes both bits: create alone makes nothing, and both bits
-     * against a file that exists would cut it to nothing. So probe first. */
     bool exists = msc_open_slot(slot, path, 0, 0);
     if (exists && (flags & (MSC_O_CREAT | MSC_O_EXCL))
                       == (MSC_O_CREAT | MSC_O_EXCL))
@@ -510,16 +389,12 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    /* The probe above found the file, so a failure here is the host's and
-     * final; the retry below has nothing to offer. */
     bool empty = !exists || (flags & MSC_O_TRUNC);
     if (empty && exists && !msc_open_slot(slot, path, MSC_DS_RESIZE, 0))
     {
         *err = API_EIO;
         return -1;
     }
-    /* A create into a missing folder returns a descriptor having written
-     * nothing, and the result cannot tell the two apart. Ask again plainly. */
     if (!exists
         && !(msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 0)
              && msc_open_slot(slot, path, 0, 0)))
@@ -542,9 +417,6 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return d;
 }
 
-/* A close flushes: there is no close command, so this is the only thing
- * that puts a write on the card. It blocks, unlike sync, because
- * std_stop discards what close returns and would drop a STD_PENDING. */
 std_rw_result msc_std_close(int desc, api_errno *err)
 {
     if (msc_desc(desc) < 0)
@@ -556,8 +428,6 @@ std_rw_result msc_std_close(int desc, api_errno *err)
     if (msc_pool[desc].writable && msc_flush_state != MSC_FLUSH_NEVER)
     {
         uint32_t st;
-        /* A read or write left in flight has to land before the flush
-         * can start; the descriptor is going away either way. */
         if (msc_busy)
         {
             while (!msc_poll(&st))
@@ -578,7 +448,6 @@ std_rw_result msc_std_close(int desc, api_errno *err)
             }
         }
     }
-    /* Released even when the flush failed, the way close always does. */
     msc_pool[desc].used = false;
     return res;
 }
@@ -601,7 +470,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
     if (want > FILE_XFER_MAX)
         want = FILE_XFER_MAX;
     if (!want)
-        return STD_OK; /* short or zero at the end, which is EOF */
+        return STD_OK;
     uint32_t st;
     if (!msc_busy)
     {
@@ -625,11 +494,6 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
     }
     for (uint32_t i = 0; i < want; i++)
         buf[i] = (char)SLOT_WIN(desc)[i];
-    /* Again after the copy, not only before it: the window the bytes
-     * came out of is the board's and no blob carries it, so a freeze
-     * that landed anywhere in that loop lifted the tail of this buffer
-     * out of a store the wake rebuilt. Asked once more here, the whole
-     * read is re-taken instead of half-committed. */
     if (msc_adrift())
         return STD_PENDING;
     msc_pool[desc].pos = pos + want;
@@ -719,9 +583,6 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    /* msc_flush_state is sticky, so a verdict reached against a
-     * reconfigured bridge would condemn every flush for the rest of
-     * the session. */
     if (msc_adrift())
         return STD_PENDING;
     if (msc_flush_state == MSC_FLUSH_NEVER)
@@ -772,8 +633,6 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     return 0;
 }
 
-/* Synthetic: the host cannot be asked. Spelled from the drive so
- * appending a name opens the same file the bare name does. */
 bool msc_api_getcwd(void)
 {
     static const char cwd[] = "MSC0:/Saves/rp6502/common/";

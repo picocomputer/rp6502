@@ -13,15 +13,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* Load the .rp6502 image the platform staged, len bytes at ROM_IMG.
- * True when the program and its reset vector are in place. */
 bool rom_load_staged(uint32_t len);
 
-/* What the staging store holds, which no savestate carries. */
 void rom_log(void);
 
-/* The ROM: drive: read-only windows onto the staged image's assets,
- * registered in main_std_drivers. */
 bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_close(int desc, api_errno *err);
@@ -30,4 +25,4 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err);
 
-#endif /* _FPGA_SW_ROM_H_ */
+#endif

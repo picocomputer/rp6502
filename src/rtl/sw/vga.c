@@ -2,12 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * Both sides of the VGA contract on one machine, emu/sys/vga.c's shape.
- * There is no g_prog array: the RTL scanline program is the storage, and
- * entries are published tagged with the mode and attribute the
- * dispatcher announced, because a fill-function pointer means nothing to
- * hardware.
  */
 
 #include "mmio.h"
@@ -42,8 +36,6 @@ int16_t vga_canvas_height(void)
     return vga_canvas_h;
 }
 
-/* Declared in ria/sys/vga.h rather than this platform's header, because
- * tab.c is shared. */
 void vga_canvas_size(int *w, int *h)
 {
     switch (vga_canvas_code)
@@ -85,8 +77,6 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
     return true;
 }
 
-/* The table is write-only from the bus, so the exclusive sweep's one bit
- * per line lives here. */
 static uint32_t vga_mode0_mask[16];
 static int16_t vga_mode0_plane;
 
@@ -155,17 +145,17 @@ bool vga_set_canvas(uint16_t canvas)
 {
     switch (canvas)
     {
-    case 1: /* vga_320_240 */
+    case 1:
         vga_canvas_h = 240;
         break;
-    case 2: /* vga_320_180 */
+    case 2:
         vga_canvas_h = 180;
         break;
-    case 4: /* vga_640_360 */
+    case 4:
         vga_canvas_h = 360;
         break;
-    case 0: /* vga_console */
-    case 3: /* vga_640_480 */
+    case 0:
+    case 3:
         vga_canvas_h = 480;
         break;
     default:
@@ -188,18 +178,6 @@ bool vga_set_canvas(uint16_t canvas)
     return true;
 }
 
-/* A wake reconfigures the part, so these two come back at their
- * power-on values -- console, and a vsync line of 480 -- while the
- * blob has brought back the scanline table they belong to and the
- * shadows above that say what they were. Not vga_set_canvas: that
- * sweeps the table, which is exactly what the blob just restored.
- *
- * The canvas is the whole picture. It is the scaler mode the raster
- * names at the end of every line, and it is also the width the fill
- * engines are given a line's worth of clocks to produce: a 320-wide
- * program woken onto a 640-wide canvas is asked for twice the pixels
- * in the same time, does not finish, and never flips its bank. That is
- * a black screen over a program that is still running. */
 void vga_restore(void)
 {
     VID_CANVAS = (uint32_t)vga_canvas_code;

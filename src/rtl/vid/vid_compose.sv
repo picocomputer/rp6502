@@ -2,14 +2,6 @@
  * Copyright (c) 2026 Rumbledethumps
  *
  * SPDX-License-Identifier: BSD-3-Clause
- *
- * The composite, the three state machines' fixed rule: plane 0 always
- * drives, alpha-blind; planes 1 and 2 land where their own alpha bit is
- * set. Within a plane, a sprite's written pixel replaces the fill's —
- * the in-buffer overwrite — so an alpha-clear sprite texel replaces the
- * fill pixel and then fails the gate, the hardware's hole punch. There
- * is no filled: an unfilled line is its zeros, black under plane 0's
- * rule and transparent under the overlays'.
  */
 
 module vid_compose (

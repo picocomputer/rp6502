@@ -9,4 +9,4 @@
 
 void rand_init(void);
 
-#endif /* _FPGA_SW_RAND_H_ */
+#endif

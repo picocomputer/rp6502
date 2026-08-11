@@ -1,10 +1,3 @@
-# The Quartus command line, found once. Every project this tree builds runs the
-# same five executables, and rp6502.sdc is the machine's own constraints - it
-# sits under host/pocket/quartus because that is where it was written, not
-# because the machine is a Pocket.
-#
-# A tree with no Quartus still configures; it just registers no synthesis.
-
 find_program(QUARTUS_MAP quartus_map HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 find_program(QUARTUS_FIT quartus_fit HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
 find_program(QUARTUS_STA quartus_sta HINTS $ENV{HOME}/altera_lite/25.1std/quartus/bin)
