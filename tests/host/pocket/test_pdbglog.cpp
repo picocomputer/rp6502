@@ -51,7 +51,7 @@ static void reset(int endian_little)
     done_hold = 0;
     prev_event = 0;
 
-    dut->clk_sys = 0;
+    dut->clk_mach = 0;
     dut->clk_74a = 0;
     dut->arst_n = 0;
     dut->tx_data = 0;
@@ -67,10 +67,10 @@ static void reset(int endian_little)
     dut->eval();
     for (int i = 0; i < 8; i++)
     {
-        dut->clk_sys = 1;
+        dut->clk_mach = 1;
         dut->clk_74a = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_mach = 0;
         dut->clk_74a = 0;
         dut->eval();
     }
@@ -96,9 +96,9 @@ static void tick(void)
             console.pop_front();
         }
         dut->eval();
-        dut->clk_sys = 1;
+        dut->clk_mach = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_mach = 0;
         dut->eval();
     }
 

@@ -126,6 +126,24 @@ its registers spilled a few injected instructions at a time
 (`csrw dmdata0, xN`; `ebreak` as the retirement marker) while its
 clock keeps running.
 
+`arr_own` is the shape every mask on this boundary has to have, and it
+is worth stating once because getting it wrong is silent. A machine
+signal consumed by anything on the ungated clock is a **level**, not an
+event: cut the clock and it freezes wherever it was, and a consumer
+that treats it as one-per-cycle sees it fire for the whole savestate.
+Every such consumer on this board is now clocked by the gate's output
+instead — the pixel queue in `pocket_video.sv`, the sample queue in
+`pocket_i2s.sv`, both console queues in `pocket_dbg.sv` and
+`pocket_dbglog.sv` — which is the same fix stated four times: a strobe
+belongs on the clock that made it. Where a mask is genuinely needed,
+`arr_own`'s two terms are the answer: it goes up only once the gate has
+actually closed, so it never masks a live access on the way in, and it
+comes down the moment the stop request drops, which is several of the
+host's clocks before the gate opens again. `pocket_sram`'s port-A mask
+takes the same form (`mach_gated` in `pocket_core.sv`), because waiting
+for the clock enable to come back is two or three clocks too late and
+the 6502's first legal cycle falls inside them.
+
 A save, in order: halt the soft CPU, spill its registers, stop the
 machine clock, checksum the whole blob in one pass — the trailer is a
 fact about the blob, not about the order the host reads it in — then
@@ -142,8 +160,8 @@ The engine verifies the staged blob end to end before writing one byte
 of the machine — a restore has nothing to fall back on, so a blob that
 fails halfway must fail before it starts. Then, machine still stopped,
 every array is written back through the same direct ports, and the
-twelve words of flop state (6502, VIA, RIA window flops, resb, the
-6502's clock rate) are parked in the engine.
+flop state (6502, VIA, RIA window flops, resb, the 6502's clock rate,
+the microsecond counter) is parked in the engine.
 
 Waking the machine is a sequenced handoff:
 
@@ -151,16 +169,38 @@ Waking the machine is a sequenced handoff:
    6502 and the VIA as an asynchronous reset, needing no clock.
 2. The machine clock returns over a core already in reset. No phantom
    cycle can touch restored memory.
-3. The soft CPU's registers go back through the debug port and the
+3. The microsecond counter is written back, on a level of its own held
+   across the whole injection below, because the core reads it the
+   moment it is let go. It is in the blob's state page and it has to
+   be: every deadline the firmware holds is an absolute reading of it,
+   sitting in the TCM the blob does carry, so a counter that came back
+   at zero out of the bitstream would put all of them the machine's
+   entire previous uptime into the future. That is a console cursor
+   that stops blinking, a keyboard that stops repeating, and every
+   timeout in the file driver hanging, for exactly as long as the
+   machine had been up before the sleep.
+4. The soft CPU's registers go back through the debug port and the
    core is resumed. It is the blob's firmware, mid-instruction, on its
    own stack. It sees `SST_RESTORED` and puts back everything
    write-only that no blob can carry: the font store rebuilt from the
    code page, the audio register blocks replayed over engines that
-   learn only from writes, every open file re-opened by its kept name,
+   learn only from writes, the raster's three registers — the canvas,
+   the vsync line and the terminal's window — replayed from the
+   firmware's own shadows, every open file re-opened by its kept name,
    the wall clock re-derived from the host's RTC, the restage triggers
    re-synced so the wake's slot announcements do not read as a new
    program.
-4. The firmware clears `SST_RESTORED` — the release. Two jam cycles
+
+   The canvas is the one that hurts. It is not just the scaler mode
+   named at the end of every line; it is the width the fill engines are
+   given one line of clocks to produce. A 320-wide program woken onto
+   the console's 640 is asked for twice the pixels in the same budget,
+   never finishes, and never flips its bank — a black screen over a
+   program that is still running and still making sound. Its sibling,
+   `VID_PROG`, is the terminal's window, and losing that is a black
+   console. Neither register can be read back out of the fabric after a
+   wake, so the firmware keeps its own copy of each.
+5. The firmware clears `SST_RESTORED` — the release. Two jam cycles
    follow: the first writes `resb` (a plain flop) and drops the reset
    hold; the second lands every 6502/VIA/RIA flop with the async
    resets already released, which is the only way to jam a flop whose
@@ -174,7 +214,14 @@ The 6502 continues from the exact cycle the blob froze it in.
 
 - The PSG's envelopes, phase and noise, and the OPL's internal
   generators. Registers come back; what the engines made of them
-  starts again — a click on a held note.
+  starts again — a click on a held note. A held note does come back:
+  both engines are re-keyed by the replay, the OPL because writing
+  `0xB0-0xB8` is a key-on to it and the PSG through `AUD_PSG_REPLAY`,
+  which is the one thing in the audio path that exists only for a
+  restore. Without it the PSG's gate — an edge, and only the 6502's to
+  make — would be ignored in the replayed byte and a sustained voice
+  would come back silent for the rest of the program's life, which is
+  a wider loss than the one above and not the one this promises.
 - Up to sixteen undrained console bytes: reading regs word 16 pops the
   queue, so the blob has a hole there instead of a savestate that eats
   a character every time one is made.
@@ -191,15 +238,39 @@ The 6502 continues from the exact cycle the blob froze it in.
   the gap between two commands of one operation); a hold spanning
   whole operations is firmware work in `msc.c`, still open.
 
+### The picture across a freeze
+
+The scaler is a separate machine and it is not asleep. Bus
+Communication gives the video input a range — "Refresh rate: 47hz to
+~61hz" — and a savestate is tens of frames of nothing at all if the
+output stage stands down with the machine. So it does not. The reader
+in `pocket_video.sv` keeps its raster, its vs, its hs and its de all
+the way through; only the pixels underneath go black. The frame is the
+same shape it always was, which is the only thing the scaler was ever
+told to expect.
+
+What it does drop is the lock. The two rasters are phase-locked with
+the writer a few pixels ahead, and a freeze breaks that: the beam stops
+mid-frame and comes back mid-frame, at a different one. So the lock is
+taken again — and **not** from a crossed frame pulse. That pulse
+arrives two or three of the reader's clocks after the writer's frame
+actually began, by which time its first pixels are already in the queue
+and anything clearing the queue has eaten them, which is a picture
+permanently shifted by two or three pixels. The frame's first pixel
+carries a tag instead, pushed with it, and the reader discards up to
+the tag and locks on it. The tag has no gap: it is in the queue, in
+front of the pixel it belongs to. The cost is one long frame per
+resume, where a vs is late by however far into the reader's frame the
+writer's boundary fell.
+
 ### What only hardware can answer
 
 Whether anything in the wake ordering differs from the boot document's
 sequence — the debug event log carries every host command and its
 parameter for exactly this. Whether the host tolerates the ~100 ms a
-create takes before "done" (it polls, per the docs). And the analog
-questions: the async SRAM's timing margins with port A masked, and the
-picture the scaler shows while a mid-session state is taken (the beam
-stops; the last frame holds).
+create takes before "done" (it polls, per the docs). Whether the scaler
+minds the one long frame the re-lock costs. And the analog question:
+the async SRAM's timing margins with port A masked.
 
 ## The Core Settings menu
 

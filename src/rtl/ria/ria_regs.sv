@@ -553,7 +553,16 @@ module ria_regs (
         end
         /* The xstack bytes land in their own block above; the
          * pointer is the OS's other door. */
-        if (sst_jam) xsp <= sst_jam_data[11][9:0];
+        /* The refill is re-armed rather than carried: $FFEC's mirror is
+         * by construction the byte at xsp, and both the array and the
+         * pointer are back before the machine takes an edge. A blob cut
+         * one clock after a pop would otherwise restore a mirror still
+         * holding the byte that pop had already taken. */
+        if (sst_jam) begin
+            xsp <= sst_jam_data[11][9:0];
+            xs_fill <= 1'b1;
+            xs_fill_at <= sst_jam_data[11][9:0];
+        end
         else if (w_we && w_word == 8'd200)
             xsp <= w_data[9:0];
         if (push_now)

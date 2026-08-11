@@ -187,3 +187,21 @@ bool vga_set_canvas(uint16_t canvas)
     }
     return true;
 }
+
+/* A wake reconfigures the part, so these two come back at their
+ * power-on values -- console, and a vsync line of 480 -- while the
+ * blob has brought back the scanline table they belong to and the
+ * shadows above that say what they were. Not vga_set_canvas: that
+ * sweeps the table, which is exactly what the blob just restored.
+ *
+ * The canvas is the whole picture. It is the scaler mode the raster
+ * names at the end of every line, and it is also the width the fill
+ * engines are given a line's worth of clocks to produce: a 320-wide
+ * program woken onto a 640-wide canvas is asked for twice the pixels
+ * in the same time, does not finish, and never flips its bank. That is
+ * a black screen over a program that is still running. */
+void vga_restore(void)
+{
+    VID_CANVAS = (uint32_t)vga_canvas_code;
+    VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
+}

@@ -18,6 +18,11 @@
 
 #include <stdint.h>
 
+/* The window the terminal draws in, kept because the register it goes
+ * to is written once here and read by nothing: after a wake there is
+ * no way to ask the fabric what it used to be. */
+static uint32_t vid_prog_word;
+
 bool vid_mode0_prog(uint16_t *xregs)
 {
     int16_t plane = (int16_t)xregs[2];
@@ -43,8 +48,9 @@ bool vid_mode0_prog(uint16_t *xregs)
         term_set_height(40, (uint8_t)(scanline_count / 8));
     else
         term_set_height(80, (uint8_t)(scanline_count / 16));
-    VID_PROG = 0x80000000u | ((uint32_t)(uint16_t)scanline_end << 16)
-               | (uint16_t)scanline_begin;
+    vid_prog_word = 0x80000000u | ((uint32_t)(uint16_t)scanline_end << 16)
+                    | (uint16_t)scanline_begin;
+    VID_PROG = vid_prog_word;
     return true;
 }
 
@@ -54,13 +60,8 @@ void vid_init(void)
     vga_set_canvas(0);
 }
 
-void vid_task(void)
+static void vid_publish(void)
 {
-    static uint32_t frame;
-    uint32_t now = VID_FRAME;
-    if (now == frame)
-        return;
-    frame = now;
     term_view_t tv;
     term_view(&tv);
     for (uint32_t y = 0; y < tv.height; y++)
@@ -71,4 +72,23 @@ void vid_task(void)
                  | ((uint32_t)tv.cursor_y << 8) | tv.cursor_x;
     VID_CURSOR_COLOR = tv.cursor_color;
     VID_BLINK = tv.blink_phase;
+}
+
+void vid_task(void)
+{
+    static uint32_t frame;
+    uint32_t now = VID_FRAME;
+    if (now == frame)
+        return;
+    frame = now;
+    vid_publish();
+}
+
+/* The row table and the cursor would come back on their own at the
+ * next frame, so this is only the window -- and then the view, so the
+ * frame in between is not a screenful of row zero. */
+void vid_restore(void)
+{
+    VID_PROG = vid_prog_word;
+    vid_publish();
 }

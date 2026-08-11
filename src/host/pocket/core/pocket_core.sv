@@ -289,9 +289,25 @@ input logic clk_vid,
         run_s2 <= run_s1;
     end
 
+    /* What the SRAM's port A is masked by, which is not the same
+     * question. It has to be high before the gate closes is too early
+     * -- that masks live 6502 accesses -- and low again before the
+     * clock returns, because the launch condition is phi2_en and the
+     * first enable after a resume is legal. Waiting for mach_running
+     * to come back is two or three clocks too late, and at eight
+     * megahertz the 6502 has a better than even chance of spending one
+     * of them, taking a cycle on a byte port A never went and got.
+     *
+     * So: the same shape the serializer uses for its own array mask.
+     * Up once the gate has actually closed -- the request alone leads
+     * it -- and down the instant the request goes, which is several of
+     * the host's clocks before the gate opens again. */
+    logic mach_gated;
+    always_comb mach_gated = pocket_core_stop_req && !run_s2;
+
     pocket_sram sram (
         .clk(clk_sys),
-        .run(run_s2),
+        .run(!mach_gated),
         .refill(ram_refill),
         .phi2_en(machine_phi2_en),
         .cpu_run(machine_resb),
@@ -536,7 +552,7 @@ input logic clk_vid,
 
     pocket_video video (
         .run(run_s2),
-        .clk_sys(clk_sys),
+        .clk_mach(clk_mach),
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),
         .vid_frame(vid_frame),
@@ -553,7 +569,7 @@ input logic clk_vid,
      * family, and a machine reset just stops the pushes — the shifter
      * repeats the last sample, flat, until the reboot resumes. */
     pocket_i2s i2s (
-        .clk_sys(clk_sys),
+        .clk_mach(clk_mach),
         .aud_l(aud_l),
         .aud_r(aud_r),
         .aud_valid(aud_valid),

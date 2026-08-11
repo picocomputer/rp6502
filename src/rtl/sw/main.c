@@ -482,14 +482,37 @@ bool main_break_to_launcher(void)
     return true;
 }
 
+static void main_stage(void);
+
+/* Whether this boot declined to stage a ROM because a blob was already
+ * in the window. It has to be a state and not a moment: the host
+ * re-announces its slots on every wake, and it does so AFTER the boot
+ * check -- reset_n goes high only once the slots have been streamed --
+ * so the loop below would read the announcement as the user picking a
+ * new program and cold-boot the ROM one pass after the check declined
+ * to. That is the boot the guard exists to prevent, arriving late. */
+static bool main_wake_pending;
+
 /* A restore lands on a host that has just re-announced everything it
  * has, and the loop below reads a change in either announcement as the
  * user picking a new program. Neither is news here: what is staged is
  * what this machine was already running when it went to sleep. */
 void main_restored(void)
 {
+    main_wake_pending = false;
     main_upd_seen = (uint8_t)MMIO_UPD_N;
     MMIO_SLOT = 0;
+}
+
+/* The other way out. A refused blob leaves a wake boot with nothing at
+ * all -- it never staged, and a refusal writes nothing -- so the ROM
+ * the host announced is staged here after all. */
+void main_wake_failed(void)
+{
+    if (!main_wake_pending)
+        return;
+    main_wake_pending = false;
+    main_stage();
 }
 
 static void main_stage(void)
@@ -517,7 +540,8 @@ int main(void)
      * rather than starting it, and the restore that is coming will
      * replace everything a staged ROM would put here. Starting one
      * under it is a cold boot the user watches get rolled back. */
-    if (!sst_pending())
+    main_wake_pending = sst_pending();
+    if (!main_wake_pending)
         main_stage();
     /* Whatever the host has announced up to here is this image. */
     main_upd_seen = (uint8_t)MMIO_UPD_N;
@@ -553,8 +577,12 @@ int main(void)
         vid_task();
         api_task();
         sst_task();
+        /* Both watchers stand down while a restore is expected. What
+         * the host is announcing then is the same program this machine
+         * already has, and main_restored takes both readings once the
+         * blob has landed. */
         uint8_t upd = (uint8_t)MMIO_UPD_N;
-        if (upd != main_upd_seen)
+        if (upd != main_upd_seen && !main_wake_pending)
         {
             main_upd_seen = upd;
             restage = true;
@@ -563,7 +591,7 @@ int main(void)
         /* main_stage cleared this after the boot image, so anything
          * standing here again is a fresh settle. Left set until the
          * restage clears it, which is what tb_quiet reads. */
-        if (MMIO_SLOT)
+        if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
             main_stop();

@@ -742,7 +742,7 @@ wire dbglog_event, dbglog_done;
 wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
-    .clk_sys     ( clk_sys ),
+    .clk_mach    ( clk_mach ),
     .tx_data     ( con_tx_data ),
     .tx_valid    ( con_tx_valid ),
     .rv_tx_data  ( con_rv_data ),
@@ -759,7 +759,7 @@ pocket_dbglog dbglog (
 );
 
 pocket_dbg dbg (
-    .clk_sys     ( clk_sys ),
+    .clk_mach    ( clk_mach ),
     .rst_n       ( core_rst_n_sys ),
     .tx_data     ( con_tx_data ),
     .tx_valid    ( con_tx_valid ),

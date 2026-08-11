@@ -40,10 +40,10 @@ UTEST(pi2s, frames_and_samples_exact)
     dut->arst_n = 0;
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_sys = 1;
+        dut->clk_mach = 1;
         dut->clk_74a = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_mach = 0;
         dut->clk_74a = 0;
         dut->eval();
     }
@@ -58,11 +58,11 @@ UTEST(pi2s, frames_and_samples_exact)
     uint32_t word = 0;
     long sclk_falls_per_frame = 0;
 
-    /* Machine-side sample cadence: one sample per 1050 clk_sys — 48 kHz. */
+    /* Machine-side sample cadence: one sample per 1050 clk_mach — 48 kHz. */
     long sample_clk = 0;
     int sample_idx = 0;
 
-    /* clk_sys period 330, clk_74a period 224 — the true ratio. */
+    /* clk_mach period 330, clk_74a period 224 — the true ratio. */
     long wnext = 330, anext = 224;
     const long T_END = 330L * 1050 * 84; /* 80 samples' worth + startup */
 
@@ -98,9 +98,9 @@ UTEST(pi2s, frames_and_samples_exact)
                 fed_r.push_back((int16_t)r);
                 sample_idx++;
             }
-            dut->clk_sys = 1;
+            dut->clk_mach = 1;
             dut->eval();
-            dut->clk_sys = 0;
+            dut->clk_mach = 0;
             dut->eval();
             wnext += 330;
         }

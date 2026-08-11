@@ -37,6 +37,17 @@ module aud_psg
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
+    /* The restore's key. A gate is an edge and only the 6502 makes one,
+     * which is right for a program and wrong for the one thing that is
+     * not one: the firmware replaying a channel block after a wake
+     * carries the same bytes, gate bit and all, and without this the
+     * note in them never strikes. A voice that was sounding when the
+     * blob was taken then stays silent for the rest of the program's
+     * life -- not for an envelope, for good. Held for the replay and
+     * dropped after it. */
+    input logic gate_any_we,
+    input logic gate_any_wdata,
+
     /* Every write to XRAM. q_host marks the 6502's own, which are the
      * only ones a gate answers. */
     input logic q_we,
@@ -122,10 +133,14 @@ module aud_psg
     always_comb snoop_ch = snoop_off[5:3];
     logic snoop_cfg;
     always_comb snoop_cfg = snoop && snoop_off[15:6] == 10'd0;
-    /* A gate is an edge, and only the 6502 makes one. The soft CPU's
-     * import carries the same byte and must not strike the note. */
+    /* A gate is an edge, and only the 6502 makes one -- or the restore
+     * below, which is the firmware standing in for the 6502 that made
+     * the last one before the sleep. */
+    logic gate_any;
+    initial gate_any = 1'b0;
     logic snoop_gate;
-    always_comb snoop_gate = snoop_cfg && q_host && snoop_off[2:0] == 3'd6;
+    always_comb snoop_gate = snoop_cfg && (q_host || gate_any)
+        && snoop_off[2:0] == 3'd6;
 
     /* One array a field, never one wide array: a wide enough array runs
      * past LUT memory and falls back to a block. Two addresses (w_ch and
@@ -597,6 +612,8 @@ module aud_psg
             xaddr <= xaddr_wdata;
             xreg_pend <= 1'b1;
         end
+        if (gate_any_we)
+            gate_any <= gate_any_wdata;
     end
 
     function automatic logic signed [15:0] clamped(logic signed [20:0] s);

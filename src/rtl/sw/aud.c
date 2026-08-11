@@ -16,6 +16,8 @@
 #include "bel.h"
 #include "mmio.h"
 
+#include <pico/time.h>
+
 #include <string.h>
 
 /* Where each engine is pointed. The registers are write-only fabric and
@@ -70,11 +72,33 @@ void aud_restore(void)
     if (psg != 0xFFFF)
     {
         AUD_PSG_XADDR = psg;
+        /* Installing the pointer releases every voice at the engine's
+         * next idle -- one sample walk away -- so the replay has to
+         * come after that or the notes it strikes are released again
+         * behind it. A sample is 48 kHz; twenty-five microseconds is
+         * one with room. */
+        uint64_t until = time_us_64() + 25;
+        while (time_us_64() < until)
+            ;
+        /* And the replay's gate bits have to count. Without this the
+         * engine ignores them -- a gate is the 6502's to make -- and a
+         * voice that was sounding comes back silent for good. */
+        AUD_PSG_REPLAY = 1;
         aud_replay(psg, 64);
+        AUD_PSG_REPLAY = 0;
     }
     else if (opl != 0xFFFF)
     {
         AUD_OPL_XADDR = opl;
+        /* Installing the pointer is also how this chip is reset, and
+         * aud_opl.sv holds that reset for 255 machine clocks while it
+         * walks its register file clear. A replay begun inside the walk
+         * has its first registers walked over -- the head of the page,
+         * which is where the operator settings are. Six microseconds is
+         * those 255 clocks with room. */
+        uint64_t until = time_us_64() + 6;
+        while (time_us_64() < until)
+            ;
         aud_replay(opl, 256);
     }
     aud_psg_at = psg;

@@ -146,7 +146,14 @@ module pocket_sram (
      * and an off-by-one is not. */
     always_comb begin
         pocket_sram_b_stall = b_stb && !b_done;
-        pocket_sram_hold = busy_b || (b_stb && !busy_a);
+        /* busy_a holds the 6502 off too. Port A takes four clocks to
+         * answer and the restore's refill launches one of them with the
+         * machine's clock already back; without this the next enable
+         * lands before the byte does and the restored core consumes the
+         * one the old session left. It costs nothing while running: the
+         * 6502's enables are at least six clocks apart at its fastest,
+         * and the window is four. */
+        pocket_sram_hold = busy_a || busy_b || (b_stb && !busy_a);
     end
 
     always_ff @(posedge clk) begin

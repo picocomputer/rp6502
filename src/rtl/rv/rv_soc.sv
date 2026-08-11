@@ -45,9 +45,14 @@ module rv_soc
      * measures no time passing and comes back with every deadline it
      * was holding the same distance away.
      *
-     * It only counts up. Wall time is the host's to say, and a machine
-     * that has been asleep asks it again rather than being told what
-     * its own counter should have reached.
+     * Holding it is not enough across a sleep, because a sleep cuts the
+     * power and the counter comes back at zero out of the bitstream
+     * while every deadline the firmware is holding came back out of the
+     * blob at the value it had. A counter that restarted would put all
+     * of them the machine's whole previous uptime into the future, so
+     * the counter travels in the blob too and is written back here
+     * before the core is let go. Wall time is a separate question and
+     * still the host's to answer.
      *
      * The soft CPU's own memory is reached the same way. It is not on
      * the machine's bus -- rv_soc decodes it here rather than sending
@@ -78,6 +83,15 @@ module rv_soc
 
     input logic sst_phi2_we,
     input logic [15:0] sst_phi2_wdata,
+    /* The counter, out for the blob and back from it. Read while the
+     * core is halted, which is when it is standing still anyway, and
+     * written as a level held for the whole of the register injection
+     * -- long enough that this half-rate clock cannot miss it, and
+     * early enough that the firmware's first reading is already the
+     * restored one. */
+    output logic [63:0] rv_soc_mtime,
+    input logic sst_mtime_we,
+    input logic [63:0] sst_mtime_wdata,
     input logic sst_tcm_sel,
     input logic [RP6502_TCM_AW-1:0] sst_tcm_addr,
     input logic sst_tcm_we,
@@ -326,6 +340,7 @@ module rv_soc
      * exactly the span of a savestate: the core's clock never stops,
      * so the counter has to be told. dcsr.stoptime is hardwired 1 --
      * the core already expects time to stand still while it does. */
+    always_comb rv_soc_mtime = mtime_us;
     always_ff @(posedge clk) begin
         if (!rv_soc_dbg_halted) begin
             if ({16'd0, mtime_acc} + 32'(MTIME_ADD) >= 32'(MTIME_WRAP))
@@ -336,6 +351,13 @@ module rv_soc
             end else begin
                 mtime_acc <= mtime_acc + 16'(MTIME_ADD);
             end
+        end
+        /* The fraction goes with it: a restore that kept the old
+         * accumulator would land the first microsecond after it up to
+         * one short. */
+        if (sst_mtime_we) begin
+            mtime_us <= sst_mtime_wdata;
+            mtime_acc <= '0;
         end
     end
 

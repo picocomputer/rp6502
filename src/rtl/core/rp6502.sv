@@ -195,7 +195,8 @@ module rp6502
      * one edge for the lot, because a restore lands with the machine's
      * clock already back and a jam spread over twelve edges would let
      * it run through eleven of them. */
-    logic eng_st_jam;
+    logic eng_st_jam, eng_mtime_jam;
+    logic [63:0] mtime;
     logic [31:0] eng_jam_mach[4], eng_jam_cpu[5], eng_jam_via[7];
     logic [31:0] eng_jam_ria[12];
 
@@ -208,10 +209,20 @@ module rp6502
     always_comb begin
         /* The 6502's clock rate is the soft CPU's to set and it sets it
          * once, so a wake that came up at the reset rate would run the
-         * machine at a speed nothing was going to correct. */
+         * machine at a speed nothing was going to correct.
+         *
+         * The microsecond counter is here for the same reason and a
+         * sharper one: the firmware's every deadline is an absolute
+         * reading of it, held in memory the blob does carry, so a
+         * counter that came back at zero would put all of them the
+         * machine's previous uptime into the future. It is read while
+         * the core is halted, which is the only time it stands still.
+         */
         case (eng_st_idx)
             3'd0: mach_st_rdata = {31'd0, resb};
             3'd1: mach_st_rdata = {16'd0, phi2_khz};
+            3'd2: mach_st_rdata = mtime[31:0];
+            3'd3: mach_st_rdata = mtime[63:32];
             default: mach_st_rdata = '0;
         endcase
         case (eng_st_sel)
@@ -338,6 +349,7 @@ module rp6502
         .sst_engine_st_idx(eng_st_idx),
         .st_rdata(st_rdata),
         .sst_engine_st_jam(eng_st_jam),
+        .sst_engine_mtime_jam(eng_mtime_jam),
         .sst_engine_jam_mach(eng_jam_mach),
         .sst_engine_jam_cpu(eng_jam_cpu),
         .sst_engine_jam_via(eng_jam_via),
@@ -370,8 +382,15 @@ module rp6502
                  * happened in another session, and the first enable
                  * after a restore consumes whatever port A last
                  * fetched. The BRAM build gets this for free from its
-                 * always-on read register. */
-                rp6502_ram_a_addr = eng_st_jam ? cpu_addr : cpu_next_addr;
+                 * always-on read register.
+                 *
+                 * The address is taken from the word being jammed and
+                 * not from cpu_addr, because cpu_addr is the flop the
+                 * jam is writing on this very edge: reading it here
+                 * fetches the address the core had BEFORE the restore,
+                 * which after a reconfigure is zero. */
+                rp6502_ram_a_addr = eng_st_jam ? eng_jam_cpu[4][31:16]
+                    : cpu_next_addr;
                 rp6502_ram_a_wdata = cpu_next_data;
                 rp6502_ram_a_we = cpu_next_we && !eng_st_jam;
                 rp6502_ram_b_addr = eng_sram_sel
@@ -542,6 +561,9 @@ module rp6502
         .rv_soc_dbg_fault(rp6502_sst_dbg_fault),
         .sst_phi2_we(eng_st_jam),
         .sst_phi2_wdata(eng_jam_mach[1][15:0]),
+        .rv_soc_mtime(mtime),
+        .sst_mtime_we(eng_mtime_jam),
+        .sst_mtime_wdata({eng_jam_mach[3], eng_jam_mach[2]}),
         .sst_tcm_sel(eng_own ? eng_tcm_sel : sst_tcm_sel),
         .sst_tcm_addr(eng_own ? eng_tcm_addr : sst_tcm_addr),
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
@@ -1055,6 +1077,8 @@ module rp6502
         .clk(clk_mach),
         .xaddr_we(aud_we && bus_addr[5:2] == 4'h0),
         .xaddr_wdata(bus_wdata[15:0]),
+        .gate_any_we(aud_we && bus_addr[5:2] == 4'h1),
+        .gate_any_wdata(bus_wdata[0]),
         .q_we(qs_we),
         .q_host(qs_host),
         .q_addr(qs_addr),

@@ -45,7 +45,11 @@ module pocket_dbglog #(
     /* About 0.9 ms of quiet at 74.25 MHz before a short word goes. */
     parameter int FLUSH_TICKS = 65536
 ) (
-    input logic clk_sys,
+    /* The machine's clock, which the savestate gate stops. The bytes
+     * are the machine's and their valid is a level it drives: on the
+     * clock behind the gate, a valid frozen high by a stop would push
+     * the same byte on every edge for the whole savestate. */
+    input logic clk_mach,
     input logic [7:0] tx_data,
     input logic tx_valid,
     input logic [7:0] rv_tx_data,
@@ -72,7 +76,7 @@ module pocket_dbglog #(
         .WIDTH(8),
         .DEPTH_LOG2(7)
     ) q (
-        .wclk(clk_sys),
+        .wclk(clk_mach),
         .w_stb(tx_valid || rv_tx_valid),
         .w_data(byte_in),
         .pocket_fifo_full(fifo_full),

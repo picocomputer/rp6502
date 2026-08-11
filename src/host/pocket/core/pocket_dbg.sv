@@ -23,7 +23,11 @@ module pocket_dbg #(
     /* 74.25 MHz to 115200 baud. */
     parameter int DIVISOR = 644
 ) (
-    input logic clk_sys,
+    /* The machine's clock, which the savestate gate stops. The bytes
+     * are the machine's and their valid is a level it drives: on the
+     * clock behind the gate, a valid frozen high by a stop would push
+     * the same byte on every edge for the whole savestate. */
+    input logic clk_mach,
     input logic rst_n,
     input logic [7:0] tx_data,
     input logic tx_valid,
@@ -45,7 +49,7 @@ module pocket_dbg #(
         .WIDTH(8),
         .DEPTH_LOG2(6)
     ) q (
-        .wclk(clk_sys),
+        .wclk(clk_mach),
         .w_stb(tx_valid || rv_tx_valid),
         .w_data(byte_in),
         .pocket_fifo_full(fifo_full),

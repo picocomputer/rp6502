@@ -57,6 +57,10 @@
 #define W_TOTAL (B_END + W_END)
 
 #define SST_MAGIC 0x52365353u
+/* sst_engine.sv's SST_VERSION. It moves whenever the state page or the
+ * firmware's restore contract changes, and a blob the bench builds has
+ * to carry the current one or the engine is right to refuse it. */
+#define SST_VER 2u
 #define SST_END_MAGIC 0x52365345u
 
 static Vrp6502 *dut;
@@ -100,7 +104,7 @@ static void stage_word(uint32_t idx, uint32_t v)
 static void stage_seal(void)
 {
     stage_word(B_HDR + 0, SST_MAGIC);
-    stage_word(B_HDR + 1, 1);
+    stage_word(B_HDR + 1, SST_VER);
     stage_word(B_HDR + 2, W_TOTAL * 4);
     uint32_t sum = 0;
     for (uint32_t i = 0; i < B_END; i++)
@@ -276,7 +280,7 @@ UTEST(sst, the_header_and_trailer_frame_the_blob)
     ASSERT_TRUE(blob_word(B_HDR + 0, &w));
     ASSERT_EQ(SST_MAGIC, w);
     ASSERT_TRUE(blob_word(B_HDR + 1, &w));
-    ASSERT_EQ(1u, w);
+    ASSERT_EQ(SST_VER, w);
     ASSERT_TRUE(blob_word(B_HDR + 2, &w));
     ASSERT_EQ((uint32_t)(W_TOTAL * 4), w);
 

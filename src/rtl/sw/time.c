@@ -78,6 +78,12 @@ void tim_init(void)
     tim_base_sec = tim_local_boot - (int64_t)tim_tz_min * 60;
     tim_base_nsec = 0;
     tim_base_us = time_us_64();
+    /* The base above is the host's again, so the menu owns the offset
+     * again. A wake calls this after a restore, and the flag it would
+     * otherwise inherit is the previous session's -- a program that set
+     * the clock before the sleep would leave the time zone permanently
+     * unable to move a base that is no longer its. */
+    tim_program_set = false;
     tim_apply_tz();
 }
 

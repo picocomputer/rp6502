@@ -40,5 +40,8 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
                         int16_t scanline_end, uint16_t config_ptr);
 bool vga_set_canvas(uint16_t canvas);
+/* The two raster registers a blob cannot carry, put back from the
+ * shadows it did. */
+void vga_restore(void);
 
 #endif /* _FPGA_SW_VGA_H_ */

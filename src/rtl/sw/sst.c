@@ -35,6 +35,8 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
+#include "vga.h"
+#include "vid.h"
 
 #include "ria/api/tim.h"
 
@@ -56,6 +58,16 @@ void sst_task(void)
     if (SST_CTL & SST_RESTORE_ERR)
     {
         SST_CTL = SST_RESTORED;
+        /* Acked first: staging can take the better part of a second
+         * and the host is waiting on the ack, not on the ROM.
+         *
+         * A wake boot declined to stage anything because this blob was
+         * coming, and it has not come. Nothing was written, so there is
+         * no session underneath to protect -- there is nothing at all,
+         * and the ROM the host announced has to be staged now. On a
+         * load into a running machine this is a no-op, which is the
+         * whole difference between the two cases. */
+        main_wake_failed();
         return;
     }
 
@@ -64,6 +76,14 @@ void sst_task(void)
      * audio engine is at and the block it reads. */
     font_restore();
     aud_restore();
+
+    /* The raster's registers: the canvas, the vsync line and the
+     * terminal's window. The blob carries the scanline table and the
+     * cells they describe, and carries the firmware's own shadows of
+     * all three, but the registers themselves are fabric and a wake
+     * brings them back at power-on. */
+    vga_restore();
+    vid_restore();
 
     /* The host's slot-to-path bindings are a session's, and a wake is a
      * new session. */

@@ -59,6 +59,13 @@ static std::string g_console;
 static std::string g_rv;
 static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
 
+/* The host's one-deep command queue, standing in for the framework's.
+ * Latched by tick(), served by step(); g_servicing keeps a handler's
+ * own clocking out of its own reentry. */
+enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
+static int g_req, g_servicing;
+static int g_prev_r, g_prev_w, g_prev_o, g_prev_f, g_prev_g;
+
 static void tick()
 {
     long next = a_next < s_next ? a_next : s_next;
@@ -93,6 +100,32 @@ static void tick()
         g_console += (char)dut->tb_pocket_tx_data;
     if (sedge && dut->tb_pocket_rv_tx_valid)
         g_rv += (char)dut->tb_pocket_rv_tx_data;
+    /* The request lines are one clk_74a wide -- pocket_file raises one
+     * for a single cycle and the real framework latches it into a queue
+     * -- so they have to be watched on every clock this model advances,
+     * not only on the ones a test steps. A command raised while the
+     * host was busy writing a data slot used to be dropped on the floor,
+     * which is a bench that hangs where the device does not. */
+    {
+        int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
+            o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
+            g = dut->tb_pocket_ds_getfile;
+        if (o && !g_prev_o)
+            g_req = REQ_OPEN;
+        else if (f && !g_prev_f)
+            g_req = REQ_FLUSH;
+        else if (g && !g_prev_g)
+            g_req = REQ_GETFILE;
+        else if (r && !g_prev_r)
+            g_req = REQ_READ;
+        else if (w && !g_prev_w)
+            g_req = REQ_WRITE;
+        g_prev_r = r;
+        g_prev_w = w;
+        g_prev_o = o;
+        g_prev_f = f;
+        g_prev_g = g;
+    }
     if (sedge)
     {
         dut->clk_sys = 0;
@@ -358,50 +391,26 @@ static void do_getfile()
     target_done();
 }
 
-/* One clk_sys step with the host watching for a command. The request
- * lines are one pulse wide, so this samples every clock. */
+/* One clk_sys step, and then whatever command the model caught -- here
+ * rather than in tick(), because a handler clocks the model itself and
+ * must not be entered from inside its own clocking. */
 static void step()
 {
-    static int prev_r, prev_w, prev_o, prev_f, prev_g;
     tick();
-    int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-        o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
-        g = dut->tb_pocket_ds_getfile;
-    if (o && !prev_o)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_openfile();
+    if (!g_req || g_servicing)
         return;
-    }
-    if (f && !prev_f)
+    int req = g_req;
+    g_req = REQ_NONE;
+    g_servicing = 1;
+    switch (req)
     {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_flush();
-        return;
+    case REQ_OPEN: do_openfile(); break;
+    case REQ_FLUSH: do_flush(); break;
+    case REQ_GETFILE: do_getfile(); break;
+    case REQ_READ: do_slotread(); break;
+    default: do_slotwrite(); break;
     }
-    if (g && !prev_g)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_getfile();
-        return;
-    }
-    if (r && !prev_r)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_slotread();
-        return;
-    }
-    if (w && !prev_w)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_slotwrite();
-        return;
-    }
-    prev_r = r;
-    prev_w = w;
-    prev_o = o;
-    prev_f = f;
-    prev_g = g;
+    g_servicing = 0;
 }
 
 static std::vector<uint8_t> read_file(const char *path)
@@ -617,6 +626,42 @@ static const std::string DONE = "pocket file ok";
  * where that difference was found. */
 #define SAVE_AT 1430000L
 
+/* --- The picture, either side of a freeze ---
+ *
+ * pocket_video's two rasters run at the same rate off the same PLL with
+ * the reader a fixed few pixels behind the writer, and that offset is
+ * the whole of the design: every pixel the machine pushes is popped
+ * exactly once, in order, by a reader that never has to guess. A
+ * savestate stops the writer mid-frame and starts it again somewhere
+ * else, so the offset is the thing to measure across one. Constant is
+ * correct. Anything else is the picture sliding, and it slides for the
+ * rest of the session.
+ */
+#define VID(f) (dut->rootp->tb_pocket__DOT__core__DOT__video__DOT__##f)
+
+/* Where the machine's beam is each time the reader starts a frame, in
+ * pixels from the beam's own origin. Sampled by stepping. */
+static long vid_offset(long steps)
+{
+    long seen = -1;
+    bool prev_start = true;
+    for (long i = 0; i < steps; i++)
+    {
+        step();
+        bool start = VID(locked) && VID(x) == 0 && VID(y) == 0;
+        if (start && !prev_start)
+        {
+            long at = (long)MEM(vid_v) * 800 + (long)MEM(vid_h);
+            if (seen >= 0 && seen != at)
+                return -1; /* it moved: the lock is not a lock */
+            seen = at;
+        }
+        prev_start = start;
+    }
+    return seen;
+}
+
+
 /* What the host actually hands back at a load: the blob inside the
  * file the OS kept, with the OS's own header in front and a thumbnail
  * behind. 596 and 52764 bytes on the device this was measured on; the
@@ -647,8 +692,10 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
      * ROM staged and running, the program partway through writing a
      * file -- and nowhere near finished, because a program that has
      * already stopped proves nothing about carrying one across. */
-    for (long i = 0; i < SAVE_AT; i++)
-        step();
+    /* Sampled on the way to the save point rather than around it: where
+     * the save lands is chosen to the step, and a bench that stopped to
+     * measure would be saving a different machine. */
+    long align_pre = vid_offset(SAVE_AT);
     /* The program works in silence and prints only when it is finished,
      * so an empty console here is the whole point: what is about to be
      * saved is a machine in the middle of a file. And the 6502 is out
@@ -656,6 +703,13 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
      * and no program at all. */
     ASSERT_EQ(0u, g_console.size());
     ASSERT_TRUE((int)MEM(resb));
+    /* The offset the freeze has to preserve, on the record. */
+    ASSERT_GE(align_pre, 0L);
+    /* The terminal's raster window, which is fabric no blob carries and
+     * which only vid_restore() can put back. Nonzero because the boot
+     * programmed the console into it. */
+    uint32_t prog_pre = (uint32_t)MEM(vid_mode0__DOT__prog_shadow);
+    ASSERT_NE(0u, prog_pre);
     /* Marks in the memories the program itself will not touch, so that
      * every window the engine reads through is checked and not only the
      * ones the program happens to use. */
@@ -729,6 +783,10 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
                     g_rv.size());
     }
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    /* The create stopped the machine mid-frame and gave it back. The
+     * reader stood down and lined up again on the frame's first pixel,
+     * so the offset is the one it always was. */
+    ASSERT_EQ(align_pre, vid_offset(3L * 525 * 1600));
 
     teardown();
 
@@ -755,7 +813,6 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
     host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
 
     ASSERT_TRUE(load_state());
-
     for (uint32_t i = 0; i < 16; i++)
     {
         ASSERT_EQ(0xA0u + i, (uint32_t)MEM(xram__DOT__mem0)[i]);
@@ -791,6 +848,105 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
                 (int)dut->rootp->tb_pocket__DOT__mach_clk_en, (int)MEM(engine__DOT__state),
                 g_console.c_str(), g_rv.c_str());
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    /* And across the wake. This raster belongs to a machine that was
+     * power-cycled and reconfigured in between; it lines up with the
+     * beam the blob brought back, at the same offset as the machine
+     * that made the blob. */
+    ASSERT_EQ(align_pre, vid_offset(3L * 525 * 1600));
+    /* The window the terminal draws in is back. Nothing in the blob
+     * carries it and nothing in the fabric remembers it, so this is
+     * the firmware having replayed its own shadow. */
+    ASSERT_EQ(prog_pre, (uint32_t)MEM(vid_mode0__DOT__prog_shadow));
+    teardown();
+}
+
+/* The registers the raster is made of are fabric, and a wake brings
+ * them back at their power-on values: console, 480 lines, no terminal
+ * window. Nothing in the blob carries them -- it carries the scanline
+ * table they describe, and the firmware's own shadows of all three --
+ * so this is the firmware replaying what it kept.
+ *
+ * The canvas is the one that matters, and it needs a program that
+ * chose one. On the console ROM a wake boot happens to set the same
+ * canvas it went to sleep with, and a bench that used it would pass
+ * with the whole restore path deleted.
+ */
+UTEST(psleep, the_raster_registers_come_back)
+{
+    std::vector<uint8_t> rom = read_file(ROMS_DIR "/mode3_1bpp.rp6502");
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+    /* Far enough in that the program has chosen its canvas and then
+     * programmed its scanlines: SAVE_AT is only where the 6502 is let
+     * go, and the two happen in that order. */
+    for (long i = 0; i < 8000000L
+                     && !(uint32_t)MEM(vid_prog__DOT__canvas_shadow);
+         i++)
+        step();
+    for (long i = 0; i < 2000000L; i++)
+        step();
+
+    /* 320x240 and a window inside it, neither of which a fresh boot
+     * would choose. */
+    uint32_t canvas_pre = (uint32_t)MEM(vid_prog__DOT__canvas_shadow);
+    uint32_t prog_pre = (uint32_t)MEM(vid_mode0__DOT__prog_shadow);
+    uint32_t vsync_pre = (uint32_t)MEM(vid_prog__DOT__vsync_shadow);
+    /* 320x240 with 240 programmed lines: a fresh boot chooses console
+     * and 480, so all three readings below can tell the two apart. */
+    ASSERT_EQ(1u, canvas_pre);
+    ASSERT_EQ(240u, vsync_pre);
+    ASSERT_NE(0u, prog_pre);
+
+    /* The microsecond counter, which is in the blob for the same reason
+     * the canvas is out of it: the firmware's every deadline is an
+     * absolute reading of this, held in the TCM the blob does carry. */
+    uint64_t mtime_pre = (uint64_t)MEM(rv__DOT__mtime_us);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+
+    /* The wake. It comes up on a console program, because the point is
+     * to have a machine whose raster registers are demonstrably not the
+     * sleeping one's: this bench boots the wake normally, the way the
+     * device does, so a wake that ran the same program would set the
+     * same canvas for itself and prove nothing. */
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot(other);
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+    ASSERT_EQ(0u, (uint32_t)MEM(vid_prog__DOT__canvas_shadow));
+    ASSERT_EQ(480u, (uint32_t)MEM(vid_prog__DOT__vsync_shadow));
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_TRUE(load_state());
+    /* Up to the release and not a step past it. The fixups run while
+     * the 6502 is still held, and clearing the bit is what lets it go,
+     * so the engine reaching idle is the last moment at which these
+     * three readings can only be the firmware's doing. A program left
+     * to run would set its own canvas again within a frame or two and
+     * the bench would pass with the whole path deleted. */
+    long guard = 0;
+    while ((int)MEM(engine__DOT__state) != 0 && guard++ < 20000000L)
+        step();
+    ASSERT_LT(guard, 20000000L);
+
+    /* The counter reads the sleeping machine's uptime and not this
+     * one's. Both are tens of milliseconds here, so the claim is the
+     * bound: it is the value the blob carried plus the length of the
+     * create, and nowhere near what a wake counts for itself between
+     * power-on and the load. Left to restart out of the bitstream it
+     * would be the latter, and every deadline the blob brought would
+     * sit that far in the future of a machine that meant them now. */
+    uint64_t mtime_post = (uint64_t)MEM(rv__DOT__mtime_us);
+    ASSERT_GE(mtime_post, mtime_pre);
+    ASSERT_LT(mtime_post, mtime_pre + 20000u);
+
+    ASSERT_EQ(canvas_pre, (uint32_t)MEM(vid_prog__DOT__canvas_shadow));
+    ASSERT_EQ(prog_pre, (uint32_t)MEM(vid_mode0__DOT__prog_shadow));
+    ASSERT_EQ(vsync_pre, (uint32_t)MEM(vid_prog__DOT__vsync_shadow));
     teardown();
 }
 
@@ -822,14 +978,10 @@ UTEST(psleep, a_file_with_no_blob_in_it_is_refused_and_the_session_lives)
         step();
         if ((i % 4000000L) == 3999999L)
             fprintf(stderr, "refused t=%ldM pc=%04x resb=%d eng=%d con=%zu "
-                            "clken=%d rvpc=%08x rv=%zu api=%d rxr=%d rxv=%d sync=%d\n",
+                            "clken=%d rv=%zu\n",
                     i / 1000000L, (unsigned)MEM(cpu__DOT__pc), (int)MEM(resb),
                     (int)MEM(engine__DOT__state), g_console.size(),
-                    (int)dut->rootp->tb_pocket__DOT__mach_clk_en,
-                    (unsigned)MEM(rv__DOT__haddr), g_rv.size(),
-                    (int)MEM(ria__DOT__rx_req),
-                    (int)MEM(ria__DOT__os_rx_valid),
-                    (int)MEM(cpu__DOT__cpu65_sync));
+                    (int)dut->rootp->tb_pocket__DOT__mach_clk_en, g_rv.size());
     }
     ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
     teardown();

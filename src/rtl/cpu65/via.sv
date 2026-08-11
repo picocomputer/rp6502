@@ -336,11 +336,15 @@ module via (
             ier <= st_jam_data[5][15:8];
             t2_tbit <= st_jam_data[5][1];
             t1_tbit <= st_jam_data[5][0];
-            /* The pin follows the flags it is made of, so a restored
-             * interrupt is asserted on the first clock rather than
-             * waiting for a tick to re-derive it. */
-            via_irq <= |(st_jam_data[5][23:16] & st_jam_data[5][15:8]
-                         & 8'h7F);
+            /* The pin is IFR bit 7, which the blob carries, so it is
+             * taken and not worked out again. Re-deriving it from the
+             * flags is a different function from the one the running
+             * machine uses -- that one is n_ifr[IRQ_ANY], which the
+             * clear rule maintains with its own timing -- and a
+             * restored VIA whose pin disagreed with its own IFR would
+             * hand the 6502 an interrupt it had already taken, or drop
+             * one it had not. */
+            via_irq <= st_jam_data[5][23];
             int_pip <= st_jam_data[6][15:0];
         end else if (en) begin
             outr_a <= n_outr_a;

@@ -105,7 +105,26 @@ R101 2
 #       now, at the same widths. res_code's three left with the
 #       redesign — the register no longer exists; how a savestate ended
 #       rides the blob itself.
-D101 716
+#
+#       717 since the restore fixes, and this one is not a crossing. The
+#       report names it: pocket_file_bridgeaddr[6]~DUPLICATE, a copy the
+#       FITTER made of one bit of a bus whose other thirty-two are
+#       already counted above and already argued for. pocket_file was
+#       not touched by that change, nor was anything that reaches it;
+#       the copy carries the same value, on the same clock, behind the
+#       same toggle, and it is there because logic added elsewhere moved
+#       the placement.
+#
+#       Which is the warning this entry now has to carry, because the
+#       count reads as a fingerprint and is not one. The widths in the
+#       report float: bridgeaddr is 33 for a 32-bit bus, slotoffset and
+#       result_q are 31, and seven of hold's thirty-two are duplicates
+#       rather than bits. So the test for a regression here is whether a
+#       NAME in the structure list is new, not whether the number is --
+#       the same packing sensitivity D102 records below, arriving in
+#       this rule for the first time. Read the list before moving this
+#       line in either direction.
+D101 717
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes

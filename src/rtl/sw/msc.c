@@ -280,6 +280,16 @@ static const char *msc_strip_drive(const char *path)
  * was never open. */
 void msc_restore(void)
 {
+    /* The blob was taken with a command possibly outstanding, and it
+     * carries msc_busy along with everything else in memory. On a wake
+     * the fabric it belonged to has been reconfigured out from under it
+     * and there is nothing to wait for; on a load into a running
+     * machine pocket_file kept its clock and the command may genuinely
+     * still be in flight. msc_stop covers both -- it returns at once
+     * when FILE_CTL reads idle -- and it has to happen before the
+     * reopens, because a second command stacked on a live one has its
+     * toggle dropped outright. */
+    msc_stop();
     for (int d = 0; d < MSC_OPEN_MAX; d++)
         if (msc_pool[d].used)
             (void)msc_open_slot(MSC_SLOT_FIRST + (uint32_t)d,

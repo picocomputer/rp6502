@@ -177,6 +177,11 @@ static inline int32_t set_tz_minutes(void)
 #define UART_POP (*(volatile uint32_t *)0x20000040u)
 #define RX_OFFER (*(volatile uint32_t *)0x20000048u)
 #define AUD_PSG_XADDR (*(volatile uint32_t *)0x70000000u)
+/* Lets the PSG take a note-on from this firmware and not only from the
+ * 6502, which is what a restore's replay of a channel block needs: the
+ * gate bit rides in the same byte as the rest and the engine would
+ * otherwise ignore it. Held over the replay and cleared after. */
+#define AUD_PSG_REPLAY (*(volatile uint32_t *)0x70000004u)
 #define AUD_OPL_XADDR (*(volatile uint32_t *)0x70000008u)
 /* A channel block's seven bytes in order: freq, duty, vol_attack,
  * vol_decay, wave_release, pan_gate. */

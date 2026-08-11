@@ -150,6 +150,14 @@ module sst_engine
      * eleven of them, and the point of a restore is that it does not
      * run at all until every register is its own again. */
     output logic sst_engine_st_jam,
+    /* The soft CPU's microsecond counter is in the machine's words but
+     * it is not a flop the jam can reach: it lives on the core's own
+     * half-rate clock, and the firmware reads it the moment it is let
+     * go. So it goes back on a level of its own, held from the last
+     * array written until the core resumes -- long enough for the
+     * slower clock, and over before any instruction can see the zero
+     * the reconfigure left. */
+    output logic sst_engine_mtime_jam,
     output logic [31:0] sst_engine_jam_mach[4],
     output logic [31:0] sst_engine_jam_cpu[5],
     output logic [31:0] sst_engine_jam_via[7],
@@ -197,7 +205,12 @@ module sst_engine
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    localparam logic [31:0] SST_VERSION = 32'd1;
+    /* Two, because the state page's words 2 and 3 now mean something.
+     * The version covers the whole restore contract and not only the
+     * map: the blob carries the firmware, so a change to what the
+     * firmware puts back on a wake invalidates an old blob exactly as
+     * much as a change to the layout does, and belongs here too. */
+    localparam logic [31:0] SST_VERSION = 32'd2;
 
     /* The blob, where the host left it: an offset into the staging
      * store rather than an address in the machine, because the store is
@@ -484,6 +497,10 @@ module sst_engine
         sst_engine_st_sel = st_sel_q;
         sst_engine_st_idx = st_idx_q;
         sst_engine_st_jam = state == S_LD_JAM || state == S_LD_JAM2;
+        sst_engine_mtime_jam = state == S_LD_PUT_DONE
+            || state == S_INJ_ARM || state == S_INJ_ISSUE
+            || state == S_INJ_TAKE || state == S_INJ_BRK_ARM
+            || state == S_INJ_BRK || state == S_INJ_WAIT;
         for (int i = 0; i < 4; i++)
             sst_engine_jam_mach[i] = flopreg[i];
         for (int i = 0; i < 5; i++)
