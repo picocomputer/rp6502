@@ -62,3 +62,6 @@ verified. A green build, a passing suite, and a commit are checkpoints,
 not handoffs — take them silently and keep going. If you find yourself
 composing a summary of what you just did, that is the tell: delete it
 and make the next tool call instead.
+
+Never call FPGA CPU cores the "soft core" or "soft CPU" - there are two,
+the 6502 and RISC-V. Always specifiy the CPU you are talking about.

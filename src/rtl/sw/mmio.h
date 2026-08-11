@@ -111,6 +111,10 @@
  * the blob it took is short and the create answered an error. */
 #define SST_UNDERRUN 0x04u
 #define SST_RESTORE_ERR 0x08u
+/* A create finished and this firmware has not been told. It could not
+ * be told at the time -- it was stopped for the whole of it -- so the
+ * bit waits. Written back to clear, like SST_RESTORED. */
+#define SST_SAVED 0x10u
 /* The interact menu's persisted settings, read-only. The UTC offset
  * arrives in three pieces because a menu list holds sixteen options and
  * the offset spans twenty-seven whole hours. SET_KB is a position in

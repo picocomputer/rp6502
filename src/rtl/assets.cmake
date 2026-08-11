@@ -212,6 +212,16 @@ rp6502_asset(stream_rom GEN ${RP6502_SRC}/gen/stream_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the streaming-read ROM")
 
+# The song that is playing when the machine sleeps. It claims the OPL,
+# programs one voice and then loops, so the freeze lands on a chip whose
+# register file has to be replayed to it and cannot be read back.
+set(SONG_ROM ${RP6502_ASSETS}/song.rp6502)
+rp6502_asset(song_rom GEN ${RP6502_SRC}/gen/song_rom_gen.py
+    ARGS --emit ${SONG_ROM}
+    OUTPUTS ${SONG_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the OPL sleep ROM")
+
 set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)
 rp6502_asset(file_rom GEN ${RP6502_SRC}/gen/file_rom_gen.py
     ARGS --emit ${FILE_ROM}

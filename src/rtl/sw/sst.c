@@ -73,6 +73,24 @@ bool sst_pending(void)
 void sst_task(void)
 {
     uint32_t ctl = SST_CTL;
+
+    /* A create says what it left behind. Until now it said nothing at
+     * all -- the firmware is stopped for the whole of one, so it could
+     * not -- and a failure that only follows a create had no line
+     * anywhere to appear on. Cheap, because a create is a thing the
+     * user asked for and not a thing that happens per frame. */
+    if (ctl & SST_SAVED)
+    {
+        uint64_t us = time_us_64();
+        printf("sst: saved mtime=%u:%u canvas=%u aud=%04x/%04x\n",
+               (unsigned)(us >> 32), (unsigned)us,
+               (unsigned)vga_get_canvas(), (unsigned)aud_psg_at_get(),
+               (unsigned)aud_opl_at_get());
+        aud_log_opl("saved");
+        msc_log();
+        SST_CTL = SST_SAVED;
+    }
+
     if (!(ctl & SST_RESTORED))
         return;
     sst_log_restore(ctl);

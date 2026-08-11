@@ -157,7 +157,20 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    always_comb bus_rdy = !(bus_sel_xram && xr_busy)
+    /* XRAM's port B is shared with the RW engine, so the address this
+     * side puts up is only on the array in the cycle xr_busy is low --
+     * and xram64k registers its read port, so the byte for it lands the
+     * cycle after that. Retiring on the first ready takes back the port's
+     * previous answer instead, which is why a read of this window came
+     * back with nothing to do with the address asked for.
+     *
+     * Writes retire on the first ready as before: they are posted into
+     * the same port and want nothing back. That asymmetry is why the
+     * fault stayed hidden -- rom.c stages images through here and the
+     * audio pages are written through here, all of it one way, and
+     * aud_replay's read after a restore is the only load in the
+     * firmware that ever asks this window a question. */
+    always_comb bus_rdy = !(bus_sel_xram && (xr_busy || (!bus_we && !bus_taken)))
         && !(bus_sel_stage && stage_stall)
         && !(bus_sel_sram && ram_b_stall);
 

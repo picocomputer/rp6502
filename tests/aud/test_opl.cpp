@@ -18,6 +18,7 @@
  */
 
 #include "Vaud_opl.h"
+#include "Vaud_opl___024root.h"
 
 #include "utest.h"
 
@@ -189,6 +190,40 @@ UTEST(opl, ffff_puts_it_away)
     ASSERT_FALSE(dut->aud_opl_enabled);
     /* The engine keeps running; what stops is the machine listening,
      * which rp6502.sv decides from this bit. */
+}
+
+/* The sequencer's contract, made checkable.
+ *
+ * It takes a write only while it is idle, spends four clocks on each
+ * one and has no way at all to say when it could not take another, so a
+ * writer that runs ahead of it loses registers in silence. That is not
+ * hypothetical: aud.c's restore replays the whole 256-byte page from
+ * the RISC-V, whose writes are back to back, and a restored song came
+ * back playing a few notes and then nothing. The replay is paced now,
+ * and this is the fact it paces to. */
+UTEST(opl, a_writer_that_runs_ahead_loses_registers)
+{
+    fresh();
+    set_page(0x1200);
+    auto dropped = [&] { return dut->rootp->aud_opl__DOT__aud_opl_dropped; };
+    ASSERT_EQ(dropped(), 0u);
+
+    /* poke() leaves nine clocks between writes, which is the 6502 at
+     * 8 MHz with room, and the rate every other test here uses. */
+    for (int r = 0; r < 32; r++)
+        poke(0x12, (uint8_t)(0x40 + r), 0x10);
+    ASSERT_EQ(dropped(), 0u);
+
+    /* Back to back, which is what the RISC-V does unaided. */
+    for (int r = 0; r < 32; r++)
+    {
+        dut->q_we = 1;
+        dut->q_addr = (uint16_t)(0x1200 | (0x40 + r));
+        dut->q_val = 0x10;
+        tick();
+    }
+    dut->q_we = 0;
+    ASSERT_GT(dropped(), 20u);
 }
 
 UTEST_STATE();

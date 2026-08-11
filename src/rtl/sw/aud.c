@@ -57,6 +57,36 @@ static void aud_replay(uint16_t at, uint16_t len)
     }
 }
 
+/* The nine key-on registers and the rhythm byte: "is this page a song
+ * that was playing", in ten bytes and one line.
+ *
+ * Printed at both ends of a sleep because a resume that comes back
+ * silent has two quite different causes and nothing else separates
+ * them. The same bytes at both ends means the blob carried the page and
+ * the fault is downstream of it -- the replay, or the program's own
+ * streaming. Bytes that differ mean XRAM did not come back, and no
+ * amount of replaying will help. */
+void aud_log_opl(const char *when)
+{
+    if (aud_opl_at == 0xFFFF)
+        return;
+    printf("aud: %s opl b0=", when);
+    for (uint16_t r = 0xB0; r <= 0xB8; r++)
+        printf("%02x", XRAM_WIN[aud_opl_at + r]);
+    printf(" bd=%02x\n", (unsigned)XRAM_WIN[aud_opl_at + 0xBD]);
+}
+
+/* For the wake and create logs: which engine a program has claimed. */
+uint16_t aud_psg_at_get(void)
+{
+    return aud_psg_at;
+}
+
+uint16_t aud_opl_at_get(void)
+{
+    return aud_opl_at;
+}
+
 /* A restore brings back the block in XRAM and the pointer from here,
  * but not what the engine made of them: the phase, the envelope and the
  * noise are its own and they start again. The registers are replayed so
@@ -107,6 +137,7 @@ void aud_restore(void)
         while (time_us_64() < until)
             ;
         aud_replay(opl, 256);
+        aud_log_opl("restored");
     }
     aud_psg_at = psg;
     aud_opl_at = opl;

@@ -152,6 +152,17 @@ module pocket_sst #(
     end
 
     logic blob_seen;
+    /* A create happened and the firmware has not been told. It could
+     * not be told at the time -- the whole machine including the soft
+     * CPU is stopped for the making of a blob, which is the point --
+     * so it is told afterwards. Nothing in the machine depends on it;
+     * it exists so a create can say as much about itself as a restore
+     * does, which until now was nothing at all. */
+    logic save_seen;
+    /* The firmware's acknowledgement, coming back the other way: it
+     * runs on the machine's clock and this flop is on the host's, so
+     * the ack is a toggle and the edge is what clears. */
+    (* preserve *) logic sack_s1, sack_s2, sack_s3;
     logic start_q, load_q;
     logic start_hold, start_done;
     logic load_hold, load_kept, load_bad;
@@ -179,6 +190,10 @@ module pocket_sst #(
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             blob_seen <= 1'b0;
+            save_seen <= 1'b0;
+            sack_s1 <= 1'b0;
+            sack_s2 <= 1'b0;
+            sack_s3 <= 1'b0;
             bridge_rd_q <= 1'b0;
             hold <= '0;
             ask <= '0;
@@ -206,6 +221,12 @@ module pocket_sst #(
         end else begin
             start_q <= savestate_start;
             load_q <= savestate_load;
+            sack_s1 <= saved_ack_t;
+            sack_s2 <= sack_s1;
+            sack_s3 <= sack_s2;
+            /* Ahead of the set below, so a create that lands on the
+             * same edge as an ack is still announced. */
+            if (sack_s2 != sack_s3) save_seen <= 1'b0;
             bridge_rd_q <= bridge_rd;
             rvalid_s1 <= sst_rvalid;
             rvalid_s2 <= rvalid_s1;
@@ -228,7 +249,10 @@ module pocket_sst #(
                  * here and not at the strobe that asked, because the
                  * engine is what serves the word and going idle at the
                  * strobe would mean never serving it. */
-                if (asked && ask == LAST_IDX) start_hold <= 1'b0;
+                if (asked && ask == LAST_IDX) begin
+                    start_hold <= 1'b0;
+                    save_seen <= 1'b1;
+                end
             end
 
             if (rd_edge) begin
@@ -294,18 +318,23 @@ module pocket_sst #(
     /* --- The machine's side. --- */
 
     logic load_req;
+    logic saved_ack_t;
     (* preserve *) logic load_s1, load_s2, load_s3;
     (* preserve *) logic seen_s1, seen_s2;
+    (* preserve *) logic saved_s1, saved_s2;
     (* preserve *) logic under_s1, under_s2;
 
     initial begin
         pocket_sst_rdata = '0;
         load_req = 1'b0;
+        saved_ack_t = 1'b0;
         load_s1 = 1'b0;
         load_s2 = 1'b0;
         load_s3 = 1'b0;
         seen_s1 = 1'b0;
         seen_s2 = 1'b0;
+        saved_s1 = 1'b0;
+        saved_s2 = 1'b0;
         under_s1 = 1'b0;
         under_s2 = 1'b0;
     end
@@ -318,10 +347,14 @@ module pocket_sst #(
         load_s3 <= load_s2;
         seen_s1 <= blob_seen;
         seen_s2 <= seen_s1;
+        saved_s1 <= save_seen;
+        saved_s2 <= saved_s1;
         under_s1 <= late;
         under_s2 <= under_s1;
 
         if (stb && we && addr[3:2] == REG_CTL && wdata[0]) load_req <= 1'b0;
+        if (stb && we && addr[3:2] == REG_CTL && wdata[4])
+            saved_ack_t <= !saved_ack_t;
 
         /* After the clear, so a request that lands in the same cycle
          * the firmware acknowledges the last one is not the one that
@@ -334,7 +367,8 @@ module pocket_sst #(
          * in. Clearing it is what lets the 6502 run again. */
         if (stb)
             pocket_sst_rdata <= addr[3:2] == REG_CTL
-                ? {28'd0, sst_load_err, under_s2, seen_s2, sst_load_done}
+                ? {27'd0, saved_s2, sst_load_err, under_s2, seen_s2,
+                   sst_load_done}
                 : 32'd0;
     end
 

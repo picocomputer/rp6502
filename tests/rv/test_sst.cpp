@@ -441,6 +441,46 @@ UTEST(sst, the_soft_cpus_registers_are_in_there)
     ASSERT_TRUE(dpc >= 16 && dpc <= 28);
 }
 
+/* The counter travels out through x31, and borrowing a register is
+ * only half done when you have saved it. A restore puts every register
+ * back and hid this; an ordinary savestate -- and every sleep, which is
+ * one -- resumed the soft CPU with x31 holding the program counter and
+ * whatever it had been holding gone. A firmware that mostly works: the
+ * machine runs, and one task quietly does not.
+ *
+ * Two saves with nothing between them that touches x31. The register
+ * the second blob carries has to be the one the first did, and it must
+ * not have become the first one's program counter.
+ */
+UTEST(sst, a_save_gives_back_the_register_it_borrowed)
+{
+    power_on();
+    for (int i = 0; i < 3000; i++)
+        clk();
+
+    ASSERT_TRUE(begin_save());
+    uint32_t x31_a = 0, dpc_a = 0;
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 31, &x31_a));
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 0, &dpc_a));
+
+    dut->sst_save = 0;
+    dut->eval();
+    for (int i = 0; i < 8000; i++)
+        clk();
+
+    ASSERT_TRUE(begin_save());
+    uint32_t x31_b = 0;
+    ASSERT_TRUE(blob_word(B_STATE + ST_RV + 31, &x31_b));
+
+    ASSERT_NE(dpc_a, x31_b);
+    ASSERT_EQ(x31_a, x31_b);
+
+    dut->sst_save = 0;
+    dut->eval();
+    for (int i = 0; i < 200; i++)
+        clk();
+}
+
 UTEST(sst, letting_go_lets_the_machine_run_again)
 {
     power_on();

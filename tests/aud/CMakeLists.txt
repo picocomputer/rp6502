@@ -24,6 +24,11 @@ endif()
 rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 
 if(RP6502_VERILATE)
+    # Whether the RISC-V's writes are on the bus the audio engines
+    # watch, which is the claim every restore of a playing machine
+    # rests on and which nothing tested.
+    rp6502_add_machine_test(replay TIMEOUT 300)
+
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
         ${RP6502_SRC} ${RP6502_SRC}/host/pico)
 

@@ -497,10 +497,14 @@ module sst_engine
         sst_engine_st_sel = st_sel_q;
         sst_engine_st_idx = st_idx_q;
         sst_engine_st_jam = state == S_LD_JAM || state == S_LD_JAM2;
-        sst_engine_mtime_jam = state == S_LD_PUT_DONE
-            || state == S_INJ_ARM || state == S_INJ_ISSUE
-            || state == S_INJ_TAKE || state == S_INJ_BRK_ARM
-            || state == S_INJ_BRK || state == S_INJ_WAIT;
+        /* Never on a create's walk: the words it would write are a
+         * restore's, and on a create they are whatever the last load
+         * left in them. */
+        sst_engine_mtime_jam = !inj_save
+            && (state == S_LD_PUT_DONE
+                || state == S_INJ_ARM || state == S_INJ_ISSUE
+                || state == S_INJ_TAKE || state == S_INJ_BRK_ARM
+                || state == S_INJ_BRK || state == S_INJ_WAIT);
         for (int i = 0; i < 4; i++)
             sst_engine_jam_mach[i] = flopreg[i];
         for (int i = 0; i < 5; i++)
@@ -560,6 +564,11 @@ module sst_engine
      * nothing may disturb a register once it is set. */
     logic [31:0] inj_val;
     logic inj_dpc;
+    /* Whether the register walk running is a create's single repair
+     * rather than a restore's whole file. A create injects exactly one
+     * register and goes back to serving the blob; a restore injects
+     * all of them and lets the core go. */
+    logic inj_save;
     logic [1:0] inj_step;
     logic [17:0] ld_idx;
     logic [31:0] ld_word;
@@ -650,6 +659,7 @@ module sst_engine
             bad_word <= '0;
             inj_val <= '0;
             inj_dpc <= 1'b0;
+            inj_save <= 1'b0;
             inj_step <= '0;
             idx_t1 <= 1'b0;
             idx_t2 <= 1'b0;
@@ -753,7 +763,26 @@ module sst_engine
                         sum_idx <= '0;
                         sum <= '0;
                         hold_valid <= 1'b0;
-                        state <= S_READY;
+                        /* And x31 goes back. It carried the program
+                         * counter out and still holds it: the comment
+                         * above says the counter travels through the
+                         * register that was just saved, and saving it
+                         * is only half of borrowing it. A restore put
+                         * it back by injecting every register; a
+                         * create never did, so an ordinary savestate
+                         * -- and every sleep -- resumed the soft CPU
+                         * with t6 holding an address. Whatever it had
+                         * been holding was gone, which is a firmware
+                         * that mostly works: a machine that keeps
+                         * running and one task that quietly does not.
+                         * One instruction, while the core is still
+                         * halted and before the blob is served. */
+                        inj_save <= 1'b1;
+                        inj_dpc <= 1'b0;
+                        rv_n <= 5'd31;
+                        inj_val <= rvreg[31];
+                        spill_instr <= i_reg_in(5'd31);
+                        state <= S_INJ_ARM;
                     end else begin
                         rvreg[rv_n] <= data0_q;
                         if (rv_n == 5'd31) begin
@@ -973,7 +1002,8 @@ module sst_engine
                         spill_instr <= i_reg_in(5'd1);
                         state <= S_INJ_ARM;
                     end else if (rv_n == 5'd31) begin
-                        state <= S_LD_DONE;
+                        inj_save <= 1'b0;
+                        state <= inj_save ? S_READY : S_LD_DONE;
                     end else begin
                         rv_n <= rv_n + 5'd1;
                         inj_val <= rvreg[5'(rv_n + 5'd1)];

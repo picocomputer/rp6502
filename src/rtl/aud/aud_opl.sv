@@ -122,6 +122,20 @@ module aud_opl #(
         endcase
     end
 
+`ifdef VERILATOR
+    /* The sequencer takes a write only while it is idle and has no way
+     * to say when it cannot, so a writer running ahead of it loses
+     * registers in silence -- which is how a restored song came back
+     * playing a few notes and stopping. Counted so a bench can hold its
+     * writer to the four clocks. Simulation only: no fabric. */
+    logic [31:0] aud_opl_dropped /*verilator public_flat_rd*/;
+    initial aud_opl_dropped = 32'd0;
+    always_ff @(posedge clk) begin
+        if (snoop && core_ic_n && state != S_IDLE)
+            aud_opl_dropped <= aud_opl_dropped + 32'd1;
+    end
+`endif
+
     logic signed [23:0] core_sample /*verilator public_flat_rd*/;
     logic core_valid;
     /* dout, led and irq_n are the chip's, not the machine's: status

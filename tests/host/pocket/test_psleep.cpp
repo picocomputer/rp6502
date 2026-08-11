@@ -911,6 +911,93 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
  * and what it printed after, laid end to end, are the file exactly once
  * -- no byte lost at the seam and none read twice.
  */
+/* The chip the blob cannot carry.
+ *
+ * XRAM comes back by itself, so the OPL's 256-byte page survives a
+ * sleep intact -- and the chip it mirrors does not, because its
+ * register file is write-only fabric that a reconfigure powers up
+ * clear. aud_restore's answer is to write the page over itself so the
+ * chip hears every register again.
+ *
+ * That replay runs on the RISC-V, and aud_opl.sv's sequencer was
+ * written for the 6502: it takes a write only while it is idle, spends
+ * four clocks turning it into the YM3812's address-then-data pair, and
+ * has no way whatever to say when it could not take the next one. A
+ * writer that runs ahead of it therefore restores a song to a chip that
+ * heard a fraction of it, with nothing anywhere reporting the loss --
+ * which on hardware sounded like a few notes and then silence.
+ *
+ * The counter is aud_opl.sv's own and exists only under Verilator, so
+ * this costs no fabric. Zero on both sides of the sleep is the claim:
+ * the 6502 programming the page keeps the sequencer's contract, and so
+ * does the replay that puts it back.
+ */
+UTEST(psleep, the_restore_replays_every_opl_register)
+{
+    std::vector<uint8_t> song = read_file(SONG_ROM);
+    ASSERT_GT(song.size(), 0u);
+
+    boot(song);
+    for (long i = 0;
+         i < 20000000L && g_console.find("song ok") == std::string::npos; i++)
+        step();
+    ASSERT_TRUE(g_console.find("song ok") != std::string::npos);
+    /* The device is really pointed at the page, so what follows is a
+     * sleep with a song in it rather than a sleep with nothing. */
+    /* Running time between the claim and the freeze, so the machine
+     * this sleeps is one that has been playing for a while rather than
+     * one that just started. */
+    for (long i = 0; i < 1500000L; i++)
+        step();
+    ASSERT_TRUE((int)MEM(aud_opl__DOT__enabled));
+    ASSERT_EQ(0xFEu, (uint32_t)MEM(aud_opl__DOT__page));
+    /* The 6502 wrote those eleven registers at its own pace, which is
+     * the rate the sequencer was designed around. */
+    ASSERT_EQ(0u, (uint32_t)MEM(aud_opl__DOT__aud_opl_dropped));
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    /* The same page, read by the same code, on a machine that never
+     * slept. It reads back zeros where the 6502 wrote registers, which
+     * is the whole fault and has nothing to do with sleeping. */
+    for (long i = 0; i < 3000000L
+                     && g_rv.find("bd=") == std::string::npos; i++)
+        step();
+    fprintf(stderr, "RV LOG:\n%s\n", g_rv.c_str());
+    ASSERT_TRUE(g_rv.find("aud: saved opl b0=31") != std::string::npos);
+    teardown();
+
+    /* The wake runs a program that never touches the device, so every
+     * write the chip sees after this point is the restore's. */
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot_into(other, true);
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    for (long i = 0; i < 2000000L && (int)MEM(resb); i++)
+        step();
+    ASSERT_FALSE((int)MEM(resb));
+    /* Before the load and not after: the firmware says all of this
+     * while the machine is still held, so by the time the engine is
+     * idle again the log has already been said. It goes out on the
+     * RISC-V's port rather than the console the 6502 prints to. */
+    g_rv.clear();
+    ASSERT_TRUE(load_state());
+    for (long i = 0;
+         i < 4000000L && g_rv.find("sst: released") == std::string::npos; i++)
+        step();
+    ASSERT_TRUE(g_rv.find("sst: released") != std::string::npos);
+
+    /* The page came back, and the log says so in the bytes that decide
+     * whether a note is sounding. b0=31 is the key-on the ROM wrote. */
+    ASSERT_TRUE(g_rv.find("aud: restored opl b0=31") != std::string::npos);
+    ASSERT_EQ(0u, (uint32_t)MEM(aud_opl__DOT__aud_opl_dropped));
+    teardown();
+}
+
 UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
 {
     std::vector<uint8_t> rom = read_file(STREAM_ROM);
