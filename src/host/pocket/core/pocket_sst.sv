@@ -243,9 +243,22 @@ module pocket_sst #(
                 seen_low <= 1'b0;
             end
 
-            /* Sticky for the life of the core: at boot it is the whole
-             * question of whether this is a wake or an ordinary load,
-             * and the firmware asks it once before it starts the ROM. */
+            /* Sticky from the first bridge write into the window until
+             * the load it announced has landed, and then armed again
+             * for the next one.
+             *
+             * It used to be sticky for the life of the core, on the
+             * theory that the firmware asks it once at boot. Hardware
+             * says otherwise: measured on a real wake, this reads ZERO
+             * at boot every time, because the host writes the blob only
+             * after Reset Exit. By the time the first word arrives the
+             * ROM has been staged and is running, so the question is
+             * not "was a blob here before I started" -- it never is --
+             * but "has one started arriving", and that has to be
+             * askable more than once. Clearing it at the end of the
+             * load is what lets the firmware keep asking without the
+             * answer being yes forever after the first wake. */
+            if (load_hold && ldone_s2 && !load_kept) blob_seen <= 1'b0;
             if (blob_hit) blob_seen <= 1'b1;
 
             /* Done when there is a word waiting, not when the engine

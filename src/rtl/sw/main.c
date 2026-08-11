@@ -493,6 +493,11 @@ static void main_stage(void);
  * to. That is the boot the guard exists to prevent, arriving late. */
 static bool main_wake_pending;
 
+/* What the boot saw, for the wake log to say once the host is quiet. */
+bool main_boot_wake;
+uint32_t main_boot_slot;
+uint8_t main_boot_upd;
+
 /* A restore lands on a host that has just re-announced everything it
  * has, and the loop below reads a change in either announcement as the
  * user picking a new program. Neither is news here: what is staged is
@@ -541,6 +546,19 @@ int main(void)
      * replace everything a staged ROM would put here. Starting one
      * under it is a cold boot the user watches get rolled back. */
     main_wake_pending = sst_pending();
+    /* Kept, not printed: the moment it is knowable is the moment the
+     * host may be streaming a savestate in, and a console busy then
+     * starves the staging store's write drain against a bridge that
+     * does not wait. The bench stops on exactly that. It is said later,
+     * from the wake log, when nothing is in flight.
+     *
+     * Measured on hardware, this reads zero on every wake -- the host
+     * writes the blob only after Reset Exit -- so the check here is
+     * kept for the case where a blob does precede the boot, and the
+     * one that does the work is in the loop below. */
+    main_boot_wake = main_wake_pending;
+    main_boot_slot = MMIO_SLOT;
+    main_boot_upd = (uint8_t)MMIO_UPD_N;
     if (!main_wake_pending)
         main_stage();
     /* Whatever the host has announced up to here is this image. */
@@ -577,6 +595,24 @@ int main(void)
         vid_task();
         api_task();
         sst_task();
+        /* Asked every pass, because at boot there was nothing to see.
+         * The host writes the blob after Reset Exit, so the first
+         * bridge write into the window arrives with this device's own
+         * cold-booted program already running -- and everything that
+         * program does from here is about to be replaced by the blob,
+         * while a file it creates or truncates on the way is not. So
+         * the moment a blob starts arriving the program is stopped,
+         * which is the most this side can do about a boot it was never
+         * given the chance to decline.
+         *
+         * The bit clears in fabric when the load lands, so this is a
+         * question and not a latch: a program launched after a wake
+         * still starts. */
+        bool wake = sst_pending();
+        if (wake && !main_wake_pending)
+            main_stop();
+        main_wake_pending = wake;
+
         /* Both watchers stand down while a restore is expected. What
          * the host is announcing then is the same program this machine
          * already has, and main_restored takes both readings once the

@@ -18,6 +18,8 @@
 
 #include <pico/time.h>
 
+#include <stdio.h>
+
 #include <string.h>
 
 /* Where each engine is pointed. The registers are write-only fabric and
@@ -67,6 +69,11 @@ static void aud_replay(uint16_t at, uint16_t len)
 void aud_restore(void)
 {
     uint16_t psg = aud_psg_at, opl = aud_opl_at;
+    /* Which engine the blob came back pointing at, and where. 0xFFFF is
+     * "no program has claimed it", and a restore that came back with
+     * that when the program was playing means the pointer did not
+     * survive rather than that the replay went wrong. */
+    printf("aud: psg=%04x opl=%04x\n", (unsigned)psg, (unsigned)opl);
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
     if (psg != 0xFFFF)

@@ -74,6 +74,59 @@ static bool msc_poll(uint32_t *st)
     return true;
 }
 
+/* Counted rather than printed at the point of failure: a stream that
+ * goes wrong goes wrong every frame, and a console full of it would be
+ * the second thing the user could not read. Reported once. */
+static uint16_t msc_n_tmo, msc_n_err, msc_n_defer;
+static uint32_t msc_last_st;
+
+void msc_log(void)
+{
+    if (!msc_n_tmo && !msc_n_err && !msc_n_defer)
+        return;
+    printf("msc: tmo=%u err=%u defer=%u last=%02x\n", (unsigned)msc_n_tmo,
+           (unsigned)msc_n_err, (unsigned)msc_n_defer,
+           (unsigned)(msc_last_st & 0xFFu));
+    msc_n_tmo = msc_n_err = msc_n_defer = 0;
+}
+
+/* A restore has landed and the fixups have not finished. Between those
+ * two moments this driver's word is worth nothing: the descriptor came
+ * out of the blob, the slot it names belongs to whatever the wake booted
+ * into, and pocket_file was reconfigured under a command the sleeping
+ * session issued. The main loop makes the window unavoidable -- api_task
+ * runs before sst_task, so a syscall carried across the sleep is
+ * re-dispatched a whole pass before msc_restore rebinds anything -- so
+ * the guard belongs here, at the driver, where it holds whatever order
+ * the tasks run in.
+ *
+ * Answering STD_PENDING is lossless: pos is not advanced, msc_restore
+ * clears msc_busy, and the next pass re-issues the same operation
+ * against a slot that is its own again. The stall is one pass, because
+ * sst_task clears the bit at the end of it. */
+static bool msc_adrift(void)
+{
+    if (!(SST_CTL & SST_RESTORED))
+        return false;
+    msc_n_defer++;
+    return true;
+}
+
+/* A stream that fails, fails every frame. The first few say what
+ * happened and the rest are counted, because a console nobody can read
+ * is how this started. */
+#define MSC_SAY_MAX 4
+
+static bool msc_note(uint32_t st)
+{
+    msc_last_st = st;
+    if (st & FILE_ST_TIMEOUT)
+        msc_n_tmo++;
+    else if (st & FILE_ST_ERR)
+        msc_n_err++;
+    return (unsigned)(msc_n_tmo + msc_n_err) <= MSC_SAY_MAX;
+}
+
 /* The blocking form, for open and boot-time staging: once per file, and
  * the 6502 is parked in its syscall either way. */
 static uint32_t msc_command(uint32_t op)
@@ -98,12 +151,21 @@ static bool msc_grow;
  * on top of it. */
 void msc_stop(void)
 {
-    if (msc_busy || msc_grow)
-    {
-        uint32_t st;
-        while (!msc_poll(&st))
-            ;
-    }
+    /* Unconditional, because the two flags below say what the session
+     * that wrote them was doing and the command in the fabric may
+     * belong to another one: a restore brings back a machine that
+     * thought it was idle over a pocket_file that is mid-command, and
+     * skipping the drain there stacks the next command's toggle onto a
+     * live one, where the bridge drops it outright and answers the
+     * previous command instead. Idle costs one read. */
+    uint32_t st;
+    bool waited = false;
+    while (!msc_poll(&st))
+        waited = true;
+    if (waited || msc_busy || msc_grow)
+        printf("msc: drain waited=%u busy=%u grow=%u st=%02x\n",
+               (unsigned)waited, (unsigned)msc_busy, (unsigned)msc_grow,
+               (unsigned)(st & 0xFFu));
     msc_busy = false;
     msc_grow = false;
 }
@@ -269,10 +331,44 @@ static const char *msc_strip_drive(const char *path)
     return path;
 }
 
-/* Every open file was a data slot the host had bound to a path, and
- * those bindings belong to the session the wake ended. The name is kept
- * beside the descriptor because the window it went out through cannot
- * be read back, so each one is simply opened again. The position is the
+/* What the host currently has this slot bound to, in the code page,
+ * against what this descriptor was opened as. The name kept beside the
+ * descriptor is the program's -- relative or absolute -- and the host
+ * answers with the whole path, so the comparison rebuilds the prefix
+ * the same way an open would have added it. */
+static bool msc_still_bound(int d)
+{
+    char have[MSC_NAME_MAX];
+    if (!msc_getfile(MSC_SLOT_FIRST + (uint32_t)d, have, sizeof have))
+        return false;
+    const char *want = msc_pool[d].name;
+    const char *at = have;
+    if (*want != '/')
+    {
+        size_t n = MSC_SAVES_LEN;
+        if (strncmp(have, MSC_SAVES_PATH, n) != 0)
+            return false;
+        at += n;
+    }
+    return strcmp(at, want) == 0;
+}
+
+/* Every open file was a data slot the host had bound to a path. Whether
+ * a wake keeps that binding is not written down anywhere -- Analogue's
+ * boot process says the host loads the slots data.json describes, and
+ * these eight are deferload with no filename in it, so there is nothing
+ * for it to bind them to; but the docs never say what becomes of a
+ * binding made at runtime with 0x0192, and this file asserted for a
+ * while that they were simply gone.
+ *
+ * So it asks. 0x0190 answers with the path a slot is bound to, and a
+ * slot that still holds the right file is left alone. That is right
+ * whichever way the host behaves, and it is the difference between one
+ * round trip per open file and none: a wake that kept its bindings pays
+ * nothing, and one that did not is put back exactly as before.
+ *
+ * The name is kept beside the descriptor because the window it went out
+ * through cannot be read back. The position is the
  * caller's own count and never went near the host.
  *
  * A slot that will not open again is left open here, so a program that
@@ -280,20 +376,40 @@ static const char *msc_strip_drive(const char *path)
  * was never open. */
 void msc_restore(void)
 {
-    /* The blob was taken with a command possibly outstanding, and it
-     * carries msc_busy along with everything else in memory. On a wake
-     * the fabric it belonged to has been reconfigured out from under it
-     * and there is nothing to wait for; on a load into a running
-     * machine pocket_file kept its clock and the command may genuinely
-     * still be in flight. msc_stop covers both -- it returns at once
-     * when FILE_CTL reads idle -- and it has to happen before the
-     * reopens, because a second command stacked on a live one has its
-     * toggle dropped outright. */
     msc_stop();
     for (int d = 0; d < MSC_OPEN_MAX; d++)
-        if (msc_pool[d].used)
-            (void)msc_open_slot(MSC_SLOT_FIRST + (uint32_t)d,
-                                msc_pool[d].name, 0, 0);
+    {
+        if (!msc_pool[d].used)
+            continue;
+        /* The whole of what this side is unsure about, per descriptor
+         * and once per wake: whether the host still had the slot, what
+         * it said when asked to bind it again, and whether its idea of
+         * the file's length is the one the sleeping session had. Every
+         * one of those is a question Analogue documents nowhere and
+         * that only the device can answer. */
+        bool kept = msc_still_bound(d);
+        uint32_t rc = 0;
+        if (!kept)
+            rc = msc_try_open(MSC_SLOT_FIRST + (uint32_t)d,
+                              msc_pool[d].name, 0, 0, MSC_SAVES_PATH);
+        uint32_t len = 0;
+        bool got = msc_slot_len(MSC_SLOT_FIRST + (uint32_t)d, &len);
+        printf("msc: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
+               (unsigned)d, msc_pool[d].name, (unsigned)kept, (unsigned)rc,
+               (unsigned)msc_pool[d].len, (unsigned)got, (unsigned)len,
+               (unsigned)msc_pool[d].pos, (unsigned)msc_pool[d].writable);
+        if (!kept && rc > 1)
+            continue;
+        /* The length is the host's to say for a file this side did not
+         * write: the card outlived the session and the file may not be
+         * the size the blob remembers. A writable descriptor keeps its
+         * own, because it is what resized the file and the host's table
+         * is only as fresh as the last open. */
+        if (got && !msc_pool[d].writable)
+            msc_pool[d].len = len;
+        if (msc_pool[d].pos > msc_pool[d].len)
+            msc_pool[d].pos = msc_pool[d].len;
+    }
 }
 
 static int msc_desc(int desc)
@@ -476,6 +592,8 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
         *err = API_EBADF;
         return STD_ERROR;
     }
+    if (msc_adrift())
+        return STD_PENDING;
     uint32_t pos = msc_pool[desc].pos, len = msc_pool[desc].len;
     uint32_t want = pos < len ? len - pos : 0;
     if (want > count)
@@ -499,11 +617,21 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
     msc_busy = false;
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
+        if (msc_note(st))
+            printf("msc: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
+                   (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
         *err = API_EIO;
         return STD_ERROR;
     }
     for (uint32_t i = 0; i < want; i++)
         buf[i] = (char)SLOT_WIN(desc)[i];
+    /* Again after the copy, not only before it: the window the bytes
+     * came out of is the board's and no blob carries it, so a freeze
+     * that landed anywhere in that loop lifted the tail of this buffer
+     * out of a store the wake rebuilt. Asked once more here, the whole
+     * read is re-taken instead of half-committed. */
+    if (msc_adrift())
+        return STD_PENDING;
     msc_pool[desc].pos = pos + want;
     *got = want;
     return STD_OK;
@@ -518,6 +646,8 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
         *err = API_EBADF;
         return STD_ERROR;
     }
+    if (msc_adrift())
+        return STD_PENDING;
     if (!msc_pool[desc].writable)
     {
         *err = API_EACCES;
@@ -569,9 +699,14 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
     msc_busy = false;
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
+        if (msc_note(st))
+            printf("msc: write %u off=%u len=%u st=%02x\n", (unsigned)desc,
+                   (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
         *err = API_EIO;
         return STD_ERROR;
     }
+    if (msc_adrift())
+        return STD_PENDING;
     msc_pool[desc].pos = pos + want;
     *wrote = want;
     return want < count ? STD_PENDING : STD_OK;
@@ -584,6 +719,11 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    /* msc_flush_state is sticky, so a verdict reached against a
+     * reconfigured bridge would condemn every flush for the rest of
+     * the session. */
+    if (msc_adrift())
+        return STD_PENDING;
     if (msc_flush_state == MSC_FLUSH_NEVER)
         return STD_OK;
     uint32_t st;

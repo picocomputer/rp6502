@@ -40,6 +40,31 @@
 
 #include "ria/api/tim.h"
 
+#include <pico/time.h>
+
+#include <stdio.h>
+
+/* Everything about a wake this side is not certain of, said once, at
+ * the one moment all of it is knowable. The device is the only place
+ * these questions can be put -- Analogue documents none of it -- and a
+ * hardware pass is expensive, so this asks the whole list in one go
+ * rather than one question per bitstream.
+ *
+ * Once per restore and never in a loop: a running program owns the
+ * console and this must not become weather. */
+static void sst_log_restore(uint32_t ctl)
+{
+    uint64_t us = time_us_64();
+    printf("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
+           (unsigned)(us >> 32), (unsigned)us);
+    printf("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
+           (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
+           (unsigned)vid_prog_word_get(), (unsigned)font_get_code_page());
+    printf("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
+           (unsigned)(MMIO_UPD_N & 0xFFu), (unsigned)main_boot_wake,
+           (unsigned)main_boot_slot, (unsigned)main_boot_upd);
+}
+
 bool sst_pending(void)
 {
     return (SST_CTL & SST_BLOB_SEEN) != 0;
@@ -47,16 +72,19 @@ bool sst_pending(void)
 
 void sst_task(void)
 {
-    if (!(SST_CTL & SST_RESTORED))
+    uint32_t ctl = SST_CTL;
+    if (!(ctl & SST_RESTORED))
         return;
+    sst_log_restore(ctl);
 
     /* Refused, and nothing was written: this is still the session it
      * was, so there is nothing to fix up and every fixup would be
      * wrong -- the clock re-based mid-run, the canvas repainted under
      * a live program. The engine still holds the machine's release
      * hostage to the ack, so the ack is all this path does. */
-    if (SST_CTL & SST_RESTORE_ERR)
+    if (ctl & SST_RESTORE_ERR)
     {
+        printf("sst: refused, staging the rom instead\n");
         SST_CTL = SST_RESTORED;
         /* Acked first: staging can take the better part of a second
          * and the host is waiting on the ack, not on the ROM.
@@ -97,6 +125,12 @@ void sst_task(void)
      * for itself does not survive that, and the host's is the one that
      * is right. */
     tim_init();
+    {
+        uint64_t us = time_us_64();
+        printf("sst: released mtime=%u:%u\n", (unsigned)(us >> 32),
+               (unsigned)us);
+        msc_log();
+    }
 
     /* The host re-announces its slots on a wake and the loop reads a
      * change in either announcement as the user picking a new program.

@@ -87,6 +87,13 @@ void vid_task(void)
 /* The row table and the cursor would come back on their own at the
  * next frame, so this is only the window -- and then the view, so the
  * frame in between is not a screenful of row zero. */
+/* For the wake log: the window nothing can read back out of the
+ * fabric. */
+uint32_t vid_prog_word_get(void)
+{
+    return vid_prog_word;
+}
+
 void vid_restore(void)
 {
     VID_PROG = vid_prog_word;

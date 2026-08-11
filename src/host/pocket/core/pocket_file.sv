@@ -120,7 +120,22 @@ module pocket_file #(
         r_op = '0;
         go_t = 1'b0;
         busy = 1'b0;
-        tmo_flag = 1'b0;
+        /* Timed out, at power-on, because the alternative reads as
+         * success. A wake reconfigures this part while the firmware
+         * that comes back out of the blob may be halfway through a
+         * command it issued in the session before, and its next poll
+         * finds busy clear, no error and no timeout -- which is this
+         * register saying "the command you asked about completed and
+         * went well" about a command this fabric has never seen. The
+         * read that follows lifts whatever the staging window happens
+         * to hold and hands it to the program as file data.
+         *
+         * Every caller already treats a timeout as a refusal, and
+         * every one of them writes FILE_CTL before it polls -- which
+         * clears this below -- so a session that starts its own
+         * command never sees it. Only a poll inherited across a
+         * reconfigure does, and a refusal is exactly what that is. */
+        tmo_flag = 1'b1;
         r_err = '0;
         r_result = '0;
         ret_t1 = 1'b0;

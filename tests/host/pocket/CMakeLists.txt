@@ -82,8 +82,9 @@ if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(psleep FIRMWARE SPLIT
         TOP tb_pocket
         RTL ${POCKET_STACK}
-        DEFS FILE_ROM="${FILE_ROM}" ROMS_DIR="${RP6502_TEST_CORPUS}"
-        DEPENDS file_rom
+        DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
+            ROMS_DIR="${RP6502_TEST_CORPUS}"
+        DEPENDS file_rom stream_rom
         TIMEOUT 1200)
 
     # --- The file bridge, with the bench playing the host ---

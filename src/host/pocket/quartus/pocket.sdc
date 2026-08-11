@@ -191,6 +191,28 @@ set_false_path -hold \
     -from [get_registers {*rv_soc*|dph_strb[*]}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
+# The lottery drew the write data. A CI fit missed by two picoseconds
+# from hazard3's bus_active_dph_s into the scanline table's port-A data
+# register, through vid_mode0's write-data mux -- the same seam, the
+# same class, a register this file had not named because it is the
+# vendor's rather than rv_soc's.
+#
+# It is the same interlock and the vendor's source says so outright.
+# hazard3_cpu_1port.v:239-247 writes all three bus_active_dph_* under
+# "else if (hready)" and nowhere else, which is the identical condition
+# the payload above is cut on; and :313 is
+# "assign hwdata = bus_active_dph_s ? dbg_sbus_wdata : core_wdata_d",
+# so this register is not a separate signal that happens to reach the
+# arrays -- it is the select on the payload itself. hready is !pend, and
+# every machine-side capture is gated on pend, so the data cannot launch
+# on an edge that captures it. Cut at the clock like its siblings, and
+# the family is whole: all three, because they share one always block
+# and one enable, and naming only the one that missed is how this walked
+# a pair at a time before. Setup stays.
+set_false_path -hold \
+    -from [get_registers {*hazard3_cpu_1port*|bus_active_dph_*}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first
 # stage is cut by the rule above. Bound the parameters instead of

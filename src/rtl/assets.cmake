@@ -203,6 +203,15 @@ add_test(NAME stage_map
         --top ${RP6502_SRC}/host/pocket/core_top.sv)
 
 # The file round trip, generated the same way and shipped the same way.
+# The file that is open when the machine sleeps. It reads a chunk at a
+# time so that wherever a sleep lands, a read lands after the resume.
+set(STREAM_ROM ${RP6502_ASSETS}/stream.rp6502)
+rp6502_asset(stream_rom GEN ${RP6502_SRC}/gen/stream_rom_gen.py
+    ARGS --emit ${STREAM_ROM}
+    OUTPUTS ${STREAM_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the streaming-read ROM")
+
 set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)
 rp6502_asset(file_rom GEN ${RP6502_SRC}/gen/file_rom_gen.py
     ARGS --emit ${FILE_ROM}

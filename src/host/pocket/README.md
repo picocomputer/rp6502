@@ -238,6 +238,41 @@ The 6502 continues from the exact cycle the blob froze it in.
   the gap between two commands of one operation); a hold spanning
   whole operations is firmware work in `msc.c`, still open.
 
+  The split to keep straight is that a sleep cuts the power to the
+  core and not to the card. The files are where they were. What
+  becomes of the host's *binding* of a data slot to one of them is the
+  part **the documentation does not say**, and this file asserted an
+  answer to it for a while without one. The boot process says Pocket
+  loads the slots `data.json` describes, and these eight are
+  `deferload` with no filename in it, so there is nothing there for it
+  to bind — but a binding made at runtime with `0x0192` is not in
+  `data.json` and no page says whether it survives.
+
+  So `msc_restore` asks. `0x0190` answers with the path a slot is
+  bound to, and a slot still holding the right file is left alone.
+  That is correct whichever way the host behaves, and it is the
+  difference between one round trip per open file and none: a wake
+  that kept its bindings pays nothing, a wake that lost them is put
+  back exactly as it was, and a state loaded into a machine that was
+  never power-cycled — where the bindings are certainly still live —
+  stops paying eight Open Files for nothing.
+
+  Both directions are benches.
+  `psleep.a_file_open_across_the_sleep_is_still_open` runs a program
+  streaming a file through a real reconfigure: the model's card
+  survives it and its bindings do not, an unbound slot answers "slot
+  not defined" the way the host does, and the file comes out byte for
+  byte across the seam with nothing lost or repeated. Delete the
+  reopen and it fails.
+  `psleep.a_load_into_a_running_machine_keeps_its_bindings` is the
+  other one, and it asserts the Open Files do not happen.
+
+  So a file failure that only happens on hardware is now, by
+  construction, something the model does not have. `msc_restore` says
+  which descriptor refused and with which of the host's own result
+  codes, because the last one of these cost a day of inference over a
+  number nobody could read off the screen.
+
 ### The picture across a freeze
 
 The scaler is a separate machine and it is not asleep. Bus

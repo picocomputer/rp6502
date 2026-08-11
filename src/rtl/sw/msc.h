@@ -34,6 +34,10 @@ void msc_stop(void);
 /* The open files opened again, because the host forgets which path
  * each data slot was for when the core is reconfigured. */
 void msc_restore(void);
+/* The drive's own count of what went wrong since it was last asked,
+ * said once rather than at every failure: a stream that fails, fails
+ * every frame. */
+void msc_log(void);
 
 /* By word index, not by slot: the table is id/size pairs and the host
  * decides where each pair lands. */

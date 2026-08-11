@@ -12,7 +12,7 @@
         },
         "framework": {
             "target_product": "Analogue Pocket",
-            "version_required": "1.1",
+            "version_required": "2.3",
             "sleep_supported": true,
             "dock": {
                 "supported": true,

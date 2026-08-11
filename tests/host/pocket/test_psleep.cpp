@@ -316,6 +316,20 @@ static void do_openfile()
         a_edge();
 }
 
+/* A slot the host has not bound to a file is not a slot it can serve.
+ * Answering zeros instead is a bench that passes a core which lost its
+ * bindings, which is the whole of what a wake does to them. */
+static bool slot_bound(uint32_t slot)
+{
+    if (slot < 16 && !g_bound[slot].empty())
+        return true;
+    dut->target_dataslot_done = 1;
+    dut->target_dataslot_err = 1; /* slot not defined */
+    for (int k = 0; k < 4; k++)
+        a_edge();
+    return false;
+}
+
 static void do_slotread()
 {
     dut->target_dataslot_done = 0;
@@ -324,6 +338,8 @@ static void do_slotread()
     uint32_t len = dut->tb_pocket_ds_length;
     uint32_t at = dut->tb_pocket_ds_bridgeaddr;
     g_reads++;
+    if (!slot_bound(slot))
+        return;
     std::vector<uint8_t> &f = g_files[g_bound[slot]];
     std::vector<uint8_t> chunk(len, 0);
     for (uint32_t i = 0; i < len && off + i < f.size(); i++)
@@ -340,6 +356,8 @@ static void do_slotwrite()
     uint32_t len = dut->tb_pocket_ds_length;
     uint32_t at = dut->tb_pocket_ds_bridgeaddr;
     g_writes++;
+    if (!slot_bound(slot))
+        return;
     std::vector<uint8_t> chunk(len, 0);
     host_get_bytes(at, chunk.data(), chunk.size());
     std::vector<uint8_t> &f = g_files[g_bound[slot]];
@@ -453,15 +471,22 @@ static long g_underrun_at;
  * The old shape of this bench wrote the blob before the core ran, and
  * every restore it ever tested landed on an idle machine that had
  * declined its ROM; hardware never once takes that path. */
-static void boot(const std::vector<uint8_t> &rom)
+/* A sleep cuts the power to the core, not to the SD card: keep_card is
+ * a wake, where the files are where they were and only the host's
+ * binding of a data slot to one of them is gone. A plain boot is a
+ * device that has never seen this card. */
+static void boot_into(const std::vector<uint8_t> &rom, bool keep_card)
 {
     dut = new Vtb_pocket;
     a_next = s_next = g_sys = 0;
     g_console.clear();
     g_rv.clear();
-    g_files.clear();
-    g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
-              "/Saves", "/Saves/rp6502", "/Saves/rp6502/common"};
+    if (!keep_card)
+    {
+        g_files.clear();
+        g_dirs = {"/", "/Assets", "/Assets/rp6502", "/Assets/rp6502/common",
+                  "/Saves", "/Saves/rp6502", "/Saves/rp6502/common"};
+    }
     g_opens = g_reads = g_writes = g_flushes = g_getfiles = 0;
     memset(g_dt, 0, sizeof g_dt);
     for (auto &b : g_bound)
@@ -509,6 +534,11 @@ static void boot(const std::vector<uint8_t> &rom)
     dut->reset_n = 1;
     for (int i = 0; i < 4000; i++)
         step();
+}
+
+static void boot(const std::vector<uint8_t> &rom)
+{
+    boot_into(rom, false);
 }
 
 static void teardown()
@@ -871,6 +901,158 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
  * canvas it went to sleep with, and a bench that used it would pass
  * with the whole restore path deleted.
  */
+/* The card is the one thing a savestate cannot carry and cannot rebuild
+ * from itself. A data slot's binding to a file belongs to the session
+ * the wake ended, so a program holding a file open goes to sleep with a
+ * descriptor whose other half no longer exists, and the firmware has to
+ * put that half back before the next read.
+ *
+ * The claim is the stream: what the machine printed before the sleep
+ * and what it printed after, laid end to end, are the file exactly once
+ * -- no byte lost at the seam and none read twice.
+ */
+UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
+{
+    std::vector<uint8_t> rom = read_file(STREAM_ROM);
+    ASSERT_GT(rom.size(), 0u);
+
+    /* Something long enough to be caught in the middle of and easy to
+     * read in a diff when it is not. */
+    std::vector<uint8_t> payload;
+    for (int i = 0; i < 512; i++)
+        payload.push_back((uint8_t)('a' + (i % 26)));
+    std::string want((const char *)payload.data(), payload.size());
+
+    boot(rom);
+    g_files["/Saves/rp6502/common/M.DAT"] = payload;
+
+    /* Partway through the stream: the file is open, some of it has been
+     * read, and most of it has not. */
+    for (long i = 0; i < 20000000L && g_console.size() < 64; i++)
+        step();
+    ASSERT_GE(g_console.size(), 64u);
+    ASSERT_LT(g_console.size(), want.size());
+    std::string before = g_console;
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+
+    /* The wake, on a program of its own, so that everything the console
+     * says after the restore is the restored program's. The card is as
+     * it was; the bindings are not. */
+    std::vector<uint8_t> other = read_file(FILE_ROM);
+    ASSERT_GT(other.size(), 0u);
+    boot_into(other, true);
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    /* The blob has started arriving, so this device's own cold-booted
+     * program is stopped: everything it does from here is about to be
+     * replaced, and the files it touches on the way are not. */
+    /* Within a few passes of the first bridge write into the window,
+     * not instantly: the firmware asks once per loop. */
+    for (long i = 0; i < 2000000L && (int)MEM(resb); i++)
+        step();
+    ASSERT_FALSE((int)MEM(resb));
+    ASSERT_TRUE(load_state());
+    g_console.clear();
+
+    for (long i = 0; i < 40000000L
+                     && g_console.find("stream ok\r\n") == std::string::npos;
+         i++)
+        step();
+    ASSERT_TRUE(g_console.find("stream ok\r\n") != std::string::npos);
+    ASSERT_STREQ((before + want.substr(before.size()) + "stream ok\r\n").c_str(),
+                 (before + g_console).c_str());
+    teardown();
+}
+
+/* The other half of the drive: a sleep that lands INSIDE a file
+ * operation rather than between two. msc_std_write starts a bridge
+ * command, sets msc_busy, and returns to the task loop until it
+ * retires, so a blob can carry msc_busy true and a half-issued command
+ * whose other end no longer exists. Waiting for the first write puts
+ * the freeze in that window.
+ */
+/* The Memories menu's other half: a state loaded back into a machine
+ * that was never power-cycled. Nothing was reconfigured, so the host
+ * still has every slot bound to the file it had -- and the firmware
+ * asks rather than assuming, so it costs a Get File per open
+ * descriptor and no Open File at all.
+ *
+ * This is the case that says why it asks. Reopening regardless would
+ * be eight round trips against a host that had nothing to fix.
+ */
+UTEST(psleep, a_load_into_a_running_machine_keeps_its_bindings)
+{
+    std::vector<uint8_t> rom = read_file(STREAM_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    std::vector<uint8_t> payload;
+    for (int i = 0; i < 512; i++)
+        payload.push_back((uint8_t)('a' + (i % 26)));
+
+    boot(rom);
+    g_files["/Saves/rp6502/common/M.DAT"] = payload;
+    for (long i = 0; i < 20000000L && g_console.size() < 64; i++)
+        step();
+    ASSERT_GE(g_console.size(), 64u);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+
+    /* Same machine, still running, still holding the file open. */
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    int opens_before = g_opens, getfiles_before = g_getfiles;
+    ASSERT_TRUE(load_state());
+    g_console.clear();
+
+    for (long i = 0; i < 40000000L
+                     && g_console.find("stream ok\r\n") == std::string::npos;
+         i++)
+        step();
+    ASSERT_TRUE(g_console.find("stream ok\r\n") != std::string::npos);
+    /* It asked, and had nothing to put back. */
+    ASSERT_GT(g_getfiles, getfiles_before);
+    ASSERT_EQ(opens_before, g_opens);
+    teardown();
+}
+
+UTEST(psleep, a_sleep_inside_a_file_operation_still_finishes_it)
+{
+    std::vector<uint8_t> rom = read_file(FILE_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom);
+
+    /* Far enough that the program is in the drive rather than in front
+     * of it. */
+    for (long i = 0; i < 20000000L && g_writes == 0; i++)
+        step();
+    ASSERT_GT(g_writes, 0);
+    ASSERT_TRUE(g_console.find(DONE) == std::string::npos);
+
+    std::vector<uint8_t> blob;
+    ASSERT_TRUE(create_state(blob));
+    teardown();
+
+    boot_into(rom, true);
+    for (long i = 0; i < SAVE_AT; i++)
+        step();
+    std::vector<uint8_t> file = wrap_blob(blob, 596, 52764);
+    host_put_bytes(BLOB_BRIDGE, file.data(), file.size());
+    ASSERT_TRUE(load_state());
+    g_console.clear();
+
+    for (long i = 0; i < 40000000L && g_console.find(DONE) == std::string::npos;
+         i++)
+        step();
+    ASSERT_TRUE(g_console.find(DONE) != std::string::npos);
+    teardown();
+}
+
 UTEST(psleep, the_raster_registers_come_back)
 {
     std::vector<uint8_t> rom = read_file(ROMS_DIR "/mode3_1bpp.rp6502");
