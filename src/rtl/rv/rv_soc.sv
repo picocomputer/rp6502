@@ -36,6 +36,9 @@ module rv_soc
 
     output logic [7:0] rv_soc_tx_data,
     output logic rv_soc_tx_valid,
+    /* No room left where the console goes. A platform that drops
+     * instead of stalling ties this low and the firmware never waits. */
+    input logic tx_full,
 
     output logic [15:0] rv_soc_phi2_khz,
 
@@ -366,6 +369,7 @@ module rv_soc
             hrdata = bus_rdata;
         else if (dph_mmio)
             case (mmio_reg)
+                7'h00: hrdata = {31'd0, tx_full};
                 7'h08: hrdata = {23'd0, mmio_kbd_valid, mmio_kbd_data};
                 7'h0C: hrdata = {16'd0, rv_soc_phi2_khz};
                 7'h10: hrdata = mtime_us[31:0];

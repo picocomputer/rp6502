@@ -9,8 +9,9 @@
  * command must be picked off the bridge and put out whole, ahead of the
  * console and never inside one of its words.
  *
- * The log is allowed to drop when it is outrun. Every case here stays
- * inside the queue, so nothing dropped is nothing correct.
+ * The console side plays the firmware, which consults the full flag
+ * before every byte, so a burst longer than the queue arrives whole
+ * rather than shredded.
  */
 
 #include "Vpocket_dbglog.h"
@@ -35,6 +36,10 @@ static std::deque<std::pair<uint32_t, uint32_t>> writes;
 static long tsim;
 static int done_hold;
 static int prev_event;
+/* Bridge edges a command takes to retire. An event is a whole host
+ * round trip, so on the device this is orders above the console's own
+ * rate; the cases that stay inside the queue do not care what it is. */
+static int host_latency;
 
 static void reset(int endian_little)
 {
@@ -50,14 +55,13 @@ static void reset(int endian_little)
     tsim = 0;
     done_hold = 0;
     prev_event = 0;
+    host_latency = 3;
 
     dut->clk_mach = 0;
     dut->clk_74a = 0;
     dut->arst_n = 0;
     dut->tx_data = 0;
     dut->tx_valid = 0;
-    dut->rv_tx_data = 0;
-    dut->rv_tx_valid = 0;
     dut->bridge_wr = 0;
     dut->bridge_endian_little = endian_little;
     dut->bridge_addr = 0;
@@ -88,11 +92,13 @@ static void tick(void)
 
     if (con_edge)
     {
-        dut->rv_tx_valid = 0;
-        if (!console.empty())
+        dut->tx_valid = 0;
+        /* com_tx_write: look before the store, wait while there is no
+         * room. */
+        if (!console.empty() && !dut->pocket_dbglog_full)
         {
-            dut->rv_tx_data = console.front();
-            dut->rv_tx_valid = 1;
+            dut->tx_data = console.front();
+            dut->tx_valid = 1;
             console.pop_front();
         }
         dut->eval();
@@ -130,7 +136,7 @@ static void tick(void)
         {
             events.push_back(dut->pocket_dbglog_id);
             dut->target_debug_done = 0;
-            done_hold = 3;
+            done_hold = host_latency;
         }
         prev_event = dut->pocket_dbglog_event;
     }
@@ -312,6 +318,32 @@ UTEST(pdbglog, a_burst_of_commands_keeps_its_order)
     ASSERT_EQ(0x00000009u, events[1]);
     ASSERT_EQ(0xC000008Fu, events[2]);
     ASSERT_EQ(0xC0000011u, events[3]);
+}
+
+/* The case the device is actually in. printf runs at the firmware's
+ * speed into a queue drained one word per host round trip, so a restore
+ * -- eight lines and a msc report per open descriptor -- outruns 128
+ * bytes long before the first word has retired. What is lost is the
+ * tail, which is the part that says what went wrong.
+ *
+ * The claim is the whole line: every byte the console spoke comes out,
+ * in order, however far ahead of the host it ran. */
+UTEST(pdbglog, a_burst_longer_than_the_queue_loses_nothing)
+{
+    reset(0);
+    host_latency = 40;
+
+    std::string want;
+    for (int i = 0; i < 256; i++)
+        want.push_back((char)('0' + (i % 64)));
+    say(want.c_str());
+    run(12000);
+
+    std::string got;
+    for (uint32_t e : events)
+        for (int b = 24; b >= 0; b -= 8)
+            got.push_back((char)((e >> b) & 0xFF));
+    ASSERT_STREQ(want.c_str(), got.c_str());
 }
 
 UTEST_MAIN()

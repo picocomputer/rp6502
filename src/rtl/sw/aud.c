@@ -66,6 +66,20 @@ static void aud_replay(uint16_t at, uint16_t len)
  * the fault is downstream of it -- the replay, or the program's own
  * streaming. Bytes that differ mean XRAM did not come back, and no
  * amount of replaying will help. */
+/* The same question for the other engine: the gate byte of each of the
+ * eight channels, which is what says a voice is sounding. Offset six of
+ * a seven-byte block on an eight-byte stride, the way aud_psg.sv reads
+ * it. */
+void aud_log_psg(const char *when)
+{
+    if (aud_psg_at == 0xFFFF)
+        return;
+    printf("aud: %s psg gate=", when);
+    for (uint16_t c = 0; c < 8; c++)
+        printf("%02x", XRAM_WIN[aud_psg_at + c * 8 + 6]);
+    printf("\n");
+}
+
 void aud_log_opl(const char *when)
 {
     if (aud_opl_at == 0xFFFF)
@@ -85,6 +99,17 @@ uint16_t aud_psg_at_get(void)
 uint16_t aud_opl_at_get(void)
 {
     return aud_opl_at;
+}
+
+/* MTIME counts whole microseconds, so a spin that ends when the counter
+ * reads start+n has waited anywhere from n-1 to n of them. Both callers
+ * below are waiting out a walk in fabric whose length is known exactly,
+ * and want the floor rather than the hope, so this asks for one more. */
+static void aud_wait_us(uint32_t us)
+{
+    uint64_t until = time_us_64() + us + 1;
+    while (time_us_64() < until)
+        ;
 }
 
 /* A restore brings back the block in XRAM and the pointer from here,
@@ -112,11 +137,8 @@ void aud_restore(void)
         /* Installing the pointer releases every voice at the engine's
          * next idle -- one sample walk away -- so the replay has to
          * come after that or the notes it strikes are released again
-         * behind it. A sample is 48 kHz; twenty-five microseconds is
-         * one with room. */
-        uint64_t until = time_us_64() + 25;
-        while (time_us_64() < until)
-            ;
+         * behind it. A sample at 48 kHz is 20.9 us. */
+        aud_wait_us(21);
         /* And the replay's gate bits have to count. Without this the
          * engine ignores them -- a gate is the 6502's to make -- and a
          * voice that was sounding comes back silent for good. */
@@ -131,11 +153,9 @@ void aud_restore(void)
          * aud_opl.sv holds that reset for 255 machine clocks while it
          * walks its register file clear. A replay begun inside the walk
          * has its first registers walked over -- the head of the page,
-         * which is where the operator settings are. Six microseconds is
-         * those 255 clocks with room. */
-        uint64_t until = time_us_64() + 6;
-        while (time_us_64() < until)
-            ;
+         * which is where the operator settings are. 255 clocks at
+         * 50.4 MHz is 5.06 us. */
+        aud_wait_us(6);
         aud_replay(opl, 256);
         aud_log_opl("restored");
     }

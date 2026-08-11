@@ -128,6 +128,7 @@ input logic clk_vid,
     output logic pocket_core_tx_valid,
     output logic [7:0] pocket_core_rv_tx_data,
     output logic pocket_core_rv_tx_valid,
+    input logic rv_tx_full,
     output logic pocket_core_rv_halted
 );
 
@@ -425,6 +426,7 @@ input logic clk_vid,
         .rp6502_rx_taken(rx_taken),
         .rp6502_rv_tx_data(pocket_core_rv_tx_data),
         .rp6502_rv_tx_valid(pocket_core_rv_tx_valid),
+        .rv_tx_full(rv_tx_full),
         .rp6502_rv_halted(pocket_core_rv_halted),
         .rp6502_rv_exit_code(rv_exit_code),
         .rp6502_stage_addr(stage_addr),

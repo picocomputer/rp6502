@@ -17,6 +17,9 @@
  * True when the program and its reset vector are in place. */
 bool rom_load_staged(uint32_t len);
 
+/* What the staging store holds, which no savestate carries. */
+void rom_log(void);
+
 /* The ROM: drive: read-only windows onto the staged image's assets,
  * registered in main_std_drivers. */
 bool rom_std_handles(const char *path);

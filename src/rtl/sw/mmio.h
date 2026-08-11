@@ -12,7 +12,11 @@
 
 #include <stdint.h>
 
+/* Write a byte; read the log's room. An event is a whole host round
+ * trip, so the queue behind this is outrun by anything printing at the
+ * firmware's speed and a write with no room corrupts it. */
 #define MMIO_CONSOLE (*(volatile uint32_t *)0xF0000000u)
+#define MMIO_CONSOLE_FULL 0x01u
 #define MMIO_KBD (*(volatile uint32_t *)0xF0000008u)
 #define MMIO_PHI2 (*(volatile uint32_t *)0xF000000Cu)
 #define MTIME_LO (*(volatile uint32_t *)0xF0000010u)

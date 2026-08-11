@@ -730,6 +730,7 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .pocket_core_tx_valid  ( con_tx_valid ),
     .pocket_core_rv_tx_data  ( con_rv_data ),
     .pocket_core_rv_tx_valid ( con_rv_valid ),
+    .rv_tx_full              ( dbglog_full ),
     .pocket_core_rv_halted   ( )
 );
 
@@ -738,15 +739,14 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
 wire [7:0] con_tx_data, con_rv_data;
 wire con_tx_valid, con_rv_valid;
 
-wire dbglog_event, dbglog_done;
+wire dbglog_event, dbglog_done, dbglog_full;
 wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
     .clk_mach    ( clk_mach ),
-    .tx_data     ( con_tx_data ),
-    .tx_valid    ( con_tx_valid ),
-    .rv_tx_data  ( con_rv_data ),
-    .rv_tx_valid ( con_rv_valid ),
+    .tx_data     ( con_rv_data ),
+    .tx_valid    ( con_rv_valid ),
+    .pocket_dbglog_full ( dbglog_full ),
     .clk_74a     ( clk_74a ),
     .arst_n      ( core_rst_n_74 ),
     .bridge_wr            ( bridge_wr ),

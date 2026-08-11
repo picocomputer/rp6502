@@ -127,6 +127,17 @@ static int rom_strncasecmp(const char *a, const char *b, size_t n)
     return 0;
 }
 
+/* The ROM: drive reads the staging store live and no blob carries it,
+ * so what a restore finds there is the one thing about this driver that
+ * cannot be worked out from the firmware's own state. */
+void rom_log(void)
+{
+    printf("rom: end=%u assets=%u magic=%u\n", (unsigned)rom_end,
+           (unsigned)rom_assets,
+           (unsigned)(rom_end >= 8 && ROM_IMG[0] == '#' && ROM_IMG[1] == '!'
+                      && ROM_IMG[2] == 'R' && ROM_IMG[3] == 'P'));
+}
+
 bool rom_load_staged(uint32_t len)
 {
     char line[512];

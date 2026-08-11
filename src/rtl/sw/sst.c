@@ -35,6 +35,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
+#include "rom.h"
 #include "vga.h"
 #include "vid.h"
 
@@ -86,6 +87,7 @@ void sst_task(void)
                (unsigned)(us >> 32), (unsigned)us,
                (unsigned)vga_get_canvas(), (unsigned)aud_psg_at_get(),
                (unsigned)aud_opl_at_get());
+        aud_log_psg("saved");
         aud_log_opl("saved");
         msc_log();
         SST_CTL = SST_SAVED;
@@ -135,18 +137,16 @@ void sst_task(void)
      * new session. */
     msc_restore();
 
-    /* The microsecond counter starts again from zero across a
-     * reconfigure while the base taken from it came out of the blob, so
-     * every reading after would be the sleep's whole length out. Taking
-     * the base again from the host's reading is also the only way the
-     * machine learns how long it was gone; a clock a program had set
-     * for itself does not survive that, and the host's is the one that
-     * is right. */
+    /* Wall time, not the microsecond counter: that one is in the blob
+     * and comes back with it. This re-bases UTC on the host's reading,
+     * which is the only way the machine learns how long it was gone,
+     * and drops a program's claim on the clock with it. */
     tim_init();
     {
         uint64_t us = time_us_64();
         printf("sst: released mtime=%u:%u\n", (unsigned)(us >> 32),
                (unsigned)us);
+        rom_log();
         msc_log();
     }
 

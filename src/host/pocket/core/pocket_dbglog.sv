@@ -3,27 +3,25 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The console again, this time out through the Pocket itself. The debug
- * pin is on the 6515D breakout board; this needs nothing but a Pocket
- * with debug logging switched on, which is the difference between a log
- * anyone can read and a log that needs hardware to read.
+ * The console, out through the Pocket's own debug log.
  *
  * Target command 0x0152 carries one 32-bit event id, so four console
  * bytes ride in each one, first byte in the top eight bits — the hex the
  * log prints then reads left to right as the text. A partial word is
- * flushed on its own after a short quiet period, because the last line
- * before a hang is the one worth having and it is exactly the one that
- * would otherwise sit in the packer.
+ * flushed after a quiet period, because the last line before a hang is
+ * the one worth having and it is exactly the one that would otherwise
+ * sit in the packer.
  *
- * One event is a round trip through the host, so this is slow, and it
- * drops when the console outruns it. The queue is sized for the boot
- * narration rather than for a running program's output, because no
- * queue that fits is big enough for the second and a log that stalled
- * the machine would report on a machine that no longer exists.
+ * An event is a whole host round trip, so this drains orders of
+ * magnitude slower than a firmware that is printing. There is no queue,
+ * because no queue that fits is big enough and one that does not fit
+ * shreds a report instead of truncating it — bytes from two lines
+ * interleaved, which reads as a line that was never printed. The
+ * writer waits instead: pocket_dbglog_full is the handoff saying the
+ * last byte has not been packed yet, and the console this carries is
+ * debug only.
  *
- * The host's own commands ride the same log, because the order it does
- * things in is not documented anywhere and the only way to learn it is
- * to watch. They are snooped off the bridge rather than taken from
+ * Host commands are snooped off the bridge rather than taken from
  * core_bridge_cmd: the write that carries a command is broadcast to
  * every device already, so the vendor file stays as it is.
  *
@@ -45,15 +43,19 @@ module pocket_dbglog #(
     /* About 0.9 ms of quiet at 74.25 MHz before a short word goes. */
     parameter int FLUSH_TICKS = 65536
 ) (
-    /* The machine's clock, which the savestate gate stops. The bytes
-     * are the machine's and their valid is a level it drives: on the
-     * clock behind the gate, a valid frozen high by a stop would push
-     * the same byte on every edge for the whole savestate. */
+    /* The machine's clock, which the savestate gate stops. The valid is
+     * a level the machine drives: on the clock behind the gate, one
+     * frozen high by a stop would push the same byte on every edge for
+     * the whole savestate.
+     *
+     * One console. The 6502's $FFE1 reaches it the same way everything
+     * else does — com_task drains that queue and prints what it finds —
+     * so taking $FFE1 here as well would log every program byte twice
+     * and put two writers on a channel that carries one at a time. */
     input logic clk_mach,
     input logic [7:0] tx_data,
     input logic tx_valid,
-    input logic [7:0] rv_tx_data,
-    input logic rv_tx_valid,
+    output logic pocket_dbglog_full,
 
     input logic clk_74a,
     input logic arst_n,
@@ -66,25 +68,41 @@ module pocket_dbglog #(
     output logic [31:0] pocket_dbglog_id
 );
 
-    logic [7:0] byte_in;
-    always_comb byte_in = rv_tx_valid ? rv_tx_data : tx_data;
+    /* The crossing is the storage: one byte, a toggle each way. Held
+     * still for the whole of its round trip, so the far side reads it
+     * whenever it gets to it and the near side knows when it may write
+     * the next.
+     *
+     * Preserved: two flops in series with nothing between them are
+     * equivalent, and without a reset to tell them apart the fitter
+     * merges them and the crossing loses its synchroniser. */
+    logic req_t, ack_t, busy;
+    logic [7:0] hand;
+    (* preserve *) logic ack_t1, ack_t2;
+    always_comb begin
+        busy = req_t != ack_t2;
+        pocket_dbglog_full = busy;
+    end
 
-    logic fifo_full, fifo_empty, take;
+    initial begin
+        req_t  = 1'b0;
+        hand   = 8'h00;
+        ack_t1 = 1'b0;
+        ack_t2 = 1'b0;
+    end
+    always_ff @(posedge clk_mach) begin
+        ack_t1 <= ack_t;
+        ack_t2 <= ack_t1;
+        if (!busy && tx_valid) begin
+            hand  <= tx_data;
+            req_t <= !req_t;
+        end
+    end
+
+    logic take, have;
     logic [7:0] byte_out;
-
-    pocket_fifo #(
-        .WIDTH(8),
-        .DEPTH_LOG2(7)
-    ) q (
-        .wclk(clk_mach),
-        .w_stb(tx_valid || rv_tx_valid),
-        .w_data(byte_in),
-        .pocket_fifo_full(fifo_full),
-        .rclk(clk_74a),
-        .r_take(take),
-        .pocket_fifo_empty(fifo_empty),
-        .pocket_fifo_rdata(byte_out)
-    );
+    (* preserve *) logic req_t1, req_t2, req_t3;
+    always_comb byte_out = hand;
 
     /* The command register is F8xx0000 and the first parameter register
      * F8xx0020, the same decode core_bridge_cmd uses, and "CM" in the
@@ -175,7 +193,7 @@ module pocket_dbglog #(
      * the packer never has to be interrupted mid-word. */
     logic emit_cmd;
     always_comb emit_cmd = state == S_FILL && count == 2'd0 && !cq_empty;
-    always_comb take = !fifo_empty && state == S_FILL && !emit_cmd;
+    always_comb take = have && state == S_FILL && !emit_cmd;
 
     /* Two's complement in two bits is 4 - count for the one, two and
      * three byte cases, which is the shift that left-justifies them. */
@@ -190,7 +208,23 @@ module pocket_dbglog #(
             count <= '0;
             quiet <= '0;
             cq_r <= '0;
-        end else
+            req_t1 <= 1'b0;
+            req_t2 <= 1'b0;
+            req_t3 <= 1'b0;
+            have <= 1'b0;
+            ack_t <= 1'b0;
+        end else begin
+            req_t1 <= req_t;
+            req_t2 <= req_t1;
+            req_t3 <= req_t2;
+            /* Consumed and answered in the same edge it is packed on.
+             * The far side cannot present another until this ack has
+             * crossed back, so the two never land together. */
+            if (take) begin
+                have  <= 1'b0;
+                ack_t <= !ack_t;
+            end
+            if (req_t2 != req_t3) have <= 1'b1;
             case (state)
                 S_ARM: if (!target_debug_done) state <= S_WAIT;
                 S_WAIT:
@@ -228,13 +262,14 @@ module pocket_dbglog #(
                     end else quiet <= quiet + 1'b1;
                 end
             endcase
+        end
     end
 
     /* The host register block is decoded the way core_bridge_cmd
      * decodes it, F8xx00xx, so the second byte is not ours to read. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_pocket_dbglog;
-    always_comb unused_pocket_dbglog = fifo_full ^ (^bridge_addr[23:16]);
+    always_comb unused_pocket_dbglog = ^bridge_addr[23:16];
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

@@ -15,6 +15,8 @@
 #include "ria/aud/bel.h"
 #include "ria/hid/kbd.h"
 
+#include <pico/time.h>
+
 #include <stdio.h>
 #include <string.h>
 
@@ -114,10 +116,27 @@ void com_set_term_out(void (*out_chars)(const char *buf, int len))
     com_term_out = out_chars;
 }
 
+/* The debug log takes one byte at a time and an event is a whole host
+ * round trip, so this waits. The channel is debug only -- the terminal
+ * is com_term_out below and takes every byte regardless -- and a report
+ * that arrives in pieces is worth less than the time it saves.
+ *
+ * A host that has stopped answering must not wedge the machine. The
+ * bridge times out an unanswered command itself, so reaching the
+ * deadline is a host that is gone rather than one that is slow. */
+#define COM_LOG_WAIT_US 20000
+
 static void com_tx_write(const char *buf, int len)
 {
     for (int i = 0; i < len; i++)
     {
+        if (MMIO_CONSOLE & MMIO_CONSOLE_FULL)
+        {
+            uint64_t until = time_us_64() + COM_LOG_WAIT_US;
+            while ((MMIO_CONSOLE & MMIO_CONSOLE_FULL)
+                   && time_us_64() < until)
+                ;
+        }
         MMIO_CONSOLE = (uint8_t)buf[i];
         if (buf[i] == '\a' && com_bel_enabled)
             bel_add(&bel_teletype);
@@ -181,6 +200,8 @@ static FILE com_stdio = FDEV_SETUP_STREAM(com_stdio_putc, NULL, NULL,
 FILE *const stdout = &com_stdio;
 FILE *const stderr = &com_stdio;
 
+/* The terminal, which never refuses. Waiting for the log's room is
+ * com_tx_write's business and not a program's. */
 bool com_putchar_ready(void)
 {
     return true;

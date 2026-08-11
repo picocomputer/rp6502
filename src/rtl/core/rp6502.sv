@@ -46,6 +46,10 @@ module rp6502
 
     output logic [7:0] rp6502_rv_tx_data,
     output logic rp6502_rv_tx_valid,
+    /* The platform's log saying it has no room. Related clocks off one
+     * VCO, so this crosses to clk_rv as an ordinary timed path; when
+     * the machine's clock is gated away the flag simply holds. */
+    input logic rv_tx_full,
     output logic rp6502_rv_halted,
     output logic [31:0] rp6502_rv_exit_code,
 
@@ -157,20 +161,12 @@ module rp6502
 
     logic [15:0] phi2_khz;
     logic phi2_raw_en, phi2_en;
-    /* XRAM's port B is shared with the RW engine, so the address this
-     * side puts up is only on the array in the cycle xr_busy is low --
-     * and xram64k registers its read port, so the byte for it lands the
-     * cycle after that. Retiring on the first ready takes back the port's
-     * previous answer instead, which is why a read of this window came
-     * back with nothing to do with the address asked for.
-     *
-     * Writes retire on the first ready as before: they are posted into
-     * the same port and want nothing back. That asymmetry is why the
-     * fault stayed hidden -- rom.c stages images through here and the
-     * audio pages are written through here, all of it one way, and
-     * aud_replay's read after a restore is the only load in the
-     * firmware that ever asks this window a question. */
-    always_comb bus_rdy = !(bus_sel_xram && (xr_busy || (!bus_we && !bus_taken)))
+    /* Whether the target can take the request, and nothing else. A term
+     * that waits for the answer belongs on the retire below: the strobe
+     * that produces bus_taken is gated by this, so asking here for
+     * bus_taken is asking the access to have happened before it may
+     * start. */
+    always_comb bus_rdy = !(bus_sel_xram && xr_busy)
         && !(bus_sel_stage && stage_stall)
         && !(bus_sel_sram && ram_b_stall);
 
@@ -484,11 +480,19 @@ module rp6502
      * global networks, so it differs every fit and never in simulation.
      * On the falling edge the value has been still for half a period.
      *
+     * clk_mach and not clk_sys, so that both halves of the one-shot stop
+     * together. Split across the savestate's gate, the far half goes on
+     * sampling a request raised while the machine is frozen and the near
+     * half does not; the clock comes back with the two already agreeing,
+     * no pulse is ever made for that request, and the soft CPU waits on
+     * an access nothing will answer. A restore reads the audio page over
+     * this bus.
+     *
      * Neither half takes a reset: asynchronous clear is a control signal
      * a LAB shares, and giving the two halves different control frees the
      * fitter to separate them. */
     initial bus_stb_n = 1'b0;
-    always_ff @(negedge clk_sys) begin
+    always_ff @(negedge clk_mach) begin
         bus_stb_n <= bus_stb_raw;
     end
     initial begin
@@ -529,6 +533,26 @@ module rp6502
         bus_addr = rv_bus_addr;
         bus_wdata = rv_bus_wdata;
         bus_wstrb = rv_bus_wstrb;
+    end
+
+    /* XRAM's port B is shared with the RW engine and the array registers
+     * its read port, so the byte this side asked for stands on it for
+     * exactly one cycle -- the one after the strobe -- and the cycle
+     * after that it is answering the 6502 again. The soft CPU looks on
+     * its own half-rate clock, later than either, so the byte is held
+     * here for it. Without this a read of the window comes back as
+     * whatever the other master last asked for, and aud_replay's read of
+     * the audio page after a restore is the only load in the firmware
+     * that ever asks this window a question. */
+    logic [7:0] xram_b_q;
+    logic xram_b_due;
+    initial begin
+        xram_b_q = 8'h00;
+        xram_b_due = 1'b0;
+    end
+    always_ff @(posedge clk_mach) begin
+        xram_b_due <= bus_stb && bus_sel_xram && !bus_we;
+        if (xram_b_due) xram_b_q <= xram_b_rdata;
     end
 
     /* Held until the request it answers goes away, because the other
@@ -582,6 +606,7 @@ module rp6502
         .sst_tcm_we(eng_own ? eng_tcm_we : sst_tcm_we),
         .sst_tcm_wdata(eng_own ? eng_tcm_wdata : sst_tcm_wdata),
         .rv_soc_tcm_rdata(rp6502_sst_tcm_rdata),
+        .tx_full(rv_tx_full),
         .rv_soc_tx_data(rp6502_rv_tx_data),
         .rv_soc_tx_valid(rv_tx_valid_raw),
         .rv_soc_halted(rp6502_rv_halted),
@@ -705,7 +730,7 @@ module rp6502
             3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
                 : {6'b0, cpu_stp, resb_eff};
             3'd3: bus_rbyte = stage_rdata;
-            3'd5: bus_rbyte = xram_b_rdata;
+            3'd5: bus_rbyte = xram_b_q;
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q

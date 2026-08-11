@@ -95,6 +95,10 @@ module tb_pocket (
     output logic tb_pocket_tx_valid,
     output logic [7:0] tb_pocket_rv_tx_data,
     output logic tb_pocket_rv_tx_valid,
+    /* The log's queue, which this bench does not otherwise have: it
+     * takes every byte the instant it is written. Left low, the
+     * firmware never waits and the console reads as it always did. */
+    input logic rv_tx_full,
     output logic tb_pocket_rv_halted
 );
 
@@ -205,6 +209,7 @@ module tb_pocket (
         .pocket_core_tx_valid(tb_pocket_tx_valid),
         .pocket_core_rv_tx_data(tb_pocket_rv_tx_data),
         .pocket_core_rv_tx_valid(tb_pocket_rv_tx_valid),
+        .rv_tx_full(rv_tx_full),
         .pocket_core_rv_halted(tb_pocket_rv_halted)
     );
 
