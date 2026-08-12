@@ -118,8 +118,13 @@ module pocket_file #(
      * Same shape as pocket_sst's blob_seen. The bridge's clock owns the
      * toggle, the register file's clock catches its edge, and the write
      * that starts the next command clears it, where tmo_flag is. */
-    logic resp_hit;
-    logic wrote_t, wrote_t1, wrote_t2, wrote_flag;
+    logic resp_hit, gf_pend;
+    logic wrote_t, wrote_flag;
+    /* Three deep and preserved, the same as ret_t's chain below and
+     * go_t's above -- which is not decoration: at two the Design
+     * Assistant counts this crossing under D101 and at three it does
+     * not, and those two are the module's own precedent. */
+    (* preserve *) logic wrote_t1, wrote_t2, wrote_t3;
     /* Preserved: two flops in series with nothing between them are
      * equivalent, and without a reset to tell them apart the fitter
      * merges them and the crossing loses its synchroniser. */
@@ -139,6 +144,7 @@ module pocket_file #(
         r_op = '0;
         wrote_t1 = 1'b0;
         wrote_t2 = 1'b0;
+        wrote_t3 = 1'b0;
         wrote_flag = 1'b0;
         go_t = 1'b0;
         busy = 1'b0;
@@ -171,7 +177,8 @@ module pocket_file #(
         ret_t3 <= ret_t2;
         wrote_t1 <= wrote_t;
         wrote_t2 <= wrote_t1;
-        if (wrote_t1 != wrote_t2)
+        wrote_t3 <= wrote_t2;
+        if (wrote_t2 != wrote_t3)
             wrote_flag <= 1'b1;
         if (ret_t2 != ret_t3) begin
             busy <= 1'b0;
@@ -222,8 +229,12 @@ module pocket_file #(
         pocket_file_resp_struct  = pocket_file_bridgeaddr;
     end
 
-    always_comb resp_hit = bridge_wr
-        && bridge_addr[31:8] == pocket_file_bridgeaddr[31:8];
+    /* Any bridge write while a Get File is outstanding is the host
+     * answering it. Deliberately not an address compare: the response
+     * struct's address is a clk_sys register, and reading it here would
+     * put a new unsynchronised crossing into the design for something
+     * gf_pend already says. */
+    always_comb resp_hit = bridge_wr && gf_pend;
     initial wrote_t = 1'b0;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n)
@@ -239,6 +250,7 @@ module pocket_file #(
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             fstate <= F_IDLE;
+            gf_pend <= 1'b0;
             go_t1 <= 1'b0;
             go_t2 <= 1'b0;
             go_t3 <= 1'b0;
@@ -259,6 +271,8 @@ module pocket_file #(
             go_t2 <= go_t1;
             go_t3 <= go_t2;
             tmo   <= tmo + 1'b1;
+            if (fstate == F_IDLE)
+                gf_pend <= 1'b0;
             case (fstate)
                 F_START: begin
                     pocket_file_read <= r_op == OP_READ;
@@ -271,6 +285,9 @@ module pocket_file #(
                 /* done is held high between commands, so the fall proves
                  * this one was taken and the rise is the answer. */
                 F_ARM: begin
+                    /* The old value: this is the clock that clears it,
+                     * and the flag has to outlive it. */
+                    gf_pend <= pocket_file_getfile;
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;
