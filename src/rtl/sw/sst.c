@@ -47,6 +47,7 @@
 #include <pico/time.h>
 
 #include <stdio.h>
+#include <string.h>
 
 /* Everything about a wake this side is not certain of, said once, at
  * the one moment all of it is knowable. The device is the only place
@@ -137,17 +138,32 @@ void sst_task(void)
      * program watching its own assets change underneath it. */
     rom_probe("resume");
     {
-        /* Whether it has to be done at all is the one question with a
-         * trustworthy answer available: the data table is local fabric,
-         * so a slot length costs no round trip and cannot come back
-         * stale the way Get File's window can. A load into a machine
-         * already running the memory's own program -- the case where
-         * nothing was reset and nothing was restreamed -- has the store
-         * right already and is owed nothing. */
+        /* By name, because a length is not an identity: two images of
+         * the same size would read as the same program. The name is the
+         * one the exec or the boot staged, carried in the blob, against
+         * what the host says slot 0 is bound to now. A load into a
+         * machine already running that program -- nothing reset,
+         * nothing restreamed -- has the store right already and is owed
+         * nothing.
+         *
+         * Relative against absolute: msc_stage_rom opens under the
+         * assets folder, so the host spells back what this side asked
+         * for with that in front. */
         const char *want = pro_staged_path();
-        uint32_t have = 0, len = 0;
-        bool got = msc_slot_len(MSC_SLOT_ROM, &have);
-        if (got && have == rom_staged_len())
+        char bound[128];
+        uint32_t len = 0;
+        bool same = false;
+        if (want && *want && msc_getfile(MSC_SLOT_ROM, bound, sizeof bound))
+        {
+            const char *at = bound;
+            if (*want != '/'
+                && !strncmp(bound, MSC_ASSETS_PATH, sizeof MSC_ASSETS_PATH - 1))
+                at += sizeof MSC_ASSETS_PATH - 1;
+            same = !strcmp(at, want);
+            LOG_SAY("rom: want '%s' bound '%s'%s\n", want, bound,
+                    same ? " same" : "");
+        }
+        if (same)
             ;
         else if (!want || !*want)
             printf("rom: no path to stage\n");
