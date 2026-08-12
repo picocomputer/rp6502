@@ -525,7 +525,10 @@ module rp6502
     always_ff @(posedge clk_mach) begin
         if (!bus_pend)
             bus_taken <= 1'b0;
-        else if (bus_stb)
+        /* An XRAM access is taken on the clock it owns port B, which is
+         * not always the clock it was strobed on. Everything else is
+         * taken at the strobe as before. */
+        else if (bus_sel_xram ? xram_go : bus_stb)
             bus_taken <= 1'b1;
     end
     logic [31:0] bus_addr, bus_wdata;
@@ -692,7 +695,7 @@ module rp6502
             3'd2: bus_rbyte = bus_ctl_api ? {7'b0, api_pending}
                 : {6'b0, cpu_stp, resb_eff};
             3'd3: bus_rbyte = stage_rdata;
-            3'd5: bus_rbyte = xram_b_rdata;
+            3'd5: bus_rbyte = xram_b_hold;
             default: bus_rbyte = sram_b_rdata;
         endcase
         bus_rdata = bus_rsel == 3'd1 ? regs_b_q
@@ -846,6 +849,35 @@ module rp6502
         if (a_any)
             a_rotor <= a_sel + 1'd1;
 
+    /* bus_rdy holds the soft CPU's strobe off while the engine has port
+     * B, but the strobe is two flops behind the readiness it was granted
+     * on -- the narrowing above -- and the engine can take the port on
+     * the clock the strobe finally lands. Under a program working RW0 it
+     * does, most of the time. Taken as it stood the access was reported
+     * complete either way: the write went nowhere, and the read answered
+     * with whatever address the engine was at, which is mostly zero.
+     *
+     * That is what kept the audio shadow empty. An engine's register
+     * block is XRAM the firmware also has to write and read back -- the
+     * page zero, the restore's replay -- and under a busy machine
+     * neither survived.
+     *
+     * So the access waits for the port rather than assuming it. One bit
+     * is enough: the master issues nothing else until bus_taken. */
+    logic xram_owed;
+    initial xram_owed = 1'b0;
+    always_ff @(posedge clk_mach) begin
+        if (!bus_pend)
+            xram_owed <= 1'b0;
+        else if (bus_stb && bus_sel_xram && xr_busy)
+            xram_owed <= 1'b1;
+        else if (xram_owed && !xr_busy)
+            xram_owed <= 1'b0;
+    end
+    logic xram_go;
+    always_comb xram_go = !xr_busy
+        && ((bus_stb && bus_sel_xram) || xram_owed);
+
     /* Port B's write, named because the PSG watches it. The RW engine's
      * is the 6502's, and only the 6502's strikes a gate. */
     logic xw_we, xw_host;
@@ -859,10 +891,26 @@ module rp6502
          * clock returns and would land one stale byte in freshly
          * restored XRAM. It is old-session work; it is discarded. */
         xw_we = xr_busy ? (xr_we && !eng_arr_own && !eng_hold_res)
-                        : (bus_stb && bus_we && bus_sel_xram
-                           && !eng_arr_own);
+                        : (xram_go && bus_we && !eng_arr_own);
         xw_addr = xr_busy ? xr_addr : bus_addr[15:0];
         xw_wdata = xr_busy ? xr_wdata : bus_wbyte;
+    end
+
+    /* The array answers a clock behind its address and the engine may
+     * own it by then, so the byte is caught on the clock after the one
+     * the access owned. The regs window is held for the same reason a
+     * few hundred lines up; this one is a clock later because that read
+     * is combinational and this one is not. */
+    logic xram_cap;
+    logic [7:0] xram_b_hold;
+    initial begin
+        xram_cap = 1'b0;
+        xram_b_hold = '0;
+    end
+    always_ff @(posedge clk_mach) begin
+        xram_cap <= xram_go && !bus_we;
+        if (xram_cap)
+            xram_b_hold <= xram_b_rdata;
     end
     /* A clock behind, because the soft CPU's half of that mux is
      * combinational off its bus and reaches the byte the envelope's

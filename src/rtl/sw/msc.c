@@ -39,6 +39,13 @@
 #define MSC_DS_CREATE 1u
 #define MSC_DS_RESIZE 2u
 
+#define MSC_O_READ 0x01
+#define MSC_O_WRITE 0x02
+#define MSC_O_CREAT 0x10
+#define MSC_O_TRUNC 0x20
+#define MSC_O_APPEND 0x40
+#define MSC_O_EXCL 0x80
+
 static struct
 {
     bool used;
