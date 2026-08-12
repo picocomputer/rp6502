@@ -14,6 +14,7 @@
 #include "cfg.h"
 #include "com.h"
 #include "font.h"
+#include "log.h"
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
@@ -84,10 +85,19 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
         apf_refresh();
         return ok;
     }
-    if (channel == 1 && address == 0)
-        return aud_psg_xreg(word);
-    if (channel == 1 && address == 1)
-        return aud_opl_xreg(word);
+    if (channel == 1)
+    {
+        /* Every door into either engine, taken or refused. A title whose
+         * block reads empty is either not writing it or pointing
+         * somewhere else, and this is the half of that the firmware can
+         * see. */
+        com_printf("aud: xreg0 ch=%u ad=%u word=%04x\n", (unsigned)channel,
+                   (unsigned)address, (unsigned)word);
+        if (address == 0)
+            return aud_psg_xreg(word);
+        if (address == 1)
+            return aud_opl_xreg(word);
+    }
     return false;
 }
 
@@ -373,6 +383,9 @@ bool main_api(uint8_t operation)
  * meant to collect under --gc-sections. */
 static void init(void)
 {
+    /* First: everything below this line can print, and the ring is what
+     * carries the boot narration to a log that outlives the host's. */
+    log_init();
     cpu_init();
     aud_init();
     com_init();
@@ -559,6 +572,12 @@ int main(void)
     main_boot_wake = main_wake_pending;
     main_boot_slot = MMIO_SLOT;
     main_boot_upd = (uint8_t)MMIO_UPD_N;
+    /* The log this goes to is a file on the card, written from a ring
+     * the blob carries, so saying it here costs the staging store
+     * nothing that the console used to cost it. */
+    com_printf("main: boot wake=%u slot=%08x upd=%u\n",
+               (unsigned)main_boot_wake, (unsigned)main_boot_slot,
+               (unsigned)main_boot_upd);
     if (!main_wake_pending)
         main_stage();
     /* Whatever the host has announced up to here is this image. */
@@ -589,7 +608,9 @@ int main(void)
         kbd_task(); /* the repeat timer; apf_task does the reports */
         std_task();
         com_task();
+        log_task();
         bel_task();
+        aud_task();
         rln_task();
         term_task();
         vid_task();
@@ -610,7 +631,14 @@ int main(void)
          * still starts. */
         bool wake = sst_pending();
         if (wake && !main_wake_pending)
+        {
+            /* A blob has started arriving. Said once, on the edge: what
+             * follows is either a restore or a refusal, and a log that
+             * has this line and neither of those says the engine never
+             * finished. */
+            com_printf("main: blob\n");
             main_stop();
+        }
         main_wake_pending = wake;
 
         /* Both watchers stand down while a restore is expected. What

@@ -11,6 +11,7 @@
 
 #include "bel.h"
 #include "com.h"
+#include "log.h"
 #include "mmio.h"
 #include "ria/aud/bel.h"
 #include "ria/hid/kbd.h"
@@ -119,6 +120,9 @@ static void com_tx_write(const char *buf, int len)
     for (int i = 0; i < len; i++)
     {
         MMIO_CONSOLE = (uint8_t)buf[i];
+        /* The host's debug log stops writing long before a session
+         * does, so the same byte goes to a file this side owns. */
+        log_putc(buf[i]);
         if (buf[i] == '\a' && com_bel_enabled)
             bel_add(&bel_teletype);
     }
@@ -155,15 +159,10 @@ int com_putchar(int c)
 
 int com_printf(const char *fmt, ...)
 {
-    char buf[256];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    if (n <= 0)
-        return n;
-    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
-    com_crlf_write(buf, w);
+    va_list va;
+    va_start(va, fmt);
+    int n = vprintf(fmt, va);
+    va_end(va);
     return n;
 }
 

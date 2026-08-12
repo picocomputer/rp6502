@@ -31,6 +31,7 @@
 #include "sst.h"
 
 #include "aud.h"
+#include "com.h"
 #include "font.h"
 #include "main.h"
 #include "mmio.h"
@@ -75,6 +76,9 @@ void sst_task(void)
     uint32_t ctl = SST_CTL;
     if (!(ctl & SST_RESTORED))
         return;
+    /* Before anything downstream can fail, so a log that reaches here
+     * and no further says where. */
+    com_printf("sst: restored\n");
     sst_log_restore(ctl);
 
     /* Refused, and nothing was written: this is still the session it

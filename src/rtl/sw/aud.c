@@ -14,6 +14,7 @@
 
 #include "aud.h"
 #include "bel.h"
+#include "com.h"
 #include "mmio.h"
 
 #include <pico/time.h>
@@ -28,6 +29,117 @@
 static uint16_t aud_psg_at = 0xFFFF;
 static uint16_t aud_opl_at = 0xFFFF;
 
+/* Which engine is pointed where, and every byte of what it reads.
+ *
+ * The block and not a digest of it. A sum said LodeRunner's OPL page was
+ * empty a thousand frames into a title that plays OPL music, and a sum
+ * cannot say which end of that is wrong -- whether the page is not the
+ * mirror aud_replay takes it for, or the read is not reaching it. The
+ * bytes can.
+ *
+ * The sum stays on the header line because it is the cheap thing to diff
+ * between the restore and the samples after it: a block nobody is
+ * writing is not an audio fault. */
+/* Where the engine is pointed, and how long its block is. */
+static uint16_t aud_at(void)
+{
+    return aud_psg_at != 0xFFFF ? aud_psg_at : aud_opl_at;
+}
+
+static uint16_t aud_len(void)
+{
+    return aud_psg_at != 0xFFFF ? 64 : 256;
+}
+
+static uint32_t aud_sum(void)
+{
+    uint16_t at = aud_at();
+    uint32_t sum = 0;
+    if (at != 0xFFFF)
+        for (uint16_t i = 0, n = aud_len(); i < n; i++)
+            sum += XRAM_WIN[at + i];
+    return sum;
+}
+
+/* How many times the block has changed since the restore, and whether
+ * this window can write it at all.
+ *
+ * The block reads empty on a title that is audibly driving the engine,
+ * which is either a 6502 that is not writing it or a window that cannot
+ * see what was written. One count and one round trip separate those: a
+ * marker into the last register of the page, read back, and put away
+ * again. 0xFF is undefined on a YM3812, so poking it costs nothing. */
+static uint32_t aud_chg;
+static uint32_t aud_seen_sum;
+static absolute_time_t aud_poll_at;
+
+static unsigned aud_probe(void)
+{
+    uint16_t at = aud_at();
+    if (at == 0xFFFF)
+        return 0x100;
+    volatile uint8_t *cell = &XRAM_WIN[at + aud_len() - 1];
+    uint8_t was = *cell;
+    *cell = 0xA5;
+    uint8_t got = *cell;
+    *cell = was;
+    return got;
+}
+
+static void aud_log(const char *tag)
+{
+    uint16_t at = aud_at();
+    uint16_t len = aud_len();
+    uint32_t sum = aud_sum();
+    com_printf("aud: %s psg=%04x opl=%04x frame=%u sum=%08x chg=%u probe=%03x\n",
+               tag, (unsigned)aud_psg_at, (unsigned)aud_opl_at,
+               (unsigned)VID_FRAME, (unsigned)sum, (unsigned)aud_chg,
+               aud_probe());
+    if (at == 0xFFFF)
+        return;
+    for (uint16_t i = 0; i < len; i += 16)
+    {
+        com_printf("aud: %02x:", (unsigned)i);
+        for (uint16_t j = 0; j < 16; j++)
+            com_printf(" %02x", (unsigned)XRAM_WIN[at + i + j]);
+        com_printf("\n");
+    }
+}
+
+/* The restore's last two questions, which cannot be answered at the
+ * restore: whether anything picked the engine back up afterwards. Zero
+ * is disarmed, and each deadline fires once. */
+static absolute_time_t aud_log_at_1s, aud_log_at_3s;
+
+void aud_task(void)
+{
+    /* Sampled rather than summed only at the log lines: a block written
+     * and written back would look untouched from two snapshots a second
+     * apart, and "nobody is writing this" is the answer the whole
+     * question turns on. */
+    if (!aud_poll_at || time_reached(aud_poll_at))
+    {
+        uint32_t sum = aud_sum();
+        if (sum != aud_seen_sum)
+        {
+            aud_seen_sum = sum;
+            aud_chg++;
+        }
+        aud_poll_at = make_timeout_time_ms(8);
+    }
+
+    if (aud_log_at_1s && time_reached(aud_log_at_1s))
+    {
+        aud_log_at_1s = 0;
+        aud_log("t+1s");
+    }
+    if (aud_log_at_3s && time_reached(aud_log_at_3s))
+    {
+        aud_log_at_3s = 0;
+        aud_log("t+3s");
+    }
+}
+
 /* The platform's reset is not the engines': they hold what the last
  * session left them, so a host reset would come back still playing. */
 void aud_init(void)
@@ -40,6 +152,10 @@ void aud_init(void)
  * The bell is the soft CPU's and rings through a program stop. */
 void aud_stop(void)
 {
+    /* Before the pointers go: a wake cold-boots and runs the ROM, then
+     * stops it when the blob starts arriving, and this is that stop. The
+     * line says what was playing when the blob interrupted it. */
+    aud_log("stop");
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
     aud_psg_at = 0xFFFF;
@@ -69,11 +185,12 @@ static void aud_replay(uint16_t at, uint16_t len)
 void aud_restore(void)
 {
     uint16_t psg = aud_psg_at, opl = aud_opl_at;
+    uint32_t waited = 0;
     /* Which engine the blob came back pointing at, and where. 0xFFFF is
      * "no program has claimed it", and a restore that came back with
      * that when the program was playing means the pointer did not
      * survive rather than that the replay went wrong. */
-    printf("aud: psg=%04x opl=%04x\n", (unsigned)psg, (unsigned)opl);
+    aud_log("pre");
     AUD_PSG_XADDR = 0xFFFF;
     AUD_OPL_XADDR = 0xFFFF;
     if (psg != 0xFFFF)
@@ -84,9 +201,11 @@ void aud_restore(void)
          * come after that or the notes it strikes are released again
          * behind it. A sample is 48 kHz; twenty-five microseconds is
          * one with room. */
-        uint64_t until = time_us_64() + 25;
+        uint64_t began = time_us_64();
+        uint64_t until = began + 25;
         while (time_us_64() < until)
             ;
+        waited = (uint32_t)(time_us_64() - began);
         /* And the replay's gate bits have to count. Without this the
          * engine ignores them -- a gate is the 6502's to make -- and a
          * voice that was sounding comes back silent for good. */
@@ -103,13 +222,26 @@ void aud_restore(void)
          * has its first registers walked over -- the head of the page,
          * which is where the operator settings are. Six microseconds is
          * those 255 clocks with room. */
-        uint64_t until = time_us_64() + 6;
+        uint64_t began = time_us_64();
+        uint64_t until = began + 6;
         while (time_us_64() < until)
             ;
+        waited = (uint32_t)(time_us_64() - began);
         aud_replay(opl, 256);
     }
     aud_psg_at = psg;
     aud_opl_at = opl;
+    /* The wait is 255 machine clocks of chip reset, 5.06 us, measured
+     * against a counter that steps in whole microseconds. Whether the
+     * deadline was actually met is not something to assume. */
+    com_printf("aud: waited=%uus\n", (unsigned)waited);
+    aud_chg = 0;
+    aud_seen_sum = aud_sum();
+    aud_log("post");
+    /* The engine is fed again; whether anything keeps feeding it is the
+     * question these two answer. */
+    aud_log_at_1s = make_timeout_time_ms(1000);
+    aud_log_at_3s = make_timeout_time_ms(3000);
     bel_init();
 }
 
@@ -130,6 +262,7 @@ bool aud_psg_xreg(uint16_t word)
      * each byte over itself is that block arriving. From here and not the
      * 6502: only the 6502's writes strike gates. */
     aud_replay(word, 64);
+    aud_log("xreg");
     return true;
 }
 
@@ -148,5 +281,6 @@ bool aud_opl_xreg(uint16_t word)
     AUD_OPL_XADDR = word;
     aud_psg_at = 0xFFFF;
     aud_opl_at = word;
+    aud_log("xreg");
     return true;
 }
