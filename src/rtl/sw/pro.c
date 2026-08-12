@@ -52,6 +52,13 @@ void pro_restage(void)
         arg_append(pro_argv0);
 }
 
+/* An exec staged its own image, so the chain's path is the one the
+ * store holds; before any exec that is the host's answer. */
+const char *pro_staged_path(void)
+{
+    return pro_running_path[0] ? pro_running_path : pro_argv0;
+}
+
 void pro_run(void)
 {
     const char *argv0 = arg_index(0);

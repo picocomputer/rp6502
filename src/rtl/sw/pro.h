@@ -12,4 +12,10 @@
  * outgoing program asked for. Blocking, machine stopped. */
 void pro_restage(void);
 
+/* The image the machine is actually running, as the host spelled it.
+ * After a restore this is the blob's answer, which is the program the
+ * restored session belongs to -- not whatever the host has slot 0 bound
+ * to now. Empty before anything has been staged. */
+const char *pro_staged_path(void);
+
 #endif /* _FPGA_SW_PRO_H_ */
