@@ -21,7 +21,7 @@ set(EMSDK_TOOLCHAIN
     ${EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake)
 
 if(NOT EXISTS ${EMSDK_TOOLCHAIN})
-    include(${RP6502_ROOT}/rp6502_submodule.cmake)
+    include(${RP6502_ROOT}/submodules.cmake)
     rp6502_submodule(vendor/emsdk SENTINEL emsdk.py WANTS "the web build")
     if(CMAKE_HOST_WIN32)
         set(EMSDK_EXE ${EMSDK}/emsdk.bat)

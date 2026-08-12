@@ -50,7 +50,7 @@ endfunction()
 # Asked for here and not inside rp6502_asset, which only generates when an
 # output is missing: a warm tree whose submodule went away would otherwise
 # configure clean and fail at the build rule instead.
-include(${RP6502_ROOT}/rp6502_submodule.cmake)
+include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
     WANTS "the cpu65 decode table generator")
 rp6502_submodule(vendor/opl2_fpga

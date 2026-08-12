@@ -65,7 +65,7 @@ function(rp6502_submodule path)
                 -DRP6502_ROOT=${RP6502_ROOT}
                 -DFETCH_SUPER=${S_SUPER} -DFETCH_PATH=${path}
                 -DFETCH_SPARSE=${S_SPARSE}
-                -P ${RP6502_ROOT}/rp6502_submodule.cmake
+                -P ${RP6502_ROOT}/submodules.cmake
             COMMENT "Fetching ${path}"
             VERBATIM)
     endif()

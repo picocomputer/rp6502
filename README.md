@@ -57,9 +57,6 @@ cmake --preset debug
 cmake --build --preset debug
 ```
 
-The binary is `build\emulator\debug\rp6502-emu.exe`. Release uses `--preset release`.
-Ninja must be on PATH.
-
 ## MacOs
 
 The Pi Pico VS Code Extension should only need the install from
@@ -75,11 +72,6 @@ Install Homebrew if needed:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-Install required tools:
-
-```bash
 brew update
 brew install cmake ninja pkg-config
 ```
@@ -106,6 +98,13 @@ target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
+To build the emulator, from the CMake side panel
+select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
+panel you select "Emulator Debug" and press F5. You'll get prompted to select
+one of the included test roms to run. You'll also have a binary in build/emulator
+which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
+and vscode-llvm-mos, or any other IDE thats support DAP.
+
 To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
 job, each with a build directory of its own:
 
@@ -118,20 +117,6 @@ Pick one and the Build list changes with it — under `pocket` it offers
 **Card package** and **Bitstream**, under the Verilator presets **Tests** and
 **Firmware**. F7 builds whichever is selected. Naming every host explicitly is
 so MiSTer can arrive without renaming anything.
-
-Ask for the card and CMake works out what has to happen: change a line of soft
-CPU C and you pay the twenty seconds that puts it in the bitstream, not the
-nine minutes that placed the design. The Pocket tree needs Quartus and
-`gcc-riscv64-unknown-elf` and nothing else — no Verilator. See
-`src/rtl/README.md` for the RTL and `src/host/pocket/README.md` for
-the Pocket itself.
-
-To build the emulator, from the CMake side panel
-select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
-panel you select "Emulator Debug" and press F5. You'll get prompted to select
-one of the included test roms to run. You'll also have a binary in build/emulator
-which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
-and vscode-llvm-mos, or any other IDE thats support DAP.
 
 ## General Linux and WSL notes
 

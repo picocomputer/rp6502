@@ -4,7 +4,7 @@
 
 # Entered from both trees, so it asks rather than assuming the emulator's
 # side already did.
-include(${RP6502_ROOT}/rp6502_submodule.cmake)
+include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/sokol SENTINEL tests/functional/utest.h
     WANTS "the test harness")
 
