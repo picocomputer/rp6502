@@ -37,7 +37,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
-#include "pro.h"
+#include "rom.h"
 #include "vga.h"
 #include "vid.h"
 
@@ -46,7 +46,6 @@
 #include <pico/time.h>
 
 #include <stdio.h>
-#include <string.h>
 
 /* Everything about a wake this side is not certain of, said once, at
  * the one moment all of it is knowable. The device is the only place
@@ -124,32 +123,10 @@ void sst_task(void)
      * new session. */
     msc_restore();
 
-    /* The staging store is the board's memory and no blob carries it,
-     * so this boot filled it with whatever the host announced -- which
-     * on a load whose asset differs from what was running is another
-     * program's image entirely. rom.c's directory offsets did come back
-     * in the blob and describe the restored program, so every ROM:
-     * asset it opens afterwards is read out of the wrong file: the
-     * music stops at the first thing it has to fetch, and the frame
-     * rate goes with whatever the failure costs.
-     *
-     * So the right image goes back under those offsets. Only the store
-     * is refilled; the machine's memory is the blob's and is not
-     * touched. Asking costs one bridge round trip when the store is
-     * already right, which is every load that did not change asset. */
-    {
-        const char *want = pro_staged_path();
-        char have[128];
-        uint32_t len;
-        if (want && *want
-            && (!msc_getfile(MSC_SLOT_ROM, have, sizeof have)
-                || strcmp(have, want)))
-        {
-            LOG_SAY("sst: restage '%s'\n", want);
-            if (!msc_stage_rom(want, &len))
-                printf("sst: restage failed\n");
-        }
-    }
+    /* Whether the host put the memory's own ROM back in the staging
+     * store, or left this boot's. Read, not written: anything this side
+     * stages would be measuring its own write. */
+    rom_probe("resume");
 
     /* The microsecond counter starts again from zero across a
      * reconfigure while the base taken from it came out of the blob, so

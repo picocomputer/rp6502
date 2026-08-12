@@ -11,8 +11,11 @@
  * or the image is rejected.
  */
 
+#include "com.h"
 #include "font.h"
+#include "log.h"
 #include "mmio.h"
+#include "msc.h"
 #include "rom.h"
 
 #include "ria/api/uni.h"
@@ -22,6 +25,32 @@
 #include <string.h>
 
 static uint32_t rom_pos, rom_end;
+
+#ifdef RP6502_LOG_FILE
+void rom_probe(const char *tag)
+{
+    /* Past the header, so two different .rp6502 images differ here even
+     * when their first block does not. */
+    uint32_t sum = 0;
+    for (uint32_t i = 1024; i < 2048; i++)
+        sum = sum * 31u + ROM_IMG[i];
+    uint32_t len = 0;
+    bool got = msc_slot_len(MSC_SLOT_ROM, &len);
+    /* rom_end is what the running session believes it loaded; the slot
+     * length is what the host has in the table now. A resume where
+     * those agree and the digest matches the boot's means the store was
+     * never touched. */
+    LOG_SAY("rom: %s slot=%u/%u end=%u sum=%08x\n", tag, (unsigned)got,
+            (unsigned)len, (unsigned)rom_end, (unsigned)sum);
+    for (uint32_t i = 1024; i < 1088; i += 16)
+    {
+        LOG_SAY("rom: %04x:", (unsigned)i);
+        for (uint32_t j = 0; j < 16; j++)
+            LOG_SAY(" %02x", (unsigned)ROM_IMG[i + j]);
+        LOG_SAY("\n");
+    }
+}
+#endif
 
 static uint8_t rom_byte(uint32_t at)
 {

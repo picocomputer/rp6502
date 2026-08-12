@@ -377,21 +377,6 @@ static void init(void)
     /* Before anything can print: the ring is what carries the boot
      * narration to a log that outlives the host's. */
     log_init();
-    /* And before anything reaches the drive.
-     *
-     * A machine reset is not a reconfigure. pocket_file keeps its busy,
-     * its op and its go toggle on clk_sys with no reset branch, and its
-     * fstate on the platform's arst_n; the bridge's own command engine
-     * has no reset at all. None of that is touched when run drops. What
-     * is touched is this side: the soft CPU restarts with msc_busy clear
-     * and the pool empty, over fabric that may still be working the last
-     * session's command.
-     *
-     * Staging the ROM is the first thing below that asks the drive
-     * anything, and asking stacks a toggle onto a live command -- the
-     * bridge drops it and answers the previous one instead, and every
-     * operation after that is one behind or waits out a deadline. */
-    msc_stop();
     cpu_init();
     aud_init();
     com_init();
@@ -583,6 +568,9 @@ int main(void)
                (unsigned)main_boot_upd);
     if (!main_wake_pending)
         main_stage();
+    /* The other half of the pair rom_probe exists for: what the host put
+     * in the store for this boot, against what is there after a resume. */
+    rom_probe("boot");
     /* Whatever the host has announced up to here is this image. */
     main_upd_seen = (uint8_t)MMIO_UPD_N;
 
