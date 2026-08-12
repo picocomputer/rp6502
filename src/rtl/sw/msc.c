@@ -39,12 +39,29 @@
 #define MSC_DS_CREATE 1u
 #define MSC_DS_RESIZE 2u
 
+/* The card's sector. A short read that straddles two of them costs two
+ * whatever this side does, so the fetch is aligned to one and never
+ * shorter than one. */
+#define MSC_SECTOR 512u
+
 static struct
 {
     bool used;
     bool writable;
+    /* A restore leaves the drive's own idea of a descriptor intact and
+     * the host's binding for it gone. Rebinding all eight there costs
+     * eight round trips for files the session may never touch again, so
+     * it is deferred to whatever asks first. */
+    bool stale;
     uint32_t len;
     uint32_t pos;
+    /* What range of the file is in SLOT_WIN(d) right now. Zero length is
+     * empty. Reads inside it cost nothing; a read off the end appends
+     * the next sector beside what is there rather than starting over,
+     * which is what lets this reach the window's full size on a
+     * sequential walk. Writes do not cache and clear it. */
+    uint32_t cache_at;
+    uint32_t cache_len;
     /* Kept because growing the file means opening it again, and the
      * window the name went out through cannot be read back. */
     char name[MSC_NAME_MAX];
@@ -374,35 +391,52 @@ void msc_restore(void)
     {
         if (!msc_pool[d].used)
             continue;
-        /* The whole of what this side is unsure about, per descriptor
-         * and once per wake: whether the host still had the slot, what
-         * it said when asked to bind it again, and whether its idea of
-         * the file's length is the one the sleeping session had. Every
-         * one of those is a question Analogue documents nowhere and
-         * that only the device can answer. */
-        bool kept = msc_still_bound(d);
-        uint32_t rc = 0;
-        if (!kept)
-            rc = msc_try_open(MSC_SLOT_FIRST + (uint32_t)d,
-                              msc_pool[d].name, 0, 0, MSC_SAVES_PATH);
-        uint32_t len = 0;
-        bool got = msc_slot_len(MSC_SLOT_FIRST + (uint32_t)d, &len);
-        printf("msc: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
-               (unsigned)d, msc_pool[d].name, (unsigned)kept, (unsigned)rc,
-               (unsigned)msc_pool[d].len, (unsigned)got, (unsigned)len,
-               (unsigned)msc_pool[d].pos, (unsigned)msc_pool[d].writable);
-        if (!kept && rc > 1)
-            continue;
-        /* The length is the host's to say for a file this side did not
-         * write: the card outlived the session and the file may not be
-         * the size the blob remembers. A writable descriptor keeps its
-         * own, because it is what resized the file and the host's table
-         * is only as fresh as the last open. */
-        if (got && !msc_pool[d].writable)
-            msc_pool[d].len = len;
-        if (msc_pool[d].pos > msc_pool[d].len)
-            msc_pool[d].pos = msc_pool[d].len;
+        msc_pool[d].stale = true;
+        /* The window is the board's and the blob does not carry it, so
+         * whatever it held belongs to the session that went away. */
+        msc_pool[d].cache_len = 0;
     }
+}
+
+/* The deferred half of the above, run for a descriptor the first time
+ * anything asks it for something after a restore.
+ *
+ * The whole of what this side is unsure about, per descriptor and once
+ * per wake: whether the host still had the slot, what it said when asked
+ * to bind it again, and whether its idea of the file's length is the one
+ * the sleeping session had. Every one of those is a question Analogue
+ * documents nowhere and that only the device can answer.
+ *
+ * A slot that will not open again is left open, so a program that goes
+ * on using it is told the read failed rather than that its file was
+ * never open. */
+static void msc_rebind(int d)
+{
+    if (!msc_pool[d].stale)
+        return;
+    msc_pool[d].stale = false;
+    bool kept = msc_still_bound(d);
+    uint32_t rc = 0;
+    if (!kept)
+        rc = msc_try_open(MSC_SLOT_FIRST + (uint32_t)d,
+                          msc_pool[d].name, 0, 0, MSC_SAVES_PATH);
+    uint32_t len = 0;
+    bool got = msc_slot_len(MSC_SLOT_FIRST + (uint32_t)d, &len);
+    printf("msc: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
+           (unsigned)d, msc_pool[d].name, (unsigned)kept, (unsigned)rc,
+           (unsigned)msc_pool[d].len, (unsigned)got, (unsigned)len,
+           (unsigned)msc_pool[d].pos, (unsigned)msc_pool[d].writable);
+    if (!kept && rc > 1)
+        return;
+    /* The length is the host's to say for a file this side did not
+     * write: the card outlived the session and the file may not be
+     * the size the blob remembers. A writable descriptor keeps its
+     * own, because it is what resized the file and the host's table
+     * is only as fresh as the last open. */
+    if (got && !msc_pool[d].writable)
+        msc_pool[d].len = len;
+    if (msc_pool[d].pos > msc_pool[d].len)
+        msc_pool[d].pos = msc_pool[d].len;
 }
 
 static int msc_desc(int desc)
@@ -433,6 +467,16 @@ static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
 
 bool msc_stage_rom(const char *path, uint32_t *len)
 {
+    /* Never under a running 6502. The store is what its ROM: assets are
+     * read out of, and rewriting it beneath a program is both a pause it
+     * did not ask for and a file changing under an open descriptor.
+     * Every caller stops the machine first; this is that rule made
+     * enforceable rather than remembered. */
+    if (CPU_RESB & 1)
+    {
+        printf("rom: stage refused, 6502 running\n");
+        return false;
+    }
     const char *p = msc_strip_drive(path);
     if (!p || !*p)
         return false;
@@ -529,6 +573,11 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     msc_pool[d].used = true;
     msc_pool[d].writable = (flags & MSC_O_WRITE) != 0;
+    /* A fresh binding, so nothing is owed and the window holds nothing
+     * of this file. */
+    msc_pool[d].stale = false;
+    msc_pool[d].cache_at = 0;
+    msc_pool[d].cache_len = 0;
     msc_pool[d].len = empty ? 0 : len;
     msc_pool[d].pos = (flags & MSC_O_APPEND) ? msc_pool[d].len : 0;
     memcpy(msc_pool[d].name, path, strlen(path) + 1);
@@ -545,6 +594,7 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    msc_rebind(desc);
     std_rw_result res = STD_OK;
     if (msc_pool[desc].writable && msc_flush_state != MSC_FLUSH_NEVER)
     {
@@ -573,6 +623,7 @@ std_rw_result msc_std_close(int desc, api_errno *err)
     }
     /* Released even when the flush failed, the way close always does. */
     msc_pool[desc].used = false;
+    msc_pool[desc].cache_len = 0;
     return res;
 }
 
@@ -587,6 +638,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
     }
     if (msc_adrift())
         return STD_PENDING;
+    msc_rebind(desc);
     uint32_t pos = msc_pool[desc].pos, len = msc_pool[desc].len;
     uint32_t want = pos < len ? len - pos : 0;
     if (want > count)
@@ -595,29 +647,78 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
         want = FILE_XFER_MAX;
     if (!want)
         return STD_OK; /* short or zero at the end, which is EOF */
-    uint32_t st;
-    if (!msc_busy)
+
+    /* Already here, so nothing goes to the card at all. */
+    uint32_t at = msc_pool[desc].cache_at, have = msc_pool[desc].cache_len;
+    if (!(have && pos >= at && pos + want <= at + have))
     {
-        FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
-        FILE_OFFSET = pos;
-        FILE_BRIDGE = SLOT_WIN_BRIDGE(desc);
-        FILE_LENGTH = want;
-        msc_busy = true;
-        msc_start(FILE_OP_READ);
-    }
-    if (!msc_poll(&st))
-        return STD_PENDING;
-    msc_busy = false;
-    if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
-    {
-        if (msc_note(st))
-            printf("msc: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
-                   (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
-        *err = API_EIO;
-        return STD_ERROR;
+        /* What to fetch is the card's business, not the caller's: the
+         * sector is 512 and a short read straddling two costs both
+         * whichever way this is written. So a small ask is rounded out
+         * to the sector it lands in, and to the pair when it spans them.
+         * A caller asking for more than a sector is not second-guessed
+         * and gets exactly what it asked for. */
+        uint32_t from, n;
+        bool grow = have && pos == at + have
+                    && !((at + have) % MSC_SECTOR)
+                    && have < FILE_XFER_MAX;
+        if (count > MSC_SECTOR)
+        {
+            from = pos;
+            n = want;
+            grow = false;
+        }
+        else
+        {
+            from = grow ? pos : pos - (pos % MSC_SECTOR);
+            n = (pos % MSC_SECTOR) + count > MSC_SECTOR
+                    ? 2 * MSC_SECTOR
+                    : MSC_SECTOR;
+        }
+        if (from + n > len)
+            n = len - from;
+        /* Beside what is already there rather than over it, so a walk
+         * through a file fills the window instead of replacing one
+         * sector with the next. */
+        uint32_t into = grow ? have : 0;
+        if (into + n > FILE_XFER_MAX)
+        {
+            grow = false;
+            into = 0;
+        }
+        uint32_t st;
+        if (!msc_busy)
+        {
+            FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+            FILE_OFFSET = from;
+            FILE_BRIDGE = SLOT_WIN_BRIDGE(desc) + into;
+            FILE_LENGTH = n;
+            msc_busy = true;
+            msc_start(FILE_OP_READ);
+        }
+        if (!msc_poll(&st))
+            return STD_PENDING;
+        msc_busy = false;
+        if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
+        {
+            if (msc_note(st))
+                printf("msc: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
+                       (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
+            msc_pool[desc].cache_len = 0;
+            *err = API_EIO;
+            return STD_ERROR;
+        }
+        if (grow)
+            msc_pool[desc].cache_len = have + n;
+        else
+        {
+            msc_pool[desc].cache_at = from;
+            msc_pool[desc].cache_len = n;
+        }
+        at = msc_pool[desc].cache_at;
     }
     for (uint32_t i = 0; i < want; i++)
-        buf[i] = (char)SLOT_WIN(desc)[i];
+        buf[i] = (char)SLOT_WIN(desc)[pos - at + i];
     /* Again after the copy, not only before it: the window the bytes
      * came out of is the board's and no blob carries it, so a freeze
      * that landed anywhere in that loop lifted the tail of this buffer
@@ -641,11 +742,15 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
     }
     if (msc_adrift())
         return STD_PENDING;
+    msc_rebind(desc);
     if (!msc_pool[desc].writable)
     {
         *err = API_EACCES;
         return STD_ERROR;
     }
+    /* Writes do not cache, and they make whatever the window holds a
+     * different file. */
+    msc_pool[desc].cache_len = 0;
     if (!count)
         return STD_OK;
     uint32_t pos = msc_pool[desc].pos;
@@ -712,6 +817,7 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    msc_rebind(desc);
     /* msc_flush_state is sticky, so a verdict reached against a
      * reconfigured bridge would condemn every flush for the rest of
      * the session. */
@@ -751,6 +857,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
         *err = API_EBADF;
         return -1;
     }
+    msc_rebind(desc);
     int32_t from = whence == SEEK_SET   ? 0
                    : whence == SEEK_CUR ? (int32_t)msc_pool[desc].pos
                    : whence == SEEK_END ? (int32_t)msc_pool[desc].len

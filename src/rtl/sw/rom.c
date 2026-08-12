@@ -26,6 +26,11 @@
 
 static uint32_t rom_pos, rom_end;
 
+uint32_t rom_staged_len(void)
+{
+    return rom_end;
+}
+
 #ifdef RP6502_LOG_FILE
 void rom_probe(const char *tag)
 {

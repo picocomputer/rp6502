@@ -17,6 +17,11 @@
  * True when the program and its reset vector are in place. */
 bool rom_load_staged(uint32_t len);
 
+/* The length of the image the running session loaded. After a restore
+ * that is the blob's answer, and the store is supposed to be holding
+ * that many bytes of that program. */
+uint32_t rom_staged_len(void);
+
 /* A window of the staging store, said at boot and again at a resume.
  * Whether the host puts the memory's own ROM back in slot 0 or leaves
  * whatever this boot loaded is a question only the device answers, and

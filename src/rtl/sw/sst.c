@@ -37,6 +37,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
+#include "pro.h"
 #include "rom.h"
 #include "vga.h"
 #include "vid.h"
@@ -123,10 +124,47 @@ void sst_task(void)
      * new session. */
     msc_restore();
 
-    /* Whether the host put the memory's own ROM back in the staging
-     * store, or left this boot's. Read, not written: anything this side
-     * stages would be measuring its own write. */
+    /* The staging store is the board's and no blob carries it, and the
+     * device has now been asked: loading a memory does not restore slot
+     * 0, and does not even re-announce it. So the store still holds
+     * whatever this boot loaded, while rom.c's directory offsets came
+     * back in the blob describing another program, and every ROM: asset
+     * the restored session opens would be read out of the wrong file.
+     *
+     * A core load fills slot 0 completely before anything runs. A resume
+     * has to do the same thing for itself, here, while the 6502 is still
+     * held -- which is also the only place it can be done without a
+     * program watching its own assets change underneath it. */
     rom_probe("resume");
+    {
+        /* Whether it has to be done at all is the one question with a
+         * trustworthy answer available: the data table is local fabric,
+         * so a slot length costs no round trip and cannot come back
+         * stale the way Get File's window can. A load into a machine
+         * already running the memory's own program -- the case where
+         * nothing was reset and nothing was restreamed -- has the store
+         * right already and is owed nothing. */
+        const char *want = pro_staged_path();
+        uint32_t have = 0, len = 0;
+        bool got = msc_slot_len(MSC_SLOT_ROM, &have);
+        if (got && have == rom_staged_len())
+            ;
+        else if (!want || !*want)
+            printf("rom: no path to stage\n");
+        else if (!msc_stage_rom(want, &len))
+            printf("rom: stage '%s' failed\n", want);
+        else
+        {
+            /* Nothing re-parses the image -- rom_load_staged would
+             * rewrite the 6502 memory the blob just restored -- so the
+             * length is the only check left, and a file that changed on
+             * the card since the memory was made is worth saying. */
+            if (len != rom_staged_len())
+                printf("rom: staged %u, session had %u\n", (unsigned)len,
+                       (unsigned)rom_staged_len());
+            rom_probe("staged");
+        }
+    }
 
     /* The microsecond counter starts again from zero across a
      * reconfigure while the base taken from it came out of the blob, so
