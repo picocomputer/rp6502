@@ -27,6 +27,16 @@
  * the first slot record. */
 #define MSC_SLOT_ROM 0
 
+/* The drive's open flags. Here rather than in msc.c because the firmware
+ * opens a file of its own when RP6502_LOG_FILE is on, and there must be
+ * one set of these. */
+#define MSC_O_READ 0x01
+#define MSC_O_WRITE 0x02
+#define MSC_O_CREAT 0x10
+#define MSC_O_TRUNC 0x20
+#define MSC_O_APPEND 0x40
+#define MSC_O_EXCL 0x80
+
 /* Lands whatever a worker left at the bridge, so the next command does
  * not stack on top of it. */
 void msc_stop(void);

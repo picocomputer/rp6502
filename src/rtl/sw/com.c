@@ -11,6 +11,7 @@
 
 #include "bel.h"
 #include "com.h"
+#include "log.h"
 #include "mmio.h"
 #include "ria/aud/bel.h"
 #include "ria/hid/kbd.h"
@@ -119,6 +120,7 @@ static void com_tx_write(const char *buf, int len)
     for (int i = 0; i < len; i++)
     {
         MMIO_CONSOLE = (uint8_t)buf[i];
+        log_putc(buf[i]);
         if (buf[i] == '\a' && com_bel_enabled)
             bel_add(&bel_teletype);
     }
