@@ -5,15 +5,13 @@
  *
  * The console again, into a file this side owns.
  *
- * The Pocket's debug log is the host's and it stops writing while the
- * core is still running -- captures have ended just after 0x00B8 with
- * the machine alive and the menu working behind them, on a first boot
- * with nothing else going on. Whatever the reason, it is not this
- * side's to fix, and a diagnosis reasoned out from a log that ends
- * before the event is a guess.
+ * The Pocket's own debug log stops writing while the core is still
+ * running, and nothing this side does keeps it going -- which leaves a
+ * restore unreadable, since that is where it stops. This is the same
+ * bytes going somewhere the core owns instead.
  *
- * Off unless RP6502_LOG_FILE is defined, so this stays in the tree
- * instead of being added and removed around every question. An on build
+ * Off unless RP6502_LOG_FILE is defined, so it stays in the tree rather
+ * than being added and removed around every question. An on build
  * spends one of the drive's eight descriptors and holds it, which costs
  * the two conformance cases that ask for all eight.
  *

@@ -488,24 +488,31 @@ bool main_break_to_launcher(void)
 
 static void main_stage(void);
 
-/* Whether this boot declined to stage a ROM because a blob was already
- * in the window. It has to be a state and not a moment: the host
- * re-announces its slots on every wake, and it does so AFTER the boot
- * check -- reset_n goes high only once the slots have been streamed --
- * so the loop below would read the announcement as the user picking a
- * new program and cold-boot the ROM one pass after the check declined
- * to. That is the boot the guard exists to prevent, arriving late. */
+/* Whether a blob is arriving right now. Set on the edge and refreshed
+ * every pass, which is what the two watchers below stand down on. */
 static bool main_wake_pending;
+
+/* Whether THIS BOOT declined to stage a ROM because a blob was already
+ * in the window -- a different question from the one above, and the
+ * only one main_wake_failed may ask. Sharing the flag meant a refusal
+ * arriving into a running machine read the blob's own arrival as a
+ * boot that had staged nothing, and cold-booted the ROM over the
+ * session the refusal exists to preserve.
+ *
+ * Never observed on hardware: a memory load does not boot the machine,
+ * so nothing declines. Kept because a real wake is a core launch and
+ * has not been tested. */
+static bool main_boot_declined;
 
 /* What the boot saw, for the wake log to say once the host is quiet. */
 bool main_boot_wake;
 uint32_t main_boot_slot;
 uint8_t main_boot_upd;
 
-/* A restore lands on a host that has just re-announced everything it
- * has, and the loop below reads a change in either announcement as the
- * user picking a new program. Neither is news here: what is staged is
- * what this machine was already running when it went to sleep. */
+/* Both readings are re-taken so the watchers below stand down. A memory
+ * load re-announces nothing, so there is usually nothing to suppress; a
+ * core launch announces everything, and none of it is news, because
+ * what is staged is what this machine is already running. */
 void main_restored(void)
 {
     main_wake_pending = false;
@@ -513,14 +520,16 @@ void main_restored(void)
     MMIO_SLOT = 0;
 }
 
-/* The other way out. A refused blob leaves a wake boot with nothing at
- * all -- it never staged, and a refusal writes nothing -- so the ROM
- * the host announced is staged here after all. */
+/* The other way out, and only for a boot that declined to stage. Such a
+ * boot has nothing at all -- it never staged, and a refusal writes
+ * nothing -- so the ROM the host announced is staged here after all. A
+ * refusal into a running machine is a no-op, which is the whole
+ * difference between the two cases. */
 void main_wake_failed(void)
 {
-    if (!main_wake_pending)
+    if (!main_boot_declined)
         return;
-    main_wake_pending = false;
+    main_boot_declined = false;
     main_stage();
 }
 
@@ -561,6 +570,7 @@ int main(void)
      * kept for the case where a blob does precede the boot, and the
      * one that does the work is in the loop below. */
     main_boot_wake = main_wake_pending;
+    main_boot_declined = main_wake_pending;
     main_boot_slot = MMIO_SLOT;
     main_boot_upd = (uint8_t)MMIO_UPD_N;
     LOG_SAY("main: boot wake=%u slot=%08x upd=%u\n",
@@ -568,9 +578,6 @@ int main(void)
                (unsigned)main_boot_upd);
     if (!main_wake_pending)
         main_stage();
-    /* The other half of the pair rom_probe exists for: what the host put
-     * in the store for this boot, against what is there after a resume. */
-    rom_probe("boot");
     /* Whatever the host has announced up to here is this image. */
     main_upd_seen = (uint8_t)MMIO_UPD_N;
 
@@ -601,7 +608,6 @@ int main(void)
         com_task();
         log_task();
         bel_task();
-        aud_task();
         rln_task();
         term_task();
         vid_task();
@@ -632,10 +638,10 @@ int main(void)
         }
         main_wake_pending = wake;
 
-        /* Both watchers stand down while a restore is expected. What
-         * the host is announcing then is the same program this machine
-         * already has, and main_restored takes both readings once the
-         * blob has landed. */
+        /* Both watchers stand down while a restore is expected:
+         * anything announced then is the program this machine already
+         * has, and main_restored takes both readings once the blob has
+         * landed. */
         uint8_t upd = (uint8_t)MMIO_UPD_N;
         if (upd != main_upd_seen && !main_wake_pending)
         {

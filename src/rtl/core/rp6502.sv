@@ -787,8 +787,9 @@ module rp6502
     );
     always_comb rp6502_scanline = vid_v;
 
-    /* Port B is the RW engine's while busy, so the soft CPU's strobe
-     * waits; the engine's background refresh yields to it in turn. */
+    /* Port B is the RW engine's while busy; its background refresh
+     * yields to a waiting soft CPU, but a real 6502 access does not.
+     * See xram_owed below for what that costs and how it is handled. */
     logic [7:0] xram_b_rdata;
     logic xr_busy, xr_we;
     logic [15:0] xr_addr;
@@ -851,19 +852,14 @@ module rp6502
 
     /* bus_rdy holds the soft CPU's strobe off while the engine has port
      * B, but the strobe is two flops behind the readiness it was granted
-     * on -- the narrowing above -- and the engine can take the port on
-     * the clock the strobe finally lands. Under a program working RW0 it
-     * does, most of the time. Taken as it stood the access was reported
-     * complete either way: the write went nowhere, and the read answered
-     * with whatever address the engine was at, which is mostly zero.
+     * on -- the narrowing above -- so the engine can still take the port
+     * on the clock the strobe lands, and under a program working RW0 it
+     * usually does. bus_rdy alone therefore decides nothing: the access
+     * would be reported complete either way, with the write dropped and
+     * the read answering from whatever address the engine was at.
      *
-     * That is what kept the audio shadow empty. An engine's register
-     * block is XRAM the firmware also has to write and read back -- the
-     * page zero, the restore's replay -- and under a busy machine
-     * neither survived.
-     *
-     * So the access waits for the port rather than assuming it. One bit
-     * is enough: the master issues nothing else until bus_taken. */
+     * So it waits for the port instead of assuming it. One bit is
+     * enough, because the master issues nothing else until bus_taken. */
     logic xram_owed;
     initial xram_owed = 1'b0;
     always_ff @(posedge clk_mach) begin

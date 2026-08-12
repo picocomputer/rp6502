@@ -22,15 +22,6 @@ bool rom_load_staged(uint32_t len);
  * that many bytes of that program. */
 uint32_t rom_staged_len(void);
 
-/* A window of the staging store, said at boot and again at a resume.
- * Whether the host puts the memory's own ROM back in slot 0 or leaves
- * whatever this boot loaded is a question only the device answers, and
- * two readings of the same bytes answer it. Nothing here writes. */
-#ifdef RP6502_LOG_FILE
-void rom_probe(const char *tag);
-#else
-static inline void rom_probe(const char *tag) { (void)tag; }
-#endif
 
 /* The ROM: drive: read-only windows onto the staged image's assets,
  * registered in main_std_drivers. */

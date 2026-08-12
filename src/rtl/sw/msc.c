@@ -20,6 +20,7 @@
  */
 
 #include "font.h"
+#include "log.h"
 #include "mmio.h"
 #include "msc.h"
 
@@ -92,8 +93,14 @@ static uint32_t msc_last_st;
 
 void msc_log(void)
 {
-    if (!msc_n_tmo && !msc_n_err && !msc_n_defer)
+    /* Deferrals are the restore's own one-pass stall and not a
+     * failure, so they are reported beside the errors but never on
+     * their own -- a clean restore says nothing. */
+    if (!msc_n_tmo && !msc_n_err)
+    {
+        msc_n_defer = 0;
         return;
+    }
     printf("msc: tmo=%u err=%u defer=%u last=%02x\n", (unsigned)msc_n_tmo,
            (unsigned)msc_n_err, (unsigned)msc_n_defer,
            (unsigned)(msc_last_st & 0xFFu));
@@ -173,7 +180,7 @@ void msc_stop(void)
     while (!msc_poll(&st))
         waited = true;
     if (waited || msc_busy || msc_grow)
-        printf("msc: drain waited=%u busy=%u grow=%u st=%02x\n",
+        LOG_SAY("msc: drain waited=%u busy=%u grow=%u st=%02x\n",
                (unsigned)waited, (unsigned)msc_busy, (unsigned)msc_grow,
                (unsigned)(st & 0xFFu));
     msc_busy = false;
@@ -231,6 +238,15 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
     uint32_t st = msc_command(FILE_OP_GETFILE);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
+    /* An answer of ok with nothing written is legal -- Get File has no
+     * result code for a slot that is defined but has nothing bound --
+     * and the window is a read-only view of the staging store, so it
+     * cannot be blanked beforehand to tell the difference. The fabric
+     * watches for the write instead. Without this the caller is handed
+     * the previous Get File's name for a slot that has none, which
+     * msc_still_bound would read as a binding that was kept. */
+    if (!(st & FILE_ST_WROTE))
+        return false;
 
     char utf8[MSC_NAME_MAX];
     size_t n = 0;
@@ -247,7 +263,13 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
         if (!c)
             break;
         if (o + 1 >= cap)
+        {
+            /* Terminated before giving up, because the caller's buffer
+             * has already been written into and a refusal must not hand
+             * back an unterminated one. */
+            out[0] = 0;
             return false;
+        }
         out[o++] = (char)c;
     }
     out[o] = 0;
@@ -422,7 +444,7 @@ static void msc_rebind(int d)
                           msc_pool[d].name, 0, 0, MSC_SAVES_PATH);
     uint32_t len = 0;
     bool got = msc_slot_len(MSC_SLOT_FIRST + (uint32_t)d, &len);
-    printf("msc: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
+    LOG_SAY("msc: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
            (unsigned)d, msc_pool[d].name, (unsigned)kept, (unsigned)rc,
            (unsigned)msc_pool[d].len, (unsigned)got, (unsigned)len,
            (unsigned)msc_pool[d].pos, (unsigned)msc_pool[d].writable);

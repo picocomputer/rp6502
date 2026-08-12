@@ -41,12 +41,16 @@
  * not stack on top of it. */
 void msc_stop(void);
 
-/* The open files opened again, because the host forgets which path
- * each data slot was for when the core is reconfigured. */
+/* Every open file marked for rebinding, and the read cache dropped. The
+ * rebinding itself is deferred to whatever asks first: eight round trips
+ * inside a restore, for files a session may never touch again, is a
+ * price paid whether or not it is owed. Whether the host keeps a
+ * runtime binding across a restore is not documented; msc_rebind asks
+ * rather than assuming. */
 void msc_restore(void);
 /* The drive's own count of what went wrong since it was last asked,
  * said once rather than at every failure: a stream that fails, fails
- * every frame. */
+ * every frame. Silent when nothing failed. */
 void msc_log(void);
 
 /* By word index, not by slot: the table is id/size pairs and the host
@@ -57,7 +61,8 @@ uint32_t msc_dt(uint32_t word);
 bool msc_slot_len(uint32_t slot, uint32_t *len);
 
 /* Converted to code page bytes, refused rather than truncated if it will
- * not fit. Blocking, so staging time only. */
+ * not fit. Blocking, and now on gameplay paths as well as staging: a
+ * lazy rebind asks from inside a program's own syscall. */
 bool msc_getfile(uint32_t slot, char *out, size_t cap);
 
 /* Pull a whole .rp6502 into the staging store where the host puts one,

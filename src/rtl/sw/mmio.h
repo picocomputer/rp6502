@@ -152,6 +152,11 @@ static inline int32_t set_tz_minutes(void)
 /* The bridge reports a slot operation complete while its own queue is
  * still draining, so a read of what just arrived waits for this. */
 #define FILE_ST_DRAIN 0x20u
+/* The host wrote into the response struct for this command. Get File
+ * has no result code for "defined but nothing bound", so an answer of
+ * ok with nothing written is legal and indistinguishable from a real
+ * name -- except by this. */
+#define FILE_ST_WROTE 0x40u
 
 #define VID_ROW(i) (((volatile uint32_t *)0x50010000u)[i])
 #define VID_CURSOR (*(volatile uint32_t *)0x50010080u)

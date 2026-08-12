@@ -22,10 +22,16 @@
  * than to the machine. The 6502 is held stopped until this is finished,
  * which is what makes clearing the bit the last thing here.
  *
- * At boot the bit to ask about is the other one. The host writes the
- * blob in as ordinary bridge writes before it asks for the load, so a
- * boot that finds anything in the window knows a restore is coming and
- * declines to start the ROM under it.
+ * Loading a memory does not boot the machine. It was measured: the same
+ * digest of the staging store at boot and again after the restore, with
+ * the data table still naming the old slot length. The host resets
+ * nothing, restreams nothing and re-announces nothing -- it writes the
+ * blob into a live machine and asks for the load.
+ *
+ * A real sleep is a different thing and has not been tested. It cuts
+ * power, so its wake is a core launch, and a core launch does fill slot
+ * 0 before anything runs. The boot-time check below is for that case;
+ * on hardware it has only ever read zero.
  */
 
 #include "sst.h"
@@ -60,12 +66,12 @@
 static void sst_log_restore(uint32_t ctl)
 {
     uint64_t us = time_us_64();
-    printf("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
+    LOG_SAY("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
            (unsigned)(us >> 32), (unsigned)us);
-    printf("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
+    LOG_SAY("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
            (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
            (unsigned)vid_prog_word_get(), (unsigned)font_get_code_page());
-    printf("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
+    LOG_SAY("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
            (unsigned)(MMIO_UPD_N & 0xFFu), (unsigned)main_boot_wake,
            (unsigned)main_boot_slot, (unsigned)main_boot_upd);
 }
@@ -94,15 +100,16 @@ void sst_task(void)
     {
         printf("sst: refused, staging the rom instead\n");
         SST_CTL = SST_RESTORED;
-        /* Acked first: staging can take the better part of a second
-         * and the host is waiting on the ack, not on the ROM.
+        /* Acked first, because staging can take the better part of a
+         * second and the ack is the cheaper thing to owe. Nothing
+         * documents a deadline on 0x00A4 and 726 ms has been accepted
+         * without complaint, so this is an ordering preference and not
+         * a constraint.
          *
-         * A wake boot declined to stage anything because this blob was
-         * coming, and it has not come. Nothing was written, so there is
-         * no session underneath to protect -- there is nothing at all,
-         * and the ROM the host announced has to be staged now. On a
-         * load into a running machine this is a no-op, which is the
-         * whole difference between the two cases. */
+         * Only a boot that declined to stage has anything to do here:
+         * it has nothing at all, so the ROM the host announced is
+         * staged after all. A refusal into a running machine leaves
+         * that session exactly as it was. */
         main_wake_failed();
         return;
     }
@@ -126,17 +133,17 @@ void sst_task(void)
     msc_restore();
 
     /* The staging store is the board's and no blob carries it, and the
-     * device has now been asked: loading a memory does not restore slot
-     * 0, and does not even re-announce it. So the store still holds
-     * whatever this boot loaded, while rom.c's directory offsets came
-     * back in the blob describing another program, and every ROM: asset
-     * the restored session opens would be read out of the wrong file.
+     * device has been asked: loading a memory does not restore slot 0
+     * and does not re-announce it. So the store holds whatever the
+     * session that was running put there, while rom.c's directory
+     * offsets came back in the blob describing another program, and
+     * every ROM: asset the restored session opens would be read out of
+     * the wrong file.
      *
-     * A core load fills slot 0 completely before anything runs. A resume
-     * has to do the same thing for itself, here, while the 6502 is still
-     * held -- which is also the only place it can be done without a
-     * program watching its own assets change underneath it. */
-    rom_probe("resume");
+     * A core launch fills slot 0 completely before anything runs. A
+     * resume has to do the same for itself, here, while the 6502 is
+     * still held -- which is also the only place it can be done without
+     * a program watching its own assets change underneath it. */
     {
         /* By name, because a length is not an identity: two images of
          * the same size would read as the same program. The name is the
@@ -163,13 +170,11 @@ void sst_task(void)
             LOG_SAY("rom: want '%s' bound '%s'%s\n", want, bound,
                     same ? " same" : "");
         }
-        if (same)
-            ;
-        else if (!want || !*want)
+        if (!same && (!want || !*want))
             printf("rom: no path to stage\n");
-        else if (!msc_stage_rom(want, &len))
+        else if (!same && !msc_stage_rom(want, &len))
             printf("rom: stage '%s' failed\n", want);
-        else
+        else if (!same)
         {
             /* Nothing re-parses the image -- rom_load_staged would
              * rewrite the 6502 memory the blob just restored -- so the
@@ -178,7 +183,6 @@ void sst_task(void)
             if (len != rom_staged_len())
                 printf("rom: staged %u, session had %u\n", (unsigned)len,
                        (unsigned)rom_staged_len());
-            rom_probe("staged");
         }
     }
 
@@ -190,12 +194,9 @@ void sst_task(void)
      * for itself does not survive that, and the host's is the one that
      * is right. */
     tim_init();
-    {
-        uint64_t us = time_us_64();
-        printf("sst: released mtime=%u:%u\n", (unsigned)(us >> 32),
-               (unsigned)us);
-        msc_log();
-    }
+    LOG_SAY("sst: released mtime=%u:%u\n",
+            (unsigned)(time_us_64() >> 32), (unsigned)time_us_64());
+    msc_log();
 
     /* The host re-announces its slots on a wake and the loop reads a
      * change in either announcement as the user picking a new program.

@@ -140,7 +140,7 @@ bool pro_exec_take(void)
     uint32_t len;
     if (!msc_stage_rom(pro_exec_path, &len))
     {
-        printf("exec: %s\n", pro_exec_path);
+        printf("exec: no %s\n", pro_exec_path);
         return false;
     }
     if (!rom_load_staged(len))
