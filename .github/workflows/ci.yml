@@ -595,6 +595,10 @@ jobs:
   # Package: collect the per-target assets each job already built and checksum
   # them. Nothing is repacked here — an archive made anywhere but on its own
   # platform loses what that platform's tool was preserving.
+  #
+  # The one artifact holding all of them is for developers, who do want every
+  # platform at once. It is not what the release page serves: that gets the
+  # assets themselves, one per platform, so nobody downloads six to use one.
   # ---------------------------------------------------------------------------
   package:
     needs: [version, rp6502-ria-vga, linux, macos, itch-io, windows, android, pocket]
@@ -643,7 +647,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-release
+          name: rp6502-${{ github.run_id }}-everything
           path: dist/
           if-no-files-found: error
           retention-days: 14
@@ -660,7 +664,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: rp6502-${{ github.run_id }}-release
+          name: rp6502-${{ github.run_id }}-everything
           path: dist
 
       - name: Compose release title (matches historical "Version X" format)
