@@ -1,0 +1,1 @@
+Copy everything into the same folder structure on a microSD card.

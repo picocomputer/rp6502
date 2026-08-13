@@ -619,5 +619,4 @@ jobs:
           body: |
             ## Picocomputer 6502 release
 
-            The zip contains a versioned firmware and snapshots of the emulator.
-            See `README.txt` inside for instructions.
+            See `README.txt` inside each asset for instructions.
