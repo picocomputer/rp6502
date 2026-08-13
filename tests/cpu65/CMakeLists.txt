@@ -60,6 +60,25 @@ else()
     message(WARNING "Klaus Dormann images absent — functional soak skipped.")
 endif()
 
+# --- The vendored 65C02 on its own ---
+# The corpora above say the CPU is right; this says it has not changed, which
+# is a weaker claim that survives a checkout without them. It also covers the
+# pins, which neither corpus exercises.
+rp6502_add_test(cpu_chips
+    SOURCES test_cpu_chips.c lockstep_scen.c ${CPU_DUT}
+    INCLUDES ${CPU_INCLUDES}
+    DEFS CPU_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/cpu_golden.txt")
+
+# --- The vendored VIA on its own ---
+# chips/chips/m6522.h is someone else's code the emulator depends on, and
+# until this existed its only test needed Verilator — so an emulator build
+# ran nothing at all against it. Same scenarios as the RTL comparison, held
+# to a recorded trace instead of to via.sv.
+rp6502_add_test(via_chips
+    SOURCES test_via_chips.c via_scen.c
+    INCLUDES ${CPU_INCLUDES}
+    DEFS VIA_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/via_golden.txt")
+
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
 rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
 
@@ -77,19 +96,23 @@ if(RP6502_VERILATE)
                 KLAUS_65C02="${KLAUS}/65C02_extended_opcodes_test.bin"
             DEPENDS cpu_vectors cpu65_rom
             TIMEOUT 900)
-
-        # Interrupts, reset, RDY, WAI and STP: the C emulation and the RTL in
-        # lockstep under scripted pins — coverage the vectors cannot express.
-        rp6502_add_module_test(lockstep
-            TOP cpu65
-            RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
-            SOURCES test_lockstep.cpp cpu65_dut.cpp chips_dut.c lockstep.c
-            INCLUDES ${CPU_INCLUDES}
-            DEPENDS cpu65_rom
-            TIMEOUT 300)
     else()
-        message(WARNING "CPU fixtures absent — cpu65 RTL conformance skipped.")
+        message(WARNING "SingleStepTests or Klaus absent — cpu65 RTL"
+            " conformance skipped.")
     endif()
+
+    # Interrupts, reset, RDY, WAI and STP: the C emulation and the RTL in
+    # lockstep under scripted pins — coverage the vectors cannot express.
+    # Its scenarios are written here, so it wants no corpus and is not gated
+    # on one.
+    rp6502_add_module_test(lockstep
+        TOP cpu65
+        RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
+        SOURCES test_lockstep.cpp cpu65_dut.cpp chips_dut.c lockstep.c
+            lockstep_scen.c
+        INCLUDES ${CPU_INCLUDES}
+        DEPENDS cpu65_rom
+        TIMEOUT 300)
 
     # --- Stopped here, started again there ---
     # A savestate's whole claim about the 6502: the core that comes back
@@ -106,7 +129,9 @@ if(RP6502_VERILATE)
     rp6502_add_module_test(via
         TOP via
         RTL ${RP6502_SRC}/rtl/cpu65/via.sv
-        INCLUDES ${RP6502_VENDOR}/chips_rp6502 ${RP6502_VENDOR}
+        SOURCES test_via.cpp via_scen.c
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR}
+            ${RP6502_VENDOR}/chips_rp6502 ${RP6502_VENDOR}
         TIMEOUT 300)
 
     # --- Every whole kilohertz, exactly ---
