@@ -1,1 +1,35 @@
+Picocomputer 6502 for Analogue Pocket
+=====================================
+
+Always begin at the documentation:
+https://picocomputer.github.io/
+
+
+Install
+-------
+
 Copy everything into the same folder structure on a microSD card.
+The Cores, Platforms, Saves, and Assets folders merge with the ones
+already on the card; nothing here replaces another core's files.
+
+The Pocket needs firmware 2.3 or later. Open the core from the
+Pocket menu under Computer.
+
+
+Saves
+-----
+
+Programs save to Saves/rp6502/common/, which is the core's working
+directory. See the readme.txt there before you delete anything.
+
+
+ROMs
+----
+
+6502 software is distributed as files ending with ".rp6502". Put
+them in Assets/rp6502/common/ on the card; the core asks you to
+pick one when it opens. Find them on Discord, which has a forum
+for ROMs, or on itch.io under the RP6502 tag:
+
+    https://discord.gg/TC6X8kTr6d
+    https://itch.io/games/tag-rp6502

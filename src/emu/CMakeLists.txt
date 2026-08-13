@@ -358,31 +358,34 @@ elseif(EMSCRIPTEN)
         "-sFORCE_FILESYSTEM=1"
         "-lidbfs.js"
         "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,addRunDependency,removeRunDependency")
+    # One web output: build/web/bundle is the shippable itch.io sample, and the
+    # link writes rp6502.js/.wasm straight into it so the engine exists once.
+    # The tester at src/emu/index.html is served from the source tree and reads
+    # the same bundle; nothing is copied for it.
     set_target_properties(rp6502-emu PROPERTIES
         OUTPUT_NAME rp6502
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
-    # Tester web root (build/web/html): the menu shell + every test ROM.
-    file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
-    add_custom_target(web_root ALL
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bundle")
+    add_custom_target(web_bundle ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
-        COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
-        COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
-        VERBATIM)
-    add_dependencies(web_root rp6502-emu)
-    # itch.io sample (build/web/itch.io): the single-program shell.
-    add_custom_target(itch_root ALL
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+            "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/bundle"
         COMMAND ${CMAKE_COMMAND} -E copy
             "${RP6502_ROOT}/tests/roms/adventure.rp6502"
-            "${CMAKE_BINARY_DIR}/html/rp6502.js"
-            "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
-            "${CMAKE_BINARY_DIR}/itch.io"
-        COMMENT "Assembling itch.io sample (build/web/itch.io) + adventure.rp6502"
+            "${CMAKE_BINARY_DIR}/bundle"
+        COMMENT "Assembling web bundle (build/web/bundle) + adventure.rp6502"
         VERBATIM)
-    add_dependencies(itch_root rp6502-emu)
+    add_dependencies(web_bundle rp6502-emu)
+    # The tester's ROM menu. Written here rather than shipped in the page so a
+    # new test ROM appears without editing it, and so its absence is how the
+    # page knows the web target has never been built. CONFIGURE_DEPENDS makes
+    # the build re-run cmake when the corpus changes.
+    file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
+    set(WEB_ROMS_JS "window.ROMS = [\n")
+    foreach(_rom IN LISTS WEB_ROMS)
+        get_filename_component(_name "${_rom}" NAME)
+        string(APPEND WEB_ROMS_JS "  \"${_name}\",\n")
+    endforeach()
+    string(APPEND WEB_ROMS_JS "];\n")
+    file(WRITE "${CMAKE_BINARY_DIR}/roms.js" "${WEB_ROMS_JS}")
 elseif(ANDROID)
     # Android graphics and libraries are configured in the target section.
 else() # Linux / BSD

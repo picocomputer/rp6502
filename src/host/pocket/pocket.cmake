@@ -288,10 +288,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # glyph asset are built. It carries Saves/rp6502/common/ because the host
     # will not create it and the drive is nothing without it.
     #
-    # The shipped tree lives with the other shipped trees — src/dist/html and
-    # src/dist/itch.io — rather than under the wrapper that happens to build
-    # it. Nothing in it is SystemVerilog or Quartus; it is a folder of JSON
-    # and artwork that goes on a card.
+    # The shipped tree lives with the other shipped trees under src/dist,
+    # rather than under the wrapper that happens to build it. Nothing in it
+    # is SystemVerilog or Quartus; it is a folder of JSON and artwork that
+    # goes on a card.
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/dist/pocket)
     file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
