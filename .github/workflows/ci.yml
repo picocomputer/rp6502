@@ -42,7 +42,11 @@ jobs:
             echo "fwver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwci=" >> "$GITHUB_OUTPUT"
           else
-            echo "version=0.0.0+$(date -u +%Y%m%d)-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
+            # Off a tag there is no version, and inventing one that looks like
+            # a version is worse than not having it. The run id is what the
+            # firmware banner already says it is, and it names a build you can
+            # go and look at.
+            echo "version=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "fwver=" >> "$GITHUB_OUTPUT"
             echo "fwci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
           fi
@@ -232,12 +236,12 @@ jobs:
 
       - name: Package macos
         env:
-          V: ${{ needs.version.outputs.version }}
+          FWVER: ${{ needs.version.outputs.fwver }}
         run: |
           set -euxo pipefail
-          # CFBundleVersion wants a plain dotted number; drop the +build suffix
-          # an off-tag version carries.
-          VER="${V%%+*}"
+          # CFBundleVersion wants a dotted number, which a run id is not, so an
+          # untagged build says 0.0.0 rather than lying in Finder's Get Info.
+          VER="${FWVER:-0.0.0}"
           mkdir stage
           APP=stage/rp6502-emu.app
           mkdir -p "$APP/Contents/MacOS"
