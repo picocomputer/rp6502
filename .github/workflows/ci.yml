@@ -55,6 +55,8 @@ jobs:
   rp6502-ria-vga:
     needs: [version]
     runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ github.run_id }}-pico.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -127,24 +129,28 @@ jobs:
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
           cmake --build build/pico2
 
+      # The archive is named for the run and renamed to the version when it is
+      # released; the .uf2 inside carry the version already, because a name you
+      # type at a FLASH prompt should say which build it is.
       - name: Package pico
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           mkdir stage
-          cp build/ria/rp6502-ria-w.uf2  "stage/rp6502-${V}-ria-w.uf2"
+          cp build/ria/rp6502-ria-w.uf2     "stage/rp6502-${V}-ria-w.uf2"
           cp build/pico2/ria/rp6502-ria.uf2 "stage/rp6502-${V}-ria.uf2"
-          cp build/vga/rp6502-vga.uf2    "stage/rp6502-${V}-vga.uf2"
+          cp build/vga/rp6502-vga.uf2       "stage/rp6502-${V}-vga.uf2"
           # The README names the files it tells you to FLASH, so the version
           # has to reach it too.
           sed "s/@VERSION@/${V}/g" src/dist/pico/README.txt > stage/README.txt
-          ( cd stage && zip -r "$GITHUB_WORKSPACE/rp6502-${V}-pico.zip" . )
+          ( cd stage && zip -r "$GITHUB_WORKSPACE/${ARCHIVE}" . )
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-pico
-          path: rp6502-*-pico.zip
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -162,6 +168,8 @@ jobs:
           - { runner: ubuntu-22.04,     arch: x86_64 }
           - { runner: ubuntu-22.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.runner }}
+    env:
+      ARCHIVE: rp6502-${{ github.run_id }}-linux-${{ matrix.arch }}.tar.gz
     steps:
       - uses: actions/checkout@v7
 
@@ -186,20 +194,18 @@ jobs:
       # tar, not zip: it is what a Linux user expects and the only container
       # here that carries the execute bit through GitHub's artifact round-trip.
       - name: Package linux-${{ matrix.arch }}
-        env:
-          V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           mkdir stage
           cp build/emulator/release/rp6502-emu stage/
           cp src/dist/linux/README.txt stage/
-          tar -czf "rp6502-${V}-linux-${{ matrix.arch }}.tar.gz" \
-            -C stage rp6502-emu README.txt
+          tar -czf "$ARCHIVE" -C stage rp6502-emu README.txt
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-linux-${{ matrix.arch }}
-          path: rp6502-*-linux-${{ matrix.arch }}.tar.gz
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -208,6 +214,8 @@ jobs:
   macos:
     needs: [version]
     runs-on: macos-15
+    env:
+      ARCHIVE: rp6502-${{ github.run_id }}-macos.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -258,12 +266,13 @@ jobs:
           # ditto is the platform's own archiver: it keeps the bundle's mode
           # bits and extended attributes, which zip and upload-artifact do not.
           # No --keepParent, so stage/'s contents land at the zip root.
-          ditto -c -k --sequesterRsrc stage "rp6502-${V}-macos.zip"
+          ditto -c -k --sequesterRsrc stage "$ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-macos
-          path: rp6502-*-macos.zip
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -272,6 +281,8 @@ jobs:
   itch-io:
     needs: [version]
     runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ github.run_id }}-itch.io.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -301,17 +312,16 @@ jobs:
           cmake --build --preset wasm
 
       - name: Package itch.io
-        env:
-          V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           cd build/web/bundle
-          zip -r "$GITHUB_WORKSPACE/rp6502-${V}-itch.io.zip" .
+          zip -r "$GITHUB_WORKSPACE/$ARCHIVE" .
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-itch.io
-          path: rp6502-*-itch.io.zip
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -321,6 +331,8 @@ jobs:
   windows:
     needs: [version]
     runs-on: windows-2025
+    env:
+      ARCHIVE: rp6502-${{ github.run_id }}-windows.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -351,19 +363,18 @@ jobs:
       # no mode bits here worth preserving.
       - name: Package windows
         shell: pwsh
-        env:
-          V: ${{ needs.version.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory stage | Out-Null
           Copy-Item build/emulator/release/rp6502-emu.exe stage/
           Copy-Item src/dist/windows/README.txt stage/
-          Compress-Archive -Path stage/* -DestinationPath "rp6502-$env:V-windows.zip"
+          Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-windows
-          path: rp6502-*-windows.zip
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -372,6 +383,8 @@ jobs:
   android:
     needs: [version]
     runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ github.run_id }}-android.apk
     steps:
       - uses: actions/checkout@v7
 
@@ -389,17 +402,16 @@ jobs:
       # An APK is already a zip and Android installs it directly, so it ships
       # bare. Its install warning lives in the release body, not a README.
       - name: Package android
-        env:
-          V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           cp build/android/gradle/outputs/apk/release/rp6502-emu-release.apk \
-            "rp6502-${V}-android.apk"
+            "$ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-android
-          path: rp6502-*-android.apk
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -505,6 +517,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
+      ARCHIVE: rp6502-${{ github.run_id }}-pocket.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -578,17 +591,16 @@ jobs:
       # root, and so an empty package fails this job instead of quietly
       # shipping a release with no core in it.
       - name: Package pocket
-        env:
-          V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           cd build/pocket/package
-          zip -r -y "$GITHUB_WORKSPACE/rp6502-${V}-pocket.zip" .
+          zip -r -y "$GITHUB_WORKSPACE/$ARCHIVE" .
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-pocket
-          path: rp6502-*-pocket.zip
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -614,30 +626,34 @@ jobs:
         with:
           path: _artifacts
 
-      - name: Collect and checksum
+      - name: Collect, name, and checksum
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           mkdir dist
-          find _artifacts -type f -name 'rp6502-*' -exec mv -t dist {} +
 
-          # This list is the order the assets appear on the release page, and
-          # checking it here is what makes a missing one a build failure rather
-          # than a quiet gap in the release. pocket is the only one allowed to
-          # be absent: the fit is skipped on commits that left the RTL alone.
-          # A tag always fits, so a tag missing it is real.
+          # Each job uploaded its archive under the run id, which is all a job
+          # can know without asking. Naming them for the version is this job's
+          # whole contribution; the bytes are the ones its own platform made.
+          #
+          # This list is also the order the assets appear on the release page,
+          # and checking it here is what makes a missing one a build failure
+          # rather than a quiet gap in the release. pocket is the only one
+          # allowed to be absent: the fit is skipped on commits that left the
+          # RTL alone. A tag always fits, so a tag missing it is real.
           assets=()
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    pocket.zip itch.io.zip android.apk; do
-            f="rp6502-${V}-${w}"
-            if [ -f "dist/$f" ]; then
-              assets+=("$f")
+            src=$(find _artifacts -type f -name "rp6502-${GITHUB_RUN_ID}-${w}" | head -1)
+            if [ -n "$src" ]; then
+              mv "$src" "dist/rp6502-${V}-${w}"
+              assets+=("rp6502-${V}-${w}")
             elif [ "$w" = pocket.zip ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
               echo "note: no pocket core in this run"
             else
-              echo "missing asset: $f" >&2
+              echo "missing asset: rp6502-${GITHUB_RUN_ID}-${w}" >&2
               exit 1
             fi
           done
