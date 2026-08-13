@@ -781,12 +781,15 @@ void window_core_prompt_setup(void)
         .fonts[0] = sdtx_font_c64(),
         .logger.func = slog_func,
     });
+    /* No formats: they default to the environment sg_setup was given, which is
+     * sglue_environment() and therefore the swapchain's. Naming them here meant
+     * casting sapp_color_format(), and sokol_app's pixel format is a different
+     * enum from sokol_gfx's — sokol_glue translates between them for exactly
+     * this reason. The cast read R8/R16SN out of an RGBA8 swapchain, and the
+     * pipeline was rejected on the first frame that drew this screen. */
     sgl_setup(&(sgl_desc_t){
         .max_vertices = 16384, /* the dashed border strokes many thick quads */
         .max_commands = 64,
-        .color_format = (sg_pixel_format)sapp_color_format(),
-        .depth_format = (sg_pixel_format)sapp_depth_format(),
-        .sample_count = sapp_sample_count(),
         .logger.func = slog_func,
     });
 
