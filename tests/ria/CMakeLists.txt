@@ -39,6 +39,9 @@ rp6502_add_test(exec LIBS emu_core FIXTURE exec.rp6502 TIMEOUT 60)
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
 rp6502_add_test(rtc LIBS emu_core FIXTURE rtc.rp6502 TIMEOUT 60)
 
+# --- Master clock + PHI2 in the emulator (reproducible run timing) ---
+rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
+
 # --- OEM code page conversion (ria/api/uni.c) against the ffunicode.c it
 # replaces. The vendored file is compiled beside it with its entry points
 # renamed, so every code page, every byte, every code point in the BMP,
@@ -98,6 +101,12 @@ if(KBDLAY_BIN)
 endif()
 
 if(RP6502_VERILATE)
+    # --- Every whole kilohertz, exactly ---
+    rp6502_add_module_test(phi2
+        TOP phi2_div
+        RTL ${RP6502_SRC}/rtl/ria/phi2_div.sv
+        TIMEOUT 120)
+
     # The whole machine so far boots a program that talks through the RIA's
     # bare UART.
     rp6502_add_machine_test(hello TIMEOUT 120)

@@ -4,20 +4,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * W65C02S, per-cycle bus-identical to the emulator's chips/w65c02.h. The
- * decode table in cpu65_rom_pkg comes from the same generator as the C, and
- * the conformance suites in tests/cpu hold both to the same vectors.
+ * decode table in w65c02_rom_pkg comes from the same generator as the C, and
+ * the conformance suites in tests/wdc hold both to the same vectors.
  *
  * One clock per CPU cycle when en is high. Outputs are registered and describe
  * the bus cycle in flight: the memory system returns data_i for the address on
- * cpu65_addr in the same en period, exactly the contract of w65c02_tick.
+ * w65c02_addr in the same en period, exactly the contract of w65c02_tick.
  *
  * Statement order in the C decides evaluation order here: operations run
  * first, the address unit uses post-operation values, and post-steps land
  * last. RTS drives the program counter it just pulled.
  */
 
-module cpu65
-    import cpu65_rom_pkg::*;
+module w65c02
+    import w65c02_rom_pkg::*;
 (
     input logic clk,
     input logic rst_n,
@@ -29,10 +29,10 @@ module cpu65
     input logic rdy_i,
     input logic res_i,
 
-    output logic [15:0] cpu65_addr,
-    output logic [7:0] cpu65_data,
-    output logic cpu65_we,
-    output logic cpu65_stp,
+    output logic [15:0] w65c02_addr,
+    output logic [7:0] w65c02_data,
+    output logic w65c02_we,
+    output logic w65c02_stp,
     /* Beside stp because a freeze has to know about both: neither stall
      * cycle fetches, so a gate that waits for sync alone never lets go
      * of a core sitting in WAI. */
@@ -54,7 +54,7 @@ module cpu65
      * carried, and the port then describes the core rather than one
      * moment in it. */
     input logic [2:0] st_idx,
-    output logic [31:0] cpu65_st_rdata,
+    output logic [31:0] w65c02_st_rdata,
     /* The whole of it at once, because a restore lands with the clock
      * already back. */
     input logic st_jam,
@@ -65,15 +65,15 @@ module cpu65
      * cannot answer inside one clock has to launch on the enable rather
      * than a clock later, or its byte arrives with nothing left of the
      * period for the address cone to consume it. */
-    output logic [15:0] cpu65_next_addr,
-    output logic [7:0] cpu65_next_data,
-    output logic cpu65_next_we
+    output logic [15:0] w65c02_next_addr,
+    output logic [7:0] w65c02_next_data,
+    output logic w65c02_next_we
 );
 
     /* Fetch cycle marker. Once an output for the freeze boundary; the
      * clock-stop design needs no boundary, so it is internal state
      * again -- the interrupt takes and the blob still ride on it. */
-    logic cpu65_sync /*verilator public_flat_rd*/;
+    logic w65c02_sync /*verilator public_flat_rd*/;
 
     // P flag bits
     localparam int FC = 0;
@@ -105,7 +105,7 @@ module cpu65
     logic brk_res /*verilator public_flat_rw*/;
     logic wait_flag /*verilator public_flat_rw*/;
     logic stop_flag /*verilator public_flat_rw*/;
-    always_comb cpu65_stp = stop_flag;
+    always_comb w65c02_stp = stop_flag;
     logic nmi_prev /*verilator public_flat_rw*/;
     // The power-on one-shot only: the C model comes out of init with RES
     // pending for its first SYNC. At runtime RES is a level sampled at SYNC,
@@ -123,10 +123,10 @@ module cpu65
      * about bit order twice. */
     always_comb begin
         case (st_idx)
-            3'd0: cpu65_st_rdata = {s, y, x, a};
-            3'd1: cpu65_st_rdata = {ir, p, pc};
+            3'd0: w65c02_st_rdata = {s, y, x, a};
+            3'd1: w65c02_st_rdata = {ir, p, pc};
             3'd2:
-            cpu65_st_rdata = {
+            w65c02_st_rdata = {
                 ad,
                 5'd0,
                 tick,
@@ -137,11 +137,11 @@ module cpu65
                 brk_res,
                 brk_nmi,
                 brk_irq,
-                cpu65_we
+                w65c02_we
             };
-            3'd3: cpu65_st_rdata = {irq_pip, nmi_pip};
-            3'd4: cpu65_st_rdata = {cpu65_addr, cpu65_data, 7'd0, cpu65_sync};
-            default: cpu65_st_rdata = 32'd0;
+            3'd3: w65c02_st_rdata = {irq_pip, nmi_pip};
+            3'd4: w65c02_st_rdata = {w65c02_addr, w65c02_data, 7'd0, w65c02_sync};
+            default: w65c02_st_rdata = 32'd0;
         endcase
     end
 
@@ -150,7 +150,7 @@ module cpu65
         stop_stall = stop_flag && !res_i;
         wait_stall = wait_flag && !stop_stall && !(irq_i || nmi_i || res_i);
         // RDY freezes read cycles only; the C checks it before decoding.
-        rdy_stall = !stop_flag && !wait_flag && rdy_i && !cpu65_we;
+        rdy_stall = !stop_flag && !wait_flag && rdy_i && !w65c02_we;
     end
 
     logic [15:0] irq_pip_det, nmi_pip_det;
@@ -168,11 +168,11 @@ module cpu65
     logic [2:0] eff_tick;
     logic [15:0] pc_pro;  // after the prologue's PC increment
     always_comb begin
-        take_irq = cpu65_sync && irq_pip_det[10];
-        take_nmi = cpu65_sync && |nmi_pip_det[15:10];
-        take_res = cpu65_sync && (res_seen || res_i);
+        take_irq = w65c02_sync && irq_pip_det[10];
+        take_nmi = w65c02_sync && |nmi_pip_det[15:10];
+        take_res = w65c02_sync && (res_seen || res_i);
         brk_now = take_irq || take_nmi || take_res;
-        if (cpu65_sync) begin
+        if (w65c02_sync) begin
             eff_ir = brk_now ? 8'h00 : data_i;
             eff_tick = 3'd0;
             pc_pro = brk_now ? pc : pc + 16'd1;
@@ -183,8 +183,8 @@ module cpu65
         end
     end
 
-    cpu65_cw_t cw;
-    always_comb cw = cpu65_rom({eff_ir, eff_tick});
+    w65c02_cw_t cw;
+    always_comb cw = w65c02_rom({eff_ir, eff_tick});
 
     // brk_* as the executing BRK sequence sees them: forced entry latches its
     // cause in the same cycle tick 0 runs.
@@ -207,7 +207,7 @@ module cpu65
     /* verilator lint_on UNUSEDSIGNAL */
 
     // Shifts and rotates share one result-and-carry form.
-    function automatic logic [8:0] shift(input cpu65_rom_pkg::cpu65_sel_t which,
+    function automatic logic [8:0] shift(input w65c02_rom_pkg::w65c02_sel_t which,
                                          input logic [7:0] v,
                                          input logic cin);
         case (which)
@@ -503,10 +503,10 @@ module cpu65
     // ------------------------------------------------------------------
 
     logic [15:0] base16, off16, full_addr;
-    cpu65_lo_t use_lo;
-    cpu65_off_t use_off;
-    cpu65_hi_t use_hi;
-    cpu65_post_t use_post;
+    w65c02_lo_t use_lo;
+    w65c02_off_t use_off;
+    w65c02_hi_t use_hi;
+    w65c02_post_t use_post;
 
     always_comb begin
         if (cond_fail) begin
@@ -550,7 +550,7 @@ module cpu65
                                 base16[7:0] + off16[7:0]};
             HI_GD: full_addr = {gd, base16[7:0]};
             HI_ZERO: full_addr = {8'h00, base16[7:0]};
-            default: full_addr = cpu65_addr;  // HI_HOLD
+            default: full_addr = w65c02_addr;  // HI_HOLD
         endcase
 
         if (do_fetch)
@@ -599,19 +599,19 @@ module cpu65
     end
 
     logic [15:0] pip_mask;
-    always_comb pip_mask = cpu65_sync ? 16'h03FF : 16'hFFFF;
+    always_comb pip_mask = w65c02_sync ? 16'h03FF : 16'hFFFF;
 
     /* The bus one edge early. When the core is stalled the registers
      * hold, so the answer is what they already carry. */
     always_comb begin
         if (stop_stall || wait_stall || rdy_stall) begin
-            cpu65_next_addr = cpu65_addr;
-            cpu65_next_data = cpu65_data;
-            cpu65_next_we = cpu65_we;
+            w65c02_next_addr = w65c02_addr;
+            w65c02_next_data = w65c02_data;
+            w65c02_next_we = w65c02_we;
         end else begin
-            cpu65_next_addr = full_addr;
-            cpu65_next_data = dout;
-            cpu65_next_we = n_we;
+            w65c02_next_addr = full_addr;
+            w65c02_next_data = dout;
+            w65c02_next_we = n_we;
         end
     end
 
@@ -637,10 +637,10 @@ module cpu65
             stop_flag <= 1'b0;
             nmi_prev <= 1'b0;
             res_seen <= 1'b1;
-            cpu65_addr <= 16'h0000;
-            cpu65_data <= 8'h00;
-            cpu65_we <= 1'b0;
-            cpu65_sync <= 1'b1;
+            w65c02_addr <= 16'h0000;
+            w65c02_data <= 8'h00;
+            w65c02_we <= 1'b0;
+            w65c02_sync <= 1'b1;
         end else if (st_jam) begin
             /* All five words on one edge, ahead of en. A restore
              * happens with the clock back on, and a jam spread over
@@ -658,11 +658,11 @@ module cpu65
             brk_res <= st_jam_data[2][3];
             brk_nmi <= st_jam_data[2][2];
             brk_irq <= st_jam_data[2][1];
-            cpu65_we <= st_jam_data[2][0];
+            w65c02_we <= st_jam_data[2][0];
             {irq_pip, nmi_pip} <= st_jam_data[3];
-            cpu65_addr <= st_jam_data[4][31:16];
-            cpu65_data <= st_jam_data[4][15:8];
-            cpu65_sync <= st_jam_data[4][0];
+            w65c02_addr <= st_jam_data[4][31:16];
+            w65c02_data <= st_jam_data[4][15:8];
+            w65c02_sync <= st_jam_data[4][0];
         end else if (en) begin
             nmi_prev <= nmi_i;
             if (stop_stall || wait_stall) begin
@@ -694,10 +694,10 @@ module cpu65
                 brk_nmi <= n_brk_nmi;
                 brk_res <= n_brk_res;
                 res_seen <= take_res ? 1'b0 : res_seen;
-                cpu65_addr <= full_addr;
-                cpu65_data <= dout;
-                cpu65_we <= n_we;
-                cpu65_sync <= do_fetch;
+                w65c02_addr <= full_addr;
+                w65c02_data <= dout;
+                w65c02_we <= n_we;
+                w65c02_sync <= do_fetch;
             end
         end
     end

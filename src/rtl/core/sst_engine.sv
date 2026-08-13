@@ -159,8 +159,8 @@ module sst_engine
      * the reconfigure left. */
     output logic sst_engine_mtime_jam,
     output logic [31:0] sst_engine_jam_mach[4],
-    output logic [31:0] sst_engine_jam_cpu[5],
-    output logic [31:0] sst_engine_jam_via[7],
+    output logic [31:0] sst_engine_jam_w65c02[5],
+    output logic [31:0] sst_engine_jam_w65c22[7],
     /* The regs window is half array and half flops; the flops go the
      * same way as the rest, all at once when the clock is back. */
     output logic [31:0] sst_engine_jam_ria[12],
@@ -229,12 +229,12 @@ module sst_engine
      * before what it holds, because registers jammed into a core that is
      * still in reset are overwritten by the reset the next clock, so the
      * machine's own words are the ones at zero. */
-    localparam int ST_CPU = 4;
-    localparam int ST_VIA = 9;
+    localparam int ST_W65C02 = 4;
+    localparam int ST_W65C22 = 9;
     localparam int ST_RV = 16;
     localparam logic [1:0] SEL_MACH = 2'd0;
-    localparam logic [1:0] SEL_CPU = 2'd1;
-    localparam logic [1:0] SEL_VIA = 2'd2;
+    localparam logic [1:0] SEL_W65C02 = 2'd1;
+    localparam logic [1:0] SEL_W65C22 = 2'd2;
 
     /* The soft CPU's state, once it has been asked for it: thirty-one
      * registers and the program counter it will start from. */
@@ -484,12 +484,12 @@ module sst_engine
     always_comb begin
         st_off = dec_idx - 18'(B_STATE);
         on_flops = dec_idx >= 18'(B_STATE) && dec_idx < 18'(B_STATE + ST_RV);
-        if (st_off >= 18'(ST_VIA)) begin
-            st_sel = SEL_VIA;
-            st_idx = 3'(st_off - 18'(ST_VIA));
-        end else if (st_off >= 18'(ST_CPU)) begin
-            st_sel = SEL_CPU;
-            st_idx = 3'(st_off - 18'(ST_CPU));
+        if (st_off >= 18'(ST_W65C22)) begin
+            st_sel = SEL_W65C22;
+            st_idx = 3'(st_off - 18'(ST_W65C22));
+        end else if (st_off >= 18'(ST_W65C02)) begin
+            st_sel = SEL_W65C02;
+            st_idx = 3'(st_off - 18'(ST_W65C02));
         end else begin
             st_sel = SEL_MACH;
             st_idx = 3'(st_off);
@@ -504,9 +504,9 @@ module sst_engine
         for (int i = 0; i < 4; i++)
             sst_engine_jam_mach[i] = flopreg[i];
         for (int i = 0; i < 5; i++)
-            sst_engine_jam_cpu[i] = flopreg[ST_CPU + i];
+            sst_engine_jam_w65c02[i] = flopreg[ST_W65C02 + i];
         for (int i = 0; i < 7; i++)
-            sst_engine_jam_via[i] = flopreg[ST_VIA + i];
+            sst_engine_jam_w65c22[i] = flopreg[ST_W65C22 + i];
         for (int i = 0; i < RIA_JAM; i++)
             sst_engine_jam_ria[i] = riareg[i];
         state_word = st_rdata;

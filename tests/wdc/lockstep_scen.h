@@ -4,17 +4,17 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The pin scenarios, once, for the two suites that replay them: test_lockstep
- * runs them with the C and the RTL side by side, and test_cpu_chips runs them
- * against chips alone with a recorded trace as the reference. The image and
- * the event scripts live here so the RTL comparison and the drift check
+ * runs them with the C and the RTL side by side, and test_w65c02_chips runs
+ * them against chips alone with a recorded trace as the reference. The image
+ * and the event scripts live here so the RTL comparison and the drift check
  * cannot come to be asking different questions.
  *
  * Neither the SingleStepTests corpus nor Klaus reaches any of this — they
  * leave the pins quiet — which is also why nothing here needs either of them.
  */
 
-#ifndef _TESTS_CPU65_LOCKSTEP_SCEN_H_
-#define _TESTS_CPU65_LOCKSTEP_SCEN_H_
+#ifndef _TESTS_WDC_LOCKSTEP_SCEN_H_
+#define _TESTS_WDC_LOCKSTEP_SCEN_H_
 
 #include "lockstep.h"
 
@@ -75,4 +75,4 @@ extern "C"
 }
 #endif
 
-#endif /* _TESTS_CPU65_LOCKSTEP_SCEN_H_ */
+#endif /* _TESTS_WDC_LOCKSTEP_SCEN_H_ */

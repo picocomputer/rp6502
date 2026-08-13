@@ -16,7 +16,7 @@
  * Same scenarios as test_lockstep, so the two cannot come to disagree about
  * what they are asking. Regenerate with
  *
- *     test_cpu_chips --emit > tests/cpu65/cpu_golden.txt
+ *     test_w65c02_chips --emit > tests/wdc/w65c02_golden.txt
  *
  * and read what moved before committing it.
  */
@@ -94,7 +94,7 @@ static int n_golden;
 
 static bool golden_load(void)
 {
-    FILE *f = fopen(CPU_GOLDEN, "r");
+    FILE *f = fopen(W65C02_GOLDEN, "r");
     if (!f)
         return false;
     char line[128];
@@ -127,12 +127,12 @@ static bool golden_check(const char *name, uint32_t crc, char *detail,
             }
             return true;
         }
-    snprintf(detail, cap, "%s is not in %s", name, CPU_GOLDEN);
+    snprintf(detail, cap, "%s is not in %s", name, W65C02_GOLDEN);
     return false;
 }
 
-#define CPU_TRACE(name)                                                  \
-    UTEST(cpu_chips, name)                                               \
+#define W65C02_TRACE(name)                                               \
+    UTEST(w65c02_chips, name)                                            \
     {                                                                    \
         char detail[160] = "";                                           \
         uint32_t crc = trace(&lockstep_scen_##name);                     \
@@ -143,9 +143,9 @@ static bool golden_check(const char *name, uint32_t crc, char *detail,
         ASSERT_TRUE(ok);                                                 \
     }
 
-LOCKSTEP_SCENARIOS(CPU_TRACE)
+LOCKSTEP_SCENARIOS(W65C02_TRACE)
 
-UTEST(cpu_chips, pin_fuzz)
+UTEST(w65c02_chips, pin_fuzz)
 {
     char detail[160] = "";
     uint32_t crc = trace_fuzz();
@@ -163,11 +163,11 @@ int main(int argc, const char *const argv[])
     if (argc == 2 && !strcmp(argv[1], "--emit"))
     {
         printf("# chips/chips/w65c02.h bus traces, per scenario: name crc32.\n"
-               "# Regenerate with test_cpu_chips --emit and read the diff.\n");
-#define CPU_EMIT(name) \
+               "# Regenerate with test_w65c02_chips --emit and read the diff.\n");
+#define W65C02_EMIT(name) \
     printf("%s %08X\n", #name, trace(&lockstep_scen_##name));
-        LOCKSTEP_SCENARIOS(CPU_EMIT)
-#undef CPU_EMIT
+        LOCKSTEP_SCENARIOS(W65C02_EMIT)
+#undef W65C02_EMIT
         printf("pin_fuzz %08X\n", trace_fuzz());
         return 0;
     }

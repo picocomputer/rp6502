@@ -20,7 +20,7 @@ Saves
 -----
 
 Programs save to Saves/rp6502/common/, which is the core's working
-directory. The Pocket will not create this path automatically, you
+directory. The Pocket will not create this path automatically; you
 will find a .keep file there to ensure the zip file retains the
 directory structure.
 

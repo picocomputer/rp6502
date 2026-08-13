@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * SingleStepTests conformance for the emulator's 65C02. The FPGA core runs
- * these same vectors against cpu65.sv; holding both to one set of per-cycle
+ * these same vectors against w65c02.sv; holding both to one set of per-cycle
  * bus traces is what keeps the two implementations from drifting apart.
  */
 

@@ -39,13 +39,13 @@ endforeach()
 set(RP6502_MACHINE_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${OPL2_SOURCES}
-    ${CPU65_ROM}
+    ${W65C02_ROM}
     ${RP6502_SRC}/rtl/core/rp6502_pkg.sv
-    ${RP6502_SRC}/rtl/cpu65/cpu65.sv
-    ${RP6502_SRC}/rtl/cpu65/via.sv
-    ${RP6502_SRC}/rtl/cpu65/phi2_div.sv
+    ${RP6502_SRC}/rtl/wdc/w65c02.sv
+    ${RP6502_SRC}/rtl/wdc/w65c22.sv
     ${RP6502_SRC}/rtl/mem/sram64k.sv
     ${RP6502_SRC}/rtl/mem/xram64k.sv
+    ${RP6502_SRC}/rtl/ria/phi2_div.sv
     ${RP6502_SRC}/rtl/ria/ria_regs.sv
     ${RP6502_SRC}/rtl/rv/rv_soc.sv
     ${RP6502_SRC}/rtl/vid/vid_timing.sv

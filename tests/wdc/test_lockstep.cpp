@@ -10,10 +10,10 @@
  */
 
 #include "chips_dut.h"
-#include "cpu65_dut.h"
 #include "lockstep.h"
 #include "lockstep_scen.h"
 #include "utest.h"
+#include "w65c02_dut.h"
 
 #include <cstdio>
 #include <cstring>
@@ -24,7 +24,7 @@ static bool run(const lockstep_scen_t *scen)
 {
     lockstep_scen_image(image, scen->entry);
     lockstep_result_t r;
-    bool ok = lockstep_run(&chips_dut, &cpu65_dut, image, scen->evs,
+    bool ok = lockstep_run(&chips_dut, &w65c02_dut, image, scen->evs,
                            scen->n_evs, scen->cycles, &r);
     if (!ok)
         printf("%s\n", r.detail);
@@ -49,7 +49,7 @@ UTEST(lockstep, pin_fuzz)
     lockstep_scen_fuzz(evs);
 
     lockstep_result_t r;
-    bool ok = lockstep_run(&chips_dut, &cpu65_dut, image, evs,
+    bool ok = lockstep_run(&chips_dut, &w65c02_dut, image, evs,
                            LOCKSTEP_FUZZ_EVENTS, LOCKSTEP_FUZZ_CYCLES, &r);
     if (!ok)
         printf("%s\n", r.detail);
@@ -60,8 +60,8 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    cpu65_dut_init(argc, argv);
+    w65c02_dut_init(argc, argv);
     int rc = utest_main(argc, argv);
-    cpu65_dut_free();
+    w65c02_dut_free();
     return rc;
 }
