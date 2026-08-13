@@ -29,6 +29,13 @@ apply plugin: 'com.android.application'
 def out = "$rootDir/../../../build/android"
 layout.buildDirectory = file("$out/gradle")
 
+// What this build is, from CI. Read into locals first: inside defaultConfig,
+// `versionName findProperty(..) ?: ..` parses as the ternary applying to the
+// call's result, not to its argument.
+def rpVersion = (findProperty('rpVersion') ?: '').toString()
+def rpCi = (findProperty('rpCi') ?: '').toString()
+def rpVersionCode = (findProperty('rpVersionCode') ?: '1').toString() as Integer
+
 android {
     namespace 'com.picocomputer.rp6502'
     compileSdk 35
@@ -41,19 +48,20 @@ android {
         applicationId "com.picocomputer.rp6502"
         minSdk 28
         targetSdk 35
-        // -PrpVersion is the release build's; 0.0 is the placeholder that says
-        // nobody set one, the same one the Pocket core ships. versionCode has
-        // to be an integer under 2100000000, which a CI run id is not, so only
-        // a tag moves it — and nothing upgrades this APK in place anyway.
-        versionName findProperty('rpVersion') ?: '0.0'
-        versionCode (findProperty('rpVersionCode') ?: '1') as int
+        // 0.0 is the placeholder that says nobody set a version, the same one
+        // the Pocket core ships. versionCode has to be an integer under
+        // 2100000000, which a CI run id is not, so only a tag moves it — and
+        // nothing upgrades this APK in place anyway.
+        versionName(rpVersion ?: '0.0')
+        versionCode(rpVersionCode)
 
         externalNativeBuild {
             cmake {
-                // The standard is src/emu/CMakeLists.txt's to set.
-                arguments "-DANDROID_STL=c++_shared",
-                    "-DRP6502_VERSION=${findProperty('rpVersion') ?: ''}",
-                    "-DRP6502_CI=${findProperty('rpCi') ?: ''}"
+                // The standard is src/emu/CMakeLists.txt's to set, except the
+                // stamp, which only the build that was asked for it knows.
+                arguments("-DANDROID_STL=c++_shared",
+                    "-DRP6502_VERSION=$rpVersion",
+                    "-DRP6502_CI=$rpCi")
             }
         }
         ndk {
