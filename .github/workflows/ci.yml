@@ -56,7 +56,7 @@ jobs:
     needs: [version]
     runs-on: ubuntu-24.04
     env:
-      ARCHIVE: rp6502-${{ github.run_id }}-pico.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-pico.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -129,9 +129,8 @@ jobs:
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
           cmake --build build/pico2
 
-      # The archive is named for the run and renamed to the version when it is
-      # released; the .uf2 inside carry the version already, because a name you
-      # type at a FLASH prompt should say which build it is.
+      # The .uf2 carry the version too, not just the archive: a name you type
+      # at a FLASH prompt should say which build it is.
       - name: Package pico
         env:
           V: ${{ needs.version.outputs.version }}
@@ -169,7 +168,7 @@ jobs:
           - { runner: ubuntu-22.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.runner }}
     env:
-      ARCHIVE: rp6502-${{ github.run_id }}-linux-${{ matrix.arch }}.tar.gz
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
     steps:
       - uses: actions/checkout@v7
 
@@ -215,7 +214,7 @@ jobs:
     needs: [version]
     runs-on: macos-15
     env:
-      ARCHIVE: rp6502-${{ github.run_id }}-macos.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-macos.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -282,7 +281,7 @@ jobs:
     needs: [version]
     runs-on: ubuntu-24.04
     env:
-      ARCHIVE: rp6502-${{ github.run_id }}-itch.io.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-itch.io.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -332,7 +331,7 @@ jobs:
     needs: [version]
     runs-on: windows-2025
     env:
-      ARCHIVE: rp6502-${{ github.run_id }}-windows.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-windows.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -384,7 +383,7 @@ jobs:
     needs: [version]
     runs-on: ubuntu-24.04
     env:
-      ARCHIVE: rp6502-${{ github.run_id }}-android.apk
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-android.apk
     steps:
       - uses: actions/checkout@v7
 
@@ -517,7 +516,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
-      ARCHIVE: rp6502-${{ github.run_id }}-pocket.zip
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-pocket.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -622,38 +621,39 @@ jobs:
     if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     steps:
+      # skip-decompress, because these artifacts are the assets themselves. The
+      # default unpacks anything that looks like an archive, which for us is
+      # every one of them.
       - uses: actions/download-artifact@v8
         with:
           path: _artifacts
+          skip-decompress: true
 
-      - name: Collect, name, and checksum
+      - name: Collect and checksum
         env:
           V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
           mkdir dist
 
-          # Each job uploaded its archive under the run id, which is all a job
-          # can know without asking. Naming them for the version is this job's
-          # whole contribution; the bytes are the ones its own platform made.
-          #
-          # This list is also the order the assets appear on the release page,
-          # and checking it here is what makes a missing one a build failure
-          # rather than a quiet gap in the release. pocket is the only one
-          # allowed to be absent: the fit is skipped on commits that left the
-          # RTL alone. A tag always fits, so a tag missing it is real.
+          # This list is the order the assets appear on the release page, and
+          # checking it here is what makes a missing one a build failure rather
+          # than a quiet gap in the release. pocket is the only one allowed to
+          # be absent: the fit is skipped on commits that left the RTL alone.
+          # A tag always fits, so a tag missing it is real.
           assets=()
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    pocket.zip itch.io.zip android.apk; do
-            src=$(find _artifacts -type f -name "rp6502-${GITHUB_RUN_ID}-${w}" | head -1)
+            f="rp6502-${V}-${w}"
+            src=$(find _artifacts -type f -name "$f" | head -1)
             if [ -n "$src" ]; then
-              mv "$src" "dist/rp6502-${V}-${w}"
-              assets+=("rp6502-${V}-${w}")
+              mv "$src" "dist/$f"
+              assets+=("$f")
             elif [ "$w" = pocket.zip ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
               echo "note: no pocket core in this run"
             else
-              echo "missing asset: rp6502-${GITHUB_RUN_ID}-${w}" >&2
+              echo "missing asset: $f" >&2
               exit 1
             fi
           done
@@ -663,7 +663,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ github.run_id }}-everything
+          name: rp6502-${{ needs.version.outputs.version }}-everything
           path: dist/
           if-no-files-found: error
           retention-days: 14
@@ -680,7 +680,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: rp6502-${{ github.run_id }}-everything
+          name: rp6502-${{ needs.version.outputs.version }}-everything
           path: dist
 
       - name: Compose release title (matches historical "Version X" format)
