@@ -30,6 +30,7 @@ get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 include(${RP6502_ROOT}/submodules.cmake)
+include(${RP6502_ROOT}/version.cmake)
 rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
     WANTS "the emulated 6502 and 6522")
 
@@ -278,7 +279,8 @@ if(NOT WIN32 AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/input.c
+    ${RP6502_SRC}/emu/app/png.c ${RP6502_SRC}/emu/app/version.c)
 if(NOT ANDROID)
     # Desktop/web enter through main(); Android enters through host/android sokol_main.
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/main.c)
@@ -310,6 +312,18 @@ if(ANDROID)
 else()
     add_executable(rp6502-emu ${APP_SOURCES})
     target_link_libraries(rp6502-emu PRIVATE emu_core)
+endif()
+
+# On rp6502-emu rather than emu_core: the RTL tree builds emu_core too, as the
+# simulation's oracle, where a version is nothing to stamp.
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/emu/app/version.c)
+
+# The version metadata Explorer reads. RC is not one of project()'s languages,
+# so it is enabled where it is used; both rc.exe and windres accept this file.
+if(WIN32)
+    enable_language(RC)
+    configure_file(${RP6502_SRC}/host/win/version.rc.in version.rc @ONLY)
+    target_sources(rp6502-emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 endif()
 
 # Windows is only platform without getopt
@@ -358,31 +372,37 @@ elseif(EMSCRIPTEN)
         "-sFORCE_FILESYSTEM=1"
         "-lidbfs.js"
         "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,addRunDependency,removeRunDependency")
+    # One web output: build/web/bundle is the shippable itch.io sample, and the
+    # link writes rp6502.js/.wasm straight into it so the engine exists once.
+    # The tester at src/emu/index.html is served from the source tree and reads
+    # the same bundle; nothing is copied for it.
     set_target_properties(rp6502-emu PROPERTIES
         OUTPUT_NAME rp6502
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/html")
-    # Tester web root (build/web/html): the menu shell + every test ROM.
-    file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
-    add_custom_target(web_root ALL
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bundle")
+    add_custom_target(web_bundle ALL
         COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${RP6502_SRC}/dist/html" "${CMAKE_BINARY_DIR}/html"
-        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/html/roms"
-        COMMAND ${CMAKE_COMMAND} -E copy ${WEB_ROMS} "${CMAKE_BINARY_DIR}/html/roms"
-        COMMENT "Assembling tester web root (build/web/html) + all test ROMs"
-        VERBATIM)
-    add_dependencies(web_root rp6502-emu)
-    # itch.io sample (build/web/itch.io): the single-program shell.
-    add_custom_target(itch_root ALL
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/itch.io"
+            "${RP6502_SRC}/dist/itch.io" "${CMAKE_BINARY_DIR}/bundle"
         COMMAND ${CMAKE_COMMAND} -E copy
             "${RP6502_ROOT}/tests/roms/adventure.rp6502"
-            "${CMAKE_BINARY_DIR}/html/rp6502.js"
-            "${CMAKE_BINARY_DIR}/html/rp6502.wasm"
-            "${CMAKE_BINARY_DIR}/itch.io"
-        COMMENT "Assembling itch.io sample (build/web/itch.io) + adventure.rp6502"
+            "${CMAKE_BINARY_DIR}/bundle"
+        COMMENT "Assembling web bundle (build/web/bundle) + adventure.rp6502"
         VERBATIM)
-    add_dependencies(itch_root rp6502-emu)
+    add_dependencies(web_bundle rp6502-emu)
+    # The tester's ROM menu. Written here rather than shipped in the page so a
+    # new test ROM appears without editing it, and so its absence is how the
+    # page knows the web target has never been built. CONFIGURE_DEPENDS makes
+    # the build re-run cmake when the corpus changes.
+    file(GLOB WEB_ROMS CONFIGURE_DEPENDS "${RP6502_ROOT}/tests/roms/*.rp6502")
+    set(WEB_ROMS_JS "window.ROMS = [\n")
+    foreach(_rom IN LISTS WEB_ROMS)
+        get_filename_component(_name "${_rom}" NAME)
+        string(APPEND WEB_ROMS_JS "  \"${_name}\",\n")
+    endforeach()
+    string(APPEND WEB_ROMS_JS "];\n")
+    # The page has no other way to ask: the wasm answers --credits, but only
+    # once it has been fetched and started.
+    string(APPEND WEB_ROMS_JS "window.VERSION = \"${RP6502_VERSION_STAMP}\";\n")
+    file(WRITE "${CMAKE_BINARY_DIR}/roms.js" "${WEB_ROMS_JS}")
 elseif(ANDROID)
     # Android graphics and libraries are configured in the target section.
 else() # Linux / BSD

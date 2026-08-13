@@ -36,6 +36,7 @@ extern "C"
 #include "emu/emu/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
 #include "emu/app/credits.h" /* EMU_CREDITS */
+#include "emu/app/version.h"
 #include "emu/app/icon.h"    /* icon_desc() - Credits masthead icon */
 
 #include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
@@ -335,6 +336,7 @@ static void draw_credits(void)
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() + (icon - ImGui::GetTextLineHeight()) * 0.5f);
         ImGui::TextUnformatted("RP6502-EMU");
         ImGui::PopFont();
+        ImGui::TextUnformatted(version_string());
         ImGui::Spacing();
         ImGui::TextUnformatted(EMU_CREDITS);
     }

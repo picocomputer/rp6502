@@ -37,7 +37,7 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 ## Layout
 
-    src/rtl/        the machine: aud core cpu65 mem ria rv vid, and its CMake
+    src/rtl/        the machine: aud core mem ria rv vid wdc, and its CMake
     src/rtl/sw/     the soft CPU's firmware, C for the Hazard3
     src/host/       every host the machine runs on, emulated or fabric
 

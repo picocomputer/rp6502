@@ -55,7 +55,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
         WORKING_DIRECTORY ${SYNTH_DIR}
-        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
+        DEPENDS w65c02_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Synthesizing the machine for the Pocket's Cyclone V"
         VERBATIM)
 endif()

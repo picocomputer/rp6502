@@ -53,7 +53,8 @@ enum
 {
     OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_INPUT,
     OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
-    OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_INI, OPT_VSYNC, OPT_NO_VSYNC,
+    OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
+    OPT_VSYNC, OPT_NO_VSYNC,
 };
 static const struct option longopts[] = {
     {"screenshot",   required_argument, NULL, OPT_SCREENSHOT},
@@ -73,6 +74,7 @@ static const struct option longopts[] = {
     {"debug",        no_argument,       NULL, OPT_DEBUG},
     {"dap",          no_argument,       NULL, OPT_DAP},
     {"credits",      no_argument,       NULL, OPT_CREDITS},
+    {"version",      no_argument,       NULL, OPT_VERSION},
     {"ini",          required_argument, NULL, OPT_INI},
     {NULL, 0, NULL, 0},
 };
@@ -80,7 +82,7 @@ static const struct option longopts[] = {
 void cli_usage(const char *argv0)
 {
     fprintf(stderr,
-            "usage: %s <rom.rp6502> [options] [-- <args...>]\n"
+            "usage: %s [rom.rp6502] [options] [-- <args...>]\n"
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --frames <n>              frames to run before screenshot (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
@@ -101,6 +103,7 @@ void cli_usage(const char *argv0)
             "                            the window open on stop for inspection\n"
             "  --dap                     act as a DAP debug adapter on stdio (implies --debug)\n"
             "  --credits                 print third-party credits/licenses and exit\n"
+            "  --version                 print the version and exit\n"
             "  --ini <file>              config file for the debugger UI layout\n"
             "                            (ImGui format; e.g. the workspace .rp6502)\n"
             "  -- <args...>              pass the remaining words to the ROM as argv[1..]\n",
@@ -186,6 +189,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_DEBUG: o->debug = true; break;
         case OPT_DAP: o->dap = true; break;
         case OPT_CREDITS: o->credits = true; break;
+        case OPT_VERSION: o->version = true; break;
         case OPT_INI: o->inidir = optarg; break;
         case ':':
             fprintf(stderr, "rp6502-emu: option '%s' requires a value\n",

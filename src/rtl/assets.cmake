@@ -52,29 +52,29 @@ endfunction()
 # configure clean and fail at the build rule instead.
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
-    WANTS "the cpu65 decode table generator")
+    WANTS "the w65c02 decode table generator")
 rp6502_submodule(vendor/opl2_fpga
     SENTINEL fpga/modules/operator/src/opl2_log_sine_lut.sv
     WANTS "the OPL2 core and its lookup tables")
 
 # --- The generator agrees with the C it generates from ---
-# cpu65's decode tables come from vendor/chips_rp6502, so an upstream change to
+# w65c02's decode tables come from vendor/chips_rp6502, so an upstream change to
 # the addressing or the cycle sequences has to be modelled here before it can
 # reach the RTL. The generator fails on anything it does not recognise.
-set(CPU65_GEN ${RP6502_SRC}/gen/cpu65_gen.py)
-add_test(NAME cpu65_gen
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${CPU65_GEN} --report)
+set(W65C02_GEN ${RP6502_SRC}/gen/w65c02_rom_gen.py)
+add_test(NAME w65c02_gen
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${W65C02_GEN} --report)
 
 # The bitstream byte-reversal for the Pocket's rbf_r, an involution.
 add_test(NAME rbf_r
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/gen/rbf_r_gen.py --check)
 
-set(CPU65_ROM ${RP6502_ASSETS}/cpu65_rom_pkg.sv)
-rp6502_asset(cpu65_rom GEN ${CPU65_GEN}
-    ARGS --emit ${CPU65_ROM}
-    OUTPUTS ${CPU65_ROM}
-    COMMENT "Generating the cpu65 decode table")
+set(W65C02_ROM ${RP6502_ASSETS}/w65c02_rom_pkg.sv)
+rp6502_asset(w65c02_rom GEN ${W65C02_GEN}
+    ARGS --emit ${W65C02_ROM}
+    OUTPUTS ${W65C02_ROM}
+    COMMENT "Generating the w65c02 decode table")
 
 # The font asset comes from vga/term/font.c: the image the firmware
 # copies into the store, an offsets header for it, and the tables

@@ -27,6 +27,7 @@
 #endif
 #include "emu/app/icon.h"
 #include "emu/app/input.h"
+#include "emu/app/version.h"
 #include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/emu/pro.h"
@@ -780,12 +781,15 @@ void window_core_prompt_setup(void)
         .fonts[0] = sdtx_font_c64(),
         .logger.func = slog_func,
     });
+    /* No formats: they default to the environment sg_setup was given, which is
+     * sglue_environment() and therefore the swapchain's. Naming them here meant
+     * casting sapp_color_format(), and sokol_app's pixel format is a different
+     * enum from sokol_gfx's — sokol_glue translates between them for exactly
+     * this reason. The cast read R8/R16SN out of an RGBA8 swapchain, and the
+     * pipeline was rejected on the first frame that drew this screen. */
     sgl_setup(&(sgl_desc_t){
         .max_vertices = 16384, /* the dashed border strokes many thick quads */
         .max_commands = 64,
-        .color_format = (sg_pixel_format)sapp_color_format(),
-        .depth_format = (sg_pixel_format)sapp_depth_format(),
-        .sample_count = sapp_sample_count(),
         .logger.func = slog_func,
     });
 
@@ -888,10 +892,14 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     float mast_top = by - gap - icon_sz;
     float title_x = mast_x + icon_sz + it_gap;
     float title_y = mast_top + (icon_sz - title_gh) * 0.5f;
+    const char *ver = version_string();
+    float ver_gh = glyph;
+    float ver_x = (w - (float)strlen(ver) * ver_gh) * 0.5f;
+    float ver_y = by + bh + gap * 1.7f; /* sit a little below the card */
     float url_gh = glyph;
     float url_w = (float)strlen(docs_url) * url_gh;
     float url_x = (w - url_w) * 0.5f;
-    float url_y = by + bh + gap * 1.7f; /* sit a little below the card */
+    float url_y = ver_y + ver_gh * 1.6f; /* the version takes the line above */
     prompt_url.x = url_x;
     prompt_url.y = url_y;
     prompt_url.w = url_w;
@@ -921,6 +929,9 @@ void window_core_draw_prompt(const char *line1, const char *line2)
      * flush once: sdtx uploads its vertices on the first sdtx_draw of the frame
      * only, so a draw between blocks would drop everything emitted after it. */
     prompt_text_line(emu_title, title_gh, title_x, title_y, w, h, title_col);
+    /* Dash ink, not the bright title color: the URL below is the only thing
+     * here that does anything when clicked, and should look like it. */
+    prompt_text_line(ver, ver_gh, ver_x, ver_y, w, h, ink);
     prompt_text_line(docs_url, url_gh, url_x, url_y, w, h, title_col);
     sdtx_draw();
 }

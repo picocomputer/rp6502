@@ -5,14 +5,10 @@
 # None of it needs Verilator: the source list comes from machine.cmake, which
 # is a list either way. MiSTer gets a file beside this one.
 
-# -DRP6502_VERSION / -DRP6502_CI reach core.json's metadata, the same
-# contract as the firmware root. CI is never cached so a reconfigure
-# cannot resurrect another run's id.
-set(RP6502_CI_VALUE "")
-if(DEFINED RP6502_CI AND NOT RP6502_CI STREQUAL "")
-    set(RP6502_CI_VALUE "${RP6502_CI}")
-endif()
-unset(RP6502_CI CACHE)
+# -DRP6502_VERSION / -DRP6502_CI reach core.json's metadata, read by the same
+# version.cmake the firmware and the emulator use. It is included there rather
+# than here because src/rtl adds src/emu, which includes it too, and whichever
+# ran first would take RP6502_CI out of the cache before the other looked.
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     set(POCKET_DIR ${CMAKE_BINARY_DIR}/bitstream)
@@ -288,10 +284,10 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # glyph asset are built. It carries Saves/rp6502/common/ because the host
     # will not create it and the drive is nothing without it.
     #
-    # The shipped tree lives with the other shipped trees — src/dist/html and
-    # src/dist/itch.io — rather than under the wrapper that happens to build
-    # it. Nothing in it is SystemVerilog or Quartus; it is a folder of JSON
-    # and artwork that goes on a card.
+    # The shipped tree lives with the other shipped trees under src/dist,
+    # rather than under the wrapper that happens to build it. Nothing in it
+    # is SystemVerilog or Quartus; it is a folder of JSON and artwork that
+    # goes on a card.
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
     set(PKG_DIST ${RP6502_SRC}/dist/pocket)
     file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
@@ -300,7 +296,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND}
             -DCORE_JSON=${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.json
-            "-DVERSION=${RP6502_VERSION}"
+            "-DVERSION=${RP6502_VERSION_VALUE}"
             "-DCI=${RP6502_CI_VALUE}"
             -P ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory

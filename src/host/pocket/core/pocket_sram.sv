@@ -92,7 +92,7 @@ module pocket_sram (
      * against 55 ns of tAA leaves nothing for either pad crossing — and
      * five does not fit the 6502, which samples on the sixth.
      *
-     * The address comes from cpu65's pre-registration bus, so the launch
+     * The address comes from w65c02's pre-registration bus, so the launch
      * happens ON the enable rather than a clock after it. Taking the
      * registered address instead cost a whole clock at both ends: it
      * fetched the previous cycle's byte, and once that was fixed it left

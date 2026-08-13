@@ -84,13 +84,17 @@ and F5 launches a debug session with the Debug settings.
 
 To build for web, select Folder:emu and Configure:WebAssembly from the CMake
 side panel; the toolchain installs itself the first time.
-Pressing F7 builds two bundles. `build/web/html` is the tester: a menu shell
-that runs every test ROM. `build/web/itch.io` is a ready-to-publish itch.io
-sample that plays one program (`adventure.rp6502` by default) — see
-`src/dist/itch.io/README.md` to retarget and deploy it. Either must be delivered
-with a web server; use the VS Code live preview extension `ms-vscode.live-server`
-or a simple python server to run them.
-`python3 -m http.server 8000 --directory build/web/html`
+Pressing F7 builds `build/web/bundle`, a ready-to-publish itch.io sample that
+plays one program (`adventure.rp6502` by default) — see
+`src/dist/itch.io/README.txt` to retarget and deploy it.
+
+`src/emu/index.html` is the tester: a menu of every test ROM, run against that
+same bundle. It stays in the source tree, so serve the repository root rather
+than the build. Use the VS Code live preview extension `ms-vscode.live-server`
+and open `src/emu/index.html`, or a simple python server. Neither page works
+from a `file://` URL; the browser needs an HTTP origin to fetch a ROM or stream
+the wasm.
+`python3 -m http.server 8000` then http://localhost:8000/src/emu/index.html
 
 To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
 panel. Select either the Debug or Release variant. You must select the launch

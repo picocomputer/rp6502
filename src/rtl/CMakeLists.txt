@@ -37,6 +37,10 @@ get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 set(RP6502_HOST_POCKET ${RP6502_SRC}/host/pocket/core)
 
+# Before anything that reads it: src/emu includes this too, and the one that
+# runs first is the one that takes RP6502_CI out of the cache.
+include(${RP6502_ROOT}/version.cmake)
+
 # The machine as a list of files, the generated packages, and the soft CPU's
 # firmware. Every configuration needs these; none of them needs a simulator.
 include(${CMAKE_CURRENT_LIST_DIR}/machine.cmake)

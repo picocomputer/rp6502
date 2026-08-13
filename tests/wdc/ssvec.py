@@ -7,7 +7,7 @@
 # Re-encode SingleStepTests JSON into the flat binary the conformance test
 # reads. Run by CMake into the build tree; nothing it produces is committed.
 #
-# Parsing a gigabyte of JSON per test run would dwarf the tests, and tests/cpu
+# Parsing a gigabyte of JSON per test run would dwarf the tests, and tests/wdc
 # has no C JSON parser to link. Both problems go away by encoding once.
 
 import argparse

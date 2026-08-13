@@ -199,6 +199,6 @@ function(rp6502_add_machine_test name)
         ${_trace}
         ARGS ${RP6502_MACHINE_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-        DEPENDS cpu65_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
+        DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
     target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()

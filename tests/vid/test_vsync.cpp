@@ -90,11 +90,11 @@ UTEST(vsync, ffe3_counts_frames_and_fff0_interrupts)
             out.push_back((char)dut->rp6502_tx_data);
             at.push_back(i);
         }
-        if (r->rp6502__DOT__cpu__DOT__stop_flag)
+        if (r->rp6502__DOT__w65c02__DOT__stop_flag)
             break;
     }
 
-    ASSERT_TRUE(r->rp6502__DOT__cpu__DOT__stop_flag);
+    ASSERT_TRUE(r->rp6502__DOT__w65c02__DOT__stop_flag);
     ASSERT_EQ(out.size(), (size_t)6);
     /* Four polled frames: consecutive counter values... */
     for (int i = 1; i < 4; i++)
@@ -142,10 +142,10 @@ UTEST(vsync, movable_line_keeps_the_cadence)
         tb_clock(dut);
         if (dut->rp6502_tx_valid)
             at.push_back(i);
-        if (r->rp6502__DOT__cpu__DOT__stop_flag)
+        if (r->rp6502__DOT__w65c02__DOT__stop_flag)
             break;
     }
-    ASSERT_TRUE(r->rp6502__DOT__cpu__DOT__stop_flag);
+    ASSERT_TRUE(r->rp6502__DOT__w65c02__DOT__stop_flag);
     ASSERT_EQ(at.size(), (size_t)4);
     /* The first interval spans the move: the shadow can only reach the
      * scanout at a frame boundary, so the frame it lands in is short by

@@ -196,7 +196,7 @@ static bool run_until_quiet(long *presses = nullptr)
         frames++;
         auto *r = dut->rootp;
         bool stopped =
-            r->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag != 0
+            r->tb_pocket__DOT__core__DOT__machine__DOT__w65c02__DOT__stop_flag != 0
             || !r->tb_pocket__DOT__core__DOT__machine__DOT__resb;
         if (ran && stopped && !moved)
             return true;
@@ -209,7 +209,7 @@ static bool run_until_quiet(long *presses = nullptr)
                 (int)dut->rootp
                     ->tb_pocket__DOT__core__DOT__machine__DOT__resb,
                 (int)dut->rootp
-                    ->tb_pocket__DOT__core__DOT__machine__DOT__cpu__DOT__stop_flag);
+                    ->tb_pocket__DOT__core__DOT__machine__DOT__w65c02__DOT__stop_flag);
     return false;
 }
 

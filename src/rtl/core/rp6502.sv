@@ -176,7 +176,7 @@ module rp6502
     logic [15:0] cpu_addr, cpu_next_addr;
     logic [7:0] cpu_dout, cpu_din, cpu_next_data;
     logic cpu_we, cpu_next_we;
-    logic via_irq;
+    logic w65c22_irq;
     /* Opcode-fetch marker, which is where a freeze is allowed to land. */
 
     /* RESB inverted, reaching the 6502 and the 6522 and nothing else. A
@@ -197,15 +197,15 @@ module rp6502
      * it run through eleven of them. */
     logic eng_st_jam, eng_mtime_jam;
     logic [63:0] mtime;
-    logic [31:0] eng_jam_mach[4], eng_jam_cpu[5], eng_jam_via[7];
+    logic [31:0] eng_jam_mach[4], eng_jam_w65c02[5], eng_jam_w65c22[7];
     logic [31:0] eng_jam_ria[12];
 
     /* Three sets of flops share one indexed port: the machine's own,
      * the 6502's, and the VIA's. */
     localparam logic [1:0] SEL_MACH = 2'd0;
-    localparam logic [1:0] SEL_CPU = 2'd1;
+    localparam logic [1:0] SEL_W65C02 = 2'd1;
 
-    logic [31:0] cpu65_st_rdata, via_st_rdata, mach_st_rdata, st_rdata;
+    logic [31:0] w65c02_st_rdata, w65c22_st_rdata, mach_st_rdata, st_rdata;
     always_comb begin
         /* The 6502's clock rate is the soft CPU's to set and it sets it
          * once, so a wake that came up at the reset rate would run the
@@ -226,32 +226,32 @@ module rp6502
             default: mach_st_rdata = '0;
         endcase
         case (eng_st_sel)
-            SEL_MACH: st_rdata = mach_st_rdata;
-            SEL_CPU:  st_rdata = cpu65_st_rdata;
-            default:  st_rdata = via_st_rdata;
+            SEL_MACH:   st_rdata = mach_st_rdata;
+            SEL_W65C02: st_rdata = w65c02_st_rdata;
+            default:    st_rdata = w65c22_st_rdata;
         endcase
     end
 
-    cpu65 cpu (
+    w65c02 w65c02 (
         .clk(clk_mach),
         .rst_n(resb_eff),
         .en(phi2_en),
         .data_i(cpu_din),
-        .irq_i(via_irq || ria_irq),
+        .irq_i(w65c22_irq || ria_irq),
         .nmi_i(1'b0),
         .rdy_i(1'b0),
         .res_i(1'b0),
-        .cpu65_addr(cpu_addr),
-        .cpu65_data(cpu_dout),
-        .cpu65_we(cpu_we),
-        .cpu65_stp(cpu_stp),
+        .w65c02_addr(cpu_addr),
+        .w65c02_data(cpu_dout),
+        .w65c02_we(cpu_we),
+        .w65c02_stp(cpu_stp),
         .st_idx(eng_st_idx),
-        .cpu65_st_rdata(cpu65_st_rdata),
+        .w65c02_st_rdata(w65c02_st_rdata),
         .st_jam(eng_st_jam),
-        .st_jam_data(eng_jam_cpu),
-        .cpu65_next_addr(cpu_next_addr),
-        .cpu65_next_data(cpu_next_data),
-        .cpu65_next_we(cpu_next_we)
+        .st_jam_data(eng_jam_w65c02),
+        .w65c02_next_addr(cpu_next_addr),
+        .w65c02_next_data(cpu_next_data),
+        .w65c02_next_we(cpu_next_we)
     );
 
     logic eng_freeze;
@@ -351,8 +351,8 @@ module rp6502
         .sst_engine_st_jam(eng_st_jam),
         .sst_engine_mtime_jam(eng_mtime_jam),
         .sst_engine_jam_mach(eng_jam_mach),
-        .sst_engine_jam_cpu(eng_jam_cpu),
-        .sst_engine_jam_via(eng_jam_via),
+        .sst_engine_jam_w65c02(eng_jam_w65c02),
+        .sst_engine_jam_w65c22(eng_jam_w65c22),
         .sst_engine_jam_ria(eng_jam_ria),
         .sst_engine_dbg_data0(eng_dbg_data0),
         .sst_engine_dbg_resume(eng_dbg_resume),
@@ -364,11 +364,11 @@ module rp6502
         .dbg_data0_wen(rp6502_sst_dbg_data0_wen)
     );
 
-    logic sel_via, sel_ria, sel_open;
+    logic sel_w65c22, sel_ria, sel_open;
     always_comb begin
-        sel_via = cpu_addr[15:4] == 12'hFFD;
+        sel_w65c22 = cpu_addr[15:4] == 12'hFFD;
         sel_ria = cpu_addr[15:5] == 11'b1111_1111_111;
-        sel_open = cpu_addr[15:8] == 8'hFF && !sel_via && !sel_ria;
+        sel_open = cpu_addr[15:8] == 8'hFF && !sel_w65c22 && !sel_ria;
     end
 
     /* Every write lands in the shadow, whatever else it hits. */
@@ -389,7 +389,7 @@ module rp6502
                  * jam is writing on this very edge: reading it here
                  * fetches the address the core had BEFORE the restore,
                  * which after a reconfigure is zero. */
-                rp6502_ram_a_addr = eng_st_jam ? eng_jam_cpu[4][31:16]
+                rp6502_ram_a_addr = eng_st_jam ? eng_jam_w65c02[4][31:16]
                     : cpu_next_addr;
                 rp6502_ram_a_wdata = cpu_next_data;
                 rp6502_ram_a_we = cpu_next_we && !eng_st_jam;
@@ -439,21 +439,21 @@ module rp6502
     endgenerate
 
     logic ria_irq;
-    logic [7:0] via_data;
-    via via (
+    logic [7:0] w65c22_data;
+    w65c22 w65c22 (
         .clk(clk_mach),
         .rst_n(resb_eff),
         .en(phi2_en),
-        .cs(sel_via),
+        .cs(sel_w65c22),
         .we(cpu_we),
         .rs(cpu_addr[3:0]),
         .data_i(cpu_dout),
-        .via_data(via_data),
-        .via_irq(via_irq),
+        .w65c22_data(w65c22_data),
+        .w65c22_irq(w65c22_irq),
         .st_idx(eng_st_idx),
-        .via_st_rdata(via_st_rdata),
+        .w65c22_st_rdata(w65c22_st_rdata),
         .st_jam(eng_st_jam),
-        .st_jam_data(eng_jam_via)
+        .st_jam_data(eng_jam_w65c22)
     );
 
     /* The soft CPU's clock is half this one. Fixed here rather than in
@@ -748,8 +748,8 @@ module rp6502
     always_comb begin
         if (sel_ria)
             cpu_din = ria_data;
-        else if (sel_via)
-            cpu_din = via_data;
+        else if (sel_w65c22)
+            cpu_din = w65c22_data;
         else if (sel_open)
             cpu_din = bus_hold;
         else

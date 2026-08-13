@@ -45,8 +45,8 @@
  * the 6502 is out of reset decides whether jamming its registers means
  * anything, then the 6502, the VIA, and the soft CPU's registers. */
 #define ST_MACH 0u
-#define ST_CPU 4u
-#define ST_VIA 9u
+#define ST_W65C02 4u
+#define ST_W65C22 9u
 #define ST_RV 16u
 #define B_SRAM (B_REGS + W_REGS)
 #define B_XRAM (B_SRAM + W_SRAM)
@@ -383,30 +383,30 @@ UTEST(sst, the_flops_are_in_there_too)
      * through the state port, which the engine is holding. */
     auto *r = dut->rootp;
     uint32_t w = 0;
-    ASSERT_TRUE(blob_word(B_STATE + ST_CPU + 0, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__a
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__x << 8)
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__y << 16)
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__s << 24),
+    ASSERT_TRUE(blob_word(B_STATE + ST_W65C02 + 0, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c02__DOT__a
+                  | ((uint32_t)r->rp6502__DOT__w65c02__DOT__x << 8)
+                  | ((uint32_t)r->rp6502__DOT__w65c02__DOT__y << 16)
+                  | ((uint32_t)r->rp6502__DOT__w65c02__DOT__s << 24),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + ST_CPU + 1, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__pc
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__p << 16)
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__ir << 24),
+    ASSERT_TRUE(blob_word(B_STATE + ST_W65C02 + 1, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c02__DOT__pc
+                  | ((uint32_t)r->rp6502__DOT__w65c02__DOT__p << 16)
+                  | ((uint32_t)r->rp6502__DOT__w65c02__DOT__ir << 24),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + ST_CPU + 3, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__cpu__DOT__nmi_pip
-                  | ((uint32_t)r->rp6502__DOT__cpu__DOT__irq_pip << 16),
+    ASSERT_TRUE(blob_word(B_STATE + ST_W65C02 + 3, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c02__DOT__nmi_pip
+                  | ((uint32_t)r->rp6502__DOT__w65c02__DOT__irq_pip << 16),
               w);
 
     /* The VIA's timers, which nothing else can read at all. */
-    ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 2, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t1_latch
-                  | ((uint32_t)r->rp6502__DOT__via__DOT__t1_counter << 16),
+    ASSERT_TRUE(blob_word(B_STATE + ST_W65C22 + 2, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c22__DOT__t1_latch
+                  | ((uint32_t)r->rp6502__DOT__w65c22__DOT__t1_counter << 16),
               w);
-    ASSERT_TRUE(blob_word(B_STATE + ST_VIA + 4, &w));
-    ASSERT_EQ((uint32_t)r->rp6502__DOT__via__DOT__t2_pip
-                  | ((uint32_t)r->rp6502__DOT__via__DOT__t1_pip << 16),
+    ASSERT_TRUE(blob_word(B_STATE + ST_W65C22 + 4, &w));
+    ASSERT_EQ((uint32_t)r->rp6502__DOT__w65c22__DOT__t2_pip
+                  | ((uint32_t)r->rp6502__DOT__w65c22__DOT__t1_pip << 16),
               w);
 }
 
@@ -513,10 +513,10 @@ UTEST(sst, a_load_puts_the_blob_back)
      * that holds them still. */
     stage_word(B_STATE + ST_MACH + 0, 1);
     stage_word(B_STATE + ST_MACH + 1, 3000);
-    stage_word(B_STATE + ST_CPU + 0, 0x11223344u);
-    stage_word(B_STATE + ST_CPU + 1, 0xA5B50010u);
-    stage_word(B_STATE + ST_CPU + 4, 0x00100001u);
-    stage_word(B_STATE + ST_VIA + 2, 0xBEEF1234u);
+    stage_word(B_STATE + ST_W65C02 + 0, 0x11223344u);
+    stage_word(B_STATE + ST_W65C02 + 1, 0xA5B50010u);
+    stage_word(B_STATE + ST_W65C02 + 4, 0x00100001u);
+    stage_word(B_STATE + ST_W65C22 + 2, 0xBEEF1234u);
     for (uint32_t i = 4; i < 8; i++)
         stage_word(B_SRAM + i, 0xCBCBCBCBu);
     stage_seal();
@@ -589,7 +589,7 @@ UTEST(sst, a_load_puts_the_blob_back)
     /* Before the release, the flops still hold the old world: the jam
      * is the release's consequence, because the 6502's async reset
      * dominates any jam attempted while it is still held. */
-    ASSERT_NE(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
+    ASSERT_NE(0x44u, (uint32_t)r->rp6502__DOT__w65c02__DOT__a);
 
     dut->sst_load = 0;
     dut->eval();
@@ -598,12 +598,12 @@ UTEST(sst, a_load_puts_the_blob_back)
     ASSERT_FALSE((int)dut->rp6502_sst_stop_req);
 
     /* The flops, jammed on the release with the resets let go first. */
-    ASSERT_EQ(0x44u, (uint32_t)r->rp6502__DOT__cpu__DOT__a);
-    ASSERT_EQ(0x33u, (uint32_t)r->rp6502__DOT__cpu__DOT__x);
-    ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__cpu__DOT__y);
-    ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__cpu__DOT__s);
-    ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__cpu__DOT__p);
-    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__via__DOT__t1_latch);
+    ASSERT_EQ(0x44u, (uint32_t)r->rp6502__DOT__w65c02__DOT__a);
+    ASSERT_EQ(0x33u, (uint32_t)r->rp6502__DOT__w65c02__DOT__x);
+    ASSERT_EQ(0x22u, (uint32_t)r->rp6502__DOT__w65c02__DOT__y);
+    ASSERT_EQ(0x11u, (uint32_t)r->rp6502__DOT__w65c02__DOT__s);
+    ASSERT_EQ(0xB5u, (uint32_t)r->rp6502__DOT__w65c02__DOT__p);
+    ASSERT_EQ(0x1234u, (uint32_t)r->rp6502__DOT__w65c22__DOT__t1_latch);
 
     /* The machine's own flops have no other way out, so the proof they
      * landed is the next blob carrying them. */
