@@ -303,27 +303,19 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # The only init left: this job installs the SDK before it configures,
-      # so the submodule has to be here before CMake could fetch it. The
-      # rest of what this build reads, CMake fetches.
-      - name: Init Emscripten SDK submodule
-        run: git submodule update --init --depth 1 vendor/emsdk
-
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3
 
-      - name: Install & activate Emscripten SDK
-        run: |
-          set -euxo pipefail
-          ./vendor/emsdk/emsdk install latest
-          ./vendor/emsdk/emsdk activate latest
-
+      # No emsdk step: the wasm preset's toolchain file fetches the submodule
+      # and runs install and activate itself, which is the path a developer
+      # takes and the only one that was never exercised here. Nothing is
+      # sourced either — the toolchain includes Emscripten's own cmake file,
+      # so emcc is found by absolute path rather than off PATH.
       - name: Build web bundle
         run: |
           set -exo pipefail
-          source ./vendor/emsdk/emsdk_env.sh
           cd src/emu
           cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \

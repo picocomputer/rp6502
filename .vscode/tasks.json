@@ -249,55 +249,6 @@
                 "panel": "dedicated"
             },
             "problemMatcher": []
-        },
-        {
-            "label": "emsdk: install",
-            "type": "process",
-            "command": "${workspaceFolder}/vendor/emsdk/emsdk",
-            "args": [
-                "install",
-                "latest"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/vendor/emsdk"
-            },
-            "windows": {
-                "command": "${workspaceFolder}/vendor/emsdk/emsdk.bat"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "emsdk: activate",
-            "type": "process",
-            "command": "${workspaceFolder}/vendor/emsdk/emsdk",
-            "args": [
-                "activate",
-                "latest"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/vendor/emsdk"
-            },
-            "windows": {
-                "command": "${workspaceFolder}/vendor/emsdk/emsdk.bat"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "emsdk: install and activate",
-            "dependsOrder": "sequence",
-            "dependsOn": [
-                "emsdk: install",
-                "emsdk: activate"
-            ],
-            "problemMatcher": []
         }
     ]
 }
