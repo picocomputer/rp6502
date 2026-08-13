@@ -30,6 +30,7 @@ get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
 include(${RP6502_ROOT}/submodules.cmake)
+include(${RP6502_ROOT}/version.cmake)
 rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
     WANTS "the emulated 6502 and 6522")
 
@@ -278,7 +279,8 @@ if(NOT WIN32 AND NOT APPLE AND NOT EMSCRIPTEN AND NOT ANDROID)
 endif()
 
 # Build source list with window and audio options
-set(APP_SOURCES ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/emu/app/png.c)
+set(APP_SOURCES ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/input.c
+    ${RP6502_SRC}/emu/app/png.c ${RP6502_SRC}/emu/app/version.c)
 if(NOT ANDROID)
     # Desktop/web enter through main(); Android enters through host/android sokol_main.
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/main.c)
@@ -310,6 +312,18 @@ if(ANDROID)
 else()
     add_executable(rp6502-emu ${APP_SOURCES})
     target_link_libraries(rp6502-emu PRIVATE emu_core)
+endif()
+
+# On rp6502-emu rather than emu_core: the RTL tree builds emu_core too, as the
+# simulation's oracle, where a version is nothing to stamp.
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/emu/app/version.c)
+
+# The version metadata Explorer reads. RC is not one of project()'s languages,
+# so it is enabled where it is used; both rc.exe and windres accept this file.
+if(WIN32)
+    enable_language(RC)
+    configure_file(${RP6502_SRC}/host/win/version.rc.in version.rc @ONLY)
+    target_sources(rp6502-emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 endif()
 
 # Windows is only platform without getopt
@@ -385,6 +399,9 @@ elseif(EMSCRIPTEN)
         string(APPEND WEB_ROMS_JS "  \"${_name}\",\n")
     endforeach()
     string(APPEND WEB_ROMS_JS "];\n")
+    # The page has no other way to ask: the wasm answers --credits, but only
+    # once it has been fetched and started.
+    string(APPEND WEB_ROMS_JS "window.VERSION = \"${RP6502_VERSION_STAMP}\";\n")
     file(WRITE "${CMAKE_BINARY_DIR}/roms.js" "${WEB_ROMS_JS}")
 elseif(ANDROID)
     # Android graphics and libraries are configured in the target section.

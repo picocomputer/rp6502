@@ -104,6 +104,7 @@
   </main>
 
   <footer>
+    <span id="version"></span>
     <span>Saves are session-only (add ?persist=1 to keep them).</span>
     <span>&middot;</span>
     <a href="https://picocomputer.github.io" target="_blank" rel="noopener">Picocomputer</a>
@@ -122,6 +123,11 @@
     var ROMS_DIR = '../../tests/roms/';
     var BUILD_FIRST = 'Build the WebAssembly target first — CMake side panel, '
       + 'Folder:emu, Configure:WebAssembly, then F7.';
+
+    // Which build the bundle beside it came from. Written into roms.js by the
+    // same CMake run that linked the wasm, so the two cannot disagree.
+    if (window.VERSION)
+      document.getElementById('version').textContent = window.VERSION;
 
     var canvas = document.getElementById('canvas');
     var overlay = document.getElementById('overlay');

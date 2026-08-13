@@ -32,15 +32,20 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       fwver: ${{ steps.v.outputs.fwver }}
       fwci: ${{ steps.v.outputs.fwci }}
+      stamp: ${{ steps.v.outputs.stamp }}
     steps:
       - name: Derive version
         id: v
         run: |
           set -euo pipefail
+          # version names files, fwver/fwci go to CMake, and stamp is the same
+          # string the build writes into itself — for metadata fields that are
+          # filled in by hand out here rather than by a compiler.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwci=" >> "$GITHUB_OUTPUT"
+            echo "stamp=Version ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             # Off a tag there is no version, and inventing one that looks like
             # a version is worse than not having it. The run id is what the
@@ -49,6 +54,7 @@ jobs:
             echo "version=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "fwver=" >> "$GITHUB_OUTPUT"
             echo "fwci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "stamp=CI ${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
           fi
           cat "$GITHUB_OUTPUT"
 
@@ -188,7 +194,9 @@ jobs:
         run: |
           set -euxo pipefail
           cmake -S src/emu -B build/emulator/release -G Ninja \
-            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/emulator/release
 
       - name: Run emulator tests
@@ -228,7 +236,9 @@ jobs:
           set -euxo pipefail
           cmake -S src/emu -B build/emulator/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/emulator/release
 
       - name: Run emulator tests
@@ -237,11 +247,13 @@ jobs:
       - name: Package macos
         env:
           FWVER: ${{ needs.version.outputs.fwver }}
+          STAMP: ${{ needs.version.outputs.stamp }}
         run: |
           set -euxo pipefail
           # CFBundleVersion wants a dotted number, which a run id is not, so an
-          # untagged build says 0.0.0 rather than lying in Finder's Get Info.
-          VER="${FWVER:-0.0.0}"
+          # untagged build says 0.0 rather than lying in Finder's Get Info.
+          # CFBundleGetInfoString is free-form and says what the build really is.
+          VER="${FWVER:-0.0}"
           mkdir stage
           APP=stage/rp6502-emu.app
           mkdir -p "$APP/Contents/MacOS"
@@ -260,6 +272,7 @@ jobs:
               <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
               <key>CFBundleShortVersionString</key>    <string>${VER}</string>
               <key>CFBundleVersion</key>               <string>${VER}</string>
+              <key>CFBundleGetInfoString</key>         <string>${STAMP}</string>
               <key>LSMinimumSystemVersion</key>        <string>11.0</string>
               <key>NSHighResolutionCapable</key>       <true/>
           </dict>
@@ -312,7 +325,9 @@ jobs:
           set -exo pipefail
           source ./vendor/emsdk/emsdk_env.sh
           cd src/emu
-          cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON
+          cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset wasm
 
       - name: Package itch.io
@@ -352,7 +367,9 @@ jobs:
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           cd src/emu
-          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
+            "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
+            "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build --preset release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -398,10 +415,21 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
+      # versionCode must be an integer, so a tag becomes one (0.31 -> 3100) and
+      # everything else stays 1. Nothing upgrades this APK in place.
       - name: Build APK (Release)
+        env:
+          FWVER: ${{ needs.version.outputs.fwver }}
+          FWCI: ${{ needs.version.outputs.fwci }}
         run: |
+          set -euxo pipefail
+          CODE=1
+          if [ -n "$FWVER" ]; then
+            CODE=$(echo "$FWVER" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
+          fi
           cd src/host/android
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease \
+            -PrpVersion="${FWVER:-}" -PrpCi="${FWCI:-}" -PrpVersionCode="$CODE"
 
       # An APK is already a zip and Android installs it directly, so it ships
       # bare. Its install warning lives in the release body, not a README.

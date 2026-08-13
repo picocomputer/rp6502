@@ -27,6 +27,7 @@
 #endif
 #include "emu/app/icon.h"
 #include "emu/app/input.h"
+#include "emu/app/version.h"
 #include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/emu/pro.h"
@@ -888,10 +889,14 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     float mast_top = by - gap - icon_sz;
     float title_x = mast_x + icon_sz + it_gap;
     float title_y = mast_top + (icon_sz - title_gh) * 0.5f;
+    const char *ver = version_string();
+    float ver_gh = glyph;
+    float ver_x = (w - (float)strlen(ver) * ver_gh) * 0.5f;
+    float ver_y = by + bh + gap * 1.7f; /* sit a little below the card */
     float url_gh = glyph;
     float url_w = (float)strlen(docs_url) * url_gh;
     float url_x = (w - url_w) * 0.5f;
-    float url_y = by + bh + gap * 1.7f; /* sit a little below the card */
+    float url_y = ver_y + ver_gh * 1.6f; /* the version takes the line above */
     prompt_url.x = url_x;
     prompt_url.y = url_y;
     prompt_url.w = url_w;
@@ -921,6 +926,9 @@ void window_core_draw_prompt(const char *line1, const char *line2)
      * flush once: sdtx uploads its vertices on the first sdtx_draw of the frame
      * only, so a draw between blocks would drop everything emitted after it. */
     prompt_text_line(emu_title, title_gh, title_x, title_y, w, h, title_col);
+    /* Dash ink, not the bright title color: the URL below is the only thing
+     * here that does anything when clicked, and should look like it. */
+    prompt_text_line(ver, ver_gh, ver_x, ver_y, w, h, ink);
     prompt_text_line(docs_url, url_gh, url_x, url_y, w, h, title_col);
     sdtx_draw();
 }

@@ -32,6 +32,7 @@ typedef struct
     bool debug;   /* --debug: on-screen machine debugger */
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
     bool credits;       /* --credits: print third-party notices and exit */
+    bool version;       /* --version: print the version and exit */
     const char *inidir; /* --ini: config file for the debugger UI layout (else default) */
     unsigned long long seed;
     bool have_seed;

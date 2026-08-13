@@ -54,6 +54,38 @@
             ]
         },
         {
+            "name": "Emulator Debug (no ROM)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/emulator/debug/rp6502-emu",
+            "args": [
+                "--debug"
+            ],
+            "cwd": "${workspaceFolder}/src/emu",
+            "environment": [
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "emu: Build (Debug)",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
             "name": "Pico Debug (Cortex-Debug)",
             "cwd": "${userHome}/.pico-sdk/openocd/0.12.0+dev/scripts",
             "executable": "${command:raspberry-pi-pico.launchTargetPath}",

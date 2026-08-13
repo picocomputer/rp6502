@@ -7,9 +7,14 @@
 
 #pragma once
 
-static const char EMU_CREDITS[] =
+/* Separate from the notices so each caller can put the version under the rule:
+ * --credits prints both with the version between, and the debugger's about box
+ * has its own title and skips this one. */
+static const char EMU_CREDITS_TITLE[] =
     "Picocomputer 6502 emulator - credits and third-party notices\n"
-    "============================================================\n"
+    "============================================================\n";
+
+static const char EMU_CREDITS[] =
     "\n"
     "  RP6502                       BSD-3   (c) 2026 Rumbledethumps\n"
     "  Pi Pico SDK                  BSD-3   (c) 2020 Raspberry Pi (Trading) Ltd.\n"

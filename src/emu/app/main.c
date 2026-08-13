@@ -23,6 +23,7 @@
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
 #include "emu/app/credits.h"
+#include "emu/app/version.h"
 #include "emu/sys/com.h"
 #include <stdio.h>
 #include <string.h>
@@ -96,11 +97,17 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    /* --credits: print third-party notices and exit (no ROM needed). On the web
-     * the shell maps ?credits to this, and the output appears in the console. */
+    /* --version and --credits: answer and exit, before anything is initialized.
+     * On the web the shell maps ?credits to the latter, and the output appears
+     * in the console. */
+    if (o.version)
+    {
+        printf("%s\n", version_string());
+        return 0;
+    }
     if (o.credits)
     {
-        fputs(EMU_CREDITS, stdout);
+        printf("%s%s\n%s", EMU_CREDITS_TITLE, version_string(), EMU_CREDITS);
         return 0;
     }
 
