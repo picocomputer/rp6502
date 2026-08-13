@@ -691,12 +691,21 @@ jobs:
     permissions:
       contents: write
     steps:
-      # No skip-decompress here: unpacking is exactly what is wanted, since
-      # what this artifact holds is the release, asset by asset.
+      # Unpacked here rather than by the download, which would do it silently
+      # and only on a tag — the one run nobody gets to try again.
       - uses: actions/download-artifact@v8
         with:
           name: rp6502-${{ needs.version.outputs.version }}-everything.zip
-          path: dist
+          path: .
+          skip-decompress: true
+
+      - name: Unpack the release
+        env:
+          ARCHIVE: rp6502-${{ needs.version.outputs.version }}-everything.zip
+        run: |
+          set -euxo pipefail
+          unzip -q "$ARCHIVE" -d dist
+          ls -l dist
 
       - name: Compose release title (matches historical "Version X" format)
         id: title
