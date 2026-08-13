@@ -3,31 +3,30 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Nine voices, bit-exact with ria/aud/psg.c: the same walk order, the
- * same accumulator widths, the same wrapping. The two must agree sample
- * for sample, which is what fixes every width below.
+ * Nine voices, bit-exact with ria/aud/psg.c: the same walk order,
+ * accumulator widths and wrapping. That agreement is what fixes every
+ * width below.
  *
- * Eight voices are the program's, out of its XRAM block. The ninth is
- * the bell, six bytes the soft CPU writes, because a bell has to ring
- * whether or not a program installed a pointer.
+ * Eight voices are the program's. Their registers arrive as writes and
+ * are held here, so the engine never reads XRAM. Only the 6502's writes
+ * strike a gate; the soft CPU's import carries the same bytes and must
+ * start nothing. The ninth voice is the bell, which has to ring whether
+ * or not a program installed a pointer.
  *
- * The walk always runs. A parked pointer skips the fetch and nothing
- * else — parking cleared the volumes, and a silent voice makes no sound.
+ * One multiplier for the mix, one for the phase, a subtractor, and the
+ * voice state in memories the cursor addresses. The constants are
+ * memories too, read a clock ahead of the step that spends them: a
+ * table indexed by a register is a mux, and these were the largest
+ * logic in the module before they were a read.
  *
- * One multiplier, one divider, one subtractor, and the voice state in
- * memories the cursor addresses. Under four hundred clocks of the
- * thousand are used, and the spare six hundred are what pays for it.
- *
- * aud_psg_tick is the divider itself, not the end of a walk; everything
- * downstream runs off that pulse.
+ * aud_psg_tick is the sample divider, not the end of a walk.
  */
 
 module aud_psg
     import aud_sine_pkg::*;
 #(
-    /* The arithmetic's rate, which the envelope tables and phase divisor
-     * come out of. Separate from the tick, which only says how often a
-     * sample happens: the lockstep shortens that and must not touch this. */
+    /* The arithmetic's rate. Separate from the tick, which only says how
+     * often a sample happens: the lockstep shortens that, not this. */
     parameter int RATE = 48000,
     /* 50.4 MHz / 48,000 exactly. */
     parameter int TICKS_PER_SAMPLE = 1050
@@ -38,17 +37,25 @@ module aud_psg
     input logic xaddr_we,
     input logic [15:0] xaddr_wdata,
 
-    output logic aud_psg_a_req,
-    output logic [13:0] aud_psg_a_addr,
-    input logic a_gnt,
-    input logic [31:0] a_rdata,
+    /* The restore's key. A gate is an edge and only the 6502 makes one,
+     * which is right for a program and wrong for the one thing that is
+     * not one: the firmware replaying a channel block after a wake
+     * carries the same bytes, gate bit and all, and without this the
+     * note in them never strikes. A voice that was sounding when the
+     * blob was taken then stays silent for the rest of the program's
+     * life -- not for an envelope, for good. Held for the replay and
+     * dropped after it. */
+    input logic gate_any_we,
+    input logic gate_any_wdata,
 
+    /* Every write to XRAM. q_host marks the 6502's own, which are the
+     * only ones a gate answers. */
     input logic q_we,
+    input logic q_host,
     input logic [15:0] q_addr,
     input logic [7:0] q_val,
 
-    /* The bell: a channel block's six bytes in a channel block's order,
-     * so the driver writes a descriptor rather than a set of fields. */
+    /* A channel block's six bytes in a channel block's order. */
     input logic bel_lo_we,
     input logic bel_hi_we,
     input logic [31:0] bel_wdata,
@@ -62,9 +69,7 @@ module aud_psg
 );
 
     /* The C's entries are all N << 16 with N no wider than nine bits, so
-     * nine bits is what is stored and the zeros go back on at the read. A
-     * whole word each was sixteen entries of mux to carry seven bits of
-     * nothing, twice over — the peak and the sustain are separate reads. */
+     * nine bits is stored and the zeros go back on at the read. */
     localparam logic [8:0] VOL_TABLE[16] = '{
         9'd256, 9'd204, 9'd168, 9'd142,
         9'd120, 9'd102, 9'd86, 9'd73,
@@ -78,8 +83,7 @@ module aud_psg
      * array initializer. */
     `define PSG_ENV_RAW(ms) \
         32'd16777216 / 32'((64'(RATE) * 64'd``ms) / 64'd1000)
-    /* The shortest attack is the largest step either table holds, so both
-     * are sized from it rather than left at the C's int width. */
+    /* The shortest attack is the largest step either table holds. */
     localparam logic [31:0] ENV_MAX = `PSG_ENV_RAW(2);
     localparam int ENV_W = $clog2(ENV_MAX + 32'd1);
     `define PSG_ENV(ms) ENV_W'(`PSG_ENV_RAW(ms))
@@ -111,22 +115,41 @@ module aud_psg
     logic enabled;
     always_comb enabled = xaddr != 16'hFFFF;
 
-    /* Held to the next walk boundary: a write landing mid-walk would
-     * tear the in-flight sample's state. */
+    /* The pointer moves on the write, because the import that follows has
+     * to land inside the new window. What it resets is held to the next
+     * walk boundary; a clear landing mid-walk would tear the sample. */
     logic xreg_pend;
-    logic [15:0] xreg_word;
+
+    logic [3:0] ch;
+
+    /* Software rejects an odd pointer and a block crossing its page, so a
+     * write inside the page and under sixty-four of the base can only be
+     * a write to the structure. */
+    logic snoop;
+    always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
+    logic [15:0] snoop_off;
+    always_comb snoop_off = q_addr - xaddr;
+    logic [2:0] snoop_ch;
+    always_comb snoop_ch = snoop_off[5:3];
+    logic snoop_cfg;
+    always_comb snoop_cfg = snoop && snoop_off[15:6] == 10'd0;
+    /* A gate is an edge, and only the 6502 makes one -- or the restore
+     * below, which is the firmware standing in for the 6502 that made
+     * the last one before the sleep. */
+    logic gate_any;
+    initial gate_any = 1'b0;
+    logic snoop_gate;
+    always_comb snoop_gate = snoop_cfg && (q_host || gate_any)
+        && snoop_off[2:0] == 3'd6;
 
     /* One array a field, never one wide array: a wide enough array runs
-     * past what LUT memory can hold and falls back to a block, which
-     * adds pass-through logic for a read-during-write nobody asked for.
-     * Two addresses (w_ch and ch) for the same reason — one address is a
-     * single port, which has no asynchronous read to offer.
+     * past LUT memory and falls back to a block. Two addresses (w_ch and
+     * ch) because one address is a single port, which has no
+     * asynchronous read to offer.
      *
      * Initialized rather than reset, which is what lets them be memory at
-     * all; the zeros ride in the bitstream as a .mif.
-     *
-     * The gate stays flops: the snoop writes it at whatever index and on
-     * whatever clock the 6502 chose, which is a second write port. */
+     * all. The gate stays flops: the snoop writes it at whatever index
+     * and clock the 6502 chose, which is a second write port. */
     (* ramstyle = "MLAB, no_rw_check" *)
     logic signed [15:0] ch_sample[9];
     (* ramstyle = "MLAB, no_rw_check" *)
@@ -148,59 +171,73 @@ module aud_psg
     end
     logic [1:0] ch_adsr[9];
 
-    /* Eight entries the walk indexes, read asynchronously, so cf stays
-     * combinational and no state moves by a cycle. Two 32-bit
-     * halves rather than one 64: the fetch arrives a word at a time, and
-     * one wide array would need a half-width write enable.
+    /* A byte of the structure to an array, for the reason above: writes
+     * arrive a byte at a time and one wide array would need a byte's
+     * worth of write enable. Read asynchronously, so cf stays
+     * combinational. The structure's seventh byte is padding.
      *
-     * Not reset, which is what lets them be memory at all. Nothing reads
-     * them before P_FETCH has written all sixteen words. */
+     * Initialization matters here: the walk reads these from the first
+     * sample, before any program has written them. */
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] cfg_lo[8];
+    logic [7:0] cfg_freq_lo[8];
     (* ramstyle = "MLAB, no_rw_check" *)
-    logic [31:0] cfg_hi[8];
+    logic [7:0] cfg_freq_hi[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_duty[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_va[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_vd[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_wr[8];
+    (* ramstyle = "MLAB, no_rw_check" *)
+    logic [7:0] cfg_pan[8];
+    initial begin
+        for (int i = 0; i < 8; i++) begin
+            cfg_freq_lo[i] = '0;
+            cfg_freq_hi[i] = '0;
+            cfg_duty[i] = '0;
+            cfg_va[i] = '0;
+            cfg_vd[i] = '0;
+            cfg_wr[i] = '0;
+            cfg_pan[i] = '0;
+        end
+    end
     logic [63:0] cf;
-    logic [3:0] ch;
 
     logic [31:0] bel_lo;
     logic [23:0] bel_hi;
     logic bel_gate_q;
-    always_comb cf = ch[3] ? {8'd0, bel_hi, bel_lo}
-                           : {cfg_hi[ch[2:0]], cfg_lo[ch[2:0]]};
+    /* A write to the voice the cursor stands on is forwarded around the
+     * array it lands in: an unforwarded read of an array being written is
+     * undefined in the silicon, and one bad byte of wave_release latches
+     * an envelope that never releases. */
+    logic fwd;
+    always_comb fwd = snoop_cfg && !ch[3] && snoop_ch == ch[2:0];
+    logic [63:0] cfg_word;
+    always_comb begin
+        cfg_word = {8'd0, cfg_pan[ch[2:0]], cfg_wr[ch[2:0]], cfg_vd[ch[2:0]],
+                    cfg_va[ch[2:0]], cfg_duty[ch[2:0]], cfg_freq_hi[ch[2:0]],
+                    cfg_freq_lo[ch[2:0]]};
+        if (fwd)
+            cfg_word[{snoop_off[2:0], 3'd0}+:8] = q_val;
+    end
+    always_comb cf = ch[3] ? {8'd0, bel_hi, bel_lo} : cfg_word;
 
     /* The address is registered rather than retaken from the cursor: two
      * addresses is a dual port and a dual port is an MLAB. */
     logic [31:0] w_phase, w_noise1, w_noise2;
+    logic [31:0] w_inc;
     logic [VOL_W-1:0] w_vol;
     logic [3:0] w_ch;
 
-    /* The envelope and noise clear, deferred to the load that would have
-     * read them: eight entries cannot be cleared on one clock and there
-     * is no clock where they must be.
-     *
-     * The gate is not deferred — a snoop landing between the xreg and the
-     * walk has to survive it, which is the C's order. */
+    /* Deferred to the load that would have read them: eight entries
+     * cannot be cleared on one clock. The gate is not deferred — a snoop
+     * landing between the xreg and the walk has to survive it. */
     logic clr;
     logic [VOL_W-1:0] ld_vol;
     always_comb ld_vol = clr && !ch[3] ? '0 : ch_vol[ch];
 
-    /* An odd pointer is the only thing rejected, so a block can start on
-     * a halfword and straddle seventeen words rather than sixteen. */
-    logic [15:0] carry_hi;
-    logic cw_en;
-    logic [3:0] cw_word;
-    logic [31:0] cw_data;
-    always_comb begin
-        if (xaddr[1]) begin
-            cw_en = gnt_d && fw_c != 5'd0;
-            cw_word = 4'(fw_c - 5'd1);
-            cw_data = {a_rdata[15:0], carry_hi};
-        end else begin
-            cw_en = gnt_d && fw_c < 5'd16;
-            cw_word = 4'(fw_c);
-            cw_data = a_rdata;
-        end
-    end
     logic [15:0] cf_freq;
     logic [7:0] cf_duty, cf_va, cf_vd, cf_wr, cf_pan;
     always_comb begin
@@ -212,40 +249,30 @@ module aud_psg
         cf_pan = cf[55:48];
     end
 
-    /* Decoded where it lands, on the clock it lands. The gate is all the
-     * page means today. */
-    logic snoop;
-    always_comb snoop = q_we && enabled && q_addr[15:8] == xaddr[15:8];
-    logic [15:0] snoop_off;
-    always_comb snoop_off = q_addr - xaddr;
-    logic [2:0] snoop_ch;
-    always_comb snoop_ch = snoop_off[5:3];
-    logic snoop_gate;
-    always_comb snoop_gate = snoop && snoop_off[2:0] == 3'd6
-        && snoop_off[15:3] < 13'd8;
-
     typedef enum logic [2:0] {
-        P_IDLE, P_FETCH, P_MIX, P_OUT, P_LOAD, P_DIV, P_PH, P_STEP
+        P_IDLE, P_MIX, P_OUT, P_LOAD, P_PH, P_STEP
     } state_t;
     state_t state;
 
     logic [12:0] tickctr;
-    logic [4:0] fw_i, fw_c, fw_n;
-    always_comb fw_n = xaddr[1] ? 5'd17 : 5'd16;
-    logic gnt_d;
 
-    /* Unshifted, rounding once at P_OUT: two truncations in series bias
-     * every sounding channel downward, which is DC, not noise. */
+    /* Rounded once: two truncations in series bias every sounding channel
+     * downward, which is DC, not noise. Carried in at the start of the
+     * walk, where it is a constant the accumulators load rather than an
+     * adder they feed. */
+    localparam logic signed [26:0] MIX_ROUND = 27'sd64;
     logic signed [26:0] mix_l, mix_r;
-    /* The oracle's int8 division truncates toward zero. */
-    logic signed [7:0] pan;
-    always_comb pan = cf_pan[7]
+    /* The oracle's int8 division truncates toward zero. Taken once per
+     * channel, on the clock its envelope is: a write landing between the
+     * two sides would otherwise place the same voice twice. */
+    logic signed [7:0] pan_c;
+    always_comb pan_c = cf_pan[7]
         ? 8'(($signed(cf_pan) + 8'sd1) >>> 1)
         : 8'($signed(cf_pan) >>> 1);
-    /* One multiplier walked three times a channel — the envelope's
+    logic signed [7:0] pan;
+    /* One multiplier walked three times a channel: the envelope's
      * product, then that against each side's pan. In series on one clock
-     * it was the module's longest path, and the walk has seven hundred
-     * spare clocks to spend instead.
+     * it was the module's longest path.
      *
      * 17x14: sample and mix are both 17 signed, and the widest second
      * operand is the envelope's 13-bit slice. */
@@ -266,38 +293,36 @@ module aud_psg
         mul_p = 31'(mul_a) * 31'(mul_b);
     end
 
-    /* The phase increment: freq * 2^32 over three times the rate.
+    /* The phase increment: freq * 2^32 over three times the rate, which
+     * the oracle divides for and this multiplies for.
      *
-     * Sized from the divisor rather than assumed. A restoring divider's
-     * remainder runs below its divisor and the compare sees it shifted up
-     * one bit, so 72000 fitted seventeen and eighteen and 144000 fits
-     * neither: at 48 kHz the old widths would have dropped the top bit of
-     * every remainder and detuned the whole engine, silently. */
+     * 144000 is 2^7 * 1125 and (2^51 + 127) / 1125 is a whole number, so
+     * freq * that, shifted down twenty-six, is exactly floor(freq * 2^32
+     * / 144000) for every frequency. The remainder 127 is what makes the
+     * shift twenty-six: the accumulated error is freq * 127, and
+     * 65535 * 127 must stay under the shift. No narrower constant is
+     * exact, and the test walks all 65536 against a real division.
+     *
+     * Forty-one bits, so this is a DSP and must stay one. */
     localparam logic [31:0] PHASE_DIV = 32'(3 * RATE);
-    localparam int REM_W = $clog2(PHASE_DIV);
-    /* What the shortened division below rests on, said where it can fail
-     * loudly. A rate under 21,846 puts the divisor inside sixteen bits and
-     * a frequency could then reach it, which would detune the engine
-     * quietly rather than not build. */
-    initial if (PHASE_DIV <= 32'd65535)
-        $fatal(1, "aud_psg: RATE too low for the divider preload");
+    localparam logic [40:0] PHASE_MAGIC = 41'd2001599834387;
+    localparam int PHASE_SHIFT = 26;
+    /* The constant above is 48 kHz's; a rate that moves without it
+     * detunes the engine silently. */
+    initial if (PHASE_DIV != 32'd144000)
+        $fatal(1, "aud_psg: RATE moved and the phase magic did not");
+    initial if (64'(PHASE_MAGIC) * 64'd1125 != (64'd1 << 51) + 64'd127)
+        $fatal(1, "aud_psg: phase magic is not (2^51 + 127) / 1125");
 
-    /* Thirty-two iterations, not forty-eight: the dividend's top sixteen
-     * bits are the frequency, which is below the divisor, so those steps
-     * only shift it into the remainder and put zeros in the quotient. */
-    logic [31:0] div_q;
-    logic [REM_W-1:0] div_rem;
-    logic [4:0] div_i;
-    logic [REM_W:0] div_t;
-    logic [REM_W-1:0] div_next;
-    logic div_ge;
-    always_comb begin
-        div_t = {div_rem, div_q[31]};
-        div_ge = div_t >= PHASE_DIV[REM_W:0];
-        /* Narrower than div_t on purpose: both arms land below the divisor,
-         * so the extra bit is provably zero. */
-        div_next = REM_W'(div_ge ? div_t - PHASE_DIV[REM_W:0] : div_t);
-    end
+    (* multstyle = "dsp" *)
+    logic [56:0] inc_prod;
+    always_comb inc_prod = 57'(cf_freq) * 57'(PHASE_MAGIC);
+
+    /* The block above is addressed from these same wires, so the read and
+     * the register move together. */
+    logic [31:0] ph_next;
+    always_comb ph_next = w_phase + w_inc;
+    logic [ROM_W-1:0] sine_q, env_q;
 
     logic [7:0] ph;
     always_comb ph = w_phase[31:24];
@@ -312,10 +337,9 @@ module aud_psg
         off_window = ph < 8'd128 - duty_half || ph >= 8'd128 + duty_half;
     end
 
-    /* Both wave constants sit at the top of the word, where the subtraction
-     * is wiring and not a carry: 32767 - x is x's low fifteen bits inverted
-     * under its own top bit, and x - 32768 is x with its top bit inverted.
-     * That is three sixteen-bit subtractors the wave stops asking for. */
+    /* Wiring, not a carry: 32767 - x is x's low fifteen bits inverted
+     * under its own top bit, and x - 32768 is x with its top bit
+     * inverted. Three sixteen-bit subtractors saved. */
     logic signed [15:0] saw, tri_down, tri_up;
     always_comb begin
         saw = {w_phase[31], ~w_phase[30:16]};
@@ -323,20 +347,34 @@ module aud_psg
         tri_up = {~w_phase[30], w_phase[29:15]};
     end
 
-    /* A quarter table folded back out: a localparam array indexed by a
-     * register is a mux of constants, so a quarter of the entries is a
-     * quarter of the mux. The fold is exact — the same 256 words the C
-     * reads. */
-    logic [6:0] sine_a, sine_b;
-    logic sine_neg;
-    always_comb begin
-        sine_a = ph[6:0];
-        sine_neg = ph[7] ^ (sine_a > 7'd64);
-        sine_b = sine_a > 7'd64 ? 7'(8'd128 - 8'(sine_a)) : sine_a;
+    /* The circle in a block, addressed off the phase adder rather than
+     * the register it lands in, so the word is waiting and the walk grows
+     * no state. Initialized, not written: it rides in as a .mif.
+     *
+     * The envelope's two rate tables share the block above the circle,
+     * attack at 256 and decay-and-release at 272. A voice reads one or
+     * the other, never both, so they share the second port.
+     *
+     * The rate is fetched a clock ahead of the step, so a gate landing
+     * exactly on the fetch turns the arm the step reads but not the
+     * address the fetch used: that one step moves at the old arm's rate. */
+    localparam int ROM_W = 20;
+    localparam int ROM_ATK = 256;
+    localparam int ROM_DR = 272;
+    (* ramstyle = "M10K, no_rw_check" *)
+    logic [ROM_W-1:0] aud_rom[512];
+    initial begin
+        for (int i = 0; i < 512; i++)
+            aud_rom[i] = '0;
+        for (int i = 0; i < 256; i++)
+            aud_rom[i] = ROM_W'(AUD_SINE[i]);
+        for (int i = 0; i < 16; i++) begin
+            aud_rom[ROM_ATK+i] = ROM_W'(ATTACK_TABLE[i]);
+            aud_rom[ROM_DR+i] = ROM_W'(DR_TABLE[i]);
+        end
     end
     logic signed [15:0] sine;
-    always_comb sine = sine_neg ? -$signed(AUD_SINE_Q[sine_b])
-                                : $signed(AUD_SINE_Q[sine_b]);
+    always_comb sine = $signed(sine_q[15:0]);
 
     logic signed [15:0] wave;
     always_comb begin
@@ -352,7 +390,6 @@ module aud_psg
         endcase
     end
 
-    /* Noise steps only when its window emits. */
     logic noise_step;
     always_comb noise_step = cf_wr[7:4] == 4'd4 && !past_duty;
     logic [31:0] noise1_x;
@@ -368,9 +405,13 @@ module aud_psg
      * nibbles, so the nibble is what gets muxed. */
     logic [3:0] dr_idx;
     always_comb dr_idx = ch_adsr[ch] == ADSR_DECAY ? cf_vd[3:0] : cf_wr[3:0];
+    logic [8:0] env_addr;
+    always_comb env_addr = ch_adsr[ch] == ADSR_ATTACK
+        ? 9'(ROM_ATK) + {5'd0, cf_va[3:0]}
+        : 9'(ROM_DR) + {5'd0, dr_idx};
     logic [VOL_W-1:0] dr_val, dr_next;
     always_comb begin
-        dr_val = VOL_W'(DR_TABLE[dr_idx]);
+        dr_val = VOL_W'(env_q[ENV_W-1:0]);
         dr_next = w_vol <= dr_val ? '0 : w_vol - dr_val;
     end
 
@@ -381,7 +422,7 @@ module aud_psg
         adsr_next = ch_adsr[ch];
         case (ch_adsr[ch])
             ADSR_ATTACK: begin
-                vol_next = w_vol + VOL_W'(ATTACK_TABLE[cf_va[3:0]]);
+                vol_next = w_vol + VOL_W'(env_q[ENV_W-1:0]);
                 if (vol_next >= vol_peak) begin
                     vol_next = vol_peak;
                     adsr_next = ADSR_DECAY;
@@ -403,11 +444,6 @@ module aud_psg
         endcase
     end
 
-    always_comb begin
-        aud_psg_a_req = state == P_FETCH && {1'b0, fw_i} < {1'b0, fw_n};
-        aud_psg_a_addr = xaddr[15:2] + {9'd0, fw_i};
-    end
-
     /* Unreset: a reset here would make these flops again. */
     always_ff @(posedge clk) begin
         if (state == P_STEP) begin
@@ -417,19 +453,23 @@ module aud_psg
             ch_noise1[w_ch] <= noise_step ? noise1_x : w_noise1;
             ch_noise2[w_ch] <= noise_step ? w_noise2 + noise1_x : w_noise2;
         end
-        if (cw_en) begin
-            if (cw_word[0]) begin
-                cfg_hi[cw_word[3:1]] <= cw_data;
-            end else begin
-                cfg_lo[cw_word[3:1]] <= cw_data;
-            end
+        if (snoop_cfg) begin
+            case (snoop_off[2:0])
+                3'd0: cfg_freq_lo[snoop_ch] <= q_val;
+                3'd1: cfg_freq_hi[snoop_ch] <= q_val;
+                3'd2: cfg_duty[snoop_ch] <= q_val;
+                3'd3: cfg_va[snoop_ch] <= q_val;
+                3'd4: cfg_vd[snoop_ch] <= q_val;
+                3'd5: cfg_wr[snoop_ch] <= q_val;
+                3'd6: cfg_pan[snoop_ch] <= q_val;
+                default: ;  /* the structure's padding */
+            endcase
         end
     end
 
     initial begin
         xaddr = 16'hFFFF;
         xreg_pend = 1'b0;
-        xreg_word = 16'hFFFF;
         for (int i = 0; i < 9; i++)
             ch_adsr[i] = ADSR_RELEASE;
         clr = 1'b0;
@@ -444,23 +484,20 @@ module aud_psg
         ch = '0;
         state = P_IDLE;
         tickctr = '0;
-        fw_i = '0;
-        fw_c = '0;
-        gnt_d = 1'b0;
-        mix_l = '0;
-        mix_r = '0;
+        pan = '0;
+        mix_l = MIX_ROUND;
+        mix_r = MIX_ROUND;
         mix_i = '0;
         mix_s = '0;
-        div_q = '0;
-        div_rem = '0;
-        div_i = '0;
+        w_inc = '0;
+        sine_q = '0;
+        env_q = '0;
         aud_psg_l = '0;
         aud_psg_r = '0;
         aud_psg_valid = 1'b0;
         aud_psg_tick = 1'b0;
     end
     always_ff @(posedge clk) begin
-        gnt_d <= a_gnt;
         aud_psg_valid <= 1'b0;
         aud_psg_tick <= tickctr == 13'(TICKS_PER_SAMPLE - 1);
 
@@ -469,8 +506,7 @@ module aud_psg
         else
             tickctr <= tickctr + 13'd1;
 
-        /* A walk that outlasts its tick drops the sample silently, and
-         * the heartbeat the machine rides gets a gap in it. */
+        /* A walk that outlasts its tick drops the sample silently. */
         if (tickctr == 13'd0 && state != P_IDLE)
             $fatal(1, "aud_psg walk overrun");
 
@@ -480,45 +516,25 @@ module aud_psg
                     /* The phase persists across an xreg; the envelopes
                      * and noise go with clr. */
                     xreg_pend <= 1'b0;
-                    xaddr <= xreg_word;
                     clr <= 1'b1;
                     for (int i = 0; i < 8; i++)
                         ch_adsr[i] <= ADSR_RELEASE;
                 end
                 if (tickctr == 13'd0) begin
-                    /* The walk always runs: the bell does not wait on a
-                     * program. */
+                    /* Always runs: the bell does not wait on a program. */
                     ch <= '0;
-                    mix_l <= '0;
-                    mix_r <= '0;
+                    mix_l <= MIX_ROUND;
+                    mix_r <= MIX_ROUND;
                     mix_i <= '0;
-                    if (xreg_pend ? xreg_word != 16'hFFFF : enabled)
-                    begin
-                        fw_i <= '0;
-                        fw_c <= '0;
-                        state <= P_FETCH;
-                    end else
-                        state <= P_MIX;
-                end
-            end
-            P_FETCH: begin
-                if (a_gnt)
-                    fw_i <= fw_i + 5'd1;
-                if (gnt_d) begin
-                    carry_hi <= a_rdata[31:16];
-                    fw_c <= fw_c + 5'd1;
-                    if (fw_c + 5'd1 == fw_n) begin
-                        ch <= '0;
-                        mix_l <= '0;
-                        mix_r <= '0;
-                        mix_i <= '0;
-                        state <= P_MIX;
-                    end
+                    state <= P_MIX;
                 end
             end
             P_MIX: begin
                 case (mix_i)
-                    2'd0: mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
+                    2'd0: begin
+                        mix_s <= 17'((mul_p + 31'sd2048) >>> 12);
+                        pan <= pan_c;
+                    end
                     2'd1: if (pan != -8'sd64)
                         mix_l <= mix_l + 27'(mul_p);
                     default: begin
@@ -532,8 +548,8 @@ module aud_psg
                 mix_i <= mix_i == 2'd2 ? 2'd0 : mix_i + 2'd1;
             end
             P_OUT: begin
-                aud_psg_l <= clamped(21'((mix_l + 27'sd64) >>> 7));
-                aud_psg_r <= clamped(21'((mix_r + 27'sd64) >>> 7));
+                aud_psg_l <= clamped(21'(mix_l >>> 7));
+                aud_psg_r <= clamped(21'(mix_r >>> 7));
                 ch <= '0;
                 state <= P_LOAD;
             end
@@ -544,23 +560,15 @@ module aud_psg
                 w_vol <= ld_vol;
                 w_noise1 <= clr && !ch[3] ? 32'h67452301 : ch_noise1[ch];
                 w_noise2 <= clr && !ch[3] ? 32'hEFCDAB89 : ch_noise2[ch];
-                div_q <= '0;
-                div_rem <= REM_W'(cf_freq);
-                div_i <= '0;
-                state <= P_DIV;
-            end
-            P_DIV: begin
-                div_q <= {div_q[30:0], div_ge};
-                div_rem <= div_next;
-                div_i <= div_i + 5'd1;
-                if (div_i == 5'd31)
-                    state <= P_PH;
+                w_inc <= 32'(inc_prod[56:PHASE_SHIFT]);
+                state <= P_PH;
             end
             P_PH: begin
-                /* A clock of its own, so the wave reads a standing
-                 * phase rather than a 32-bit add. The machine has under
-                 * two nanoseconds spare; this costs eight clocks. */
-                w_phase <= w_phase + div_q;
+                /* A clock of its own, so the wave reads a standing phase
+                 * rather than a 32-bit add. */
+                w_phase <= ph_next;
+                sine_q <= aud_rom[{1'b0, ph_next[31:24]}];
+                env_q <= aud_rom[env_addr];
                 state <= P_STEP;
             end
             P_STEP: begin
@@ -585,9 +593,8 @@ module aud_psg
                 ch_adsr[{1'b0, snoop_ch}] <= ADSR_ATTACK;
         end
 
-        /* The ninth voice's gate is a level in a register, so its edge
-         * is taken here; the other eight get theirs from the snoop.
-         * Holding it high must not restrike a note that already died. */
+        /* The ninth voice's gate is a level in a register, so its edge is
+         * taken here. Holding it high must not restrike a dead note. */
         if (bel_hi[16] && !bel_gate_q && ch_adsr[8] == ADSR_RELEASE)
             ch_adsr[8] <= ADSR_ATTACK;
         if (!bel_hi[16] && bel_gate_q && ch_adsr[8] != ADSR_RELEASE)
@@ -602,9 +609,11 @@ module aud_psg
         /* After the case, so a write on an apply clock is kept for
          * the next boundary instead of vanishing under the clear. */
         if (xaddr_we) begin
+            xaddr <= xaddr_wdata;
             xreg_pend <= 1'b1;
-            xreg_word <= xaddr_wdata;
         end
+        if (gate_any_we)
+            gate_any <= gate_any_wdata;
     end
 
     function automatic logic signed [15:0] clamped(logic signed [20:0] s);
@@ -615,13 +624,11 @@ module aud_psg
         return 16'(s);
     endfunction
 
-    /* The rest of pan_gate is the pan, and the pan is not edge
-     * triggered — it arrives with the rest of the config on the fetch,
-     * every sample, and is read out of cf. Only the gate has to be
-     * caught at the moment it moves. */
     /* verilator lint_off UNUSEDSIGNAL */
     logic unused_aud_psg;
-    always_comb unused_aud_psg = ^{cf[63:56], q_val[7:1], bel_wdata[31:24]};
+    always_comb unused_aud_psg = ^{cf[63:56], bel_wdata[31:24],
+                                   inc_prod[PHASE_SHIFT-1:0],
+                                   sine_q[ROM_W-1:16], env_q[ROM_W-1:ENV_W]};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule

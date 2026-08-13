@@ -10,16 +10,13 @@ endif()
 # simulation twice over, the Pocket, and the synthesis probes. What varies is
 # whether the verilated machine and its tests are part of it.
 #
-# Off is not a stripped-down build, it is a different job. A bitstream is
-# Quartus and a RISC-V compiler and nothing else, and saying so is what lets
-# the Pocket be built on a machine with no Verilator installed at all - which
-# is what CI's bitstream runner is.
+# Off is not a stripped-down build, it is a different job: a bitstream is
+# Quartus and a RISC-V compiler and nothing else, which is what lets the
+# Pocket be built on CI's bitstream runner with no Verilator installed.
 option(RP6502_RTL_SIM "Verilated machine and the test suite" ON)
 
 # Ninja, the way CI configures this tree. Under Makefiles `cmake --build`
-# takes one core unless told otherwise, and this tree is twenty-odd test
-# binaries over a handful of shared verilated models — the shape that gains
-# most from a build graph and least from one recipe at a time.
+# takes one core unless told otherwise.
 if(RP6502_RTL_SIM AND NOT CMAKE_GENERATOR STREQUAL "Ninja")
     message(FATAL_ERROR
         "This tree wants Ninja; ${CMAKE_GENERATOR} builds single-core.\n"
@@ -51,11 +48,9 @@ if(RP6502_RTL_SIM)
     add_subdirectory(${RP6502_SRC}/emu emu)
 
     enable_testing()
-    # The whole suite, organised by subsystem rather than by host. This tree
+    # The whole suite, organised by subsystem rather than by host: this tree
     # has the RTL, so it registers the verilated half of every subsystem
-    # alongside the C half — both implementations of the CPU against the same
-    # vectors, both audio engines against the same reference samples, and so
-    # on.
+    # alongside the C half, against the same vectors.
     set(RP6502_TESTS_RTL ON)
     add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()

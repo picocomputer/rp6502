@@ -510,11 +510,11 @@ UTEST(pocket, reload_with_a_button_held)
     /* The pad is state, so a button held across a reboot is simply
      * still held on the other side — there is no delivery to count
      * and no edge to miss while the machine was away. */
-    ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__pad_key, 1u << 4);
+    ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__cont_key_sys[0], 1u << 4);
     dut->cont1_key = 0;
     for (int i = 0; i < 4000; i++)
         tick();
-    ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__pad_key, 0u);
+    ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__cont_key_sys[0], 0u);
 
     /* And the scaler re-armed on the new machine's frame. */
     run_and_compare(utest_result, "mode3_1bpp", false);

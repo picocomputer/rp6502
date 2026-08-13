@@ -30,7 +30,23 @@ module via (
     input logic [7:0] data_i,
 
     output logic [7:0] via_data,
-    output logic via_irq
+    output logic via_irq,
+
+    /* All of it, as seven words, for a savestate. Not the architectural
+     * registers — those are readable already and would come back a
+     * timer short: the three pipelines carry the cycle the counters are
+     * actually going to fire on, and a restore without them resumes a
+     * timer at the wrong tick. Reads bypass the access side effects
+     * that make T1CL and T2CL unreadable from the 6502's side.
+     *
+     * A write lands directly in the flops, sound only while en is low. */
+    input logic [2:0] st_idx,
+    output logic [31:0] via_st_rdata,
+    /* The whole of it at once: a restore lands with the clock already
+     * back, so a jam spread over seven edges would let the machine run
+     * through the six it was not being written on. */
+    input logic st_jam,
+    input logic [31:0] st_jam_data[7]
 );
 
     // Register indices
@@ -75,6 +91,19 @@ module via (
     logic [7:0] ifr /*verilator public_flat_rw*/;
     logic [7:0] ier /*verilator public_flat_rw*/;
     logic [15:0] int_pip /*verilator public_flat_rw*/;
+
+    always_comb begin
+        case (st_idx)
+            3'd0: via_st_rdata = {ddr_b, ddr_a, outr_b, outr_a};
+            3'd1: via_st_rdata = {pcr, acr, pins_b, pins_a};
+            3'd2: via_st_rdata = {t1_counter, t1_latch};
+            3'd3: via_st_rdata = {t2_counter, t2_latch};
+            3'd4: via_st_rdata = {t1_pip, t2_pip};
+            3'd5: via_st_rdata = {8'd0, ifr, ier, 6'd0, t2_tbit, t1_tbit};
+            3'd6: via_st_rdata = {16'd0, int_pip};
+            default: via_st_rdata = 32'd0;
+        endcase
+    end
 
     // ------------------------------------------------------------------
     // Combinational read, from pre-tick state
@@ -297,6 +326,26 @@ module via (
             ier <= 8'h00;
             int_pip <= 16'h0000;
             via_irq <= 1'b0;
+        end else if (st_jam) begin
+            {ddr_b, ddr_a, outr_b, outr_a} <= st_jam_data[0];
+            {pcr, acr, pins_b, pins_a} <= st_jam_data[1];
+            {t1_counter, t1_latch} <= st_jam_data[2];
+            {t2_counter, t2_latch} <= st_jam_data[3];
+            {t1_pip, t2_pip} <= st_jam_data[4];
+            ifr <= st_jam_data[5][23:16];
+            ier <= st_jam_data[5][15:8];
+            t2_tbit <= st_jam_data[5][1];
+            t1_tbit <= st_jam_data[5][0];
+            /* The pin is IFR bit 7, which the blob carries, so it is
+             * taken and not worked out again. Re-deriving it from the
+             * flags is a different function from the one the running
+             * machine uses -- that one is n_ifr[IRQ_ANY], which the
+             * clear rule maintains with its own timing -- and a
+             * restored VIA whose pin disagreed with its own IFR would
+             * hand the 6502 an interrupt it had already taken, or drop
+             * one it had not. */
+            via_irq <= st_jam_data[5][23];
+            int_pip <= st_jam_data[6][15:0];
         end else if (en) begin
             outr_a <= n_outr_a;
             outr_b <= n_outr_b;

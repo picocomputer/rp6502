@@ -2,12 +2,13 @@
 
 The Picocomputer 6502 is a real 6502 computer built from a WDC 65C02, a couple
 of Raspberry Pi Picos, and very little else. This repository holds everything
-that runs on the Picos plus a desktop/web emulator of the whole machine.
+that runs on the Picos plus a desktop/web emulator and FPGA cores of the whole
+machine.
 
 The main documentation starts here:<br>
 https://picocomputer.github.io/
 
-Pre-built `.uf2` firmware images for Pi Pico 2 boards:<br>
+Pre-built firmware and executables:<br>
 https://github.com/picocomputer/rp6502/releases
 
 This project is for building emulation or firmware. For writing 6502 software, see
@@ -19,40 +20,9 @@ This project is for building emulation or firmware. For writing 6502 software, s
 Begin by installing VS Code and the Pi Pico VS Code Extension as described in
 [Getting started with the Raspberry Pi Pico](https://rptl.io/pico-get-started).
 
-Some dependencies are submodules. Don't forget to grab them:
-```
-$ git submodule update --init
-```
-
-The emulator's debugger needs one nested submodule. Don't use `--recursive`,
-which downloads much more than needed:
-```
-$ git -C vendor/cppdap submodule update --init third_party/json
-```
-
-Both 65C02 implementations, the emulator's and the FPGA core's, are held to the
-same two suites so neither can drift alone. Klaus Dormann's functional tests
-come with the submodules above and run long self-checking sequences.
-
-The other suite replays per-cycle bus traces from
-[SingleStepTests](https://github.com/SingleStepTests/65x02), one instruction per
-case. Upstream carries five CPU families and checks out at 4.8 GB, so it is a
-one-time developer download rather than a submodule. Run the VS Code
-**vectors: download** task, or from the command line:
-```
-$ python3 tests/cpu65/vectors.py
-```
-This blobless sparse clone takes about a minute and lands roughly a gigabyte in
-`vendor/65x02`. Without it, the conformance tests are skipped and CMake says so.
-
-The web build also needs the Emscripten SDK, which lives in the `vendor/emsdk`
-submodule. Run the VS Code **emsdk: install and activate** task once to fetch and
-activate the toolchain into that submodule (a one-time ~270 MB download). The same
-thing may be done from the command line (Windows: emsdk.bat) :
-```
-$ vendor/emsdk/emsdk install latest
-$ vendor/emsdk/emsdk activate latest
-```
+Most dependencies are submodules, and CMake fetches the ones your build needs
+the first time you configure. `-DRP6502_FETCH_SUBMODULES=OFF` leaves `vendor/`
+entirely to you.
 
 ## Linux
 
@@ -87,10 +57,6 @@ cmake --preset debug
 cmake --build --preset debug
 ```
 
-The binary is `build\emulator\debug\rp6502-emu.exe`. Release uses `--preset release`.
-Ninja must be on PATH. Initialize submodules first (`git submodule update --init`,
-then `git -C vendor/cppdap submodule update --init third_party/json`).
-
 ## MacOs
 
 The Pi Pico VS Code Extension should only need the install from
@@ -106,11 +72,6 @@ Install Homebrew if needed:
 
 ```bash
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-```
-
-Install required tools:
-
-```bash
 brew update
 brew install cmake ninja pkg-config
 ```
@@ -121,8 +82,8 @@ The rp6502 and emu project use different CMake models on purpose. The first
 thing you need to remember is that F7 builds with the CMake extension settings
 and F5 launches a debug session with the Debug settings.
 
-To build for web, make sure you ran **emsdk: install and activate** after the submodule init.
-From the CMake side panel select Folder:emu and Configure:WebAssembly.
+To build for web, select Folder:emu and Configure:WebAssembly from the CMake
+side panel; the toolchain installs itself the first time.
 Pressing F7 builds two bundles. `build/web/html` is the tester: a menu shell
 that runs every test ROM. `build/web/itch.io` is a ready-to-publish itch.io
 sample that plays one program (`adventure.rp6502` by default) — see
@@ -137,6 +98,13 @@ target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
+To build the emulator, from the CMake side panel
+select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
+panel you select "Emulator Debug" and press F5. You'll get prompted to select
+one of the included test roms to run. You'll also have a binary in build/emulator
+which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
+and vscode-llvm-mos, or any other IDE thats support DAP.
+
 To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
 job, each with a build directory of its own:
 
@@ -149,21 +117,6 @@ Pick one and the Build list changes with it — under `pocket` it offers
 **Card package** and **Bitstream**, under the Verilator presets **Tests** and
 **Firmware**. F7 builds whichever is selected. Naming every host explicitly is
 so MiSTer can arrive without renaming anything.
-
-Ask for the card and CMake works out what has to happen: change a line of soft
-CPU C and you pay the twenty seconds that puts it in the bitstream, not the
-nine minutes that placed the design. The Pocket tree needs Quartus and
-`gcc-riscv64-unknown-elf` and nothing else — no Verilator. See
-`src/rtl/README.md` for the RTL and `src/host/pocket/README.md` for
-the Pocket itself.
-
-To build the emulator, ensure your seatbelt is fastened and tray tables in their
-upright position; we have some bumpy weather ahead. From the CMake side panel
-select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
-panel you select "Emulator Debug" and press F5. You'll get prompted to select
-one of the included test roms to run. You'll also have a binary in build/emulator
-which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
-and vscode-llvm-mos, or any other IDE thats support DAP.
 
 ## General Linux and WSL notes
 

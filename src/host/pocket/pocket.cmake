@@ -23,17 +23,22 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # replace.
     set(BS_QSF ${POCKET_DIR}/rp6502.qsf)
     set(APF ${RP6502_VENDOR}/openfpga/src/fpga)
-    # Analogue's framework is a submodule the simulation never needs, so
-    # it is often absent — CI checks out only what it builds.
+    # Analogue's framework is only wanted once Quartus is here, which is why
+    # this is asked for inside that guard rather than beside the rest.
+    rp6502_submodule(vendor/openfpga SENTINEL src/fpga/ap_core.qsf
+        WANTS "the Pocket bitstream" OPTIONAL RESULT RP6502_HAVE_APF)
     # The array the firmware is loaded into is sized in the RTL, so read
     # the size from there rather than keeping a second copy in step.
-    file(STRINGS ${RP6502_SRC}/rtl/rv/rv_soc.sv TCM_WORDS_LINE
-        REGEX "localparam int TCM_WORDS")
-    string(REGEX MATCH "[0-9]+" TCM_WORDS "${TCM_WORDS_LINE}")
+    file(STRINGS ${RP6502_SRC}/rtl/core/rp6502_pkg.sv TCM_WORDS_LINE
+        REGEX "localparam int RP6502_TCM_WORDS")
+    # The name has digits in it, so match the value and not the first
+    # number on the line.
+    string(REGEX MATCH "= *([0-9]+)" _tcm_m "${TCM_WORDS_LINE}")
+    set(TCM_WORDS ${CMAKE_MATCH_1})
 
     # No firmware, no bitstream. A bitstream without it boots to a soft
     # CPU fetching zeros, which looks like dead hardware and is not.
-    if(EXISTS ${APF}/ap_core.qsf AND SW_BIN AND QUARTUS_ASM AND QUARTUS_CDB)
+    if(RP6502_HAVE_APF AND SW_BIN AND QUARTUS_ASM AND QUARTUS_CDB)
     file(MAKE_DIRECTORY ${POCKET_DIR})
     # apf_constraints.sdc reads core/core_constraints.sdc relative to the
     # project directory — the framework's hook for a core's own groups.
@@ -136,7 +141,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         list(APPEND BS_MACHINE_SOURCES ${src})
     endforeach()
     foreach(src pocket_fifo pocket_video pocket_i2s pocket_sdram pocket_sram
-            pocket_bridge pocket_file pocket_bars pocket_dbg pocket_dbglog
+            pocket_bridge pocket_file pocket_sst pocket_bars pocket_dbg
+            pocket_dbglog
             pocket_core)
         list(APPEND BS_LINES
             "set_global_assignment -name SYSTEMVERILOG_FILE ${RP6502_HOST_POCKET}/${src}.sv")
@@ -195,6 +201,11 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND python3 ${RP6502_SRC}/gen/rv_tcm_gen.py
             ${SW_BIN} ${POCKET_DIR}/sw ${TCM_WORDS}
         COMMAND ${QUARTUS_MAP} rp6502
+        # A design that cannot fit says so in the map's register count;
+        # the fitter only says it half an hour slower. This has to run
+        # between the two, or it is decoration.
+        COMMAND python3 ${RP6502_SRC}/gen/map_gate.py
+            ${POCKET_DIR}/output_files/rp6502.map.rpt
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
         # The worst paths by name, kept beside the signoff numbers: a
@@ -203,34 +214,47 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # exists.
         COMMAND ${QUARTUS_STA} -t
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
-        # No bitstream from a fit that did not close. One that misses
-        # timing assembles and runs, and only stops running when the part
-        # is warm or the fitter's luck turns.
-        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
-            ${POCKET_DIR}/output_files/rp6502.sta.rpt
-            ${POCKET_DIR}/output_files/rp6502.paths.rpt
-        # Nor from one that grew a violation timing cannot see. An
-        # unsynchronised reset and a torn opcode both close every corner
-        # and both fail on a different fit; the Design Assistant is the
-        # only thing in the flow that looks for them.
-        COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
-            ${POCKET_DIR}/output_files/rp6502.drc.rpt
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
-        # Last, so a gate that fails leaves no stamp and the fit is still
-        # owed the next time anyone asks.
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${BS_SOURCES} sw_bin
             ${RP6502_SRC}/gen/rv_tcm_gen.py
-            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/gen/map_gate.py
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
-            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Fitting the Pocket core"
+        VERBATIM)
+
+    # Signoff is a reading of the fit, not part of making it, and the
+    # split is what that distinction costs or saves: a gate script or a
+    # baseline entry is a text edit, and a text edit that re-placed the
+    # design was nine minutes of fitter spent blessing a comment. This
+    # ran for real once, the other way around.
+    #
+    # No bitstream from a fit that did not close. One that misses
+    # timing assembles and runs, and only stops running when the part
+    # is warm or the fitter's luck turns. Nor from one that grew a
+    # violation timing cannot see: an unsynchronised reset and a torn
+    # opcode both close every corner and both fail on a different fit;
+    # the Design Assistant is the only thing in the flow that looks
+    # for them. A gate that fails leaves no stamp, and signoff is
+    # still owed against the same fit the next time anyone asks.
+    add_custom_command(OUTPUT ${POCKET_DIR}/signoff.stamp
+        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
+            ${POCKET_DIR}/output_files/rp6502.sta.rpt
+            ${POCKET_DIR}/output_files/rp6502.paths.rpt
+        COMMAND ${QUARTUS_DRC} rp6502
+        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
+            ${POCKET_DIR}/output_files/rp6502.drc.rpt
+            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
+        WORKING_DIRECTORY ${POCKET_DIR}
+        DEPENDS ${POCKET_DIR}/fit.stamp
+            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        COMMENT "Signing off the Pocket fit"
         VERBATIM)
     # The fit alone, named: point a measurement at the same fit the
     # package consumes and the package finds it already paid.
-    add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/fit.stamp)
+    add_custom_target(pocket-fit DEPENDS ${POCKET_DIR}/signoff.stamp)
 
     # The firmware has to be IN the bitstream: simulation loads it into the
     # verilated arrays from C++, so nothing in the synthesis path ever
@@ -253,7 +277,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${POCKET_DIR}/output_files/rp6502.rbf
             ${POCKET_DIR}/core.bin
         WORKING_DIRECTORY ${POCKET_DIR}
-        DEPENDS ${POCKET_DIR}/fit.stamp ${SW_BIN}
+        DEPENDS ${POCKET_DIR}/signoff.stamp ${SW_BIN}
             ${RP6502_SRC}/gen/rv_mif_gen.py ${RP6502_SRC}/gen/rbf_r_gen.py
         COMMENT "Putting the firmware into the Pocket bitstream"
         VERBATIM)
@@ -285,20 +309,20 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             ${PKG_DIR}/Assets/rp6502/common/fonts.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${OEMCP_BIN}
             ${PKG_DIR}/Assets/rp6502/common/oemcp.bin
+        COMMAND ${CMAKE_COMMAND} -E copy ${KBDLAY_BIN}
+            ${PKG_DIR}/Assets/rp6502/common/keyboard.bin
         COMMAND ${CMAKE_COMMAND} -E copy ${POCKET_DIR}/core.bin
             ${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.bin
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
-        DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN}
+        DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN} ${KBDLAY_BIN}
             ${PKG_DIST_FILES}
             ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
     add_custom_target(pocket DEPENDS ${POCKET_DIR}/package.stamp)
 
-    elseif(NOT EXISTS ${APF}/ap_core.qsf)
-        message(STATUS
-            "vendor/openfpga absent - no pocket target. "
-            "git submodule update --init vendor/openfpga")
+    elseif(NOT RP6502_HAVE_APF)
+        message(STATUS "vendor/openfpga absent - no pocket target.")
     elseif(NOT SW_BIN)
         message(STATUS
             "no RISC-V toolchain - no pocket target. "

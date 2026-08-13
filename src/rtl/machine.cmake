@@ -2,10 +2,8 @@
 #
 # Both halves of this tree need these and neither needs a simulator to have
 # them: the verilated model is built from this list, and so is every Quartus
-# project. They lived inside rp6502_verilate.cmake's verilator_FOUND guard for
-# a while, which meant a bitstream could not be built without Verilator
-# installed - and CI's bitstream job does not install it, so on that runner the
-# pocket target did not exist at all.
+# project. Guarding them behind verilator_FOUND would mean no bitstream
+# without Verilator installed, which CI's bitstream runner does not have.
 #
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.
@@ -74,7 +72,13 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/rtl/vid/vid_prog.sv
     ${RP6502_SRC}/rtl/vid/vid_mode0.sv
     ${RP6502_SRC}/rtl/vid/vid_compose.sv
+    ${RP6502_SRC}/rtl/core/sst_engine.sv
     ${RP6502_SRC}/rtl/core/rp6502.sv)
+# Verilator elaborates while cmake configures, so an unresolved module here
+# is a configure error, not a build one. Nothing recursive: Hazard3 has six
+# submodules of its own and this tree reads none of them.
+rp6502_submodule(vendor/hazard3 SENTINEL hdl/hazard3_core.v
+    WANTS "the soft CPU")
 set(RP6502_MACHINE_VERILATOR_ARGS
     -y ${RP6502_VENDOR}/hazard3/hdl
     -y ${RP6502_VENDOR}/hazard3/hdl/arith
@@ -94,9 +98,12 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h
         ${RP6502_SRC}/rtl/sw/shim/*/*.h ${RP6502_SRC}/rtl/sw/shim/*/*/*.h)
     set(SW_SOURCES
-        ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/aud.c ${SW_SRC}/cfg.c
-        ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/kbd.c ${SW_SRC}/mem.c
-        ${SW_SRC}/mou.c ${SW_SRC}/msc.c ${SW_SRC}/pad.c ${SW_SRC}/pix.c
+        ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
+        ${SW_SRC}/sst.c
+        ${SW_SRC}/cfg.c
+        ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${SW_SRC}/kbl.c ${SW_SRC}/log.c ${SW_SRC}/mem.c
+        ${SW_SRC}/msc.c ${SW_SRC}/pix.c
         ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/ria/aud/bel_presets.c
@@ -106,6 +113,15 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/ria/api/clk.c
         ${RP6502_SRC}/ria/api/std.c
         ${RP6502_SRC}/ria/api/uni.c
+        # The real HID drivers, fed synthetic descriptors by apf.c. The
+        # layouts are an asset, so kbl.c reads them rather than linking
+        # twenty kilobytes of table into a 96 KB memory.
+        ${RP6502_SRC}/ria/hid/hid.c
+        ${RP6502_SRC}/ria/hid/kbd.c
+        ${RP6502_SRC}/ria/hid/kbl.c
+        ${RP6502_SRC}/ria/hid/mou.c
+        ${RP6502_SRC}/ria/hid/pad.c
+        ${RP6502_SRC}/ria/hid/tab.c
         ${RP6502_SRC}/ria/str/rln.c
         ${RP6502_SRC}/ria/str/str.c
         ${RP6502_SRC}/vga/modes/mode1.c
@@ -115,8 +131,18 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/vga/modes/mode5.c
         ${RP6502_SRC}/vga/term/color.c
         ${RP6502_SRC}/vga/term/term.c)
+    # The firmware's console into a file on the drive, for reading a
+    # restore from the inside when the host's debug log has stopped. Off
+    # by default: an on build holds one of the drive's eight descriptors
+    # for the session, which the conformance suite counts.
+    option(RP6502_LOG_FILE "Soft CPU console to /Saves/.../rp6502.log" OFF)
+    set(SW_LOG_DEFINE "")
+    if(RP6502_LOG_FILE)
+        set(SW_LOG_DEFINE -DRP6502_LOG_FILE)
+    endif()
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32
+            ${SW_LOG_DEFINE}
             # Prologues and epilogues become calls into libgcc's
             # __riscv_save_N/__riscv_restore_N instead of a run of
             # stores. Kilobytes of text for a few cycles a call, and the

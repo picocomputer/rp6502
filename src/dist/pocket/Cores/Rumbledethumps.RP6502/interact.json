@@ -3,6 +3,25 @@
         "magic": "APF_VER_1",
         "variables": [
             {
+                "name": "Keyboard",
+                "id": 4,
+                "type": "list",
+                "enabled": true,
+                "address": "0x10000018",
+                "persist": true,
+                "writeonly": true,
+                "defaultval": 5,
+                "options": [
+                    { "value": "0x1", "name": "DK" },
+                    { "value": "0x2", "name": "DE" },
+                    { "value": "0x3", "name": "FR" },
+                    { "value": "0x4", "name": "PL-PROG" },
+                    { "value": "0x5", "name": "SE" },
+                    { "value": "0x6", "name": "US" },
+                    { "value": "0x7", "name": "US-INTL" }
+                ]
+            },
+            {
                 "name": "UTC offset side",
                 "id": 1,
                 "type": "list",

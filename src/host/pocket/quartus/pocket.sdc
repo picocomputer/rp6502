@@ -143,6 +143,20 @@ set_clock_uncertainty -add -hold 0.080 \
     -from [get_clocks {bridge_spiclk}] \
     -to [get_clocks {bridge_spiclk}]
 
+# The OPL's own reset, which the R101 baseline already names: a
+# comparator that holds the vendored afifo's clear for 255 clocks at a
+# time, released through reset_sync's two flops on the same clock. A CI
+# fit paid 52 ps through the seam pad for a hold check on pins that do
+# not change for two hundred and fifty-five cycles. An exception, not a
+# bigger number: the pad above stays what the seam class measured. The
+# -hold cuts the whole min-delay family on this pair, removal included,
+# and that is the point of a synchronised release — r2 holds the level,
+# so skew can only choose which edge each endpoint releases on, never
+# hand any of them a pulse.
+set_false_path -hold \
+    -from [get_registers {*|aud_opl:*|reset_sync:*|r2}] \
+    -to [get_registers {*|aud_opl:*|afifo:*}]
+
 # The data-phase payload, cut at the protocol rather than an endpoint
 # at a time. In rv_soc, dph_addr and dph_strb are written under
 # "if (hready)" and nowhere else; hready = !(dph_active && dph_ext &&
@@ -177,6 +191,28 @@ set_false_path -hold \
     -from [get_registers {*rv_soc*|dph_strb[*]}] \
     -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
 
+# The lottery drew the write data. A CI fit missed by two picoseconds
+# from hazard3's bus_active_dph_s into the scanline table's port-A data
+# register, through vid_mode0's write-data mux -- the same seam, the
+# same class, a register this file had not named because it is the
+# vendor's rather than rv_soc's.
+#
+# It is the same interlock and the vendor's source says so outright.
+# hazard3_cpu_1port.v:239-247 writes all three bus_active_dph_* under
+# "else if (hready)" and nowhere else, which is the identical condition
+# the payload above is cut on; and :313 is
+# "assign hwdata = bus_active_dph_s ? dbg_sbus_wdata : core_wdata_d",
+# so this register is not a separate signal that happens to reach the
+# arrays -- it is the select on the payload itself. hready is !pend, and
+# every machine-side capture is gated on pend, so the data cannot launch
+# on an edge that captures it. Cut at the clock like its siblings, and
+# the family is whole: all three, because they share one always block
+# and one enable, and naming only the one that missed is how this walked
+# a pair at a time before. Setup stays.
+set_false_path -hold \
+    -from [get_registers {*hazard3_cpu_1port*|bus_active_dph_*}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}]
+
 # The file bridge's command crosses the same way: the parameters stand
 # still while a toggle carries the news, and only the toggle's first
 # stage is cut by the rule above. Bound the parameters instead of
@@ -204,6 +240,45 @@ set_max_delay -from [get_registers {*pocket_file*|r_op[*]}] \
     -to [get_clocks {clk_74a}] 13.468
 set_min_delay -from [get_registers {*pocket_file*|r_op[*]}] \
     -to [get_clocks {clk_74a}] 0
+
+# The blob crosses both ways for the same reason and takes the same
+# bound. The index the host is reading stands still on clk_74a while
+# the engine answers it, and the word stands still on clk_sys until a
+# different index is asked for; neither moves until its own handshake
+# says the other side is finished with it.
+#
+# Note which way each one goes. The file bridge's parameters above all
+# travel clk_sys to clk_74a and are stopped at clk_74a; the index goes
+# the other way and is stopped at the machine's clock instead. Bounding
+# it to the clock it starts on constrains nothing at all, which is what
+# it did for one fit.
+set_max_delay -from [get_registers {*pocket_sst*|ask[*]}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 13.468
+set_min_delay -from [get_registers {*pocket_sst*|ask[*]}] \
+    -to [get_clocks {*|general[0].gpll~PLL_OUTPUT_COUNTER|divclk}] 0
+set_max_delay -from [get_registers {*sst_engine*|hold[*]}] \
+    -to [get_registers {*pocket_sst*|hold[*]}] 13.468
+set_min_delay -from [get_registers {*sst_engine*|hold[*]}] \
+    -to [get_registers {*pocket_sst*|hold[*]}] 0
+
+# The machine-clock enable is a clk_74a flop and everything that reads
+# it lands on a named synchronizer first, which the _s1 rule above
+# false-paths. The one reader that is not a flop is the clock gate's
+# own ena register, inside the clkctrl cell, which takes it on the
+# falling edge of the clock it gates; that hop is not a data path worth
+# timing.
+# Named as the register the megafunction actually builds: a -to on the
+# outer cell never reached it, and the path failed a fit at -8.5 ns of
+# fiction between two unrelated clocks.
+set_false_path -from [get_registers {*|mach_clk_en}]
+
+# clk_mach is clk_sys through the clock control block: TimeQuest
+# propagates the same clock object through the cell, so paths between
+# the gated and ungated halves -- the serializer's jam into the
+# machine's flops among them -- are timed as one domain. If the fit's
+# clock report ever shows clk_mach as a separate or unconstrained
+# clock, that assumption broke and this file owes it a
+# create_generated_clock.
 
 # And the answer, coming back behind its own toggle.
 set_max_delay -from [get_registers {*pocket_file*|err_q[*]}] \

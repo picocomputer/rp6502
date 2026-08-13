@@ -29,6 +29,10 @@ get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/.. ABSOLUTE)
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
 get_filename_component(RP6502_VENDOR ${CMAKE_CURRENT_LIST_DIR}/../../vendor ABSOLUTE)
 
+include(${RP6502_ROOT}/submodules.cmake)
+rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
+    WANTS "the emulated 6502 and 6522")
+
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in ria/api/uni.c can be read without a
@@ -47,6 +51,25 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     VERBATIM)
 add_custom_target(oemcp DEPENDS ${OEMCP_C} ${OEMCP_H})
 set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
+
+# The keyboard layouts, on the same terms: the def files are the source,
+# the generator makes one image, and hid/kbl.c reads it a word at a
+# time. The emulator does not compile the layouts — its keyboard arrives
+# already translated — but tests/ria checks the image against the defs
+# and needs it built. See src/gen/kbd_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def CACHE INTERNAL "")
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
+set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c CACHE INTERNAL "")
+set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h CACHE INTERNAL "")
+set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
+add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
+        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
+    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts"
+    VERBATIM)
+add_custom_target(kbdlay DEPENDS ${KBDLAY_C} ${KBDLAY_H})
 
 # The OPL resampler's polyphase coefficients, on the same terms: three
 # thousand numbers nobody can check by eye, so they are built rather than
@@ -236,6 +259,9 @@ if(RP6502_EMU_CORE_ONLY)
     return()
 endif()
 
+rp6502_submodule(vendor/sokol SENTINEL sokol_app.h
+    WANTS "the emulator's window, input and audio")
+
 # The desktop window + audio stack. Windows/macOS/web/Android carry their own
 # (D3D11/Metal/WebGL/AAudio); Linux/BSD needs GL + X11 (+ Xi/Xcursor) and ALSA.
 # These are hard requirements — a windowless or silent emulator ships nowhere —
@@ -288,6 +314,8 @@ endif()
 
 # Windows is only platform without getopt
 if(WIN32)
+    rp6502_submodule(vendor/wingetopt SENTINEL src/getopt.c
+        WANTS "getopt on Windows")
     add_subdirectory(${RP6502_VENDOR}/wingetopt wingetopt)
     target_link_libraries(rp6502-emu PRIVATE wingetopt)
     target_compile_definitions(rp6502-emu PRIVATE _BSD_SOURCE)
@@ -366,6 +394,16 @@ endif()
 
 # Include debugging except on web and Android versions
 if(NOT EMSCRIPTEN AND NOT ANDROID)
+    rp6502_submodule(vendor/imgui SENTINEL imgui.cpp
+        WANTS "the debugger's interface")
+    # cppdap carries its own JSON library as a submodule, and fails hard
+    # without it rather than degrading, so it is asked for by name.
+    rp6502_submodule(vendor/cppdap SENTINEL CMakeLists.txt
+        WANTS "the debug adapter")
+    rp6502_submodule(third_party/json SUPER ${RP6502_VENDOR}/cppdap
+        SENTINEL include/nlohmann/json.hpp
+        WANTS "cppdap's JSON backend")
+
     # cppdap (the DAP server library): no examples/tests/fuzzer, vendored
     # nlohmann/json. Exposes the `cppdap` target with its include dir.
     set(CPPDAP_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)

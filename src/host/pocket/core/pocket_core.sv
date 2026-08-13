@@ -15,11 +15,26 @@
 module pocket_core #(
     parameter TCM_INIT_FILE = ""
 ) (
+    /* The machine is stopped by taking its clocks away, which is not
+     * this module's to do. It says when it wants them gone and where it
+     * is safe to cut -- the 6502 in front of an instruction rather than
+     * inside one -- and whoever owns the clock tree does the rest. One
+     * control, at the source, instead of an enable in every subsystem
+     * that has one. */
+    output logic pocket_core_stop_req,
+    /* Whether the machine's clocks are being delivered. Whoever owns
+     * the clock tree answers. */
+    input logic mach_running,
+
+    /* The machine's clock, which stops. Every other clock here does
+     * not -- the soft CPU's included: it is halted at its debug port
+     * instead, so its clock keeps running. */
+    input logic clk_mach,
+    input logic clk_rv,
+
     input logic clk_74a,
     input logic clk_sys,
-    /* Half clk_sys, rising with it; see pocket_pll. */
-    input logic clk_rv,
-    input logic clk_vid,
+input logic clk_vid,
     input logic rst_n,
     input logic arst_n,
 
@@ -48,17 +63,28 @@ module pocket_core #(
     output logic [31:0] pocket_core_dataslot_length,
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
-    input logic [31:0] cont1_key,
-    input logic [31:0] cont1_joy,
-    input logic [15:0] cont1_trig,
-    /* The dock's keyboard: six scan codes across joy and trig. */
-    input logic [31:0] cont3_key,
-    input logic [31:0] cont3_joy,
-    input logic [15:0] cont3_trig,
-    /* The dock's mouse: a report counter, buttons, two movements. */
-    input logic [31:0] cont4_key,
-    input logic [31:0] cont4_joy,
-    input logic [15:0] cont4_trig,
+
+    /* Sleep, which on this platform is a savestate. The command levels
+     * are edge-detected and acked in the fabric; everything after the
+     * ack is the firmware's. */
+    input logic savestate_start,
+    output logic pocket_core_savestate_start_ack,
+    output logic pocket_core_savestate_start_busy,
+    output logic pocket_core_savestate_start_ok,
+    output logic pocket_core_savestate_start_err,
+    input logic savestate_load,
+    output logic pocket_core_savestate_load_ack,
+    output logic pocket_core_savestate_load_busy,
+    output logic pocket_core_savestate_load_ok,
+    output logic pocket_core_savestate_load_err,
+    /* APF's four controller slots. A slot holds a gamepad, the dock's
+     * keyboard as six scan codes across joy and trig, the dock's mouse
+     * as a report counter and two movements, or nothing at all — and
+     * says which in the top nibble of its key word. The firmware asks;
+     * nothing between here and there cares. */
+    input logic [3:0][31:0] cont_key,
+    input logic [3:0][31:0] cont_joy,
+    input logic [3:0][15:0] cont_trig,
 
     /* The scaler. */
     output logic [23:0] pocket_core_rgb,
@@ -149,8 +175,8 @@ module pocket_core #(
     /* The machine still offers its key mailbox; nothing on the Pocket
      * fills it, so nothing here reads whether it is full. */
     logic key_pending;
-    logic [31:0] pad_key, pad_joy, kbd_key, kbd_joy, mou_key, mou_joy;
-    logic [15:0] pad_trig, kbd_trig, mou_trig;
+    logic [3:0][31:0] cont_key_sys, cont_joy_sys;
+    logic [3:0][15:0] cont_trig_sys;
     logic [31:0] slot_len;
 
     logic w_avail, w_take;
@@ -174,15 +200,9 @@ module pocket_core #(
         .pocket_bridge_dt_addr(bridge_dt_addr),
         .pocket_bridge_dt_busy(dt_busy),
         .datatable_q(datatable_q),
-        .cont1_key(cont1_key),
-        .cont1_joy(cont1_joy),
-        .cont1_trig(cont1_trig),
-        .cont3_key(cont3_key),
-        .cont3_joy(cont3_joy),
-        .cont3_trig(cont3_trig),
-        .cont4_key(cont4_key),
-        .cont4_joy(cont4_joy),
-        .cont4_trig(cont4_trig),
+        .cont_key(cont_key),
+        .cont_joy(cont_joy),
+        .cont_trig(cont_trig),
         .clk_sys(clk_sys),
         .sdram_ready(pocket_core_ready),
         .w_take(w_take),
@@ -193,18 +213,13 @@ module pocket_core #(
         .pocket_bridge_slot_set(slot_set),
         .pocket_bridge_slot_len(slot_len),
         .pocket_bridge_upd_n(upd_n),
-        .pocket_bridge_pad_key(pad_key),
-        .pocket_bridge_pad_joy(pad_joy),
-        .pocket_bridge_pad_trig(pad_trig),
-        .pocket_bridge_kbd_key(kbd_key),
-        .pocket_bridge_kbd_joy(kbd_joy),
-        .pocket_bridge_kbd_trig(kbd_trig),
-        .pocket_bridge_mou_key(mou_key),
-        .pocket_bridge_mou_joy(mou_joy),
-        .pocket_bridge_mou_trig(mou_trig),
+        .pocket_bridge_cont_key(cont_key_sys),
+        .pocket_bridge_cont_joy(cont_joy_sys),
+        .pocket_bridge_cont_trig(cont_trig_sys),
         .pocket_bridge_set_tz(set_tz),
         .pocket_bridge_set_tz_min(set_tz_min),
         .pocket_bridge_set_tz_sign(set_tz_sign),
+        .pocket_bridge_set_kb(set_kb),
         .rtc_epoch(rtc_epoch),
         .rtc_valid(rtc_valid),
         .pocket_bridge_rtc_epoch(rtc_epoch_sys),
@@ -246,13 +261,54 @@ module pocket_core #(
         .dram_dq_in(dram_dq_in)
     );
 
-    logic [15:0] ram_a_addr, ram_b_addr;
+    logic [15:0] ram_a_addr, ram_b_addr /*verilator public_flat_rd*/;
     logic [7:0] ram_a_wdata, ram_b_wdata, ram_a_rdata, ram_b_rdata;
-    logic ram_a_we, ram_b_we, ram_b_stb, ram_b_stall, ram_hold;
+    logic ram_refill;
+    logic ram_a_we, ram_b_we /*verilator public_flat_rd*/,
+        ram_b_stb /*verilator public_flat_rd*/,
+        ram_b_stall /*verilator public_flat_rd*/, ram_hold;
+    /* machine_resb carries the machine's effective reset, which since
+     * the restore rework is resb AND the engine's reset hold -- a
+     * combinational term. It async-resets the 6502 and the VIA inside
+     * the machine and paces port A here synchronously; the lint that
+     * dislikes that mix is answered by construction: both sources are
+     * single flops and every orchestrated transition is monotonic. */
+    /* verilator lint_off SYNCASYNCNET */
     logic machine_phi2_en, machine_resb;
+    /* verilator lint_on SYNCASYNCNET */
+
+    /* The machine-clock enable, brought into this clock so port A's
+     * launch condition can be trusted while the machine is stopped. */
+    (* preserve *) logic run_s1, run_s2;
+    initial begin
+        run_s1 = 1'b1;
+        run_s2 = 1'b1;
+    end
+    always_ff @(posedge clk_sys) begin
+        run_s1 <= mach_running;
+        run_s2 <= run_s1;
+    end
+
+    /* What the SRAM's port A is masked by, which is not the same
+     * question. It has to be high before the gate closes is too early
+     * -- that masks live 6502 accesses -- and low again before the
+     * clock returns, because the launch condition is phi2_en and the
+     * first enable after a resume is legal. Waiting for mach_running
+     * to come back is two or three clocks too late, and at eight
+     * megahertz the 6502 has a better than even chance of spending one
+     * of them, taking a cycle on a byte port A never went and got.
+     *
+     * So: the same shape the serializer uses for its own array mask.
+     * Up once the gate has actually closed -- the request alone leads
+     * it -- and down the instant the request goes, which is several of
+     * the host's clocks before the gate opens again. */
+    logic mach_gated;
+    always_comb mach_gated = pocket_core_stop_req && !run_s2;
 
     pocket_sram sram (
         .clk(clk_sys),
+        .run(!mach_gated),
+        .refill(ram_refill),
         .phi2_en(machine_phi2_en),
         .cpu_run(machine_resb),
         .a_addr(ram_a_addr),
@@ -278,20 +334,22 @@ module pocket_core #(
 
     logic [27:0] host_addr;
     logic host_stb, host_we;
-    logic [31:0] host_wdata, host_rdata, file_rdata;
+    logic [31:0] host_wdata, host_rdata, file_rdata, sst_rdata;
     logic [31:0] set_tz, set_tz_min, set_tz_sign;
+    logic [31:0] set_kb;
     logic [31:0] rtc_epoch_sys;
     logic rtc_valid_sys;
 
     /* The platform window's second half is what the interact menu has
      * set plus the host's clock, read-only: the machine polls it and
-     * applies what changed. Bit 16 picks; the file bridge owns
-     * everything below it. */
+     * applies what changed. Bit 16 picks it and bit 17 the savestate
+     * bridge; the file bridge owns everything below both. */
     logic [31:0] set_rdata;
     initial set_rdata = '0;
     always_ff @(posedge clk_sys) begin
         if (host_stb)
             case (host_addr[4:2])
+                3'd0: set_rdata <= set_kb;
                 3'd2: set_rdata <= set_tz;
                 3'd3: set_rdata <= rtc_epoch_sys;
                 3'd4: set_rdata <= {31'd0, rtc_valid_sys};
@@ -300,13 +358,15 @@ module pocket_core #(
                 default: set_rdata <= '0;
             endcase
     end
-    always_comb host_rdata = host_addr_q ? set_rdata : file_rdata;
+    always_comb
+        host_rdata = host_sel_q[1] ? sst_rdata
+            : (host_sel_q[0] ? set_rdata : file_rdata);
 
-    logic host_addr_q;
-    initial host_addr_q = 1'b0;
+    logic [1:0] host_sel_q;
+    initial host_sel_q = '0;
     always_ff @(posedge clk_sys)
         if (host_stb)
-            host_addr_q <= host_addr[16];
+            host_sel_q <= host_addr[17:16];
 
     logic [15:0] vid_pixel;
     logic vid_de, vid_frame;
@@ -317,7 +377,44 @@ module pocket_core #(
     logic [31:0] rv_exit_code;
     logic [9:0] scanline;
 
+    /* The savestate engine holds the machine; nothing outside walks
+     * its state port directly. */
+    logic sst_save, sst_ready, sst_rd_sel, sst_word_valid, sst_rd_t;
+    logic sst_load, sst_load_done, sst_load_err;
+    logic [17:0] sst_rd_idx;
+    logic [31:0] sst_word, sst_rd_data;
+
+    /* verilator lint_off PINCONNECTEMPTY */
     rp6502 #(.TCM_INIT_FILE(TCM_INIT_FILE), .EXT_RAM(1)) machine (
+        .clk_mach(clk_mach),
+        .mach_running(mach_running),
+        .rp6502_sst_stop_req(pocket_core_stop_req),
+        .sst_tcm_sel(1'b0),
+        .sst_tcm_addr(15'd0),
+        .sst_tcm_we(1'b0),
+        .sst_tcm_wdata(32'd0),
+        .rp6502_sst_tcm_rdata(),
+        .sst_dbg_halt(1'b0),
+        .sst_dbg_halt_on_reset(1'b0),
+        .sst_dbg_resume(1'b0),
+        .rp6502_sst_dbg_halted(),
+        .sst_dbg_data0(32'd0),
+        .rp6502_sst_dbg_data0(),
+        .rp6502_sst_dbg_data0_wen(),
+        .sst_dbg_instr(32'd0),
+        .sst_dbg_instr_vld(1'b0),
+        .rp6502_sst_dbg_instr_rdy(),
+        .rp6502_sst_dbg_ebreak(),
+        .rp6502_sst_dbg_fault(),
+        .sst_save(sst_save),
+        .sst_load(sst_load),
+        .rp6502_sst_load_done(sst_load_done),
+        .rp6502_sst_load_err(sst_load_err),
+        .rp6502_sst_ready(sst_ready),
+        .sst_rd_idx(sst_rd_idx),
+        .sst_rd_t(sst_rd_t),
+        .rp6502_sst_rdata(sst_word),
+        .rp6502_sst_rvalid(sst_word_valid),
         .clk_sys(clk_sys),
         .clk_rv(clk_rv),
         .rst_n(mrst_sys_n),
@@ -344,15 +441,9 @@ module pocket_core #(
         .upd_n(upd_n),
         .key_set(1'b0),
         .key_code(9'd0),
-        .pad_key(pad_key),
-        .pad_joy(pad_joy),
-        .pad_trig(pad_trig),
-        .kbd_key(kbd_key),
-        .kbd_joy(kbd_joy),
-        .kbd_trig(kbd_trig),
-        .mou_key(mou_key),
-        .mou_joy(mou_joy),
-        .mou_trig(mou_trig),
+        .cont_key(cont_key_sys),
+        .cont_joy(cont_joy_sys),
+        .cont_trig(cont_trig_sys),
         .rp6502_key_pending(key_pending),
         .rp6502_vid_pixel(vid_pixel),
         .rp6502_vid_de(vid_de),
@@ -370,12 +461,14 @@ module pocket_core #(
         .rp6502_ram_b_wdata(ram_b_wdata),
         .rp6502_ram_b_we(ram_b_we),
         .rp6502_ram_b_stb(ram_b_stb),
+        .rp6502_ram_refill(ram_refill),
         .ram_b_rdata(ram_b_rdata),
         .ram_b_stall(ram_b_stall),
         .ram_hold(ram_hold),
         .rp6502_phi2_en(machine_phi2_en),
         .rp6502_cpu_run(machine_resb)
     );
+    /* verilator lint_on PINCONNECTEMPTY */
 
     /* The file bridge keeps the platform reset, not the machine's: a
      * command in flight belongs to the host, and a reboot that dropped
@@ -383,7 +476,7 @@ module pocket_core #(
      * it asked. */
     pocket_file file (
         .clk_sys(clk_sys),
-        .stb(host_stb && !host_addr[16]),
+        .stb(host_stb && !host_addr[16] && !host_addr[17]),
         .we(host_we),
         .addr(host_addr),
         .wdata(host_wdata),
@@ -393,7 +486,8 @@ module pocket_core #(
         .arst_n(arst_n),
         .bridge_addr(bridge_addr),
         .bridge_rd(bridge_rd),
-        .pocket_file_rd_data(pocket_core_bridge_rd_data),
+        .bridge_wr(bridge_wr),
+        .pocket_file_rd_data(file_rd_data),
         .pocket_file_param_struct(pocket_core_param_struct),
         .pocket_file_resp_struct(pocket_core_resp_struct),
         .pocket_file_dt_req(file_dt_req),
@@ -413,8 +507,53 @@ module pocket_core #(
         .target_dataslot_err(target_dataslot_err)
     );
 
-    pocket_video video (
+    /* Like the file bridge, on the platform's reset rather than the
+     * machine's: a savestate belongs to the host, and a reboot that
+     * dropped one would leave the bridge waiting. */
+    pocket_sst sst (
         .clk_sys(clk_sys),
+        .stb(host_stb && host_addr[17]),
+        .we(host_we),
+        .addr(host_addr),
+        .wdata(host_wdata),
+        .pocket_sst_rdata(sst_rdata),
+        .clk_74a(clk_74a),
+        .arst_n(arst_n),
+        .bridge_wr(bridge_wr),
+        .bridge_rd(bridge_rd),
+        .bridge_addr(bridge_addr),
+        .pocket_sst_rd_data(sst_rd_data),
+        .pocket_sst_rd_sel(sst_rd_sel),
+        .pocket_sst_save(sst_save),
+        .pocket_sst_load(sst_load),
+        .sst_load_done(sst_load_done),
+        .sst_load_err(sst_load_err),
+        .sst_ready(sst_ready),
+        .pocket_sst_rd_idx(sst_rd_idx),
+        .pocket_sst_rd_t(sst_rd_t),
+        .sst_rdata(sst_word),
+        .sst_rvalid(sst_word_valid),
+        .savestate_start(savestate_start),
+        .pocket_sst_start_ack(pocket_core_savestate_start_ack),
+        .pocket_sst_start_busy(pocket_core_savestate_start_busy),
+        .pocket_sst_start_ok(pocket_core_savestate_start_ok),
+        .pocket_sst_start_err(pocket_core_savestate_start_err),
+        .savestate_load(savestate_load),
+        .pocket_sst_load_ack(pocket_core_savestate_load_ack),
+        .pocket_sst_load_busy(pocket_core_savestate_load_busy),
+        .pocket_sst_load_ok(pocket_core_savestate_load_ok),
+        .pocket_sst_load_err(pocket_core_savestate_load_err)
+    );
+
+    /* Two things answer a bridge read, and the blob's window is decoded
+     * exactly rather than by the megabyte around it. */
+    logic [31:0] file_rd_data;
+    always_comb
+        pocket_core_bridge_rd_data = sst_rd_sel ? sst_rd_data : file_rd_data;
+
+    pocket_video video (
+        .run(run_s2),
+        .clk_mach(clk_mach),
         .vid_pixel(vid_pixel),
         .vid_de(vid_de),
         .vid_frame(vid_frame),
@@ -431,7 +570,7 @@ module pocket_core #(
      * family, and a machine reset just stops the pushes — the shifter
      * repeats the last sample, flat, until the reboot resumes. */
     pocket_i2s i2s (
-        .clk_sys(clk_sys),
+        .clk_mach(clk_mach),
         .aud_l(aud_l),
         .aud_r(aud_r),
         .aud_valid(aud_valid),

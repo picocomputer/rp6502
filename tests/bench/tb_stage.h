@@ -4,10 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The staging store, as the platform presents it. The picked image is a
- * whole copy the host pushes to TB_STAGE_ROM_BASE; the fonts and the
- * code page tables are whole files the host places once and the machine
- * reads at random; a descriptor's bytes arrive through that slot's own
- * 32 KB window, written by the host when it performs a read.
+ * whole copy the host pushes to TB_STAGE_ROM_BASE; the fonts, the code
+ * page tables and the keyboard layouts are whole files the host places
+ * once and the machine reads at random; a descriptor's bytes arrive
+ * through that slot's own 32 KB window, written by the host when it
+ * performs a read.
  *
  * The assets are the core's own files, not fixtures, so they load once
  * and every test shares them.
@@ -31,6 +32,9 @@
 #define TB_STAGE_FONT_SIZE 0x0000F000u
 #define TB_STAGE_OEMCP_BASE 0x03FEF000u
 #define TB_STAGE_OEMCP_SIZE 0x00002000u
+/* Above Get File's scratch page at 0x03FF1000, which is not a slot. */
+#define TB_STAGE_KBDLAY_BASE 0x03FF2000u
+#define TB_STAGE_KBDLAY_SIZE 0x00004000u
 
 static const std::vector<uint8_t> &tb_stage_load(const char *path,
                                                  std::vector<uint8_t> &v)
@@ -58,6 +62,12 @@ static const std::vector<uint8_t> &tb_stage_oemcp()
 {
     static std::vector<uint8_t> v;
     return tb_stage_load(OEMCP_BIN, v);
+}
+
+static const std::vector<uint8_t> &tb_stage_kbdlay()
+{
+    static std::vector<uint8_t> v;
+    return tb_stage_load(KBDLAY_BIN, v);
 }
 
 /* What the host has written into the windows. Sparse, because a test
@@ -99,6 +109,13 @@ static uint8_t tb_stage(const std::vector<uint8_t> &rom, uint32_t addr)
     {
         const std::vector<uint8_t> &t = tb_stage_oemcp();
         uint32_t i = addr - TB_STAGE_OEMCP_BASE;
+        return i < t.size() ? t[i] : 0;
+    }
+    if (addr >= TB_STAGE_KBDLAY_BASE
+        && addr < TB_STAGE_KBDLAY_BASE + TB_STAGE_KBDLAY_SIZE)
+    {
+        const std::vector<uint8_t> &t = tb_stage_kbdlay();
+        uint32_t i = addr - TB_STAGE_KBDLAY_BASE;
         return i < t.size() ? t[i] : 0;
     }
     if (addr >= TB_STAGE_ROM_BASE

@@ -3,12 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * One RAM: the tightly-coupled memory at zero, code first because the
- * reset vector is address zero. The stack grows down from the top.
+ * Code first because the reset vector is address zero.
  *
- * VIDCELLS is the terminal's cell window, and its length is the one in
- * vid_mode0.sv — the linker's view of an array the fabric owns. Both
- * screens, so it moves with TERM_ALT_SCREEN in vga/term/term.h.
+ * VIDCELLS length must match vid_mode0.sv, and covers both screens, so
+ * it moves with TERM_ALT_SCREEN in vga/term/term.h.
  */
 
 MEMORY
@@ -35,9 +33,8 @@ SECTIONS
         . = ALIGN(4);
     } > TCM
 
-    /* term.c's four screen buffers land behind the vid window, where the
-     * hardware is the memory; claimed here so the .bss glob below cannot.
-     * NOLOAD: BRAM powers up zero, nothing to copy or clear. */
+    /* Claimed before the .bss glob below can take them. NOLOAD: BRAM
+     * powers up zero, nothing to copy or clear. */
     .vidcells (NOLOAD) : {
         *(.bss.term40_pri_mem*)
         *(.bss.term40_alt_mem*)
@@ -56,15 +53,12 @@ SECTIONS
 
     __stack_top = ORIGIN(TCM) + LENGTH(TCM);
 
-    /* The heap exists for setenv: the time zone rides the environment
-     * so the C library's localtime, mktime and strftime all read one
-     * offset. A few short strings, once — but sbrk needs its bounds,
-     * and the top is held back so the stack keeps room of its own. */
+    /* The heap exists for setenv: the time zone rides the environment so
+     * localtime, mktime and strftime all read one offset. */
     __heap_start = __bss_end;
     __heap_end = __stack_top - 4K;
 
-    /* The RIA register cells are hardware; REGS() indexes them here, and
-     * the xstack and its pointer live behind the same window. */
+    /* Hardware register cells, not memory. */
     PROVIDE(regs = 0x20000000);
     PROVIDE(xstack = 0x20000100);
     PROVIDE(xstack_ptr = 0x20000320);

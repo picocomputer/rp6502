@@ -123,6 +123,32 @@ UTEST(aud, psg_makes_a_noise)
     ASSERT_GT(g_valids, (long)0);
 }
 
+/* The same note with the block written before the pointer. An engine
+ * that only hears writes would have nothing to play, so this is the
+ * import's end of the plumbing: the whole structure has to arrive, and
+ * the gate written among it has to not sound, which is what the machine
+ * that reads XRAM does with its queue. The note starts on the gate
+ * written afterwards, so silence here would be an import that struck it
+ * early rather than one that never ran. */
+UTEST(aud, a_psg_block_programmed_before_its_pointer)
+{
+    ASSERT_TRUE(load_rom(AUD_ROM_PSG_PRE));
+    /* One frame for the last program's note to die under the firmware's
+     * park: these engines free-run and take no reset. */
+    run_frame();
+    /* The program holds its own gate off for about five frames. */
+    for (int i = 0; i < 3; i++)
+    {
+        g_energy = 0;
+        g_peak = 0;
+        run_frame();
+        ASSERT_EQ(g_peak, 0);
+    }
+    int at = frames_to_sound(16);
+    ASSERT_NE(at, -1);
+    ASSERT_GT(g_peak, 4096);
+}
+
 UTEST(aud, opl_makes_a_noise)
 {
     ASSERT_TRUE(load_rom(AUD_ROM_OPL));

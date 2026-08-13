@@ -18,22 +18,17 @@
 
 module aud_opl #(
     /* DAC_OUTPUT_WIDTH is 24, but that is the container and not the
-     * range. dac_prep parks a saturated 16-bit channel sum at
+     * range: dac_prep parks a saturated 16-bit channel sum at
      * DAC_LEFT_SHIFT = 5, so core_sample is channel <<< 5 and its real
-     * range is 2^20 — the whole mix, not one voice. An older note here
-     * claimed 2^21 from nine voices; channels.sv saturates the sum to
-     * SAMPLE_WIDTH first, so that figure was never reachable and the
-     * shift derived from it puts this engine at half the level of the C.
+     * range is 2^20 — the whole mix, not one voice.
      *
-     * Five is unity: (channel <<< 5) >>> 5 is the core's own level, so
-     * this engine adds no gain. The RTL YM3812 is the closer thing to
-     * the chip, so it sets the level and opl.c multiplies emu8950 by
-     * four to reach the same place.
+     * Five is unity, so this engine adds no gain. The RTL YM3812 sets
+     * the level and opl.c multiplies emu8950 by four to reach it.
      *
      * THE TWO CONSTANTS ARE NOT INDEPENDENT: move opl.c's four or this
-     * five alone and the platforms diverge by 12 dB, which every test
-     * passed anyway. They clip together too, from opposite directions,
-     * at the same 8192 in emu8950 units. */
+     * five alone and the platforms diverge by 12 dB with every test
+     * still passing. They clip together at the same 8192 in emu8950
+     * units. */
     parameter int SAMPLE_SHIFT = 5
 ) (
     input logic clk,
@@ -151,11 +146,9 @@ module aud_opl #(
     );
     /* verilator lint_on PINCONNECTEMPTY */
 
-    /* Zero when the pointer is parked. The engine is free-running
-     * hardware and its core holds whatever it was last playing, so
-     * without this a stopped program keeps sounding — which the old
-     * output mux hid by selecting the PSG instead, and a sum would
-     * not. */
+    /* Zero when the pointer is parked: the core is free-running and
+     * holds whatever it was last playing, so without this a stopped
+     * program keeps sounding. */
     logic signed [24:0] mixed;
     always_comb mixed = enabled ? (25'(core_sample) >>> SAMPLE_SHIFT) : 25'sd0;
 

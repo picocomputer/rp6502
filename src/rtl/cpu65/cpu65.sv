@@ -32,8 +32,33 @@ module cpu65
     output logic [15:0] cpu65_addr,
     output logic [7:0] cpu65_data,
     output logic cpu65_we,
-    output logic cpu65_sync,
     output logic cpu65_stp,
+    /* Beside stp because a freeze has to know about both: neither stall
+     * cycle fetches, so a gate that waits for sync alone never lets go
+     * of a core sitting in WAI. */
+
+    /* Everything the core is, as five words, for stopping it in one
+     * place and starting it again somewhere else. Reads are free; a
+     * write lands directly in the flops, which is only sound while en
+     * is held low, and that is the caller's part of the bargain.
+     *
+     * The registers are the obvious half. The half that is not: the
+     * interrupt pipelines, because a detection is honoured two
+     * boundaries after it arrives and a core restored without them
+     * takes the interrupt late or never; and the wait and stop flags,
+     * because a core in WAI has to come back still in WAI.
+     *
+     * ad, ir, tick, the brk causes and res_seen are dead at an
+     * instruction boundary, which is the only place a freeze lands.
+     * They travel anyway — they cost nothing in words already being
+     * carried, and the port then describes the core rather than one
+     * moment in it. */
+    input logic [2:0] st_idx,
+    output logic [31:0] cpu65_st_rdata,
+    /* The whole of it at once, because a restore lands with the clock
+     * already back. */
+    input logic st_jam,
+    input logic [31:0] st_jam_data[5],
 
     /* What the bus will carry after this enable — the same values the
      * registers take at the edge, published before it. A memory that
@@ -44,6 +69,11 @@ module cpu65
     output logic [7:0] cpu65_next_data,
     output logic cpu65_next_we
 );
+
+    /* Fetch cycle marker. Once an output for the freeze boundary; the
+     * clock-stop design needs no boundary, so it is internal state
+     * again -- the interrupt takes and the blob still ride on it. */
+    logic cpu65_sync /*verilator public_flat_rd*/;
 
     // P flag bits
     localparam int FC = 0;
@@ -86,6 +116,34 @@ module cpu65
     // ------------------------------------------------------------------
     // Stalls, detection, and the SYNC prologue
     // ------------------------------------------------------------------
+
+
+    /* The five words. Packed so a byte register never straddles one:
+     * the engine writes them back verbatim and nothing has to agree
+     * about bit order twice. */
+    always_comb begin
+        case (st_idx)
+            3'd0: cpu65_st_rdata = {s, y, x, a};
+            3'd1: cpu65_st_rdata = {ir, p, pc};
+            3'd2:
+            cpu65_st_rdata = {
+                ad,
+                5'd0,
+                tick,
+                res_seen,
+                nmi_prev,
+                stop_flag,
+                wait_flag,
+                brk_res,
+                brk_nmi,
+                brk_irq,
+                cpu65_we
+            };
+            3'd3: cpu65_st_rdata = {irq_pip, nmi_pip};
+            3'd4: cpu65_st_rdata = {cpu65_addr, cpu65_data, 7'd0, cpu65_sync};
+            default: cpu65_st_rdata = 32'd0;
+        endcase
+    end
 
     logic stop_stall, wait_stall, rdy_stall;
     always_comb begin
@@ -583,6 +641,28 @@ module cpu65
             cpu65_data <= 8'h00;
             cpu65_we <= 1'b0;
             cpu65_sync <= 1'b1;
+        end else if (st_jam) begin
+            /* All five words on one edge, ahead of en. A restore
+             * happens with the clock back on, and a jam spread over
+             * five edges would let the core run through the four it was
+             * not being written on. One edge is the whole state and no
+             * instruction in between. */
+            {s, y, x, a} <= st_jam_data[0];
+            {ir, p, pc} <= st_jam_data[1];
+            ad <= st_jam_data[2][31:16];
+            tick <= st_jam_data[2][10:8];
+            res_seen <= st_jam_data[2][7];
+            nmi_prev <= st_jam_data[2][6];
+            stop_flag <= st_jam_data[2][5];
+            wait_flag <= st_jam_data[2][4];
+            brk_res <= st_jam_data[2][3];
+            brk_nmi <= st_jam_data[2][2];
+            brk_irq <= st_jam_data[2][1];
+            cpu65_we <= st_jam_data[2][0];
+            {irq_pip, nmi_pip} <= st_jam_data[3];
+            cpu65_addr <= st_jam_data[4][31:16];
+            cpu65_data <= st_jam_data[4][15:8];
+            cpu65_sync <= st_jam_data[4][0];
         end else if (en) begin
             nmi_prev <= nmi_i;
             if (stop_stall || wait_stall) begin

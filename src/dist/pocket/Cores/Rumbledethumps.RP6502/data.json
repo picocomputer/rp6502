@@ -10,7 +10,7 @@
         "extensions": [
           "rp6502"
         ],
-        "size_maximum": "0x03FA0000",
+        "size_maximum": "0x03F00000",
         "address": "0x00000000"
       },
       {
@@ -94,6 +94,15 @@
         "filename": "oemcp.bin",
         "size_exact": "5080",
         "address": "0x03FEF000"
+      },
+      {
+        "name": "Keyboard layouts",
+        "id": 11,
+        "required": true,
+        "parameters": "0x0",
+        "filename": "keyboard.bin",
+        "size_exact": "8056",
+        "address": "0x03FF2000"
       }
     ]
   }

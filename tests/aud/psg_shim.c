@@ -84,11 +84,7 @@ void shim_xram_write(uint16_t addr, uint8_t val)
     }
 }
 
-uint32_t shim_xram_word(uint16_t word_addr)
+uint8_t shim_xram_read(uint16_t addr)
 {
-    uint32_t at = (uint32_t)word_addr * 4;
-    return (uint32_t)xram_backing[at]
-        | ((uint32_t)xram_backing[at + 1] << 8)
-        | ((uint32_t)xram_backing[at + 2] << 16)
-        | ((uint32_t)xram_backing[at + 3] << 24);
+    return xram_backing[addr];
 }

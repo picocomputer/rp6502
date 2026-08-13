@@ -3,15 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Where this machine keeps its code page tables. Five kilobytes of table is
- * more than the tightly coupled memory can spare beside the firmware,
- * so they ride in the staging store beside the fonts, loaded
- * from oemcp.bin the same way and by the same data slot machinery.
+ * The code page tables ride in the staging store beside the fonts,
+ * because five kilobytes is more than the TCM can spare.
  *
- * The staging window is byte-wide by construction — a read there puts
- * one byte on every lane — so a word is two reads and a shift. That is
- * the whole reason src/ria/api/uni.c routes every table access through
- * this function instead of indexing an array.
+ * The staging window is byte-wide by construction, so a word is two
+ * reads and a shift. That is why src/ria/api/uni.c routes every table
+ * access through this function instead of indexing an array.
  */
 
 #include "mmio.h"

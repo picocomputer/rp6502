@@ -30,8 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init firmware submodules
-        run: git submodule update --init --depth 1 vendor/littlefs vendor/tinyusb
 
       - name: Install host packages
         run: |
@@ -87,6 +85,7 @@ jobs:
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
           cmake -S . -B build -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2_w \
             -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
@@ -101,6 +100,7 @@ jobs:
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
           cmake -S . -B build/pico2 -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2 \
             -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
@@ -139,12 +139,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init emulator submodules
-        run: |
-          git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap \
-            vendor/6502_65C02_functional_tests
-          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       - name: Install build + windowed-emu dependencies
         run: |
@@ -156,7 +150,8 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/emu -B build/emulator/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S src/emu -B build/emulator/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build/emulator/release
 
       - name: Run emulator tests
@@ -182,17 +177,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init emulator submodules
-        run: |
-          git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap \
-            vendor/6502_65C02_functional_tests
-          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
           cmake -S src/emu -B build/emulator/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
           cmake --build build/emulator/release
 
@@ -241,8 +231,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init web-build submodules
-        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/emsdk vendor/6502_65C02_functional_tests
+      # The only init left: this job installs the SDK before it configures,
+      # so the submodule has to be here before CMake could fetch it. The
+      # rest of what this build reads, CMake fetches.
+      - name: Init Emscripten SDK submodule
+        run: git submodule update --init --depth 1 vendor/emsdk
 
       - name: Install build tools
         run: |
@@ -260,7 +253,7 @@ jobs:
           set -exo pipefail
           source ./vendor/emsdk/emsdk_env.sh
           cd src/emu
-          cmake --preset wasm
+          cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON
           cmake --build --preset wasm
 
       - name: Package itch.io bundle
@@ -284,13 +277,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init emulator submodules
-        shell: bash
-        run: |
-          git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap vendor/wingetopt
-          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
-
       # Set up the MSVC x64 toolchain via the runner's own Visual Studio (no
       # third-party action), then build in the same step so the dev-shell env
       # (cl.exe, INCLUDE/LIB) is in scope. ctest below only runs the built exes.
@@ -303,7 +289,7 @@ jobs:
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           cd src/emu
-          cmake --preset release
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build --preset release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -333,8 +319,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -349,7 +333,7 @@ jobs:
 
       - name: Stage Android APK
         run: |
-          cp src/host/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
+          cp build/android/gradle/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
 
       - uses: actions/upload-artifact@v7
         with:
@@ -380,9 +364,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init simulation submodules
-        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/hazard3 vendor/opl2_fpga vendor/6502_65C02_functional_tests
-
       - name: Install build dependencies + Verilator + RISC-V toolchain
         run: |
           sudo apt-get update
@@ -390,14 +371,10 @@ jobs:
             build-essential cmake ninja-build verilator \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      # Blobless sparse clone of one directory; the full repo is 4.8 GB.
-      - name: Fetch SingleStepTests CPU vectors
-        run: python3 tests/cpu65/vectors.py
-
       - name: Configure & build simulation
         run: |
           set -euxo pipefail
-          cmake --preset verilator/Release
+          cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON
           cmake --build --preset Tests
         working-directory: src/rtl
 
@@ -475,11 +452,6 @@ jobs:
       # ROM at configure time, and it reads chips/codegen and opl2_fpga to
       # do it. This job needs no simulator and no test fixtures, which is
       # why it is not simply test-rtl's list.
-      - name: Init submodules
-        run: >-
-          git submodule update --init --depth 1
-          vendor/hazard3 vendor/openfpga vendor/chips vendor/opl2_fpga
-
       - name: Install build dependencies + RISC-V toolchain
         run: |
           sudo apt-get update

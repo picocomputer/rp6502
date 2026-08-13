@@ -235,18 +235,20 @@
         {
             "label": "vectors: download",
             "type": "process",
-            "command": "python3",
+            "command": "cmake",
             "args": [
-                "${workspaceFolder}/tests/cpu65/vectors.py"
+                "-DRP6502_ROOT=${workspaceFolder}",
+                "-DFETCH_SUPER=${workspaceFolder}",
+                "-DFETCH_PATH=vendor/65x02",
+                "-DFETCH_SPARSE=wdc65c02/v1",
+                "-P",
+                "${workspaceFolder}/submodules.cmake"
             ],
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": [],
-            "windows": {
-                "command": "python"
-            }
+            "problemMatcher": []
         },
         {
             "label": "emsdk: install",

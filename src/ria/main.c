@@ -390,15 +390,21 @@ void main_stop(void)
         main_state = stopping;
 }
 
-void main_break(void)
+bool main_break(void)
 {
     pro_cancel_launcher();
     is_breaking = true;
+    return true;
 }
 
-void main_break_to_launcher(void)
+bool main_break_to_launcher(void)
 {
+    // From the launcher there is nowhere to return to.
+    if (pro_is_launcher())
+        return false;
+    api_set_ax(0xFFFF);
     is_breaking = true;
+    return true;
 }
 
 bool main_active(void)

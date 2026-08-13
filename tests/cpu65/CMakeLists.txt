@@ -2,9 +2,7 @@
 #
 # The emulator's CPU and the FPGA core's answer the same dut.h, so one set of
 # suites holds both: vec.c and klaus.c are the evidence, chips_dut.c and
-# cpu65_dut.cpp are the two implementations under it. Each suite is guarded on
-# its own fixtures — the Klaus images arrive with the submodules, the
-# SingleStepTests vectors are a developer download (see README).
+# cpu65_dut.cpp are the two implementations under it.
 
 set(CPU_DUT ${CMAKE_CURRENT_LIST_DIR}/chips_dut.c)
 set(CPU_INCLUDES
@@ -13,10 +11,14 @@ set(CPU_INCLUDES
     ${RP6502_VENDOR})
 
 # --- SingleStepTests: per-cycle bus traces, one instruction per case ---
+# Upstream carries five CPU families, so SPARSE takes the one we run.
+rp6502_submodule(vendor/65x02 SENTINEL wdc65c02/v1/00.json
+    SPARSE wdc65c02/v1 TARGET vectors-download OPTIONAL
+    WANTS "per-cycle conformance" RESULT RP6502_HAVE_SSTESTS)
 set(SSTESTS ${RP6502_ROOT}/vendor/65x02/wdc65c02/v1)
 set(SSVEC_COUNT 100 CACHE STRING "SingleStepTests cases per opcode")
 
-if(EXISTS ${SSTESTS})
+if(RP6502_HAVE_SSTESTS)
     set(VECTORS ${CMAKE_CURRENT_BINARY_DIR}/wdc65c02.vec)
     add_custom_command(OUTPUT ${VECTORS}
         COMMAND ${CMAKE_COMMAND} -E env python3
@@ -34,17 +36,19 @@ if(EXISTS ${SSTESTS})
         TIMEOUT 300)
     add_dependencies(test_vectors cpu_vectors)
 else()
-    message(WARNING
-        "SingleStepTests vectors absent — per-cycle conformance skipped.\n"
-        "  python3 tests/cpu65/vectors.py")
+    message(WARNING "SingleStepTests corpus absent — per-cycle conformance"
+        " skipped.")
 endif()
 
 # --- Klaus Dormann: long self-checking sequences ---
 # GPL-3.0, so it stays a submodule reference rather than bytes in this BSD-3
 # tree. The images are data the tests read; nothing is linked or shipped.
+rp6502_submodule(vendor/6502_65C02_functional_tests
+    SENTINEL bin_files/6502_functional_test.bin
+    WANTS "the functional soak" OPTIONAL RESULT RP6502_HAVE_KLAUS)
 set(KLAUS ${RP6502_ROOT}/vendor/6502_65C02_functional_tests/bin_files)
 
-if(EXISTS ${KLAUS}/6502_functional_test.bin)
+if(RP6502_HAVE_KLAUS)
     rp6502_add_test(klaus
         SOURCES test_klaus.c klaus.c ${CPU_DUT}
         INCLUDES ${CPU_INCLUDES}
@@ -53,9 +57,7 @@ if(EXISTS ${KLAUS}/6502_functional_test.bin)
             KLAUS_65C02="${KLAUS}/65C02_extended_opcodes_test.bin"
         TIMEOUT 300)
 else()
-    message(WARNING
-        "Klaus Dormann images absent — functional soak skipped.\n"
-        "  git submodule update --init vendor/6502_65C02_functional_tests")
+    message(WARNING "Klaus Dormann images absent — functional soak skipped.")
 endif()
 
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
@@ -63,7 +65,7 @@ rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
 
 if(RP6502_VERILATE)
     # --- The same two suites again, against the verilated cpu65 ---
-    if(VECTORS AND EXISTS ${KLAUS}/6502_functional_test.bin)
+    if(VECTORS AND RP6502_HAVE_KLAUS)
         rp6502_add_module_test(cpu65
             TOP cpu65
             RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
@@ -88,6 +90,15 @@ if(RP6502_VERILATE)
     else()
         message(WARNING "CPU fixtures absent — cpu65 RTL conformance skipped.")
     endif()
+
+    # --- Stopped here, started again there ---
+    # A savestate's whole claim about the 6502: the core that comes back
+    # continues rather than restarts, cycle for cycle.
+    rp6502_add_module_test(freeze
+        TOP cpu65
+        RTL ${CPU65_ROM} ${RP6502_SRC}/rtl/cpu65/cpu65.sv
+        DEPENDS cpu65_rom
+        TIMEOUT 300)
 
     # --- The VIA in RTL, against chips/m6522.h in lockstep ---
     # T1/T2 timers and their interrupts are live machine features; see

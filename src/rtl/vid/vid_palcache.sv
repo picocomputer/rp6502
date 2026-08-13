@@ -17,18 +17,14 @@
  * more colours than the cache holds would miss per pixel and blow a
  * deadline the fill contract says is deterministic.
  *
- * The read answers where it is used, like the store it replaces: tags and
- * data are flops, the hit and both colors are combinational, and the
- * builtin palettes resolve here so the consumer keeps getting a finished
- * color. The fill side is a master the plane's channel interposes ahead
- * of the mode engine's own fetches — the engine is stalled on the miss,
- * so the port is going spare.
+ * Tags and data are flops, the hit and both colors combinational, and
+ * the builtin palettes resolve here so the consumer always gets a
+ * finished color. The fill interposes ahead of the mode engine's own
+ * fetches, which is free because the engine is stalled on the miss.
  *
  * Coherence is by row, not by write: the flush empties the cache each
- * line, so a palette write lands by the next row. A write racing its own
- * row's render is observed a row late — but that write was always a
- * race, and dropping the per-write snoop is what makes the cache this
- * small.
+ * line, so a palette write lands by the next row. Dropping the per-write
+ * snoop is what makes the cache this small.
  */
 
 module vid_palcache

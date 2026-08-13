@@ -6,10 +6,9 @@
  * The font store: four faces read a byte at a time. Nothing is built
  * into the bitstream — the store comes up blank and the firmware fills
  * it from the font asset, which is what lets seventeen code pages exist
- * without seventeen code pages of code memory. Blank is also the honest
- * power-up: an initial image would render a terminal even with the
- * firmware's stores misaddressed, and every frame test would pass while
- * nothing worked.
+ * without seventeen code pages of code memory. Blank is also what makes
+ * a misaddressed store visible: an initial image would render a
+ * terminal anyway and every frame test would pass.
  *
  * Faces are row-major with the C's own stride, so the hardware image is
  * the C image. The read address carries the face in its top two bits:
@@ -31,7 +30,6 @@
 module vid_font (
     input logic clk,
 
-    /* One byte, one clock behind the address. */
     input logic [13:0] addr,
     output logic [7:0] vid_font_bits,
 
@@ -51,17 +49,14 @@ module vid_font (
     (* ramstyle = "no_rw_check" *)
     logic [31:0] dec[256] /*verilator public_flat_rd*/;
 
-    /* The write port takes a clock of its own, and the reason is hold
-     * rather than setup. The soft CPU's address reaches these arrays
-     * through nothing but wiring, so at the fast corner the data can
-     * arrive before the clock edge that was supposed to launch it. A
-     * route that short is held open by padding the fitter has to find
-     * again every placement; a register ends the drift rather than
-     * deferring it.
+    /* A clock of its own, for hold rather than setup: the soft CPU's
+     * address reaches these arrays through nothing but wiring, so at the
+     * fast corner the data can arrive before the launching edge. Padding
+     * a route that short is something the fitter must rediscover every
+     * placement; a register ends it.
      *
-     * It costs nothing. Nothing reads a face until the firmware has
-     * finished writing it, and the firmware only writes these at boot
-     * and on a code page change. */
+     * Free here — nothing reads a face until the firmware has finished
+     * writing it. */
     logic w_stb_q;
     logic [13:0] w_addr_q;
     logic [31:0] w_data_q;

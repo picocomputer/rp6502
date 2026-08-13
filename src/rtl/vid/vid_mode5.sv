@@ -6,12 +6,8 @@
  * Mode 5, the paletted sprites of vga/modes/mode5.c: an array of
  * descriptors — position, image, palette — each a fixed-size square at
  * 1, 2, 4 or 8 bits per pixel, walked in order so later sprites land on
- * earlier ones. The palette is read live per pixel like the C reads
- * through its pointer, never snapshotted; a color writes only where its
- * alpha bit is set, over whatever the target plane already holds. The
- * sprite scaffold starts one line's walk with the slot in hand and
- * routes the pixel port at the foreground plane; only the beam's
- * deadline matters.
+ * earlier ones. The palette is read live per pixel, never snapshotted;
+ * a color writes only where its alpha bit is set.
  */
 
 module vid_mode5
@@ -32,11 +28,9 @@ module vid_mode5
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    /* The palette, asked of the sprite stage's cache: a finished color
-     * and a hit, combinational. On a miss the cache fills through this
-     * engine's own channel while the pixel stalls — the two never
-     * request together, because a palette lookup only exists while the
-     * index word is already in hand. */
+    /* On a miss the cache fills through this engine's own channel while
+     * the pixel stalls. The two never request together: a palette lookup
+     * only exists while the index word is already in hand. */
     output logic vid_mode5_pal_lookup,
     output logic vid_mode5_pal_xram,
     output logic vid_mode5_pal_one_bpp,
@@ -52,16 +46,13 @@ module vid_mode5
     output logic vid_mode5_done
 );
 
-    /* attr[5:3] the square's size — eight through five hundred twelve —
-     * attr[1:0] the depth; the prog validated the pairing.
+    /* attr[5:3] the square's size, attr[1:0] the depth; the prog
+     * validated the pairing.
      *
-     * Taken once at the start rather than re-derived every clock. attr is
-     * the slot's and does not move for the length of a plane's walk, but
-     * the derivation was standing in front of every decision the walk
-     * makes: the plane's slot mux, two shifts and a seventeen-bit
-     * multiply, nine nanoseconds of the twenty available, reached before
-     * the skip ladder's compare could start. Nothing downstream reads
-     * these before M5_JUDGE, which is three clocks after the start. */
+     * Taken once at the start rather than re-derived: the derivation is
+     * the plane's slot mux, two shifts and a seventeen-bit multiply, and
+     * it stood in front of every decision the walk makes. Nothing
+     * downstream reads these before M5_JUDGE. */
     logic [3:0] size_log;
     logic [9:0] size_w, bytes_per_row_w;
     always_comb begin
@@ -81,11 +72,9 @@ module vid_mode5
 
     logic [15:0] idx;
 
-    /* Eight bytes shifted in a halfword at a time, low half first and entered
-     * at the top, so the descriptor ends flush against bit 63 wherever it
-     * started. A halfword base is one more fetch and one more shift, and the
-     * junk halfword ahead of the descriptor falls out the bottom rather than
-     * being shifted out of the way. */
+    /* Entered at the top, so the descriptor ends flush against bit 63
+     * wherever it started and the junk halfword ahead of it falls out
+     * the bottom. */
     logic [63:0] gather;
     logic [15:0] hi_hold;
     logic hi_pend;
@@ -124,14 +113,11 @@ module vid_mode5
     logic pal_xram;
     logic [16:0] row_addr;
 
-    /* One cached XRAM word feeds the index bytes. The walk is
-     * sequential bytes through the row, so while one word emits the
-     * spare clocks ask for the next, and the boundary costs one clock
-     * promoting the answer into the cache instead of a fetch's round
-     * trip. Emitting straight from the prefetch register would be that
-     * clock back, bought with a mux ahead of the palette lookup — the
-     * machine's long path, which is why mode 4 emits from its prefetch
-     * and this engine does not. */
+    /* One cached XRAM word feeds the index bytes: while one word emits,
+     * the spare clocks ask for the next, and a boundary costs one clock
+     * promoting rather than a fetch's round trip. Emitting straight from
+     * the prefetch would buy that clock back with a mux ahead of the
+     * palette lookup, which is why mode 4 does it and this does not. */
     logic [31:0] dcache;
     logic [13:0] dcache_word;
     logic dcache_v;
@@ -170,11 +156,9 @@ module vid_mode5
     logic [15:0] pal_color;
     always_comb pal_color = pal_q;
 
-    /* A live prefetch needs no address compare: it is only ever issued
-     * from a hit at dcache_word + 1, and the walk is sequential, so the
-     * word it holds is exactly the one the walk stands on when the hit
-     * drops. Two fourteen-bit comparators would hang off the pixel
-     * address adder — the long path's root — to prove what the walk
+    /* No address compare: a prefetch is only ever issued from a hit at
+     * dcache_word + 1 and the walk is sequential, so two fourteen-bit
+     * comparators off the pixel address adder would prove what the walk
      * already guarantees. */
     logic dhit;
     always_comb dhit = dcache_v && dcache_word == pix_byte_addr[15:2];
@@ -194,9 +178,9 @@ module vid_mode5
             M5_DESC: vid_mode5_a_req = fw_i < fw_n && !gnt_d;
             M5_PIX: begin
                 /* A prefetch of this word may still be in flight; a
-                 * duplicate miss fetch would land on a clock the
-                 * promote path already covers, leaving fw_i raised and
-                 * the request line silent — vid_mode4 learned this. */
+                 * duplicate miss fetch would land on a clock the promote
+                 * path already covers, leaving fw_i raised and the
+                 * request line silent. */
                 if (!dhit && !pre_v && !pre_pend) begin
                     vid_mode5_a_req = fw_i == 3'd0;
                     vid_mode5_a_addr = pix_byte_addr[15:2];
@@ -322,7 +306,6 @@ module vid_mode5
                     end
                 end
                 M5_JUDGE: begin
-                    /* The oracle's skip ladder, one clock. */
                     tex_x <= d_x < 0 ? -d_x : 16'sd0;
                     size_x <= clip_size_x;
                     pal_xram <= !d_pptr[0]
@@ -357,13 +340,11 @@ module vid_mode5
                     end
                     if (!dhit) begin
                         if (pre_v) begin
-                            /* The boundary's one clock: the promote. */
                             dcache <= pre_data;
                             dcache_word <= pre_word;
                             dcache_v <= 1'b1;
                             pre_v <= 1'b0;
                         end else begin
-                            /* The index word misses; refetch. */
                             if (a_gnt && !pre_want) begin
                                 fw_i <= 3'd1;
                                 dcache_word <= pix_byte_addr[15:2];

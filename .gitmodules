@@ -35,3 +35,8 @@
 [submodule "vendor/opl2_fpga"]
 	path = vendor/opl2_fpga
 	url = https://github.com/gtaylormb/opl2_fpga
+[submodule "vendor/65x02"]
+	path = vendor/65x02
+	url = https://github.com/SingleStepTests/65x02
+	update = none
+	ignore = dirty

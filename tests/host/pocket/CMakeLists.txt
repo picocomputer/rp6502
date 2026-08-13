@@ -14,6 +14,7 @@ set(POCKET_STACK
     ${RP6502_HOST_POCKET}/pocket_sram.sv
     ${RP6502_HOST_POCKET}/pocket_bridge.sv
     ${RP6502_HOST_POCKET}/pocket_file.sv
+    ${RP6502_HOST_POCKET}/pocket_sst.sv
     ${RP6502_HOST_POCKET}/pocket_core.sv
     ${POCKET_TB}/sdram_model.sv
     ${POCKET_TB}/asram_model.sv
@@ -23,6 +24,20 @@ set(POCKET_STACK
 rp6502_add_module_test(fifo
     TOP pocket_fifo
     RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+    TIMEOUT 120)
+
+# --- The savestate bridge: the handshake and the outbound stream ---
+rp6502_add_module_test(psst
+    TOP pocket_sst
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_sst.sv
+    TIMEOUT 120)
+
+# --- The debug log, playing both the console and the host ---
+rp6502_add_module_test(pdbglog
+    TOP pocket_dbglog
+    RTL ${RP6502_HOST_POCKET}/pocket_fifo.sv
+        ${RP6502_HOST_POCKET}/pocket_dbglog.sv
     TIMEOUT 120)
 
 # --- The scaler-side raster from a replayed beam ---
@@ -61,6 +76,15 @@ if(RP6502_SOFT_CPU)
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+        TIMEOUT 1200)
+
+    # --- Sleep, with the reconfigure in it ---
+    rp6502_add_machine_test(psleep FIRMWARE SPLIT
+        TOP tb_pocket
+        RTL ${POCKET_STACK}
+        DEFS FILE_ROM="${FILE_ROM}" STREAM_ROM="${STREAM_ROM}"
+            ROMS_DIR="${RP6502_TEST_CORPUS}"
+        DEPENDS file_rom stream_rom
         TIMEOUT 1200)
 
     # --- The file bridge, with the bench playing the host ---

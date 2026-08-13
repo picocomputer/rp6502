@@ -21,12 +21,9 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # build-time rule is what keeps it fresh when the generator changes.
 #
 # Existence is the whole of what configure needs, so it generates only when
-# something is missing. Running unconditionally moved every asset's timestamp
-# on every configure, and the extension configures on every edit to a
-# CMakeLists — which put a fresh mtime on five packages the bitstream is fitted
-# from, so a comment reworded here read downstream as a design that had
-# changed. That costs a ten minute refit, and it makes the fit's own freshness
-# gate refuse a fit nothing had actually touched.
+# something is missing. Running unconditionally moves every asset's timestamp
+# on every configure, and the IDE configures on every CMakeLists edit — which
+# reads downstream as a changed design and costs a ten minute refit.
 function(rp6502_asset target)
     cmake_parse_arguments(A "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
     set(_absent FALSE)
@@ -49,6 +46,16 @@ function(rp6502_asset target)
         VERBATIM)
     add_custom_target(${target} ALL DEPENDS ${A_OUTPUTS})
 endfunction()
+
+# Asked for here and not inside rp6502_asset, which only generates when an
+# output is missing: a warm tree whose submodule went away would otherwise
+# configure clean and fail at the build rule instead.
+include(${RP6502_ROOT}/submodules.cmake)
+rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
+    WANTS "the cpu65 decode table generator")
+rp6502_submodule(vendor/opl2_fpga
+    SENTINEL fpga/modules/operator/src/opl2_log_sine_lut.sv
+    WANTS "the OPL2 core and its lookup tables")
 
 # --- The generator agrees with the C it generates from ---
 # cpu65's decode tables come from vendor/chips_rp6502, so an upstream change to
@@ -125,15 +132,18 @@ rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
 set(RP6502_ROM_GEN ${RP6502_SRC}/gen/rp6502_rom.py)
 
 set(AUD_ROM_PSG ${RP6502_ASSETS}/psg.rp6502)
+set(AUD_ROM_PSG_PRE ${RP6502_ASSETS}/psg_pre.rp6502)
 set(AUD_ROM_OPL ${RP6502_ASSETS}/opl.rp6502)
 set(AUD_ROM_OPL_EXIT ${RP6502_ASSETS}/opl_exit.rp6502)
 set(AUD_ROM_BEL ${RP6502_ASSETS}/bel.rp6502)
 set(AUD_ROM_OPL_BEL ${RP6502_ASSETS}/opl_bel.rp6502)
 rp6502_asset(aud_roms GEN ${RP6502_SRC}/gen/aud_rom_gen.py
-    ARGS --emit-psg ${AUD_ROM_PSG} --emit-opl ${AUD_ROM_OPL}
+    ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
+        --emit-opl ${AUD_ROM_OPL}
         --emit-opl-exit ${AUD_ROM_OPL_EXIT}
         --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
-    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_OPL} ${AUD_ROM_OPL_EXIT}
+    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
+        ${AUD_ROM_OPL_EXIT}
         ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the audio bring-up ROMs")
@@ -157,7 +167,51 @@ rp6502_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
     DEPENDS ${OEMCP_SRC}
     COMMENT "Generating the OEM code page tables")
 
+# The keyboard layouts, for the same reason: twenty kilobytes of table
+# as a compiler lays it out, eight as the generator does, and no room
+# for either in a 96 KB tightly coupled memory.
+set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
+set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
+rp6502_asset(kbdlay_bin GEN ${RP6502_SRC}/gen/kbd_layout_gen.py
+    ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
+    OUTPUTS ${KBDLAY_BIN}
+    DEPENDS ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts")
+
+# The menu picks a layout by its position in the manifest and the data
+# slot declares the image's exact size, so both are checked against
+# def/kbd.def rather than kept in step by hand.
+set(POCKET_CORE_JSON
+    ${RP6502_SRC}/dist/pocket/Cores/Rumbledethumps.RP6502)
+add_test(NAME kbdlay_json
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/gen/kbd_layout_gen.py --manifest ${KBDLAY_MANIFEST}
+        --check-interact ${POCKET_CORE_JSON}/interact.json
+        --check-data ${POCKET_CORE_JSON}/data.json)
+
+# Where the host writes each slot and where the firmware reads it are
+# the same map kept in two files, and a disagreement is silent.
+add_test(NAME stage_map
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_SRC}/gen/stage_map_gate.py
+        --data ${POCKET_CORE_JSON}/data.json
+        --mmio ${RP6502_SRC}/rtl/sw/mmio.h
+        --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
+        --engine ${RP6502_SRC}/rtl/core/sst_engine.sv
+        --sst ${RP6502_HOST_POCKET}/pocket_sst.sv
+        --top ${RP6502_SRC}/host/pocket/core_top.sv)
+
 # The file round trip, generated the same way and shipped the same way.
+# The file that is open when the machine sleeps. It reads a chunk at a
+# time so that wherever a sleep lands, a read lands after the resume.
+set(STREAM_ROM ${RP6502_ASSETS}/stream.rp6502)
+rp6502_asset(stream_rom GEN ${RP6502_SRC}/gen/stream_rom_gen.py
+    ARGS --emit ${STREAM_ROM}
+    OUTPUTS ${STREAM_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the streaming-read ROM")
+
 set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)
 rp6502_asset(file_rom GEN ${RP6502_SRC}/gen/file_rom_gen.py
     ARGS --emit ${FILE_ROM}

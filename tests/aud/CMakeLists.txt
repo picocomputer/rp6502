@@ -83,6 +83,7 @@ if(RP6502_SOFT_CPU)
     # bit-exact, and the OPL2 has no emulator to agree with.
     rp6502_add_machine_test(aud FIRMWARE
         DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
+            AUD_ROM_PSG_PRE="${AUD_ROM_PSG_PRE}"
             AUD_ROM_OPL_EXIT="${AUD_ROM_OPL_EXIT}"
             AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
         DEPENDS aud_roms
