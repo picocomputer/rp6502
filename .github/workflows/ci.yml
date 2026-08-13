@@ -22,7 +22,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Version: the one place the tag is parsed. Every job that stamps a binary or
+  # version: the one place the tag is parsed. Every job that stamps a binary or
   # names a release asset reads these outputs, so a build and the asset holding
   # it can never disagree about what version they are.
   # ---------------------------------------------------------------------------
@@ -53,10 +53,10 @@ jobs:
           cat "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Firmware: a pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2 and a
+  # pico: a pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2 and a
   # pico2 build produces rp6502-ria.uf2. All three ship.
   # ---------------------------------------------------------------------------
-  rp6502-ria-vga:
+  pico:
     needs: [version]
     runs-on: ubuntu-24.04
     env:
@@ -103,7 +103,7 @@ jobs:
           curl -fSL -o /tmp/pico-sdk-tools.tar.gz "$base/pico-sdk-tools-${PICO_SDK_VERSION}-x86_64-lin.tar.gz"
           tar -xzf /tmp/pico-sdk-tools.tar.gz -C "$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}"
 
-      - name: Build firmware (pico2_w) — rp6502-ria-w + rp6502-vga
+      - name: Build firmware (pico2_w) — RIA-W + VGA
         run: |
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
@@ -118,7 +118,7 @@ jobs:
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
           cmake --build build
 
-      - name: Build firmware (pico2) — rp6502-ria
+      - name: Build firmware (pico2) — RIA
         run: |
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
@@ -157,9 +157,9 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (Linux x86_64 + arm64): build the windowed emu, run the CTest
-  # suite, ship a tarball per arch. The binary inside is plain rp6502-emu —
-  # the arch is the archive's business, not the program's.
+  # linux: build the windowed emu, run the CTest suite, ship a tarball per
+  # arch. The binary inside is plain rp6502-emu — the arch is the archive's
+  # business, not the program's.
   # ---------------------------------------------------------------------------
   linux:
     name: linux-${{ matrix.arch }}
@@ -212,7 +212,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (macOS, arm64): build, test, wrap the binary in an unsigned .app.
+  # macos: build and test on arm64, wrap the binary in an unsigned .app.
   # ---------------------------------------------------------------------------
   macos:
     needs: [version]
@@ -279,9 +279,10 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (WebAssembly): build the emsdk web target, ship the itch.io bundle.
+  # itch.io: build the emsdk web target, ship the bundle it assembles.
   # ---------------------------------------------------------------------------
   itch-io:
+    name: itch.io
     needs: [version]
     runs-on: ubuntu-24.04
     env:
@@ -328,8 +329,8 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (Windows, x64): build the D3D11 emu with MSVC + Ninja, run the
-  # CTest suite, ship the bare rp6502-emu.exe.
+  # windows: build the D3D11 emu with MSVC + Ninja, run the CTest suite,
+  # ship rp6502-emu.exe.
   # ---------------------------------------------------------------------------
   windows:
     needs: [version]
@@ -381,7 +382,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (Android, arm64-v8a): build the optimized APK, ship the APK.
+  # android: build the optimized arm64-v8a APK and ship it as it is.
   # ---------------------------------------------------------------------------
   android:
     needs: [version]
@@ -397,7 +398,7 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build Android APK (Release)
+      - name: Build APK (Release)
         run: |
           cd src/host/android
           ./gradlew assembleRelease
@@ -418,7 +419,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # FPGA simulation: verilate the machine and run it against the emu_core oracle.
+  # rtl-tests: verilate the machine and run it against the emu_core oracle.
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   #
@@ -426,16 +427,16 @@ jobs:
   # fit does: did src/rtl change. What it reads is wider than what it is gated
   # on — the benches are in tests/ and the oracle is emu_core out of src/emu —
   # so a commit that touches only those skips the suite that covers it. Tags
-  # and dispatches run it either way, and so does an rtl-changes that failed
+  # and dispatches run it either way, and so does an rtl-changed that failed
   # to answer: unanswered is not the same as no.
   # ---------------------------------------------------------------------------
-  test-rtl:
-    needs: rtl-changes
+  rtl-tests:
+    needs: rtl-changed
     if: >-
       ${{ !cancelled() && (
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changes'].outputs.rtl != 'false') }}
+      || needs['rtl-changed'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -447,7 +448,7 @@ jobs:
             build-essential cmake ninja-build verilator \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      - name: Configure & build simulation
+      - name: Configure & build simulation (Release)
         run: |
           set -euxo pipefail
           cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON
@@ -457,9 +458,10 @@ jobs:
       - name: Run simulation tests
         run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
 
-  # Whether this commit touched the machine. GitHub filters a whole workflow
-  # by path, never one job, so the question is asked here and answered once.
-  rtl-changes:
+  # rtl-changed: whether this commit touched the machine. GitHub filters a
+  # whole workflow by path, never one job, so the question is asked here and
+  # answered once.
+  rtl-changed:
     runs-on: ubuntu-24.04
     outputs:
       rtl: ${{ steps.rtl.outputs.changed }}
@@ -492,7 +494,7 @@ jobs:
           fi
           echo "changed=$changed" >> "$GITHUB_OUTPUT"
 
-  # The bitstream, and whether it closed. Quartus writes one out either
+  # pocket: the bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
   # by-product. A fit is tens of minutes and needs a 20 GB toolchain, so it
   # runs when a diff touched the RTL, and always for a tag or a dispatch.
@@ -506,17 +508,17 @@ jobs:
   #
   # !cancelled() and != 'false' are what make that last sentence true. A
   # dependency that does not succeed skips what depends on it whatever the
-  # condition says, so an rtl-changes that dies takes the fit with it —
+  # condition says, so an rtl-changed that dies takes the fit with it —
   # and package tolerates a skipped pocket, which on a tag would publish a
   # release with no core in it and nothing to say so. Unanswered is not the
   # same as no: only a job that ran and said false skips the fit.
   pocket:
-    needs: [version, rtl-changes]
+    needs: [version, rtl-changed]
     if: >-
       ${{ !cancelled() && (
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changes'].outputs.rtl != 'false') }}
+      || needs['rtl-changed'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
@@ -581,7 +583,7 @@ jobs:
       # order it has to happen. A core built without the firmware boots a
       # soft CPU fetching zeros, which looks exactly like dead hardware and
       # is not.
-      - name: Build the core package
+      - name: Build core package
         run: |
           set -euxo pipefail
           cmake --preset pocket \
@@ -607,7 +609,7 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Package: collect the per-target assets each job already built and checksum
+  # package: collect the per-target assets each job already built and checksum
   # them. Nothing is repacked here — an archive made anywhere but on its own
   # platform loses what that platform's tool was preserving.
   #
@@ -616,7 +618,9 @@ jobs:
   # assets themselves, one per platform, so nobody downloads six to use one.
   # ---------------------------------------------------------------------------
   package:
-    needs: [version, rp6502-ria-vga, linux, macos, itch-io, windows, android, pocket]
+    needs: [version, pico, linux, macos, itch-io, windows, android, pocket]
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-everything.zip
     # pocket is skipped on every commit that left the RTL alone, and a skipped
     # dependency skips what depends on it unless the condition says otherwise.
     # !failure() keeps a real failure blocking, which is what needs meant on
@@ -665,15 +669,20 @@ jobs:
           ( cd dist && sha256sum "${assets[@]}" > SHA256SUMS )
           cat dist/SHA256SUMS
 
+          # Zipped here rather than left to upload-artifact, so this artifact
+          # is one archive with the assets at its root, like every other one.
+          ( cd dist && zip -r "$GITHUB_WORKSPACE/$ARCHIVE" . )
+
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-${{ needs.version.outputs.version }}-everything
-          path: dist/
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
           retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # Release: on a v* tag, publish one asset per target as a GitHub Release.
+  # release: on a v* tag, publish one asset per target as a GitHub Release.
   # ---------------------------------------------------------------------------
   release:
     needs: [version, package]
@@ -682,9 +691,11 @@ jobs:
     permissions:
       contents: write
     steps:
+      # No skip-decompress here: unpacking is exactly what is wanted, since
+      # what this artifact holds is the release, asset by asset.
       - uses: actions/download-artifact@v8
         with:
-          name: rp6502-${{ needs.version.outputs.version }}-everything
+          name: rp6502-${{ needs.version.outputs.version }}-everything.zip
           path: dist
 
       - name: Compose release title (matches historical "Version X" format)
