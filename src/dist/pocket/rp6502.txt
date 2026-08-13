@@ -13,14 +13,16 @@ The Cores, Platforms, Saves, and Assets folders merge with the ones
 already on the card; nothing here replaces another core's files.
 
 The Pocket needs firmware 2.3 or later. Open the core from the
-Pocket menu under Computer.
+Pocket menu under openFPGA.
 
 
 Saves
 -----
 
 Programs save to Saves/rp6502/common/, which is the core's working
-directory. See the readme.txt there before you delete anything.
+directory. The Pocket will not create this path automatically, you
+will find a .keep file there to ensure the zip file retains the
+directory structure.
 
 
 ROMs
