@@ -2,7 +2,6 @@
 # rp6502_byproducts(), and the fetch that keeps this directory current.
 #
 # Update with:  cmake -P tools/CMakeLists.txt
-# A plain configure only fetches what is missing.
 #
 # include() this, do not add_subdirectory() it: a toolchain file has to exist
 # before project(), which is earlier than add_subdirectory() can run.
@@ -12,7 +11,7 @@ cmake_minimum_required(VERSION 3.21)
 # TODO: back to main once the centraltools work is tested.
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "centraltools")
-set(RP6502_TOOLS_FILES CMakeLists.txt cc65-config.cmake cc65.cmake rp6502.py)
+set(RP6502_TOOLS_FILES cc65-config.cmake cc65.cmake rp6502.py CMakeLists.txt)
 
 # Cached because the commands below need it at call time from any scope, and
 # CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not this one.
@@ -89,27 +88,20 @@ function(rp6502_hook_tasks_json)
     message(STATUS "Added the update task to .vscode/tasks.json")
 endfunction()
 
-# Script mode is the explicit update, so everything comes down again.
 if(CMAKE_SCRIPT_MODE_FILE AND NOT RP6502_TOOLS_RELOADED)
-    set(RP6502_TOOLS_FORCE TRUE)
-endif()
-
-file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_before)
-foreach(name IN LISTS RP6502_TOOLS_FILES)
-    if(RP6502_TOOLS_FORCE OR NOT EXISTS "${RP6502_TOOLS_DIR}/${name}")
+    file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_before)
+    foreach(name IN LISTS RP6502_TOOLS_FILES)
         rp6502_fetch_tool("${name}")
-        set(RP6502_TOOLS_FETCHED TRUE)
+    endforeach()
+    set(RP6502_TOOLS_FETCHED TRUE)
+    # CMake is running the copy it read at the top. If the fetch replaced this
+    # file, hand off to the one now on disk; it does not come back here.
+    file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_after)
+    if(NOT rp6502_tools_after STREQUAL rp6502_tools_before)
+        set(RP6502_TOOLS_RELOADED TRUE)
+        include("${CMAKE_CURRENT_LIST_FILE}")
+        return()
     endif()
-endforeach()
-
-# CMake is running the copy it read at the top. If the fetch replaced this
-# file, hand off to the one now on disk; it finds nothing missing and stops.
-file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_after)
-if(NOT rp6502_tools_after STREQUAL rp6502_tools_before)
-    set(RP6502_TOOLS_FORCE FALSE)
-    set(RP6502_TOOLS_RELOADED TRUE)
-    include("${CMAKE_CURRENT_LIST_FILE}")
-    return()
 endif()
 
 if(RP6502_TOOLS_FETCHED)
