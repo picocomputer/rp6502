@@ -75,6 +75,15 @@ set(CMAKE_C_FLAGS_RELEASE "-Oirs")
 set(CMAKE_C_LINK_EXECUTABLE "<CMAKE_C_COMPILER> <FLAGS> <CMAKE_C_LINK_FLAGS> <LINK_FLAGS> <OBJECTS> -o <TARGET> -m <TARGET>.map -Wl --dbgfile,<TARGET>.dbg <LINK_LIBRARIES>")
 set(CMAKE_C_COMPILER_FORCED TRUE)
 
+# cc65 has no C++. The language is enabled anyway so one project() line serves
+# both compilers, and a C++ source that reaches this compiler is the error.
+set(CMAKE_CXX_COMPILER ${CMAKE_COMMAND})
+set(CMAKE_CXX_COMPILER_ARG1 "-P ${CMAKE_CURRENT_LIST_FILE} -- --no-cxx")
+set(CMAKE_CXX_COMPILER_ID "cc65" CACHE STRING "CXX compiler ID")
+set(CMAKE_CXX_COMPILE_OBJECT "<CMAKE_CXX_COMPILER> <SOURCE>")
+set(CMAKE_CXX_OUTPUT_EXTENSION .o)
+set(CMAKE_CXX_COMPILER_FORCED TRUE)
+
 # Set ASM internals to work with cc65.
 set(CMAKE_ASM_COMPILER_ID "cc65" CACHE STRING "ASM compiler ID")
 set(CMAKE_INCLUDE_FLAG_ASM "--asm-include-dir ")
@@ -105,6 +114,10 @@ endif()
 
 # First argument after -- is the real compiler.
 set(CC65_COMPILER "${CMAKE_ARGV4}")
+
+if(CC65_COMPILER STREQUAL "--no-cxx")
+    message(FATAL_ERROR "cc65 has no C++ compiler: ${CMAKE_ARGV5}")
+endif()
 
 set(SKIP_ARGS "")
 foreach(NAME IN LISTS CC65_INTELLISENSE_ONLY_DEFINES)
