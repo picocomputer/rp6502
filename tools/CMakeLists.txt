@@ -115,9 +115,8 @@ endif()
 function(rp6502_require_toolchain)
     message(FATAL_ERROR
         "No compiler selected.\n"
-        "Select a CMake preset (cc65 or llvm-mos), or edit CMakeLists.txt and "
-        "uncomment one of set(CC65_TARGET_SYSTEM rp6502) or "
-        "set(LLVM_MOS_PLATFORM rp6502).")
+        "Select a CMake preset, or edit CMakeLists.txt and uncomment one of "
+        "set(CC65_TARGET_SYSTEM rp6502) or set(LLVM_MOS_PLATFORM rp6502).")
 endfunction()
 
 # cc65 links a flat image at a fixed address; llvm-mos writes the address into
