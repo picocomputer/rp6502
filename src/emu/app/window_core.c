@@ -407,6 +407,13 @@ void window_core_frame(void)
             sapp_request_quit();
     }
 #endif
+#ifdef RP6502_PAD_HOST
+    /* Once per presented frame, and here rather than beside scr_task below:
+     * sokol has delivered this frame's key and pointer events before frame_cb,
+     * so reading the pads now gives them the same age as every other input. */
+    pad_input_task();
+#endif
+
     /* Emulation is paced by an absolute monotonic clock: run exactly the number
      * of fixed-60 Hz frames real time owes us since start — independent of the
      * display refresh, so emulation speed is always correct. The deficit is
@@ -415,13 +422,6 @@ void window_core_frame(void)
      * skip per-scanline pixel work (most of the per-frame cost), so falling
      * behind stays cheap. The present clock is the vsync swap (vsync) or the
      * software sleep at the bottom (no-vsync). */
-#ifdef RP6502_PAD_HOST
-    /* Once per presented frame, and here rather than beside scr_task below:
-     * sokol has delivered this frame's key and pointer events before frame_cb,
-     * so reading the pads now gives them the same age as every other input. */
-    pad_input_task();
-#endif
-
     double dt = sapp_frame_duration(); /* smoothed; only the EMU_BENCH_MS block uses it */
     static uint64_t start_ns, done;
     static bool started;
@@ -995,6 +995,9 @@ int window_core_exit_code(void)
 
 void window_core_cleanup(void)
 {
+#ifdef RP6502_PAD_HOST
+    pad_input_stop(); /* the window is going; let go of the host's controllers */
+#endif
     if (aud_enabled())
         saudio_shutdown();
 #ifdef EMU_WITH_DEBUGGER

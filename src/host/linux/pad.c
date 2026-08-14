@@ -51,7 +51,6 @@ typedef struct
     bool present[PAD_AXIS_COUNT];
     int32_t min[PAD_AXIS_COUNT];
     int32_t max[PAD_AXIS_COUNT];
-    bool hat; /* d-pad arrives as ABS_HAT0X/Y rather than BTN_DPAD_ */
     pad_host_t state;
 } pad_device_t;
 
@@ -180,14 +179,12 @@ static bool pad_open_device(pad_device_t *dev, const char *path, uint64_t id)
         dev->max[axis] = info.maximum;
         pad_apply_axis(dev, axis, info.value);
     }
-    dev->hat = PAD_BIT_TEST(axes, ABS_HAT0X) || PAD_BIT_TEST(axes, ABS_HAT0Y);
-    if (dev->hat)
-        for (uint16_t code = ABS_HAT0X; code <= ABS_HAT0Y; code++)
-        {
-            struct input_absinfo info;
-            if (PAD_BIT_TEST(axes, code) && ioctl(fd, EVIOCGABS(code), &info) >= 0)
-                pad_apply_hat(dev, code, info.value);
-        }
+    for (uint16_t code = ABS_HAT0X; code <= ABS_HAT0Y; code++)
+    {
+        struct input_absinfo info;
+        if (PAD_BIT_TEST(axes, code) && ioctl(fd, EVIOCGABS(code), &info) >= 0)
+            pad_apply_hat(dev, code, info.value);
+    }
 
     /* Both sticks or neither, the same rule the firmware applies. */
     dev->state.sticks = dev->present[PAD_AXIS_LX] && dev->present[PAD_AXIS_LY] &&
