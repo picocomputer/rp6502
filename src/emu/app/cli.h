@@ -15,7 +15,7 @@
 /* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct
 {
-    const char *rom, *shot, *input;
+    const char *rom, *shot, *script;
     bool tmpdrive;
     const char *installs[16];
     int n_installs;

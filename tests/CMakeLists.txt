@@ -35,3 +35,10 @@ add_subdirectory(hid)
 if(RP6502_VERILATE)
     add_subdirectory(host/pocket)
 endif()
+
+# The emulator driven from outside, as an application project drives it. Only
+# the emulator tree builds the binary; the RTL tree adds this directory too and
+# links emu_core alone.
+if(TARGET rp6502-emu)
+    add_subdirectory(host/emu)
+endif()

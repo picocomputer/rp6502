@@ -27,11 +27,13 @@
 #endif
 #include "emu/app/icon.h"
 #include "emu/app/input.h"
+#include "emu/app/scr.h"
 #include "emu/app/version.h"
 #include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/emu/pro.h"
 #include "ria/api/oem.h"
+#include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
 #include "emu/emu/rom.h"
@@ -438,7 +440,7 @@ void window_core_frame(void)
 
     if (saudio_isvalid()) /* --mute opens no device; skip the resample+push */
         aud_pump(saudio_sample_rate(), saudio_push);
-    input_paste_pump();
+    scr_task();
 
     /* Reflect the run state in the title so the user knows the run is done (exec
      * un-halts within a frame, so this only trips on a real exit), and close the
@@ -624,7 +626,7 @@ bool window_core_boot_rom(const char *path)
             return false;
         }
     }
-    input_paste_cancel(); /* the new program must not receive an old paste */
+    kbd_paste_cancel(); /* the new program must not receive an old paste */
     /* A dropped ROM is a program change (stop + load + run), not a machine reboot:
      * the code page / PHI2 ride through from the previous program, like an exec. */
     main_stop(); /* tear down the outgoing program (cpu_stop halts it) */

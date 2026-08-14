@@ -50,6 +50,15 @@ void pad_connect(int player, bool connected);
 /* Toggle one button/dpad direction for a connected player. */
 void pad_hid_set(int player, pad_button_t button, bool down);
 
+/* Resolve a button name — "a", "start", "l1", "up" — to its id, for callers
+ * that take one as text. False if the name is not a button. */
+bool pad_button_from_name(const char *name, pad_button_t *button);
+
+/* Set or clear one button in the dpad/button0/button1 triple a host assembles
+ * for pad_host_report, so the bit layout stays in one place. */
+void pad_button_apply(pad_button_t button, bool down,
+                      uint8_t *dpad, uint8_t *button0, uint8_t *button1);
+
 /* True once a program has pointed the report block at XRAM (xreg_ria_gamepad).
  * The web shell gates all browser Gamepad-API access on this. */
 bool pad_is_mapped(void);

@@ -9,6 +9,7 @@
 #include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/emu/rom.h"
+#include "emu/hid/kbd.h"
 #include "emu/main.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
@@ -225,6 +226,11 @@ static void run_frame(bool render)
     }
 
     frame_count++;
+    /* Drip any typed text into the keyboard ring before the line editor drains it,
+     * so a paste arriving this frame is read this frame. Here rather than in the
+     * window loop: the windowed app, the headless batch and a script all share this
+     * frame boundary and must pace a paste the same way. */
+    kbd_task();
     /* Pump the line editor (drains keyboard + terminal replies, echoes, fires the
      * read callback) then advance any blocking syscall waiting on it. */
     rln_task();

@@ -22,9 +22,9 @@
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/app/cli.h"
+#include "emu/app/scr.h"
 #include "emu/app/credits.h"
 #include "emu/app/version.h"
-#include "emu/sys/com.h"
 #include <stdio.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER
@@ -33,22 +33,6 @@
 #endif
 
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-
-/* Queue scripted keystrokes onto the keyboard input stream, converting the
- * host-encoding option text to OEM. Newlines become carriage returns so the
- * line editor treats them as Enter. Bytes wait in the com ring until the
- * program's first stdin read drains them. */
-static void queue_input(const char *text)
-{
-    char oem[1024]; /* the 512-byte kbd ring caps what can queue anyway */
-    if (!os_argv_to_oem(text, oem, sizeof oem))
-    {
-        fprintf(stderr, "rp6502-emu: --input too long\n");
-        return;
-    }
-    for (const char *p = oem; *p; p++)
-        com_kbd_push_byte((uint8_t)(*p == '\n' ? '\r' : *p));
-}
 
 /* Apply the host/window presentation options shared by both launch paths. phi2/cp
  * are machine settings loaded as config before main_init, not here. */
@@ -188,6 +172,13 @@ int main(int argc, char **argv)
         o.rom_args = args_oem;
     }
 
+    if (o.dap && o.script)
+    {
+        /* Both want to be the one driving, and both may want stdin. */
+        fprintf(stderr, "rp6502-emu: --dap and --script cannot both drive the machine\n");
+        return 2;
+    }
+
 #ifdef EMU_WITH_DEBUGGER
     if (o.dap) /* the program comes from the DAP launch request, not argv */
         return run_dap(&o);
@@ -226,9 +217,10 @@ int main(int argc, char **argv)
 
     if (!rom)
     {
-        /* No ROM. --screenshot is batch (nothing to shoot); otherwise a desktop
-         * host waits for a drag-and-dropped one. Anything else prints usage. */
-        if (o.shot || !window_wait_for_rom())
+        /* No ROM. --screenshot and --script are batch (nothing to shoot, nothing
+         * to drive); otherwise a desktop host waits for a drag-and-dropped one.
+         * Anything else prints usage. */
+        if (o.shot || o.script || !window_wait_for_rom())
         {
             cli_usage(argv[0]);
             return 2;
@@ -259,10 +251,27 @@ int main(int argc, char **argv)
     if (o.dap || o.debug)
         dbg_set_active(true);
 
-    if (o.input)
-        queue_input(o.input);
+    /* Armed before the machine starts so the script's first check sees the
+     * program's first output. */
+    if (o.script && !scr_load(o.script))
+        return 1;
 
     main_run(); /* start the machine — main_init only initialized the drivers */
+
+    /* A script is the clock: it advances the machine itself, a command at a
+     * time, and its verdict is the process exit code. --debug instead opens the
+     * window and lets window_core_frame pump it, to watch one fail. */
+    if (scr_loaded() && !o.debug)
+    {
+        scr_task();
+        while (scr_running())
+        {
+            sys_run_frame(); /* rendered: shot and crc must see real pixels */
+            scr_task();
+        }
+        if (scr_exit_code() || !o.shot)
+            return scr_exit_code(); /* a passing script may still want the shot */
+    }
 
     if (o.shot)
     {
@@ -282,5 +291,6 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
+    int code = window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
+    return scr_exit_code() ? scr_exit_code() : code;
 }
