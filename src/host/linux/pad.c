@@ -181,6 +181,13 @@ static bool pad_open_device(pad_device_t *dev, const char *path, uint64_t id)
         pad_apply_axis(dev, axis, info.value);
     }
     dev->hat = PAD_BIT_TEST(axes, ABS_HAT0X) || PAD_BIT_TEST(axes, ABS_HAT0Y);
+    if (dev->hat)
+        for (uint16_t code = ABS_HAT0X; code <= ABS_HAT0Y; code++)
+        {
+            struct input_absinfo info;
+            if (PAD_BIT_TEST(axes, code) && ioctl(fd, EVIOCGABS(code), &info) >= 0)
+                pad_apply_hat(dev, code, info.value);
+        }
 
     /* Both sticks or neither, the same rule the firmware applies. */
     dev->state.sticks = dev->present[PAD_AXIS_LX] && dev->present[PAD_AXIS_LY] &&
@@ -241,8 +248,8 @@ bool host_pad_open(void)
 {
     for (int i = 0; i < PAD_PLAYERS; i++)
         pad_devices[i].fd = -1;
-    pad_rescan = 0;
     pad_scan();
+    pad_rescan = PAD_LINUX_RESCAN;
     return true; /* an empty scan is a host with nothing plugged in yet */
 }
 

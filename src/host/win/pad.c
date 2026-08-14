@@ -24,6 +24,13 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+/* hid.dll's functions return NTSTATUS, which is a driver-kit type that
+ * windows.h does not declare and that hidpi.h does not declare for itself. */
+#ifndef _NTDEF_
+#define _NTDEF_
+typedef LONG NTSTATUS;
+#endif
+
 #include <hidusage.h>
 #include <hidpi.h>
 #include <hidsdi.h>
@@ -110,9 +117,18 @@ static void pad_xin_close(void)
     pad_xin_probe = 0;
 }
 
-static int8_t pad_xin_stick(SHORT value)
+/* Inverted after scaling rather than before: negating the raw -32768 would
+ * overflow, and negating it as -1-value leaves a centred stick reading -1. */
+static int8_t pad_xin_stick(SHORT value, bool invert)
 {
-    return (int8_t)(value >> 8); /* -32768..32767 is exactly -128..127 */
+    int scaled = value >> 8; /* -32768..32767 is exactly -128..127 */
+    if (invert)
+        scaled = -scaled;
+    if (scaled > 127)
+        scaled = 127;
+    if (scaled < -128)
+        scaled = -128;
+    return (int8_t)scaled;
 }
 
 static int pad_xin_poll(pad_host_t *pads, int max)
@@ -171,11 +187,11 @@ static int pad_xin_poll(pad_host_t *pads, int max)
             pad_button_apply(map[i].button, (b & map[i].bit) != 0,
                              &pad->dpad, &pad->button0, &pad->button1);
 
-        pad->lx = pad_xin_stick(state.gamepad.thumb_lx);
-        pad->rx = pad_xin_stick(state.gamepad.thumb_rx);
+        pad->lx = pad_xin_stick(state.gamepad.thumb_lx, false);
+        pad->rx = pad_xin_stick(state.gamepad.thumb_rx, false);
         /* XInput's Y is up-positive and the report's is down-positive. */
-        pad->ly = pad_xin_stick((SHORT)(-1 - state.gamepad.thumb_ly));
-        pad->ry = pad_xin_stick((SHORT)(-1 - state.gamepad.thumb_ry));
+        pad->ly = pad_xin_stick(state.gamepad.thumb_ly, true);
+        pad->ry = pad_xin_stick(state.gamepad.thumb_ry, true);
         pad->lt = state.gamepad.left_trigger;
         pad->rt = state.gamepad.right_trigger;
     }
@@ -215,6 +231,7 @@ typedef struct
     bool has[PAD_HID_VALUE_COUNT];
     LONG min[PAD_HID_VALUE_COUNT];
     LONG max[PAD_HID_VALUE_COUNT];
+    USHORT bits[PAD_HID_VALUE_COUNT];
     BYTE report[PAD_HID_REPORT_MAX];
     pad_host_t state;
 } pad_hid_t;
@@ -296,6 +313,7 @@ static bool pad_hid_open_one(pad_hid_t *hid, const wchar_t *path, uint64_t id)
                     hid->has[slot] = true;
                     hid->min[slot] = values[i].LogicalMin;
                     hid->max[slot] = values[i].LogicalMax;
+                    hid->bits[slot] = values[i].BitSize;
                 }
         }
 
@@ -365,16 +383,24 @@ static void pad_hid_parse(pad_hid_t *hid)
                                (PCHAR)hid->report,
                                hid->report_len) != HIDP_STATUS_SUCCESS)
             continue;
+        /* HidP hands back the field's bits, not its value: an axis declared
+         * with a negative logical minimum arrives zero-extended and has to be
+         * signed here, the same way ria/hid/hid.c does it. */
+        LONG value = (LONG)raw;
+        if (hid->min[slot] < 0 && hid->bits[slot] > 0 && hid->bits[slot] < 32 &&
+            (raw & (1ul << (hid->bits[slot] - 1))))
+            value = (LONG)(raw | (0xFFFFFFFFul << hid->bits[slot]));
+
         if (slot == PAD_HID_HAT)
         {
             /* pad.c's hat table: N, NE, E, SE, S, SW, W, NW. */
             static const uint8_t hat_to_dpad[8] = {1, 9, 8, 10, 2, 6, 4, 5};
-            LONG index = (LONG)raw - hid->min[slot];
+            LONG index = value - hid->min[slot];
             if (hid->max[slot] - hid->min[slot] == 7 && index >= 0 && index < 8)
                 state->dpad |= hat_to_dpad[index];
             continue;
         }
-        uint8_t scaled = pad_hid_scale((LONG)raw, hid->min[slot], hid->max[slot]);
+        uint8_t scaled = pad_hid_scale(value, hid->min[slot], hid->max[slot]);
         switch (slot)
         {
         case PAD_HID_X: state->lx = (int8_t)(scaled - 128); break;
@@ -460,7 +486,9 @@ static int pad_hid_poll(pad_host_t *pads, int max)
         pad_hid_t *hid = &pad_hids[i];
         if (!hid->file)
             continue;
-        for (;;)
+        /* Drain what has arrived so the state is this frame's, but a device
+         * reporting faster than we ask is not allowed to hold the frame. */
+        for (int drain = 0; drain < 32; drain++)
         {
             if (!hid->reading)
             {
@@ -508,8 +536,8 @@ bool host_pad_open(void)
 {
     pad_xin_open();
     pad_xin_probe = 0;
-    pad_hid_rescan = 0;
     pad_hid_scan();
+    pad_hid_rescan = PAD_WIN_RESCAN;
     return true; /* nothing plugged in yet is ordinary */
 }
 
