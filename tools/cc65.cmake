@@ -6,9 +6,8 @@ set(CC65_INTELLISENSE_ONLY_DEFINES __fastcall__ __cdecl__)
 # Skip toolchain config when invoked as a `cmake -P` wrapper script.
 if(NOT CMAKE_SCRIPT_MODE_FILE)
 
-# The target system comes from the caller. Nothing here is rp6502-specific,
-# so there is no default to fall back on; a missing one would reach cl65 as a
-# bare --target and fail somewhere much less helpful than this.
+# No default: a missing target reaches cl65 as a bare --target and fails
+# somewhere much less helpful than here.
 if(NOT CC65_TARGET_SYSTEM)
     message(FATAL_ERROR
         "cc65: CC65_TARGET_SYSTEM is not set. Set it before find_package(cc65).")

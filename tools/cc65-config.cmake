@@ -1,6 +1,4 @@
-# What find_package(cc65) lands on. All it does is name the toolchain file,
-# the same shape llvm-mos-sdk-config.cmake has, so the two compilers are
-# selected the same way:
+# What find_package(cc65) lands on:
 #
 #   set(CC65_TARGET_SYSTEM rp6502)
 #   find_package(cc65 REQUIRED)

@@ -1,46 +1,28 @@
-# The RP6502 project tools, and the thing that keeps them current.
+# The RP6502 project tools: rp6502_executable(), rp6502_asset(),
+# rp6502_byproducts(), and the fetch that keeps this directory current.
 #
-# This file lives in picocomputer/rp6502 and is copied into a project by the
-# stub the template ships. Both copies carry the same fetch loop, so the stub
-# replaces itself with this on the first configure and every later update is
-# the same code path.
+# Update with:  cmake -P tools/CMakeLists.txt
+# A plain configure only fetches what is missing.
 #
-# Update from the command line with:
-#
-#   cmake -P tools/CMakeLists.txt
-#
-# which re-fetches everything and re-runs the config hooks. A plain configure
-# only fetches what is missing, so a warm tree costs one stat per file and
-# never touches the network.
-#
-# It is include()d rather than add_subdirectory()d because a toolchain file
-# has to exist before project() runs, and add_subdirectory() cannot happen
-# that early. Functions are global once defined, so a project still calling
-# add_subdirectory(tools) keeps its rp6502_* commands — only the fetch is too
-# late to help it.
+# include() this, do not add_subdirectory() it: a toolchain file has to exist
+# before project(), which is earlier than add_subdirectory() can run.
 
 cmake_minimum_required(VERSION 3.21)
 
-# Where the tools come from, and the four files that make up the set.
 # TODO: back to main once the centraltools work is tested.
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "centraltools")
 set(RP6502_TOOLS_FILES CMakeLists.txt cc65-config.cmake cc65.cmake rp6502.py)
 
-# Cached, not scoped: the commands below need this at call time, and
-# CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not ours. A
-# plain variable would be invisible to the parent of a project that reaches
-# this file through add_subdirectory(tools). INTERNAL rewrites every
-# configure, so moving the project cannot leave a stale path behind.
+# Cached because the commands below need it at call time from any scope, and
+# CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not this one.
 set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "RP6502 tools directory")
 get_filename_component(RP6502_PROJECT_DIR "${RP6502_TOOLS_DIR}" DIRECTORY)
 
-# find_package(cc65) looks here. Saying it once means a project needs only the
-# two lines that pick a compiler, with no third to point at this directory.
+# Where find_package(cc65) looks, so a project needs no third line to say so.
 set(cc65_DIR "${RP6502_TOOLS_DIR}")
 
-# Fetch to a temporary name and rename over the target, so a dead network or a
-# 404 leaves a working tool in place instead of a truncated one.
+# Rename over the target, so a dead network leaves the working tool in place.
 function(rp6502_fetch_tool name)
     set(url "https://raw.githubusercontent.com/${RP6502_TOOLS_REPO}/${RP6502_TOOLS_REF}/tools/${name}")
     set(out "${RP6502_TOOLS_DIR}/${name}")
@@ -60,10 +42,8 @@ function(rp6502_fetch_tool name)
     file(RENAME "${out}.tmp" "${out}")
 endfunction()
 
-# Add the update task to a project made before this file existed. Hooks patch
-# what is there and never create it: a missing .vscode/tasks.json means it was
-# deleted by someone not using VS Code, and putting it back would be this file
-# arguing with them.
+# Hooks patch config files that are there and never create one. An absent
+# .vscode/tasks.json is an editor choice, not an omission.
 function(rp6502_hook_tasks_json)
     set(file "${RP6502_PROJECT_DIR}/.vscode/tasks.json")
     if(NOT EXISTS "${file}")
@@ -73,8 +53,8 @@ function(rp6502_hook_tasks_json)
     if(json MATCHES "RP6502: update tools")
         return()
     endif()
-    # Spliced in as text rather than through string(JSON), which would reject
-    # the trailing commas VS Code allows and drop every comment on rewrite.
+    # Spliced as text, not through string(JSON), which rejects the trailing
+    # commas VS Code allows and drops every comment on rewrite.
     set(task [==[
 
         {
@@ -109,9 +89,7 @@ function(rp6502_hook_tasks_json)
     message(STATUS "Added the update task to .vscode/tasks.json")
 endfunction()
 
-# Script mode is the explicit update, so everything comes down again. A plain
-# configure only fills gaps. Not on the second pass below, where the fetch has
-# already happened and repeating it would just cost another round trip.
+# Script mode is the explicit update, so everything comes down again.
 if(CMAKE_SCRIPT_MODE_FILE AND NOT RP6502_TOOLS_RELOADED)
     set(RP6502_TOOLS_FORCE TRUE)
 endif()
@@ -124,9 +102,8 @@ foreach(name IN LISTS RP6502_TOOLS_FILES)
     endif()
 endforeach()
 
-# We may have just replaced ourselves. CMake is running the copy it read at
-# the top, so hand off to the one now on disk; it finds nothing missing and
-# does not come back here.
+# CMake is running the copy it read at the top. If the fetch replaced this
+# file, hand off to the one now on disk; it finds nothing missing and stops.
 file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_after)
 if(NOT rp6502_tools_after STREQUAL rp6502_tools_before)
     set(RP6502_TOOLS_FORCE FALSE)
@@ -143,14 +120,6 @@ if(CMAKE_SCRIPT_MODE_FILE)
     return()
 endif()
 
-# The compiler is chosen by the project, before project(), with one of:
-#
-#   set(CC65_TARGET_SYSTEM rp6502)
-#   find_package(cc65 REQUIRED)
-#
-#   set(LLVM_MOS_PLATFORM rp6502)
-#   find_package(llvm-mos-sdk REQUIRED)
-#
 function(rp6502_require_toolchain)
     message(FATAL_ERROR
         "No compiler selected.\n"
@@ -159,9 +128,8 @@ function(rp6502_require_toolchain)
         "set(LLVM_MOS_PLATFORM rp6502).")
 endfunction()
 
-# Where the linker output loads, for `default` below. cc65 links a flat image
-# at a fixed address; llvm-mos writes the address into the first two bytes,
-# which the tool spells `file`.
+# cc65 links a flat image at a fixed address; llvm-mos writes the address into
+# the first two bytes of its output, which the tool spells `file`.
 function(rp6502_default_address var)
     if(CMAKE_C_COMPILER_ID STREQUAL "cc65")
         set(${var} 0x200 PARENT_SCOPE)
@@ -193,8 +161,7 @@ endfunction()
 # ``RESET <addr>`` Address for RESET to be stored at $FFFC-$FFFD.
 # ``IRQ <addr>`` Address for IRQ to be stored at $FFFE-$FFFF.
 # The word `default` may be used for any <addr> to take the compiler's
-# convention for where its linker output loads, which is what lets one
-# project build under either compiler.
+# own convention for where its linker output loads.
 #
 function(rp6502_executable name)
     # Parse args
@@ -224,7 +191,6 @@ function(rp6502_executable name)
             list(APPEND extra_roms ${X})
         endif ()
     endforeach()
-    # Resolve `default` now that the compiler is known
     rp6502_default_address(default_addr)
     foreach(V data_addr nmi_addr reset_addr irq_addr)
         if (${V} STREQUAL "default")
@@ -248,8 +214,6 @@ function(rp6502_executable name)
     # Build the rp6502.py merge command
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(rom_file "${CMAKE_CURRENT_BINARY_DIR}/${name}.rp6502")
-    # CMAKE_CURRENT_LIST_DIR inside a function is the directory of the file
-    # that defined it, so this is tools/ no matter which scope calls us.
     set(tool_command "${Python3_EXECUTABLE}"
         "${RP6502_TOOLS_DIR}/rp6502.py"
     )

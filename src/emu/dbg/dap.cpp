@@ -1480,10 +1480,9 @@ extern "C" void dap_start(void)
                 if (base.size() > ext.size() &&
                     base.compare(base.size() - ext.size(), ext.size(), ext) == 0)
                     base = base.substr(0, base.size() - ext.size());
-                /* One template builds under either compiler, so the launch
-                 * config names no companion at all and we find it: llvm-mos
-                 * leaves an ELF with DWARF, cc65 an ld65 --dbgfile and no
-                 * DWARF anywhere. Either may still be named explicitly. */
+                /* A launch config that names neither gets both found beside
+                 * the ROM: llvm-mos leaves an ELF with DWARF, cc65 an ld65
+                 * --dbgfile and no DWARF anywhere. */
                 std::string elf_path = elf, dbg_path = dbg;
                 if (elf_path.empty() && dbg_path.empty())
                 {
