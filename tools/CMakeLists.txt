@@ -27,7 +27,12 @@ set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "centraltools")
 set(RP6502_TOOLS_FILES CMakeLists.txt cc65-config.cmake cc65.cmake rp6502.py)
 
-set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}")
+# Cached, not scoped: the commands below need this at call time, and
+# CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not ours. A
+# plain variable would be invisible to the parent of a project that reaches
+# this file through add_subdirectory(tools). INTERNAL rewrites every
+# configure, so moving the project cannot leave a stale path behind.
+set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "RP6502 tools directory")
 get_filename_component(RP6502_PROJECT_DIR "${RP6502_TOOLS_DIR}" DIRECTORY)
 
 # find_package(cc65) looks here. Saying it once means a project needs only the
@@ -246,7 +251,7 @@ function(rp6502_executable name)
     # CMAKE_CURRENT_LIST_DIR inside a function is the directory of the file
     # that defined it, so this is tools/ no matter which scope calls us.
     set(tool_command "${Python3_EXECUTABLE}"
-        "${CMAKE_CURRENT_LIST_DIR}/rp6502.py"
+        "${RP6502_TOOLS_DIR}/rp6502.py"
     )
     set(executable_inputs)
     if (NOT data_addr STREQUAL "none")
@@ -315,7 +320,7 @@ function(rp6502_asset name addr in_file)
         DEPENDS "${src_file}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}"
         COMMAND "${Python3_EXECUTABLE}"
-                "${CMAKE_CURRENT_LIST_DIR}/rp6502.py"
+                "${RP6502_TOOLS_DIR}/rp6502.py"
                 -a "${addr}"
                 -o "${out_file}"
                 create "${src_file}"
