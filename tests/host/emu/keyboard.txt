@@ -1,0 +1,15 @@
+# The direct keyboard: the 256-bit HID bitmap in XRAM, not the stdin stream.
+# mode2.rp6502 runs two tile-scroll loops, each polling the bitmap and leaving
+# on a press-and-release of any key, so reaching the exit is the proof the
+# program saw the bits. It draws rather than prints, and its exit code is 1.
+
+run 20
+press space
+run 5
+release space
+run 10
+
+press space
+run 5
+release space
+expect-exit 1

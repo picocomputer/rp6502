@@ -237,6 +237,11 @@ void vga_set_framebuffer(uint32_t *fb)
     g_framebuffer = fb;
 }
 
+uint32_t *vga_get_framebuffer(void)
+{
+    return g_framebuffer;
+}
+
 /* Render ONE scanline y of the canvas into fb at the canvas's native stride
  * (g_canvas_w). Each plane runs its fill and then its own sprites — slot k's
  * sprites belong to plane k, over a zeroed buffer when no fill ran. (The RIA

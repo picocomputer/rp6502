@@ -280,7 +280,8 @@ endif()
 
 # Build source list with window and audio options
 set(APP_SOURCES ${RP6502_SRC}/emu/app/cli.c ${RP6502_SRC}/emu/app/input.c
-    ${RP6502_SRC}/emu/app/png.c ${RP6502_SRC}/emu/app/version.c)
+    ${RP6502_SRC}/emu/app/png.c ${RP6502_SRC}/emu/app/scr.c
+    ${RP6502_SRC}/emu/app/version.c)
 if(NOT ANDROID)
     # Desktop/web enter through main(); Android enters through host/android sokol_main.
     list(APPEND APP_SOURCES ${RP6502_SRC}/emu/app/main.c)

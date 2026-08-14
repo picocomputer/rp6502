@@ -12,7 +12,7 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/vga.h"
-#include "emu/sys/com.h"
+#include "emu/hid/kbd.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -25,13 +25,6 @@ static uint16_t entry_pc(void)
 static bool load(void)
 {
     return emu_restart(TEST_FIXTURE);
-}
-
-/* Push CR-terminated keystrokes to stdin, as the line editor consumes them. */
-static void feed(const char *s)
-{
-    for (const char *p = s; *p; p++)
-        com_kbd_push_byte((uint8_t)*p);
 }
 
 /* Leave the engine inert so a later test (and sys_run_frame) runs normally. */
@@ -236,7 +229,7 @@ UTEST(dbg, continue_runs_to_exit)
     ASSERT_FALSE(dbg_is_stopped());
 
     /* Decline the intro prompt, "quit", then confirm "yes" -> the game exits. */
-    feed("no\rquit\ryes\r");
+    kbd_paste("no\nquit\nyes\n");
     for (int i = 0; i < 600 && !cpu_halted(); i++)
         sys_run_frame();
     ASSERT_TRUE(cpu_halted());

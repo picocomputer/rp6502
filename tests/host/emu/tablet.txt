@@ -1,0 +1,22 @@
+# The absolute pointer. paint_tab.rp6502 maps the tablet block and decodes
+# contact 0's window-encoded X/Y in its main loop — no capture and no IRQ,
+# unlike the mouse. Moving the contact across the 254/255 X window edge is what
+# exercises the decode.
+
+run 60
+tablet touch 60,60
+run 10
+mark
+run 20
+expect-same
+
+tablet touch 280,200
+run 20
+expect-changed
+
+# A hovering pointer occupies the same contact and takes buttons with it.
+mark
+tablet at 100 100 1
+run 20
+expect-changed
+tablet clear

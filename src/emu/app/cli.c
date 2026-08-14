@@ -51,7 +51,7 @@ static bool parse_hex_color(const char *s, int *r, int *g, int *b)
 /* Long-option codes (>= 256 so they never collide with a short-option char). */
 enum
 {
-    OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_INPUT,
+    OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
     OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
     OPT_VSYNC, OPT_NO_VSYNC,
@@ -63,7 +63,7 @@ static const struct option longopts[] = {
     {"vsync",        no_argument,       NULL, OPT_VSYNC},
     {"no-vsync",     no_argument,       NULL, OPT_NO_VSYNC},
     {"filter",       required_argument, NULL, OPT_FILTER},
-    {"input",        required_argument, NULL, OPT_INPUT},
+    {"script",       required_argument, NULL, OPT_SCRIPT},
     {"tmpdrive",     no_argument,       NULL, OPT_TMPDRIVE},
     {"rom",          required_argument, NULL, OPT_ROM},
     {"bgcolor",      required_argument, NULL, OPT_BGCOLOR},
@@ -88,7 +88,8 @@ void cli_usage(const char *argv0)
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
             "  --no-vsync                present uncapped instead of syncing to the display\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
-            "  --input <text>            queue keystrokes for stdin ('\\n' = Enter)\n"
+            "  --script <file>           drive input and check results ('-' = stdin);\n"
+            "                            headless unless a window is also asked for\n"
             "  --tmpdrive                MSC0: = a fresh throwaway temp dir (isolate the ROM)\n"
             "  --rom <file>              install a .rp6502 on the null drive, reached\n"
             "                            as :basename; repeatable, the first one boots\n"
@@ -108,6 +109,29 @@ void cli_usage(const char *argv0)
             "                            (ImGui format; e.g. the workspace .rp6502)\n"
             "  -- <args...>              pass the remaining words to the ROM as argv[1..]\n",
             argv0);
+    fprintf(stderr,
+            "\nscript commands (one per line, # comments, text always quoted;\n"
+            "a failed check names the line and exits 1):\n"
+            "  run [frames]              let frames elapse (default 1)\n"
+            "  wait \"text\" [frames]      run until the console says it (default 600)\n"
+            "  type \"text\"               type it (\\n = Enter, \\t = Tab)\n"
+            "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
+            "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
+            "  lock num|caps|scroll      toggle a lock LED\n"
+            "  pad <n> connect|disconnect\n"
+            "  pad <n> press|release <button>...   a b x y l1 r1 l2 r2 l3 r3\n"
+            "                                      select start home up down left right\n"
+            "  pad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
+            "  pad <n> trigger <lt> <rt>           0..255\n"
+            "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
+            "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
+            "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
+            "  expect-exit <code> [frames]         run until it exits, check the code\n"
+            "  peek [xram:]<addr> <byte>...        compare memory\n"
+            "  dump [xram:]<addr> [count]          print memory as hex\n"
+            "  crc / expect-crc <hash>             the canvas as a CRC-32\n"
+            "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
+            "  shot \"file.png\"           write the canvas\n");
 }
 
 /* Reset getopt's global state so the parser starts clean each call. glibc/musl
@@ -165,7 +189,7 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
                 return 2;
             }
             break;
-        case OPT_INPUT: o->input = optarg; break;
+        case OPT_SCRIPT: o->script = optarg; break;
         case OPT_TMPDRIVE: o->tmpdrive = true; break;
         case OPT_ROM:
             if (o->n_installs < (int)(sizeof(o->installs) / sizeof(o->installs[0])))
