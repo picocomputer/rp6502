@@ -16,6 +16,8 @@
  * the firmware's `pad_report` HID-parser prototype, so the base header can't be
  * pulled in here. */
 
+#define PAD_PLAYERS 4
+
 /* Where the face button labels sit, reported in dpad bits 4-5. Mirrors the
  * PAD_TYPE_ values in ria/hid/pad.h, which this twin cannot include. */
 #define PAD_TYPE_UNKNOWN 0
@@ -33,8 +35,10 @@ typedef enum
     PAD_BTN_DPAD_RIGHT,
     PAD_BTN_A,
     PAD_BTN_B,
+    PAD_BTN_C,
     PAD_BTN_X,
     PAD_BTN_Y,
+    PAD_BTN_Z,
     PAD_BTN_L1,
     PAD_BTN_R1,
     PAD_BTN_L2,

@@ -10,7 +10,6 @@
 #include <string.h>
 #include <strings.h>
 
-#define PAD_PLAYERS 4
 #define PAD_STRIDE 10 /* sizeof(firmware pad_xram_t) */
 
 /* Byte offsets within a player record (mirror pad_xram_t). */
@@ -65,8 +64,10 @@ static bool pad_button_loc(pad_button_t button, int *off, uint8_t *mask)
     case PAD_BTN_DPAD_RIGHT: *off = PAD_OFF_DPAD;    *mask = 0x08; return true;
     case PAD_BTN_A:          *off = PAD_OFF_BUTTON0; *mask = 0x01; return true;
     case PAD_BTN_B:          *off = PAD_OFF_BUTTON0; *mask = 0x02; return true;
+    case PAD_BTN_C:          *off = PAD_OFF_BUTTON0; *mask = 0x04; return true;
     case PAD_BTN_X:          *off = PAD_OFF_BUTTON0; *mask = 0x08; return true;
     case PAD_BTN_Y:          *off = PAD_OFF_BUTTON0; *mask = 0x10; return true;
+    case PAD_BTN_Z:          *off = PAD_OFF_BUTTON0; *mask = 0x20; return true;
     case PAD_BTN_L1:         *off = PAD_OFF_BUTTON0; *mask = 0x40; return true;
     case PAD_BTN_R1:         *off = PAD_OFF_BUTTON0; *mask = 0x80; return true;
     case PAD_BTN_L2:         *off = PAD_OFF_BUTTON1; *mask = 0x01; return true;
@@ -124,8 +125,10 @@ static const struct
     {"right", PAD_BTN_DPAD_RIGHT},
     {"a", PAD_BTN_A},
     {"b", PAD_BTN_B},
+    {"c", PAD_BTN_C},
     {"x", PAD_BTN_X},
     {"y", PAD_BTN_Y},
+    {"z", PAD_BTN_Z},
     {"l1", PAD_BTN_L1},
     {"r1", PAD_BTN_R1},
     {"l2", PAD_BTN_L2},

@@ -289,21 +289,26 @@ endif()
 if(EMSCRIPTEN)
     list(APPEND APP_SOURCES ${RP6502_SRC}/host/web/exports.c)
 endif()
-# The shared render core + exactly one host's window.
+# The shared render core + exactly one host's window. Desktops also get a
+# gamepad backend: sokol_app has no gamepad API, and unlike the browser and
+# Android, which read pads their own way, nothing else would feed pad.c.
 list(APPEND APP_SOURCES
     ${RP6502_SRC}/emu/app/sokol_impl.c
     ${RP6502_SRC}/emu/app/icon.c
     ${RP6502_SRC}/emu/app/window_core.c)
 if(WIN32)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/host/win/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/win/window.c
+        ${RP6502_SRC}/host/win/pad.c ${RP6502_SRC}/emu/app/pad_input.c)
 elseif(APPLE)
-    list(APPEND APP_SOURCES ${RP6502_SRC}/host/macos/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/macos/window.c
+        ${RP6502_SRC}/host/macos/pad.c ${RP6502_SRC}/emu/app/pad_input.c)
 elseif(EMSCRIPTEN)
     list(APPEND APP_SOURCES ${RP6502_SRC}/host/web/window.c)
 elseif(ANDROID)
     list(APPEND APP_SOURCES ${RP6502_SRC}/host/android/window.c)
 else()
-    list(APPEND APP_SOURCES ${RP6502_SRC}/host/linux/window.c)
+    list(APPEND APP_SOURCES ${RP6502_SRC}/host/linux/window.c
+        ${RP6502_SRC}/host/linux/pad.c ${RP6502_SRC}/emu/app/pad_input.c)
 endif()
 
 if(ANDROID)
@@ -313,6 +318,9 @@ if(ANDROID)
 else()
     add_executable(rp6502-emu ${APP_SOURCES})
     target_link_libraries(rp6502-emu PRIVATE emu_core)
+endif()
+if(NOT EMSCRIPTEN AND NOT ANDROID)
+    target_compile_definitions(rp6502-emu PRIVATE RP6502_PAD_HOST)
 endif()
 
 # On rp6502-emu rather than emu_core: the RTL tree builds emu_core too, as the
@@ -344,7 +352,9 @@ endif()
 set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c PROPERTIES COMPILE_DEFINITIONS SOKOL_IMPL)
 if(WIN32)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_D3D11)
-    target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32)
+    # hid for the raw-HID gamepads; the XInput runtime is LoadLibrary'd because
+    # its DLL name varies and the Guide button is only at an ordinal.
+    target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32)
     # GUI subsystem so no console pops up; keep our main() (os_console_attach
     # reattaches stdio when launched from a terminal).
     if(MSVC)
@@ -356,10 +366,12 @@ elseif(APPLE)
     # sokol on macOS needs Objective-C; compile the impl units as .m and
     # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_METAL)
-    set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/host/macos/window.c ${RP6502_SRC}/emu/app/input.c
+    set_source_files_properties(${RP6502_SRC}/emu/app/sokol_impl.c ${RP6502_SRC}/emu/app/window_core.c ${RP6502_SRC}/host/macos/window.c ${RP6502_SRC}/emu/app/input.c ${RP6502_SRC}/host/macos/pad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
+    # GameController rather than IOKit: Apple's own drivers normalize every
+    # modern pad, and it asks the user for no permission to do it.
     target_link_libraries(rp6502-emu PRIVATE
-        "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit" "-framework AudioToolbox")
+        "-framework Cocoa" "-framework QuartzCore" "-framework Metal" "-framework MetalKit" "-framework AudioToolbox" "-framework GameController")
 elseif(EMSCRIPTEN)
     target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3)
     # Browsers that back growable wasm memory with a resizable ArrayBuffer

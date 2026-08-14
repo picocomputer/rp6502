@@ -27,6 +27,9 @@
 #endif
 #include "emu/app/icon.h"
 #include "emu/app/input.h"
+#ifdef RP6502_PAD_HOST
+#include "emu/app/pad_input.h"
+#endif
 #include "emu/app/scr.h"
 #include "emu/app/version.h"
 #include "emu/emu/aud.h"
@@ -412,6 +415,13 @@ void window_core_frame(void)
      * skip per-scanline pixel work (most of the per-frame cost), so falling
      * behind stays cheap. The present clock is the vsync swap (vsync) or the
      * software sleep at the bottom (no-vsync). */
+#ifdef RP6502_PAD_HOST
+    /* Once per presented frame, and here rather than beside scr_task below:
+     * sokol has delivered this frame's key and pointer events before frame_cb,
+     * so reading the pads now gives them the same age as every other input. */
+    pad_input_task();
+#endif
+
     double dt = sapp_frame_duration(); /* smoothed; only the EMU_BENCH_MS block uses it */
     static uint64_t start_ns, done;
     static bool started;
