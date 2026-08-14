@@ -24,12 +24,8 @@ set(cc65_DIR "${RP6502_TOOLS_DIR}")
 function(rp6502_fetch_tool name hash)
     set(url "https://raw.githubusercontent.com/${RP6502_TOOLS_REPO}/${RP6502_TOOLS_REF}/tools/${name}")
     set(out "${RP6502_TOOLS_DIR}/${name}")
-    if(hash)
-        set(expected EXPECTED_HASH SHA256=${hash})
-    endif()
     message(STATUS "Fetching tools/${name}")
     file(DOWNLOAD "${url}" "${out}.tmp"
-        ${expected}
         STATUS status
         TLS_VERIFY ON
         INACTIVITY_TIMEOUT 30
@@ -40,6 +36,20 @@ function(rp6502_fetch_tool name hash)
     if(NOT code EQUAL 0 OR size EQUAL 0)
         file(REMOVE "${out}.tmp")
         message(FATAL_ERROR "Cannot fetch ${url}\n${text}")
+    endif()
+    # Checked here rather than with EXPECTED_HASH, which reports a mismatch
+    # without stopping: the rest of the manifest still came down, the partial
+    # file stayed, and this message never ran.
+    if(hash)
+        file(SHA256 "${out}.tmp" got)
+        string(TOLOWER "${hash}" hash)
+        if(NOT got STREQUAL hash)
+            file(REMOVE "${out}.tmp")
+            message(FATAL_ERROR
+                "Wrong contents for tools/${name}\n"
+                "expected ${hash}\n"
+                "     got ${got}")
+        endif()
     endif()
     file(RENAME "${out}.tmp" "${out}")
 endfunction()

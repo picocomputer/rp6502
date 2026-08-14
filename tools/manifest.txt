@@ -6,8 +6,7 @@
 #
 # Regenerate the lines below after changing any tool:
 #   cd tools && sha256sum cc65-config.cmake cc65-toolchain.cmake rp6502.py CMakeLists.txt
-
 25ea0ec68569f43061c41295f63f2c9e81c1b965a3bc3edbad24e435fcb3ec40  cc65-config.cmake
 593557bcc599a78edfd5f9441cf5d03ea4718bf63b601ae86a0ba24456a85212  cc65-toolchain.cmake
 ffd2ae28eb76ef501b97aecd9704271b836ba89c2d638eac8e0048384b785203  rp6502.py
-260acde2dee502fb51255a50612c6e8383523870e0cc1483d572db692059282c  CMakeLists.txt
+638afde55638af24866a730ae63aafe82bbe0f7736ee95cf343d15f7c5136cca  CMakeLists.txt
