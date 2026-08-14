@@ -1480,31 +1480,23 @@ extern "C" void dap_start(void)
                 if (base.size() > ext.size() &&
                     base.compare(base.size() - ext.size(), ext.size(), ext) == 0)
                     base = base.substr(0, base.size() - ext.size());
-                if (!dbg.empty())
+                /* A launch config that names neither gets both found beside
+                 * the ROM: llvm-mos leaves an ELF with DWARF, cc65 an ld65
+                 * --dbgfile and no DWARF anywhere. */
+                std::string elf_path = elf, dbg_path = dbg;
+                if (elf_path.empty() && dbg_path.empty())
                 {
-                    /* cc65 toolchain: an ld65 --dbgfile (cc65 emits no DWARF). */
-                    g_cc65 = cc65dbg_load(dbg.c_str());
+                    elf_path = base + ".elf";
+                    dbg_path = base + ".dbg";
                 }
-                else if (!elf.empty())
+                if (!elf_path.empty())
                 {
-                    g_dwarf = dwarf_line_load(elf.c_str()); /* NULL -> source mapping off */
-                    g_dinfo = dwarf_info_load(elf.c_str()); /* NULL -> variables off */
-                    g_dframe = dwarf_frame_load(elf.c_str()); /* NULL -> heuristic unwind */
+                    g_dwarf = dwarf_line_load(elf_path.c_str());   /* NULL -> source mapping off */
+                    g_dinfo = dwarf_info_load(elf_path.c_str());   /* NULL -> variables off */
+                    g_dframe = dwarf_frame_load(elf_path.c_str()); /* NULL -> heuristic unwind */
                 }
-                else
-                {
-                    /* Neither field given: prefer a cc65 ".dbg" companion beside the
-                     * program (the ld65 --dbgfile the cc65 template ships), else the
-                     * llvm-mos ELF's DWARF at the same base. */
-                    std::string cand = base + ".dbg";
-                    g_cc65 = cc65dbg_load(cand.c_str());
-                    if (!g_cc65)
-                    {
-                        g_dwarf = dwarf_line_load(base.c_str());
-                        g_dinfo = dwarf_info_load(base.c_str());
-                        g_dframe = dwarf_frame_load(base.c_str());
-                    }
-                }
+                if (!g_dwarf && !dbg_path.empty())
+                    g_cc65 = cc65dbg_load(dbg_path.c_str());
                 push_segments(); /* feed the memory map the program's segment sizes */
             }
 

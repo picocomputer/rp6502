@@ -12,8 +12,8 @@ Pre-built firmware and executables:<br>
 https://github.com/picocomputer/rp6502/releases
 
 This project is for building emulation or firmware. For writing 6502 software, see
-[picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65) and
-[picocomputer/vscode-llvm-mos](https://github.com/picocomputer/vscode-llvm-mos).
+[picocomputer/vscode-cc65](https://github.com/picocomputer/vscode-cc65), which
+builds with either cc65 or llvm-mos and gets its tools from `tools/` here.
 
 ## All Platforms
 
@@ -106,8 +106,8 @@ To build the emulator, from the CMake side panel
 select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
 panel you select "Emulator Debug" and press F5. You'll get prompted to select
 one of the included test roms to run. You'll also have a binary in build/emulator
-which supports the Debug Adapter Protocol (DAP) that you can use with vscode-cc65
-and vscode-llvm-mos, or any other IDE thats support DAP.
+which supports the Debug Adapter Protocol (DAP) that you can use with
+vscode-cc65, or any other IDE thats support DAP.
 
 To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
 job, each with a build directory of its own:
