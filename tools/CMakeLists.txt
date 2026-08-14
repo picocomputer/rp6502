@@ -124,6 +124,7 @@ endforeach()
 # does not come back here.
 file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_after)
 if(NOT rp6502_tools_after STREQUAL rp6502_tools_before)
+    set(RP6502_TOOLS_FORCE FALSE)
     set(RP6502_TOOLS_RELOADED TRUE)
     include("${CMAKE_CURRENT_LIST_FILE}")
     return()
