@@ -1,10 +1,10 @@
 # The RP6502 project tools: rp6502_executable(), rp6502_asset(),
 # rp6502_byproducts(), and the fetch that keeps this directory current.
 #
-# Update with:  cmake -P tools/CMakeLists.txt
+# Update with:  cmake -P tools/rp6502.cmake
 #
-# include() this, do not add_subdirectory() it: a toolchain file has to exist
-# before project(), which is earlier than add_subdirectory() can run.
+# include() it before project(), which is when the toolchain file it selects
+# has to be on disk.
 
 cmake_minimum_required(VERSION 3.21)
 
@@ -94,7 +94,7 @@ function(rp6502_hook_tasks_json)
             "command": "cmake",
             "args": [
                 "-P",
-                "${workspaceFolder}/tools/CMakeLists.txt"
+                "${workspaceFolder}/tools/rp6502.cmake"
             ],
             "presentation": {
                 "reveal": "always",
