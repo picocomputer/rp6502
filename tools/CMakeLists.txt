@@ -11,7 +11,6 @@ cmake_minimum_required(VERSION 3.21)
 # TODO: back to main once the centraltools work is tested.
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "centraltools")
-set(RP6502_TOOLS_FILES cc65-config.cmake cc65.cmake rp6502.py CMakeLists.txt)
 
 # Cached because the commands below need it at call time from any scope, and
 # CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not this one.
@@ -22,11 +21,15 @@ get_filename_component(RP6502_PROJECT_DIR "${RP6502_TOOLS_DIR}" DIRECTORY)
 set(cc65_DIR "${RP6502_TOOLS_DIR}")
 
 # Rename over the target, so a dead network leaves the working tool in place.
-function(rp6502_fetch_tool name)
+function(rp6502_fetch_tool name hash)
     set(url "https://raw.githubusercontent.com/${RP6502_TOOLS_REPO}/${RP6502_TOOLS_REF}/tools/${name}")
     set(out "${RP6502_TOOLS_DIR}/${name}")
+    if(hash)
+        set(expected EXPECTED_HASH SHA256=${hash})
+    endif()
     message(STATUS "Fetching tools/${name}")
     file(DOWNLOAD "${url}" "${out}.tmp"
+        ${expected}
         STATUS status
         TLS_VERIFY ON
         INACTIVITY_TIMEOUT 30
@@ -39,6 +42,25 @@ function(rp6502_fetch_tool name)
         message(FATAL_ERROR "Cannot fetch ${url}\n${text}")
     endif()
     file(RENAME "${out}.tmp" "${out}")
+endfunction()
+
+# What to fetch, and what it should hash to, comes from the server. A project
+# carrying its own list could never be told the set had grown.
+function(rp6502_read_manifest out_var)
+    rp6502_fetch_tool(manifest.txt "")
+    file(STRINGS "${RP6502_TOOLS_DIR}/manifest.txt" lines)
+    file(REMOVE "${RP6502_TOOLS_DIR}/manifest.txt")
+    set(files)
+    foreach(line IN LISTS lines)
+        # Comments and blank lines cannot match, so this both parses and filters.
+        if(line MATCHES "^([0-9a-fA-F]+)[ \t]+(.+)$")
+            list(APPEND files "${CMAKE_MATCH_2}=${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    if(NOT files)
+        message(FATAL_ERROR "tools/manifest.txt lists nothing to fetch.")
+    endif()
+    set(${out_var} "${files}" PARENT_SCOPE)
 endfunction()
 
 # Hooks patch config files that are there and never create one. An absent
@@ -90,8 +112,10 @@ endfunction()
 
 if(CMAKE_SCRIPT_MODE_FILE AND NOT RP6502_TOOLS_RELOADED)
     file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_before)
-    foreach(name IN LISTS RP6502_TOOLS_FILES)
-        rp6502_fetch_tool("${name}")
+    rp6502_read_manifest(rp6502_tools_files)
+    foreach(entry IN LISTS rp6502_tools_files)
+        string(REGEX MATCH "^(.+)=([0-9a-fA-F]+)$" ignored "${entry}")
+        rp6502_fetch_tool("${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
     endforeach()
     set(RP6502_TOOLS_FETCHED TRUE)
     # CMake is running the copy it read at the top. If the fetch replaced this
