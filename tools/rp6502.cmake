@@ -8,9 +8,8 @@
 
 cmake_minimum_required(VERSION 3.21)
 
-# TODO: back to main once the centraltools work is tested.
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
-set(RP6502_TOOLS_REF "centraltools")
+set(RP6502_TOOLS_REF "main")
 
 # Cached because the commands below need it at call time from any scope, and
 # CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not this one.
