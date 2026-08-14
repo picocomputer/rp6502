@@ -1,12 +1,7 @@
-# The RP6502 project tools. Each line is what sha256sum writes, so this file
-# says what to fetch and what it should hash to.
-#
-# rp6502.cmake is the updater that reads this list. It comes last so a fetch
-# that dies partway leaves a working one behind to try again.
-#
+# rp6502.cmake must remain last as the sentinel for completion.
 # Regenerate the lines below after changing any tool:
-#   cd tools && sha256sum cc65-config.cmake cc65-toolchain.cmake rp6502.py rp6502.cmake
-
+#   cd tools && sha256sum cc65-config.cmake cc65-toolchain.cmake rp6502.py CMakeLists.txt
+#
 25ea0ec68569f43061c41295f63f2c9e81c1b965a3bc3edbad24e435fcb3ec40  cc65-config.cmake
 593557bcc599a78edfd5f9441cf5d03ea4718bf63b601ae86a0ba24456a85212  cc65-toolchain.cmake
 ffd2ae28eb76ef501b97aecd9704271b836ba89c2d638eac8e0048384b785203  rp6502.py
