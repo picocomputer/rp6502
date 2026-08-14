@@ -1,0 +1,1 @@
+A file the template stub never heard of, to prove the manifest drives the fetch.
