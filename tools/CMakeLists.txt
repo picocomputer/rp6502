@@ -242,8 +242,10 @@ function(rp6502_executable name)
     # Build the rp6502.py merge command
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     set(rom_file "${CMAKE_CURRENT_BINARY_DIR}/${name}.rp6502")
+    # CMAKE_CURRENT_LIST_DIR inside a function is the directory of the file
+    # that defined it, so this is tools/ no matter which scope calls us.
     set(tool_command "${Python3_EXECUTABLE}"
-        "${RP6502_TOOLS_DIR}/rp6502.py"
+        "${CMAKE_CURRENT_LIST_DIR}/rp6502.py"
     )
     set(executable_inputs)
     if (NOT data_addr STREQUAL "none")
@@ -312,7 +314,7 @@ function(rp6502_asset name addr in_file)
         DEPENDS "${src_file}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}"
         COMMAND "${Python3_EXECUTABLE}"
-                "${RP6502_TOOLS_DIR}/rp6502.py"
+                "${CMAKE_CURRENT_LIST_DIR}/rp6502.py"
                 -a "${addr}"
                 -o "${out_file}"
                 create "${src_file}"
