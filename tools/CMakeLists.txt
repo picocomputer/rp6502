@@ -112,12 +112,21 @@ if(CMAKE_SCRIPT_MODE_FILE)
     return()
 endif()
 
-function(rp6502_require_toolchain)
-    message(FATAL_ERROR
-        "No compiler selected.\n"
-        "Select a CMake preset, or edit CMakeLists.txt and uncomment one of "
-        "set(CC65_TARGET_SYSTEM rp6502) or set(LLVM_MOS_PLATFORM rp6502).")
-endfunction()
+# A macro, not a function: both SDK config files name the toolchain with a
+# plain set(), which a function scope would discard on return, leaving the
+# project on the host compiler.
+macro(rp6502_require_package)
+    if(DEFINED CC65_TARGET_SYSTEM)
+        find_package(cc65 REQUIRED)
+    elseif(DEFINED LLVM_MOS_PLATFORM)
+        find_package(llvm-mos-sdk REQUIRED)
+    else()
+        message(FATAL_ERROR
+            "No compiler selected.\n"
+            "Select a CMake preset, or edit CMakeLists.txt and uncomment one of "
+            "set(CC65_TARGET_SYSTEM rp6502) or set(LLVM_MOS_PLATFORM rp6502).")
+    endif()
+endmacro()
 
 # cc65 links a flat image at a fixed address; llvm-mos writes the address into
 # the first two bytes of its output, which the tool spells `file`.
