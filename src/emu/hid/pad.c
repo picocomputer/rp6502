@@ -16,7 +16,7 @@
 /* Byte offsets within a player record (mirror pad_xram_t). */
 enum
 {
-    PAD_OFF_DPAD = 0,    /* dpad dirs (0x0F) + sony (0x40) + connected (0x80) */
+    PAD_OFF_DPAD = 0,    /* dpad dirs (0x0F) + type (0x30) + sticks (0x40) + connected (0x80) */
     PAD_OFF_STICKS = 1,  /* left (0x0F) and right (0xF0) digital stick dirs */
     PAD_OFF_BUTTON0 = 2, /* A/B/C/X/Y/Z + L1/R1 */
     PAD_OFF_BUTTON1 = 3, /* L2/R2 + select/start/home + L3/R3 */
@@ -25,7 +25,7 @@ enum
 };
 
 #define PAD_CONNECTED 0x80
-#define PAD_SONY 0x40
+#define PAD_STICKS 0x40
 #define PAD_DEADZONE 32 /* analog->digital threshold (mirror firmware pad.c) */
 
 static uint8_t pad_state[PAD_PLAYERS][PAD_STRIDE];
@@ -176,7 +176,8 @@ bool pad_is_mapped(void)
 }
 
 void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
-                     int lx, int ly, int rx, int ry, int lt, int rt, bool sony)
+                     int lx, int ly, int rx, int ry, int lt, int rt,
+                     uint8_t type, bool sticks)
 {
     if (player < 0 || player >= PAD_PLAYERS)
         return;
@@ -193,7 +194,8 @@ void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
         button1 |= 0x02;
 
     uint8_t *r = pad_state[player];
-    r[PAD_OFF_DPAD] = (uint8_t)(dpad | PAD_CONNECTED | (sony ? PAD_SONY : 0));
+    r[PAD_OFF_DPAD] = (uint8_t)(dpad | PAD_CONNECTED | (uint8_t)(type << 4) |
+                                (sticks ? PAD_STICKS : 0));
     r[PAD_OFF_STICKS] = (uint8_t)(pad_encode_stick((int8_t)lx, (int8_t)ly) |
                                   (pad_encode_stick((int8_t)rx, (int8_t)ry) << 4));
     r[PAD_OFF_BUTTON0] = button0;

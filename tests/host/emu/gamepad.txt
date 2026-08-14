@@ -7,7 +7,8 @@ run 40
 expect "Disconnected"
 expect-not "Select"
 
-# The connected bit is the gate a program reads before anything else.
+# The connected bit is the gate a program reads before anything else. A host
+# that knows nothing else about the pad claims nothing else.
 pad 0 connect
 pad 0 press start
 run 20
@@ -35,3 +36,15 @@ pad 0 disconnect
 run 20
 expect "Disconnected"
 peek xram:$FF00 $00 $00 $00 $00 $00 $00 $00 $00 $00 $00
+
+# What a host does know goes in the status nibble, and reconnecting starts
+# over from knowing nothing.
+pad 1 connect playstation sticks
+run 10
+peek xram:$FF0A $F0
+pad 1 connect eastern
+run 10
+peek xram:$FF0A $A0
+pad 1 connect
+run 10
+peek xram:$FF0A $80

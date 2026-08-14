@@ -60,6 +60,8 @@ static bool scr_marked;
 static struct
 {
     bool connected;
+    bool sticks;
+    uint8_t type;
     uint8_t dpad, button0, button1;
     int lx, ly, rx, ry, lt, rt;
 } scr_pad[4];
@@ -236,7 +238,7 @@ static void scr_pad_publish(int player)
     pad_host_report(player, scr_pad[player].dpad, scr_pad[player].button0,
                     scr_pad[player].button1, scr_pad[player].lx, scr_pad[player].ly,
                     scr_pad[player].rx, scr_pad[player].ry, scr_pad[player].lt,
-                    scr_pad[player].rt, false);
+                    scr_pad[player].rt, scr_pad[player].type, scr_pad[player].sticks);
 }
 
 static bool scr_canvas_crc(uint32_t *out)
@@ -263,7 +265,26 @@ static bool scr_cmd_pad(char *p)
         bool connect = !strcasecmp(verb, "connect");
         memset(&scr_pad[player], 0, sizeof scr_pad[player]);
         scr_pad[player].connected = connect;
+        /* What a real host would know about the pad it found, if anything. */
+        char *word;
+        while (connect && (word = scr_word(&p)) != NULL)
+        {
+            if (!strcasecmp(word, "sticks"))
+                scr_pad[player].sticks = true;
+            else if (!strcasecmp(word, "western"))
+                scr_pad[player].type = PAD_TYPE_WESTERN;
+            else if (!strcasecmp(word, "eastern"))
+                scr_pad[player].type = PAD_TYPE_EASTERN;
+            else if (!strcasecmp(word, "playstation"))
+                scr_pad[player].type = PAD_TYPE_PLAYSTATION;
+            else
+                return scr_error("pad connect wants western, eastern, "
+                                 "playstation or sticks, not '%s'",
+                                 word);
+        }
         pad_connect((int)player, connect);
+        if (connect)
+            scr_pad_publish((int)player); /* the claim lands now, not on first press */
         return true;
     }
     if (!scr_pad[player].connected)

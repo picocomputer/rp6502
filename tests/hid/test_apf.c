@@ -7,7 +7,7 @@
  * written for.
  *
  * src/rtl/sw/apf.c hands the dock's registers to ria/hid as reports,
- * and what makes that work is three descriptors that say where every
+ * and what makes that work is four descriptors that say where every
  * bit went. Nothing else checks them. A descriptor that put the d-pad
  * where the buttons go, or the right stick where the left one is, would
  * build clean, boot clean, and be wrong in a way only a hand on a
@@ -70,20 +70,26 @@ static uint8_t feed(int slot, uint8_t type, uint32_t key, uint32_t joy,
     return len;
 }
 
+/* Mirrors apf_slot_task's dispatch: which descriptor and which claim about
+ * the labels each controller type is mounted with. */
 static void mount(int slot, uint8_t type)
 {
     switch (type)
     {
     case APF_TYPE_POCKET:
+        apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc), PAD_TYPE_EASTERN);
+        break;
     case APF_TYPE_PAD:
+        apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc), PAD_TYPE_UNKNOWN);
+        break;
     case APF_TYPE_PAD_ANA:
-        apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc));
+        apf_mount(slot, apf_pad_ana_desc, sizeof(apf_pad_ana_desc), PAD_TYPE_UNKNOWN);
         break;
     case APF_TYPE_KBD:
-        apf_mount(slot, apf_kbd_desc, sizeof(apf_kbd_desc));
+        apf_mount(slot, apf_kbd_desc, sizeof(apf_kbd_desc), PAD_TYPE_UNKNOWN);
         break;
     case APF_TYPE_MOU:
-        apf_mount(slot, apf_mou_desc, sizeof(apf_mou_desc));
+        apf_mount(slot, apf_mou_desc, sizeof(apf_mou_desc), PAD_TYPE_UNKNOWN);
         break;
     }
 }
@@ -214,6 +220,34 @@ UTEST(apf, a_pad_without_analog_is_centered)
     ASSERT_EQ((int8_t)pad_rec(0)[PAD_RY], 0);
     ASSERT_EQ(pad_rec(0)[PAD_LT], 0);
     ASSERT_EQ(pad_rec(0)[PAD_RT], 0);
+}
+
+/* The status nibble is the descriptor's other job. A pad whose descriptor
+ * declares both sticks says so; one whose descriptor stops after the buttons
+ * must not, and must still be recognized as a gamepad at all despite having
+ * no axes to creak with. The Pocket's own buttons are the only labels APF
+ * ever tells us about. */
+UTEST(apf, the_status_bits_follow_the_descriptor)
+{
+    reset_all();
+
+    mount(0, APF_TYPE_PAD_ANA);
+    feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x80808080u, 0x0000, false);
+    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0xC0); /* connected | sticks */
+
+    reset_all();
+    mount(0, APF_TYPE_PAD);
+    feed(0, APF_TYPE_PAD, 0x20000000u, 0x80808080u, 0x0000, false);
+    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0x80); /* connected, nothing claimed */
+
+    reset_all();
+    mount(0, APF_TYPE_POCKET);
+    feed(0, APF_TYPE_POCKET, 0x10000000u, 0x80808080u, 0x0000, false);
+    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0x80 | (PAD_TYPE_EASTERN << 4));
+
+    /* And the labels are a claim about labels only: A is still index 0. */
+    feed(0, APF_TYPE_POCKET, 0x10000000u | (1u << 4), 0x80808080u, 0x0000, false);
+    ASSERT_EQ(pad_rec(0)[PAD_BUTTON0], 1u << 0);
 }
 
 /* Four slots holding four pads are four players, in slot order. */

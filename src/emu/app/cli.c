@@ -118,7 +118,7 @@ void cli_usage(const char *argv0)
             "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll      toggle a lock LED\n"
-            "  pad <n> connect|disconnect\n"
+            "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
             "  pad <n> press|release <button>...   a b x y l1 r1 l2 r2 l3 r3\n"
             "                                      select start home up down left right\n"
             "  pad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"

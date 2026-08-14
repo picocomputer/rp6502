@@ -189,7 +189,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     }
     if (tab_mount(slot, desc_report, desc_len)) /* a mouse feeds this too; a pure digitizer only this */
         valid = true;
-    if (pad_mount(slot, desc_report, desc_len, vendor_id, product_id))
+    /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
+    if (pad_mount(slot, desc_report, desc_len, vendor_id, product_id, PAD_TYPE_UNKNOWN))
     {
         ++usb_count_hid_pad;
         valid = true;

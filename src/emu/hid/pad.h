@@ -16,6 +16,13 @@
  * the firmware's `pad_report` HID-parser prototype, so the base header can't be
  * pulled in here. */
 
+/* Where the face button labels sit, reported in dpad bits 4-5. Mirrors the
+ * PAD_TYPE_ values in ria/hid/pad.h, which this twin cannot include. */
+#define PAD_TYPE_UNKNOWN 0
+#define PAD_TYPE_WESTERN 1     /* A south, B east */
+#define PAD_TYPE_EASTERN 2     /* B south, A east */
+#define PAD_TYPE_PLAYSTATION 3 /* Cross south, Circle east */
+
 /* Flat button id spanning the firmware report's dpad/button0/button1 fields.
  * pad_hid_set maps each to its (byte, bit) in the player record. */
 typedef enum
@@ -67,9 +74,11 @@ bool pad_is_mapped(void);
  * up/down/left/right = 0x01/0x02/0x04/0x08; button0/button1 use the canonical
  * layout (see pad.c). Analog sticks are -128..127, triggers 0..255; the digital
  * sticks byte and the L2/R2 trigger<->button coupling are derived to mirror the
- * firmware. The connected (and sony) feature bits are set here. */
+ * firmware. type is a PAD_TYPE_, claimed only when the host is certain; sticks
+ * says both analog sticks are present. The feature bits are set here. */
 void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
-                     int lx, int ly, int rx, int ry, int lt, int rt, bool sony);
+                     int lx, int ly, int rx, int ry, int lt, int rt,
+                     uint8_t type, bool sticks);
 
 void pad_stop(void);
 
