@@ -175,53 +175,6 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/rtl/machine.cmake
         ${RP6502_SRC}/rtl/quartus.cmake)
 
-    # The three rules below, as lists, for CI. It has to know whether a fit
-    # can be restored before it has a tree to ask, so it hashes what each
-    # rule is made from — and the only place that knows is here. Its own list
-    # of directories would be a second copy of these DEPENDS, and was one: a
-    # glob on src/rtl refit for the firmware under src/rtl/sw, which costs an
-    # assemble, and never for src/ria or src/vga, which are compiled into the
-    # image that assemble installs.
-    #
-    # Relative and sorted, so a key means the same thing on a runner as on a
-    # desk and does not turn over when only the list order did.
-    function(_pocket_inputs name)
-        set(_rel "")
-        foreach(_f IN LISTS ARGN)
-            file(RELATIVE_PATH _r ${RP6502_ROOT} ${_f})
-            list(APPEND _rel ${_r})
-        endforeach()
-        list(SORT _rel)
-        list(REMOVE_DUPLICATES _rel)
-        string(REPLACE ";" "\n" _text "${_rel}")
-        file(GENERATE OUTPUT ${POCKET_DIR}/${name} CONTENT "${_text}\n")
-    endfunction()
-
-    _pocket_inputs(fit-inputs.txt ${BS_SOURCES}
-        ${RP6502_SRC}/gen/rv_tcm_gen.py
-        ${RP6502_SRC}/gen/map_gate.py
-        ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl)
-
-    _pocket_inputs(signoff-inputs.txt
-        ${RP6502_SRC}/gen/sta_gate.py
-        ${RP6502_SRC}/gen/drc_gate.py
-        ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt)
-
-    _pocket_inputs(bitstream-inputs.txt ${SW_SOURCES} ${SW_HEADERS}
-        ${SW_SRC}/link.ld
-        ${VID_FONT_ASSET_H}
-        ${RP6502_SRC}/gen/rv_mif_gen.py
-        ${RP6502_SRC}/gen/rbf_r_gen.py)
-    # Not a file, but it decides the MIF layout.
-    file(GENERATE OUTPUT ${POCKET_DIR}/bitstream-values.txt
-        CONTENT "TCM_WORDS=${TCM_WORDS}\n")
-
-    # Two the fit reads without naming a file of theirs: hazard3 off the QSF's
-    # SEARCH_PATH, Analogue's framework through apf.qip. A pin is exactly what
-    # decides their contents, so the gitlinks stand in for the trees.
-    file(GENERATE OUTPUT ${POCKET_DIR}/fit-modules.txt
-        CONTENT "vendor/hazard3\nvendor/openfpga\n")
-
     # Three costs, three rules, and CMake decides which of them a change
     # has to pay for. Placing and routing this design is nine minutes and
     # turns on the RTL. Putting an image into four M10K arrays is twenty
@@ -363,6 +316,29 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
     add_custom_target(pocket DEPENDS ${POCKET_DIR}/package.stamp)
+
+    # Everything above, as one list, so CI can tell whether this job is owed at
+    # all. The three rules are separate because they cost different amounts to
+    # run; to the question "is any of this stale" they are one answer, so they
+    # are one file. Last, because the card tree is the final thing to be named.
+    #
+    # BS_SOURCES carries the generated packages, which drop out on the way for
+    # being build outputs — a generated file never appears in a diff. What
+    # decides them is their generators, so those are named instead, and a new
+    # font or decode table still wakes the fit that puts it in the fabric.
+    get_property(ASSET_INPUTS GLOBAL PROPERTY RP6502_ASSET_INPUTS)
+    rp6502_inputs(pocket-inputs.txt ${BS_SOURCES} ${ASSET_INPUTS}
+        ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
+        ${PKG_DIST_FILES} ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
+        ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
+        ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        ${RP6502_SRC}/gen/rv_tcm_gen.py ${RP6502_SRC}/gen/rv_mif_gen.py
+        ${RP6502_SRC}/gen/map_gate.py ${RP6502_SRC}/gen/sta_gate.py
+        ${RP6502_SRC}/gen/drc_gate.py ${RP6502_SRC}/gen/rbf_r_gen.py
+        # Analogue's framework, whose apf.qip names its own files, and whatever
+        # the machine asked for. A submodule reaches a diff as its gitlink and
+        # no other way, so the path has to be listed in its own right.
+        ${RP6502_VENDOR}/openfpga ${RP6502_MACHINE_MODULES})
 
     elseif(NOT RP6502_HAVE_APF)
         message(STATUS "vendor/openfpga absent - no pocket target.")
