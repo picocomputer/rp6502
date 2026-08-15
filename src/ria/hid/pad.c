@@ -22,8 +22,9 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // This is the report we generate for XRAM.
 // Direction bits: 0-up, 1-down, 2-left, 3-right
+// Feature bits 0x30 are the PAD_TYPE_ of the face button labels
+// Feature bit 0x40 is on when both analog sticks are present
 // Feature bit 0x80 is on when valid gamepad connected
-// Feature bit 0x40 is on when Sony-style gamepad detected
 typedef struct
 {
     uint8_t dpad;    // dpad (0x0F) and feature (0xF0) bits
@@ -50,6 +51,12 @@ typedef struct
 
 #define PAD_HOME_BUTTON 12
 
+// The dpad byte's feature bits, ready to OR into a report.
+#define PAD_FEAT_TYPE(type) ((uint8_t)((type) << 4))
+#define PAD_FEAT_TYPE_MASK 0x30
+#define PAD_FEAT_STICKS 0x40
+#define PAD_FEAT_CONNECTED 0x80
+
 // LED type for player indicators
 enum
 {
@@ -62,7 +69,7 @@ enum
 typedef struct
 {
     bool valid;
-    bool sony;         // Indicates gamepad uses sony button labels
+    uint8_t features;  // The dpad byte's PAD_FEAT_ bits, precomputed at mount
     bool home_pressed; // Used to inject the out of band home button on xbox one
     int slot;          // HID protocol drivers use slots assigned in hid.h
     uint8_t led_type;  // PAD_LED_NONE, PAD_LED_DS4, PAD_LED_DS5
@@ -120,7 +127,7 @@ static void pad_remap_playstation_classic(
     if (vendor_id != 0x054C || product_id != 0x05C2)
         return;
     DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
-    conn->sony = true;
+    conn->features = PAD_FEAT_TYPE(PAD_TYPE_PLAYSTATION);
     pad_swap_buttons(conn, 0, 2); // buttons
     pad_swap_buttons(conn, 2, 3); // buttons
     pad_swap_buttons(conn, 4, 8); // l1/l2
@@ -245,7 +252,7 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 static const pad_connection_t pad_desc_sony_ds4 = {
     .valid = true,
     .x_absolute = true,
-    .sony = true,
+    .features = PAD_FEAT_TYPE(PAD_TYPE_PLAYSTATION),
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
     .x_size = 8,
@@ -287,7 +294,7 @@ static const pad_connection_t pad_desc_sony_ds4 = {
 static const pad_connection_t pad_desc_sony_ds5 = {
     .valid = true,
     .x_absolute = true,
-    .sony = true,
+    .features = PAD_FEAT_TYPE(PAD_TYPE_PLAYSTATION),
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
     .x_size = 8,
@@ -431,17 +438,21 @@ static void pad_parse_descriptor(
 
     hid_descriptor_parse(desc_data, desc_len, pad_parse_field, conn);
 
-    // If it creaks like a gamepad.
-    if (conn->x_absolute && conn->button_offsets[0] != 0xFFFF &&
-        (conn->x_size || conn->y_size || conn->z_size ||
-         conn->rz_size || conn->rx_size || conn->ry_size ||
-         conn->hat_size))
+    bool axes = conn->x_size || conn->y_size || conn->z_size ||
+                conn->rz_size || conn->rx_size || conn->ry_size ||
+                conn->hat_size;
+
+    // If it creaks like a gamepad. A mouse has buttons and an X too, but its X
+    // is relative. A digital pad has no axes at all, so its discrete dpad
+    // buttons are what say it isn't a keyboard.
+    if (conn->button_offsets[0] != 0xFFFF &&
+        (axes ? conn->x_absolute : conn->button_offsets[16] != 0xFFFF))
         conn->valid = true;
 
     // Debug: Print parsed pad_connection_t structure
     DBG("Parsed pad_connection_t:\n");
-    DBG("  valid=%d, sony=%d, slot=%d, report_id=0x%02X\n",
-        conn->valid, conn->sony, conn->slot, conn->report_id);
+    DBG("  valid=%d, features=0x%02X, slot=%d, report_id=0x%02X\n",
+        conn->valid, conn->features, conn->slot, conn->report_id);
     DBG("  x_absolute=%d, x_offset=%d, x_size=%d, x_min=%ld, x_max=%ld\n",
         conn->x_absolute, conn->x_offset, conn->x_size, conn->x_min, conn->x_max);
     DBG("  y_offset=%d, y_size=%d, y_min=%ld, y_max=%ld\n",
@@ -468,7 +479,7 @@ static void pad_parse_descriptor(
 static void pad_distill_descriptor(
     pad_connection_t *conn,
     uint8_t const *desc_data, uint16_t desc_len,
-    uint16_t vendor_id, uint16_t product_id)
+    uint16_t vendor_id, uint16_t product_id, uint8_t button_type)
 {
     conn->valid = false;
 
@@ -499,7 +510,19 @@ static void pad_distill_descriptor(
     }
 
     if (!conn->valid)
+    {
         DBG("HID descriptor not a gamepad.\n");
+        return;
+    }
+
+    // A device we recognized by id has already labelled itself; otherwise the
+    // transport's claim stands, which is PAD_TYPE_UNKNOWN for generic HID.
+    if (!(conn->features & PAD_FEAT_TYPE_MASK))
+        conn->features |= PAD_FEAT_TYPE(button_type);
+    // Both sticks or neither: one stick is not "sticks".
+    if (conn->x_size && conn->y_size && conn->z_size && conn->rz_size)
+        conn->features |= PAD_FEAT_STICKS;
+    conn->features |= PAD_FEAT_CONNECTED;
 }
 
 static uint8_t pad_encode_stick(int8_t x, int8_t y)
@@ -543,11 +566,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     // Add feature bits to dpad
     pad_connection_t *conn = &pad_connections[player];
     if (conn->valid)
-    {
-        report->dpad |= 0x80;
-        if (conn->sony)
-            report->dpad |= 0x40;
-    }
+        report->dpad |= conn->features;
 
     // A blank report was requested
     if (report_len == 0)
@@ -669,7 +688,8 @@ bool pad_xreg(uint16_t word)
 }
 
 bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
-                                       uint16_t vendor_id, uint16_t product_id)
+                                       uint16_t vendor_id, uint16_t product_id,
+                                       uint8_t button_type)
 {
     pad_connection_t *conn = NULL;
     int player;
@@ -689,7 +709,7 @@ bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint1
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    pad_distill_descriptor(conn, desc_data, desc_len, vendor_id, product_id);
+    pad_distill_descriptor(conn, desc_data, desc_len, vendor_id, product_id, button_type);
     if (conn->valid)
     {
         conn->slot = slot;

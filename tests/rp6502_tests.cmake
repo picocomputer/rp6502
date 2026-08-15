@@ -59,6 +59,15 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
+    # Every test in both trees comes through here, so this is the one place
+    # that can say what the suite is made of without naming any of it.
+    foreach(_s IN LISTS T_SOURCES)
+        if(NOT IS_ABSOLUTE ${_s})
+            set(_s ${CMAKE_CURRENT_LIST_DIR}/${_s})
+        endif()
+        set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${_s})
+    endforeach()
+
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE
         ${RP6502_UTEST_DIR} ${RP6502_BENCH} ${T_INCLUDES})

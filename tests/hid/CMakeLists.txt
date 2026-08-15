@@ -9,6 +9,13 @@ rp6502_add_test(paint_tab LIBS emu_core FIXTURE paint_tab.rp6502 TIMEOUT 60)
 # --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
 rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
 
+# --- The desktop gamepad policy, against a host that does as it is told ---
+# Reading a controller is per-OS code no runner has hardware for. Everything
+# above that seam is not, and the privacy gate and player numbering are the
+# parts worth being sure of.
+rp6502_add_test(pad_input LIBS emu_core
+    SOURCES test_pad_input.c ${RP6502_SRC}/emu/app/pad_input.c)
+
 # --- The Pocket's synthetic descriptors against the drivers they feed ---
 # The dock's registers are handed to ria/hid as HID reports, and three
 # descriptors written by hand are what says where every bit went. Wrong

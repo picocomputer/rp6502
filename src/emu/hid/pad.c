@@ -10,13 +10,12 @@
 #include <string.h>
 #include <strings.h>
 
-#define PAD_PLAYERS 4
 #define PAD_STRIDE 10 /* sizeof(firmware pad_xram_t) */
 
 /* Byte offsets within a player record (mirror pad_xram_t). */
 enum
 {
-    PAD_OFF_DPAD = 0,    /* dpad dirs (0x0F) + sony (0x40) + connected (0x80) */
+    PAD_OFF_DPAD = 0,    /* dpad dirs (0x0F) + type (0x30) + sticks (0x40) + connected (0x80) */
     PAD_OFF_STICKS = 1,  /* left (0x0F) and right (0xF0) digital stick dirs */
     PAD_OFF_BUTTON0 = 2, /* A/B/C/X/Y/Z + L1/R1 */
     PAD_OFF_BUTTON1 = 3, /* L2/R2 + select/start/home + L3/R3 */
@@ -25,7 +24,7 @@ enum
 };
 
 #define PAD_CONNECTED 0x80
-#define PAD_SONY 0x40
+#define PAD_STICKS 0x40
 #define PAD_DEADZONE 32 /* analog->digital threshold (mirror firmware pad.c) */
 
 static uint8_t pad_state[PAD_PLAYERS][PAD_STRIDE];
@@ -65,8 +64,10 @@ static bool pad_button_loc(pad_button_t button, int *off, uint8_t *mask)
     case PAD_BTN_DPAD_RIGHT: *off = PAD_OFF_DPAD;    *mask = 0x08; return true;
     case PAD_BTN_A:          *off = PAD_OFF_BUTTON0; *mask = 0x01; return true;
     case PAD_BTN_B:          *off = PAD_OFF_BUTTON0; *mask = 0x02; return true;
+    case PAD_BTN_C:          *off = PAD_OFF_BUTTON0; *mask = 0x04; return true;
     case PAD_BTN_X:          *off = PAD_OFF_BUTTON0; *mask = 0x08; return true;
     case PAD_BTN_Y:          *off = PAD_OFF_BUTTON0; *mask = 0x10; return true;
+    case PAD_BTN_Z:          *off = PAD_OFF_BUTTON0; *mask = 0x20; return true;
     case PAD_BTN_L1:         *off = PAD_OFF_BUTTON0; *mask = 0x40; return true;
     case PAD_BTN_R1:         *off = PAD_OFF_BUTTON0; *mask = 0x80; return true;
     case PAD_BTN_L2:         *off = PAD_OFF_BUTTON1; *mask = 0x01; return true;
@@ -124,8 +125,10 @@ static const struct
     {"right", PAD_BTN_DPAD_RIGHT},
     {"a", PAD_BTN_A},
     {"b", PAD_BTN_B},
+    {"c", PAD_BTN_C},
     {"x", PAD_BTN_X},
     {"y", PAD_BTN_Y},
+    {"z", PAD_BTN_Z},
     {"l1", PAD_BTN_L1},
     {"r1", PAD_BTN_R1},
     {"l2", PAD_BTN_L2},
@@ -176,7 +179,8 @@ bool pad_is_mapped(void)
 }
 
 void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
-                     int lx, int ly, int rx, int ry, int lt, int rt, bool sony)
+                     int lx, int ly, int rx, int ry, int lt, int rt,
+                     uint8_t type, bool sticks)
 {
     if (player < 0 || player >= PAD_PLAYERS)
         return;
@@ -193,7 +197,8 @@ void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
         button1 |= 0x02;
 
     uint8_t *r = pad_state[player];
-    r[PAD_OFF_DPAD] = (uint8_t)(dpad | PAD_CONNECTED | (sony ? PAD_SONY : 0));
+    r[PAD_OFF_DPAD] = (uint8_t)(dpad | PAD_CONNECTED | (uint8_t)(type << 4) |
+                                (sticks ? PAD_STICKS : 0));
     r[PAD_OFF_STICKS] = (uint8_t)(pad_encode_stick((int8_t)lx, (int8_t)ly) |
                                   (pad_encode_stick((int8_t)rx, (int8_t)ry) << 4));
     r[PAD_OFF_BUTTON0] = button0;

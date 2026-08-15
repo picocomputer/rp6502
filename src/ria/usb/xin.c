@@ -516,7 +516,8 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     uint16_t desc_len = is_xbox_one ? sizeof(xin_xbox_one_desc) : sizeof(xin_xbox_360_desc);
     uint16_t vendor_id, product_id;
     if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
-        !pad_mount(xin_idx_to_hid_slot(idx), desc_data, desc_len, vendor_id, product_id))
+        !pad_mount(xin_idx_to_hid_slot(idx), desc_data, desc_len,
+                   vendor_id, product_id, PAD_TYPE_WESTERN))
     {
         DBG("XInput: Failed to mount in pad system\n");
         tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);

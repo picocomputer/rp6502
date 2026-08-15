@@ -333,9 +333,11 @@ bool rp6502_android_input_hook(const void* native_event)
             default:
                 return 0; // Not handled
         }
+        // Sticks unconditionally: the motion handler reads AXIS_X/Y/Z/RZ from
+        // whatever is attached. Android never says whose labels these are.
         pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
                         g_android_lx, g_android_ly, g_android_rx, g_android_ry,
-                        g_android_lt, g_android_rt, false);
+                        g_android_lt, g_android_rt, PAD_TYPE_UNKNOWN, true);
         return 1; // Handled
     }
     else if (type == AINPUT_EVENT_TYPE_MOTION)
@@ -393,7 +395,7 @@ bool rp6502_android_input_hook(const void* native_event)
 
         pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
                         g_android_lx, g_android_ly, g_android_rx, g_android_ry,
-                        g_android_lt, g_android_rt, false);
+                        g_android_lt, g_android_rt, PAD_TYPE_UNKNOWN, true);
         return 1; // Handled
     }
     return 0; // Not handled

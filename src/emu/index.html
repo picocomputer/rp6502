@@ -452,7 +452,15 @@
         function clamp(v, lo, hi) { return v < lo ? lo : (v > hi ? hi : v); }
         function axis(v) { return clamp(Math.round((v || 0) * 127), -128, 127); }
         function trig(btn) { return btn ? clamp(Math.round(btn.value * 255), 0, 255) : 0; }
-        function sony(id) { return /054c|0ce6|dualshock|dualsense|playstation|sony/i.test(id || ''); }
+        // Face button labels: 3 PlayStation, 2 Eastern BA, 1 Western AB, 0 when
+        // the id doesn't say for certain.
+        function padType(id) {
+          id = id || '';
+          if (/054c|0ce6|dualshock|dualsense|playstation|sony/i.test(id)) return 3;
+          if (/057e|switch|joy-?con|nintendo/i.test(id)) return 2;
+          if (/045e|xbox|xinput/i.test(id)) return 1;
+          return 0;
+        }
 
         function poll() {
           if (!mapped()) { stop(); return; } // program released the pad
@@ -474,7 +482,7 @@
                      (on(9) ? 0x08 : 0) | (on(16) ? 0x10 : 0) | (on(10) ? 0x20 : 0) |
                      (on(11) ? 0x40 : 0);
             report(p, dpad, b0, b1, axis(a[0]), axis(a[1]), axis(a[2]), axis(a[3]),
-                   trig(b[6]), trig(b[7]), sony(gp.id) ? 1 : 0);
+                   trig(b[6]), trig(b[7]), padType(gp.id), a.length >= 4 ? 1 : 0);
             connected[p] = true;
           }
           raf = requestAnimationFrame(poll);

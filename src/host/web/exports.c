@@ -39,10 +39,11 @@ EMSCRIPTEN_KEEPALIVE int pad_mapped(void)
 }
 
 EMSCRIPTEN_KEEPALIVE void pad_report(int player, int dpad, int button0, int button1,
-                                     int lx, int ly, int rx, int ry, int lt, int rt, int sony)
+                                     int lx, int ly, int rx, int ry, int lt, int rt,
+                                     int type, int sticks)
 {
     pad_host_report(player, (uint8_t)dpad, (uint8_t)button0, (uint8_t)button1,
-                    lx, ly, rx, ry, lt, rt, sony != 0);
+                    lx, ly, rx, ry, lt, rt, (uint8_t)type, sticks != 0);
 }
 
 EMSCRIPTEN_KEEPALIVE void pad_disconnect(int player)

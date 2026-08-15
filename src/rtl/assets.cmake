@@ -26,6 +26,12 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # reads downstream as a changed design and costs a ten minute refit.
 function(rp6502_asset target)
     cmake_parse_arguments(A "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
+    # What an asset is made from, for the input lists. The outputs are not
+    # named there — a generated file never appears in a diff — so the generator
+    # and its own sources have to stand for it, or a new font would reach the
+    # fabric without waking the fit that puts it there.
+    set_property(GLOBAL APPEND PROPERTY RP6502_ASSET_INPUTS
+        ${A_GEN} ${A_DEPENDS})
     set(_absent FALSE)
     foreach(_out IN LISTS A_OUTPUTS)
         if(NOT EXISTS ${_out})
@@ -58,7 +64,7 @@ rp6502_submodule(vendor/opl2_fpga
     WANTS "the OPL2 core and its lookup tables")
 
 # --- The generator agrees with the C it generates from ---
-# w65c02's decode tables come from vendor/chips_rp6502, so an upstream change to
+# w65c02's decode tables come from vendor/chips, so an upstream change to
 # the addressing or the cycle sequences has to be modelled here before it can
 # reach the RTL. The generator fails on anything it does not recognise.
 set(W65C02_GEN ${RP6502_SRC}/gen/w65c02_rom_gen.py)

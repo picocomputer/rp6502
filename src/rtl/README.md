@@ -99,6 +99,16 @@ thing tested.
 
 Without Verilator only the oracle tests build; CMake warns and continues.
 
+Both presets also write `inputs/`, which is what CI reads to decide whether
+the fit and the simulation are owed at all. Nothing there is maintained by
+hand: the lists come from the same variables the `DEPENDS` are built from, so
+a file that reaches a build reaches the list that wakes it. That matters more
+than it sounds — the soft CPU firmware compiles about twenty of the hundred
+and thirty files in `src/ria`, so a gate written as directories fits the core
+for every change to the USB stack and none to `src/vga/term`, which generates
+the font in the fabric. A submodule is listed by its own path as well as its
+files, because a bump reaches a diff as a gitlink and no other way.
+
 Set `RP6502_RTL_TRACE` to a path to capture an FST trace, viewable in gtkwave:
 
     RP6502_RTL_TRACE=rtl.fst ./build/verilator/release/tests/vid/test_raster

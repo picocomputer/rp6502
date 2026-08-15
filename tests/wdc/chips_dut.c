@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The emulator's CPU (vendor/chips w65c02.h, as overridden by
- * vendor/chips_rp6502) as a dut_t, so the suites in this directory can hold it
- * to the same evidence as the FPGA core's w65c02.sv.
+ * The emulator's CPU (vendor/chips w65c02.h) as a dut_t, so the suites in this
+ * directory can hold it to the same evidence as the FPGA core's w65c02.sv.
  *
  * Standalone by necessity: CHIPS_IMPL lives here, so nothing that links this
  * can also link emu_core, which carries its own copy and wires the CPU to the

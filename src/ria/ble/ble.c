@@ -211,7 +211,8 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             if (mou_mount(slot, descriptor, descriptor_len))
                 ++ble_count_mou;
             tab_mount(slot, descriptor, descriptor_len);
-            if (pad_mount(slot, descriptor, descriptor_len, 0, 0))
+            /* No vendor or product id over BLE, so nothing is ever certain. */
+            if (pad_mount(slot, descriptor, descriptor_len, 0, 0, PAD_TYPE_UNKNOWN))
                 ++ble_count_pad;
         }
         break;

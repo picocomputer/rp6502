@@ -36,8 +36,59 @@
 
 /* The button usages put each bit where the XRAM report wants it: pad.c
  * files usage n at index n-1, packs 0-15 into its two button bytes, and
- * reads 16-19 as the d-pad. */
+ * reads 16-19 as the d-pad. This one has no axes, for the two controller
+ * types that have none. */
 static const uint8_t apf_pad_desc[] = {
+    0x05, 0x01, // Usage Page (Generic Desktop)
+    0x09, 0x05, // Usage (Game Pad)
+    0xa1, 0x01, // Collection (Application)
+
+    0x05, 0x09, // Usage Page (Button)
+    0x15, 0x00, // Logical Minimum (0)
+    0x25, 0x01, // Logical Maximum (1)
+    0x75, 0x01, // Report Size (1)
+    0x95, 0x01, // Report Count (1)
+
+    0x09, 0x11, // bit 0: dpad up      -> index 16
+    0x81, 0x02, // Input (Data,Var,Abs)
+    0x09, 0x12, // bit 1: dpad down    -> index 17
+    0x81, 0x02,
+    0x09, 0x13, // bit 2: dpad left    -> index 18
+    0x81, 0x02,
+    0x09, 0x14, // bit 3: dpad right   -> index 19
+    0x81, 0x02,
+    0x09, 0x01, // bit 4: A            -> index 0
+    0x81, 0x02,
+    0x09, 0x02, // bit 5: B            -> index 1
+    0x81, 0x02,
+    0x09, 0x04, // bit 6: X            -> index 3
+    0x81, 0x02,
+    0x09, 0x05, // bit 7: Y            -> index 4
+    0x81, 0x02,
+    0x09, 0x07, // bit 8: L1           -> index 6
+    0x81, 0x02,
+    0x09, 0x08, // bit 9: R1           -> index 7
+    0x81, 0x02,
+    0x09, 0x09, // bit 10: L2          -> index 8
+    0x81, 0x02,
+    0x09, 0x0A, // bit 11: R2          -> index 9
+    0x81, 0x02,
+    0x09, 0x0E, // bit 12: L3          -> index 13
+    0x81, 0x02,
+    0x09, 0x0F, // bit 13: R3          -> index 14
+    0x81, 0x02,
+    0x09, 0x0B, // bit 14: select      -> index 10
+    0x81, 0x02,
+    0x09, 0x0C, // bit 15: start       -> index 11
+    0x81, 0x02,
+
+    0xc0, // End Collection
+};
+
+/* The same buttons plus the axes, for the one controller type that has
+ * them. Describing axes a digital pad does not have is how pad.c would come
+ * to claim analog sticks it cannot read. */
+static const uint8_t apf_pad_ana_desc[] = {
     0x05, 0x01, // Usage Page (Generic Desktop)
     0x09, 0x05, // Usage (Game Pad)
     0xa1, 0x01, // Collection (Application)
@@ -192,13 +243,13 @@ static int apf_hid_slot(int slot)
 
 /* Offered to every driver, the way a USB report descriptor is: each one
  * keeps what it recognizes. */
-static void apf_mount(int slot, const uint8_t *desc, uint16_t len)
+static void apf_mount(int slot, const uint8_t *desc, uint16_t len, uint8_t button_type)
 {
     int hid_slot = apf_hid_slot(slot);
     kbd_mount(hid_slot, desc, len, 0, 0);
     mou_mount(hid_slot, desc, len);
     tab_mount(hid_slot, desc, len);
-    pad_mount(hid_slot, desc, len, 0, 0);
+    pad_mount(hid_slot, desc, len, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)
@@ -238,11 +289,12 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
     {
     case APF_TYPE_POCKET:
     case APF_TYPE_PAD:
-        /* No axes, so centre the sticks rather than leave whatever the
-         * words held. pad.c reads a pressed L2/R2 as a full trigger. */
-        joy = 0x80808080u;
-        trig = 0;
-        /* fall through */
+        /* Their descriptor stops after the buttons, so the axis words are
+         * not ours to send. pad.c centres what it isn't told and reads a
+         * pressed L2/R2 as a full trigger. */
+        report[0] = (uint8_t)key;
+        report[1] = (uint8_t)(key >> 8);
+        return 2;
     case APF_TYPE_PAD_ANA:
         report[0] = (uint8_t)key;
         report[1] = (uint8_t)(key >> 8);
@@ -295,16 +347,24 @@ static void apf_slot_task(int slot)
         apf_slots[slot].type = type;
         switch (type)
         {
+        /* The Pocket's own buttons are the only ones here whose labels we
+         * know: an A east of a B, the way Nintendo arranges them. Whatever
+         * is in the dock arrives through the same normalized bitmap, so it
+         * could be wearing any labels at all. */
         case APF_TYPE_POCKET:
+            apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc), PAD_TYPE_EASTERN);
+            break;
         case APF_TYPE_PAD:
+            apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc), PAD_TYPE_UNKNOWN);
+            break;
         case APF_TYPE_PAD_ANA:
-            apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc));
+            apf_mount(slot, apf_pad_ana_desc, sizeof(apf_pad_ana_desc), PAD_TYPE_UNKNOWN);
             break;
         case APF_TYPE_KBD:
-            apf_mount(slot, apf_kbd_desc, sizeof(apf_kbd_desc));
+            apf_mount(slot, apf_kbd_desc, sizeof(apf_kbd_desc), PAD_TYPE_UNKNOWN);
             break;
         case APF_TYPE_MOU:
-            apf_mount(slot, apf_mou_desc, sizeof(apf_mou_desc));
+            apf_mount(slot, apf_mou_desc, sizeof(apf_mou_desc), PAD_TYPE_UNKNOWN);
             break;
         }
     }

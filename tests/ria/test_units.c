@@ -54,8 +54,8 @@ UTEST(xreg, device_channel_dispatch)
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
- * encoding that mirrors the firmware (connected/sony bits, analog->digital
- * sticks byte, L2/R2 trigger<->button coupling). */
+ * encoding that mirrors the firmware (status bits, analog->digital sticks byte,
+ * L2/R2 trigger<->button coupling). */
 UTEST(pad, host_report_encoding)
 {
     pad_stop();
@@ -65,25 +65,29 @@ UTEST(pad, host_report_encoding)
     ASSERT_TRUE(pad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
-    /* Player 0: dpad up + A, left stick full north. */
-    pad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0, false);
-    ASSERT_EQ(xram[0xFF00 + 0], 0x81);       /* dpad up | connected */
-    ASSERT_EQ(xram[0xFF00 + 1], 0x01);        /* sticks: left=N, right=center */
-    ASSERT_EQ(xram[0xFF00 + 2], 0x01);        /* button0: A */
-    ASSERT_EQ(xram[0xFF00 + 3], 0x00);        /* button1 */
+    /* Player 0: dpad up + A, left stick full north, host sure of nothing. */
+    pad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0, PAD_TYPE_UNKNOWN, false);
+    ASSERT_EQ(xram[0xFF00 + 0], 0x81);          /* dpad up | connected */
+    ASSERT_EQ(xram[0xFF00 + 1], 0x01);          /* sticks: left=N, right=center */
+    ASSERT_EQ(xram[0xFF00 + 2], 0x01);          /* button0: A */
+    ASSERT_EQ(xram[0xFF00 + 3], 0x00);          /* button1 */
     ASSERT_EQ(xram[0xFF00 + 5], (uint8_t)-127); /* ly passthrough */
 
-    /* Sony feature bit lands in the dpad byte. */
-    pad_host_report(1, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, true);
-    ASSERT_EQ(xram[0xFF00 + 10], 0xC0); /* connected | sony */
+    /* Type and sticks are separate claims and land in their own bits. */
+    pad_host_report(1, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, PAD_TYPE_PLAYSTATION, true);
+    ASSERT_EQ(xram[0xFF00 + 10], 0xF0); /* connected | sticks | playstation */
+    pad_host_report(1, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, PAD_TYPE_EASTERN, false);
+    ASSERT_EQ(xram[0xFF00 + 10], 0xA0); /* connected | eastern, no sticks */
+    pad_host_report(1, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 0, PAD_TYPE_WESTERN, true);
+    ASSERT_EQ(xram[0xFF00 + 10], 0xD0); /* connected | sticks | western */
 
     /* L2 button with no analog reads full-scale; analog past deadzone asserts
      * the button — both couplings, like the firmware. */
-    pad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0, false);
-    ASSERT_EQ(xram[0xFF00 + 20 + 8], 255);   /* lt forced to full */
-    ASSERT_EQ(xram[0xFF00 + 20 + 3], 0x01);  /* button1 keeps L2 */
-    pad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200, false);
-    ASSERT_EQ(xram[0xFF00 + 30 + 3], 0x02);  /* rt>deadzone asserts R2 */
+    pad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0, PAD_TYPE_UNKNOWN, false);
+    ASSERT_EQ(xram[0xFF00 + 20 + 8], 255);  /* lt forced to full */
+    ASSERT_EQ(xram[0xFF00 + 20 + 3], 0x01); /* button1 keeps L2 */
+    pad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200, PAD_TYPE_UNKNOWN, false);
+    ASSERT_EQ(xram[0xFF00 + 30 + 3], 0x02); /* rt>deadzone asserts R2 */
 
     /* Unplug blanks the record; unmapping clears the gate. */
     pad_connect(0, false);

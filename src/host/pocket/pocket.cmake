@@ -317,6 +317,29 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         VERBATIM)
     add_custom_target(pocket DEPENDS ${POCKET_DIR}/package.stamp)
 
+    # Everything above, as one list, so CI can tell whether this job is owed at
+    # all. The three rules are separate because they cost different amounts to
+    # run; to the question "is any of this stale" they are one answer, so they
+    # are one file. Last, because the card tree is the final thing to be named.
+    #
+    # BS_SOURCES carries the generated packages, which drop out on the way for
+    # being build outputs — a generated file never appears in a diff. What
+    # decides them is their generators, so those are named instead, and a new
+    # font or decode table still wakes the fit that puts it in the fabric.
+    get_property(ASSET_INPUTS GLOBAL PROPERTY RP6502_ASSET_INPUTS)
+    rp6502_inputs(pocket-inputs.txt ${BS_SOURCES} ${ASSET_INPUTS}
+        ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
+        ${PKG_DIST_FILES} ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
+        ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
+        ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
+        ${RP6502_SRC}/gen/rv_tcm_gen.py ${RP6502_SRC}/gen/rv_mif_gen.py
+        ${RP6502_SRC}/gen/map_gate.py ${RP6502_SRC}/gen/sta_gate.py
+        ${RP6502_SRC}/gen/drc_gate.py ${RP6502_SRC}/gen/rbf_r_gen.py
+        # Analogue's framework, whose apf.qip names its own files, and whatever
+        # the machine asked for. A submodule reaches a diff as its gitlink and
+        # no other way, so the path has to be listed in its own right.
+        ${RP6502_VENDOR}/openfpga ${RP6502_MACHINE_MODULES})
+
     elseif(NOT RP6502_HAVE_APF)
         message(STATUS "vendor/openfpga absent - no pocket target.")
     elseif(NOT SW_BIN)
