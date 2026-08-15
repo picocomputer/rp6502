@@ -3,8 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * chips/chips/w65c02.h on its own — our generated shadow of it, really, from
- * vendor/chips_rp6502 — held to a recorded bus trace.
+ * chips/chips/w65c02.h on its own — held to a recorded bus trace.
  *
  * The corpora do the real work here: SingleStepTests and Klaus are external
  * evidence and say the CPU is right, not merely unchanged. But both arrive by

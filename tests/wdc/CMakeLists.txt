@@ -7,7 +7,6 @@
 set(CPU_DUT ${CMAKE_CURRENT_LIST_DIR}/chips_dut.c)
 set(CPU_INCLUDES
     ${CMAKE_CURRENT_LIST_DIR}
-    ${RP6502_VENDOR}/chips_rp6502 # shadows vendor/chips; must precede it
     ${RP6502_VENDOR})
 
 # --- SingleStepTests: per-cycle bus traces, one instruction per case ---
@@ -127,7 +126,6 @@ if(RP6502_VERILATE)
         TOP w65c22
         RTL ${RP6502_SRC}/rtl/wdc/w65c22.sv
         SOURCES test_w65c22.cpp w65c22_scen.c
-        INCLUDES ${CMAKE_CURRENT_LIST_DIR}
-            ${RP6502_VENDOR}/chips_rp6502 ${RP6502_VENDOR}
+        INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_VENDOR}
         TIMEOUT 300)
 endif()

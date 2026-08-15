@@ -134,11 +134,11 @@ void ui_ria_draw(ui_ria_t *win)
         uint64_t p = ((const ria_t *)ria_chip())->PINS;
         if (cpu_halted())
             p |= RIA_PIN_RES;
-        ImGui::BeginChild("##ria_pins", ImVec2(176, 0), true);
+        ImGui::BeginChild("##ria_pins", ImVec2(176, 0), ImGuiChildFlags_Borders);
         ui_chip_draw(&win->chip, p);
         ImGui::EndChild();
         ImGui::SameLine();
-        ImGui::BeginChild("##ria_state", ImVec2(0, 0), true);
+        ImGui::BeginChild("##ria_state", ImVec2(0, 0), ImGuiChildFlags_Borders);
 
         /* Internal latches the memory-mapped register file doesn't carry: the
          * xstack pointer (empty when SP == XSTACK_SIZE; live bytes are [SP,$1FF])

@@ -235,7 +235,6 @@ target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RP6502_SRC}/host/pico
     ${RP6502_SRC}
-    ${RP6502_VENDOR}/chips_rp6502 # shadows vendor/chips; must precede it
     ${RP6502_VENDOR}
 )
 target_compile_definitions(emu_core PUBLIC

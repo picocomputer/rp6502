@@ -25,8 +25,7 @@ UTEST(vectors, all_opcodes)
 }
 
 /* The 16 bit-test branches are read-only and take 5, 6 or 7 cycles with the
- * branch. vendor/chips had them writing and always taking 6; see
- * vendor/chips_rp6502. */
+ * branch. */
 UTEST(vectors, bit_branches_never_write)
 {
     vec_result_t r;

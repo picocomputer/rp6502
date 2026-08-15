@@ -22,11 +22,6 @@ We have a submodule with overrides:
 * vendor/tinyusb_rp6502/rp2040_usb.c
 * vendor/tinyusb_rp6502/midi_host.c
 
-We override vendor/chips the same way, by include path rather than source
-replacement since chips is header-only:
-* vendor/chips_rp6502/w65c02_gen.py carries the delta and regenerates
-* vendor/chips_rp6502/chips/chips/w65c02.h shadows the vendored header
-
 We have patterns you must obey. Do not write any code without learning these
 patterns. Exports almost always begin with the filename. All drivers have a
 lifecycle: init, run, stop, break. All settings have a load, set, get pattern

@@ -6,11 +6,11 @@
 #
 # Generate w65c02's decode tables from the same source as the C emulation.
 #
-# vendor/chips_rp6502 carries the corrected W65C02S generator, and the decode
-# table, addressing modes and per-opcode cycle sequences are read from it rather
-# than retyped. The RTL then cannot disagree with the emulator about which
-# opcode takes how many cycles, and per-cycle lockstep is left to catch only
-# what the two genuinely implement differently.
+# The decode table, addressing modes and per-opcode cycle sequences are read
+# from vendor/chips/codegen/w65c02_gen.py rather than retyped. The RTL then
+# cannot disagree with the emulator about which opcode takes how many cycles,
+# and per-cycle lockstep is left to catch only what the two genuinely implement
+# differently.
 #
 # --report prints the action vocabulary the microcode has to cover, derived from
 # the C the generator emits.
@@ -23,17 +23,18 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
-OVERRIDE = os.path.join(ROOT, 'vendor', 'chips_rp6502')
+CODEGEN = os.path.join(ROOT, 'vendor', 'chips', 'codegen')
 
 
 def load_gen():
-    """The corrected generator, loaded by path so its name cannot collide."""
+    """The vendored generator, loaded by path so its name cannot collide."""
+    sys.path.insert(0, CODEGEN)  # for the generator's own imports
     spec = importlib.util.spec_from_file_location(
-        'w65c02_gen_override', os.path.join(OVERRIDE, 'w65c02_gen.py'))
+        'w65c02_gen_vendored', os.path.join(CODEGEN, 'w65c02_gen.py'))
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
-    return mod.up
+    return mod
 
 
 def macro_args(src, name):
