@@ -734,9 +734,16 @@ jobs:
   #
   # Every job named below runs unconditionally on a tag, so none can be skipped
   # and there is no absent asset to tolerate.
+  #
+  # Two of them build nothing this publishes and are named anyway. rtl-tests is
+  # the evidence the core works, and a tag that fitted a bitstream the suite
+  # rejects should not reach a release page. tools verifies the manifest every
+  # project fetches tools/ against, so a broken one breaks the update for
+  # everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, pico, linux, macos, itch-io, windows, android, pocket]
+    needs: [version, tools, pico, linux, macos, itch-io, windows, android,
+            pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
