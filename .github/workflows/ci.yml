@@ -462,20 +462,15 @@ jobs:
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   #
-  # The longest job here by a wide margin, so it runs on the same question the
-  # fit does: did src/rtl change. What it reads is wider than what it is gated
-  # on — the benches are in tests/ and the oracle is emu_core out of src/emu —
-  # so a commit that touches only those skips the suite that covers it. Tags
-  # and dispatches run it either way, and so does an rtl-changed that failed
-  # to answer: unanswered is not the same as no.
+  # Long, and none of it is a fit: it is a compiler building a verilated model.
+  # So the compile is cached and the suite is not — a gate would have to skip
+  # tests to save anything, and a skipped test leaves no verdict where a
+  # restored bitstream still leaves a bitstream. There was one, on whether
+  # src/rtl changed, and it was wrong in both directions: the benches are in
+  # tests/ and the oracle is emu_core out of src/emu, so a commit touching only
+  # those skipped the suite that covers it. ccache is what pays for dropping it.
   # ---------------------------------------------------------------------------
   rtl-tests:
-    needs: rtl-changed
-    if: >-
-      ${{ !cancelled() && (
-      github.event_name == 'workflow_dispatch'
-      || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changed'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -487,77 +482,42 @@ jobs:
             build-essential cmake ninja-build verilator \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
+      # Verilator regenerates its C++ on every configure, but unchanged RTL
+      # regenerates identical C++, so the model's compile is a hit.
+      - uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: rtl-tests
+
       - name: Configure & build simulation (Release)
         run: |
           set -euxo pipefail
-          cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON
+          cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset Tests
         working-directory: src/rtl
 
       - name: Run simulation tests
         run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
 
-  # rtl-changed: whether this commit touched the machine. GitHub filters a
-  # whole workflow by path, never one job, so the question is asked here and
-  # answered once.
-  rtl-changed:
-    runs-on: ubuntu-24.04
-    outputs:
-      rtl: ${{ steps.rtl.outputs.changed }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Did src/rtl change
-        id: rtl
-        run: |
-          set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            base="origin/${{ github.base_ref }}"
-          else
-            base="${{ github.event.before }}"
-          fi
-          # A new branch has no before, a force push can leave one that is
-          # gone, and a dispatch has none at all. Yes is the safe answer to
-          # all three — a fit that was not needed costs time, one that was
-          # skipped ships a stale core.
-          if [[ -z "$base" ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            changed=true
-          else
-            # Captured rather than piped: grep -q closes early, and under
-            # pipefail that returns git's SIGPIPE status, so the step would
-            # fail on precisely the commits that matched.
-            files=$(git diff --name-only "$base" HEAD)
-            if grep -q '^src/rtl/' <<< "$files"; then changed=true; else changed=false; fi
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
-
   # pocket: the bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
-  # by-product. A fit is tens of minutes and needs a 20 GB toolchain, so it
-  # runs when a diff touched the RTL, and always for a tag or a dispatch.
+  # by-product.
   #
-  # src/rtl is not the whole of what decides a bitstream. The soft CPU
-  # firmware compiles sources from src/ria and src/vga, and the font and
-  # palette ROMs in the fabric are generated from src/vga/term — a change
-  # to any of those alters the core without triggering a fit here. Tags and
-  # dispatches fit unconditionally, so nothing is ever released on a core
-  # this gate declined to build.
+  # A fit is tens of minutes and needs a 20 GB toolchain, and this used to run
+  # on whether a diff touched src/rtl. That was the wrong question twice over.
+  # Yes for the firmware under src/rtl/sw, which costs an assemble and not a
+  # placement, and yes for the whole life of a pull request once any commit in
+  # it moved the RTL. No for src/ria and src/vga, compiled into the image that
+  # assemble installs, and for src/vga/term, which generates the font and
+  # palette ROMs in the fabric.
   #
-  # !cancelled() and != 'false' are what make that last sentence true. A
-  # dependency that does not succeed skips what depends on it whatever the
-  # condition says, so an rtl-changed that dies takes the fit with it —
-  # and package tolerates a skipped pocket, which on a tag would publish a
-  # release with no core in it and nothing to say so. Unanswered is not the
-  # same as no: only a job that ran and said false skips the fit.
+  # So it asks the build graph instead: pocket.cmake writes out the lists its
+  # own DEPENDS are made of and each rule gets a cache keyed on exactly those.
+  # No condition is left, and the cache is the better gate — this runs every
+  # time, so the core in the artifacts is always the core this tree describes.
   pocket:
-    needs: [version, rtl-changed]
-    if: >-
-      ${{ !cancelled() && (
-      github.event_name == 'workflow_dispatch'
-      || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changed'].outputs.rtl != 'false') }}
+    needs: [version]
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
@@ -593,10 +553,13 @@ jobs:
       #
       # --user keeps what Quartus writes owned by the runner, so the host side
       # of the build can still write into the directories it created.
+      #
+      # No pull here. A shim is found by find_program() whether or not the image
+      # exists, which is what lets the tree configure — and so name what a fit
+      # would be made from — before anything decides whether one is owed.
       - name: Quartus by way of the container
         run: |
           set -euxo pipefail
-          docker pull "$QUARTUS_IMAGE"
           shims="$HOME/.quartus-shims"
           mkdir -p "$shims"
           for tool in quartus_map quartus_fit quartus_sta \
@@ -611,24 +574,127 @@ jobs:
             chmod +x "$shims/$tool"
           done
           echo "$shims" >> "$GITHUB_PATH"
-          "$shims/quartus_sta" --version
 
-      # One preset and one target. The pocket tree is Quartus and the
-      # RISC-V compiler and nothing else — no Verilator, which this runner
-      # does not install and which a bitstream never needed.
-      #
-      # The firmware, the fit, the bitstream it goes into and the card tree
-      # are one graph, so asking for the card asks for all of it in the
-      # order it has to happen. A core built without the firmware boots a
-      # soft CPU fetching zeros, which looks exactly like dead hardware and
-      # is not.
-      - name: Build core package
+      # One preset. The pocket tree is Quartus and the RISC-V compiler and
+      # nothing else — no Verilator, which this runner does not install and
+      # which a bitstream never needed. Configuring also writes the input
+      # lists, so it is its own step ahead of the keys.
+      - name: Configure the pocket tree
         run: |
           set -euxo pipefail
           cmake --preset pocket \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build --preset "Card package"
+        working-directory: src/rtl
+
+      # Three keys, nested, one per rule in pocket.cmake. Nesting reduces the
+      # container to one question: a bitstream hit implies the other two, so a
+      # restorable core.bin means no Quartus stage can be owed.
+      #
+      # The path is inside each file's hash, so a rename counts. The image tag
+      # is in there because a different Quartus is a different fit.
+      - name: Derive the cache keys
+        id: keys
+        run: |
+          set -euo pipefail
+          B=build/pocket/bitstream
+          hash_list() { sort "$1" | xargs -r sha256sum | sha256sum | cut -d' ' -f1; }
+          fit=$( { hash_list $B/fit-inputs.txt
+                   git ls-tree HEAD -- $(cat $B/fit-modules.txt)
+                   echo "$QUARTUS_IMAGE"; } | sha256sum | cut -d' ' -f1)
+          sgn=$( { echo "$fit"; hash_list $B/signoff-inputs.txt; } \
+                 | sha256sum | cut -d' ' -f1)
+          bs=$(  { echo "$sgn"; hash_list $B/bitstream-inputs.txt
+                   cat $B/bitstream-values.txt; } | sha256sum | cut -d' ' -f1)
+          {
+            echo "fit=pocket-fit-$fit"
+            echo "signoff=pocket-signoff-$sgn"
+            echo "bitstream=pocket-bitstream-$bs"
+          } >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      # A tag fits cold, so nothing is released on a core this flow did not
+      # build itself.
+      #
+      # After configure, because quartus_fit writes the project file back —
+      # restamped, repathed, the template's assignments dropped where ours
+      # displaced them — so the database was made against a QSF that differs
+      # from the one file(GENERATE) just wrote. This puts the fitter's own
+      # back, and nothing reconfigures after here.
+      #
+      # .ninja_log rides along with every tier because it is the other half of
+      # what a restored stamp is worth: ninja will not accept an output it has
+      # no record of producing, whatever the date on it says. The tiers overlap
+      # so the last one restored carries the fullest record.
+      - uses: actions/cache/restore@v4
+        id: fit
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        with:
+          key: ${{ steps.keys.outputs.fit }}
+          path: |
+            build/pocket/.ninja_log
+            build/pocket/bitstream/db
+            build/pocket/bitstream/output_files
+            build/pocket/bitstream/core
+            build/pocket/bitstream/rp6502.qsf
+            build/pocket/bitstream/rp6502.qpf
+            build/pocket/bitstream/fit.stamp
+
+      - uses: actions/cache/restore@v4
+        id: signoff
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.fit.outputs.cache-hit == 'true' }}
+        with:
+          key: ${{ steps.keys.outputs.signoff }}
+          path: |
+            build/pocket/.ninja_log
+            build/pocket/bitstream/signoff.stamp
+
+      - uses: actions/cache/restore@v4
+        id: bitstream
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.signoff.outputs.cache-hit == 'true' }}
+        with:
+          key: ${{ steps.keys.outputs.bitstream }}
+          path: |
+            build/pocket/.ninja_log
+            build/pocket/bitstream/core.bin
+
+      # After the restore, which overwrites .ninja_log: built first, their
+      # entries would go with it and they would build again — after the stamps
+      # were dated, which is the one order that re-fits. The generated packages
+      # are fit inputs, so a regenerated one is a moved source.
+      - name: Build the generated assets and the soft CPU firmware
+        run: |
+          set -euxo pipefail
+          cmake --build build/pocket
+          cmake --build build/pocket --target sw_bin
+
+      # A cache restores the mtimes it saved, which are older than the checkout
+      # that just landed, so a restored stamp reads as stale. Dated in the
+      # order the graph builds them and after everything they stand for is
+      # already on disk, so none is older than its own inputs.
+      - name: Date the restored work to now
+        run: |
+          set -euxo pipefail
+          B=build/pocket/bitstream
+          for f in fit.stamp signoff.stamp core.bin; do
+            [ -e "$B/$f" ] && touch "$B/$f"
+          done
+          true
+
+      # Only when a Quartus stage is owed. Deliberate rather than left to the
+      # first docker run, so a bad image fails here and not inside a fit.
+      - name: Fetch Quartus
+        if: ${{ steps.bitstream.outputs.cache-hit != 'true' }}
+        run: |
+          set -euxo pipefail
+          docker pull "$QUARTUS_IMAGE"
+          quartus_sta --version
+
+      # The firmware, the fit, the bitstream it goes into and the card tree are
+      # one graph, so asking for the card asks for whatever of it is still owed
+      # in the order it has to happen.
+      - name: Build core package
+        run: cmake --build --preset "Card package"
         working-directory: src/rtl
 
       # Zipped here rather than downstream so the card's own root is the zip's
@@ -647,6 +713,39 @@ jobs:
           archive: false
           if-no-files-found: error
 
+      # After the artifact, so a run that produced a core has already said so
+      # before spending time on a cache. A tag skips the restores, so it skips
+      # the saves too rather than colliding with an entry holding the same
+      # bytes under the same name.
+      - uses: actions/cache/save@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.fit.outputs.cache-hit != 'true' }}
+        with:
+          key: ${{ steps.keys.outputs.fit }}
+          path: |
+            build/pocket/.ninja_log
+            build/pocket/bitstream/db
+            build/pocket/bitstream/output_files
+            build/pocket/bitstream/core
+            build/pocket/bitstream/rp6502.qsf
+            build/pocket/bitstream/rp6502.qpf
+            build/pocket/bitstream/fit.stamp
+
+      - uses: actions/cache/save@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.signoff.outputs.cache-hit != 'true' }}
+        with:
+          key: ${{ steps.keys.outputs.signoff }}
+          path: |
+            build/pocket/.ninja_log
+            build/pocket/bitstream/signoff.stamp
+
+      - uses: actions/cache/save@v4
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && steps.bitstream.outputs.cache-hit != 'true' }}
+        with:
+          key: ${{ steps.keys.outputs.bitstream }}
+          path: |
+            build/pocket/.ninja_log
+            build/pocket/bitstream/core.bin
+
   # ---------------------------------------------------------------------------
   # package: collect the per-target assets each job already built and checksum
   # them. Nothing is repacked here — an archive made anywhere but on its own
@@ -660,12 +759,6 @@ jobs:
     needs: [version, pico, linux, macos, itch-io, windows, android, pocket]
     env:
       ARCHIVE: rp6502-${{ needs.version.outputs.version }}-everything.zip
-    # pocket is skipped on every commit that left the RTL alone, and a skipped
-    # dependency skips what depends on it unless the condition says otherwise.
-    # !failure() keeps a real failure blocking, which is what needs meant on
-    # its own — so a tag still waits for the fit and a fit that did not close
-    # still stops the release.
-    if: ${{ !cancelled() && !failure() }}
     runs-on: ubuntu-24.04
     steps:
       # skip-decompress, because these artifacts are the assets themselves. The
@@ -685,24 +778,21 @@ jobs:
 
           # This list is the order the assets appear on the release page, and
           # checking it here is what makes a missing one a build failure rather
-          # than a quiet gap in the release. pocket is the only one allowed to
-          # be absent: the fit is skipped on commits that left the RTL alone.
-          # A tag always fits, so a tag missing it is real.
+          # than a quiet gap in the release. Every target builds on every run,
+          # pocket included — it restores a cached fit rather than skipping —
+          # so there is no asset this tolerates being absent.
           assets=()
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    pocket.zip itch.io.zip android.apk; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
-            if [ -n "$src" ]; then
-              mv "$src" "dist/$f"
-              assets+=("$f")
-            elif [ "$w" = pocket.zip ] && [[ "$GITHUB_REF" != refs/tags/v* ]]; then
-              echo "note: no pocket core in this run"
-            else
+            if [ -z "$src" ]; then
               echo "missing asset: $f" >&2
               exit 1
             fi
+            mv "$src" "dist/$f"
+            assets+=("$f")
           done
 
           ( cd dist && sha256sum "${assets[@]}" > SHA256SUMS )
