@@ -1100,52 +1100,16 @@ class Emulator:
 
     @staticmethod
     def find():
-        """Locate the rp6502-emu executable for first-run config hinting."""
-        system = platform.system()
-        exe = "rp6502-emu.exe" if system == "Windows" else "rp6502-emu"
-        try:
-            candidates = []
-            # Anything already on PATH.
-            try:
-                found = shutil.which(exe)
-            except Exception:
-                found = None  # bizarre PATH/PATHEXT; keep scanning
-            if found:
-                candidates.append(found)
-            # A source checkout the dev built themselves (~/rp6502).
-            for sub in ("release", "debug"):
-                candidates.append(
-                    os.path.expanduser(
-                        os.path.join("~", "rp6502", "build", "emulator", sub, exe)
-                    )
-                )
-            # A downloaded release artifact.
-            for d in ("~", "~/Downloads", "~/Desktop"):
-                base = os.path.expanduser(d)
-                if system == "Darwin":
-                    # macOS ships rp6502-emu.app; run its inner Mach-O.
-                    candidates.append(
-                        os.path.join(
-                            base, "rp6502-emu.app", "Contents", "MacOS", "rp6502-emu"
-                        )
-                    )
-                else:
-                    candidates.append(os.path.join(base, exe))
-                    # Linux release binaries are arch-suffixed.
-                    if system == "Linux":
-                        candidates.append(
-                            os.path.join(base, f"rp6502-emu-{platform.machine()}")
-                        )
-            for candidate in candidates:
-                # isfile returns False on OSError/ValueError (3.8+).
-                if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-                    try:
-                        return os.path.realpath(candidate)
-                    except Exception:
-                        return candidate  # canonicalizing is optional
-        except Exception:
-            pass  # Best effort; the hint is optional
-        return exe
+        """The emulator the tools fetched beside this script, or a bare name.
+
+        A full path is one that is there. A bare name is left for PATH to
+        resolve at launch, which is all there is to go on when the tools
+        fetch could not get an emulator for this machine.
+        """
+        exe = "rp6502-emu.exe" if platform.system() == "Windows" else "rp6502-emu"
+        beside = "rp6502-emu.exe" if "microsoft" in platform.release().lower() else exe
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), beside)
+        return path if os.path.isfile(path) else exe
 
     @staticmethod
     def send_dap_error(message: str):

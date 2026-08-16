@@ -59,23 +59,25 @@ jobs:
           cat "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # tools: every project fetches tools/ against the hashes in its manifest, so
-  # a tool edited without regenerating it breaks the update for everyone. The
-  # person who would otherwise find out is a user, not the author.
+  # sdk-tools: every project fetches tools/ against the hashes in SHA256SUMS,
+  # so a tool edited without regenerating it breaks the update for everyone.
+  # The person who would otherwise find out is a user, not the author.
   # ---------------------------------------------------------------------------
-  tools:
+  sdk-tools:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      - name: Verify tools/manifest.txt
+      - name: Verify tools/SHA256SUMS
         run: |
           set -euo pipefail
           cd tools
-          grep -E '^[0-9a-f]+ ' manifest.txt | sha256sum -c -
-          # A tool left out of the manifest hashes fine and never ships.
-          diff <(ls | grep -v '^manifest\.txt$' | sort) \
-               <(awk '/^[0-9a-f]+ /{print $2}' manifest.txt | sort)
+          grep -E '^[0-9a-f]+ ' SHA256SUMS | sha256sum -c -
+          # A tool left out of SHA256SUMS hashes fine and never ships. The two
+          # excluded here are the list itself and the script that writes it,
+          # which is for whoever edits this directory and does not ship.
+          diff <(ls | grep -v -e '^SHA256SUMS$' -e '^README\.py$' | sort) \
+               <(awk '/^[0-9a-f]+ /{print $2}' SHA256SUMS | sort)
 
   # ---------------------------------------------------------------------------
   # pico: a pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2 and a
@@ -737,12 +739,12 @@ jobs:
   #
   # Two of them build nothing this publishes and are named anyway. rtl-tests is
   # the evidence the core works, and a tag that fitted a bitstream the suite
-  # rejects should not reach a release page. tools verifies the manifest every
-  # project fetches tools/ against, so a broken one breaks the update for
+  # rejects should not reach a release page. sdk-tools verifies the checksums
+  # every project fetches tools/ against, so a broken one breaks the update for
   # everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, tools, pico, linux, macos, itch-io, windows, android,
+    needs: [version, sdk-tools, pico, linux, macos, itch-io, windows, android,
             pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
