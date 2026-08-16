@@ -39,11 +39,6 @@ enum
     SCANLINE_SKIPPED
 };
 
-static inline uint16_t scanvideo_frame_number(uint32_t scanline_id)
-{
-    return (uint16_t)(scanline_id >> 16u);
-}
-
 // ======================
 
 #define SCANVIDEO_SCANLINE_SM0 0u

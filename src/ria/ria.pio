@@ -127,3 +127,17 @@ bitloop:
 in pins, 1
 jmp x-- bitloop [6]
 .wrap
+
+
+; VSYNC arrives 74us sooner than the byte carrying it if we trip on the
+; start bit. The VGA locks other traffic out of a window around the expected
+; VSYNC, so an edge in there can only be one. The pull parks us after firing,
+; making this one-shot; without it the data bits would trip it again.
+.program vga_vsync_trap
+
+.wrap_target
+pull block          ; Wait to be armed for the window
+wait 1 pin 0        ; Line idle
+wait 0 pin 0        ; Start bit
+irq 0
+.wrap
