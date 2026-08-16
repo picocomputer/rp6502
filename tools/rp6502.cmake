@@ -41,7 +41,7 @@ function(rp6502_fetch_tool name hash)
         message(FATAL_ERROR "Cannot fetch ${url}\n${text}")
     endif()
     # Checked here rather than with EXPECTED_HASH, which reports a mismatch
-    # without stopping: the rest of the manifest still came down, the partial
+    # without stopping: the rest of the list still came down, the partial
     # file stayed, and this message never ran.
     if(hash)
         file(SHA256 "${out}.tmp" got)
