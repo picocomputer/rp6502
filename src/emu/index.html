@@ -366,8 +366,7 @@
           });
         }],
         onRuntimeInitialized: function () {
-          overlayTitle.textContent = '▶ Play';
-          overlayHint.textContent = 'Click or press a key to start (enables sound)';
+          gateAudio();
           initGamepadBridge();
           initMouseHint();
         },
@@ -387,6 +386,24 @@
       }
       overlay.addEventListener('click', start);
       window.addEventListener('keydown', start);
+
+      // Whether a gesture is still owed is the context's own answer: the browser
+      // hands back a running one when the document already has user activation,
+      // which a click on the ROM menu carries across the navigation — sound and
+      // all, making the prompt a lie. sokol creates the context on the first
+      // frame, so wait for it before deciding; a load that arrives without
+      // activation (fresh link, reload) gets a suspended one and the prompt.
+      function gateAudio() {
+        var tries = 20;
+        var t = setInterval(function () {
+          var ctx = Module._saudio_context;
+          if (!ctx && --tries) return;
+          clearInterval(t);
+          if (ctx && ctx.state === 'running') return start();
+          overlayTitle.textContent = '▶ Play';
+          overlayHint.textContent = 'Click or press a key to start (enables sound)';
+        }, 50);
+      }
 
       // Persist saves when the tab is hidden/closed (best-effort: the IndexedDB
       // write is async, so it may not finish on an abrupt close). The guard
