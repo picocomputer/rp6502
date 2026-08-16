@@ -23,6 +23,13 @@
 #define RIA_BACKCHAN_PIO pio1
 #define RIA_BACKCHAN_SM 3
 
+// The RIA edge-triggers VSYNC on the start bit, so it must be able to assume
+// any edge near the expected VSYNC is one. We hold ACK/NAK out of that span.
+// This must stay wider than the RIA's own window (VGA_VSYNC_WINDOW_US) by
+// enough to cover a byte already in flight plus timestamp skew between boards.
+#define RIA_VSYNC_PERIOD_US 16667
+#define RIA_VSYNC_LOCKOUT_US 2000
+
 /* Main events
  */
 

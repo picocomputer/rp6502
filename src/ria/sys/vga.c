@@ -16,6 +16,7 @@
 #include "ria.pio.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
+#include <hardware/timer.h>
 #include <strings.h>
 #include <stdio.h>
 
@@ -49,6 +50,14 @@ static vga_canvas_t vga_canvas_current = vga_canvas_console;
 static volatile uint32_t vga_vsync_deadline;
 static absolute_time_t vga_version_timer;
 static uint8_t vga_vsync_frame;
+
+static int vga_vsync_alarm = -1;
+static uint vga_vsync_trap_offset;
+static bool vga_vsync_alarm_arms; // pending alarm arms the trap, else disarms
+static volatile bool vga_vsync_trap_armed;
+// Set only by the trap ISR. The 6502 may write REGS(0xFFE3), so comparing
+// values alone can't tell us whether the fast path delivered this frame.
+static volatile bool vga_vsync_trap_fired;
 
 #define VGA_VERSION_MESSAGE_SIZE 64
 static char vga_version_message[VGA_VERSION_MESSAGE_SIZE];
@@ -91,6 +100,66 @@ static inline void vga_backchannel_irq_disable(void)
                                 pis_sm2_rx_fifo_not_empty, false);
 }
 
+static void vga_vsync_trap_disarm(void)
+{
+    if (!vga_vsync_trap_armed)
+        return;
+    vga_vsync_trap_armed = false;
+    // Send the state machine back to its blocking pull. Core 0 only, so this
+    // never races another injection.
+    pio_sm_exec(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM,
+                pio_encode_jmp(vga_vsync_trap_offset));
+    pio_sm_clear_fifos(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM);
+    pio_interrupt_clear(VGA_VSYNC_TRAP_PIO, 0);
+    // A trip already pended would otherwise land as a phantom frame.
+    irq_clear(VGA_VSYNC_TRAP_IRQ);
+}
+
+static void vga_vsync_alarm_handler(uint alarm)
+{
+    if (!vga_vsync_alarm_arms)
+    {
+        vga_vsync_trap_disarm();
+        return;
+    }
+    // Never before the version string is done; those bytes would trip the trap.
+    if (vga_state != VGA_CONNECTED && vga_state != VGA_NO_VERSION)
+        return;
+    vga_vsync_trap_fired = false;
+    vga_vsync_trap_armed = true;
+    vga_vsync_alarm_arms = false;
+    pio_sm_put(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, 0);
+    if (hardware_alarm_set_target(alarm, from_us_since_boot(
+                                             time_us_64() + 2 * VGA_VSYNC_WINDOW_US)))
+        vga_vsync_trap_disarm(); // target already passed, don't stay armed
+}
+
+// Arm the trap for the next VSYNC. Called as the byte for this one is handled,
+// back-dated to when the VGA put it on the wire.
+static void vga_vsync_reschedule(void)
+{
+    if (vga_vsync_alarm < 0)
+        return;
+    vga_vsync_trap_disarm();
+    vga_vsync_alarm_arms = true;
+    hardware_alarm_set_target((uint)vga_vsync_alarm,
+                              from_us_since_boot(time_us_64() - VGA_VSYNC_TRANSIT_US +
+                                                 VGA_VSYNC_PERIOD_US - VGA_VSYNC_WINDOW_US));
+}
+
+static void
+    __attribute__((optimize("O3")))
+    __isr
+    __time_critical_func(vga_vsync_trap_irq_handler)(void)
+{
+    pio_interrupt_clear(VGA_VSYNC_TRAP_PIO, 0);
+    vga_vsync_trap_armed = false;
+    vga_vsync_trap_fired = true;
+    // Speculative. The byte arrives 74us later and corrects us if we're wrong.
+    REGS(0xFFE3) = ++vga_vsync_frame;
+    ria_trigger_vsync();
+}
+
 static inline void vga_backchannel_command(uint8_t byte)
 {
     switch (byte & 0xF0)
@@ -99,6 +168,13 @@ static inline void vga_backchannel_command(uint8_t byte)
     {
         uint8_t frame = byte & 0xF;
         vga_vsync_deadline = time_us_32() + VGA_VSYNC_WATCHDOG_MS * 1000;
+        vga_vsync_reschedule();
+        if (vga_vsync_trap_fired)
+        {
+            vga_vsync_trap_fired = false;
+            if ((vga_vsync_frame & 0xF) == frame)
+                break; // fast path already delivered this frame
+        }
         if (frame < (vga_vsync_frame & 0xF))
             vga_vsync_frame += 0x10;
         vga_vsync_frame = (vga_vsync_frame & 0xF0) | frame;
@@ -229,6 +305,24 @@ void __in_flash("vga_init") vga_init(void)
     irq_set_priority(PIO1_IRQ_0, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
     irq_set_enabled(PIO1_IRQ_0, true);
 
+    // Start bit trap. Runs undivided; it does no bit timing and we want the
+    // edge on the pin to reach the 6502 as fast as the silicon allows.
+    vga_vsync_trap_offset = pio_add_program(VGA_VSYNC_TRAP_PIO, &vga_vsync_trap_program);
+    pio_sm_config tc = vga_vsync_trap_program_get_default_config(vga_vsync_trap_offset);
+    sm_config_set_in_pins(&tc, VGA_BACKCHANNEL_PIN); // for WAIT
+    pio_sm_init(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, vga_vsync_trap_offset, &tc);
+    pio_sm_set_enabled(VGA_VSYNC_TRAP_PIO, VGA_VSYNC_TRAP_SM, true);
+    pio_set_irq0_source_enabled(VGA_VSYNC_TRAP_PIO, pis_interrupt0, true);
+    irq_set_exclusive_handler(VGA_VSYNC_TRAP_IRQ, vga_vsync_trap_irq_handler);
+    irq_set_priority(VGA_VSYNC_TRAP_IRQ, PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+    irq_set_enabled(VGA_VSYNC_TRAP_IRQ, true);
+    vga_vsync_alarm = (int)hardware_alarm_claim_unused(true);
+    hardware_alarm_set_callback((uint)vga_vsync_alarm, vga_vsync_alarm_handler);
+    // Same priority as the two backchannel handlers so none can preempt another
+    // and interleave with arming.
+    irq_set_priority(hardware_alarm_get_irq_num((uint)vga_vsync_alarm),
+                     PICO_DEFAULT_IRQ_PRIORITY - 0x10);
+
     // Re-send in case the first disable was lost
     vga_pix_backchannel_disable();
 
@@ -242,6 +336,10 @@ void vga_task(void)
         (int32_t)(time_us_32() - vga_vsync_deadline) >= 0)
     {
         vga_backchannel_irq_disable();
+        vga_vsync_alarm_arms = false;
+        if (vga_vsync_alarm >= 0)
+            hardware_alarm_cancel((uint)vga_vsync_alarm);
+        vga_vsync_trap_disarm();
         vga_pix_backchannel_disable();
         gpio_set_function(VGA_BACKCHANNEL_PIN, GPIO_FUNC_UART);
         vga_state = VGA_CONNECTION_LOST;
