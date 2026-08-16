@@ -9,11 +9,11 @@
 cmake_minimum_required(VERSION 3.21)
 
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
-set(RP6502_TOOLS_REF "autoemu")
+set(RP6502_TOOLS_REF "main")
 
 # The emulator comes from a release of the same repository rather than a
 # branch of it, so a fork that redirects the tools gets its own emulator too.
-set(RP6502_EMU_RELEASE "v0.01")
+set(RP6502_EMU_RELEASE "latest")
 
 # Cached because the commands below need it at call time from any scope, and
 # CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not this one.

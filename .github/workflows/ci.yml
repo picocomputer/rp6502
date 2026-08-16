@@ -808,7 +808,6 @@ jobs:
             dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
-          prerelease: true
           body: |
             ## Picocomputer 6502 release
 
