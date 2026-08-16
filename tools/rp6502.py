@@ -1107,9 +1107,6 @@ class Emulator:
         fetch could not get an emulator for this machine.
         """
         exe = "rp6502-emu.exe" if platform.system() == "Windows" else "rp6502-emu"
-        # WSL runs the Windows build through interop, where it reaches the GPU
-        # and the sound card the Linux build cannot see from inside WSL. The
-        # Linux build is fetched as well, for running by hand.
         beside = "rp6502-emu.exe" if "microsoft" in platform.release().lower() else exe
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), beside)
         return path if os.path.isfile(path) else exe

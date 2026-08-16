@@ -59,11 +59,11 @@ jobs:
           cat "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # tools: every project fetches tools/ against the hashes in SHA256SUMS, so
-  # a tool edited without regenerating it breaks the update for everyone. The
-  # person who would otherwise find out is a user, not the author.
+  # sdk-tools: every project fetches tools/ against the hashes in SHA256SUMS,
+  # so a tool edited without regenerating it breaks the update for everyone.
+  # The person who would otherwise find out is a user, not the author.
   # ---------------------------------------------------------------------------
-  tools:
+  sdk-tools:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -739,12 +739,12 @@ jobs:
   #
   # Two of them build nothing this publishes and are named anyway. rtl-tests is
   # the evidence the core works, and a tag that fitted a bitstream the suite
-  # rejects should not reach a release page. tools verifies the checksums every
-  # project fetches tools/ against, so a broken one breaks the update for
+  # rejects should not reach a release page. sdk-tools verifies the checksums
+  # every project fetches tools/ against, so a broken one breaks the update for
   # everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, tools, pico, linux, macos, itch-io, windows, android,
+    needs: [version, sdk-tools, pico, linux, macos, itch-io, windows, android,
             pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04

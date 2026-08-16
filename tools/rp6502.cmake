@@ -10,17 +10,12 @@ cmake_minimum_required(VERSION 3.21)
 
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "main")
+set(RP6502_EMU_RELEASE "v1.01")
 
-# The emulator comes from a release of the same repository rather than a
-# branch of it, so a fork that redirects the tools gets its own emulator too.
-set(RP6502_EMU_RELEASE "latest")
-
-# Cached because the commands below need it at call time from any scope, and
-# CMAKE_CURRENT_LIST_DIR inside a function is the caller's file, not this one.
 set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "RP6502 tools directory")
 get_filename_component(RP6502_PROJECT_DIR "${RP6502_TOOLS_DIR}" DIRECTORY)
 
-# Where find_package(cc65) looks, so a project needs no third line to say so.
+# Where find_package(cc65) looks.
 set(cc65_DIR "${RP6502_TOOLS_DIR}")
 
 # Rename over the target, so a dead network leaves the working tool in place.
@@ -40,9 +35,6 @@ function(rp6502_fetch_tool name hash)
         file(REMOVE "${out}.tmp")
         message(FATAL_ERROR "Cannot fetch ${url}\n${text}")
     endif()
-    # Checked here rather than with EXPECTED_HASH, which reports a mismatch
-    # without stopping: the rest of the list still came down, the partial
-    # file stayed, and this message never ran.
     if(hash)
         file(SHA256 "${out}.tmp" got)
         string(TOLOWER "${hash}" hash)
@@ -63,9 +55,6 @@ function(rp6502_read_sums file out_var)
     file(STRINGS "${file}" lines)
     set(entries)
     foreach(line IN LISTS lines)
-        # A name is one path component here, so a line carrying a separator is
-        # not one of ours whatever else it looks like. Anything else on the
-        # line cannot match either, so this both parses and filters.
         if(line MATCHES "^([0-9a-fA-F]+)[ \t]+([^ \t/\\\\]+)$")
             list(APPEND entries "${CMAKE_MATCH_2}=${CMAKE_MATCH_1}")
         endif()
@@ -73,8 +62,7 @@ function(rp6502_read_sums file out_var)
     set(${out_var} "${entries}" PARENT_SCOPE)
 endfunction()
 
-# What to fetch, and what it should hash to, comes from the server. A project
-# carrying its own list could never be told the set had grown.
+# What to fetch, and what it should hash to, comes from the server.
 function(rp6502_fetch_sums out_var)
     rp6502_fetch_tool(SHA256SUMS "")
     rp6502_read_sums("${RP6502_TOOLS_DIR}/SHA256SUMS" files)
@@ -85,24 +73,16 @@ function(rp6502_fetch_sums out_var)
     set(${out_var} "${files}" PARENT_SCOPE)
 endfunction()
 
-# One release archive, reduced to the executable it carries. The member is
-# where that executable sits inside it: at the root for Windows and Linux,
-# buried in a bundle for macOS. An emulator is a convenience the rest of the
-# tools do not need, so everything that can go wrong here says so and returns.
+# One release archive, reduced to the executable it carries.
 function(rp6502_fetch_emu suffix member exe)
     if(RP6502_EMU_RELEASE STREQUAL "latest")
         set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/latest/download")
     else()
         set(base "https://github.com/${RP6502_TOOLS_REPO}/releases/download/${RP6502_EMU_RELEASE}")
     endif()
-    # Unpacked beside the download so one recursive delete is the whole
-    # cleanup, and inside tools/ so the rename below stays on one filesystem.
     set(tmp "${RP6502_TOOLS_DIR}/${exe}.tmp")
     file(REMOVE_RECURSE "${tmp}")
     file(MAKE_DIRECTORY "${tmp}")
-    # SHA256SUMS keeps its name from release to release while the assets carry
-    # a version, so it is both the index that turns a platform into a filename
-    # and the hash to check that file with.
     file(DOWNLOAD "${base}/SHA256SUMS" "${tmp}/SHA256SUMS"
         STATUS status
         TLS_VERIFY ON
@@ -127,9 +107,6 @@ function(rp6502_fetch_emu suffix member exe)
             set(hash "${asset_hash}")
         endif()
     endforeach()
-    # Releases from before the packaging split shipped one archive for
-    # everything, and no release has an asset for every machine that can build
-    # a ROM.
     if(NOT name)
         file(REMOVE_RECURSE "${tmp}")
         message(NOTICE "No emulator: release ${RP6502_EMU_RELEASE} has no ${suffix}")
@@ -155,8 +132,6 @@ function(rp6502_fetch_emu suffix member exe)
         message(NOTICE "No emulator: wrong contents for ${name}")
         return()
     endif()
-    # Unpacked by a child process because file(ARCHIVE_EXTRACT) has no way to
-    # report that an archive moved its contents without ending the configure.
     execute_process(
         COMMAND "${CMAKE_COMMAND}" -E tar xf "${name}"
         WORKING_DIRECTORY "${tmp}"
@@ -168,18 +143,12 @@ function(rp6502_fetch_emu suffix member exe)
         message(NOTICE "No emulator: cannot unpack ${name}\n${error}")
         return()
     endif()
-    # Moved rather than copied, so the readme beside it, the bundle around it
-    # on macOS, and the archive itself all leave with the scratch directory.
     file(RENAME "${tmp}/${member}" "${RP6502_TOOLS_DIR}/${exe}" RESULT result)
     file(REMOVE_RECURSE "${tmp}")
-    # Windows holds a lock on a running program, which is the one failure here
-    # a user can do something about, so the old emulator is left working.
     if(NOT result STREQUAL "0")
         message(NOTICE "No emulator: cannot replace tools/${exe}, close it first\n${result}")
         return()
     endif()
-    # WSL runs the .exe as well, and the kernel checks the mode bit before it
-    # hands a binary to the interop handler. Windows zips carry no mode bits.
     if(NOT CMAKE_HOST_WIN32)
         file(CHMOD "${RP6502_TOOLS_DIR}/${exe}" PERMISSIONS
             OWNER_READ OWNER_WRITE OWNER_EXECUTE
@@ -188,9 +157,6 @@ function(rp6502_fetch_emu suffix member exe)
     endif()
 endfunction()
 
-# CMAKE_HOST_SYSTEM_PROCESSOR is empty in script mode and empty before
-# project(), which between them is every way this file is read; the queries
-# below answer in both.
 function(rp6502_fetch_emulator)
     cmake_host_system_information(RESULT host QUERY OS_NAME)
     if(host STREQUAL "Windows")
@@ -198,8 +164,6 @@ function(rp6502_fetch_emulator)
         return()
     endif()
     if(host STREQUAL "Darwin")
-        # The bundle exists to give Finder something to launch. Nothing here
-        # launches from Finder, so the executable comes out and the rest goes.
         rp6502_fetch_emu("macos.zip"
             "rp6502-emu.app/Contents/MacOS/rp6502-emu" "rp6502-emu")
         return()
@@ -209,22 +173,16 @@ function(rp6502_fetch_emulator)
     endif()
     cmake_host_system_information(RESULT release QUERY OS_RELEASE)
     cmake_host_system_information(RESULT machine QUERY OS_PLATFORM)
-    # WSL runs the Windows build through interop, where it reaches the GPU and
-    # the sound card that the Linux build cannot see from inside WSL. The
-    # kernel release is what says WSL; the environment that also says so
-    # belongs to a login shell and is gone from a build started another way.
+    # WSL runs the Windows build through interop.
     if(release MATCHES "[Mm]icrosoft")
         rp6502_fetch_emu("windows.zip" "rp6502-emu.exe" "rp6502-emu.exe")
     endif()
-    # An architecture with no release asset falls out here. Saying so on every
-    # update would only repeat that there is nothing to say.
     if(machine STREQUAL "x86_64" OR machine STREQUAL "aarch64")
         rp6502_fetch_emu("linux-${machine}.tar.gz" "rp6502-emu" "rp6502-emu")
     endif()
 endfunction()
 
-# Hooks patch config files that are there and never create one. An absent
-# .vscode/tasks.json is an editor choice, not an omission.
+# Hooks patch config files.
 function(rp6502_hook_tasks_json)
     set(file "${RP6502_PROJECT_DIR}/.vscode/tasks.json")
     if(NOT EXISTS "${file}")
@@ -278,8 +236,6 @@ if(CMAKE_SCRIPT_MODE_FILE AND NOT RP6502_TOOLS_RELOADED)
         rp6502_fetch_tool("${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
     endforeach()
     set(RP6502_TOOLS_FETCHED TRUE)
-    # CMake is running the copy it read at the top. If the fetch replaced this
-    # file, hand off to the one now on disk; it does not come back here.
     file(SHA256 "${CMAKE_CURRENT_LIST_FILE}" rp6502_tools_after)
     if(NOT rp6502_tools_after STREQUAL rp6502_tools_before)
         set(RP6502_TOOLS_RELOADED TRUE)
@@ -308,8 +264,8 @@ else()
         "Without presets, set CC65_TARGET_SYSTEM or LLVM_MOS_PLATFORM.")
 endif()
 
-# cc65 links a flat image at a fixed address; llvm-mos writes the address into
-# the first two bytes of its output, which the tool spells `file`.
+# cc65 links a flat image at a fixed address;
+# llvm-mos writes the address into the start of its output file.
 function(rp6502_default_address var)
     if(CMAKE_C_COMPILER_ID STREQUAL "cc65")
         set(${var} 0x200 PARENT_SCOPE)
