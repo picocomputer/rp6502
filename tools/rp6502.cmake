@@ -10,7 +10,7 @@ cmake_minimum_required(VERSION 3.21)
 
 set(RP6502_TOOLS_REPO "picocomputer/rp6502")
 set(RP6502_TOOLS_REF "main")
-set(RP6502_EMU_RELEASE "v1.01")
+set(RP6502_EMU_RELEASE "v0.01")
 
 set(RP6502_TOOLS_DIR "${CMAKE_CURRENT_LIST_DIR}" CACHE INTERNAL "RP6502 tools directory")
 get_filename_component(RP6502_PROJECT_DIR "${RP6502_TOOLS_DIR}" DIRECTORY)
