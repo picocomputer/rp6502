@@ -15,6 +15,7 @@
 #include "ria/api/tim.h"
 #include "ria/aud/aud.h"
 #include "ria/aud/opl.h"
+#include "ria/aud/pcm.h"
 #include "ria/aud/psg.h"
 #include "ria/ble/ble.h"
 #include "ria/hid/kbd.h"
@@ -249,6 +250,8 @@ bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
         return psg_xreg(word);
     case 0x101:
         return opl_xreg(word);
+    case 0x102:
+        return pcm_xreg(word);
     default:
         return false;
     }
