@@ -13,9 +13,9 @@
  * assertions are on the program's actual text and survive font/term changes.
  */
 
+#include "emu/hid/kbd.h"
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
-#include "emu/sys/com.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -29,12 +29,6 @@ static void tap(const char *buf, int len)
     cap[cap_len] = 0;
 }
 
-static void feed(const char *s)
-{
-    for (const char *p = s; *p; p++)
-        com_kbd_push_byte((uint8_t)(*p == '\n' ? '\r' : *p));
-}
-
 static bool boot(const char *input)
 {
     cap_len = 0;
@@ -43,7 +37,7 @@ static bool boot(const char *input)
         return false;
     com_set_tx_tap(tap);
     if (input)
-        feed(input);
+        kbd_paste(input);
     return true;
 }
 

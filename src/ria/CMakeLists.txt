@@ -28,7 +28,41 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     COMMENT "Generating the OEM code page tables"
     VERBATIM)
 
+# The keyboard layouts, out of def/kbd_*.def and into one image hid/kbl.c
+# reads a word at a time. See src/gen/kbd_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_ROOT}/src/gen/kbd_layout_gen.py)
+set(KBDLAY_MANIFEST ${CMAKE_CURRENT_LIST_DIR}/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${CMAKE_CURRENT_LIST_DIR}/def/kbd_*.def)
+set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
+set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
+add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
+        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
+    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts"
+    VERBATIM)
+
+# ria/hid/kbd.c is compiled for a machine with USB and for one without.
+# The one without gets src/rtl/sw/shim/class/hid/hid.h rather than a USB
+# stack it has no use for, and two spellings of one specification drift.
+# The check lives here because this is the tree that has TinyUSB: the
+# machine that needs the shim does not, which is the whole reason it
+# exists.
+set(HID_SHIM_STAMP ${CMAKE_CURRENT_BINARY_DIR}/hid_shim.stamp)
+set(HID_SHIM ${RP6502_ROOT}/src/rtl/sw/shim/class/hid/hid.h)
+set(HID_VENDOR ${RP6502_ROOT}/vendor/tinyusb/src/class/hid/hid.h)
+add_custom_command(OUTPUT ${HID_SHIM_STAMP}
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_ROOT}/src/gen/hid_shim_check.py
+        --shim ${HID_SHIM} --vendor ${HID_VENDOR}
+    COMMAND ${CMAKE_COMMAND} -E touch ${HID_SHIM_STAMP}
+    DEPENDS ${RP6502_ROOT}/src/gen/hid_shim_check.py ${HID_SHIM} ${HID_VENDOR}
+    COMMENT "Checking the Pocket's HID shim against TinyUSB"
+    VERBATIM)
+add_custom_target(hid_shim DEPENDS ${HID_SHIM_STAMP})
+
 add_executable(${RIA_TARGET})
+add_dependencies(${RIA_TARGET} hid_shim)
 target_compile_definitions(${RIA_TARGET} PRIVATE ${RP6502_PROJECT_DEFINITIONS})
 pico_add_extra_outputs(${RIA_TARGET})
 pico_set_binary_type(${RIA_TARGET} copy_to_ram)
@@ -107,6 +141,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ble/tlv.c
     hid/hid.c
     hid/kbd.c
+    hid/kbl.c
+    ${KBDLAY_C}
     hid/mou.c
     hid/pad.c
     hid/tab.c

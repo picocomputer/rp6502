@@ -31,8 +31,9 @@ static volatile enum {
     pix_api_nak,
 } pix_api_state;
 
-// Timeout needs a full VGA frame
-#define PIX_ACK_TIMEOUT_MS 2
+// The VGA holds ack/nak out of the window around each VSYNC, so this must
+// exceed that lockout plus a frame of scheduling slack.
+#define PIX_ACK_TIMEOUT_MS 25
 
 void pix_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 {

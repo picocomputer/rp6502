@@ -20,7 +20,6 @@ module vid_fill (
     input logic clk,
     input logic line_start,
 
-    /* One-clock dispatch: the slot's decode rides in with the pulse. */
     input logic start,
     input logic [2:0] mode,
     input logic [15:0] attr_i,
@@ -56,11 +55,9 @@ module vid_fill (
     logic [15:0] config_ptr;
     logic [2:0] mode_q;
 
-    /* Sixteen bytes shifted in a halfword at a time, low half first and
-     * entered at the top, so the config ends flush against bit 127 wherever
-     * it started. A halfword base is a fifth fetch and a ninth shift, and
-     * the junk halfword ahead of it falls out the bottom. vid_palram
-     * forgives a halfword palette pointer the same way. */
+    /* Entered at the top, so the config ends flush against bit 127
+     * wherever it started and the junk halfword ahead of it falls out
+     * the bottom. */
     logic [2:0] cfg_i, cfg_n;
     logic [3:0] sh_c, sh_n;
     logic [127:0] cfgw;

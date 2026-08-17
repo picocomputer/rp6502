@@ -17,8 +17,13 @@
  */
 
 module pocket_i2s (
-    /* The machine's domain. */
-    input logic clk_sys,
+    /* The machine's domain, on the machine's clock: the savestate gate
+     * stops it, and the sample tick beside these words is a level the
+     * machine drives. Behind the gate, a tick frozen high by a stop
+     * would push the same sample until the queue was full of it; here
+     * the pushes simply stop, and the shifter repeats the last sample
+     * the way it does through any other silence. */
+    input logic clk_mach,
     input logic signed [15:0] aud_l,
     input logic signed [15:0] aud_r,
     input logic aud_valid,
@@ -49,7 +54,7 @@ module pocket_i2s (
         .WIDTH(32),
         .DEPTH_LOG2(2)
     ) fifo (
-        .wclk(clk_sys),
+        .wclk(clk_mach),
         .w_stb(aud_valid && !fifo_full),
         .w_data({s_r, s_l}),
         .pocket_fifo_full(fifo_full),

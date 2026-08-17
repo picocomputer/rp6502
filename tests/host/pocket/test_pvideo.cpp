@@ -48,15 +48,17 @@ UTEST(pvideo, raster_and_pixels_exact)
         delete dut;
     }
     dut = new Vpocket_video;
-    dut->clk_sys = 0;
+    /* The machine has its clock: this bench replays a running one. */
+    dut->run = 1;
+    dut->clk_mach = 0;
     dut->clk_vid = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_sys = 1;
+        dut->clk_mach = 1;
         dut->clk_vid = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_mach = 0;
         dut->clk_vid = 0;
         dut->eval();
     }
@@ -74,13 +76,13 @@ UTEST(pvideo, raster_and_pixels_exact)
         {
             for (int c = 0; c < 1600; c++)
             {
-                /* Machine side, one clk_sys. */
+                /* Machine side, one clk_mach. */
                 dut->vid_frame = line == 0 && c == 0;
                 bool de = line < 480 && c < 1280 && (c & 1) == 1;
                 dut->vid_de = de;
                 if (de)
                     dut->vid_pixel = pattern(f, c >> 1, line);
-                dut->clk_sys = 1;
+                dut->clk_mach = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
@@ -131,7 +133,7 @@ UTEST(pvideo, raster_and_pixels_exact)
                     ASSERT_EQ(dut->pocket_video_skip, 0);
                 }
 
-                dut->clk_sys = 0;
+                dut->clk_mach = 0;
                 if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();
@@ -167,15 +169,17 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
         delete dut;
     }
     dut = new Vpocket_video;
-    dut->clk_sys = 0;
+    /* The machine has its clock: this bench replays a running one. */
+    dut->run = 1;
+    dut->clk_mach = 0;
     dut->clk_vid = 0;
     dut->eval();
     for (int i = 0; i < 4; i++)
     {
-        dut->clk_sys = 1;
+        dut->clk_mach = 1;
         dut->clk_vid = 1;
         dut->eval();
-        dut->clk_sys = 0;
+        dut->clk_mach = 0;
         dut->clk_vid = 0;
         dut->eval();
     }
@@ -199,7 +203,7 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                 dut->vid_de = de;
                 if (de)
                     dut->vid_pixel = pattern(f, c >> 1, line);
-                dut->clk_sys = 1;
+                dut->clk_mach = 1;
                 if ((c & 1) == 0)
                     dut->clk_vid = 1;
                 dut->eval();
@@ -251,7 +255,7 @@ UTEST(pvideo, canvas_native_de_skip_and_slot)
                     }
                 }
 
-                dut->clk_sys = 0;
+                dut->clk_mach = 0;
                 if ((c & 1) == 0)
                     dut->clk_vid = 0;
                 dut->eval();

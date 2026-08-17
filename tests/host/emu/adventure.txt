@@ -1,0 +1,25 @@
+# The ANSI keyboard, the other half of the input story: `type` is the one seam
+# host keystrokes enter through, and `wait` reads the program's console back.
+# Adventure blocks on a full line through the line editor, so answering its
+# prompts at all proves the whole chain.
+
+wait "Colossal Cave Adventure"
+wait "Would you like instructions?"
+type "no\n"
+
+# The room description is read from the ROM's own asset files.
+wait "standing at the end of a road"
+wait "small brick"
+
+# The parser scans the vocabulary assets, so a second turn proves stdin keeps
+# working past the first line.
+type "take lamp\n"
+wait "I see no lamp here"
+
+# A key with no character of its own. The typo is corrected by the backspace
+# and nothing else, so the parser recognising the word is the proof the key
+# arrived as its byte.
+type "take lampX"
+key backspace
+type "\n"
+wait "I see no lamp here"

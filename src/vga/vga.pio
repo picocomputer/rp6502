@@ -40,11 +40,14 @@ out null 3
 
 
 ; Minimum 8n1 UART transmit program.
+; The stop bit trails the data so an idle SM starts the start
+; bit immediately. VSYNC latency is measured from the put.
 .program ria_backchannel_tx
 .side_set 1 opt
 
-    pull       side 1 [7]  ; stop bit
+    pull       side 1      ; idle high while stalled
     set x, 7   side 0 [7]  ; start bit for 8 clocks
 bitloop:
     out pins, 1
     jmp x-- bitloop   [6]
+    nop        side 1 [7]  ; stop bit

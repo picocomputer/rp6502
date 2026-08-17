@@ -40,7 +40,7 @@ static vga_prog_t vga_prog[VGA_PROG_MAX];
 static mutex_t vga_scanline_mutex;
 static volatile bool vga_rendering[2];
 static int16_t vga_highest_scanline;
-static volatile bool vga_vsync_fired;
+static volatile uint16_t vga_vsync_frame_fired;
 static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
 static volatile vga_canvas_t vga_canvas_current;
@@ -225,26 +225,25 @@ static void vga_scanvideo_switch(void)
 }
 
 // Fires ria_vsync once per frame at the highest scanline touched by any program,
-// with a scanline-0 fallback if that threshold was never reached.
-static void __not_in_flash_func(vga_scanline_complete)(uint16_t scanline)
+// with a scanline-0 fallback if that threshold was never reached. Keyed on the
+// frame number because both cores render concurrently and may complete out of
+// order; the RIA edge-triggers VSYNC, so a second byte would be a phantom frame.
+static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
 {
-    if (scanline == 0)
-    {
-        if (!vga_vsync_fired)
-            ria_vsync();
-        vga_vsync_fired = false;
-    }
-    if (vga_vsync_fired)
-        return;
+    int16_t scanline = scanvideo_scanline_number(scanline_id);
     int16_t view_height = vga_view_current->height;
     int16_t highest = vga_highest_scanline > 0 && vga_highest_scanline <= view_height
                           ? vga_highest_scanline
                           : view_height;
-    if (scanline + 1 >= highest)
-    {
+    if (scanline + 1 < highest && scanline != 0)
+        return;
+    uint16_t frame = scanvideo_frame_number(scanline_id);
+    if (scanline == 0 && scanline + 1 < highest)
+        // Fallback for a frame that never reached highest. The previous frame
+        // owns it; scanvideo skipped ahead before rendering its threshold line.
+        --frame;
+    if (__atomic_exchange_n(&vga_vsync_frame_fired, frame, __ATOMIC_ACQ_REL) != frame)
         ria_vsync();
-        vga_vsync_fired = true;
-    }
 }
 
 static void vga_render_scanline(void)
@@ -262,7 +261,8 @@ static void vga_render_scanline(void)
     mutex_exit(&vga_scanline_mutex);
 
     const uint16_t width = vga_view_current->width;
-    const int16_t scanline_id = scanvideo_scanline_number(scanline_buffer->scanline_id);
+    const uint32_t buffer_scanline_id = scanline_buffer->scanline_id;
+    const int16_t scanline_id = scanvideo_scanline_number(buffer_scanline_id);
     uint32_t *const data[SCANVIDEO_PLANE_COUNT] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
     bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
     uint32_t *foreground = NULL;
@@ -325,7 +325,7 @@ static void vga_render_scanline(void)
         }
     }
     scanvideo_end_scanline_generation(scanline_buffer);
-    vga_scanline_complete(scanline_id);
+    vga_scanline_complete(buffer_scanline_id);
     vga_rendering[get_core_num()] = false;
 }
 

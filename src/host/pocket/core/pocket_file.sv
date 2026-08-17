@@ -50,6 +50,7 @@ module pocket_file #(
     input logic arst_n,
     input logic [31:0] bridge_addr,
     input logic bridge_rd,
+    input logic bridge_wr,
     output logic [31:0] pocket_file_rd_data,
     output logic [31:0] pocket_file_param_struct,
     output logic [31:0] pocket_file_resp_struct,
@@ -101,6 +102,29 @@ module pocket_file #(
     logic busy, tmo_flag;
     logic [2:0] r_err;
     logic [31:0] r_result;
+
+    /* Whether the host wrote anything into the response struct for the
+     * command now in flight.
+     *
+     * Get File answers with a name in that struct, and its documented
+     * result codes are only ok and slot-not-defined -- there is none for
+     * a slot that is defined but has nothing bound, which is every
+     * deferload slot until a program opens one. A host answering ok and
+     * writing nothing is within what is documented, and the reader is
+     * then looking at whatever the previous Get File left there. The
+     * store is the bridge's to write and cannot be blanked from this
+     * side, so the only way to tell is to watch for the write.
+     *
+     * Same shape as pocket_sst's blob_seen. The bridge's clock owns the
+     * toggle, the register file's clock catches its edge, and the write
+     * that starts the next command clears it, where tmo_flag is. */
+    logic resp_hit, gf_pend;
+    logic wrote_t, wrote_flag;
+    /* Three deep and preserved, the same as ret_t's chain below and
+     * go_t's above -- which is not decoration: at two the Design
+     * Assistant counts this crossing under D101 and at three it does
+     * not, and those two are the module's own precedent. */
+    (* preserve *) logic wrote_t1, wrote_t2, wrote_t3;
     /* Preserved: two flops in series with nothing between them are
      * equivalent, and without a reset to tell them apart the fitter
      * merges them and the crossing loses its synchroniser. */
@@ -118,9 +142,28 @@ module pocket_file #(
         pocket_file_length = '0;
         pocket_file_bridgeaddr = '0;
         r_op = '0;
+        wrote_t1 = 1'b0;
+        wrote_t2 = 1'b0;
+        wrote_t3 = 1'b0;
+        wrote_flag = 1'b0;
         go_t = 1'b0;
         busy = 1'b0;
-        tmo_flag = 1'b0;
+        /* Timed out, at power-on, because the alternative reads as
+         * success. A wake reconfigures this part while the firmware
+         * that comes back out of the blob may be halfway through a
+         * command it issued in the session before, and its next poll
+         * finds busy clear, no error and no timeout -- which is this
+         * register saying "the command you asked about completed and
+         * went well" about a command this fabric has never seen. The
+         * read that follows lifts whatever the staging window happens
+         * to hold and hands it to the program as file data.
+         *
+         * Every caller already treats a timeout as a refusal, and
+         * every one of them writes FILE_CTL before it polls -- which
+         * clears this below -- so a session that starts its own
+         * command never sees it. Only a poll inherited across a
+         * reconfigure does, and a refusal is exactly what that is. */
+        tmo_flag = 1'b1;
         r_err = '0;
         r_result = '0;
         ret_t1 = 1'b0;
@@ -132,6 +175,11 @@ module pocket_file #(
         ret_t1 <= ret_t;
         ret_t2 <= ret_t1;
         ret_t3 <= ret_t2;
+        wrote_t1 <= wrote_t;
+        wrote_t2 <= wrote_t1;
+        wrote_t3 <= wrote_t2;
+        if (wrote_t2 != wrote_t3)
+            wrote_flag <= 1'b1;
         if (ret_t2 != ret_t3) begin
             busy <= 1'b0;
             r_err <= err_q;
@@ -149,6 +197,7 @@ module pocket_file #(
                     go_t <= !go_t;
                     busy <= 1'b1;
                     tmo_flag <= 1'b0;
+                    wrote_flag <= 1'b0;
                 end
                 default: ;
             endcase
@@ -157,7 +206,7 @@ module pocket_file #(
         if (stb)
             pocket_file_rdata <= addr[2]
                 ? r_result
-                : {26'd0, w_pending, tmo_flag, r_err, busy};
+                : {25'd0, wrote_flag, w_pending, tmo_flag, r_err, busy};
     end
 
     logic [31:0] window[WINDOW_WORDS];
@@ -180,6 +229,20 @@ module pocket_file #(
         pocket_file_resp_struct  = pocket_file_bridgeaddr;
     end
 
+    /* Any bridge write while a Get File is outstanding is the host
+     * answering it. Deliberately not an address compare: the response
+     * struct's address is a clk_sys register, and reading it here would
+     * put a new unsynchronised crossing into the design for something
+     * gf_pend already says. */
+    always_comb resp_hit = bridge_wr && gf_pend;
+    initial wrote_t = 1'b0;
+    always_ff @(posedge clk_74a or negedge arst_n) begin
+        if (!arst_n)
+            wrote_t <= 1'b0;
+        else if (resp_hit)
+            wrote_t <= !wrote_t;
+    end
+
     logic [3:0] fstate;
     (* preserve *) logic go_t1, go_t2, go_t3;
     logic [TIMEOUT_BITS-1:0] tmo;
@@ -187,6 +250,7 @@ module pocket_file #(
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             fstate <= F_IDLE;
+            gf_pend <= 1'b0;
             go_t1 <= 1'b0;
             go_t2 <= 1'b0;
             go_t3 <= 1'b0;
@@ -207,6 +271,8 @@ module pocket_file #(
             go_t2 <= go_t1;
             go_t3 <= go_t2;
             tmo   <= tmo + 1'b1;
+            if (fstate == F_IDLE)
+                gf_pend <= 1'b0;
             case (fstate)
                 F_START: begin
                     pocket_file_read <= r_op == OP_READ;
@@ -219,6 +285,9 @@ module pocket_file #(
                 /* done is held high between commands, so the fall proves
                  * this one was taken and the rise is the answer. */
                 F_ARM: begin
+                    /* The old value: this is the clock that clears it,
+                     * and the flag has to outlive it. */
+                    gf_pend <= pocket_file_getfile;
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;

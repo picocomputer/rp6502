@@ -3,21 +3,12 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The pocket port of the .rp6502 loader, from emu/emu/rom.c: the
- * emulator's streams the image from a host file, and this machine's is a
- * buffer already — the whole image in the staging store, host-pushed at
- * boot and on a reload, pulled by exec. Same format, same rules: text
- * records stream raw bytes into the 6502's memory, a load never writes
+ * The pocket port of the .rp6502 loader, from emu/emu/rom.c. The
+ * emulator streams from a host file; here the whole image is resident in
+ * the staging store. Same format, same rules: a load never writes
  * $FF00-$FFF9, the $FFFA-$FFFF vectors land in the register cells with
  * the SRAM keeping the shadow, and both reset vector bytes must arrive
  * or the image is rejected.
- *
- * Suspend, for whoever tries it: the image, the fonts and the tables all
- * live in the SDRAM, and a program keeps reading its bundled assets for
- * as long as it runs. If the Pocket cuts power to the store while
- * asleep, all of it comes back holding whatever survived, and the
- * program will not know. Waking has to restage everything, or prove the
- * store persists.
  */
 
 #include "font.h"
@@ -32,6 +23,11 @@
 
 static uint32_t rom_pos, rom_end;
 
+uint32_t rom_staged_len(void)
+{
+    return rom_end;
+}
+
 static uint8_t rom_byte(uint32_t at)
 {
     return at < rom_end ? ROM_IMG[at] : 0;
@@ -39,17 +35,9 @@ static uint8_t rom_byte(uint32_t at)
 /* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
 
-/* CRC-32/ISO-HDLC a nibble at a time. The bit-by-bit loop this replaces
- * was 43% of the time a load spent — eight shift-and-mask rounds per
- * byte against a window read and a store — and an image is checked byte
- * by byte as it lands, so it is the loader's inner loop and not a thing
- * done once at the end. Sixty-four bytes buys back a third of the wait
- * before a program starts. The RIA reaches for littlefs's table for the
- * same reason; there is no littlefs here, so this is the table.
- *
- * Reflected polynomial, low nibble first: t[i] is 0xEDB88320 folded
- * through i four times, which is the loop above unrolled over the
- * sixteen values a nibble can take. */
+/* CRC-32/ISO-HDLC a nibble at a time; the image is checked byte by byte
+ * as it lands, so this is the loader's inner loop. Reflected polynomial,
+ * low nibble first: t[i] is 0xEDB88320 folded through i four times. */
 static const uint32_t rom_crc_nibble[16] = {
     0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu,
     0x76DC4190u, 0x6B6B51F4u, 0x4DB26158u, 0x5005713Cu,
@@ -185,8 +173,7 @@ bool rom_load_staged(uint32_t len)
         if (!parse_u32(&p, &addr) || !parse_u32(&p, &reclen) ||
             !parse_u32(&p, &crc) || !parse_end(p))
             return false;
-        /* The emulator's record rule verbatim: RAM below 0x10000, XRAM
-         * above, and a record never straddles the boundary. */
+        /* RAM below 0x10000, XRAM above, never straddling. */
         if (addr > 0x1FFFF || reclen == 0 || reclen > 0x20000 - addr ||
             (addr < 0x10000 && reclen > 0x10000 - addr))
             return false;
@@ -218,21 +205,13 @@ bool rom_load_staged(uint32_t len)
     return reset_lo && reset_hi;
 }
 
-/* ---- The ROM: drive: read-only windows onto assets in the staged image.
- *
- * emu/emu/rom.c does this against a host file and keeps an fd positioned
- * for each window. Here the whole image is resident in the staging
- * store, so a window is an offset and a length and a read is a copy.
- *
- * An asset is named in UTF-8 and a program's path is code page bytes, so
- * the comparison converts as it walks. The two agree for the ASCII names
- * every toolchain actually emits and would disagree above 0x7F, which is
- * why the comparison goes through the code page tables.
- * ---- */
+/* The ROM: drive: read-only windows onto assets in the staged image. An
+ * asset is named in UTF-8 and a program's path is code page bytes, so
+ * the comparison converts as it walks; the two disagree above 0x7F. */
 
 /* One window per stdio descriptor, so the pool is never what runs out
- * first. STD_FD_MAX is private to std.c, so the number is repeated rather
- * than shared; if that pool grows, this follows it. */
+ * first. STD_FD_MAX is private to std.c; if that pool grows, this
+ * follows it. */
 #define ROM_OPEN_MAX 16
 
 static struct
@@ -249,8 +228,6 @@ static bool rom_path_is_rom(const char *path, const char **rest)
     return true;
 }
 
-/* The header's name against the program's path, one converted to the
- * other as it goes. */
 static bool rom_name_eq(const char *utf8, const char *oem)
 {
     uint16_t page = font_get_code_page();
@@ -265,9 +242,8 @@ static bool rom_name_eq(const char *utf8, const char *oem)
     }
 }
 
-/* Walk the "#>len crc name" headers from the directory start, skipping each
- * body, until the name matches or the list runs out. No index, so a program
- * may carry any number of assets. */
+/* No index, so a program may carry any number of assets: walk the
+ * "#>len crc name" headers, skipping each body. */
 static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
 {
     if (!rom_assets)

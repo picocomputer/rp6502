@@ -40,7 +40,7 @@
             "description": "Cross-compile into build/web/.",
             "inherits": "base",
             "binaryDir": "${sourceDir}/../../build/web",
-            "toolchainFile": "${sourceDir}/../../vendor/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+            "toolchainFile": "${sourceDir}/emsdk_toolchain.cmake",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }

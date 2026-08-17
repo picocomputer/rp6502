@@ -329,13 +329,18 @@ assign vpll_feed = 1'bZ;
 // for bridge read data, we have to mux it
 // add your own devices here
 //
-// 0x0xxxxxxx is the staging store, which the host only ever writes; the
-// window at 0x2xxxxxxx is the file bridge's outbound buffer, and the one
-// thing here the host reads out of the machine.
+// 0x0xxxxxxx is the staging store, which the host only writes -- except
+// the savestate blob near the top of it, which is where it reads the
+// machine back out. The window at 0x2xxxxxxx is the file bridge's
+// outbound buffer. Both arrive through pocket_core, which picks between
+// them on the blob's exact window rather than the megabyte around it.
 always @(*) begin
     casex(bridge_addr)
     default: begin
         bridge_rd_data <= 0;
+    end
+    32'h03Fxxxxx: begin
+        bridge_rd_data <= file_bridge_rd_data;
     end
     32'h20xxxxxx: begin
         bridge_rd_data <= file_bridge_rd_data;
@@ -380,40 +385,53 @@ end
     wire     [31:0] rtc_time_bcd;
     wire            rtc_valid;
 
-    // Sleep is off in core.json, and this is why. Sleeping on openFPGA
-    // means handing the host a savestate: it asks 0x00A0 for a blob,
-    // powers down, and gives the blob back on wake. This core cannot
-    // make one, so it answers that it cannot, and the Pocket used to
-    // sleep anyway and wake into a cold boot.
+    // Sleep on openFPGA is a savestate: the host asks 0x00A0 for a blob,
+    // cuts the power, and hands the blob back at 0x00A4 on wake. Wake
+    // reconfigures the part — measured, with a marker in memory the
+    // bitstream would overwrite and a counter nothing but a reset can
+    // clear, and both were gone every time — so SRAM, XRAM, TCM and
+    // every register come out of the bitstream and the blob is the only
+    // thing that crosses.
     //
-    // Measured, with a marker in memory the bitstream would overwrite
-    // and a counter nothing but a reset can clear: wake reconfigures
-    // the part. The marker was gone and the counter back at zero every
-    // time. So SRAM, XRAM, TCM and every register come back out of the
-    // bitstream, and no amount of care in the firmware can continue a
-    // program across a nap — only a real savestate could, and that is
-    // the whole machine's state to marshal out and back.
+    // pocket_sst answers the handshake and serves the blob; the firmware
+    // fills it. The blob lives at the top of what the ROM slot gave up,
+    // so a load arrives as ordinary bridge writes into the staging store
+    // and needs no path of its own.
     //
-    // A sleep that silently restarts the user's program is worse than
-    // no sleep, so the core no longer claims to support it. These stay
-    // driven and denying: a host that asks anyway gets a real answer.
-    wire            savestate_supported = 1'b0;
-    wire    [31:0]  savestate_addr = 32'd0;
-    wire    [31:0]  savestate_size = 32'd0;
-    wire    [31:0]  savestate_maxloadsize = 32'd0;
+    // The size is sst_engine's word count times four, and pocket_sst
+    // has the same number: reading the last word is what tells the
+    // machine the host has finished with it. stage_map_gate checks the
+    // copies against each other.
+    //
+    // maxloadsize is not the blob's size and saying it was cost a
+    // device: the OS keeps the blob wrapped in a file with its own
+    // header in front and a thumbnail behind -- 378304 bytes around a
+    // 324944-word... byte blob, measured -- and what comes back at a
+    // load is the wrapping too. maxloadsize is the window, the engine
+    // finds its magic inside whatever arrives, and an OS that sizes a
+    // buffer off this number gets one its file fits in.
+    //
+    // The ack is answered in fabric whatever this says, because the
+    // bridge's command engine parks in the savestate state until it
+    // comes and a core that claims support without answering takes
+    // every host command down with it.
+    wire            savestate_supported = 1'b1;
+    wire    [31:0]  savestate_addr = 32'h03F0_0000;
+    wire    [31:0]  savestate_size = 32'd324944;
+    wire    [31:0]  savestate_maxloadsize = 32'd655360;
 
     wire            savestate_start;
-    wire            savestate_start_ack = 1'b0;
-    wire            savestate_start_busy = 1'b0;
-    wire            savestate_start_ok = 1'b0;
-    wire            savestate_start_err = 1'b1;
+    wire            savestate_start_ack;
+    wire            savestate_start_busy;
+    wire            savestate_start_ok;
+    wire            savestate_start_err;
 
     wire            savestate_load;
-    wire            savestate_load_ack = 1'b0;
-    wire            savestate_load_busy = 1'b0;
-    wire            savestate_load_ok = 1'b0;
-    wire            savestate_load_err = 1'b1;
-    
+    wire            savestate_load_ack;
+    wire            savestate_load_busy;
+    wire            savestate_load_ok;
+    wire            savestate_load_err;
+
     wire            osnotify_inmenu;
 
 // bridge target commands
@@ -592,7 +610,35 @@ wire core_rst_n_74 = pll_locked_s;
 wire core_rst_n_sys;
 synch_3 s_rst_sys (core_rst_n_74, core_rst_n_sys, clk_sys);
 
+// The machine's clock stops at the source when the serializer asks --
+// all of it, at once, wherever the machine happens to be. That is
+// coherent because it is atomic: every register in the domain freezes
+// on the same missing edge and resumes on the same returned one.
+// Nothing inside is gated; its state is flops and SRAM, which hold
+// what they have with no clock at all. The soft CPU is not here: it
+// keeps its clock and is halted at its debug port instead. Still
+// running: this bridge, the memory chips, the serializer, the arrays.
+wire core_stop_req, core_stop_req_74;
+synch_3 s_stopreq (core_stop_req, core_stop_req_74, clk_74a);
+reg mach_clk_en = 1'b1;
+always @(posedge clk_74a)
+    mach_clk_en <= !core_stop_req_74;
+// The gate itself. The ena register inside takes the enable on the
+// falling edge of the clock it gates, so no period is ever shortened.
+wire clk_mach;
+altclkctrl #(
+    .clock_type("AUTO"),
+    .ena_register_mode("falling edge"),
+    .number_of_clocks(1),
+    .use_glitch_free_switch_over_implementation("OFF"),
+    .width_clkselect(1)
+) gate_sys ( .inclk(clk_sys), .ena(mach_clk_en), .clkselect(1'b0),
+             .outclk(clk_mach) );
+
 pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
+    .mach_running ( mach_clk_en ),
+    .clk_mach     ( clk_mach ),
+    .pocket_core_stop_req    ( core_stop_req ),
     .clk_74a  ( clk_74a ),
     .clk_sys  ( clk_sys ),
     .clk_rv   ( clk_rv ),
@@ -631,15 +677,21 @@ pocket_core #(.TCM_INIT_FILE(TCM_INIT_FILE)) core (
     .target_dataslot_done            ( target_dataslot_done ),
     .target_dataslot_err             ( target_dataslot_err ),
 
-    .cont1_key ( cont1_key ),
-    .cont1_joy ( cont1_joy ),
-    .cont1_trig ( cont1_trig ),
-    .cont3_key ( cont3_key ),
-    .cont3_joy ( cont3_joy ),
-    .cont3_trig ( cont3_trig ),
-    .cont4_key ( cont4_key ),
-    .cont4_joy ( cont4_joy ),
-    .cont4_trig ( cont4_trig ),
+    // sleep, and the Memories menu, which are the same blob
+    .savestate_start                    ( savestate_start ),
+    .pocket_core_savestate_start_ack    ( savestate_start_ack ),
+    .pocket_core_savestate_start_busy   ( savestate_start_busy ),
+    .pocket_core_savestate_start_ok     ( savestate_start_ok ),
+    .pocket_core_savestate_start_err    ( savestate_start_err ),
+    .savestate_load                     ( savestate_load ),
+    .pocket_core_savestate_load_ack     ( savestate_load_ack ),
+    .pocket_core_savestate_load_busy    ( savestate_load_busy ),
+    .pocket_core_savestate_load_ok      ( savestate_load_ok ),
+    .pocket_core_savestate_load_err     ( savestate_load_err ),
+
+    .cont_key  ( {cont4_key,  cont3_key,  cont2_key,  cont1_key}  ),
+    .cont_joy  ( {cont4_joy,  cont3_joy,  cont2_joy,  cont1_joy}  ),
+    .cont_trig ( {cont4_trig, cont3_trig, cont2_trig, cont1_trig} ),
 
     .pocket_core_rgb  ( m_rgb ),
     .pocket_core_de   ( m_de ),
@@ -690,21 +742,24 @@ wire dbglog_event, dbglog_done;
 wire [31:0] dbglog_id;
 
 pocket_dbglog dbglog (
-    .clk_sys     ( clk_sys ),
-    .rst_n       ( core_rst_n_sys ),
+    .clk_mach    ( clk_mach ),
     .tx_data     ( con_tx_data ),
     .tx_valid    ( con_tx_valid ),
     .rv_tx_data  ( con_rv_data ),
     .rv_tx_valid ( con_rv_valid ),
     .clk_74a     ( clk_74a ),
     .arst_n      ( core_rst_n_74 ),
+    .bridge_wr            ( bridge_wr ),
+    .bridge_endian_little ( bridge_endian_little ),
+    .bridge_addr          ( bridge_addr ),
+    .bridge_wr_data       ( bridge_wr_data ),
     .target_debug_done   ( dbglog_done ),
     .pocket_dbglog_event ( dbglog_event ),
     .pocket_dbglog_id    ( dbglog_id )
 );
 
 pocket_dbg dbg (
-    .clk_sys     ( clk_sys ),
+    .clk_mach    ( clk_mach ),
     .rst_n       ( core_rst_n_sys ),
     .tx_data     ( con_tx_data ),
     .tx_valid    ( con_tx_valid ),

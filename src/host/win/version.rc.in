@@ -1,0 +1,40 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * What right-click > Properties > Details shows. The two numeric fields are a
+ * binary quad, so they carry the tag or nothing; the strings beside them carry
+ * the build stamp as it reads everywhere else.
+ */
+
+#include <winver.h>
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION @RP6502_VERSION_QUAD@
+PRODUCTVERSION @RP6502_VERSION_QUAD@
+FILEFLAGSMASK VS_FFI_FILEFLAGSMASK
+FILEFLAGS 0
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0" /* U.S. English, Unicode */
+        BEGIN
+            VALUE "CompanyName",      "Rumbledethumps"
+            VALUE "FileDescription",  "Picocomputer 6502 Emulator"
+            VALUE "FileVersion",      "@RP6502_VERSION_STAMP@"
+            VALUE "InternalName",     "rp6502-emu"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 Rumbledethumps. BSD-3-Clause."
+            VALUE "OriginalFilename", "rp6502-emu.exe"
+            VALUE "ProductName",      "Picocomputer 6502"
+            VALUE "ProductVersion",   "@RP6502_VERSION_STAMP@"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

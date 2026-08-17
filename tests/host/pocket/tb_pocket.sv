@@ -46,9 +46,33 @@ module tb_pocket (
     input logic target_dataslot_done,
     input logic [2:0] target_dataslot_err,
 
+    /* Sleep and the Memories menu. The bench plays the host on these
+     * the same way it plays it on the data slots. */
+    /* The machine's clocks are cut outside it, so the bench is what
+     * cuts them: it stops toggling when the core asks and the 6502 is
+     * in front of an instruction, which is what the clock control does
+     * on hardware. */
+    output logic tb_pocket_stop_req,
+
+    input logic savestate_start,
+    output logic tb_pocket_savestate_start_ack,
+    output logic tb_pocket_savestate_start_busy,
+    output logic tb_pocket_savestate_start_ok,
+    output logic tb_pocket_savestate_start_err,
+    input logic savestate_load,
+    output logic tb_pocket_savestate_load_ack,
+    output logic tb_pocket_savestate_load_busy,
+    output logic tb_pocket_savestate_load_ok,
+    output logic tb_pocket_savestate_load_err,
+
+    /* Flat here and packed at the instance, the way core_top does it,
+     * so the C++ can drive one slot by name. */
     input logic [31:0] cont1_key,
     input logic [31:0] cont1_joy,
     input logic [15:0] cont1_trig,
+    input logic [31:0] cont2_key,
+    input logic [31:0] cont2_joy,
+    input logic [15:0] cont2_trig,
     input logic [31:0] cont3_key,
     input logic [31:0] cont3_joy,
     input logic [15:0] cont3_trig,
@@ -84,10 +108,31 @@ module tb_pocket (
     logic [31:0] refreshes;
     logic [31:0] sref_clocks;
 
+    /* The clock gate, which on hardware is a clock control block at
+     * the source. The machine simply stops having a clock, all of it
+     * at once, wherever it happens to be -- atomic, so coherent. The
+     * enable is taken on the low half so the gated clock never
+     * shortens a period. The soft CPU's clock is not here: it keeps
+     * running and the core is halted at its debug port instead. */
+    logic mach_clk_en;
+    initial mach_clk_en = 1'b1;
+    always_ff @(posedge clk_74a or negedge arst_n) begin
+        if (!arst_n) mach_clk_en <= 1'b1;
+        else mach_clk_en <= !tb_pocket_stop_req;
+    end
+    logic en_sys;
+    always_latch if (!clk_sys) en_sys = mach_clk_en;
+    logic clk_mach;
+    always_comb clk_mach = clk_sys & en_sys;
+
     pocket_core core (
+        .mach_running(mach_clk_en),
+        .clk_mach(clk_mach),
+        .clk_rv(clk_rv),
+        .pocket_core_stop_req(tb_pocket_stop_req),
         .clk_74a(clk_74a),
         .clk_sys(clk_sys),
-        .clk_rv(clk_rv),
+
         .clk_vid(clk_vid),
         .rst_n(rst_n),
         .arst_n(arst_n),
@@ -116,15 +161,19 @@ module tb_pocket (
         .pocket_core_dataslot_length(tb_pocket_ds_length),
         .target_dataslot_done(target_dataslot_done),
         .target_dataslot_err(target_dataslot_err),
-        .cont1_key(cont1_key),
-        .cont1_joy(cont1_joy),
-        .cont1_trig(cont1_trig),
-        .cont3_key(cont3_key),
-        .cont3_joy(cont3_joy),
-        .cont3_trig(cont3_trig),
-        .cont4_key(cont4_key),
-        .cont4_joy(cont4_joy),
-        .cont4_trig(cont4_trig),
+        .savestate_start(savestate_start),
+        .pocket_core_savestate_start_ack(tb_pocket_savestate_start_ack),
+        .pocket_core_savestate_start_busy(tb_pocket_savestate_start_busy),
+        .pocket_core_savestate_start_ok(tb_pocket_savestate_start_ok),
+        .pocket_core_savestate_start_err(tb_pocket_savestate_start_err),
+        .savestate_load(savestate_load),
+        .pocket_core_savestate_load_ack(tb_pocket_savestate_load_ack),
+        .pocket_core_savestate_load_busy(tb_pocket_savestate_load_busy),
+        .pocket_core_savestate_load_ok(tb_pocket_savestate_load_ok),
+        .pocket_core_savestate_load_err(tb_pocket_savestate_load_err),
+        .cont_key({cont4_key, cont3_key, cont2_key, cont1_key}),
+        .cont_joy({cont4_joy, cont3_joy, cont2_joy, cont1_joy}),
+        .cont_trig({cont4_trig, cont3_trig, cont2_trig, cont1_trig}),
         .pocket_core_rgb(tb_pocket_rgb),
         .pocket_core_de(tb_pocket_de),
         .pocket_core_skip(tb_pocket_skip),

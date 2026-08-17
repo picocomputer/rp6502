@@ -46,6 +46,9 @@ typedef enum
     KBD_KEY_F12,
 } kbd_key_t;
 
+/* The ANSI keyboard stream. Everything a host types enters here — nothing else
+ * pushes the com keyboard ring (see emu/sys/com.h). */
+
 /* Queue printable UTF-8 input as OEM bytes, converting each sequence to the
  * active code page. */
 void kbd_text(const char *utf8);
@@ -54,9 +57,28 @@ void kbd_text(const char *utf8);
  * into the modifier number the way xterm/the firmware do. */
 void kbd_key(kbd_key_t key, bool ctrl, bool shift, bool alt);
 
-/* Queue a Ctrl+<letter> chord as its C0 control byte, latching SIGINT on
- * Ctrl-C at the keyboard (the firmware HID driver's early break detection). */
+/* Queue a Ctrl+<letter> chord as its C0 control byte. A byte outside the
+ * promotable @.._ / `..~ range is not a chord and queues nothing. */
 void kbd_ctrl_letter(char letter);
+
+/* Queue Alt+<char> as the xterm Meta form: ESC then the byte, ctrl-promoted
+ * first when both are held (the firmware's order). */
+void kbd_alt_char(char ch, bool ctrl);
+
+/* Type a block of UTF-8 as keystrokes: printable runs as text, CR/LF/CRLF as one
+ * Enter, tab as Tab, other control bytes stripped. Delivery is paced by kbd_task
+ * against the ring's headroom, so text longer than the ring cannot lose bytes.
+ * A new call replaces whatever is still dripping. */
+void kbd_paste(const char *utf8);
+void kbd_paste_cancel(void);
+
+/* True while a paste is still being handed to the ring. */
+bool kbd_paste_busy(void);
+
+/* Per-frame service: the paste drip. Called from sys_run_frame so the window,
+ * the headless batch and a script all pace a paste identically. (Also declared
+ * by ria/hid/kbd.h, where the firmware's key repeat lives in it.) */
+void kbd_task(void);
 
 /* HID keyboard bitmap (the xreg_ria_keyboard API), separate from the stdin
  * stream above. kbd_set_xram points it at an XRAM address (0xFFFF = off);
@@ -68,5 +90,12 @@ void kbd_stop(void);
 
 /* Toggle a lock LED in the HID bitmap (Num=1, Caps=2, Scroll=4). */
 void kbd_toggle_lock(uint8_t bit);
+
+/* Key names, for callers that take them as text rather than as an enum:
+ * "a", "7", "up", "f5", "space", "lshift". kbd_hid_from_name answers with the
+ * USB HID usage id kbd_hid_set wants (0 = unknown); kbd_key_from_name answers
+ * only for the keys that also have an xterm sequence. */
+uint8_t kbd_hid_from_name(const char *name);
+bool kbd_key_from_name(const char *name, kbd_key_t *key);
 
 #endif /* _EMU_HID_KBD_H_ */

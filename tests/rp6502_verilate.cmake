@@ -169,8 +169,9 @@ function(rp6502_add_machine_test name)
     endif()
     if(M_FIRMWARE)
         list(APPEND _args DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
-            OEMCP_BIN="${OEMCP_BIN}" ${M_DEFS})
-        list(APPEND _deps sw_bin vid_font_rom vid_palette_rom oemcp_bin)
+            OEMCP_BIN="${OEMCP_BIN}" KBDLAY_BIN="${KBDLAY_BIN}" ${M_DEFS})
+        list(APPEND _deps sw_bin vid_font_rom vid_palette_rom oemcp_bin
+            kbdlay_bin)
     elseif(M_DEFS)
         list(APPEND _args DEFS ${M_DEFS})
     endif()
@@ -198,6 +199,6 @@ function(rp6502_add_machine_test name)
         ${_trace}
         ARGS ${RP6502_MACHINE_VERILATOR_ARGS}
         INCLUDE_DIRS ${RP6502_VENDOR}/hazard3/hdl
-        DEPENDS cpu65_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
+        DEPENDS w65c02_rom vid_palette_rom aud_sine_rom opl2_lut_rom rsmp_coef_pkg)
     target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()

@@ -31,6 +31,10 @@ static void tb_core_edge(int level)
     if (level)
         tb_core_rv_phase = !tb_core_rv_phase;
     tb_core_dut->clk_sys = level;
+    /* The machine's gated clock. Nothing here ever stops it -- these
+     * tests never save -- but the pin exists and a machine with no
+     * clock renders nothing. */
+    tb_core_dut->clk_mach = level;
     tb_core_dut->clk_rv = level && tb_core_rv_phase;
     tb_core_dut->eval();
     if (tb_core_trace)
@@ -58,8 +62,10 @@ void tb_core_init()
 
     tb_core_rv_phase = 0;
     tb_core_dut->clk_sys = 0;
+    tb_core_dut->clk_mach = 0;
     tb_core_dut->clk_rv = 0;
     tb_core_dut->rst_n = 0;
+    tb_core_dut->mach_running = 1;
     tb_core_dut->eval();
 }
 

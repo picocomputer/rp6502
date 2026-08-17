@@ -3,16 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 1, the character cells of vga/modes/mode1.c — now only the part
- * that is genuinely mode 1: rows mapped with true wraparound, the
- * oracle's rejects, the cell gather, the font fetch from XRAM or the
- * builtin store, and the resolution of each cell's two colors through
- * the plane's palette. A font row IS a 1bpp bitmap and a cell's fg/bg
- * IS a two-entry palette, so every cell goes to the shared pixel tail
- * as one immediate segment — eight bits and two finished colors — and
- * the tail does the emitting. This is the one front that keeps the
- * palette store, because it looks colors up before the tail ever sees
- * them; the tail's own palette machinery idles.
+ * Mode 1, the character cells of vga/modes/mode1.c: rows mapped with
+ * true wraparound, the oracle's rejects, the cell gather, the font fetch
+ * from XRAM or the builtin store, and each cell's two colors resolved
+ * through the plane's palette. A font row is a 1bpp bitmap and a cell's
+ * fg/bg is a two-entry palette, so every cell reaches the shared pixel
+ * tail as one immediate segment.
+ *
+ * The one front that keeps the palette store, because it resolves colors
+ * before the tail sees them; the tail's own palette machinery idles.
  */
 
 module vid_mode1 (
@@ -30,7 +29,6 @@ module vid_mode1 (
     input logic a_gnt,
     input logic [31:0] a_rdata,
 
-    /* The font store, when the cell font is the built-in one. */
     output logic vid_mode1_f_req,
     output logic [13:0] vid_mode1_f_addr,
     input logic f_gnt,
@@ -49,7 +47,6 @@ module vid_mode1 (
     input logic [15:0] pal_qa,
     input logic [15:0] pal_qb,
 
-    /* The tail: immediate segments only, one per cell plus padding. */
     output logic vid_mode1_tl_start,
     output logic vid_mode1_seg_valid,
     output logic [7:0] vid_mode1_seg_ibits,
@@ -141,12 +138,10 @@ module vid_mode1 (
     logic [1:0] cell_lane;         // the cell's byte offset in its word
     logic gnt_d;
 
-    /* The resolved cell waiting to be served as a segment. */
     logic nxt_v;
     logic [7:0] nxt_bits;
     logic [15:0] nxt_fg, nxt_bg;
 
-    /* Byte views of the gathered cell, shifted to its lane. */
     logic [47:0] gview;
     always_comb gview = 48'(gather >> {cell_lane, 3'b000});
     logic [7:0] g_glyph, g_b1, g_b2;
@@ -159,7 +154,6 @@ module vid_mode1 (
         g_bg16 = gview[47:32];
     end
 
-    /* The load's strobe; the store's write port is the plane's. */
     logic pal_ld;
     always_comb pal_ld = !abort_i && !start && state == S1_PAL
         && pal_xram && pal_bpp != 4'd0 && gnt_d;
@@ -255,10 +249,8 @@ module vid_mode1 (
         vid_mode1_seg_px = px_rem;
         if (state == S1_SEG && px_rem != 10'd0) begin
             if (blank || 18'(col) >= win_w && col >= 0) begin
-                /* A rejected line, or the right padding: the rest. */
                 vid_mode1_seg_valid = 1'b1;
             end else if (col < 0) begin
-                /* Left padding up to the grid's edge. */
                 vid_mode1_seg_valid = 1'b1;
                 if (pad_left < {7'd0, px_rem})
                     vid_mode1_seg_px = pad_left[9:0];
@@ -401,7 +393,6 @@ module vid_mode1 (
                     end
                 end
                 S1_SEG: begin
-                    /* The fetcher gathers the next cell. */
                     case (fstate)
                         F_IDLE: begin
                             if (!blank && !nxt_v
@@ -493,7 +484,6 @@ module vid_mode1 (
     always_comb overrun = 35'(cf_hchars[14:0]) * 35'(sizeof_row)
         > 35'(17'h10000) - 35'({1'b0, cf_data});
 
-    /* The next cell the fetcher gathers, advanced on every handoff. */
     logic [15:0] fetch_col;
     logic [16:0] cell_fetch_addr;
     always_comb cell_fetch_addr = row_base

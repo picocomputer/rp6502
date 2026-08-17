@@ -3,15 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 3, the linear bitmap of vga/modes/mode3.c — now only the part
- * that is genuinely mode 3: rows mapped with true wraparound, the
- * oracle's rejects (range, bitmap overrun, the 16bpp odd row), and the
- * line described to the shared pixel tail as segments. The tail owns
- * the fetching, the slicing, the palette and the pixels; this front
- * owns the geometry. A wrapped bitmap is runs of the bitmap's width
- * back to back; a clipped one is a run with padding around it; a
- * rejected line is one padding segment. What used to be a fetch
- * pipeline racing an emitter is now arithmetic.
+ * Mode 3, the linear bitmap of vga/modes/mode3.c: rows mapped with true
+ * wraparound, the oracle's rejects (range, bitmap overrun, the 16bpp odd
+ * row), and the line described to the shared pixel tail as segments. The
+ * tail owns the fetching, slicing, palette and pixels; this front owns
+ * the geometry. A wrapped bitmap is runs of the bitmap's width back to
+ * back; a clipped one is a run with padding around it; a rejected line
+ * is one padding segment.
  */
 
 module vid_mode3 (
@@ -26,7 +24,6 @@ module vid_mode3 (
     input logic [8:0] t_row,
     input logic [9:0] cw,
 
-    /* The tail: a palette plan at tl_start, then segments on demand. */
     output logic vid_mode3_tl_start,
     output logic [15:0] vid_mode3_pal_ptr,
     output logic vid_mode3_pal_xram,
@@ -86,7 +83,6 @@ module vid_mode3 (
     always_comb row16 = {7'd0, t_row} - 16'(cf_y_pos);
     always_comb col16 = 16'd0 - 16'(cf_x_pos);
 
-    /* The next segment, purely from where col stands. */
     logic signed [16:0] width_s;
     always_comb width_s = $signed({cf_width[15], cf_width});
     logic [16:0] pad_left;
@@ -99,11 +95,9 @@ module vid_mode3 (
         vid_mode3_seg_bits = 23'd0;
         vid_mode3_seg_px = px_rem;
         if (!blank && col < 0) begin
-            /* Left padding up to the bitmap's edge. */
             if (pad_left < {7'd0, px_rem})
                 vid_mode3_seg_px = pad_left[9:0];
         end else if (!blank && col < width_s) begin
-            /* A run of the bitmap, to its right edge or the line's. */
             vid_mode3_seg_imm = 1'b0;
             vid_mode3_seg_bits = ({6'd0, row_base} << 3)
                 + (23'(col[15:0]) << bpp_log);

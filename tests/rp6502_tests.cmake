@@ -2,6 +2,12 @@
 # can run; this file carries what all of them need. Uses utest.h (vendored
 # with sokol).
 
+# Entered from both trees, so it asks rather than assuming the emulator's
+# side already did.
+include(${RP6502_ROOT}/submodules.cmake)
+rp6502_submodule(vendor/sokol SENTINEL tests/functional/utest.h
+    WANTS "the test harness")
+
 set(RP6502_UTEST_DIR ${RP6502_VENDOR}/sokol/tests/functional)
 set(RP6502_TESTS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
@@ -52,6 +58,15 @@ function(rp6502_add_test name)
     if(NOT T_SOURCES)
         set(T_SOURCES test_${name}.c)
     endif()
+
+    # Every test in both trees comes through here, so this is the one place
+    # that can say what the suite is made of without naming any of it.
+    foreach(_s IN LISTS T_SOURCES)
+        if(NOT IS_ABSOLUTE ${_s})
+            set(_s ${CMAKE_CURRENT_LIST_DIR}/${_s})
+        endif()
+        set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${_s})
+    endforeach()
 
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE

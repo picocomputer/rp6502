@@ -1,0 +1,18 @@
+# chips/chips/w65c02.h bus traces, per scenario: name crc32.
+# Regenerate with test_w65c02_chips --emit and read the diff.
+reset_only 3A113EF1
+irq_pulse 20483982
+irq_level_held 373FE4E6
+irq_masked CA2363D9
+nmi_edge D681AED6
+nmi_two_edges 2F8A46A5
+nmi_while_masked CAF75BA7
+wai_irq 6CCAF313
+wai_irq_masked_continues 65DFB8F8
+wai_nmi 3E47ED3B
+stp_then_res E380A3BA
+rdy_stretches C359BEEC
+res_mid_rmw E5F72E68
+branch_pip_irq 18293117
+bne_loop_irq F4567F3F
+pin_fuzz C6955A65

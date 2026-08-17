@@ -3,22 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The pocket port of ria/sys/com.c, shaped like the emulator's proven trim:
- * input rings merged behind com_getchar for the shared readline and stdin
- * sources, CRLF expansion on the console TX primitives. The manifold's
- * wires are this machine's: com_task drains the 6502's hardware TX ring to
- * the console, answers the $FFE2 offer slot when the 6502 asks for it, and
- * polls the platform keyboard.
- *
- * The console sink feeds the simulation console and the terminal driver
- * term.c registers at init, both, for every byte; the BEL scan at the sink
- * rings the platform bell.
+ * The pocket port of ria/sys/com.c. Input rings merge behind com_getchar
+ * for the shared readline and stdin sources; CRLF expansion sits on the
+ * console TX primitives. com_task drains the 6502's TX ring, answers the
+ * $FFE2 offer slot, and polls the keyboard.
  */
 
 #include "bel.h"
 #include "com.h"
+#include "log.h"
 #include "mmio.h"
 #include "ria/aud/bel.h"
+#include "ria/hid/kbd.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -81,9 +77,9 @@ int com_getchar(com_source_t *src)
 {
     if (*src == COM_SOURCE_ANY)
     {
-        /* Terminal replies before typed input, like the emulator: the
-         * CPR/DA handshake resolves promptly and the keyboard never
-         * starves (UART only fills in bounded reply bursts). */
+        /* Terminal replies before typed input: the CPR/DA handshake
+         * resolves promptly and the keyboard never starves, because the
+         * UART only fills in bounded reply bursts. */
         int c = ring_pop(&uart_ring);
         if (c >= 0)
         {
@@ -112,9 +108,6 @@ int com_peekchar(com_source_t src)
     return r ? ring_peek(r) : -1;
 }
 
-/* The single console sink: every terminal-bound byte passes here exactly
- * once, after any CRLF translation, under the BEL scan. The terminal
- * wire is term.c's captured stdio driver. */
 static void (*com_term_out)(const char *buf, int len);
 
 void com_set_term_out(void (*out_chars)(const char *buf, int len))
@@ -127,6 +120,7 @@ static void com_tx_write(const char *buf, int len)
     for (int i = 0; i < len; i++)
     {
         MMIO_CONSOLE = (uint8_t)buf[i];
+        log_putc(buf[i]);
         if (buf[i] == '\a' && com_bel_enabled)
             bel_add(&bel_teletype);
     }
@@ -140,8 +134,7 @@ void com_in_write_reply(const char *s, size_t n)
         ring_push(&uart_ring, (uint8_t)s[i]);
 }
 
-/* CRLF expansion above the sink, the pico-SDK translation the shared
- * sources were written against: a bare '\n' becomes "\r\n". */
+/* The pico-SDK translation the shared sources were written against. */
 static void com_crlf_write(const char *buf, int len)
 {
     static char last;
@@ -164,23 +157,16 @@ int com_putchar(int c)
 
 int com_printf(const char *fmt, ...)
 {
-    char buf[256];
-    va_list ap;
-    va_start(ap, fmt);
-    int n = vsnprintf(buf, sizeof(buf), fmt, ap);
-    va_end(ap);
-    if (n <= 0)
-        return n;
-    int w = (n < (int)sizeof(buf)) ? n : (int)sizeof(buf) - 1;
-    com_crlf_write(buf, w);
+    va_list va;
+    va_start(va, fmt);
+    int n = vprintf(fmt, va);
+    va_end(va);
     return n;
 }
 
-/* picolibc wants a stream before printf will link, and every caller in
- * the shared sources expects one. Pointing it at com_putchar means the
- * CRLF expansion, the BEL scan and the terminal tap all apply to a plain
- * printf exactly as they do to com_printf -- there is one console, and
- * this is the way to it. */
+/* picolibc wants a stream before printf will link. Pointing it at
+ * com_putchar puts plain printf through the same CRLF expansion, BEL
+ * scan and terminal tap as com_printf. */
 static int com_stdio_putc(char c, FILE *f)
 {
     (void)f;
@@ -191,8 +177,6 @@ static FILE com_stdio = FDEV_SETUP_STREAM(com_stdio_putc, NULL, NULL,
                                           _FDEV_SETUP_WRITE);
 FILE *const stdout = &com_stdio;
 FILE *const stderr = &com_stdio;
-
-/* The console never backpressures; the simulation sink is always ready. */
 
 bool com_putchar_ready(void)
 {
@@ -219,8 +203,8 @@ void com_set_bel(bool value)
     com_bel_enabled = value;
 }
 
-// Cold-boot flush: clear queued input and reset the BEL default. NOT run
-// per program — type-ahead survives an exec; com_run resets the BEL alone.
+// Cold boot only: type-ahead survives an exec, so com_run resets the BEL
+// alone.
 void com_init(void)
 {
     memset(&kbd_ring, 0, sizeof(kbd_ring));
@@ -235,9 +219,7 @@ void com_run(void)
 
 void com_task(void)
 {
-    /* The 6502's TX wire goes to the console raw; the program already
-     * speaks wire bytes, no translation on a UART. Drained dry, like the
-     * firmware's own TX task. */
+    /* Raw: the program speaks wire bytes, and a UART does not translate. */
     uint32_t v;
     while ((v = UART_POP) & 0x100)
     {
@@ -245,12 +227,10 @@ void com_task(void)
         com_tx_write(&c, 1);
     }
 
-    /* Answer the 6502's ask for a byte, and only the ask. Offering
-     * eagerly would
-     * commit bytes the console side's own readers still want; and an ask
-     * with nothing queued is answered with nothing, never remembered into
-     * a byte typed later. Served before the keyboard poll below so a byte
-     * can never arrive inside the same tick as an already-expired ask. */
+    /* Only on the ask: offering eagerly would commit bytes the console's
+     * own readers still want, and an ask with nothing queued is answered
+     * with nothing rather than remembered. Served before the keyboard
+     * poll so a byte cannot arrive inside the same tick as an expired ask. */
     uint32_t st = RX_OFFER;
     if ((st & 3) == 3)
     {
@@ -266,10 +246,16 @@ void com_task(void)
         }
     }
 
-    /* Bit 8 is the valid flag, not part of the code. */
+    /* Bit 8 is the valid flag. Testbench only; nothing on hardware
+     * drives this register. */
     uint32_t k = MMIO_KBD;
     if (k & 0x100)
     {
         ring_push(&kbd_ring, (uint8_t)k);
     }
+
+    char buf[16];
+    size_t n = kbd_stdio_in_chars(buf, sizeof buf);
+    for (size_t i = 0; i < n; i++)
+        ring_push(&kbd_ring, (uint8_t)buf[i]);
 }

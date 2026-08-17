@@ -3,14 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Both sides of the VGA contract on one machine, emu/sys/vga.c's shape:
- * the RIA-side status the shared readline consults, and the VGA-side prog
- * layer the mode programs call. There is no g_prog array here — the RTL
- * scanline program is the storage, and vga_prog_fill publishes entries
- * directly, tagged with the mode and attribute the dispatcher announced,
- * because a fill-function pointer means nothing to hardware. The vsync
- * line republishes whenever the highest programmed scanline rises, which
- * is where the oracle counts frames.
+ * Both sides of the VGA contract on one machine, emu/sys/vga.c's shape.
+ * There is no g_prog array: the RTL scanline program is the storage, and
+ * entries are published tagged with the mode and attribute the
+ * dispatcher announced, because a fill-function pointer means nothing to
+ * hardware.
  */
 
 #include "mmio.h"
@@ -45,6 +42,21 @@ int16_t vga_canvas_height(void)
     return vga_canvas_h;
 }
 
+/* Declared in ria/sys/vga.h rather than this platform's header, because
+ * tab.c is shared. */
+void vga_canvas_size(int *w, int *h)
+{
+    switch (vga_canvas_code)
+    {
+    case vga_canvas_320_240: *w = 320; *h = 240; break;
+    case vga_canvas_320_180: *w = 320; *h = 180; break;
+    case vga_canvas_640_360: *w = 640; *h = 360; break;
+    case vga_canvas_console:
+    case vga_canvas_640_480:
+    default: *w = 640; *h = 480; break;
+    }
+}
+
 int16_t vga_vsync_scanline(void)
 {
     return vga_highest_scanline;
@@ -73,9 +85,8 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
     return true;
 }
 
-/* The oracle's exclusive sweep keys on the fill-function pointer stored
- * in each entry; this table is write-only from the bus, so the sweep's
- * one bit per line lives here instead. */
+/* The table is write-only from the bus, so the exclusive sweep's one bit
+ * per line lives here. */
 static uint32_t vga_mode0_mask[16];
 static int16_t vga_mode0_plane;
 
@@ -175,4 +186,22 @@ bool vga_set_canvas(uint16_t canvas)
         vid_mode0_prog(xregs);
     }
     return true;
+}
+
+/* A wake reconfigures the part, so these two come back at their
+ * power-on values -- console, and a vsync line of 480 -- while the
+ * blob has brought back the scanline table they belong to and the
+ * shadows above that say what they were. Not vga_set_canvas: that
+ * sweeps the table, which is exactly what the blob just restored.
+ *
+ * The canvas is the whole picture. It is the scaler mode the raster
+ * names at the end of every line, and it is also the width the fill
+ * engines are given a line's worth of clocks to produce: a 320-wide
+ * program woken onto a 640-wide canvas is asked for twice the pixels
+ * in the same time, does not finish, and never flips its bank. That is
+ * a black screen over a program that is still running. */
+void vga_restore(void)
+{
+    VID_CANVAS = (uint32_t)vga_canvas_code;
+    VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
 }

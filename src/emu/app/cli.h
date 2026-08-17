@@ -15,7 +15,7 @@
 /* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct
 {
-    const char *rom, *shot, *input;
+    const char *rom, *shot, *script;
     bool tmpdrive;
     const char *installs[16];
     int n_installs;
@@ -32,6 +32,7 @@ typedef struct
     bool debug;   /* --debug: on-screen machine debugger */
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
     bool credits;       /* --credits: print third-party notices and exit */
+    bool version;       /* --version: print the version and exit */
     const char *inidir; /* --ini: config file for the debugger UI layout (else default) */
     unsigned long long seed;
     bool have_seed;

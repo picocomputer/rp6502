@@ -1,0 +1,21 @@
+# The relative mouse. paint_mou.rp6502 maps the HID mouse block and arms a 6522
+# timer IRQ whose handler reads the counters and moves a pointer sprite. Held
+# still the frame is identical, so a changed canvas after host motion is the
+# whole chain: the mouse block, the VIA IRQ, and the program's ISR.
+
+run 60
+mark
+run 20
+expect-same
+
+mouse move 80 60
+run 20
+expect-changed
+
+# Held down, the same motion paints instead of only moving the pointer.
+mark
+mouse buttons 1
+mouse move -40 -30
+run 20
+mouse buttons 0
+expect-changed

@@ -19,6 +19,7 @@
 #define HID_USB_START (0x00000)
 #define HID_XIN_START (0x10000)
 #define HID_BLE_START (0x20000)
+#define HID_APF_START (0x30000)
 
 uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);

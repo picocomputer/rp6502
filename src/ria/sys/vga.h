@@ -19,6 +19,22 @@
 #define VGA_BACKCHANNEL_PIO pio1
 #define VGA_BACKCHANNEL_SM 2
 
+// Start bit trap for VSYNC. pio0 for its guaranteed GPIO base of 0; pio1 has
+// no instruction memory left and pio2 belongs to the cyw43 claim. Inputs need
+// no funcsel, so this watches the same pin as the receiver above.
+#define VGA_VSYNC_TRAP_PIO pio0
+#define VGA_VSYNC_TRAP_SM 3
+#define VGA_VSYNC_TRAP_IRQ PIO0_IRQ_0
+
+// Trap armed for this much either side of the expected VSYNC. Must stay
+// inside the VGA's RIA_VSYNC_LOCKOUT_US by more than a byte time plus skew.
+#define VGA_VSYNC_PERIOD_US 16667
+#define VGA_VSYNC_WINDOW_US 1500
+
+// Start bit to the receiver's autopush: 1 PIO cycle for the VGA to leave idle
+// plus 68 cycles of ours. Back-dates the byte to when the VGA sent it.
+#define VGA_VSYNC_TRANSIT_US 75
+
 /* Main events
  */
 

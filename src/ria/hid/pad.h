@@ -20,12 +20,21 @@
 void pad_init(void);
 void pad_stop(void);
 
+// Where the face button labels sit, reported in dpad bits 4-5. A HID
+// descriptor can't express this, so the transport says what it knows and
+// nothing is claimed unless it is certain.
+#define PAD_TYPE_UNKNOWN 0
+#define PAD_TYPE_WESTERN 1     // A south, B east
+#define PAD_TYPE_EASTERN 2     // B south, A east
+#define PAD_TYPE_PLAYSTATION 3 // Cross south, Circle east
+
 // Set the extended register value.
 bool pad_xreg(uint16_t word);
 
-// Parse HID report descriptor for gamepad.
+// Parse HID report descriptor for gamepad. Devices recognized by vendor and
+// product id label themselves and ignore button_type.
 bool pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
-               uint16_t vendor_id, uint16_t product_id);
+               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Clean up descriptor when device is disconnected.
 bool pad_umount(int slot);

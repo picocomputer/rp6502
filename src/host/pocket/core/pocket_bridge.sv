@@ -36,15 +36,12 @@ module pocket_bridge (
     output logic [9:0] pocket_bridge_dt_addr,
     output logic pocket_bridge_dt_busy,
     input logic [31:0] datatable_q,
-    input logic [31:0] cont1_key,
-    input logic [31:0] cont1_joy,
-    input logic [15:0] cont1_trig,
-    input logic [31:0] cont3_key,
-    input logic [31:0] cont3_joy,
-    input logic [15:0] cont3_trig,
-    input logic [31:0] cont4_key,
-    input logic [31:0] cont4_joy,
-    input logic [15:0] cont4_trig,
+    /* All four of APF's controller slots, in its own order. What each
+     * one holds is the type nibble's to say and the firmware's to ask;
+     * nothing here reads them. */
+    input logic [3:0][31:0] cont_key,
+    input logic [3:0][31:0] cont_joy,
+    input logic [3:0][15:0] cont_trig,
 
     input logic clk_sys,
     input logic sdram_ready,
@@ -59,19 +56,14 @@ module pocket_bridge (
      * clock, so a count that rises while the machine saw nothing says
      * the loss is ours and not the host's silence. */
     output logic [7:0] pocket_bridge_upd_n,
-    output logic [31:0] pocket_bridge_pad_key,
-    output logic [31:0] pocket_bridge_pad_joy,
-    output logic [15:0] pocket_bridge_pad_trig,
-    output logic [31:0] pocket_bridge_kbd_key,
-    output logic [31:0] pocket_bridge_kbd_joy,
-    output logic [15:0] pocket_bridge_kbd_trig,
-    output logic [31:0] pocket_bridge_mou_key,
-    output logic [31:0] pocket_bridge_mou_joy,
-    output logic [15:0] pocket_bridge_mou_trig,
+    output logic [3:0][31:0] pocket_bridge_cont_key,
+    output logic [3:0][31:0] pocket_bridge_cont_joy,
+    output logic [3:0][15:0] pocket_bridge_cont_trig,
     /* The interact menu's persisted settings, as levels. */
     output logic [31:0] pocket_bridge_set_tz,
     output logic [31:0] pocket_bridge_set_tz_min,
     output logic [31:0] pocket_bridge_set_tz_sign,
+    output logic [31:0] pocket_bridge_set_kb,
 
     /* The host's clock, written once at core boot by command 0x0090:
      * local wall time as seconds since 1970, and the flag that it was
@@ -151,11 +143,15 @@ module pocket_bridge (
      * bridge answers reads elsewhere. The firmware puts the pieces back
      * together. */
     logic [31:0] utz_74, utzm_74, utzs_74;
+    /* The keyboard layout, by its position in def/kbd.def plus one, so
+     * a register nobody has written yet names no layout at all. */
+    logic [31:0] kb_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin
         if (!arst_n) begin
             utz_74   <= '0;
             utzm_74  <= '0;
             utzs_74  <= '0;
+            kb_74    <= '0;
         end else if (bridge_wr) begin
             if (bridge_addr == 32'h1000_000C)
                 utz_74 <= bridge_wr_data;
@@ -163,6 +159,8 @@ module pocket_bridge (
                 utzm_74 <= bridge_wr_data;
             if (bridge_addr == 32'h1000_0014)
                 utzs_74 <= bridge_wr_data;
+            if (bridge_addr == 32'h1000_0018)
+                kb_74 <= bridge_wr_data;
         end
     end
 
@@ -349,9 +347,9 @@ module pocket_bridge (
 
     always_comb pocket_bridge_upd_n = upd_n_sys;
 
-    /* --- The controller, and the dock's keyboard. ---
+    /* --- The controller slots. ---
      *
-     * The pad crosses as state, because state is what it is: a level
+     * They cross as state, because state is what they are: a level
      * needs no mailbox and would be wrong in one, losing the release
      * that a game reads as a held button. Whole words cross on two
      * flops the way the buttons always did, and land only when two
@@ -360,10 +358,11 @@ module pocket_bridge (
      * hundreds of machine clocks between changes, so agreeing costs
      * nothing and tearing an axis would be visible.
      *
-     * Nothing here turns a button into a key any more. The machine has
-     * had a gamepad since it was designed and did not need the pad to
-     * pretend; the keys below are the dock's own keyboard, arriving as
-     * scan codes on the third slot the way APF sends them. */
+     * Nothing here reads what it carries. A gamepad, the dock's
+     * keyboard and the dock's mouse all arrive this way and are told
+     * apart by the type nibble APF puts in the top of each key word,
+     * which is the firmware's business — so all four slots cross
+     * alike and none of them is named for a device. */
     /* Preserved, every one of them. These are the two flops that make a
      * crossing safe, and two flops in series with nothing between them
      * are equivalent — with a reset to tell them apart the fitter left
@@ -371,73 +370,54 @@ module pocket_bridge (
      * register they feed. What was left was clk_74a reaching a clk_sys
      * flop directly: no synchroniser, and a path the analyzer then
      * reported as six nanoseconds of setup failure. */
-    (* preserve *) logic [31:0] pk_s1, pk_s2, pj_s1, pj_s2;
-    (* preserve *) logic [31:0] kk_s1, kk_s2, kj_s1, kj_s2;
-    (* preserve *) logic [31:0] mk_s1, mk_s2, mj_s1, mj_s2;
+    (* preserve *) logic [3:0][31:0] ck_s1, ck_s2, cj_s1, cj_s2;
+    (* preserve *) logic [3:0][15:0] ct_s1, ct_s2;
     (* preserve *) logic [31:0] ut_s1, ut_s2;
     (* preserve *) logic [31:0] um_s1, um_s2, us_s1, us_s2;
+    (* preserve *) logic [31:0] kb_s1, kb_s2;
     (* preserve *) logic [31:0] re_s1, re_s2;
     (* preserve *) logic rv_s1, rv_s2;
-    (* preserve *) logic [15:0] pt_s1, pt_s2, kt_s1, kt_s2, mt_s1, mt_s2;
     initial begin
-        pk_s1 = '0; pk_s2 = '0;
-        pj_s1 = '0; pj_s2 = '0;
-        pt_s1 = '0; pt_s2 = '0;
-        kk_s1 = '0; kk_s2 = '0;
-        kj_s1 = '0; kj_s2 = '0;
-        kt_s1 = '0; kt_s2 = '0;
+        ck_s1 = '0; ck_s2 = '0;
+        cj_s1 = '0; cj_s2 = '0;
+        ct_s1 = '0; ct_s2 = '0;
         ut_s1 = '0; ut_s2 = '0;
         um_s1 = '0; um_s2 = '0;
         us_s1 = '0; us_s2 = '0;
+        kb_s1 = '0; kb_s2 = '0;
         re_s1 = '0; re_s2 = '0;
         rv_s1 = 1'b0; rv_s2 = 1'b0;
         pocket_bridge_set_tz = '0;
         pocket_bridge_set_tz_min = '0;
         pocket_bridge_set_tz_sign = '0;
+        pocket_bridge_set_kb = '0;
         pocket_bridge_rtc_epoch = '0;
         pocket_bridge_rtc_valid = 1'b0;
-        mk_s1 = '0; mk_s2 = '0;
-        mj_s1 = '0; mj_s2 = '0;
-        mt_s1 = '0; mt_s2 = '0;
-        pocket_bridge_mou_key = '0;
-        pocket_bridge_mou_joy = '0;
-        pocket_bridge_mou_trig = '0;
-        pocket_bridge_pad_key = '0;
-        pocket_bridge_pad_joy = '0;
-        pocket_bridge_pad_trig = '0;
-        pocket_bridge_kbd_key = '0;
-        pocket_bridge_kbd_joy = '0;
-        pocket_bridge_kbd_trig = '0;
+        pocket_bridge_cont_key = '0;
+        pocket_bridge_cont_joy = '0;
+        pocket_bridge_cont_trig = '0;
     end
     always_ff @(posedge clk_sys) begin
-        pk_s1 <= cont1_key;  pk_s2 <= pk_s1;
-        pj_s1 <= cont1_joy;  pj_s2 <= pj_s1;
-        pt_s1 <= cont1_trig; pt_s2 <= pt_s1;
-        kk_s1 <= cont3_key;  kk_s2 <= kk_s1;
-        kj_s1 <= cont3_joy;  kj_s2 <= kj_s1;
-        kt_s1 <= cont3_trig; kt_s2 <= kt_s1;
-        if (pk_s1 == pk_s2) pocket_bridge_pad_key <= pk_s2;
-        if (pj_s1 == pj_s2) pocket_bridge_pad_joy <= pj_s2;
-        if (pt_s1 == pt_s2) pocket_bridge_pad_trig <= pt_s2;
-        if (kk_s1 == kk_s2) pocket_bridge_kbd_key <= kk_s2;
-        if (kj_s1 == kj_s2) pocket_bridge_kbd_joy <= kj_s2;
-        if (kt_s1 == kt_s2) pocket_bridge_kbd_trig <= kt_s2;
-        mk_s1 <= cont4_key;  mk_s2 <= mk_s1;
-        mj_s1 <= cont4_joy;  mj_s2 <= mj_s1;
-        mt_s1 <= cont4_trig; mt_s2 <= mt_s1;
+        ck_s1 <= cont_key;  ck_s2 <= ck_s1;
+        cj_s1 <= cont_joy;  cj_s2 <= cj_s1;
+        ct_s1 <= cont_trig; ct_s2 <= ct_s1;
+        for (int s = 0; s < 4; s++) begin
+            if (ck_s1[s] == ck_s2[s]) pocket_bridge_cont_key[s] <= ck_s2[s];
+            if (cj_s1[s] == cj_s2[s]) pocket_bridge_cont_joy[s] <= cj_s2[s];
+            if (ct_s1[s] == ct_s2[s]) pocket_bridge_cont_trig[s] <= ct_s2[s];
+        end
         ut_s1 <= utz_74;   ut_s2 <= ut_s1;
         um_s1 <= utzm_74;  um_s2 <= um_s1;
         us_s1 <= utzs_74;  us_s2 <= us_s1;
+        kb_s1 <= kb_74;    kb_s2 <= kb_s1;
         re_s1 <= rtc_epoch; re_s2 <= re_s1;
         rv_s1 <= rtc_valid; rv_s2 <= rv_s1;
         if (ut_s1 == ut_s2) pocket_bridge_set_tz <= ut_s2;
         if (um_s1 == um_s2) pocket_bridge_set_tz_min <= um_s2;
         if (us_s1 == us_s2) pocket_bridge_set_tz_sign <= us_s2;
+        if (kb_s1 == kb_s2) pocket_bridge_set_kb <= kb_s2;
         if (re_s1 == re_s2) pocket_bridge_rtc_epoch <= re_s2;
         pocket_bridge_rtc_valid <= rv_s2;
-        if (mk_s1 == mk_s2) pocket_bridge_mou_key <= mk_s2;
-        if (mj_s1 == mj_s2) pocket_bridge_mou_joy <= mj_s2;
-        if (mt_s1 == mt_s2) pocket_bridge_mou_trig <= mt_s2;
     end
 
     /* verilator lint_off UNUSEDSIGNAL */

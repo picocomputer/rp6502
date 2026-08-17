@@ -11,14 +11,11 @@
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
-#include "emu/sys/com.h"
 #include "emu/sys/vga.h"
 #include "sokol/sokol_app.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
 
 /* ------------------------------------------------------------------ */
 /* Host (sokol) key/char translation                                   */
@@ -152,16 +149,6 @@ static char ascii_from_key(int kc, bool shift)
     }
 }
 
-/* C0 promotion of a printable byte, mirroring the firmware kbd_ctrl_promote. */
-static char ctrl_promote(char ch)
-{
-    if (ch >= '`' && ch <= '~')
-        return (char)(ch - 96);
-    if (ch >= '@' && ch <= '_')
-        return (char)(ch - 64);
-    return 0;
-}
-
 /* AltGr arrives as Ctrl+Alt only where the host reports it that way: Windows
  * natively, and browsers on a Windows host. On X11 AltGr is Mod5 and on macOS
  * plain Option — there Ctrl+Alt can only be a held chord, never composition. */
@@ -260,7 +247,7 @@ static void input_key(const sapp_event *e)
         default:
             /* Ctrl+<key> -> C0 control byte (Ctrl-C latches SIGINT). Cover the full
              * @.._ / `..~ range the firmware promotes (Ctrl+[ = ESC, Ctrl+\ = FS,
-             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; ctrl_promote gates
+             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; kbd_ctrl_letter gates
              * the valid range. The CHAR case above drops the X11 duplicate. */
             if (ctrl && !alt)
             {
@@ -282,28 +269,13 @@ static void input_key(const sapp_event *e)
                     sapp_query_desc().enable_clipboard)
                     ch = 0;
 #endif
-                if (ch && ctrl_promote(ch))
-                    kbd_ctrl_letter(ch);
+                kbd_ctrl_letter(ch);
             }
-            /* Alt+<printable> -> ESC<char> (Meta), ctrl-promoting first when both
-             * held, mirroring the firmware order. No CHAR fires for Alt combos.
+            /* Alt+<printable> -> ESC<char> (Meta). No CHAR fires for Alt combos.
              * Ctrl+Alt is excluded only where it means AltGr, whose composed char
              * arrives via the CHAR case above. */
             else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-            {
-                char ch = ascii_from_key(e->key_code, shift);
-                if (ch)
-                {
-                    if (ctrl)
-                    {
-                        char c = ctrl_promote(ch);
-                        if (c)
-                            ch = c;
-                    }
-                    com_kbd_push_byte(0x1b);
-                    com_kbd_push_byte((uint8_t)ch);
-                }
-            }
+                kbd_alt_char(ascii_from_key(e->key_code, shift), ctrl);
             break;
         }
         break;
@@ -445,91 +417,6 @@ static bool input_tablet(const sapp_event *e)
     }
 }
 
-/* ------------------------------------------------------------------ */
-/* Clipboard paste                                                     */
-/* ------------------------------------------------------------------ */
-
-/* Pasted text still being dripped into the keyboard ring (NULL = idle). */
-static char *paste_buf;
-static size_t paste_len, paste_pos;
-
-/* UTF-8 sequence length from the lead byte (1 for ASCII and invalid leads). */
-static size_t utf8_len(uint8_t lead)
-{
-    if ((lead & 0xe0) == 0xc0)
-        return 2;
-    if ((lead & 0xf0) == 0xe0)
-        return 3;
-    if ((lead & 0xf8) == 0xf0)
-        return 4;
-    return 1;
-}
-
-void input_paste_cancel(void)
-{
-    free(paste_buf);
-    paste_buf = NULL;
-}
-
-/* A new paste replaces any still-dripping one. */
-static void paste_start(const char *s)
-{
-    input_paste_cancel();
-    size_t n = s ? strlen(s) : 0;
-    if (!n)
-        return;
-    paste_buf = malloc(n);
-    if (!paste_buf)
-        return;
-    memcpy(paste_buf, s, n);
-    paste_len = n;
-    paste_pos = 0;
-}
-
-void input_paste_pump(void)
-{
-    if (!paste_buf)
-        return;
-    /* Stay under the ring's headroom so live typing still fits during a long
-     * paste; a full ring drops bytes, which would corrupt the paste. */
-    while (paste_pos < paste_len && com_kbd_free() > 64)
-    {
-        char c = paste_buf[paste_pos];
-        if (c == '\r' || c == '\n')
-        {
-            kbd_key(KBD_KEY_ENTER, false, false, false);
-            paste_pos++;
-            if (c == '\r' && paste_pos < paste_len && paste_buf[paste_pos] == '\n')
-                paste_pos++; /* CRLF is one Enter */
-        }
-        else if (c == '\t')
-        {
-            kbd_key(KBD_KEY_TAB, false, false, false);
-            paste_pos++;
-        }
-        else if ((uint8_t)c < 32 || c == 127)
-        {
-            paste_pos++; /* strip other control bytes */
-        }
-        else
-        {
-            char seq[5];
-            size_t n = utf8_len((uint8_t)c);
-            if (n > paste_len - paste_pos)
-                n = paste_len - paste_pos;
-            memcpy(seq, paste_buf + paste_pos, n);
-            seq[n] = '\0';
-            kbd_text(seq);
-            paste_pos += n;
-        }
-    }
-    if (paste_pos >= paste_len)
-    {
-        free(paste_buf);
-        paste_buf = NULL;
-    }
-}
-
 void input_event(const sapp_event *e)
 {
     /* An absolute-pointer program takes host pointer/touch events directly (no
@@ -587,7 +474,7 @@ void input_event(const sapp_event *e)
             mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
-        paste_start(sapp_get_clipboard_string());
+        kbd_paste(sapp_get_clipboard_string());
         break;
     default:
         break;

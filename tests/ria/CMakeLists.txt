@@ -39,6 +39,9 @@ rp6502_add_test(exec LIBS emu_core FIXTURE exec.rp6502 TIMEOUT 60)
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
 rp6502_add_test(rtc LIBS emu_core FIXTURE rtc.rp6502 TIMEOUT 60)
 
+# --- Master clock + PHI2 in the emulator (reproducible run timing) ---
+rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
+
 # --- OEM code page conversion (ria/api/uni.c) against the ffunicode.c it
 # replaces. The vendored file is compiled beside it with its entry points
 # renamed, so every code page, every byte, every code point in the BMP,
@@ -74,7 +77,36 @@ if(OEMCP_BIN)
         "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 endif()
 
+# --- The keyboard layouts (ria/hid/kbl.c) against the def files they are
+# generated from. def/kbd_*.def is what a contributor edits and what kbd.c
+# used to include as X macros; the generator is a second reader of that
+# format, so the manifest is included here the old way and every code
+# point compared. ---
+set_source_files_properties(${KBDLAY_C} PROPERTIES GENERATED TRUE)
+rp6502_add_test(kbl
+    SOURCES test_kbl.c ${RP6502_SRC}/ria/hid/kbl.c ${KBDLAY_C}
+    INCLUDES ${RP6502_SRC} ${RP6502_SRC}/host/pico ${KBDLAY_DIR})
+add_dependencies(test_kbl kbdlay)
+
+# --- The same suite over the Pocket's copy of the layouts ---
+# kbl_word is the one thing a port writes: one links kbdlay.c and reads
+# an array, one stages keyboard.bin and reads a window. Only the tree that
+# builds the .bin can run this.
+if(KBDLAY_BIN)
+    rp6502_add_test(kbl_bin
+        SOURCES test_kbl.c ${RP6502_SRC}/ria/hid/kbl.c kbl_bin.c
+        INCLUDES ${RP6502_SRC} ${RP6502_SRC}/host/pico ${KBDLAY_DIR}
+        DEFS KBDLAY_BIN_PATH="${KBDLAY_BIN}")
+    add_dependencies(test_kbl_bin kbdlay kbdlay_bin)
+endif()
+
 if(RP6502_VERILATE)
+    # --- Every whole kilohertz, exactly ---
+    rp6502_add_module_test(phi2
+        TOP phi2_div
+        RTL ${RP6502_SRC}/rtl/ria/phi2_div.sv
+        TIMEOUT 120)
+
     # The whole machine so far boots a program that talks through the RIA's
     # bare UART.
     rp6502_add_machine_test(hello TIMEOUT 120)

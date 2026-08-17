@@ -237,66 +237,19 @@
         {
             "label": "vectors: download",
             "type": "process",
-            "command": "python3",
+            "command": "cmake",
             "args": [
-                "${workspaceFolder}/tests/cpu65/vectors.py"
+                "-DRP6502_ROOT=${workspaceFolder}",
+                "-DFETCH_SUPER=${workspaceFolder}",
+                "-DFETCH_PATH=vendor/65x02",
+                "-DFETCH_SPARSE=wdc65c02/v1",
+                "-P",
+                "${workspaceFolder}/submodules.cmake"
             ],
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": [],
-            "windows": {
-                "command": "python"
-            }
-        },
-        {
-            "label": "emsdk: install",
-            "type": "process",
-            "command": "${workspaceFolder}/vendor/emsdk/emsdk",
-            "args": [
-                "install",
-                "latest"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/vendor/emsdk"
-            },
-            "windows": {
-                "command": "${workspaceFolder}/vendor/emsdk/emsdk.bat"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "emsdk: activate",
-            "type": "process",
-            "command": "${workspaceFolder}/vendor/emsdk/emsdk",
-            "args": [
-                "activate",
-                "latest"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/vendor/emsdk"
-            },
-            "windows": {
-                "command": "${workspaceFolder}/vendor/emsdk/emsdk.bat"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "emsdk: install and activate",
-            "dependsOrder": "sequence",
-            "dependsOn": [
-                "emsdk: install",
-                "emsdk: activate"
-            ],
             "problemMatcher": []
         }
     ]

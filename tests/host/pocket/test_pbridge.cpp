@@ -235,10 +235,10 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
      * there — no event, nothing to miss, and nothing to deliver late.
      * A release is the absence of the bit, which is the whole reason
      * a pad must not go through the key mailbox. */
-    ASSERT_EQ(dut->tb_pbridge_pad_key, 1u << 15);
+    ASSERT_EQ(dut->tb_pbridge_cont1_key, 1u << 15);
     dut->cont1_key = 0;
     advance_to(s_next + 330L * 200);
-    ASSERT_EQ(dut->tb_pbridge_pad_key, 0u);
+    ASSERT_EQ(dut->tb_pbridge_cont1_key, 0u);
 
     /* Two at once are one word, not two events in some order. The
      * analog words carry across whole, and only when two consecutive
@@ -247,19 +247,35 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
     dut->cont1_joy = 0x20C04080u;
     dut->cont1_trig = 0x1234;
     advance_to(s_next + 330L * 200);
-    ASSERT_EQ(dut->tb_pbridge_pad_key, (1u << 1) | (1u << 4));
-    ASSERT_EQ(dut->tb_pbridge_pad_joy, 0x20C04080u);
-    ASSERT_EQ((int)dut->tb_pbridge_pad_trig, 0x1234);
+    ASSERT_EQ(dut->tb_pbridge_cont1_key, (1u << 1) | (1u << 4));
+    ASSERT_EQ(dut->tb_pbridge_cont1_joy, 0x20C04080u);
+    ASSERT_EQ((int)dut->tb_pbridge_cont1_trig, 0x1234);
 
-    /* The dock's keyboard is its own slot and does not touch the pad. */
+    /* All four slots cross, each on its own, and the bridge reads none
+     * of them: a keyboard's type nibble and scan codes arrive exactly
+     * as APF sends them, beside a pad that is still held. Which slot
+     * holds what is the firmware's to decide, so the crossing has to
+     * be true of every slot rather than of the three we expect. */
+    dut->cont2_key = 0x3000000Au; /* type 3, down + Y */
+    dut->cont2_joy = 0x11223344u;
+    dut->cont2_trig = 0x5566;
     dut->cont3_key = 0x40000002u; /* type 4, left-shift held */
     dut->cont3_joy = 0x04050607u;
     dut->cont3_trig = 0x0809;
+    dut->cont4_key = 0x50000007u; /* type 5, seventh report */
+    dut->cont4_joy = 0x0001FFFEu;
+    dut->cont4_trig = 0x0003;
     advance_to(s_next + 330L * 200);
-    ASSERT_EQ(dut->tb_pbridge_kbd_key, 0x40000002u);
-    ASSERT_EQ(dut->tb_pbridge_kbd_joy, 0x04050607u);
-    ASSERT_EQ((int)dut->tb_pbridge_kbd_trig, 0x0809);
-    ASSERT_EQ(dut->tb_pbridge_pad_key, (1u << 1) | (1u << 4));
+    ASSERT_EQ(dut->tb_pbridge_cont2_key, 0x3000000Au);
+    ASSERT_EQ(dut->tb_pbridge_cont2_joy, 0x11223344u);
+    ASSERT_EQ((int)dut->tb_pbridge_cont2_trig, 0x5566);
+    ASSERT_EQ(dut->tb_pbridge_cont3_key, 0x40000002u);
+    ASSERT_EQ(dut->tb_pbridge_cont3_joy, 0x04050607u);
+    ASSERT_EQ((int)dut->tb_pbridge_cont3_trig, 0x0809);
+    ASSERT_EQ(dut->tb_pbridge_cont4_key, 0x50000007u);
+    ASSERT_EQ(dut->tb_pbridge_cont4_joy, 0x0001FFFEu);
+    ASSERT_EQ((int)dut->tb_pbridge_cont4_trig, 0x0003);
+    ASSERT_EQ(dut->tb_pbridge_cont1_key, (1u << 1) | (1u << 4));
 
     dut->cont1_key = 0;
     dut->cont1_joy = 0;
@@ -270,7 +286,7 @@ UTEST(pbridge, boot_verify_rereset_reload_keys)
      * that stands is state the firmware reads whenever it looks. */
     dut->cont1_key = 1u << 2; /* left */
     advance_to(s_next + 330L * 500);
-    ASSERT_EQ(dut->tb_pbridge_pad_key, 1u << 2);
+    ASSERT_EQ(dut->tb_pbridge_cont1_key, 1u << 2);
     dut->cont1_key = 0;
     advance_to(s_next + 330L * 200);
 }

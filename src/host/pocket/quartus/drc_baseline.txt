@@ -13,14 +13,23 @@
 #       against zero, held for 255 clocks at a time, and the core it
 #       resets is the vendor's. The machine's own reset is one flop now
 #       and reaches nothing but the 6502 and the 6522.
-R101 1
 #
-# D101  Data crossing clock domains without a synchroniser. All 551 are
+#       2 since the clock gate: resb_eff, the AND of resb and the
+#       restore hold, reaching the 6502 and 6522 async resets. It is
+#       combinational on purpose — the hold must own the reset from the
+#       first returned clock edge, before any flop could sample — and
+#       both of its terms are flops on the one clock the machine has.
+#       What the rule fears is an unrelated-clock release, and that is
+#       timed instead: recovery and removal both close in the same
+#       report that names this node.
+R101 2
+#
+# D101  Data crossing clock domains without a synchroniser. All 663 are
 #       clk_74a into clk_sys. Not one is the clk_sys/clk_rv seam, which
 #       is what this entry used to say:
 #
-#         240  io_pad_controller  the controller and dock inputs
-#         158  pocket_bridge      timezone, RTC, and the input chains
+#         320  io_pad_controller  the four controller slots
+#         190  pocket_bridge      timezone, the keyboard, RTC, the inputs
 #         151  pocket_file        the command parameters and result
 #          32  core_bridge_cmd    Analogue's own
 #
@@ -30,6 +39,24 @@ R101 1
 #       doing its job: a baseline that only ever rises stops being a
 #       measurement.
 #
+#       551 until the dock was finished, and the 112 it rose by are named
+#       in the report rather than argued for here:
+#
+#          80  io_pad_controller  cont2_key, cont2_joy, cont2_trig
+#          32  pocket_bridge      kb_74
+#
+#       The second controller slot was declared and never connected, so
+#       the machine had one player where both it and the Pocket have
+#       four; the register is the keyboard layout menu. Every one of
+#       them lands beside a sibling already counted here at the same
+#       width — cont1, cont3 and cont4 at 80 apiece, the three timezone
+#       registers at 32 — and crosses on the same two flops, landing only
+#       when two consecutive samples agree.
+#
+#       It went to 695 for as long as there was a second keyboard entry
+#       in the menu, and came back by that entry's 32 when one turned out
+#       to be enough. Which is the number doing its job again.
+#
 #       These are host-clock buses that stand still behind a handshake,
 #       or levels read whenever the machine looks. The tool sees the bits
 #       cross and cannot see what holds them, which is the same blind
@@ -38,12 +65,64 @@ R101 1
 #       272 of them are inside Analogue's own code and are not ours to
 #       change. This number does not fall.
 #
+#       666 since savestates, and the three are named in the report as
+#       structures 661 to 663: pocket_sst's res_code, the code the
+#       machine writes to say how a savestate ended. It is the same
+#       shape as pocket_file's command word already counted above --
+#       written once, then a toggle flipped beside it, and not read
+#       until that toggle has come through three flops on the far side.
+#       Read out of the report, not worked out: the count rose by
+#       exactly three and the report says which three.
+#
+#       687 since the savestate serving. Named in the report:
+#
+#          18  pocket_sst  want, the blob index the host is reading
+#           1  pocket_sst  want_t, the toggle that announces it
+#           1  pocket_sst  start_pend, the save request
+#
+#       The index is the same shape as the file bridge's parameters
+#       above: it stands still on clk_74a while the engine answers it,
+#       and the engine will not look at it until the toggle beside it
+#       has come through three flops. The toggle and the request are
+#       single bits, which is the case this rule cannot distinguish
+#       from a bus.
+#
 #       SYNCHRONIZER_IDENTIFICATION does not move this number. It is set
 #       anyway, in platform/pocket/pocket.cmake: without it Quartus found all 78
 #       chains and discarded them, calculating no MTBF for the design at
 #       all. With it the tool identifies 476 chains, fails to rate 1.7%
 #       of them rather than 100%, and puts the design at 1e+09 years.
-D101 551
+#
+#       716 since the machine stops by losing its clock. Named in the
+#       report: sst_engine's hold at 32 — the word the host is reading,
+#       moved here from D102 when the serving was rebuilt to the
+#       documented contract — and mach_clk_en at 1, the gate enable
+#       crossing into the engine's own running synchroniser. hold
+#       stands still until a different index is asked for and carries
+#       the same max-delay bound in the SDC as the index that asks;
+#       mach_clk_en is a single bit into a named two-flop chain.
+#       want, want_t and start_pend above are ask, ask_t and start_hold
+#       now, at the same widths. res_code's three left with the
+#       redesign — the register no longer exists; how a savestate ended
+#       rides the blob itself.
+#
+#       It went to 717 for one fit, and back. The extra was
+#       pocket_file_bridgeaddr[6]~DUPLICATE, a copy the FITTER made of
+#       one bit of a bus whose other thirty-two were already counted
+#       above -- in a module that change did not touch, on a crossing
+#       already argued for. The next fit, one flop's power-on value
+#       different, does not have it: bridgeaddr is 32 again, and so are
+#       hold and slotoffset, which were 32 and 31 the fit before.
+#
+#       Which is the warning this entry has to carry, because the count
+#       reads as a fingerprint and is not one. The widths in the report
+#       float with placement, and twenty of these 716 are duplicates
+#       rather than bits. The test for a regression here is a NAME in
+#       the structure list that is new, not a number that is bigger --
+#       the same packing sensitivity D102 records below, which reached
+#       this rule for the first time and cost a build to learn. Read the
+#       list before moving this line in either direction.
+D101 716
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
@@ -73,7 +152,25 @@ D101 551
 #       between them, and that touches none of these structures — all 24
 #       are named above and every one is in the platform layer. The count
 #       is packing-sensitive, so one observation is not a new floor.
-D102 24
+#
+#       28 since the dock was finished, and unlike D101 the four are not
+#       simply four new things. The report names what is there now:
+#       cont2_key, cont2_joy and cont2_trig, beside the three slots that
+#       were already routed; kb_74, beside the three timezone
+#       registers; and the crossing's own first-stage flops, which are
+#       now three arrays — ck_s1, cj_s1, ct_s1 at four apiece — where
+#       they used to be nine separate registers at one apiece. So more
+#       names arrived than the count rose by, because the packed array
+#       let some of them merge. That is the packing sensitivity this
+#       entry already warns about, and it is why the number is taken as
+#       measured rather than derived: every name in the report is a
+#       level bus crossing on two flops that land only when consecutive
+#       samples agree, which is the same argument as everything above.
+#       29 for as long as sst_engine's hold was credited with a
+#       synchroniser, and 28 now that the serving rebuild moved it to
+#       D101, where it is argued above. Same crossing, same bound, one
+#       rule over.
+D102 28
 #
 # D103  Data bits not correctly synchronised. pocket_file's command
 #       word: r_op, and the flush, write and getfile strobes beside it.

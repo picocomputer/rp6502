@@ -12,6 +12,10 @@
 
 void aud_init(void);
 void aud_stop(void);
+/* A savestate carries the blocks and the pointers but not what the
+ * engines made of them; this is the pointers put back and the blocks
+ * replayed. */
+void aud_restore(void);
 bool aud_psg_xreg(uint16_t word);
 bool aud_opl_xreg(uint16_t word);
 

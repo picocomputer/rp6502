@@ -82,39 +82,254 @@ array whatever it says.
 
 ## Suspend
 
-`core.json` says `"sleep_supported": false`, and that is a decision
-rather than an omission.
+Sleeping on openFPGA means producing a savestate. At sleep the host asks
+0x00A0 for a blob, powers down, and hands it back on wake. The boot
+documentation fixes the ordering both ways: a create signals completion
+first and the data is copied out after, and a load has the blob written
+into the core as ordinary bridge writes before 0x00A4 ever arrives.
 
-Sleeping on openFPGA means producing a savestate. At sleep the host
-asks 0x00A0 for a blob, powers down, and hands it back on wake; a core
-that cannot make one is powered down without it. This core cannot, so
-for a while it declined the blob and let the Pocket sleep anyway,
-waking into a cold boot on the theory that a machine with a power
-switch wakes to a reset.
+For a long time this core declined, and for a measured reason: **wake
+reconfigures the part.** SRAM, XRAM, TCM and every register come back
+out of the bitstream — proven with a `.noinit` marker that never once
+survived a sleep. A sleep that silently restarts the user's program is
+worse than no sleep, so the core said no.
 
-Hardware disagreed, and the owner said so plainly: the ROM restarted
-instead of continuing. So the machine was asked what survives. A
-marker was written into the firmware's own memory — a `.noinit`
-section the bitstream would overwrite and `crt0` leaves alone —
-alongside the microsecond counter, which anything at all resets, and
-the pair was printed at every boot. Across two sleep cycles the marker
-was gone and the counter back at nothing, every time.
+It says yes now. The blob is 317 KB and the machine makes it itself.
 
-**Wake reconfigures the part.** SRAM, XRAM, TCM and every register come
-back out of the bitstream. Nothing the firmware can do continues a
-program through that; only a genuine savestate could, and that means
-marshalling something like 200 KB of machine state through the bridge
-with 153 ALMs spare — a feature that costs another feature.
+### The architecture: one clock gate
 
-Since a sleep that silently restarts the user's program is worse than
-a Pocket that simply does not offer sleep for this core, the core stops
-claiming it. The savestate inputs in `core_top.sv` stay driven and
-denying, so a host that asks anyway still gets a real answer rather
-than a floating one.
+Two designs died getting here. Firmware marshalling measured 2.6x too
+slow against the bridge and booted the soft CPU fresh, which was
+forbidden from the start. Enable-gate freezing (`phi2_en` held low, and
+friends) failed structurally: every subsystem that did not run on the
+gated enable needed its own hold bolted on — the beam-clocked frame
+counter was the tell — and the class of bug kept coming back.
+
+What ships is the blunt thing: **the machine's clock stops at the
+source.** One `altclkctrl` in `core_top.sv`, ena taken on the falling
+edge so no period is ever shortened. The 6502, the VIA, the RIA's
+control logic, video, audio — no clock, wherever they happened to be.
+That is coherent because it is atomic: every register freezes on the
+same missing edge and resumes on the same returned one, so there is no
+boundary condition and no WAI/STP special case. Nothing inside is
+gated; nothing inside knows.
+
+Three things keep clocks. The SDRAM staging store, which refreshes
+itself. The serializer (`sst_engine.sv`), which owns every memory array
+through a port of its own — the arrays stay on the ungated clock and
+sit idle because the logic driving their machine-side inputs is
+stopped, and the serializer masks their frozen write enables for the
+whole window (`arr_own`), because an enable frozen high would otherwise
+re-fire its stale write into a live array every cycle. And the soft
+CPU, which is not clock-gated at all: it is halted at its debug port,
+its registers spilled a few injected instructions at a time
+(`csrw dmdata0, xN`; `ebreak` as the retirement marker) while its
+clock keeps running.
+
+`arr_own` is the shape every mask on this boundary has to have, and it
+is worth stating once because getting it wrong is silent. A machine
+signal consumed by anything on the ungated clock is a **level**, not an
+event: cut the clock and it freezes wherever it was, and a consumer
+that treats it as one-per-cycle sees it fire for the whole savestate.
+Every such consumer on this board is now clocked by the gate's output
+instead — the pixel queue in `pocket_video.sv`, the sample queue in
+`pocket_i2s.sv`, both console queues in `pocket_dbg.sv` and
+`pocket_dbglog.sv` — which is the same fix stated four times: a strobe
+belongs on the clock that made it. Where a mask is genuinely needed,
+`arr_own`'s two terms are the answer: it goes up only once the gate has
+actually closed, so it never masks a live access on the way in, and it
+comes down the moment the stop request drops, which is several of the
+host's clocks before the gate opens again. `pocket_sram`'s port-A mask
+takes the same form (`mach_gated` in `pocket_core.sv`), because waiting
+for the clock enable to come back is two or three clocks too late and
+the 6502's first legal cycle falls inside them.
+
+A save, in order: halt the soft CPU, spill its registers, stop the
+machine clock, checksum the whole blob in one pass — the trailer is a
+fact about the blob, not about the order the host reads it in — then
+answer each bridge strobe on its own terms (the bus contract gives the
+core until the next strobe). The last word read is what gives the
+machine back: completion was signalled before the copy began, so there
+is no other event to hang it on. Then the soft CPU is told to resume —
+told, with `dbg_req_resume`; dropping the halt request resumes nothing,
+which was a real bug the tests were blind to.
+
+### Restoring
+
+The engine verifies the staged blob end to end before writing one byte
+of the machine — a restore has nothing to fall back on, so a blob that
+fails halfway must fail before it starts. Then, machine still stopped,
+every array is written back through the same direct ports, and the
+flop state (6502, VIA, RIA window flops, resb, the 6502's clock rate,
+the microsecond counter) is parked in the engine.
+
+Waking the machine is a sequenced handoff:
+
+1. `hold_res` rises while everything is still frozen — it reaches the
+   6502 and the VIA as an asynchronous reset, needing no clock.
+2. The machine clock returns over a core already in reset. No phantom
+   cycle can touch restored memory.
+3. The microsecond counter is written back, on a level of its own held
+   across the whole injection below, because the core reads it the
+   moment it is let go. It is in the blob's state page and it has to
+   be: every deadline the firmware holds is an absolute reading of it,
+   sitting in the TCM the blob does carry, so a counter that came back
+   at zero out of the bitstream would put all of them the machine's
+   entire previous uptime into the future. That is a console cursor
+   that stops blinking, a keyboard that stops repeating, and every
+   timeout in the file driver hanging, for exactly as long as the
+   machine had been up before the sleep.
+4. The soft CPU's registers go back through the debug port and the
+   core is resumed. It is the blob's firmware, mid-instruction, on its
+   own stack. It sees `SST_RESTORED` and puts back everything
+   write-only that no blob can carry: the font store rebuilt from the
+   code page, the audio register blocks replayed over engines that
+   learn only from writes, the raster's three registers — the canvas,
+   the vsync line and the terminal's window — replayed from the
+   firmware's own shadows, every open file re-opened by its kept name,
+   the wall clock re-derived from the host's RTC, the restage triggers
+   re-synced so the wake's slot announcements do not read as a new
+   program.
+
+   The canvas is the one that hurts. It is not just the scaler mode
+   named at the end of every line; it is the width the fill engines are
+   given one line of clocks to produce. A 320-wide program woken onto
+   the console's 640 is asked for twice the pixels in the same budget,
+   never finishes, and never flips its bank — a black screen over a
+   program that is still running and still making sound. Its sibling,
+   `VID_PROG`, is the terminal's window, and losing that is a black
+   console. Neither register can be read back out of the fabric after a
+   wake, so the firmware keeps its own copy of each.
+5. The firmware clears `SST_RESTORED` — the release. Two jam cycles
+   follow: the first writes `resb` (a plain flop) and drops the reset
+   hold; the second lands every 6502/VIA/RIA flop with the async
+   resets already released, which is the only way to jam a flop whose
+   reset would otherwise dominate. Two cycles is also one full period
+   of the soft CPU's half-rate clock, so its one jam consumer cannot
+   miss the pulse.
+
+The 6502 continues from the exact cycle the blob froze it in.
+
+### What a sleep does not carry
+
+- The PSG's envelopes, phase and noise, and the OPL's internal
+  generators. Registers come back; what the engines made of them
+  starts again — a click on a held note. A held note does come back:
+  both engines are re-keyed by the replay, the OPL because writing
+  `0xB0-0xB8` is a key-on to it and the PSG through `AUD_PSG_REPLAY`,
+  which is the one thing in the audio path that exists only for a
+  restore. Without it the PSG's gate — an edge, and only the 6502's to
+  make — would be ignored in the replayed byte and a sustained voice
+  would come back silent for the rest of the program's life, which is
+  a wider loss than the one above and not the one this promises.
+- Up to sixteen undrained console bytes: reading regs word 16 pops the
+  queue, so the blob has a hole there instead of a savestate that eats
+  a character every time one is made.
+- One in-flight type-ahead byte, an open LR/SC reservation (its SC
+  fails, as the ISA permits), and the RW engine's suspended XRAM write
+  — old-session work, deliberately discarded rather than allowed to
+  land one stale byte in a restored world.
+- A file operation in flight. The host is the one part of the machine
+  a blob cannot carry: its slot bindings and staging window belong to
+  the session the wake ended. The firmware re-opens what it knows; an
+  operation caught mid-sequence comes back EIO. A sleep during disk
+  activity can still lose the program — holding the freeze off during
+  single commands was tried and made it worse (it moves the cut into
+  the gap between two commands of one operation); a hold spanning
+  whole operations is firmware work in `msc.c`, still open.
+
+  The split to keep straight is that a sleep cuts the power to the
+  core and not to the card. The files are where they were. What
+  becomes of the host's *binding* of a data slot to one of them is the
+  part **the documentation does not say**, and this file asserted an
+  answer to it for a while without one. The boot process says Pocket
+  loads the slots `data.json` describes, and these eight are
+  `deferload` with no filename in it, so there is nothing there for it
+  to bind — but a binding made at runtime with `0x0192` is not in
+  `data.json` and no page says whether it survives.
+
+  So `msc_restore` asks. `0x0190` answers with the path a slot is
+  bound to, and a slot still holding the right file is left alone.
+  That is correct whichever way the host behaves, and it is the
+  difference between one round trip per open file and none: a wake
+  that kept its bindings pays nothing, a wake that lost them is put
+  back exactly as it was, and a state loaded into a machine that was
+  never power-cycled — where the bindings are certainly still live —
+  stops paying eight Open Files for nothing.
+
+  Both directions are benches.
+  `psleep.a_file_open_across_the_sleep_is_still_open` runs a program
+  streaming a file through a real reconfigure: the model's card
+  survives it and its bindings do not, an unbound slot answers "slot
+  not defined" the way the host does, and the file comes out byte for
+  byte across the seam with nothing lost or repeated. Delete the
+  reopen and it fails.
+  `psleep.a_load_into_a_running_machine_keeps_its_bindings` is the
+  other one, and it asserts the Open Files do not happen.
+
+  So a file failure that only happens on hardware is now, by
+  construction, something the model does not have. `msc_restore` says
+  which descriptor refused and with which of the host's own result
+  codes, because the last one of these cost a day of inference over a
+  number nobody could read off the screen.
+
+### The picture across a freeze
+
+The scaler is a separate machine and it is not asleep. Bus
+Communication gives the video input a range — "Refresh rate: 47hz to
+~61hz" — and a savestate is tens of frames of nothing at all if the
+output stage stands down with the machine. So it does not. The reader
+in `pocket_video.sv` keeps its raster, its vs, its hs and its de all
+the way through; only the pixels underneath go black. The frame is the
+same shape it always was, which is the only thing the scaler was ever
+told to expect.
+
+What it does drop is the lock. The two rasters are phase-locked with
+the writer a few pixels ahead, and a freeze breaks that: the beam stops
+mid-frame and comes back mid-frame, at a different one. So the lock is
+taken again — and **not** from a crossed frame pulse. That pulse
+arrives two or three of the reader's clocks after the writer's frame
+actually began, by which time its first pixels are already in the queue
+and anything clearing the queue has eaten them, which is a picture
+permanently shifted by two or three pixels. The frame's first pixel
+carries a tag instead, pushed with it, and the reader discards up to
+the tag and locks on it. The tag has no gap: it is in the queue, in
+front of the pixel it belongs to. The cost is one long frame per
+resume, where a vs is late by however far into the reader's frame the
+writer's boundary fell.
+
+### What only hardware can answer
+
+Whether anything in the wake ordering differs from the boot document's
+sequence — the debug event log carries every host command and its
+parameter for exactly this. Whether the host tolerates the ~100 ms a
+create takes before "done" (it polls, per the docs). Whether the scaler
+minds the one long frame the re-lock costs. And the analog question:
+the async SRAM's timing margins with port A masked.
 
 ## The Core Settings menu
 
-Three things live there and one used to that should not.
+Four things live there and one used to that should not.
+
+**The keyboard is one entry, and one on purpose.** The RIA carries a
+list of layouts because reaching its monitor to change one interrupts
+whatever you were doing, and GUI+Space cycling between two is worth the
+machinery there. This menu is two button presses away, so the layout
+that would have been the alternate is just the layout. The entry names
+one by its position in `def/kbd.def` plus one, which leaves zero
+meaning a menu that has said nothing — and the firmware then keeps the
+US default. A ctest reads `interact.json` against the manifest, so
+adding a layout and forgetting the menu fails the build rather than
+shipping a list that names the wrong one. Append new layouts at the end
+of the manifest: the host persists this setting by its value, and
+inserting one in the middle would renumber what a user already chose.
+
+`defaultval` is an index into the options array and not one of their
+values, which Analogue's page never says — only its sample shows it.
+A Pocket set to default came up one layout past the intended one, and
+that is the whole of the evidence. The ctest now checks that the option
+`defaultval` selects is the layout `kbd.c` falls back to, so the two
+defaults cannot disagree again.
 
 **The time zone is three entries, not one.** The Pocket knows nothing
 about time zones, so the offset has to be set by hand — and it cannot
@@ -129,10 +344,10 @@ put back together.
 
 **The Controls submenu is gone.** APF builds it from `input.json`,
 which claimed the Pocket's buttons were Enter, Escape, Space and so
-on. This core does no such thing: it hands `cont1_key` to the firmware
-as a gamepad report, buttons and axes, exactly as the machine's own
-HID API expects. The file is now an empty controller list, since the
-menu was documenting a mapping that does not exist.
+on. This core does no such thing: it hands every controller slot to
+the firmware as a HID report, buttons and axes, exactly as the
+machine's own HID API expects. The file is now an empty controller
+list, since the menu was documenting a mapping that does not exist.
 
 **The last ROM no longer relaunches itself.** Slot 0 had bit 9 of its
 parameter bitmap set — "persist browsed filename" — which makes APF
@@ -151,6 +366,38 @@ notwithstanding; the reload is a request write, the image, the table
 entry, and a second access-all-complete. So the ROM is the first slot
 at address zero, and the firmware treats the size that completion
 posts mid-run as the announcement it is.
+
+## The dock, as HID
+
+APF polls its four controller slots and hands the core three registers
+for each one. What a slot holds is the top nibble of its key word:
+nothing, the Pocket's own buttons, a docked controller with or without
+analog, the docked keyboard, or the docked mouse. Analogue assigns the
+keyboard and the mouse to particular slots today and says the
+assignment is the framework's to make, so the firmware trusts the
+nibble and not the slot number. All four cross the clock domain
+identically and none of them is named for a device.
+
+The firmware does not have its own drivers for any of this. `apf.c`
+mounts each slot with a HID report descriptor written by hand and
+hands the registers over as the report that descriptor describes,
+which is what `ria/usb/xin.c` does for XInput — a device with no
+descriptor of its own. `ria/hid` then does the rest: layouts, dead
+keys, key repeat, the escape sequences a terminal expects, the mouse
+landing in the tablet driver as well as the mouse one, four players in
+slot order, and a d-pad that is a d-pad rather than a left stick
+pretending.
+
+Three descriptors carry the whole mapping, so a wrong one would build
+clean and boot clean and be wrong only under a hand on a controller.
+`tests/hid/test_apf.c` is what stands in for that hand: registers in,
+XRAM records out, against the real drivers.
+
+Two things a RIA has are not here. There is no monitor, so
+Ctrl-Alt-Del is an ordinary key — `main_break` says no and the
+keystroke falls through. Alt-F4 works when a launcher is registered,
+because then there is somewhere to go; from inside the launcher, or
+with none registered, it says no too.
 
 ## The host's filesystem
 
@@ -348,6 +595,20 @@ your code works:
   it. Issue one through the stock bridge and it never retires; every
   data slot command after it queues forever. One call killed the drive
   for the session until the override grew its own deadline. Not a word.
+- The controller page packs a word's bytes most significant first — its
+  own table puts the keyboard's first scan code in `joy[31:24]` — and
+  then calls three fields "little endian byte order" without saying
+  that this is the value's order and not the register's. So a sixteen
+  bit field arrives with its low byte in the high half. A keyboard that
+  types but never shifts, and a pointer at 256 times the speed of your
+  hand, are the same sentence read the obvious way. Confirmed on
+  hardware after the swap: shift works and the mouse tracks both
+  directions, which also settles that the deltas really are sixteen
+  bits rather than eight in the high byte.
+- An interact list's `defaultval` is an index into its options and not
+  one of their values. Documented for a slider only; for a list, their
+  sample file is the whole of the evidence. Every setting whose options
+  begin at zero and count by one hides it.
 - Nothing anywhere distinguishes "that failed" from "that did nothing".
 
 That last one is what actually costs. Errors are silent, so every
@@ -412,6 +673,15 @@ binaries, which the build supplies:
   in slot id order, with the ROM first at address zero owning
   everything below its `size_maximum` ceiling — and the firmware copies
   it to the video device at every boot.
+- `Assets/rp6502/common/oemcp.bin` and
+  `Assets/rp6502/common/keyboard.bin` ride the same way, from
+  `src/gen/oem_table_gen.py` and `src/gen/kbd_layout_gen.py`. They are
+  the code page conversion tables and the keyboard layouts, both far
+  too large to link into a 96 KB tightly coupled memory and both read a
+  word at a time through a window that cannot fetch anything wider than
+  a byte. A core without either still runs: filenames fold to U+FFFD
+  without the one, and the keys that type a character type nothing
+  without the other while the arrows and the hotkeys go on working.
 - `Cores/Rumbledethumps.RP6502/icon.bin` and
   `Platforms/_images/rp6502.bin` are here already, made from the logo by
   `src/gen/pocket_image_gen.py`. Analogue documents one format
@@ -444,6 +714,7 @@ debug log shows:
 | --- | --- |
 | *no 0x0152 traffic at all* | the soft CPU is not executing, or the host is not answering the log — turn on `CORE_TEST_PATTERN` to tell those apart |
 | `oem: no tables` | the code page slot did not stage; accented filenames will fold to U+FFFD |
+| `kbd: no layouts` | the layout slot did not stage; keys that type a character type nothing |
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 

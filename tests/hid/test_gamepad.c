@@ -41,7 +41,8 @@ static void run(int n)
 }
 
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in
- * sync. Byte 0 carries the dpad (0x0F) plus the connected feature bit (0x80);
+ * sync. Byte 0 carries the dpad (0x0F) plus the status bits, of which only
+ * connected (0x80) is set by a plug with no report behind it yet;
  * bytes 2/3 are button0/button1. No ROM needed — this pokes pad.c directly. */
 UTEST(gamepad, xram_mirror)
 {

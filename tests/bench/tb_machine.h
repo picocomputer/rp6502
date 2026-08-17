@@ -35,11 +35,27 @@
 template <typename Dut> static void tb_clock(Dut *dut)
 {
     static bool rv_phase;
+    /* The clock gate, which on hardware is a control block at the
+     * source. A savestate takes the machine's clock away entirely --
+     * atomically, wherever the machine is -- and the soft CPU's clock
+     * is not part of it: that core keeps its clock and is halted at
+     * its debug port. The arrays and the serializer are on the clocks
+     * that are left, which is how state gets read out of a machine
+     * that is not running. Reset reopens the gate, so a test that
+     * dies mid-save cannot poison the next one. */
+    static bool en = true;
+    if (!dut->rst_n || !dut->rp6502_sst_stop_req)
+        en = true;
+    else
+        en = false;
+    dut->mach_running = en;
     rv_phase = !rv_phase;
     dut->clk_rv = rv_phase;
+    dut->clk_mach = en;
     dut->clk_sys = 1;
     dut->eval();
     dut->clk_rv = 0;
+    dut->clk_mach = 0;
     dut->clk_sys = 0;
     dut->eval();
 }

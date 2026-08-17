@@ -87,4 +87,9 @@ static inline uint16_t scanvideo_scanline_number(uint32_t scanline_id)
     return (uint16_t)scanline_id;
 }
 
+static inline uint16_t scanvideo_frame_number(uint32_t scanline_id)
+{
+    return (uint16_t)(scanline_id >> 16u);
+}
+
 #endif /* _VGA_SCANVIDEO_SCANVIDEO_H_ */

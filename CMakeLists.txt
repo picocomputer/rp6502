@@ -20,6 +20,15 @@ set(RP6502_PROJECT_DEFINITIONS
 # firmware build). Reference sources and vendored deps via RP6502_ROOT.
 get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR} ABSOLUTE)
 
+# The two the firmware reads, asked for here because the SDK is handed
+# PICO_TINYUSB_PATH below and looks inside it during pico_sdk_init().
+include(${RP6502_ROOT}/submodules.cmake)
+rp6502_submodule(vendor/tinyusb
+    SENTINEL src/portable/raspberrypi/rp2040/rp2040_usb.c
+    WANTS "the firmware's USB stack")
+rp6502_submodule(vendor/littlefs SENTINEL lfs.c
+    WANTS "the firmware's flash filesystem")
+
 # Project subdirectories (under ${RP6502_ROOT}/src).
 set(RP6502_PROJECT_DIRECTORIES
     ria
@@ -39,101 +48,7 @@ set(IPO_PRINTF_LINK_OPTIONS
     -Wl,-u,__wrap_vsnprintf
 )
 
-set(RP6502_VERSION_VALUE "")
-foreach(_def IN LISTS RP6502_PROJECT_DEFINITIONS)
-    if(_def MATCHES "^RP6502_VERSION=\"(.*)\"$")
-        set(RP6502_VERSION_VALUE "${CMAKE_MATCH_1}")
-    endif()
-endforeach()
-
-# -DRP6502_VERSION=<v> (release builds) overrides an empty default
-if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
-    set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
-endif()
-
-# -DRP6502_CI=<run id> stamps untagged CI builds; never cached so a
-# reconfigure cannot resurrect another run's id.
-set(RP6502_CI_VALUE "")
-if(DEFINED RP6502_CI AND NOT RP6502_CI STREQUAL "")
-    set(RP6502_CI_VALUE "${RP6502_CI}")
-endif()
-unset(RP6502_CI CACHE)
-
-set(RP6502_GEN_VERSION_SCRIPT ${CMAKE_BINARY_DIR}/gen_rp6502_version_header.cmake)
-file(WRITE ${RP6502_GEN_VERSION_SCRIPT} [[
-if(VERSION)
-    set(_stamp "Version ${VERSION}")
-elseif(CI)
-    set(_stamp "CI ${CI}")
-else()
-    string(TIMESTAMP _stamp "%b %d %Y %H:%M:%S %Z")
-endif()
-set(_new "#undef RP6502_VERSION\n#define RP6502_VERSION \"${_stamp}\"\n")
-set(_old "")
-if(EXISTS "${OUTPUT}")
-    file(READ "${OUTPUT}" _old)
-endif()
-if(NOT _new STREQUAL _old)
-    file(WRITE "${OUTPUT}" "${_new}")
-endif()
-]])
-
-# Regenerate rp6502_version.h whenever any of `tgt`'s objects change.
-# hdr is a BYPRODUCT to keep it out of cmake_object_order_depends so
-# OBJECT_DEPENDS on `src` doesn't cycle back through the other objects.
-function(rp6502_use_version_header tgt src)
-    set(hdr ${CMAKE_CURRENT_BINARY_DIR}/rp6502_version.h)
-    set(stamp ${CMAKE_CURRENT_BINARY_DIR}/rp6502_version.stamp)
-    target_include_directories(${tgt} PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-
-    set(_deps ${CMAKE_CURRENT_SOURCE_DIR}/${src})
-    set(_impl)
-    if(CMAKE_GENERATOR MATCHES "Make")
-        # IMPLICIT_DEPENDS' C scanner uses the directory's include dirs,
-        # not the target's — mirror them so #include "ria.h" etc. resolve.
-        get_target_property(_inc_dirs ${tgt} INCLUDE_DIRECTORIES)
-        if(_inc_dirs)
-            include_directories(${_inc_dirs})
-        endif()
-        get_target_property(_srcs ${tgt} SOURCES)
-        foreach(_s IN LISTS _srcs)
-            if(NOT IS_ABSOLUTE "${_s}")
-                set(_s "${CMAKE_CURRENT_SOURCE_DIR}/${_s}")
-            endif()
-            if(NOT "${_s}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}/${src}")
-                list(APPEND _deps "${_s}")
-                list(APPEND _impl C "${_s}")
-            endif()
-        endforeach()
-        if(_impl)
-            set(_impl IMPLICIT_DEPENDS ${_impl})
-        endif()
-    elseif(CMAKE_GENERATOR MATCHES "Ninja")
-        string(REPLACE "." "\\." _esc "${src}${CMAKE_C_OUTPUT_EXTENSION}")
-        list(APPEND _deps $<FILTER:$<TARGET_OBJECTS:${tgt}>,EXCLUDE,${_esc}$>)
-    else()
-        message(FATAL_ERROR
-            "rp6502_use_version_header: unsupported CMake generator "
-            "'${CMAKE_GENERATOR}'. Use 'Ninja' or 'Unix Makefiles'.")
-    endif()
-
-    add_custom_command(
-        OUTPUT ${stamp}
-        BYPRODUCTS ${hdr}
-        DEPENDS ${_deps}
-        ${_impl}
-        COMMAND ${CMAKE_COMMAND}
-            -DOUTPUT=${hdr}
-            "-DVERSION=${RP6502_VERSION_VALUE}"
-            "-DCI=${RP6502_CI_VALUE}"
-            -P ${RP6502_GEN_VERSION_SCRIPT}
-        COMMAND ${CMAKE_COMMAND} -E touch ${stamp}
-        VERBATIM
-    )
-
-    set_property(SOURCE ${src} APPEND PROPERTY OBJECT_DEPENDS ${hdr})
-    add_custom_target(${tgt}_version_header ALL DEPENDS ${stamp})
-endfunction()
+include(${RP6502_ROOT}/version.cmake)
 
 # == DO NOT EDIT THE FOLLOWING LINES for the Raspberry Pi Pico VS Code Extension to work ==
 if(WIN32)

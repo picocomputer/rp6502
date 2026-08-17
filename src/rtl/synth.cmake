@@ -33,9 +33,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         # measure area, not to be bound to pads.
         "set_instance_assignment -name VIRTUAL_PIN ON -to *"
         # -to * means Quartus reports every node it declined to make a
-        # virtual pin, which is ten thousand messages — its cap — and
-        # buries the hundred and sixty that mean something. Only this
-        # project has the assignment, so only this project hides it.
+        # virtual pin, which hits its ten-thousand message cap and buries
+        # everything that means something.
         "set_global_assignment -name MESSAGE_DISABLE 15720")
     foreach(src ${RP6502_MACHINE_SOURCES})
         if(src MATCHES "\\.sv$")
@@ -56,7 +55,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
         WORKING_DIRECTORY ${SYNTH_DIR}
-        DEPENDS cpu65_rom vid_font_rom vid_palette_rom aud_sine_rom
+        DEPENDS w65c02_rom vid_font_rom vid_palette_rom aud_sine_rom
         COMMENT "Synthesizing the machine for the Pocket's Cyclone V"
         VERBATIM)
 endif()

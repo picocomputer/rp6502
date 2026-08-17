@@ -15,7 +15,8 @@
 #define COM_IN_BUF_SIZE 16
 void com_in_write_reply(const char *s, size_t n);
 
-/* The kbd.c replacement injects user keystrokes as the KBD source. */
+/* The KBD source. hid/kbd.c owns this ring and is the only caller: every host
+ * keystroke, scripted or typed, enters the machine through one seam. */
 void com_kbd_push(const char *s, size_t n);
 void com_kbd_push_byte(uint8_t b);
 size_t com_kbd_free(void); /* ring headroom; the paste drip stays below it */

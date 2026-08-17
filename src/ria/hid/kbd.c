@@ -5,23 +5,23 @@
  */
 
 #include "ria/main.h"
-#include "ria/api/api.h"
 #include "ria/api/oem.h"
-#include "ria/api/pro.h"
+#include "ria/api/uni.h"
 #include "ria/ble/ble.h"
 #include "ria/hid/kbd.h"
+#include "ria/hid/kbl.h"
 #include "ria/hid/hid.h"
-#include "ria/mon/mon.h"
-#include "ria/str/rln.h"
-#include "ria/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/com.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
 #include <class/hid/hid.h>
-#include <fatfs/ff.h>
 #include <pico/time.h>
 #include <stdio.h>
+/* The case-insensitive compares a layout name is matched with. Named by
+ * POSIX rather than by C, and a host that has no such header supplies
+ * one — see src/host/win. */
+#include <strings.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
 #include <stdio.h>
@@ -61,8 +61,8 @@ static uint8_t kbd_hid_leds;
 static uint32_t kbd_keys[8];
 static bool kbd_alt_mode;
 static uint8_t kbd_alt_code;
-static DWORD kbd_dead_key0;
-static DWORD kbd_dead_key1;
+static char kbd_dead_key0;
+static char kbd_dead_key1;
 
 // Dead keys checks need a linear search with oem (8-bit) chars.
 // This can require hundreds of unicode lookups from flash.
@@ -92,155 +92,10 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 // Direct access to the modifier byte of kbd_keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
 
-// XDEAD(...) routes by field count to the per-pass XDEAD2/XDEAD3 (3 fields ->
-// XDEAD2, 4 -> XDEAD3) so a def file writes one XDEAD for either length; a
-// wrong count selects no macro and fails to compile.
-#define XDEAD_PICK(_1, _2, _3, _4, NAME, ...) NAME
-#define XDEAD(...) XDEAD_PICK(__VA_ARGS__, XDEAD3, XDEAD2, , )(__VA_ARGS__)
-
-// Per-layout tables generated from def/kbd.def. Each XBEGIN opens one
-// __in_flash array named by its XSUFFIX; the manifest is re-included once per
-// pass below. Adding a layout touches only def/ (see def/kbd.def).
-#define XBEGIN(code, desc) \
-    static const DWORD __in_flash("kbd_keys") __CONCAT(kbd_keys_, XSUFFIX)[128][5] = {
-#define XKEY(kc, u, s, a, sa, caps) [kc] = {u, s, a, sa, caps},
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND() \
-    }          \
-    ;
-#include "ria/def/kbd.def"
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) \
-    static const DWORD __in_flash("kbd_dead2") __CONCAT(kbd_dead2_, XSUFFIX)[][3] = {
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r) {d, b, r},
-#define XDEAD3(d1, d2, b, r)
-#define XEND() {0}} \
-    ;
-#include "ria/def/kbd.def"
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) \
-    static const DWORD __in_flash("kbd_dead3") __CONCAT(kbd_dead3_, XSUFFIX)[][4] = {
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r) {d1, d2, b, r},
-#define XEND() {0}} \
-    ;
-#include "ria/def/kbd.def"
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-// Layout name/description strings as external __in_flash arrays (named so the
-// literals stay in flash instead of being merged into RAM by LTO).
-#define XBEGIN(code, desc) const char __in_flash("kbd_name") __CONCAT(kbd_name_, XSUFFIX)[] = code;
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-#include "ria/def/kbd.def"
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) const char __in_flash("kbd_desc") __CONCAT(kbd_desc_, XSUFFIX)[] = desc;
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-#include "ria/def/kbd.def"
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) __CONCAT(kbd_name_, XSUFFIX),
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-static const char *__in_flash("kbd_layout_names")
-    kbd_layout_names[] = {
-#include "ria/def/kbd.def"
-};
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) __CONCAT(kbd_desc_, XSUFFIX),
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-static const char *__in_flash("kbd_layout_descriptions")
-    kbd_layout_descriptions[] = {
-#include "ria/def/kbd.def"
-};
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) __CONCAT(kbd_keys_, XSUFFIX),
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-static DWORD const __in_flash("kbd_layout_keys") (*kbd_layout_keys[])[5] = {
-#include "ria/def/kbd.def"
-};
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) __CONCAT(kbd_dead2_, XSUFFIX),
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-static DWORD const __in_flash("kbd_layout_dead2") (*kbd_layout_dead2[])[3] = {
-#include "ria/def/kbd.def"
-};
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
-
-#define XBEGIN(code, desc) __CONCAT(kbd_dead3_, XSUFFIX),
-#define XKEY(kc, u, s, a, sa, caps)
-#define XDEAD2(d, b, r)
-#define XDEAD3(d1, d2, b, r)
-#define XEND()
-static DWORD const __in_flash("kbd_layout_dead3") (*kbd_layout_dead3[])[4] = {
-#include "ria/def/kbd.def"
-};
-#undef XBEGIN
-#undef XKEY
-#undef XDEAD2
-#undef XDEAD3
-#undef XEND
+// The active layout's name and description, copied out of the database
+// so the settings pattern can keep returning a pointer.
+static char kbd_layout_name[KBL_NAME_MAX];
+static char kbd_layout_description[KBL_DESC_MAX];
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -340,17 +195,21 @@ static char kbd_ctrl_promote(char ch, uint8_t keycode)
 // Resolve kbd_layout_index from kbd_layout_pos and rebuild the cache.
 static void kbd_apply_active(void)
 {
-    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     size_t len = 0;
     while (kbd_layout_pos[len] && kbd_layout_pos[len] != ' ')
         len++;
-    for (int i = 0; i < layouts_count; i++)
-        if (strlen(kbd_layout_names[i]) == len &&
-            !strncmp(kbd_layout_pos, kbd_layout_names[i], len))
+    for (int i = 0; i < kbl_count(); i++)
+    {
+        char name[KBL_NAME_MAX];
+        kbl_name(i, name);
+        if (strlen(name) == len && !strncmp(kbd_layout_pos, name, len))
         {
             kbd_layout_index = i;
             break;
         }
+    }
+    kbl_name(kbd_layout_index, kbd_layout_name);
+    kbl_description(kbd_layout_index, kbd_layout_description);
     kbd_rebuild_code_page_cache();
 }
 
@@ -444,8 +303,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         return;
     }
     // Shift and caps lock logic
-    DWORD const(*keys)[5] = kbd_layout_keys[kbd_layout_index];
-    bool use_caps_lock = keycode < 128 ? keys[keycode][4] : false;
+    bool use_caps_lock = keycode < 128 && kbl_use_caps(kbd_layout_index, keycode);
     bool is_shifted = key_shift ^ (is_capslock && use_caps_lock);
     // Find plain typed or AltGr character
     uint16_t code_page = oem_get_code_page_run();
@@ -454,14 +312,16 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                        KEYBOARD_MODIFIER_LEFTGUI |
                                        KEYBOARD_MODIFIER_RIGHTGUI)))
     {
-        int col = ((modifier & KEYBOARD_MODIFIER_RIGHTALT) ? 2 : 0) |
-                  (is_shifted ? 1 : 0);
-        ch = ff_uni2oem(keys[keycode][col], code_page);
+        unsigned col = ((modifier & KEYBOARD_MODIFIER_RIGHTALT) ? KBL_ALTGR : 0) |
+                       (is_shifted ? KBL_SHIFT : 0);
+        ch = ff_uni2oem(kbl_code_point(kbd_layout_index, keycode, col), code_page);
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
-        ch = ff_uni2oem(keys[keycode][is_shifted ? 1 : 0], code_page);
+        ch = ff_uni2oem(kbl_code_point(kbd_layout_index, keycode,
+                                       is_shifted ? KBL_SHIFT : KBL_PLAIN),
+                        code_page);
         if (key_ctrl)
         {
             char c = kbd_ctrl_promote(ch, keycode);
@@ -598,25 +458,22 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             }
             break;
         case HID_KEY_F4:
-            if (key_alt && !pro_is_launcher())
+            // alt-f4 exits and returns to launcher
+            if (key_alt && main_break_to_launcher())
             {
-                // alt-f4 exits and returns to launcher
                 kbd_key_queue_tail = kbd_key_queue_head;
                 kbd_alt_mode = false;
                 kbd_dead_key0 = kbd_dead_key1 = 0;
-                api_set_ax(0xFFFF);
-                main_break_to_launcher();
                 return;
             }
             break;
         case HID_KEY_DELETE:
-            if (key_ctrl && key_alt)
+            // ctrl-alt-del exits to monitor, where there is one
+            if (key_ctrl && key_alt && main_break())
             {
-                // ctrl-alt-del always exits to monitor
                 kbd_key_queue_tail = kbd_key_queue_head;
                 kbd_alt_mode = false;
                 kbd_dead_key0 = kbd_dead_key1 = 0;
-                main_break();
                 return;
             }
             break;
@@ -695,14 +552,15 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 
 static int kbd_sanitize_layout(const char *kb)
 {
-    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     int default_index = 0;
     int found_index = -1;
-    for (int i = 0; i < layouts_count; i++)
+    for (int i = 0; i < kbl_count(); i++)
     {
-        if (!strcasecmp(kbd_layout_names[i], "US"))
+        char name[KBL_NAME_MAX];
+        kbl_name(i, name);
+        if (!strcasecmp(name, "US"))
             default_index = i;
-        if (!strcasecmp(kbd_layout_names[i], kb))
+        if (!strcasecmp(name, kb))
             found_index = i;
     }
     if (found_index < 0)
@@ -735,7 +593,6 @@ static const char *kbd_find_token(const char *list, const char *name)
 // Fails on an unknown or duplicate layout, an empty list, or overflow.
 static bool kbd_build_layout_list(const char *in, char *out, size_t size)
 {
-    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
     size_t len = 0;
     out[0] = 0;
     while (*in)
@@ -747,15 +604,16 @@ static bool kbd_build_layout_list(const char *in, char *out, size_t size)
         size_t tok_len = 0;
         while (in[tok_len] && in[tok_len] != ' ')
             tok_len++;
-        const char *name = NULL;
-        for (int i = 0; i < layouts_count; i++)
-            if (strlen(kbd_layout_names[i]) == tok_len &&
-                !strncasecmp(in, kbd_layout_names[i], tok_len))
-            {
-                name = kbd_layout_names[i];
+        char name[KBL_NAME_MAX];
+        name[0] = 0;
+        for (int i = 0; i < kbl_count(); i++)
+        {
+            kbl_name(i, name);
+            if (strlen(name) == tok_len && !strncasecmp(in, name, tok_len))
                 break;
-            }
-        if (!name || kbd_find_token(out, name))
+            name[0] = 0;
+        }
+        if (!name[0] || kbd_find_token(out, name))
             return false;
         if (len + (len ? 1 : 0) + strlen(name) + 1 > size)
             return false;
@@ -775,7 +633,7 @@ void __in_flash("kbd_init") kbd_init(void)
     kbd_send_leds();
     if (!kbd_layout_loaded)
     {
-        strcpy(kbd_layout_list, kbd_layout_names[kbd_sanitize_layout("")]);
+        kbl_name(kbd_sanitize_layout(""), kbd_layout_list);
         kbd_layout_pos = kbd_layout_list;
         kbd_apply_active();
     }
@@ -802,22 +660,27 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned)
+/* The width the caller would like is ignored: the list sets its own
+ * from the longest name it has. Named rather than left off, because
+ * this file is compiled by MSVC now that tests/hid links it. */
+int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
 {
-    const int layouts_count = sizeof(kbd_layout_names) / sizeof(kbd_layout_names)[0];
-    if (state < 0 || state >= layouts_count)
+    (void)width;
+    if (state < 0 || state >= kbl_count())
         return -1;
+    char name[KBL_NAME_MAX];
+    char desc[KBL_DESC_MAX];
     int maxlen = 0;
-    for (int i = 0; i < layouts_count; i++)
+    for (int i = 0; i < kbl_count(); i++)
     {
-        int thislen = strlen(kbd_layout_names[i]);
+        kbl_name(i, name);
+        int thislen = strlen(name);
         if (thislen > maxlen)
             maxlen = thislen;
     }
-    snprintf(buf, buf_size,
-             "  %*s - \a%s\n",
-             maxlen, kbd_layout_names[state],
-             kbd_layout_descriptions[state]);
+    kbl_name(state, name);
+    kbl_description(state, desc);
+    snprintf(buf, buf_size, "  %*s - \a%s\n", maxlen, name, desc);
     return state + 1;
 }
 
@@ -825,14 +688,15 @@ void kbd_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
     uint16_t code_page = oem_get_code_page_run();
+    unsigned count2 = kbl_dead2_count(kbd_layout_index);
+    unsigned count3 = kbl_dead3_count(kbd_layout_index);
     kbd_cached_dead2 = (void *)&kbd_deadkey_cache[cache_index];
-    for (int i = 0; kbd_layout_dead2[kbd_layout_index][i][0]; i++)
+    for (unsigned i = 0; i < count2; i++)
     {
-        for (int j = 0; j < 3; j++)
+        for (unsigned j = 0; j < 3; j++)
         {
             kbd_deadkey_cache[cache_index] = ff_uni2oem(
-                kbd_layout_dead2[kbd_layout_index][i][j],
-                code_page);
+                kbl_dead2(kbd_layout_index, i, j), code_page);
             if (++cache_index >= sizeof(kbd_deadkey_cache))
                 goto overflow_error;
         }
@@ -841,13 +705,12 @@ void kbd_rebuild_code_page_cache(void)
     if (++cache_index >= sizeof(kbd_deadkey_cache))
         goto overflow_error;
     kbd_cached_dead3 = (void *)&kbd_deadkey_cache[cache_index];
-    for (int i = 0; kbd_layout_dead3[kbd_layout_index][i][0]; i++)
+    for (unsigned i = 0; i < count3; i++)
     {
-        for (int j = 0; j < 4; j++)
+        for (unsigned j = 0; j < 4; j++)
         {
             kbd_deadkey_cache[cache_index] = ff_uni2oem(
-                kbd_layout_dead3[kbd_layout_index][i][j],
-                code_page);
+                kbl_dead3(kbd_layout_index, i, j), code_page);
             if (++cache_index >= sizeof(kbd_deadkey_cache))
                 goto overflow_error;
         }
@@ -855,11 +718,13 @@ void kbd_rebuild_code_page_cache(void)
     kbd_deadkey_cache[cache_index] = 0;
     return;
 overflow_error:
-    // Fail safe when the cache size is too small.
+    // Unreachable for a database kbd_layout_gen.py built: it refuses a
+    // layout whose dead keys do not fit here. A machine staging one it
+    // did not build loses the composing, not the keyboard.
     kbd_cached_dead2 = (void *)&kbd_deadkey_cache[0];
     kbd_cached_dead3 = (void *)&kbd_deadkey_cache[0];
     kbd_deadkey_cache[0] = 0;
-    mon_add_response_utf8(S(STR_ERR_DEAD_KEY_CACHE_OVERFLOW));
+    DBG("kbd: dead key cache overflow\n");
 }
 
 static bool __in_flash("kbd_parse") kbd_parse_field(const hid_field_t *field, void *context)
@@ -1050,7 +915,7 @@ size_t kbd_stdio_in_chars(char *buf, size_t length)
 void kbd_load_layout(const char *str)
 {
     if (!kbd_build_layout_list(str, kbd_layout_list, sizeof kbd_layout_list))
-        strcpy(kbd_layout_list, kbd_layout_names[kbd_sanitize_layout("")]);
+        kbl_name(kbd_sanitize_layout(""), kbd_layout_list);
     kbd_layout_pos = kbd_layout_list;
     kbd_layout_loaded = true;
     kbd_apply_active();
@@ -1065,7 +930,7 @@ bool kbd_set_layout(const char *list)
         return true;
     strcpy(kbd_layout_list, buf);
     // Keep the active layout if it survived, otherwise the first.
-    kbd_layout_pos = kbd_find_token(kbd_layout_list, kbd_layout_names[kbd_layout_index]);
+    kbd_layout_pos = kbd_find_token(kbd_layout_list, kbd_layout_name);
     if (!kbd_layout_pos)
         kbd_layout_pos = kbd_layout_list;
     kbd_apply_active();
@@ -1080,10 +945,10 @@ const char *kbd_get_layout_list(void)
 
 const char *kbd_get_layout(void)
 {
-    return kbd_layout_names[kbd_layout_index];
+    return kbd_layout_name;
 }
 
 const char *kbd_get_layout_verbose(void)
 {
-    return kbd_layout_descriptions[kbd_layout_index];
+    return kbd_layout_description;
 }

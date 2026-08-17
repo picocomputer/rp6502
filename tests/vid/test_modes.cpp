@@ -67,8 +67,8 @@ struct budget_t
     /* Port A on the worst line: how many of those clocks actually
      * carried a word, and whose it was. */
     long grants_at_worst;
-    long grants_planes;    /* to requesters 0-2, the three fills */
-    long grants_sprite;    /* to requester 3, the sprite stage */
+    long grants_planes;    /* to requester 0, the one fill engine */
+    long grants_sprite;    /* to requester 1, the sprite stage */
     /* The terminal renders every line whatever the canvas — vid_mode0
      * raises run at every line_start — and its cost is concurrent, not
      * added. It still has to fit the line on its own. */

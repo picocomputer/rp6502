@@ -49,6 +49,10 @@ void vga_canvas_size(int *w, int *h);
  * stride; must hold the largest canvas). NULL skips pixel work. */
 void vga_set_framebuffer(uint32_t *fb);
 
+/* What the last rendered frame went into, for a caller that wants the pixels
+ * without owning them (a screenshot, a frame hash). NULL when none is set. */
+uint32_t *vga_get_framebuffer(void);
+
 /* ------------------------------------------------------------------ */
 /* Firmware VGA ABI reached by the vendored term.c / rln.c / the mode  */
 /* renderers through the firmware path "sys/vga.h", which the emu       */

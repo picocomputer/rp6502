@@ -44,6 +44,17 @@ module pocket_sram (
     input logic clk,
 
     /* The 6502's advance, before this module's own hold is applied. */
+    /* Whether the machine has its clock. phi2_en and everything else
+     * port A is launched from is machine logic: when the machine's
+     * clock is cut those signals freeze wherever they were, and a
+     * pulse frozen high would launch the same access -- including the
+     * same write -- every few cycles of this clock, which does not
+     * stop. Port B belongs to the serializer and stays live. */
+    input logic run,
+    /* A restore's one forced port-A fetch: the jam put a new machine
+     * into the flops, and the read its pipeline had in flight belongs
+     * to the old one. */
+    input logic refill,
     input logic phi2_en,
     input logic cpu_run,
 
@@ -81,7 +92,7 @@ module pocket_sram (
      * against 55 ns of tAA leaves nothing for either pad crossing — and
      * five does not fit the 6502, which samples on the sixth.
      *
-     * The address comes from cpu65's pre-registration bus, so the launch
+     * The address comes from w65c02's pre-registration bus, so the launch
      * happens ON the enable rather than a clock after it. Taking the
      * registered address instead cost a whole clock at both ends: it
      * fetched the previous cycle's byte, and once that was fixed it left
@@ -135,7 +146,14 @@ module pocket_sram (
      * and an off-by-one is not. */
     always_comb begin
         pocket_sram_b_stall = b_stb && !b_done;
-        pocket_sram_hold = busy_b || (b_stb && !busy_a);
+        /* busy_a holds the 6502 off too. Port A takes four clocks to
+         * answer and the restore's refill launches one of them with the
+         * machine's clock already back; without this the next enable
+         * lands before the byte does and the restored core consumes the
+         * one the old session left. It costs nothing while running: the
+         * 6502's enables are at least six clocks apart at its fastest,
+         * and the window is four. */
+        pocket_sram_hold = busy_a || busy_b || (b_stb && !busy_a);
     end
 
     always_ff @(posedge clk) begin
@@ -170,7 +188,8 @@ module pocket_sram (
                 /* tWP wants 45 ns; three clocks is 59.5. */
                 pocket_sram_we_n <= !(serving_we && ph < 2'(PH_LAST));
             end
-        end else if (phi2_en && cpu_run && !pocket_sram_hold) begin
+        end else if ((refill || (phi2_en && cpu_run && run))
+                     && !pocket_sram_hold) begin
             busy_a <= 1'b1;
             ph <= 2'd0;
             serving_we <= a_we;

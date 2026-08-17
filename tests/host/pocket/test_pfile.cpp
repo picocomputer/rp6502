@@ -58,6 +58,15 @@ static std::string g_console;
 static std::string g_rv;
 static int g_opens, g_reads, g_writes, g_flushes, g_getfiles;
 
+/* The host's one-deep command queue, standing in for the framework's.
+ * Latched by tick(), served by step(); g_servicing keeps a handler's
+ * own clocking out of its own reentry. A request line is one clk_74a
+ * wide, so sampling it only on the clocks a test steps drops any
+ * command raised while the host was busy driving the bridge. */
+enum { REQ_NONE = 0, REQ_OPEN, REQ_FLUSH, REQ_GETFILE, REQ_READ, REQ_WRITE };
+static int g_req, g_servicing;
+static int g_prev_r, g_prev_w, g_prev_o, g_prev_f, g_prev_g;
+
 static void tick()
 {
     long next = a_next < s_next ? a_next : s_next;
@@ -92,6 +101,27 @@ static void tick()
         g_console += (char)dut->tb_pocket_tx_data;
     if (sedge && dut->tb_pocket_rv_tx_valid)
         g_rv += (char)dut->tb_pocket_rv_tx_data;
+
+    {
+        int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
+            o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
+            g = dut->tb_pocket_ds_getfile;
+        if (o && !g_prev_o)
+            g_req = REQ_OPEN;
+        else if (f && !g_prev_f)
+            g_req = REQ_FLUSH;
+        else if (g && !g_prev_g)
+            g_req = REQ_GETFILE;
+        else if (r && !g_prev_r)
+            g_req = REQ_READ;
+        else if (w && !g_prev_w)
+            g_req = REQ_WRITE;
+        g_prev_r = r;
+        g_prev_w = w;
+        g_prev_o = o;
+        g_prev_f = f;
+        g_prev_g = g;
+    }
     if (sedge)
     {
         dut->clk_sys = 0;
@@ -361,46 +391,21 @@ static void do_getfile()
  * lines are one pulse wide, so this samples every clock. */
 static void step()
 {
-    static int prev_r, prev_w, prev_o, prev_f, prev_g;
     tick();
-    int r = dut->tb_pocket_ds_read, w = dut->tb_pocket_ds_write,
-        o = dut->tb_pocket_ds_openfile, f = dut->tb_pocket_ds_flush,
-        g = dut->tb_pocket_ds_getfile;
-    if (o && !prev_o)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_openfile();
+    if (!g_req || g_servicing)
         return;
-    }
-    if (f && !prev_f)
+    int req = g_req;
+    g_req = REQ_NONE;
+    g_servicing = 1;
+    switch (req)
     {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_flush();
-        return;
+    case REQ_OPEN: do_openfile(); break;
+    case REQ_FLUSH: do_flush(); break;
+    case REQ_GETFILE: do_getfile(); break;
+    case REQ_READ: do_slotread(); break;
+    default: do_slotwrite(); break;
     }
-    if (g && !prev_g)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_getfile();
-        return;
-    }
-    if (r && !prev_r)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_slotread();
-        return;
-    }
-    if (w && !prev_w)
-    {
-        prev_r = prev_w = prev_o = prev_f = prev_g = 0;
-        do_slotwrite();
-        return;
-    }
-    prev_r = r;
-    prev_w = w;
-    prev_o = o;
-    prev_f = f;
-    prev_g = g;
+    g_servicing = 0;
 }
 
 static std::vector<uint8_t> read_file(const char *path)

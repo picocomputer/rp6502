@@ -1,7 +1,7 @@
 # One entry point for both build trees.
 #
 # The directories below are the machine's subsystems, not its hosts: aud, vid,
-# mem, ria, rv and cpu65 are the same names src/rtl uses. Each one holds
+# mem, ria, rv and wdc are the same names src/rtl uses. Each one holds
 # whatever evidence exists for its subsystem — the C suites, the RTL suites,
 # and where they can be, the same suite against both — because a reader
 # looking for "how is the PSG proven" should find it all in one place rather
@@ -22,16 +22,23 @@ if(RP6502_TESTS_RTL)
     add_subdirectory(bench)
 endif()
 
-add_subdirectory(cpu65)
 add_subdirectory(aud)
 add_subdirectory(vid)
 add_subdirectory(mem)
 add_subdirectory(ria)
 add_subdirectory(rv)
+add_subdirectory(wdc)
 add_subdirectory(fs)
 add_subdirectory(dbg)
 add_subdirectory(hid)
 
 if(RP6502_VERILATE)
     add_subdirectory(host/pocket)
+endif()
+
+# The emulator driven from outside, as an application project drives it. Only
+# the emulator tree builds the binary; the RTL tree adds this directory too and
+# links emu_core alone.
+if(TARGET rp6502-emu)
+    add_subdirectory(host/emu)
 endif()

@@ -22,16 +22,75 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Firmware: one pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2.
-  # A second pico2 build is a CI-only regression check (not shipped).
+  # version: the one place the tag is parsed. Every job that stamps a binary or
+  # names a release asset reads these outputs, so a build and the asset holding
+  # it can never disagree about what version they are.
   # ---------------------------------------------------------------------------
-  rp6502-ria-vga:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      fwver: ${{ steps.v.outputs.fwver }}
+      fwci: ${{ steps.v.outputs.fwci }}
+      stamp: ${{ steps.v.outputs.stamp }}
+    steps:
+      - name: Derive version
+        id: v
+        run: |
+          set -euo pipefail
+          # version names files, fwver/fwci go to CMake, and stamp is the same
+          # string the build writes into itself — for metadata fields that are
+          # filled in by hand out here rather than by a compiler.
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "fwver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "fwci=" >> "$GITHUB_OUTPUT"
+            echo "stamp=Version ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            # Off a tag there is no version, and inventing one that looks like
+            # a version is worse than not having it. The run id is what the
+            # firmware banner already says it is, and it names a build you can
+            # go and look at.
+            echo "version=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "fwver=" >> "$GITHUB_OUTPUT"
+            echo "fwci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+            echo "stamp=CI ${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
+          fi
+          cat "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # sdk-tools: every project fetches tools/ against the hashes in SHA256SUMS,
+  # so a tool edited without regenerating it breaks the update for everyone.
+  # The person who would otherwise find out is a user, not the author.
+  # ---------------------------------------------------------------------------
+  sdk-tools:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init firmware submodules
-        run: git submodule update --init --depth 1 vendor/littlefs vendor/tinyusb
+      - name: Verify tools/SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd tools
+          grep -E '^[0-9a-f]+ ' SHA256SUMS | sha256sum -c -
+          # A tool left out of SHA256SUMS hashes fine and never ships. The two
+          # excluded here are the list itself and the script that writes it,
+          # which is for whoever edits this directory and does not ship.
+          diff <(ls | grep -v -e '^SHA256SUMS$' -e '^README\.py$' | sort) \
+               <(awk '/^[0-9a-f]+ /{print $2}' SHA256SUMS | sort)
+
+  # ---------------------------------------------------------------------------
+  # pico: a pico2_w build produces rp6502-ria-w.uf2 + rp6502-vga.uf2 and a
+  # pico2 build produces rp6502-ria.uf2. All three ship.
+  # ---------------------------------------------------------------------------
+  pico:
+    needs: [version]
+    runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-pico.zip
+    steps:
+      - uses: actions/checkout@v7
+
 
       - name: Install host packages
         run: |
@@ -71,64 +130,67 @@ jobs:
           curl -fSL -o /tmp/pico-sdk-tools.tar.gz "$base/pico-sdk-tools-${PICO_SDK_VERSION}-x86_64-lin.tar.gz"
           tar -xzf /tmp/pico-sdk-tools.tar.gz -C "$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}"
 
-      - name: Derive firmware version (tag → version, off-tag → CI run id)
-        id: fwver
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-            echo "ci=" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=" >> "$GITHUB_OUTPUT"
-            echo "ci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Build firmware (pico2_w) — rp6502-ria-w + rp6502-vga
+      - name: Build firmware (pico2_w) — RIA-W + VGA
         run: |
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
           cmake -S . -B build -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2_w \
-            -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
-            -DRP6502_CI="${{ steps.fwver.outputs.ci }}" \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}" \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
           cmake --build build
 
-      - name: Sanity build non-W RIA (pico2, not shipped)
+      - name: Build firmware (pico2) — RIA
         run: |
           set -euxo pipefail
           export PICO_SDK_PATH="$HOME/.pico-sdk/sdk/${PICO_SDK_VERSION}"
           cmake -S . -B build/pico2 -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release \
             -DPICO_BOARD=pico2 \
-            -DRP6502_VERSION="${{ steps.fwver.outputs.value }}" \
-            -DRP6502_CI="${{ steps.fwver.outputs.ci }}" \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}" \
             -DPICO_SDK_PATH="$PICO_SDK_PATH" \
             -Dpicotool_DIR="$HOME/.pico-sdk/picotool/${PICO_SDK_VERSION}/picotool" \
             -Dpioasm_DIR="$HOME/.pico-sdk/tools/${PICO_SDK_VERSION}/pioasm"
           cmake --build build/pico2
 
-      - name: Stage firmware artifacts
+      # The .uf2 carry the version too, not just the archive: a name you type
+      # at a FLASH prompt should say which build it is.
+      - name: Package pico
+        env:
+          V: ${{ needs.version.outputs.version }}
         run: |
           set -euxo pipefail
-          mkdir -p out
-          cp build/ria/rp6502-ria-w.uf2 out/
-          cp build/vga/rp6502-vga.uf2 out/
+          mkdir stage
+          cp build/ria/rp6502-ria-w.uf2     "stage/rp6502-${V}-ria-w.uf2"
+          cp build/pico2/ria/rp6502-ria.uf2 "stage/rp6502-${V}-ria.uf2"
+          cp build/vga/rp6502-vga.uf2       "stage/rp6502-${V}-vga.uf2"
+          # The README names the files it tells you to FLASH, so the version
+          # has to reach it too.
+          sed "s/@VERSION@/${V}/g" src/dist/pico/README.txt > stage/README.txt
+          ( cd stage && zip -r "$GITHUB_WORKSPACE/${ARCHIVE}" . )
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-ria-vga
-          path: out/*.uf2
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (Linux x86_64 + arm64): build the windowed emu, run the CTest suite,
-  # ship a bare arch-suffixed binary.
+  # linux: build the windowed emu, run the CTest suite, ship a tarball per
+  # arch. The binary inside is plain rp6502-emu — the arch is the archive's
+  # business, not the program's.
   # ---------------------------------------------------------------------------
   linux:
     name: linux-${{ matrix.arch }}
+    needs: [version]
     strategy:
       fail-fast: false
       matrix:
@@ -136,15 +198,11 @@ jobs:
           - { runner: ubuntu-22.04,     arch: x86_64 }
           - { runner: ubuntu-22.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.runner }}
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}.tar.gz
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init emulator submodules
-        run: |
-          git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap \
-            vendor/6502_65C02_functional_tests
-          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       - name: Install build + windowed-emu dependencies
         run: |
@@ -156,54 +214,69 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/emu -B build/emulator/release -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S src/emu -B build/emulator/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/emulator/release
 
       - name: Run emulator tests
         run: ctest --test-dir build/emulator/release --output-on-failure --parallel $(nproc)
 
-      - name: Stage Linux emulator binary
+      # tar, not zip: it is what a Linux user expects and the only container
+      # here that carries the execute bit through GitHub's artifact round-trip.
+      - name: Package linux-${{ matrix.arch }}
         run: |
           set -euxo pipefail
-          cp build/emulator/release/rp6502-emu "rp6502-emu-${{ matrix.arch }}"
-          tar -czf "rp6502-emu-${{ matrix.arch }}.tar.gz" "rp6502-emu-${{ matrix.arch }}"
+          mkdir stage
+          cp build/emulator/release/rp6502-emu stage/
+          cp src/dist/linux/README.txt stage/
+          tar -czf "$ARCHIVE" -C stage rp6502-emu README.txt
 
       - uses: actions/upload-artifact@v7
         with:
-          name: linux-${{ matrix.arch }}
-          path: rp6502-emu-${{ matrix.arch }}.tar.gz
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (macOS, arm64): build, test, wrap the binary in an unsigned .app.
+  # macos: build and test on arm64, wrap the binary in an unsigned .app.
   # ---------------------------------------------------------------------------
   macos:
+    needs: [version]
     runs-on: macos-15
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-macos.zip
     steps:
       - uses: actions/checkout@v7
 
-      - name: Init emulator submodules
-        run: |
-          git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap \
-            vendor/6502_65C02_functional_tests
-          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
           cmake -S src/emu -B build/emulator/release -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64
+            -DRP6502_STRICT_SUBMODULES=ON \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/emulator/release
 
       - name: Run emulator tests
         run: ctest --test-dir build/emulator/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
-      - name: Assemble rp6502-emu.app
+      - name: Package macos
+        env:
+          FWVER: ${{ needs.version.outputs.fwver }}
+          STAMP: ${{ needs.version.outputs.stamp }}
         run: |
           set -euxo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VER="${GITHUB_REF_NAME#v}"; else VER="0.0.0"; fi
-          APP=rp6502-emu.app
+          # CFBundleVersion wants a dotted number, which a run id is not, so an
+          # untagged build says 0.0 rather than lying in Finder's Get Info.
+          # CFBundleGetInfoString is free-form and says what the build really is.
+          VER="${FWVER:-0.0}"
+          mkdir stage
+          APP=stage/rp6502-emu.app
           mkdir -p "$APP/Contents/MacOS"
           cp build/emulator/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
           chmod +x "$APP/Contents/MacOS/rp6502-emu"
@@ -220,76 +293,80 @@ jobs:
               <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
               <key>CFBundleShortVersionString</key>    <string>${VER}</string>
               <key>CFBundleVersion</key>               <string>${VER}</string>
+              <key>CFBundleGetInfoString</key>         <string>${STAMP}</string>
               <key>LSMinimumSystemVersion</key>        <string>11.0</string>
               <key>NSHighResolutionCapable</key>       <true/>
           </dict>
           </plist>
           PLIST
-          tar -czf rp6502-emu-app.tar.gz rp6502-emu.app
+          cp src/dist/macos/README.txt stage/
+          # ditto is the platform's own archiver: it keeps the bundle's mode
+          # bits and extended attributes, which zip and upload-artifact do not.
+          # No --keepParent, so stage/'s contents land at the zip root.
+          ditto -c -k --sequesterRsrc stage "$ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: macos
-          path: rp6502-emu-app.tar.gz
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (WebAssembly): build the emsdk web target, ship the itch.io bundle.
+  # itch.io: build the emsdk web target, ship the bundle it assembles.
   # ---------------------------------------------------------------------------
   itch-io:
+    name: itch.io
+    needs: [version]
     runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-itch.io.zip
     steps:
       - uses: actions/checkout@v7
-
-      - name: Init web-build submodules
-        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/emsdk vendor/6502_65C02_functional_tests
 
       - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3
 
-      - name: Install & activate Emscripten SDK
-        run: |
-          set -euxo pipefail
-          ./vendor/emsdk/emsdk install latest
-          ./vendor/emsdk/emsdk activate latest
-
-      - name: Build web / itch.io bundle
+      # No emsdk step: the wasm preset's toolchain file fetches the submodule
+      # and runs install and activate itself, which is the path a developer
+      # takes and the only one that was never exercised here. Nothing is
+      # sourced either — the toolchain includes Emscripten's own cmake file,
+      # so emcc is found by absolute path rather than off PATH.
+      - name: Build web bundle
         run: |
           set -exo pipefail
-          source ./vendor/emsdk/emsdk_env.sh
           cd src/emu
-          cmake --preset wasm
+          cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset wasm
 
-      - name: Package itch.io bundle
+      - name: Package itch.io
         run: |
           set -euxo pipefail
-          cd build/web/itch.io
-          zip -r "$GITHUB_WORKSPACE/itch.io.zip" .
+          cd build/web/bundle
+          zip -r "$GITHUB_WORKSPACE/$ARCHIVE" .
 
       - uses: actions/upload-artifact@v7
         with:
-          name: itch-io
-          path: itch.io.zip
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (Windows, x64): build the D3D11 emu with MSVC + Ninja, run the
-  # CTest suite, ship the bare rp6502-emu.exe.
+  # windows: build the D3D11 emu with MSVC + Ninja, run the CTest suite,
+  # ship rp6502-emu.exe.
   # ---------------------------------------------------------------------------
   windows:
+    needs: [version]
     runs-on: windows-2025
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-windows.zip
     steps:
       - uses: actions/checkout@v7
-
-      - name: Init emulator submodules
-        shell: bash
-        run: |
-          git submodule update --init --depth 1 \
-            vendor/chips vendor/sokol vendor/imgui vendor/cppdap vendor/wingetopt
-          git -C vendor/cppdap submodule update --init --depth 1 third_party/json
 
       # Set up the MSVC x64 toolchain via the runner's own Visual Studio (no
       # third-party action), then build in the same step so the dev-shell env
@@ -303,7 +380,9 @@ jobs:
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
           cd src/emu
-          cmake --preset release
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
+            "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
+            "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build --preset release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -314,27 +393,34 @@ jobs:
         shell: pwsh
         run: ctest --test-dir build/emulator/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
 
-      - name: Stage Windows emulator binary
-        shell: bash
+      # Compress-Archive rather than bash zip: Windows ships it, and there are
+      # no mode bits here worth preserving.
+      - name: Package windows
+        shell: pwsh
         run: |
-          set -euxo pipefail
-          cp build/emulator/release/rp6502-emu.exe rp6502-emu.exe
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory stage | Out-Null
+          Copy-Item build/emulator/release/rp6502-emu.exe stage/
+          Copy-Item src/dist/windows/README.txt stage/
+          Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: windows
-          path: rp6502-emu.exe
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Emulator (Android, arm64-v8a): build the optimized APK, ship the APK.
+  # android: build the optimized arm64-v8a APK and ship it as it is.
   # ---------------------------------------------------------------------------
   android:
+    needs: [version]
     runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-android.apk
     steps:
       - uses: actions/checkout@v7
-        with:
-          submodules: recursive
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -342,46 +428,60 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Build Android APK (Release)
+      # versionCode must be an integer, so a tag becomes one (0.31 -> 3100) and
+      # everything else stays 1. Nothing upgrades this APK in place.
+      - name: Build APK (Release)
+        env:
+          FWVER: ${{ needs.version.outputs.fwver }}
+          FWCI: ${{ needs.version.outputs.fwci }}
         run: |
+          set -euxo pipefail
+          CODE=1
+          if [ -n "$FWVER" ]; then
+            CODE=$(echo "$FWVER" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
+          fi
           cd src/host/android
-          ./gradlew assembleRelease
+          ./gradlew assembleRelease \
+            -PrpVersion="${FWVER:-}" -PrpCi="${FWCI:-}" -PrpVersionCode="$CODE"
 
-      - name: Stage Android APK
+      # An APK is already a zip and Android installs it directly, so it ships
+      # bare. Its install warning lives in the release body, not a README.
+      - name: Package android
         run: |
-          cp src/host/android/build/outputs/apk/release/rp6502-emu-release.apk rp6502-emu.apk
+          set -euxo pipefail
+          cp build/android/gradle/outputs/apk/release/rp6502-emu-release.apk \
+            "$ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: android
-          path: rp6502-emu.apk
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # FPGA simulation: verilate the machine and run it against the emu_core oracle.
+  # rtl-tests: verilate the machine and run it against the emu_core oracle.
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   #
-  # The longest job here by a wide margin, so it runs on the same question the
-  # fit does: did src/rtl change. What it reads is wider than what it is gated
-  # on — the benches are in tests/ and the oracle is emu_core out of src/emu —
-  # so a commit that touches only those skips the suite that covers it. Tags
-  # and dispatches run it either way, and so does an rtl-changes that failed
-  # to answer: unanswered is not the same as no.
+  # Ten minutes, most of it running the suite rather than building it, so it
+  # runs when the diff touched something it reads and not otherwise. That
+  # question is sim-inputs.txt, written by the tree it describes: the machine,
+  # the firmware, emu_core, every bench and every generated asset. It used to
+  # be a glob on src/rtl, which was wrong in both directions — the benches are
+  # in tests/ and the oracle is out of src/emu, so a commit touching only those
+  # skipped the suite that covers it.
   # ---------------------------------------------------------------------------
-  test-rtl:
-    needs: rtl-changes
+  rtl-tests:
+    needs: rtl-changed
     if: >-
       ${{ !cancelled() && (
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changes'].outputs.rtl != 'false') }}
+      || needs['rtl-changed'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-
-      - name: Init simulation submodules
-        run: git submodule update --init --depth 1 vendor/chips vendor/sokol vendor/hazard3 vendor/opl2_fpga vendor/6502_65C02_functional_tests
 
       - name: Install build dependencies + Verilator + RISC-V toolchain
         run: |
@@ -390,96 +490,162 @@ jobs:
             build-essential cmake ninja-build verilator \
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
-      # Blobless sparse clone of one directory; the full repo is 4.8 GB.
-      - name: Fetch SingleStepTests CPU vectors
-        run: python3 tests/cpu65/vectors.py
-
-      - name: Configure & build simulation
+      - name: Configure & build simulation (Release)
         run: |
           set -euxo pipefail
-          cmake --preset verilator/Release
+          cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON
           cmake --build --preset Tests
         working-directory: src/rtl
 
       - name: Run simulation tests
         run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
 
-  # Whether this commit touched the machine. GitHub filters a whole workflow
-  # by path, never one job, so the question is asked here and answered once.
-  rtl-changes:
+  # rtl-changed: whether this commit touched anything the two long jobs read.
+  # GitHub filters a whole workflow by path, never one job, so the question is
+  # asked here and answered once — twice over, since the fit and the simulation
+  # are made of different things.
+  #
+  # It configures a tree to find out. That is the point: the lists come from the
+  # code that reads them, so there is no second copy here to fall out of step
+  # with the DEPENDS that decide the build. The sim preset rather than the
+  # pocket one because tests/CMakeLists.txt guards the Pocket benches on
+  # RP6502_VERILATE, and Verilator is found QUIET — without it those benches
+  # would drop out of the list and the gate would wave through a commit they
+  # cover. One configure writes both sets. It costs seven seconds.
+  #
+  # This job is not folded into rtl-tests because a job's outputs are readable
+  # only once it has finished: pocket would then wait out the whole suite before
+  # starting, and a full run would go from twenty-one minutes to thirty-one.
+  rtl-changed:
     runs-on: ubuntu-24.04
     outputs:
-      rtl: ${{ steps.rtl.outputs.changed }}
+      rtl: ${{ steps.gate.outputs.rtl }}
+      pocket: ${{ steps.gate.outputs.pocket }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - name: Did src/rtl change
-        id: rtl
+      - name: Install build dependencies + Verilator + RISC-V toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build python3 verilator \
+            gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+      # Shims only, and no pull. find_program takes a shell script off PATH
+      # whether or not the image behind it exists, which is what lets
+      # pocket.cmake's guard pass and its lists be written on a runner that is
+      # never going to fit anything.
+      - name: Quartus stubs, so the pocket lists are written
+        run: |
+          set -euxo pipefail
+          shims="$HOME/.quartus-shims"
+          mkdir -p "$shims"
+          for tool in quartus_map quartus_fit quartus_sta \
+                      quartus_asm quartus_drc quartus_cdb; do
+            printf '#!/usr/bin/env bash\nexit 1\n' > "$shims/$tool"
+            chmod +x "$shims/$tool"
+          done
+          echo "$shims" >> "$GITHUB_PATH"
+
+      - name: Configure, for the lists
+        run: cmake --preset verilator/Release
+        working-directory: src/rtl
+
+      - name: What did this commit touch
+        id: gate
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            base="origin/${{ github.base_ref }}"
-          else
-            base="${{ github.event.before }}"
-          fi
-          # A new branch has no before, a force push can leave one that is
-          # gone, and a dispatch has none at all. Yes is the safe answer to
-          # all three — a fit that was not needed costs time, one that was
-          # skipped ships a stale core.
-          if [[ -z "$base" ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            changed=true
-          else
-            # Captured rather than piped: grep -q closes early, and under
-            # pipefail that returns git's SIGPIPE status, so the step would
-            # fail on precisely the commits that matched.
-            files=$(git diff --name-only "$base" HEAD)
-            if grep -q '^src/rtl/' <<< "$files"; then changed=true; else changed=false; fi
-          fi
-          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          I=build/verilator/release/inputs
 
-  # The bitstream, and whether it closed. Quartus writes one out either
+          # A tag and a hand-started run answer yes without asking, so a release
+          # is never assembled out of jobs that declined to run.
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch \
+                || "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "rtl=true" >> "$GITHUB_OUTPUT"
+            echo "pocket=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # The previous push, not the base: a push that left the RTL alone
+          # should cost nothing even when an earlier commit in the same pull
+          # request moved it. Opening one has no before, so it reads as the
+          # whole branch.
+          base="${{ github.event.before }}"
+          if [[ -z "$base" && "$GITHUB_EVENT_NAME" == pull_request ]]; then
+            base=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
+          fi
+          # A new branch has no before, a force push can leave one that is gone,
+          # and neither is a no. A job that was not needed costs time; one that
+          # was skipped ships a stale core.
+          if [[ -z "$base" ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            echo "rtl=true" >> "$GITHUB_OUTPUT"
+            echo "pocket=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Captured rather than piped: grep -q closes early, and under pipefail
+          # that returns git's SIGPIPE status, so this would fail on precisely
+          # the commits that matched.
+          files=$(git diff --name-only "$base" HEAD)
+          echo "$files"
+
+          # A changed path counts if a list names it, or if it is a directory a
+          # list names something inside — which is how a submodule bump lands,
+          # since it reaches a diff as its gitlink and never as a file in it.
+          touched() {
+            local list p
+            list=$(sort -u "$1")
+            while IFS= read -r p; do
+              [ -n "$p" ] || continue
+              if grep -qxF "$p" <<< "$list" || grep -q "^${p}/" <<< "$list"; then
+                echo true; return
+              fi
+            done <<< "$files"
+            echo false
+          }
+          rtl=$(touched $I/sim-inputs.txt)
+          pocket=$(touched $I/pocket-inputs.txt)
+          echo "rtl=$rtl" >> "$GITHUB_OUTPUT"
+          echo "pocket=$pocket" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  # pocket: the bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
-  # by-product. A fit is tens of minutes and needs a 20 GB toolchain, so it
-  # runs when a diff touched the RTL, and always for a tag or a dispatch.
+  # by-product.
   #
-  # src/rtl is not the whole of what decides a bitstream. The soft CPU
-  # firmware compiles sources from src/ria and src/vga, and the font and
-  # palette ROMs in the fabric are generated from src/vga/term — a change
-  # to any of those alters the core without triggering a fit here. Tags and
-  # dispatches fit unconditionally, so nothing is ever released on a core
-  # this gate declined to build.
+  # A fit is tens of minutes and needs a 20 GB toolchain, and this used to run
+  # on whether a diff touched src/rtl. That was the wrong question twice over.
+  # Yes for the firmware under src/rtl/sw, which costs an assemble and not a
+  # placement, and yes for the whole life of a pull request once any commit in
+  # it moved the RTL. No for src/ria and src/vga, compiled into the image that
+  # assemble installs, and for src/vga/term, which generates the font and
+  # palette ROMs in the fabric.
   #
-  # !cancelled() and != 'false' are what make that last sentence true. A
-  # dependency that does not succeed skips what depends on it whatever the
-  # condition says, so an rtl-changes that dies takes the fit with it —
-  # and package tolerates a skipped pocket, which on a tag would publish a
-  # release with no core in it and nothing to say so. Unanswered is not the
-  # same as no: only a job that ran and said false skips the fit.
+  # So it asks the build graph instead. pocket.cmake writes out the lists its
+  # own DEPENDS are made of, and rtl-changed answers against those: pad.c wakes
+  # a fit because the firmware compiles it, and the USB stack beside it does
+  # not, which no glob over src/ria can express.
   pocket:
-    needs: rtl-changes
+    needs: [version, rtl-changed]
     if: >-
       ${{ !cancelled() && (
       github.event_name == 'workflow_dispatch'
       || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changes'].outputs.rtl != 'false') }}
+      || needs['rtl-changed'].outputs.pocket != 'false') }}
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-pocket.zip
     steps:
       - uses: actions/checkout@v7
 
       # The machine's own two, and the two the generated packages come out
-      # of: assets.cmake writes cpu65's decode table and the OPL2's lookup
+      # of: assets.cmake writes w65c02's decode table and the OPL2's lookup
       # ROM at configure time, and it reads chips/codegen and opl2_fpga to
       # do it. This job needs no simulator and no test fixtures, which is
       # why it is not simply test-rtl's list.
-      - name: Init submodules
-        run: >-
-          git submodule update --init --depth 1
-          vendor/hazard3 vendor/openfpga vendor/chips vendor/opl2_fpga
-
       - name: Install build dependencies + RISC-V toolchain
         run: |
           sudo apt-get update
@@ -532,120 +698,141 @@ jobs:
       # order it has to happen. A core built without the firmware boots a
       # soft CPU fetching zeros, which looks exactly like dead hardware and
       # is not.
-      - name: Build the core package
+      - name: Build core package
         run: |
           set -euxo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            FWVER="${GITHUB_REF_NAME#v}"; FWCI=""
-          else
-            FWVER=""; FWCI="$GITHUB_RUN_ID"
-          fi
-          cmake --preset pocket -DRP6502_VERSION="$FWVER" -DRP6502_CI="$FWCI"
+          cmake --preset pocket \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset "Card package"
         working-directory: src/rtl
 
-      - uses: actions/upload-artifact@v7
-        with:
-          name: pocket
-          path: build/pocket/package
-
-  # ---------------------------------------------------------------------------
-  # Package: fan-in every artifact into one rp6502-<version>.zip (+ SHA256SUMS).
-  # ---------------------------------------------------------------------------
-  package:
-    needs: [rp6502-ria-vga, linux, macos, itch-io, windows, android, pocket]
-    # pocket is skipped on every commit that left the RTL alone, and a skipped
-    # dependency skips what depends on it unless the condition says otherwise.
-    # !failure() keeps a real failure blocking, which is what needs meant on
-    # its own — so a tag still waits for the fit and a fit that did not close
-    # still stops the release.
-    if: ${{ !cancelled() && !failure() }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/download-artifact@v8
-        with:
-          path: _artifacts
-
-      - name: Assemble release zip
+      # Zipped here rather than downstream so the card's own root is the zip's
+      # root, and so an empty package fails this job instead of quietly
+      # shipping a release with no core in it.
+      - name: Package pocket
         run: |
           set -euxo pipefail
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-          else
-            VERSION="0.0.0+$(date -u +%Y%m%d)-$(git rev-parse --short HEAD)"
-          fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-
-          mkdir stage
-          # Firmware
-          cp _artifacts/rp6502-ria-vga/rp6502-ria-w.uf2 stage/
-          cp _artifacts/rp6502-ria-vga/rp6502-vga.uf2   stage/
-          # Linux emulators (tar preserves the +x bit lost by upload-artifact)
-          tar -xzf _artifacts/linux-x86_64/rp6502-emu-x86_64.tar.gz   -C stage
-          tar -xzf _artifacts/linux-aarch64/rp6502-emu-aarch64.tar.gz -C stage
-          chmod +x stage/rp6502-emu-x86_64 stage/rp6502-emu-aarch64
-          # macOS app
-          tar -xzf _artifacts/macos/rp6502-emu-app.tar.gz -C stage
-          chmod +x stage/rp6502-emu.app/Contents/MacOS/rp6502-emu
-          # Windows emulator
-          cp _artifacts/windows/rp6502-emu.exe stage/
-          # WebAssembly itch.io bundle (shipped as a nested zip)
-          cp _artifacts/itch-io/itch.io.zip stage/
-          # Android APK
-          cp _artifacts/android/rp6502-emu.apk stage/
-          # The Pocket card tree, a nested zip the way itch.io's is, with the
-          # card's own root at the zip's root. Absent when the fit did not run.
-          if [ -d _artifacts/pocket ]; then
-            ( cd _artifacts/pocket && zip -r -y "$GITHUB_WORKSPACE/stage/pocket.zip" . )
-          fi
-          # Static distribution files + sample ROM
-          cp src/dist/release/README.txt tests/roms/adventure.rp6502 stage/
-          # One zip, everything at the root
-          ( cd stage && zip -r -y "../rp6502-${VERSION}.zip" . )
-          sha256sum "rp6502-${VERSION}.zip" > SHA256SUMS
-          cat SHA256SUMS
+          cd build/pocket/package
+          zip -r -y "$GITHUB_WORKSPACE/$ARCHIVE" .
 
       - uses: actions/upload-artifact@v7
         with:
-          name: rp6502-release-zip
-          path: |
-            rp6502-${{ env.VERSION }}.zip
-            SHA256SUMS
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
           if-no-files-found: error
-          retention-days: 14
 
   # ---------------------------------------------------------------------------
-  # Release: on a v* tag, publish the zip as a GitHub Release.
+  # release: on a v* tag, collect what each job built and publish one asset per
+  # target as a GitHub Release. Nothing is repacked — an archive made anywhere
+  # but on its own platform loses what that platform's tool was preserving.
+  #
+  # This used to be two jobs, the first assembling an everything.zip for the
+  # second to take apart again. That zip was for developers who wanted every
+  # platform at once, and off a tag nobody wants any of it: each job already
+  # uploads its own artifact, which is what a run you are watching is for. So
+  # collecting happens here, once, on the only run that needs it.
+  #
+  # Every job named below runs unconditionally on a tag, so none can be skipped
+  # and there is no absent asset to tolerate.
+  #
+  # Two of them build nothing this publishes and are named anyway. rtl-tests is
+  # the evidence the core works, and a tag that fitted a bitstream the suite
+  # rejects should not reach a release page. sdk-tools verifies the checksums
+  # every project fetches tools/ against, so a broken one breaks the update for
+  # everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [package]
+    needs: [version, sdk-tools, pico, linux, macos, itch-io, windows, android,
+            pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      # skip-decompress, because these artifacts are the assets themselves. The
+      # default unpacks anything that looks like an archive, which for us is
+      # every one of them.
       - uses: actions/download-artifact@v8
         with:
-          name: rp6502-release-zip
-          path: dist
+          path: _artifacts
+          skip-decompress: true
+
+      - name: Collect and checksum
+        env:
+          V: ${{ needs.version.outputs.version }}
+        run: |
+          set -euxo pipefail
+          mkdir dist
+
+          # This list is the order the assets appear on the release page, and
+          # checking it here is what makes a missing one a failed release rather
+          # than a quiet gap in it.
+          assets=()
+          for w in pico.zip windows.zip macos.zip \
+                   linux-x86_64.tar.gz linux-aarch64.tar.gz \
+                   pocket.zip itch.io.zip android.apk; do
+            f="rp6502-${V}-${w}"
+            src=$(find _artifacts -type f -name "$f" | head -1)
+            if [ -z "$src" ]; then
+              echo "missing asset: $f" >&2
+              exit 1
+            fi
+            mv "$src" "dist/$f"
+            assets+=("$f")
+          done
+
+          ( cd dist && sha256sum "${assets[@]}" > SHA256SUMS )
+          cat dist/SHA256SUMS
 
       - name: Compose release title (matches historical "Version X" format)
         id: title
         run: echo "name=Version ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # Named one by one rather than globbed: the release page lists assets in
+      # upload order, and firmware belongs above the emulators.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           name: ${{ steps.title.outputs.name }}
           files: |
-            dist/rp6502-*.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-pico.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-windows.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-macos.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
+            dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz
+            dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-itch.io.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-android.apk
             dist/SHA256SUMS
           fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             ## Picocomputer 6502 release
 
-            The zip contains a versioned firmware and snapshots of the emulator.
-            See `README.txt` inside for instructions.
+            One download per platform, each with install instructions inside.
+
+            | Asset | |
+            |---|---|
+            | `rp6502-${{ needs.version.outputs.version }}-pico.zip` | RIA and VGA firmware for the Picocomputer |
+            | `rp6502-${{ needs.version.outputs.version }}-windows.zip` | Emulator, Windows x64 (Direct3D 11) |
+            | `rp6502-${{ needs.version.outputs.version }}-macos.zip` | Emulator, macOS 11+ Apple silicon |
+            | `rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz` | Emulator, Linux x86_64 (glibc 2.35+) |
+            | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
+            | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
+            | `rp6502-${{ needs.version.outputs.version }}-itch.io.zip` | Publish a program on itch.io |
+            | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |
+
+            The desktop builds are unsigned and the APK is signed with a debug
+            key, so every OS objects on first launch. Windows: "More info" then
+            "Run anyway". macOS: "Open Anyway" under Privacy & Security.
+            Android: "More info" then "Install anyway".
+
+            The emulators come with no software. 6502 programs are distributed
+            as `.rp6502` files — find them on Discord, which has a forum for
+            ROMs, or on itch.io under the RP6502 tag.
+
+            - Discord: https://discord.gg/TC6X8kTr6d
+            - itch.io: https://itch.io/games/tag-rp6502
+            - Documentation: https://picocomputer.github.io/

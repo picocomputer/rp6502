@@ -16,9 +16,11 @@
 
 module vid_mode0 (
     input logic clk,
+    /* The cells run on the clock that does not stop, so the savestate
+     * serializer can read them with the render standing still. */
+    input logic clk_mem,
     input logic frame_start,
 
-    /* The renderer works one line ahead of the beam. */
     input logic [9:0] h,
     input logic [9:0] v,
     input logic px_last,
@@ -30,6 +32,15 @@ module vid_mode0 (
     output logic [13:0] vid_mode0_f_addr,
     input logic f_gnt,
     input logic [7:0] f_data,
+
+    /* The savestate serializer, which owns the bus side while it has
+     * the machine. It reads and writes whole words; the byte strobes
+     * belong to the machine's own writes. */
+    input logic sst_own,
+    input logic [13:0] sst_addr,
+    input logic sst_we,
+    input logic [31:0] sst_wdata,
+    output logic [31:0] vid_mode0_sst_rdata,
 
     input logic b_stb,
     input logic b_we,
@@ -44,13 +55,11 @@ module vid_mode0 (
      * same bits.
      *
      * 15360 words is the tallest terminal the engine can build with both
-     * screens, the alternate behind the primary at the offsets the
-     * firmware's row table publishes. This firmware uses 14400, and the
-     * slack is free — both round to the same depth.
+     * screens. This firmware uses 14400; both round to the same depth.
      *
-     * Flat rather than banked. Hand-banking into power-of-two chunks
-     * gives the blocks back a little more exactly and buys the saving
-     * with an adder and a mux on the scanout's address. */
+     * Flat rather than banked: hand-banking gives the blocks back more
+     * exactly and pays for it with an adder and a mux on the scanout's
+     * address. */
     (* ramstyle = "no_rw_check" *)
     logic [7:0] cell0[15360] /*verilator public_flat_rw*/;
     (* ramstyle = "no_rw_check" *)
@@ -61,7 +70,7 @@ module vid_mode0 (
     logic [7:0] cell3[15360] /*verilator public_flat_rw*/;
 
     logic [13:0] cell_idx;
-    always_comb cell_idx = b_addr[15:2];
+    always_comb cell_idx = sst_own ? sst_addr : b_addr[15:2];
 
     /* cursor {enabled[25], lit[24], style[23:16], y[15:8], x[7:0]};
      * prog {enable[31], end[25:16], begin[9:0]}. */
@@ -75,7 +84,7 @@ module vid_mode0 (
     /* The scanout read stands alone and unreset: a block RAM's output
      * register has no asynchronous clear, and a read inside the
      * pipeline's reset would keep the cells out of memory entirely. */
-    always_ff @(posedge clk)
+    always_ff @(posedge clk_mem)
         fetch_q <= {cell3[fetch_word], cell2[fetch_word],
                     cell1[fetch_word], cell0[fetch_word]};
 
@@ -83,22 +92,36 @@ module vid_mode0 (
     logic sel_cells;
     always_comb vid_mode0_b_rdata = sel_cells ? cells_q : regs_q;
 
-    always_ff @(posedge clk) begin
-        if (b_stb) begin
+    always_comb vid_mode0_sst_rdata = cells_q;
+
+    logic cell_w0, cell_w1, cell_w2, cell_w3;
+    logic [31:0] cell_d;
+    always_comb begin
+        cell_w0 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
+                                      && b_wstrb[0]);
+        cell_w1 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
+                                      && b_wstrb[1]);
+        cell_w2 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
+                                      && b_wstrb[2]);
+        cell_w3 = sst_own ? sst_we : (b_stb && !b_addr[16] && b_we
+                                      && b_wstrb[3]);
+        cell_d = sst_own ? sst_wdata : b_wdata;
+    end
+
+    always_ff @(posedge clk_mem) begin
+        if (sst_own || b_stb) begin
             cells_q <= {cell3[cell_idx], cell2[cell_idx],
                         cell1[cell_idx], cell0[cell_idx]};
+            if (cell_w0) cell0[cell_idx] <= cell_d[7:0];
+            if (cell_w1) cell1[cell_idx] <= cell_d[15:8];
+            if (cell_w2) cell2[cell_idx] <= cell_d[23:16];
+            if (cell_w3) cell3[cell_idx] <= cell_d[31:24];
+        end
+    end
+    always_ff @(posedge clk) begin
+        if (b_stb) begin
             sel_cells <= !b_addr[16];
             if (!b_addr[16]) begin
-                if (b_we) begin
-                    if (b_wstrb[0])
-                        cell0[cell_idx] <= b_wdata[7:0];
-                    if (b_wstrb[1])
-                        cell1[cell_idx] <= b_wdata[15:8];
-                    if (b_wstrb[2])
-                        cell2[cell_idx] <= b_wdata[23:16];
-                    if (b_wstrb[3])
-                        cell3[cell_idx] <= b_wdata[31:24];
-                end
             end else begin
                 case (b_addr[7:2])
                     6'd32: regs_q <= cursor_shadow;
@@ -167,12 +190,10 @@ module vid_mode0 (
         end
     end
 
-    /* Eight clocks a cell in steady state — two cell words and a font
-     * byte, fetched under the previous cell's pixel writes — against a
-     * line of 800. The margin is why the fetches can be serial. */
-    /* The bank rides in the address: a bank index outside it reads both
-     * halves and muxes, which is an asynchronous read and no block RAM
-     * at all. */
+    /* Eight clocks a cell against a line of 800; the margin is why the
+     * fetches can be serial. The bank rides in the address, because a
+     * bank index outside it reads both halves and muxes, which is an
+     * asynchronous read and no block RAM at all. */
     (* ramstyle = "no_rw_check" *)
     logic [15:0] linebuf[2048];
 
@@ -403,7 +424,6 @@ module vid_mode0 (
                         3'd1: w1_n <= fetch_q;
                         3'd6: fetch_word <= fetch_word + 14'd1;
                         3'd7: begin
-                            /* Load the resolved next cell. */
                             bits <= bits_res;
                             fg_r <= fg_res;
                             bg_r <= bg_res;
@@ -427,19 +447,17 @@ module vid_mode0 (
         && px[9:3] == cur_cx
         && (cur_style == 3'd5 || cur_style == 3'd6);
 
-    /* The beam reads one position ahead of itself, on each pixel's last
-     * tick. The bank toggle lands on h==0's first tick, so only the
-     * pixel-0 read at the end of h==799 still sees the line under its
-     * write-side label. */
+    /* The bank toggle lands on h==0's first tick, so only the pixel-0
+     * read at the end of h==799 still sees the line under its write-side
+     * label. */
     logic [10:0] lb_rd;
     always_comb lb_rd = h == 10'd799
         ? {wr_bank, 10'd0}
         : {!wr_bank, 10'(h + 10'd1)};
 
     /* The buffer's output register carries nothing but the buffer: a
-     * branch that hands it a constant instead makes the fabric read
-     * combinationally and mux, and the whole line buffer leaves
-     * memory. The blanking rides alongside and mixes after. */
+     * branch handing it a constant makes the fabric read combinationally
+     * and mux, and the line buffer leaves memory. */
     logic [15:0] lb_q;
     logic lb_blank;
     always_ff @(posedge clk) begin

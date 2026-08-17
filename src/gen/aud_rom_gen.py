@@ -24,9 +24,9 @@ class Prog(Asm):
     firmware parks the engines."""
 
     def settle(self):
-        """About 1,280 cycles. The PSG applies its pointer at a sample
-        boundary rather than on the write, so a gate edge landing in the
-        period right after xreg returns is never snooped."""
+        """About 1,280 cycles. The pointer's reset releases every gate at
+        the next sample boundary, so a gate edge landing in the period
+        right after xreg returns is taken back."""
         self.emit(0xA2, 0x00, 0xCA, 0xD0, 0xFD)
 
     def spin(self):
@@ -62,6 +62,34 @@ def psg_prog():
     p.poke(page + 4, 0x00)
     p.poke(page + 5, 0x00)
     p.poke(page + 6, 0x01)  # gate last: this edge is what starts the note
+    p.spin()
+    return p.b
+
+
+def psg_pre_prog():
+    """The same note, programmed the other way round: the whole block
+    written before the device is asked for, gate included. The engine
+    hears only writes, so those bytes reach it by the import the
+    firmware runs on the pointer — and the gate among them must not
+    sound, because the machine that reads XRAM instead throws its own
+    gate queue away at exactly that moment. The note starts on the one
+    gate written afterwards."""
+    p = Prog()
+    page = 0x8000
+    p.poke(page + 0, 0x28)
+    p.poke(page + 1, 0x05)
+    p.poke(page + 2, 0x80)
+    p.poke(page + 3, 0x00)
+    p.poke(page + 4, 0x00)
+    p.poke(page + 5, 0x00)
+    p.poke(page + 6, 0x01)
+    p.xreg(0, 1, 0, page)
+    p.settle()
+    # About five frames of it, so the silence is something a test can
+    # stand in the middle of rather than infer from a frame count.
+    p.delay(255)
+    p.delay(255)
+    p.poke(page + 6, 0x01)
     p.spin()
     return p.b
 
@@ -144,6 +172,7 @@ def emit(path, body):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit-psg")
+    ap.add_argument("--emit-psg-pre")
     ap.add_argument("--emit-opl")
     ap.add_argument("--emit-opl-exit")
     ap.add_argument("--emit-bel")
@@ -151,6 +180,8 @@ def main():
     a = ap.parse_args()
     if a.emit_psg:
         print(f"psg.rp6502 {emit(a.emit_psg, psg_prog())} bytes")
+    if a.emit_psg_pre:
+        print(f"psg_pre.rp6502 {emit(a.emit_psg_pre, psg_pre_prog())} bytes")
     if a.emit_opl:
         print(f"opl.rp6502 {emit(a.emit_opl, opl_prog())} bytes")
     if a.emit_opl_exit:

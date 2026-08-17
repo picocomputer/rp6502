@@ -17,6 +17,12 @@
  * True when the program and its reset vector are in place. */
 bool rom_load_staged(uint32_t len);
 
+/* The length of the image the running session loaded. After a restore
+ * that is the blob's answer, and the store is supposed to be holding
+ * that many bytes of that program. */
+uint32_t rom_staged_len(void);
+
+
 /* The ROM: drive: read-only windows onto the staged image's assets,
  * registered in main_std_drivers. */
 bool rom_std_handles(const char *path);
