@@ -86,6 +86,7 @@ void cli_usage(const char *argv0)
             "  --screenshot <file.png>   render headlessly to PNG and exit\n"
             "  --frames <n>              frames to run before screenshot (default 120)\n"
             "  --scale <n>               window scale, fractional ok (default 1.5)\n"
+            "  --vsync                   sync presentation to the display (default)\n"
             "  --no-vsync                present uncapped instead of syncing to the display\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --script <file>           drive input and check results ('-' = stdin);\n"
@@ -235,4 +236,3 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         }
     return 0;
 }
-
