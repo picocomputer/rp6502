@@ -1,10 +1,16 @@
 # The shipped emulator, driven the way an application developer drives it: a
 # --script file, an exit code, and nothing else installed. These are the only
 # tests that execute rp6502-emu itself rather than linking emu_core, so they
-# are also the only ones that cover cli.c, main.c and scr.c.
+# are also the only ones that cover cli.c and main.c.
 #
 # rp6502_add_test builds a C executable from test_<name>.c and has nothing to
-# offer here, so these are plain add_test lines.
+# offer the script files, so those are plain add_test lines.
+
+# The exception: how many frames a script spends is the one thing a script
+# cannot check about itself, so that one is a C test around scr.c.
+rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
+    SOURCES test_script.c ${RP6502_SRC}/emu/app/scr.c ${RP6502_SRC}/emu/app/png.c
+    TIMEOUT 60)
 
 # --mute so a CI runner opens no audio device, --seed so a program that asks
 # for entropy asks for the same entropy every run.

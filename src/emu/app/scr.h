@@ -29,9 +29,11 @@ bool scr_load(const char *path);
 bool scr_loaded(void);
 bool scr_running(void);
 
-/* One frame's service: settle whatever the script is waiting for, then run
- * commands until the next one that has to wait. Called once per frame by
- * whichever loop is running the machine. */
+/* Advance the script until it owes the machine a frame: settle whatever it is
+ * waiting for, then run commands until the next one that has to wait. Returning
+ * IS the request for a frame, so the caller runs exactly one and calls again —
+ * which is what makes `run 600` six hundred frames and not "at least" six
+ * hundred. The script is the only clock; nothing paces it against real time. */
 void scr_task(void);
 
 /* Run one command line. False on a bad line or a failed assertion, either of

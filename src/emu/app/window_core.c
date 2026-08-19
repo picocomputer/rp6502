@@ -30,7 +30,6 @@
 #ifdef RP6502_PAD_HOST
 #include "emu/app/pad_input.h"
 #endif
-#include "emu/app/scr.h"
 #include "emu/app/version.h"
 #include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
@@ -408,9 +407,9 @@ void window_core_frame(void)
     }
 #endif
 #ifdef RP6502_PAD_HOST
-    /* Once per presented frame, and here rather than beside scr_task below:
-     * sokol has delivered this frame's key and pointer events before frame_cb,
-     * so reading the pads now gives them the same age as every other input. */
+    /* Once per presented frame: sokol has delivered this frame's key and pointer
+     * events before frame_cb, so reading the pads now gives them the same age as
+     * every other input. */
     pad_input_task();
 #endif
 
@@ -450,7 +449,6 @@ void window_core_frame(void)
 
     if (saudio_isvalid()) /* --mute opens no device; skip the resample+push */
         aud_pump(saudio_sample_rate(), saudio_push);
-    scr_task();
 
     /* Reflect the run state in the title so the user knows the run is done (exec
      * un-halts within a frame, so this only trips on a real exit), and close the

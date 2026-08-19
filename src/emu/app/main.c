@@ -258,16 +258,17 @@ int main(int argc, char **argv)
 
     main_run(); /* start the machine — main_init only initialized the drivers */
 
-    /* A script is the clock: it advances the machine itself, a command at a
-     * time, and its verdict is the process exit code. --debug instead opens the
-     * window and lets window_core_frame pump it, to watch one fail. */
-    if (scr_loaded() && !o.debug)
+    /* A script is the clock, always: it runs the machine here rather than under a
+     * window, so a frame elapses only because the script asked for one and its
+     * verdict is the process exit code. Pacing a script against the host's clock
+     * would make every frame count a lower bound instead of a number. */
+    if (scr_loaded())
     {
-        scr_task();
         while (scr_running())
         {
-            sys_run_frame(); /* rendered: shot and crc must see real pixels */
-            scr_task();
+            scr_task(); /* returns owing exactly one frame, or done */
+            if (scr_running())
+                sys_run_frame(); /* rendered: shot and crc must see real pixels */
         }
         if (scr_exit_code() || !o.shot)
             return scr_exit_code(); /* a passing script may still want the shot */
