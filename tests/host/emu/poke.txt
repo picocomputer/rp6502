@@ -1,0 +1,19 @@
+# Writing the machine's memory from a script. The gamepad tester renders
+# whatever is in its XRAM block, and nothing republishes that block unless a
+# host pad reports, so a poked record is a pad the program believes in with
+# no pad attached at all — the state a test wants, reached without playing to
+# it.
+
+run 40
+expect "Disconnected"
+expect-not "Select"
+
+# Connected, start held: the same record gamepad.txt reaches by pressing.
+poke xram:$FF00 $80 $00 $00 $08
+run 20
+expect "Select"
+peek xram:$FF00 $80 $00 $00 $08
+
+# RAM is the other half, and takes every radix a byte value can be written in.
+poke $0200 $12 34 0x56
+peek ram:$0200 18 $22 86

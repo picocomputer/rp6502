@@ -210,7 +210,7 @@ static bool scr_hash(char **p, unsigned long *out)
 }
 
 /* An address, in RAM unless it says xram:. */
-static bool scr_address(char **p, const uint8_t **base, long *addr)
+static bool scr_address(char **p, uint8_t **base, long *addr)
 {
     char *word = scr_word(p);
     if (!word)
@@ -574,7 +574,7 @@ bool scr_command(const char *line)
 
     if (!strcasecmp(cmd, "peek"))
     {
-        const uint8_t *base;
+        uint8_t *base;
         long addr, want;
         if (!scr_address(&p, &base, &addr))
             return scr_error("peek wants an address");
@@ -595,9 +595,32 @@ bool scr_command(const char *line)
         return true;
     }
 
+    /* Writes land in ram[]/xram[] only. The VIA and the RIA answer the bus, not
+     * memory, so a poke changes what the program reads and triggers nothing. */
+    if (!strcasecmp(cmd, "poke"))
+    {
+        uint8_t *base;
+        long addr, value;
+        if (!scr_address(&p, &base, &addr))
+            return scr_error("poke wants an address");
+        int i = 0;
+        while (*p)
+        {
+            if (!scr_number(&p, &value) || value < 0 || value > 255)
+                return scr_error("poke wants byte values 0..255");
+            if (addr + i > 0xFFFF)
+                return scr_error("poke runs past the end of memory");
+            base[addr + i] = (uint8_t)value;
+            i++;
+        }
+        if (!i)
+            return scr_error("poke wants at least one byte value");
+        return true;
+    }
+
     if (!strcasecmp(cmd, "dump"))
     {
-        const uint8_t *base;
+        uint8_t *base;
         long addr, count = 1;
         if (!scr_address(&p, &base, &addr))
             return scr_error("dump wants an address");

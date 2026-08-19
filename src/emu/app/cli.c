@@ -129,6 +129,7 @@ void cli_usage(const char *argv0)
             "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
+            "  poke [xram:]<addr> <byte>...        write memory\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
             "  crc / expect-crc <hash>             the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"

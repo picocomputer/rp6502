@@ -30,3 +30,6 @@ rp6502_add_script_test(tablet paint_tab.rp6502)
 
 # The ANSI keyboard: type and wait against a program that reads whole lines.
 rp6502_add_script_test(adventure adventure.rp6502)
+
+# Writing memory the program reads, rather than driving it through the inputs.
+rp6502_add_script_test(poke gamepad.rp6502)
