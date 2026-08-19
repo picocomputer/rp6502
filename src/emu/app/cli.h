@@ -9,6 +9,7 @@
 #define _EMU_APP_CLI_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include "emu/app/window.h" /* window_scale_filter_t */
 
@@ -36,6 +37,8 @@ typedef struct
     const char *inidir; /* --ini: config file for the debugger UI layout (else default) */
     unsigned long long seed;
     bool have_seed;
+    bool fill_random;   /* --fill: random (the default) or fill_value throughout */
+    uint8_t fill_value;
     char **rom_args; /* words after "--", argv[1..] for the booted ROM (NULL = none given) */
     int n_rom_args;
 } cli_options;

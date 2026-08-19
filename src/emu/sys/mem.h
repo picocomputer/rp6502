@@ -18,6 +18,17 @@
 
 extern uint8_t ram[0x10000];
 
+/* What ram[] and xram[] hold before anything writes them. Hardware zeroes
+ * neither — the 6502's SRAM keeps whatever was last in it, and both firmwares
+ * declare xram __uninitialized_ram() — so random is the default and a program
+ * reading a byte it never wrote fails here instead of only on a Pico. Config,
+ * set before mem_init adopts it; the seed is the run's, so the fill repeats. */
+void mem_set_fill(bool random, uint8_t value, uint64_t seed);
+
+/* Fill memory. First of the drivers, so what the ROM loader writes lands on top
+ * of the fill, which is the order the hardware does it in. */
+void mem_init(void);
+
 /* One PHI2 tick of the SRAM. data is in/out. */
 void mem_tick(uint16_t addr, bool read, uint8_t *data);
 

@@ -49,6 +49,7 @@
 
 void main_init(void)
 {
+    mem_init();
     pro_init();
     cpu_init();
     aud_init();
