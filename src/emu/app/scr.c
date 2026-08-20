@@ -15,7 +15,6 @@
 #include "emu/sys/com.h"
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include <stdarg.h>
 #include <stdio.h>
@@ -44,7 +43,10 @@ static int scr_line_no;
 static bool scr_run, scr_fail;
 
 static scr_wait_t scr_wait;
-static unsigned long scr_deadline; /* the sys_frame_count() to give up at */
+/* Frames still owed to the pending wait. scr_task hands control back only when
+ * one is due, so `run 600` costs exactly 600 frames and a budget expires on the
+ * frame it names — neither depends on how often anything else polls. */
+static unsigned long scr_budget;
 static char scr_needle[256];
 static int scr_exit_want;
 
@@ -210,7 +212,7 @@ static bool scr_hash(char **p, unsigned long *out)
 }
 
 /* An address, in RAM unless it says xram:. */
-static bool scr_address(char **p, const uint8_t **base, long *addr)
+static bool scr_address(char **p, uint8_t **base, long *addr)
 {
     char *word = scr_word(p);
     if (!word)
@@ -439,7 +441,7 @@ bool scr_command(const char *line)
         if (*p && (!scr_number(&p, &frames) || frames < 0))
             return scr_error("run wants a frame count");
         scr_wait = SCR_FRAMES;
-        scr_deadline = sys_frame_count() + (unsigned long)frames;
+        scr_budget = (unsigned long)frames;
         return true;
     }
 
@@ -453,7 +455,7 @@ bool scr_command(const char *line)
             return scr_error("wait wants a frame budget");
         snprintf(scr_needle, sizeof scr_needle, "%s", text);
         scr_wait = SCR_TEXT;
-        scr_deadline = sys_frame_count() + (unsigned long)frames;
+        scr_budget = (unsigned long)frames;
         return true;
     }
 
@@ -482,7 +484,7 @@ bool scr_command(const char *line)
             return scr_error("expect-exit wants a frame budget");
         scr_exit_want = (int)code;
         scr_wait = SCR_EXIT;
-        scr_deadline = sys_frame_count() + (unsigned long)frames;
+        scr_budget = (unsigned long)frames;
         return true;
     }
 
@@ -495,7 +497,7 @@ bool scr_command(const char *line)
         /* Blocks until the ring has it all, so back-to-back type commands
          * cannot replace each other mid-drip. */
         scr_wait = SCR_TYPING;
-        scr_deadline = sys_frame_count() + SCR_WAIT_FRAMES;
+        scr_budget = SCR_WAIT_FRAMES;
         return true;
     }
 
@@ -574,7 +576,7 @@ bool scr_command(const char *line)
 
     if (!strcasecmp(cmd, "peek"))
     {
-        const uint8_t *base;
+        uint8_t *base;
         long addr, want;
         if (!scr_address(&p, &base, &addr))
             return scr_error("peek wants an address");
@@ -595,9 +597,32 @@ bool scr_command(const char *line)
         return true;
     }
 
+    /* Writes land in ram[]/xram[] only. The VIA and the RIA answer the bus, not
+     * memory, so a poke changes what the program reads and triggers nothing. */
+    if (!strcasecmp(cmd, "poke"))
+    {
+        uint8_t *base;
+        long addr, value;
+        if (!scr_address(&p, &base, &addr))
+            return scr_error("poke wants an address");
+        int i = 0;
+        while (*p)
+        {
+            if (!scr_number(&p, &value) || value < 0 || value > 255)
+                return scr_error("poke wants byte values 0..255");
+            if (addr + i > 0xFFFF)
+                return scr_error("poke runs past the end of memory");
+            base[addr + i] = (uint8_t)value;
+            i++;
+        }
+        if (!i)
+            return scr_error("poke wants at least one byte value");
+        return true;
+    }
+
     if (!strcasecmp(cmd, "dump"))
     {
-        const uint8_t *base;
+        uint8_t *base;
         long addr, count = 1;
         if (!scr_address(&p, &base, &addr))
             return scr_error("dump wants an address");
@@ -668,6 +693,15 @@ bool scr_command(const char *line)
 /* Lifecycle                                                           */
 /* ------------------------------------------------------------------ */
 
+/* Spend one of the pending wait's frames. False once the budget is gone. */
+static bool scr_spend(void)
+{
+    if (!scr_budget)
+        return false;
+    scr_budget--;
+    return true;
+}
+
 /* True once whatever the script is waiting for has happened. A budget that runs
  * out fails the run here rather than hanging it. */
 static bool scr_settle(void)
@@ -677,7 +711,7 @@ static bool scr_settle(void)
     case SCR_IDLE:
         return true;
     case SCR_FRAMES:
-        if (sys_frame_count() < scr_deadline)
+        if (scr_spend())
             return false;
         break;
     case SCR_TEXT:
@@ -689,13 +723,13 @@ static bool scr_settle(void)
             break;
         }
     }
-        if (sys_frame_count() < scr_deadline)
+        if (scr_spend())
             return false;
         return scr_error("timed out waiting for \"%s\"", scr_needle);
     case SCR_TYPING:
         if (!kbd_paste_busy())
             break;
-        if (sys_frame_count() < scr_deadline)
+        if (scr_spend())
             return false;
         return scr_error("timed out typing; the program is not reading its input");
     case SCR_EXIT:
@@ -706,7 +740,7 @@ static bool scr_settle(void)
                 return scr_error("exit code %d, expected %d", code, scr_exit_want);
             break;
         }
-        if (sys_frame_count() < scr_deadline)
+        if (scr_spend())
             return false;
         return scr_error("timed out waiting for the program to exit");
     }
@@ -714,12 +748,13 @@ static bool scr_settle(void)
     return true;
 }
 
+/* Run the script forward until it owes the machine a frame, which is the only
+ * reason it hands control back. The caller runs exactly one frame per return,
+ * so a wait costs the frames it asked for and not one more. */
 void scr_task(void)
 {
-    if (!scr_run || !scr_settle())
-        return;
     char line[SCR_LINE_MAX];
-    while (scr_run && scr_wait == SCR_IDLE)
+    while (scr_run && scr_settle())
     {
         if (!fgets(line, sizeof line, scr_file))
         {
@@ -750,6 +785,15 @@ bool scr_load(const char *path)
         scr_path = path;
     }
     com_set_tx_tap(scr_tap);
+    /* Arm a clean run: a load inherits nothing from a script that ran before it,
+     * not a half-finished wait, not console text nobody matched, not a verdict. */
+    scr_line_no = 0;
+    scr_wait = SCR_IDLE;
+    scr_budget = 0;
+    scr_cap_len = 0;
+    scr_cap[0] = 0;
+    scr_marked = false;
+    scr_fail = false;
     scr_run = true;
     return true;
 }

@@ -13,13 +13,22 @@
 
 /* An LCG step (the PCG/musl multiplier) feeding a Murmur3 fmix64 finalizer: cheap,
  * full-period, and well-distributed across all 64 output bits. */
+static uint64_t rand_seed;
 static uint64_t rand_state;
 static bool rand_seeded;
 
 void rand_set_seed(uint64_t seed)
 {
-    rand_state = seed ? seed : 1; /* 0 would freeze the LCG warm-up */
+    rand_seed = seed ? seed : 1; /* 0 would freeze the LCG warm-up */
+    rand_state = rand_seed;
     rand_seeded = true;
+}
+
+uint64_t rand_seed_value(void)
+{
+    if (!rand_seeded)
+        rand_set_seed(os_entropy_64());
+    return rand_seed;
 }
 
 uint64_t get_rand_64(void)

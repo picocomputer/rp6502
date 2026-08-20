@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #ifdef _WIN32
 #include "getopt.h" /* vendored wingetopt (MSVC has no getopt) */
 #else
@@ -29,6 +30,7 @@ void cli_options_init(cli_options *o)
     o->scale = 1.5;
     o->vsync = true;
     o->scale_filter = WINDOW_FILTER_SHARP;
+    o->fill_random = true;
 }
 
 /* "RRGGBB" (optional leading '#') -> three 0-255 channels. */
@@ -48,11 +50,30 @@ static bool parse_hex_color(const char *s, int *r, int *g, int *b)
     return true;
 }
 
+/* --fill: "random", or the byte every cell gets. Both "$FF" and "0xFF" are
+ * taken, since scripts and the docs write the first and a shell writes either. */
+static bool parse_fill(const char *s, bool *random, uint8_t *value)
+{
+    if (!strcasecmp(s, "random"))
+    {
+        *random = true;
+        return true;
+    }
+    const char *num = (*s == '$') ? s + 1 : s;
+    char *end;
+    long v = strtol(num, &end, (*s == '$') ? 16 : 0);
+    if (end == num || *end || v < 0 || v > 255)
+        return false;
+    *random = false;
+    *value = (uint8_t)v;
+    return true;
+}
+
 /* Long-option codes (>= 256 so they never collide with a short-option char). */
 enum
 {
     OPT_SCREENSHOT = 256, OPT_FRAMES, OPT_SCALE, OPT_FILTER, OPT_SCRIPT,
-    OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED,
+    OPT_TMPDRIVE, OPT_ROM, OPT_BGCOLOR, OPT_PHI2, OPT_CP, OPT_SEED, OPT_FILL,
     OPT_MUTE, OPT_DEBUG, OPT_DAP, OPT_CREDITS, OPT_VERSION, OPT_INI,
     OPT_VSYNC, OPT_NO_VSYNC,
 };
@@ -70,6 +91,7 @@ static const struct option longopts[] = {
     {"phi2",         required_argument, NULL, OPT_PHI2},
     {"cp",           required_argument, NULL, OPT_CP},
     {"seed",         required_argument, NULL, OPT_SEED},
+    {"fill",         required_argument, NULL, OPT_FILL},
     {"mute",         no_argument,       NULL, OPT_MUTE},
     {"debug",        no_argument,       NULL, OPT_DEBUG},
     {"dap",          no_argument,       NULL, OPT_DAP},
@@ -90,7 +112,7 @@ void cli_usage(const char *argv0)
             "  --no-vsync                present uncapped instead of syncing to the display\n"
             "  --filter <f>              nearest|linear|sharp (default sharp)\n"
             "  --script <file>           drive input and check results ('-' = stdin);\n"
-            "                            headless unless a window is also asked for\n"
+            "                            always headless: the script is the only clock\n"
             "  --tmpdrive                MSC0: = a fresh throwaway temp dir (isolate the ROM)\n"
             "  --rom <file>              install a .rp6502 on the null drive, reached\n"
             "                            as :basename; repeatable, the first one boots\n"
@@ -100,9 +122,12 @@ void cli_usage(const char *argv0)
             "                            857/860-866/869, default 437)\n"
             "  --seed <n>                fixed RNG seed for reproducible runs\n"
             "                            (default: host entropy)\n"
+            "  --fill random|<byte>      what RAM and XRAM hold at boot, as $FF or 255\n"
+            "                            (default: random, like the hardware's)\n"
             "  --mute                    mute all audio (no synth, no OS audio device)\n"
             "  --debug                   on-screen machine debugger (CPU/VIA/disasm); holds\n"
-            "                            the window open on stop for inspection\n"
+            "                            the window open on stop for inspection; no window\n"
+            "                            with --script\n"
             "  --dap                     act as a DAP debug adapter on stdio (implies --debug)\n"
             "  --credits                 print third-party credits/licenses and exit\n"
             "  --version                 print the version and exit\n"
@@ -129,6 +154,7 @@ void cli_usage(const char *argv0)
             "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
             "  expect-exit <code> [frames]         run until it exits, check the code\n"
             "  peek [xram:]<addr> <byte>...        compare memory\n"
+            "  poke [xram:]<addr> <byte>...        write memory\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
             "  crc / expect-crc <hash>             the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
@@ -209,6 +235,14 @@ int cli_parse_args(int argc, char **argv, cli_options *o)
         case OPT_SEED:
             o->seed = strtoull(optarg, NULL, 0);
             o->have_seed = true;
+            break;
+        case OPT_FILL:
+            if (!parse_fill(optarg, &o->fill_random, &o->fill_value))
+            {
+                fprintf(stderr, "rp6502-emu: bad --fill '%s' "
+                                "(want random or a byte 0-255)\n", optarg);
+                return 2;
+            }
             break;
         case OPT_MUTE: o->mute = true; break;
         case OPT_DEBUG: o->debug = true; break;

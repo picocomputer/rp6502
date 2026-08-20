@@ -34,15 +34,14 @@
 
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
-/* Apply the host/window presentation options shared by both launch paths. phi2/cp
- * are machine settings loaded as config before main_init, not here. */
+/* Apply the host/window presentation options shared by both launch paths. phi2,
+ * cp, seed and fill are machine settings loaded as config before main_init, not
+ * here -- which is also why they reach every launch path and these do not. */
 static void apply_options(const cli_options *o)
 {
     if (o->have_bg)
         window_set_bgcolor((uint8_t)o->bg_r, (uint8_t)o->bg_g, (uint8_t)o->bg_b);
     window_set_scale_filter(o->scale_filter);
-    if (o->have_seed)
-        rand_set_seed((uint64_t)o->seed);
     if (o->mute)
         aud_set_enabled(false);
 }
@@ -134,6 +133,18 @@ int main(int argc, char **argv)
             return 1;
         }
     }
+    /* One seed for the run, reaching both the memory fill and the RNG the ROM
+     * reads, from streams far enough apart that the fill cannot move what the
+     * program's rand() returns. Set before main_init because mem_init is the
+     * first thing it does. */
+    if (o.have_seed)
+        rand_set_seed((uint64_t)o.seed);
+    mem_set_fill(o.fill_random, o.fill_value, rand_seed_value());
+    /* Say which seed a random fill used, or a run that turns something up is a
+     * run nobody can repeat. Host stderr, so nothing a script matches moves. */
+    if (o.fill_random && !o.have_seed)
+        fprintf(stderr, "rp6502-emu: memory filled at random; --seed %llu repeats it\n",
+                (unsigned long long)rand_seed_value());
     main_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
@@ -258,16 +269,17 @@ int main(int argc, char **argv)
 
     main_run(); /* start the machine — main_init only initialized the drivers */
 
-    /* A script is the clock: it advances the machine itself, a command at a
-     * time, and its verdict is the process exit code. --debug instead opens the
-     * window and lets window_core_frame pump it, to watch one fail. */
-    if (scr_loaded() && !o.debug)
+    /* A script is the clock, always: it runs the machine here rather than under a
+     * window, so a frame elapses only because the script asked for one and its
+     * verdict is the process exit code. Pacing a script against the host's clock
+     * would make every frame count a lower bound instead of a number. */
+    if (scr_loaded())
     {
-        scr_task();
         while (scr_running())
         {
-            sys_run_frame(); /* rendered: shot and crc must see real pixels */
-            scr_task();
+            scr_task(); /* returns owing exactly one frame, or done */
+            if (scr_running())
+                sys_run_frame(); /* rendered: shot and crc must see real pixels */
         }
         if (scr_exit_code() || !o.shot)
             return scr_exit_code(); /* a passing script may still want the shot */
