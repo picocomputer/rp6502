@@ -49,6 +49,10 @@ static uint32_t oracle_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 void oracle_init(void)
 {
+    /* The RTL machine's RAM and XRAM are block RAM and come up zeroed, where
+     * the emulator defaults to a random fill because a 6502's SRAM does not.
+     * The oracle has to be the same machine, so it takes the FPGA's. */
+    mem_set_fill(false, 0, 0);
     main_init();
     vga_set_framebuffer(oracle_fb);
 }
