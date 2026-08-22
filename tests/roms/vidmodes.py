@@ -23,7 +23,8 @@ from pathlib import Path
 # The assembler and the container live with the other generators; this
 # one lives beside the corpus it writes.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
-from rp6502_rom import Asm, Rom  # noqa: E402
+from rp6502_asm import Asm  # noqa: E402
+from rp6502_rom import Rom  # noqa: E402
 
 ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument("--out", type=Path, required=True,
@@ -37,20 +38,23 @@ def say(p, text):
     # on the TX-ready bit, store it. The terminal model keeps the text
     # across canvas switches, so a mode-0 slot shows it anywhere.
     for ch in text.encode("latin-1"):
-        p.lda(ch)
-        p.bit(0xFFE0)
-        p.emit(0x10, 0xFB)
-        p.sta(0xFFE1)
+        wait = p.local("say")
+        p.lda_imm(ch)
+        p.symbol(wait)
+        p.bit_abs(0xFFE0)
+        p.bpl(wait)
+        p.sta_abs(0xFFE1)
 
 
-def prog(canvas, progs, speak=None):
+def prog(canvas, progs, speak=None, stop=True):
     p = Asm()
     if speak:
         say(p, speak)
     p.xreg(1, 0, 0, canvas)
     for words in progs:
         p.xreg(1, 0, 1, *words)
-    p.stp()
+    if stop:
+        p.stp()
     return p
 
 
@@ -465,8 +469,7 @@ mode0mix("mode0_win180", 2, 1, 0, 0)
 # The graphics round trip home: a canvas, a fill, then the console
 # again — the return must republish the vsync line and the console
 # must still be whole.
-p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY)
-p.b.pop()  # the STP; two canvas xregs need a hand-built tail
+p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY, stop=False)
 p.xreg(1, 0, 0, 0)
 p.stp()
 r = Rom().program(p)

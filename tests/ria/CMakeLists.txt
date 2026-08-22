@@ -11,12 +11,20 @@ add_custom_command(OUTPUT ${ASM_REF}
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit ${ASM_REF}
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py
+        ${RP6502_ROOT}/src/gen/rp6502_asm.py
         ${RP6502_ROOT}/src/gen/rp6502_rom.py
     COMMENT "Assembling the reference image"
     VERBATIM)
 add_custom_target(asm_ref DEPENDS ${ASM_REF})
 rp6502_add_test(asm SOURCES test_asm.cpp DEFS ASM_REF="${ASM_REF}")
 add_dependencies(test_asm asm_ref)
+
+# The Python assembler reads its opcodes out of vendor/chips rather than
+# carrying its own, so a bump that renames or reshuffles that table would
+# otherwise be found by a ROM that still assembles and no longer runs.
+add_test(NAME asm_opcodes
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_ROOT}/src/gen/rp6502_asm.py --check)
 
 # --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
 rp6502_add_test(units

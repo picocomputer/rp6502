@@ -129,6 +129,7 @@ if(RP6502_RTL_SIM)
         # reaches a diff only as its gitlink.
         ${RP6502_SIM_MODULES}
         ${RP6502_ROOT}/tests/roms/vidmodes.py
+        ${RP6502_SRC}/gen/rp6502_asm.py
         ${RP6502_SRC}/gen/rp6502_rom.py
         ${CMAKE_CURRENT_LIST_FILE}
         ${CMAKE_CURRENT_LIST_DIR}/machine.cmake

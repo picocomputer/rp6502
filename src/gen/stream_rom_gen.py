@@ -18,8 +18,9 @@
 
 import argparse
 
-from rp6502_rom import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK, O_RDONLY,
-                        XSTACK, Asm, image)
+from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK, O_RDONLY,
+                        XSTACK, Asm)
+from rp6502_rom import image
 
 NAME = "M.DAT"
 CHUNK = 16
@@ -32,37 +33,35 @@ def prog():
     p = Asm()
 
     p.push_str(NAME)
-    p.lda(O_RDONLY)
-    p.sta(API_A)
+    p.lda_imm(O_RDONLY)
+    p.sta_abs(API_A)
     p.call(OP_OPEN)
-    p.sta(HANDLE)
+    p.sta_abs(HANDLE)
 
     # Read CHUNK bytes, print what came back, and go round until a read
     # answers with none — which is the end of the file and nothing else,
     # because a short read is still a read.
-    loop = p.here()
+    p.symbol("loop")
     p.push(0)
     p.push(CHUNK)
     p.lda_abs(HANDLE)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_READ_XSTACK)
 
-    p.emit(0xAA)  # tax — bytes read
-    done = p.branch(0xF0)  # beq done
+    p.tax()  # bytes read
+    with p.branch("beq"):
+        p.symbol("inner")
+        p.lda_abs(XSTACK)
+        p.putc_a()
+        p.dex()
+        p.bne("inner")
+        p.jmp_abs("loop")
 
-    inner = p.here()
-    p.lda_abs(XSTACK)
-    p.putc_a()
-    p.dex()
-    p.emit(0xD0, (inner - (p.here() + 2)) & 0xFF)  # bne inner
-    p.jmp(loop)
-
-    p.close(done)
     p.lda_abs(HANDLE)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_CLOSE)
     for c in DONE:
-        p.lda(c)
+        p.lda_imm(c)
         p.putc_a()
     p.stp()
     return p

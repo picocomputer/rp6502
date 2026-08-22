@@ -18,30 +18,31 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
-from rp6502_rom import (API_A, ORG, OP_CLOSE, OP_OPEN, O_CREAT, O_WRONLY,
-                        RIA_TX, Asm, Rom)  # noqa: E402
+from rp6502_asm import (API_A, ORG, OP_CLOSE, OP_OPEN, O_CREAT, O_WRONLY,
+                        RIA_TX, Asm)  # noqa: E402
+from rp6502_rom import Rom  # noqa: E402
 
 
 def build():
     p = Asm()
 
     # Immediates and absolutes, every register.
-    p.lda(0x12)
-    p.ldx(0x34)
-    p.ldy(0x56)
+    p.lda_imm(0x12)
+    p.ldx_imm(0x34)
+    p.ldy_imm(0x56)
     p.lda_abs(0x0200)
     p.ldx_abs(0x0201)
-    p.sta(0x0202)
-    p.stx(0x0203)
+    p.sta_abs(0x0202)
+    p.stx_abs(0x0203)
     p.inc_abs(0x0204)
 
-    # Control flow, and the address arithmetic behind here().
-    top = p.here()
+    # Control flow, and the symbol table behind a backward reference.
+    p.symbol("top")
     p.inx()
     p.dex()
-    p.bit(0x0205)
-    p.jsr(top)
-    p.jmp(top)
+    p.bit_abs(0x0205)
+    p.jsr_abs("top")
+    p.jmp_abs("top")
     p.rts()
 
     # The xstack, in all four widths. The string is the one that would
@@ -55,8 +56,8 @@ def build():
 
     # The API, both call shapes.
     p.push_str("T.DAT")
-    p.lda(O_WRONLY | O_CREAT)
-    p.sta(API_A)
+    p.lda_imm(O_WRONLY | O_CREAT)
+    p.sta_abs(API_A)
     p.call(OP_OPEN)
     p.call_a(OP_CLOSE, 0x03)
     p.xreg(1, 0, 0, 0x0001)
@@ -64,14 +65,15 @@ def build():
 
     # The two device idioms.
     p.poke(0x8000, 0x28)
-    p.lda(0x07)
-    p.sta(RIA_TX)
+    p.lda_imm(0x07)
+    p.sta_abs(RIA_TX)
     p.putc_a()
 
     # Raw bytes, and the payload after the code.
-    p.emit(0xEA, 0xEA)
+    p.nop()
+    p.nop()
     p.stp()
-    p.b += b"asm\0"
+    p.data(b"asm\0")
     return p
 
 

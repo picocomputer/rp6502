@@ -15,9 +15,10 @@
 
 import argparse
 
-from rp6502_rom import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
+from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
                         OP_WRITE_XSTACK, O_CREAT, O_RDONLY, O_TRUNC,
-                        O_WRONLY, XSTACK, Asm, image)
+                        O_WRONLY, XSTACK, Asm)
+from rp6502_rom import image
 
 NAME = "T.DAT"
 PAYLOAD = b"pocket file ok\r\n"
@@ -29,48 +30,45 @@ def prog():
 
     # Create it, write the payload, close.
     p.push_str(NAME)
-    p.lda(O_WRONLY | O_CREAT | O_TRUNC)
-    p.sta(API_A)
+    p.lda_imm(O_WRONLY | O_CREAT | O_TRUNC)
+    p.sta_abs(API_A)
     p.call(OP_OPEN)
-    p.sta(0x0200)  # the descriptor
+    p.sta_abs(0x0200)  # the descriptor
 
     for c in reversed(PAYLOAD):
         p.push(c)
     p.lda_abs(0x0200)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_WRITE_XSTACK)
 
     p.lda_abs(0x0200)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_CLOSE)
 
     # Open it again under the drive name the real machine uses — the
     # prefix has to reach the same file — read it back, print it.
     p.push_str("MSC0:" + NAME)
-    p.lda(O_RDONLY)
-    p.sta(API_A)
+    p.lda_imm(O_RDONLY)
+    p.sta_abs(API_A)
     p.call(OP_OPEN)
-    p.sta(0x0200)
+    p.sta_abs(0x0200)
 
     p.push(0)
     p.push(len(PAYLOAD))
     p.lda_abs(0x0200)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_READ_XSTACK)
 
-    p.emit(0xAA)  # tax — bytes read
-    p.emit(0xF0, 0x00)  # beq done, patched once the loop is sized
-    skip = len(p.b)
-    loop = len(p.b)
-    p.lda_abs(XSTACK)
-    p.putc_a()
-    p.dex()
-    back = loop - (len(p.b) + 2)
-    p.emit(0xD0, back)  # bne loop
-    p.b[skip - 1] = len(p.b) - skip
+    p.tax()  # bytes read
+    with p.branch("beq"):
+        p.symbol("loop")
+        p.lda_abs(XSTACK)
+        p.putc_a()
+        p.dex()
+        p.bne("loop")
 
     p.lda_abs(0x0200)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_CLOSE)
     p.stp()
     return p

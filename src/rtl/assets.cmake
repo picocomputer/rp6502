@@ -135,7 +135,9 @@ rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
 # on hardware and a note the simulation asserts from drifting apart.
 # The assembler and the .rp6502 container every one of these generators
 # writes through. A change to it changes every ROM, so every ROM names it.
-set(RP6502_ROM_GEN ${RP6502_SRC}/gen/rp6502_rom.py)
+set(RP6502_ROM_GEN
+    ${RP6502_SRC}/gen/rp6502_asm.py
+    ${RP6502_SRC}/gen/rp6502_rom.py)
 
 set(AUD_ROM_PSG ${RP6502_ASSETS}/psg.rp6502)
 set(AUD_ROM_PSG_PRE ${RP6502_ASSETS}/psg_pre.rp6502)

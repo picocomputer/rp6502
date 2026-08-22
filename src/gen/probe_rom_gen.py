@@ -31,14 +31,14 @@
 
 import argparse
 
-from rp6502_rom import (API_A, ORG, OP_CLOSE, OP_LSEEK, OP_OPEN, O_CREAT,
-                        O_RDONLY, O_TRUNC, O_WRONLY, RIA_READY, RIA_TX, Asm,
-                        image)
+from rp6502_asm import (API_A, OP_CLOSE, OP_LSEEK, OP_OPEN, O_CREAT,
+                        O_RDONLY, O_TRUNC, O_WRONLY, Asm, putc, putnib,
+                        puthex)
+from rp6502_rom import image
 
 
 # api_pop_int8 takes whence before api_pop_int32_end takes the offset, so
 # whence is pushed last. cc65 spells END as 1, not 2.
-OP_LSEEK = 0x1A
 SEEK_END_CC65 = 1
 
 FD = 0x0200
@@ -51,78 +51,45 @@ NEW = "n2.bin"
 
 def build():
     p = Asm()
-    p.emit(0x4C, 0x00, 0x00)  # jmp main
-    jmp_main = 1
+    p.jmp_abs("main")
+    p.use(putc, putnib, puthex)
+    p.symbol("main")
 
-    putc = p.here()
-    p.emit(0x48)  # pha
-    p.emit(0x2C, RIA_READY & 0xFF, RIA_READY >> 8)  # bit
-    p.emit(0x10, 0xFB)  # bpl -5
-    p.emit(0x68)  # pla
-    p.sta(RIA_TX)
-    p.rts()
-
-    putnib = p.here()
-    p.emit(0xC9, 0x0A)  # cmp #10
-    p.emit(0xB0, 0x06)  # bcs letter
-    p.emit(0x18)
-    p.emit(0x69, ord("0"))
-    p.jmp(putc)
-    p.emit(0x18)
-    p.emit(0x69, ord("A") - 10)
-    p.jmp(putc)
-
-    puthex = p.here()
-    p.emit(0x48)  # pha
-    p.emit(0x4A, 0x4A, 0x4A, 0x4A)  # lsr x4
-    p.jsr(putnib)
-    p.emit(0x68)  # pla
-    p.emit(0x29, 0x0F)
-    p.jmp(putnib)
-
-    main = p.here()
-    p.b[jmp_main] = main & 0xFF
-    p.b[jmp_main + 1] = main >> 8
-
-    def text(s):
-        for c in s.encode():
-            p.lda(c)
-            p.jsr(putc)
+    text = p.say
 
     def open_name(name, flags):
         p.push_str(name)
         p.store(API_A, flags)
         p.call(OP_OPEN)
-        p.sta(FD)
+        p.sta_abs(FD)
 
     def close_fd():
         p.lda_abs(FD)
-        p.emit(0xC9, 0xFF)  # cmp #$FF
-        skip = p.branch(0xF0)
-        p.lda_abs(FD)
-        p.sta(API_A)
-        p.call(OP_CLOSE)
-        p.close(skip)
+        p.cmp_imm(0xFF)
+        with p.branch("beq"):
+            p.lda_abs(FD)
+            p.sta_abs(API_A)
+            p.call(OP_CLOSE)
 
     def show_len(tag, name):
         """Seek to the end and print the low sixteen bits of the length."""
         open_name(name, O_RDONLY)
         text(tag + "=")
         p.lda_abs(FD)
-        p.jsr(puthex)
+        p.jsr_abs("puthex")
         text("/")
         for _ in range(4):
             p.push(0)  # a zero offset, so its byte order cannot matter
         p.push(SEEK_END_CC65)
         p.lda_abs(FD)
-        p.sta(API_A)
+        p.sta_abs(API_A)
         p.call(OP_LSEEK)
         # api_return_axsreg puts bits 7:0 in A and 15:8 in X.
-        p.emit(0x48)  # pha
-        p.emit(0x8A)  # txa
-        p.jsr(puthex)
-        p.emit(0x68)  # pla
-        p.jsr(puthex)
+        p.pha()
+        p.txa()
+        p.jsr_abs("puthex")
+        p.pla()
+        p.jsr_abs("puthex")
         text("\r\n")
         close_fd()
 
@@ -130,7 +97,7 @@ def build():
         open_name(name, flags)
         text(tag + "=")
         p.lda_abs(FD)
-        p.jsr(puthex)
+        p.jsr_abs("puthex")
         text("\r\n")
         close_fd()
 
@@ -145,7 +112,7 @@ def build():
     show_len("L2", OLD)
 
     text("DONE\r\n")
-    p.emit(0xDB)  # stp
+    p.stp()
     return p
 
 

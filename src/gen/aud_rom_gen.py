@@ -15,7 +15,8 @@
 
 import argparse
 
-from rp6502_rom import API_OP, RIA_TX, Asm, image
+from rp6502_asm import API_OP, RIA_TX, Asm
+from rp6502_rom import image
 
 
 class Prog(Asm):
@@ -27,23 +28,32 @@ class Prog(Asm):
         """About 1,280 cycles. The pointer's reset releases every gate at
         the next sample boundary, so a gate edge landing in the period
         right after xreg returns is taken back."""
-        self.emit(0xA2, 0x00, 0xCA, 0xD0, 0xFD)
+        loop = self.local("settle")
+        self.ldx_imm(0)
+        self.symbol(loop)
+        self.dex()
+        self.bne(loop)
 
     def spin(self):
-        self.jmp(self.here())
+        self.jmp_abs(self.here())
 
     def delay(self, outer):
         """About outer * 1,280 cycles of nothing."""
-        self.emit(0xA0, outer & 0xFF)       # LDY #outer
-        self.emit(0xA2, 0x00)               # outer: LDX #0
-        self.emit(0xCA, 0xD0, 0xFD)         # inner: DEX BNE inner
-        self.emit(0x88, 0xD0, 0xF8)         # DEY BNE outer (to the LDX)
+        out, inner = self.local("delay"), self.local("delay")
+        self.ldy_imm(outer & 0xFF)
+        self.symbol(out)
+        self.ldx_imm(0)
+        self.symbol(inner)
+        self.dex()
+        self.bne(inner)
+        self.dey()
+        self.bne(out)
 
     def exit(self):
         """API exit: the firmware parks both audio engines and stops the
         CPU, so anything still sounding past this is the machine's bug."""
-        self.lda(0xFF)
-        self.sta(API_OP)
+        self.lda_imm(0xFF)
+        self.sta_abs(API_OP)
         self.spin()
 
 
@@ -63,7 +73,7 @@ def psg_prog():
     p.poke(page + 5, 0x00)
     p.poke(page + 6, 0x01)  # gate last: this edge is what starts the note
     p.spin()
-    return p.b
+    return p
 
 
 def psg_pre_prog():
@@ -91,7 +101,7 @@ def psg_pre_prog():
     p.delay(255)
     p.poke(page + 6, 0x01)
     p.spin()
-    return p.b
+    return p
 
 
 def opl_prog():
@@ -114,7 +124,7 @@ def opl_prog():
     ):
         p.poke(page + reg, val)
     p.spin()
-    return p.b
+    return p
 
 
 def opl_exit_prog():
@@ -132,7 +142,7 @@ def opl_exit_prog():
         p.poke(page + reg, val)
     p.delay(64)
     p.exit()
-    return p.b
+    return p
 
 
 def bel_prog():
@@ -140,10 +150,10 @@ def bel_prog():
     that the soft CPU drives, so this proves it sounds with no program
     holding an engine — which is the console's own case."""
     p = Prog()
-    p.lda(0x07)
-    p.sta(RIA_TX)
+    p.lda_imm(0x07)
+    p.sta_abs(RIA_TX)
     p.spin()
-    return p.b
+    return p
 
 
 def opl_bel_prog():
@@ -159,10 +169,10 @@ def opl_bel_prog():
         (0xC0, 0x0E), (0xA0, 0x98), (0xB0, 0x31),
     ):
         p.poke(page + reg, val)
-    p.lda(0x07)
-    p.sta(RIA_TX)
+    p.lda_imm(0x07)
+    p.sta_abs(RIA_TX)
     p.spin()
-    return p.b
+    return p
 
 
 def emit(path, body):

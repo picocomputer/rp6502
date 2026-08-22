@@ -30,10 +30,10 @@
 
 import argparse
 
-from rp6502_rom import (API_A, API_CALL, API_OP, ORG, OP_CLOSE, OP_OPEN,
-                        OP_READ_XSTACK, OP_WRITE_XSTACK, O_CREAT, O_RDONLY,
-                        O_TRUNC, O_WRONLY, RIA_READY, RIA_TX, XSTACK, Asm,
-                        image)
+from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
+                        OP_WRITE_XSTACK, O_CREAT, O_RDONLY, O_TRUNC, O_WRONLY,
+                        XSTACK, Asm, putc, putnib, puthex, puthex16)
+from rp6502_rom import image
 
 NAME = "T2.DAT"
 # The read syscall answers with api_return_ax: A is the count's low byte
@@ -64,54 +64,11 @@ def val(chunk, i):
 
 def build():
     p = Asm()
-    p.emit(0x4C, 0x00, 0x00)  # jmp main
-    jmp_main = 1
-
-    # --- putc: A to the console, once it will take it ---
-    putc = p.here()
-    p.emit(0x48)  # pha
-    p.emit(0x2C, RIA_READY & 0xFF, RIA_READY >> 8)  # bit
-    p.emit(0x10, 0xFB)  # bpl -5
-    p.emit(0x68)  # pla
-    p.sta(RIA_TX)
-    p.rts()
-
-    # --- putnib: low nibble of A as one hex digit ---
-    putnib = p.here()
-    p.emit(0xC9, 0x0A)  # cmp #10
-    p.emit(0xB0, 0x06)  # bcs letter (over clc/adc/jmp)
-    p.emit(0x18)  # clc
-    p.emit(0x69, ord("0"))
-    p.jmp(putc)
-    p.emit(0x18)  # letter: clc
-    p.emit(0x69, ord("A") - 10)
-    p.jmp(putc)
-
-    # --- puthex: A as two hex digits ---
-    puthex = p.here()
-    p.emit(0x48)  # pha
-    p.emit(0x4A, 0x4A, 0x4A, 0x4A)  # lsr x4
-    p.jsr(putnib)
-    p.emit(0x68)  # pla
-    p.emit(0x29, 0x0F)
-    p.jmp(putnib)
-
-    # --- puthex16: A high, X low ---
-    puthex16 = p.here()
-    p.emit(0x8E, TMP & 0xFF, TMP >> 8)  # stx TMP
-    p.jsr(puthex)
-    p.lda_abs(TMP)
-    p.jmp(puthex)
-
-    def text(s):
-        for c in s.encode():
-            p.lda(c)
-            p.jsr(putc)
+    p.jmp_abs("main")
+    p.use(putc, putnib, puthex, puthex16(TMP))
 
     # --- main ---
-    main = p.here()
-    p.b[jmp_main] = main & 0xFF
-    p.b[jmp_main + 1] = main >> 8
+    p.symbol("main")
 
     for a, v in ((BADL, 0), (BADH, 0), (ERRL, 0xFF), (ERRH, 0xFF),
                  (GOTL, 0), (GOTH, 0), (WROL, 0), (WROH, 0),
@@ -122,144 +79,135 @@ def build():
     p.push_str(NAME)
     p.store(API_A, O_WRONLY | O_CREAT | O_TRUNC)
     p.call(OP_OPEN)
-    p.sta(FD)
-    p.sta(F1)
+    p.sta_abs(FD)
+    p.sta_abs(F1)
 
     for c in range(CHUNKS):
         # Push descending, so the write reads forward as byte 0..255.
         p.store(VAL, val(c, CHUNK - 1))
-        p.ldx(CHUNK)
-        top = p.here()
+        p.ldx_imm(CHUNK)
+        top = p.symbol(p.local("push"))
         p.lda_abs(VAL)
-        p.sta(XSTACK)
-        p.emit(0x38)  # sec
-        p.emit(0xE9, 0x07)  # sbc #7
-        p.sta(VAL)
-        p.emit(0xCA)  # dex
-        p.emit(0xD0, (top - (p.here() + 2)) & 0xFF)
+        p.sta_abs(XSTACK)
+        p.sec()
+        p.sbc_imm(0x07)
+        p.sta_abs(VAL)
+        p.dex()
+        p.bne(top)
         p.lda_abs(FD)
-        p.sta(API_A)
+        p.sta_abs(API_A)
         p.call(OP_WRITE_XSTACK)
         # A is the low byte of what it took; X the high, or FF on error.
-        p.emit(0xE0, 0x00)  # cpx #0
-        wbad = p.branch(0xD0)
-        p.emit(0x18)  # clc
-        p.emit(0x6D, WROL & 0xFF, WROL >> 8)  # adc WROL
-        p.sta(WROL)
-        p.emit(0x90, 0x03)  # bcc over
-        p.inc_abs(WROH)
-        p.close(wbad)
+        p.cpx_imm(0x00)
+        with p.branch("bne"):
+            p.clc()
+            p.adc_abs(WROL)
+            p.sta_abs(WROL)
+            with p.branch("bcc"):
+                p.inc_abs(WROH)
 
     p.lda_abs(FD)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_CLOSE)
 
     # Read it back through the drive prefix, checking every byte.
     p.push_str("MSC0:" + NAME)
     p.store(API_A, O_RDONLY)
     p.call(OP_OPEN)
-    p.sta(FD)
-    p.sta(F2)
+    p.sta_abs(FD)
+    p.sta_abs(F2)
 
     for c in range(CHUNKS):
         p.push(CHUNK >> 8)
         p.push(CHUNK & 0xFF)
         p.lda_abs(FD)
-        p.sta(API_A)
+        p.sta_abs(API_A)
         p.call(OP_READ_XSTACK)
         # X is the count's high byte, and FF when the call failed. Either
         # way a nonzero high byte means this is not a length we asked for.
-        p.emit(0xE0, 0x00)  # cpx #0
-        rok = p.branch(0xF0)
-        p.inc_abs(RERR)
-        rbad = p.branch(0xD0)  # bne: always, skip the chunk
-        p.close(rok)
-        p.emit(0xAA)  # tax — bytes returned
-        short = p.branch(0xF0)  # beq: nothing came back, skip the chunk
+        p.cpx_imm(0x00)
+        skip = p.local("skip")
+        with p.branch("beq"):
+            p.inc_abs(RERR)
+            p.bne(skip)  # always, skip the chunk
+        p.tax()  # bytes returned
+        with p.branch("beq"):  # nothing came back, skip the chunk
+            p.store(VAL, val(c, 0))
+            p.store(IDX, 0)
+            p.store(CHN, c)
 
-        p.store(VAL, val(c, 0))
-        p.store(IDX, 0)
-        p.store(CHN, c)
+            top = p.symbol(p.local("check"))
+            p.lda_abs(XSTACK)  # pops one byte
+            p.cmp_abs(VAL)
+            with p.branch("beq"):
+                p.inc16(BADL, BADH)
+                p.lda_abs(ERRH)
+                p.cmp_imm(0xFF)  # first one only
+                with p.branch("bne"):
+                    p.lda_abs(CHN)
+                    p.sta_abs(ERRH)
+                    p.lda_abs(IDX)
+                    p.sta_abs(ERRL)
 
-        top = p.here()
-        p.lda_abs(XSTACK)  # pops one byte
-        p.cmp_abs(VAL)
-        good = p.branch(0xF0)  # beq good
-        p.inc16(BADL, BADH)
-        p.lda_abs(ERRH)
-        p.emit(0xC9, 0xFF)  # first one only
-        have = p.branch(0xD0)  # bne have
-        p.lda_abs(CHN)
-        p.sta(ERRH)
-        p.lda_abs(IDX)
-        p.sta(ERRL)
-        p.close(have)
-        p.close(good)
-
-        p.lda_abs(VAL)  # next expected
-        p.emit(0x18)
-        p.emit(0x69, 0x07)
-        p.sta(VAL)
-        p.inc_abs(IDX)
-        p.inc16(GOTL, GOTH)
-        p.emit(0xCA)  # dex
-        p.emit(0xD0, (top - (p.here() + 2)) & 0xFF)
-        p.close(short)
-        p.close(rbad)
+            p.lda_abs(VAL)  # next expected
+            p.clc()
+            p.adc_imm(0x07)
+            p.sta_abs(VAL)
+            p.inc_abs(IDX)
+            p.inc16(GOTL, GOTH)
+            p.dex()
+            p.bne(top)
+        p.symbol(skip)
 
     p.lda_abs(FD)
-    p.sta(API_A)
+    p.sta_abs(API_A)
     p.call(OP_CLOSE)
 
     # --- the answer ---
-    text("\r\nBIGFILE\r\nF=")
+    p.say("\r\nBIGFILE\r\nF=")
     p.lda_abs(F1)
-    p.jsr(puthex)
-    p.lda(ord("/"))
-    p.jsr(putc)
+    p.jsr_abs("puthex")
+    p.lda_imm(ord("/"))
+    p.jsr_abs("putc")
     p.lda_abs(F2)
-    p.jsr(puthex)
-    text(" X=")
+    p.jsr_abs("puthex")
+    p.say(" X=")
     p.lda_abs(RERR)
-    p.jsr(puthex)
-    text("\r\nW=")
+    p.jsr_abs("puthex")
+    p.say("\r\nW=")
     p.lda_abs(WROH)
     p.ldx_abs(WROL)
-    p.jsr(puthex16)
-    text(" R=")
+    p.jsr_abs("puthex16")
+    p.say(" R=")
     p.lda_abs(GOTH)
     p.ldx_abs(GOTL)
-    p.jsr(puthex16)
-    text("\r\nE=")
+    p.jsr_abs("puthex16")
+    p.say("\r\nE=")
     p.lda_abs(ERRH)
     p.ldx_abs(ERRL)
-    p.jsr(puthex16)
-    text(" N=")
+    p.jsr_abs("puthex16")
+    p.say(" N=")
     p.lda_abs(BADH)
     p.ldx_abs(BADL)
-    p.jsr(puthex16)
-    text("\r\n")
+    p.jsr_abs("puthex16")
+    p.say("\r\n")
 
     # PASS needs no wrong bytes and the whole file back.
     p.lda_abs(BADL)
     p.ora_abs(BADH)
     p.ora_abs(RERR)
-    f1 = p.branch(0xD0)
+    p.bne("fail")
     p.lda_abs(GOTL)
-    p.emit(0xC9, TOTAL & 0xFF)
-    f2 = p.branch(0xD0)
+    p.cmp_imm(TOTAL & 0xFF)
+    p.bne("fail")
     p.lda_abs(GOTH)
-    p.emit(0xC9, TOTAL >> 8)
-    f3 = p.branch(0xD0)
-    text("PASS\r\n")
-    p.emit(0x4C, 0x00, 0x00)  # jmp end
-    endj = len(p.b) - 2
-    for h in (f1, f2, f3):
-        p.close(h)
-    text("FAIL\r\n")
-    end = p.here()
-    p.b[endj] = end & 0xFF
-    p.b[endj + 1] = end >> 8
+    p.cmp_imm(TOTAL >> 8)
+    p.bne("fail")
+    p.say("PASS\r\n")
+    p.jmp_abs("end")
+    p.symbol("fail")
+    p.say("FAIL\r\n")
+    p.symbol("end")
     p.stp()
     return p
 

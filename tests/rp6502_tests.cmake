@@ -24,11 +24,13 @@ set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 set(RP6502_TEST_CORPUS ${CMAKE_BINARY_DIR}/roms)
 if(NOT TARGET rp6502_test_corpus)
     set(RP6502_CORPUS_GEN ${RP6502_TEST_ROMS}/vidmodes.py)
-    # It assembles through src/gen/rp6502_rom.py like every other ROM
+    # It assembles and packages through src/gen like every other ROM
     # generator, so a change there is a change to the corpus.
-    set(RP6502_CORPUS_ASM ${RP6502_ROOT}/src/gen/rp6502_rom.py)
-    # A stamp rather than the forty-one names: listing them here would be the
-    # same duplication in a different file.
+    set(RP6502_CORPUS_ASM
+        ${RP6502_ROOT}/src/gen/rp6502_asm.py
+        ${RP6502_ROOT}/src/gen/rp6502_rom.py)
+    # A stamp rather than the names: listing them here would be the same
+    # duplication in a different file, and it would be wrong within a month.
     add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/roms.stamp
         COMMAND ${CMAKE_COMMAND} -E env python3
             ${RP6502_CORPUS_GEN} --out ${RP6502_TEST_CORPUS}
