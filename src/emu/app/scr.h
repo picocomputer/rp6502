@@ -17,11 +17,17 @@
  * hands them to the same hid seams a real device would.
  *
  * The verbs are listed in cli_usage(). A failed assertion prints the script
- * line and ends the run; scr_exit_code is what the process should return. */
+ * line and ends the run; scr_exit_code is what the process should return.
+ *
+ * `reply` turns on a line of stdout per command — ok, ok <values>, or
+ * fail <why> — answered when the command finishes rather than when it parses.
+ * Off until asked, so a driver writes a preamble without waiting for anything
+ * and reads the ok for `reply` itself as the moment the machine starts
+ * answering. */
 
 /* Open a script and arm it. "-" reads stdin one line at a time, which is what
- * lets a driver in any language work the machine without a protocol: the
- * machine waits for each line, so the driver is the clock. */
+ * lets a driver in any language work the machine: the machine waits for each
+ * line, so the driver is the clock. */
 bool scr_load(const char *path);
 
 /* True when --script was given at all, and true while the script is still
@@ -35,6 +41,10 @@ bool scr_running(void);
  * which is what makes `run 600` six hundred frames and not "at least" six
  * hundred. The script is the only clock; nothing paces it against real time. */
 void scr_task(void);
+
+/* Whether the frame scr_task just asked for is one the script can observe.
+ * False through the middle of a run, where the pixels are never looked at. */
+bool scr_needs_pixels(void);
 
 /* Run one command line. False on a bad line or a failed assertion, either of
  * which ends the run. Public so a transport other than a file can drive the

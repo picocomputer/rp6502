@@ -33,6 +33,7 @@ typedef enum
     SCR_IDLE,
     SCR_FRAMES,
     SCR_TEXT,
+    SCR_BYTE,
     SCR_TYPING,
     SCR_EXIT,
 } scr_wait_t;
@@ -49,6 +50,13 @@ static scr_wait_t scr_wait;
 static unsigned long scr_budget;
 static char scr_needle[256];
 static int scr_exit_want;
+
+/* Where a wait on memory is looking. The byte is read at the frame boundary,
+ * which is why the program on the other end holds its answer until the script
+ * acknowledges it rather than publishing it for a cycle and moving on. */
+static uint8_t *scr_addr_base;
+static long scr_addr;
+static uint8_t scr_addr_want;
 
 /* The canvas as `mark` last saw it. A test of a graphic is usually "this moved"
  * or "this held still", which a remembered hash answers without a literal one
@@ -105,28 +113,84 @@ static void scr_cap_take(const char *through)
 /* Parsing                                                             */
 /* ------------------------------------------------------------------ */
 
-/* Report where the script went wrong and end the run. Always returns false, so
- * a handler can `return scr_error(...)`. */
-static bool scr_error(const char *fmt, ...)
+/* What the console actually held. The capture is the wire: it carries the line
+ * editor's escapes and the echo of anything the script typed, so a needle that
+ * spans a cursor move never matches and the only way to see why is to look. */
+static void scr_show_capture(void)
 {
-    fprintf(stderr, "rp6502-emu: %s:%d: ", scr_path, scr_line_no);
+    size_t from = scr_cap_len > 200 ? scr_cap_len - 200 : 0;
+    fputs("  console: ", stderr);
+    for (size_t i = from; i < scr_cap_len; i++)
+    {
+        unsigned char c = (unsigned char)scr_cap[i];
+        if (c >= ' ' && c < 0x7F)
+            fputc(c, stderr);
+        else
+            fprintf(stderr, "\\x%02X", c);
+    }
+    fputc('\n', stderr);
+}
+
+/* One line per command once `reply` has turned them on: ok, ok <values>, or
+ * fail <why>. Off until a script asks, so a driver sends its whole preamble
+ * without waiting for anything, ends it with `reply`, and reads the ok for
+ * that line as the signal the machine is now answering.
+ *
+ * A command that blocks answers when it finishes, not when it parses — the
+ * reply for `run 600` comes six hundred frames later. That is the whole point
+ * of the channel: a driver that saw it sooner would race the machine. */
+static bool scr_replies;
+static bool scr_answered; /* the finished command replied for itself */
+static bool scr_pending;  /* a command is running and owes an answer */
+
+static void scr_reply(const char *fmt, ...)
+{
+    if (!scr_replies)
+        return;
     va_list ap;
     va_start(ap, fmt);
-    vfprintf(stderr, fmt, ap);
+    vprintf(fmt, ap);
     va_end(ap);
-    fputc('\n', stderr);
+    fputc('\n', stdout);
+    fflush(stdout);
+    scr_answered = true;
+}
+
+static bool scr_error(const char *fmt, ...)
+{
+    char msg[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    fprintf(stderr, "rp6502-emu: %s:%d: %s\n", scr_path, scr_line_no, msg);
+    scr_reply("fail %s", msg);
+    scr_pending = false;
     scr_fail = true;
     scr_run = false;
     return false;
 }
 
 /* The next whitespace-delimited word, terminated in place. NULL at end of line. */
+/* Whether anything but a comment is left on the line. A quoted string is read
+ * by scr_string before this ever sees it, so a '#' inside one is safe. */
+static bool scr_more(char **p)
+{
+    char *s = *p;
+    while (*s == ' ' || *s == '\t')
+        s++;
+    if (*s == '#')
+        *s = 0;
+    *p = s;
+    return *s != 0;
+}
+
 static char *scr_word(char **p)
 {
     char *s = *p;
     while (*s == ' ' || *s == '\t')
         s++;
-    if (!*s)
+    if (!*s || *s == '#')
     {
         *p = s;
         return NULL;
@@ -195,20 +259,6 @@ static bool scr_number(char **p, long *out)
         return false;
     *out = neg ? -value : value;
     return true;
-}
-
-/* A 32-bit hash, which does not fit a long everywhere. */
-static bool scr_hash(char **p, unsigned long *out)
-{
-    char *word = scr_word(p);
-    if (!word)
-        return false;
-    int base = scr_radix(&word);
-    if (base == 10)
-        base = 16; /* a bare hash is hex; nobody writes one in decimal */
-    char *end;
-    *out = strtoul(word, &end, base);
-    return end != word && !*end;
 }
 
 /* An address, in RAM unless it says xram:. */
@@ -350,7 +400,7 @@ static bool scr_cmd_mouse(char *p)
         long wheel, pan = 0;
         if (!scr_number(&p, &wheel))
             return scr_error("mouse wheel wants a count");
-        if (*p && !scr_number(&p, &pan))
+        if (scr_more(&p) && !scr_number(&p, &pan))
             return scr_error("mouse wheel wants a pan count");
         mou_host_wheel((int)wheel, (int)pan);
         return true;
@@ -374,7 +424,7 @@ static bool scr_cmd_tablet(char *p)
         long x, y, buttons = 0;
         if (!scr_number(&p, &x) || !scr_number(&p, &y))
             return scr_error("tablet at wants x y");
-        if (*p && (!scr_number(&p, &buttons) || buttons < 0 || buttons > 255))
+        if (scr_more(&p) && (!scr_number(&p, &buttons) || buttons < 0 || buttons > 255))
             return scr_error("tablet at wants a button bitmap 0..255");
         tab_host_pointer((int)x, (int)y, (uint8_t)buttons);
         return true;
@@ -408,7 +458,7 @@ static bool scr_cmd_tablet(char *p)
         long wheel, pan = 0;
         if (!scr_number(&p, &wheel))
             return scr_error("tablet wheel wants a count");
-        if (*p && !scr_number(&p, &pan))
+        if (scr_more(&p) && !scr_number(&p, &pan))
             return scr_error("tablet wheel wants a pan count");
         tab_host_wheel((int)wheel, (int)pan);
         return true;
@@ -438,7 +488,7 @@ bool scr_command(const char *line)
     if (!strcasecmp(cmd, "run"))
     {
         long frames = 1;
-        if (*p && (!scr_number(&p, &frames) || frames < 0))
+        if (scr_more(&p) && (!scr_number(&p, &frames) || frames < 0))
             return scr_error("run wants a frame count");
         scr_wait = SCR_FRAMES;
         scr_budget = (unsigned long)frames;
@@ -447,14 +497,30 @@ bool scr_command(const char *line)
 
     if (!strcasecmp(cmd, "wait"))
     {
+        /* Text or a byte in memory. scr_string does not consume the word when
+         * it finds no quote, so trying it first costs nothing and the two
+         * grammars cannot be confused for each other. */
         char text[sizeof scr_needle];
-        if (!scr_string(&p, text, sizeof text) || !text[0])
-            return scr_error("wait wants a quoted string");
+        if (scr_string(&p, text, sizeof text))
+        {
+            if (!text[0])
+                return scr_error("wait wants a quoted string");
+            snprintf(scr_needle, sizeof scr_needle, "%s", text);
+            scr_wait = SCR_TEXT;
+        }
+        else
+        {
+            long want;
+            if (!scr_address(&p, &scr_addr_base, &scr_addr) ||
+                !scr_number(&p, &want) || want < 0 || want > 0xFF)
+                return scr_error("wait wants a quoted string, or an address "
+                                 "and the byte to wait for");
+            scr_addr_want = (uint8_t)want;
+            scr_wait = SCR_BYTE;
+        }
         long frames = SCR_WAIT_FRAMES;
-        if (*p && (!scr_number(&p, &frames) || frames < 0))
+        if (scr_more(&p) && (!scr_number(&p, &frames) || frames < 0))
             return scr_error("wait wants a frame budget");
-        snprintf(scr_needle, sizeof scr_needle, "%s", text);
-        scr_wait = SCR_TEXT;
         scr_budget = (unsigned long)frames;
         return true;
     }
@@ -480,7 +546,7 @@ bool scr_command(const char *line)
         long code, frames = SCR_WAIT_FRAMES;
         if (!scr_number(&p, &code))
             return scr_error("expect-exit wants an exit code");
-        if (*p && (!scr_number(&p, &frames) || frames < 0))
+        if (scr_more(&p) && (!scr_number(&p, &frames) || frames < 0))
             return scr_error("expect-exit wants a frame budget");
         scr_exit_want = (int)code;
         scr_wait = SCR_EXIT;
@@ -493,11 +559,14 @@ bool scr_command(const char *line)
         char text[SCR_LINE_MAX];
         if (!scr_string(&p, text, sizeof text))
             return scr_error("type wants a quoted string");
+        long frames = SCR_WAIT_FRAMES;
+        if (scr_more(&p) && (!scr_number(&p, &frames) || frames < 0))
+            return scr_error("type wants a frame budget");
         kbd_paste(text);
         /* Blocks until the ring has it all, so back-to-back type commands
          * cannot replace each other mid-drip. */
         scr_wait = SCR_TYPING;
-        scr_budget = SCR_WAIT_FRAMES;
+        scr_budget = (unsigned long)frames;
         return true;
     }
 
@@ -581,7 +650,7 @@ bool scr_command(const char *line)
         if (!scr_address(&p, &base, &addr))
             return scr_error("peek wants an address");
         int i = 0;
-        while (*p)
+        while (scr_more(&p))
         {
             if (!scr_number(&p, &want) || want < 0 || want > 255)
                 return scr_error("peek wants byte values 0..255");
@@ -606,7 +675,7 @@ bool scr_command(const char *line)
         if (!scr_address(&p, &base, &addr))
             return scr_error("poke wants an address");
         int i = 0;
-        while (*p)
+        while (scr_more(&p))
         {
             if (!scr_number(&p, &value) || value < 0 || value > 255)
                 return scr_error("poke wants byte values 0..255");
@@ -620,47 +689,57 @@ bool scr_command(const char *line)
         return true;
     }
 
+    if (!strcasecmp(cmd, "reply"))
+    {
+        bool on = true;
+        char *word = scr_word(&p);
+        if (word && !strcasecmp(word, "off"))
+            on = false;
+        else if (word && strcasecmp(word, "on"))
+            return scr_error("reply wants on or off");
+        scr_replies = on;
+        return true;
+    }
+
     if (!strcasecmp(cmd, "dump"))
     {
         uint8_t *base;
         long addr, count = 1;
         if (!scr_address(&p, &base, &addr))
             return scr_error("dump wants an address");
-        if (*p && (!scr_number(&p, &count) || count < 1))
+        if (scr_more(&p) && (!scr_number(&p, &count) || count < 1))
             return scr_error("dump wants a byte count");
+        if (scr_replies)
+            printf("ok");
         for (long i = 0; i < count && addr + i <= 0xFFFF; i++)
-            printf("%s%02X", i ? " " : "", base[addr + i]);
+            printf("%s%02X", i || scr_replies ? " " : "", base[addr + i]);
         printf("\n");
         fflush(stdout);
+        scr_answered = scr_replies;
         return true;
     }
 
-    if (!strcasecmp(cmd, "crc") || !strcasecmp(cmd, "expect-crc") ||
-        !strcasecmp(cmd, "mark") || !strcasecmp(cmd, "expect-same") ||
-        !strcasecmp(cmd, "expect-changed"))
+    /* No expect-crc. A literal hash in a script is invalidated by every
+     * unrelated rendering change, which is why nothing ever used it; a driver
+     * that wants one reads `crc` and decides for itself, and a script that
+     * wants "this moved" has mark. */
+    if (!strcasecmp(cmd, "crc") || !strcasecmp(cmd, "mark") ||
+        !strcasecmp(cmd, "expect-same") || !strcasecmp(cmd, "expect-changed"))
     {
         uint32_t crc;
         if (!scr_canvas_crc(&crc))
             return scr_error("no framebuffer to hash");
         if (!strcasecmp(cmd, "crc"))
         {
-            printf("%08X\n", crc);
+            printf(scr_replies ? "ok %08X\n" : "%08X\n", crc);
             fflush(stdout);
+            scr_answered = scr_replies;
             return true;
         }
         if (!strcasecmp(cmd, "mark"))
         {
             scr_mark = crc;
             scr_marked = true;
-            return true;
-        }
-        if (!strcasecmp(cmd, "expect-crc"))
-        {
-            unsigned long want;
-            if (!scr_hash(&p, &want))
-                return scr_error("expect-crc wants a hash");
-            if (crc != (uint32_t)want)
-                return scr_error("canvas is %08X, expected %08lX", crc, want);
             return true;
         }
         if (!scr_marked)
@@ -725,7 +804,16 @@ static bool scr_settle(void)
     }
         if (scr_spend())
             return false;
+        scr_show_capture();
         return scr_error("timed out waiting for \"%s\"", scr_needle);
+    case SCR_BYTE:
+        if (scr_addr_base[scr_addr] == scr_addr_want)
+            break;
+        if (scr_spend())
+            return false;
+        return scr_error("timed out waiting for %s:$%04lX to read $%02X; it is $%02X",
+                         scr_addr_base == xram ? "xram" : "ram", scr_addr,
+                         scr_addr_want, scr_addr_base[scr_addr]);
     case SCR_TYPING:
         if (!kbd_paste_busy())
             break;
@@ -751,17 +839,36 @@ static bool scr_settle(void)
 /* Run the script forward until it owes the machine a frame, which is the only
  * reason it hands control back. The caller runs exactly one frame per return,
  * so a wait costs the frames it asked for and not one more. */
+/* Whether the frame the script is owed is one it could look at. A run's frames
+ * are seen only through the command after them, so all but the last can skip
+ * the per-scanline pixel work — around a tenth of what a frame costs, the rest
+ * being the 6502 and the raster itself. The blocking waits render every frame,
+ * because which one settles them is not known until it has run. */
+bool scr_needs_pixels(void)
+{
+    return !(scr_wait == SCR_FRAMES && scr_budget > 0);
+}
+
 void scr_task(void)
 {
     char line[SCR_LINE_MAX];
     while (scr_run && scr_settle())
     {
+        /* Settling is what says the last command is done, so this is where it
+         * is answered — after the frames it asked for, not when it parsed. */
+        if (scr_pending)
+        {
+            if (!scr_answered)
+                scr_reply("ok");
+            scr_pending = scr_answered = false;
+        }
         if (!fgets(line, sizeof line, scr_file))
         {
             scr_run = false; /* end of script */
             return;
         }
         scr_line_no++;
+        scr_pending = true;
         if (!scr_command(line))
             return; /* scr_error ended the run */
     }
@@ -794,6 +901,9 @@ bool scr_load(const char *path)
     scr_cap[0] = 0;
     scr_marked = false;
     scr_fail = false;
+    scr_replies = false;
+    scr_answered = false;
+    scr_pending = false;
     scr_run = true;
     return true;
 }

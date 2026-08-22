@@ -279,7 +279,15 @@ int main(int argc, char **argv)
         {
             scr_task(); /* returns owing exactly one frame, or done */
             if (scr_running())
-                sys_run_frame(); /* rendered: shot and crc must see real pixels */
+            {
+                /* Rendered when the script could look at it: shot, crc and the
+                 * mark family must see real pixels, and the frame a command
+                 * runs after is the only one they ever see. */
+                if (scr_needs_pixels())
+                    sys_run_frame();
+                else
+                    sys_run_frame_norender();
+            }
         }
         if (scr_exit_code() || !o.shot)
             return scr_exit_code(); /* a passing script may still want the shot */

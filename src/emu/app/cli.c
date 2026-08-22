@@ -140,7 +140,8 @@ void cli_usage(const char *argv0)
             "a failed check names the line and exits 1):\n"
             "  run [frames]              let frames elapse (default 1)\n"
             "  wait \"text\" [frames]      run until the console says it (default 600)\n"
-            "  type \"text\"               type it (\\n = Enter, \\t = Tab)\n"
+            "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that\n"
+            "  type \"text\" [frames]      type it (\\n = Enter, \\t = Tab)\n"
             "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll      toggle a lock LED\n"
@@ -156,9 +157,11 @@ void cli_usage(const char *argv0)
             "  peek [xram:]<addr> <byte>...        compare memory\n"
             "  poke [xram:]<addr> <byte>...        write memory\n"
             "  dump [xram:]<addr> [count]          print memory as hex\n"
-            "  crc / expect-crc <hash>             the canvas as a CRC-32\n"
+            "  crc                                 the canvas as a CRC-32\n"
             "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
-            "  shot \"file.png\"           write the canvas\n");
+            "  shot \"file.png\"           write the canvas\n"
+            "  reply [on|off]            answer every command on stdout, for a\n"
+            "                            driver on the other end of a pipe\n");
 }
 
 /* Reset getopt's global state so the parser starts clean each call. glibc/musl
