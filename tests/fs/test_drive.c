@@ -9,7 +9,7 @@
  *     from MSC0:, but never the cwd and never enumerated or stat'd.
  *   - the native MSC0: (no chroot): a relative path resolves the process cwd,
  *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
- *   - the ephemeral --tmpdrive: MSC0: backed by a fresh RAM FatFs (the shared
+ *   - the ephemeral RAM disk: MSC0: backed by a fresh RAM FatFs (the shared
  *     ria/api/fat.c driver), swapped in as the active dir vtable + file driver.
  */
 
@@ -190,11 +190,11 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }
 
-/* --tmpdrive backs MSC0: with a fresh RAM FatFs: mount swaps the 6502 file
+/* A RAM FatFs backs MSC0:: mount swaps the 6502 file
  * syscalls to the shared fat_std_* driver and the dir syscalls to the firmware's
  * fat_api_* (via the OP array), all over the RAM disk. We inspect the volume with
  * FatFs f_* directly and round-trip a file through the std_* file driver. */
-UTEST(drive, tmpdrive_is_fresh_ramfs)
+UTEST(drive, ramfs_is_fresh)
 {
     std_stop();
     ASSERT_TRUE(tmp_mount());
@@ -209,7 +209,7 @@ UTEST(drive, tmpdrive_is_fresh_ramfs)
     FILINFO info;
     ASSERT_EQ(f_stat("scratch.dat", &info), FR_NO_FILE);
 
-    /* Write via the FatFs file driver (std_* -> fat_std_* on tmpdrive) ... */
+    /* Write via the FatFs file driver (std_* -> fat_std_* on the RAM disk) ... */
     make_file("scratch.dat", "tmp", 3);
 
     /* ... and it lands on the RAM FatFs. */

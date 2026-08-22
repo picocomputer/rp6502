@@ -171,7 +171,6 @@ static bool scr_error(const char *fmt, ...)
     return false;
 }
 
-/* The next whitespace-delimited word, terminated in place. NULL at end of line. */
 /* Whether anything but a comment is left on the line. A quoted string is read
  * by scr_string before this ever sees it, so a '#' inside one is safe. */
 static bool scr_more(char **p)
@@ -185,6 +184,7 @@ static bool scr_more(char **p)
     return *s != 0;
 }
 
+/* The next whitespace-delimited word, terminated in place. NULL at end of line. */
 static char *scr_word(char **p)
 {
     char *s = *p;
@@ -719,10 +719,9 @@ bool scr_command(const char *line)
         return true;
     }
 
-    /* No expect-crc. A literal hash in a script is invalidated by every
-     * unrelated rendering change, which is why nothing ever used it; a driver
-     * that wants one reads `crc` and decides for itself, and a script that
-     * wants "this moved" has mark. */
+    /* The canvas is checked against a remembered hash, never a literal one:
+     * a hash written into a script is invalidated by every unrelated
+     * rendering change. A driver that wants the number reads `crc`. */
     if (!strcasecmp(cmd, "crc") || !strcasecmp(cmd, "mark") ||
         !strcasecmp(cmd, "expect-same") || !strcasecmp(cmd, "expect-changed"))
     {
@@ -872,6 +871,40 @@ void scr_task(void)
         if (!scr_command(line))
             return; /* scr_error ended the run */
     }
+}
+
+/* The verbs, printed beside where they are implemented. A second copy in
+ * cli.c is a second thing to remember, and the one that gets forgotten is
+ * the copy nobody is reading while they change the parser. */
+void scr_usage(FILE *out)
+{
+    fprintf(out,
+            "\nscript commands (one per line, # comments, text always quoted;\n"
+            "a failed check names the line and exits 1):\n"
+            "  run [frames]              let frames elapse (default 1)\n"
+            "  wait \"text\" [frames]      run until the console says it (default 600)\n"
+            "  wait [xram:]<addr> <byte> [frames]  run until that byte reads that\n"
+            "  type \"text\" [frames]      type it (\\n = Enter, \\t = Tab)\n"
+            "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
+            "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
+            "  lock num|caps|scroll      toggle a lock LED\n"
+            "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
+            "  pad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
+            "                                      select start home up down left right\n"
+            "  pad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
+            "  pad <n> trigger <lt> <rt>           0..255\n"
+            "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
+            "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
+            "  expect \"text\" / expect-not \"text\"   the console since the last check\n"
+            "  expect-exit <code> [frames]         run until it exits, check the code\n"
+            "  peek [xram:]<addr> <byte>...        compare memory\n"
+            "  poke [xram:]<addr> <byte>...        write memory\n"
+            "  dump [xram:]<addr> [count]          print memory as hex\n"
+            "  crc                                 the canvas as a CRC-32\n"
+            "  mark, expect-same, expect-changed   the canvas against a remembered one\n"
+            "  shot \"file.png\"           write the canvas\n"
+            "  reply [on|off]            answer every command on stdout, for a\n"
+            "                            driver on the other end of a pipe\n");
 }
 
 bool scr_load(const char *path)

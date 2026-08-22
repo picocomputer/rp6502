@@ -7,7 +7,7 @@
  * firmware runs. Formats a fresh volume and exercises the core paths (mkfs,
  * mount, open/write/read, directory enumeration, mkdir/chdir/getcwd) so the
  * shared filesystem code is covered on the host. Lays a path for running the
- * 6502 filesystem syscalls over a real FatFs (--tmpdrive) rather than the host.
+ * 6502 filesystem syscalls over a real FatFs rather than the host.
  */
 
 #include "ria/api/oem.h"

@@ -9,6 +9,7 @@
 #define _EMU_APP_SCR_H_
 
 #include <stdbool.h>
+#include <stdio.h>
 
 /* Scripted input: a line-oriented command language that plugs in gamepads,
  * moves pointers, types and asserts, so a program reading its input from XRAM
@@ -16,8 +17,8 @@
  * as host/web/exports.c and host/android/window.c — it assembles reports and
  * hands them to the same hid seams a real device would.
  *
- * The verbs are listed in cli_usage(). A failed assertion prints the script
- * line and ends the run; scr_exit_code is what the process should return.
+ * A failed assertion prints the script line and ends the run; scr_exit_code is
+ * what the process should return.
  *
  * `reply` turns on a line of stdout per command — ok, ok <values>, or
  * fail <why> — answered when the command finishes rather than when it parses.
@@ -29,6 +30,10 @@
  * lets a driver in any language work the machine: the machine waits for each
  * line, so the driver is the clock. */
 bool scr_load(const char *path);
+
+/* The verbs, for --help. Printed here rather than in cli.c so the list
+ * cannot drift from what the parser accepts. */
+void scr_usage(FILE *out);
 
 /* True when --script was given at all, and true while the script is still
  * going. A loaded script that stopped running is a finished run. */

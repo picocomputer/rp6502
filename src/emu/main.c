@@ -196,7 +196,7 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
 
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
  * slots can be swapped between the emu's host handlers and the REAL firmware
- * fat_api_* (ria/api/fat.c) when --tmpdrive mounts a RAM FatFs. The dir slots
+ * fat_api_* (ria/api/fat.c) when a RAM FatFs is mounted. The dir slots
  * default to host below; main_dir_ops_set() swaps them. */
 typedef bool (*api_op_fn)(void);
 static api_op_fn api_ops[0x40] = {

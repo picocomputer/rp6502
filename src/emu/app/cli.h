@@ -12,17 +12,19 @@
 #include <stdint.h>
 
 #include "emu/app/window.h" /* window_scale_filter_t */
+#include <stdio.h>
 
 /* Every option, as parsed from the command line; defaults pre-filled. */
 typedef struct
 {
-    const char *rom, *shot, *script;
-    bool tmpdrive;
+    const char *rom, *screenshot, *script;
+    bool help;
     const char *installs[16];
     int n_installs;
     int bg_r, bg_g, bg_b;
     bool have_bg;
     int frames;
+    bool have_frames;
     double scale;
     bool have_scale;
     bool vsync; /* --no-vsync turns it off (default on) */
@@ -34,7 +36,7 @@ typedef struct
     bool dap;     /* --dap: also serve DAP on stdio (implies --debug) */
     bool credits;       /* --credits: print third-party notices and exit */
     bool version;       /* --version: print the version and exit */
-    const char *inidir; /* --ini: config file for the debugger UI layout (else default) */
+    const char *ini; /* --ini: config file for the debugger UI layout (else default) */
     unsigned long long seed;
     bool have_seed;
     bool fill_random;   /* --fill: random (the default) or fill_value throughout */
@@ -55,7 +57,10 @@ void cli_options_init(cli_options *o);
 int cli_parse_args(int argc, char **argv, cli_options *o);
 
 /* Print the option summary to stderr (argv0 names the program). */
-void cli_usage(const char *argv0);
+/* The options. The script verbs are scr_usage()'s, and the two are
+ * printed together for --help — cli.c is linked by things that carry no
+ * script driver. */
+void cli_usage(FILE *out, const char *argv0);
 
 /* The path component after the last '/'. */
 const char *cli_base_name(const char *p);

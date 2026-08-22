@@ -219,7 +219,7 @@ int fs_ftruncate(int fd, int64_t length)
 }
 
 /* Flush the MSC0: drive (IDBFS) to IndexedDB so writes survive a reload.
- * Async/fire-and-forget. The --tmpdrive lives in a RAM FatFs, so a sync there
+ * Async/fire-and-forget. A RAM FatFs holds no host file, so a sync there
  * persists nothing — it expires with the session. EM_JS emits an imported symbol,
  * so wrap it in a plain fs_sync the cross-TU caller (msc.c) can link against. */
 EM_JS(void, web_idbfs_sync, (void), {

@@ -15,7 +15,6 @@
 #include "emu/app/png.h"
 #include "emu/app/rand.h"
 #include "emu/emu/rom.h"
-#include "emu/emu/tmp.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
 #include "emu/main.h"
@@ -76,8 +75,15 @@ int main(int argc, char **argv)
     cli_options_init(&o);
     if (cli_parse_args(argc, argv, &o))
     {
-        cli_usage(argv[0]);
+        cli_usage(stderr, argv[0]);
+        scr_usage(stderr);
         return 2;
+    }
+    if (o.help)
+    {
+        cli_usage(stdout, argv[0]);
+        scr_usage(stdout);
+        return 0;
     }
 
     /* --version and --credits: answer and exit, before anything is initialized.
@@ -98,17 +104,26 @@ int main(int argc, char **argv)
     /* Config file the debugger persists its window layout into (an [EMU] section;
      * other sections are preserved). The launcher passes the workstation file,
      * e.g. ${workspaceFolder}/.rp6502; else the debug UI uses the OS config dir. */
-    if (o.inidir)
-        dbgui_set_config_file(o.inidir);
+    if (o.ini)
+        dbgui_set_config_file(o.ini);
+#else
+    /* Accepting it and doing nothing is how a wrong path goes unnoticed. */
+    if (o.ini)
+    {
+        fprintf(stderr, "rp6502-emu: built without debugger support\n");
+        return 1;
+    }
 #endif
 
-    /* MSC0: is the native host filesystem — whatever the process cwd is.
-     * --tmpdrive instead runs the ROM against a fresh throwaway RAM FatFs
-     * (isolation). */
-    if (o.tmpdrive && !tmp_mount())
+    /* An option whose whole effect depends on another being present is an
+     * error without it. Different from one that is merely inert on a host —
+     * --scale under --script — which stays quiet so a wrapper can pass one
+     * set of flags to every host. */
+    if (o.have_frames && !o.screenshot)
     {
-        fprintf(stderr, "rp6502-emu: cannot create --tmpdrive\n");
-        return 1;
+        fprintf(stderr, "rp6502-emu: --frames only applies to --screenshot; "
+                        "a script's frames are its own (see 'run')\n");
+        return 2;
     }
 
     /* Load the command-line settings as config, then init the machine ONCE —
@@ -231,9 +246,10 @@ int main(int argc, char **argv)
         /* No ROM. --screenshot and --script are batch (nothing to shoot, nothing
          * to drive); otherwise a desktop host waits for a drag-and-dropped one.
          * Anything else prints usage. */
-        if (o.shot || o.script || !window_wait_for_rom())
+        if (o.screenshot || o.script || !window_wait_for_rom())
         {
-            cli_usage(argv[0]);
+            cli_usage(stderr, argv[0]);
+            scr_usage(stderr);
             return 2;
         }
         apply_options(&o);
@@ -289,11 +305,11 @@ int main(int argc, char **argv)
                     sys_run_frame_norender();
             }
         }
-        if (scr_exit_code() || !o.shot)
+        if (scr_exit_code() || !o.screenshot)
             return scr_exit_code(); /* a passing script may still want the shot */
     }
 
-    if (o.shot)
+    if (o.screenshot)
     {
         int frames = o.frames < 1 ? 1 : o.frames;
         /* Only the final frame is captured, so settle the earlier ones without
@@ -304,13 +320,13 @@ int main(int argc, char **argv)
         sys_run_frame(); /* renders into g_fb (registered above) */
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
-        if (!png_write(o.shot, cw, ch, g_fb))
+        if (!png_write(o.screenshot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.shot, frames, cpu_halted() ? "halted" : "running", pro_get_exit_code());
+               o.screenshot, frames, cpu_halted() ? "halted" : "running", pro_get_exit_code());
         return 0;
     }
 
-    int code = window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
-    return scr_exit_code() ? scr_exit_code() : code;
+    /* A script has already returned by here, so this is the windowed run. */
+    return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
 }
