@@ -153,7 +153,10 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
     size = 8 << ((attr >> 3) & 7)
     dsize = size * (size * bpp // 8)
     img_base = 0x4000
-    pal_base = 0x0200
+    # Clear of the descriptor array, which is eight bytes a
+    # sprite and runs past $0200 once a fixture asks for more
+    # than thirty-two of them.
+    pal_base = 0x0400
     cfg = bytearray()
     for x, y, im, ps in sprites:
         if ps is None:
@@ -188,7 +191,10 @@ def mode4(name, canvas, plane, log_size, sprites,
     # continuous full rows on odd — read only by the sprites that ask.
     size = 1 << log_size
     stride = size * size * 2 + size * 4
-    img_base = 0x4000
+    # Above the mode-3 fills these fixtures stage at $2000, the
+    # largest of which is 15,000 bytes: images at $4000 were being
+    # overwritten by the bitmap that loaded after them.
+    img_base = 0x6000
     cfg = bytearray()
     for x, y, im, meta in sprites:
         cfg += le16(x, y, img_base + im * stride)
@@ -217,7 +223,10 @@ def mode4a(name, canvas, plane, log_size, sprites,
     # matrix words {a00, a01, b0, a10, a11, b1}.
     size = 1 << log_size
     stride = size * size * 2
-    img_base = 0x4000
+    # Above the mode-3 fills these fixtures stage at $2000, the
+    # largest of which is 15,000 bytes: images at $4000 were being
+    # overwritten by the bitmap that loaded after them.
+    img_base = 0x6000
     cfg = bytearray()
     for tr, x, y, im in sprites:
         cfg += le16(*tr)

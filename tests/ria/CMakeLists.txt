@@ -1,15 +1,17 @@
 # The RIA: the xreg dispatch, the API surface, the ROM loader and the clock.
 
-# --- The two assemblers are one instruction set ---
-# A .rp6502 is built by a generator writing a file and by a bench
+# --- The two assemblers agree where they overlap ---
+# A program is built by a generator writing a file and by a bench
 # building one in memory, so the encoding has a Python spelling and a
 # C++ one. asm_ref.py writes the reference; test_asm.cpp writes the same
-# program the other way and compares the images byte for byte. No
-# emulator and no simulator, so it runs wherever the suite does.
-set(ASM_REF ${CMAKE_CURRENT_BINARY_DIR}/asm_ref.rp6502)
+# program the other way and compares the assembled bytes. The container
+# is not part of the claim: tools/rp6502.py is the only writer of it now,
+# and tb_rom.h writes the headerless form on purpose. No emulator and no
+# simulator, so it runs wherever the suite does.
+set(ASM_REF ${CMAKE_CURRENT_BINARY_DIR}/asm_ref.bin)
 add_custom_command(OUTPUT ${ASM_REF}
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit ${ASM_REF}
+        ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit-bin ${ASM_REF}
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py
         ${RP6502_ROOT}/src/gen/rp6502_asm.py
         ${RP6502_ROOT}/src/gen/rp6502_rom.py
@@ -25,6 +27,16 @@ add_dependencies(test_asm asm_ref)
 add_test(NAME asm_opcodes
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_ROOT}/src/gen/rp6502_asm.py --check)
+
+# The container, against the tool that defines it. Every generated ROM is
+# packaged by tools/rp6502.py now, so what it writes and what it reads have
+# to be the same format — and its chunks have to fit the buffer the monitor
+# reads them into, which is the difference between a ROM that runs
+# everywhere and one that runs everywhere except hardware.
+add_test(NAME rom_tool
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${CMAKE_CURRENT_LIST_DIR}/rom_tool_check.py
+        --scratch ${CMAKE_CURRENT_BINARY_DIR})
 
 # --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
 rp6502_add_test(units

@@ -3,15 +3,21 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The two assemblers are one instruction set, which is a claim only
+ * The two assemblers agree wherever they overlap, which is a claim only
  * this file makes.
  *
- * A .rp6502 gets built in two places — a generator writing a file, a
+ * A program gets built in two places — a generator writing a file, a
  * bench building one in memory — so there is a Python spelling in
- * src/gen/rp6502_rom.py and a C++ one in tests/bench/tb_asm.h. The same
- * program is written in both here and the bytes have to match, magic
- * line and record headers included: the container is half the claim,
- * and a CRC that disagreed would be a ROM the loader refuses.
+ * src/gen/rp6502_asm.py and a C++ one in tests/bench/tb_asm.h. They are
+ * not the same assembler and no longer pretend to be: Python carries the
+ * whole instruction set and a symbol table, C++ carries what a bench
+ * parameterizes at run time. The same program is written in both here
+ * and the encoded bytes have to match.
+ *
+ * The container is not compared any more. There is one writer of it now
+ * — tools/rp6502.py, which the generators package through — and tb_rom.h
+ * writes the headerless form on purpose, for the images that writer
+ * refuses. Two formats, deliberately, so comparing them proves nothing.
  *
  * What would drift first is push_str. The xstack grows down, so a
  * string goes on backwards, and a spelling that got that the other way
@@ -19,8 +25,9 @@
  */
 
 #include "tb_asm.h"
-#include "tb_rom.h"
 #include "utest.h"
+
+#include <cstdio>
 
 #include <cstdint>
 #include <vector>
@@ -82,16 +89,19 @@ static tb_asm build()
     return p;
 }
 
-UTEST(asm, the_two_spellings_assemble_the_same_image)
+UTEST(asm, the_two_spellings_assemble_the_same_program)
 {
+    FILE *f = fopen(ASM_REF, "rb");
+    ASSERT_TRUE(f != NULL);
     std::vector<uint8_t> want;
-    ASSERT_TRUE(tb_rom_read(ASM_REF, want));
+    uint8_t buf[512];
+    size_t n;
+    while ((n = fread(buf, 1, sizeof buf, f)) > 0)
+        want.insert(want.end(), buf, buf + n);
+    fclose(f);
+    ASSERT_FALSE(want.empty());
 
-    tb_asm p = build();
-    std::vector<uint8_t> got = tb_rom_image(TB_ORG, p.b);
-    static const uint8_t xram[16] = {0, 1, 2, 3, 4, 5, 6, 7,
-                                     8, 9, 10, 11, 12, 13, 14, 15};
-    tb_rom_record(got, 0x10040, xram, sizeof xram);
+    std::vector<uint8_t> got = build().b;
 
     /* The offset of the first difference, not merely that there is
      * one: the two spellings are read side by side, and a byte number

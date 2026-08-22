@@ -3,15 +3,16 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The reference image for test_asm.cpp: one program that uses every
-# instruction src/gen/rp6502_rom.py and tests/bench/tb_asm.h both carry,
+# The reference program for test_asm.cpp: one program that uses every
+# instruction src/gen/rp6502_asm.py and tests/bench/tb_asm.h both carry,
 # written in the Python spelling.
 #
-# There are two assemblers because there are two places a .rp6502 gets
-# built — a generator writing a file, a bench building one in memory —
-# and they claim to be one instruction set. This is the only thing that
-# says so. It is not a program that runs; it is a program that encodes,
-# and the encoding is the whole claim.
+# There are two assemblers because there are two places a program gets
+# built — a generator writing a file, a bench building one in memory. The
+# Python one carries the whole instruction set and a symbol table; the
+# C++ one carries what a bench parameterizes at run time. Where they
+# overlap they are one encoding, and this is the only thing that says so.
+# It is not a program that runs; it is a program that encodes.
 
 import argparse
 import sys
@@ -79,12 +80,18 @@ def build():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--emit", required=True)
+    ap.add_argument("--emit", help="the assembled program, as a .rp6502")
+    ap.add_argument("--emit-bin", help="the assembled program, raw")
     a = ap.parse_args()
-    # An XRAM record too, so the container's second address width is
-    # compared and not only the program's.
-    r = Rom().program(build(), ORG).record(0x10040, bytes(range(16)))
-    print(f"asm_ref.rp6502 {r.write(a.emit)} bytes")
+    if a.emit:
+        # An XRAM record too, so the container's second address width is
+        # written and not only the program's.
+        r = Rom().program(build(), ORG).record(0x10040, bytes(range(16)))
+        print(f"asm_ref.rp6502 {r.write(a.emit)} bytes")
+    if a.emit_bin:
+        code = build().code()
+        Path(a.emit_bin).write_bytes(code)
+        print(f"asm_ref.bin {len(code)} bytes")
     return 0
 
 

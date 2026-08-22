@@ -19,6 +19,7 @@
 #include "ria/sys/pix.h"
 #include "emu/sys/com.h"
 #include "utest.h"
+#include <stdio.h>
 #include <string.h>
 
 UTEST(crc32, known_vectors)
@@ -42,6 +43,32 @@ UTEST(rom, loads)
 UTEST(rom, rejects_missing_file)
 {
     ASSERT_FALSE(rom_load("/nonexistent/definitely-not-a.rp6502"));
+}
+
+/* The headerless form: the magic line and then bare records, with no #>
+ * directory and no chunk length to bound them. Nothing writes it any more —
+ * the generators went to the tool's format when it turned out theirs made
+ * images the monitor would not load — so the loader's fallback is claimed
+ * here rather than left to whichever fixture happened to still be in it. */
+UTEST(rom, loads_a_headerless_image)
+{
+    static const char image[] =
+        "#!RP6502\n"
+        "$00300 $4 $06EE5D17\n" "\xA9\x2A\xDB\xEA"
+        "$0FFFC $2 $D8D04345\n" "\x00\x03";
+    char path[512];
+    snprintf(path, sizeof path, "%s/headerless.rp6502", TEST_SCRATCH);
+    FILE *f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    ASSERT_EQ(fwrite(image, 1, sizeof image - 1, f), sizeof image - 1);
+    fclose(f);
+
+    memset(ram, 0, 0x10000);
+    ASSERT_TRUE(rom_load(path));
+    ASSERT_EQ(ram[0x0300], 0xA9);
+    ASSERT_EQ(ram[0x0302], 0xDB);
+    ASSERT_EQ(ram[0xFFFC], 0x00);
+    ASSERT_EQ(ram[0xFFFD], 0x03);
 }
 
 UTEST(xreg, device_channel_dispatch)
