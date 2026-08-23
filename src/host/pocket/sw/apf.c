@@ -246,10 +246,12 @@ static int apf_hid_slot(int slot)
 static void apf_mount(int slot, const uint8_t *desc, uint16_t len, uint8_t button_type)
 {
     int hid_slot = apf_hid_slot(slot);
-    kbd_mount(hid_slot, desc, len, 0, 0);
-    mou_mount(hid_slot, desc, len);
-    tab_mount(hid_slot, desc, len);
-    pad_mount(hid_slot, desc, len, 0, 0, button_type);
+    hid_report_map_t map;
+    hid_map_from_descriptor(&map, desc, len);
+    kbd_mount(hid_slot, &map, 0, 0);
+    mou_mount(hid_slot, &map);
+    tab_mount(hid_slot, &map);
+    pad_mount(hid_slot, &map, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)

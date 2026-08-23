@@ -85,64 +85,7 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-static bool __in_flash("mou_parse") mou_parse_field(const hid_field_t *field, void *context)
-{
-    mou_connection_t *conn = (mou_connection_t *)context;
-
-    // Skip items from other report IDs once we've identified ours
-    if (conn->report_id != 0 && field->report_id != 0xFFFF &&
-        field->report_id != conn->report_id)
-        return true;
-
-    if (field->usage_page == 0x01) // Generic Desktop
-    {
-        switch (field->usage)
-        {
-        case 0x30: // X axis
-            conn->x_offset = field->bit_pos;
-            conn->x_size = field->size;
-            conn->x_relative = (field->input_flags & 0x04) != 0;
-            break;
-        case 0x31: // Y axis
-            conn->y_offset = field->bit_pos;
-            conn->y_size = field->size;
-            break;
-        case 0x38: // Wheel
-            conn->wheel_offset = field->bit_pos;
-            conn->wheel_size = field->size;
-            break;
-        case 0x3C: // Pan/horizontal wheel
-            conn->pan_offset = field->bit_pos;
-            conn->pan_size = field->size;
-            break;
-        default:
-            return true;
-        }
-        if (conn->report_id == 0 && field->report_id != 0xFFFF)
-            conn->report_id = field->report_id;
-    }
-    else if (field->usage_page == 0x0C) // Consumer
-    {
-        if (field->usage == 0x238) // AC Pan
-        {
-            conn->pan_offset = field->bit_pos;
-            conn->pan_size = field->size;
-            if (conn->report_id == 0 && field->report_id != 0xFFFF)
-                conn->report_id = field->report_id;
-        }
-    }
-    else if (field->usage_page == 0x09) // Button page
-    {
-        if (field->usage >= 1 && field->usage <= 8)
-            conn->button_offsets[field->usage - 1] = field->bit_pos;
-        if (conn->report_id == 0 && field->report_id != 0xFFFF)
-            conn->report_id = field->report_id;
-    }
-
-    return true;
-}
-
-bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("mou_mount") mou_mount(int slot, const hid_report_map_t *map)
 {
     int conn_num = -1;
     for (int i = 0; i < MOU_MAX_MICE; ++i)
@@ -154,14 +97,21 @@ bool __in_flash("mou_mount") mou_mount(int slot, uint8_t const *desc_data, uint1
     if (conn_num < 0)
         return false;
 
-    // Process raw HID descriptor into mou_connection_t
     mou_connection_t *conn = &mou_connections[conn_num];
     memset(conn, 0, sizeof(mou_connection_t));
-    for (int i = 0; i < 8; i++)
-        conn->button_offsets[i] = 0xFFFF;
     conn->slot = slot;
-
-    hid_descriptor_parse(desc_data, desc_len, mou_parse_field, conn);
+    conn->report_id = map->report_id;
+    for (int i = 0; i < 8; i++)
+        conn->button_offsets[i] = map->button_bit[i];
+    conn->x_offset = map->axis[HID_AXIS_X].bit_pos;
+    conn->x_size = map->axis[HID_AXIS_X].size;
+    conn->x_relative = map->axis[HID_AXIS_X].relative;
+    conn->y_offset = map->axis[HID_AXIS_Y].bit_pos;
+    conn->y_size = map->axis[HID_AXIS_Y].size;
+    conn->wheel_offset = map->axis[HID_AXIS_WHEEL].bit_pos;
+    conn->wheel_size = map->axis[HID_AXIS_WHEEL].size;
+    conn->pan_offset = map->axis[HID_AXIS_PAN].bit_pos;
+    conn->pan_size = map->axis[HID_AXIS_PAN].size;
 
     // If it squeaks like a mouse.
     conn->valid = conn->x_relative && conn->x_size > 0;

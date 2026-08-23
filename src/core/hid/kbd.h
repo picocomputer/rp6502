@@ -15,14 +15,16 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "core/hid/hid.h"
+
 /* Main events
  */
 
 void kbd_init(void);
 void kbd_stop(void);
 
-// Attempt to mount this HID descriptor
-bool kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
+// Claim this device, if its map describes a keyboard.
+bool kbd_mount(int slot, const hid_report_map_t *map,
                uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.

@@ -12,6 +12,8 @@
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include "core/hid/hid.h"
 #include <stdbool.h>
 
 /* Main events
@@ -33,7 +35,7 @@ bool pad_xreg(uint16_t word);
 
 // Parse HID report descriptor for gamepad. Devices recognized by vendor and
 // product id label themselves and ignore button_type.
-bool pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
+bool pad_mount(int slot, const hid_report_map_t *map,
                uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Clean up descriptor when device is disconnected.

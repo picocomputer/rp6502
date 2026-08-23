@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include <string.h>
 #include "core/hid/hid.h"
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
@@ -227,4 +228,169 @@ void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t
 
         pos += 1 + sz;
     }
+}
+
+void hid_map_clear(hid_report_map_t *map)
+{
+    memset(map, 0, sizeof(*map));
+    for (int i = 0; i < HID_AXIS_COUNT; i++)
+        map->axis[i].bit_pos = HID_ABSENT;
+    for (int i = 0; i < HID_MAP_BUTTONS; i++)
+        map->button_bit[i] = HID_ABSENT;
+    map->tip_bit = HID_ABSENT;
+    map->inrange_bit = HID_ABSENT;
+    map->key_array_bit = HID_ABSENT;
+    for (int i = 0; i < HID_MAP_KEY_RUNS; i++)
+        map->key_run[i].bit_pos = HID_ABSENT;
+}
+
+/* Generic Desktop usage to axis, or -1. Simulation-page accelerator and brake
+ * are folded on by the caller. */
+static int hid_gd_axis(uint16_t usage)
+{
+    switch (usage)
+    {
+    case 0x30: return HID_AXIS_X;
+    case 0x31: return HID_AXIS_Y;
+    case 0x32: return HID_AXIS_Z;
+    case 0x33: return HID_AXIS_RX;
+    case 0x34: return HID_AXIS_RY;
+    case 0x35: return HID_AXIS_RZ;
+    case 0x39: return HID_AXIS_HAT;
+    case 0x38: return HID_AXIS_WHEEL;
+    case 0x3C: return HID_AXIS_PAN;
+    }
+    return -1;
+}
+
+static void hid_map_locus(hid_report_map_t *map, int axis, const hid_field_t *f)
+{
+    if (axis < 0 || map->axis[axis].bit_pos != HID_ABSENT)
+        return; // first declaration wins
+    map->axis[axis] = (hid_locus_t){
+        .bit_pos = f->bit_pos,
+        .size = f->size,
+        .relative = (f->input_flags & 0x04) != 0,
+        .logical_min = f->logical_min,
+        .logical_max = f->logical_max,
+    };
+}
+
+/* A keyboard bit joins the open run when it continues it, else opens a new
+ * one. Both shapes a keyboard declares -- the modifier byte and an NKRO
+ * bitmap -- are runs of consecutive usages one bit apart. */
+static void hid_map_key_bit(hid_report_map_t *map, const hid_field_t *f)
+{
+    for (int i = 0; i < HID_MAP_KEY_RUNS; i++)
+    {
+        hid_key_run_t *r = &map->key_run[i];
+        if (r->bit_pos == HID_ABSENT)
+        {
+            r->bit_pos = f->bit_pos;
+            r->usage_min = f->usage;
+            r->count = 1;
+            return;
+        }
+        if (f->usage == r->usage_min + r->count &&
+            f->bit_pos == r->bit_pos + r->count)
+        {
+            r->count++;
+            return;
+        }
+    }
+}
+
+/* Which report a multi-collection device drives us with. A digitizer (Tip
+ * Switch) wins over a bare Generic-Desktop X/Y, so a pen or touch panel that
+ * also exposes a mouse-compatibility collection is decoded as the absolute
+ * digitizer rather than as its relative-mouse alias. */
+typedef struct
+{
+    uint16_t digitizer;
+    uint16_t first;
+} hid_select_t;
+
+static bool hid_select_report(const hid_field_t *f, void *context)
+{
+    hid_select_t *sel = (hid_select_t *)context;
+    bool useful = (f->usage_page == 0x01 && hid_gd_axis(f->usage) >= 0) ||
+                  (f->usage_page == 0x02 && (f->usage == 0xC4 || f->usage == 0xC5)) ||
+                  (f->usage_page == 0x07) ||
+                  (f->usage_page == 0x09 && f->usage >= 1 && f->usage <= HID_MAP_BUTTONS) ||
+                  (f->usage_page == 0x0C && f->usage == 0x238) ||
+                  (f->usage_page == 0x0D && (f->usage == 0x42 || f->usage == 0x32));
+    if (!useful)
+        return true;
+    if (f->usage_page == 0x0D && f->usage == 0x42 && sel->digitizer == HID_ABSENT)
+        sel->digitizer = f->report_id;
+    if (sel->first == HID_ABSENT)
+        sel->first = f->report_id;
+    return true;
+}
+
+static bool hid_map_field(const hid_field_t *f, void *context)
+{
+    hid_report_map_t *map = (hid_report_map_t *)context;
+    if (f->report_id != 0xFFFF && (uint8_t)f->report_id != map->report_id)
+        return true; // a different report; not this map's
+
+    switch (f->usage_page)
+    {
+    case 0x01: // Generic Desktop
+        hid_map_locus(map, hid_gd_axis(f->usage), f);
+        break;
+    case 0x02: // Simulation: the pedals a wheel reports triggers on
+        if (f->usage == 0xC5)
+            hid_map_locus(map, HID_AXIS_RX, f);
+        else if (f->usage == 0xC4)
+            hid_map_locus(map, HID_AXIS_RY, f);
+        break;
+    case 0x07: // Keyboard
+        if (f->size == 8)
+        {
+            if (map->key_array_bit == HID_ABSENT)
+            {
+                map->key_array_bit = f->bit_pos;
+                map->key_array_count = 1;
+            }
+            else if (f->bit_pos == map->key_array_bit + (map->key_array_count * 8))
+                map->key_array_count++;
+        }
+        else if (f->size == 1 && f->usage <= 0xFF)
+            hid_map_key_bit(map, f);
+        break;
+    case 0x09: // Button
+        if (f->usage >= 1 && f->usage <= HID_MAP_BUTTONS &&
+            map->button_bit[f->usage - 1] == HID_ABSENT)
+            map->button_bit[f->usage - 1] = f->bit_pos;
+        break;
+    case 0x0C: // Consumer
+        if (f->usage == 0x238)
+            hid_map_locus(map, HID_AXIS_PAN, f);
+        break;
+    case 0x0D: // Digitizer
+        if (f->usage == 0x42 && map->tip_bit == HID_ABSENT)
+            map->tip_bit = f->bit_pos;
+        else if (f->usage == 0x32 && map->inrange_bit == HID_ABSENT)
+            map->inrange_bit = f->bit_pos;
+        break;
+    }
+    return true;
+}
+
+bool hid_map_from_descriptor(hid_report_map_t *map, const uint8_t *desc, uint16_t desc_len)
+{
+    hid_map_clear(map);
+    hid_select_t sel = {HID_ABSENT, HID_ABSENT};
+    hid_descriptor_parse(desc, desc_len, hid_select_report, &sel);
+    uint16_t chosen = sel.digitizer != HID_ABSENT ? sel.digitizer : sel.first;
+    map->report_id = (chosen == HID_ABSENT || chosen == 0xFFFF) ? 0 : (uint8_t)chosen;
+    hid_descriptor_parse(desc, desc_len, hid_map_field, map);
+    if (map->key_array_bit != HID_ABSENT || map->key_run[0].bit_pos != HID_ABSENT ||
+        map->button_bit[0] != HID_ABSENT || map->tip_bit != HID_ABSENT)
+        return true;
+    for (int i = 0; i < HID_AXIS_COUNT; i++)
+        if (map->axis[i].bit_pos != HID_ABSENT)
+            return true;
+    return false;
 }

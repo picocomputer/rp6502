@@ -514,9 +514,11 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     // Mount in pad system with synthetic HID descriptor
     uint8_t const *desc_data = is_xbox_one ? xin_xbox_one_desc : xin_xbox_360_desc;
     uint16_t desc_len = is_xbox_one ? sizeof(xin_xbox_one_desc) : sizeof(xin_xbox_360_desc);
+    hid_report_map_t map;
+    hid_map_from_descriptor(&map, desc_data, desc_len);
     uint16_t vendor_id, product_id;
     if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
-        !pad_mount(xin_idx_to_hid_slot(idx), desc_data, desc_len,
+        !pad_mount(xin_idx_to_hid_slot(idx), &map,
                    vendor_id, product_id, PAD_TYPE_WESTERN))
     {
         DBG("XInput: Failed to mount in pad system\n");

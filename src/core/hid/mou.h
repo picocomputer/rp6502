@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "core/hid/hid.h"
+
 /* Main events
  */
 
@@ -24,7 +26,7 @@ void mou_stop(void);
 bool mou_xreg(uint16_t word);
 
 // Parse HID report descriptor for mouse.
-bool mou_mount(int slot, uint8_t const *desc_data, uint16_t desc_len);
+bool mou_mount(int slot, const hid_report_map_t *map);
 
 // Clean up descriptor when device is disconnected.
 bool mou_umount(int slot);

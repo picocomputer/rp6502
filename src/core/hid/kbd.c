@@ -44,19 +44,19 @@ static uint32_t kbd_keys[8];
 typedef struct
 {
     bool valid;
-    int slot;               // HID slot
-    uint32_t keys[8];       // last report, bits 0-3 unused
-    uint8_t report_id;      // If non zero, the first report byte must match and will be skipped
-    uint16_t codes_offset;  // Offset in bits for keycode array
-    uint8_t codes_count;    // Number of keycodes in array
-    uint16_t keycodes[256]; // Offsets of all bitmap keys
+    int slot;              // HID slot
+    uint32_t keys[8];      // last report, bits 0-3 unused
+    uint8_t report_id;     // If non zero, the first report byte must match and will be skipped
+    uint16_t codes_offset; // Offset in bits for keycode array
+    uint8_t codes_count;   // Number of keycodes in array
+    hid_key_run_t runs[HID_MAP_KEY_RUNS]; // one-bit-per-usage keys
 } kbd_connection_t;
 
 #define KBD_MAX_KEYBOARDS 4
 static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
-#define KBD_KEY_BIT_SET(data, keycode) (data[keycode >> 5] |= 1 << (keycode & 31))
-#define KBD_KEY_BIT_VAL(data, keycode) (data[keycode >> 5] & (1 << (keycode & 31)))
+#define KBD_KEY_BIT_SET(data, keycode) ((data)[(keycode) >> 5] |= 1 << ((keycode) & 31))
+#define KBD_KEY_BIT_VAL(data, keycode) ((data)[(keycode) >> 5] & (1 << ((keycode) & 31)))
 
 // Direct access to the modifier byte of kbd_keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
@@ -101,33 +101,7 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-static bool __in_flash("kbd_parse") kbd_parse_field(const hid_field_t *field, void *context)
-{
-    kbd_connection_t *conn = (kbd_connection_t *)context;
-    if (field->usage_page == 0x07 && field->usage <= 0xFF)
-    {
-        conn->valid = true;
-        if (conn->report_id == 0 && field->report_id != 0xFFFF)
-            conn->report_id = field->report_id;
-        if (field->size == 8)
-        {
-            if (conn->codes_count == 0)
-            {
-                conn->codes_offset = field->bit_pos;
-                conn->codes_count = 1;
-            }
-            else if (field->bit_pos == conn->codes_offset + (conn->codes_count * 8))
-            {
-                conn->codes_count++;
-            }
-        }
-        if (field->size == 1)
-            conn->keycodes[field->usage] = field->bit_pos;
-    }
-    return true;
-}
-
-bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
+bool __in_flash("kbd_mount") kbd_mount(int slot, const hid_report_map_t *map,
                                        uint16_t vendor_id, uint16_t product_id)
 {
     int conn_num = -1;
@@ -140,14 +114,15 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
     if (conn_num < 0)
         return false;
 
-    // Begin processing raw HID descriptor into kbd_connection_t
     kbd_connection_t *conn = &kbd_connections[conn_num];
     memset(conn, 0, sizeof(kbd_connection_t));
-    for (int i = 0; i < 256; i++)
-        conn->keycodes[i] = 0xFFFF;
     conn->slot = slot;
+    conn->report_id = map->report_id;
+    conn->codes_offset = map->key_array_bit;
+    conn->codes_count = map->key_array_count;
+    memcpy(conn->runs, map->key_run, sizeof(conn->runs));
+    conn->valid = map->key_array_bit != HID_ABSENT || map->key_run[0].bit_pos != HID_ABSENT;
 
-    hid_descriptor_parse(desc_data, desc_len, kbd_parse_field, conn);
     if (conn->valid && hid_boot_enumerating())
         for (size_t i = 0; i < sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0]); i++)
             if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
@@ -212,14 +187,14 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     }
 
     // Extract individual keycode bits
-    for (int i = 0; i <= 0xFF; i++)
+    for (int r = 0; r < HID_MAP_KEY_RUNS; r++)
     {
-        if (conn->keycodes[i] == 0xFFFF)
-            continue;
-        uint32_t bit_val = hid_extract_bits(report_data, report_data_len,
-                                            conn->keycodes[i], 1);
-        if (bit_val)
-            KBD_KEY_BIT_SET(conn->keys, i);
+        const hid_key_run_t *run = &conn->runs[r];
+        if (run->bit_pos == HID_ABSENT)
+            break;
+        for (uint16_t i = 0; i < run->count; i++)
+            if (hid_extract_bits(report_data, report_data_len, run->bit_pos + i, 1))
+                KBD_KEY_BIT_SET(conn->keys, run->usage_min + i);
     }
 
     // Merge all keyboards into one report so we have

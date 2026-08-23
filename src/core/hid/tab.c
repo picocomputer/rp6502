@@ -180,109 +180,7 @@ bool tab_xreg(uint16_t word)
     return true;
 }
 
-/* Pass 1: pick which report a multi-collection device drives us with. A digitizer
- * (Tip Switch) wins over a bare Generic-Desktop X/Y, so a pen/touch panel that
- * also exposes a mouse-compatibility collection is decoded as the absolute
- * digitizer rather than as its relative-mouse alias. */
-typedef struct
-{
-    uint16_t rid_digitizer; // report id carrying a Tip Switch, 0xFFFF if none
-    uint16_t rid_xy;        // first report id carrying GD X/Y, 0xFFFF if none
-} tab_select_t;
-
-static bool __in_flash("tab_select") tab_select_report(const hid_field_t *field, void *context)
-{
-    tab_select_t *sel = (tab_select_t *)context;
-    if (field->usage_page == 0x0D && field->usage == 0x42) // Digitizer Tip Switch
-    {
-        if (sel->rid_digitizer == 0xFFFF)
-            sel->rid_digitizer = field->report_id;
-    }
-    else if (field->usage_page == 0x01 &&
-             (field->usage == 0x30 || field->usage == 0x31)) // GD X or Y
-    {
-        if (sel->rid_xy == 0xFFFF)
-            sel->rid_xy = field->report_id;
-    }
-    return true;
-}
-
-/* Pass 2: extract the chosen report's fields. Offsets are first-wins, so a
- * multi-touch descriptor (several Finger collections sharing one report id) binds
- * to the first contact's fields — the slot a single-finger report fills. */
-static bool __in_flash("tab_parse") tab_parse_field(const hid_field_t *field, void *context)
-{
-    tab_connection_t *conn = (tab_connection_t *)context;
-
-    if (conn->report_id != 0 && field->report_id != 0xFFFF &&
-        field->report_id != conn->report_id)
-        return true;
-
-    if (field->usage_page == 0x01) // Generic Desktop
-    {
-        switch (field->usage)
-        {
-        case 0x30: // X
-            if (conn->x_size == 0)
-            {
-                conn->x_offset = field->bit_pos;
-                conn->x_size = field->size;
-                conn->x_relative = (field->input_flags & 0x04) != 0;
-                conn->x_min = field->logical_min;
-                conn->x_max = field->logical_max;
-            }
-            break;
-        case 0x31: // Y
-            if (conn->y_size == 0)
-            {
-                conn->y_offset = field->bit_pos;
-                conn->y_size = field->size;
-                conn->y_min = field->logical_min;
-                conn->y_max = field->logical_max;
-            }
-            break;
-        case 0x38: // Wheel
-            if (conn->wheel_size == 0)
-            {
-                conn->wheel_offset = field->bit_pos;
-                conn->wheel_size = field->size;
-            }
-            break;
-        case 0x3C: // Pan/horizontal wheel
-            if (conn->pan_size == 0)
-            {
-                conn->pan_offset = field->bit_pos;
-                conn->pan_size = field->size;
-            }
-            break;
-        }
-    }
-    else if (field->usage_page == 0x0C) // Consumer
-    {
-        if (field->usage == 0x238 && conn->pan_size == 0) // AC Pan
-        {
-            conn->pan_offset = field->bit_pos;
-            conn->pan_size = field->size;
-        }
-    }
-    else if (field->usage_page == 0x09) // Button
-    {
-        if (field->usage >= 1 && field->usage <= 5 &&
-            conn->button_offsets[field->usage - 1] == 0xFFFF)
-            conn->button_offsets[field->usage - 1] = field->bit_pos;
-    }
-    else if (field->usage_page == 0x0D) // Digitizer
-    {
-        if (field->usage == 0x42 && conn->tip_offset == 0xFFFF) // Tip Switch
-            conn->tip_offset = field->bit_pos;
-        else if (field->usage == 0x32 && conn->inrange_offset == 0xFFFF) // In Range
-            conn->inrange_offset = field->bit_pos;
-    }
-
-    return true;
-}
-
-bool __in_flash("tab_mount") tab_mount(int slot, uint8_t const *desc_data, uint16_t desc_len)
+bool __in_flash("tab_mount") tab_mount(int slot, const hid_report_map_t *map)
 {
     int conn_num = -1;
     for (int i = 0; i < TAB_MAX_MICE; ++i)
@@ -296,20 +194,25 @@ bool __in_flash("tab_mount") tab_mount(int slot, uint8_t const *desc_data, uint1
 
     tab_connection_t *conn = &tab_connections[conn_num];
     memset(conn, 0, sizeof(tab_connection_t));
-    for (int i = 0; i < 5; i++)
-        conn->button_offsets[i] = 0xFFFF;
-    conn->tip_offset = 0xFFFF;
-    conn->inrange_offset = 0xFFFF;
     conn->slot = slot;
-
-    // Pass 1: choose the report id, preferring a digitizer over a mouse-compat one.
-    tab_select_t sel = {0xFFFF, 0xFFFF};
-    hid_descriptor_parse(desc_data, desc_len, tab_select_report, &sel);
-    uint16_t chosen = sel.rid_digitizer != 0xFFFF ? sel.rid_digitizer : sel.rid_xy;
-    conn->report_id = chosen == 0xFFFF ? 0 : (uint8_t)chosen; // 0xFFFF => no report id
-
-    // Pass 2: extract that report's fields.
-    hid_descriptor_parse(desc_data, desc_len, tab_parse_field, conn);
+    conn->report_id = map->report_id;
+    for (int i = 0; i < 5; i++)
+        conn->button_offsets[i] = map->button_bit[i];
+    conn->tip_offset = map->tip_bit;
+    conn->inrange_offset = map->inrange_bit;
+    conn->x_offset = map->axis[HID_AXIS_X].bit_pos;
+    conn->x_size = map->axis[HID_AXIS_X].size;
+    conn->x_relative = map->axis[HID_AXIS_X].relative;
+    conn->x_min = map->axis[HID_AXIS_X].logical_min;
+    conn->x_max = map->axis[HID_AXIS_X].logical_max;
+    conn->y_offset = map->axis[HID_AXIS_Y].bit_pos;
+    conn->y_size = map->axis[HID_AXIS_Y].size;
+    conn->y_min = map->axis[HID_AXIS_Y].logical_min;
+    conn->y_max = map->axis[HID_AXIS_Y].logical_max;
+    conn->wheel_offset = map->axis[HID_AXIS_WHEEL].bit_pos;
+    conn->wheel_size = map->axis[HID_AXIS_WHEEL].size;
+    conn->pan_offset = map->axis[HID_AXIS_PAN].bit_pos;
+    conn->pan_size = map->axis[HID_AXIS_PAN].size;
 
     // Accept a relative mouse or an absolute digitizer/pen; reject an absolute
     // Generic-Desktop device with no digitizer usage (e.g. a gamepad's sticks).

@@ -203,16 +203,18 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             if (descriptor == NULL || descriptor_len == 0)
                 continue;
             int slot = ble_hid_slot(cid, si);
-            if (kbd_mount(slot, descriptor, descriptor_len, 0, 0))
+            hid_report_map_t map;
+            hid_map_from_descriptor(&map, descriptor, descriptor_len);
+            if (kbd_mount(slot, &map, 0, 0))
             {
                 ble_kbd_slots[ble_count_kbd++] = slot;
                 ble_hid_leds_at = get_absolute_time();
             }
-            if (mou_mount(slot, descriptor, descriptor_len))
+            if (mou_mount(slot, &map))
                 ++ble_count_mou;
-            tab_mount(slot, descriptor, descriptor_len);
+            tab_mount(slot, &map);
             /* No vendor or product id over BLE, so nothing is ever certain. */
-            if (pad_mount(slot, descriptor, descriptor_len, 0, 0, PAD_TYPE_UNKNOWN))
+            if (pad_mount(slot, &map, 0, 0, PAD_TYPE_UNKNOWN))
                 ++ble_count_pad;
         }
         break;

@@ -177,21 +177,24 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     DBG("USB: %lums HID dev=%d idx=%d protocol=%d desc_len=%d\n",
         to_ms_since_boot(get_absolute_time()), dev_addr, idx, itf_protocol, desc_len);
 
-    if (kbd_mount(slot, desc_report, desc_len, vendor_id, product_id))
+    hid_report_map_t map;
+    hid_map_from_descriptor(&map, desc_report, desc_len);
+
+    if (kbd_mount(slot, &map, vendor_id, product_id))
     {
         ++usb_count_hid_kbd;
         usb_hid_leds_restart();
         valid = true;
     }
-    if (mou_mount(slot, desc_report, desc_len))
+    if (mou_mount(slot, &map))
     {
         ++usb_count_hid_mou;
         valid = true;
     }
-    if (tab_mount(slot, desc_report, desc_len)) /* a mouse feeds this too; a pure digitizer only this */
+    if (tab_mount(slot, &map)) /* a mouse feeds this too; a pure digitizer only this */
         valid = true;
     /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    if (pad_mount(slot, desc_report, desc_len, vendor_id, product_id, PAD_TYPE_UNKNOWN))
+    if (pad_mount(slot, &map, vendor_id, product_id, PAD_TYPE_UNKNOWN))
     {
         ++usb_count_hid_pad;
         valid = true;

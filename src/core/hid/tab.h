@@ -18,6 +18,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "core/hid/hid.h"
+
 /* Main events
  */
 
@@ -28,7 +30,7 @@ void tab_stop(void);
 bool tab_xreg(uint16_t word);
 
 // Parse HID report descriptor for an absolute or relative pointer.
-bool tab_mount(int slot, uint8_t const *desc_data, uint16_t desc_len);
+bool tab_mount(int slot, const hid_report_map_t *map);
 
 // Clean up descriptor when device is disconnected.
 bool tab_umount(int slot);

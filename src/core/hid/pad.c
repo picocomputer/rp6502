@@ -18,7 +18,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // If you're here to remap HID buttons on a new HID gamepad, create
-// a new pad_remap_ function and add it to pad_distill_descriptor().
+// a new pad_remap_ function and add it to pad_distill_map().
 
 // This is the report we generate for XRAM.
 // Direction bits: 0-up, 1-down, 2-left, 3-right
@@ -332,111 +332,41 @@ static const pad_connection_t pad_desc_sony_ds5 = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static bool __in_flash("pad_parse") pad_parse_field(const hid_field_t *field, void *context)
-{
-    pad_connection_t *conn = (pad_connection_t *)context;
-
-    bool get_report_id = false;
-    if (field->usage_page == 0x01) // Generic Desktop
-    {
-        get_report_id = true;
-        switch (field->usage)
-        {
-        case 0x30: // X axis (left stick X)
-            conn->x_offset = field->bit_pos;
-            conn->x_size = field->size;
-            conn->x_min = field->logical_min;
-            conn->x_max = field->logical_max;
-            conn->x_absolute = !(field->input_flags & 0x04);
-            break;
-        case 0x31: // Y axis (left stick Y)
-            conn->y_offset = field->bit_pos;
-            conn->y_size = field->size;
-            conn->y_min = field->logical_min;
-            conn->y_max = field->logical_max;
-            break;
-        case 0x32: // Z axis (right stick X)
-            conn->z_offset = field->bit_pos;
-            conn->z_size = field->size;
-            conn->z_min = field->logical_min;
-            conn->z_max = field->logical_max;
-            break;
-        case 0x35: // Rz axis (right stick Y)
-            conn->rz_offset = field->bit_pos;
-            conn->rz_size = field->size;
-            conn->rz_min = field->logical_min;
-            conn->rz_max = field->logical_max;
-            break;
-        case 0x33: // Rx axis (left trigger)
-            conn->rx_offset = field->bit_pos;
-            conn->rx_size = field->size;
-            conn->rx_min = field->logical_min;
-            conn->rx_max = field->logical_max;
-            break;
-        case 0x34: // Ry axis (right trigger)
-            conn->ry_offset = field->bit_pos;
-            conn->ry_size = field->size;
-            conn->ry_min = field->logical_min;
-            conn->ry_max = field->logical_max;
-            break;
-        case 0x39: // Hat switch (D-pad)
-            conn->hat_offset = field->bit_pos;
-            conn->hat_size = field->size;
-            conn->hat_min = field->logical_min;
-            conn->hat_max = field->logical_max;
-            break;
-        }
-    }
-    else if (field->usage_page == 0x02) // Simulation Controls
-    {
-        get_report_id = true;
-        switch (field->usage)
-        {
-        case 0xC5: // Brake (left trigger)
-            conn->rx_offset = field->bit_pos;
-            conn->rx_size = field->size;
-            conn->rx_min = field->logical_min;
-            conn->rx_max = field->logical_max;
-            break;
-        case 0xC4: // Accelerator (right trigger)
-            conn->ry_offset = field->bit_pos;
-            conn->ry_size = field->size;
-            conn->ry_min = field->logical_min;
-            conn->ry_max = field->logical_max;
-            break;
-        }
-    }
-    else if (field->usage_page == 0x09) // Button page
-    {
-        get_report_id = true;
-        uint8_t button_index = field->usage - 1;
-        if (button_index < PAD_MAX_BUTTONS)
-            conn->button_offsets[button_index] = field->bit_pos;
-    }
-    if (get_report_id && conn->report_id == 0 && field->report_id != 0xFFFF)
-        conn->report_id = field->report_id;
-
-    return true;
-}
-
-static void pad_parse_descriptor(
-    pad_connection_t *conn, uint8_t const *desc_data, uint16_t desc_len)
+static void __in_flash("pad_from_map") pad_from_map(
+    pad_connection_t *conn, const hid_report_map_t *map)
 {
     memset(conn, 0, sizeof(pad_connection_t));
-    for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-        conn->button_offsets[i] = 0xFFFF;
-
-    DBG("Raw HID descriptor (%d bytes):\n", desc_len);
-    for (int i = 0; i < desc_len; i++)
-    {
-        DBG("%02X ", desc_data[i]);
-        if ((i + 1) % 26 == 0)
-            DBG("\n");
-    }
-    if (desc_len % 26 != 0)
-        DBG("\n");
-
-    hid_descriptor_parse(desc_data, desc_len, pad_parse_field, conn);
+    conn->report_id = map->report_id;
+    conn->x_offset = map->axis[HID_AXIS_X].bit_pos;
+    conn->x_size = map->axis[HID_AXIS_X].size;
+    conn->x_min = map->axis[HID_AXIS_X].logical_min;
+    conn->x_max = map->axis[HID_AXIS_X].logical_max;
+    conn->x_absolute = !map->axis[HID_AXIS_X].relative;
+    conn->y_offset = map->axis[HID_AXIS_Y].bit_pos;
+    conn->y_size = map->axis[HID_AXIS_Y].size;
+    conn->y_min = map->axis[HID_AXIS_Y].logical_min;
+    conn->y_max = map->axis[HID_AXIS_Y].logical_max;
+    conn->z_offset = map->axis[HID_AXIS_Z].bit_pos;
+    conn->z_size = map->axis[HID_AXIS_Z].size;
+    conn->z_min = map->axis[HID_AXIS_Z].logical_min;
+    conn->z_max = map->axis[HID_AXIS_Z].logical_max;
+    conn->rz_offset = map->axis[HID_AXIS_RZ].bit_pos;
+    conn->rz_size = map->axis[HID_AXIS_RZ].size;
+    conn->rz_min = map->axis[HID_AXIS_RZ].logical_min;
+    conn->rz_max = map->axis[HID_AXIS_RZ].logical_max;
+    conn->rx_offset = map->axis[HID_AXIS_RX].bit_pos;
+    conn->rx_size = map->axis[HID_AXIS_RX].size;
+    conn->rx_min = map->axis[HID_AXIS_RX].logical_min;
+    conn->rx_max = map->axis[HID_AXIS_RX].logical_max;
+    conn->ry_offset = map->axis[HID_AXIS_RY].bit_pos;
+    conn->ry_size = map->axis[HID_AXIS_RY].size;
+    conn->ry_min = map->axis[HID_AXIS_RY].logical_min;
+    conn->ry_max = map->axis[HID_AXIS_RY].logical_max;
+    conn->hat_offset = map->axis[HID_AXIS_HAT].bit_pos;
+    conn->hat_size = map->axis[HID_AXIS_HAT].size;
+    conn->hat_min = map->axis[HID_AXIS_HAT].logical_min;
+    conn->hat_max = map->axis[HID_AXIS_HAT].logical_max;
+    memcpy(conn->button_offsets, map->button_bit, sizeof(conn->button_offsets));
 
     bool axes = conn->x_size || conn->y_size || conn->z_size ||
                 conn->rz_size || conn->rx_size || conn->ry_size ||
@@ -448,37 +378,10 @@ static void pad_parse_descriptor(
     if (conn->button_offsets[0] != 0xFFFF &&
         (axes ? conn->x_absolute : conn->button_offsets[16] != 0xFFFF))
         conn->valid = true;
-
-    // Debug: Print parsed pad_connection_t structure
-    DBG("Parsed pad_connection_t:\n");
-    DBG("  valid=%d, features=0x%02X, slot=%d, report_id=0x%02X\n",
-        conn->valid, conn->features, conn->slot, conn->report_id);
-    DBG("  x_absolute=%d, x_offset=%d, x_size=%d, x_min=%ld, x_max=%ld\n",
-        conn->x_absolute, conn->x_offset, conn->x_size, conn->x_min, conn->x_max);
-    DBG("  y_offset=%d, y_size=%d, y_min=%ld, y_max=%ld\n",
-        conn->y_offset, conn->y_size, conn->y_min, conn->y_max);
-    DBG("  z_offset=%d, z_size=%d, z_min=%ld, z_max=%ld\n",
-        conn->z_offset, conn->z_size, conn->z_min, conn->z_max);
-    DBG("  rz_offset=%d, rz_size=%d, rz_min=%ld, rz_max=%ld\n",
-        conn->rz_offset, conn->rz_size, conn->rz_min, conn->rz_max);
-    DBG("  rx_offset=%d, rx_size=%d, rx_min=%ld, rx_max=%ld\n",
-        conn->rx_offset, conn->rx_size, conn->rx_min, conn->rx_max);
-    DBG("  ry_offset=%d, ry_size=%d, ry_min=%ld, ry_max=%ld\n",
-        conn->ry_offset, conn->ry_size, conn->ry_min, conn->ry_max);
-    DBG("  hat_offset=%d, hat_size=%d, hat_min=%ld, hat_max=%ld\n",
-        conn->hat_offset, conn->hat_size, conn->hat_min, conn->hat_max);
-    DBG("  button_offsets: ");
-    for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-    {
-        if (conn->button_offsets[i] != 0xFFFF)
-            DBG("[%d]=%d ", i, conn->button_offsets[i]);
-    }
-    DBG("\n");
 }
 
-static void pad_distill_descriptor(
-    pad_connection_t *conn,
-    uint8_t const *desc_data, uint16_t desc_len,
+static void pad_distill_map(
+    pad_connection_t *conn, const hid_report_map_t *map,
     uint16_t vendor_id, uint16_t product_id, uint8_t button_type)
 {
     conn->valid = false;
@@ -499,10 +402,10 @@ static void pad_distill_descriptor(
     }
     else
     {
-        pad_parse_descriptor(conn, desc_data, desc_len);
+        pad_from_map(conn, map);
 
-        DBG("Received HID descriptor. vid=0x%04X, pid=0x%04X, len=%d, valid=%d\n",
-            vendor_id, product_id, desc_len, conn->valid);
+        DBG("Received HID map. vid=0x%04X, pid=0x%04X, valid=%d\n",
+            vendor_id, product_id, conn->valid);
 
         // Add your gamepad override here.
         pad_remap_8bitdo_m30(conn, vendor_id, product_id);
@@ -687,7 +590,7 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
+bool __in_flash("pad_mount") pad_mount(int slot, const hid_report_map_t *map,
                                        uint16_t vendor_id, uint16_t product_id,
                                        uint8_t button_type)
 {
@@ -709,7 +612,7 @@ bool __in_flash("pad_mount") pad_mount(int slot, uint8_t const *desc_data, uint1
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    pad_distill_descriptor(conn, desc_data, desc_len, vendor_id, product_id, button_type);
+    pad_distill_map(conn, map, vendor_id, product_id, button_type);
     if (conn->valid)
     {
         conn->slot = slot;
