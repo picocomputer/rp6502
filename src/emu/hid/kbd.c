@@ -35,7 +35,7 @@ static void kbd_write_xram(void)
         kbd_keys[0] |= 1;
     kbd_keys[0] |= (kbd_leds & 7) << 1;
     if (kbd_xram != 0xFFFF)
-        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
 }
 
 bool kbd_set_xram(uint16_t addr)

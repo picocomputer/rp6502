@@ -81,7 +81,7 @@ bool mou_xreg(uint16_t word)
         return false;
     mou_xram = word;
     if (mou_xram != 0xFFFF)
-        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
+        memcpy((uint8_t *)&xram[mou_xram], &mou_state, sizeof(mou_state));
     return true;
 }
 
@@ -188,7 +188,7 @@ bool mou_umount(int slot)
             merged |= mou_connections[i].buttons;
     mou_state.buttons = merged;
     if (mou_xram != 0xFFFF)
-        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
+        memcpy((uint8_t *)&xram[mou_xram], &mou_state, sizeof(mou_state));
     return true;
 }
 
@@ -246,5 +246,5 @@ void mou_report(int slot, uint8_t const *data, size_t size)
 
     // Update XRAM with new state
     if (mou_xram != 0xFFFF)
-        memcpy(&xram[mou_xram], &mou_state, sizeof(mou_state));
+        memcpy((uint8_t *)&xram[mou_xram], &mou_state, sizeof(mou_state));
 }

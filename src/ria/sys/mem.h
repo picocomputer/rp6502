@@ -16,7 +16,7 @@
 
 // 64KB Extended RAM
 // One page is tracked for audio
-extern uint8_t *const xram;
+extern volatile uint8_t *const xram;
 extern volatile uint8_t xram_queue_page;
 extern volatile uint8_t xram_queue_head;
 extern volatile uint8_t xram_queue_tail;

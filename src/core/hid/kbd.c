@@ -888,7 +888,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
 
     // Send it to xram
     if (kbd_xram != 0xFFFF)
-        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
 }
 
 bool kbd_xreg(uint16_t word)
@@ -897,7 +897,7 @@ bool kbd_xreg(uint16_t word)
         return false;
     kbd_xram = word;
     if (kbd_xram != 0xFFFF)
-        memcpy(&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
     return true;
 }
 

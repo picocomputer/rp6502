@@ -20,7 +20,7 @@
 #include <stdint.h>
 
 static uint8_t apf_host_xram[0x10000];
-uint8_t *const xram = apf_host_xram;
+volatile uint8_t *const xram = apf_host_xram;
 
 bool usb_boot_enumerating(void)
 {

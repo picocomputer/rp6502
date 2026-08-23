@@ -64,7 +64,7 @@ static void tab_write_xram(void)
 {
     if (tab_xram == 0xFFFF)
         return;
-    memcpy(&xram[tab_xram + TAB_OFF_STATUS], &tab_block[TAB_OFF_STATUS],
+    memcpy((uint8_t *)&xram[tab_xram + TAB_OFF_STATUS], &tab_block[TAB_OFF_STATUS],
            TAB_BLOCK_SIZE - TAB_OFF_STATUS);
 }
 
@@ -78,7 +78,7 @@ bool tab_set_xram(uint16_t addr)
     for (int i = 0; i < TAB_MAX_CONTACTS; ++i)
         tab_clear_contact(i);
     if (tab_xram != 0xFFFF) /* one-time full write also seeds control=0 (ROM draws its own) */
-        memcpy(&xram[tab_xram], tab_block, TAB_BLOCK_SIZE);
+        memcpy((uint8_t *)&xram[tab_xram], tab_block, TAB_BLOCK_SIZE);
     return true;
 }
 

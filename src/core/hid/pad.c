@@ -673,7 +673,7 @@ static void pad_reset_xram(int player)
         return;
     pad_xram_t gamepad_report;
     pad_parse_report(player, 0, 0, &gamepad_report); // get blank
-    memcpy(&xram[pad_xram + player * (sizeof(pad_xram_t))],
+    memcpy((uint8_t *)&xram[pad_xram + player * (sizeof(pad_xram_t))],
            &gamepad_report, sizeof(pad_xram_t));
 }
 
@@ -762,7 +762,7 @@ void pad_report(int slot, uint8_t const *data, uint16_t len)
     {
         pad_xram_t gamepad_report;
         pad_parse_report(player, report_data, report_data_len, &gamepad_report);
-        memcpy(&xram[pad_xram + player * (sizeof(pad_xram_t))],
+        memcpy((uint8_t *)&xram[pad_xram + player * (sizeof(pad_xram_t))],
                &gamepad_report, sizeof(pad_xram_t));
     }
 }
@@ -782,7 +782,7 @@ void pad_home_button(int slot, bool pressed)
     // Update the home button bit in xram
     if (pad_xram != 0xFFFF)
     {
-        uint8_t *button1 = &xram[pad_xram + player * sizeof(pad_xram_t) + offsetof(pad_xram_t, button1)];
+        volatile uint8_t *button1 = &xram[pad_xram + player * sizeof(pad_xram_t) + offsetof(pad_xram_t, button1)];
         if (pressed)
             *button1 |= (1 << (PAD_HOME_BUTTON - 8));
         else

@@ -50,7 +50,7 @@ static uint8_t pad_encode_stick(int8_t x, int8_t y)
 static void pad_write_xram(void)
 {
     if (pad_xram != 0xFFFF)
-        memcpy(&xram[pad_xram], pad_state, sizeof(pad_state));
+        memcpy((uint8_t *)&xram[pad_xram], pad_state, sizeof(pad_state));
 }
 
 /* Resolve a flat button id to its (byte offset, bit mask) in a player record. */

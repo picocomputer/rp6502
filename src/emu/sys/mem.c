@@ -12,7 +12,7 @@
 uint8_t ram[0x10000];
 
 static uint8_t xram_mem[0x10000];
-uint8_t *const xram = xram_mem;
+volatile uint8_t *const xram = xram_mem;
 
 alignas(4) volatile uint8_t regs[0x20];
 

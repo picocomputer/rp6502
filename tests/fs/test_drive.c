@@ -238,7 +238,7 @@ static void async_aio_body(int *utest_result)
     for (size_t i = 0; i < sizeof(src); i++)
         src[i] = (char)(i * 7 + 1);
 
-    memcpy(&xram[0x1000], src, sizeof(src));
+    memcpy((uint8_t *)&xram[0x1000], src, sizeof(src));
     int fd = ssys_open("async.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(fd >= 0);
     ASSERT_EQ(ssys_write_xram(fd, 0x1000, sizeof(src)), (int)sizeof(src));
@@ -248,9 +248,9 @@ static void async_aio_body(int *utest_result)
     ASSERT_TRUE(fd >= 0);
     /* two sequential reads: the fd offset must advance across them */
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 3000);
-    ASSERT_EQ(memcmp(&xram[0x8000], src, 3000), 0);
+    ASSERT_EQ(memcmp((const uint8_t *)&xram[0x8000], src, 3000), 0);
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 3000), 2000); /* short read at EOF */
-    ASSERT_EQ(memcmp(&xram[0x8000], src + 3000, 2000), 0);
+    ASSERT_EQ(memcmp((const uint8_t *)&xram[0x8000], src + 3000, 2000), 0);
     /* EOF: a further read returns zero bytes */
     ASSERT_EQ(ssys_read_xram(fd, 0x8000, 1000), 0);
     /* lseek interoperates with the transfer's offset; xstack reads too */

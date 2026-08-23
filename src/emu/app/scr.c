@@ -269,7 +269,7 @@ static bool scr_address(char **p, uint8_t **base, long *addr)
         return false;
     *base = ram;
     if (!strncasecmp(word, "xram:", 5))
-        *base = xram, word += 5;
+        *base = (uint8_t *)xram, word += 5;
     else if (!strncasecmp(word, "ram:", 4))
         word += 4;
     int radix = scr_radix(&word);

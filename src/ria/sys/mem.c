@@ -21,7 +21,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 // 4KB segments because a single 64KB array crashes my debugger
 alignas(4) static uint8_t __uninitialized_ram(xram_blocks)[16][0x1000];
-uint8_t *const xram = (uint8_t *)xram_blocks;
+volatile uint8_t *const xram = (uint8_t *)xram_blocks;
 
 volatile uint8_t xram_queue_page;
 volatile uint8_t xram_queue_head;

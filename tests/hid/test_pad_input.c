@@ -63,7 +63,7 @@ static void fake_reset(void)
     fake_count = 0;
     memset(fake_pads, 0, sizeof(fake_pads));
     pad_stop();
-    memset(xram, 0, 0x10000);
+    memset((uint8_t *)xram, 0, 0x10000);
 }
 
 static void fake_plug(int index, uint64_t id)
@@ -76,7 +76,7 @@ static void fake_plug(int index, uint64_t id)
 
 static const uint8_t *rec(int player)
 {
-    return &xram[AT_PAD + player * 10];
+    return (uint8_t *)&xram[AT_PAD + player * 10];
 }
 
 /* Enough frames for the retry counter between open attempts to run out. */

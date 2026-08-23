@@ -490,7 +490,7 @@ bool rom_load(const char *path)
             fclose(f);
             return false;
         }
-        uint8_t *dst = (addr > 0xFFFF) ? &xram[addr - 0x10000] : &ram[addr];
+        uint8_t *dst = (addr > 0xFFFF) ? (uint8_t *)&xram[addr - 0x10000] : &ram[addr];
         /* A ROM load must not write the RIA register window. The firmware's
          * ria_write_buf skips $FF00-$FFF9 (only the $FFFA-$FFFF vectors land in
          * that page); mirror it by snapshotting those cells and restoring them

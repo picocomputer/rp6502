@@ -80,7 +80,7 @@ bool opl_xreg(uint16_t word)
     assert(opl_emu8950); // OPL_new only fails under memory pressure (a debug build)
     OPL_reset(opl_emu8950);
     xram_queue_page = word >> 8;
-    memset(&xram[word], 0, 256);
+    memset((uint8_t *)&xram[word], 0, 256);
     xram_queue_tail = xram_queue_head;
     aud_setup(opl_irq_handler, OPL_SAMPLE_RATE);
     return true;

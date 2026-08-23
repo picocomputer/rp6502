@@ -9,7 +9,7 @@
 
 #include "ria/sys/mem.h"
 
-uint8_t *const xram = (uint8_t *)0x30000000u;
+volatile uint8_t *const xram = (uint8_t *)0x30000000u;
 
 /* Link-time code generation emits calls to these after it has decided
  * what to keep, so they must outlive their callers. */

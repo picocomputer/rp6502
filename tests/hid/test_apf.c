@@ -52,7 +52,7 @@
 
 static const uint8_t *pad_rec(int player)
 {
-    return &xram[AT_PAD + player * 10];
+    return (uint8_t *)&xram[AT_PAD + player * 10];
 }
 
 /* One slot's registers, exactly as apf_slot_task would put them through
@@ -108,7 +108,7 @@ static void reset_all(void)
     char drain[64];
     while (kbd_stdio_in_chars(drain, sizeof drain))
         ;
-    memset(xram, 0, 0x10000);
+    memset((uint8_t *)xram, 0, 0x10000);
     kbd_xreg(AT_KBD);
     mou_xreg(AT_MOU);
     pad_xreg(AT_PAD);

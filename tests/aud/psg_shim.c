@@ -19,7 +19,7 @@
 #include "aud_sine_tables.h"
 
 static uint8_t xram_backing[0x10000];
-uint8_t *const xram = xram_backing;
+volatile uint8_t *const xram = xram_backing;
 volatile uint8_t xram_queue_page;
 volatile uint8_t xram_queue_head;
 volatile uint8_t xram_queue_tail;

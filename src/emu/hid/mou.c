@@ -27,7 +27,7 @@ static float mou_acc_x, mou_acc_y; /* sub-count motion carried between moves */
 static void mou_write_xram(void)
 {
     if (mou_xram != 0xFFFF)
-        memcpy(&xram[mou_xram], mou_state, sizeof(mou_state));
+        memcpy((uint8_t *)&xram[mou_xram], mou_state, sizeof(mou_state));
 }
 
 bool mou_set_xram(uint16_t addr)
