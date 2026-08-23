@@ -113,9 +113,9 @@ include(${RP6502_SRC}/host/pocket/pocket.cmake)
 # what fill it. Every part of it is something that already knew: the machine
 # and its firmware are lists here, the oracle is emu_core's own, every test
 # arrives through rp6502_add_test and every generated asset through
-# rp6502_asset. Only the benches are swept, because they are headers on an
-# include path and no target lists those — the way machine.cmake sweeps the
-# firmware's for its own DEPENDS.
+# rp6502_machine_asset. Only the benches are swept, because they are headers
+# on an include path and no target lists those — the way machine.cmake sweeps
+# the firmware's for its own DEPENDS.
 if(RP6502_RTL_SIM)
     get_property(TEST_INPUTS GLOBAL PROPERTY RP6502_TEST_INPUTS)
     get_property(ASSET_INPUTS GLOBAL PROPERTY RP6502_ASSET_INPUTS)
@@ -128,9 +128,6 @@ if(RP6502_RTL_SIM)
         # so neither names a file any target lists; a bump of any of them
         # reaches a diff only as its gitlink.
         ${RP6502_SIM_MODULES}
-        ${RP6502_ROOT}/tests/roms/vidmodes.py
-        ${RP6502_SRC}/gen/rp6502_asm.py
-        ${RP6502_SRC}/gen/rp6502_rom.py
         ${CMAKE_CURRENT_LIST_FILE}
         ${CMAKE_CURRENT_LIST_DIR}/machine.cmake
         ${CMAKE_CURRENT_LIST_DIR}/assets.cmake

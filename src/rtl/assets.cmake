@@ -1,10 +1,15 @@
 # The generated assets: decode tables, font and palette images, sine and
-# audio ROMs, code pages, and the .rp6502 programs the bench loads. All of
-# them come out of src/gen, none of them is committed, and several concerns
-# need the same ones — test_font reads the font tables, the verilated machine
-# compiles the palette and sine packages in, and the Pocket's dist tree ships
-# the font image. So they are built once here rather than by whoever asked
-# first.
+# audio lookup ROMs, code pages. All of them come out of src/gen, none of them
+# is committed, and several concerns need the same ones — test_font reads the
+# font tables, the verilated machine compiles the palette and sine packages in,
+# and the Pocket's dist tree ships the font image. So they are built once here
+# rather than by whoever asked first.
+#
+# What is here is what the machine is built from or staged into. A .rp6502 is
+# neither: it is a program the machine runs, and the same one runs on all
+# three, so those are made in tests/rp6502_tests.cmake where both trees can
+# reach them. They were here once, and this tree was the only one that could
+# build them.
 #
 # Included by machine.cmake, which every configuration of this tree includes. The
 # emulator's tree needs none of this.
@@ -12,8 +17,12 @@
 set(RP6502_ASSETS ${CMAKE_BINARY_DIR}/assets)
 file(MAKE_DIRECTORY ${RP6502_ASSETS})
 
-# rp6502_asset(<target> GEN <script> OUTPUTS <file>... [ARGS <arg>...]
-#              [DEPENDS <file>...] COMMENT <text>)
+# rp6502_machine_asset(<target> GEN <script> OUTPUTS <file>... [ARGS <arg>...]
+#                      [DEPENDS <file>...] COMMENT <text>)
+#
+# Named for what it makes: something the machine is built from or staged into.
+# rp6502_asset is the SDK's, in tools/rp6502.cmake, and takes an address and a
+# file — a downstream project calls that one, and the two shared a name.
 #
 # Generates at configure time AND at build time, which looks redundant and is
 # not: verilate() reads its sources when cmake configures, so a package that
@@ -24,7 +33,7 @@ file(MAKE_DIRECTORY ${RP6502_ASSETS})
 # something is missing. Running unconditionally moves every asset's timestamp
 # on every configure, and the IDE configures on every CMakeLists edit — which
 # reads downstream as a changed design and costs a ten minute refit.
-function(rp6502_asset target)
+function(rp6502_machine_asset target)
     cmake_parse_arguments(A "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
     # What an asset is made from, for the input lists. The outputs are not
     # named there — a generated file never appears in a diff — so the generator
@@ -53,8 +62,8 @@ function(rp6502_asset target)
     add_custom_target(${target} ALL DEPENDS ${A_OUTPUTS})
 endfunction()
 
-# Asked for here and not inside rp6502_asset, which only generates when an
-# output is missing: a warm tree whose submodule went away would otherwise
+# Asked for here and not inside rp6502_machine_asset, which only generates when
+# an output is missing: a warm tree whose submodule went away would otherwise
 # configure clean and fail at the build rule instead.
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/chips SENTINEL codegen/w65c02_gen.py
@@ -77,7 +86,7 @@ add_test(NAME rbf_r
         ${RP6502_SRC}/gen/rbf_r_gen.py --check)
 
 set(W65C02_ROM ${RP6502_ASSETS}/w65c02_rom_pkg.sv)
-rp6502_asset(w65c02_rom GEN ${W65C02_GEN}
+rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
     ARGS --emit ${W65C02_ROM}
     OUTPUTS ${W65C02_ROM}
     COMMENT "Generating the w65c02 decode table")
@@ -88,7 +97,7 @@ rp6502_asset(w65c02_rom GEN ${W65C02_GEN}
 set(VID_FONT_BIN ${RP6502_ASSETS}/fonts.bin)
 set(VID_FONT_H ${RP6502_ASSETS}/vid_font_tables.h)
 set(VID_FONT_ASSET_H ${RP6502_ASSETS}/vid_font_asset.h)
-rp6502_asset(vid_font_rom GEN ${RP6502_SRC}/gen/vid_font_gen.py
+rp6502_machine_asset(vid_font_rom GEN ${RP6502_SRC}/gen/vid_font_gen.py
     ARGS --emit-bin ${VID_FONT_BIN} --emit-h ${VID_FONT_H}
         --emit-asset-h ${VID_FONT_ASSET_H}
     OUTPUTS ${VID_FONT_BIN} ${VID_FONT_H} ${VID_FONT_ASSET_H}
@@ -98,7 +107,7 @@ rp6502_asset(vid_font_rom GEN ${RP6502_SRC}/gen/vid_font_gen.py
 # The builtin palettes ride the same way, from vga/term/color.c.
 set(VID_PALETTE_PKG ${RP6502_ASSETS}/vid_palette_pkg.sv)
 set(VID_PALETTE_H ${RP6502_ASSETS}/vid_palette_tables.h)
-rp6502_asset(vid_palette_rom GEN ${RP6502_SRC}/gen/vid_palette_gen.py
+rp6502_machine_asset(vid_palette_rom GEN ${RP6502_SRC}/gen/vid_palette_gen.py
     ARGS --emit-sv ${VID_PALETTE_PKG} --emit-h ${VID_PALETTE_H}
     OUTPUTS ${VID_PALETTE_PKG} ${VID_PALETTE_H}
     DEPENDS ${RP6502_SRC}/vga/term/color.c
@@ -107,7 +116,7 @@ rp6502_asset(vid_palette_rom GEN ${RP6502_SRC}/gen/vid_palette_gen.py
 # The PSG's sine table, from aud_init's runtime formula.
 set(AUD_SINE_PKG ${RP6502_ASSETS}/aud_sine_pkg.sv)
 set(AUD_SINE_H ${RP6502_ASSETS}/aud_sine_tables.h)
-rp6502_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
+rp6502_machine_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
     ARGS --emit-sv ${AUD_SINE_PKG} --emit-h ${AUD_SINE_H}
     OUTPUTS ${AUD_SINE_PKG} ${AUD_SINE_H}
     COMMENT "Generating the aud sine ROM")
@@ -120,7 +129,7 @@ rp6502_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
 set(OPL2_LUT_SRC ${RP6502_VENDOR}/opl2_fpga/fpga/modules/operator/src)
 set(OPL2_LUT_PKG ${RP6502_ASSETS}/opl2_lut_pkg.sv)
 set(OPL2_LUT_H ${RP6502_ASSETS}/opl2_lut_tables.h)
-rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
+rp6502_machine_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
     ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
         --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv
         --emit-sv ${OPL2_LUT_PKG} --emit-h ${OPL2_LUT_H}
@@ -129,38 +138,12 @@ rp6502_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
         ${OPL2_LUT_SRC}/opl2_exp_lut.sv
     COMMENT "Generating the merged OPL2 LUT ROM")
 
-# Two audio programs that make one note and leave the console alone, so
-# the machine's own diagnostics stay readable while a device is driven.
-# test_aud runs these same files, which is what keeps a note that sounds
-# on hardware and a note the simulation asserts from drifting apart.
-# The assembler and the .rp6502 container every one of these generators
-# writes through. A change to it changes every ROM, so every ROM names it.
-set(RP6502_ROM_GEN
-    ${RP6502_SRC}/gen/rp6502_asm.py
-    ${RP6502_SRC}/gen/rp6502_rom.py)
-
-set(AUD_ROM_PSG ${RP6502_ASSETS}/psg.rp6502)
-set(AUD_ROM_PSG_PRE ${RP6502_ASSETS}/psg_pre.rp6502)
-set(AUD_ROM_OPL ${RP6502_ASSETS}/opl.rp6502)
-set(AUD_ROM_OPL_EXIT ${RP6502_ASSETS}/opl_exit.rp6502)
-set(AUD_ROM_BEL ${RP6502_ASSETS}/bel.rp6502)
-set(AUD_ROM_OPL_BEL ${RP6502_ASSETS}/opl_bel.rp6502)
-rp6502_asset(aud_roms GEN ${RP6502_SRC}/gen/aud_rom_gen.py
-    ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
-        --emit-opl ${AUD_ROM_OPL}
-        --emit-opl-exit ${AUD_ROM_OPL_EXIT}
-        --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
-    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
-        ${AUD_ROM_OPL_EXIT}
-        ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
-    DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the audio bring-up ROMs")
 
 # The resampler's coefficients, as the package the RTL reads. The same
 # script writes the C table in src/emu, so there is one design behind both
 # and the lockstep is comparing implementations rather than designs.
 set(RSMP_COEF_PKG ${RP6502_ASSETS}/rsmp_coef_pkg.sv)
-rp6502_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/gen/rsmp_coef_gen.py
+rp6502_machine_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/gen/rsmp_coef_gen.py
     ARGS --emit-sv ${RSMP_COEF_PKG}
     OUTPUTS ${RSMP_COEF_PKG}
     COMMENT "Generating the resampler coefficient package")
@@ -169,7 +152,7 @@ rp6502_asset(rsmp_coef_pkg GEN ${RP6502_SRC}/gen/rsmp_coef_gen.py
 # the binary and loads it into the staging store beside the fonts.
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
 set(OEMCP_BIN ${RP6502_ASSETS}/oemcp.bin)
-rp6502_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
+rp6502_machine_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
     ARGS --ffunicode ${OEMCP_SRC} --emit-bin ${OEMCP_BIN}
     OUTPUTS ${OEMCP_BIN}
     DEPENDS ${OEMCP_SRC}
@@ -181,7 +164,7 @@ rp6502_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
 set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def)
 file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
 set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
-rp6502_asset(kbdlay_bin GEN ${RP6502_SRC}/gen/kbd_layout_gen.py
+rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/gen/kbd_layout_gen.py
     ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
     OUTPUTS ${KBDLAY_BIN}
     DEPENDS ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
@@ -209,51 +192,3 @@ add_test(NAME stage_map
         --engine ${RP6502_SRC}/rtl/core/sst_engine.sv
         --sst ${RP6502_HOST_POCKET}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core_top.sv)
-
-# The file round trip, generated the same way and shipped the same way.
-# The file that is open when the machine sleeps. It reads a chunk at a
-# time so that wherever a sleep lands, a read lands after the resume.
-set(STREAM_ROM ${RP6502_ASSETS}/stream.rp6502)
-rp6502_asset(stream_rom GEN ${RP6502_SRC}/gen/stream_rom_gen.py
-    ARGS --emit ${STREAM_ROM}
-    OUTPUTS ${STREAM_ROM}
-    DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the streaming-read ROM")
-
-set(FILE_ROM ${RP6502_ASSETS}/file.rp6502)
-rp6502_asset(file_rom GEN ${RP6502_SRC}/gen/file_rom_gen.py
-    ARGS --emit ${FILE_ROM}
-    OUTPUTS ${FILE_ROM}
-    DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the file round-trip ROM")
-
-# The same round trip past the transfer window. It ships but is not a
-# test: what it exists to ask — whether the Pocket's resize keeps what
-# was already in the file — has no answer in simulation, because the
-# bench answers the way we assumed.
-set(BIGFILE_ROM ${RP6502_ASSETS}/bigfile.rp6502)
-rp6502_asset(bigfile_rom GEN ${RP6502_SRC}/gen/bigfile_rom_gen.py
-    ARGS --emit ${BIGFILE_ROM}
-    OUTPUTS ${BIGFILE_ROM}
-    DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the multi-chunk file ROM")
-
-# The create path has never worked on hardware and the name turned out
-# not to matter. This walks a list of names in one boot so the next
-# guess costs a card copy instead of a fit.
-set(PROBE_ROM ${RP6502_ASSETS}/probe.rp6502)
-rp6502_asset(probe_rom GEN ${RP6502_SRC}/gen/probe_rom_gen.py
-    ARGS --emit ${PROBE_ROM}
-    OUTPUTS ${PROBE_ROM}
-    DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the open-file probe ROM")
-
-# The whole drive in one boot: forty-seven checks the machine decides
-# for itself. It runs here against the bench's host as well as on the
-# card, so a bug in the ROM is found before a photograph is.
-set(FSTEST_ROM ${RP6502_ASSETS}/fstest.rp6502)
-rp6502_asset(fstest_rom GEN ${RP6502_SRC}/gen/fstest_rom_gen.py
-    ARGS --emit ${FSTEST_ROM}
-    OUTPUTS ${FSTEST_ROM}
-    DEPENDS ${RP6502_ROM_GEN}
-    COMMENT "Generating the filesystem conformance ROM")
