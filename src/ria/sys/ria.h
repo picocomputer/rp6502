@@ -29,6 +29,8 @@
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
+#include "core/main.h"
+
 /* Main events
  */
 
@@ -40,10 +42,6 @@ void ria_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 // Trigger IRQ when enabled
 void ria_trigger_vsync(void);
-void ria_trigger_sigint(void);
-
-// Returns true once per latched SIGINT, then clears.
-bool ria_get_sigint(void);
 
 // 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. The cross-core TX
 // ring and RX handoff slot live in ria.c (act_loop's core); com.c (core 0)
@@ -64,9 +62,6 @@ void ria_write_buf(uint16_t addr);
 
 // Verify the mbuf matches 6502 memory.
 void ria_verify_buf(uint16_t addr);
-
-// The RIA is active when it's performing an mbuf action.
-bool ria_active(void);
 
 // Prints a "?" error and returns true if last mbuf action failed.
 bool ria_handle_error(void);

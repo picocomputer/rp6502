@@ -13,7 +13,7 @@
 #include "core/str/rln.h"
 #include "core/com.h"
 #include "ria/sys/cpu.h"
-#include "ria/sys/ria.h"
+#include "core/main.h"
 #include "host.h"
 #include <stdio.h>
 #include <string.h>

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/main.h"
+#include "core/main.h"
 #include "core/api/oem.h"
 #include "core/api/uni.h"
 #include "ria/ble/ble.h"
@@ -12,7 +12,6 @@
 #include "core/hid/kbl.h"
 #include "core/hid/hid.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
 #include "host.h"
 #include "core/hid/usage.h"

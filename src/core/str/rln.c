@@ -7,7 +7,7 @@
 #include "core/api/api.h"
 #include "core/str/rln.h"
 #include "core/com.h"
-#include "ria/sys/ria.h"
+#include "core/main.h"
 #include "ria/sys/vga.h"
 #include "host.h"
 #include <pico/stdlib.h>
