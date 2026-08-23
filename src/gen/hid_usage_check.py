@@ -3,17 +3,18 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The Pocket's HID constant shim against the vendored TinyUSB header.
+# core/hid/usage.h against the vendored TinyUSB header.
 #
-# core/hid/kbd.c is compiled for two machines. One has USB and gets
-# TinyUSB's class/hid/hid.h; the other has an APF bus and gets
-# src/rtl/sw/shim/class/hid/hid.h, which exists because learning that
-# Escape is 0x29 should not cost a USB stack. Two spellings of one
-# specification is exactly the arrangement that drifts, so every
-# constant the shim defines is compared against the vendor's here.
+# core/hid/kbd.c is compiled for machines that mostly have no USB, so the
+# usage table it reads is the machine's own -- learning that Escape is 0x29
+# should not cost a Pocket a USB stack. But the RIA does have USB and its
+# drivers speak TinyUSB's spelling of the same specification, and two
+# spellings of one specification is exactly the arrangement that drifts.
+# So every constant core/hid/usage.h defines is compared against the
+# vendor's here, on the one build that has both.
 #
-# Only names the shim defines are checked: it carries what kbd.c uses,
-# not the whole usage table.
+# Only names usage.h defines are checked: it carries what kbd.c uses, not
+# the whole usage table.
 
 import argparse
 import re
@@ -47,24 +48,24 @@ def defines(src):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--shim", required=True)
+    ap.add_argument("--usage", required=True)
     ap.add_argument("--vendor", required=True)
     a = ap.parse_args()
 
-    shim = defines(Path(a.shim).read_text(encoding="utf-8"))
+    usage = defines(Path(a.usage).read_text(encoding="utf-8"))
     vendor = defines(Path(a.vendor).read_text(encoding="utf-8"))
-    if not shim:
-        raise SystemExit("hid_shim_check: the shim defines nothing")
+    if not usage:
+        raise SystemExit("hid_usage_check: core/hid/usage.h defines nothing")
 
     bad = []
-    for name, value in sorted(shim.items()):
+    for name, value in sorted(usage.items()):
         if name not in vendor:
             bad.append(f"{name} is not in the vendored header")
         elif vendor[name] != value:
             bad.append(f"{name} is {value:#04x} here, {vendor[name]:#04x} there")
     if bad:
-        raise SystemExit("hid_shim_check:\n  " + "\n  ".join(bad))
-    print(f"hid shim: {len(shim)} constants match TinyUSB")
+        raise SystemExit("hid_usage_check:\n  " + "\n  ".join(bad))
+    print(f"hid usage: {len(usage)} constants match TinyUSB")
     return 0
 
 

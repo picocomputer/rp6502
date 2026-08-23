@@ -15,7 +15,7 @@
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
 #include "host.h"
-#include <class/hid/hid.h>
+#include "core/hid/usage.h"
 #include <pico.h>
 #include <stdio.h>
 /* The case-insensitive compares a layout name is matched with. Named by

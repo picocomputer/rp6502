@@ -3,17 +3,19 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The keyboard constants of the USB HID usage tables, for a machine
- * with no USB. core/hid/kbd.c reaches for TinyUSB's copy; pulling in a
- * whole USB stack to learn that Escape is 0x29 is not worth it, and the
- * numbers are the specification's rather than TinyUSB's.
+ * The keyboard constants of the USB HID usage tables. They are the
+ * specification's numbers, so they are the machine's rather than any one
+ * host's: only the RIA has USB, and learning that Escape is 0x29 should not
+ * cost a Pocket a USB stack.
  *
- * Only what kbd.c uses. tests/hid checks every one against the vendored
- * header, so the two cannot drift.
+ * Only what core/hid/kbd.c uses. The RIA build compares every one against
+ * the vendored TinyUSB header (src/gen/hid_usage_check.py) because that is
+ * the tree that has it -- the machines that need this file do not, which is
+ * the whole reason it exists.
  */
 
-#ifndef _FPGA_SW_SHIM_HID_H_
-#define _FPGA_SW_SHIM_HID_H_
+#ifndef _CORE_HID_USAGE_H_
+#define _CORE_HID_USAGE_H_
 
 #define HID_KEY_NONE 0x00
 #define HID_KEY_BACKSPACE 0x2A
@@ -71,4 +73,4 @@
 #define KEYBOARD_LED_CAPSLOCK 0x02
 #define KEYBOARD_LED_SCROLLLOCK 0x04
 
-#endif /* _FPGA_SW_SHIM_HID_H_ */
+#endif /* _CORE_HID_USAGE_H_ */
