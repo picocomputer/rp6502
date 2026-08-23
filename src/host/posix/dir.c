@@ -9,7 +9,7 @@
  */
 
 #include "host.h"
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>

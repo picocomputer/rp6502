@@ -7,8 +7,8 @@
 
 #include "ria/sys/pix.h"
 #include "emu/main.h"
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 #include <string.h>
 
 /* The receiver side of the PIX bus, collapsed into the emu. The on-device driver

@@ -31,8 +31,8 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
 # The keyboard layouts, out of def/kbd_*.def and into one image hid/kbl.c
 # reads a word at a time. See src/gen/kbd_layout_gen.py.
 set(KBDLAY_GEN ${RP6502_ROOT}/src/gen/kbd_layout_gen.py)
-set(KBDLAY_MANIFEST ${CMAKE_CURRENT_LIST_DIR}/def/kbd.def)
-file(GLOB KBDLAY_DEFS ${CMAKE_CURRENT_LIST_DIR}/def/kbd_*.def)
+set(KBDLAY_MANIFEST ${RP6502_ROOT}/src/core/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${RP6502_ROOT}/src/core/def/kbd_*.def)
 set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
 set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
 add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
@@ -42,7 +42,7 @@ add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
     COMMENT "Generating the keyboard layouts"
     VERBATIM)
 
-# ria/hid/kbd.c is compiled for a machine with USB and for one without.
+# core/hid/kbd.c is compiled for a machine with USB and for one without.
 # The one without gets src/rtl/sw/shim/class/hid/hid.h rather than a USB
 # stack it has no use for, and two spellings of one specification drift.
 # The check lives here because this is the tree that has TinyUSB: the
@@ -114,31 +114,31 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 
 target_sources(${RIA_TARGET} PRIVATE
     main.c
-    api/api.c
-    api/arg.c
-    api/atr.c
-    api/clk.c
-    api/fat.c
-    api/oem.c
+    ${RP6502_ROOT}/src/core/api/api.c
+    ${RP6502_ROOT}/src/core/api/arg.c
+    ${RP6502_ROOT}/src/core/api/atr.c
+    ${RP6502_ROOT}/src/core/api/clk.c
+    ${RP6502_ROOT}/src/core/api/fat.c
+    ${RP6502_ROOT}/src/core/api/oem.c
     api/pro.c
-    api/uni.c
+    ${RP6502_ROOT}/src/core/api/uni.c
     ${OEMCP_C}
-    api/std.c
+    ${RP6502_ROOT}/src/core/api/std.c
     api/tim.c
     aud/aud.c
-    aud/bel.c
-    aud/bel_presets.c
-    aud/opl.c
-    aud/psg.c
+    ${RP6502_ROOT}/src/core/aud/bel.c
+    ${RP6502_ROOT}/src/core/aud/bel_presets.c
+    ${RP6502_ROOT}/src/core/aud/opl.c
+    ${RP6502_ROOT}/src/core/aud/psg.c
     ble/ble.c
     ble/tlv.c
-    hid/hid.c
-    hid/kbd.c
-    hid/kbl.c
+    ${RP6502_ROOT}/src/core/hid/hid.c
+    ${RP6502_ROOT}/src/core/hid/kbd.c
+    ${RP6502_ROOT}/src/core/hid/kbl.c
     ${KBDLAY_C}
-    hid/mou.c
-    hid/pad.c
-    hid/tab.c
+    ${RP6502_ROOT}/src/core/hid/mou.c
+    ${RP6502_ROOT}/src/core/hid/pad.c
+    ${RP6502_ROOT}/src/core/hid/tab.c
     mon/dsk.c
     mon/fil.c
     mon/hlp.c
@@ -155,8 +155,8 @@ target_sources(${RIA_TARGET} PRIVATE
     net/ntp.c
     net/tel.c
     net/wfi.c
-    str/rln.c
-    str/str.c
+    ${RP6502_ROOT}/src/core/str/rln.c
+    ${RP6502_ROOT}/src/core/str/str.c
     sys/cfg.c
     sys/com.c
     sys/cpu.c

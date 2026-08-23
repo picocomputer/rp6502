@@ -14,7 +14,7 @@
 
 #include "bel.h"
 #include "mmio.h"
-#include "ria/aud/bel.h"
+#include "core/aud/bel.h"
 #include <pico/time.h>
 
 #define BEL_QUEUE_SIZE 8

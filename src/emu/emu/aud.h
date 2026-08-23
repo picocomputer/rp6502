@@ -10,7 +10,7 @@
 
 #include <stdbool.h>
 
-#include "ria/aud/aud.h"
+#include "core/aud/aud.h"
 
 /* Main events
  */

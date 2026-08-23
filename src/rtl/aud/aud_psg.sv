@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Nine voices, bit-exact with ria/aud/psg.c: the same walk order,
+ * Nine voices, bit-exact with core/aud/psg.c: the same walk order,
  * accumulator widths and wrapping. That agreement is what fixes every
  * width below.
  *

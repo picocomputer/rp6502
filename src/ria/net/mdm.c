@@ -42,7 +42,7 @@ bool mdm_set_listen_port(uint16_t port)
 #include "ria/net/cyw.h"
 #include "ria/net/tel.h"
 #include "ria/net/wfi.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/lfs.h"
 #include <pico/time.h>

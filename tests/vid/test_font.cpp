@@ -12,14 +12,14 @@
 #include "oracle.h"
 #include "utest.h"
 
-#include "vga/term/color.h"
-#include "vga/term/font.h"
+#include "core/term/color.h"
+#include "core/term/font.h"
 
 #include "aud_sine_tables.h"
 #include "vid_font_tables.h"
 #include "vid_palette_tables.h"
 
-#include "ria/aud/aud.h"
+#include "core/aud/aud.h"
 
 
 /* The store is addressed the way font.c lays its tables out, so the

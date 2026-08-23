@@ -11,9 +11,9 @@
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
-#include "ria/api/oem.h"
-#include "ria/str/str.h"
-#include "ria/api/std.h"
+#include "core/api/oem.h"
+#include "core/str/str.h"
+#include "core/api/std.h"
 #include "emu/emu/rom.h"
 #include "emu/emu/msc.h"
 #include "emu/sys/mem.h"

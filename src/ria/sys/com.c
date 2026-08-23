@@ -5,9 +5,9 @@
  */
 
 #include "ria/main.h"
-#include "ria/api/oem.h"
-#include "ria/aud/bel.h"
-#include "ria/hid/kbd.h"
+#include "core/api/oem.h"
+#include "core/aud/bel.h"
+#include "core/hid/kbd.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
@@ -16,8 +16,8 @@
 #include "ria/net/cyw.h"
 #include "ria/net/wfi.h"
 #include "ria/sys/cfg.h"
-#include "ria/str/rln.h"
-#include "ria/str/str.h"
+#include "core/str/rln.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <stdlib.h>
 #include <string.h>

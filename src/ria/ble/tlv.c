@@ -5,7 +5,7 @@
  */
 
 #include "ria/mon/mon.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/lfs.h"
 #include <hal_flash_bank.h>
 #include <hardware/flash.h>

@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* This is a standalone REPLACE twin (not `#include "ria/hid/pad.h"`): the web
+/* This is a standalone REPLACE twin (not `#include "core/hid/pad.h"`): the web
  * shell's fixed JS-ABI export `pad_report` in host/web/exports.c collides with
  * the firmware's `pad_report` HID-parser prototype, so the base header can't be
  * pulled in here. */
@@ -19,7 +19,7 @@
 #define PAD_PLAYERS 4
 
 /* Where the face button labels sit, reported in dpad bits 4-5. Mirrors the
- * PAD_TYPE_ values in ria/hid/pad.h, which this twin cannot include. */
+ * PAD_TYPE_ values in core/hid/pad.h, which this twin cannot include. */
 #define PAD_TYPE_UNKNOWN 0
 #define PAD_TYPE_WESTERN 1     /* A south, B east */
 #define PAD_TYPE_EASTERN 2     /* B south, A east */
@@ -51,7 +51,7 @@ typedef enum
 } pad_button_t;
 
 /* xreg_ria_gamepad API: point the 4-player report block (10 bytes each) at an
- * XRAM address (0xFFFF = off). Mirrors ria/hid/pad.c pad_xreg. */
+ * XRAM address (0xFFFF = off). Mirrors core/hid/pad.c pad_xreg. */
 bool pad_set_xram(uint16_t addr);
 
 /* Plug/unplug a virtual gamepad (sets the connected bit programs gate on);

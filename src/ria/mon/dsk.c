@@ -8,7 +8,7 @@
 #include "ria/mon/dsk.h"
 #include "ria/mon/hlp.h"
 #include "ria/mon/mon.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/ria.h"

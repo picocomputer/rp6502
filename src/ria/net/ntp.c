@@ -12,7 +12,7 @@ int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 
 #include "ria/net/ntp.h"
 #include "ria/net/wfi.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <lwip/dns.h>
 #include <lwip/udp.h>

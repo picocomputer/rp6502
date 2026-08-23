@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The keyboard constants of the USB HID usage tables, for a machine
- * with no USB. ria/hid/kbd.c reaches for TinyUSB's copy; pulling in a
+ * with no USB. core/hid/kbd.c reaches for TinyUSB's copy; pulling in a
  * whole USB stack to learn that Escape is 0x29 is not worth it, and the
  * numbers are the specification's rather than TinyUSB's.
  *

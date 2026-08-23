@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 5, the paletted sprites of vga/modes/mode5.c: an array of
+ * Mode 5, the paletted sprites of core/vga/mode5.c: an array of
  * descriptors — position, image, palette — each a fixed-size square at
  * 1, 2, 4 or 8 bits per pixel, walked in order so later sprites land on
  * earlier ones. The palette is read live per pixel, never snapshotted;

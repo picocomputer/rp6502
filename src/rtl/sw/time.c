@@ -22,7 +22,7 @@
 
 #include "main.h"
 
-#include "ria/api/tim.h"
+#include "core/api/tim.h"
 
 #include <pico/time.h>
 

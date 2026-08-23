@@ -17,8 +17,8 @@
 #include "main.h"
 #include "mmio.h"
 
-#include "ria/hid/kbd.h"
-#include "ria/hid/kbl.h"
+#include "core/hid/kbd.h"
+#include "core/hid/kbl.h"
 #include "ria/sys/cpu.h"
 
 #include <string.h>

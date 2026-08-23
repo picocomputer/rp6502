@@ -10,7 +10,7 @@
 #include "host/usbh.h"
 #include "host/usbh_pvt.h"
 #include "host/hcd.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/mem.h"
 #include "ria/usb/msc.h"

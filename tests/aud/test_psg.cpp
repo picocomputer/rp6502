@@ -36,8 +36,8 @@
 
 extern "C"
 {
-#include "ria/aud/bel.h"
-#include "ria/aud/psg.h"
+#include "core/aud/bel.h"
+#include "core/aud/psg.h"
 }
 
 #include <cstdio>

@@ -1,6 +1,6 @@
 # PSG, bell, OPL2 and the resampler.
 #
-# aud_psg and ria/aud/psg.c are two implementations of one engine and are
+# aud_psg and core/aud/psg.c are two implementations of one engine and are
 # held to the same sample. That is what psg_shim.c exists for — it stands
 # the firmware's drivers up over flat shims so the same C runs on a
 # workstation.
@@ -27,15 +27,15 @@ if(RP6502_VERILATE)
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
         ${RP6502_SRC} ${RP6502_SRC}/pico_shim)
 
-    # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
+    # --- The PSG in RTL, against core/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
     # verilated engine consume the same XRAM image and gate schedule.
     rp6502_add_module_test(psg
         TOP aud_psg
         RTL ${AUD_SINE_PKG} ${RP6502_SRC}/rtl/aud/aud_psg.sv
         SOURCES test_psg.cpp psg_shim.c
-            ${RP6502_SRC}/ria/aud/psg.c ${RP6502_SRC}/ria/aud/bel.c
-            ${RP6502_SRC}/ria/aud/bel_presets.c
+            ${RP6502_SRC}/core/aud/psg.c ${RP6502_SRC}/core/aud/bel.c
+            ${RP6502_SRC}/core/aud/bel_presets.c
         INCLUDES ${AUD_SHIM_INCLUDES}
         DEPENDS aud_sine_rom
         # RATE is the arithmetic and must match PSG_SHIM_RATE; the tick is

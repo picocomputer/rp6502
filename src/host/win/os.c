@@ -10,7 +10,7 @@
  */
 
 #include "host.h"
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "host/win/win.h"
 #include <direct.h>
 #include <io.h>

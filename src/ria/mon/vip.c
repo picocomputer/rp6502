@@ -5,7 +5,7 @@
  */
 
 #include "ria/mon/vip.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include <pico/rand.h>
 #include <stdio.h>
 #include <string.h>

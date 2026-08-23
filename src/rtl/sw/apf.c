@@ -17,11 +17,11 @@
 #include "apf.h"
 #include "mmio.h"
 
-#include "ria/hid/hid.h"
-#include "ria/hid/kbd.h"
-#include "ria/hid/mou.h"
-#include "ria/hid/pad.h"
-#include "ria/hid/tab.h"
+#include "core/hid/hid.h"
+#include "core/hid/kbd.h"
+#include "core/hid/mou.h"
+#include "core/hid/pad.h"
+#include "core/hid/tab.h"
 
 #include <stdint.h>
 #include <string.h>

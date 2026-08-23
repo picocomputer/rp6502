@@ -18,8 +18,8 @@ void tmp_unmount(void);    /* restore the native host backend (tests; the drive 
 bool tmp_active(void);     /* true once the FatFs backend is the active MSC0: drive */
 bool tmp_std_handles(const char *path); /* std.c fat driver's handles: gated on tmp_active() */
 
-/* The FatFs backend runs the SHARED ria/api/fat.c file driver (fat_std_*), listed
+/* The FatFs backend runs the SHARED core/api/fat.c file driver (fat_std_*), listed
  * in std.c's table and gated on tmp_active(); the dir syscalls run the firmware's
- * fat_api_* (ria/api/fat.c), swapped in via main_dir_ops_set(). */
+ * fat_api_* (core/api/fat.c), swapped in via main_dir_ops_set(). */
 
 #endif /* _EMU_HOST_TMP_H_ */

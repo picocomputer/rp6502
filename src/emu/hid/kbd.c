@@ -5,7 +5,7 @@
  *
  */
 
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "emu/hid/kbd.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/com.h"
@@ -18,7 +18,7 @@
 /* HID keyboard bitmap (xreg_ria_keyboard API)                         */
 /* ------------------------------------------------------------------ */
 
-/* 256-bit key bitmap written to XRAM, mirroring ria/hid/kbd.c. Word 0's low
+/* 256-bit key bitmap written to XRAM, mirroring core/hid/kbd.c. Word 0's low
  * bits are reserved: bit 0 = "no keys pressed", bits 1-3 = lock LEDs. */
 static uint32_t kbd_keys[8] = {1}; /* idle: no keys down */
 static uint16_t kbd_xram = 0xFFFF; /* 0xFFFF = not mapped */

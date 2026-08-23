@@ -8,10 +8,10 @@
 #ifndef _EMU_HID_MOU_H_
 #define _EMU_HID_MOU_H_
 
-#include "ria/hid/mou.h"
+#include "core/hid/mou.h"
 
 /* xreg_ria_mouse API: point the report block ({buttons,x,y,wheel,pan}, 5 bytes)
- * at an XRAM address (0xFFFF = off). Mirrors ria/hid/mou.c mou_xreg. */
+ * at an XRAM address (0xFFFF = off). Mirrors core/hid/mou.c mou_xreg. */
 bool mou_set_xram(uint16_t addr);
 
 /* True once a program has pointed the report block at XRAM (xreg_ria_mouse). */

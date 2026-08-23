@@ -15,7 +15,7 @@
 #include "mmio.h"
 #include "rom.h"
 
-#include "ria/api/uni.h"
+#include "core/api/uni.h"
 
 #include <ctype.h>
 #include <stdio.h>

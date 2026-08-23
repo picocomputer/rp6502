@@ -6,7 +6,7 @@ rp6502_add_test(fs LIBS emu_core)
 # --- Drive fs.c paths: host-backed MSC0:, ROM overlay, async POSIX-AIO ---
 rp6502_add_test(drive LIBS emu_core FIXTURE adventure.rp6502)
 
-# --- Real FatFs on the emulator RAM disk (shared ria/api/fat.c + host/fat.c diskio) ---
+# --- Real FatFs on the emulator RAM disk (shared core/api/fat.c + host/fat.c diskio) ---
 rp6502_add_test(fatfs LIBS emu_core)
 
 # --- Directory enumeration integration (dir.rp6502: opendir/readdir/stat/getfree) ---

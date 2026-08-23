@@ -48,7 +48,7 @@
 #include "vga.h"
 #include "vid.h"
 
-#include "ria/api/tim.h"
+#include "core/api/tim.h"
 
 #include <pico/time.h>
 

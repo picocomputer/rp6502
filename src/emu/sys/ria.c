@@ -10,7 +10,7 @@
 #include "emu/sys/cpu.h"
 #include "emu/sys/mem.h"
 #include "emu/main.h"
-#include "ria/api/api.h"
+#include "core/api/api.h"
 #include "emu/sys/ria.h"
 #include <string.h>
 

@@ -13,7 +13,7 @@
 
 #include "main.h"
 
-#include "ria/api/api.h"
+#include "core/api/api.h"
 #include "ria/sys/pix.h"
 
 #include <string.h>

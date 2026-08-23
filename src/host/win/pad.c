@@ -14,7 +14,7 @@
  *
  * The HID half needs no mapping database, because hid.dll parses the report
  * descriptor for us and hands back Button 1..n and the Generic Desktop axes.
- * That is the same thing ria/hid/hid.c hands ria/hid/pad.c, so the two file
+ * That is the same thing core/hid/hid.c hands core/hid/pad.c, so the two file
  * the same usages in the same places and a no-name pad behaves the same here
  * as it does plugged into the real machine.
  */
@@ -203,7 +203,7 @@ static int pad_xin_poll(pad_host_t *pads, int max)
 #define PAD_HID_MAX 4
 #define PAD_HID_REPORT_MAX 256
 
-/* The Generic Desktop usages ria/hid/pad.c reads, in the same roles. */
+/* The Generic Desktop usages core/hid/pad.c reads, in the same roles. */
 enum
 {
     PAD_HID_X,  /* left stick X  */
@@ -385,7 +385,7 @@ static void pad_hid_parse(pad_hid_t *hid)
             continue;
         /* HidP hands back the field's bits, not its value: an axis declared
          * with a negative logical minimum arrives zero-extended and has to be
-         * signed here, the same way ria/hid/hid.c does it. */
+         * signed here, the same way core/hid/hid.c does it. */
         LONG value = (LONG)raw;
         if (hid->min[slot] < 0 && hid->bits[slot] > 0 && hid->bits[slot] < 32 &&
             (raw & (1ul << (hid->bits[slot] - 1))))

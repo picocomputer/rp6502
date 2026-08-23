@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 1, the character cells of vga/modes/mode1.c: rows mapped with
+ * Mode 1, the character cells of core/vga/mode1.c: rows mapped with
  * true wraparound, the oracle's rejects, the cell gather, the font fetch
  * from XRAM or the builtin store, and each cell's two colors resolved
  * through the plane's palette. A font row is a 1bpp bitmap and a cell's

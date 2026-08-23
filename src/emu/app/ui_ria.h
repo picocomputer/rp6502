@@ -64,7 +64,7 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #endif
 #include "emu/sys/mem.h"      /* ram, xstack_ptr */
 #include "emu/sys/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
-#include "ria/api/oem.h"      /* oem_get_code_page_run (Status) */
+#include "core/api/oem.h"      /* oem_get_code_page_run (Status) */
 
 /* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15

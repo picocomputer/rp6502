@@ -13,8 +13,8 @@
 #include "com.h"
 #include "log.h"
 #include "mmio.h"
-#include "ria/aud/bel.h"
-#include "ria/hid/kbd.h"
+#include "core/aud/bel.h"
+#include "core/hid/kbd.h"
 
 #include <stdio.h>
 #include <string.h>

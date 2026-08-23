@@ -14,8 +14,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 
 /* Main events
  */

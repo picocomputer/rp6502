@@ -17,7 +17,7 @@
  * quietly leave stale. This is what says otherwise.
  */
 
-#include "ria/hid/kbl.h"
+#include "core/hid/kbl.h"
 #include "utest.h"
 
 #include <stdint.h>
@@ -38,7 +38,7 @@ static const struct
     const char *name;
     const char *desc;
 } ref_layouts[] = {
-#include "ria/def/kbd.def"
+#include "core/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -56,7 +56,7 @@ static const struct
     }          \
     ,
 static const uint32_t ref_keys[REF_COUNT][128][5] = {
-#include "ria/def/kbd.def"
+#include "core/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -76,7 +76,7 @@ static const uint32_t ref_keys[REF_COUNT][128][5] = {
     }          \
     ,
 static const uint32_t ref_dead2[REF_COUNT][REF_DEAD_MAX][3] = {
-#include "ria/def/kbd.def"
+#include "core/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -92,7 +92,7 @@ static const uint32_t ref_dead2[REF_COUNT][REF_DEAD_MAX][3] = {
     }          \
     ,
 static const uint32_t ref_dead3[REF_COUNT][REF_DEAD_MAX][4] = {
-#include "ria/def/kbd.def"
+#include "core/def/kbd.def"
 };
 #undef XBEGIN
 #undef XKEY

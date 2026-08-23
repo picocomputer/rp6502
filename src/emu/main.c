@@ -23,27 +23,27 @@
 #include "emu/hid/pad.h"
 #include "emu/hid/tab.h"
 #include "emu/sys/ria.h"
-#include "ria/api/api.h"
-#include "ria/api/atr.h"
-#include "ria/api/std.h"
-#include "ria/api/fat.h"
-#include "ria/api/clk.h"
-#include "ria/api/oem.h"
-#include "ria/api/tim.h"
-#include "ria/aud/aud.h"
-#include "ria/aud/psg.h"
-#include "ria/aud/opl.h"
-#include "ria/str/rln.h"
-#include "ria/str/str.h"
+#include "core/api/api.h"
+#include "core/api/atr.h"
+#include "core/api/std.h"
+#include "core/api/fat.h"
+#include "core/api/clk.h"
+#include "core/api/oem.h"
+#include "core/api/tim.h"
+#include "core/aud/aud.h"
+#include "core/aud/psg.h"
+#include "core/aud/opl.h"
+#include "core/str/rln.h"
+#include "core/str/str.h"
 #include "ria/sys/sys.h"
-#include "vga/term/font.h"
-#include "vga/term/term.h"
-#include "vga/modes/mode0.h"
-#include "vga/modes/mode1.h"
-#include "vga/modes/mode2.h"
-#include "vga/modes/mode3.h"
-#include "vga/modes/mode4.h"
-#include "vga/modes/mode5.h"
+#include "core/term/font.h"
+#include "core/term/term.h"
+#include "core/vga/mode0.h"
+#include "core/vga/mode1.h"
+#include "core/vga/mode2.h"
+#include "core/vga/mode3.h"
+#include "core/vga/mode4.h"
+#include "core/vga/mode5.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -196,7 +196,7 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
 
 /* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
  * slots can be swapped between the emu's host handlers and the REAL firmware
- * fat_api_* (ria/api/fat.c) when a RAM FatFs is mounted. The dir slots
+ * fat_api_* (core/api/fat.c) when a RAM FatFs is mounted. The dir slots
  * default to host below; main_dir_ops_set() swaps them. */
 typedef bool (*api_op_fn)(void);
 static api_op_fn api_ops[0x40] = {

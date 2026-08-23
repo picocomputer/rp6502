@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/oem.h"
-#include "ria/api/tim.h"
+#include "core/api/oem.h"
+#include "core/api/tim.h"
 #include "ria/ble/ble.h"
-#include "ria/hid/kbd.h"
+#include "core/hid/kbd.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
 #include "ria/net/cyw.h"
 #include "ria/net/wfi.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"

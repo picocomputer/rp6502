@@ -18,9 +18,9 @@
 #include "pro.h"
 #include "rom.h"
 
-#include "ria/api/api.h"
-#include "ria/api/arg.h"
-#include "ria/api/pro.h"
+#include "core/api/api.h"
+#include "core/api/arg.h"
+#include "core/api/pro.h"
 #include "ria/main.h"
 
 #include <stdio.h>

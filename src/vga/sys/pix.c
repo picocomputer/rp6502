@@ -12,8 +12,8 @@
 #include "vga/sys/ria.h"
 #include "vga/sys/sys.h"
 #include "vga/sys/vga.h"
-#include "vga/term/font.h"
-#include "vga/term/term.h"
+#include "core/term/font.h"
+#include "core/term/term.h"
 #include <pico/stdlib.h>
 #include <hardware/dma.h>
 #include <hardware/watchdog.h>

@@ -106,31 +106,31 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/msc.c ${SW_SRC}/pix.c
         ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
-        ${RP6502_SRC}/ria/aud/bel_presets.c
+        ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
-        ${RP6502_SRC}/ria/api/api.c
-        ${RP6502_SRC}/ria/api/arg.c
-        ${RP6502_SRC}/ria/api/clk.c
-        ${RP6502_SRC}/ria/api/std.c
-        ${RP6502_SRC}/ria/api/uni.c
+        ${RP6502_SRC}/core/api/api.c
+        ${RP6502_SRC}/core/api/arg.c
+        ${RP6502_SRC}/core/api/clk.c
+        ${RP6502_SRC}/core/api/std.c
+        ${RP6502_SRC}/core/api/uni.c
         # The real HID drivers, fed synthetic descriptors by apf.c. The
         # layouts are an asset, so kbl.c reads them rather than linking
         # twenty kilobytes of table into a 96 KB memory.
-        ${RP6502_SRC}/ria/hid/hid.c
-        ${RP6502_SRC}/ria/hid/kbd.c
-        ${RP6502_SRC}/ria/hid/kbl.c
-        ${RP6502_SRC}/ria/hid/mou.c
-        ${RP6502_SRC}/ria/hid/pad.c
-        ${RP6502_SRC}/ria/hid/tab.c
-        ${RP6502_SRC}/ria/str/rln.c
-        ${RP6502_SRC}/ria/str/str.c
-        ${RP6502_SRC}/vga/modes/mode1.c
-        ${RP6502_SRC}/vga/modes/mode2.c
-        ${RP6502_SRC}/vga/modes/mode3.c
-        ${RP6502_SRC}/vga/modes/mode4.c
-        ${RP6502_SRC}/vga/modes/mode5.c
-        ${RP6502_SRC}/vga/term/color.c
-        ${RP6502_SRC}/vga/term/term.c)
+        ${RP6502_SRC}/core/hid/hid.c
+        ${RP6502_SRC}/core/hid/kbd.c
+        ${RP6502_SRC}/core/hid/kbl.c
+        ${RP6502_SRC}/core/hid/mou.c
+        ${RP6502_SRC}/core/hid/pad.c
+        ${RP6502_SRC}/core/hid/tab.c
+        ${RP6502_SRC}/core/str/rln.c
+        ${RP6502_SRC}/core/str/str.c
+        ${RP6502_SRC}/core/vga/mode1.c
+        ${RP6502_SRC}/core/vga/mode2.c
+        ${RP6502_SRC}/core/vga/mode3.c
+        ${RP6502_SRC}/core/vga/mode4.c
+        ${RP6502_SRC}/core/vga/mode5.c
+        ${RP6502_SRC}/core/term/color.c
+        ${RP6502_SRC}/core/term/term.c)
     # The firmware's console into a file on the drive, for reading a
     # restore from the inside when the host's debug log has stopped. Off
     # by default: an on build holds one of the drive's eight descriptors

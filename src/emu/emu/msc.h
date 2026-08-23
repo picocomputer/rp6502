@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "ria/api/std.h"
+#include "core/api/std.h"
 
 #define MSC_MAX_PATH 4096 /* host path buffer size for msc_to_host callers */
 

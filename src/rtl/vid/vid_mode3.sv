@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Mode 3, the linear bitmap of vga/modes/mode3.c: rows mapped with true
+ * Mode 3, the linear bitmap of core/vga/mode3.c: rows mapped with true
  * wraparound, the oracle's rejects (range, bitmap overrun, the 16bpp odd
  * row), and the line described to the shared pixel tail as segments. The
  * tail owns the fetching, slicing, palette and pixels; this front owns

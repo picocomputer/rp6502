@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Host shim for <pico/stdlib.h>: provides just enough of the Pico SDK
- * surface that the vendored vga/term/{term,font,color}.c sources need to
+ * surface that the vendored core/term/{term,font,color}.c sources need to
  * compile unmodified in the desktop emulator. Real Pico timing/flash
  * placement is collapsed onto a host virtual clock.
  */

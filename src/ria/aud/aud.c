@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/aud/aud.h"
-#include "ria/aud/bel.h"
-#include "ria/aud/psg.h"
+#include "core/aud/aud.h"
+#include "core/aud/bel.h"
+#include "core/aud/psg.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/sys.h"
 #include <math.h>

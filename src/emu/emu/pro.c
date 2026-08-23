@@ -10,8 +10,8 @@
 #include "host.h"
 #include "emu/sys/mem.h"
 #include "emu/sys/cpu.h"
-#include "ria/api/api.h"
-#include "ria/api/arg.h"
+#include "core/api/api.h"
+#include "core/api/arg.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

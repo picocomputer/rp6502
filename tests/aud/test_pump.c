@@ -19,7 +19,7 @@
  */
 
 #include "emu/emu/aud.h"
-#include "ria/aud/bel.h"
+#include "core/aud/bel.h"
 #include "emu_boot.h"
 
 #include <stdio.h>

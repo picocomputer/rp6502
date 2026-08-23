@@ -150,7 +150,7 @@ UTEST(opl, a_note_makes_sound)
     ASSERT_TRUE(dut->aud_opl_enabled);
     note_on(0x12);
     /* Past the attack, then measure. The level is the point: this engine
-     * and ria/aud/opl.c are the same chip twice and have to be the same
+     * and core/aud/opl.c are the same chip twice and have to be the same
      * loudness, and nothing else compares them. This one sets the level —
      * an RTL YM3812 is the closer thing to the chip — and opl.c's *4 is
      * emu8950 coming up to meet it, from a peak of 2043 to 8172.

@@ -11,7 +11,7 @@
 
 #include "mmio.h"
 
-#include "ria/hid/kbl.h"
+#include "core/hid/kbl.h"
 
 uint16_t kbl_word(uint32_t index)
 {

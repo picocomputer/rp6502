@@ -5,8 +5,8 @@
  */
 
 #include "ria/main.h"
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/vga.h"
 #include "ria.pio.h"

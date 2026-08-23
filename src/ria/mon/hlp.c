@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/tim.h"
-#include "ria/hid/kbd.h"
+#include "core/api/tim.h"
+#include "core/hid/kbd.h"
 #include "ria/mon/hlp.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
 #include "ria/net/wfi.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include <pico.h>
 #include <string.h>
 

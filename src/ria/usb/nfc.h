@@ -10,8 +10,8 @@
 /* NFC driver for USB VCP connected PN532
  */
 
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>

@@ -20,10 +20,10 @@
  * are never dereferenced here, because nothing below calls apf_task.
  */
 
-#include "ria/hid/kbd.h"
-#include "ria/hid/mou.h"
-#include "ria/hid/pad.h"
-#include "ria/hid/tab.h"
+#include "core/hid/kbd.h"
+#include "core/hid/mou.h"
+#include "core/hid/pad.h"
+#include "core/hid/tab.h"
 #include "ria/sys/mem.h"
 
 #include "rtl/sw/apf.c"

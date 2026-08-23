@@ -24,7 +24,7 @@
 #include "mmio.h"
 #include "msc.h"
 
-#include "ria/api/uni.h"
+#include "core/api/uni.h"
 
 #include <stdio.h>
 #include <string.h>

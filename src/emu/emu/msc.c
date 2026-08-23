@@ -5,8 +5,8 @@
  *
  */
 
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 #include "emu/emu/msc.h"
 #include "host.h"
 #include "emu/sys/mem.h"

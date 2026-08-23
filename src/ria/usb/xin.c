@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/hid/hid.h"
-#include "ria/hid/pad.h"
+#include "core/hid/hid.h"
+#include "core/hid/pad.h"
 #include "ria/usb/xin.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>

@@ -9,7 +9,7 @@
  * what test_apf.c asks about is where the bits landed.
  */
 
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "ria/ble/ble.h"
 #include "ria/main.h"
 #include "ria/sys/cfg.h"

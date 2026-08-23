@@ -5,8 +5,8 @@
  *
  */
 
-#include "ria/api/oem.h"
-#include "ria/str/str.h"
+#include "core/api/oem.h"
+#include "core/str/str.h"
 #include "emu/emu/pro.h"
 #include "emu/app/window.h"
 #include "host.h"

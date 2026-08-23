@@ -4,10 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/oem.h"
-#include "ria/api/tim.h"
-#include "ria/str/rln.h"
-#include "ria/str/str.h"
+#include "core/api/oem.h"
+#include "core/api/tim.h"
+#include "core/str/rln.h"
+#include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include <pico/aon_timer.h>
 #include <stdio.h>

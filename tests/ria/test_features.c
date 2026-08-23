@@ -10,10 +10,10 @@
  */
 
 #include "emu/emu/pro.h"
-#include "ria/api/std.h"
+#include "core/api/std.h"
 #include "emu/emu/aud.h"
 #include "emu/sys/mem.h"
-#include "ria/aud/bel.h"
+#include "core/aud/bel.h"
 #include "emu/hid/kbd.h"
 #include "emu/sys/com.h"
 #include "emu/sys/ria.h"

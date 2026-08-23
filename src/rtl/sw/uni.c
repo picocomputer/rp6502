@@ -7,13 +7,13 @@
  * because five kilobytes is more than the TCM can spare.
  *
  * The staging window is byte-wide by construction, so a word is two
- * reads and a shift. That is why src/ria/api/uni.c routes every table
+ * reads and a shift. That is why src/core/api/uni.c routes every table
  * access through this function instead of indexing an array.
  */
 
 #include "mmio.h"
 
-#include "ria/api/uni.h"
+#include "core/api/uni.h"
 
 uint16_t uni_word(uint32_t index)
 {

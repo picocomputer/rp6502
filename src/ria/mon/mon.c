@@ -5,7 +5,7 @@
  */
 
 #include "ria/main.h"
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "ria/mon/dsk.h"
 #include "ria/mon/fil.h"
 #include "ria/mon/hlp.h"
@@ -15,8 +15,8 @@
 #include "ria/mon/set.h"
 #include "ria/mon/uf2.h"
 #include "ria/net/cyw.h"
-#include "ria/str/rln.h"
-#include "ria/str/str.h"
+#include "core/str/rln.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/ria.h"

@@ -6,8 +6,8 @@
 
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
-#include "ria/str/rln.h"
-#include "ria/str/str.h"
+#include "core/str/rln.h"
+#include "core/str/str.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/ria.h"
 #include <assert.h>

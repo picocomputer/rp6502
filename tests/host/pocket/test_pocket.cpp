@@ -29,7 +29,7 @@
 
 #include "oracle.h"
 extern "C" {
-#include "vga/term/font.h"
+#include "core/term/font.h"
 }
 
 #include "tb_stage.h"

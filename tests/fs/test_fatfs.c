@@ -10,8 +10,8 @@
  * 6502 filesystem syscalls over a real FatFs rather than the host.
  */
 
-#include "ria/api/oem.h"
-#include "ria/str/str.h"
+#include "core/api/oem.h"
+#include "core/str/str.h"
 #include "emu/emu/tmp.h"
 #include "fatfs/ff.h"
 #include "utest.h"

@@ -8,7 +8,7 @@
 #ifndef _EMU_HID_TAB_H_
 #define _EMU_HID_TAB_H_
 
-#include "ria/hid/tab.h"
+#include "core/hid/tab.h"
 
 /* Absolute pointer ("tablet") device. Unlike the relative mouse it reports an
  * absolute canvas position. The multi-byte X/Y are delivered coherently through
@@ -16,7 +16,7 @@
  * single-byte "windows", exactly one non-zero, decoded first-non-zero-wins. A
  * coordinate past the canvas (X>639) marks an inactive contact. The header also
  * carries a mouse-format wheel/pan (8-bit wrapping accumulators). See
- * ria/hid/tab.c for the shared contract; this mirror is driven by host input
+ * core/hid/tab.c for the shared contract; this mirror is driven by host input
  * instead of USB. */
 
 #define TAB_MAX_CONTACTS 8    /* fixed slot count; the ROM allocates the whole block */
@@ -61,7 +61,7 @@ typedef struct
 } tab_point_t;
 
 /* xreg_ria_tablet API: point the report block (TAB_BLOCK_SIZE bytes) at an XRAM
- * address (0xFFFF = off). Mirrors ria/hid/tab.c tab_xreg. */
+ * address (0xFFFF = off). Mirrors core/hid/tab.c tab_xreg. */
 bool tab_set_xram(uint16_t addr);
 
 /* True once a program has pointed the report block at XRAM (xreg_ria_tablet). */

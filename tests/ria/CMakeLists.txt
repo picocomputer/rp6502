@@ -64,13 +64,13 @@ rp6502_add_test(rtc LIBS emu_core FIXTURE rtc.rp6502 TIMEOUT 60)
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---
 rp6502_add_test(clock LIBS emu_core FIXTURE adventure.rp6502)
 
-# --- OEM code page conversion (ria/api/uni.c) against the ffunicode.c it
+# --- OEM code page conversion (core/api/uni.c) against the ffunicode.c it
 # replaces. The vendored file is compiled beside it with its entry points
 # renamed, so every code page, every byte, every code point in the BMP,
 # and the whole up-case map are compared in one process. ---
 set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(uni
-    SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c ${OEMCP_C}
+    SOURCES test_uni.c ${RP6502_SRC}/core/api/uni.c ${OEMCP_C}
         ${RP6502_VENDOR}/fatfs/ffunicode.c
     INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/pico_shim
         ${OEMCP_DIR})
@@ -88,7 +88,7 @@ set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
 # tables to be wrong about.
 if(OEMCP_BIN)
     rp6502_add_test(uni_bin
-        SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c uni_bin.c
+        SOURCES test_uni.c ${RP6502_SRC}/core/api/uni.c uni_bin.c
             ${RP6502_VENDOR}/fatfs/ffunicode.c
         INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/pico_shim
             ${OEMCP_DIR}
@@ -99,14 +99,14 @@ if(OEMCP_BIN)
         "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 endif()
 
-# --- The keyboard layouts (ria/hid/kbl.c) against the def files they are
+# --- The keyboard layouts (core/hid/kbl.c) against the def files they are
 # generated from. def/kbd_*.def is what a contributor edits and what kbd.c
 # used to include as X macros; the generator is a second reader of that
 # format, so the manifest is included here the old way and every code
 # point compared. ---
 set_source_files_properties(${KBDLAY_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(kbl
-    SOURCES test_kbl.c ${RP6502_SRC}/ria/hid/kbl.c ${KBDLAY_C}
+    SOURCES test_kbl.c ${RP6502_SRC}/core/hid/kbl.c ${KBDLAY_C}
     INCLUDES ${RP6502_SRC} ${RP6502_SRC}/pico_shim ${KBDLAY_DIR})
 add_dependencies(test_kbl kbdlay)
 
@@ -116,7 +116,7 @@ add_dependencies(test_kbl kbdlay)
 # builds the .bin can run this.
 if(KBDLAY_BIN)
     rp6502_add_test(kbl_bin
-        SOURCES test_kbl.c ${RP6502_SRC}/ria/hid/kbl.c kbl_bin.c
+        SOURCES test_kbl.c ${RP6502_SRC}/core/hid/kbl.c kbl_bin.c
         INCLUDES ${RP6502_SRC} ${RP6502_SRC}/pico_shim ${KBDLAY_DIR}
         DEFS KBDLAY_BIN_PATH="${KBDLAY_BIN}")
     add_dependencies(test_kbl_bin kbdlay kbdlay_bin)

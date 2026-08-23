@@ -10,10 +10,10 @@
  *   - the native MSC0: (no chroot): a relative path resolves the process cwd,
  *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
  *   - the ephemeral RAM disk: MSC0: backed by a fresh RAM FatFs (the shared
- *     ria/api/fat.c driver), swapped in as the active dir vtable + file driver.
+ *     core/api/fat.c driver), swapped in as the active dir vtable + file driver.
  */
 
-#include "ria/api/std.h"
+#include "core/api/std.h"
 #include "emu/emu/rom.h"
 #include "emu/emu/msc.h"
 #include "host.h"

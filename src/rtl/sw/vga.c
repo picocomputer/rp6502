@@ -14,7 +14,7 @@
 #include "vga.h"
 #include "vid.h"
 
-#include "vga/term/term.h"
+#include "core/term/term.h"
 
 static int16_t vga_canvas_h = 480;
 static vga_canvas_t vga_canvas_code = vga_canvas_console;

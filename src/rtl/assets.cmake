@@ -91,7 +91,7 @@ rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
     OUTPUTS ${W65C02_ROM}
     COMMENT "Generating the w65c02 decode table")
 
-# The font asset comes from vga/term/font.c: the image the firmware
+# The font asset comes from core/term/font.c: the image the firmware
 # copies into the store, an offsets header for it, and the tables
 # test_font checks byte for byte against font_init's runtime image.
 set(VID_FONT_BIN ${RP6502_ASSETS}/fonts.bin)
@@ -101,16 +101,16 @@ rp6502_machine_asset(vid_font_rom GEN ${RP6502_SRC}/gen/vid_font_gen.py
     ARGS --emit-bin ${VID_FONT_BIN} --emit-h ${VID_FONT_H}
         --emit-asset-h ${VID_FONT_ASSET_H}
     OUTPUTS ${VID_FONT_BIN} ${VID_FONT_H} ${VID_FONT_ASSET_H}
-    DEPENDS ${RP6502_SRC}/vga/term/font.c
+    DEPENDS ${RP6502_SRC}/core/term/font.c
     COMMENT "Generating the font asset")
 
-# The builtin palettes ride the same way, from vga/term/color.c.
+# The builtin palettes ride the same way, from core/term/color.c.
 set(VID_PALETTE_PKG ${RP6502_ASSETS}/vid_palette_pkg.sv)
 set(VID_PALETTE_H ${RP6502_ASSETS}/vid_palette_tables.h)
 rp6502_machine_asset(vid_palette_rom GEN ${RP6502_SRC}/gen/vid_palette_gen.py
     ARGS --emit-sv ${VID_PALETTE_PKG} --emit-h ${VID_PALETTE_H}
     OUTPUTS ${VID_PALETTE_PKG} ${VID_PALETTE_H}
-    DEPENDS ${RP6502_SRC}/vga/term/color.c
+    DEPENDS ${RP6502_SRC}/core/term/color.c
     COMMENT "Generating the vid palette ROM")
 
 # The PSG's sine table, from aud_init's runtime formula.
@@ -161,8 +161,8 @@ rp6502_machine_asset(oemcp_bin GEN ${RP6502_SRC}/gen/oem_table_gen.py
 # The keyboard layouts, for the same reason: twenty kilobytes of table
 # as a compiler lays it out, eight as the generator does, and no room
 # for either in a 96 KB tightly coupled memory.
-set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
 set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
 rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/gen/kbd_layout_gen.py
     ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}

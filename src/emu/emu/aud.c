@@ -9,8 +9,8 @@
 #include "emu/sys/mem.h"
 #include "emu/sys/vga.h"
 #include "emu/emu/rsmp.h"
-#include "ria/aud/bel.h"
-#include "ria/aud/psg.h"
+#include "core/aud/bel.h"
+#include "core/aud/psg.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 #include <math.h>
 #include <string.h>

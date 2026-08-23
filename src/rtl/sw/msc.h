@@ -7,8 +7,8 @@
 #ifndef _FPGA_SW_MSC_H_
 #define _FPGA_SW_MSC_H_
 
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 
 #include <stdbool.h>
 #include <stddef.h>

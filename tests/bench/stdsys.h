@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Test helpers to drive the stdio syscall handlers (the vendored ria/api/std.c
+ * Test helpers to drive the stdio syscall handlers (the vendored core/api/std.c
  * std_api_*) the way the 6502 does: stage the args on the xstack / in API_A,
  * dispatch the handler until it stops working, then read the AX result and any
  * bytes it left on the xstack. Complements dirsys.h.
@@ -12,8 +12,8 @@
 #ifndef _EMU_TESTS_STDSYS_H_
 #define _EMU_TESTS_STDSYS_H_
 
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 #include "emu/sys/mem.h"
 #include "dirsys.h"
 #include <stdint.h>

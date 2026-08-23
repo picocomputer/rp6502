@@ -17,10 +17,10 @@
 #include "emu/sys/sys.h"
 #include "emu/sys/vga.h"
 #include "emu/emu/via.h"
-#include "ria/api/api.h"
-#include "ria/api/std.h"
-#include "ria/str/rln.h"
-#include "vga/term/term.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
+#include "core/str/rln.h"
+#include "core/term/term.h"
 #include <stdio.h>
 
 /* The system clock, oversampled — see SYS_OVERSAMPLE. Wraps in centuries. */

@@ -5,9 +5,9 @@
  */
 
 #include "ria/main.h"
-#include "ria/api/api.h"
+#include "core/api/api.h"
 #include "ria/mon/mon.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/pix.h"

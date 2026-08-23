@@ -12,7 +12,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "ria/api/std.h"
+#include "core/api/std.h"
 
 /* Install a .rp6502 on the null drive, keyed by its host-path basename, so a
  * boot/exec ":name" resolves back to it. */

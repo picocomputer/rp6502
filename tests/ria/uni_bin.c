@@ -5,7 +5,7 @@
  *
  * uni_word from the image on disk, which is the only copy a Pocket has.
  *
- * src/ria/api/uni.h calls this the one thing a port has to write, and
+ * src/core/api/uni.h calls this the one thing a port has to write, and
  * there are two ports: a machine that can afford five kilobytes of
  * flash links oemcp.c and reads an array, and a machine that cannot
  * stages oemcp.bin and reads a window. Both come out of one generator,
@@ -18,7 +18,7 @@
  * window is a store and not a stream.
  */
 
-#include "ria/api/uni.h"
+#include "core/api/uni.h"
 #include "oemcp.h"
 
 #include <stdint.h>

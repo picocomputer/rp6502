@@ -12,8 +12,8 @@
 
 #include "psg_shim.h"
 
-#include "ria/aud/aud.h"
-#include "ria/aud/bel.h"
+#include "core/aud/aud.h"
+#include "core/aud/bel.h"
 #include "ria/sys/mem.h"
 
 #include "aud_sine_tables.h"
@@ -49,7 +49,7 @@ void aud_out(int16_t left, int16_t right)
 
 void aud_clear_irq(void) {}
 
-/* ria/aud/aud.c's: giving up control hands the interrupt back to the
+/* core/aud/aud.c's: giving up control hands the interrupt back to the
  * standing bell, which is what psg_xreg does when its pointer parks. */
 void aud_stop(void)
 {

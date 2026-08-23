@@ -24,13 +24,13 @@ rp6502_add_test(pad_input LIBS emu_core
 # twins: it is the firmware's mapping being asked about.
 rp6502_add_test(apf
     SOURCES test_apf.c
-        ${RP6502_SRC}/ria/hid/hid.c
-        ${RP6502_SRC}/ria/hid/kbd.c
-        ${RP6502_SRC}/ria/hid/kbl.c
-        ${RP6502_SRC}/ria/hid/mou.c
-        ${RP6502_SRC}/ria/hid/pad.c
-        ${RP6502_SRC}/ria/hid/tab.c
-        ${RP6502_SRC}/ria/api/uni.c
+        ${RP6502_SRC}/core/hid/hid.c
+        ${RP6502_SRC}/core/hid/kbd.c
+        ${RP6502_SRC}/core/hid/kbl.c
+        ${RP6502_SRC}/core/hid/mou.c
+        ${RP6502_SRC}/core/hid/pad.c
+        ${RP6502_SRC}/core/hid/tab.c
+        ${RP6502_SRC}/core/api/uni.c
         ${KBDLAY_C} ${OEMCP_C}
         apf_host.c
     INCLUDES ${RP6502_SRC} ${RP6502_SRC}/pico_shim ${KBDLAY_DIR} ${OEMCP_DIR}

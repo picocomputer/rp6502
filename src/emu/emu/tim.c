@@ -6,8 +6,8 @@
  */
 
 #include "host.h"
-#include "ria/api/oem.h"
-#include "ria/api/tim.h"
+#include "core/api/oem.h"
+#include "core/api/tim.h"
 
 /* Wall-clock offset in seconds. Allows setting time without changing host clock. */
 static int64_t tim_time_offset;

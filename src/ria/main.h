@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "ria/api/std.h"
+#include "core/api/std.h"
 
 /* This manages the main loop for the operating system.
  * Device drivers (everything is a device driver) are notified of various

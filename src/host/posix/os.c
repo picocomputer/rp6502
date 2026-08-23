@@ -10,7 +10,7 @@
  */
 
 #include "host.h"
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include <errno.h>
 #include <locale.h>
 #include <stdio.h>

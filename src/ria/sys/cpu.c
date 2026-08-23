@@ -5,7 +5,7 @@
  */
 
 #include "ria/main.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/sys.h"

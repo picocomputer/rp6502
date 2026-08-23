@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * src/ria/api/uni.c against the file it replaces, exhaustively.
+ * src/core/api/uni.c against the file it replaces, exhaustively.
  *
  * ffunicode.c is compiled beside it with its three entry points renamed,
  * so both implementations are in one process and every input either
@@ -17,7 +17,7 @@
  * costs a fraction of a second and settles the question completely.
  */
 
-#include "ria/api/uni.h"
+#include "core/api/uni.h"
 #include "oemcp.h"
 #include "utest.h"
 

@@ -5,7 +5,7 @@
  */
 
 #include "ria/usb/mid.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/usb/usb.h"
 #include <tusb.h>
 #include <pico/time.h>

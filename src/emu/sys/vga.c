@@ -9,10 +9,10 @@
 #include "ria/sys/pix.h"
 #include "emu/sys/ria.h"
 #include "emu/sys/vga.h"
-#include "vga/modes/mode0.h"
-#include "vga/term/term.h"
-#include "vga/term/font.h"
-#include "vga/scanvideo/pixel_format.h"
+#include "core/vga/mode0.h"
+#include "core/term/term.h"
+#include "core/term/font.h"
+#include "core/vga/pixel_format.h"
 #include <string.h>
 
 /* Current canvas geometry. The boot console is 640x480. */

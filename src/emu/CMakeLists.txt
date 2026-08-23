@@ -36,7 +36,7 @@ rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
 
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
-# generator so the logic in ria/api/uni.c can be read without a
+# generator so the logic in core/api/uni.c can be read without a
 # preprocessor. See src/gen/oem_table_gen.py.
 set(OEMCP_GEN ${RP6502_SRC}/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
@@ -59,8 +59,8 @@ set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
 # already translated — but tests/ria checks the image against the defs
 # and needs it built. See src/gen/kbd_layout_gen.py.
 set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_SRC}/ria/def/kbd.def CACHE INTERNAL "")
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/ria/def/kbd_*.def)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def CACHE INTERNAL "")
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
 set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c CACHE INTERNAL "")
 set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h CACHE INTERNAL "")
 set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
@@ -110,30 +110,30 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/emu/sys/sys.c
     ${RP6502_SRC}/emu/sys/vga.c
     ${RP6502_SRC}/emu/emu/via.c
-    ${RP6502_SRC}/ria/api/api.c
-    ${RP6502_SRC}/ria/api/arg.c
-    ${RP6502_SRC}/ria/api/atr.c
-    ${RP6502_SRC}/ria/api/clk.c
-    ${RP6502_SRC}/ria/api/fat.c
-    ${RP6502_SRC}/ria/api/oem.c
-    ${RP6502_SRC}/ria/api/uni.c
+    ${RP6502_SRC}/core/api/api.c
+    ${RP6502_SRC}/core/api/arg.c
+    ${RP6502_SRC}/core/api/atr.c
+    ${RP6502_SRC}/core/api/clk.c
+    ${RP6502_SRC}/core/api/fat.c
+    ${RP6502_SRC}/core/api/oem.c
+    ${RP6502_SRC}/core/api/uni.c
     ${OEMCP_C}
-    ${RP6502_SRC}/ria/api/std.c
-    ${RP6502_SRC}/ria/aud/bel.c
-    ${RP6502_SRC}/ria/aud/bel_presets.c
-    ${RP6502_SRC}/ria/aud/opl.c
-    ${RP6502_SRC}/ria/aud/psg.c
-    ${RP6502_SRC}/ria/str/rln.c
-    ${RP6502_SRC}/ria/str/str.c
-    ${RP6502_SRC}/vga/modes/mode0.c
-    ${RP6502_SRC}/vga/modes/mode1.c
-    ${RP6502_SRC}/vga/modes/mode2.c
-    ${RP6502_SRC}/vga/modes/mode3.c
-    ${RP6502_SRC}/vga/modes/mode4.c
-    ${RP6502_SRC}/vga/modes/mode5.c
-    ${RP6502_SRC}/vga/term/color.c
-    ${RP6502_SRC}/vga/term/font.c
-    ${RP6502_SRC}/vga/term/term.c
+    ${RP6502_SRC}/core/api/std.c
+    ${RP6502_SRC}/core/aud/bel.c
+    ${RP6502_SRC}/core/aud/bel_presets.c
+    ${RP6502_SRC}/core/aud/opl.c
+    ${RP6502_SRC}/core/aud/psg.c
+    ${RP6502_SRC}/core/str/rln.c
+    ${RP6502_SRC}/core/str/str.c
+    ${RP6502_SRC}/core/vga/mode0.c
+    ${RP6502_SRC}/core/vga/mode1.c
+    ${RP6502_SRC}/core/vga/mode2.c
+    ${RP6502_SRC}/core/vga/mode3.c
+    ${RP6502_SRC}/core/vga/mode4.c
+    ${RP6502_SRC}/core/vga/mode5.c
+    ${RP6502_SRC}/core/term/color.c
+    ${RP6502_SRC}/core/term/font.c
+    ${RP6502_SRC}/core/term/term.c
     ${RP6502_VENDOR}/emu8950/emu8950.c
     ${RP6502_VENDOR}/fatfs/ff.c
 )
@@ -205,11 +205,11 @@ endif()
 # VGA renderers cast pointers to 32-bit ints. Silence that per-compiler on those files.
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     set_source_files_properties(
-        ${RP6502_SRC}/vga/modes/mode1.c
-        ${RP6502_SRC}/vga/modes/mode2.c
-        ${RP6502_SRC}/vga/modes/mode3.c
-        ${RP6502_SRC}/vga/modes/mode4.c
-        ${RP6502_SRC}/vga/modes/mode5.c
+        ${RP6502_SRC}/core/vga/mode1.c
+        ${RP6502_SRC}/core/vga/mode2.c
+        ${RP6502_SRC}/core/vga/mode3.c
+        ${RP6502_SRC}/core/vga/mode4.c
+        ${RP6502_SRC}/core/vga/mode5.c
         PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
     )
     # ram/xram (emu/sys/mem.c) are 64 KB tentative definitions; -fno-common keeps them in
@@ -222,11 +222,11 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 elseif(MSVC)
     set_source_files_properties(
-        ${RP6502_SRC}/vga/modes/mode1.c
-        ${RP6502_SRC}/vga/modes/mode2.c
-        ${RP6502_SRC}/vga/modes/mode3.c
-        ${RP6502_SRC}/vga/modes/mode4.c
-        ${RP6502_SRC}/vga/modes/mode5.c
+        ${RP6502_SRC}/core/vga/mode1.c
+        ${RP6502_SRC}/core/vga/mode2.c
+        ${RP6502_SRC}/core/vga/mode3.c
+        ${RP6502_SRC}/core/vga/mode4.c
+        ${RP6502_SRC}/core/vga/mode5.c
         PROPERTIES COMPILE_OPTIONS "/wd4311;/wd4312"
     )
 endif()

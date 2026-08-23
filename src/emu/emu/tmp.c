@@ -8,7 +8,7 @@
 #include "emu/emu/tmp.h"
 #include "emu/main.h"
 #include "host.h"
-#include "ria/api/fat.h"
+#include "core/api/fat.h"
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
 #include <stdint.h>
@@ -136,7 +136,7 @@ bool tmp_std_handles(const char *path)
 }
 
 /* Format a fresh RAM FatFs and make it the active MSC0: backend. The
- * 6502 dir syscalls run the REAL firmware fat_api_* (ria/api/fat.c) over this RAM
+ * 6502 dir syscalls run the REAL firmware fat_api_* (core/api/fat.c) over this RAM
  * FatFs; the file syscalls run the shared fat_std_* driver. */
 bool tmp_mount(void)
 {
@@ -146,7 +146,7 @@ bool tmp_mount(void)
         return false;
     if (f_mount(&g_ramfs, "MSC0:", 1) != FR_OK)
         return false;
-    fat_run();              /* fresh FatFs directory pool (ria/api/fat.c) */
+    fat_run();              /* fresh FatFs directory pool (core/api/fat.c) */
     main_dir_ops_set(true); /* the 6502 dir syscalls -> firmware fat_api_* */
     g_active = true;        /* std.c's fat driver now claims MSC0: (file syscalls -> FatFs) */
     return true;
@@ -154,7 +154,7 @@ bool tmp_mount(void)
 
 void tmp_unmount(void)
 {
-    fat_stop(); /* close open FatFs directories (ria/api/fat.c) */
+    fat_stop(); /* close open FatFs directories (core/api/fat.c) */
     f_unmount("MSC0:");
     main_dir_ops_set(false); /* back to the native host handlers */
     g_active = false;        /* std.c's fat driver declines; host reclaims MSC0: */

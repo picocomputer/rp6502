@@ -5,7 +5,7 @@
 #
 # The Pocket's HID constant shim against the vendored TinyUSB header.
 #
-# ria/hid/kbd.c is compiled for two machines. One has USB and gets
+# core/hid/kbd.c is compiled for two machines. One has USB and gets
 # TinyUSB's class/hid/hid.h; the other has an APF bus and gets
 # src/rtl/sw/shim/class/hid/hid.h, which exists because learning that
 # Escape is 0x29 should not cost a USB stack. Two spellings of one

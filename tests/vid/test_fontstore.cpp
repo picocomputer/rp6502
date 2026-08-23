@@ -26,7 +26,7 @@
 #include "utest.h"
 
 extern "C" {
-#include "vga/term/font.h"
+#include "core/term/font.h"
 }
 
 #include <cstdio>

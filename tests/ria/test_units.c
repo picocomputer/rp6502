@@ -7,8 +7,8 @@
  * xreg device/channel dispatch, and the CLI parser.
  */
 
-#include "ria/api/oem.h"
-#include "ria/str/str.h"
+#include "core/api/oem.h"
+#include "core/str/str.h"
 #include "emu/app/cli.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/pad.h"

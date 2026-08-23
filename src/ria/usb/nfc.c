@@ -4,11 +4,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/pro.h"
+#include "core/api/pro.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
-#include "ria/aud/bel.h"
-#include "ria/str/str.h"
+#include "core/aud/bel.h"
+#include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include <tusb.h>
 #include <stdio.h>

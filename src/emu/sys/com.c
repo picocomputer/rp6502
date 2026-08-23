@@ -5,17 +5,17 @@
  *
  */
 
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "emu/sys/com.h"
 #include "emu/sys/ria.h"
-#include "ria/aud/bel.h"
+#include "core/aud/bel.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* A Ctrl-C (0x03) anywhere in the keyboard stream latches a SIGINT, exactly
- * like the firmware's com/kbd scan (ria/sys/com.c, ria/hid/kbd.c). The byte is
+ * like the firmware's com/kbd scan (ria/sys/com.c, core/hid/kbd.c). The byte is
  * still delivered to the program; the latch is independent of consumption. */
 #define COM_ETX 0x03
 

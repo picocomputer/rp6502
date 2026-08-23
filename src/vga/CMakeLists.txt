@@ -28,12 +28,12 @@ target_compile_definitions(rp6502-vga PRIVATE
 
 target_sources(rp6502-vga PRIVATE
     main.c
-    modes/mode0.c
-    modes/mode1.c
-    modes/mode2.c
-    modes/mode3.c
-    modes/mode4.c
-    modes/mode5.c
+    ${RP6502_ROOT}/src/core/vga/mode0.c
+    ${RP6502_ROOT}/src/core/vga/mode1.c
+    ${RP6502_ROOT}/src/core/vga/mode2.c
+    ${RP6502_ROOT}/src/core/vga/mode3.c
+    ${RP6502_ROOT}/src/core/vga/mode4.c
+    ${RP6502_ROOT}/src/core/vga/mode5.c
     scanvideo/scanvideo.c
     sys/com.c
     sys/led.c
@@ -42,9 +42,9 @@ target_sources(rp6502-vga PRIVATE
     sys/ria.c
     sys/sys.c
     sys/vga.c
-    term/color.c
-    term/font.c
-    term/term.c
+    ${RP6502_ROOT}/src/core/term/color.c
+    ${RP6502_ROOT}/src/core/term/font.c
+    ${RP6502_ROOT}/src/core/term/term.c
     usb/cdc.c
     usb/descriptors.c
     usb/usb.c

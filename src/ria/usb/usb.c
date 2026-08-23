@@ -4,16 +4,16 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "fatfs/ff.h"
-#include "ria/hid/hid.h"
-#include "ria/hid/kbd.h"
-#include "ria/hid/mou.h"
-#include "ria/hid/tab.h"
-#include "ria/hid/pad.h"
+#include "core/hid/hid.h"
+#include "core/hid/kbd.h"
+#include "core/hid/mou.h"
+#include "core/hid/tab.h"
+#include "core/hid/pad.h"
 #include "host/hcd.h"
 #include "ria/main.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/usb/msc.h"
 #include "ria/usb/usb.h"

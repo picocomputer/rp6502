@@ -32,8 +32,8 @@
 #include "msc.h"
 #include "sst.h"
 
-#include "ria/api/api.h"
-#include "ria/api/std.h"
+#include "core/api/api.h"
+#include "core/api/std.h"
 
 #include <pico/time.h>
 

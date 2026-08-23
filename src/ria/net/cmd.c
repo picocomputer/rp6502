@@ -9,7 +9,7 @@
 #include "ria/net/mdm.h"
 #include "ria/net/wfi.h"
 #include "ria/mon/hlp.h"
-#include "ria/str/str.h"
+#include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <stdio.h>
 #include <ctype.h>

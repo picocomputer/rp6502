@@ -5,14 +5,14 @@
  *
  * kbl_word from the image on disk, which is the only copy a Pocket has.
  *
- * src/ria/hid/kbl.h calls this the one thing a port has to write, and
+ * src/core/hid/kbl.h calls this the one thing a port has to write, and
  * there are two ports: a machine with flash links kbdlay.c and reads an
  * array, and a machine without stages keyboard.bin and reads a window.
  * Both come out of one generator, so both are checked — the same
  * test_kbl.c over the staged bytes instead.
  */
 
-#include "ria/hid/kbl.h"
+#include "core/hid/kbl.h"
 #include "kbdlay.h"
 
 #include <stdint.h>

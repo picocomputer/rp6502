@@ -34,7 +34,7 @@
 #include "emu/emu/aud.h"
 #include "emu/dbg/dbg.h"
 #include "emu/emu/pro.h"
-#include "ria/api/oem.h"
+#include "core/api/oem.h"
 #include "emu/hid/kbd.h"
 #include "emu/hid/mou.h"
 #include "emu/hid/tab.h"
