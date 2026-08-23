@@ -8,7 +8,9 @@
 #ifndef _EMU_SYS_MEM_H_
 #define _EMU_SYS_MEM_H_
 
-#include "ria/sys/mem.h"
+#include "core/mem.h"
+
+#include <stdbool.h>
 
 /* 6502 RAM. The rest of the map is unassigned, then the VIA and the RIA (os.rst).
  * ram[] itself spans the whole space; outside this window it is a write-through

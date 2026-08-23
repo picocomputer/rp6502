@@ -18,7 +18,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "ria/main.h"
 
 void main_init(void); /* cold boot: fan out to every subsystem */
 

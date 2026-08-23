@@ -20,7 +20,6 @@
 #include "core/cfg.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbl.h"
-#include "ria/sys/cpu.h"
 
 #include <string.h>
 

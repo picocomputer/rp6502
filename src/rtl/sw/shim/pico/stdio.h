@@ -11,7 +11,7 @@
 #ifndef _RTL_SW_SHIM_PICO_STDIO_H_
 #define _RTL_SW_SHIM_PICO_STDIO_H_
 
-#include "ria/sys/com.h"
+#include "core/com.h"
 #include <stdint.h>
 
 #define PICO_ERROR_TIMEOUT (-1)

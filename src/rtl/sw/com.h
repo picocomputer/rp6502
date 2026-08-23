@@ -8,9 +8,11 @@
 #define _FPGA_SW_COM_H_
 
 #include "core/com.h"
-#include "ria/sys/com.h"
 
-/* The wire to the terminal: term.c's captured stdio driver, registered
- * through the pico/stdio/driver.h shim. */
+/* This machine's console lifecycle. What every machine's console can do is
+ * core/com.h; these three are the Pocket's own, called from its main.c. */
+void com_init(void);
+void com_run(void);
+void com_task(void);
 
 #endif /* _FPGA_SW_COM_H_ */
