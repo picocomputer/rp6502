@@ -18,6 +18,7 @@
  */
 
 #include "ria/hid/kbl.h"
+#include "utest.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -99,17 +100,19 @@ static const uint32_t ref_dead3[REF_COUNT][REF_DEAD_MAX][4] = {
 #undef XDEAD3
 #undef XEND
 
-static int failures;
-
-#define FAIL(...)                       \
-    do                                  \
-    {                                   \
-        printf("FAIL: " __VA_ARGS__);   \
-        if (++failures > 20)            \
-        {                               \
-            printf("too many\n");       \
-            return 1;                   \
-        }                               \
+/* Every mismatch is reported rather than the first, because one wrong column
+ * in a generator is a hundred and twenty-seven of them and the pattern is the
+ * diagnosis. Capped, for the same reason. */
+#define FAIL(...)                            \
+    do                                       \
+    {                                        \
+        fprintf(stderr, "FAIL: " __VA_ARGS__); \
+        *utest_result = 1;                   \
+        if (++failures > 20)                 \
+        {                                    \
+            fprintf(stderr, "too many\n");   \
+            return;                          \
+        }                                    \
     } while (0)
 
 static unsigned ref_dead2_count(int lay)
@@ -128,19 +131,11 @@ static unsigned ref_dead3_count(int lay)
     return n;
 }
 
-int main(void)
+UTEST(kbl, every_layout_matches_its_def)
 {
-    if (!kbl_init())
-    {
-        printf("FAIL: no layout database\n");
-        return 1;
-    }
-    if (kbl_count() != REF_COUNT)
-    {
-        printf("FAIL: %d layouts, def/kbd.def has %d\n",
-               kbl_count(), REF_COUNT);
-        return 1;
-    }
+    int failures = 0;
+    ASSERT_TRUE(kbl_init());
+    ASSERT_EQ(kbl_count(), REF_COUNT);
 
     for (int lay = 0; lay < REF_COUNT; lay++)
     {
@@ -197,18 +192,19 @@ int main(void)
                          ref_dead3[lay][i][j]);
     }
 
-    /* A layout that is not there reads empty rather than reading
-     * something else: this is what a machine whose asset failed to load
-     * does with every key. */
+}
+
+/* A layout that is not there reads empty rather than reading something else:
+ * this is what a machine whose asset failed to load does with every key. */
+UTEST(kbl, a_layout_out_of_range_reads_empty)
+{
+    ASSERT_TRUE(kbl_init());
+
     char name[KBL_NAME_MAX];
     kbl_name(REF_COUNT, name);
-    if (name[0])
-        FAIL("layout %d has a name\n", REF_COUNT);
-    if (kbl_code_point(REF_COUNT, 0x04, 0) || kbl_code_point(-1, 0x04, 0))
-        FAIL("a layout out of range types something\n");
-
-    if (failures)
-        return 1;
-    printf("kbl: %d layouts match def/kbd.def\n", REF_COUNT);
-    return 0;
+    ASSERT_EQ(name[0], 0);
+    ASSERT_EQ(kbl_code_point(REF_COUNT, 0x04, 0), 0);
+    ASSERT_EQ(kbl_code_point(-1, 0x04, 0), 0);
 }
+
+UTEST_MAIN();
