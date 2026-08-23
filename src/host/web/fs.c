@@ -14,7 +14,7 @@
  * oem_from_utf8().
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include <emscripten.h>
 #include <errno.h>

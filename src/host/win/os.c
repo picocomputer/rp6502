@@ -9,7 +9,7 @@
  * struct tm has no timezone fields and strftime uses the thread locale).
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include "host/win/win.h"
 #include <direct.h>

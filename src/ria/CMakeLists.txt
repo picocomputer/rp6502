@@ -96,6 +96,7 @@ target_compile_options(${RIA_TARGET} PRIVATE
 set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
 
 target_include_directories(${RIA_TARGET} PRIVATE
+    ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_LIST_DIR}
     ${RP6502_ROOT}/src

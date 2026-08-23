@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include "ria/api/tim.h"
 

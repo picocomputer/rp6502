@@ -21,7 +21,7 @@
  *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include "host/win/win.h"
 #include <direct.h>

@@ -17,10 +17,10 @@
 #include "emu/emu/rom.h"
 #include "emu/emu/msc.h"
 #include "emu/sys/mem.h"
-#include "host/host.h"
+#include "host.h"
 #include "dirsys.h"
 #include "stdsys.h"
-#include "host/host.h"
+#include "host.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>

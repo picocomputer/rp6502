@@ -9,7 +9,7 @@
  * (linux/macos/web/android); this file holds only what they all share.
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include <errno.h>
 #include <locale.h>

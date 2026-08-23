@@ -138,6 +138,20 @@ add_library(emu_core STATIC
     ${RP6502_VENDOR}/fatfs/ff.c
 )
 
+# Which host this build is for. Its directory leads the include path, so
+# #include "host.h" from any file -- core, emu or a test -- is this one's.
+if(WIN32)
+    set(RP6502_HOST ${RP6502_SRC}/host/win)
+elseif(EMSCRIPTEN)
+    set(RP6502_HOST ${RP6502_SRC}/host/web)
+elseif(ANDROID)
+    set(RP6502_HOST ${RP6502_SRC}/host/android)
+elseif(APPLE)
+    set(RP6502_HOST ${RP6502_SRC}/host/macos)
+else()
+    set(RP6502_HOST ${RP6502_SRC}/host/linux)
+endif()
+
 if(WIN32)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/win/dir.c
@@ -233,6 +247,7 @@ endif()
 add_dependencies(emu_core rsmp_coef)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
+    ${RP6502_HOST}
     ${RP6502_SRC}/pico_shim
     ${RP6502_SRC}
     ${RP6502_VENDOR}

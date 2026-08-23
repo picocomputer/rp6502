@@ -8,7 +8,7 @@
  * the web loop). Everything else lives in posix/os.c.
  */
 
-#include "host/host.h"
+#include "host.h"
 #include <time.h>
 
 uint64_t os_entropy_64(void)

@@ -152,6 +152,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -Os -ffreestanding -nostartfiles
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
             -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
+            -I ${RP6502_SRC}/host/pocket
             -I ${RP6502_SRC}
             -I ${SW_SRC}/shim
             -I ${RP6502_ASSETS}

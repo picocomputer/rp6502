@@ -5,8 +5,17 @@
  *
  */
 
-#ifndef _HOST_HOST_H_
-#define _HOST_HOST_H_
+/* What a host may implement for the machine. Every host has a host.h of its
+ * own that includes this one, so #include "host.h" from anywhere reaches the
+ * host this build is for -- the host's directory is first on the include path.
+ *
+ * Not every host implements all of it. The filesystem and OS calls below are
+ * the software hosts' seam; a Pico has its own storage and a Pocket has the
+ * card, and neither defines these. A declaration nobody calls costs nothing,
+ * and the alternative is a second contract header to remember. */
+
+#ifndef _CORE_HOST_H_
+#define _CORE_HOST_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -93,4 +102,4 @@ bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
 void os_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
 
-#endif /* _HOST_HOST_H_ */
+#endif /* _CORE_HOST_H_ */

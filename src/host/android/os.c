@@ -8,7 +8,7 @@
  * provides both (API 28+). Everything else lives in posix/os.c.
  */
 
-#include "host/host.h"
+#include "host.h"
 #include <sys/random.h>
 #include <time.h>
 

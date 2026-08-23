@@ -17,6 +17,7 @@ target_compile_options(rp6502-vga PRIVATE
 )
 
 target_include_directories(rp6502-vga PRIVATE
+    ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
     ${CMAKE_CURRENT_LIST_DIR}
     ${RP6502_ROOT}/src
 )

@@ -8,7 +8,7 @@
  * names back with oem_from_utf8().
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include <dirent.h>
 #include <errno.h>

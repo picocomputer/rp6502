@@ -16,13 +16,13 @@
 #include "ria/api/std.h"
 #include "emu/emu/rom.h"
 #include "emu/emu/msc.h"
-#include "host/host.h"
+#include "host.h"
 #include "emu/sys/mem.h"
 #include "emu/emu/tmp.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
-#include "host/host.h"
+#include "host.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>

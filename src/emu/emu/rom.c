@@ -7,7 +7,7 @@
 
 #include "emu/emu/msc.h"
 #include "emu/emu/rom.h"
-#include "host/host.h"
+#include "host.h"
 #include "emu/sys/mem.h"
 #include <ctype.h>
 #include <errno.h>

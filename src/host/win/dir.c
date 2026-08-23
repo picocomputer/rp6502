@@ -12,7 +12,7 @@
  * FindFirstFileW/FindNextFileW/FindClose over an opaque heap struct.
  */
 
-#include "host/host.h"
+#include "host.h"
 #include "ria/api/oem.h"
 #include "host/win/win.h"
 #include <errno.h>

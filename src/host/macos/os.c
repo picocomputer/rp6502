@@ -8,7 +8,7 @@
  * clock_nanosleep/TIMER_ABSTIME). Everything else lives in posix/os.c.
  */
 
-#include "host/host.h"
+#include "host.h"
 #include <errno.h>
 #include <time.h>
 
