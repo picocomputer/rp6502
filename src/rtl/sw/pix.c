@@ -14,7 +14,7 @@
 #include "main.h"
 
 #include "core/api/api.h"
-#include "ria/sys/pix.h"
+#include "host/pico/ria/sys/pix.h"
 
 #include <string.h>
 

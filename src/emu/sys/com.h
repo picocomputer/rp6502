@@ -9,7 +9,7 @@
 #define _EMU_SYS_COM_H_
 
 #include "core/com.h"
-#include "ria/sys/com.h"
+#include "host/pico/ria/sys/com.h"
 
 /* The KBD source. hid/kbd.c owns this ring and is the only caller: every host
  * keystroke, scripted or typed, enters the machine through one seam. */

@@ -8,7 +8,7 @@
 #define CHIPS_IMPL
 #include "chips/chips/w65c02.h"
 #include "emu/sys/cpu.h"
-#include "ria/sys/sys.h"
+#include "host/pico/ria/sys/sys.h"
 
 static w65c02_t cpu;
 

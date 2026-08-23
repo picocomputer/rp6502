@@ -62,7 +62,7 @@
             "type": "process",
             "command": "python3",
             "args": [
-                "${workspaceFolder}/src/vga/term/font.py"
+                "${workspaceFolder}/src/core/term/font.py"
             ],
             "presentation": {
                 "reveal": "always",

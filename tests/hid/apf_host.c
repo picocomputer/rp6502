@@ -10,12 +10,12 @@
  */
 
 #include "core/api/oem.h"
-#include "ria/ble/ble.h"
-#include "ria/main.h"
-#include "ria/sys/cfg.h"
-#include "ria/sys/ria.h"
-#include "ria/sys/vga.h"
-#include "ria/usb/usb.h"
+#include "host/pico/ria/ble/ble.h"
+#include "host/pico/ria/main.h"
+#include "host/pico/ria/sys/cfg.h"
+#include "host/pico/ria/sys/ria.h"
+#include "host/pico/ria/sys/vga.h"
+#include "host/pico/ria/usb/usb.h"
 
 #include <stdint.h>
 

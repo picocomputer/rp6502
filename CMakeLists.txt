@@ -77,5 +77,5 @@ project(RP6502 C CXX ASM)
 pico_sdk_init()
 
 foreach(_dir IN LISTS RP6502_PROJECT_DIRECTORIES)
-    add_subdirectory(${RP6502_ROOT}/src/${_dir} ${_dir})
+    add_subdirectory(${RP6502_ROOT}/src/host/pico/${_dir} ${_dir})
 endforeach()

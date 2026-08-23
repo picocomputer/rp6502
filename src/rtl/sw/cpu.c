@@ -12,7 +12,7 @@
  */
 
 #include "mmio.h"
-#include "ria/sys/cpu.h"
+#include "host/pico/ria/sys/cpu.h"
 
 /* The register holds what is running; this holds what to go back to. */
 static uint16_t cpu_phi2_khz_set = CPU_PHI2_DEFAULT;

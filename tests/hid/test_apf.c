@@ -24,7 +24,7 @@
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
-#include "ria/sys/mem.h"
+#include "host/pico/ria/sys/mem.h"
 
 #include "rtl/sw/apf.c"
 

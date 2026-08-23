@@ -25,7 +25,7 @@ extern "C"
  * ria_trigger_vsync, ria_trigger_sigint, ria_get_sigint. The PIO/UART/mbuf half is
  * firmware-only and has no emulator implementation; ria_active is always false here
  * (no mbuf transfers). */
-#include "ria/sys/ria.h"
+#include "host/pico/ria/sys/ria.h"
 
 /* The RIA decodes the RIA_MMAP_* register window, drives data on reads and asserts
  * IRQB. The OS services its registers trigger — stdio/file I/O, exec, the VGA/PSG/OPL

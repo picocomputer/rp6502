@@ -16,7 +16,7 @@
 #include "emu/main.h"
 #include "emu/emu/rom.h"
 #include "emu/sys/mem.h"
-#include "ria/sys/pix.h"
+#include "host/pico/ria/sys/pix.h"
 #include "emu/sys/com.h"
 #include "utest.h"
 #include <stdio.h>

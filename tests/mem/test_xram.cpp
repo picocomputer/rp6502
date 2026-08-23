@@ -17,7 +17,7 @@
 #include "tb_rom.h"
 #include "utest.h"
 
-#include "ria/sys/mem.h"
+#include "host/pico/ria/sys/mem.h"
 
 #include <cstdio>
 #include <cstring>

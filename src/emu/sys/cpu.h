@@ -15,7 +15,7 @@
  * cpu_set_phi2_khz (config, loaded before init), cpu_set_phi2_khz_run (clamped to
  * [CPU_PHI2_MIN_KHZ, CPU_PHI2_MAX_KHZ], quantized), cpu_get_phi2_khz_run, and the
  * CPU_PHI2_* constants. Wrapped here so C++ consumers get C linkage. */
-#include "ria/sys/cpu.h"
+#include "host/pico/ria/sys/cpu.h"
 
 /* Program start: reset the 65C02 core (fetch the vector) and unhalt, keeping the
  * clock and PHI2. Must be last in the run fan-out. */

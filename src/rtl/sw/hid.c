@@ -12,8 +12,8 @@
 
 #include "core/hid/hid.h"
 #include "core/api/oem.h"
-#include "ria/ble/ble.h"
-#include "ria/usb/usb.h"
+#include "host/pico/ria/ble/ble.h"
+#include "host/pico/ria/usb/usb.h"
 
 bool usb_boot_enumerating(void)
 {
