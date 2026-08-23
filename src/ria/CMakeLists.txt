@@ -115,6 +115,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 target_sources(${RIA_TARGET} PRIVATE
     main.c
     ${RP6502_ROOT}/src/host/pico/host.c
+    ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/api/api.c
     ${RP6502_ROOT}/src/core/api/arg.c
     ${RP6502_ROOT}/src/core/api/atr.c

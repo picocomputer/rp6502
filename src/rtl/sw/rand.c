@@ -14,7 +14,7 @@
 #include "mmio.h"
 #include "rand.h"
 
-#include <pico/rand.h>
+#include "host.h"
 
 static uint64_t rand_state = 1;
 
@@ -24,7 +24,7 @@ void rand_init(void)
     rand_state = seed ? seed : 1; /* 0 would freeze the LCG warm-up */
 }
 
-uint64_t get_rand_64(void)
+uint64_t host_rand_64(void)
 {
     rand_state = rand_state * 6364136223846793005ull + 1442695040888963407ull;
     uint64_t x = rand_state ^ (rand_state >> 33);

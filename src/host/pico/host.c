@@ -3,13 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What a Pico answers of core/host.h. Only the clock so far: TIMER0's raw
- * 64-bit microsecond counter, free-running since reset.
+ * What BOTH Pico firmwares answer of core/host.h -- the parts of the contract
+ * whose callers are split across them: core/hid/kbd.c is the RIA's,
+ * core/term/term.c is the VGA's. What only one of them answers is in
+ * host_ria.c. Both build with IPO, so this inlines back to the SDK call.
  *
- * Its own translation unit because the two firmwares split the callers --
- * core/hid/kbd.c is the RIA's, core/term/term.c is the VGA's -- and this
- * directory is the one place both builds already share. Both build with IPO,
- * so it inlines back to the SDK call.
+ * The clock is TIMER0's raw 64-bit microsecond counter, free-running since
+ * reset.
  */
 
 #include "host.h"

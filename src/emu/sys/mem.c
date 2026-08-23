@@ -39,7 +39,7 @@ void mem_set_fill(bool random, uint8_t value, uint64_t seed)
     mem_fill_seed = seed;
 }
 
-/* The fill gets its own stream instead of drawing from get_rand_64, which is
+/* The fill gets its own stream instead of drawing from host_rand_64, which is
  * what the 6502's rand() syscall reads: 128KB of draws would move the sequence
  * every seeded program sees, and then changing the fill would be changing two
  * things at once. Same LCG and finalizer as app/rand.c, salted off the run's

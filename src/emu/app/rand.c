@@ -7,7 +7,6 @@
 
 #include "emu/app/rand.h"
 #include "host.h"
-#include "pico/rand.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -31,7 +30,7 @@ uint64_t rand_seed_value(void)
     return rand_seed;
 }
 
-uint64_t get_rand_64(void)
+uint64_t host_rand_64(void)
 {
     if (!rand_seeded)
         rand_set_seed(host_entropy_64());

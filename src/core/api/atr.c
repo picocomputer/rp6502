@@ -14,7 +14,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/ria.h"
-#include <pico/rand.h>
+#include "host.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -57,7 +57,7 @@ bool atr_api_get(void)
     case ATR_RLN_LENGTH:
         return api_return_axsreg(rln_get_max_length());
     case ATR_LRAND:
-        return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
     case ATR_BEL:
         return api_return_axsreg(com_get_bel());
     case ATR_LAUNCHER:
@@ -182,7 +182,7 @@ bool atr_api_code_page(void)
 // long lrand(void) - get random number
 bool atr_api_lrand(void)
 {
-    return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+    return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
 }
 
 // int errno_opt(unsigned char opt) - set errno mapping

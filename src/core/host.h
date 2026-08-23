@@ -91,8 +91,11 @@ fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
-/* ---- other host-OS primitives (host/posix/host.c or host/win/host.c, one compiled) ---- */
-uint64_t host_entropy_64(void); /* seed material from the host RNG/clocks */
+/* The machine's random stream, which the 6502's rand() reads. A Pico has a
+ * hardware RNG; the emulator and a Pocket run a generator of their own so a run
+ * can be reproduced, which is why this is not host entropy -- that seeds the
+ * emulator's generator and is declared by emu/app/rand.h, one layer up. */
+uint64_t host_rand_64(void);
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool host_localtime(time_t t, struct tm *out);

@@ -99,9 +99,10 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     # rtl/sw left a core header edit rebuilding nothing, so the tests ran the
     # previous firmware and the symbol diff compared an image to itself.
     # Broader than the include list needs, which costs one gcc run; nothing
-    # re-verilates behind it. GLOB runs at configure time, so a header that
-    # did not exist then still needs a re-configure to be seen.
-    file(GLOB_RECURSE SW_HEADERS
+    # re-verilates behind it. CONFIGURE_DEPENDS because a plain GLOB is
+    # evaluated once: adding a header would leave it untracked, and deleting
+    # one leaves ninja demanding a file no rule can produce.
+    file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
         ${RP6502_SRC}/rtl/sw/*.h
         ${RP6502_SRC}/core/*.h
         ${RP6502_SRC}/pico_shim/*.h

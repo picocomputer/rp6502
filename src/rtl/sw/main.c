@@ -47,7 +47,7 @@
 #include "core/vga/mode5.h"
 #include "core/term/term.h"
 
-#include <pico/rand.h>
+#include "host.h"
 
 #include <stdint.h>
 
@@ -204,7 +204,7 @@ bool main_api(uint8_t operation)
             font_set_code_page(API_AX);
         return api_return_ax(font_get_code_page());
     case 0x04:
-        return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
     case 0x06:
         if (!api_set_errno_opt(API_A))
             return api_return_errno(API_EINVAL);
@@ -225,7 +225,7 @@ bool main_api(uint8_t operation)
         case 0x03:
             return api_return_axsreg(rln_get_max_length());
         case 0x04:
-            return api_return_axsreg(get_rand_64() & 0x7FFFFFFF);
+            return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
         case 0x05:
             return api_return_axsreg(com_get_bel());
         case 0x06:
