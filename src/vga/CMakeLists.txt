@@ -28,6 +28,7 @@ target_compile_definitions(rp6502-vga PRIVATE
 
 target_sources(rp6502-vga PRIVATE
     main.c
+    ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/vga/mode0.c
     ${RP6502_ROOT}/src/core/vga/mode1.c
     ${RP6502_ROOT}/src/core/vga/mode2.c

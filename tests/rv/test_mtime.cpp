@@ -10,7 +10,7 @@
  * test, because nothing else in this suite waits on a real second — the
  * only witness was a cursor blinking at the wrong speed on a Pocket.
  *
- * So assert the rate directly. mtime_us is what time_us_64 returns, and
+ * So assert the rate directly. mtime_us is what host_clock_us returns, and
  * one microsecond is one microsecond of clk_sys wall time no matter
  * which clock the accumulator happens to be counting.
  */

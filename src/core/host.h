@@ -9,10 +9,11 @@
  * own that includes this one, so #include "host.h" from anywhere reaches the
  * host this build is for -- the host's directory is first on the include path.
  *
- * Not every host implements all of it. The filesystem and OS calls below are
- * the software hosts' seam; a Pico has its own storage and a Pocket has the
- * card, and neither defines these. A declaration nobody calls costs nothing,
- * and the alternative is a second contract header to remember. */
+ * Not every host implements all of it. Every host answers the clock, but the
+ * filesystem and OS calls below are the software hosts' seam; a Pico has its own
+ * storage and a Pocket has the card, and neither defines these. A declaration
+ * nobody calls costs nothing, and the alternative is a second contract header to
+ * remember. */
 
 #ifndef _CORE_HOST_H_
 #define _CORE_HOST_H_
@@ -30,6 +31,21 @@ typedef SSIZE_T fs_ssize_t;
 #include <sys/types.h>
 typedef ssize_t fs_ssize_t;
 #endif
+
+/* ---- the machine's microsecond clock ---- */
+/* Microseconds since the machine started. A Pico reads TIMER0, the emulator its
+ * own run clock, a Pocket the fabric's mtime -- so this is machine time, not the
+ * host's: it stands still while the machine is halted, and it is savestate state
+ * where a machine has savestates. Wall time is tim_get_time. */
+uint64_t host_clock_us(void);
+
+/* Deadlines, from the clock above. No host implements these; they are the same
+ * arithmetic everywhere, and inline because the alternative is a translation
+ * unit on five build lists for three adds. */
+typedef uint64_t host_deadline_t;
+static inline host_deadline_t host_deadline_us(uint64_t us) { return host_clock_us() + us; }
+static inline host_deadline_t host_deadline_ms(uint64_t ms) { return host_clock_us() + ms * 1000; }
+static inline bool host_deadline_passed(host_deadline_t d) { return host_clock_us() >= d; }
 
 /* ---- directory enumeration ---- */
 void *dir_open(const char *path); /* opaque stream, or NULL + errno */

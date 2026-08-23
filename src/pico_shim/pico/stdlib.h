@@ -41,7 +41,6 @@ typedef unsigned int uint;
 #define __isr
 typedef void (*irq_handler_t)(void);
 
-#include "pico/time.h"
 #include "pico/stdio.h"
 
 #endif /* _PICO_SHIM_PICO_STDLIB_H_ */

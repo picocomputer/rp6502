@@ -10,7 +10,7 @@
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/tim.h"
-#include <pico/time.h>
+#include "host.h"
 #include <string.h>
 #include <time.h>
 
@@ -20,12 +20,12 @@ static uint64_t clk_start_us;
 
 void clk_run(void)
 {
-    clk_start_us = time_us_64();
+    clk_start_us = host_clock_us();
 }
 
 uint32_t clk_get_run(uint32_t us_per_tick)
 {
-    return (time_us_64() - clk_start_us) / us_per_tick;
+    return (host_clock_us() - clk_start_us) / us_per_tick;
 }
 
 bool clk_api_time_get(void)

@@ -50,7 +50,7 @@
 
 #include "core/api/tim.h"
 
-#include <pico/time.h>
+#include "host.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -65,7 +65,7 @@
  * console and this must not become weather. */
 static void sst_log_restore(uint32_t ctl)
 {
-    uint64_t us = time_us_64();
+    uint64_t us = host_clock_us();
     LOG_SAY("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
            (unsigned)(us >> 32), (unsigned)us);
     LOG_SAY("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
@@ -195,7 +195,7 @@ void sst_task(void)
      * is right. */
     tim_init();
     LOG_SAY("sst: released mtime=%u:%u\n",
-            (unsigned)(time_us_64() >> 32), (unsigned)time_us_64());
+            (unsigned)(host_clock_us() >> 32), (unsigned)host_clock_us());
     msc_log();
 
     /* The host re-announces its slots on a wake and the loop reads a

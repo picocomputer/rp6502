@@ -21,6 +21,7 @@
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/term/term.h"
+#include "host.h"
 #include <stdio.h>
 
 /* The system clock, oversampled — see SYS_OVERSAMPLE. Wraps in centuries. */
@@ -42,6 +43,7 @@ static bool bus_via_irq;
 static bool bus_ria_irq;
 
 uint64_t sys_clk_now(void) { return sys_clk; }
+uint64_t host_clock_us(void) { return sys_clk / SYS_TICKS_PER_US; }
 unsigned long sys_frame_count(void) { return frame_count; }
 
 /* No init: main_init runs exactly once per process, so static zero-initialization

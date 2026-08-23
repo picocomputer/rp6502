@@ -27,8 +27,10 @@
 void sys_run_frame(void);
 void sys_run_frame_norender(void);
 
-/* The oversampled system clock; pico/time.h's time_us_64 divides it by
- * SYS_TICKS_PER_US to serve the pico monotonic microsecond clock. */
+/* The oversampled system clock; host_clock_us divides it by SYS_TICKS_PER_US to
+ * serve the machine's microsecond clock. Run time is a reproducible function of
+ * the frame count because the run loop advances this from an absolute per-scanline
+ * deadline, never from the host's clock. */
 uint64_t sys_clk_now(void);
 
 unsigned long sys_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */

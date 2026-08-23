@@ -24,13 +24,13 @@
 
 #include "core/api/tim.h"
 
-#include <pico/time.h>
+#include "host.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
-uint64_t time_us_64(void)
+uint64_t host_clock_us(void)
 {
     uint32_t hi, lo;
     do
@@ -77,7 +77,7 @@ void tim_init(void)
     tim_tz_min = set_tz_minutes();
     tim_base_sec = tim_local_boot - (int64_t)tim_tz_min * 60;
     tim_base_nsec = 0;
-    tim_base_us = time_us_64();
+    tim_base_us = host_clock_us();
     /* The base above is the host's again, so the menu owns the offset
      * again. A wake calls this after a restore, and the flag it would
      * otherwise inherit is the previous session's -- a program that set
@@ -101,7 +101,7 @@ void tim_set_tz_minutes(int32_t min)
 
 bool tim_get_time(struct timespec *ts)
 {
-    uint64_t us = time_us_64() - tim_base_us;
+    uint64_t us = host_clock_us() - tim_base_us;
     int64_t nsec = tim_base_nsec + (int64_t)(us % 1000000u) * 1000;
     ts->tv_sec = tim_base_sec + (int64_t)(us / 1000000u) + nsec / 1000000000;
     ts->tv_nsec = nsec % 1000000000;
@@ -112,7 +112,7 @@ bool tim_set_time(const struct timespec *ts)
 {
     tim_base_sec = ts->tv_sec;
     tim_base_nsec = (int32_t)ts->tv_nsec;
-    tim_base_us = time_us_64();
+    tim_base_us = host_clock_us();
     tim_program_set = true;
     return true;
 }

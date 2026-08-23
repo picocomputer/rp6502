@@ -35,7 +35,7 @@
 #include "core/api/api.h"
 #include "core/api/std.h"
 
-#include <pico/time.h>
+#include "host.h"
 
 #include <stdint.h>
 
@@ -57,7 +57,7 @@ static uint32_t log_dropped;
 static int log_desc;
 static uint32_t log_inflight;
 static bool log_syncing;
-static absolute_time_t log_retry_at;
+static host_deadline_t log_retry_at;
 
 void log_init(void)
 {
@@ -100,7 +100,7 @@ void log_task(void)
     if (!log_inflight && (!main_active() || sst_pending() || MMIO_SLOT))
         return;
 
-    if (log_retry_at && !time_reached(log_retry_at))
+    if (log_retry_at && !host_deadline_passed(log_retry_at))
         return;
     log_retry_at = 0;
 
@@ -135,7 +135,7 @@ void log_task(void)
             /* A host still staging and a card that will not take the
              * file read the same from here, so this keeps asking rather
              * than deciding. */
-            log_retry_at = make_timeout_time_ms(1000);
+            log_retry_at = host_deadline_ms(1000);
             return;
         }
     }
@@ -166,7 +166,7 @@ void log_task(void)
          * as the card. Reopening is how it recovers, and the ring holds
          * what has not gone out. */
         log_desc = -1;
-        log_retry_at = make_timeout_time_ms(1000);
+        log_retry_at = host_deadline_ms(1000);
         return;
     }
     /* Only at the end of what there was: a sync per chunk would put a

@@ -15,8 +15,8 @@
 #include "ria/sys/com.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
+#include "host.h"
 #include <class/hid/hid.h>
-#include <pico/time.h>
 #include <stdio.h>
 /* The case-insensitive compares a layout name is matched with. Named by
  * POSIX rather than by C, and a host that has no such header supplies
@@ -51,7 +51,7 @@ static int kbd_layout_index;
 static char kbd_layout_list[KBD_LAYOUT_LIST_SIZE];
 static const char *kbd_layout_pos;
 static uint16_t kbd_xram;
-static absolute_time_t kbd_repeat_timer;
+static host_deadline_t kbd_repeat_timer;
 static uint8_t kbd_repeat_modifier;
 static uint8_t kbd_repeat_keycode;
 static char kbd_key_queue[KBD_KEY_QUEUE_SIZE];
@@ -239,7 +239,7 @@ static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     // Set up for repeat
     kbd_repeat_modifier = modifier;
     kbd_repeat_keycode = keycode;
-    kbd_repeat_timer = make_timeout_time_us(initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
+    kbd_repeat_timer = host_deadline_us(initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
     // When not in numlock, and not shifted, remap num pad
     if (keycode >= HID_KEY_KEYPAD_1 &&
         keycode <= HID_KEY_KEYPAD_DECIMAL &&
@@ -641,7 +641,7 @@ void __in_flash("kbd_init") kbd_init(void)
 
 void kbd_task(void)
 {
-    if (kbd_repeat_keycode && time_reached(kbd_repeat_timer))
+    if (kbd_repeat_keycode && host_deadline_passed(kbd_repeat_timer))
     {
         if (KBD_KEY_BIT_VAL(kbd_keys, kbd_repeat_keycode) &&
             KBD_MODIFIER(kbd_keys) == kbd_repeat_modifier)

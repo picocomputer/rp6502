@@ -55,10 +55,10 @@ void ria_trigger_sigint(void)
 {
 }
 
-/* The clock behind the shim's timers, which the key repeat asks for.
- * Standing still: a repeat is a thing that happens to a key still held
- * later, and nothing here holds one. */
-uint64_t sys_clk_now(void)
+/* The machine clock the key repeat asks for. Standing still: a repeat is
+ * a thing that happens to a key still held later, and nothing here holds
+ * one. */
+uint64_t host_clock_us(void)
 {
     return 0;
 }

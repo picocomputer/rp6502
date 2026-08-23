@@ -16,7 +16,7 @@
 #include "bel.h"
 #include "mmio.h"
 
-#include <pico/time.h>
+#include "host.h"
 
 
 #include <string.h>
@@ -83,8 +83,8 @@ void aud_restore(void)
          * come after that or the notes it strikes are released again
          * behind it. A sample is 48 kHz; twenty-five microseconds is
          * one with room. */
-        uint64_t until = time_us_64() + 25;
-        while (time_us_64() < until)
+        uint64_t until = host_clock_us() + 25;
+        while (host_clock_us() < until)
             ;
         /* And the replay's gate bits have to count. Without this the
          * engine ignores them -- a gate is the 6502's to make -- and a
@@ -105,8 +105,8 @@ void aud_restore(void)
          * 255 clocks at 50.4 MHz is 5.06 us, and this counter steps in
          * whole microseconds, so a deadline of now+N is only guaranteed
          * to be N-1 away. Seven for a floor above six. */
-        uint64_t until = time_us_64() + 7;
-        while (time_us_64() < until)
+        uint64_t until = host_clock_us() + 7;
+        while (host_clock_us() < until)
             ;
         aud_replay(opl, 256);
     }

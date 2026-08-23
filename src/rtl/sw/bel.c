@@ -15,14 +15,14 @@
 #include "bel.h"
 #include "mmio.h"
 #include "core/aud/bel.h"
-#include <pico/time.h>
+#include "host.h"
 
 #define BEL_QUEUE_SIZE 8
 
 static ria_bel_t bel_queue[BEL_QUEUE_SIZE];
 static uint8_t bel_head, bel_tail;
 static bool bel_active;
-static absolute_time_t bel_restrike_at, bel_release_at, bel_end_at;
+static host_deadline_t bel_restrike_at, bel_release_at, bel_end_at;
 
 /* The pan is centre and the gate is its low bit; the fabric takes the
  * edge off the register. */
@@ -49,10 +49,10 @@ static void bel_strike(void)
     const ria_bel_t *snd = &bel_queue[bel_tail];
     bel_voice(snd, true);
     bel_restrike_at = snd->restrike_ms
-                          ? make_timeout_time_ms(snd->restrike_ms) : 0;
+                          ? host_deadline_ms(snd->restrike_ms) : 0;
     bel_release_at = snd->release_ms
-                         ? make_timeout_time_ms(snd->release_ms) : 0;
-    bel_end_at = snd->end_ms ? make_timeout_time_ms(snd->end_ms) : 0;
+                         ? host_deadline_ms(snd->release_ms) : 0;
+    bel_end_at = snd->end_ms ? host_deadline_ms(snd->end_ms) : 0;
     bel_active = true;
 }
 
@@ -74,7 +74,7 @@ void bel_task(void)
 
     /* A restrike takes both sounds asking for one. Where the next does
      * not, this one runs out its own life instead. */
-    if (bel_restrike_at && time_reached(bel_restrike_at))
+    if (bel_restrike_at && host_deadline_passed(bel_restrike_at))
     {
         uint8_t next = (bel_tail + 1) % BEL_QUEUE_SIZE;
         if (next != bel_head && bel_queue[next].restrike_ms)
@@ -86,13 +86,13 @@ void bel_task(void)
         bel_restrike_at = 0;
     }
 
-    if (bel_release_at && time_reached(bel_release_at))
+    if (bel_release_at && host_deadline_passed(bel_release_at))
     {
         bel_voice(&bel_queue[bel_tail], false);
         bel_release_at = 0;
     }
 
-    if (bel_end_at && time_reached(bel_end_at))
+    if (bel_end_at && host_deadline_passed(bel_end_at))
     {
         bel_tail = (bel_tail + 1) % BEL_QUEUE_SIZE;
         if (bel_tail != bel_head)

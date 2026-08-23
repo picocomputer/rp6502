@@ -9,6 +9,7 @@
 #include "vga/sys/com.h"
 #include "vga/sys/vga.h"
 #include "core/vga/pixel_format.h"
+#include "host.h"
 #include <pico/stdlib.h>
 #include <pico/stdio/driver.h>
 #include <stdio.h>
@@ -166,9 +167,9 @@ typedef struct term_state
     uint8_t save_y;
     bool save_origin_mode;
     bool cursor_enabled;
-    absolute_time_t cursor_timer;
+    host_deadline_t cursor_timer;
     volatile bool cursor_lit;
-    absolute_time_t cell_blink_timer;
+    host_deadline_t cell_blink_timer;
     volatile uint8_t cell_blink_phase;
     uint16_t default_fg_color;
     uint16_t default_bg_color;
@@ -286,7 +287,7 @@ static void term_clean_line(term_state_t *term, uint8_t y)
 static inline void term_cursor_restart_blink(term_state_t *term)
 {
     term->cursor_lit = false;
-    term->cursor_timer = make_timeout_time_us(TERM_CURSOR_INPUT_GAP_US);
+    term->cursor_timer = host_deadline_us(TERM_CURSOR_INPUT_GAP_US);
 }
 
 // Refresh term->ptr to track cur->{x,y} after row_idx[] or y_offset has
@@ -540,7 +541,7 @@ static void term_state_init(term_state_t *term, uint8_t width,
     term->cursor_save_valid = false;
     term->cursor_lit = false;
     term->cell_blink_phase = 0;
-    term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_TICK_US);
+    term->cell_blink_timer = host_deadline_us(TERM_BLINK_TICK_US);
     term_out_RIS(term);
 }
 
@@ -2588,13 +2589,13 @@ static void term_blink_cursor(term_state_t *term)
         term->cursor_lit = false;
         return;
     }
-    if (!time_reached(term->cursor_timer))
+    if (!host_deadline_passed(term->cursor_timer))
         return;
     term->cursor_lit = !term->cursor_lit;
     if (term->cur->x == term->width)
-        term->cursor_timer = make_timeout_time_us(TERM_CURSOR_BLINK_FAST_US);
+        term->cursor_timer = host_deadline_us(TERM_CURSOR_BLINK_FAST_US);
     else
-        term->cursor_timer = make_timeout_time_us(TERM_CURSOR_BLINK_US);
+        term->cursor_timer = host_deadline_us(TERM_CURSOR_BLINK_US);
 }
 
 // SGR-5/6 cell blink phase, per-term: a free-running 2-bit counter at bits 0-1
@@ -2606,11 +2607,11 @@ static void term_blink_cursor(term_state_t *term)
 // timer and cell blink timer share an owner instead of crossing a global.
 static void term_cell_blink_phase_task(term_state_t *term)
 {
-    if (time_reached(term->cell_blink_timer))
+    if (host_deadline_passed(term->cell_blink_timer))
     {
         term->cell_blink_phase =
             (uint8_t)((term->cell_blink_phase + 1) & TERM_ATTR_ANY_BLINK);
-        term->cell_blink_timer = make_timeout_time_us(TERM_BLINK_TICK_US);
+        term->cell_blink_timer = host_deadline_us(TERM_BLINK_TICK_US);
     }
 }
 
