@@ -10,16 +10,10 @@
 /* Common code shared among all HID and HID-like drivers.
  */
 
+#include "host.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-
-// The various HID and HID-like drivers each have their own numbering for
-// managing connections. We unify these indexes into assigned "slots".
-#define HID_USB_START (0x00000)
-#define HID_XIN_START (0x10000)
-#define HID_BLE_START (0x20000)
-#define HID_APF_START (0x30000)
 
 /* Lock LEDs, fanned out to every attached keyboard on every transport this
  * platform has. */
@@ -133,5 +127,47 @@ void hid_map_clear(hid_report_map_t *map);
 /* One walk of the descriptor, filling the map. False when the descriptor
  * describes nothing any driver could use. */
 bool hid_map_from_descriptor(hid_report_map_t *map, const uint8_t *desc, uint16_t desc_len);
+
+/* Which interface a device arrived on, and the interface's own name for
+ * it. The two together are what a device is looked up by; the slot a
+ * mount hands back is what the drivers know it as. */
+typedef enum
+{
+    HID_IFACE_USB,
+    HID_IFACE_XIN,
+    HID_IFACE_BLE,
+    HID_IFACE_APF,
+} hid_iface_t;
+
+/* Devices that at least one driver wanted. A machine with more physical
+ * ports than this simply runs out, which is what the drivers do too. A
+ * host that knows it has fewer says so in its host.h. */
+#ifndef HID_MAX_SLOTS
+#define HID_MAX_SLOTS 16
+#endif
+
+#define HID_CLAIM_KBD (1 << 0)
+#define HID_CLAIM_MOU (1 << 1)
+#define HID_CLAIM_TAB (1 << 2)
+#define HID_CLAIM_PAD (1 << 3)
+
+/* Offer a device to every driver and keep which ones took it. Returns
+ * its slot, or -1 if none did or there is no room. Deliberately not
+ * exclusive: a mouse is a pointer to both mou and tab. */
+int hid_mount(hid_iface_t iface, uint32_t key, const hid_report_map_t *map,
+              uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
+
+// Hand a report to the drivers that claimed the slot, and no others.
+void hid_report(int slot, const uint8_t *data, uint16_t len);
+
+void hid_umount(int slot);
+
+// The slot an interface's device is mounted in, or -1.
+int hid_slot(hid_iface_t iface, uint32_t key);
+
+// What the interface called it, for a transport that has to answer back.
+uint32_t hid_slot_key(int slot);
+
+uint8_t hid_slot_claims(int slot);
 
 #endif /* _CORE_HID_HID_H_ */

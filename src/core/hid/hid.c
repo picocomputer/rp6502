@@ -6,6 +6,11 @@
 
 #include <string.h>
 #include "core/hid/hid.h"
+#include "core/hid/kbd.h"
+#include "core/hid/mou.h"
+#include "core/hid/pad.h"
+#include "core/hid/tab.h"
+#include <pico.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
 #include <stdio.h>
@@ -441,4 +446,98 @@ bool hid_map_from_descriptor(hid_report_map_t *map, const uint8_t *desc, uint16_
         if (map->axis[i].bit_pos != HID_ABSENT)
             return true;
     return false;
+}
+
+/* A device a driver kept, and what the interface that found it calls it.
+ * claims == 0 is a free entry. */
+typedef struct
+{
+    uint32_t key;
+    uint8_t iface;
+    uint8_t claims;
+} hid_slot_t;
+
+static hid_slot_t hid_slots[HID_MAX_SLOTS];
+
+int hid_slot(hid_iface_t iface, uint32_t key)
+{
+    for (int i = 0; i < HID_MAX_SLOTS; i++)
+        if (hid_slots[i].claims && hid_slots[i].iface == iface &&
+            hid_slots[i].key == key)
+            return i;
+    return -1;
+}
+
+uint32_t hid_slot_key(int slot)
+{
+    return (slot >= 0 && slot < HID_MAX_SLOTS) ? hid_slots[slot].key : 0;
+}
+
+uint8_t hid_slot_claims(int slot)
+{
+    return (slot >= 0 && slot < HID_MAX_SLOTS) ? hid_slots[slot].claims : 0;
+}
+
+int __in_flash("hid_mount") hid_mount(hid_iface_t iface, uint32_t key,
+                                      const hid_report_map_t *map,
+                                      uint16_t vendor_id, uint16_t product_id,
+                                      uint8_t button_type)
+{
+    int slot = -1;
+    for (int i = 0; i < HID_MAX_SLOTS; i++)
+        if (!hid_slots[i].claims)
+        {
+            slot = i;
+            break;
+        }
+    if (slot < 0)
+        return -1;
+
+    // The drivers record the slot as they mount, so it is theirs first.
+    hid_slots[slot].iface = iface;
+    hid_slots[slot].key = key;
+
+    uint8_t claims = 0;
+    if (kbd_mount(slot, map, vendor_id, product_id))
+        claims |= HID_CLAIM_KBD;
+    if (mou_mount(slot, map))
+        claims |= HID_CLAIM_MOU;
+    if (tab_mount(slot, map))
+        claims |= HID_CLAIM_TAB;
+    if (pad_mount(slot, map, vendor_id, product_id, button_type))
+        claims |= HID_CLAIM_PAD;
+
+    hid_slots[slot].claims = claims;
+    return claims ? slot : -1;
+}
+
+void hid_report(int slot, const uint8_t *data, uint16_t len)
+{
+    if (slot < 0 || slot >= HID_MAX_SLOTS)
+        return;
+    uint8_t claims = hid_slots[slot].claims;
+    if (claims & HID_CLAIM_KBD)
+        kbd_report(slot, data, len);
+    if (claims & HID_CLAIM_MOU)
+        mou_report(slot, data, len);
+    if (claims & HID_CLAIM_TAB)
+        tab_report(slot, data, len);
+    if (claims & HID_CLAIM_PAD)
+        pad_report(slot, data, len);
+}
+
+void hid_umount(int slot)
+{
+    if (slot < 0 || slot >= HID_MAX_SLOTS)
+        return;
+    uint8_t claims = hid_slots[slot].claims;
+    if (claims & HID_CLAIM_KBD)
+        kbd_umount(slot);
+    if (claims & HID_CLAIM_MOU)
+        mou_umount(slot);
+    if (claims & HID_CLAIM_TAB)
+        tab_umount(slot);
+    if (claims & HID_CLAIM_PAD)
+        pad_umount(slot);
+    hid_slots[slot].claims = 0;
 }

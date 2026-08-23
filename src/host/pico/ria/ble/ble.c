@@ -153,17 +153,17 @@ void ble_set_hid_leds(uint8_t leds)
     }
 }
 
-// A BLE HID slot packs the btstack connection id with the HID service instance
-// index (low 2 bits, MAX_NUM_HID_SERVICES <= 4) so each instance of a combo
-// device gets its own slot. The mapping is injective, so slots never collide.
-static inline int ble_hid_slot(uint16_t hids_cid, uint8_t service_index)
+// A BLE device is named by the btstack connection id and the HID service
+// instance index (low 2 bits, MAX_NUM_HID_SERVICES <= 4), so each instance of
+// a combo device is a device of its own.
+static inline uint32_t ble_hid_key(uint16_t hids_cid, uint8_t service_index)
 {
-    return HID_BLE_START + ((int)hids_cid << 2) + service_index;
+    return ((uint32_t)hids_cid << 2) | service_index;
 }
 
 static inline uint16_t ble_slot_to_hids_cid(int slot)
 {
-    return (uint16_t)((slot - HID_BLE_START) >> 2);
+    return (uint16_t)(hid_slot_key(slot) >> 2);
 }
 
 static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -202,19 +202,22 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             uint16_t descriptor_len = hids_host_descriptor_storage_get_descriptor_len(cid, si);
             if (descriptor == NULL || descriptor_len == 0)
                 continue;
-            int slot = ble_hid_slot(cid, si);
             hid_report_map_t map;
             hid_map_from_descriptor(&map, descriptor, descriptor_len);
-            if (kbd_mount(slot, &map, 0, 0))
+            /* No vendor or product id over BLE, so nothing is ever certain. */
+            int slot = hid_mount(HID_IFACE_BLE, ble_hid_key(cid, si), &map,
+                                 0, 0, PAD_TYPE_UNKNOWN);
+            if (slot < 0)
+                continue;
+            uint8_t claims = hid_slot_claims(slot);
+            if (claims & HID_CLAIM_KBD)
             {
                 ble_kbd_slots[ble_count_kbd++] = slot;
                 ble_hid_leds_at = get_absolute_time();
             }
-            if (mou_mount(slot, &map))
+            if (claims & HID_CLAIM_MOU)
                 ++ble_count_mou;
-            tab_mount(slot, &map);
-            /* No vendor or product id over BLE, so nothing is ever certain. */
-            if (pad_mount(slot, &map, 0, 0, PAD_TYPE_UNKNOWN))
+            if (claims & HID_CLAIM_PAD)
                 ++ble_count_pad;
         }
         break;
@@ -227,8 +230,11 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
         // The event carries no service index, so unmount every instance's slot.
         for (uint8_t si = 0; si < MAX_NUM_HID_SERVICES; si++)
         {
-            int slot = ble_hid_slot(cid, si);
-            if (kbd_umount(slot))
+            int slot = hid_slot(HID_IFACE_BLE, ble_hid_key(cid, si));
+            if (slot < 0)
+                continue;
+            uint8_t claims = hid_slot_claims(slot);
+            if (claims & HID_CLAIM_KBD)
             {
                 for (uint8_t i = 0; i < ble_count_kbd; i++)
                 {
@@ -239,11 +245,11 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
                     }
                 }
             }
-            if (mou_umount(slot))
+            if (claims & HID_CLAIM_MOU)
                 --ble_count_mou;
-            tab_umount(slot);
-            if (pad_umount(slot))
+            if (claims & HID_CLAIM_PAD)
                 --ble_count_pad;
+            hid_umount(slot);
         }
         break;
     }
@@ -262,11 +268,8 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             ++report;
             --report_len;
         }
-        int slot = ble_hid_slot(cid, service_index);
-        kbd_report(slot, report, report_len);
-        mou_report(slot, report, report_len);
-        tab_report(slot, report, report_len);
-        pad_report(slot, report, report_len);
+        hid_report(hid_slot(HID_IFACE_BLE, ble_hid_key(cid, service_index)),
+                   report, report_len);
         break;
     }
     }

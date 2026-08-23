@@ -399,7 +399,7 @@ static int xin_find_free_index(void)
 // We can use the same indexing as hid as long as we keep clear
 static inline int xin_idx_to_hid_slot(int idx)
 {
-    return HID_XIN_START + idx;
+    return hid_slot(HID_IFACE_XIN, idx);
 }
 
 static bool xin_queue_in(xin_device_t *device, int idx)
@@ -518,8 +518,8 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     hid_map_from_descriptor(&map, desc_data, desc_len);
     uint16_t vendor_id, product_id;
     if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
-        !pad_mount(xin_idx_to_hid_slot(idx), &map,
-                   vendor_id, product_id, PAD_TYPE_WESTERN))
+        hid_mount(HID_IFACE_XIN, idx, &map,
+                  vendor_id, product_id, PAD_TYPE_WESTERN) < 0)
     {
         DBG("XInput: Failed to mount in pad system\n");
         tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
@@ -693,7 +693,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
     {
         // Xbox 360: type 0x00 means input report, ignore others (LED acks, etc.)
         if (report[0] == 0x00 && xferred_bytes >= 14)
-            pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+            hid_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
     }
     else
     {
@@ -762,7 +762,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
         else if (gip_cmd == 0x20)
         {
             // GIP_CMD_INPUT — standard input report
-            pad_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+            hid_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
         }
         else
         {
@@ -783,7 +783,7 @@ void xin_class_driver_close(uint8_t dev_addr)
 
     DBG("XInput: Closing Xbox controller from index %d\n", idx);
 
-    pad_umount(xin_idx_to_hid_slot(idx));
+    hid_umount(xin_idx_to_hid_slot(idx));
 
     memset(&xin_devices[idx], 0, sizeof(xin_device_t));
 }

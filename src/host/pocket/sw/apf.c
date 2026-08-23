@@ -236,40 +236,21 @@ static struct
     bool mou_have_seen;
 } apf_slots[MMIO_CONT_SLOTS];
 
-static int apf_hid_slot(int slot)
-{
-    return HID_APF_START + slot;
-}
-
-/* Offered to every driver, the way a USB report descriptor is: each one
- * keeps what it recognizes. */
 static void apf_mount(int slot, const uint8_t *desc, uint16_t len, uint8_t button_type)
 {
-    int hid_slot = apf_hid_slot(slot);
     hid_report_map_t map;
     hid_map_from_descriptor(&map, desc, len);
-    kbd_mount(hid_slot, &map, 0, 0);
-    mou_mount(hid_slot, &map);
-    tab_mount(hid_slot, &map);
-    pad_mount(hid_slot, &map, 0, 0, button_type);
+    hid_mount(HID_IFACE_APF, slot, &map, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)
 {
-    int hid_slot = apf_hid_slot(slot);
-    kbd_umount(hid_slot);
-    mou_umount(hid_slot);
-    tab_umount(hid_slot);
-    pad_umount(hid_slot);
+    hid_umount(hid_slot(HID_IFACE_APF, slot));
 }
 
 static void apf_report(int slot, const uint8_t *report, uint8_t len)
 {
-    int hid_slot = apf_hid_slot(slot);
-    kbd_report(hid_slot, report, len);
-    mou_report(hid_slot, report, len);
-    tab_report(hid_slot, report, len);
-    pad_report(hid_slot, report, len);
+    hid_report(hid_slot(HID_IFACE_APF, slot), report, len);
 }
 
 static bool apf_changed(int slot, const uint8_t *report, uint8_t len)

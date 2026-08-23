@@ -48,11 +48,6 @@ static bool usb_boot_enum_finished;
 // Max bInterval is 255ms, plus slack for the slowest driver to mount.
 #define USB_ENUM_WINDOW_MS (255 + 100)
 
-static inline int usb_idx_to_hid_slot(int idx)
-{
-    return HID_USB_START + idx;
-}
-
 static inline void usb_enum_kick(void)
 {
     usb_enum_timeout = make_timeout_time_ms(USB_ENUM_WINDOW_MS);
@@ -103,7 +98,7 @@ void usb_task(void)
         uint8_t led_buf[PAD_LED_REPORT_MAX];
         uint8_t report_id;
         uint16_t report_len;
-        if (pad_build_led_report(usb_idx_to_hid_slot(i), led_buf,
+        if (pad_build_led_report(hid_slot(HID_IFACE_USB, i), led_buf,
                                  &report_id, &report_len))
         {
             if (!tuh_hid_send_report(usb_pad_led_dev[i], i,
@@ -155,19 +150,12 @@ void usb_set_hid_leds(uint8_t leds)
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    int slot = usb_idx_to_hid_slot(idx);
-    kbd_report(slot, report, len);
-    mou_report(slot, report, len);
-    tab_report(slot, report, len);
-    pad_report(slot, report, len);
+    hid_report(hid_slot(HID_IFACE_USB, idx), report, len);
     tuh_hid_receive_report(dev_addr, idx);
 }
 
 void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report, uint16_t desc_len)
 {
-    bool valid = false;
-    int slot = usb_idx_to_hid_slot(idx);
-
     uint8_t const itf_protocol = tuh_hid_interface_protocol(dev_addr, idx);
 
     uint16_t vendor_id;
@@ -180,45 +168,45 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_report_map_t map;
     hid_map_from_descriptor(&map, desc_report, desc_len);
 
-    if (kbd_mount(slot, &map, vendor_id, product_id))
+    /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
+    int slot = hid_mount(HID_IFACE_USB, idx, &map, vendor_id, product_id, PAD_TYPE_UNKNOWN);
+    if (slot < 0)
+        return;
+    uint8_t claims = hid_slot_claims(slot);
+
+    if (claims & HID_CLAIM_KBD)
     {
         ++usb_count_hid_kbd;
         usb_hid_leds_restart();
-        valid = true;
     }
-    if (mou_mount(slot, &map))
-    {
+    if (claims & HID_CLAIM_MOU)
         ++usb_count_hid_mou;
-        valid = true;
-    }
-    if (tab_mount(slot, &map)) /* a mouse feeds this too; a pure digitizer only this */
-        valid = true;
-    /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    if (pad_mount(slot, &map, vendor_id, product_id, PAD_TYPE_UNKNOWN))
+    if (claims & HID_CLAIM_PAD)
     {
         ++usb_count_hid_pad;
-        valid = true;
 
         // Defer player LED send — not safe during mount callback
         usb_pad_led_dev[idx] = dev_addr;
         usb_pad_led_pending |= (1u << idx);
     }
 
-    if (valid)
-        tuh_hid_receive_report(dev_addr, idx);
+    tuh_hid_receive_report(dev_addr, idx);
 }
 
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
     (void)dev_addr;
-    int slot = usb_idx_to_hid_slot(idx);
-    if (kbd_umount(slot))
+    int slot = hid_slot(HID_IFACE_USB, idx);
+    if (slot < 0)
+        return;
+    uint8_t claims = hid_slot_claims(slot);
+    if (claims & HID_CLAIM_KBD)
         --usb_count_hid_kbd;
-    if (mou_umount(slot))
+    if (claims & HID_CLAIM_MOU)
         --usb_count_hid_mou;
-    tab_umount(slot);
-    if (pad_umount(slot))
+    if (claims & HID_CLAIM_PAD)
         --usb_count_hid_pad;
+    hid_umount(slot);
 }
 
 bool usb_boot_enumerating(void)
