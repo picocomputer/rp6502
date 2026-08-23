@@ -205,18 +205,28 @@ rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
 # milliseconds and the point is that it answers twenty questions; a case apiece
 # would boot twenty times to save nothing.
 function(rp6502_add_script_test name)
-    cmake_parse_arguments(S "" "SCRIPT;ROM;FIXTURE;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
+    cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;FIXTURE;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
     if(NOT TARGET rp6502-emu)
         message(FATAL_ERROR
             "rp6502_add_script_test(${name}) drives the shipped binary.\n"
             "  Guard the call with if(TARGET rp6502-emu).")
     endif()
 
-    if(NOT S_SCRIPT)
-        set(S_SCRIPT ${name}.txt)
-    endif()
-    if(NOT IS_ABSOLUTE ${S_SCRIPT})
-        set(S_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/${S_SCRIPT})
+    if(S_DRIVER)
+        # The other shape: the file that assembles the program drives it too,
+        # over the pipe scr.c answers on. One file, one set of constants, and
+        # a static script that could disagree with its program is not written.
+        if(NOT IS_ABSOLUTE ${S_DRIVER})
+            set(S_DRIVER ${CMAKE_CURRENT_LIST_DIR}/${S_DRIVER})
+        endif()
+        set(S_SCRIPT ${S_DRIVER})
+    else()
+        if(NOT S_SCRIPT)
+            set(S_SCRIPT ${name}.txt)
+        endif()
+        if(NOT IS_ABSOLUTE ${S_SCRIPT})
+            set(S_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/${S_SCRIPT})
+        endif()
     endif()
     if(S_FIXTURE)
         set(S_ROM ${RP6502_TEST_ROMS}/${S_FIXTURE})
@@ -239,9 +249,16 @@ function(rp6502_add_script_test name)
     # --mute so a runner opens no audio device, --seed and --fill so a program
     # that asks for entropy or reads memory it never wrote is asked the same
     # question every run.
-    add_test(NAME script.${name}
-        COMMAND rp6502-emu --mute --seed 1 --fill 0 ${S_ARGS}
-            --script ${S_SCRIPT} ${S_ROM})
+    if(S_DRIVER)
+        # The driver spawns the emulator itself, so it is told where both are.
+        add_test(NAME script.${name}
+            COMMAND ${CMAKE_COMMAND} -E env python3 ${S_DRIVER} --drive
+                --emu $<TARGET_FILE:rp6502-emu> --rom ${S_ROM} ${S_ARGS})
+    else()
+        add_test(NAME script.${name}
+            COMMAND rp6502-emu --mute --seed 1 --fill 0 ${S_ARGS}
+                --script ${S_SCRIPT} ${S_ROM})
+    endif()
     if(NOT S_TIMEOUT)
         set(S_TIMEOUT 120)
     endif()

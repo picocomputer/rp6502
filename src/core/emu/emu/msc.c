@@ -56,8 +56,9 @@ static int flags_to_posix(uint8_t flags)
 
 /* ---- Address translation: MSC0: <-> host path ---------------------------- */
 
-/* Drop a recognized writable-drive prefix. FatFs recognizes only "0:".."9:" and
- * "MSC0:".."MSC9:" (case-insensitive); anything else keeps its prefix and is
+/* Drop this machine's drive prefix. There is one writable drive, so "0:" and
+ * "MSC0:" (case-insensitive) are it and MSC1: names a device that is not here
+ * -- the same answer chdrive gives. Anything else keeps its prefix and is
  * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
 const char *msc_strip_drive(const char *path)
 {
@@ -65,9 +66,8 @@ const char *msc_strip_drive(const char *path)
     if (!colon || colon == path)
         return path;
     size_t n = (size_t)(colon - path);
-    bool is_drive = (n == 1 && isdigit((unsigned char)path[0])) ||
-                    (n == 4 && strncasecmp(path, "MSC", 3) == 0 &&
-                     isdigit((unsigned char)path[3]));
+    bool is_drive = (n == 1 && path[0] == '0') ||
+                    (n == 4 && strncasecmp(path, "MSC0", 4) == 0);
     return is_drive ? colon + 1 : path;
 }
 
@@ -190,6 +190,14 @@ bool msc_std_handles(const char *path)
 
 int msc_std_open(const char *path, uint8_t flags, api_errno *err)
 {
+    /* A name of nothing is not a name -- FatFs answers FR_INVALID_NAME, so
+     * the firmware does too. An empty path is still the working directory
+     * to opendir, which is why this is here and not in the translation. */
+    if (!path[0])
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
     char host[MSC_MAX_PATH];
     if (!msc_to_host(path, host, sizeof(host)))
     {

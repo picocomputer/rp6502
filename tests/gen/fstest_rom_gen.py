@@ -25,7 +25,13 @@
 # Leaves fs1.dat, fs2.dat, pfx.dat and s0..s7.dat in /Saves/rp6502/common/.
 
 import argparse
+import pathlib
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rp6502_scr  # noqa: E402
 from rp6502_asm import (API_A, OP_CHDIR, OP_CHDRIVE, OP_CLOSE, OP_GETCWD,
                         OP_GMTIME, OP_LOCALTIME, OP_LSEEK, OP_OPEN,
                         OP_READ_XSTACK, OP_SYNCFS, OP_TIME_GET,
@@ -56,8 +62,26 @@ TOTAL = CHUNK * CHUNKS
 NAME = "fs1.dat"
 NAME2 = "fs2.dat"
 
+# What a run leaves behind. The first checks are that a name is not there
+# and that an exclusive create takes one, so a second run against the same
+# directory answers differently unless these go first. The card the Pocket's
+# bench runs against is fresh every time; a working directory is not.
+CREATES = [NAME, NAME2, "pfx.dat"] + [f"s{i}.dat" for i in range(9)]
+
+
+# How many checks the program made, counted as it was written. The tally it
+# prints is the same number, so the expectation a driver waits for is derived
+# from the program rather than typed beside it.
+CHECKS = 0
+
+# The checks that ask about the platform rather than about the filesystem.
+PLATFORM = []
+
 
 def build():
+    global CHECKS
+    checks = [0]
+    platform_only = []
     p = Asm()
     p.jmp_abs("main")
 
@@ -234,10 +258,22 @@ def build():
         p.call(OP_OPEN)
         p.sta_abs(FD)
 
-    def check(sub):
+    def record(platform=False):
+        """One verdict, counted here so the tally the program prints and the
+        line a driver waits for are the same number. `platform` marks a check
+        that asks about the machine it is running on rather than about the
+        filesystem: how many files it can hold open, and where its card puts
+        this program's directory. Those differ by platform on purpose, so a
+        driver is told which they are instead of being told a number."""
+        p.jsr_abs("record")
+        checks[0] += 1
+        if platform:
+            platform_only.append(checks[0])
+
+    def check(sub, platform=False):
         """Run a verdict routine and record it."""
         p.jsr_abs(sub)
-        p.jsr_abs("record")
+        record(platform)
 
     for a, v in ((PASSN, 0), (FAILN, 0), (TIDX, 1), (VAL, 13), (BAD, 0)):
         p.store(a, v)
@@ -367,7 +403,7 @@ def build():
     p.lda_abs(CNT)
     p.bne("wr_all")
     p.lda_abs(BAD)
-    p.jsr_abs("record")
+    record()
     p.jsr_abs("do_close")
 
     # 18 all of it is there
@@ -398,7 +434,7 @@ def build():
     p.lda_abs(CNT)
     p.bne("rd_all")
     p.lda_abs(BAD)
-    p.jsr_abs("record")
+    record()
     p.jsr_abs("do_close")
 
     # 20 seek to the middle and read from there
@@ -441,12 +477,13 @@ def build():
         with p.branch("bne"):
             p.inc_abs(BAD)
     p.lda_abs(BAD)
-    p.jsr_abs("record")
+    record()
 
-    # 25 the ninth has nowhere to go
+    # 25 the ninth has nowhere to go — on a machine whose files are its data
+    # slots. A host-backed drive has no such ceiling and opens it.
     open_it("s8.dat", O_WRONLY | O_CREAT)
     p.lda_abs(FD)
-    check("is_ff")
+    check("is_ff", platform=True)
 
     # 26 and closing them gives the slots back
     p.store(BAD, 0)
@@ -458,7 +495,7 @@ def build():
         with p.branch("bne"):
             p.inc_abs(BAD)
     p.lda_abs(BAD)
-    p.jsr_abs("record")
+    record()
 
     # 27 the console devices are answered above the drive
     open_it("CON:", O_RDONLY)
@@ -541,7 +578,7 @@ def build():
     # 39 the absolute spelling of the working directory finds it
     open_it("MSC0:/Saves/rp6502/common/pfx.dat", O_RDONLY)
     p.lda_abs(FD)
-    check("not_ff")
+    check("not_ff", platform=True)
     p.jsr_abs("do_close")
     # 40 and bare
     open_it("pfx.dat", O_RDONLY)
@@ -558,7 +595,7 @@ def build():
     p.store(EXPL, 27)
     p.store(EXPH, 0)
     p.call(OP_GETCWD)
-    check("eq16")
+    check("eq16", platform=True)
     # 43 ...and spells it exactly, popped in order, so appending a name
     # to it opens the same file the bare name does
     p.store(TMP, 0)
@@ -568,7 +605,7 @@ def build():
         with p.branch("beq"):
             p.inc_abs(TMP)
     p.lda_abs(TMP)
-    check("is_zero")
+    check("is_zero", platform=True)
 
     # 44 chdir errors whatever it names, even the directory getcwd
     # just answered
@@ -663,16 +700,55 @@ def build():
         p.bne("tally")
     text("\r\n")
     p.stp()
+    CHECKS = checks[0]
+    PLATFORM[:] = platform_only
     return p
+
+
+def passed():
+    """The line the program prints when every check passed, in the hex
+    puthex writes it as. Counted off the program, so a check added below
+    moves what a driver waits for without anyone remembering to."""
+    build()
+    return f"PASS {CHECKS:02X}/{CHECKS:02X}"
+
+
+def drive(emu, rom):
+    """The other half of this file: the program above, watched.
+
+    The Pocket's bench holds it to every check because the Pocket is what
+    the platform ones describe. A host-backed drive answers four of them
+    differently and correctly -- it has no data slots to run out of and its
+    working directory is wherever the test stands -- so what is asserted
+    here is that those four are the only ones that differ. The program
+    leaves the indices it failed in memory, so the claim is exact rather
+    than a count."""
+    build()  # what it counted is what is asserted below
+    for name in CREATES:
+        pathlib.Path(name).unlink(missing_ok=True)
+
+    def body(e):
+        e.cmd('wait "BAD "')  # the tally is printed whether or not any failed
+        e.cmd(f'peek ${FAILN:04X} ${len(PLATFORM):02X}')
+        if PLATFORM:
+            e.cmd(f'peek ${FAILS:04X} '
+                  + " ".join(f"${i:02X}" for i in PLATFORM))
+    return rp6502_scr.drive(emu, rom, body)
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit")
+    ap.add_argument("--drive", action="store_true",
+                    help="run the ROM on the emulator and check what it says")
+    ap.add_argument("--emu", help="the rp6502-emu binary")
+    ap.add_argument("--rom", help="the .rp6502 --emit wrote")
     a = ap.parse_args()
     if a.emit:
         n = image(build()).write(a.emit)
-        print(f"fstest.rp6502 {n} bytes, 48 checks, {TOTAL} byte payload")
+        print(f"fstest.rp6502 {n} bytes, {CHECKS} checks, {TOTAL} byte payload")
+    if a.drive:
+        return drive(a.emu, a.rom)
     return 0
 
 

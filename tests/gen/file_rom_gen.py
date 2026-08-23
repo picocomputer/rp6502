@@ -15,6 +15,11 @@
 
 import argparse
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rp6502_scr  # noqa: E402
 from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK,
                         OP_WRITE_XSTACK, O_CREAT, O_RDONLY, O_TRUNC,
                         O_WRONLY, XSTACK, Asm)
@@ -78,15 +83,27 @@ def emit(path, body):
     return image(body).write(path)
 
 
+def drive(emu, rom):
+    """The other half of this file: the program above, watched. What it
+    prints is PAYLOAD, so that is what this waits for -- one constant, one
+    file, nothing to keep in step."""
+    def body(e):
+        e.cmd(f'wait "{PAYLOAD.decode().rstrip()}"')
+    return rp6502_scr.drive(emu, rom, body)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit")
-    ap.add_argument("--print-payload", action="store_true")
+    ap.add_argument("--drive", action="store_true",
+                    help="run the ROM on the emulator and check what it says")
+    ap.add_argument("--emu", help="the rp6502-emu binary")
+    ap.add_argument("--rom", help="the .rp6502 --emit wrote")
     a = ap.parse_args()
-    if a.print_payload:
-        print(PAYLOAD.decode(), end="")
     if a.emit:
         print(f"file.rp6502 {emit(a.emit, prog())} bytes")
+    if a.drive:
+        return drive(a.emu, a.rom)
     return 0
 
 

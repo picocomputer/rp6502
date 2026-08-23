@@ -14,10 +14,17 @@
 # lands after the resume against a slot the firmware had to bind again.
 # Reading in chunks is what puts one there wherever the sleep falls.
 #
-# The file is the bench's to place; this only reads it.
+# The file is placed by whoever runs it: the Pocket's bench binds a card,
+# and --drive below lays one down.
 
 import argparse
+import pathlib
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rp6502_scr  # noqa: E402
 from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK, O_RDONLY,
                         XSTACK, Asm)
 from rp6502_rom import image
@@ -67,15 +74,38 @@ def prog():
     return p
 
 
+def drive(emu, rom):
+    """The other half of this file: the program above, watched.
+
+    The Pocket's bench asks whether the file survives a sleep, and answers
+    it with a card the host binds. Here there is no card, so the driver
+    lays the file down itself -- which also closes the hole that made the
+    question askable at all: with nothing to open, the program reads none
+    and prints the same DONE it prints on success. The payload spans
+    several chunks, so the loop is walked rather than skipped."""
+    # No zero byte: the console capture a `wait` searches is a C string,
+    # so a NUL in the stream would hide everything printed after it.
+    payload = bytes(1 + (i * 7 + 11) % 0xFF for i in range(CHUNK * 5))
+    pathlib.Path(NAME).write_bytes(payload)
+
+    def body(e):
+        # The tail arrives only after every chunk before it did.
+        e.cmd(f'wait "{DONE.decode().rstrip()}"')
+    return rp6502_scr.drive(emu, rom, body)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--emit")
-    ap.add_argument("--print-done", action="store_true")
+    ap.add_argument("--drive", action="store_true",
+                    help="run the ROM on the emulator and check what it says")
+    ap.add_argument("--emu", help="the rp6502-emu binary")
+    ap.add_argument("--rom", help="the .rp6502 --emit wrote")
     a = ap.parse_args()
-    if a.print_done:
-        print(DONE.decode(), end="")
     if a.emit:
         print(f"stream.rp6502 {image(prog()).write(a.emit)} bytes")
+    if a.drive:
+        return drive(a.emu, a.rom)
     return 0
 
 
