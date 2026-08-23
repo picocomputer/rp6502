@@ -11,6 +11,9 @@
 
 #include "host.h"
 #include "core/api/oem.h"
+#include "emu/app/cli.h"          /* host_console_attach */
+#include "emu/app/window.h"       /* host_mono_ns */
+#include "emu/dbg/dbgui_layout.h" /* host_config_dir, host_ensure_parent_dir */
 #include <errno.h>
 #include <locale.h>
 #include <stdio.h>

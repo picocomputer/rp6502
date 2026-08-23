@@ -14,6 +14,16 @@
 #ifndef _EMU_DBG_DBGUI_LAYOUT_H_
 #define _EMU_DBG_DBGUI_LAYOUT_H_
 
+#include <stdbool.h>
+#include <stddef.h>
+
+/* Where dbgui.ini goes, in the host's native path spelling. Implemented per host
+ * in host/<os>/host.c, which is also where the literal "rp6502-emu" lives -- the
+ * machine has no config directory, this debugger does. ensure_parent_dir works in
+ * host path encoding, not the guest OEM the fs_* seam speaks, so it is not fs_mkdir. */
+bool host_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
+void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
+
 /* Load the config file into ImGui's settings (geometry + the custom handlers).
  * No file on first run -> windows keep their compile-time defaults. */
 void dbgui_layout_load(void);

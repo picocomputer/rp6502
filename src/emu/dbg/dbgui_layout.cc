@@ -17,8 +17,7 @@
 extern "C"
 {
 #include "emu/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
-#include "emu/dbg/dbgui_layout.h" /* load/save */
-#include "host.h"             /* host_config_dir / host_ensure_parent_dir */
+#include "emu/dbg/dbgui_layout.h" /* load/save, host_config_dir, host_ensure_parent_dir */
 }
 
 #include <cstdio>

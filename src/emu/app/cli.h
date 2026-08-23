@@ -45,6 +45,12 @@ typedef struct
     int n_rom_args;
 } cli_options;
 
+/* Reattach stdio to the parent console when launched from one, so the printing
+ * below reaches a terminal; no-op where it already does. Only Windows needs it,
+ * where the emulator is a GUI-subsystem .exe and --help would otherwise vanish.
+ * Implemented per host in host/<os>/host.c. */
+void host_console_attach(void);
+
 void cli_options_init(cli_options *o);
 
 /* Parse argv (argv[0] is the program name, per the getopt convention) into o,

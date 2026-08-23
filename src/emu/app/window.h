@@ -28,6 +28,13 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
  * exits. */
 bool window_wait_for_rom(void);
 
+/* Real time, for pacing the frame loop against the display -- not the machine's
+ * clock (core/host.h host_clock_us), which the window deliberately lets drift
+ * when the host falls behind. Implemented per host in host/<os>/host.c; the
+ * sleep is a no-op where the present already paces. */
+uint64_t host_mono_ns(void);
+void host_sleep_until_ns(uint64_t target);
+
 /* Letterbox/pillarbox fill color behind the canvas (RGB 0-255, default black). */
 void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b);
 

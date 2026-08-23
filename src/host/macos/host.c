@@ -9,6 +9,7 @@
  */
 
 #include "host.h"
+#include "emu/app/window.h" /* host_sleep_until_ns */
 #include <errno.h>
 #include <time.h>
 

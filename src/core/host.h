@@ -90,9 +90,7 @@ std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
 /* ---- other host-OS primitives (host/posix/host.c or host/win/host.c, one compiled) ---- */
-uint64_t host_entropy_64(void);            /* seed material from the host RNG/clocks */
-uint64_t host_mono_ns(void);               /* monotonic clock, nanoseconds */
-void host_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
+uint64_t host_entropy_64(void); /* seed material from the host RNG/clocks */
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool host_localtime(time_t t, struct tm *out);
@@ -102,13 +100,6 @@ bool host_gmtime(time_t t, struct tm *out);
 void host_locale_reset(void); /* (re)load the environment locale */
 size_t host_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
 void host_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
-
-/* App config location, in the host's native path spelling. */
-bool host_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
-void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
-
-/* Reattach stdio to the parent console when launched from one; no-op elsewhere. */
-void host_console_attach(void);
 
 /* One command-line argument, host argv encoding -> guest OEM. False if it
  * does not fit. */

@@ -9,6 +9,7 @@
  */
 
 #include "host.h"
+#include "emu/app/window.h" /* host_sleep_until_ns */
 #include <time.h>
 
 uint64_t host_entropy_64(void)
