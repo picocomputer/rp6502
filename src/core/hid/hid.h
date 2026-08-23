@@ -22,8 +22,7 @@
 #define HID_APF_START (0x30000)
 
 /* Lock LEDs, fanned out to every attached keyboard on every transport this
- * platform has -- USB and BLE on a Pico, neither on a Pocket, where the dock's
- * controllers have no lamps. */
+ * platform has. */
 void hid_set_leds(uint8_t leds);
 
 /* True while the platform is still enumerating boot devices, so the keyboard

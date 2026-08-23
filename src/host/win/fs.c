@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Windows filesystem primitives (host/host.h fs_*), the Win32 counterpart of
- * posix/fs.c.
+ * core/posix/fs.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
  * oem_to_wide() (api/oem.h) before every …W call, and returned names/paths back

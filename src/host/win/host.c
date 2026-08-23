@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Windows host-OS primitives (core/host.h host_*), the Win32 counterpart of
- * posix/host.c. Several are documented no-ops because the Win32 presentation path
+ * core/posix/host.c. Several are documented no-ops because the Win32 presentation path
  * already provides the behavior (D3D11 Present paces the frame loop; MSVC's
  * struct tm has no timezone fields and strftime uses the thread locale).
  */

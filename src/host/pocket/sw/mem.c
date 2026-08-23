@@ -3,9 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The pocket port of the machine memory in core/mem.h. The regs symbol,
- * the xstack and its pointer are hardware behind the OS window, placed by
- * the linker script.
+ * The regs symbol, the xstack and its pointer are hardware behind the OS
+ * window, placed by the linker script.
  */
 
 #include "core/mem.h"

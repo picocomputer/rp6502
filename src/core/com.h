@@ -4,11 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The console, as the machine sees it. Every machine has one and each writes
- * its own driver -- a UART and CDC on the Pico, a ring the emulator fills, the
- * APF bridge on a Pocket -- so this is what the machine may ask of a console,
- * not the whole driver. The pins, the lifecycle and the telnet server are the
- * Pico's, and stay there. */
+/* What the machine may ask of a console. Each machine writes its own driver --
+ * a UART and CDC on the Pico, a ring the emulator fills, the APF bridge on a
+ * Pocket -- and keeps its own pins, lifecycle and servers. */
 
 #ifndef _CORE_COM_H_
 #define _CORE_COM_H_
@@ -17,9 +15,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-/* The format attribute, which is a compiler fact rather than a machine one. The
- * pico-sdk spells it this way and guards it the same way, so whichever header
- * arrives first wins and the other skips. */
+/* Guarded the way the pico-sdk guards it, so whichever header arrives first
+ * wins and the other skips. */
 #ifndef __printflike
 #ifdef __GNUC__
 #define __printflike(a, b) __attribute__((__format__(__printf__, a, b)))
@@ -77,8 +74,8 @@ void com_set_bel(bool value);
  * will answer the host's query itself. */
 void com_in_write_reply(const char *s, size_t n);
 
-/* The wire to the terminal: the sink term.c hands over at init, which the
- * console fans printf output to alongside its own. */
+/* The sink term.c hands over at init; the console fans printf output to it
+ * alongside its own. */
 void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 #endif /* _CORE_COM_H_ */

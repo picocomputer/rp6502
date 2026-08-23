@@ -25,15 +25,14 @@
 #include <time.h>
 
 /* ---- the machine's microsecond clock ---- */
-/* Microseconds since the machine started. A Pico reads TIMER0, the emulator its
- * own run clock, a Pocket the fabric's mtime -- so this is machine time, not the
- * host's: it stands still while the machine is halted, and it is savestate state
- * where a machine has savestates. Wall time is tim_get_time. */
+/* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
+ * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not
+ * the host's -- it stands still while the machine is halted, and it is
+ * savestate state where a machine has savestates. Wall time is tim_get_time. */
 uint64_t host_clock_us(void);
 
-/* Deadlines, from the clock above. No host implements these; they are the same
- * arithmetic everywhere, and inline because the alternative is a translation
- * unit on five build lists for three adds. */
+/* Deadlines, from the clock above. Inline rather than a translation unit on
+ * five build lists for three adds. */
 typedef uint64_t host_deadline_t;
 static inline host_deadline_t host_deadline_us(uint64_t us) { return host_clock_us() + us; }
 static inline host_deadline_t host_deadline_ms(uint64_t ms) { return host_clock_us() + ms * 1000; }
@@ -91,10 +90,9 @@ fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
-/* The machine's random stream, which the 6502's rand() reads. A Pico has a
- * hardware RNG; the emulator and a Pocket run a generator of their own so a run
- * can be reproduced, which is why this is not host entropy -- that seeds the
- * emulator's generator and is declared by emu/app/rand.h, one layer up. */
+/* The stream the 6502's rand() reads. A Pico has a hardware RNG; the emulator
+ * and a Pocket run a generator of their own so a run can be reproduced. Not
+ * host entropy, which seeds that generator -- see core/emu/app/rand.h. */
 uint64_t host_rand_64(void);
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */

@@ -407,7 +407,7 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
     return true;
 }
 
-/* Two transports here, and core/hid/kbd.c should not have to know that. */
+/* Two transports here; core/hid/kbd.c asks for one. */
 void hid_set_leds(uint8_t leds)
 {
     usb_set_hid_leds(leds);

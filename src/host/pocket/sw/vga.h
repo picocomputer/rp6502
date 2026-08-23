@@ -13,8 +13,7 @@
 #include <stdbool.h>
 
 /* Both sides of the VGA contract on one machine, the emu/sys/vga.h
- * shape. What all three machines agree on is core/vga/vga.h; this is
- * what only the fabric has.
+ * shape. What only the fabric has.
  */
 
 int16_t vga_vsync_scanline(void);

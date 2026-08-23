@@ -160,31 +160,31 @@ if(WIN32)
         ${RP6502_SRC}/host/win/win.c)
 elseif(EMSCRIPTEN)
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/core/posix/dir.c
         ${RP6502_SRC}/host/web/fs.c
-        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/core/posix/host.c
         ${RP6502_SRC}/host/web/host.c)
 elseif(ANDROID)
     # Bionic has no <aio.h> and we don't thread host I/O, so Android gets its own
     # synchronous fs seam (like web). dir stays on posix; os = posix common + android.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/core/posix/dir.c
         ${RP6502_SRC}/host/android/fs.c
-        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/core/posix/host.c
         ${RP6502_SRC}/host/android/host.c)
 elseif(APPLE)
     # macOS: POSIX aio_read is in libc (no librt needed); os = posix common + macos.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/host/posix/dir.c
-        ${RP6502_SRC}/host/posix/fs.c
-        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/core/posix/dir.c
+        ${RP6502_SRC}/core/posix/fs.c
+        ${RP6502_SRC}/core/posix/host.c
         ${RP6502_SRC}/host/macos/host.c)
 else()
     # Linux / BSD: os = posix common + linux; POSIX AIO required.
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/host/posix/dir.c
-        ${RP6502_SRC}/host/posix/fs.c
-        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/core/posix/dir.c
+        ${RP6502_SRC}/core/posix/fs.c
+        ${RP6502_SRC}/core/posix/host.c
         ${RP6502_SRC}/host/linux/host.c)
     include(CheckSymbolExists)
     find_library(RT_LIBRARY rt)
@@ -216,6 +216,10 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing their
     # oversized __common alignment.
     target_compile_options(emu_core PRIVATE -fno-common)
+    # Clang rejects these outright, so GCC has to as well or the difference
+    # only shows up on a runner. PUBLIC: the app and the tests compile our C too.
+    target_compile_options(emu_core PUBLIC
+        $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>)
     # Clang flags the shared firmware's one-arg static_assert(...) as a C23 extension.
     if(CMAKE_C_COMPILER_ID MATCHES "Clang")
         target_compile_options(emu_core PRIVATE -Wno-c23-extensions)

@@ -4,17 +4,10 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The display, as the machine sees it: what canvas is selected, how tall it is,
- * and how a mode books the scanlines it will draw.
- *
- * The canvas enum was three hand-synced copies before this -- ria/sys/vga.h,
- * vga/sys/vga.h and rtl/sw/vga.h, two of them with different enumerator
- * spellings and a comment on each saying it mirrored the others. Two machines
- * linked two of them at once.
- *
- * What is not here is anything about how the pixels get out: the Pico's
- * backchannel and vsync timing, the VGA firmware's scanline programs, the
- * Pocket's fabric registers. */
+/* What canvas is selected, how tall it is, and how a mode books the scanlines
+ * it will draw. Nothing about how the pixels get out: the Pico's backchannel
+ * and vsync timing, the VGA firmware's scanline programs, the Pocket's fabric
+ * registers. */
 
 #ifndef _CORE_VGA_VGA_H_
 #define _CORE_VGA_VGA_H_

@@ -19,18 +19,6 @@
  * this pattern so it's worth reading main.c in its entirety.
  */
 
-// This is true when the 6502 is running or there's a pending
-// request to start it.
-bool main_active(void);
-
-// Request to "start the 6502".
-// It will safely do nothing if the 6502 is already running.
-void main_run(void);
-
-// Request to "stop the 6502".
-// It will safely do nothing if the 6502 is already stopped.
-void main_stop(void);
-
 /* Special events dispatched from main.c
  */
 

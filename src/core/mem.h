@@ -4,13 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The memory every machine has, because the 6502 can see it: extended RAM, the
- * extended stack, and the RIA's register window. Each machine supplies the
- * storage -- SRAM on a Pico, an array in the emulator, an SDRAM window on a
- * Pocket -- and this says what the machine may assume about it.
- *
- * Not here: the monitor's mbuf and the transfer machinery around it. Those are
- * the Pico's, and no core file has ever named them. */
+/* The memory the 6502 can see: extended RAM, the extended stack, and the RIA's
+ * register window. Each machine supplies the storage -- SRAM on a Pico, an
+ * array in the emulator, an SDRAM window on a Pocket. */
 
 #ifndef _CORE_MEM_H_
 #define _CORE_MEM_H_
@@ -43,5 +39,9 @@ extern volatile uint8_t regs[];
 #define REGS(addr) regs[(addr) & 0x1F]
 #define REGSW(addr) ((uint16_t *)&REGS(addr))[0]
 #define REGSL(addr) ((uint32_t *)&REGS(addr))[0]
+
+// CRC-32/ISO-HDLC (zlib). mem_crc32(0, buf, len) is the one-shot value; chain by
+// feeding a prior result back as crc.
+uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len);
 
 #endif /* _CORE_MEM_H_ */

@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Android host-OS primitives that differ from the shared posix/host.c: entropy
+ * Android host-OS primitives that differ from the shared core/posix/host.c: entropy
  * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Bionic
- * provides both (API 28+). Everything else lives in posix/host.c.
+ * provides both (API 28+). Everything else lives in core/posix/host.c.
  */
 
 #include "host.h"

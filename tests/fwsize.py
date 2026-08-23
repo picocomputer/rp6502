@@ -5,17 +5,15 @@
 #
 # Whether a change moved any code, for a firmware image.
 #
-# Section totals cannot answer that. assert() embeds __FILE__, so moving a
-# file changes .rodata by the difference in path lengths and says nothing
-# about .text. Function sizes can answer it, but only after canonicalising:
-# LTO renames what it clones or partitions, and the N in .lto_priv.N counts
-# the partitions referencing a symbol, which an include line can change
-# without changing an instruction. 867 of rp6502-ria-w's 3377 text symbols
-# carry such a suffix, and pix_ready is seven names for one address.
+# Section totals cannot answer that: assert() embeds __FILE__, so moving a file
+# changes .rodata by the difference in path lengths and says nothing about
+# .text. Function sizes can, but only after canonicalising -- LTO renames what
+# it clones or partitions, and the N in .lto_priv.N counts the partitions
+# referencing a symbol, which an include line can change without changing an
+# instruction.
 #
-# So: strip the suffixes, fold the aliases that share an address, and
-# compare the multiset of (name, size). A rename is reported separately
-# from a resize, because a pure rename is usually the point of the commit.
+# So: strip the suffixes, fold the aliases that share an address, and compare
+# the multiset of (name, size). A rename is reported apart from a resize.
 
 import argparse
 import re

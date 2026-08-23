@@ -90,7 +90,7 @@ bool pix_api_xreg(void)
     return api_return_ax(0);
 }
 
-/* One XRAM here, so there is nothing to wait for and nowhere to send it. */
+/* One XRAM here, so there is nothing to wait for. */
 bool pix_ready(void)
 {
     return true;

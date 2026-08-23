@@ -4,9 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* Settings, as the machine sees them. Core changes a setting and says so; where
- * the bytes go is the platform's -- flash on a Pico, nowhere in the emulator,
- * the Pocket's own menu on a Pocket. */
+/* Core changes a setting and says so; where the bytes go is the platform's --
+ * flash on a Pico, nowhere in the emulator, the menu's on a Pocket. */
 
 #ifndef _CORE_CFG_H_
 #define _CORE_CFG_H_

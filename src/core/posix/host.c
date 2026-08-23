@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives common to every POSIX host (core/host.h host_*),
- * the counterpart of win/host.c. The two primitives that differ by OS —
- * host_entropy_64 and host_sleep_until_ns — live in the per-host host.c
- * (linux/macos/web/android); this file holds only what they all share.
+ * POSIX-family host-OS primitives (core/host.h host_*), shared by linux,
+ * macos, web and android; the counterpart of host/win/host.c. The two that
+ * differ by OS, host_entropy_64 and host_sleep_until_ns, are in each host's
+ * own host.c.
  */
 
 #include "host.h"

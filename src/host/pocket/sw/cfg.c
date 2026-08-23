@@ -60,10 +60,8 @@ void cfg_task(void)
     }
 }
 
-/* The Pocket's menu owns these settings and writes them itself, so a machine
- * -side save has nowhere to go. Present because core/str/str.c calls it --
- * until now that link survived only because --gc-sections dropped the caller.
- */
+/* The menu owns these settings and writes them itself, so a save from this
+ * side has nowhere to go. core/str/str.c calls it. */
 void cfg_save(void)
 {
 }

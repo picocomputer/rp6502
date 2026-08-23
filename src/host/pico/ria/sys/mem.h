@@ -7,9 +7,8 @@
 #ifndef _RIA_SYS_MEM_H_
 #define _RIA_SYS_MEM_H_
 
-/* What the monitor moves things around with. The memory the machine itself
- * sees -- xram, the xstack, the register window -- is core/mem.h; this is the
- * Pico's own buffer and the transfer machinery over it. */
+/* The monitor's buffer and the transfer machinery over it.
+ */
 
 #include "core/mem.h"
 
@@ -29,9 +28,5 @@ typedef void (*mem_read_callback_t)(bool timeout);
 void mem_task(void);
 void mem_break(void);
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size);
-
-// CRC-32/ISO-HDLC (zlib). mem_crc32(0, buf, len) is the one-shot value; chain by
-// feeding a prior result back as crc.
-uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len);
 
 #endif /* _RIA_SYS_MEM_H_ */

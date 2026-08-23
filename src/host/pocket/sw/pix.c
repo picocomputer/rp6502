@@ -61,9 +61,9 @@ bool pix_api_xreg(void)
     return api_return_ax(0);
 }
 
-/* The fabric holds one XRAM and the 6502 writes it directly, so there is no
- * bus to fill and nothing to forward. Ready is always true: std_task retires
- * its forwarding count through it, and a false here would park the drain. */
+/* One XRAM, written directly, so there is no bus to fill. Ready is always
+ * true: std_task retires its forwarding count through it, and a false here
+ * would park the drain. */
 bool pix_ready(void)
 {
     return true;

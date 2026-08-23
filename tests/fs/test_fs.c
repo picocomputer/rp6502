@@ -58,6 +58,17 @@ static bool host_exists(const char *rel)
     return f != NULL;
 }
 
+/* g_dir is a host path, and on Windows that carries a drive letter the guest
+ * spells //C/ instead. msc_from_host owns that mapping; its own vectors are in
+ * path_forms below. */
+static void msc_expect(char *out, size_t sz, const char *suffix)
+{
+    char base[MSC_MAX_PATH];
+    msc_from_host(g_dir, base, sizeof(base));
+    snprintf(out, sz, "%s%s", base, suffix);
+}
+
+
 /* MSC0: paths are host paths: a relative name resolves under the cwd; an
  * absolute "MSC0:<hostpath>" reaches the real filesystem. */
 UTEST(fs, msc0_write_read_seek)
@@ -98,7 +109,7 @@ UTEST(fs, chdir_getcwd_relative)
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
+    msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
     dsys_path("saves");
@@ -109,7 +120,7 @@ UTEST(fs, chdir_getcwd_relative)
     ASSERT_EQ(dsys_ax(), 0);
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s/saves", g_dir);
+    msc_expect(expect, sizeof(expect), "/saves");
     ASSERT_STREQ(cwd, expect);
 
     /* A relative path resolves under the new cwd. */
@@ -138,7 +149,7 @@ UTEST(fs, no_chroot_clamp)
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
+    msc_expect(expect, sizeof(expect), "/sub");
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir ... */
@@ -147,7 +158,7 @@ UTEST(fs, no_chroot_clamp)
     ASSERT_EQ(dsys_ax(), 0);
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
+    msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
 
     /* ... and again climbs ABOVE it — no clamp; the cwd walks the real tree. */

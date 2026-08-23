@@ -6,6 +6,7 @@
  */
 
 #include "core/api/oem.h"
+#include "core/main.h"
 #include "core/str/str.h"
 #include "core/emu/emu/pro.h"
 #include "core/emu/app/window.h"

@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten host-OS primitives that differ from the shared posix/host.c: entropy
+ * Emscripten host-OS primitives that differ from the shared core/posix/host.c: entropy
  * (no getrandom) and the frame-pacer sleep (a no-op; requestAnimationFrame paces
- * the web loop). Everything else lives in posix/host.c.
+ * the web loop). Everything else lives in core/posix/host.c.
  */
 
 #include "host.h"

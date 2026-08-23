@@ -57,6 +57,16 @@ static void make_file(const char *rel, const char *data, uint16_t n)
     }
 }
 
+/* g_dir is a host path, and on Windows that carries a drive letter the guest
+ * spells //C/ instead. msc_from_host owns that mapping. */
+static void msc_expect(char *out, size_t sz, const char *suffix)
+{
+    char base[MSC_MAX_PATH];
+    msc_from_host(g_dir, base, sizeof(base));
+    snprintf(out, sz, "%s%s", base, suffix);
+}
+
+
 /* --rom installs a .rp6502 on the null drive, reached as ":name". Like the
  * firmware, ONLY the boot/exec loader resolves it (rom_resolve + rom_load);
  * a 6502 open(":name") is not special — it goes to MSC0: and fails. Installs are
@@ -147,7 +157,7 @@ UTEST(drive, mount_transparent_no_chroot)
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir); /* getcwd is the native cwd */
+    msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
 
     /* A relative MSC0: path lands in the cwd (= g_dir). */
@@ -170,7 +180,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_EQ(dsys_ax(), 0);
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s/sub", g_dir);
+    msc_expect(expect, sizeof(expect), "/sub");
     ASSERT_STREQ(cwd, expect);
 
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
@@ -180,7 +190,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_EQ(dsys_ax(), 0);
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
-    snprintf(expect, sizeof(expect), "MSC0:%s", g_dir);
+    msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
     msc_api_chdir();

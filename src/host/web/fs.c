@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten filesystem primitives (host/host.h). The same POSIX calls as posix/fs.c
+ * Emscripten filesystem primitives (host/host.h). The same POSIX calls as core/posix/fs.c
  * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_read/fs_write
  * complete in one call and never return FS_IO_PENDING — a zero-latency read has nothing to
  * keep alive. Web is single-threaded with no POSIX aio, so it gets its own seam.

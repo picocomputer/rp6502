@@ -4,13 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The run loop, as the machine sees it. Every machine has one -- ria/main.c on
- * the Pico, emu/main.c, rtl/sw/main.c on the Pocket -- and it owns the same
- * three jobs everywhere: dispatch an API call, name the stdio drivers this
- * platform has, and answer whether there is anywhere to break to.
- *
- * What each machine adds to its own main.h is the part core never asks for:
- * starting and stopping the 6502, the task pump, reclocking, XREG dispatch. */
+/* The run loop every machine has. Each keeps the rest of its own -- the task
+ * pump, reclocking, XREG dispatch -- in its main.h. */
 
 #ifndef _CORE_MAIN_H_
 #define _CORE_MAIN_H_
@@ -19,6 +14,18 @@
 #include <stddef.h>
 
 #include "core/api/std.h"
+
+// This is true when the 6502 is running or there's a pending
+// request to start it.
+bool main_active(void);
+
+// Request to "start the 6502".
+// It will safely do nothing if the 6502 is already running.
+void main_run(void);
+
+// Request to "stop the 6502".
+// It will safely do nothing if the 6502 is already stopped.
+void main_stop(void);
 
 // API calls are dispatched here.
 bool main_api(uint8_t operation);
@@ -40,9 +47,8 @@ bool main_break(void);
 // to fall back to. A RIA with none registered breaks to the monitor.
 bool main_break_to_launcher(void);
 
-/* The bus between the 6502 and the machine. Named for the Pico's RIA chip
- * because that is where it was written, but these three are lifecycle rather
- * than chip: a machine with no such transfer answers false and never latches. */
+/* The bus between the 6502 and the machine. A machine with no such transfer
+ * answers false and never latches. */
 
 // True while a memory transfer to or from the 6502 is in flight.
 bool ria_active(void);
