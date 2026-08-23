@@ -109,7 +109,7 @@ one of the included test roms to run. You'll also have a binary in build/emulato
 which supports the Debug Adapter Protocol (DAP) that you can use with
 vscode-cc65, or any other IDE thats support DAP.
 
-To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
+To build the FPGA core, select Folder:core. Its Configure list is one entry per
 job, each with a build directory of its own:
 
     verilator/Release   the simulation and its tests

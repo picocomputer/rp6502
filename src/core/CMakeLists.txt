@@ -43,9 +43,9 @@ set(RP6502_HOST_POCKET ${RP6502_SRC}/host/pocket/core)
 # is not this one. CI decides whether a job is owed before it has a tree to ask,
 # and the only thing that knows what a job reads is the code that reads it. A
 # workflow keeping its own list of directories is a second copy of these
-# DEPENDS, and was one: a glob on src/rtl woke the fit for the firmware under
-# src/rtl/sw, which costs an assemble, and never woke it for src/ria or
-# src/vga, of which the firmware compiles about twenty of a hundred and thirty.
+# DEPENDS, and was one: a glob woke the fit for the firmware under
+# the Pocket, which costs an assemble, and never woke it for the two Pico
+# firmwares, of which it compiles about twenty of a hundred and thirty.
 #
 # Relative and sorted so the answer does not depend on where the tree sits or
 # what order a list was built in. Anything inside the build directory is

@@ -37,7 +37,7 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 ## Layout
 
-    src/rtl/        the machine: aud core mem ria rv vid wdc, and its CMake
+    src/core/       the machine: C and SystemVerilog together, and its CMake
     src/host/pocket/sw/  the soft CPU's firmware, C for the Hazard3
     src/host/       every host the machine runs on, emulated or fabric
 
@@ -59,7 +59,7 @@ machine and on `emu_core`, then compare — the emulator is the reference for
 behavior the RTL must reproduce.
 
     sudo apt-get install verilator gtkwave ninja-build
-    cd src/rtl
+    cd src/core
     cmake --preset verilator/Release
     cmake --build --preset Tests
     ctest --preset verilator/Release

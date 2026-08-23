@@ -41,7 +41,7 @@ rp6502_submodule(vendor/chips SENTINEL chips/w65c02.h
 set(OEMCP_GEN ${RP6502_SRC}/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
 # Cached, so tests/ can see them from either tree: src/core/emu adds tests/ as a
-# sibling, but src/rtl adds it directly and never enters this scope.
+# sibling, but src/core adds it directly and never enters this scope.
 set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c CACHE INTERNAL "")
 set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h CACHE INTERNAL "")
 add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
@@ -491,7 +491,7 @@ endif()
 # Tests
 if(RP6502_EMU_BUILD_TESTS AND NOT EMSCRIPTEN AND NOT ANDROID)
     enable_testing()
-    # The C half of every subsystem's suite. src/rtl adds the same directory
+    # The C half of every subsystem's suite. src/core adds the same directory
     # with RP6502_TESTS_RTL and gets the verilated half as well.
     add_subdirectory(${RP6502_ROOT}/tests tests)
 endif()

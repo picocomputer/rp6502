@@ -718,7 +718,7 @@ debug log shows:
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 
-From `src/rtl`, `cmake --preset pocket` then
+From `src/core`, `cmake --preset pocket` then
 `cmake --build --preset "Card package"` assembles the card tree into
 `build/pocket/package`. Zip the three top directories at the archive
 root as `Rumbledethumps.RP6502_<version>_<date>.zip`. The `Bitstream` build

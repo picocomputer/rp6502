@@ -135,7 +135,7 @@
                 "Firmware"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/rtl"
+                "cwd": "${workspaceFolder}/src/core"
             },
             "presentation": {
                 "reveal": "always",
@@ -152,7 +152,7 @@
                 "verilator/Release"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/rtl"
+                "cwd": "${workspaceFolder}/src/core"
             },
             "presentation": {
                 "reveal": "always",
@@ -170,7 +170,7 @@
                 "Machine"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/rtl"
+                "cwd": "${workspaceFolder}/src/core"
             },
             "presentation": {
                 "reveal": "always",
@@ -188,7 +188,7 @@
                 "Bitstream"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/rtl"
+                "cwd": "${workspaceFolder}/src/core"
             },
             "presentation": {
                 "reveal": "always",
@@ -206,7 +206,7 @@
                 "Card package"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/rtl"
+                "cwd": "${workspaceFolder}/src/core"
             },
             "presentation": {
                 "reveal": "always",
@@ -224,7 +224,7 @@
                 "Pocket core"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/rtl"
+                "cwd": "${workspaceFolder}/src/core"
             },
             "presentation": {
                 "reveal": "always",

@@ -7,7 +7,7 @@
 
 # -DRP6502_VERSION / -DRP6502_CI reach core.json's metadata, read by the same
 # version.cmake the firmware and the emulator use. It is included there rather
-# than here because src/rtl adds src/core/emu, which includes it too, and whichever
+# than here because src/core adds src/core/emu, which includes it too, and whichever
 # ran first would take RP6502_CI out of the cache before the other looked.
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
@@ -172,8 +172,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         ${RP6502_SRC}/host/pocket/quartus/pocket.sdc
         ${RP6502_SRC}/host/pocket/quartus/core_constraints.sdc
         ${CMAKE_CURRENT_LIST_DIR}/pocket.cmake
-        ${RP6502_SRC}/rtl/machine.cmake
-        ${RP6502_SRC}/rtl/quartus.cmake)
+        ${RP6502_SRC}/core/machine.cmake
+        ${RP6502_SRC}/core/quartus.cmake)
 
     # Three costs, three rules, and CMake decides which of them a change
     # has to pay for. Placing and routing this design is nine minutes and

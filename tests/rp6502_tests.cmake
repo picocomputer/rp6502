@@ -57,7 +57,7 @@ endif()
 # --- The generated 6502 programs ---
 #
 # A .rp6502 is a program, not a package. Nothing verilates one and nothing
-# links one, so unlike the assets in src/rtl/assets.cmake these need no
+# links one, so unlike the assets in src/core/assets.cmake these need no
 # configure-time copy; a build rule is enough. They are here because the
 # machine that runs them is not the point of them: a program that writes a
 # file, reads it back and prints what came back makes the same claim on a
@@ -81,7 +81,7 @@ function(rp6502_test_rom target)
     # a generated file never appears in a diff — and they go into the same
     # property rp6502_add_test appends to, because to the question "does this
     # commit change the simulation" a ROM the simulation boots and a test that
-    # boots it are one answer. src/rtl/CMakeLists.txt reads this.
+    # boots it are one answer. src/core/CMakeLists.txt reads this.
     set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${R_GEN} ${R_DEPENDS})
     add_custom_command(OUTPUT ${R_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${R_GEN} ${R_ARGS}

@@ -1,7 +1,7 @@
 # The RTL half of the suite: the simulator, and two helpers that hide it.
 #
 # Only what genuinely needs Verilator is here. What to verilate — the machine's
-# source list — and the soft CPU firmware are in src/rtl/machine.cmake, because a
+# source list — and the soft CPU firmware are in src/core/machine.cmake, because a
 # Quartus project needs both and needs no simulator to read them.
 #
 # Included only when RP6502_RTL_SIM is on. A machine without Verilator or

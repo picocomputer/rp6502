@@ -468,7 +468,7 @@ jobs:
   # runs when the diff touched something it reads and not otherwise. That
   # question is sim-inputs.txt, written by the tree it describes: the machine,
   # the firmware, emu_core, every bench and every generated asset. It used to
-  # be a glob on src/rtl, which was wrong in both directions — the benches are
+  # be a glob on src/core, which was wrong in both directions — the benches are
   # in tests/ and the oracle is out of src/core/emu, so a commit touching only those
   # skipped the suite that covers it.
   # ---------------------------------------------------------------------------
@@ -495,7 +495,7 @@ jobs:
           set -euxo pipefail
           cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON
           cmake --build --preset Tests
-        working-directory: src/rtl
+        working-directory: src/core
 
       - name: Run simulation tests
         run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
@@ -551,7 +551,7 @@ jobs:
 
       - name: Configure, for the lists
         run: cmake --preset verilator/Release
-        working-directory: src/rtl
+        working-directory: src/core
 
       - name: What did this commit touch
         id: gate
@@ -616,7 +616,7 @@ jobs:
   # by-product.
   #
   # A fit is tens of minutes and needs a 20 GB toolchain, and this used to run
-  # on whether a diff touched src/rtl. That was the wrong question twice over.
+  # on whether a diff touched src/core. That was the wrong question twice over.
   # Yes for the firmware under src/host/pocket/sw, which costs an assemble and not a
   # placement, and yes for the whole life of a pull request once any commit in
   # it moved the RTL. No for src/ria and src/vga, compiled into the image that
@@ -705,7 +705,7 @@ jobs:
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset "Card package"
-        working-directory: src/rtl
+        working-directory: src/core
 
       # Zipped here rather than downstream so the card's own root is the zip's
       # root, and so an empty package fails this job instead of quietly
