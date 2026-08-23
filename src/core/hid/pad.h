@@ -19,6 +19,72 @@
 /* Main events
  */
 
+#define PAD_MAX_PLAYERS 4
+
+// Room for button0 and button1 plus a dpad if needed.
+#define PAD_MAX_BUTTONS 20
+
+#define PAD_HOME_BUTTON 12
+
+// The dpad byte's feature bits, ready to OR into a report.
+#define PAD_FEAT_TYPE(type) ((uint8_t)((type) << 4))
+#define PAD_FEAT_TYPE_MASK 0x30
+#define PAD_FEAT_STICKS 0x40
+#define PAD_FEAT_CONNECTED 0x80
+
+// LED type for player indicators
+enum
+{
+    PAD_LED_NONE,
+    PAD_LED_DS4,
+    PAD_LED_DS5,
+};
+
+/* One gamepad, as the driver reads it. A descriptor is parsed into this;
+ * a machine with no descriptor to parse writes one out -- see the Sony
+ * controllers in pad.c, whose own descriptors lie. */
+// Gamepad descriptors are normalized to this structure.
+typedef struct pad_connection
+{
+    bool valid;
+    uint8_t features;  // The dpad byte's PAD_FEAT_ bits, precomputed at mount
+    bool home_pressed; // Used to inject the out of band home button on xbox one
+    int slot;          // HID protocol drivers use slots assigned in hid.h
+    uint8_t led_type;  // PAD_LED_NONE, PAD_LED_DS4, PAD_LED_DS5
+    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
+    bool x_absolute;   // Will be true for gamepads
+    uint16_t x_offset; // Left stick X
+    uint8_t x_size;
+    int32_t x_min;
+    int32_t x_max;
+    uint16_t y_offset; // Left stick Y
+    uint8_t y_size;
+    int32_t y_min;
+    int32_t y_max;
+    uint16_t z_offset; // Right stick X (Z axis)
+    uint8_t z_size;
+    int32_t z_min;
+    int32_t z_max;
+    uint16_t rz_offset; // Right stick Y (Rz axis)
+    uint8_t rz_size;
+    int32_t rz_min;
+    int32_t rz_max;
+    uint16_t rx_offset; // Left trigger (Rx axis)
+    uint8_t rx_size;
+    int32_t rx_min;
+    int32_t rx_max;
+    uint16_t ry_offset; // Right trigger (Ry axis)
+    uint8_t ry_size;
+    int32_t ry_min;
+    int32_t ry_max;
+    uint16_t hat_offset; // D-pad/hat
+    uint8_t hat_size;
+    int32_t hat_min;
+    int32_t hat_max;
+    // Button bit offsets, 0xFFFF = unused
+    uint16_t button_offsets[PAD_MAX_BUTTONS];
+} pad_connection_t;
+
 void pad_init(void);
 void pad_stop(void);
 
@@ -82,7 +148,7 @@ void pad_button_apply(pad_button_t button, bool down,
 
 // Parse HID report descriptor for gamepad. Devices recognized by vendor and
 // product id label themselves and ignore button_type.
-bool pad_mount(int slot, const hid_report_map_t *map,
+bool pad_mount(int slot, const pad_connection_t *desc,
                uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Clean up descriptor when device is disconnected.

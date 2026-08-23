@@ -140,6 +140,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${KBDLAY_C}
     ${RP6502_ROOT}/src/core/hid/mou.c
     ${RP6502_ROOT}/src/core/hid/pad.c
+    ${RP6502_ROOT}/src/core/hid/parse.c
     ${RP6502_ROOT}/src/core/hid/tab.c
     mon/dsk.c
     mon/fil.c

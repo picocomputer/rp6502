@@ -5,9 +5,10 @@
  *
  * APF's controller slots as HID devices — this platform's usb.c.
  *
- * Each slot is mounted with a report map written here and its registers
- * handed over as the report that map describes, so ria/hid drives them.
- * ria/usb/xin.c does the same for XInput, from a descriptor.
+ * A slot is mounted by handing ria/hid the driver structs written here,
+ * and its registers are handed over as the report those structs
+ * describe. No descriptor is involved, so this machine does not carry a
+ * parser. ria/usb/xin.c does the same for XInput.
  *
  * A slot's type is the top nibble of its key word, not the slot number:
  * any slot may hold any device, and a changed nibble is a device
@@ -21,6 +22,7 @@
 #include "core/hid/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
+#include "core/hid/tab.h"
 #include "core/hid/usage.h"
 
 #include <stdint.h>
@@ -35,65 +37,64 @@
 #define APF_TYPE_MOU 5
 
 /* What the drivers are told a device is. A USB device says this with a
- * report descriptor; the dock has none to say it with, so these are the
- * bit positions apf_build writes to, stated outright.
+ * report descriptor; the dock has none to say it with, so where every
+ * field sits is stated outright -- these are the bit positions apf_build
+ * writes to.
  *
- * pad.c files usage n at index n-1, packs 0-15 into its two button bytes
- * and reads 16-19 as the d-pad, so this is the order that puts each dock
- * button where the XRAM report wants it. */
-static const uint16_t apf_pad_buttons[HID_MAP_BUTTONS] = {
-    4, 5, HID_ABSENT, 6, 7, HID_ABSENT, 8, 9,
-    10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
-    0, 1, 2, 3};
+ * The button numbers are the ones pad.c files at index n-1: 1-16 land in
+ * the two button bytes and 17-20 are read as the d-pad. */
+static const pad_connection_t apf_pad_desc = {
+    .valid = true,
+    .x_absolute = true,
+    .button_offsets = {
+        4, 5, HID_ABSENT, 6, 7, HID_ABSENT, 8, 9,
+        10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
+        0, 1, 2, 3}};
 
-static void apf_map_pad(hid_report_map_t *map, bool analog)
-{
-    hid_map_clear(map);
-    map->app_usage = HID_APP_GAMEPAD;
-    memcpy(map->button_bit, apf_pad_buttons, sizeof(map->button_bit));
-    if (!analog)
-        return;
-    // Two sticks then two triggers, a byte each, after the button bytes.
-    static const uint8_t axes[] = {HID_AXIS_X, HID_AXIS_Y, HID_AXIS_Z,
-                                   HID_AXIS_RZ, HID_AXIS_RX, HID_AXIS_RY};
-    for (uint16_t i = 0; i < sizeof(axes); i++)
-    {
-        hid_locus_t *locus = &map->axis[axes[i]];
-        locus->bit_pos = (uint16_t)(16 + i * 8);
-        locus->size = 8;
-        locus->logical_max = 255;
-    }
-}
+// The same pad, with two sticks and two triggers a byte each behind it.
+static const pad_connection_t apf_pad_ana_desc = {
+    .valid = true,
+    .x_absolute = true,
+    .x_offset = 2 * 8, .x_size = 8, .x_max = 255,
+    .y_offset = 3 * 8, .y_size = 8, .y_max = 255,
+    .z_offset = 4 * 8, .z_size = 8, .z_max = 255,
+    .rz_offset = 5 * 8, .rz_size = 8, .rz_max = 255,
+    .rx_offset = 6 * 8, .rx_size = 8, .rx_max = 255,
+    .ry_offset = 7 * 8, .ry_size = 8, .ry_max = 255,
+    .button_offsets = {
+        4, 5, HID_ABSENT, 6, 7, HID_ABSENT, 8, 9,
+        10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
+        0, 1, 2, 3}};
 
 /* A boot keyboard's report: the modifier byte, a reserved byte, then six
  * scan codes. */
-static void apf_map_kbd(hid_report_map_t *map)
-{
-    hid_map_clear(map);
-    map->app_usage = HID_APP_KEYBOARD;
-    map->key_run[0].bit_pos = 0;
-    map->key_run[0].usage_min = HID_KEY_CONTROL_LEFT;
-    map->key_run[0].count = 8;
-    map->key_array_bit = 16;
-    map->key_array_count = 6;
-}
+static const kbd_connection_t apf_kbd_desc = {
+    .valid = true,
+    .runs = {{.bit_pos = 0, .usage_min = HID_KEY_CONTROL_LEFT, .count = 8}},
+    .codes_offset = 2 * 8,
+    .codes_count = 6};
 
 /* Eight buttons, a byte of padding, then two 16-bit movements. Buttons,
  * X and Y are all the docked mouse documents, so there is no wheel. */
-static void apf_map_mou(hid_report_map_t *map)
-{
-    hid_map_clear(map);
-    map->app_usage = HID_APP_MOUSE;
-    for (uint16_t i = 0; i < 8; i++)
-        map->button_bit[i] = i;
-    map->axis[HID_AXIS_X].bit_pos = 16;
-    map->axis[HID_AXIS_X].size = 16;
-    map->axis[HID_AXIS_X].relative = true;
-    map->axis[HID_AXIS_X].logical_min = -32768;
-    map->axis[HID_AXIS_X].logical_max = 32767;
-    map->axis[HID_AXIS_Y] = map->axis[HID_AXIS_X];
-    map->axis[HID_AXIS_Y].bit_pos = 32;
-}
+static const mou_connection_t apf_mou_desc = {
+    .valid = true,
+    .button_offsets = {0, 1, 2, 3, 4, 5, 6, 7},
+    .x_relative = true,
+    .x_offset = 2 * 8, .x_size = 16,
+    .y_offset = 4 * 8, .y_size = 16};
+
+/* The same mouse read as a pointer, which is what a USB mouse gets too:
+ * its first button is the tip a program draws with. */
+static const tab_connection_t apf_mou_tab_desc = {
+    .valid = true,
+    .button_offsets = {0, 1, 2, 3, 4},
+    .x_relative = true,
+    .x_offset = 2 * 8, .x_size = 16, .x_min = -32768, .x_max = 32767,
+    .y_offset = 4 * 8, .y_size = 16, .y_min = -32768, .y_max = 32767,
+    .wheel_offset = HID_ABSENT,
+    .pan_offset = HID_ABSENT,
+    .tip_offset = HID_ABSENT,
+    .inrange_offset = HID_ABSENT};
 
 /* APF packs word bytes most significant first, then documents the
  * keyboard's modifiers and the mouse's movements as little endian. Taken
@@ -118,7 +119,7 @@ static struct
 
 static void apf_mount(int slot, uint8_t type)
 {
-    hid_report_map_t map;
+    const pad_connection_t *pad = NULL;
     uint8_t button_type = PAD_TYPE_UNKNOWN;
     switch (type)
     {
@@ -128,24 +129,25 @@ static void apf_mount(int slot, uint8_t type)
      * could be wearing any labels at all. */
     case APF_TYPE_POCKET:
         button_type = PAD_TYPE_EASTERN;
-        apf_map_pad(&map, false);
+        pad = &apf_pad_desc;
         break;
     case APF_TYPE_PAD:
-        apf_map_pad(&map, false);
+        pad = &apf_pad_desc;
         break;
     case APF_TYPE_PAD_ANA:
-        apf_map_pad(&map, true);
+        pad = &apf_pad_ana_desc;
         break;
     case APF_TYPE_KBD:
-        apf_map_kbd(&map);
-        break;
+        apf_slots[slot].slot = (int8_t)hid_mount(&apf_kbd_desc, NULL, NULL, NULL, 0, 0, 0);
+        return;
     case APF_TYPE_MOU:
-        apf_map_mou(&map);
-        break;
+        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mou_desc,
+                                                 &apf_mou_tab_desc, NULL, 0, 0, 0);
+        return;
     default:
         return;
     }
-    apf_slots[slot].slot = (int8_t)hid_mount(&map, 0, 0, button_type);
+    apf_slots[slot].slot = (int8_t)hid_mount(NULL, NULL, NULL, pad, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)

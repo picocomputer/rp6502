@@ -19,6 +19,29 @@
 /* Main events
  */
 
+#define MOU_MAX_MICE 4
+
+/* One mouse, as the driver reads it. A descriptor is parsed into this;
+ * a machine with no descriptor to parse writes one out. */
+// Mouse descriptors are normalized to this structure.
+typedef struct mou_connection
+{
+    bool valid;
+    int slot;          // HID slot
+    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
+    uint16_t button_offsets[8];
+    bool x_relative;   // Will be true for mice
+    uint16_t x_offset; // X axis
+    uint8_t x_size;
+    uint16_t y_offset; // Y axis
+    uint8_t y_size;
+    uint16_t wheel_offset; // Wheel/scroll wheel
+    uint8_t wheel_size;
+    uint16_t pan_offset; // Horizontal pan/tilt
+    uint8_t pan_size;
+    uint8_t buttons; // Last reported button state
+} mou_connection_t;
+
 void mou_init(void);
 void mou_stop(void);
 
@@ -37,7 +60,7 @@ void mou_host_wheel(int dwheel, int dpan);
 void mou_host_buttons(uint8_t buttons);
 
 // Parse HID report descriptor for mouse.
-bool mou_mount(int slot, const hid_report_map_t *map);
+bool mou_mount(int slot, const mou_connection_t *desc);
 
 // Clean up descriptor when device is disconnected.
 bool mou_umount(int slot);

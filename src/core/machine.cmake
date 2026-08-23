@@ -122,9 +122,10 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/clk.c
         ${RP6502_SRC}/core/api/std.c
         ${RP6502_SRC}/core/api/uni.c
-        # The real HID drivers, fed synthetic descriptors by apf.c. The
-        # layouts are an asset, so kbl.c reads them rather than linking
-        # twenty kilobytes of table into a 96 KB memory.
+        # The real HID drivers, told by apf.c what the dock holds. No
+        # descriptor ever reaches this machine, so core/hid/parse.c is
+        # not here. The layouts are an asset, so kbl.c reads them rather
+        # than linking twenty kilobytes of table into a 96 KB memory.
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/kbd.c
         ${RP6502_SRC}/core/hid/kbl.c

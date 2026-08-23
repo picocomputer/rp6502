@@ -17,7 +17,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define MOU_MAX_MICE 4
 
 // This is the report we generate for XRAM.
 static struct
@@ -34,24 +33,6 @@ static uint16_t mou_y;
 
 static uint16_t mou_xram;
 
-// Mouse descriptors are normalized to this structure.
-typedef struct
-{
-    bool valid;
-    int slot;          // HID slot
-    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
-    uint16_t button_offsets[8];
-    bool x_relative;   // Will be true for mice
-    uint16_t x_offset; // X axis
-    uint8_t x_size;
-    uint16_t y_offset; // Y axis
-    uint8_t y_size;
-    uint16_t wheel_offset; // Wheel/scroll wheel
-    uint8_t wheel_size;
-    uint16_t pan_offset; // Horizontal pan/tilt
-    uint8_t pan_size;
-    uint8_t buttons; // Last reported button state
-} mou_connection_t;
 
 static mou_connection_t mou_connections[MOU_MAX_MICE];
 
@@ -90,46 +71,21 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("mou_mount") mou_mount(int slot, const hid_report_map_t *map)
+bool __in_flash("mou_mount") mou_mount(int slot, const mou_connection_t *desc)
 {
-    int conn_num = -1;
-    for (int i = 0; i < MOU_MAX_MICE; ++i)
-        if (!mou_connections[i].valid)
-        {
-            conn_num = i;
-            break;
-        }
-    if (conn_num < 0)
+    if (!desc->valid)
         return false;
-
-    mou_connection_t *conn = &mou_connections[conn_num];
-    memset(conn, 0, sizeof(mou_connection_t));
-    conn->slot = slot;
-    conn->report_id = map->report_id;
-    for (int i = 0; i < 8; i++)
-        conn->button_offsets[i] = map->button_bit[i];
-    conn->x_offset = map->axis[HID_AXIS_X].bit_pos;
-    conn->x_size = map->axis[HID_AXIS_X].size;
-    conn->x_relative = map->axis[HID_AXIS_X].relative;
-    conn->y_offset = map->axis[HID_AXIS_Y].bit_pos;
-    conn->y_size = map->axis[HID_AXIS_Y].size;
-    conn->wheel_offset = map->axis[HID_AXIS_WHEEL].bit_pos;
-    conn->wheel_size = map->axis[HID_AXIS_WHEEL].size;
-    conn->pan_offset = map->axis[HID_AXIS_PAN].bit_pos;
-    conn->pan_size = map->axis[HID_AXIS_PAN].size;
-
-    // A device that declared itself a mouse is one. Otherwise, if it squeaks
-    // like a mouse: buttons and an X the device moves us by, not to.
-    conn->valid = conn->x_size > 0 &&
-                  (map->app_usage == HID_APP_MOUSE || conn->x_relative);
-
-    DBG("mou_mount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
-    DBG("  x: offset=%d, size=%d, relative=%d\n", conn->x_offset, conn->x_size, conn->x_relative);
-    DBG("  y: offset=%d, size=%d\n", conn->y_offset, conn->y_size);
-    DBG("  wheel: offset=%d, size=%d\n", conn->wheel_offset, conn->wheel_size);
-    DBG("  pan: offset=%d, size=%d\n", conn->pan_offset, conn->pan_size);
-
-    return conn->valid;
+    for (int i = 0; i < MOU_MAX_MICE; ++i)
+    {
+        if (mou_connections[i].valid)
+            continue;
+        mou_connections[i] = *desc;
+        mou_connections[i].slot = slot;
+        DBG("mou_mount: slot=%d, report_id=%d, x=%d/%d rel=%d\n", slot,
+            desc->report_id, desc->x_offset, desc->x_size, desc->x_relative);
+        return true;
+    }
+    return false;
 }
 
 bool mou_umount(int slot)

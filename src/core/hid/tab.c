@@ -18,7 +18,6 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-#define TAB_MAX_MICE 4
 
 /* XRAM report block, laid out in tab.h. Every field is one byte, so each 6502 read is atomic; a
  * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
@@ -54,26 +53,6 @@ static int16_t tab_ref_y;
 static int16_t tab_sub_x;
 static int16_t tab_sub_y;
 
-typedef struct
-{
-    bool valid;
-    int slot;
-    uint8_t report_id;
-    uint16_t button_offsets[5]; // buttons 1..5, 0xFFFF if absent
-    bool x_relative;            // true for mice
-    uint16_t x_offset;
-    uint8_t x_size;
-    int32_t x_min, x_max;
-    uint16_t y_offset;
-    uint8_t y_size;
-    int32_t y_min, y_max;
-    uint16_t wheel_offset; // Wheel/scroll wheel
-    uint8_t wheel_size;
-    uint16_t pan_offset; // Horizontal pan/tilt
-    uint8_t pan_size;
-    uint16_t tip_offset;     // Digitizer Tip Switch, 0xFFFF if absent
-    uint16_t inrange_offset; // Digitizer In Range, 0xFFFF if absent
-} tab_connection_t;
 
 static tab_connection_t tab_connections[TAB_MAX_MICE];
 
@@ -165,50 +144,21 @@ bool tab_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("tab_mount") tab_mount(int slot, const hid_report_map_t *map)
+bool __in_flash("tab_mount") tab_mount(int slot, const tab_connection_t *desc)
 {
-    int conn_num = -1;
-    for (int i = 0; i < TAB_MAX_MICE; ++i)
-        if (!tab_connections[i].valid)
-        {
-            conn_num = i;
-            break;
-        }
-    if (conn_num < 0)
+    if (!desc->valid)
         return false;
-
-    tab_connection_t *conn = &tab_connections[conn_num];
-    memset(conn, 0, sizeof(tab_connection_t));
-    conn->slot = slot;
-    conn->report_id = map->report_id;
-    for (int i = 0; i < 5; i++)
-        conn->button_offsets[i] = map->button_bit[i];
-    conn->tip_offset = map->tip_bit;
-    conn->inrange_offset = map->inrange_bit;
-    conn->x_offset = map->axis[HID_AXIS_X].bit_pos;
-    conn->x_size = map->axis[HID_AXIS_X].size;
-    conn->x_relative = map->axis[HID_AXIS_X].relative;
-    conn->x_min = map->axis[HID_AXIS_X].logical_min;
-    conn->x_max = map->axis[HID_AXIS_X].logical_max;
-    conn->y_offset = map->axis[HID_AXIS_Y].bit_pos;
-    conn->y_size = map->axis[HID_AXIS_Y].size;
-    conn->y_min = map->axis[HID_AXIS_Y].logical_min;
-    conn->y_max = map->axis[HID_AXIS_Y].logical_max;
-    conn->wheel_offset = map->axis[HID_AXIS_WHEEL].bit_pos;
-    conn->wheel_size = map->axis[HID_AXIS_WHEEL].size;
-    conn->pan_offset = map->axis[HID_AXIS_PAN].bit_pos;
-    conn->pan_size = map->axis[HID_AXIS_PAN].size;
-
-    // Accept a relative mouse or an absolute digitizer/pen; reject an absolute
-    // Generic-Desktop device with no digitizer usage (e.g. a gamepad's sticks).
-    conn->valid = conn->x_size > 0 && conn->y_size > 0 &&
-                  (conn->x_relative || conn->tip_offset != 0xFFFF ||
-                   conn->inrange_offset != 0xFFFF);
-
-    DBG("tab_mount: slot=%d, valid=%d, x_rel=%d, tip=%d\n",
-        slot, conn->valid, conn->x_relative, conn->tip_offset != 0xFFFF);
-
-    return conn->valid;
+    for (int i = 0; i < TAB_MAX_MICE; ++i)
+    {
+        if (tab_connections[i].valid)
+            continue;
+        tab_connections[i] = *desc;
+        tab_connections[i].slot = slot;
+        DBG("tab_mount: slot=%d, x_rel=%d, tip=%d\n", slot, desc->x_relative,
+            desc->tip_offset != HID_ABSENT);
+        return true;
+    }
+    return false;
 }
 
 bool tab_umount(int slot)

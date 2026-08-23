@@ -65,6 +65,31 @@ typedef struct
 /* Main events
  */
 
+#define TAB_MAX_MICE 4
+
+/* One absolute or relative pointer, as the driver reads it. A descriptor
+ * is parsed into this; a machine with no descriptor writes one out. */
+typedef struct tab_connection
+{
+    bool valid;
+    int slot;
+    uint8_t report_id;
+    uint16_t button_offsets[5]; // buttons 1..5, 0xFFFF if absent
+    bool x_relative;            // true for mice
+    uint16_t x_offset;
+    uint8_t x_size;
+    int32_t x_min, x_max;
+    uint16_t y_offset;
+    uint8_t y_size;
+    int32_t y_min, y_max;
+    uint16_t wheel_offset; // Wheel/scroll wheel
+    uint8_t wheel_size;
+    uint16_t pan_offset; // Horizontal pan/tilt
+    uint8_t pan_size;
+    uint16_t tip_offset;     // Digitizer Tip Switch, 0xFFFF if absent
+    uint16_t inrange_offset; // Digitizer In Range, 0xFFFF if absent
+} tab_connection_t;
+
 void tab_init(void);
 void tab_stop(void);
 
@@ -75,7 +100,7 @@ bool tab_xreg(uint16_t word);
 bool tab_is_mapped(void);
 
 // Parse HID report descriptor for an absolute or relative pointer.
-bool tab_mount(int slot, const hid_report_map_t *map);
+bool tab_mount(int slot, const tab_connection_t *desc);
 
 // Clean up descriptor when device is disconnected.
 bool tab_umount(int slot);

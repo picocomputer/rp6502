@@ -41,92 +41,15 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
 #define HID_APP_PEN 0x000D0002
 #define HID_APP_TOUCH 0x000D0004
 
-// Per-field info yielded by hid_descriptor_parse.
-typedef struct
-{
-    uint32_t app_usage;
-    uint16_t usage_page;
-    uint16_t usage;
-    /* An Array field's slots each hold one usage out of this range, so the
-     * range is the field's identity where usage is a Variable field's. */
-    uint16_t usage_min;
-    uint16_t usage_max;
-    uint16_t report_id; // 0xFFFF if no report ID
-    uint16_t bit_pos;   // Bit offset within report (excludes report ID byte)
-    uint8_t size;       // Field size in bits
-    int32_t logical_min;
-    int32_t logical_max;
-    uint8_t input_flags; // Raw Input item flags byte (bit 1 = variable, bit 2 = relative)
-} hid_field_t;
-
-#define HID_FIELD_IS_ARRAY(f) (!((f)->input_flags & 0x02))
-
-// Callback for each Input field. Return false to stop parsing.
-typedef bool (*hid_field_cb_t)(const hid_field_t *field, void *context);
-
-// Parse a raw HID report descriptor byte stream.
-void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t cb, void *context);
-
-// Where a field sits in a report. bit_pos 0xFFFF means the device has none.
+// Where a field sits in a report; an absent one says so with this.
 #define HID_ABSENT 0xFFFF
-typedef struct
-{
-    uint16_t bit_pos;
-    uint8_t size;
-    bool relative;
-    int32_t logical_min;
-    int32_t logical_max;
-} hid_locus_t;
 
-/* The axes any of the drivers ask for. Simulation-page accelerator and brake
- * fold onto RX and RY, which is where a gamepad's triggers report. */
-typedef enum
-{
-    HID_AXIS_X,
-    HID_AXIS_Y,
-    HID_AXIS_Z,
-    HID_AXIS_RX,
-    HID_AXIS_RY,
-    HID_AXIS_RZ,
-    HID_AXIS_HAT,
-    HID_AXIS_WHEEL,
-    HID_AXIS_PAN,
-    HID_AXIS_COUNT
-} hid_axis_t;
-
-#define HID_MAP_BUTTONS 20
-
-/* A run of consecutive keyboard usages, one bit each -- how both the boot
- * keyboard's modifier byte and an NKRO bitmap are actually declared. */
-#define HID_MAP_KEY_RUNS 4
-typedef struct
-{
-    uint16_t bit_pos;   // bit of usage_min
-    uint16_t usage_min;
-    uint16_t count;
-} hid_key_run_t;
-
-/* One report, located. Everything the four drivers pull out of a descriptor,
- * which is also everything a host without one has to state. */
-typedef struct
-{
-    uint32_t app_usage; // what the device says it is, HID_APP_NONE if it didn't
-    uint8_t report_id;  // 0 = the device uses none
-    hid_locus_t axis[HID_AXIS_COUNT];
-    uint16_t button_bit[HID_MAP_BUTTONS]; // HID_ABSENT when the device lacks it
-    uint16_t tip_bit;                     // Digitizer Tip Switch
-    uint16_t inrange_bit;                 // Digitizer In Range
-    uint16_t key_array_bit;               // contiguous 8-bit keycodes
-    uint8_t key_array_count;
-    hid_key_run_t key_run[HID_MAP_KEY_RUNS];
-} hid_report_map_t;
-
-// Every locus absent, every button absent, no app usage.
-void hid_map_clear(hid_report_map_t *map);
-
-/* One walk of the descriptor, filling the map. False when the descriptor
- * describes nothing any driver could use. */
-bool hid_map_from_descriptor(hid_report_map_t *map, const uint8_t *desc, uint16_t desc_len);
+/* The drivers' own structs are what a device is offered as. Their headers
+ * include this one, so they are named here rather than included. */
+typedef struct kbd_connection kbd_connection_t;
+typedef struct mou_connection mou_connection_t;
+typedef struct tab_connection tab_connection_t;
+typedef struct pad_connection pad_connection_t;
 
 /* Devices that at least one driver wanted. A machine with more physical
  * ports than this simply runs out, which is what the drivers do too. A
@@ -140,13 +63,16 @@ bool hid_map_from_descriptor(hid_report_map_t *map, const uint8_t *desc, uint16_
 #define HID_CLAIM_TAB (1 << 2)
 #define HID_CLAIM_PAD (1 << 3)
 
-/* Offer a device to every driver and keep which ones took it. Returns the
+/* Offer a device to the drivers it might be, and keep which ones took it.
+ * A NULL says the device is not one of those -- never a zeroed struct,
+ * which reads as a real device with everything at bit zero. Returns the
  * slot it was given, or -1 if none took it or there is no room. The
  * interface keeps that slot beside whatever else it knows about the
  * device; nothing here can name a device on its behalf.
  *
  * Deliberately not exclusive: a mouse is a pointer to both mou and tab. */
-int hid_mount(const hid_report_map_t *map,
+int hid_mount(const kbd_connection_t *kbd, const mou_connection_t *mou,
+              const tab_connection_t *tab, const pad_connection_t *pad,
               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Hand a report to the drivers that claimed the slot, and no others.

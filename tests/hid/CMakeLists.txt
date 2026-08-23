@@ -16,12 +16,12 @@ rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
 rp6502_add_test(pad_input LIBS emu_core
     SOURCES test_pad_input.c ${RP6502_SRC}/core/emu/app/pad_input.c)
 
-# --- The Pocket's synthetic descriptors against the drivers they feed ---
-# The dock's registers are handed to ria/hid as HID reports, and three
-# descriptors written by hand are what says where every bit went. Wrong
-# ones build clean and boot clean, so the registers go in here and the
-# XRAM records come back out. The real drivers, not the emulator's
-# twins: it is the firmware's mapping being asked about.
+# --- What the Pocket says its dock holds, against the drivers it tells ---
+# The dock's registers are handed to ria/hid as HID reports, and the
+# driver structs apf.c writes out are what says where every bit went.
+# Wrong ones build clean and boot clean, so the registers go in here and
+# the XRAM records come back out. The real drivers: it is the firmware's
+# mapping being asked about.
 rp6502_add_test(apf
     SOURCES test_apf.c
         ${RP6502_SRC}/core/hid/hid.c

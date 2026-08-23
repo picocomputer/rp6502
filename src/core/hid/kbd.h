@@ -20,11 +20,36 @@
 /* Main events
  */
 
+/* A run of consecutive keyboard usages, one bit each -- how both the boot
+ * keyboard's modifier byte and an NKRO bitmap are declared. */
+#define KBD_KEY_RUNS 4
+typedef struct
+{
+    uint16_t bit_pos;  // bit of usage_min
+    uint16_t usage_min;
+    uint16_t count;    // 0 ends the list
+} kbd_key_run_t;
+
+#define KBD_MAX_KEYBOARDS 4
+
+/* One keyboard, as the driver reads it. A descriptor is parsed into this;
+ * a machine with no descriptor to parse writes one out. */
+typedef struct kbd_connection
+{
+    bool valid;
+    int slot;              // HID slot
+    uint32_t keys[8];      // last report, bits 0-3 unused
+    uint8_t report_id;     // If non zero, the first report byte must match and will be skipped
+    uint16_t codes_offset; // Offset in bits for keycode array
+    uint8_t codes_count;   // Number of keycodes in array
+    kbd_key_run_t runs[KBD_KEY_RUNS]; // one-bit-per-usage keys
+} kbd_connection_t;
+
 void kbd_init(void);
 void kbd_stop(void);
 
 // Claim this device, if its map describes a keyboard.
-bool kbd_mount(int slot, const hid_report_map_t *map,
+bool kbd_mount(int slot, const kbd_connection_t *desc,
                uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.

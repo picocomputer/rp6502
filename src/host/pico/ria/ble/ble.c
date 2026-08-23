@@ -12,7 +12,7 @@ void ble_set_hid_leds(uint8_t) {}
 #else
 
 #include "ria/ble/ble.h"
-#include "core/hid/hid.h"
+#include "core/hid/parse.h"
 #include "core/hid/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
@@ -206,10 +206,11 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             uint16_t descriptor_len = hids_host_descriptor_storage_get_descriptor_len(cid, si);
             if (descriptor == NULL || descriptor_len == 0)
                 continue;
-            hid_report_map_t map;
-            hid_map_from_descriptor(&map, descriptor, descriptor_len);
+            hid_parsed_t parsed;
+            hid_parse(descriptor, descriptor_len, &parsed);
             /* No vendor or product id over BLE, so nothing is ever certain. */
-            int slot = hid_mount(&map, 0, 0, PAD_TYPE_UNKNOWN);
+            int slot = hid_mount(&parsed.kbd, &parsed.mou, &parsed.tab, &parsed.pad,
+                                 0, 0, PAD_TYPE_UNKNOWN);
             if (slot < 0)
                 continue;
             ble_mounted[slot].cid = cid;

@@ -41,18 +41,6 @@ static const struct
 static uint16_t kbd_xram;
 static uint8_t kbd_hid_leds;
 static uint32_t kbd_keys[8];
-typedef struct
-{
-    bool valid;
-    int slot;              // HID slot
-    uint32_t keys[8];      // last report, bits 0-3 unused
-    uint8_t report_id;     // If non zero, the first report byte must match and will be skipped
-    uint16_t codes_offset; // Offset in bits for keycode array
-    uint8_t codes_count;   // Number of keycodes in array
-    hid_key_run_t runs[HID_MAP_KEY_RUNS]; // one-bit-per-usage keys
-} kbd_connection_t;
-
-#define KBD_MAX_KEYBOARDS 4
 static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
 #define KBD_KEY_BIT_SET(data, keycode) ((data)[(keycode) >> 5] |= 1 << ((keycode) & 31))
@@ -118,38 +106,30 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-bool __in_flash("kbd_mount") kbd_mount(int slot, const hid_report_map_t *map,
+bool __in_flash("kbd_mount") kbd_mount(int slot, const kbd_connection_t *desc,
                                        uint16_t vendor_id, uint16_t product_id)
 {
-    int conn_num = -1;
-    for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
-        if (!kbd_connections[i].valid)
-        {
-            conn_num = i;
-            break;
-        }
-    if (conn_num < 0)
+    if (!desc->valid)
         return false;
+    for (int i = 0; i < KBD_MAX_KEYBOARDS; i++)
+    {
+        if (kbd_connections[i].valid)
+            continue;
+        kbd_connections[i] = *desc;
+        kbd_connections[i].slot = slot;
 
-    kbd_connection_t *conn = &kbd_connections[conn_num];
-    memset(conn, 0, sizeof(kbd_connection_t));
-    conn->slot = slot;
-    conn->report_id = map->report_id;
-    conn->codes_offset = map->key_array_bit;
-    conn->codes_count = map->key_array_count;
-    memcpy(conn->runs, map->key_run, sizeof(conn->runs));
-    conn->valid = map->key_array_bit != HID_ABSENT || map->key_run[0].bit_pos != HID_ABSENT;
-
-    if (conn->valid && hid_boot_enumerating())
-        for (size_t i = 0; i < sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0]); i++)
-            if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
-                kbd_numlock_off_at_boot[i].pid == product_id)
-            {
-                kbd_hid_leds &= ~KEYBOARD_LED_NUMLOCK;
-                kbd_send_leds();
-                break;
-            }
-    return conn->valid;
+        if (hid_boot_enumerating())
+            for (size_t k = 0; k < sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0]); k++)
+                if (kbd_numlock_off_at_boot[k].vid == vendor_id &&
+                    kbd_numlock_off_at_boot[k].pid == product_id)
+                {
+                    kbd_hid_leds &= ~KEYBOARD_LED_NUMLOCK;
+                    kbd_send_leds();
+                    break;
+                }
+        return true;
+    }
+    return false;
 }
 
 // Clean up descriptor when device is disconnected.
@@ -204,10 +184,10 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     }
 
     // Extract individual keycode bits
-    for (int r = 0; r < HID_MAP_KEY_RUNS; r++)
+    for (int r = 0; r < KBD_KEY_RUNS; r++)
     {
-        const hid_key_run_t *run = &conn->runs[r];
-        if (run->bit_pos == HID_ABSENT)
+        const kbd_key_run_t *run = &conn->runs[r];
+        if (!run->count)
             break;
         for (uint16_t i = 0; i < run->count; i++)
             if (hid_extract_bits(report_data, report_data_len, run->bit_pos + i, 1))

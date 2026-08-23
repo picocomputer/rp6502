@@ -6,7 +6,7 @@
 
 #include "core/api/oem.h"
 #include "fatfs/ff.h"
-#include "core/hid/hid.h"
+#include "core/hid/parse.h"
 #include "core/hid/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
@@ -171,11 +171,12 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     DBG("USB: %lums HID dev=%d idx=%d protocol=%d desc_len=%d\n",
         to_ms_since_boot(get_absolute_time()), dev_addr, idx, itf_protocol, desc_len);
 
-    hid_report_map_t map;
-    hid_map_from_descriptor(&map, desc_report, desc_len);
+    hid_parsed_t parsed;
+    hid_parse(desc_report, desc_len, &parsed);
 
     /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    int slot = hid_mount(&map, vendor_id, product_id, PAD_TYPE_UNKNOWN);
+    int slot = hid_mount(&parsed.kbd, &parsed.mou, &parsed.tab, &parsed.pad,
+                         vendor_id, product_id, PAD_TYPE_UNKNOWN);
     if (slot < 0)
         return;
     usb_hid_slot[idx] = (int8_t)slot;

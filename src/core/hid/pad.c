@@ -18,7 +18,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // If you're here to remap HID buttons on a new HID gamepad, create
-// a new pad_remap_ function and add it to pad_distill_map().
+// a new pad_remap_ function and add it to pad_distill().
 
 // This is the report we generate for XRAM.
 // Direction bits: 0-up, 1-down, 2-left, 3-right
@@ -39,7 +39,6 @@ typedef struct
     uint8_t rt;      // analog right trigger
 } pad_xram_t;
 
-#define PAD_MAX_PLAYERS 4
 
 // Deadzone is generous enough for moderately worn sticks.
 // This is only for the analog to digital conversions so
@@ -47,65 +46,10 @@ typedef struct
 #define PAD_DEADZONE 32
 
 // Room for button0 and button1 plus a dpad if needed.
-#define PAD_MAX_BUTTONS 20
 
-#define PAD_HOME_BUTTON 12
 
-// The dpad byte's feature bits, ready to OR into a report.
-#define PAD_FEAT_TYPE(type) ((uint8_t)((type) << 4))
-#define PAD_FEAT_TYPE_MASK 0x30
-#define PAD_FEAT_STICKS 0x40
-#define PAD_FEAT_CONNECTED 0x80
 
-// LED type for player indicators
-enum
-{
-    PAD_LED_NONE,
-    PAD_LED_DS4,
-    PAD_LED_DS5,
-};
 
-// Gamepad descriptors are normalized to this structure.
-typedef struct
-{
-    bool valid;
-    uint8_t features;  // The dpad byte's PAD_FEAT_ bits, precomputed at mount
-    bool home_pressed; // Used to inject the out of band home button on xbox one
-    int slot;          // HID protocol drivers use slots assigned in hid.h
-    uint8_t led_type;  // PAD_LED_NONE, PAD_LED_DS4, PAD_LED_DS5
-    uint8_t report_id; // If non zero, the first report byte must match and will be skipped
-    bool x_absolute;   // Will be true for gamepads
-    uint16_t x_offset; // Left stick X
-    uint8_t x_size;
-    int32_t x_min;
-    int32_t x_max;
-    uint16_t y_offset; // Left stick Y
-    uint8_t y_size;
-    int32_t y_min;
-    int32_t y_max;
-    uint16_t z_offset; // Right stick X (Z axis)
-    uint8_t z_size;
-    int32_t z_min;
-    int32_t z_max;
-    uint16_t rz_offset; // Right stick Y (Rz axis)
-    uint8_t rz_size;
-    int32_t rz_min;
-    int32_t rz_max;
-    uint16_t rx_offset; // Left trigger (Rx axis)
-    uint8_t rx_size;
-    int32_t rx_min;
-    int32_t rx_max;
-    uint16_t ry_offset; // Right trigger (Ry axis)
-    uint8_t ry_size;
-    int32_t ry_min;
-    int32_t ry_max;
-    uint16_t hat_offset; // D-pad/hat
-    uint8_t hat_size;
-    int32_t hat_min;
-    int32_t hat_max;
-    // Button bit offsets, 0xFFFF = unused
-    uint16_t button_offsets[PAD_MAX_BUTTONS];
-} pad_connection_t;
 
 // Where in XRAM to place reports, 0xFFFF when disabled.
 static uint16_t pad_xram;
@@ -337,59 +281,8 @@ static const pad_connection_t pad_desc_sony_ds5 = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static void __in_flash("pad_from_map") pad_from_map(
-    pad_connection_t *conn, const hid_report_map_t *map)
-{
-    memset(conn, 0, sizeof(pad_connection_t));
-    conn->report_id = map->report_id;
-    conn->x_offset = map->axis[HID_AXIS_X].bit_pos;
-    conn->x_size = map->axis[HID_AXIS_X].size;
-    conn->x_min = map->axis[HID_AXIS_X].logical_min;
-    conn->x_max = map->axis[HID_AXIS_X].logical_max;
-    conn->x_absolute = !map->axis[HID_AXIS_X].relative;
-    conn->y_offset = map->axis[HID_AXIS_Y].bit_pos;
-    conn->y_size = map->axis[HID_AXIS_Y].size;
-    conn->y_min = map->axis[HID_AXIS_Y].logical_min;
-    conn->y_max = map->axis[HID_AXIS_Y].logical_max;
-    conn->z_offset = map->axis[HID_AXIS_Z].bit_pos;
-    conn->z_size = map->axis[HID_AXIS_Z].size;
-    conn->z_min = map->axis[HID_AXIS_Z].logical_min;
-    conn->z_max = map->axis[HID_AXIS_Z].logical_max;
-    conn->rz_offset = map->axis[HID_AXIS_RZ].bit_pos;
-    conn->rz_size = map->axis[HID_AXIS_RZ].size;
-    conn->rz_min = map->axis[HID_AXIS_RZ].logical_min;
-    conn->rz_max = map->axis[HID_AXIS_RZ].logical_max;
-    conn->rx_offset = map->axis[HID_AXIS_RX].bit_pos;
-    conn->rx_size = map->axis[HID_AXIS_RX].size;
-    conn->rx_min = map->axis[HID_AXIS_RX].logical_min;
-    conn->rx_max = map->axis[HID_AXIS_RX].logical_max;
-    conn->ry_offset = map->axis[HID_AXIS_RY].bit_pos;
-    conn->ry_size = map->axis[HID_AXIS_RY].size;
-    conn->ry_min = map->axis[HID_AXIS_RY].logical_min;
-    conn->ry_max = map->axis[HID_AXIS_RY].logical_max;
-    conn->hat_offset = map->axis[HID_AXIS_HAT].bit_pos;
-    conn->hat_size = map->axis[HID_AXIS_HAT].size;
-    conn->hat_min = map->axis[HID_AXIS_HAT].logical_min;
-    conn->hat_max = map->axis[HID_AXIS_HAT].logical_max;
-    memcpy(conn->button_offsets, map->button_bit, sizeof(conn->button_offsets));
-
-    bool axes = conn->x_size || conn->y_size || conn->z_size ||
-                conn->rz_size || conn->rx_size || conn->ry_size ||
-                conn->hat_size;
-
-    // A device that declared itself a gamepad is one. Otherwise, if it creaks
-    // like a gamepad: a mouse has buttons and an X too, but its X is relative,
-    // and a digital pad has no axes at all, so its discrete dpad buttons are
-    // what say it isn't a keyboard.
-    if (map->app_usage == HID_APP_GAMEPAD || map->app_usage == HID_APP_JOYSTICK)
-        conn->valid = axes || conn->button_offsets[0] != 0xFFFF;
-    else if (conn->button_offsets[0] != 0xFFFF &&
-             (axes ? conn->x_absolute : conn->button_offsets[16] != 0xFFFF))
-        conn->valid = true;
-}
-
-static void pad_distill_map(
-    pad_connection_t *conn, const hid_report_map_t *map,
+static void pad_distill(
+    pad_connection_t *conn, const pad_connection_t *desc,
     uint16_t vendor_id, uint16_t product_id, uint8_t button_type)
 {
     conn->valid = false;
@@ -410,10 +303,7 @@ static void pad_distill_map(
     }
     else
     {
-        pad_from_map(conn, map);
-
-        DBG("Received HID map. vid=0x%04X, pid=0x%04X, valid=%d\n",
-            vendor_id, product_id, conn->valid);
+        *conn = *desc;
 
         // Add your gamepad override here.
         pad_remap_8bitdo_m30(conn, vendor_id, product_id);
@@ -602,10 +492,17 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("pad_mount") pad_mount(int slot, const hid_report_map_t *map,
+bool __in_flash("pad_mount") pad_mount(int slot, const pad_connection_t *desc,
                                        uint16_t vendor_id, uint16_t product_id,
                                        uint8_t button_type)
 {
+    /* A Sony controller is recognized by its ids alone, because the
+     * descriptor it offers is wrong; anything else has to have been
+     * read as a gamepad already. */
+    if (!desc->valid && !pad_is_sony_ds4(vendor_id, product_id) &&
+        !pad_is_sony_ds5(vendor_id, product_id))
+        return false;
+
     pad_connection_t *conn = NULL;
     int player;
     for (int i = 0; i < PAD_MAX_PLAYERS; i++)
@@ -624,7 +521,7 @@ bool __in_flash("pad_mount") pad_mount(int slot, const hid_report_map_t *map,
     }
     DBG("pad_mount: mounting player %d\n", player);
 
-    pad_distill_map(conn, map, vendor_id, product_id, button_type);
+    pad_distill(conn, desc, vendor_id, product_id, button_type);
     if (conn->valid)
     {
         conn->slot = slot;
