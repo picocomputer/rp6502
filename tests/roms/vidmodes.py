@@ -29,8 +29,23 @@ from rp6502_rom import Rom  # noqa: E402
 ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument("--out", type=Path, required=True,
                 help="directory to write the corpus into")
-OUT = ap.parse_args().out
+ap.add_argument("--emit-manifest", type=Path,
+                help="one line per ROM: name width height")
+ARGS = ap.parse_args()
+OUT = ARGS.out
 OUT.mkdir(parents=True, exist_ok=True)
+
+# What each canvas selection means in pixels, which is the one thing a suite
+# has to know about a fixture it did not write. The corpus is generated and a
+# reader cannot enumerate it, so it says so itself rather than being copied
+# into every suite that boots it.
+CANVAS_SIZE = {0: (640, 480), 1: (320, 240), 2: (320, 180),
+               3: (640, 480), 4: (640, 360)}
+MANIFEST = []
+
+
+def note(name, canvas):
+    MANIFEST.append((name, *CANVAS_SIZE[canvas]))
 
 
 def say(p, text):
@@ -62,6 +77,7 @@ def rom(name, canvas, progs, xram_chunks, speak=None):
     r = Rom().program(prog(canvas, progs, speak))
     for addr, data in xram_chunks:
         r.record(0x10000 + addr, data)
+    note(name, canvas)
     r.write(OUT / f"{name}.rp6502")
 
 
@@ -486,6 +502,9 @@ r.record(0x10000 + 0x0100,
          bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF))
 r.record(0x10000 + 0x0800,
          bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))
+# It ends on the console canvas, not the one it opened with, and what a
+# suite measures is where it settled.
+note("mode0_return", 0)
 r.write(OUT / "mode0_return.rp6502")
 
 # The serial fill canary: two 8bpp XRAM-palette fills — the costliest
@@ -500,3 +519,7 @@ rom("fill_heavy640", 3,
      (0x1800, bytes((i * 11 + 3) & 0xFF for i in range(64 * 64))),
      (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
      (0x0600, le16(*((0x0020 | (i * 1031 + 5)) for i in range(256))))])
+
+if ARGS.emit_manifest:
+    ARGS.emit_manifest.write_text(
+        "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))

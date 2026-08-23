@@ -19,7 +19,8 @@ function(rp6502_add_script_test name rom)
         --mute --seed 1
         --script ${CMAKE_CURRENT_LIST_DIR}/${name}.txt
         ${RP6502_TEST_ROMS}/${rom})
-    set_tests_properties(emu_script_${name} PROPERTIES TIMEOUT 120)
+    set_tests_properties(emu_script_${name} PROPERTIES
+        TIMEOUT 120 LABELS "script;host.emu")
 endfunction()
 
 # Gamepad: the connected gate and the four-player XRAM block (pad.c).
@@ -46,7 +47,8 @@ rp6502_add_script_test(poke gamepad.rp6502)
 # Cheap enough that each one is its own name.
 function(rp6502_add_cli_test name)
     add_test(NAME cli_${name} COMMAND rp6502-emu ${ARGN})
-    set_tests_properties(cli_${name} PROPERTIES TIMEOUT 30)
+    set_tests_properties(cli_${name} PROPERTIES
+        TIMEOUT 30 LABELS "cli;host.emu")
 endfunction()
 
 rp6502_add_cli_test(help --help)
@@ -68,3 +70,4 @@ add_test(NAME cli_fill_is_decimal COMMAND rp6502-emu
     --mute --seed 1 --fill 010
     --script ${CMAKE_CURRENT_LIST_DIR}/fill.txt
     ${RP6502_TEST_ROMS}/gamepad.rp6502)
+set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")

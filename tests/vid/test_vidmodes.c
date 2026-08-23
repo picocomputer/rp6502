@@ -14,6 +14,7 @@
 #include "emu/sys/vga.h"
 #include "emu_boot.h"
 
+#include <stdio.h>
 #include <string.h>
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
@@ -25,8 +26,33 @@ static void run_frames(int n)
         sys_run_frame();
 }
 
-static void run_case(int *utest_result, const char *name, int width, int height)
+/* The corpus is generated and cannot be enumerated from here, so it says its
+ * own shape: one line of name, width and height per ROM. Carrying the geometry
+ * at each call site meant forty-seven pairs of numbers that no one could check
+ * against the generator, and one of them was wrong. */
+static bool corpus_size(const char *name, int *width, int *height)
 {
+    FILE *f = fopen(ROMS_DIR "/manifest.txt", "r");
+    if (!f)
+        return false;
+    char n[128];
+    int w, h;
+    bool found = false;
+    while (fscanf(f, "%127s %d %d", n, &w, &h) == 3)
+        if (!strcmp(n, name))
+        {
+            *width = w, *height = h, found = true;
+            break;
+        }
+    fclose(f);
+    return found;
+}
+
+static void run_case(int *utest_result, const char *name)
+{
+    int width, height;
+    ASSERT_TRUE(corpus_size(name, &width, &height));
+
     char path[256];
     snprintf(path, sizeof(path), "%s/%s.rp6502", ROMS_DIR, name);
     ASSERT_TRUE(emu_restart(path));
@@ -55,237 +81,237 @@ static void run_case(int *utest_result, const char *name, int width, int height)
 
 UTEST(vidmodes, mode3_8bpp)
 {
-    run_case(utest_result, "mode3_8bpp", 640, 480);
+    run_case(utest_result, "mode3_8bpp");
 }
 
 UTEST(vidmodes, mode3_1bpp)
 {
-    run_case(utest_result, "mode3_1bpp", 320, 240);
+    run_case(utest_result, "mode3_1bpp");
 }
 
 UTEST(vidmodes, mode3_4bppr)
 {
-    run_case(utest_result, "mode3_4bppr", 320, 180);
+    run_case(utest_result, "mode3_4bppr");
 }
 
 UTEST(vidmodes, mode3_16bpp)
 {
-    run_case(utest_result, "mode3_16bpp", 640, 360);
+    run_case(utest_result, "mode3_16bpp");
 }
 
 UTEST(vidmodes, mode1_1bpp8x8)
 {
-    run_case(utest_result, "mode1_1bpp8x8", 640, 480);
+    run_case(utest_result, "mode1_1bpp8x8");
 }
 
 UTEST(vidmodes, mode1_4bpp8x16)
 {
-    run_case(utest_result, "mode1_4bpp8x16", 320, 240);
+    run_case(utest_result, "mode1_4bpp8x16");
 }
 
 UTEST(vidmodes, mode1_4bppr8x8)
 {
-    run_case(utest_result, "mode1_4bppr8x8", 320, 180);
+    run_case(utest_result, "mode1_4bppr8x8");
 }
 
 UTEST(vidmodes, mode1_8bpp8x8)
 {
-    run_case(utest_result, "mode1_8bpp8x8", 320, 240);
+    run_case(utest_result, "mode1_8bpp8x8");
 }
 
 UTEST(vidmodes, mode1_16bpp8x16)
 {
-    run_case(utest_result, "mode1_16bpp8x16", 640, 360);
+    run_case(utest_result, "mode1_16bpp8x16");
 }
 
 UTEST(vidmodes, mode2_1bpp8)
 {
-    run_case(utest_result, "mode2_1bpp8", 640, 480);
+    run_case(utest_result, "mode2_1bpp8");
 }
 
 UTEST(vidmodes, mode2_2bpp16)
 {
-    run_case(utest_result, "mode2_2bpp16", 320, 240);
+    run_case(utest_result, "mode2_2bpp16");
 }
 
 UTEST(vidmodes, mode2_4bpp8trim)
 {
-    run_case(utest_result, "mode2_4bpp8trim", 320, 240);
+    run_case(utest_result, "mode2_4bpp8trim");
 }
 
 UTEST(vidmodes, mode2_8bpp16wrap)
 {
-    run_case(utest_result, "mode2_8bpp16wrap", 320, 180);
+    run_case(utest_result, "mode2_8bpp16wrap");
 }
 
 UTEST(vidmodes, mode2_composite)
 {
-    run_case(utest_result, "mode2_composite", 320, 240);
+    run_case(utest_result, "mode2_composite");
 }
 
 UTEST(vidmodes, mode3_2bpp)
 {
-    run_case(utest_result, "mode3_2bpp", 320, 240);
+    run_case(utest_result, "mode3_2bpp");
 }
 
 UTEST(vidmodes, mode3_4bpp)
 {
-    run_case(utest_result, "mode3_4bpp", 640, 480);
+    run_case(utest_result, "mode3_4bpp");
 }
 
 UTEST(vidmodes, mode3_1bppr)
 {
-    run_case(utest_result, "mode3_1bppr", 320, 180);
+    run_case(utest_result, "mode3_1bppr");
 }
 
 UTEST(vidmodes, mode3_2bppr)
 {
-    run_case(utest_result, "mode3_2bppr", 640, 360);
+    run_case(utest_result, "mode3_2bppr");
 }
 
 UTEST(vidmodes, mode3_wrap)
 {
-    run_case(utest_result, "mode3_wrap", 320, 240);
+    run_case(utest_result, "mode3_wrap");
 }
 
 UTEST(vidmodes, mode1_wrap)
 {
-    run_case(utest_result, "mode1_wrap", 320, 240);
+    run_case(utest_result, "mode1_wrap");
 }
 
 UTEST(vidmodes, mode2_16trim)
 {
-    run_case(utest_result, "mode2_16trim", 320, 240);
+    run_case(utest_result, "mode2_16trim");
 }
 
 UTEST(vidmodes, mode2_trimx)
 {
-    run_case(utest_result, "mode2_trimx", 640, 480);
+    run_case(utest_result, "mode2_trimx");
 }
 
 UTEST(vidmodes, mode2_trimx8)
 {
-    run_case(utest_result, "mode2_trimx8", 320, 180);
+    run_case(utest_result, "mode2_trimx8");
 }
 
 UTEST(vidmodes, mode2_trimy)
 {
-    run_case(utest_result, "mode2_trimy", 320, 180);
+    run_case(utest_result, "mode2_trimy");
 }
 
 UTEST(vidmodes, mode5_8x8)
 {
-    run_case(utest_result, "mode5_8x8", 320, 240);
+    run_case(utest_result, "mode5_8x8");
 }
 
 UTEST(vidmodes, mode5_16x16)
 {
-    run_case(utest_result, "mode5_16x16", 320, 240);
+    run_case(utest_result, "mode5_16x16");
 }
 
 UTEST(vidmodes, mode5_32x32)
 {
-    run_case(utest_result, "mode5_32x32", 640, 480);
+    run_case(utest_result, "mode5_32x32");
 }
 
 UTEST(vidmodes, mode5_64x64)
 {
-    run_case(utest_result, "mode5_64x64", 320, 180);
+    run_case(utest_result, "mode5_64x64");
 }
 
 UTEST(vidmodes, mode4_8)
 {
-    run_case(utest_result, "mode4_8", 320, 240);
+    run_case(utest_result, "mode4_8");
 }
 
 UTEST(vidmodes, mode4_meta16)
 {
-    run_case(utest_result, "mode4_meta16", 320, 240);
+    run_case(utest_result, "mode4_meta16");
 }
 
 UTEST(vidmodes, mode4_32)
 {
-    run_case(utest_result, "mode4_32", 640, 480);
+    run_case(utest_result, "mode4_32");
 }
 
 UTEST(vidmodes, mode4_64)
 {
-    run_case(utest_result, "mode4_64", 320, 180);
+    run_case(utest_result, "mode4_64");
 }
 
 UTEST(vidmodes, mode4a_id)
 {
-    run_case(utest_result, "mode4a_id", 320, 240);
+    run_case(utest_result, "mode4a_id");
 }
 
 UTEST(vidmodes, mode4a_rot)
 {
-    run_case(utest_result, "mode4a_rot", 320, 240);
+    run_case(utest_result, "mode4a_rot");
 }
 
 UTEST(vidmodes, mode4a_clip)
 {
-    run_case(utest_result, "mode4a_clip", 640, 480);
+    run_case(utest_result, "mode4a_clip");
 }
 
 UTEST(vidmodes, sprite_stress)
 {
-    run_case(utest_result, "sprite_stress", 640, 480);
+    run_case(utest_result, "sprite_stress");
 }
 
 UTEST(vidmodes, mode5_1bpp128)
 {
-    run_case(utest_result, "mode5_1bpp128", 320, 240);
+    run_case(utest_result, "mode5_1bpp128");
 }
 
 UTEST(vidmodes, mode5_4bpp256)
 {
-    run_case(utest_result, "mode5_4bpp256", 640, 480);
+    run_case(utest_result, "mode5_4bpp256");
 }
 
 UTEST(vidmodes, mode4_sizes)
 {
-    run_case(utest_result, "mode4_sizes", 320, 240);
+    run_case(utest_result, "mode4_sizes");
 }
 
 UTEST(vidmodes, mode4a_sizes)
 {
-    run_case(utest_result, "mode4a_sizes", 320, 240);
+    run_case(utest_result, "mode4a_sizes");
 }
 
 UTEST(vidmodes, sprite_overrun_rom)
 {
-    run_case(utest_result, "sprite_overrun", 320, 240);
+    run_case(utest_result, "sprite_overrun");
 }
 
 UTEST(vidmodes, fill_heavy640)
 {
-    run_case(utest_result, "fill_heavy640", 640, 480);
+    run_case(utest_result, "fill_heavy640");
 }
 
 UTEST(vidmodes, mode0_overlay)
 {
-    run_case(utest_result, "mode0_overlay", 640, 480);
+    run_case(utest_result, "mode0_overlay");
 }
 
 UTEST(vidmodes, mode0_win360)
 {
-    run_case(utest_result, "mode0_win360", 640, 360);
+    run_case(utest_result, "mode0_win360");
 }
 
 UTEST(vidmodes, mode0_win240)
 {
-    run_case(utest_result, "mode0_win240", 320, 240);
+    run_case(utest_result, "mode0_win240");
 }
 
 UTEST(vidmodes, mode0_win180)
 {
-    run_case(utest_result, "mode0_win180", 320, 180);
+    run_case(utest_result, "mode0_win180");
 }
 
 UTEST(vidmodes, mode0_return)
 {
-    run_case(utest_result, "mode0_return", 640, 480);
+    run_case(utest_result, "mode0_return");
 }
 
 UTEST_MAIN_EMU()

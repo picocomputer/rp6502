@@ -32,9 +32,13 @@ if(NOT TARGET rp6502_test_corpus)
         ${RP6502_ROOT}/src/gen/rp6502_rom.py)
     # A stamp rather than the names: listing them here would be the same
     # duplication in a different file, and it would be wrong within a month.
+    # The manifest beside them is how a suite asks what it is looking at —
+    # the geometry the emulator's suite used to carry as forty-seven pairs of
+    # numbers, one of which was wrong.
     add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/roms.stamp
         COMMAND ${CMAKE_COMMAND} -E env python3
             ${RP6502_CORPUS_GEN} --out ${RP6502_TEST_CORPUS}
+            --emit-manifest ${RP6502_TEST_CORPUS}/manifest.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/roms.stamp
         DEPENDS ${RP6502_CORPUS_GEN} ${RP6502_CORPUS_ASM}
         COMMENT "Generating the video-mode ROM corpus"
@@ -171,7 +175,21 @@ rp6502_test_rom(fstest_rom GEN ${RP6502_ROOT}/src/gen/fstest_rom_gen.py
 # second it would cost more in process starts than it saves, which is why it is
 # asked for rather than assumed.
 function(rp6502_add_test name)
-    cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT" "SOURCES;LIBS;INCLUDES;DEFS" ${ARGN})
+    cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT"
+        "SOURCES;LIBS;INCLUDES;DEFS;LABELS" ${ARGN})
+
+    # What a test is about is the directory it lives in, and what it costs is
+    # which helper registered it. Both are already known here, so neither is
+    # asked for: a LABELS argument at every call site would be a third copy of
+    # two things the build can see, and the first to go stale would be the one
+    # nobody reruns. CMAKE_CURRENT_LIST_DIR inside a function is the caller's,
+    # which is the same reason relative SOURCES resolve.
+    file(RELATIVE_PATH _dir ${RP6502_TESTS_DIR} ${CMAKE_CURRENT_LIST_DIR})
+    string(REPLACE "/" "." _dir "${_dir}")
+    if(NOT T_LABELS)
+        set(T_LABELS c)
+    endif()
+    list(APPEND T_LABELS ${_dir})
 
     if(NOT T_SOURCES)
         set(T_SOURCES test_${name}.c)
@@ -237,6 +255,7 @@ function(rp6502_add_test name)
             set(_filter --filter=${_case})
         endif()
         add_test(NAME ${_case} COMMAND test_${name} ${_filter})
+        set_tests_properties(${_case} PROPERTIES LABELS "${T_LABELS}")
         if(T_TIMEOUT)
             set_tests_properties(${_case} PROPERTIES TIMEOUT ${T_TIMEOUT})
         endif()

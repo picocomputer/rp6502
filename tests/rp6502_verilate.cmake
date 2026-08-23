@@ -115,7 +115,7 @@ function(rp6502_add_module_test name)
     endif()
     # Built up rather than passed through: a bare TIMEOUT with nothing after
     # it is a parse warning, not a no-op.
-    set(_args SOURCES ${U_SOURCES})
+    set(_args SOURCES ${U_SOURCES} LABELS rtl module)
     foreach(kw INCLUDES DEFS LIBS TIMEOUT)
         if(U_${kw})
             list(APPEND _args ${kw} ${U_${kw}})
@@ -159,7 +159,14 @@ function(rp6502_add_machine_test name)
         set(M_PREFIX V${M_TOP})
     endif()
 
-    set(_args SOURCES ${M_SOURCES} INCLUDES ${RP6502_BENCH} ${RP6502_ASSETS} ${RP6502_SRC})
+    # Firmware is what the test costs as much as what it needs, so it is a
+    # label as well as the definitions it brings in below.
+    set(_labels rtl machine)
+    if(M_FIRMWARE)
+        list(APPEND _labels soft-cpu)
+    endif()
+    set(_args SOURCES ${M_SOURCES} LABELS ${_labels}
+        INCLUDES ${RP6502_BENCH} ${RP6502_ASSETS} ${RP6502_SRC})
     if(M_SPLIT)
         list(APPEND _args SPLIT)
     endif()

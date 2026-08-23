@@ -16,6 +16,20 @@ rp6502_add_test(tiles
 rp6502_add_test(vidmodes LIBS emu_core
     DEFS ROMS_DIR="${RP6502_TEST_CORPUS}" TIMEOUT 120)
 
+# The corpus against both its readers. Neither suite can enumerate what
+# vidmodes.py writes, and the case names are not the file names — test_modes
+# names its cases for what they prove — so the lists stay written by hand and
+# this says whether they are all there. Named in the emulator tree too, where
+# test_modes.cpp is never compiled: the question has one answer either way and
+# this is the tree that runs on every push.
+add_test(NAME vidmodes_corpus
+    COMMAND ${CMAKE_COMMAND} -E env python3
+        ${RP6502_ROOT}/src/gen/vidmodes_gate.py
+        --manifest ${RP6502_TEST_CORPUS}/manifest.txt
+        --suite ${CMAKE_CURRENT_LIST_DIR}/test_vidmodes.c
+        --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.cpp)
+set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;vid")
+
 if(RP6502_VERILATE)
     # The 640x480@60 raster at the two-clock render tick. The only test that
     # reads waveforms, so the only one built with tracing.
