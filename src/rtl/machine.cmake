@@ -94,9 +94,20 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(SW_SRC ${RP6502_SRC}/rtl/sw)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
     # The firmware's own headers carry the hardware's addresses, so a
-    # window that moves has to rebuild the image that writes to it.
-    file(GLOB SW_HEADERS ${RP6502_SRC}/rtl/sw/*.h
-        ${RP6502_SRC}/rtl/sw/shim/*/*.h ${RP6502_SRC}/rtl/sw/shim/*/*/*.h)
+    # window that moves has to rebuild the image that writes to it. The rest
+    # are here because this image compiles core sources: globbing only
+    # rtl/sw left a core header edit rebuilding nothing, so the tests ran the
+    # previous firmware and the symbol diff compared an image to itself.
+    # Broader than the include list needs, which costs one gcc run; nothing
+    # re-verilates behind it. GLOB runs at configure time, so a header that
+    # did not exist then still needs a re-configure to be seen.
+    file(GLOB_RECURSE SW_HEADERS
+        ${RP6502_SRC}/rtl/sw/*.h
+        ${RP6502_SRC}/core/*.h
+        ${RP6502_SRC}/pico_shim/*.h
+        ${RP6502_SRC}/host/pocket/*.h
+        ${RP6502_SRC}/ria/*.h
+        ${RP6502_SRC}/vga/*.h)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/sst.c
