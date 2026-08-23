@@ -83,6 +83,23 @@ static void kbd_merge_keys(void)
             kbd_keys[k] |= kbd_connections[i].keys[k];
 }
 
+/* Word 0's low bits are not keys: bit 0 says nothing is pressed and bits
+ * 1-3 are the lock LEDs, so they are restated every time the block goes
+ * out. */
+static void kbd_publish(void)
+{
+    bool any_key = false;
+    kbd_keys[0] &= ~0xF;
+    for (int k = 0; k < 8; k++)
+        if (kbd_keys[k])
+            any_key = true;
+    if (!any_key)
+        kbd_keys[0] |= 1;
+    kbd_keys[0] |= (kbd_hid_leds & 7) << 1; // NUMLOCK CAPSLOCK SCROLLLOCK
+    if (kbd_xram != 0xFFFF)
+        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+}
+
 static void kbd_send_leds()
 {
     hid_set_leds(kbd_hid_leds);
@@ -214,21 +231,7 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
     // Check for releasing ALT key during ALT mode.
     kbt_modifiers(KBD_MODIFIER(kbd_keys));
 
-    // Check for no keys pressed.
-    bool any_key = false;
-    kbd_keys[0] &= ~0xF;
-    for (int k = 0; k < 8; k++)
-        if (kbd_keys[k])
-            any_key = true;
-    if (!any_key)
-        kbd_keys[0] |= 1;
-
-    // NUMLOCK CAPSLOCK SCROLLLOCK
-    kbd_keys[0] |= (kbd_hid_leds & 7) << 1;
-
-    // Send it to xram
-    if (kbd_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+    kbd_publish();
 }
 
 bool kbd_xreg(uint16_t word)
@@ -236,8 +239,7 @@ bool kbd_xreg(uint16_t word)
     if (word != 0xFFFF && word > 0x10000 - sizeof(kbd_keys))
         return false;
     kbd_xram = word;
-    if (kbd_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
+    kbd_publish();
     return true;
 }
 
@@ -260,5 +262,21 @@ void kbd_toggle_lock(uint8_t bit)
 {
     kbd_hid_leds ^= bit;
     kbd_send_leds();
+    kbd_publish();
+}
+
+/* A host whose OS decodes its own keyboard sets the bits a report would
+ * have set. Keycodes 0-3 are reserved -- none, and the rollover errors --
+ * and their bits in word 0 carry the no-keys and lock flags, so a key
+ * never touches them. */
+void kbd_hid_set(uint8_t keycode, bool down)
+{
+    if (keycode < 4)
+        return;
+    if (down)
+        KBD_KEY_BIT_SET(kbd_keys, keycode);
+    else
+        kbd_keys[keycode >> 5] &= ~(1u << (keycode & 31));
+    kbd_publish();
 }
 

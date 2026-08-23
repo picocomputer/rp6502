@@ -9,9 +9,9 @@
 #include "core/emu/app/png.h"
 #include "core/emu/emu/pro.h"
 #include "core/emu/hid/kbd.h"
-#include "core/emu/hid/mou.h"
+#include "core/hid/mou.h"
 #include "core/emu/hid/pad.h"
-#include "core/emu/hid/tab.h"
+#include "core/hid/tab.h"
 #include "core/emu/sys/com.h"
 #include "core/emu/sys/cpu.h"
 #include "core/emu/sys/mem.h"
@@ -287,10 +287,11 @@ static bool scr_address(char **p, uint8_t **base, long *addr)
 
 static void scr_pad_publish(int player)
 {
+    pad_connect(player, true, scr_pad[player].type, scr_pad[player].sticks);
     pad_host_report(player, scr_pad[player].dpad, scr_pad[player].button0,
                     scr_pad[player].button1, scr_pad[player].lx, scr_pad[player].ly,
                     scr_pad[player].rx, scr_pad[player].ry, scr_pad[player].lt,
-                    scr_pad[player].rt, scr_pad[player].type, scr_pad[player].sticks);
+                    scr_pad[player].rt);
 }
 
 static bool scr_canvas_crc(uint32_t *out)
@@ -334,9 +335,10 @@ static bool scr_cmd_pad(char *p)
                                  "playstation or sticks, not '%s'",
                                  word);
         }
-        pad_connect((int)player, connect);
         if (connect)
             scr_pad_publish((int)player); /* the claim lands now, not on first press */
+        else
+            pad_connect((int)player, false, PAD_TYPE_UNKNOWN, false);
         return true;
     }
     if (!scr_pad[player].connected)

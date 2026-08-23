@@ -12,7 +12,7 @@
  * mou.c XRAM mirror. This is the emulator's only IRQ-driven test.
  */
 
-#include "core/emu/hid/mou.h"
+#include "core/hid/mou.h"
 #include "core/emu/sys/mem.h"
 #include "core/emu/sys/cpu.h"
 #include "core/emu/sys/vga.h"

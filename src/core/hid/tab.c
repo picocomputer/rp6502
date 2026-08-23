@@ -20,35 +20,13 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define TAB_MAX_MICE 4
 
-/* XRAM report block. Every field is one byte, so each 6502 read is atomic; a
+/* XRAM report block, laid out in tab.h. Every field is one byte, so each 6502 read is atomic; a
  * multi-byte coordinate is delivered as a set of single-byte "windows", exactly
  * one non-zero, decoded first-non-zero-wins. An inactive contact reports flags=0;
  * X/Y are always kept within the canvas. wheel/pan are 8-bit wrapping
  * accumulators read like the mouse's (subtract the previous value). The ROM-owned
  * control byte leads the block so everything the firmware writes back — status,
  * wheel, pan, contacts — is one contiguous run. */
-#define TAB_MAX_CONTACTS 8
-#define TAB_HEADER_SIZE 4  /* control, status, wheel, pan */
-#define TAB_CONTACT_SIZE 6 /* flags, x0, x1, x2, y0, y1 */
-#define TAB_BLOCK_SIZE (TAB_HEADER_SIZE + TAB_MAX_CONTACTS * TAB_CONTACT_SIZE)
-
-#define TAB_OFF_CONTROL 0
-#define TAB_OFF_STATUS 1
-#define TAB_OFF_WHEEL 2
-#define TAB_OFF_PAN 3
-#define TAB_OFF_CONTACTS 4
-
-/* status (fw->ROM): host_cursor is always 0 on real hardware (no host cursor). */
-#define TAB_STATUS_HOST_CURSOR 0x01
-
-/* contact flags (b7 hover so the 6502 tests it with BIT/BMI). */
-#define TAB_FLAG_LEFT 0x01
-#define TAB_FLAG_RIGHT 0x02
-#define TAB_FLAG_MIDDLE 0x04
-#define TAB_FLAG_BTN4 0x08
-#define TAB_FLAG_BTN5 0x10
-#define TAB_FLAG_HOVER 0x80
-
 /* A relative mouse reports device counts (mickeys) far finer than a canvas
  * pixel, so it is tracked in a fixed reference resolution at the legacy mouse
  * rate (mou.c reports counts >>1) and then scaled to the canvas — so the ROM
@@ -59,6 +37,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 static uint8_t tab_state[TAB_BLOCK_SIZE];
 static uint16_t tab_xram;
+
+/* A machine that lends the ROM its own cursor says so in the status byte,
+ * which a fresh mapping has to carry too. A Pico has no such cursor and
+ * nothing here ever sets it. */
+static bool tab_host_cursor;
 
 /* Primary pointer, canvas space (what is written to XRAM). */
 static int16_t tab_x;
@@ -172,7 +155,9 @@ bool tab_xreg(uint16_t word)
     if (word != 0xFFFF && word > 0x10000 - TAB_BLOCK_SIZE)
         return false;
     tab_xram = word;
-    memset(tab_state, 0, sizeof(tab_state)); /* status host_cursor=0: no host cursor on hardware */
+    memset(tab_state, 0, sizeof(tab_state));
+    if (tab_host_cursor)
+        tab_state[TAB_OFF_STATUS] |= TAB_STATUS_HOST_CURSOR;
     for (int i = 0; i < TAB_MAX_CONTACTS; ++i)
         tab_clear_contact(i);
     if (tab_xram != 0xFFFF) /* one-time full write also seeds control=0 (ROM draws its own) */
@@ -353,4 +338,62 @@ void tab_report(int slot, uint8_t const *data, size_t size)
 
     tab_put_contact(0, (uint8_t)(buttons | (hover ? TAB_FLAG_HOVER : 0)), tab_x, tab_y);
     tab_write_xram();
+}
+
+bool tab_is_mapped(void)
+{
+    return tab_xram != 0xFFFF;
+}
+
+static void tab_set_host_cursor(bool on)
+{
+    tab_host_cursor = on;
+    if (on)
+        tab_state[TAB_OFF_STATUS] |= TAB_STATUS_HOST_CURSOR;
+    else
+        tab_state[TAB_OFF_STATUS] &= (uint8_t)~TAB_STATUS_HOST_CURSOR;
+}
+
+void tab_host_pointer(int x, int y, uint8_t buttons)
+{
+    tab_set_host_cursor(true);
+    tab_put_contact(0, (uint8_t)(buttons | TAB_FLAG_HOVER), x, y);
+    for (int i = 1; i < TAB_MAX_CONTACTS; ++i)
+        tab_clear_contact(i);
+    tab_write_xram();
+}
+
+void tab_host_touch(const tab_point_t *pts, int n)
+{
+    tab_set_host_cursor(false); // a finger has no cursor
+    if (n > TAB_MAX_CONTACTS)
+        n = TAB_MAX_CONTACTS;
+    for (int i = 0; i < n; ++i)
+        tab_put_contact(i, TAB_FLAG_LEFT, pts[i].x, pts[i].y); // tip down, no hover
+    for (int i = n; i < TAB_MAX_CONTACTS; ++i)
+        tab_clear_contact(i);
+    tab_write_xram();
+}
+
+void tab_host_clear(void)
+{
+    for (int i = 0; i < TAB_MAX_CONTACTS; ++i)
+        tab_clear_contact(i);
+    tab_write_xram();
+}
+
+void tab_host_wheel(int dwheel, int dpan)
+{
+    if (dwheel == 0 && dpan == 0)
+        return;
+    tab_state[TAB_OFF_WHEEL] = (uint8_t)(tab_state[TAB_OFF_WHEEL] + dwheel);
+    tab_state[TAB_OFF_PAN] = (uint8_t)(tab_state[TAB_OFF_PAN] + dpan);
+    tab_write_xram();
+}
+
+uint8_t tab_control(void)
+{
+    if (tab_xram == 0xFFFF)
+        return TAB_CURSOR_OFF;
+    return xram[tab_xram + TAB_OFF_CONTROL];
 }

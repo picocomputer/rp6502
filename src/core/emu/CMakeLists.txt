@@ -93,10 +93,15 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/emu/emu/aud.c
     ${RP6502_SRC}/core/emu/emu/rsmp.c
     ${RP6502_SRC}/core/emu/dbg/dbg.c
+    ${RP6502_SRC}/core/hid/hid.c
+    ${RP6502_SRC}/core/hid/kbd.c
+    ${RP6502_SRC}/core/hid/mou.c
+    ${RP6502_SRC}/core/hid/pad.c
+    ${RP6502_SRC}/core/hid/tab.c
+    ${RP6502_SRC}/core/emu/hid/hid.c
     ${RP6502_SRC}/core/emu/hid/kbd.c
-    ${RP6502_SRC}/core/emu/hid/mou.c
+    ${RP6502_SRC}/core/emu/hid/kbt.c
     ${RP6502_SRC}/core/emu/hid/pad.c
-    ${RP6502_SRC}/core/emu/hid/tab.c
     ${RP6502_SRC}/core/emu/emu/msc.c
     ${RP6502_SRC}/core/emu/emu/rom.c
     ${RP6502_SRC}/core/emu/emu/tmp.c

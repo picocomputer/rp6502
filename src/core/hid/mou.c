@@ -75,13 +75,18 @@ void mou_stop(void)
     mou_xram = 0xFFFF;
 }
 
+static void mou_write_xram(void)
+{
+    if (mou_xram != 0xFFFF)
+        memcpy((uint8_t *)&xram[mou_xram], &mou_state, sizeof(mou_state));
+}
+
 bool mou_xreg(uint16_t word)
 {
     if (word != 0xFFFF && word > 0x10000 - sizeof(mou_state))
         return false;
     mou_xram = word;
-    if (mou_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[mou_xram], &mou_state, sizeof(mou_state));
+    mou_write_xram();
     return true;
 }
 
@@ -196,7 +201,50 @@ void mou_report(int slot, uint8_t const *data, size_t size)
         mou_state.pan += hid_extract_signed(report_data, report_data_len,
                                             conn->pan_offset, conn->pan_size);
 
-    // Update XRAM with new state
-    if (mou_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[mou_xram], &mou_state, sizeof(mou_state));
+    mou_write_xram();
+}
+
+bool mou_is_mapped(void)
+{
+    return mou_xram != 0xFFFF;
+}
+
+/* A host whose OS decodes its own pointer has no report to hand over,
+ * so it moves the same counters a report would have. The block carries
+ * half of what a mouse counts, so a host count -- which is already in
+ * the block's units -- is doubled on the way in and arrives whole. */
+static float mou_acc_x, mou_acc_y;
+
+void mou_host_move(float dx, float dy)
+{
+    mou_acc_x += dx;
+    mou_acc_y += dy;
+    int ix = (int)mou_acc_x; // truncate toward zero; keep the remainder
+    int iy = (int)mou_acc_y;
+    if (ix == 0 && iy == 0)
+        return;
+    mou_acc_x -= ix;
+    mou_acc_y -= iy;
+    mou_x += (uint16_t)(ix * 2);
+    mou_y += (uint16_t)(iy * 2);
+    mou_state.x = mou_x >> 1;
+    mou_state.y = mou_y >> 1;
+    mou_write_xram();
+}
+
+void mou_host_wheel(int dwheel, int dpan)
+{
+    if (dwheel == 0 && dpan == 0)
+        return;
+    mou_state.wheel += (uint8_t)(int8_t)dwheel;
+    mou_state.pan += (uint8_t)(int8_t)dpan;
+    mou_write_xram();
+}
+
+void mou_host_buttons(uint8_t buttons)
+{
+    if (buttons == mou_state.buttons)
+        return;
+    mou_state.buttons = buttons;
+    mou_write_xram();
 }

@@ -33,6 +33,53 @@ void pad_stop(void);
 // Set the extended register value.
 bool pad_xreg(uint16_t word);
 
+// Whether a program has asked for this device's block.
+bool pad_is_mapped(void);
+
+#define PAD_PLAYERS 4
+
+/* A flat button id spanning the report's dpad/button0/button1 fields, for a
+ * host that decodes its own controller a button at a time. */
+typedef enum
+{
+    PAD_BTN_DPAD_UP,
+    PAD_BTN_DPAD_DOWN,
+    PAD_BTN_DPAD_LEFT,
+    PAD_BTN_DPAD_RIGHT,
+    PAD_BTN_A,
+    PAD_BTN_B,
+    PAD_BTN_C,
+    PAD_BTN_X,
+    PAD_BTN_Y,
+    PAD_BTN_Z,
+    PAD_BTN_L1,
+    PAD_BTN_R1,
+    PAD_BTN_L2,
+    PAD_BTN_R2,
+    PAD_BTN_SELECT,
+    PAD_BTN_START,
+    PAD_BTN_HOME,
+    PAD_BTN_L3,
+    PAD_BTN_R3,
+} pad_button_t;
+
+/* Plug or unplug a controller a host decodes for itself. Unplugging blanks
+ * the record; the type labels its face buttons and sticks says it has two. */
+void pad_connect(int player, bool connected, uint8_t type, bool sticks);
+
+// One button of such a controller.
+void pad_hid_set(int player, pad_button_t button, bool down);
+
+/* A whole report from one, in the block's own units: signed sticks, unsigned
+ * triggers, and the dpad and button bytes as the block carries them. */
+void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
+                     int lx, int ly, int rx, int ry, int lt, int rt);
+
+/* Set or clear one button in a report a host is assembling field by field,
+ * which is how the desktop backends read their controllers. */
+void pad_button_apply(pad_button_t button, bool down,
+                      uint8_t *dpad, uint8_t *button0, uint8_t *button1);
+
 // Parse HID report descriptor for gamepad. Devices recognized by vendor and
 // product id label themselves and ignore button_type.
 bool pad_mount(int slot, const hid_report_map_t *map,

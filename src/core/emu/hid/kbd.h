@@ -13,9 +13,9 @@
 
 #include "core/hid/kbd.h"
 
-/* Non-character keys, mapped to the same xterm/VT byte sequences the firmware
- * USB HID driver emits (core/hid/kbd.c). Printable keys arrive as UTF-8 text via
- * kbd_text() instead. */
+/* Non-character keys, mapped to the same xterm/VT byte sequences the
+ * firmware's terminal half emits (core/hid/kbt.c). Printable keys arrive as
+ * UTF-8 text via kbd_text() instead. */
 typedef enum
 {
     KBD_KEY_ENTER,
@@ -76,20 +76,8 @@ void kbd_paste_cancel(void);
 bool kbd_paste_busy(void);
 
 /* Per-frame service: the paste drip. Called from sys_run_frame so the window,
- * the headless batch and a script all pace a paste identically. (Also declared
- * by core/hid/kbd.h, where the firmware's key repeat lives in it.) */
+ * the headless batch and a script all pace a paste identically. */
 void kbd_task(void);
-
-/* HID keyboard bitmap (the xreg_ria_keyboard API), separate from the stdin
- * stream above. kbd_set_xram points it at an XRAM address (0xFFFF = off);
- * kbd_hid_set toggles a HID keycode's bit. Mirrors core/hid/kbd.c: word 0
- * bit 0 reads 1 when no keys are down. */
-bool kbd_set_xram(uint16_t addr);
-void kbd_hid_set(uint8_t hid_keycode, bool down);
-void kbd_stop(void);
-
-/* Toggle a lock LED in the HID bitmap (Num=1, Caps=2, Scroll=4). */
-void kbd_toggle_lock(uint8_t bit);
 
 /* Key names, for callers that take them as text rather than as an enum:
  * "a", "7", "up", "f5", "space", "lshift". kbd_hid_from_name answers with the

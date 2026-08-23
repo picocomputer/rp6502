@@ -32,7 +32,7 @@ static void pad_input_release(void)
     for (int player = 0; player < PAD_PLAYERS; player++)
         if (pad_input_player[player])
         {
-            pad_connect(player, false);
+            pad_connect(player, false, PAD_TYPE_UNKNOWN, false);
             pad_input_player[player] = 0;
         }
     pad_input_retry = 0;
@@ -81,7 +81,7 @@ void pad_input_task(void)
                 still_here = true;
         if (!still_here)
         {
-            pad_connect(player, false);
+            pad_connect(player, false, PAD_TYPE_UNKNOWN, false);
             pad_input_player[player] = 0;
         }
     }
@@ -104,8 +104,10 @@ void pad_input_task(void)
                 }
         if (player < 0)
             continue; /* more controllers than the machine has players */
+        /* A backend may only be sure of the labels after a poll or two,
+         * so what it claims is restated with every report. */
+        pad_connect(player, true, pad->type, pad->sticks);
         pad_host_report(player, pad->dpad, pad->button0, pad->button1,
-                        pad->lx, pad->ly, pad->rx, pad->ry, pad->lt, pad->rt,
-                        pad->type, pad->sticks);
+                        pad->lx, pad->ly, pad->rx, pad->ry, pad->lt, pad->rt);
     }
 }

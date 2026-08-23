@@ -137,6 +137,7 @@ typedef enum
     HID_IFACE_XIN,
     HID_IFACE_BLE,
     HID_IFACE_APF,
+    HID_IFACE_HOST, // a desktop OS, which decodes its own devices
 } hid_iface_t;
 
 /* Devices that at least one driver wanted. A machine with more physical

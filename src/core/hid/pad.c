@@ -110,6 +110,11 @@ typedef struct
 // Where in XRAM to place reports, 0xFFFF when disabled.
 static uint16_t pad_xram;
 
+/* The block as it stands, so a change to one field does not need the rest
+ * decoded again -- and so a host that decodes its own controller has
+ * somewhere to put what it decoded. */
+static pad_xram_t pad_reports[PAD_MAX_PLAYERS];
+
 // Parsed descriptor structure for fast report parsing.
 static pad_connection_t pad_connections[PAD_MAX_PLAYERS];
 
@@ -572,15 +577,19 @@ void pad_stop(void)
     pad_xram = 0xFFFF;
 }
 
-// Provides first and final updates in xram
-static void pad_reset_xram(int player)
+static void pad_publish(int player)
 {
     if (pad_xram == 0xFFFF)
         return;
-    pad_xram_t gamepad_report;
-    pad_parse_report(player, 0, 0, &gamepad_report); // get blank
     memcpy((uint8_t *)&xram[pad_xram + player * (sizeof(pad_xram_t))],
-           &gamepad_report, sizeof(pad_xram_t));
+           &pad_reports[player], sizeof(pad_xram_t));
+}
+
+// Provides first and final updates in xram
+static void pad_reset_xram(int player)
+{
+    pad_parse_report(player, 0, 0, &pad_reports[player]); // get blank
+    pad_publish(player);
 }
 
 bool pad_xreg(uint16_t word)
@@ -663,14 +672,8 @@ void pad_report(int slot, uint8_t const *data, uint16_t len)
         report_data_len = len - 1;
     }
 
-    // Parse report and send it to xram
-    if (pad_xram != 0xFFFF)
-    {
-        pad_xram_t gamepad_report;
-        pad_parse_report(player, report_data, report_data_len, &gamepad_report);
-        memcpy((uint8_t *)&xram[pad_xram + player * (sizeof(pad_xram_t))],
-               &gamepad_report, sizeof(pad_xram_t));
-    }
+    pad_parse_report(player, report_data, report_data_len, &pad_reports[player]);
+    pad_publish(player);
 }
 
 // This is for XBox One/Series gamepads which send
@@ -685,15 +688,11 @@ void pad_home_button(int slot, bool pressed)
     // Inject out of band home button into reports
     conn->home_pressed = pressed;
 
-    // Update the home button bit in xram
-    if (pad_xram != 0xFFFF)
-    {
-        volatile uint8_t *button1 = &xram[pad_xram + player * sizeof(pad_xram_t) + offsetof(pad_xram_t, button1)];
-        if (pressed)
-            *button1 |= (1 << (PAD_HOME_BUTTON - 8));
-        else
-            *button1 &= ~(1 << (PAD_HOME_BUTTON - 8));
-    }
+    if (pressed)
+        pad_reports[player].button1 |= (1 << (PAD_HOME_BUTTON - 8));
+    else
+        pad_reports[player].button1 &= ~(1 << (PAD_HOME_BUTTON - 8));
+    pad_publish(player);
 }
 
 // Build LED output report for player indicator on Sony controllers.
@@ -751,4 +750,109 @@ bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
     default:
         return false;
     }
+}
+
+bool pad_is_mapped(void)
+{
+    return pad_xram != 0xFFFF;
+}
+
+/* Where a flat button id sits in a report: which field, and which bit. */
+static bool pad_button_loc(pad_button_t button, int *field, uint8_t *mask)
+{
+    enum { PAD_F_DPAD, PAD_F_BUTTON0, PAD_F_BUTTON1 };
+    switch (button)
+    {
+    case PAD_BTN_DPAD_UP:    *field = PAD_F_DPAD;    *mask = 0x01; return true;
+    case PAD_BTN_DPAD_DOWN:  *field = PAD_F_DPAD;    *mask = 0x02; return true;
+    case PAD_BTN_DPAD_LEFT:  *field = PAD_F_DPAD;    *mask = 0x04; return true;
+    case PAD_BTN_DPAD_RIGHT: *field = PAD_F_DPAD;    *mask = 0x08; return true;
+    case PAD_BTN_A:          *field = PAD_F_BUTTON0; *mask = 0x01; return true;
+    case PAD_BTN_B:          *field = PAD_F_BUTTON0; *mask = 0x02; return true;
+    case PAD_BTN_C:          *field = PAD_F_BUTTON0; *mask = 0x04; return true;
+    case PAD_BTN_X:          *field = PAD_F_BUTTON0; *mask = 0x08; return true;
+    case PAD_BTN_Y:          *field = PAD_F_BUTTON0; *mask = 0x10; return true;
+    case PAD_BTN_Z:          *field = PAD_F_BUTTON0; *mask = 0x20; return true;
+    case PAD_BTN_L1:         *field = PAD_F_BUTTON0; *mask = 0x40; return true;
+    case PAD_BTN_R1:         *field = PAD_F_BUTTON0; *mask = 0x80; return true;
+    case PAD_BTN_L2:         *field = PAD_F_BUTTON1; *mask = 0x01; return true;
+    case PAD_BTN_R2:         *field = PAD_F_BUTTON1; *mask = 0x02; return true;
+    case PAD_BTN_SELECT:     *field = PAD_F_BUTTON1; *mask = 0x04; return true;
+    case PAD_BTN_START:      *field = PAD_F_BUTTON1; *mask = 0x08; return true;
+    case PAD_BTN_HOME:       *field = PAD_F_BUTTON1; *mask = 0x10; return true;
+    case PAD_BTN_L3:         *field = PAD_F_BUTTON1; *mask = 0x20; return true;
+    case PAD_BTN_R3:         *field = PAD_F_BUTTON1; *mask = 0x40; return true;
+    }
+    return false;
+}
+
+void pad_button_apply(pad_button_t button, bool down,
+                      uint8_t *dpad, uint8_t *button0, uint8_t *button1)
+{
+    int field;
+    uint8_t mask;
+    if (!pad_button_loc(button, &field, &mask))
+        return;
+    uint8_t *target = field == 0 ? dpad : field == 1 ? button0 : button1;
+    if (down)
+        *target |= mask;
+    else
+        *target &= (uint8_t)~mask;
+}
+
+void pad_connect(int player, bool connected, uint8_t type, bool sticks)
+{
+    if (player < 0 || player >= PAD_PLAYERS)
+        return;
+    pad_xram_t *report = &pad_reports[player];
+    if (connected)
+        report->dpad = (uint8_t)((report->dpad & 0x0F) | PAD_FEAT_CONNECTED |
+                                 PAD_FEAT_TYPE(type) | (sticks ? PAD_FEAT_STICKS : 0));
+    else
+        memset(report, 0, sizeof(*report)); // a blank record is unplugged
+    pad_publish(player);
+}
+
+void pad_hid_set(int player, pad_button_t button, bool down)
+{
+    if (player < 0 || player >= PAD_PLAYERS)
+        return;
+    pad_xram_t *report = &pad_reports[player];
+    uint8_t dpad = report->dpad & 0x0F;
+    pad_button_apply(button, down, &dpad, &report->button0, &report->button1);
+    report->dpad = (uint8_t)((report->dpad & 0xF0) | (dpad & 0x0F));
+    pad_publish(player);
+}
+
+void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
+                     int lx, int ly, int rx, int ry, int lt, int rt)
+{
+    if (player < 0 || player >= PAD_PLAYERS)
+        return;
+    pad_xram_t *report = &pad_reports[player];
+
+    /* The analog triggers and the L2/R2 buttons imply each other, the same
+     * way a parsed report makes them: a digital press with no analog reads
+     * full scale, and past-deadzone analog asserts the button. */
+    if ((button1 & 0x01) && lt == 0)
+        lt = 255;
+    if ((button1 & 0x02) && rt == 0)
+        rt = 255;
+    if (lt > PAD_DEADZONE)
+        button1 |= 0x01;
+    if (rt > PAD_DEADZONE)
+        button1 |= 0x02;
+
+    report->dpad = (uint8_t)((report->dpad & 0xF0) | (dpad & 0x0F));
+    report->button0 = button0;
+    report->button1 = button1;
+    report->lx = (int8_t)lx;
+    report->ly = (int8_t)ly;
+    report->rx = (int8_t)rx;
+    report->ry = (int8_t)ry;
+    report->lt = (uint8_t)lt;
+    report->rt = (uint8_t)rt;
+    report->sticks = (uint8_t)(pad_encode_stick(report->lx, report->ly) |
+                               (pad_encode_stick(report->rx, report->ry) << 4));
+    pad_publish(player);
 }

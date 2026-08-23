@@ -220,7 +220,7 @@
       // browser only touches the gamepad while a ROM asks for it.
       function initGamepadBridge() {
         var mapped = Module._pad_mapped;
-        var report = Module._pad_report;
+        var report = Module._pad_host;
         var disconnect = Module._pad_disconnect;
         if (!mapped || !report || !disconnect) return; // exports absent
 

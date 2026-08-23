@@ -19,9 +19,9 @@
 #include "core/emu/sys/vga.h"
 #include "core/emu/emu/via.h"
 #include "core/emu/hid/kbd.h"
-#include "core/emu/hid/mou.h"
+#include "core/hid/mou.h"
 #include "core/emu/hid/pad.h"
-#include "core/emu/hid/tab.h"
+#include "core/hid/tab.h"
 #include "core/emu/sys/ria.h"
 #include "core/api/api.h"
 #include "core/api/atr.h"
@@ -104,13 +104,13 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
     if (channel == 0) /* human interface devices -> XRAM report blocks */
     {
         if (address == 0)
-            return kbd_set_xram(word);
+            return kbd_xreg(word);
         if (address == 1)
-            return mou_set_xram(word);
+            return mou_xreg(word);
         if (address == 2)
-            return pad_set_xram(word);
+            return pad_xreg(word);
         if (address == 3)
-            return tab_set_xram(word);
+            return tab_xreg(word);
         return false;
     }
     if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */

@@ -49,15 +49,15 @@ UTEST(gamepad, xram_mirror)
     pad_stop();
 
     /* The block must fit below 0x10000; 40 bytes won't fit above 0xFFD8. */
-    ASSERT_FALSE(pad_set_xram(0xFFD9));
-    ASSERT_TRUE(pad_set_xram(0xFFD8));
-    ASSERT_TRUE(pad_set_xram(0xFF78)); /* an arbitrary in-range address */
+    ASSERT_FALSE(pad_xreg(0xFFD9));
+    ASSERT_TRUE(pad_xreg(0xFFD8));
+    ASSERT_TRUE(pad_xreg(0xFF78)); /* an arbitrary in-range address */
 
     /* Unplugged: the whole 10-byte record reads as zero (no connected bit). */
     for (int i = 0; i < 10; i++)
         ASSERT_EQ(xram[0xFF78 + i], 0);
 
-    pad_connect(0, true);
+    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78 + 0] & 0x80, 0x80);
 
     pad_hid_set(0, PAD_BTN_DPAD_LEFT, true);
@@ -72,19 +72,19 @@ UTEST(gamepad, xram_mirror)
     ASSERT_EQ(xram[0xFF78 + 0] & 0x80, 0x80);
 
     /* Player 1 lives at +10 and is independent of player 0. */
-    pad_connect(1, true);
+    pad_connect(1, true, PAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78 + 10] & 0x80, 0x80);
     ASSERT_EQ(xram[0xFF78 + 10] & 0x0F, 0x00);
 
     /* Unplugging blanks the whole record. */
-    pad_connect(0, false);
+    pad_connect(0, false, PAD_TYPE_UNKNOWN, false);
     for (int i = 0; i < 10; i++)
         ASSERT_EQ(xram[0xFF78 + i], 0);
 
     /* pad_stop unmaps the block: later input must not touch XRAM. */
     xram[0xFF78] = 0xAB;
     pad_stop();
-    pad_connect(0, true);
+    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78], 0xAB);
 }
 
@@ -104,7 +104,7 @@ UTEST(gamepad, connected_pad_renders)
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL); /* all four unplugged */
     ASSERT_TRUE(strstr(cap, "Select") == NULL);       /* no connected button row */
 
-    pad_connect(0, true);
+    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
     pad_hid_set(0, PAD_BTN_START, true);
     run(10);
 

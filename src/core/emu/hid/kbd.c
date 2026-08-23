@@ -3,75 +3,22 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * What a keystroke types, on a machine whose OS already knows.
+ *
+ * The firmware turns HID keycodes into characters through its own layout
+ * tables, because a Pico has nobody to ask. A desktop OS has done that
+ * work before the keystroke arrives, so this takes the text and leaves
+ * the keycodes to core/hid/kbd.c, which keeps the bitmap a program polls.
  */
 
 #include "core/api/oem.h"
 #include "core/emu/hid/kbd.h"
-#include "core/emu/sys/mem.h"
 #include "core/emu/sys/com.h"
+#include "core/hid/kbd.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-
-/* ------------------------------------------------------------------ */
-/* HID keyboard bitmap (xreg_ria_keyboard API)                         */
-/* ------------------------------------------------------------------ */
-
-/* 256-bit key bitmap written to XRAM, mirroring core/hid/kbd.c. Word 0's low
- * bits are reserved: bit 0 = "no keys pressed", bits 1-3 = lock LEDs. */
-static uint32_t kbd_keys[8] = {1}; /* idle: no keys down */
-static uint16_t kbd_xram = 0xFFFF; /* 0xFFFF = not mapped */
-static uint8_t kbd_leds;           /* firmware LED bit order: Num=1, Caps=2, Scroll=4 */
-
-static void kbd_write_xram(void)
-{
-    kbd_keys[0] &= ~0xFu; /* clear the reserved flag bits */
-    bool any = false;
-    for (int k = 0; k < 8; k++)
-        if (kbd_keys[k])
-            any = true;
-    if (!any)
-        kbd_keys[0] |= 1;
-    kbd_keys[0] |= (kbd_leds & 7) << 1;
-    if (kbd_xram != 0xFFFF)
-        memcpy((uint8_t *)&xram[kbd_xram], kbd_keys, sizeof(kbd_keys));
-}
-
-bool kbd_set_xram(uint16_t addr)
-{
-    if (addr != 0xFFFF && addr > 0x10000 - sizeof(kbd_keys))
-        return false;
-    kbd_xram = addr;
-    kbd_write_xram();
-    return true;
-}
-
-void kbd_hid_set(uint8_t hid_keycode, bool down)
-{
-    /* Keycodes 0-3 are reserved (none / error rollover); their bits in word 0
-     * are the "no keys"/lock flags, so never let a key toggle them. */
-    if (hid_keycode < 4)
-        return;
-    if (down)
-        kbd_keys[hid_keycode >> 5] |= 1u << (hid_keycode & 31);
-    else
-        kbd_keys[hid_keycode >> 5] &= ~(1u << (hid_keycode & 31));
-    kbd_write_xram();
-}
-
-void kbd_stop(void)
-{
-    memset(kbd_keys, 0, sizeof(kbd_keys));
-    kbd_keys[0] = 1; /* no keys down */
-    kbd_xram = 0xFFFF;
-}
-
-void kbd_toggle_lock(uint8_t bit)
-{
-    kbd_leds ^= bit;
-    kbd_write_xram();
-}
 
 void kbd_text(const char *utf8)
 {
@@ -81,11 +28,6 @@ void kbd_text(const char *utf8)
     unsigned char oem;
     while ((oem = oem_from_utf8_next(&p)))
         com_kbd_push_byte(oem);
-}
-
-/* No dead-key cache in the emulator; conversion happens per keystroke. */
-void kbt_rebuild_code_page_cache(void)
-{
 }
 
 /* C0 promotion of a printable byte, mirroring the firmware kbd_ctrl_promote.

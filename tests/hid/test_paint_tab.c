@@ -11,7 +11,7 @@
  * first-non-zero decode -> the sprite. No capture / no VIA IRQ, unlike the mouse.
  */
 
-#include "core/emu/hid/tab.h"
+#include "core/hid/tab.h"
 #include "core/emu/sys/cpu.h"
 #include "core/emu/sys/mem.h"
 #include "core/emu/sys/vga.h"

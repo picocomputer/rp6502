@@ -239,7 +239,7 @@ bool rp6502_android_input_hook(const void* native_event)
                             g_android_ry = 0;
                             g_android_lt = 0;
                             g_android_rt = 0;
-                            pad_connect(0, true);
+                            pad_connect(0, true, PAD_TYPE_UNKNOWN, true);
                             g_android_menu_active = false;
                         }
                         return 1;
@@ -333,11 +333,9 @@ bool rp6502_android_input_hook(const void* native_event)
             default:
                 return 0; // Not handled
         }
-        // Sticks unconditionally: the motion handler reads AXIS_X/Y/Z/RZ from
-        // whatever is attached. Android never says whose labels these are.
         pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
                         g_android_lx, g_android_ly, g_android_rx, g_android_ry,
-                        g_android_lt, g_android_rt, PAD_TYPE_UNKNOWN, true);
+                        g_android_lt, g_android_rt);
         return 1; // Handled
     }
     else if (type == AINPUT_EVENT_TYPE_MOTION)
@@ -395,7 +393,7 @@ bool rp6502_android_input_hook(const void* native_event)
 
         pad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
                         g_android_lx, g_android_ly, g_android_rx, g_android_ry,
-                        g_android_lt, g_android_rt, PAD_TYPE_UNKNOWN, true);
+                        g_android_lt, g_android_rt);
         return 1; // Handled
     }
     return 0; // Not handled
@@ -486,8 +484,10 @@ sapp_desc sokol_main(int argc, char* argv[])
         android_scan_roms();
     }
 
-    // Connect gamepad player 0
-    pad_connect(0, true);
+    /* Connect gamepad player 0. Sticks unconditionally: the motion handler
+     * reads AXIS_X/Y/Z/RZ from whatever is attached, and Android never says
+     * whose labels these are. */
+    pad_connect(0, true, PAD_TYPE_UNKNOWN, true);
 
     // Seed the core's window/render state (also sets the vga framebuffer to
     // android_fb). Android opens at a fixed 640x480, so the computed size is unused.

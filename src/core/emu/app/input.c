@@ -9,8 +9,8 @@
 
 #include "core/emu/app/window.h"
 #include "core/emu/hid/kbd.h"
-#include "core/emu/hid/mou.h"
-#include "core/emu/hid/tab.h"
+#include "core/hid/mou.h"
+#include "core/hid/tab.h"
 #include "core/emu/sys/vga.h"
 #include "sokol/sokol_app.h"
 #include <math.h>

@@ -47,4 +47,7 @@ bool kbd_key_down(uint8_t keycode);
 uint8_t kbd_get_leds(void);
 void kbd_toggle_lock(uint8_t bit);
 
+// A host that decodes its own keyboard, in place of a report.
+void kbd_hid_set(uint8_t keycode, bool down);
+
 #endif /* _CORE_HID_KBD_H_ */
