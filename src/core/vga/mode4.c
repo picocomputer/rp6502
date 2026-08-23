@@ -9,7 +9,7 @@
 // is based on the sprite system used for the RISCBoy games console.
 
 #include "core/vga/mode4.h"
-#include "vga/sys/mem.h"
+#include "core/mem.h"
 #include "vga/sys/vga.h"
 #include <pico/stdlib.h>
 #if PICO_ON_DEVICE

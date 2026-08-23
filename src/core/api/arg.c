@@ -5,7 +5,7 @@
  */
 
 #include "core/api/arg.h"
-#include "ria/sys/mem.h"
+#include "core/mem.h"
 #include <string.h>
 
 // Layout: offset[0], offset[1], ..., offset[n-1], {0,0}, str[0], ..., str[n-1].

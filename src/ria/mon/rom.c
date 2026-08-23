@@ -15,6 +15,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
+#include "ria/sys/mem.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"

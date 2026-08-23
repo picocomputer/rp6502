@@ -10,6 +10,7 @@
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria.pio.h"

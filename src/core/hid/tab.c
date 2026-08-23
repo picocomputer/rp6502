@@ -6,7 +6,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/tab.h"
-#include "ria/sys/mem.h"
+#include "core/mem.h"
 #include "ria/sys/vga.h"
 #include <pico.h>
 #include <string.h>

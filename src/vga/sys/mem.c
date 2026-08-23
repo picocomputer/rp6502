@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "vga/sys/mem.h"
+#include "core/mem.h"
 #include <pico.h>
 #include <stdalign.h>
 

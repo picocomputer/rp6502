@@ -7,7 +7,7 @@
 #include "core/aud/aud.h"
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
-#include "ria/sys/mem.h"
+#include "core/mem.h"
 #include <pico/stdlib.h>
 #include <stddef.h>
 #include <string.h>

@@ -6,7 +6,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/mou.h"
-#include "ria/sys/mem.h"
+#include "core/mem.h"
 #include <pico.h>
 #include <string.h>
 

@@ -7,7 +7,7 @@
 #include "vga/main.h"
 #include "vga.pio.h"
 #include "vga/sys/com.h"
-#include "vga/sys/mem.h"
+#include "core/mem.h"
 #include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
 #include "vga/sys/sys.h"
