@@ -7,7 +7,8 @@
 #ifndef _CORE_HID_KBD_H_
 #define _CORE_HID_KBD_H_
 
-/* HID Keyboard driver
+/* Which keys are down, as a bitmap the 6502 polls. What that spells is
+ * core/hid/kbt.h.
  */
 
 #include <stddef.h>
@@ -18,14 +19,7 @@
  */
 
 void kbd_init(void);
-void kbd_task(void);
 void kbd_stop(void);
-
-// Responder prints all keyboard layout options.
-int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned width);
-
-// Called when code page changes so cache can be rebuilt.
-void kbd_rebuild_code_page_cache(void);
 
 // Attempt to mount this HID descriptor
 bool kbd_mount(int slot, uint8_t const *desc_data, uint16_t desc_len,
@@ -43,15 +37,12 @@ uint8_t kbd_get_report_id(int slot);
 // Set the extended register value.
 bool kbd_xreg(uint16_t word);
 
-// Drain the keyboard queue into buf
-size_t kbd_stdio_in_chars(char *buf, size_t length);
-
-// Configuration setting KB
-#define KBD_LAYOUT_LIST_SIZE 40
-void kbd_load_layout(const char *str);
-bool kbd_set_layout(const char *list);
-const char *kbd_get_layout_list(void);
-const char *kbd_get_layout(void);
-const char *kbd_get_layout_verbose(void);
+/* What the terminal half needs back: the merged modifier byte, whether a
+ * key is still held (auto-repeat asks), and the lock lamps, which live here
+ * because they also ride in the bitmap the 6502 reads. */
+uint8_t kbd_get_modifier(void);
+bool kbd_key_down(uint8_t keycode);
+uint8_t kbd_get_leds(void);
+void kbd_toggle_lock(uint8_t bit);
 
 #endif /* _CORE_HID_KBD_H_ */

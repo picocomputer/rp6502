@@ -8,7 +8,7 @@
 #include "core/api/oem.h"
 #include "core/api/uni.h"
 #include "core/hid/kbd.h"
-#include "core/hid/kbl.h"
+#include "core/hid/kbt.h"
 #include "core/hid/hid.h"
 #include "core/cfg.h"
 #include "host.h"
@@ -38,37 +38,9 @@ static const struct
     {0x04D9, 0x0006}, // Raspberry Pi Keyboard
 };
 
-#define KBD_REPEAT_DELAY 500000
-#define KBD_REPEAT_RATE 30000
-
-#define KBD_KEY_QUEUE_SIZE 16
-
-static bool kbd_layout_loaded;
-static int kbd_layout_index;
-static char kbd_layout_list[KBD_LAYOUT_LIST_SIZE];
-static const char *kbd_layout_pos;
 static uint16_t kbd_xram;
-static host_deadline_t kbd_repeat_timer;
-static uint8_t kbd_repeat_modifier;
-static uint8_t kbd_repeat_keycode;
-static char kbd_key_queue[KBD_KEY_QUEUE_SIZE];
-static uint8_t kbd_key_queue_head;
-static uint8_t kbd_key_queue_tail;
 static uint8_t kbd_hid_leds;
 static uint32_t kbd_keys[8];
-static bool kbd_alt_mode;
-static uint8_t kbd_alt_code;
-static char kbd_dead_key0;
-static char kbd_dead_key1;
-
-// Dead keys checks need a linear search with oem (8-bit) chars.
-// This can require hundreds of unicode lookups from flash.
-// To make this faster, we cache the oem chars in RAM.
-#define KBD_DEADKEY_CACHE_SIZE 512
-static char kbd_deadkey_cache[KBD_DEADKEY_CACHE_SIZE];
-static char const (*kbd_cached_dead2)[3];
-static char const (*kbd_cached_dead3)[4];
-
 typedef struct
 {
     bool valid;
@@ -88,11 +60,6 @@ static kbd_connection_t kbd_connections[KBD_MAX_KEYBOARDS];
 
 // Direct access to the modifier byte of kbd_keys
 #define KBD_MODIFIER(keys) ((uint8_t *)keys)[HID_KEY_CONTROL_LEFT >> 3]
-
-// The active layout's name and description, copied out of the database
-// so the settings pattern can keep returning a pointer.
-static char kbd_layout_name[KBL_NAME_MAX];
-static char kbd_layout_description[KBL_DESC_MAX];
 
 static kbd_connection_t *kbd_get_connection_by_slot(int slot)
 {
@@ -121,606 +88,17 @@ static void kbd_send_leds()
     hid_set_leds(kbd_hid_leds);
 }
 
-static void kbd_queue_str(const char *str)
-{
-    // All or nothing
-    size_t len = strlen(str);
-    size_t used = (KBD_KEY_QUEUE_SIZE + kbd_key_queue_head - kbd_key_queue_tail) % KBD_KEY_QUEUE_SIZE;
-    if (len > KBD_KEY_QUEUE_SIZE - 1 - used)
-        return;
-    while (*str)
-    {
-        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-        kbd_key_queue[kbd_key_queue_head] = *str++;
-    }
-}
-
-static void kbd_queue_vt100(char c0, char c1, int ansi_mod)
-{
-
-    char s[16];
-    if (ansi_mod == 1)
-        snprintf(s, 16, "\33%c%c", c0, c1);
-    else
-        snprintf(s, 16, "\33[1;%d%c", ansi_mod, c1);
-    return kbd_queue_str(s);
-}
-
-static void kbd_queue_vt220(int num, int ansi_mod)
-{
-    char s[16];
-    if (ansi_mod == 1)
-        snprintf(s, 16, "\33[%d~", num);
-    else
-        snprintf(s, 16, "\33[%d;%d~", num, ansi_mod);
-    return kbd_queue_str(s);
-}
-
-static void kbd_queue_char(char ch)
-{
-    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
-    {
-        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-        kbd_key_queue[kbd_key_queue_head] = ch;
-    }
-}
-
-static void kbd_queue_char_char(char ch0, char ch1)
-{
-    if ((kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail &&
-        (kbd_key_queue_head + 2) % KBD_KEY_QUEUE_SIZE != kbd_key_queue_tail)
-    {
-        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-        kbd_key_queue[kbd_key_queue_head] = ch0;
-        kbd_key_queue_head = (kbd_key_queue_head + 1) % KBD_KEY_QUEUE_SIZE;
-        kbd_key_queue[kbd_key_queue_head] = ch1;
-    }
-}
-
-static char kbd_ctrl_promote(char ch, uint8_t keycode)
-{
-    if (ch >= '`' && ch <= '~')
-        return ch - 96;
-    if (ch >= '@' && ch <= '_')
-        return ch - 64;
-    if (keycode == HID_KEY_BACKSPACE)
-        return '\b';
-    return 0;
-}
-
-// Resolve kbd_layout_index from kbd_layout_pos and rebuild the cache.
-static void kbd_apply_active(void)
-{
-    size_t len = 0;
-    while (kbd_layout_pos[len] && kbd_layout_pos[len] != ' ')
-        len++;
-    for (int i = 0; i < kbl_count(); i++)
-    {
-        char name[KBL_NAME_MAX];
-        kbl_name(i, name);
-        if (strlen(name) == len && !strncmp(kbd_layout_pos, name, len))
-        {
-            kbd_layout_index = i;
-            break;
-        }
-    }
-    kbl_name(kbd_layout_index, kbd_layout_name);
-    kbl_description(kbd_layout_index, kbd_layout_description);
-    kbd_rebuild_code_page_cache();
-}
-
-static void kbd_cycle_layout(void)
-{
-    const char *p = kbd_layout_pos;
-    while (*p && *p != ' ')
-        p++;
-    while (*p == ' ')
-        p++;
-    if (!*p)
-        p = kbd_layout_list;
-    if (p == kbd_layout_pos)
-        return;
-    kbd_layout_pos = p;
-    kbd_apply_active();
-}
-
-static void kbd_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
-{
-    bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
-    bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
-    bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
-    bool key_gui = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
-    bool is_numlock = kbd_hid_leds & KEYBOARD_LED_NUMLOCK;
-    bool is_capslock = kbd_hid_leds & KEYBOARD_LED_CAPSLOCK;
-    // Set up for repeat
-    kbd_repeat_modifier = modifier;
-    kbd_repeat_keycode = keycode;
-    kbd_repeat_timer = host_deadline_us(initial_press ? KBD_REPEAT_DELAY : KBD_REPEAT_RATE);
-    // When not in numlock, and not shifted, remap num pad
-    if (keycode >= HID_KEY_KEYPAD_1 &&
-        keycode <= HID_KEY_KEYPAD_DECIMAL &&
-        (!is_numlock || key_shift))
-    {
-        if (is_numlock)
-            key_shift = false;
-        switch (keycode)
-        {
-        case HID_KEY_KEYPAD_1:
-            keycode = HID_KEY_END;
-            break;
-        case HID_KEY_KEYPAD_2:
-            keycode = HID_KEY_ARROW_DOWN;
-            break;
-        case HID_KEY_KEYPAD_3:
-            keycode = HID_KEY_PAGE_DOWN;
-            break;
-        case HID_KEY_KEYPAD_4:
-            keycode = HID_KEY_ARROW_LEFT;
-            break;
-        case HID_KEY_KEYPAD_5:
-            keycode = HID_KEY_NONE;
-            break;
-        case HID_KEY_KEYPAD_6:
-            keycode = HID_KEY_ARROW_RIGHT;
-            break;
-        case HID_KEY_KEYPAD_7:
-            keycode = HID_KEY_HOME;
-            break;
-        case HID_KEY_KEYPAD_8:
-            keycode = HID_KEY_ARROW_UP;
-            break;
-        case HID_KEY_KEYPAD_9:
-            keycode = HID_KEY_PAGE_UP;
-            break;
-        case HID_KEY_KEYPAD_0:
-            keycode = HID_KEY_INSERT;
-            break;
-        case HID_KEY_KEYPAD_DECIMAL:
-            keycode = HID_KEY_DELETE;
-            break;
-        }
-    }
-    // ALT codes
-    if (kbd_alt_mode || (keycode >= HID_KEY_KEYPAD_1 &&
-                         keycode <= HID_KEY_KEYPAD_0 &&
-                         key_alt))
-    {
-        if (!kbd_alt_mode)
-        {
-            kbd_alt_mode = true;
-            kbd_alt_code = 0;
-        }
-        if (keycode >= HID_KEY_KEYPAD_1 && keycode <= HID_KEY_KEYPAD_0)
-        {
-            kbd_alt_code *= 10;
-            if (keycode < HID_KEY_KEYPAD_0)
-                kbd_alt_code += keycode - HID_KEY_KEYPAD_1 + 1;
-        }
-        return;
-    }
-    // Shift and caps lock logic
-    bool use_caps_lock = keycode < 128 && kbl_use_caps(kbd_layout_index, keycode);
-    bool is_shifted = key_shift ^ (is_capslock && use_caps_lock);
-    // Find plain typed or AltGr character
-    uint16_t code_page = oem_get_code_page_run();
-    char ch = 0;
-    if (keycode < 128 && !(modifier & (KEYBOARD_MODIFIER_LEFTALT |
-                                       KEYBOARD_MODIFIER_LEFTGUI |
-                                       KEYBOARD_MODIFIER_RIGHTGUI)))
-    {
-        unsigned col = ((modifier & KEYBOARD_MODIFIER_RIGHTALT) ? KBL_ALTGR : 0) |
-                       (is_shifted ? KBL_SHIFT : 0);
-        ch = ff_uni2oem(kbl_code_point(kbd_layout_index, keycode, col), code_page);
-    }
-    // ALT characters not found in AltGr get escaped
-    if (key_alt && !ch && keycode < 128)
-    {
-        ch = ff_uni2oem(kbl_code_point(kbd_layout_index, keycode,
-                                       is_shifted ? KBL_SHIFT : KBL_PLAIN),
-                        code_page);
-        if (key_ctrl)
-        {
-            char c = kbd_ctrl_promote(ch, keycode);
-            if (c)
-                ch = c;
-        }
-        if (ch)
-        {
-            kbd_queue_char_char('\33', ch);
-            return;
-        }
-    }
-    // Promote ctrl characters
-    if (key_ctrl)
-        ch = kbd_ctrl_promote(ch, keycode);
-    // Latch a SIGINT even if com not draining
-    if (ch == 0x03)
-        ria_trigger_sigint();
-    // Process a regularly typed key
-    if (ch)
-    {
-        // Check for dead key start
-        if (!kbd_dead_key0)
-        {
-            for (int i = 0; kbd_cached_dead2[i][0]; i++)
-            {
-                if (ch == kbd_cached_dead2[i][0])
-                {
-                    kbd_dead_key0 = ch;
-                    return;
-                }
-            }
-            for (int i = 0; kbd_cached_dead3[i][0]; i++)
-            {
-                if (ch == kbd_cached_dead3[i][0] ||
-                    ch == kbd_cached_dead3[i][1])
-                {
-                    kbd_dead_key0 = ch;
-                    return;
-                }
-            }
-        }
-        // Handle second press in dead key sequence
-        if (kbd_dead_key0 && !kbd_dead_key1)
-        {
-            if (ch == ' ')
-            {
-                kbd_queue_char(kbd_dead_key0);
-                kbd_dead_key0 = 0;
-                return;
-            }
-            if (ch == 0x7F)
-            {
-                kbd_dead_key0 = 0;
-                return;
-            }
-            for (int i = 0; kbd_cached_dead2[i][0]; i++)
-            {
-                if (kbd_dead_key0 == kbd_cached_dead2[i][0] &&
-                    ch == kbd_cached_dead2[i][1])
-                {
-                    char result = kbd_cached_dead2[i][2];
-                    if (!result)
-                        break;
-                    kbd_queue_char(result);
-                    kbd_dead_key0 = 0;
-                    return;
-                }
-            }
-            for (int i = 0; kbd_cached_dead3[i][0]; i++)
-            {
-                if ((kbd_dead_key0 == kbd_cached_dead3[i][0] && ch == kbd_cached_dead3[i][1]) ||
-                    (kbd_dead_key0 == kbd_cached_dead3[i][1] && ch == kbd_cached_dead3[i][0]))
-                {
-                    kbd_dead_key1 = ch;
-                    return;
-                }
-            }
-            kbd_queue_char(kbd_dead_key0);
-            kbd_queue_char(ch);
-            kbd_dead_key0 = 0;
-            return;
-        }
-        // Handle third press in dead key sequence
-        if (kbd_dead_key0 && kbd_dead_key1)
-        {
-            if (ch == ' ')
-            {
-                kbd_queue_char(kbd_dead_key0);
-                kbd_queue_char(kbd_dead_key1);
-                kbd_dead_key0 = kbd_dead_key1 = 0;
-                return;
-            }
-            if (ch == 0x7F)
-            {
-                kbd_dead_key1 = 0;
-                return;
-            }
-            for (int i = 0; kbd_cached_dead3[i][0]; i++)
-            {
-                if (((kbd_dead_key0 == kbd_cached_dead3[i][0] && kbd_dead_key1 == kbd_cached_dead3[i][1]) ||
-                     (kbd_dead_key0 == kbd_cached_dead3[i][1] && kbd_dead_key1 == kbd_cached_dead3[i][0])) &&
-                    ch == kbd_cached_dead3[i][2])
-                {
-                    char result = kbd_cached_dead3[i][3];
-                    if (!result)
-                        break;
-                    kbd_queue_char(result);
-                    kbd_dead_key0 = kbd_dead_key1 = 0;
-                    return;
-                }
-            }
-            kbd_queue_char(kbd_dead_key0);
-            kbd_queue_char(kbd_dead_key1);
-            kbd_queue_char(ch);
-            kbd_dead_key0 = kbd_dead_key1 = 0;
-            return;
-        }
-        // Not in dead key sequence
-        kbd_queue_char(ch);
-        return;
-    }
-    // Non-repeating special key handler
-    if (initial_press)
-    {
-        switch (keycode)
-        {
-        case HID_KEY_SPACE:
-            if (key_gui)
-            {
-                kbd_repeat_keycode = 0; // one-shot; never auto-repeats while held
-                kbd_cycle_layout();
-                return;
-            }
-            break;
-        case HID_KEY_F4:
-            // alt-f4 exits and returns to launcher
-            if (key_alt && main_break_to_launcher())
-            {
-                kbd_key_queue_tail = kbd_key_queue_head;
-                kbd_alt_mode = false;
-                kbd_dead_key0 = kbd_dead_key1 = 0;
-                return;
-            }
-            break;
-        case HID_KEY_DELETE:
-            // ctrl-alt-del exits to monitor, where there is one
-            if (key_ctrl && key_alt && main_break())
-            {
-                kbd_key_queue_tail = kbd_key_queue_head;
-                kbd_alt_mode = false;
-                kbd_dead_key0 = kbd_dead_key1 = 0;
-                return;
-            }
-            break;
-        case HID_KEY_NUM_LOCK:
-            kbd_hid_leds ^= KEYBOARD_LED_NUMLOCK;
-            kbd_send_leds();
-            break;
-        case HID_KEY_CAPS_LOCK:
-            kbd_hid_leds ^= KEYBOARD_LED_CAPSLOCK;
-            kbd_send_leds();
-            break;
-        case HID_KEY_SCROLL_LOCK:
-            kbd_hid_leds ^= KEYBOARD_LED_SCROLLLOCK;
-            kbd_send_leds();
-            break;
-        }
-    }
-    // Modifier key annotation
-    int ansi_modifier = 1;
-    if (key_shift)
-        ansi_modifier += 1;
-    if (key_alt)
-        ansi_modifier += 2;
-    if (key_ctrl)
-        ansi_modifier += 4;
-    if (key_gui)
-        ansi_modifier += 8;
-    switch (keycode)
-    {
-    case HID_KEY_ARROW_UP:
-        return kbd_queue_vt100('[', 'A', ansi_modifier);
-    case HID_KEY_ARROW_DOWN:
-        return kbd_queue_vt100('[', 'B', ansi_modifier);
-    case HID_KEY_ARROW_RIGHT:
-        return kbd_queue_vt100('[', 'C', ansi_modifier);
-    case HID_KEY_ARROW_LEFT:
-        return kbd_queue_vt100('[', 'D', ansi_modifier);
-    case HID_KEY_F1:
-        return kbd_queue_vt100('O', 'P', ansi_modifier);
-    case HID_KEY_F2:
-        return kbd_queue_vt100('O', 'Q', ansi_modifier);
-    case HID_KEY_F3:
-        return kbd_queue_vt100('O', 'R', ansi_modifier);
-    case HID_KEY_F4:
-        return kbd_queue_vt100('O', 'S', ansi_modifier);
-    case HID_KEY_F5:
-        return kbd_queue_vt220(15, ansi_modifier);
-    case HID_KEY_F6:
-        return kbd_queue_vt220(17, ansi_modifier);
-    case HID_KEY_F7:
-        return kbd_queue_vt220(18, ansi_modifier);
-    case HID_KEY_F8:
-        return kbd_queue_vt220(19, ansi_modifier);
-    case HID_KEY_F9:
-        return kbd_queue_vt220(20, ansi_modifier);
-    case HID_KEY_F10:
-        return kbd_queue_vt220(21, ansi_modifier);
-    case HID_KEY_F11:
-        return kbd_queue_vt220(23, ansi_modifier);
-    case HID_KEY_F12:
-        return kbd_queue_vt220(24, ansi_modifier);
-    case HID_KEY_HOME:
-        return kbd_queue_vt100('[', 'H', ansi_modifier);
-    case HID_KEY_INSERT:
-        return kbd_queue_vt220(2, ansi_modifier);
-    case HID_KEY_DELETE:
-        return kbd_queue_vt220(3, ansi_modifier);
-    case HID_KEY_END:
-        return kbd_queue_vt100('[', 'F', ansi_modifier);
-    case HID_KEY_PAGE_UP:
-        return kbd_queue_vt220(5, ansi_modifier);
-    case HID_KEY_PAGE_DOWN:
-        return kbd_queue_vt220(6, ansi_modifier);
-    }
-}
-
-static int kbd_sanitize_layout(const char *kb)
-{
-    int default_index = 0;
-    int found_index = -1;
-    for (int i = 0; i < kbl_count(); i++)
-    {
-        char name[KBL_NAME_MAX];
-        kbl_name(i, name);
-        if (!strcasecmp(name, "US"))
-            default_index = i;
-        if (!strcasecmp(name, kb))
-            found_index = i;
-    }
-    if (found_index < 0)
-        return default_index;
-    else
-        return found_index;
-}
-
-// Find name as a whole token within a space separated list.
-static const char *kbd_find_token(const char *list, const char *name)
-{
-    size_t name_len = strlen(name);
-    while (*list)
-    {
-        while (*list == ' ')
-            list++;
-        if (!*list)
-            break;
-        size_t len = 0;
-        while (list[len] && list[len] != ' ')
-            len++;
-        if (len == name_len && !strncmp(list, name, len))
-            return list;
-        list += len;
-    }
-    return NULL;
-}
-
-// Validate and canonicalize a space separated layout list into out.
-// Fails on an unknown or duplicate layout, an empty list, or overflow.
-static bool kbd_build_layout_list(const char *in, char *out, size_t size)
-{
-    size_t len = 0;
-    out[0] = 0;
-    while (*in)
-    {
-        while (*in == ' ')
-            in++;
-        if (!*in)
-            break;
-        size_t tok_len = 0;
-        while (in[tok_len] && in[tok_len] != ' ')
-            tok_len++;
-        char name[KBL_NAME_MAX];
-        name[0] = 0;
-        for (int i = 0; i < kbl_count(); i++)
-        {
-            kbl_name(i, name);
-            if (strlen(name) == tok_len && !strncasecmp(in, name, tok_len))
-                break;
-            name[0] = 0;
-        }
-        if (!name[0] || kbd_find_token(out, name))
-            return false;
-        if (len + (len ? 1 : 0) + strlen(name) + 1 > size)
-            return false;
-        if (len)
-            out[len++] = ' ';
-        strcpy(out + len, name);
-        len += strlen(name);
-        in += tok_len;
-    }
-    return len != 0;
-}
-
 void __in_flash("kbd_init") kbd_init(void)
 {
     kbd_stop();
     kbd_hid_leds = KEYBOARD_LED_NUMLOCK;
     kbd_send_leds();
-    if (!kbd_layout_loaded)
-    {
-        kbl_name(kbd_sanitize_layout(""), kbd_layout_list);
-        kbd_layout_pos = kbd_layout_list;
-        kbd_apply_active();
-    }
-}
-
-void kbd_task(void)
-{
-    if (kbd_repeat_keycode && host_deadline_passed(kbd_repeat_timer))
-    {
-        if (KBD_KEY_BIT_VAL(kbd_keys, kbd_repeat_keycode) &&
-            KBD_MODIFIER(kbd_keys) == kbd_repeat_modifier)
-        {
-            kbd_queue_key(KBD_MODIFIER(kbd_keys), kbd_repeat_keycode, false);
-        }
-        else
-        {
-            kbd_repeat_keycode = 0;
-        }
-    }
+    kbt_init();
 }
 
 void kbd_stop(void)
 {
     kbd_xram = 0xFFFF;
-}
-
-/* The width the caller would like is ignored: the list sets its own
- * from the longest name it has. Named rather than left off, because
- * this file is compiled by MSVC now that tests/hid links it. */
-int kbd_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
-{
-    (void)width;
-    if (state < 0 || state >= kbl_count())
-        return -1;
-    char name[KBL_NAME_MAX];
-    char desc[KBL_DESC_MAX];
-    int maxlen = 0;
-    for (int i = 0; i < kbl_count(); i++)
-    {
-        kbl_name(i, name);
-        int thislen = strlen(name);
-        if (thislen > maxlen)
-            maxlen = thislen;
-    }
-    kbl_name(state, name);
-    kbl_description(state, desc);
-    snprintf(buf, buf_size, "  %*s - \a%s\n", maxlen, name, desc);
-    return state + 1;
-}
-
-void kbd_rebuild_code_page_cache(void)
-{
-    size_t cache_index = 0;
-    uint16_t code_page = oem_get_code_page_run();
-    unsigned count2 = kbl_dead2_count(kbd_layout_index);
-    unsigned count3 = kbl_dead3_count(kbd_layout_index);
-    kbd_cached_dead2 = (void *)&kbd_deadkey_cache[cache_index];
-    for (unsigned i = 0; i < count2; i++)
-    {
-        for (unsigned j = 0; j < 3; j++)
-        {
-            kbd_deadkey_cache[cache_index] = ff_uni2oem(
-                kbl_dead2(kbd_layout_index, i, j), code_page);
-            if (++cache_index >= sizeof(kbd_deadkey_cache))
-                goto overflow_error;
-        }
-    }
-    kbd_deadkey_cache[cache_index] = 0;
-    if (++cache_index >= sizeof(kbd_deadkey_cache))
-        goto overflow_error;
-    kbd_cached_dead3 = (void *)&kbd_deadkey_cache[cache_index];
-    for (unsigned i = 0; i < count3; i++)
-    {
-        for (unsigned j = 0; j < 4; j++)
-        {
-            kbd_deadkey_cache[cache_index] = ff_uni2oem(
-                kbl_dead3(kbd_layout_index, i, j), code_page);
-            if (++cache_index >= sizeof(kbd_deadkey_cache))
-                goto overflow_error;
-        }
-    }
-    kbd_deadkey_cache[cache_index] = 0;
-    return;
-overflow_error:
-    // Unreachable for a database kbd_layout_gen.py built: it refuses a
-    // layout whose dead keys do not fit here. A machine staging one it
-    // did not build loses the composing, not the keyboard.
-    kbd_cached_dead2 = (void *)&kbd_deadkey_cache[0];
-    kbd_cached_dead3 = (void *)&kbd_deadkey_cache[0];
-    kbd_deadkey_cache[0] = 0;
-    DBG("kbd: dead key cache overflow\n");
 }
 
 static bool __in_flash("kbd_parse") kbd_parse_field(const hid_field_t *field, void *context)
@@ -855,20 +233,11 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
         bool curr = KBD_KEY_BIT_VAL(conn->keys, i);
         bool prev = KBD_KEY_BIT_VAL(old_keys, i);
         if (curr && !prev)
-            kbd_queue_key(KBD_MODIFIER(kbd_keys), i, true);
+            kbt_key_down(KBD_MODIFIER(kbd_keys), i);
     }
 
     // Check for releasing ALT key during ALT mode.
-    if (kbd_alt_mode)
-    {
-        bool key_alt = KBD_MODIFIER(kbd_keys) & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
-        if (!key_alt)
-        {
-            kbd_alt_mode = false;
-            if (kbd_alt_code)
-                kbd_queue_char(kbd_alt_code);
-        }
-    }
+    kbt_modifiers(KBD_MODIFIER(kbd_keys));
 
     // Check for no keys pressed.
     bool any_key = false;
@@ -897,54 +266,24 @@ bool kbd_xreg(uint16_t word)
     return true;
 }
 
-size_t kbd_stdio_in_chars(char *buf, size_t length)
+uint8_t kbd_get_modifier(void)
 {
-    size_t i = 0;
-    while (i < length && kbd_key_queue_tail != kbd_key_queue_head)
-    {
-        kbd_key_queue_tail = (kbd_key_queue_tail + 1) % KBD_KEY_QUEUE_SIZE;
-        buf[i++] = kbd_key_queue[kbd_key_queue_tail];
-    }
-    return i;
+    return KBD_MODIFIER(kbd_keys);
 }
 
-void kbd_load_layout(const char *str)
+bool kbd_key_down(uint8_t keycode)
 {
-    if (!kbd_build_layout_list(str, kbd_layout_list, sizeof kbd_layout_list))
-        kbl_name(kbd_sanitize_layout(""), kbd_layout_list);
-    kbd_layout_pos = kbd_layout_list;
-    kbd_layout_loaded = true;
-    kbd_apply_active();
+    return KBD_KEY_BIT_VAL(kbd_keys, keycode) != 0;
 }
 
-bool kbd_set_layout(const char *list)
+uint8_t kbd_get_leds(void)
 {
-    char buf[KBD_LAYOUT_LIST_SIZE];
-    if (!kbd_build_layout_list(list, buf, sizeof buf))
-        return false;
-    if (!strcmp(buf, kbd_layout_list))
-        return true;
-    strcpy(kbd_layout_list, buf);
-    // Keep the active layout if it survived, otherwise the first.
-    kbd_layout_pos = kbd_find_token(kbd_layout_list, kbd_layout_name);
-    if (!kbd_layout_pos)
-        kbd_layout_pos = kbd_layout_list;
-    kbd_apply_active();
-    cfg_save();
-    return true;
+    return kbd_hid_leds;
 }
 
-const char *kbd_get_layout_list(void)
+void kbd_toggle_lock(uint8_t bit)
 {
-    return kbd_layout_list;
+    kbd_hid_leds ^= bit;
+    kbd_send_leds();
 }
 
-const char *kbd_get_layout(void)
-{
-    return kbd_layout_name;
-}
-
-const char *kbd_get_layout_verbose(void)
-{
-    return kbd_layout_description;
-}

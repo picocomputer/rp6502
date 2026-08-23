@@ -128,6 +128,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/kbd.c
         ${RP6502_SRC}/core/hid/kbl.c
+        ${RP6502_SRC}/core/hid/kbt.c
         ${RP6502_SRC}/core/hid/mou.c
         ${RP6502_SRC}/core/hid/pad.c
         ${RP6502_SRC}/core/hid/tab.c

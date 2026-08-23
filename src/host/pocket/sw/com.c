@@ -15,6 +15,7 @@
 #include "mmio.h"
 #include "core/aud/bel.h"
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -255,7 +256,7 @@ void com_task(void)
     }
 
     char buf[16];
-    size_t n = kbd_stdio_in_chars(buf, sizeof buf);
+    size_t n = kbt_in_chars(buf, sizeof buf);
     for (size_t i = 0; i < n; i++)
         ring_push(&kbd_ring, (uint8_t)buf[i]);
 }

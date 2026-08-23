@@ -84,7 +84,7 @@ void kbd_text(const char *utf8)
 }
 
 /* No dead-key cache in the emulator; conversion happens per keystroke. */
-void kbd_rebuild_code_page_cache(void)
+void kbt_rebuild_code_page_cache(void)
 {
 }
 

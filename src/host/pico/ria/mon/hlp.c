@@ -6,6 +6,7 @@
 
 #include "core/api/tim.h"
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 #include "ria/mon/hlp.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
@@ -71,7 +72,7 @@ __in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
     {STR_BOOT, STR_HELP_SET_BOOT, NULL},
     {STR_TZ, STR_HELP_SET_TZ, tim_tzdata_response},
     {STR_LOC, STR_HELP_SET_LOC, str_locales_response},
-    {STR_KB, STR_HELP_SET_KB, kbd_layouts_response},
+    {STR_KB, STR_HELP_SET_KB, kbt_layouts_response},
     {STR_CP, STR_HELP_SET_CP, NULL},
     {STR_VGA, STR_HELP_SET_VGA, NULL},
     {STR_NFC, STR_HELP_SET_NFC, NULL},

@@ -8,6 +8,7 @@
 #include "core/api/tim.h"
 #include "ria/ble/ble.h"
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
@@ -106,7 +107,7 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                                tim_get_time_zone(),
                                str_get_locale(),
                                oem_get_code_page(),
-                               kbd_get_layout_list(),
+                               kbt_get_layout_list(),
                                vga_get_display_type(),
                                nfc_get_enabled(),
                                vcp_get_nfc_device_hash(),
@@ -169,7 +170,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
             oem_load_code_page(str);
             break;
         case 'L':
-            kbd_load_layout(str);
+            kbt_load_layout(str);
             break;
         case 'D':
             vga_load_display_type(str);

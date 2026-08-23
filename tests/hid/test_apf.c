@@ -21,6 +21,7 @@
  */
 
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -106,7 +107,7 @@ static void reset_all(void)
     /* Whatever the last case typed is still queued — kbd_init does not
      * empty a queue a console would have drained. */
     char drain[64];
-    while (kbd_stdio_in_chars(drain, sizeof drain))
+    while (kbt_in_chars(drain, sizeof drain))
         ;
     memset((uint8_t *)xram, 0, 0x10000);
     kbd_xreg(AT_KBD);
@@ -304,12 +305,12 @@ UTEST(apf, a_keyboard_sets_the_bitmap)
 UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
-    kbd_load_layout("US");
+    kbt_load_layout("US");
     mount(2, APF_TYPE_KBD);
 
     char buf[8];
     feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    ASSERT_EQ(kbd_stdio_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'a');
 
     /* Shift is the modifier byte's bit 1, in [15:8], and the layout's
@@ -317,15 +318,15 @@ UTEST(apf, a_keyboard_types_through_its_layout)
      * but never shifts, which is what hardware showed. */
     feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KBD, 0x40000200u, 0x04000000u, 0x0000, false);
-    ASSERT_EQ(kbd_stdio_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'A');
 
     /* And a layout that moves a key moves it: on the German layout the
      * key at 0x1C types z, not y. */
-    kbd_load_layout("DE");
+    kbt_load_layout("DE");
     feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KBD, 0x40000000u, 0x1C000000u, 0x0000, false);
-    ASSERT_EQ(kbd_stdio_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'z');
 }
 

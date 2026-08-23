@@ -19,6 +19,7 @@
 
 #include "core/cfg.h"
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 #include "core/hid/kbl.h"
 
 #include <string.h>
@@ -38,7 +39,7 @@ static void cfg_apply_layout(int32_t kb)
         return;
     kbl_name((int)kb - 1, name);
     if (name[0])
-        kbd_load_layout(name);
+        kbt_load_layout(name);
 }
 
 void cfg_task(void)

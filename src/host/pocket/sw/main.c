@@ -31,6 +31,7 @@
 #include "core/api/tim.h"
 #include "core/api/uni.h"
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 #include "core/hid/kbl.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
@@ -603,7 +604,7 @@ int main(void)
         }
         cfg_task();
         apf_task();
-        kbd_task(); /* the repeat timer; apf_task does the reports */
+        kbt_task(); /* the repeat timer; apf_task does the reports */
         std_task();
         com_task();
         log_task();

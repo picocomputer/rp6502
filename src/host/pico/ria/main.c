@@ -18,6 +18,7 @@
 #include "core/aud/psg.h"
 #include "ria/ble/ble.h"
 #include "core/hid/kbd.h"
+#include "core/hid/kbt.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -141,7 +142,7 @@ void main_task(void)
     std_task();
     cpu_task();
     ria_task();
-    kbd_task();
+    kbt_task();
     mid_task();
     cyw_task();
     vga_task();
