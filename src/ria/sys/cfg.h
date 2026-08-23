@@ -10,6 +10,8 @@
 /* System configuration manager.
  */
 
+#include "core/cfg.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -18,9 +20,6 @@
  */
 
 void cfg_init(void);
-
-// Unconditionally save the config.
-void cfg_save(void);
 
 // The boot string isn't stored in RAM.
 void cfg_save_boot(const char *str);

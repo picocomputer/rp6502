@@ -11,7 +11,7 @@
 #include "core/str/str.h"
 #include "core/com.h"
 #include "core/mem.h"
-#include "ria/sys/pix.h"
+#include "core/pix.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -436,7 +436,7 @@ void std_task(void)
 {
     while (std_xram_len && pix_ready())
     {
-        pix_send(PIX_DEVICE_XRAM, 0, xram[std_xram_addr], std_xram_addr);
+        pix_send_xram(std_xram_addr, xram[std_xram_addr]);
         ++std_xram_addr;
         --std_xram_len;
     }

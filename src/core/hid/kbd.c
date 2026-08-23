@@ -7,12 +7,10 @@
 #include "core/main.h"
 #include "core/api/oem.h"
 #include "core/api/uni.h"
-#include "ria/ble/ble.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbl.h"
 #include "core/hid/hid.h"
-#include "ria/sys/cfg.h"
-#include "ria/usb/usb.h"
+#include "core/cfg.h"
 #include "host.h"
 #include "core/hid/usage.h"
 #include <pico.h>
@@ -120,8 +118,7 @@ static void kbd_merge_keys(void)
 
 static void kbd_send_leds()
 {
-    usb_set_hid_leds(kbd_hid_leds);
-    ble_set_hid_leds(kbd_hid_leds);
+    hid_set_leds(kbd_hid_leds);
 }
 
 static void kbd_queue_str(const char *str)
@@ -773,7 +770,7 @@ bool __in_flash("kbd_mount") kbd_mount(int slot, uint8_t const *desc_data, uint1
     conn->slot = slot;
 
     hid_descriptor_parse(desc_data, desc_len, kbd_parse_field, conn);
-    if (conn->valid && usb_boot_enumerating())
+    if (conn->valid && hid_boot_enumerating())
         for (size_t i = 0; i < sizeof(kbd_numlock_off_at_boot) / sizeof(kbd_numlock_off_at_boot[0]); i++)
             if (kbd_numlock_off_at_boot[i].vid == vendor_id &&
                 kbd_numlock_off_at_boot[i].pid == product_id)

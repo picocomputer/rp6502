@@ -10,6 +10,8 @@
 /* Pico Information eXchange bus driver.
  */
 
+#include "core/pix.h"
+
 #include <hardware/pio.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -54,13 +56,6 @@ int pix_wait_poll(void);
 // Macro for the RIA. Use the inline functions elsewhere.
 #define PIX_SEND_XRAM(addr, data) \
     PIX_PIO->txf[PIX_SM] = (PIX_MESSAGE(PIX_DEVICE_XRAM, 0, (data), (addr)))
-
-// Test for free space in the PIX transmit FIFO.
-static inline bool pix_ready(void)
-{
-    // PIX TX FIFO is joined to be 8 deep.
-    return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
-}
 
 // Unconditionally attempt to send a PIX message.
 // Meant for use with pix_ready() to fill the FIFO in a task handler.

@@ -228,3 +228,15 @@ bool pix_api_xreg(void)
     }
     return api_working();
 }
+
+// PIX TX FIFO is joined to be 8 deep.
+bool pix_ready(void)
+{
+    return pio_sm_get_tx_fifo_level(PIX_PIO, PIX_SM) < 6;
+}
+
+/* The VGA keeps its own copy of XRAM, so a write here crosses the bus. */
+void pix_send_xram(uint16_t addr, uint8_t data)
+{
+    pix_send(PIX_DEVICE_XRAM, 0, data, addr);
+}

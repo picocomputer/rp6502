@@ -10,6 +10,7 @@
 
 #include "font.h"
 
+#include "core/hid/hid.h"
 #include "core/api/oem.h"
 #include "ria/ble/ble.h"
 #include "ria/usb/usb.h"
@@ -32,4 +33,15 @@ void ble_set_hid_leds(uint8_t leds)
 uint16_t oem_get_code_page_run(void)
 {
     return font_get_code_page();
+}
+
+/* The dock's controllers have no lamps and nothing enumerates. */
+void hid_set_leds(uint8_t leds)
+{
+    (void)leds;
+}
+
+bool hid_boot_enumerating(void)
+{
+    return false;
 }

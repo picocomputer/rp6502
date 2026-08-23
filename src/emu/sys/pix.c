@@ -89,3 +89,14 @@ bool pix_api_xreg(void)
             return api_return_errno(API_EINVAL);
     return api_return_ax(0);
 }
+
+/* One XRAM here, so there is nothing to wait for and nowhere to send it. */
+bool pix_ready(void)
+{
+    return true;
+}
+
+void pix_send_xram(uint16_t addr, uint8_t data)
+{
+    pix_deliver(PIX_DEVICE_XRAM, 0, data, addr);
+}

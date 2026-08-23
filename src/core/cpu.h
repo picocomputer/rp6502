@@ -1,0 +1,33 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+/* The 6502, as the machine sees it. Every machine runs one -- a real W65C02S
+ * clocked by PIO on the Pico, a cycle model in the emulator, the fabric's on a
+ * Pocket -- and core asks it two things: whether it is running, and what rate
+ * it is running at. The pins and the lifecycle belong to whoever wires it. */
+
+#ifndef _CORE_CPU_H_
+#define _CORE_CPU_H_
+
+#include <stdbool.h>
+#include <stdint.h>
+
+/* The clock range the machine offers, which is the API's range and not any one
+ * platform's: a program asking for 20 MHz is out of range everywhere. */
+#define CPU_PHI2_MIN_KHZ 100
+#define CPU_PHI2_MAX_KHZ 8000
+#define CPU_PHI2_DEFAULT 8000
+
+// True between cpu_run() and cpu_stop();
+// the 6502 is running or about to run once RESB rises.
+bool cpu_active(void);
+
+/* The rate the 6502 is running at, in kHz. The setter may land on a nearby
+ * achievable rate; the getter reports what was actually chosen. */
+uint16_t cpu_get_phi2_khz_run(void);
+void cpu_set_phi2_khz_run(uint16_t phi2_khz);
+
+#endif /* _CORE_CPU_H_ */

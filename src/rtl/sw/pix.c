@@ -60,3 +60,17 @@ bool pix_api_xreg(void)
     /* Devices 2-7 go over a bus this machine does not have. */
     return api_return_ax(0);
 }
+
+/* The fabric holds one XRAM and the 6502 writes it directly, so there is no
+ * bus to fill and nothing to forward. Ready is always true: std_task retires
+ * its forwarding count through it, and a false here would park the drain. */
+bool pix_ready(void)
+{
+    return true;
+}
+
+void pix_send_xram(uint16_t addr, uint8_t data)
+{
+    (void)addr;
+    (void)data;
+}

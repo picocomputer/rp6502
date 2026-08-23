@@ -6,8 +6,8 @@
 
 #include "core/api/oem.h"
 #include "core/str/str.h"
-#include "ria/sys/cfg.h"
-#include "ria/sys/cpu.h"
+#include "core/cfg.h"
+#include "core/cpu.h"
 #include <fatfs/ff.h>
 #include <string.h>
 #include <strings.h>

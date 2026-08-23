@@ -22,17 +22,12 @@
 static uint8_t apf_host_xram[0x10000];
 volatile uint8_t *const xram = apf_host_xram;
 
-bool usb_boot_enumerating(void)
+bool hid_boot_enumerating(void)
 {
     return false;
 }
 
-void usb_set_hid_leds(uint8_t leds)
-{
-    (void)leds;
-}
-
-void ble_set_hid_leds(uint8_t leds)
+void hid_set_leds(uint8_t leds)
 {
     (void)leds;
 }

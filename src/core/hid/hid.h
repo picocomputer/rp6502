@@ -21,6 +21,15 @@
 #define HID_BLE_START (0x20000)
 #define HID_APF_START (0x30000)
 
+/* Lock LEDs, fanned out to every attached keyboard on every transport this
+ * platform has -- USB and BLE on a Pico, neither on a Pocket, where the dock's
+ * controllers have no lamps. */
+void hid_set_leds(uint8_t leds);
+
+/* True while the platform is still enumerating boot devices, so the keyboard
+ * holds off deciding a layout. False where enumeration is not a thing. */
+bool hid_boot_enumerating(void);
+
 uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);

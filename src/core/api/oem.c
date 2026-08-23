@@ -9,7 +9,7 @@
 #include "core/api/uni.h"
 #include "core/hid/kbd.h"
 #include "core/str/str.h"
-#include "ria/sys/cfg.h"
+#include "core/cfg.h"
 #include "ria/sys/vga.h"
 #include <fatfs/ff.h>
 #include <pico.h>

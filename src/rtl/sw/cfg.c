@@ -17,6 +17,7 @@
 #include "main.h"
 #include "mmio.h"
 
+#include "core/cfg.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbl.h"
 #include "ria/sys/cpu.h"
@@ -58,4 +59,12 @@ void cfg_task(void)
         cfg_kb = kb;
         cfg_apply_layout(kb);
     }
+}
+
+/* The Pocket's menu owns these settings and writes them itself, so a machine
+ * -side save has nowhere to go. Present because core/str/str.c calls it --
+ * until now that link survived only because --gc-sections dropped the caller.
+ */
+void cfg_save(void)
+{
 }

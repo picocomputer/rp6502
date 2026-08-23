@@ -16,6 +16,7 @@
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/usb/msc.h"
+#include "ria/ble/ble.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/xin.h"
 #include <pico/time.h>
@@ -404,4 +405,16 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
     usb_enum_kick();
     DBG("USB: %lums DESC CONFIG\n", to_ms_since_boot(get_absolute_time()));
     return true;
+}
+
+/* Two transports here, and core/hid/kbd.c should not have to know that. */
+void hid_set_leds(uint8_t leds)
+{
+    usb_set_hid_leds(leds);
+    ble_set_hid_leds(leds);
+}
+
+bool hid_boot_enumerating(void)
+{
+    return usb_boot_enumerating();
 }

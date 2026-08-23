@@ -12,7 +12,7 @@
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/com.h"
-#include "ria/sys/cpu.h"
+#include "core/cpu.h"
 #include "core/main.h"
 #include "host.h"
 #include <stdio.h>

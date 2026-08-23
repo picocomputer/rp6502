@@ -6,7 +6,7 @@
 
 #include "core/main.h"
 #include "core/api/api.h"
-#include "ria/sys/cpu.h"
+#include "core/cpu.h"
 
 #if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_API)
 #include <stdio.h>
