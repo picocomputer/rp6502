@@ -8,12 +8,8 @@
 #ifndef _EMU_SYS_COM_H_
 #define _EMU_SYS_COM_H_
 
+#include "core/com.h"
 #include "ria/sys/com.h"
-
-/* term.c routes terminal query replies (DSR/CPR/DA) here; they enter rln's
- * input as the UART (protocol-tracked) source. */
-#define COM_IN_BUF_SIZE 16
-void com_in_write_reply(const char *s, size_t n);
 
 /* The KBD source. hid/kbd.c owns this ring and is the only caller: every host
  * keystroke, scripted or typed, enters the machine through one seam. */

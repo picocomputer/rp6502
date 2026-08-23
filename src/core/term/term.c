@@ -6,7 +6,7 @@
 
 #include "core/term/color.h"
 #include "core/term/term.h"
-#include "vga/sys/com.h"
+#include "core/com.h"
 #include "vga/sys/vga.h"
 #include "core/vga/pixel_format.h"
 #include "host.h"
@@ -51,6 +51,10 @@
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)
 #define TERM_CSI_PARAM_MAX_LEN 16
+/* The longest answer term builds for a query. Every reply is snprintf'd and
+ * dropped if it would not fit, so this bounds what a program can be told, not
+ * what the console can hold. */
+#define TERM_REPLY_MAX 16
 #define TERM_FG_COLOR_INDEX 7
 #define TERM_BG_COLOR_INDEX 0
 
@@ -992,7 +996,7 @@ static void term_out_DSR(term_state_t *term)
         // bogus row.
         if (term->cur->origin_mode)
             y = (y >= term->screen->margin_top) ? (y - term->screen->margin_top) : 0;
-        char buf[COM_IN_BUF_SIZE];
+        char buf[TERM_REPLY_MAX];
         int n = snprintf(buf, sizeof(buf), "\33[%u;%uR", y + 1, x + 1);
         if (n < 0 || n >= (int)sizeof(buf))
             break;
@@ -1037,7 +1041,7 @@ static void term_out_DECRQM(term_state_t *term, bool private)
             break;
         }
     }
-    char buf[COM_IN_BUF_SIZE];
+    char buf[TERM_REPLY_MAX];
     int n = snprintf(buf, sizeof(buf), "\33[%s%u;%u$y",
                      private ? "?" : "", ps, pm);
     if (n < 0 || n >= (int)sizeof(buf))
