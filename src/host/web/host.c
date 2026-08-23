@@ -3,15 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten host-OS primitives that differ from the shared posix/os.c: entropy
+ * Emscripten host-OS primitives that differ from the shared posix/host.c: entropy
  * (no getrandom) and the frame-pacer sleep (a no-op; requestAnimationFrame paces
- * the web loop). Everything else lives in posix/os.c.
+ * the web loop). Everything else lives in posix/host.c.
  */
 
 #include "host.h"
 #include <time.h>
 
-uint64_t os_entropy_64(void)
+uint64_t host_entropy_64(void)
 {
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
@@ -22,7 +22,7 @@ uint64_t os_entropy_64(void)
     return s ? s : 1;
 }
 
-void os_sleep_until_ns(uint64_t target)
+void host_sleep_until_ns(uint64_t target)
 {
     (void)target; /* requestAnimationFrame paces the web loop */
 }

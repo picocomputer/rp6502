@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows host-OS primitives (host/host.h os_*), the Win32 counterpart of
- * posix/os.c. Several are documented no-ops because the Win32 presentation path
+ * Windows host-OS primitives (core/host.h host_*), the Win32 counterpart of
+ * posix/host.c. Several are documented no-ops because the Win32 presentation path
  * already provides the behavior (D3D11 Present paces the frame loop; MSVC's
  * struct tm has no timezone fields and strftime uses the thread locale).
  */
@@ -23,7 +23,7 @@
 
 /* ---- entropy ---- */
 
-uint64_t os_entropy_64(void)
+uint64_t host_entropy_64(void)
 {
     LARGE_INTEGER f, c;
     FILETIME ft;
@@ -38,7 +38,7 @@ uint64_t os_entropy_64(void)
 
 /* ---- monotonic clock + frame-pacer sleep ---- */
 
-uint64_t os_mono_ns(void)
+uint64_t host_mono_ns(void)
 {
     LARGE_INTEGER f, c;
     QueryPerformanceFrequency(&f);
@@ -46,40 +46,40 @@ uint64_t os_mono_ns(void)
     return (uint64_t)((double)c.QuadPart * 1e9 / (double)f.QuadPart);
 }
 
-void os_sleep_until_ns(uint64_t target)
+void host_sleep_until_ns(uint64_t target)
 {
     (void)target; /* the D3D11 Present already paces the loop */
 }
 
 /* ---- broken-down time ---- */
 
-bool os_localtime(time_t t, struct tm *out)
+bool host_localtime(time_t t, struct tm *out)
 {
     return localtime_s(out, &t) == 0;
 }
 
-bool os_gmtime(time_t t, struct tm *out)
+bool host_gmtime(time_t t, struct tm *out)
 {
     return gmtime_s(out, &t) == 0;
 }
 
 /* ---- host-locale strftime ---- */
 
-void os_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
+void host_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
 
-size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
+size_t host_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
     return strftime(buf, max, fmt, tm);
 }
 
-void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
+void host_tm_apply_zone(struct tm *tm, const struct tm *probe)
 {
     (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
 }
 
 /* ---- config location ---- */
 
-bool os_config_dir(char *buf, size_t sz)
+bool host_config_dir(char *buf, size_t sz)
 {
     const char *base = getenv("APPDATA");
     if (!base || !base[0])
@@ -89,7 +89,7 @@ bool os_config_dir(char *buf, size_t sz)
 }
 
 /* GUI-subsystem processes don't inherit an interactive console's stdio. */
-void os_console_attach(void)
+void host_console_attach(void)
 {
     HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
     HANDLE pre_err = GetStdHandle(STD_ERROR_HANDLE);
@@ -104,7 +104,7 @@ void os_console_attach(void)
         freopen("CONIN$", "r", stdin);
 }
 
-void os_ensure_parent_dir(const char *filepath)
+void host_ensure_parent_dir(const char *filepath)
 {
     char tmp[1024];
     snprintf(tmp, sizeof tmp, "%s", filepath);
@@ -126,7 +126,7 @@ void os_ensure_parent_dir(const char *filepath)
 }
 
 /* The ANSI main()'s argv is in the process ACP, not UTF-8. */
-bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
     wchar_t w[4096];
     if (!MultiByteToWideChar(CP_ACP, 0, arg, -1, w, (int)(sizeof w / sizeof *w)))
@@ -139,7 +139,7 @@ bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 
 /* ---- test-only helpers ---- */
 
-bool os_make_tmpdir(char *buf, size_t sz)
+bool host_make_tmpdir(char *buf, size_t sz)
 {
     wchar_t tmp[MAX_PATH], name[MAX_PATH];
     if (GetTempPathW(MAX_PATH, tmp) == 0)
@@ -156,7 +156,7 @@ bool os_make_tmpdir(char *buf, size_t sz)
     return true;
 }
 
-void os_setenv(const char *name, const char *value)
+void host_setenv(const char *name, const char *value)
 {
     _putenv_s(name, value);
 }

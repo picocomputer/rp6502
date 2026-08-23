@@ -3,16 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * macOS host-OS primitives that differ from the shared posix/os.c: entropy (no
+ * macOS host-OS primitives that differ from the shared posix/host.c: entropy (no
  * getrandom) and the frame-pacer sleep (relative nanosleep, since macOS lacks
- * clock_nanosleep/TIMER_ABSTIME). Everything else lives in posix/os.c.
+ * clock_nanosleep/TIMER_ABSTIME). Everything else lives in posix/host.c.
  */
 
 #include "host.h"
 #include <errno.h>
 #include <time.h>
 
-uint64_t os_entropy_64(void)
+uint64_t host_entropy_64(void)
 {
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
@@ -23,9 +23,9 @@ uint64_t os_entropy_64(void)
     return s ? s : 1;
 }
 
-void os_sleep_until_ns(uint64_t target)
+void host_sleep_until_ns(uint64_t target)
 {
-    uint64_t now = os_mono_ns();
+    uint64_t now = host_mono_ns();
     if (target > now)
     {
         uint64_t delta = target - now;

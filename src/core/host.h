@@ -73,33 +73,33 @@ std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
-/* ---- other host-OS primitives (host/posix/os.c or host/win/os.c, one compiled) ---- */
-uint64_t os_entropy_64(void);            /* seed material from the host RNG/clocks */
-uint64_t os_mono_ns(void);               /* monotonic clock, nanoseconds */
-void os_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
+/* ---- other host-OS primitives (host/posix/host.c or host/win/host.c, one compiled) ---- */
+uint64_t host_entropy_64(void);            /* seed material from the host RNG/clocks */
+uint64_t host_mono_ns(void);               /* monotonic clock, nanoseconds */
+void host_sleep_until_ns(uint64_t target); /* frame pacer; no-op where the present already paces */
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
-bool os_localtime(time_t t, struct tm *out);
-bool os_gmtime(time_t t, struct tm *out);
+bool host_localtime(time_t t, struct tm *out);
+bool host_gmtime(time_t t, struct tm *out);
 
 /* Host-locale strftime (the C locale stays elsewhere in the process). */
-void os_locale_reset(void); /* (re)load the environment locale */
-size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
-void os_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
+void host_locale_reset(void); /* (re)load the environment locale */
+size_t host_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm);
+void host_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtoff/tm_zone where they exist */
 
 /* App config location, in the host's native path spelling. */
-bool os_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
-void os_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
+bool host_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
+void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
 
 /* Reattach stdio to the parent console when launched from one; no-op elsewhere. */
-void os_console_attach(void);
+void host_console_attach(void);
 
 /* One command-line argument, host argv encoding -> guest OEM. False if it
  * does not fit. */
-bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz);
+bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 
 /* Test-only host helpers (the tests drive the rest of the seam directly). */
-bool os_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
-void os_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
+bool host_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
+void host_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
 
 #endif /* _CORE_HOST_H_ */

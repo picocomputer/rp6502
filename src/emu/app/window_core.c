@@ -427,9 +427,9 @@ void window_core_frame(void)
     if (!started)
     {
         started = true;
-        start_ns = os_mono_ns();
+        start_ns = host_mono_ns();
     }
-    uint64_t target = (os_mono_ns() - start_ns) * VGA_HZ / 1000000000ull;
+    uint64_t target = (host_mono_ns() - start_ns) * VGA_HZ / 1000000000ull;
     if (host_window_menu_active()) /* Android ROM menu: freeze emulation */
         done = target;
     uint64_t behind = target > done ? target - done : 0;
@@ -593,7 +593,7 @@ void window_core_frame(void)
      * done·period would target a deadline already past and busy-loop. With vsync
      * the swap-block above already paces the loop. */
     if (!app.vsync)
-        os_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
+        host_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
 }
 
 bool window_core_boot_rom(const char *path)

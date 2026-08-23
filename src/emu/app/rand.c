@@ -27,14 +27,14 @@ void rand_set_seed(uint64_t seed)
 uint64_t rand_seed_value(void)
 {
     if (!rand_seeded)
-        rand_set_seed(os_entropy_64());
+        rand_set_seed(host_entropy_64());
     return rand_seed;
 }
 
 uint64_t get_rand_64(void)
 {
     if (!rand_seeded)
-        rand_set_seed(os_entropy_64());
+        rand_set_seed(host_entropy_64());
     rand_state = rand_state * 6364136223846793005ull + 1442695040888963407ull;
     uint64_t x = rand_state ^ (rand_state >> 33);
     x *= 0xff51afd7ed558ccdull;

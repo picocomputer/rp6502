@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * POSIX-family host-OS primitives common to every POSIX host (host/host.h os_*),
- * the counterpart of win/os.c. The two primitives that differ by OS —
- * os_entropy_64 and os_sleep_until_ns — live in the per-host os.c
+ * POSIX-family host-OS primitives common to every POSIX host (core/host.h host_*),
+ * the counterpart of win/host.c. The two primitives that differ by OS —
+ * host_entropy_64 and host_sleep_until_ns — live in the per-host host.c
  * (linux/macos/web/android); this file holds only what they all share.
  */
 
@@ -22,7 +22,7 @@
 
 /* ---- monotonic clock ---- */
 
-uint64_t os_mono_ns(void)
+uint64_t host_mono_ns(void)
 {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -31,12 +31,12 @@ uint64_t os_mono_ns(void)
 
 /* ---- broken-down time ---- */
 
-bool os_localtime(time_t t, struct tm *out)
+bool host_localtime(time_t t, struct tm *out)
 {
     return localtime_r(&t, out) != NULL;
 }
 
-bool os_gmtime(time_t t, struct tm *out)
+bool host_gmtime(time_t t, struct tm *out)
 {
     return gmtime_r(&t, out) != NULL;
 }
@@ -52,19 +52,19 @@ size_t strftime_l(char *restrict, size_t, const char *restrict,
  * C locale. NULL if the environment locale isn't installed (falls back to C). */
 static locale_t g_locale;
 
-void os_locale_reset(void)
+void host_locale_reset(void)
 {
     if (!g_locale)
         g_locale = newlocale(LC_ALL_MASK, "", (locale_t)0);
 }
 
-size_t os_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
+size_t host_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
 {
     return g_locale ? strftime_l(buf, max, fmt, tm, g_locale)
                     : strftime(buf, max, fmt, tm);
 }
 
-void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
+void host_tm_apply_zone(struct tm *tm, const struct tm *probe)
 {
 #if defined(__GLIBC__) || defined(__APPLE__) || defined(__EMSCRIPTEN__) || defined(__USE_MISC)
     tm->tm_gmtoff = probe->tm_gmtoff;
@@ -76,7 +76,7 @@ void os_tm_apply_zone(struct tm *tm, const struct tm *probe)
 
 /* ---- config location ---- */
 
-bool os_config_dir(char *buf, size_t sz)
+bool host_config_dir(char *buf, size_t sz)
 {
     const char *xdg = getenv("XDG_CONFIG_HOME");
     if (xdg && xdg[0])
@@ -91,7 +91,7 @@ bool os_config_dir(char *buf, size_t sz)
     return true;
 }
 
-void os_ensure_parent_dir(const char *filepath)
+void host_ensure_parent_dir(const char *filepath)
 {
     char tmp[1024];
     snprintf(tmp, sizeof tmp, "%s", filepath);
@@ -109,17 +109,17 @@ void os_ensure_parent_dir(const char *filepath)
     mkdir(tmp, 0755);
 }
 
-void os_console_attach(void) {}
+void host_console_attach(void) {}
 
 /* POSIX (and Emscripten) argv arrives as UTF-8. */
-bool os_argv_to_oem(const char *arg, char *dst, size_t dstsz)
+bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
     return oem_from_utf8(arg, dst, dstsz) < dstsz;
 }
 
 /* ---- test-only helpers ---- */
 
-bool os_make_tmpdir(char *buf, size_t sz)
+bool host_make_tmpdir(char *buf, size_t sz)
 {
     char tmpl[] = "/tmp/rp6502_test_XXXXXX";
     const char *d = mkdtemp(tmpl);
@@ -129,7 +129,7 @@ bool os_make_tmpdir(char *buf, size_t sz)
     return true;
 }
 
-void os_setenv(const char *name, const char *value)
+void host_setenv(const char *name, const char *value)
 {
     setenv(name, value, 1);
 }

@@ -37,7 +37,7 @@ static char g_dir[256]; /* a temp dir, made the MSC0: cwd */
 static bool fresh_cwd(void)
 {
     char dir[MSC_MAX_PATH];
-    if (!os_make_tmpdir(dir, sizeof(dir)))
+    if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop(); /* close any files a prior test left open */
     if (!fs_chdir(dir))

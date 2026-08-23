@@ -156,36 +156,36 @@ if(WIN32)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/win/dir.c
         ${RP6502_SRC}/host/win/fs.c
-        ${RP6502_SRC}/host/win/os.c
+        ${RP6502_SRC}/host/win/host.c
         ${RP6502_SRC}/host/win/win.c)
 elseif(EMSCRIPTEN)
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/posix/dir.c
         ${RP6502_SRC}/host/web/fs.c
-        ${RP6502_SRC}/host/posix/os.c
-        ${RP6502_SRC}/host/web/os.c)
+        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/host/web/host.c)
 elseif(ANDROID)
     # Bionic has no <aio.h> and we don't thread host I/O, so Android gets its own
     # synchronous fs seam (like web). dir stays on posix; os = posix common + android.
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/posix/dir.c
         ${RP6502_SRC}/host/android/fs.c
-        ${RP6502_SRC}/host/posix/os.c
-        ${RP6502_SRC}/host/android/os.c)
+        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/host/android/host.c)
 elseif(APPLE)
     # macOS: POSIX aio_read is in libc (no librt needed); os = posix common + macos.
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/posix/dir.c
         ${RP6502_SRC}/host/posix/fs.c
-        ${RP6502_SRC}/host/posix/os.c
-        ${RP6502_SRC}/host/macos/os.c)
+        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/host/macos/host.c)
 else()
     # Linux / BSD: os = posix common + linux; POSIX AIO required.
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/posix/dir.c
         ${RP6502_SRC}/host/posix/fs.c
-        ${RP6502_SRC}/host/posix/os.c
-        ${RP6502_SRC}/host/linux/os.c)
+        ${RP6502_SRC}/host/posix/host.c
+        ${RP6502_SRC}/host/linux/host.c)
     include(CheckSymbolExists)
     find_library(RT_LIBRARY rt)
     if(RT_LIBRARY)
@@ -369,7 +369,7 @@ if(WIN32)
     # hid for the raw-HID gamepads; the XInput runtime is LoadLibrary'd because
     # its DLL name varies and the Guide button is only at an ordinal.
     target_link_libraries(rp6502-emu PRIVATE d3d11 dxgi shell32 hid user32)
-    # GUI subsystem so no console pops up; keep our main() (os_console_attach
+    # GUI subsystem so no console pops up; keep our main() (host_console_attach
     # reattaches stdio when launched from a terminal).
     if(MSVC)
         target_link_options(rp6502-emu PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)

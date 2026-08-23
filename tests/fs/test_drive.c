@@ -38,7 +38,7 @@ static char g_dir[256]; /* a temp dir, made the MSC0: mount */
 static bool fresh(void)
 {
     char dir[MSC_MAX_PATH];
-    if (!os_make_tmpdir(dir, sizeof(dir)))
+    if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
     if (!fs_chdir(dir))

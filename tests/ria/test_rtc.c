@@ -68,7 +68,7 @@ static uint16_t drive_strftime(const struct wire_tm *w, const char *fmt,
  * (1-Jan-2025 and 1-Jul-2025, both noon UTC) render deterministically. */
 UTEST(rtc, prints_fixed_timestamps)
 {
-    os_setenv("TZ", "UTC");
+    host_setenv("TZ", "UTC");
     tzset(); /* adopt the TZ live; main_init's one tzset ran with the host default */
     cap_len = 0;
     cap[0] = 0;
@@ -103,7 +103,7 @@ UTEST(rtc, strftime_maps_utf8_to_oem)
  * tm without tm_gmtoff. PST8 is a POSIX TZ (UTC-8, no DST) needing no tzdata. */
 UTEST(rtc, strftime_z_uses_host_offset)
 {
-    os_setenv("TZ", "PST8");
+    host_setenv("TZ", "PST8");
     tzset(); /* adopt PST8 live (drive_strftime needs no ROM) */
 
     struct wire_tm w = {0, 0, 12, 1, 6, 125, 2, 181, 0}; /* 2025-07-01, no DST */
@@ -176,7 +176,7 @@ UTEST(rtc, settime_persists_across_restart)
 UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
-    os_setenv("LC_ALL", "C"); /* deterministic strftime, adopted by the one main_init */
+    host_setenv("LC_ALL", "C"); /* deterministic strftime, adopted by the one main_init */
     main_init();              /* the drivers initialize exactly once */
     return utest_main(argc, argv);
 }

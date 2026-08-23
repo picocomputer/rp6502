@@ -18,7 +18,7 @@ extern "C"
 {
 #include "emu/dbg/dbgui.h"        /* dbgui_set_config_file (the public C entry point) */
 #include "emu/dbg/dbgui_layout.h" /* load/save */
-#include "host.h"             /* os_config_dir / os_ensure_parent_dir */
+#include "host.h"             /* host_config_dir / host_ensure_parent_dir */
 }
 
 #include <cstdio>
@@ -39,11 +39,11 @@ static bool dbgui_config_path(char *out, size_t cap)
     else
     {
         char dir[896];
-        if (!os_config_dir(dir, sizeof dir))
+        if (!host_config_dir(dir, sizeof dir))
             return false;
         std::snprintf(out, cap, "%s/dbgui.ini", dir);
     }
-    os_ensure_parent_dir(out);
+    host_ensure_parent_dir(out);
     return true;
 }
 

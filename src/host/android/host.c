@@ -3,16 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Linux host-OS primitives that differ from the shared posix/os.c: entropy
- * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Everything
- * else a POSIX host needs lives in posix/os.c.
+ * Android host-OS primitives that differ from the shared posix/host.c: entropy
+ * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Bionic
+ * provides both (API 28+). Everything else lives in posix/host.c.
  */
 
 #include "host.h"
 #include <sys/random.h>
 #include <time.h>
 
-uint64_t os_entropy_64(void)
+uint64_t host_entropy_64(void)
 {
     uint64_t s;
     if (getrandom(&s, sizeof s, 0) == (ssize_t)sizeof s && s)
@@ -26,7 +26,7 @@ uint64_t os_entropy_64(void)
     return s ? s : 1;
 }
 
-void os_sleep_until_ns(uint64_t target)
+void host_sleep_until_ns(uint64_t target)
 {
     struct timespec until = {.tv_sec = (time_t)(target / 1000000000ull),
                              .tv_nsec = (long)(target % 1000000000ull)};

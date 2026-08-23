@@ -70,7 +70,7 @@ static int run_dap(const cli_options *o)
 
 int main(int argc, char **argv)
 {
-    os_console_attach();
+    host_console_attach();
     cli_options o;
     cli_options_init(&o);
     if (cli_parse_args(argc, argv, &o))
@@ -168,7 +168,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < o.n_installs; i++)
     {
         char oem[4096];
-        if (!os_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_install(oem))
+        if (!host_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_install(oem))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;
@@ -187,7 +187,7 @@ int main(int argc, char **argv)
         }
         for (int i = 0; i < o.n_rom_args; i++)
         {
-            if (!os_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
+            if (!host_argv_to_oem(o.rom_args[i], args_store + used, sizeof args_store - used))
             {
                 fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
                 return 1;
@@ -222,7 +222,7 @@ int main(int argc, char **argv)
     const char *rom = NULL;
     if (o.rom)
     {
-        if (!os_argv_to_oem(o.rom, rom_oem, sizeof rom_oem))
+        if (!host_argv_to_oem(o.rom, rom_oem, sizeof rom_oem))
         {
             fprintf(stderr, "rp6502-emu: ROM path too long\n");
             return 1;
@@ -232,7 +232,7 @@ int main(int argc, char **argv)
     else if (o.n_installs > 0)
     {
         char inst[4096];
-        if (!os_argv_to_oem(o.installs[0], inst, sizeof inst))
+        if (!host_argv_to_oem(o.installs[0], inst, sizeof inst))
         {
             fprintf(stderr, "rp6502-emu: ROM path too long\n");
             return 1;
