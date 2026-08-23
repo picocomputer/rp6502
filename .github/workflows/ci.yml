@@ -617,7 +617,7 @@ jobs:
   #
   # A fit is tens of minutes and needs a 20 GB toolchain, and this used to run
   # on whether a diff touched src/rtl. That was the wrong question twice over.
-  # Yes for the firmware under src/rtl/sw, which costs an assemble and not a
+  # Yes for the firmware under src/host/pocket/sw, which costs an assemble and not a
   # placement, and yes for the whole life of a pull request once any commit in
   # it moved the RTL. No for src/ria and src/vga, compiled into the image that
   # assemble installs, and for src/vga/term, which generates the font and

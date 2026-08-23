@@ -13,7 +13,7 @@ and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
 The PSG is RTL and agrees with `ria/aud/psg.c` sample for sample in lockstep.
 Its ninth voice is the console bell, configured by the soft CPU: the sounds
 are `ria/aud/bel_presets.c` and the queue and lifetime are
-`src/rtl/sw/bel.c`, so fabric holds a voice and software holds the bell.
+`src/host/pocket/sw/bel.c`, so fabric holds a voice and software holds the bell.
 
 Nothing gates the mix. Every engine and the bell sum, on one sample tick —
 the PSG's divider — and an engine with no program answers zero.
@@ -38,7 +38,7 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 ## Layout
 
     src/rtl/        the machine: aud core mem ria rv vid wdc, and its CMake
-    src/rtl/sw/     the soft CPU's firmware, C for the Hazard3
+    src/host/pocket/sw/  the soft CPU's firmware, C for the Hazard3
     src/host/       every host the machine runs on, emulated or fabric
 
 `src/host/pocket` sits beside `src/host/web` and `src/host/linux` because they

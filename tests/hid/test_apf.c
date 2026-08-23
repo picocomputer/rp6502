@@ -26,7 +26,7 @@
 #include "core/hid/tab.h"
 #include "host/pico/ria/sys/mem.h"
 
-#include "rtl/sw/apf.c"
+#include "host/pocket/sw/apf.c"
 
 #include "utest.h"
 

@@ -735,7 +735,7 @@ of them your edit touched.
 
 Placing and routing is about nine minutes and turns on the RTL, the
 constraints and the fitter assignments. Putting firmware into the
-bitstream is about twenty seconds and turns on `src/rtl/sw`. Copying the
+bitstream is about twenty seconds and turns on `src/host/pocket/sw`. Copying the
 card tree is instant.
 
 The firmware is cheap because it is not logic. It is the initial contents

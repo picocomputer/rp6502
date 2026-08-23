@@ -91,19 +91,18 @@ find_program(RISCV_GCC riscv64-unknown-elf-gcc)
 find_program(RISCV_OBJCOPY riscv64-unknown-elf-objcopy)
 if(RISCV_GCC AND RISCV_OBJCOPY)
     set(RP6502_SOFT_CPU ON)
-    set(SW_SRC ${RP6502_SRC}/rtl/sw)
+    set(SW_SRC ${RP6502_SRC}/host/pocket/sw)
     set(SW_BIN ${RP6502_ASSETS}/sw.bin)
     # The firmware's own headers carry the hardware's addresses, so a
     # window that moves has to rebuild the image that writes to it. The rest
     # are here because this image compiles core sources: globbing only
-    # rtl/sw left a core header edit rebuilding nothing, so the tests ran the
-    # previous firmware and the symbol diff compared an image to itself.
+    # the firmware's own left a core header edit rebuilding nothing, so the tests ran
+    # the previous firmware and the symbol diff compared an image to itself.
     # Broader than the include list needs, which costs one gcc run; nothing
     # re-verilates behind it. CONFIGURE_DEPENDS because a plain GLOB is
     # evaluated once: adding a header would leave it untracked, and deleting
     # one leaves ninja demanding a file no rule can produce.
     file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
-        ${RP6502_SRC}/rtl/sw/*.h
         ${RP6502_SRC}/core/*.h
         ${RP6502_SRC}/pico_shim/*.h
         ${RP6502_SRC}/host/pocket/*.h
