@@ -9,8 +9,8 @@
  * placement is collapsed onto a host virtual clock.
  */
 
-#ifndef _HOST_PICO_PICO_STDLIB_H_
-#define _HOST_PICO_PICO_STDLIB_H_
+#ifndef _PICO_SHIM_PICO_STDLIB_H_
+#define _PICO_SHIM_PICO_STDLIB_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -44,4 +44,4 @@ typedef void (*irq_handler_t)(void);
 #include "pico/time.h"
 #include "pico/stdio.h"
 
-#endif /* _HOST_PICO_PICO_STDLIB_H_ */
+#endif /* _PICO_SHIM_PICO_STDLIB_H_ */

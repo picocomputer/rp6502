@@ -10,8 +10,8 @@
  * reused firmware ria/ sources (dir.c, str.c).
  */
 
-#ifndef _HOST_PICO_PICO_H_
-#define _HOST_PICO_PICO_H_
+#ifndef _PICO_SHIM_PICO_H_
+#define _PICO_SHIM_PICO_H_
 
 #include <assert.h>
 #include <stddef.h>
@@ -44,4 +44,4 @@
 #endif
 #endif
 
-#endif /* _HOST_PICO_PICO_H_ */
+#endif /* _PICO_SHIM_PICO_H_ */

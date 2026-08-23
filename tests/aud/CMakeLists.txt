@@ -25,7 +25,7 @@ rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 
 if(RP6502_VERILATE)
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
-        ${RP6502_SRC} ${RP6502_SRC}/host/pico)
+        ${RP6502_SRC} ${RP6502_SRC}/pico_shim)
 
     # --- The PSG in RTL, against ria/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the

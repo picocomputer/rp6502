@@ -72,7 +72,7 @@ set_source_files_properties(${OEMCP_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(uni
     SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c ${OEMCP_C}
         ${RP6502_VENDOR}/fatfs/ffunicode.c
-    INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/host/pico
+    INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/pico_shim
         ${OEMCP_DIR})
 add_dependencies(test_uni oemcp)
 set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
@@ -90,7 +90,7 @@ if(OEMCP_BIN)
     rp6502_add_test(uni_bin
         SOURCES test_uni.c ${RP6502_SRC}/ria/api/uni.c uni_bin.c
             ${RP6502_VENDOR}/fatfs/ffunicode.c
-        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/host/pico
+        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${RP6502_SRC}/pico_shim
             ${OEMCP_DIR}
         DEFS OEMCP_BIN_PATH="${OEMCP_BIN}")
     add_dependencies(test_uni_bin oemcp oemcp_bin)
@@ -107,7 +107,7 @@ endif()
 set_source_files_properties(${KBDLAY_C} PROPERTIES GENERATED TRUE)
 rp6502_add_test(kbl
     SOURCES test_kbl.c ${RP6502_SRC}/ria/hid/kbl.c ${KBDLAY_C}
-    INCLUDES ${RP6502_SRC} ${RP6502_SRC}/host/pico ${KBDLAY_DIR})
+    INCLUDES ${RP6502_SRC} ${RP6502_SRC}/pico_shim ${KBDLAY_DIR})
 add_dependencies(test_kbl kbdlay)
 
 # --- The same suite over the Pocket's copy of the layouts ---
@@ -117,7 +117,7 @@ add_dependencies(test_kbl kbdlay)
 if(KBDLAY_BIN)
     rp6502_add_test(kbl_bin
         SOURCES test_kbl.c ${RP6502_SRC}/ria/hid/kbl.c kbl_bin.c
-        INCLUDES ${RP6502_SRC} ${RP6502_SRC}/host/pico ${KBDLAY_DIR}
+        INCLUDES ${RP6502_SRC} ${RP6502_SRC}/pico_shim ${KBDLAY_DIR}
         DEFS KBDLAY_BIN_PATH="${KBDLAY_BIN}")
     add_dependencies(test_kbl_bin kbdlay kbdlay_bin)
 endif()

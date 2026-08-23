@@ -233,7 +233,7 @@ endif()
 add_dependencies(emu_core rsmp_coef)
 target_include_directories(emu_core PUBLIC
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${RP6502_SRC}/host/pico
+    ${RP6502_SRC}/pico_shim
     ${RP6502_SRC}
     ${RP6502_VENDOR}
 )

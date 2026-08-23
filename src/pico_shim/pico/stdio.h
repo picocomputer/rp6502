@@ -9,8 +9,8 @@
  * the com module's merged RX.
  */
 
-#ifndef _HOST_PICO_PICO_STDIO_H_
-#define _HOST_PICO_PICO_STDIO_H_
+#ifndef _PICO_SHIM_PICO_STDIO_H_
+#define _PICO_SHIM_PICO_STDIO_H_
 
 #include "emu/sys/com.h"
 #include <stdint.h>
@@ -26,4 +26,4 @@ static inline int stdio_getchar_timeout_us(uint32_t timeout_us)
     return com_getchar(&src);
 }
 
-#endif /* _HOST_PICO_PICO_STDIO_H_ */
+#endif /* _PICO_SHIM_PICO_STDIO_H_ */

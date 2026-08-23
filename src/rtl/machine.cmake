@@ -155,7 +155,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -I ${RP6502_SRC}
             -I ${SW_SRC}/shim
             -I ${RP6502_ASSETS}
-            -I ${RP6502_SRC}/host/pico
+            -I ${RP6502_SRC}/pico_shim
             -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
