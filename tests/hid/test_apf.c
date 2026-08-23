@@ -71,30 +71,6 @@ static uint8_t feed(int slot, uint8_t type, uint32_t key, uint32_t joy,
     return len;
 }
 
-/* Mirrors apf_slot_task's dispatch: which descriptor and which claim about
- * the labels each controller type is mounted with. */
-static void mount(int slot, uint8_t type)
-{
-    switch (type)
-    {
-    case APF_TYPE_POCKET:
-        apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc), PAD_TYPE_EASTERN);
-        break;
-    case APF_TYPE_PAD:
-        apf_mount(slot, apf_pad_desc, sizeof(apf_pad_desc), PAD_TYPE_UNKNOWN);
-        break;
-    case APF_TYPE_PAD_ANA:
-        apf_mount(slot, apf_pad_ana_desc, sizeof(apf_pad_ana_desc), PAD_TYPE_UNKNOWN);
-        break;
-    case APF_TYPE_KBD:
-        apf_mount(slot, apf_kbd_desc, sizeof(apf_kbd_desc), PAD_TYPE_UNKNOWN);
-        break;
-    case APF_TYPE_MOU:
-        apf_mount(slot, apf_mou_desc, sizeof(apf_mou_desc), PAD_TYPE_UNKNOWN);
-        break;
-    }
-}
-
 static void reset_all(void)
 {
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
@@ -121,7 +97,7 @@ static void reset_all(void)
 UTEST(apf, a_pad_maps_straight_through)
 {
     reset_all();
-    mount(0, APF_TYPE_PAD_ANA);
+    apf_mount(0, APF_TYPE_PAD_ANA);
 
     /* Nothing pressed, sticks centered: connected, and still. */
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x80808080u, 0x0000, false);
@@ -212,7 +188,7 @@ UTEST(apf, a_pad_maps_straight_through)
 UTEST(apf, a_pad_without_analog_is_centered)
 {
     reset_all();
-    mount(1, APF_TYPE_PAD);
+    apf_mount(1, APF_TYPE_PAD);
     feed(1, APF_TYPE_PAD, 0x20000000u | (1u << 2), 0xDEADBEEFu, 0xFFFF, false);
     ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x0F, 0x4); /* left */
     ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 0);
@@ -232,17 +208,17 @@ UTEST(apf, the_status_bits_follow_the_descriptor)
 {
     reset_all();
 
-    mount(0, APF_TYPE_PAD_ANA);
+    apf_mount(0, APF_TYPE_PAD_ANA);
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x80808080u, 0x0000, false);
     ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0xC0); /* connected | sticks */
 
     reset_all();
-    mount(0, APF_TYPE_PAD);
+    apf_mount(0, APF_TYPE_PAD);
     feed(0, APF_TYPE_PAD, 0x20000000u, 0x80808080u, 0x0000, false);
     ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0x80); /* connected, nothing claimed */
 
     reset_all();
-    mount(0, APF_TYPE_POCKET);
+    apf_mount(0, APF_TYPE_POCKET);
     feed(0, APF_TYPE_POCKET, 0x10000000u, 0x80808080u, 0x0000, false);
     ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0x80 | (PAD_TYPE_EASTERN << 4));
 
@@ -256,7 +232,7 @@ UTEST(apf, four_pads_are_four_players)
 {
     reset_all();
     for (int slot = 0; slot < 4; slot++)
-        mount(slot, APF_TYPE_PAD_ANA);
+        apf_mount(slot, APF_TYPE_PAD_ANA);
     for (int slot = 0; slot < 4; slot++)
         feed(slot, APF_TYPE_PAD_ANA, 0x30000000u | (1u << (4 + slot)),
              0x80808080u, 0x0000, false);
@@ -274,7 +250,7 @@ UTEST(apf, four_pads_are_four_players)
 UTEST(apf, a_keyboard_sets_the_bitmap)
 {
     reset_all();
-    mount(2, APF_TYPE_KBD);
+    apf_mount(2, APF_TYPE_KBD);
 
     /* Idle: bit 0 of word 0 says no keys are down. */
     feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
@@ -306,7 +282,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
     kbt_load_layout("US");
-    mount(2, APF_TYPE_KBD);
+    apf_mount(2, APF_TYPE_KBD);
 
     char buf[8];
     feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
@@ -335,7 +311,7 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 UTEST(apf, a_mouse_moves_and_clicks)
 {
     reset_all();
-    mount(3, APF_TYPE_MOU);
+    apf_mount(3, APF_TYPE_MOU);
 
     /* The first report after it appears carries no movement, however
      * far the hand went before anyone was listening. The movements are
@@ -369,7 +345,7 @@ UTEST(apf, a_mouse_is_also_a_pointer)
 {
     reset_all();
     tab_xreg(0x4000);
-    mount(3, APF_TYPE_MOU);
+    apf_mount(3, APF_TYPE_MOU);
 
     feed(3, APF_TYPE_MOU, 0x50000001u, 0x00000000u, 0x0000, true);
     /* Contact zero's byte 0 carries the state bits; a pointer that has
@@ -389,7 +365,7 @@ UTEST(apf, a_mouse_is_also_a_pointer)
 UTEST(apf, mapping_a_driver_republishes_what_is_held)
 {
     reset_all();
-    mount(0, APF_TYPE_PAD_ANA);
+    apf_mount(0, APF_TYPE_PAD_ANA);
 
     /* Held, off centre, and delivered. */
     const uint32_t held = 0x30000000u | (1u << 15); /* start */
@@ -417,7 +393,7 @@ UTEST(apf, a_slot_holds_what_its_type_says)
     reset_all();
 
     /* A keyboard on the slot Analogue puts a pad on. */
-    mount(0, APF_TYPE_KBD);
+    apf_mount(0, APF_TYPE_KBD);
     feed(0, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false);
     ASSERT_EQ(xram[AT_KBD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
     /* And no pad appeared for it. */
@@ -425,7 +401,7 @@ UTEST(apf, a_slot_holds_what_its_type_says)
 
     /* Unplugged and replaced by a pad, on the same slot. */
     apf_umount(0);
-    mount(0, APF_TYPE_PAD_ANA);
+    apf_mount(0, APF_TYPE_PAD_ANA);
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u | (1u << 4), 0x80808080u, 0x0000,
          false);
     ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x80, 0x80);
