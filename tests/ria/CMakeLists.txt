@@ -142,3 +142,10 @@ if(RP6502_SOFT_CPU)
     # the platform bridge.
     rp6502_add_machine_test(rom FIRMWARE TIMEOUT 900)
 endif()
+
+# The ANSI keyboard against the line editor, through the shipped binary: type
+# and wait against a program that reads whole lines. test_adventure above
+# injects on stdin, so the two prove different halves of the same path.
+if(TARGET rp6502-emu)
+    rp6502_add_script_test(adventure FIXTURE adventure.rp6502)
+endif()

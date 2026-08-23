@@ -161,6 +161,79 @@ rp6502_test_rom(fstest_rom GEN ${RP6502_ROOT}/src/gen/fstest_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the filesystem conformance ROM")
 
+# rp6502_add_script_test(<name> [SCRIPT <file>] [ROM <file>]
+#                        [FIXTURE <file in roms/>] [ARGS <emu arg>...]
+#                        [DEPENDS <target>...] [TIMEOUT <seconds>])
+#
+# A 6502 program and a script that watches it, as one CTest. The program makes
+# the claims it can make from inside the machine and prints them; the script
+# drives the inputs no program can give itself and reads the answers back.
+# That pairing is what a functional test of this machine is, and it existed
+# only as hand-written add_test lines under host/emu, where no subsystem could
+# reach it.
+#
+# No SPLIT, and for the opposite reason to rp6502_add_test's. There, splitting
+# turns a suite bounded by its slowest binary into one bounded by its slowest
+# case, because the binary is a nine-minute simulation. Here a boot costs
+# milliseconds and the point is that it answers twenty questions; a case apiece
+# would boot twenty times to save nothing.
+function(rp6502_add_script_test name)
+    cmake_parse_arguments(S "" "SCRIPT;ROM;FIXTURE;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
+    if(NOT TARGET rp6502-emu)
+        message(FATAL_ERROR
+            "rp6502_add_script_test(${name}) drives the shipped binary.\n"
+            "  Guard the call with if(TARGET rp6502-emu).")
+    endif()
+
+    if(NOT S_SCRIPT)
+        set(S_SCRIPT ${name}.txt)
+    endif()
+    if(NOT IS_ABSOLUTE ${S_SCRIPT})
+        set(S_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/${S_SCRIPT})
+    endif()
+    if(S_FIXTURE)
+        set(S_ROM ${RP6502_TEST_ROMS}/${S_FIXTURE})
+    endif()
+    if(NOT S_ROM)
+        message(FATAL_ERROR "rp6502_add_script_test(${name}) names no program")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${S_SCRIPT})
+
+    # A directory of its own. A script test writes where it is standing — a
+    # screenshot, and every file the program creates on a host-backed drive —
+    # and two of them in one directory under ctest --parallel is how a suite
+    # starts failing on other people's machines.
+    set(_work ${CMAKE_CURRENT_BINARY_DIR}/script.${name})
+    file(MAKE_DIRECTORY ${_work})
+
+    file(RELATIVE_PATH _dir ${RP6502_TESTS_DIR} ${CMAKE_CURRENT_LIST_DIR})
+    string(REPLACE "/" "." _dir "${_dir}")
+
+    # --mute so a runner opens no audio device, --seed and --fill so a program
+    # that asks for entropy or reads memory it never wrote is asked the same
+    # question every run.
+    add_test(NAME script.${name}
+        COMMAND rp6502-emu --mute --seed 1 --fill 0 ${S_ARGS}
+            --script ${S_SCRIPT} ${S_ROM})
+    if(NOT S_TIMEOUT)
+        set(S_TIMEOUT 120)
+    endif()
+    # EMU_ECHO mirrors the terminal to stderr (emu/sys/com.c). A script fails on
+    # one line and the question is always what the machine had been saying, so
+    # --output-on-failure carries the console with it.
+    set_tests_properties(script.${name} PROPERTIES
+        WORKING_DIRECTORY ${_work}
+        TIMEOUT ${S_TIMEOUT}
+        ENVIRONMENT EMU_ECHO=1
+        LABELS "script;${_dir}")
+
+    # add_test cannot depend on a target, and a script test has no executable
+    # to hang one on, so a ROM it needs is hung off the aggregate instead.
+    if(S_DEPENDS)
+        add_dependencies(rp6502_test_roms ${S_DEPENDS})
+    endif()
+endfunction()
+
 # rp6502_add_test(<name> [SOURCES ...] [LIBS ...] [INCLUDES ...] [DEFS ...]
 #                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT])
 #
