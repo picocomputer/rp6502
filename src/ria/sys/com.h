@@ -16,6 +16,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "core/com.h"
+
 #include <pico.h>
 
 #define COM_UART uart1
@@ -32,10 +34,6 @@ void com_task(void);
 void com_stop(void);
 void com_break(void);
 
-// The '\a' BEL alert
-bool com_get_bel(void);
-void com_set_bel(bool value);
-
 // Telnet console server settings
 void com_tel_load_port(const char *str);
 void com_tel_load_key(const char *str);
@@ -44,43 +42,8 @@ bool com_tel_set_key(const char *key);
 uint16_t com_tel_get_port(void);
 const char *com_tel_get_key(void);
 
-typedef enum
-{
-    COM_SOURCE_KBD,
-    COM_SOURCE_UART,
-    COM_SOURCE_TEL,
-    COM_SOURCE_COUNT,
-    COM_SOURCE_ANY = COM_SOURCE_COUNT,
-} com_source_t;
-
-// Non-blocking 1-byte read. *src is in/out:
-//   - in COM_SOURCE_ANY: read from any active source via the sticky
-//     RX picker. On byte, *src is set to the source that delivered;
-//     on no byte, *src is reset to COM_SOURCE_ANY.
-//   - in specific source: read only from that source. Bytes on other
-//     sources are left in their FIFOs for a later reader. On no byte,
-//     *src is reset to COM_SOURCE_ANY.
-// Returns the byte (0..255) or PICO_ERROR_TIMEOUT when no data is
-// available on the requested source(s).
-int com_getchar(com_source_t *src);
-
-// Non-blocking 1-byte peek at a specific source (UART/TEL), without
-// consuming. Returns the byte (0..255), or negative when none is queued.
-int com_peekchar(com_source_t src);
-
-// Ensure putchar will not block even with a newline expansion
-bool com_putchar_ready(void);
-
-// Ensure space for com_write()
-bool com_writable(void);
-
-// Bypasses Pico SDK stdout newline expansion.
-// Caller must have checked com_writable() first.
-void com_write(char ch);
-
-// Console TX with newline (CRLF) expansion.
-int com_putchar(int c);
-__printflike(1, 2) int com_printf(const char *fmt, ...);
+// Console TX, UTF-8 formatted. Pico only: the monitor, BLE and the
+// network status lines are the callers.
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
 int com_vprintf_utf8(const char *utf8_fmt, va_list va);
 __printflike(3, 4) int com_snprintf_utf8(char *dst, size_t dst_size,

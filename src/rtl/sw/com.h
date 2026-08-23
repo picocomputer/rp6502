@@ -12,6 +12,5 @@
 
 /* The wire to the terminal: term.c's captured stdio driver, registered
  * through the pico/stdio/driver.h shim. */
-void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 #endif /* _FPGA_SW_COM_H_ */

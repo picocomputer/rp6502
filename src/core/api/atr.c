@@ -11,7 +11,7 @@
 #include "core/api/pro.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
-#include "ria/sys/com.h"
+#include "core/com.h"
 #include "ria/sys/cpu.h"
 #include "ria/sys/ria.h"
 #include "host.h"

@@ -11,7 +11,7 @@
 #ifndef _PICO_SHIM_PICO_STDIO_DRIVER_H_
 #define _PICO_SHIM_PICO_STDIO_DRIVER_H_
 
-#include "emu/sys/com.h"
+#include "core/com.h"
 #include <stdbool.h>
 
 typedef struct stdio_driver

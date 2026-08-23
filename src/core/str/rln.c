@@ -6,7 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/str/rln.h"
-#include "ria/sys/com.h"
+#include "core/com.h"
 #include "ria/sys/ria.h"
 #include "ria/sys/vga.h"
 #include "host.h"

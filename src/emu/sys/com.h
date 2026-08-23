@@ -26,7 +26,6 @@ void com_run(void);
 
 /* The wire to the terminal: the pico stdio shim hands the captured driver's
  * out_chars here (the analog of the firmware's UART/PIX fanout target). */
-void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 /* The single terminal sink (the firmware UART-drain analog): tap/echo/BEL
  * observe every terminal-bound byte here, then it goes out the wire. */

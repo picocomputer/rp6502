@@ -9,7 +9,7 @@
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/com.h"
+#include "core/com.h"
 #include "core/mem.h"
 #include "ria/sys/pix.h"
 #include <pico/stdlib.h>

@@ -12,6 +12,8 @@
 #ifndef _RTL_SW_SHIM_PICO_STDIO_DRIVER_H_
 #define _RTL_SW_SHIM_PICO_STDIO_DRIVER_H_
 
+#include "core/com.h"
+
 #include <stdbool.h>
 
 typedef struct stdio_driver
@@ -22,7 +24,6 @@ typedef struct stdio_driver
     bool crlf_enabled;
 } stdio_driver_t;
 
-void com_set_term_out(void (*out_chars)(const char *buf, int len));
 
 static inline void stdio_set_driver_enabled(stdio_driver_t *driver, bool enabled)
 {
