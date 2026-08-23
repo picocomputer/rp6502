@@ -1,14 +1,20 @@
 # Shared CTest wiring. Both trees add tests/ and get the suites their build
-# can run; this file carries what all of them need. Uses utest.h (vendored
-# with sokol).
+# can run; this file carries what all of them need.
+#
+# The harness is utest.h, from its own repository rather than out of sokol's
+# test directory. The copy in there is a fork of an older one, and what it is
+# missing is most of the complaints: --list-tests, the annotated assertions,
+# UTEST_SKIP, and a C++ printer that can take a uint64_t. Taking it directly
+# also means the simulation tree stops pulling an entire graphics library to
+# get one header — sokol is the emulator's dependency, not the RTL's.
 
 # Entered from both trees, so it asks rather than assuming the emulator's
 # side already did.
 include(${RP6502_ROOT}/submodules.cmake)
-rp6502_submodule(vendor/sokol SENTINEL tests/functional/utest.h
+rp6502_submodule(vendor/utest SENTINEL utest.h
     WANTS "the test harness")
 
-set(RP6502_UTEST_DIR ${RP6502_VENDOR}/sokol/tests/functional)
+set(RP6502_UTEST_DIR ${RP6502_VENDOR}/utest)
 set(RP6502_TESTS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 
@@ -301,10 +307,16 @@ function(rp6502_add_test name)
 
     set(_cases ${name})
     if(T_SPLIT)
-        # utest.h takes --filter but cannot list what it holds, so the cases are
-        # read out of the source. Every one of them is a plain one-line UTEST(),
-        # and the file is a configure dependency, so adding a case is enough to
-        # register it.
+        # The cases are read out of the source. Every one of them is a plain
+        # one-line UTEST(), and the file is a configure dependency, so adding a
+        # case is enough to register it.
+        #
+        # utest.h can list them itself now, which would be the more honest
+        # question to ask — it would see a case behind an #if, and this cannot.
+        # But asking means running the binary, so registration moves from
+        # configure time to build time and a per-case TIMEOUT gets harder. The
+        # four suites that split have no conditional cases, and the two answers
+        # agree today; when they stop agreeing, --list-tests is the way out.
         list(GET T_SOURCES 0 _src)
         if(NOT IS_ABSOLUTE ${_src})
             set(_src ${CMAKE_CURRENT_LIST_DIR}/${_src})

@@ -40,3 +40,6 @@
 	url = https://github.com/SingleStepTests/65x02
 	update = none
 	ignore = dirty
+[submodule "vendor/utest"]
+	path = vendor/utest
+	url = https://github.com/sheredom/utest.h.git
