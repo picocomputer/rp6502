@@ -32,6 +32,8 @@ extern "C" {
 #include "core/term/font.h"
 }
 
+#include "tb_asm.h"
+#include "tb_rom.h"
 #include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
@@ -553,4 +555,107 @@ int main(int argc, const char *const argv[])
     dut->final();
     delete dut;
     return rc;
+}
+
+/* --- The pad the dock holds, as the record a program reads --- *
+ *
+ * Everything else about a controller is proved on the other machine: the
+ * script suite plugs pads into the emulator and reads the same ten bytes
+ * back. Nothing did it here, so the dock's registers reached ria/hid and
+ * were never asked what came out -- the one part of this path that is the
+ * machine's rather than the transport's.
+ *
+ * The program is here rather than in a fixture because it is three
+ * instructions: map the block and stay up. What it maps is what apf.c
+ * fills, so the assertions are on XRAM and not on anything printed. */
+static std::vector<uint8_t> pad_mapper(uint16_t at)
+{
+    tb_asm p;
+    /* xreg device 0 (the RIA's own devices), channel 0, address 2: the
+     * gamepad block, four ten-byte records from `at`. */
+    p.push(0);
+    p.push(0);
+    p.push(2);
+    p.pushw(at);
+    p.call(0x01);
+    uint16_t here = p.here();
+    p.jmp(here); /* stay up: the pad is reported to a running machine */
+
+    std::vector<uint8_t> rom;
+    const char magic[] = "#!RP6502\n";
+    rom.insert(rom.end(), magic, magic + strlen(magic));
+    tb_rom_record(rom, TB_ORG, p.b.data(), p.b.size());
+    const uint8_t reset[] = {(uint8_t)TB_ORG, (uint8_t)(TB_ORG >> 8)};
+    tb_rom_record(rom, 0xFFFC, reset, sizeof reset);
+    return rom;
+}
+
+/* One byte of XRAM, which the fabric keeps as four byte lanes. */
+static uint8_t xram_at(uint16_t a)
+{
+    auto *r = dut->rootp;
+    size_t w = a >> 2;
+    switch (a & 3)
+    {
+    case 0: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem0[w];
+    case 1: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem1[w];
+    case 2: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem2[w];
+    default: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem3[w];
+    }
+}
+
+/* The machine keeps running: this one does not stop, so quiet is not the
+ * signal and frames are counted instead. */
+static void run_frames(int n)
+{
+    int prev = dut->tb_pocket_vs;
+    long budget = (long)n * 900000L;
+    while (n > 0 && budget-- > 0)
+    {
+        tick();
+        int vs = dut->tb_pocket_vs;
+        if (vs && !prev)
+            n--;
+        prev = vs;
+    }
+}
+
+UTEST(pocket, the_pad_the_dock_holds_reaches_xram)
+{
+    static const uint16_t AT = 0xFF00;
+    /* The dock's key word: the type nibble on top, then the buttons the
+     * Pocket's own face carries. apf.c reads exactly this. */
+    static const uint32_t TYPE_PAD = 2u << 28;
+
+    power_on(utest_result);
+    host_load(pad_mapper(AT));
+    dut->reset_n = 1;
+    run_frames(10);
+
+    /* Nothing docked: a blank record, and the connected bit clear is the
+     * gate a program reads before anything else. */
+    ASSERT_EQ((uint32_t)xram_at(AT), 0u);
+
+    /* Docked, with down and A held. */
+    dut->cont1_key = TYPE_PAD | (1u << 1) | (1u << 4);
+    run_frames(10);
+    ASSERT_EQ((uint32_t)(xram_at(AT) & 0x80), 0x80u);   /* connected */
+    ASSERT_EQ((uint32_t)(xram_at(AT) & 0x0F), 0x02u);   /* dpad down */
+    ASSERT_EQ((uint32_t)(xram_at(AT + 2) & 0x01), 0x01u); /* button0: A */
+
+    /* A release clears only what it named. */
+    dut->cont1_key = TYPE_PAD | (1u << 4);
+    run_frames(10);
+    ASSERT_EQ((uint32_t)(xram_at(AT) & 0x0F), 0x00u);
+    ASSERT_EQ((uint32_t)(xram_at(AT + 2) & 0x01), 0x01u);
+
+    /* Player 1 is a record of its own and nothing is in it. */
+    ASSERT_EQ((uint32_t)xram_at(AT + 10), 0u);
+
+    /* Undocked blanks the whole record, which is how a program tells a
+     * pad that let go from one that left. */
+    dut->cont1_key = 0;
+    run_frames(20);
+    for (int i = 0; i < 10; i++)
+        ASSERT_EQ((uint32_t)xram_at(AT + i), 0u);
 }
