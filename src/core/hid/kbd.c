@@ -12,11 +12,11 @@
 #include "core/hid/kbl.h"
 #include "core/hid/hid.h"
 #include "ria/sys/cfg.h"
-#include "ria/sys/com.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
 #include "host.h"
 #include <class/hid/hid.h>
+#include <pico.h>
 #include <stdio.h>
 /* The case-insensitive compares a layout name is matched with. Named by
  * POSIX rather than by C, and a host that has no such header supplies

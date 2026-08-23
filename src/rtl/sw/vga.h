@@ -37,8 +37,15 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
                     int16_t *scanline_end);
 /* Mode 0's registration: one instance globally — the previous entries
  * are swept wherever they survive, contiguous or not. */
+/* fill_fn is the renderer itself on a machine that renders in software.
+ * Here the fabric does, told which mode by vga_prog_mode before the call,
+ * so it is ignored -- but it stays in the signature because core/vga/mode0.c
+ * passes it and term.c drags the five-parameter declaration into this same
+ * link through vga/sys/vga.h. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
-                        int16_t scanline_end, uint16_t config_ptr);
+                        int16_t scanline_end, uint16_t config_ptr,
+                        bool (*fill_fn)(int16_t, int16_t, int16_t,
+                                        uint16_t *, uint16_t));
 bool vga_set_canvas(uint16_t canvas);
 /* The two raster registers a blob cannot carry, put back from the
  * shadows it did. */

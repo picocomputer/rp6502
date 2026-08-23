@@ -42,7 +42,7 @@ bool vid_mode0_prog(uint16_t *xregs)
     bool use_40 = height == 180 || height == 240;
     if (!scanline_count || scanline_count % (use_40 ? 8 : 16))
         return false;
-    if (!vga_prog_exclusive(plane, scanline_begin, scanline_end, 0))
+    if (!vga_prog_exclusive(plane, scanline_begin, scanline_end, 0, NULL))
         return false;
     if (use_40)
         term_set_height(40, (uint8_t)(scanline_count / 8));

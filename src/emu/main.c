@@ -35,7 +35,6 @@
 #include "core/aud/opl.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "ria/sys/sys.h"
 #include "core/term/font.h"
 #include "core/term/term.h"
 #include "core/vga/mode0.h"

@@ -91,8 +91,11 @@ static uint32_t vga_mode0_mask[16];
 static int16_t vga_mode0_plane;
 
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
-                        int16_t scanline_end, uint16_t config_ptr)
+                        int16_t scanline_end, uint16_t config_ptr,
+                        bool (*fill_fn)(int16_t, int16_t, int16_t,
+                                        uint16_t *, uint16_t))
 {
+    (void)fill_fn;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
     for (int16_t i = 0; i < 512; i++)

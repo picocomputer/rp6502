@@ -14,7 +14,6 @@
 #include "core/api/fat.h"
 #include "fatfs/ff.h"
 #include <assert.h>
-#include <pico.h>
 #include <stdio.h>
 #include <string.h>
 
