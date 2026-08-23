@@ -113,6 +113,12 @@ void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t
     uint16_t report_id = 0xFFFF;
     uint16_t bit_pos = 0;
 
+    /* The Application Collection in scope, and how deep inside it we are, so
+     * a device that nests Physical collections still reports what it is. */
+    uint32_t app_usage = HID_APP_NONE;
+    uint16_t app_depth = 0;
+    uint16_t depth = 0;
+
     // Local state (cleared after each Main item)
     uint16_t usages[32];
     const uint8_t max_usages = sizeof(usages) / sizeof(usages[0]);
@@ -185,24 +191,60 @@ void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_field_cb_t
             }
             break;
 
-        case 0:           // Main
-            if (tag == 8) // Input
+        case 0: // Main
+            if (tag == 10)
             {
-                // Expand usage range into usage list
-                if (have_usage_range && usage_count == 0)
-                    for (uint16_t u = usage_min;
-                         u <= usage_max && usage_count < max_usages;
-                         u++)
-                        usages[usage_count++] = u;
+                if (val == 1 && app_usage == HID_APP_NONE) // Application
+                {
+                    app_usage = ((uint32_t)usage_page << 16) |
+                                (usage_count > 0 ? usages[0] : usage_min);
+                    app_depth = depth;
+                }
+                ++depth;
+            }
+            else if (tag == 12) // End Collection
+            {
+                if (depth > 0)
+                    --depth;
+                if (depth == app_depth && app_usage != HID_APP_NONE)
+                    app_usage = HID_APP_NONE;
+            }
+            else if (tag == 8) // Input
+            {
+                bool is_array = !(val & 0x02);
+                uint16_t lo = have_usage_range  ? usage_min
+                              : usage_count > 0 ? usages[0]
+                                                : 0;
+                uint16_t hi = have_usage_range    ? usage_max
+                              : usage_count > 0   ? usages[usage_count - 1]
+                                                  : 0;
 
                 for (uint32_t i = 0; i < report_count; i++)
                 {
-                    uint16_t usage = (i < usage_count) ? usages[i] : (usage_count > 0) ? usages[usage_count - 1]
-                                                                                       : 0;
+                    /* An array's slots all select from the whole range, so
+                     * none of them has a usage of its own. A variable field
+                     * takes the i'th usage; a range is walked rather than
+                     * expanded, because a keyboard bitmap declares 256 of
+                     * them and no list here is that long. */
+                    uint16_t usage;
+                    if (is_array)
+                        usage = lo;
+                    else if (usage_count > 0)
+                        usage = usages[i < usage_count ? i : (uint32_t)usage_count - 1];
+                    else if (have_usage_range)
+                    {
+                        uint32_t u = (uint32_t)usage_min + i;
+                        usage = u > (uint32_t)usage_max ? usage_max : (uint16_t)u;
+                    }
+                    else
+                        usage = 0;
 
                     hid_field_t field = {
+                        .app_usage = app_usage,
                         .usage_page = usage_page,
                         .usage = usage,
+                        .usage_min = is_array ? lo : usage,
+                        .usage_max = is_array ? hi : usage,
                         .report_id = report_id,
                         .bit_pos = bit_pos,
                         .size = report_size,
@@ -321,7 +363,11 @@ static bool hid_select_report(const hid_field_t *f, void *context)
                   (f->usage_page == 0x0D && (f->usage == 0x42 || f->usage == 0x32));
     if (!useful)
         return true;
-    if (f->usage_page == 0x0D && f->usage == 0x42 && sel->digitizer == HID_ABSENT)
+    bool digitizer = f->app_usage == HID_APP_DIGITIZER ||
+                     f->app_usage == HID_APP_PEN ||
+                     f->app_usage == HID_APP_TOUCH ||
+                     (f->usage_page == 0x0D && f->usage == 0x42);
+    if (digitizer && sel->digitizer == HID_ABSENT)
         sel->digitizer = f->report_id;
     if (sel->first == HID_ABSENT)
         sel->first = f->report_id;
@@ -333,6 +379,8 @@ static bool hid_map_field(const hid_field_t *f, void *context)
     hid_report_map_t *map = (hid_report_map_t *)context;
     if (f->report_id != 0xFFFF && (uint8_t)f->report_id != map->report_id)
         return true; // a different report; not this map's
+    if (map->app_usage == HID_APP_NONE)
+        map->app_usage = f->app_usage;
 
     switch (f->usage_page)
     {
@@ -346,7 +394,7 @@ static bool hid_map_field(const hid_field_t *f, void *context)
             hid_map_locus(map, HID_AXIS_RY, f);
         break;
     case 0x07: // Keyboard
-        if (f->size == 8)
+        if (HID_FIELD_IS_ARRAY(f) && f->size == 8)
         {
             if (map->key_array_bit == HID_ABSENT)
             {
@@ -356,7 +404,7 @@ static bool hid_map_field(const hid_field_t *f, void *context)
             else if (f->bit_pos == map->key_array_bit + (map->key_array_count * 8))
                 map->key_array_count++;
         }
-        else if (f->size == 1 && f->usage <= 0xFF)
+        else if (!HID_FIELD_IS_ARRAY(f) && f->size == 1 && f->usage <= 0xFF)
             hid_map_key_bit(map, f);
         break;
     case 0x09: // Button

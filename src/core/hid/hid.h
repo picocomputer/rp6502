@@ -34,18 +34,38 @@ int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t 
 uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
 int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
 
+/* What a device says it is, from the Application Collection the field sits
+ * in: (usage page << 16) | usage. Zero when the descriptor declared none,
+ * which is when a driver is left guessing from the fields that turned up. */
+#define HID_APP_NONE 0
+#define HID_APP_POINTER 0x00010001
+#define HID_APP_MOUSE 0x00010002
+#define HID_APP_JOYSTICK 0x00010004
+#define HID_APP_GAMEPAD 0x00010005
+#define HID_APP_KEYBOARD 0x00010006
+#define HID_APP_DIGITIZER 0x000D0001
+#define HID_APP_PEN 0x000D0002
+#define HID_APP_TOUCH 0x000D0004
+
 // Per-field info yielded by hid_descriptor_parse.
 typedef struct
 {
+    uint32_t app_usage;
     uint16_t usage_page;
     uint16_t usage;
+    /* An Array field's slots each hold one usage out of this range, so the
+     * range is the field's identity where usage is a Variable field's. */
+    uint16_t usage_min;
+    uint16_t usage_max;
     uint16_t report_id; // 0xFFFF if no report ID
     uint16_t bit_pos;   // Bit offset within report (excludes report ID byte)
     uint8_t size;       // Field size in bits
     int32_t logical_min;
     int32_t logical_max;
-    uint8_t input_flags; // Raw Input item flags byte (bit 2 = relative)
+    uint8_t input_flags; // Raw Input item flags byte (bit 1 = variable, bit 2 = relative)
 } hid_field_t;
+
+#define HID_FIELD_IS_ARRAY(f) (!((f)->input_flags & 0x02))
 
 // Callback for each Input field. Return false to stop parsing.
 typedef bool (*hid_field_cb_t)(const hid_field_t *field, void *context);
@@ -96,7 +116,8 @@ typedef struct
  * which is also everything a host without one has to state. */
 typedef struct
 {
-    uint8_t report_id; // 0 = the device uses none
+    uint32_t app_usage; // what the device says it is, HID_APP_NONE if it didn't
+    uint8_t report_id;  // 0 = the device uses none
     hid_locus_t axis[HID_AXIS_COUNT];
     uint16_t button_bit[HID_MAP_BUTTONS]; // HID_ABSENT when the device lacks it
     uint16_t tip_bit;                     // Digitizer Tip Switch

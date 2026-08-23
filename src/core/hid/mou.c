@@ -113,8 +113,10 @@ bool __in_flash("mou_mount") mou_mount(int slot, const hid_report_map_t *map)
     conn->pan_offset = map->axis[HID_AXIS_PAN].bit_pos;
     conn->pan_size = map->axis[HID_AXIS_PAN].size;
 
-    // If it squeaks like a mouse.
-    conn->valid = conn->x_relative && conn->x_size > 0;
+    // A device that declared itself a mouse is one. Otherwise, if it squeaks
+    // like a mouse: buttons and an X the device moves us by, not to.
+    conn->valid = conn->x_size > 0 &&
+                  (map->app_usage == HID_APP_MOUSE || conn->x_relative);
 
     DBG("mou_mount: slot=%d, valid=%d, report_id=%d\n", slot, conn->valid, conn->report_id);
     DBG("  x: offset=%d, size=%d, relative=%d\n", conn->x_offset, conn->x_size, conn->x_relative);

@@ -372,11 +372,14 @@ static void __in_flash("pad_from_map") pad_from_map(
                 conn->rz_size || conn->rx_size || conn->ry_size ||
                 conn->hat_size;
 
-    // If it creaks like a gamepad. A mouse has buttons and an X too, but its X
-    // is relative. A digital pad has no axes at all, so its discrete dpad
-    // buttons are what say it isn't a keyboard.
-    if (conn->button_offsets[0] != 0xFFFF &&
-        (axes ? conn->x_absolute : conn->button_offsets[16] != 0xFFFF))
+    // A device that declared itself a gamepad is one. Otherwise, if it creaks
+    // like a gamepad: a mouse has buttons and an X too, but its X is relative,
+    // and a digital pad has no axes at all, so its discrete dpad buttons are
+    // what say it isn't a keyboard.
+    if (map->app_usage == HID_APP_GAMEPAD || map->app_usage == HID_APP_JOYSTICK)
+        conn->valid = axes || conn->button_offsets[0] != 0xFFFF;
+    else if (conn->button_offsets[0] != 0xFFFF &&
+             (axes ? conn->x_absolute : conn->button_offsets[16] != 0xFFFF))
         conn->valid = true;
 }
 
