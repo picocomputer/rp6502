@@ -7,7 +7,7 @@
 #include "core/term/color.h"
 #include "core/term/term.h"
 #include "core/com.h"
-#include "vga/sys/vga.h"
+#include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
 #include "host.h"
 #include <pico/stdlib.h>

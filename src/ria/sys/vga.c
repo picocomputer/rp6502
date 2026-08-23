@@ -350,7 +350,7 @@ void vga_task(void)
     {
         vga_needs_reset = false;
         // VGA-side pix_ch15_xreg DISPLAY case calls vga_xreg_canvas(NULL),
-        // which resets canvas to vga_console. Mirror that here.
+        // which resets canvas to vga_canvas_console. Mirror that here.
         vga_canvas_current = vga_canvas_console;
         pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_display_type);
     }

@@ -10,7 +10,7 @@
 
 #include "core/vga/mode4.h"
 #include "core/mem.h"
-#include "vga/sys/vga.h"
+#include "core/vga/vga.h"
 #include <pico/stdlib.h>
 #if PICO_ON_DEVICE
 #include <hardware/interp.h>

@@ -12,7 +12,7 @@
 
 #include "core/vga/mode0.h"
 #include "core/vga/modes.h"
-#include "vga/sys/vga.h"
+#include "core/vga/vga.h"
 #include "core/term/font.h"
 #include "core/term/term.h"
 

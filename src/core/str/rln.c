@@ -8,7 +8,7 @@
 #include "core/str/rln.h"
 #include "core/com.h"
 #include "core/main.h"
-#include "ria/sys/vga.h"
+#include "core/vga/vga.h"
 #include "host.h"
 #include <pico/stdlib.h>
 #include <stdio.h>

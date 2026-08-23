@@ -6,7 +6,7 @@
 
 #include "core/vga/mode1.h"
 #include "core/vga/modes.h"
-#include "vga/sys/vga.h"
+#include "core/vga/vga.h"
 #include "core/mem.h"
 #include "core/term/color.h"
 #include "core/term/font.h"

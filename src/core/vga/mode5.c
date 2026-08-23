@@ -6,7 +6,7 @@
 
 #include "core/vga/mode5.h"
 #include "core/mem.h"
-#include "vga/sys/vga.h"
+#include "core/vga/vga.h"
 #include "core/term/color.h"
 
 #pragma GCC push_options

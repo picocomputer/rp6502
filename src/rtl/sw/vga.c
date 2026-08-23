@@ -158,17 +158,17 @@ bool vga_set_canvas(uint16_t canvas)
 {
     switch (canvas)
     {
-    case 1: /* vga_320_240 */
+    case 1: /* vga_canvas_320_240 */
         vga_canvas_h = 240;
         break;
-    case 2: /* vga_320_180 */
+    case 2: /* vga_canvas_320_180 */
         vga_canvas_h = 180;
         break;
-    case 4: /* vga_640_360 */
+    case 4: /* vga_canvas_640_360 */
         vga_canvas_h = 360;
         break;
-    case 0: /* vga_console */
-    case 3: /* vga_640_480 */
+    case 0: /* vga_canvas_console */
+    case 3: /* vga_canvas_640_480 */
         vga_canvas_h = 480;
         break;
     default:

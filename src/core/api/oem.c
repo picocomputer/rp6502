@@ -10,7 +10,7 @@
 #include "core/hid/kbd.h"
 #include "core/str/str.h"
 #include "core/cfg.h"
-#include "ria/sys/vga.h"
+#include "core/vga/vga.h"
 #include <fatfs/ff.h>
 #include <pico.h>
 #include <string.h>

@@ -7,27 +7,16 @@
 #ifndef _FPGA_SW_VGA_H_
 #define _FPGA_SW_VGA_H_
 
+#include "core/vga/vga.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 
 /* Both sides of the VGA contract on one machine, the emu/sys/vga.h
- * shape. Self-contained because ria/sys/vga.h and vga/sys/vga.h each
- * define their own canvas enum; these stay ABI-compatible with both.
+ * shape. What all three machines agree on is core/vga/vga.h; this is
+ * what only the fabric has.
  */
 
-typedef enum
-{
-    vga_canvas_console = 0,
-    vga_canvas_320_240,
-    vga_canvas_320_180,
-    vga_canvas_640_480,
-    vga_canvas_640_360,
-} vga_canvas_t;
-
-bool vga_connected(void);
-vga_canvas_t vga_get_canvas(void);
-uint8_t vga_get_display_type(void);
-int16_t vga_canvas_height(void);
 int16_t vga_vsync_scanline(void);
 
 /* The mode dispatch announces what the next vga_prog_fill publishes —
