@@ -32,7 +32,7 @@ if(RP6502_VERILATE)
     # verilated engine consume the same XRAM image and gate schedule.
     rp6502_add_module_test(psg
         TOP aud_psg
-        RTL ${AUD_SINE_PKG} ${RP6502_SRC}/rtl/aud/aud_psg.sv
+        RTL ${AUD_SINE_PKG} ${RP6502_SRC}/core/aud/aud_psg.sv
         SOURCES test_psg.cpp psg_shim.c
             ${RP6502_SRC}/core/aud/psg.c ${RP6502_SRC}/core/aud/bel.c
             ${RP6502_SRC}/core/aud/bel_presets.c
@@ -48,7 +48,7 @@ if(RP6502_VERILATE)
     # fabric copies it exactly. Both read one generated coefficient design.
     rp6502_add_module_test(rsmp_rtl
         TOP aud_rsmp
-        RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/rtl/aud/aud_rsmp.sv
+        RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/core/aud/aud_rsmp.sv
         SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/emu/emu/rsmp.c
         INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
         DEPENDS rsmp_coef rsmp_coef_pkg
@@ -69,7 +69,7 @@ if(RP6502_VERILATE)
     rp6502_add_module_test(opl
         TOP aud_opl
         RTL ${OPL2_SOURCES}
-            ${RP6502_SRC}/rtl/aud/aud_opl.sv
+            ${RP6502_SRC}/core/aud/aud_opl.sv
         INCLUDES ${RP6502_BENCH}
         DEPENDS opl2_lut_rom
         TIMEOUT 300)

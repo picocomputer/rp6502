@@ -189,6 +189,6 @@ add_test(NAME stage_map
         --data ${POCKET_CORE_JSON}/data.json
         --mmio ${RP6502_SRC}/host/pocket/sw/mmio.h
         --bench ${RP6502_ROOT}/tests/bench/tb_stage.h
-        --engine ${RP6502_SRC}/rtl/core/sst_engine.sv
+        --engine ${RP6502_SRC}/core/machine/sst_engine.sv
         --sst ${RP6502_HOST_POCKET}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core_top.sv)

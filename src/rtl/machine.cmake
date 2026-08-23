@@ -40,40 +40,40 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${OPL2_SOURCES}
     ${W65C02_ROM}
-    ${RP6502_SRC}/rtl/core/rp6502_pkg.sv
-    ${RP6502_SRC}/rtl/wdc/w65c02.sv
-    ${RP6502_SRC}/rtl/wdc/w65c22.sv
-    ${RP6502_SRC}/rtl/mem/sram64k.sv
-    ${RP6502_SRC}/rtl/mem/xram64k.sv
-    ${RP6502_SRC}/rtl/ria/phi2_div.sv
-    ${RP6502_SRC}/rtl/ria/ria_regs.sv
-    ${RP6502_SRC}/rtl/rv/rv_soc.sv
-    ${RP6502_SRC}/rtl/vid/vid_timing.sv
+    ${RP6502_SRC}/core/machine/rp6502_pkg.sv
+    ${RP6502_SRC}/core/wdc/w65c02.sv
+    ${RP6502_SRC}/core/wdc/w65c22.sv
+    ${RP6502_SRC}/core/mem/sram64k.sv
+    ${RP6502_SRC}/core/mem/xram64k.sv
+    ${RP6502_SRC}/core/ria/phi2_div.sv
+    ${RP6502_SRC}/core/ria/ria_regs.sv
+    ${RP6502_SRC}/core/rv/rv_soc.sv
+    ${RP6502_SRC}/core/vga/vid_timing.sv
     ${AUD_SINE_PKG}
-    ${RP6502_SRC}/rtl/aud/aud_psg.sv
-    ${RP6502_SRC}/rtl/aud/aud_opl.sv
+    ${RP6502_SRC}/core/aud/aud_psg.sv
+    ${RP6502_SRC}/core/aud/aud_opl.sv
     ${RSMP_COEF_PKG}
-    ${RP6502_SRC}/rtl/aud/aud_rsmp.sv
+    ${RP6502_SRC}/core/aud/aud_rsmp.sv
     ${VID_PALETTE_PKG}
-    ${RP6502_SRC}/rtl/vid/vid_font.sv
-    ${RP6502_SRC}/rtl/vid/vid_palram.sv
-    ${RP6502_SRC}/rtl/vid/vid_pixtail.sv
-    ${RP6502_SRC}/rtl/vid/vid_sched.sv
-    ${RP6502_SRC}/rtl/vid/vid_fill.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode1.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode2.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode3.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode4.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode5.sv
-    ${RP6502_SRC}/rtl/vid/vid_palcache.sv
-    ${RP6502_SRC}/rtl/vid/vid_sbuf.sv
-    ${RP6502_SRC}/rtl/vid/vid_sprite.sv
-    ${RP6502_SRC}/rtl/vid/vid_prog.sv
-    ${RP6502_SRC}/rtl/vid/vid_mode0.sv
-    ${RP6502_SRC}/rtl/vid/vid_compose.sv
-    ${RP6502_SRC}/rtl/core/sst_engine.sv
-    ${RP6502_SRC}/rtl/core/rp6502.sv)
+    ${RP6502_SRC}/core/vga/vid_font.sv
+    ${RP6502_SRC}/core/vga/vid_palram.sv
+    ${RP6502_SRC}/core/vga/vid_pixtail.sv
+    ${RP6502_SRC}/core/vga/vid_sched.sv
+    ${RP6502_SRC}/core/vga/vid_fill.sv
+    ${RP6502_SRC}/core/vga/vid_mode.sv
+    ${RP6502_SRC}/core/vga/vid_mode1.sv
+    ${RP6502_SRC}/core/vga/vid_mode2.sv
+    ${RP6502_SRC}/core/vga/vid_mode3.sv
+    ${RP6502_SRC}/core/vga/vid_mode4.sv
+    ${RP6502_SRC}/core/vga/vid_mode5.sv
+    ${RP6502_SRC}/core/vga/vid_palcache.sv
+    ${RP6502_SRC}/core/vga/vid_sbuf.sv
+    ${RP6502_SRC}/core/vga/vid_sprite.sv
+    ${RP6502_SRC}/core/vga/vid_prog.sv
+    ${RP6502_SRC}/core/vga/vid_mode0.sv
+    ${RP6502_SRC}/core/vga/vid_compose.sv
+    ${RP6502_SRC}/core/machine/sst_engine.sv
+    ${RP6502_SRC}/core/machine/rp6502.sv)
 # Verilator elaborates while cmake configures, so an unresolved module here
 # is a configure error, not a build one. Nothing recursive: Hazard3 has six
 # submodules of its own and this tree reads none of them.

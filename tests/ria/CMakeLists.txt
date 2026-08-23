@@ -126,7 +126,7 @@ if(RP6502_VERILATE)
     # --- Every whole kilohertz, exactly ---
     rp6502_add_module_test(phi2
         TOP phi2_div
-        RTL ${RP6502_SRC}/rtl/ria/phi2_div.sv
+        RTL ${RP6502_SRC}/core/ria/phi2_div.sv
         TIMEOUT 120)
 
     # The whole machine so far boots a program that talks through the RIA's

@@ -44,7 +44,7 @@ if(RP6502_VERILATE)
     # immediate and mixed segments, under a jittered grant line.
     rp6502_add_module_test(pixtail
         TOP vid_pixtail
-        RTL ${VID_PALETTE_PKG} ${RP6502_SRC}/rtl/vid/vid_pixtail.sv
+        RTL ${VID_PALETTE_PKG} ${RP6502_SRC}/core/vga/vid_pixtail.sv
         INCLUDES ${RP6502_ASSETS}
         DEPENDS vid_palette_rom
         TIMEOUT 120)
