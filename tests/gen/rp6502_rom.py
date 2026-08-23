@@ -28,7 +28,7 @@ from pathlib import Path
 from rp6502_asm import ORG, Asm
 
 
-def _tool():
+def tool():
     """tools/rp6502.py, loaded by path: it is a script with a generic name,
     and importing it as a module would put "rp6502" on the path for
     everything else. The same reason rp6502_asm.py reaches the vendor's
@@ -48,7 +48,7 @@ def _tool():
     return mod
 
 
-ROM = _tool().ROM
+ROM = tool().ROM
 
 
 class Rom(ROM):

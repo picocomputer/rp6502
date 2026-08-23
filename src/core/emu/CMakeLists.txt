@@ -53,25 +53,6 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
 add_custom_target(oemcp DEPENDS ${OEMCP_C} ${OEMCP_H})
 set(OEMCP_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
 
-# The keyboard layouts, on the same terms: the def files are the source,
-# the generator makes one image, and hid/kbl.c reads it a word at a
-# time. The emulator does not compile the layouts — its keyboard arrives
-# already translated — but tests/ria checks the image against the defs
-# and needs it built. See src/gen/kbd_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def CACHE INTERNAL "")
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
-set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c CACHE INTERNAL "")
-set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h CACHE INTERNAL "")
-set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR} CACHE INTERNAL "")
-add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
-    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
-        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
-    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
-    COMMENT "Generating the keyboard layouts"
-    VERBATIM)
-add_custom_target(kbdlay DEPENDS ${KBDLAY_C} ${KBDLAY_H})
-
 # The OPL resampler's polyphase coefficients, on the same terms: three
 # thousand numbers nobody can check by eye, so they are built rather than
 # committed. Standard library only — a windowed sinc needs no solver — so

@@ -13,7 +13,7 @@
  * short is cheaper than the dependency. tests/ria/test_units.c holds
  * mem_crc32 to the same vectors.
  *
- * src/gen/rp6502_rom.py is this file in Python, for the generators that
+ * tests/gen/rp6502_rom.py is this file in Python, for the generators that
  * write images to disk. The two must agree on the header format; there
  * is one format, and tests/ria/test_rom.cpp is where it is asserted.
  */

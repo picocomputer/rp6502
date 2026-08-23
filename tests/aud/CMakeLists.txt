@@ -25,7 +25,7 @@ rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 
 if(RP6502_VERILATE)
     set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
-        ${RP6502_SRC} ${RP6502_SRC}/pico_shim)
+        ${RP6502_TEST_TABLES} ${RP6502_SRC} ${RP6502_SRC}/pico_shim)
 
     # --- The PSG in RTL, against core/aud/psg.c in lockstep ---
     # The bit-exact audio proof: the vendored DSP over flat shims and the
@@ -37,7 +37,7 @@ if(RP6502_VERILATE)
             ${RP6502_SRC}/core/aud/psg.c ${RP6502_SRC}/core/aud/bel.c
             ${RP6502_SRC}/core/aud/bel_presets.c
         INCLUDES ${AUD_SHIM_INCLUDES}
-        DEPENDS aud_sine_rom
+        DEPENDS aud_sine_rom aud_sine_tables
         # RATE is the arithmetic and must match PSG_SHIM_RATE; the tick is
         # shortened only so the simulation runs faster.
         ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
@@ -61,8 +61,8 @@ if(RP6502_VERILATE)
         TOP opl2_lut_rom
         RTL ${OPL2_LUT_PKG}
             ${RP6502_VENDOR}/opl2_fpga_rp6502/opl2_lut_rom.sv
-        INCLUDES ${RP6502_ASSETS}
-        DEPENDS opl2_lut_rom
+        INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES}
+        DEPENDS opl2_lut_rom opl2_lut_tables
         TIMEOUT 120)
 
     # --- The OPL2 device: the pointer gates it, a poke reaches the chip ---

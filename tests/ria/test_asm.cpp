@@ -8,7 +8,7 @@
  *
  * A program gets built in two places — a generator writing a file, a
  * bench building one in memory — so there is a Python spelling in
- * src/gen/rp6502_asm.py and a C++ one in tests/bench/tb_asm.h. They are
+ * tests/gen/rp6502_asm.py and a C++ one in tests/bench/tb_asm.h. They are
  * not the same assembler and no longer pretend to be: Python carries the
  * whole instruction set and a symbol table, C++ carries what a bench
  * parameterizes at run time. The same program is written in both here

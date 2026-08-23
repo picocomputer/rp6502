@@ -92,33 +92,28 @@ rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
     COMMENT "Generating the w65c02 decode table")
 
 # The font asset comes from core/term/font.c: the image the firmware
-# copies into the store, an offsets header for it, and the tables
-# test_font checks byte for byte against font_init's runtime image.
+# copies into the store, and an offsets header for it.
 set(VID_FONT_BIN ${RP6502_ASSETS}/fonts.bin)
-set(VID_FONT_H ${RP6502_ASSETS}/vid_font_tables.h)
 set(VID_FONT_ASSET_H ${RP6502_ASSETS}/vid_font_asset.h)
 rp6502_machine_asset(vid_font_rom GEN ${RP6502_SRC}/gen/vid_font_gen.py
-    ARGS --emit-bin ${VID_FONT_BIN} --emit-h ${VID_FONT_H}
-        --emit-asset-h ${VID_FONT_ASSET_H}
-    OUTPUTS ${VID_FONT_BIN} ${VID_FONT_H} ${VID_FONT_ASSET_H}
+    ARGS --emit-bin ${VID_FONT_BIN} --emit-asset-h ${VID_FONT_ASSET_H}
+    OUTPUTS ${VID_FONT_BIN} ${VID_FONT_ASSET_H}
     DEPENDS ${RP6502_SRC}/core/term/font.c
     COMMENT "Generating the font asset")
 
 # The builtin palettes ride the same way, from core/term/color.c.
 set(VID_PALETTE_PKG ${RP6502_ASSETS}/vid_palette_pkg.sv)
-set(VID_PALETTE_H ${RP6502_ASSETS}/vid_palette_tables.h)
 rp6502_machine_asset(vid_palette_rom GEN ${RP6502_SRC}/gen/vid_palette_gen.py
-    ARGS --emit-sv ${VID_PALETTE_PKG} --emit-h ${VID_PALETTE_H}
-    OUTPUTS ${VID_PALETTE_PKG} ${VID_PALETTE_H}
+    ARGS --emit-sv ${VID_PALETTE_PKG}
+    OUTPUTS ${VID_PALETTE_PKG}
     DEPENDS ${RP6502_SRC}/core/term/color.c
     COMMENT "Generating the vid palette ROM")
 
 # The PSG's sine table, from aud_init's runtime formula.
 set(AUD_SINE_PKG ${RP6502_ASSETS}/aud_sine_pkg.sv)
-set(AUD_SINE_H ${RP6502_ASSETS}/aud_sine_tables.h)
 rp6502_machine_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
-    ARGS --emit-sv ${AUD_SINE_PKG} --emit-h ${AUD_SINE_H}
-    OUTPUTS ${AUD_SINE_PKG} ${AUD_SINE_H}
+    ARGS --emit-sv ${AUD_SINE_PKG}
+    OUTPUTS ${AUD_SINE_PKG}
     COMMENT "Generating the aud sine ROM")
 
 # The OPL2's two operator tables as one 512x12 package. The vendor's
@@ -128,12 +123,11 @@ rp6502_machine_asset(aud_sine_rom GEN ${RP6502_SRC}/gen/aud_sine_gen.py
 # update changing either table silently.
 set(OPL2_LUT_SRC ${RP6502_VENDOR}/opl2_fpga/fpga/modules/operator/src)
 set(OPL2_LUT_PKG ${RP6502_ASSETS}/opl2_lut_pkg.sv)
-set(OPL2_LUT_H ${RP6502_ASSETS}/opl2_lut_tables.h)
 rp6502_machine_asset(opl2_lut_rom GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
     ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
         --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv
-        --emit-sv ${OPL2_LUT_PKG} --emit-h ${OPL2_LUT_H}
-    OUTPUTS ${OPL2_LUT_PKG} ${OPL2_LUT_H}
+        --emit-sv ${OPL2_LUT_PKG}
+    OUTPUTS ${OPL2_LUT_PKG}
     DEPENDS ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
         ${OPL2_LUT_SRC}/opl2_exp_lut.sv
     COMMENT "Generating the merged OPL2 LUT ROM")

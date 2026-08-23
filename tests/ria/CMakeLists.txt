@@ -13,8 +13,8 @@ add_custom_command(OUTPUT ${ASM_REF}
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py --emit-bin ${ASM_REF}
     DEPENDS ${CMAKE_CURRENT_LIST_DIR}/asm_ref.py
-        ${RP6502_ROOT}/src/gen/rp6502_asm.py
-        ${RP6502_ROOT}/src/gen/rp6502_rom.py
+        ${RP6502_TESTS_DIR}/gen/rp6502_asm.py
+        ${RP6502_TESTS_DIR}/gen/rp6502_rom.py
     COMMENT "Assembling the reference image"
     VERBATIM)
 add_custom_target(asm_ref DEPENDS ${ASM_REF})
@@ -26,7 +26,7 @@ add_dependencies(test_asm asm_ref)
 # otherwise be found by a ROM that still assembles and no longer runs.
 add_test(NAME asm_opcodes
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_ROOT}/src/gen/rp6502_asm.py --check)
+        ${RP6502_TESTS_DIR}/gen/rp6502_asm.py --check)
 set_tests_properties(asm_opcodes PROPERTIES LABELS "gate;ria")
 
 # The container, against the tool that defines it. Every generated ROM is

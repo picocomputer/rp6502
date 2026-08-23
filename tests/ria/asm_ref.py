@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # The reference program for test_asm.cpp: one program that uses every
-# instruction src/gen/rp6502_asm.py and tests/bench/tb_asm.h both carry,
+# instruction tests/gen/rp6502_asm.py and tests/bench/tb_asm.h both carry,
 # written in the Python spelling.
 #
 # There are two assemblers because there are two places a program gets
@@ -18,7 +18,7 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gen"))
 from rp6502_asm import (API_A, ORG, OP_CLOSE, OP_OPEN, O_CREAT, O_WRONLY,
                         RIA_TX, Asm)  # noqa: E402
 from rp6502_rom import Rom  # noqa: E402

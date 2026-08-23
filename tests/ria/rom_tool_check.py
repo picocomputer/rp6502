@@ -16,27 +16,18 @@
 # simulation both run and a Pico will not.
 
 import argparse
-import importlib.util
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 
+# The generators load the tool the same way and for the same reasons, so
+# the loader is theirs rather than written twice.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gen"))
+from rp6502_rom import tool  # noqa: E402
+
 # The monitor's buffer, src/ria/sys/mem.h.
 MBUF_SIZE = 1024
-
-
-def tool():
-    path = ROOT / "tools" / "rp6502.py"
-    spec = importlib.util.spec_from_file_location("rp6502_tool", path)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    cache, sys.dont_write_bytecode = sys.dont_write_bytecode, True
-    try:
-        spec.loader.exec_module(mod)
-    finally:
-        sys.dont_write_bytecode = cache
-    return mod
 
 
 def check(scratch):

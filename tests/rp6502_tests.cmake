@@ -23,6 +23,27 @@ set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 # include path, because which of them a test needs is not worth stating.
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
+# The keyboard layouts as a C table. The def files are the source, the
+# generator makes one image, and hid/kbl.c reads it a word at a time. No
+# machine here compiles it: the RIA firmware generates its own copy in its
+# own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
+# already translated. Only tests/ria wants it, to check the image against
+# the defs it came from, so it is built here rather than in a machine's
+# tree that would never name it. See src/gen/kbd_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
+set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
+set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
+set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
+        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
+    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts"
+    VERBATIM)
+add_custom_target(kbdlay DEPENDS ${KBDLAY_C} ${KBDLAY_H})
+
 # The video-mode corpus is generated, not committed. Every byte of it comes
 # out of vidmodes.py, so a committed copy is only a second copy that can
 # disagree with its generator. What stays in roms/ is the cc65-built programs,
@@ -31,11 +52,11 @@ set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
 set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})
 if(NOT TARGET rp6502_test_corpus)
     set(RP6502_CORPUS_GEN ${RP6502_TEST_ROMS}/vidmodes.py)
-    # It assembles and packages through src/gen like every other ROM
+    # It assembles and packages through tests/gen like every other ROM
     # generator, so a change there is a change to the corpus.
     set(RP6502_CORPUS_ASM
-        ${RP6502_ROOT}/src/gen/rp6502_asm.py
-        ${RP6502_ROOT}/src/gen/rp6502_rom.py)
+        ${RP6502_TESTS_DIR}/gen/rp6502_asm.py
+        ${RP6502_TESTS_DIR}/gen/rp6502_rom.py)
     # A stamp rather than the names: listing them here would be the same
     # duplication in a different file, and it would be wrong within a month.
     # The manifest beside them is how a suite asks what it is looking at —
@@ -95,8 +116,8 @@ endfunction()
 # The assembler and the container every one of these generators writes
 # through. A change to either changes every ROM, so every ROM names them.
 set(RP6502_ROM_GEN
-    ${RP6502_ROOT}/src/gen/rp6502_asm.py
-    ${RP6502_ROOT}/src/gen/rp6502_rom.py)
+    ${RP6502_TESTS_DIR}/gen/rp6502_asm.py
+    ${RP6502_TESTS_DIR}/gen/rp6502_rom.py)
 
 # Two audio programs that make one note and leave the console alone, so
 # the machine's own diagnostics stay readable while a device is driven.
@@ -108,7 +129,7 @@ set(AUD_ROM_OPL ${RP6502_TEST_ROM_DIR}/opl.rp6502)
 set(AUD_ROM_OPL_EXIT ${RP6502_TEST_ROM_DIR}/opl_exit.rp6502)
 set(AUD_ROM_BEL ${RP6502_TEST_ROM_DIR}/bel.rp6502)
 set(AUD_ROM_OPL_BEL ${RP6502_TEST_ROM_DIR}/opl_bel.rp6502)
-rp6502_test_rom(aud_roms GEN ${RP6502_ROOT}/src/gen/aud_rom_gen.py
+rp6502_test_rom(aud_roms GEN ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
     ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
         --emit-opl ${AUD_ROM_OPL}
         --emit-opl-exit ${AUD_ROM_OPL_EXIT}
@@ -123,14 +144,14 @@ rp6502_test_rom(aud_roms GEN ${RP6502_ROOT}/src/gen/aud_rom_gen.py
 # The file that is open when the machine sleeps. It reads a chunk at a
 # time so that wherever a sleep lands, a read lands after the resume.
 set(STREAM_ROM ${RP6502_TEST_ROM_DIR}/stream.rp6502)
-rp6502_test_rom(stream_rom GEN ${RP6502_ROOT}/src/gen/stream_rom_gen.py
+rp6502_test_rom(stream_rom GEN ${RP6502_TESTS_DIR}/gen/stream_rom_gen.py
     ARGS --emit ${STREAM_ROM}
     OUTPUTS ${STREAM_ROM}
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the streaming-read ROM")
 
 set(FILE_ROM ${RP6502_TEST_ROM_DIR}/file.rp6502)
-rp6502_test_rom(file_rom GEN ${RP6502_ROOT}/src/gen/file_rom_gen.py
+rp6502_test_rom(file_rom GEN ${RP6502_TESTS_DIR}/gen/file_rom_gen.py
     ARGS --emit ${FILE_ROM}
     OUTPUTS ${FILE_ROM}
     DEPENDS ${RP6502_ROM_GEN}
@@ -141,7 +162,7 @@ rp6502_test_rom(file_rom GEN ${RP6502_ROOT}/src/gen/file_rom_gen.py
 # was already in the file — has no answer in simulation, because the
 # bench answers the way we assumed.
 set(BIGFILE_ROM ${RP6502_TEST_ROM_DIR}/bigfile.rp6502)
-rp6502_test_rom(bigfile_rom GEN ${RP6502_ROOT}/src/gen/bigfile_rom_gen.py
+rp6502_test_rom(bigfile_rom GEN ${RP6502_TESTS_DIR}/gen/bigfile_rom_gen.py
     ARGS --emit ${BIGFILE_ROM}
     OUTPUTS ${BIGFILE_ROM}
     DEPENDS ${RP6502_ROM_GEN}
@@ -151,7 +172,7 @@ rp6502_test_rom(bigfile_rom GEN ${RP6502_ROOT}/src/gen/bigfile_rom_gen.py
 # not to matter. This walks a list of names in one boot so the next
 # guess costs a card copy instead of a fit.
 set(PROBE_ROM ${RP6502_TEST_ROM_DIR}/probe.rp6502)
-rp6502_test_rom(probe_rom GEN ${RP6502_ROOT}/src/gen/probe_rom_gen.py
+rp6502_test_rom(probe_rom GEN ${RP6502_TESTS_DIR}/gen/probe_rom_gen.py
     ARGS --emit ${PROBE_ROM}
     OUTPUTS ${PROBE_ROM}
     DEPENDS ${RP6502_ROM_GEN}
@@ -161,7 +182,7 @@ rp6502_test_rom(probe_rom GEN ${RP6502_ROOT}/src/gen/probe_rom_gen.py
 # for itself. It runs here against the bench's host as well as on the
 # card, so a bug in the ROM is found before a photograph is.
 set(FSTEST_ROM ${RP6502_TEST_ROM_DIR}/fstest.rp6502)
-rp6502_test_rom(fstest_rom GEN ${RP6502_ROOT}/src/gen/fstest_rom_gen.py
+rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
     ARGS --emit ${FSTEST_ROM}
     OUTPUTS ${FSTEST_ROM}
     DEPENDS ${RP6502_ROM_GEN}

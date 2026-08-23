@@ -24,7 +24,7 @@ rp6502_add_test(vidmodes LIBS emu_core
 # this is the tree that runs on every push.
 add_test(NAME vidmodes_corpus
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_ROOT}/src/gen/vidmodes_gate.py
+        ${RP6502_TESTS_DIR}/gen/vidmodes_gate.py
         --manifest ${RP6502_TEST_CORPUS}/manifest.txt
         --suite ${CMAKE_CURRENT_LIST_DIR}/test_vidmodes.c
         --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.cpp)
@@ -45,16 +45,16 @@ if(RP6502_VERILATE)
     rp6502_add_module_test(pixtail
         TOP vid_pixtail
         RTL ${VID_PALETTE_PKG} ${RP6502_SRC}/core/vga/vid_pixtail.sv
-        INCLUDES ${RP6502_ASSETS}
-        DEPENDS vid_palette_rom
+        INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES}
+        DEPENDS vid_palette_rom vid_palette_tables
         TIMEOUT 120)
 
     # The generated font ROM against the tables emu_core builds at runtime.
     rp6502_add_test(font
         SOURCES test_font.cpp
-        INCLUDES ${RP6502_ASSETS} ${RP6502_SRC}
+        INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES} ${RP6502_SRC}
         LIBS fpga_oracle)
-    add_dependencies(test_font vid_font_rom vid_palette_rom aud_sine_rom)
+    add_dependencies(test_font vid_font_tables vid_palette_tables aud_sine_tables)
 endif()
 
 if(RP6502_SOFT_CPU)

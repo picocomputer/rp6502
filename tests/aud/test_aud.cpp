@@ -18,7 +18,7 @@
  * gate edges, so a working PSG says nothing about a snoop's ability to
  * carry register data — and the OPL has nothing else.
  *
- * The programs are src/gen/aud_rom_gen.py's, the same files a
+ * The programs are tests/gen/aud_rom_gen.py's, the same files a
  * Pocket loads from its card, so a note that sounds on hardware and a
  * note asserted here cannot drift apart.
  *

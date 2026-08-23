@@ -20,9 +20,9 @@ import argparse
 import sys
 from pathlib import Path
 
-# The assembler and the container live with the other generators; this
-# one lives beside the corpus it writes.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
+# The assembler and the container live with the other test generators;
+# this one lives beside the corpus it writes.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gen"))
 from rp6502_asm import Asm  # noqa: E402
 from rp6502_rom import Rom  # noqa: E402
 
