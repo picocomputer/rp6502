@@ -36,6 +36,10 @@ _Static_assert(CFG_TUH_HID <= 8, "usb_pad_led_pending bitmask is 8 bits");
 
 static uint8_t usb_pad_led_pending;
 static uint8_t usb_pad_led_dev[CFG_TUH_HID];
+
+/* TinyUSB hands out one interface index across every device, so it is
+ * what a mounted device is remembered by here. -1 is nothing mounted. */
+static int8_t usb_hid_slot[CFG_TUH_HID];
 static uint8_t usb_hid_leds;
 static uint8_t usb_hid_leds_next_dev;
 static uint8_t usb_hid_leds_next_idx;
@@ -82,6 +86,8 @@ usbh_class_driver_t const *usbh_app_driver_get_cb(uint8_t *driver_count)
 
 void __in_flash("usb_init") usb_init(void)
 {
+    for (int i = 0; i < CFG_TUH_HID; i++)
+        usb_hid_slot[i] = -1;
     tusb_rhport_init_t rh_init = {.role = TUSB_ROLE_HOST, .speed = TUSB_SPEED_AUTO};
     tusb_init(TUH_OPT_RHPORT, &rh_init);
     tuh_hid_set_default_protocol(HID_PROTOCOL_REPORT);
@@ -98,7 +104,7 @@ void usb_task(void)
         uint8_t led_buf[PAD_LED_REPORT_MAX];
         uint8_t report_id;
         uint16_t report_len;
-        if (pad_build_led_report(hid_slot(HID_IFACE_USB, i), led_buf,
+        if (pad_build_led_report(usb_hid_slot[i], led_buf,
                                  &report_id, &report_len))
         {
             if (!tuh_hid_send_report(usb_pad_led_dev[i], i,
@@ -150,7 +156,7 @@ void usb_set_hid_leds(uint8_t leds)
 
 void tuh_hid_report_received_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *report, uint16_t len)
 {
-    hid_report(hid_slot(HID_IFACE_USB, idx), report, len);
+    hid_report(usb_hid_slot[idx], report, len);
     tuh_hid_receive_report(dev_addr, idx);
 }
 
@@ -169,9 +175,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_map_from_descriptor(&map, desc_report, desc_len);
 
     /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    int slot = hid_mount(HID_IFACE_USB, idx, &map, vendor_id, product_id, PAD_TYPE_UNKNOWN);
+    int slot = hid_mount(&map, vendor_id, product_id, PAD_TYPE_UNKNOWN);
     if (slot < 0)
         return;
+    usb_hid_slot[idx] = (int8_t)slot;
     uint8_t claims = hid_slot_claims(slot);
 
     if (claims & HID_CLAIM_KBD)
@@ -196,9 +203,10 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
 void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
 {
     (void)dev_addr;
-    int slot = hid_slot(HID_IFACE_USB, idx);
+    int slot = usb_hid_slot[idx];
     if (slot < 0)
         return;
+    usb_hid_slot[idx] = -1;
     uint8_t claims = hid_slot_claims(slot);
     if (claims & HID_CLAIM_KBD)
         --usb_count_hid_kbd;

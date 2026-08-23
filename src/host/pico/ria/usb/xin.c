@@ -80,6 +80,7 @@ typedef struct
     uint8_t gip_seq;           // GIP sequence byte for Xbox One OUT packets
     uint8_t init_seq;          // index into gip_init_packets
     bool init_done;            // true after GIP init sequence sent
+    int8_t slot;               // where ria/hid mounted it, -1 for nothing
     uint8_t report_buffer[64]; // XInput max 64 bytes
     uint8_t out_cmd[16];       // OUT command buffer (persists for async DMA xfer)
     uint8_t ack_cmd[16];       // Separate buffer for home button ACK (independent of out_cmd)
@@ -396,12 +397,6 @@ static int xin_find_free_index(void)
     return -1;
 }
 
-// We can use the same indexing as hid as long as we keep clear
-static inline int xin_idx_to_hid_slot(int idx)
-{
-    return hid_slot(HID_IFACE_XIN, idx);
-}
-
 static bool xin_queue_in(xin_device_t *device, int idx)
 {
     tuh_xfer_t xfer = {
@@ -518,8 +513,8 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     hid_map_from_descriptor(&map, desc_data, desc_len);
     uint16_t vendor_id, product_id;
     if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
-        hid_mount(HID_IFACE_XIN, idx, &map,
-                  vendor_id, product_id, PAD_TYPE_WESTERN) < 0)
+        (xin_devices[idx].slot = (int8_t)hid_mount(&map, vendor_id, product_id,
+                                                   PAD_TYPE_WESTERN)) < 0)
     {
         DBG("XInput: Failed to mount in pad system\n");
         tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
@@ -631,7 +626,7 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
         if (!xin_queue_in(device, idx))
             DBG("XInput: FAILED to queue IN for index %d\n", idx);
 
-        int pnum = pad_get_player_num(xin_idx_to_hid_slot(idx));
+        int pnum = pad_get_player_num(xin_devices[idx].slot);
         device->out_cmd[0] = 0x01;
         device->out_cmd[1] = 0x03;
         device->out_cmd[2] = (uint8_t)(0x06 + (pnum & 0x03));
@@ -693,7 +688,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
     {
         // Xbox 360: type 0x00 means input report, ignore others (LED acks, etc.)
         if (report[0] == 0x00 && xferred_bytes >= 14)
-            hid_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+            hid_report(xin_devices[idx].slot, report, (uint16_t)xferred_bytes);
     }
     else
     {
@@ -732,7 +727,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                 {
                     uint8_t pressed = report[last_off] & 0x01;
                     DBG("XInput: home button state: %d\n", pressed);
-                    pad_home_button(xin_idx_to_hid_slot(idx), pressed);
+                    pad_home_button(xin_devices[idx].slot, pressed);
                 }
             }
             // Courtesy ACK for the virtual-key report; the button was already
@@ -762,7 +757,7 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
         else if (gip_cmd == 0x20)
         {
             // GIP_CMD_INPUT — standard input report
-            hid_report(xin_idx_to_hid_slot(idx), report, (uint16_t)xferred_bytes);
+            hid_report(xin_devices[idx].slot, report, (uint16_t)xferred_bytes);
         }
         else
         {
@@ -783,7 +778,7 @@ void xin_class_driver_close(uint8_t dev_addr)
 
     DBG("XInput: Closing Xbox controller from index %d\n", idx);
 
-    hid_umount(xin_idx_to_hid_slot(idx));
+    hid_umount(xin_devices[idx].slot);
 
     memset(&xin_devices[idx], 0, sizeof(xin_device_t));
 }

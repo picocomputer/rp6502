@@ -109,6 +109,7 @@ static inline uint16_t apf_swap16(uint32_t word)
 static struct
 {
     uint8_t type;
+    int8_t slot; // where ria/hid mounted it, -1 for nothing
     uint8_t report[APF_REPORT_MAX];
     uint8_t len;
     uint16_t mou_seen;
@@ -144,17 +145,18 @@ static void apf_mount(int slot, uint8_t type)
     default:
         return;
     }
-    hid_mount(HID_IFACE_APF, slot, &map, 0, 0, button_type);
+    apf_slots[slot].slot = (int8_t)hid_mount(&map, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)
 {
-    hid_umount(hid_slot(HID_IFACE_APF, slot));
+    hid_umount(apf_slots[slot].slot);
+    apf_slots[slot].slot = -1;
 }
 
 static void apf_report(int slot, const uint8_t *report, uint8_t len)
 {
-    hid_report(hid_slot(HID_IFACE_APF, slot), report, len);
+    hid_report(apf_slots[slot].slot, report, len);
 }
 
 static bool apf_changed(int slot, const uint8_t *report, uint8_t len)
@@ -231,6 +233,7 @@ static void apf_slot_task(int slot)
     {
         apf_umount(slot);
         memset(&apf_slots[slot], 0, sizeof(apf_slots[slot]));
+        apf_slots[slot].slot = -1;
         apf_slots[slot].type = type;
         apf_mount(slot, type);
     }
@@ -278,8 +281,8 @@ void apf_init(void)
 {
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
     {
-        apf_umount(slot);
         memset(&apf_slots[slot], 0, sizeof(apf_slots[slot]));
+        apf_slots[slot].slot = -1;
     }
 }
 

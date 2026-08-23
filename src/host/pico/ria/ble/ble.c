@@ -48,7 +48,14 @@ static uint8_t ble_count_pad;
 // LED output report state for BLE keyboards
 static absolute_time_t ble_hid_leds_at;
 static uint8_t ble_hid_leds;
-static int ble_kbd_slots[MAX_NR_HIDS_HOSTS];
+/* Which connection and HID service instance is in each slot ria/hid gave
+ * us, so a keyboard's LED report can be addressed back to it. cid 0 is a
+ * free entry -- btstack never issues it. */
+static struct
+{
+    uint16_t cid;
+    uint8_t service_index;
+} ble_mounted[HID_MAX_SLOTS];
 
 // BTStack state - BLE Central and HIDS Host
 static btstack_packet_callback_registration_t hci_event_callback_registration;
@@ -153,17 +160,14 @@ void ble_set_hid_leds(uint8_t leds)
     }
 }
 
-// A BLE device is named by the btstack connection id and the HID service
-// instance index (low 2 bits, MAX_NUM_HID_SERVICES <= 4), so each instance of
-// a combo device is a device of its own.
-static inline uint32_t ble_hid_key(uint16_t hids_cid, uint8_t service_index)
+/* A combo device exposes more than one HID service, and each instance is
+ * mounted as a device of its own, so it takes both to find one again. */
+static int ble_find_slot(uint16_t cid, uint8_t service_index)
 {
-    return ((uint32_t)hids_cid << 2) | service_index;
-}
-
-static inline uint16_t ble_slot_to_hids_cid(int slot)
-{
-    return (uint16_t)(hid_slot_key(slot) >> 2);
+    for (int i = 0; i < HID_MAX_SLOTS; i++)
+        if (ble_mounted[i].cid == cid && ble_mounted[i].service_index == service_index)
+            return i;
+    return -1;
 }
 
 static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t *packet, uint16_t size)
@@ -205,14 +209,15 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             hid_report_map_t map;
             hid_map_from_descriptor(&map, descriptor, descriptor_len);
             /* No vendor or product id over BLE, so nothing is ever certain. */
-            int slot = hid_mount(HID_IFACE_BLE, ble_hid_key(cid, si), &map,
-                                 0, 0, PAD_TYPE_UNKNOWN);
+            int slot = hid_mount(&map, 0, 0, PAD_TYPE_UNKNOWN);
             if (slot < 0)
                 continue;
+            ble_mounted[slot].cid = cid;
+            ble_mounted[slot].service_index = si;
             uint8_t claims = hid_slot_claims(slot);
             if (claims & HID_CLAIM_KBD)
             {
-                ble_kbd_slots[ble_count_kbd++] = slot;
+                ++ble_count_kbd;
                 ble_hid_leds_at = get_absolute_time();
             }
             if (claims & HID_CLAIM_MOU)
@@ -227,29 +232,20 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
     {
         uint16_t cid = gattservice_subevent_hid_service_disconnected_get_hids_cid(packet);
         DBG("BLE: HID service disconnected - CID: 0x%04x\n", cid);
-        // The event carries no service index, so unmount every instance's slot.
-        for (uint8_t si = 0; si < MAX_NUM_HID_SERVICES; si++)
+        // The event carries no service index, so every instance's slot goes.
+        for (int slot = 0; slot < HID_MAX_SLOTS; slot++)
         {
-            int slot = hid_slot(HID_IFACE_BLE, ble_hid_key(cid, si));
-            if (slot < 0)
+            if (ble_mounted[slot].cid != cid)
                 continue;
             uint8_t claims = hid_slot_claims(slot);
             if (claims & HID_CLAIM_KBD)
-            {
-                for (uint8_t i = 0; i < ble_count_kbd; i++)
-                {
-                    if (ble_kbd_slots[i] == slot)
-                    {
-                        ble_kbd_slots[i] = ble_kbd_slots[--ble_count_kbd];
-                        break;
-                    }
-                }
-            }
+                --ble_count_kbd;
             if (claims & HID_CLAIM_MOU)
                 --ble_count_mou;
             if (claims & HID_CLAIM_PAD)
                 --ble_count_pad;
             hid_umount(slot);
+            ble_mounted[slot].cid = 0;
         }
         break;
     }
@@ -268,8 +264,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             ++report;
             --report_len;
         }
-        hid_report(hid_slot(HID_IFACE_BLE, ble_hid_key(cid, service_index)),
-                   report, report_len);
+        hid_report(ble_find_slot(cid, service_index), report, report_len);
         break;
     }
     }
@@ -524,10 +519,11 @@ void ble_task(void)
     if (ble_hid_leds_at && time_reached(ble_hid_leds_at))
     {
         ble_hid_leds_at = 0;
-        for (uint8_t i = 0; i < ble_count_kbd; i++)
+        for (int slot = 0; slot < HID_MAX_SLOTS; slot++)
         {
-            int slot = ble_kbd_slots[i];
-            uint8_t rc = hids_host_send_write_report(ble_slot_to_hids_cid(slot),
+            if (!ble_mounted[slot].cid || !(hid_slot_claims(slot) & HID_CLAIM_KBD))
+                continue;
+            uint8_t rc = hids_host_send_write_report(ble_mounted[slot].cid,
                                                      kbd_get_report_id(slot),
                                                      HID_REPORT_TYPE_OUTPUT,
                                                      &ble_hid_leds,

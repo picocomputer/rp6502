@@ -128,18 +128,6 @@ void hid_map_clear(hid_report_map_t *map);
  * describes nothing any driver could use. */
 bool hid_map_from_descriptor(hid_report_map_t *map, const uint8_t *desc, uint16_t desc_len);
 
-/* Which interface a device arrived on, and the interface's own name for
- * it. The two together are what a device is looked up by; the slot a
- * mount hands back is what the drivers know it as. */
-typedef enum
-{
-    HID_IFACE_USB,
-    HID_IFACE_XIN,
-    HID_IFACE_BLE,
-    HID_IFACE_APF,
-    HID_IFACE_HOST, // a desktop OS, which decodes its own devices
-} hid_iface_t;
-
 /* Devices that at least one driver wanted. A machine with more physical
  * ports than this simply runs out, which is what the drivers do too. A
  * host that knows it has fewer says so in its host.h. */
@@ -152,22 +140,19 @@ typedef enum
 #define HID_CLAIM_TAB (1 << 2)
 #define HID_CLAIM_PAD (1 << 3)
 
-/* Offer a device to every driver and keep which ones took it. Returns
- * its slot, or -1 if none did or there is no room. Deliberately not
- * exclusive: a mouse is a pointer to both mou and tab. */
-int hid_mount(hid_iface_t iface, uint32_t key, const hid_report_map_t *map,
+/* Offer a device to every driver and keep which ones took it. Returns the
+ * slot it was given, or -1 if none took it or there is no room. The
+ * interface keeps that slot beside whatever else it knows about the
+ * device; nothing here can name a device on its behalf.
+ *
+ * Deliberately not exclusive: a mouse is a pointer to both mou and tab. */
+int hid_mount(const hid_report_map_t *map,
               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Hand a report to the drivers that claimed the slot, and no others.
 void hid_report(int slot, const uint8_t *data, uint16_t len);
 
 void hid_umount(int slot);
-
-// The slot an interface's device is mounted in, or -1.
-int hid_slot(hid_iface_t iface, uint32_t key);
-
-// What the interface called it, for a transport that has to answer back.
-uint32_t hid_slot_key(int slot);
 
 uint8_t hid_slot_claims(int slot);
 
