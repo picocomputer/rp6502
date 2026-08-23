@@ -42,7 +42,7 @@ set_tests_properties(rom_tool PROPERTIES LABELS "gate;ria")
 
 # --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
 rp6502_add_test(units
-    SOURCES test_units.c ${RP6502_SRC}/emu/app/cli.c
+    SOURCES test_units.c ${RP6502_SRC}/core/emu/app/cli.c
     LIBS emu_core FIXTURE adventure.rp6502)
 if(WIN32) # cli.c needs the same getopt the app uses
     target_link_libraries(test_units PRIVATE wingetopt)

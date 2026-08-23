@@ -13,7 +13,7 @@
  * ABS_RX/ABS_RY.
  */
 
-#include "emu/app/pad_input.h"
+#include "core/emu/app/pad_input.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>

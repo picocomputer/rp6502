@@ -7,7 +7,7 @@
 
 # -DRP6502_VERSION / -DRP6502_CI reach core.json's metadata, read by the same
 # version.cmake the firmware and the emulator use. It is included there rather
-# than here because src/rtl adds src/emu, which includes it too, and whichever
+# than here because src/rtl adds src/core/emu, which includes it too, and whichever
 # ran first would take RP6502_CI out of the cache before the other looked.
 
 if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)

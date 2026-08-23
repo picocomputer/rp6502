@@ -13,7 +13,7 @@
 # ruler. Measures the filter rather than asserting it, so a change that
 # quietly makes it worse fails here instead of on someone's headphones. ---
 rp6502_add_test(rsmp
-    SOURCES test_rsmp.c ${RP6502_SRC}/emu/emu/rsmp.c
+    SOURCES test_rsmp.c ${RP6502_SRC}/core/emu/emu/rsmp.c
     INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR})
 add_dependencies(test_rsmp rsmp_coef)
 if(NOT WIN32)
@@ -49,7 +49,7 @@ if(RP6502_VERILATE)
     rp6502_add_module_test(rsmp_rtl
         TOP aud_rsmp
         RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/rtl/aud/aud_rsmp.sv
-        SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/emu/emu/rsmp.c
+        SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/emu/emu/rsmp.c
         INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
         DEPENDS rsmp_coef rsmp_coef_pkg
         TIMEOUT 300)

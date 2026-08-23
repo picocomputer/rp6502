@@ -14,9 +14,9 @@
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
-#include "emu/sys/com.h"
-#include "emu/sys/mem.h"
-#include "emu/sys/cpu.h"
+#include "core/emu/sys/com.h"
+#include "core/emu/sys/mem.h"
+#include "core/emu/sys/cpu.h"
 #include "tb_hostos.h"
 #include "emu_boot.h"
 #include <stdlib.h>

@@ -57,7 +57,7 @@ android {
 
         externalNativeBuild {
             cmake {
-                // The standard is src/emu/CMakeLists.txt's to set, except the
+                // The standard is src/core/emu/CMakeLists.txt's to set, except the
                 // stamp, which only the build that was asked for it knows.
                 arguments("-DANDROID_STL=c++_shared",
                     "-DRP6502_VERSION=$rpVersion",
@@ -79,7 +79,7 @@ android {
 
     externalNativeBuild {
         cmake {
-            path "../../emu/CMakeLists.txt"
+            path "../../core/emu/CMakeLists.txt"
             buildStagingDirectory file("$out/cxx")
         }
     }

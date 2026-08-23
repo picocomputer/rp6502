@@ -66,7 +66,7 @@ function(rp6502_inputs name)
     file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/inputs/${name} CONTENT "${_text}\n")
 endfunction()
 
-# Before anything that reads it: src/emu includes this too, and the one that
+# Before anything that reads it: src/core/emu includes this too, and the one that
 # runs first is the one that takes RP6502_CI out of the cache.
 include(${RP6502_ROOT}/version.cmake)
 
@@ -84,7 +84,7 @@ if(RP6502_RTL_SIM)
     # emu_core is the reference oracle. Core-only: no window, debugger or its
     # own tests, so the simulation needs none of the desktop dev stack.
     set(RP6502_EMU_CORE_ONLY ON CACHE BOOL "" FORCE)
-    add_subdirectory(${RP6502_SRC}/emu emu)
+    add_subdirectory(${RP6502_SRC}/core/emu emu)
 
     enable_testing()
     # The whole suite, organised by subsystem rather than by host: this tree
@@ -131,7 +131,7 @@ if(RP6502_RTL_SIM)
         ${CMAKE_CURRENT_LIST_FILE}
         ${CMAKE_CURRENT_LIST_DIR}/machine.cmake
         ${CMAKE_CURRENT_LIST_DIR}/assets.cmake
-        ${RP6502_SRC}/emu/CMakeLists.txt
+        ${RP6502_SRC}/core/emu/CMakeLists.txt
         ${RP6502_ROOT}/tests/CMakeLists.txt
         ${RP6502_ROOT}/tests/rp6502_tests.cmake
         ${RP6502_ROOT}/tests/rp6502_verilate.cmake)

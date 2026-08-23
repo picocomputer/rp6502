@@ -19,7 +19,7 @@
  * as it does plugged into the real machine.
  */
 
-#include "emu/app/pad_input.h"
+#include "core/emu/app/pad_input.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

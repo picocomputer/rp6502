@@ -22,7 +22,7 @@
 
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 
-#include "emu/emu/rsmp.h"
+#include "core/emu/emu/rsmp.h"
 #include "utest.h"
 
 #include <math.h>

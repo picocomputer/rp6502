@@ -12,7 +12,7 @@
 
 #include "core/api/oem.h"
 #include "core/str/str.h"
-#include "emu/emu/tmp.h"
+#include "core/emu/emu/tmp.h"
 #include "fatfs/ff.h"
 #include "utest.h"
 #include <stdbool.h>

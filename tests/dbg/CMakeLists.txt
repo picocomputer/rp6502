@@ -14,21 +14,21 @@ rp6502_add_test(dbg LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
 # the parser only needs libc and the fixture is committed (no toolchain). ---
 rp6502_add_test(dwarf5
     SOURCES test_dwarf5.c
-        ${RP6502_SRC}/emu/dbg/dwarf_info.c ${RP6502_SRC}/emu/dbg/dwarf_line.c
-        ${RP6502_SRC}/emu/dbg/dwarf_cursor.c ${RP6502_SRC}/emu/dbg/dwarf_elf.c
+        ${RP6502_SRC}/core/emu/dbg/dwarf_info.c ${RP6502_SRC}/core/emu/dbg/dwarf_line.c
+        ${RP6502_SRC}/core/emu/dbg/dwarf_cursor.c ${RP6502_SRC}/core/emu/dbg/dwarf_elf.c
     INCLUDES ${RP6502_SRC} FIXTURE dbg/dwtest.elf)
 
 # --- DWARF .debug_frame CFI unwinder (dwarf_frame.c): two-stack unwind. ---
 rp6502_add_test(dwarf_frame
     SOURCES test_dwarf_frame.c
-        ${RP6502_SRC}/emu/dbg/dwarf_frame.c ${RP6502_SRC}/emu/dbg/dwarf_cursor.c
-        ${RP6502_SRC}/emu/dbg/dwarf_elf.c
+        ${RP6502_SRC}/core/emu/dbg/dwarf_frame.c ${RP6502_SRC}/core/emu/dbg/dwarf_cursor.c
+        ${RP6502_SRC}/core/emu/dbg/dwarf_elf.c
     INCLUDES ${RP6502_SRC} FIXTURE dbg/dwtest.elf)
 
 # --- cc65 .dbg reader (cc65dbg.c): line mapping + funcs + untyped variables.
 # Fixture is the committed, hand-authored cc65.dbg (plain text, no toolchain). ---
 rp6502_add_test(cc65dbg
-    SOURCES test_cc65dbg.c ${RP6502_SRC}/emu/dbg/cc65dbg.c
+    SOURCES test_cc65dbg.c ${RP6502_SRC}/core/emu/dbg/cc65dbg.c
     INCLUDES ${RP6502_SRC} FIXTURE dbg/cc65.dbg)
 
 # --- W65C02S disassembler (vendor/chips/util/w65c02dasm.h, driving the ui_dbg

@@ -8,8 +8,8 @@
  * app/window_core.c.
  */
 
-#include "emu/app/window.h"
-#include "emu/app/window_core.h"
+#include "core/emu/app/window.h"
+#include "core/emu/app/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_log.h"
 #include <stdint.h>

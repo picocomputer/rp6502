@@ -88,13 +88,13 @@ Pressing F7 builds `build/web/bundle`, a ready-to-publish itch.io sample that
 plays one program (`adventure.rp6502` by default) — see
 `src/dist/itch.io/README.txt` to retarget and deploy it.
 
-`src/emu/index.html` is the tester: a menu of every test ROM, run against that
+`src/core/emu/index.html` is the tester: a menu of every test ROM, run against that
 same bundle. It stays in the source tree, so serve the repository root rather
 than the build. Use the VS Code live preview extension `ms-vscode.live-server`
-and open `src/emu/index.html`, or a simple python server. Neither page works
+and open `src/core/emu/index.html`, or a simple python server. Neither page works
 from a `file://` URL; the browser needs an HTTP origin to fetch a ROM or stream
 the wasm.
-`python3 -m http.server 8000` then http://localhost:8000/src/emu/index.html
+`python3 -m http.server 8000` then http://localhost:8000/src/core/emu/index.html
 
 To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
 panel. Select either the Debug or Release variant. You must select the launch

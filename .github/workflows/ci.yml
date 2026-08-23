@@ -214,7 +214,7 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/emu -B build/emulator/release -G Ninja \
+          cmake -S src/core/emu -B build/emulator/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -255,7 +255,7 @@ jobs:
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/emu -B build/emulator/release -G Ninja \
+          cmake -S src/core/emu -B build/emulator/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
@@ -337,7 +337,7 @@ jobs:
       - name: Build web bundle
         run: |
           set -exo pipefail
-          cd src/emu
+          cd src/core/emu
           cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -379,7 +379,7 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/emu
+          cd src/core/emu
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
@@ -469,7 +469,7 @@ jobs:
   # question is sim-inputs.txt, written by the tree it describes: the machine,
   # the firmware, emu_core, every bench and every generated asset. It used to
   # be a glob on src/rtl, which was wrong in both directions — the benches are
-  # in tests/ and the oracle is out of src/emu, so a commit touching only those
+  # in tests/ and the oracle is out of src/core/emu, so a commit touching only those
   # skipped the suite that covers it.
   # ---------------------------------------------------------------------------
   rtl-tests:

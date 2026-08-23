@@ -9,9 +9,9 @@
  * before KEEPALIVE marks the symbols. Compiled only for the Emscripten host.
  */
 
-#include "emu/hid/mou.h"
-#include "emu/hid/pad.h"
-#include "emu/hid/tab.h"
+#include "core/emu/hid/mou.h"
+#include "core/emu/hid/pad.h"
+#include "core/emu/hid/tab.h"
 #include <emscripten.h>
 #include <stdint.h>
 

@@ -82,7 +82,7 @@
                 "debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/emu"
+                "cwd": "${workspaceFolder}/src/core/emu"
             },
             "presentation": {
                 "reveal": "always",
@@ -100,7 +100,7 @@
                 "debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/emu"
+                "cwd": "${workspaceFolder}/src/core/emu"
             },
             "dependsOn": "emu: Configure (Debug)",
             "presentation": {

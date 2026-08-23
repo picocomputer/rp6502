@@ -11,7 +11,7 @@
  * pin both implementations to one corpus.
  */
 
-#include "emu/sys/vga.h"
+#include "core/emu/sys/vga.h"
 #include "emu_boot.h"
 
 #include <stdio.h>

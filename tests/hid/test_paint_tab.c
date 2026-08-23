@@ -11,10 +11,10 @@
  * first-non-zero decode -> the sprite. No capture / no VIA IRQ, unlike the mouse.
  */
 
-#include "emu/hid/tab.h"
-#include "emu/sys/cpu.h"
-#include "emu/sys/mem.h"
-#include "emu/sys/vga.h"
+#include "core/emu/hid/tab.h"
+#include "core/emu/sys/cpu.h"
+#include "core/emu/sys/mem.h"
+#include "core/emu/sys/vga.h"
 #include "emu_boot.h"
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];

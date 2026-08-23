@@ -9,14 +9,14 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
-#include "emu/emu/pro.h"
+#include "core/emu/emu/pro.h"
 #include "core/api/std.h"
-#include "emu/emu/aud.h"
-#include "emu/sys/mem.h"
+#include "core/emu/emu/aud.h"
+#include "core/emu/sys/mem.h"
 #include "core/aud/bel.h"
-#include "emu/hid/kbd.h"
-#include "emu/sys/com.h"
-#include "emu/sys/ria.h"
+#include "core/emu/hid/kbd.h"
+#include "core/emu/sys/com.h"
+#include "core/emu/sys/ria.h"
 #include "stdsys.h"
 #include "emu_boot.h"
 #include <stdio.h>

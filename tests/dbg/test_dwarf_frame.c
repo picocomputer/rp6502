@@ -10,7 +10,7 @@
  * base) is recovered as the CFA. The fixture is committed; no toolchain needed.
  */
 
-#include "emu/dbg/dwarf_frame.h"
+#include "core/emu/dbg/dwarf_frame.h"
 #include "utest.h"
 
 #include <string.h>

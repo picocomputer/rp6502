@@ -6,15 +6,15 @@
 
 #include "oracle.h"
 
-#include "emu/app/rand.h"
-#include "emu/emu/rom.h"
-#include "emu/hid/kbd.h"
-#include "emu/main.h"
-#include "emu/sys/com.h"
-#include "emu/sys/cpu.h"
-#include "emu/sys/mem.h"
-#include "emu/sys/sys.h"
-#include "emu/sys/vga.h"
+#include "core/emu/app/rand.h"
+#include "core/emu/emu/rom.h"
+#include "core/emu/hid/kbd.h"
+#include "core/emu/main.h"
+#include "core/emu/sys/com.h"
+#include "core/emu/sys/cpu.h"
+#include "core/emu/sys/mem.h"
+#include "core/emu/sys/sys.h"
+#include "core/emu/sys/vga.h"
 
 #include <string.h>
 

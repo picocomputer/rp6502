@@ -9,15 +9,15 @@
 
 #include "core/api/oem.h"
 #include "core/str/str.h"
-#include "emu/app/cli.h"
-#include "emu/hid/kbd.h"
-#include "emu/hid/pad.h"
-#include "emu/hid/tab.h"
-#include "emu/main.h"
-#include "emu/emu/rom.h"
-#include "emu/sys/mem.h"
+#include "core/emu/app/cli.h"
+#include "core/emu/hid/kbd.h"
+#include "core/emu/hid/pad.h"
+#include "core/emu/hid/tab.h"
+#include "core/emu/main.h"
+#include "core/emu/emu/rom.h"
+#include "core/emu/sys/mem.h"
 #include "host/pico/ria/sys/pix.h"
-#include "emu/sys/com.h"
+#include "core/emu/sys/com.h"
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>

@@ -10,7 +10,7 @@
 # Platform-specific tests are the exception and live under host/, since a
 # Pocket bridge FIFO genuinely is about the host and not about the machine.
 #
-# src/emu adds this with nothing set, and gets the C suites.
+# src/core/emu adds this with nothing set, and gets the C suites.
 # src/rtl adds it with RP6502_TESTS_RTL, and gets those plus the RTL. It adds
 # it only when RP6502_RTL_SIM is on; a Pocket bitstream needs the RTL source
 # list, which lives in src/rtl/machine.cmake, and none of what is here.

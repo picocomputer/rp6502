@@ -8,7 +8,7 @@
     },
     "cmake.sourceDirectory": [
         "${workspaceFolder}",
-        "${workspaceFolder}/src/emu",
+        "${workspaceFolder}/src/core/emu",
         "${workspaceFolder}/src/rtl"
     ],
     "cmake.buildDirectory": "${sourceDirectory}/build",

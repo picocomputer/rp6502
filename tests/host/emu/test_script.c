@@ -10,9 +10,9 @@
  * nothing observable from inside a script can.
  */
 
-#include "emu/app/scr.h"
-#include "emu/emu/rom.h"
-#include "emu/sys/sys.h"
+#include "core/emu/app/scr.h"
+#include "core/emu/emu/rom.h"
+#include "core/emu/sys/sys.h"
 #include "emu_boot.h"
 #include <stdio.h>
 

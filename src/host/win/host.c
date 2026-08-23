@@ -11,10 +11,10 @@
 
 #include "host.h"
 #include "core/api/oem.h"
-#include "emu/app/cli.h"          /* host_console_attach */
-#include "emu/app/rand.h"         /* host_entropy_64 */
-#include "emu/app/window.h"       /* host_mono_ns, host_sleep_until_ns */
-#include "emu/dbg/dbgui_layout.h" /* host_config_dir, host_ensure_parent_dir */
+#include "core/emu/app/cli.h"          /* host_console_attach */
+#include "core/emu/app/rand.h"         /* host_entropy_64 */
+#include "core/emu/app/window.h"       /* host_mono_ns, host_sleep_until_ns */
+#include "core/emu/dbg/dbgui_layout.h" /* host_config_dir, host_ensure_parent_dir */
 #include "host/win/win.h"
 #include <direct.h>
 #include <io.h>

@@ -14,7 +14,7 @@ rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
 # above that seam is not, and the privacy gate and player numbering are the
 # parts worth being sure of.
 rp6502_add_test(pad_input LIBS emu_core
-    SOURCES test_pad_input.c ${RP6502_SRC}/emu/app/pad_input.c)
+    SOURCES test_pad_input.c ${RP6502_SRC}/core/emu/app/pad_input.c)
 
 # --- The Pocket's synthetic descriptors against the drivers they feed ---
 # The dock's registers are handed to ria/hid as HID reports, and three

@@ -10,10 +10,10 @@
  * + palette), and the HID keyboard XRAM bitmap.
  */
 
-#include "emu/hid/kbd.h"
-#include "emu/sys/cpu.h"
-#include "emu/sys/mem.h"
-#include "emu/sys/vga.h"
+#include "core/emu/hid/kbd.h"
+#include "core/emu/sys/cpu.h"
+#include "core/emu/sys/mem.h"
+#include "core/emu/sys/vga.h"
 #include "core/term/color.h"
 #include "emu_boot.h"
 

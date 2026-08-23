@@ -9,8 +9,8 @@
  */
 
 #include "host.h"
-#include "emu/app/rand.h" /* host_entropy_64 */
-#include "emu/app/window.h" /* host_sleep_until_ns */
+#include "core/emu/app/rand.h" /* host_entropy_64 */
+#include "core/emu/app/window.h" /* host_sleep_until_ns */
 #include <time.h>
 
 uint64_t host_entropy_64(void)

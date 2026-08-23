@@ -18,8 +18,8 @@
 #include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
 #include "core/api/oem.h"
-#include "emu/app/window.h"
-#include "emu/app/window_core.h"
+#include "core/emu/app/window.h"
+#include "core/emu/app/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_log.h"
 #include <stdint.h>

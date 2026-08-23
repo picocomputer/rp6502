@@ -13,11 +13,11 @@
  * assertions are on the program's real text.
  */
 
-#include "emu/sys/com.h"
-#include "emu/emu/msc.h"
+#include "core/emu/sys/com.h"
+#include "core/emu/emu/msc.h"
 #include "host.h"
 #include "tb_hostos.h"
-#include "emu/sys/cpu.h"
+#include "core/emu/sys/cpu.h"
 #include "emu_boot.h"
 #include <stdio.h>
 #include <stdlib.h>

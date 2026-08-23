@@ -10,17 +10,17 @@
  * present pipeline is in app/window_core.c.
  */
 
-#include "emu/app/window.h"
-#include "emu/app/window_core.h"
+#include "core/emu/app/window.h"
+#include "core/emu/app/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
 #include "sokol/sokol_log.h"
 #include "sokol/util/sokol_debugtext.h"
-#include "emu/hid/pad.h"
-#include "emu/main.h"
-#include "emu/emu/rom.h"
-#include "emu/sys/cpu.h"
-#include "emu/sys/vga.h"
+#include "core/emu/hid/pad.h"
+#include "core/emu/main.h"
+#include "core/emu/emu/rom.h"
+#include "core/emu/sys/cpu.h"
+#include "core/emu/sys/vga.h"
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <android/native_activity.h>
