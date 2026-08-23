@@ -337,21 +337,21 @@ int fs_close(int fd)
     return 0;
 }
 
-static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
+static fs_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
 {
     *got = 0;
     struct win_file *f = win_fil(fd);
     if (!f)
     {
         errno = EBADF;
-        return STD_ERROR;
+        return FS_IO_ERROR;
     }
     if (g_xfer.fd < 0)
     {
         if (!g_xfer_event && !(g_xfer_event = CreateEventW(NULL, TRUE, FALSE, NULL)))
         {
             win_set_errno(GetLastError());
-            return STD_ERROR;
+            return FS_IO_ERROR;
         }
         ResetEvent(g_xfer_event);
         memset(&g_xfer.ov, 0, sizeof g_xfer.ov);
@@ -364,40 +364,40 @@ static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got,
         {
             DWORD e = GetLastError();
             if (e == ERROR_HANDLE_EOF) /* read at/after EOF: done, 0 bytes */
-                return STD_OK;
+                return FS_IO_OK;
             if (e != ERROR_IO_PENDING)
             {
                 win_set_errno(e);
-                return STD_ERROR;
+                return FS_IO_ERROR;
             }
         }
         g_xfer.fd = fd; /* completed synchronously or queued: reap on the next dispatch */
-        return STD_PENDING;
+        return FS_IO_PENDING;
     }
     DWORD bytes = 0;
     if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, FALSE))
     {
         DWORD e = GetLastError();
         if (e == ERROR_IO_INCOMPLETE)
-            return STD_PENDING;
+            return FS_IO_PENDING;
         g_xfer.fd = -1;
         if (e == ERROR_HANDLE_EOF) /* completed at EOF: 0 bytes */
-            return STD_OK;
+            return FS_IO_OK;
         win_set_errno(e);
-        return STD_ERROR;
+        return FS_IO_ERROR;
     }
     g_xfer.fd = -1;
     f->pos += bytes; /* the overlapped handle didn't move; advance our tracked offset */
     *got = (uint32_t)bytes;
-    return STD_OK;
+    return FS_IO_OK;
 }
 
-std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
     return xfer_step(fd, buf, count, got, false);
 }
 
-std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
     return xfer_step(fd, (void *)buf, count, put, true);
 }

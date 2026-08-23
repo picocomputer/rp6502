@@ -125,6 +125,20 @@ size_t msc_from_host(const char *hostpath, char *out, size_t outsz)
     return (size_t)w;
 }
 
+std_rw_result msc_io_to_std_result(fs_io_result r)
+{
+    switch (r)
+    {
+    case FS_IO_OK:
+        return STD_OK;
+    case FS_IO_PENDING:
+        return STD_PENDING;
+    case FS_IO_ERROR:
+        break;
+    }
+    return STD_ERROR;
+}
+
 /* The fs backends report failures by setting POSIX errno; translate to the 6502 set. */
 api_errno msc_errno_to_api_errno(int host_errno)
 {
@@ -236,7 +250,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result r = fs_read(f->fd, buf, count, got);
+    std_rw_result r = msc_io_to_std_result(fs_read(f->fd, buf, count, got));
     if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
     return r;
@@ -251,7 +265,7 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result r = fs_write(f->fd, buf, count, put);
+    std_rw_result r = msc_io_to_std_result(fs_write(f->fd, buf, count, put));
     if (r == STD_OK)
         f->wrote = true;
     else if (r == STD_ERROR)

@@ -23,14 +23,6 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
-#include "core/api/std.h"
-#ifdef _MSC_VER
-#include <BaseTsd.h>
-typedef SSIZE_T fs_ssize_t;
-#else
-#include <sys/types.h>
-typedef ssize_t fs_ssize_t;
-#endif
 
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started. A Pico reads TIMER0, the emulator its
@@ -80,13 +72,23 @@ bool fs_rename(const char *oldp, const char *newp); /* replaces an existing targ
 bool fs_remove(const char *path);     /* a file or an empty directory */
 
 /* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
+/* A transfer's outcome. The guest's stdio dispatcher has the same three states
+ * and its own spelling of them; the host answers in its own so that a contract
+ * about files does not depend on a guest API to say "that worked". */
+typedef enum
+{
+    FS_IO_OK,      /* completed, success */
+    FS_IO_ERROR,   /* failed, check errno */
+    FS_IO_PENDING, /* incomplete, would block */
+} fs_io_result;
+
 FILE *fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
 int fs_open(const char *path, int flags, int mode);
 int fs_close(int fd); /* reaps a still-in-flight fs_read/fs_write on this fd first */
 int64_t fs_lseek(int fd, int64_t off, int whence);
 int fs_ftruncate(int fd, int64_t length);
-std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
-std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
+fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
+fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
 /* ---- other host-OS primitives (host/posix/host.c or host/win/host.c, one compiled) ---- */
@@ -104,9 +106,5 @@ void host_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtof
 /* One command-line argument, host argv encoding -> guest OEM. False if it
  * does not fit. */
 bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz);
-
-/* Test-only host helpers (the tests drive the rest of the seam directly). */
-bool host_make_tmpdir(char *buf, size_t sz);           /* a fresh empty temp dir, '/'-separated */
-void host_setenv(const char *name, const char *value); /* setenv(name, value, 1) in the host spelling */
 
 #endif /* _CORE_HOST_H_ */

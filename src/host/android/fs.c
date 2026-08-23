@@ -5,7 +5,7 @@
  *
  * Android filesystem primitives (host/host.h). The same POSIX calls as posix/fs.c, but
  * the byte transfer is synchronous: fs_read/fs_write complete in one call and never
- * return STD_PENDING. Bionic has no POSIX aio and we don't offload to a worker thread,
+ * return FS_IO_PENDING. Bionic has no POSIX aio and we don't offload to a worker thread,
  * so Android gets its own seam instead of a mock aio in posix/fs.c. Each read blocks
  * only for one read_xram chunk (2048 bytes).
  *
@@ -183,28 +183,28 @@ int fs_close(int fd)
     return close(fd);
 }
 
-std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
     ssize_t r = read(fd, buf, count);
     if (r < 0)
     {
         *got = 0;
-        return STD_ERROR;
+        return FS_IO_ERROR;
     }
     *got = (uint32_t)r;
-    return STD_OK;
+    return FS_IO_OK;
 }
 
-std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
     ssize_t r = write(fd, buf, count);
     if (r < 0)
     {
         *put = 0;
-        return STD_ERROR;
+        return FS_IO_ERROR;
     }
     *put = (uint32_t)r;
-    return STD_OK;
+    return FS_IO_OK;
 }
 
 int64_t fs_lseek(int fd, int64_t off, int whence)

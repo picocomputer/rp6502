@@ -20,7 +20,7 @@
 #include "host.h"
 #include "dirsys.h"
 #include "stdsys.h"
-#include "host.h"
+#include "tb_hostos.h"
 #include "utest.h"
 #include <stdio.h>
 #include <stdlib.h>

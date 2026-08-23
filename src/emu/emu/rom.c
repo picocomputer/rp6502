@@ -203,7 +203,7 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         *got = 0;
         return STD_OK; /* at the window's end (EOF): nothing to read */
     }
-    std_rw_result r = fs_read(w->fd, buf, want, got);
+    std_rw_result r = msc_io_to_std_result(fs_read(w->fd, buf, want, got));
     if (r == STD_OK)
         w->pos += *got;
     else if (r == STD_ERROR)
