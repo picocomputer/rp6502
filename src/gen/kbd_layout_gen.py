@@ -315,13 +315,14 @@ def emit_h(path, words, layouts):
 
 
 def emit_c(path, words):
-    # __in_flash keeps the tables out of SRAM on a RIA, whose binary is
-    # copied to RAM at boot. The Pocket does not compile this file at
-    # all -- its copy lives in the staging store.
+    # Placed where the host puts cold tables: flash on a RIA, whose
+    # binary is copied to RAM at boot, and nothing anywhere else. The
+    # Pocket does not compile this file at all -- its copy lives in the
+    # staging store.
     out = [HEADER,
            '\n#include "kbdlay.h"\n#include "core/hid/kbl.h"\n'
-           '\n#include <pico.h>\n\n',
-           'static const __in_flash("kbdlay") uint16_t'
+           '\n#include "host.h"\n\n',
+           'static const HOST_IN_FLASH("kbdlay") uint16_t'
            " kbdlay_data[KBDLAY_WORDS] = {\n"]
     for i in range(0, len(words), 12):
         row = ", ".join(f"0x{w:04X}" for w in words[i:i + 12])

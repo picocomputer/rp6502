@@ -34,7 +34,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/api/uni.c
         ${KBDLAY_C} ${OEMCP_C}
         apf_host.c
-    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${RP6502_SRC}/pico_shim
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}
         ${KBDLAY_DIR} ${OEMCP_DIR})
 add_dependencies(test_apf kbdlay oemcp)
 if(MSVC)

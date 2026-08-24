@@ -18,8 +18,6 @@
 #include <stdbool.h>
 #include "core/com.h"
 
-#include <pico.h>
-
 #define COM_UART uart1
 #define COM_UART_BAUD_RATE 115200
 #define COM_UART_TX_PIN 4

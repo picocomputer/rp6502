@@ -102,7 +102,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     # rule can produce.
     file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
         ${RP6502_SRC}/core/*.h
-        ${RP6502_SRC}/pico_shim/*.h
         ${RP6502_SRC}/host/pocket/*.h
         ${RP6502_SRC}/host/pico/ria/*.h
         ${RP6502_SRC}/host/pico/vga/*.h)
@@ -167,7 +166,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -I ${RP6502_SRC}
             -I ${SW_SRC}/shim
             -I ${RP6502_ASSETS}
-            -I ${RP6502_SRC}/pico_shim
             -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
