@@ -43,6 +43,23 @@
 #define HOST_ISR
 #endif
 
+/* ---- what a host has that others do not ---- */
+/* Hardware the machine uses when it is there and stands in for when it is
+ * not. A host that has one says so before including this; undefined is the
+ * answer for everyone else. HOST_INTERP is the RP2350's SIO interpolators,
+ * which mode4 walks its affine texture with. */
+#ifndef HOST_INTERP
+#define HOST_INTERP 0
+#endif
+
+/* The tallest terminal this machine's video can show, in rows of cells.
+ * Only a device with an SXGA console reaches 32; every other target tops
+ * out at 480 scanlines, where two more rows would be bought and never
+ * shown -- and this sizes the largest thing term.c owns. */
+#ifndef HOST_TERM_MAX_HEIGHT
+#define HOST_TERM_MAX_HEIGHT 30
+#endif
+
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
  * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not

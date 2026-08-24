@@ -21,6 +21,12 @@
 #define HOST_TIME_CRITICAL(name) __time_critical_func(name)
 #define HOST_ISR __isr
 
+/* The SIO interpolators, and the SXGA console's two extra rows. The
+ * interpolator header is not pulled in here: only the VGA firmware links
+ * hardware_interp, so the one file that walks them includes it itself. */
+#define HOST_INTERP 1
+#define HOST_TERM_MAX_HEIGHT 32
+
 #include "core/host.h"
 
 #endif /* _HOST_PICO_HOST_H_ */
