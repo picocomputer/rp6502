@@ -46,6 +46,20 @@ else()
         TIMEOUT 60)
 endif()
 
+# A scripted terminal session, and the picture it settles to.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(session FIRMWARE
+            SOURCES test_session.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(session LIBS emu_core
+        SOURCES test_session.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
+endif()
+
 # The syscall ABI's console stream, on whichever machine this tree built.
 if(COMMAND rp6502_add_machine_test)
     if(RP6502_SOFT_CPU)
@@ -76,10 +90,4 @@ set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;vid")
 if(COMMAND rp6502_add_machine_test)
     # The frame counter and the vsync interrupt against the raster.
     rp6502_add_machine_test(vsync TIMEOUT 120)
-endif()
-
-if(RP6502_SOFT_CPU)
-    # The M3 scripted session settled and pixel-exact, plus the RTL-relative
-    # blink phase check.
-    rp6502_add_machine_test(session ORACLE FIRMWARE TIMEOUT 900)
 endif()

@@ -43,3 +43,11 @@ rp6502_add_machine_test(fontstore FIRMWARE
     SOURCES test_fontstore.cpp
     TIMEOUT 900)
 target_link_libraries(test_fontstore PRIVATE emu_core)
+
+# The cell blink, held still by hand. It boots the scripted session from
+# tests/cpu/vid for the state that script leaves behind; the picture itself is
+# checked there, on both machines.
+rp6502_add_machine_test(blink FIRMWARE
+    SOURCES test_blink.cpp
+    INCLUDES ${RP6502_TESTS_DIR}/cpu/vid
+    TIMEOUT 900)
