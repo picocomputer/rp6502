@@ -112,10 +112,22 @@ if(COMMAND rp6502_add_machine_test)
     rp6502_add_machine_test(hello TIMEOUT 120)
 endif()
 
-if(RP6502_SOFT_CPU)
-    # Op 0x01 dispatch against the oracle, and the RTL program it lands.
-    rp6502_add_machine_test(xreg ORACLE FIRMWARE TIMEOUT 900)
+# Op 0x01 and the attribute API: the console stream those probes print, on
+# whichever machine this tree built.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(xreg FIRMWARE
+            SOURCES test_xreg.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(xreg LIBS emu_core
+        SOURCES test_xreg.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
+endif()
 
+if(RP6502_SOFT_CPU)
     # The .rp6502 loader against the staged window, the testbench playing
     # the platform bridge.
     rp6502_add_machine_test(rom FIRMWARE TIMEOUT 900)
