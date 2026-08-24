@@ -14,10 +14,9 @@
  * which made the emulator the standard rather than the string; now both
  * machines answer the string and neither needs the other present.
  *
- * The console is asserted as a tail. This machine's terminal has one sink and
- * its OS writes there too, where the fabric's testbench sees the 6502's own TX
- * pin and nothing else — so the streams agree at the end and not at the
- * front, which is what the old comparison slid past.
+ * The whole stream is the expectation, not a tail of it. Both machines put
+ * these thirteen bytes on the terminal and nothing else: the OS is silent
+ * while a program runs, so a byte that should not be there fails here.
  */
 
 #include "mut.h"
@@ -94,8 +93,8 @@ UTEST(rw, steps_wraps_and_defaults)
     static const char want[] = "ABCYXWZRRabcC";
     size_t len;
     const char *out = mut_console(&len);
-    ASSERT_GE(len, sizeof want - 1);
-    ASSERT_STREQ(out + len - (sizeof want - 1), want);
+    ASSERT_EQ(len, sizeof want - 1);
+    ASSERT_EQ(memcmp(out, want, len), 0);
 }
 
 MUT_MAIN()

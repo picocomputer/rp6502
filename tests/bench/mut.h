@@ -36,8 +36,16 @@ extern "C"
     void mut_init(int argc, const char *const argv[]);
     void mut_free(void);
 
-    /* Load a .rp6502, start it, and let it settle. False if the file will
-     * not load. */
+    /* Load a .rp6502, start it, and let it settle. False if the machine
+     * never settled.
+     *
+     * Not "the machine accepted the image". The two bindings answer a
+     * refused one differently and honestly: this machine's loader returns
+     * its own verdict, and the fabric's testbench sees a machine that went
+     * quiet without ever releasing the 6502, which is a settled machine. A
+     * suite whose claim is that a bad image is REFUSED cannot ask this; it
+     * has to ask what the refusal left behind — an unwritten XRAM, a silent
+     * console — which is the same evidence a person would have. */
     bool mut_boot(const char *rom);
 
     /* The next whole frame, canvas-native RGBA8 0xAABBGGRR — the emulator's
@@ -65,11 +73,10 @@ extern "C"
      * writes to as well as the program. A 6502 that writes its UART register
      * directly still lands here: the OS drains that register and re-emits it.
      *
-     * The OS's own bytes mean the two machines agree at the end and not
-     * necessarily at the front, so a suite says what the program's output
-     * *ends with* rather than comparing whole streams. The oracle comparison
-     * did the same thing by sliding one stream along the other; this writes
-     * the answer down instead of deriving it. */
+     * The OS is silent while a program runs, so in practice this is the
+     * program's own output and a suite compares the whole of it. The oracle
+     * comparison slid one machine's stream along the other's to find where
+     * they agreed; nothing has to be slid past. */
     const char *mut_console(size_t *len);
 
     /* What the render spent against the beam, where the machine has a beam to

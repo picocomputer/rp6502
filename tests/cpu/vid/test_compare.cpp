@@ -84,15 +84,8 @@ UTEST(compare, syscall_abi_console_stream)
                                 (char)0xFF, (char)0xFF, (char)0xFF, (char)0xFF};
     size_t len;
     const char *out = mut_console(&len);
-    if (getenv("RP6502_BLESS_CRC"))
-    {
-        fprintf(stderr, "compare tail:");
-        for (size_t i = len > 16 ? len - 16 : 0; i < len; i++)
-            fprintf(stderr, " %02X", (unsigned char)out[i]);
-        fprintf(stderr, "  (len %zu)\n", len);
-    }
-    ASSERT_GE(len, sizeof want);
-    ASSERT_EQ(memcmp(out + len - sizeof want, want, sizeof want), 0);
+    ASSERT_EQ(len, sizeof want);
+    ASSERT_EQ(memcmp(out, want, len), 0);
 }
 
 MUT_MAIN()
