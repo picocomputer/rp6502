@@ -194,10 +194,50 @@ bool mut_boot(const char *rom)
     mut_rom.clear();
     if (!tb_rom_read(rom, mut_rom))
         return false;
-    return tb_boot_each(dut, mut_rom, nullptr, [&] {
+    /* A boot is a fresh machine rather than a reset pulse. RESB is the
+     * firmware's line and the platform's reset does not reach it by design
+     * — waking the real board is a reconfigure — so a machine that has
+     * already booted once would answer the next boot with the 6502 it is
+     * still holding released. This also brings its memories up zeroed, the
+     * way the board's block RAM does, which is what makes an expectation
+     * written down here the same number every run.
+     *
+     * A refused image leaves the 6502 in reset while the firmware goes on
+     * serving the console, which is a quiet machine by every other measure.
+     * Watching RESB is what tells the two apart, and it is what makes this
+     * verdict the same one the emulator's loader returns. */
+    dut->final();
+    delete dut;
+    dut = new Vrp6502;
+
+    bool ever_ran = false;
+    bool quiet = tb_boot_each(dut, mut_rom, nullptr, [&] {
+        if (dut->rootp->rp6502__DOT__resb)
+            ever_ran = true;
         if (dut->rp6502_rv_tx_valid)
             mut_tap.push_back((char)dut->rp6502_rv_tx_data);
     });
+    /* The verdict is whether the 6502 was released, and only that. A machine
+     * still running when its budget ran out is a failed run rather than an
+     * answer about the image, so it is said out loud instead of being folded
+     * into a refusal the caller would believe. */
+    if (!quiet)
+        fprintf(stderr, "mut_boot: %s never settled\n", rom);
+    return ever_ran;
+}
+
+void mut_xram(uint32_t addr, uint8_t *dst, size_t len)
+{
+    auto *r = dut->rootp;
+    for (size_t i = 0; i < len; i++)
+    {
+        uint32_t a = addr + (uint32_t)i;
+        size_t wi = a >> 2;
+        dst[i] = (a & 3) == 0   ? r->rp6502__DOT__xram__DOT__mem0[wi]
+                 : (a & 3) == 1 ? r->rp6502__DOT__xram__DOT__mem1[wi]
+                 : (a & 3) == 2 ? r->rp6502__DOT__xram__DOT__mem2[wi]
+                                : r->rp6502__DOT__xram__DOT__mem3[wi];
+    }
 }
 
 const uint32_t *mut_frame(int w, int h)

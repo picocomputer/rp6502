@@ -36,17 +36,22 @@ extern "C"
     void mut_init(int argc, const char *const argv[]);
     void mut_free(void);
 
-    /* Load a .rp6502, start it, and let it settle. False if the machine
-     * never settled.
+    /* Load a .rp6502, start it, and let it settle. The answer is about the
+     * image and nothing else: false means the machine refused it. One verdict
+     * from both bindings, by two mechanisms — this machine's loader returns
+     * its own, and the fabric's testbench watches whether the 6502 was ever
+     * released, a refusal there being quiet with the 6502 still in reset. So
+     * a suite whose claim is that a bad image is rejected can ask this
+     * directly, and one whose claim is that a good one is taken can too.
      *
-     * Not "the machine accepted the image". The two bindings answer a
-     * refused one differently and honestly: this machine's loader returns
-     * its own verdict, and the fabric's testbench sees a machine that went
-     * quiet without ever releasing the 6502, which is a settled machine. A
-     * suite whose claim is that a bad image is REFUSED cannot ask this; it
-     * has to ask what the refusal left behind — an unwritten XRAM, a silent
-     * console — which is the same evidence a person would have. */
+     * A machine still running when its budget ran out is neither answer. It
+     * is a failed run, and it is said out loud rather than returned. */
     bool mut_boot(const char *rom);
+
+    /* XRAM, the 64K the loader fills and the video engines read. The console
+     * is what a program said and a frame is what it drew; this is where its
+     * data went, which is the only way to hold the loader itself to a rule. */
+    void mut_xram(uint32_t addr, uint8_t *dst, size_t len);
 
     /* The next whole frame, canvas-native RGBA8 0xAABBGGRR — the emulator's
      * present buffer and the fabric's composed pixel stream through the same

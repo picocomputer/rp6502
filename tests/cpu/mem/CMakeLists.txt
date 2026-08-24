@@ -16,7 +16,17 @@ else()
         TIMEOUT 60)
 endif()
 
-if(RP6502_SOFT_CPU)
-    # XRAM records through the staged loader, judged by the oracle.
-    rp6502_add_machine_test(xram ORACLE FIRMWARE TIMEOUT 900)
+# XRAM records through the staged loader, against the image written out in
+# the test rather than against another machine.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(xram FIRMWARE
+            SOURCES test_xram.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(xram LIBS emu_core
+        SOURCES test_xram.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
 endif()

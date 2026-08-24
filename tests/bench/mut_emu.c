@@ -69,12 +69,24 @@ const char *mut_console(size_t *len)
 
 bool mut_boot(const char *rom)
 {
-    if (!emu_restart(rom))
+    /* A boot is a fresh machine, which is emu_restart plus the refill: the
+     * other machine gets one by construction and a suite written to both has
+     * to be able to say what XRAM held before its program ran. mem_init is
+     * the first of the drivers, so the loader's bytes still land on top. */
+    main_stop();
+    mem_init();
+    if (!rom_load(rom))
         return false;
+    main_run();
     vga_set_framebuffer(mut_fb);
     for (int i = 0; i < MUT_SETTLE_FRAMES; i++)
         sys_run_frame();
     return true;
+}
+
+void mut_xram(uint32_t addr, uint8_t *dst, size_t len)
+{
+    memcpy(dst, (const uint8_t *)&xram[addr], len);
 }
 
 const uint32_t *mut_frame(int w, int h)
