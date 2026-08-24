@@ -15,7 +15,7 @@
 #include "core/emu/sys/com.h"
 #include "core/emu/sys/cpu.h"
 #include "core/emu/sys/mem.h"
-#include "host/pico/ria/sys/pix.h"
+#include "core/pix.h"
 #include "core/emu/sys/vga.h"
 #include "core/emu/emu/via.h"
 #include "core/emu/hid/kbd.h"

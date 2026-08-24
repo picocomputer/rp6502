@@ -39,7 +39,7 @@
 #include "host/pico/ria/main.h"
 #include "core/str/rln.h"
 #include "host/pico/ria/sys/cpu.h"
-#include "host/pico/ria/sys/pix.h"
+#include "core/pix.h"
 #include "host/pico/ria/sys/ria.h"
 #include "core/vga/mode1.h"
 #include "core/vga/mode2.h"

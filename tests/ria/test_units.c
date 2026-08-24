@@ -16,7 +16,6 @@
 #include "core/emu/main.h"
 #include "core/emu/emu/rom.h"
 #include "core/emu/sys/mem.h"
-#include "host/pico/ria/sys/pix.h"
 #include "core/emu/sys/com.h"
 #include "utest.h"
 #include <stdio.h>
@@ -76,7 +75,6 @@ UTEST(xreg, device_channel_dispatch)
     ASSERT_TRUE(main_xreg_0(0, 0, 0));  /* RIA-local devices: accepted (stub) */
     ASSERT_TRUE(main_xreg_1(0, 0, 3));  /* VGA canvas 640x480 */
     ASSERT_FALSE(main_xreg_1(15, 1, 0)); /* VGA control channel: reg 0 is DISPLAY, other regs have no emu analog (NAK) */
-    pix_send(2, 0, 0, 0);               /* PIX device 2-7: bus-only, no emu hardware — a no-op send */
     ASSERT_TRUE(main_xreg_1(5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 

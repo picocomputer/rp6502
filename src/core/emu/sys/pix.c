@@ -5,19 +5,15 @@
  *
  */
 
-#include "host/pico/ria/sys/pix.h"
+#include "core/pix.h"
 #include "core/emu/main.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include <string.h>
 
-/* The receiver side of the PIX bus, collapsed into the emu. The on-device driver
- * (ria/sys/pix.h) fires messages into a PIO FIFO; the host has none, so the
- * <hardware/pio.h> shim's pio_sm_put delivers each one immediately here. pio1 is
- * the PIX PIO the driver targets — unused on the host, but its address resolves. */
-
-static pio_hw_t pix_pio;
-pio_hw_t *const pio1 = &pix_pio;
+/* The receiver side of the PIX bus, collapsed into the emu. On a Pico a
+ * message crosses four wires to another chip; here every device the bus
+ * would reach is this same binary, so delivery is a call. */
 
 /* Deliver one PIX message. Device 0 (XRAM) is the shared xram[], already
  * satisfied, so dropped; VGA goes to the xreg dispatch; 2-7 have no emu hardware.
@@ -34,15 +30,6 @@ static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t wor
     default: /* devices 2-7: over the bus, no emu hardware, dropped */
         return true;
     }
-}
-
-/* pix.h's pix_send packs a PIX_MESSAGE and puts it here; unpack and deliver. */
-void pio_sm_put(pio_hw_t *pio, unsigned sm, uint32_t msg)
-{
-    (void)pio;
-    (void)sm;
-    pix_deliver((msg >> 29) & 0x07, (msg >> 24) & 0x0F,
-                (msg >> 16) & 0xFF, msg & 0xFFFF);
 }
 
 /* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */

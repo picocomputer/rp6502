@@ -6,7 +6,8 @@
  */
 
 #include "core/emu/sys/mem.h"
-#include "host/pico/ria/sys/pix.h"
+#include "core/pix.h"
+#include "core/emu/main.h"
 #include "core/emu/sys/ria.h"
 #include "core/emu/sys/vga.h"
 #include "core/vga/mode0.h"
@@ -204,7 +205,10 @@ void vga_task(void)
     if (vga_needs_reset)
     {
         vga_needs_reset = false;
-        pix_send_blocking(PIX_DEVICE_VGA, 0xF, 0x00, vga_get_display_type());
+        /* The RIA-private control channel, which on that machine crosses
+         * the bus. Here the VGA is the same binary, so it is the call the
+         * message would have become. */
+        main_xreg_1(0xF, 0x00, vga_get_display_type());
     }
 }
 

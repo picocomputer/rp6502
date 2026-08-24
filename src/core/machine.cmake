@@ -164,7 +164,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
             -I ${RP6502_SRC}/host/pocket
             -I ${RP6502_SRC}
-            -I ${SW_SRC}/shim
             -I ${RP6502_ASSETS}
             -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
