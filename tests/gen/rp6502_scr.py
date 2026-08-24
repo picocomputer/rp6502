@@ -45,9 +45,9 @@ class Emu:
     child's stderr is this process's, so EMU_ECHO puts the terminal where
     ctest --output-on-failure already looks."""
 
-    def __init__(self, emu, rom, args=(), timeout=REPLY_TIMEOUT):
+    def __init__(self, emu, rom, args=(), timeout=REPLY_TIMEOUT, env=None):
         self.timeout = timeout
-        env = dict(os.environ, EMU_ECHO="1")
+        env = dict(os.environ, EMU_ECHO="1", **(env or {}))
         self.proc = subprocess.Popen(
             [str(emu), *EMU_ARGS, *args, "--script", "-", str(rom)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -119,10 +119,13 @@ class Emu:
         return False
 
 
-def drive(emu, rom, body, args=()):
+def drive(emu, rom, body, args=(), env=None):
     """Run body(e) against a started emulator and return an exit status. The
-    shape every driver's --drive wants: failures print and become a 1."""
-    e = Emu(emu, rom, args)
+    shape every driver's --drive wants: failures print and become a 1.
+
+    env adds to the machine's environment, for a driver whose claim needs
+    the host arranged a particular way."""
+    e = Emu(emu, rom, args, env=env)
     try:
         with e:
             e.start()

@@ -68,6 +68,15 @@ NAME2 = "fs2.dat"
 # bench runs against is fresh every time; a working directory is not.
 CREATES = [NAME, NAME2, "pfx.dat"] + [f"s{i}.dat" for i in range(9)]
 
+# One of the checks asks whether the timezone offset reaches the C library,
+# which it can only answer where there is an offset: on a machine set to UTC
+# the two clocks agree and the check reads that as the offset never arriving.
+# The Pocket has one from its own menu, so the emulator is given one here
+# rather than inheriting whatever the machine running the suite sits in --
+# a CI runner sits in UTC. No DST rule, and three characters because a
+# shorter zone name is what the library declines to parse.
+TZ = "EST5"
+
 
 # How many checks the program made, counted as it was written. The tally it
 # prints is the same number, so the expectation a driver waits for is derived
@@ -733,7 +742,7 @@ def drive(emu, rom):
         if PLATFORM:
             e.cmd(f'peek ${FAILS:04X} '
                   + " ".join(f"${i:02X}" for i in PLATFORM))
-    return rp6502_scr.drive(emu, rom, body)
+    return rp6502_scr.drive(emu, rom, body, env={"TZ": TZ})
 
 
 def main():
