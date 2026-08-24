@@ -10,10 +10,10 @@
  */
 
 #include "core/aud/bel.h"
-#include <pico/stdlib.h>
+#include "host.h"
 
 // Teletype bell: restrike-capable
-__in_flash("bel_teletype") const ria_bel_t bel_teletype = {
+HOST_IN_FLASH("bel_teletype") const ria_bel_t bel_teletype = {
     .freq = 1760,
     .duty = 215,          // hint of grit
     .vol_attack = 0x51,   // attack to -5vol in 8ms
@@ -25,7 +25,7 @@ __in_flash("bel_teletype") const ria_bel_t bel_teletype = {
 };
 
 // NFC fail/error: low square buzz
-__in_flash("bel_nfc_fail") const ria_bel_t bel_nfc_fail = {
+HOST_IN_FLASH("bel_nfc_fail") const ria_bel_t bel_nfc_fail = {
     .freq = 330,
     .duty = 127,          // 50% square
     .vol_attack = 0x80,   // attack to -8vol in 2ms
@@ -37,7 +37,7 @@ __in_flash("bel_nfc_fail") const ria_bel_t bel_nfc_fail = {
 };
 
 // NFC success note 1
-__in_flash("bel_nfc_success_1") const ria_bel_t bel_nfc_success_1 = {
+HOST_IN_FLASH("bel_nfc_success_1") const ria_bel_t bel_nfc_success_1 = {
     .freq = 784,
     .duty = 255,          // full cycle
     .vol_attack = 0x60,   // attack to -6vol in 2ms
@@ -49,7 +49,7 @@ __in_flash("bel_nfc_success_1") const ria_bel_t bel_nfc_success_1 = {
 };
 
 // NFC success note 2
-__in_flash("bel_nfc_success_2") const ria_bel_t bel_nfc_success_2 = {
+HOST_IN_FLASH("bel_nfc_success_2") const ria_bel_t bel_nfc_success_2 = {
     .freq = 1568,
     .duty = 255,          // full cycle
     .vol_attack = 0x60,   // attack to -6vol in 2ms

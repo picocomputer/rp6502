@@ -8,7 +8,7 @@
 #include "core/hid/tab.h"
 #include "core/mem.h"
 #include "core/vga/vga.h"
-#include <pico.h>
+#include "host.h"
 #include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_TAB)
@@ -119,7 +119,7 @@ static void tab_write_xram(void)
            TAB_BLOCK_SIZE - TAB_OFF_STATUS);
 }
 
-void __in_flash("tab_init") tab_init(void)
+void HOST_IN_FLASH("tab_init") tab_init(void)
 {
     tab_stop();
 }
@@ -144,7 +144,7 @@ bool tab_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("tab_mount") tab_mount(int slot, const tab_connection_t *desc)
+bool HOST_IN_FLASH("tab_mount") tab_mount(int slot, const tab_connection_t *desc)
 {
     if (!desc->valid)
         return false;

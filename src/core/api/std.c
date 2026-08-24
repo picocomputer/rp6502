@@ -12,7 +12,14 @@
 #include "core/com.h"
 #include "core/mem.h"
 #include "core/pix.h"
-#include <pico/stdlib.h>
+#include "host.h"
+
+/* The last thing core asks a Pico SDK header for. std_tty_read reads the
+ * console through the firmware's stdio, and on the RIA that door is not
+ * com_getchar's: the driver behind it first reclaims a byte already staged
+ * in the 6502's own $FFE0/$FFE2 window. Until which door a read() syscall
+ * should knock on is decided, the shim stays. */
+#include <pico/stdio.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -442,7 +449,7 @@ void std_task(void)
     }
 }
 
-void __in_flash("std_init") std_init(void)
+void HOST_IN_FLASH("std_init") std_init(void)
 {
     std_fd_pool[STD_FD_STDIN].is_open = true;
     std_fd_pool[STD_FD_STDIN].read = std_stdin_read;

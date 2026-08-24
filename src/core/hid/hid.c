@@ -10,7 +10,7 @@
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
-#include <pico.h>
+#include "host.h"
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
 #include <stdio.h>
@@ -115,7 +115,7 @@ uint8_t hid_slot_claims(int slot)
     return (slot >= 0 && slot < HID_MAX_SLOTS) ? hid_claims[slot] : 0;
 }
 
-int __in_flash("hid_mount") hid_mount(const kbd_connection_t *kbd,
+int HOST_IN_FLASH("hid_mount") hid_mount(const kbd_connection_t *kbd,
                                       const mou_connection_t *mou,
                                       const tab_connection_t *tab,
                                       const pad_connection_t *pad,

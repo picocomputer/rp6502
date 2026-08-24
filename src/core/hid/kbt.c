@@ -18,7 +18,6 @@
 #include "core/hid/usage.h"
 #include "core/cfg.h"
 #include "host.h"
-#include <pico.h>
 #include <stdio.h>
 #include <string.h>
 /* The case-insensitive compares a layout name is matched with. Named by
@@ -698,7 +697,7 @@ const char *kbt_get_layout_verbose(void)
     return kbt_layout_description;
 }
 
-void __in_flash("kbt_init") kbt_init(void)
+void HOST_IN_FLASH("kbt_init") kbt_init(void)
 {
     if (!kbt_layout_loaded)
     {

@@ -9,7 +9,7 @@
 #include "core/aud/opl.h"
 #include "core/mem.h"
 #include <assert.h>
-#include <pico/stdlib.h>
+#include "host.h"
 #include <string.h>
 #include <emu8950/emu8950.h>
 
@@ -29,8 +29,8 @@ static int16_t opl_sample;
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static void
-    __isr
-    __time_critical_func(opl_irq_handler)(void)
+    HOST_ISR
+    HOST_TIME_CRITICAL(opl_irq_handler)(void)
 {
     aud_clear_irq();
 

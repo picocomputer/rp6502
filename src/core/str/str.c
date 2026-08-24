@@ -13,7 +13,8 @@
 #include <strings.h>
 #include <ctype.h>
 #include <stdio.h>
-#include <pico.h>
+#include "host.h"
+#include <assert.h>
 
 #if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
 #include <stdio.h>
@@ -22,14 +23,21 @@
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
+/* Two-level so an argument that is itself a macro expands first, which is
+ * the whole reason these are here: glibc's __CONCAT expands once. */
+#define STR_XSTR1(x) #x
+#define STR_XSTR(x) STR_XSTR1(x)
+#define STR_CAT1(a, b) a##b
+#define STR_CAT(a, b) STR_CAT1(a, b)
+
 static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
-#define STR_PHI2_MIN_MAX __XSTRING(CPU_PHI2_MIN_KHZ) "-" __XSTRING(CPU_PHI2_MAX_KHZ)
+#define STR_PHI2_MIN_MAX STR_XSTR(CPU_PHI2_MIN_KHZ) "-" STR_XSTR(CPU_PHI2_MAX_KHZ)
 
 // Non-localized string literals: flash, or RAM with XR().
 #define X(name, value) \
-    const char __in_flash(__XSTRING(name)) name[] = value;
+    const char HOST_IN_FLASH(STR_XSTR(name)) name[] = value;
 #define XR(name, value) \
-    const char __not_in_flash(__XSTRING(name)) name[] = value;
+    const char HOST_NOT_IN_FLASH(STR_XSTR(name)) name[] = value;
 #include "core/def/str_sys.def"
 #undef X
 #undef XR
@@ -40,22 +48,22 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #define STR_ID_(loc, name) str_loc_##loc##_##name
 #define STR_ID(loc, name) STR_ID_(loc, name)
 
-// Each localized string is its own external __in_flash array. External
+// Each localized string is its own external flash-placed array. External
 // linkage is required: a static array or a bare literal initializer gets
 // merged by LTO into .rodata.str, which a copy_to_ram build places in RAM.
 #define XBEGIN(code, verbose, cp)
 #define XEND()
-#define X(name, value) const char __in_flash("str_loc") STR_ID(XSUFFIX, name)[] = value;
+#define X(name, value) const char HOST_IN_FLASH("str_loc") STR_ID(XSUFFIX, name)[] = value;
 #include "core/def/str.def"
 #undef XBEGIN
 #undef XEND
 #undef X
 
-// Each XBEGIN opens one __in_flash table of pointers sized to str_loc_id; the
+// Each XBEGIN opens one flash-placed table of pointers sized to str_loc_id; the
 // [name] designators place each string by its id, so line order within a
 // locale file is irrelevant.
 #define XBEGIN(code, verbose, cp) \
-    static const char *const __in_flash("str_tab") __CONCAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
+    static const char *const HOST_IN_FLASH("str_tab") STR_CAT(str_tab_, XSUFFIX)[STR_LOC_COUNT] = {
 #define XEND() \
     }          \
     ;
@@ -67,10 +75,10 @@ static_assert(CPU_PHI2_MIN_KHZ >= 0); // catch missing include
 #undef STR_ID
 #undef STR_ID_
 
-#define XBEGIN(code, verbose, cp) __CONCAT(str_tab_, XSUFFIX),
+#define XBEGIN(code, verbose, cp) STR_CAT(str_tab_, XSUFFIX),
 #define XEND()
 #define X(name, value)
-static const char *const *const __in_flash("str_tabs") str_tabs[] = {
+static const char *const *const HOST_IN_FLASH("str_tabs") str_tabs[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -81,7 +89,7 @@ static const char *const *const __in_flash("str_tabs") str_tabs[] = {
 #define XBEGIN(code, verbose, cp) code,
 #define XEND()
 #define X(name, value)
-static const char *const __in_flash("str_locale_names") str_locale_names[] = {
+static const char *const HOST_IN_FLASH("str_locale_names") str_locale_names[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -91,7 +99,7 @@ static const char *const __in_flash("str_locale_names") str_locale_names[] = {
 #define XBEGIN(code, verbose, cp) verbose,
 #define XEND()
 #define X(name, value)
-static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] = {
+static const char *const HOST_IN_FLASH("str_locale_verbose") str_locale_verbose[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -101,7 +109,7 @@ static const char *const __in_flash("str_locale_verbose") str_locale_verbose[] =
 #define XBEGIN(code, verbose, cp) cp,
 #define XEND()
 #define X(name, value)
-static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
+static const uint16_t HOST_IN_FLASH("str_locale_cp") str_locale_cp[] = {
 #include "core/def/str.def"
 };
 #undef XBEGIN
@@ -114,7 +122,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 // -Werror=override-init in the table pass above.
 #define XBEGIN(code, verbose, cp) enum \
 {                                      \
-    __CONCAT(str_count_, XSUFFIX) = 0
+    STR_CAT(str_count_, XSUFFIX) = 0
 #define XEND() \
     }          \
     ;
@@ -124,7 +132,7 @@ static const uint16_t __in_flash("str_locale_cp") str_locale_cp[] = {
 #undef XEND
 #undef X
 #define XBEGIN(code, verbose, cp) \
-    static_assert((int)__CONCAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
+    static_assert((int)STR_CAT(str_count_, XSUFFIX) == STR_LOC_COUNT, "locale " code " string count mismatch");
 #define XEND()
 #define X(name, value)
 #include "core/def/str.def"
@@ -157,7 +165,7 @@ static int str_sanitize_locale(const char *name)
     int found_index = -1;
     for (int i = 0; i < count; i++)
     {
-        if (!strcasecmp(str_locale_names[i], __XSTRING(RP6502_LOCALE)))
+        if (!strcasecmp(str_locale_names[i], STR_XSTR(RP6502_LOCALE)))
             default_index = i;
         if (!strcasecmp(str_locale_names[i], name))
             found_index = i;
@@ -173,7 +181,7 @@ static void str_apply_locale(int index)
     oem_locale_changed(str_locale_cp[index]);
 }
 
-void __in_flash("str_init") str_init(void)
+void HOST_IN_FLASH("str_init") str_init(void)
 {
     if (!str_locale_loaded)
         str_apply_locale(str_sanitize_locale(""));

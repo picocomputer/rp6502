@@ -6,7 +6,7 @@
 
 #include "core/aud/aud.h"
 #include "core/aud/bel.h"
-#include <pico/stdlib.h>
+#include "host.h"
 
 #if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_BEL)
 #include <stdio.h>
@@ -148,7 +148,7 @@ static inline uint32_t bel_decay_release_rate(uint8_t nibble, uint32_t rate)
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 int16_t
-__time_critical_func(bel_sample)(uint32_t rate)
+HOST_TIME_CRITICAL(bel_sample)(uint32_t rate)
 {
     if (!bel_state.active)
         return 0;
@@ -310,8 +310,8 @@ generate:;
                      >> 12);
 }
 
-static __isr void
-__time_critical_func(bel_irq_handler)(void)
+static HOST_ISR void
+HOST_TIME_CRITICAL(bel_irq_handler)(void)
 {
     aud_clear_irq();
 

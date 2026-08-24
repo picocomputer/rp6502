@@ -7,7 +7,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/pad.h"
 #include "core/mem.h"
-#include <pico.h>
+#include "host.h"
 #include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
@@ -457,7 +457,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
         report->button1 |= (1 << 1); // R2
 }
 
-void __in_flash("pad_init") pad_init(void)
+void HOST_IN_FLASH("pad_init") pad_init(void)
 {
     pad_stop();
 }
@@ -492,7 +492,7 @@ bool pad_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("pad_mount") pad_mount(int slot, const pad_connection_t *desc,
+bool HOST_IN_FLASH("pad_mount") pad_mount(int slot, const pad_connection_t *desc,
                                        uint16_t vendor_id, uint16_t product_id,
                                        uint8_t button_type)
 {

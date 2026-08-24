@@ -13,7 +13,6 @@
 #include "core/cfg.h"
 #include "host.h"
 #include "core/hid/usage.h"
-#include <pico.h>
 #include <stdio.h>
 /* The case-insensitive compares a layout name is matched with. Named by
  * POSIX rather than by C, and a host that has no such header supplies
@@ -93,7 +92,7 @@ static void kbd_send_leds()
     hid_set_leds(kbd_hid_leds);
 }
 
-void __in_flash("kbd_init") kbd_init(void)
+void HOST_IN_FLASH("kbd_init") kbd_init(void)
 {
     kbd_stop();
     kbd_hid_leds = KEYBOARD_LED_NUMLOCK;
@@ -106,7 +105,7 @@ void kbd_stop(void)
     kbd_xram = 0xFFFF;
 }
 
-bool __in_flash("kbd_mount") kbd_mount(int slot, const kbd_connection_t *desc,
+bool HOST_IN_FLASH("kbd_mount") kbd_mount(int slot, const kbd_connection_t *desc,
                                        uint16_t vendor_id, uint16_t product_id)
 {
     if (!desc->valid)

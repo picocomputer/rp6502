@@ -7,7 +7,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/mou.h"
 #include "core/mem.h"
-#include <pico.h>
+#include "host.h"
 #include <string.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_MOU)
@@ -46,7 +46,7 @@ static mou_connection_t *mou_get_connection_by_slot(int slot)
     return NULL;
 }
 
-void __in_flash("mou_init") mou_init(void)
+void HOST_IN_FLASH("mou_init") mou_init(void)
 {
     mou_stop();
 }
@@ -71,7 +71,7 @@ bool mou_xreg(uint16_t word)
     return true;
 }
 
-bool __in_flash("mou_mount") mou_mount(int slot, const mou_connection_t *desc)
+bool HOST_IN_FLASH("mou_mount") mou_mount(int slot, const mou_connection_t *desc)
 {
     if (!desc->valid)
         return false;

@@ -21,7 +21,7 @@ FONT_C = os.path.join(SCRIPT_DIR, "font.c")
 OUT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", "..", "build", "fonts"))
 
 BLOCK_RE = re.compile(
-    r'static\s+const\s+__in_flash\("([^"]+)"\)\s+uint8_t\s+'
+    r'static\s+const\s+HOST_IN_FLASH\("([^"]+)"\)\s+uint8_t\s+'
     r'(FONT(\d+)_\w+)\s*\[\]\s*=\s*\{([^}]+)\};',
     re.DOTALL,
 )

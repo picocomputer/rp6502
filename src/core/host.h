@@ -22,6 +22,27 @@
 #include <stdint.h>
 #include <time.h>
 
+/* ---- where a host puts things ---- */
+/* A Pico has two memories and cares which one a byte lands in: cold paths
+ * and tables belong in flash, an interrupt handler must not. A machine with
+ * one memory ignores all of it, which is why these default to nothing and a
+ * host that means something by them says so before including this. */
+#ifndef HOST_IN_FLASH
+#define HOST_IN_FLASH(group)
+#endif
+#ifndef HOST_NOT_IN_FLASH
+#define HOST_NOT_IN_FLASH(group)
+#endif
+#ifndef HOST_UNINITIALIZED_RAM
+#define HOST_UNINITIALIZED_RAM(name) name
+#endif
+#ifndef HOST_TIME_CRITICAL
+#define HOST_TIME_CRITICAL(name) name
+#endif
+#ifndef HOST_ISR
+#define HOST_ISR
+#endif
+
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
  * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not

@@ -3,11 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Host shim for <pico.h>: the flash-placement attributes (no-ops on the host),
- * <assert.h> (the real pico.h pulls C11 static_assert), and the pico compiler
- * macros the shared firmware sources use (the real pico.h pulls
- * pico/platform/compiler.h). Included by the vendored FatFs ffunicode.c and the
- * reused firmware ria/ sources (dir.c, str.c).
+ * Host shim for <pico.h>, for vendor/fatfs/ffunicode.c and nothing else.
+ *
+ * That file is our patched copy: it places its code page tables with
+ * __in_flash, which is a Pico's word. Our own sources ask their host where
+ * to put things -- see HOST_IN_FLASH in core/host.h -- so this exists only
+ * to keep a vendored file compiling off-target, and shrinks whenever that
+ * file needs less.
  */
 
 #ifndef _PICO_SHIM_PICO_H_

@@ -8,7 +8,7 @@
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
 #include "core/mem.h"
-#include <pico/stdlib.h>
+#include "host.h"
 #include <stddef.h>
 #include <string.h>
 
@@ -137,8 +137,8 @@ void psg_setup(uint32_t rate)
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 static void
-    __isr
-    __time_critical_func(psg_irq_handler)(void)
+    HOST_ISR
+    HOST_TIME_CRITICAL(psg_irq_handler)(void)
 {
     aud_clear_irq();
 

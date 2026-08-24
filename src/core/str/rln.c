@@ -10,7 +10,6 @@
 #include "core/main.h"
 #include "core/vga/vga.h"
 #include "host.h"
-#include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -1639,7 +1638,7 @@ void rln_task(void)
         rln_complete(true);
 }
 
-void __in_flash("rln_init") rln_init(void)
+void HOST_IN_FLASH("rln_init") rln_init(void)
 {
     rln_callback = NULL;
     rln_enable_history = true;

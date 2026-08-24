@@ -10,7 +10,7 @@
 #include "core/vga/vga.h"
 #include "core/vga/pixel_format.h"
 #include "host.h"
-#include <pico/stdlib.h>
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 

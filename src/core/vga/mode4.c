@@ -11,7 +11,17 @@
 #include "core/vga/mode4.h"
 #include "core/mem.h"
 #include "core/vga/vga.h"
-#include <pico/stdlib.h>
+#include "host.h"
+#include <assert.h>
+/* The SDK spells these in pico/platform.h; a mode that clips spans needs
+ * them wherever it runs. */
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a) : (b))
+#endif
+
 #if PICO_ON_DEVICE
 #include <hardware/interp.h>
 #endif
@@ -63,13 +73,13 @@ typedef struct
 
 // Always-inline else the compiler does rash things like passing structs in memory
 static inline __attribute__((always_inline)) intersect_t
-get_sprite_intersect(int x_pos_px, int y_pos_px, int log_size, uint raster_y, uint raster_w)
+get_sprite_intersect(int x_pos_px, int y_pos_px, int log_size, unsigned raster_y, unsigned raster_w)
 {
     intersect_t isct = {0};
     isct.tex_offs_y = (int)raster_y - y_pos_px;
     int size = 1u << log_size;
-    uint upper_mask = -size;
-    if ((uint)isct.tex_offs_y & upper_mask)
+    unsigned upper_mask = -size;
+    if ((unsigned)isct.tex_offs_y & upper_mask)
         return isct;
     int x_start_clipped = MAX(0, x_pos_px);
     isct.tex_offs_x = x_start_clipped - x_pos_px;
@@ -91,11 +101,11 @@ static inline intersect_t intersect_with_metadata(intersect_t isct, uint32_t met
     return isct;
 }
 
-static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, uint len)
+static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, unsigned len)
 {
     uint16_t *dst_start = dst;
-    uint pixels_8 = (len >> 3) << 3;
-    uint remainder = len & 7;
+    unsigned pixels_8 = (len >> 3) << 3;
+    unsigned remainder = len & 7;
     dst += pixels_8;
     src += pixels_8;
     switch (remainder)
@@ -141,11 +151,11 @@ static inline void sprite_blit16(uint16_t *dst, const uint16_t *src, uint len)
     } while (dst > dst_start);
 }
 
-static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint len)
+static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, unsigned len)
 {
     uint16_t *dst_start = dst;
-    uint pixels_8 = (len >> 3) << 3;
-    uint remainder = len & 7;
+    unsigned pixels_8 = (len >> 3) << 3;
+    unsigned remainder = len & 7;
     dst += pixels_8;
     src += pixels_8;
     switch (remainder)
@@ -207,7 +217,7 @@ static inline void sprite_blit16_alpha(uint16_t *dst, const uint16_t *src, uint 
 }
 
 static inline void sprite_scanline16(
-    uint16_t *scanbuf, const mode4_sprite_t *sp, const void *sp_img, uint raster_y, uint raster_w)
+    uint16_t *scanbuf, const mode4_sprite_t *sp, const void *sp_img, unsigned raster_y, unsigned raster_w)
 {
     int size = 1u << sp->log_size;
     intersect_t isct = get_sprite_intersect(sp->x_pos_px, sp->y_pos_px, sp->log_size, raster_y, raster_w);
@@ -262,11 +272,11 @@ static struct
     uint32_t accum[2];
     int32_t step[2];
     uintptr_t base;
-    uint shift[2];
+    unsigned shift[2];
     uint32_t mask[2];
 } sw_interp;
 
-static inline uint32_t sw_interp_mask(uint lsb, uint msb)
+static inline uint32_t sw_interp_mask(unsigned lsb, unsigned msb)
 {
     return (((uint32_t)1 << (msb - lsb + 1)) - 1) << lsb;
 }
@@ -315,7 +325,7 @@ static inline void setup_interp_affine(
 // of the individual pixels
 static inline void setup_interp_pix_coordgen(
     const mode4_asprite_t *sp,
-    const void *sp_img, uint pixel_shift)
+    const void *sp_img, unsigned pixel_shift)
 {
     // Concatenate from accum0[31:16] and accum1[31:16] as many LSBs as required
     // to index the sprite texture in both directions. Reading from POP_FULL will
@@ -347,7 +357,7 @@ static inline void setup_interp_pix_coordgen(
 #endif
 }
 
-static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, uint mask)
+static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, unsigned mask)
 {
 #if PICO_ON_DEVICE
     uint32_t overflow = (interp0->accum[0] | interp0->accum[1]) & mask;
@@ -363,11 +373,11 @@ static inline void sprite_ablit16_alpha_loop_body(uint16_t *dst, uint mask)
         *dst = pixel;
 }
 
-static inline void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask)
+static inline void sprite_ablit16_alpha_loop(uint16_t *dst, unsigned len, unsigned mask)
 {
     uint16_t *dst_start = dst;
-    uint pixels_8 = (len >> 3) << 3;
-    uint remainder = len & 7;
+    unsigned pixels_8 = (len >> 3) << 3;
+    unsigned remainder = len & 7;
     dst += pixels_8;
     switch (remainder)
     {
@@ -413,7 +423,7 @@ static inline void sprite_ablit16_alpha_loop(uint16_t *dst, uint len, uint mask)
 
 static inline void asprite_scanline16(
     uint16_t *scanbuf, const mode4_asprite_t *sp, const void *sp_img,
-    uint raster_y, uint raster_w)
+    unsigned raster_y, unsigned raster_w)
 {
     intersect_t isct = get_sprite_intersect(sp->x_pos_px, sp->y_pos_px, sp->log_size, raster_y, raster_w);
     if (isct.size_x <= 0)
