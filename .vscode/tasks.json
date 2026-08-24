@@ -180,6 +180,42 @@
             }
         },
         {
+            "label": "rtl: Configure",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--preset",
+                "release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/tests/rtl"
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "rtl: Build",
+            "type": "process",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "--preset",
+                "release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/tests/rtl"
+            },
+            "dependsOn": "rtl: Configure",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
             "label": "rtl: Tests",
             "type": "process",
             "command": "ctest",
@@ -194,7 +230,8 @@
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": "$gcc",
+            "dependsOn": "rtl: Build"
         },
         {
             "label": "pocket: Card package",

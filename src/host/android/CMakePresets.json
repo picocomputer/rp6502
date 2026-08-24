@@ -12,11 +12,6 @@
             "generator": "Ninja",
             "cacheVariables": {
                 "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
-            },
-            "condition": {
-                "type": "notEquals",
-                "lhs": "$env{ANDROID_HOME}",
-                "rhs": ""
             }
         },
         {
