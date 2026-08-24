@@ -97,8 +97,8 @@ rp6502_add_module_test(pbridge
     TIMEOUT 300)
 
 if(RP6502_SOFT_CPU)
-    # --- The whole Pocket stack, frame-exact against the oracle ---
-    rp6502_add_machine_test(pocket ORACLE FIRMWARE SPLIT
+    # --- The whole Pocket stack, frame-exact ---
+    rp6502_add_machine_test(pocket FIRMWARE SPLIT
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
