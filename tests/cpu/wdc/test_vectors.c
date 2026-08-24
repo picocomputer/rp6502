@@ -3,12 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * SingleStepTests conformance for the emulator's 65C02. The FPGA core runs
- * these same vectors against w65c02.sv; holding both to one set of per-cycle
- * bus traces is what keeps the two implementations from drifting apart.
+ * SingleStepTests conformance for whichever 65C02 this tree built — the
+ * emulator's C model, or w65c02.sv verilated. One suite, one corpus, and
+ * neither implementation with a standard of its own is what keeps the two
+ * from drifting apart.
  */
 
-#include "chips_dut.h"
+#include "cpu_dut.h"
 #include "utest.h"
 #include "vec.h"
 
@@ -17,7 +18,7 @@
 UTEST(vectors, all_opcodes)
 {
     vec_result_t r;
-    ASSERT_TRUE(vec_run(VECTORS, &chips_dut, -1, &r));
+    ASSERT_TRUE(vec_run(VECTORS, cpu_dut, -1, &r));
     if (r.failed)
         printf("%s\n", r.detail);
     ASSERT_EQ(r.failed, (size_t)0);
@@ -31,7 +32,7 @@ UTEST(vectors, bit_branches_never_write)
     vec_result_t r;
     for (int op = 0x0F; op <= 0xFF; op += 0x10)
     {
-        ASSERT_TRUE(vec_run(VECTORS, &chips_dut, op, &r));
+        ASSERT_TRUE(vec_run(VECTORS, cpu_dut, op, &r));
         if (r.failed)
             printf("%s\n", r.detail);
         ASSERT_EQ(r.failed, (size_t)0);
@@ -39,4 +40,4 @@ UTEST(vectors, bit_branches_never_write)
     }
 }
 
-UTEST_MAIN()
+CPU_DUT_MAIN()

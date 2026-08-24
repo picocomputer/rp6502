@@ -3,26 +3,33 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * chips/chips/m6522.h on its own, so a vendored VIA that changes is noticed
- * by a build with no simulator in it. test_w65c22 asks whether w65c22.sv
- * agrees with chips; this asks whether chips still does what it did, which
- * is the question every tree can answer.
+ * The 6522, on whichever machine this tree built — chips/chips/m6522.h in the
+ * emulator, w65c22.sv verilated in the fabric. Both answer via_dut.h, which is
+ * the register interface the machine drives them through, so both answer this.
  *
  * Two kinds of evidence, because a recording alone says only that something
  * moved. The directed cases assert the 6522's documented behaviour outright,
- * so a failure names the rule; the traces cover everything else, including
- * the fuzz, where writing the expectation by hand is not possible.
+ * so a failure names the rule; the traces cover everything else, including the
+ * fuzz, where writing the expectation by hand is not possible.
  *
- * Regenerating the traces accepts whatever changed, which is the point: it
- * is a commit, and the diff is the notification. Run
+ * The recording is the expectation, and it is one recording. This used to be
+ * two suites: this one holding the vendored chip to a trace, and a second
+ * running the RTL against that chip cycle by cycle, live, inside the test.
+ * That made the emulator's VIA the standard the fabric's was held to. Now
+ * both are held to the same committed numbers, and either can be checked with
+ * the other absent.
  *
- *     test_w65c22_chips --emit > tests/wdc/w65c22_golden.txt
+ * Regenerating the traces accepts whatever changed, which is the point: it is
+ * a commit, and the diff is the notification. Run
  *
- * and read what moved before committing it.
+ *     test_w65c22 --emit > tests/cpu/wdc/w65c22_golden.txt
+ *
+ * and read what moved before committing it. Run it from the tree whose VIA
+ * you mean to record; the numbers are the machine's, and the other machine
+ * has to agree with them.
  */
 
-#define CHIPS_IMPL
-#include "chips/chips/m6522.h"
+#include "via_dut.h"
 
 #include "w65c22_scen.h"
 #include "utest.h"
@@ -30,36 +37,13 @@
 #include <stdio.h>
 #include <string.h>
 
-static m6522_t via;
-
-/* The machine's wiring: CS1 asserted, ports unwired, RW high to read. See
- * emu/emu/via.c, which is what this reproduces. */
-static void step(const w65c22_op_t *op, uint8_t *data, bool *irq)
-{
-    uint64_t pins = 0;
-    if (op->kind != W65C22_OP_IDLE)
-    {
-        pins |= op->rs & M6522_RS_PINS;
-        pins |= M6522_CS1;
-        if (op->kind == W65C22_OP_READ)
-            pins |= M6522_RW;
-        else
-            M6522_SET_DATA(pins, op->data);
-    }
-    pins = m6522_tick(&via, pins);
-    *data = M6522_GET_DATA(pins);
-    *irq = (pins & M6522_IRQ) != 0;
-}
-
-static void reset(void) { m6522_init(&via); }
-
 /* One op, for the directed cases. */
 static uint8_t rd(uint8_t rs)
 {
     w65c22_op_t op = {W65C22_OP_READ, rs, 0, 0};
     uint8_t data;
     bool irq;
-    step(&op, &data, &irq);
+    via_step(&op, &data, &irq);
     return data;
 }
 
@@ -68,7 +52,7 @@ static void wr(uint8_t rs, uint8_t data)
     w65c22_op_t op = {W65C22_OP_WRITE, rs, data, 0};
     uint8_t d;
     bool irq;
-    step(&op, &d, &irq);
+    via_step(&op, &d, &irq);
 }
 
 static bool idle_until_irq(int limit)
@@ -78,16 +62,16 @@ static bool idle_until_irq(int limit)
     bool irq = false;
     for (int i = 0; i < limit; i++)
     {
-        step(&op, &data, &irq);
+        via_step(&op, &data, &irq);
         if (irq)
             return true;
     }
     return false;
 }
 
-/* CRC-32, so a trace is a number small enough to commit and read. The
- * suites here cannot link emu_core — chips_dut.c explains why — so this is
- * the one place it is spelled out again. */
+/* CRC-32, so a trace is a number small enough to commit and read. Byte at a
+ * time rather than the bench's whole-buffer form, because a trace is produced
+ * a cycle at a time and never exists as a buffer. */
 static uint32_t crc32_up(uint32_t crc, uint8_t byte)
 {
     crc ^= byte;
@@ -100,7 +84,7 @@ static uint32_t crc32_up(uint32_t crc, uint8_t byte)
  * what test_w65c22 compares against the RTL. */
 static uint32_t trace_script(const w65c22_op_t *ops, size_t n_ops, uint64_t *cycles)
 {
-    reset();
+    via_reset();
     uint32_t crc = 0xFFFFFFFFu;
     uint64_t n = 0;
     for (size_t i = 0; i < n_ops; i++)
@@ -108,7 +92,7 @@ static uint32_t trace_script(const w65c22_op_t *ops, size_t n_ops, uint64_t *cyc
         {
             uint8_t data;
             bool irq;
-            step(&ops[i], &data, &irq);
+            via_step(&ops[i], &data, &irq);
             crc = crc32_up(crc, ops[i].kind == W65C22_OP_READ ? data : 0);
             crc = crc32_up(crc, irq ? 1 : 0);
             n++;
@@ -119,7 +103,7 @@ static uint32_t trace_script(const w65c22_op_t *ops, size_t n_ops, uint64_t *cyc
 
 static uint32_t trace_fuzz(uint64_t *cycles)
 {
-    reset();
+    via_reset();
     uint32_t crc = 0xFFFFFFFFu;
     uint16_t lfsr = W65C22_FUZZ_SEED;
     for (int i = 0; i < W65C22_FUZZ_CYCLES; i++)
@@ -128,7 +112,7 @@ static uint32_t trace_fuzz(uint64_t *cycles)
         w65c22_fuzz_next(&lfsr, &op);
         uint8_t data;
         bool irq;
-        step(&op, &data, &irq);
+        via_step(&op, &data, &irq);
         crc = crc32_up(crc, op.kind == W65C22_OP_READ ? data : 0);
         crc = crc32_up(crc, irq ? 1 : 0);
     }
@@ -195,9 +179,9 @@ static bool golden_check(const char *name, uint32_t crc, uint64_t cycles,
 
 /* --- The documented behaviour, asserted rather than recorded --- */
 
-UTEST(w65c22_chips, t1_oneshot_interrupts_once)
+UTEST(w65c22, t1_oneshot_interrupts_once)
 {
-    reset();
+    via_reset();
     wr(0xE, 0xC0); /* IER: enable T1 */
     wr(0x4, 10);   /* T1 latch low */
     wr(0x5, 0);    /* T1 high, starts the count */
@@ -209,9 +193,9 @@ UTEST(w65c22_chips, t1_oneshot_interrupts_once)
     ASSERT_FALSE(idle_until_irq(64));
 }
 
-UTEST(w65c22_chips, t1_continuous_reloads)
+UTEST(w65c22, t1_continuous_reloads)
 {
-    reset();
+    via_reset();
     wr(0xB, 0x40); /* ACR: continuous */
     wr(0xE, 0xC0);
     wr(0x4, 6);
@@ -222,9 +206,9 @@ UTEST(w65c22_chips, t1_continuous_reloads)
     ASSERT_TRUE(idle_until_irq(64));
 }
 
-UTEST(w65c22_chips, t2_oneshot_does_not_reload)
+UTEST(w65c22, t2_oneshot_does_not_reload)
 {
-    reset();
+    via_reset();
     wr(0xE, 0xA0); /* IER: enable T2 */
     wr(0x8, 8);
     wr(0x9, 0);
@@ -235,9 +219,9 @@ UTEST(w65c22_chips, t2_oneshot_does_not_reload)
     ASSERT_FALSE(idle_until_irq(64));
 }
 
-UTEST(w65c22_chips, ier_masks_the_irq_line_not_the_flag)
+UTEST(w65c22, ier_masks_the_irq_line_not_the_flag)
 {
-    reset();
+    via_reset();
     wr(0xE, 0x40); /* IER: bit 7 clear, so this DISABLES T1 */
     wr(0x4, 4);
     wr(0x5, 0);
@@ -247,9 +231,9 @@ UTEST(w65c22_chips, ier_masks_the_irq_line_not_the_flag)
     ASSERT_TRUE((rd(0xD) & 0x80) == 0); /* no master */
 }
 
-UTEST(w65c22_chips, ifr_is_write_to_clear)
+UTEST(w65c22, ifr_is_write_to_clear)
 {
-    reset();
+    via_reset();
     wr(0x4, 4);
     wr(0x5, 0);
     for (int i = 0; i < 32; i++)
@@ -259,9 +243,9 @@ UTEST(w65c22_chips, ifr_is_write_to_clear)
     ASSERT_TRUE((rd(0xD) & 0x40) == 0);
 }
 
-UTEST(w65c22_chips, ier_readback_sets_bit7)
+UTEST(w65c22, ier_readback_sets_bit7)
 {
-    reset();
+    via_reset();
     wr(0xE, 0xE0);                      /* set T1 + T2 */
     ASSERT_TRUE((rd(0xE) & 0x80) != 0); /* reads back with bit 7 high */
     ASSERT_TRUE((rd(0xE) & 0x60) == 0x60);
@@ -270,9 +254,9 @@ UTEST(w65c22_chips, ier_readback_sets_bit7)
     ASSERT_TRUE((rd(0xE) & 0x20) != 0);
 }
 
-UTEST(w65c22_chips, t1_toggles_pb7)
+UTEST(w65c22, t1_toggles_pb7)
 {
-    reset();
+    via_reset();
     wr(0x2, 0x80); /* DDRB: PB7 output */
     wr(0xB, 0xC0); /* ACR: continuous + PB7 */
     wr(0x4, 4);
@@ -284,7 +268,7 @@ UTEST(w65c22_chips, t1_toggles_pb7)
     {
         uint8_t data;
         bool irq;
-        step(&idle, &data, &irq);
+        via_step(&idle, &data, &irq);
         seen |= (uint8_t)(rd(0x0) & 0x80) ? 2 : 1;
     }
     ASSERT_EQ(3, seen); /* both levels observed */
@@ -293,7 +277,7 @@ UTEST(w65c22_chips, t1_toggles_pb7)
 /* --- Everything else, against the recording --- */
 
 #define W65C22_TRACE(name)                                                     \
-    UTEST(w65c22_chips, trace_##name)                                          \
+    UTEST(w65c22, trace_##name)                                          \
     {                                                                          \
         char detail[160] = "";                                                 \
         uint64_t cycles;                                                       \
@@ -308,7 +292,7 @@ UTEST(w65c22_chips, t1_toggles_pb7)
 
 W65C22_SCRIPTS(W65C22_TRACE)
 
-UTEST(w65c22_chips, trace_fuzz)
+UTEST(w65c22, trace_fuzz)
 {
     char detail[160] = "";
     uint64_t cycles;
@@ -324,11 +308,12 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
+    via_dut_init(argc, argv);
     if (argc == 2 && !strcmp(argv[1], "--emit"))
     {
         uint64_t cycles;
-        printf("# chips/chips/m6522.h traces, per scenario: name crc32 cycles.\n"
-               "# Regenerate with test_w65c22_chips --emit and read the diff.\n");
+        printf("# The 6522 traces, per scenario: name crc32 cycles.\n"
+               "# Regenerate with test_w65c22 --emit and read the diff.\n");
 #define W65C22_EMIT(name)                                                      \
     {                                                                          \
         uint32_t crc = trace_script(w65c22_scen_##name, w65c22_scen_##name##_n,\
@@ -339,7 +324,10 @@ int main(int argc, const char *const argv[])
 #undef W65C22_EMIT
         uint32_t crc = trace_fuzz(&cycles);
         printf("fuzz %08X %llu\n", crc, (unsigned long long)cycles);
+        via_dut_free();
         return 0;
     }
-    return utest_main(argc, argv);
+    int rc = utest_main(argc, argv);
+    via_dut_free();
+    return rc;
 }

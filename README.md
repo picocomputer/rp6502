@@ -140,12 +140,16 @@ The suite is filed by what a test claims, not by which build runs it.
 `tests/cpu` is the machine's own — the 6502 and its VIA, the video modes, the
 filesystem, HID, the RIA's API. Where a claim can be made of both
 implementations it is written once and run against whichever machine the tree
-builds: the CPU corpora answer `dut.h`, which `chips_dut.c` and
-`w65c02_dut.cpp` both implement, and `tests/bench/mut.h` is the same idea for
-the whole machine — boot a program, take a frame — with `mut_emu.c` and
-`mut_rtl.cpp` behind it. Registrations that need a simulator, the shipped
-binary or the staged assets guard on those existing, so the same directory
-serves every tree.
+builds, through a seam:
+
+| seam | binds | so one suite covers |
+| --- | --- | --- |
+| `dut.h` / `cpu_dut.h` | `chips_dut.c`, `w65c02_dut.cpp` | the 6502, per cycle |
+| `via_dut.h` | `via_chips.c`, `via_rtl.cpp` | the 6522, per cycle |
+| `tests/bench/mut.h` | `mut_emu.c`, `mut_rtl.cpp` | the whole machine — boot a program, take a frame |
+
+Registrations that need a simulator, the shipped binary or the staged assets
+guard on those existing, so the same directory serves every tree.
 
 A test that renders carries its own expectation, as a CRC of the settled
 frame written into the case:

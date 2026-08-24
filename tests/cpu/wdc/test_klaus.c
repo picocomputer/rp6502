@@ -3,16 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Klaus Dormann's functional tests against the emulator's 65C02. These run tens
- * of millions of cycles of long instruction sequences, where the SingleStepTests
- * vectors check one instruction at a time, so the two suites fail differently.
+ * Klaus Dormann's functional tests against whichever 65C02 this tree built.
+ * These run tens of millions of cycles of long instruction sequences, where
+ * the SingleStepTests vectors check one instruction at a time, so the two
+ * suites fail differently.
  *
  * Both images end by jumping to themselves; every failure trap does too, so the
  * trap address is the verdict. The assertions are spelled out per case because
  * utest's ASSERT_* return from the function they sit in.
  */
 
-#include "chips_dut.h"
+#include "cpu_dut.h"
 #include "klaus.h"
 #include "utest.h"
 
@@ -31,7 +32,7 @@ static void report(const klaus_result_t *r, uint16_t want)
 UTEST(klaus, functional)
 {
     klaus_result_t r;
-    ASSERT_TRUE(klaus_run(KLAUS_6502, &chips_dut, KLAUS_BUDGET, &r));
+    ASSERT_TRUE(klaus_run(KLAUS_6502, cpu_dut, KLAUS_BUDGET, &r));
     report(&r, 0x3469);
     ASSERT_FALSE(r.timed_out);
     ASSERT_EQ(r.trap_pc, 0x3469);
@@ -40,10 +41,10 @@ UTEST(klaus, functional)
 UTEST(klaus, extended_opcodes)
 {
     klaus_result_t r;
-    ASSERT_TRUE(klaus_run(KLAUS_65C02, &chips_dut, KLAUS_BUDGET, &r));
+    ASSERT_TRUE(klaus_run(KLAUS_65C02, cpu_dut, KLAUS_BUDGET, &r));
     report(&r, 0x24F1);
     ASSERT_FALSE(r.timed_out);
     ASSERT_EQ(r.trap_pc, 0x24F1);
 }
 
-UTEST_MAIN()
+CPU_DUT_MAIN()

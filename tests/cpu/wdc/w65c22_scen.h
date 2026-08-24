@@ -3,11 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The VIA scenarios, once, for the two suites that replay them: test_w65c22
- * runs them against w65c22.sv with chips/m6522.h as the reference, and
- * test_w65c22_chips runs them against chips alone with a recorded trace as the
- * reference. Written here so the RTL comparison and the drift check cannot
- * come to be asking different questions.
+ * The VIA scenarios, written once and replayed by test_w65c22 against
+ * whichever VIA the tree built, with a recorded trace as the reference.
+ * They were two suites asking the same question of two implementations;
+ * one set of scenarios and one recording is what keeps that one question.
  *
  * Register traffic only — the ports are unwired, exactly as emu/emu/via.c
  * leaves them.
