@@ -323,8 +323,8 @@ UTEST(mode5, bpp4_256_640x480)
 }
 
 /* Mode 0 as a slot: the terminal over a mode-3 bitmap on plane 1 —
- * default-background cells transparent, inked cells opaque — proven
- * pixel-exact against the oracle on every canvas geometry. win240 and
+ * default-background cells transparent, inked cells opaque — pinned
+ * pixel-exact on every canvas geometry. win240 and
  * win180 walk the 40-column 8x8 path, DEC graphics included. */
 
 UTEST(mode0, overlay_windowed_640x480)

@@ -3,27 +3,28 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The M2 exit test: one .rp6502 image, two machines. The RTL machine runs
- * it from the staged window under the cross-compiled firmware; emu_core
- * runs it as the reference oracle. The program exercises the syscall ABI —
- * UART bytes, an xstack argument into a real std op, the AX return, the
- * ENOSYS errno path — and both consoles must carry identical bytes.
+ * The syscall ABI, on whichever machine this tree built. One hand-assembled
+ * image writes the RIA's UART register directly, pushes an xstack argument
+ * through std write (op $18, fd 1 in AX), reads back the byte count, and asks
+ * for an op nobody implements ($35) to see its A/X/errno.
+ *
+ * What reaches the terminal is the whole claim, and it is written down below
+ * rather than derived by running the emulator inside the test — which is what
+ * this did, comparing the fabric's stream against the emulator's by sliding
+ * one along the other. Both machines answer the same bytes now.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
-
-#include "oracle.h"
-#include "tb_machine.h"
+#include "mut.h"
 #include "tb_rom.h"
 #include "utest.h"
+
+#include <stdio.h>
+#include <stdlib.h>
 
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
-
-static Vrp6502 *dut;
 
 /* UART 'A'; push "BC" and write it to stdout via op $18 (fd 1 in AX);
  * print the returned count; op $35 for ENOSYS; print AX and the errno
@@ -56,7 +57,7 @@ static const uint8_t prog[] = {
 };
 static const uint8_t vectors[] = {0x00, 0x03};
 
-UTEST(compare, syscall_rom_matches_oracle)
+UTEST(compare, syscall_abi_console_stream)
 {
     std::vector<uint8_t> rom;
     const char magic[] = "#!RP6502\n";
@@ -64,55 +65,34 @@ UTEST(compare, syscall_rom_matches_oracle)
     tb_rom_record(rom, 0x0300, prog, sizeof(prog));
     tb_rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
-    /* The oracle side: the same image from a file, console tapped. */
+    /* One image, whichever machine this is. */
     const char *path = TEST_SCRATCH "/test_compare.rp6502";
-    FILE *f = fopen(path, "wb");
-    ASSERT_TRUE(f != NULL);
-    fwrite(rom.data(), 1, rom.size(), f);
-    fclose(f);
-    oracle_init();
-    oracle_tap_start();
-    ASSERT_TRUE(oracle_restart(path));
-    oracle_run_frames(30);
-    size_t tap_len;
-    const char *tap = oracle_tap_data(&tap_len);
-    std::string oracle_out(tap, tap_len);
+    ASSERT_TRUE(tb_rom_write(path, rom));
 
-    /* The RTL side: the same image from the staged window. */
-    ASSERT_TRUE(tb_firmware(dut, SW_BIN));
-    tb_reset(dut);
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+    mut_console_start();
+    ASSERT_TRUE(mut_boot(path));
 
-    std::string rv_out;
-    ASSERT_TRUE(tb_quiet(dut, [&] {
-        uint32_t a = dut->rp6502_stage_addr;
-        tb_host_tick(dut, rom);
-        dut->stage_rdata = tb_stage(rom, a);
-        tb_clock(dut);
-        if (dut->rp6502_rv_tx_valid)
-            rv_out.push_back((char)dut->rp6502_rv_tx_data);
-    }));
-
-    /* The machine boots silently, so its stream is the program's bytes
-     * from the first one; the oracle's may begin with its startup
-     * banner, which the tail compare below slides past. The program
-     * bytes must match exactly: same UART bytes, same std write, same
-     * AX, same errno. */
-    std::string rtl_stream = rv_out;
-    ASSERT_TRUE(rtl_stream.size() >= 7);
-    ASSERT_TRUE(oracle_out.size() >= rtl_stream.size());
-    ASSERT_STREQ(oracle_out.substr(oracle_out.size() - rtl_stream.size()).c_str(),
-                 rtl_stream.c_str());
+    /* Every byte the program puts on the terminal, in order:
+     *   41 'A'   straight out the RIA's UART register
+     *   42 43    the xstack write through std op $18 to fd 1; the stack grows
+     *   02       down, so 'B' pushed last pops first, and AX comes back 2
+     *   FF FF    A and X from op $35, which nobody implements
+     *   FF FF    and the errno word it left at $FFED/$FFEE
+     * Eight bytes, and the last four being FF is the ENOSYS path saying so
+     * four different ways. */
+    static const char want[] = {0x41, 0x42, 0x43, 0x02,
+                                (char)0xFF, (char)0xFF, (char)0xFF, (char)0xFF};
+    size_t len;
+    const char *out = mut_console(&len);
+    if (getenv("RP6502_BLESS_CRC"))
+    {
+        fprintf(stderr, "compare tail:");
+        for (size_t i = len > 16 ? len - 16 : 0; i < len; i++)
+            fprintf(stderr, " %02X", (unsigned char)out[i]);
+        fprintf(stderr, "  (len %zu)\n", len);
+    }
+    ASSERT_GE(len, sizeof want);
+    ASSERT_EQ(memcmp(out + len - sizeof want, want, sizeof want), 0);
 }
 
-UTEST_STATE();
-
-int main(int argc, const char *const argv[])
-{
-    Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
-    int rc = utest_main(argc, argv);
-    dut->final();
-    delete dut;
-    return rc;
-}
+MUT_MAIN()

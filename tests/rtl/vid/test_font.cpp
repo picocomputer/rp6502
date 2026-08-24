@@ -7,9 +7,22 @@
  * font_init lays out font16/font_dec_16/italic16 from the same source
  * arrays the generator parses, so every byte must agree after the
  * row-major to glyph-major re-index. Catches generator drift forever.
+ *
+ * No machine runs here. Both sides of every comparison are built from the
+ * repository on this build: the generated headers by the same python the
+ * fabric's packages come from, the runtime tables by emu_core's own
+ * initializers. main_init is called for exactly that — font_init fills
+ * storage that is declared uninitialized, so without it these read whatever
+ * was in it.
  */
 
-#include "oracle.h"
+extern "C"
+{
+/* emu_boot.h is the emulator suites' C header and carries no linkage guard of
+ * its own; every other consumer is C. */
+#include "core/emu/main.h"
+}
+
 #include "utest.h"
 
 #include "core/term/color.h"
@@ -58,6 +71,6 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    oracle_init();
+    main_init(); /* font_init and the rest of the table builders */
     return utest_main(argc, argv);
 }

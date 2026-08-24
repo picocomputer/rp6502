@@ -33,6 +33,13 @@ static Vrp6502 *dut;
 static std::vector<uint8_t> mut_rom;
 static uint32_t mut_fb[640 * 480];
 
+/* The terminal, which on this machine is the firmware's console line. The
+ * 6502's own $FFE1 writes reach it too: the firmware drains that register and
+ * re-emits the bytes through its own console (host/pocket/sw/com.c's UART_POP
+ * loop into com_tx_write), which is what makes this the same stream the
+ * emulator's single terminal sink carries. */
+static std::string mut_tap;
+
 #define FILL_STATE dut->rootp->rp6502__DOT__vid_fill__DOT__state
 #define SCHED_STATE dut->rootp->rp6502__DOT__vid_sched__DOT__state
 #define SCHED_PENDING dut->rootp->rp6502__DOT__vid_sched__DOT__plane_pending
@@ -171,12 +178,26 @@ void mut_free(void)
     dut = nullptr;
 }
 
+void mut_console_start(void)
+{
+    mut_tap.clear();
+}
+
+const char *mut_console(size_t *len)
+{
+    *len = mut_tap.size();
+    return mut_tap.c_str();
+}
+
 bool mut_boot(const char *rom)
 {
     mut_rom.clear();
     if (!tb_rom_read(rom, mut_rom))
         return false;
-    return tb_boot(dut, mut_rom);
+    return tb_boot_each(dut, mut_rom, nullptr, [&] {
+        if (dut->rp6502_rv_tx_valid)
+            mut_tap.push_back((char)dut->rp6502_rv_tx_data);
+    });
 }
 
 const uint32_t *mut_frame(int w, int h)

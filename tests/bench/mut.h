@@ -56,6 +56,22 @@ extern "C"
      * this is also the only sync a capture needs. */
     const uint32_t *mut_frame(int w, int h);
 
+    /* Arm the console capture. Before mut_boot, which starts the program that
+     * writes to it. */
+    void mut_console_start(void);
+
+    /* What the machine sent to the terminal since it was armed — the same
+     * stream a person would see, which on both machines is one sink the OS
+     * writes to as well as the program. A 6502 that writes its UART register
+     * directly still lands here: the OS drains that register and re-emits it.
+     *
+     * The OS's own bytes mean the two machines agree at the end and not
+     * necessarily at the front, so a suite says what the program's output
+     * *ends with* rather than comparing whole streams. The oracle comparison
+     * did the same thing by sliding one stream along the other; this writes
+     * the answer down instead of deriving it. */
+    const char *mut_console(size_t *len);
+
     /* What the render spent against the beam, where the machine has a beam to
      * be late against. NONE is not a failure — it is a machine that cannot be
      * asked, and a suite skips the claim rather than inventing one. */

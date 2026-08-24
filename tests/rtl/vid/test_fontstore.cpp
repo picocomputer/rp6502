@@ -5,10 +5,13 @@
  *
  * The glyphs, end to end: the asset beside the core reaches the store
  * through the firmware's own copy, and a program that asks for a code
- * page gets one. The oracle builds the same tables at runtime with
- * font.c, so the store is compared against those rather than against the
- * generator that produced the asset — a check the two sides cannot both
- * be wrong about.
+ * page gets one. emu_core builds the same tables at runtime with font.c, so
+ * the store is compared against those rather than against the generator that
+ * produced the asset — a check the two sides cannot both be wrong about.
+ *
+ * No second machine runs. emu_core is linked for its tables alone, and
+ * main_init is what fills them: font.c declares that storage uninitialized,
+ * so without it these compare against whatever was there.
  *
  * The store is only reachable by peeking the fabric because nothing
  * reads it back; the terminal renders from it and that is all. So the
@@ -19,7 +22,12 @@
 #include "Vrp6502.h"
 #include "Vrp6502___024root.h"
 
-#include "oracle.h"
+extern "C"
+{
+/* The emulator's tables, as reference data. Its header carries no linkage
+ * guard of its own; every other consumer is C. */
+#include "core/emu/main.h"
+}
 #include "tb_asm.h"
 #include "tb_machine.h"
 #include "tb_rom.h"
@@ -184,7 +192,7 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    oracle_init();
+    main_init(); /* font_init, which lays the reference tables out */
     dut = new Vrp6502;
     int rc = utest_main(argc, argv);
     delete dut;

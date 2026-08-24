@@ -3,19 +3,24 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * RW0/RW1 against the oracle: the data ports read and write XRAM at their
- * address registers, post-incrementing by the signed step. One generated
- * 6502 program walks steps +1, -1, 0, +127; 16-bit wraparound both ways;
- * read-then-step ordering; and the post-api_run defaults (ADDR 0, STEP 1)
- * — printing every byte it reads back, compared byte for byte between the
- * machines.
+ * RW0/RW1 on whichever machine this tree built: the data ports read and write
+ * XRAM at their address registers, post-incrementing by the signed step. One
+ * generated 6502 program walks steps +1, -1, 0, +127; 16-bit wraparound both
+ * ways; read-then-step ordering; and the post-api_run defaults (ADDR 0,
+ * STEP 1) — printing every byte it reads back.
+ *
+ * What it prints is the expectation, written down below. It used to be
+ * written down AND compared against the emulator running inside the test,
+ * which made the emulator the standard rather than the string; now both
+ * machines answer the string and neither needs the other present.
+ *
+ * The console is asserted as a tail. This machine's terminal has one sink and
+ * its OS writes there too, where the fabric's testbench sees the 6502's own TX
+ * pin and nothing else — so the streams agree at the end and not at the
+ * front, which is what the old comparison slid past.
  */
 
-#include "Vrp6502.h"
-#include "Vrp6502___024root.h"
-
-#include "oracle.h"
-#include "tb_machine.h"
+#include "mut.h"
 #include "tb_rom.h"
 #include "utest.h"
 
@@ -24,9 +29,7 @@
 #include <string>
 #include <vector>
 
-static Vrp6502 *dut;
-
-UTEST(rw, steps_wraps_and_defaults_match_the_oracle)
+UTEST(rw, steps_wraps_and_defaults)
 {
     /* A tiny assembler beats hand-counted offsets. */
     std::vector<uint8_t> p;
@@ -78,49 +81,21 @@ UTEST(rw, steps_wraps_and_defaults_match_the_oracle)
     tb_rom_record(rom, 0x0300, p.data(), p.size());
     tb_rom_record(rom, 0xFFFC, vectors, sizeof(vectors));
 
-    /* Oracle side, console tapped. */
-    FILE *f = fopen(TEST_SCRATCH "/test_rw.rp6502", "wb");
+    /* One image, whichever machine this is. */
+    const char *path = TEST_SCRATCH "/test_rw.rp6502";
+    FILE *f = fopen(path, "wb");
     ASSERT_TRUE(f != NULL);
     fwrite(rom.data(), 1, rom.size(), f);
     fclose(f);
-    oracle_init();
-    oracle_tap_start();
-    ASSERT_TRUE(oracle_restart(TEST_SCRATCH "/test_rw.rp6502"));
-    oracle_run_frames(30);
-    size_t tap_len;
-    const char *tap = oracle_tap_data(&tap_len);
-    std::string oracle_out(tap, tap_len);
 
-    /* RTL side. */
-    ASSERT_TRUE(tb_firmware(dut, SW_BIN));
-    tb_reset(dut);
-    dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len = (uint32_t)rom.size();
+    mut_console_start();
+    ASSERT_TRUE(mut_boot(path));
 
-    std::string cpu_out;
-    ASSERT_TRUE(tb_quiet(dut, [&] {
-        uint32_t a = dut->rp6502_stage_addr;
-        tb_host_tick(dut, rom);
-        dut->stage_rdata = tb_stage(rom, a);
-        tb_clock(dut);
-        if (dut->rp6502_tx_valid)
-            cpu_out.push_back((char)dut->rp6502_tx_data);
-    }));
-
-    ASSERT_STREQ(cpu_out.c_str(), "ABCYXWZRRabcC");
-    /* The same bytes reached the oracle's console. */
-    ASSERT_TRUE(oracle_out.size() >= cpu_out.size());
-    ASSERT_STREQ(oracle_out.substr(oracle_out.size() - cpu_out.size()).c_str(),
-                 cpu_out.c_str());
+    static const char want[] = "ABCYXWZRRabcC";
+    size_t len;
+    const char *out = mut_console(&len);
+    ASSERT_GE(len, sizeof want - 1);
+    ASSERT_STREQ(out + len - (sizeof want - 1), want);
 }
 
-UTEST_STATE();
-
-int main(int argc, const char *const argv[])
-{
-    Verilated::commandArgs(argc, const_cast<char **>(argv));
-    dut = new Vrp6502;
-    int rc = utest_main(argc, argv);
-    dut->final();
-    delete dut;
-    return rc;
-}
+MUT_MAIN()

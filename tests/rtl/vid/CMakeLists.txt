@@ -19,13 +19,13 @@ rp6502_add_module_test(pixtail
     DEPENDS vid_palette_rom vid_palette_tables
     TIMEOUT 120)
 
-# The generated font ROM against the tables emu_core builds at runtime. The
-# tables are this tree's own — no other build generates them — so the check
-# that the fabric's ROM and the C agree can only be made here.
+# The generated tables against the ones emu_core builds at runtime. No machine
+# runs — this compares two build artifacts — but the generated headers are this
+# tree's own, so it is the only tree that can ask.
 rp6502_add_test(font
     SOURCES test_font.cpp
-    INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES} ${RP6502_SRC}
-    LIBS fpga_oracle)
+    INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES} ${RP6502_SRC} ${RP6502_BENCH}
+    LIBS emu_core)
 add_dependencies(test_font vid_font_tables vid_palette_tables aud_sine_tables)
 
 # Two registers inside the video path. Both ride corpus ROMs whose pictures
@@ -35,3 +35,11 @@ rp6502_add_machine_test(vidregs FIRMWARE
     SOURCES test_vidregs.cpp
     DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
     TIMEOUT 900)
+
+# The glyphs end to end: the asset beside the core reaches the fabric's font
+# store. Every assertion reads that store, which only this machine has, so the
+# whole test is a fabric claim; emu_core comes along for its tables.
+rp6502_add_machine_test(fontstore FIRMWARE
+    SOURCES test_fontstore.cpp
+    TIMEOUT 900)
+target_link_libraries(test_fontstore PRIVATE emu_core)

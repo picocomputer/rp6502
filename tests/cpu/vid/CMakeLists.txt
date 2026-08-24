@@ -32,6 +32,20 @@ else()
         TIMEOUT 120)
 endif()
 
+# The syscall ABI's console stream, on whichever machine this tree built.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(compare FIRMWARE
+            SOURCES test_compare.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(compare LIBS emu_core
+        SOURCES test_compare.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
+endif()
+
 # The corpus against its readers. The suites cannot enumerate what vidmodes.py
 # writes, and the case names are not the file names — they name what they
 # prove — so the lists stay written by hand and this says whether they are all
@@ -54,14 +68,7 @@ if(RP6502_SOFT_CPU)
     # The M3 frame test: one banner ROM, two machines, pixel-exact.
     rp6502_add_machine_test(banner ORACLE FIRMWARE TIMEOUT 900)
 
-    # The M2 exit test: one .rp6502 image on both, console streams compared
-    # byte for byte.
-    rp6502_add_machine_test(compare ORACLE FIRMWARE TIMEOUT 900)
-
     # The M3 scripted session settled and pixel-exact, plus the RTL-relative
     # blink phase check.
     rp6502_add_machine_test(session ORACLE FIRMWARE TIMEOUT 900)
-
-    # The glyphs end to end: the asset beside the core reaches the store.
-    rp6502_add_machine_test(fontstore ORACLE FIRMWARE TIMEOUT 900)
 endif()

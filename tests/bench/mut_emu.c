@@ -12,6 +12,7 @@
 
 #include "mut.h"
 
+#include "core/emu/sys/com.h"
 #include "core/emu/sys/mem.h"
 #include "core/emu/sys/vga.h"
 #include "emu_boot.h"
@@ -41,6 +42,29 @@ void mut_init(int argc, const char *const argv[])
 
 void mut_free(void)
 {
+}
+
+/* The terminal's single sink. Everything the machine sends a terminal comes
+ * through com_tx_write, the OS's own bytes among them. */
+static char mut_tap[65536];
+static size_t mut_tap_len;
+
+static void mut_tap_write(const char *buf, int len)
+{
+    for (int i = 0; i < len && mut_tap_len < sizeof mut_tap; i++)
+        mut_tap[mut_tap_len++] = buf[i];
+}
+
+void mut_console_start(void)
+{
+    mut_tap_len = 0;
+    com_set_tx_tap(mut_tap_write);
+}
+
+const char *mut_console(size_t *len)
+{
+    *len = mut_tap_len;
+    return mut_tap;
 }
 
 bool mut_boot(const char *rom)

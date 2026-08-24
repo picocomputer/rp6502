@@ -85,8 +85,8 @@ static std::vector<uint8_t> tb_rom_image(uint16_t org,
     return tb_rom_image(org, prog.data(), prog.size());
 }
 
-/* An image on disk, for the half of a comparison that boots from a
- * file: the oracle takes a path, the machine takes the bytes. */
+/* An image on disk, for a suite that assembles its program and then boots it
+ * through mut_boot, which takes a path. */
 static bool tb_rom_write(const char *path, const std::vector<uint8_t> &rom)
 {
     FILE *f = fopen(path, "wb");
