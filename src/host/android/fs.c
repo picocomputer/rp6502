@@ -14,7 +14,7 @@
  * paths back with oem_from_utf8().
  */
 
-#include "host.h"
+#include "core/fs.h"
 #include "core/api/oem.h"
 #include <errno.h>
 #include <fcntl.h>

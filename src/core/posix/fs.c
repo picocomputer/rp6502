@@ -9,7 +9,7 @@
  * false so the msc_errno_to_api_errno funnel in emu/msc.c works unchanged.
  */
 
-#include "host.h"
+#include "core/fs.h"
 #include "core/api/oem.h"
 #include <errno.h>
 #include <unistd.h>

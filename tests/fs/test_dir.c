@@ -15,7 +15,7 @@
 
 #include "core/emu/sys/com.h"
 #include "core/emu/emu/msc.h"
-#include "host.h"
+#include "core/fs.h"
 #include "tb_hostos.h"
 #include "core/emu/sys/cpu.h"
 #include "emu_boot.h"

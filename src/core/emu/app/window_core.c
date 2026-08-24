@@ -42,7 +42,7 @@
 #include "core/emu/sys/cpu.h"
 #include "core/emu/main.h"
 #include "core/emu/sys/sys.h"
-#include "host.h"
+#include "core/fs.h"
 #include "core/emu/sys/vga.h"
 #include <math.h>
 #include <stdint.h>

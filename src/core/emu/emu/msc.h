@@ -12,7 +12,7 @@
 #include <stddef.h>
 
 #include "core/api/std.h"
-#include "host.h"
+#include "core/fs.h"
 
 #define MSC_MAX_PATH 4096 /* host path buffer size for msc_to_host callers */
 

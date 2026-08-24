@@ -16,7 +16,7 @@
 #include "core/api/std.h"
 #include "core/emu/emu/rom.h"
 #include "core/emu/emu/msc.h"
-#include "host.h"
+#include "core/fs.h"
 #include "core/emu/sys/mem.h"
 #include "core/emu/emu/tmp.h"
 #include "fatfs/ff.h"

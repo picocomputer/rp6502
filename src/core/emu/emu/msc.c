@@ -8,6 +8,8 @@
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "core/emu/emu/msc.h"
+#include "core/fs.h"
+#include "core/dir.h"
 #include "host.h"
 #include "core/emu/sys/mem.h"
 #include "fatfs/ff.h"

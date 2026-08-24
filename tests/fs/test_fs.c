@@ -17,7 +17,7 @@
 #include "core/emu/emu/rom.h"
 #include "core/emu/emu/msc.h"
 #include "core/emu/sys/mem.h"
-#include "host.h"
+#include "core/fs.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"
