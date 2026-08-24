@@ -54,13 +54,13 @@ against whichever machine a tree builds; `tests/rtl` is what only a simulator
 can answer, and is also the root that builds the verilated machine;
 `tests/host/pocket` carries what is genuinely about this board rather than
 about the machine. `tests/bench` carries the Verilator testbench and the
-emu_core reference oracle.
+two `mut.h` bindings.
 
 ## Building the simulation
 
-Development is simulation first. Tests run the same `.rp6502` on the verilated
-machine and on `emu_core`, then compare — the emulator is the reference for
-behavior the RTL must reproduce.
+Development is simulation first. A test runs its `.rp6502` against whichever
+machine its tree built and checks what came back against the expectation
+written down beside it — neither machine is the other's reference.
 
     sudo apt-get install verilator gtkwave ninja-build
     cd tests/rtl

@@ -55,14 +55,14 @@ find_package(verilator CONFIG REQUIRED
 # firmware.
 include(${RP6502_SRC}/core/machine.cmake)
 
-# --- The reference oracle ---
-# Every comparison runs the same program on emu_core and on the verilated
-# machine, so emu_core defines the behavior the RTL has to reproduce. It is
-# built here over this workstation's own host, which is the only part of it
-# this tree has an opinion about.
+# --- The emulator, for the suites that read it directly ---
+# tests/cpu holds direct-C tests of the machine's own code — the filesystem,
+# the code pages, the keyboard layouts — and this tree runs them beside the
+# simulated ones. It is built here over this workstation's own host, which is
+# the only part of it this tree has an opinion about.
 if(WIN32)
     message(FATAL_ERROR
-        "the verilated machine needs a POSIX host for its oracle; "
+        "the verilated machine needs a POSIX host; "
         "the C suites are in src/host/win's tree")
 elseif(APPLE)
     set(RP6502_HOST ${RP6502_SRC}/host/macos)
@@ -80,8 +80,6 @@ enable_testing()
 include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/rp6502_verilate.cmake)
 
-add_subdirectory(${RP6502_ROOT}/tests/bench bench)
-
 # The machine's own suites, the same directory the desktop trees add. Its
 # simulator-shaped registrations wake up here because rp6502_verilate.cmake
 # above defined the helpers they guard on.
@@ -97,23 +95,27 @@ add_subdirectory(${RP6502_ROOT}/tests/host/pocket host/pocket)
 
 # What the simulation is made from, last because the subdirectories above are
 # what fill it. Every part of it is something that already knew: the machine
-# and its firmware are lists here, the oracle is emu_core's own, every test
-# arrives through rp6502_add_test and every generated asset through
+# and its firmware are lists here, the emulator's sources are its own, every
+# test arrives through rp6502_add_test and every generated asset through
 # rp6502_machine_asset. Only the benches are swept, because they are headers
 # on an include path and no target lists those — the way machine.cmake sweeps
 # the firmware's for its own DEPENDS.
 #
 # tests/cpu is in the list too: its corpora, its DUTs and its fixtures are
 # compiled here, so a change to any of them is a change to the simulation, and
-# the file that decides it has to be named where it lives.
+# the file that decides it has to be named where it lives. Its headers are
+# swept for the same reason the benches are — a suite's program builder is a
+# header two tests include, and no target lists one.
 get_property(TEST_INPUTS GLOBAL PROPERTY RP6502_TEST_INPUTS)
 get_property(ASSET_INPUTS GLOBAL PROPERTY RP6502_ASSET_INPUTS)
 get_property(RP6502_SUBMODULES GLOBAL PROPERTY RP6502_SUBMODULES)
-get_target_property(ORACLE_INPUTS emu_core SOURCES)
+get_target_property(EMU_INPUTS emu_core SOURCES)
 file(GLOB BENCH_INPUTS ${RP6502_ROOT}/tests/bench/*)
+file(GLOB_RECURSE SUITE_HEADERS CONFIGURE_DEPENDS ${RP6502_ROOT}/tests/*.h)
 rp6502_inputs(sim-inputs.txt
     ${RP6502_MACHINE_SOURCES} ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
-    ${TEST_INPUTS} ${ASSET_INPUTS} ${ORACLE_INPUTS} ${BENCH_INPUTS}
+    ${TEST_INPUTS} ${ASSET_INPUTS} ${EMU_INPUTS} ${BENCH_INPUTS}
+    ${SUITE_HEADERS}
     # hazard3 is reached off verilator's -y and sokol carries the harness,
     # so neither names a file any target lists; a bump of any of them
     # reaches a diff only as its gitlink.

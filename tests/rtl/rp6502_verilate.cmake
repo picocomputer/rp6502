@@ -1,16 +1,9 @@
-# This tree's own helpers: the oracle library, the generated tables its
-# comparisons read, and the two functions that hide the simulator.
+# This tree's own helpers: the generated tables its tests read, and the two
+# functions that hide the simulator.
 #
 # Only what genuinely needs Verilator is here. What to verilate — the machine's
 # source list — and the soft CPU firmware are in src/core/machine.cmake, because
 # a Quartus project needs both and needs no simulator to read them.
-
-# --- The reference oracle (emu_core driven headless) ---
-# Every RTL comparison test runs the same program here and on the verilated
-# machine, so emu_core defines the behavior the RTL has to reproduce.
-add_library(fpga_oracle STATIC ${RP6502_BENCH}/oracle.c)
-target_link_libraries(fpga_oracle PUBLIC emu_core)
-target_include_directories(fpga_oracle PUBLIC ${RP6502_BENCH})
 
 # --- The generated tables, as C a test can read ---
 # Four of the machine's generators can also write their table as a header,
@@ -170,7 +163,7 @@ function(rp6502_add_module_test name)
     target_link_libraries(test_${name} PRIVATE ${_model})
 endfunction()
 
-# rp6502_add_machine_test(<name> [ORACLE] [TRACE] [FIRMWARE] [SPLIT]
+# rp6502_add_machine_test(<name> [TRACE] [FIRMWARE] [SPLIT]
 #                         [SOURCES ...] [DEFS ...] [RTL <extra>...] [TOP <m>]
 #                         [PREFIX <V>] [DEPENDS ...] [TIMEOUT n])
 #
@@ -181,7 +174,7 @@ endfunction()
 # which is how one of them came to name FONTS_BIN without depending on the
 # rule that writes it.
 function(rp6502_add_machine_test name)
-    cmake_parse_arguments(M "ORACLE;TRACE;FIRMWARE;SPLIT" "TOP;PREFIX;TIMEOUT"
+    cmake_parse_arguments(M "TRACE;FIRMWARE;SPLIT" "TOP;PREFIX;TIMEOUT"
         "SOURCES;DEFS;RTL;DEPENDS" ${ARGN})
     if(NOT M_SOURCES)
         set(M_SOURCES test_${name}.cpp)
@@ -209,9 +202,6 @@ function(rp6502_add_machine_test name)
         list(APPEND _args SPLIT)
     endif()
     set(_deps ${M_DEPENDS})
-    if(M_ORACLE)
-        list(APPEND _args LIBS fpga_oracle)
-    endif()
     if(M_FIRMWARE)
         list(APPEND _args DEFS SW_BIN="${SW_BIN}" FONTS_BIN="${VID_FONT_BIN}"
             OEMCP_BIN="${OEMCP_BIN}" KBDLAY_BIN="${KBDLAY_BIN}" ${M_DEFS})

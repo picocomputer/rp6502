@@ -19,9 +19,10 @@ set(RP6502_UTEST_DIR ${RP6502_VENDOR}/utest)
 set(RP6502_TESTS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 
-# The harness both sides share: emu_boot.h and the sys shims for the C tests,
-# the tb_* benches and the oracle for the RTL ones. Every test gets it on the
-# include path, because which of them a test needs is not worth stating.
+# The harness both sides share: mut.h and the machine it binds to, emu_boot.h
+# and the sys shims for the C tests, the tb_* benches for the RTL ones. Every
+# test gets it on the include path, because which of them a test needs is not
+# worth stating.
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
 # The keyboard layouts as a C table. The def files are the source, the
