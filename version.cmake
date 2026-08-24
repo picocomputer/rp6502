@@ -10,14 +10,8 @@
 
 include_guard(GLOBAL)
 
-set(RP6502_VERSION_VALUE "")
-foreach(_def IN LISTS RP6502_PROJECT_DEFINITIONS)
-    if(_def MATCHES "^RP6502_VERSION=\"(.*)\"$")
-        set(RP6502_VERSION_VALUE "${CMAKE_MATCH_1}")
-    endif()
-endforeach()
-
 # -DRP6502_VERSION=<v> (release builds) overrides an empty default
+set(RP6502_VERSION_VALUE "")
 if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
     set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
 endif()
