@@ -114,6 +114,17 @@ void com_init(void)
     stdio_set_driver_enabled(&stdio_driver, true);
 }
 
+/* term.c's sink. On this machine printf already fans to every enabled
+ * stdio driver, so the terminal becomes one of them and the SDK does the
+ * newline translation -- which is what the other machines' com.c do by
+ * hand in com_crlf_write. */
+void com_set_term_out(void (*out_chars)(const char *buf, int len))
+{
+    static stdio_driver_t term_driver = {.crlf_enabled = true};
+    term_driver.out_chars = out_chars;
+    stdio_set_driver_enabled(&term_driver, out_chars != NULL);
+}
+
 void com_pre_reclock(void)
 {
     // LCR_H.BRK drives TXD low indefinitely, keeping BUSY set forever.

@@ -11,7 +11,6 @@
 #include "core/vga/pixel_format.h"
 #include "host.h"
 #include <pico/stdlib.h>
-#include <pico/stdio/driver.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -2574,11 +2573,7 @@ void term_init(void)
     term_state_init(&term_80, 80, term80_pri_mem, NULL);
 #endif
     // become part of stdout
-    static stdio_driver_t term_stdio = {
-        .out_chars = com_out_chars,
-        .crlf_enabled = true,
-    };
-    stdio_set_driver_enabled(&term_stdio, true);
+    com_set_term_out(com_out_chars);
 }
 
 // Cursor blink timing only — toggles cursor_lit on the configured cadence
