@@ -1,5 +1,6 @@
 # The video path by methods only a simulator has: the beam itself, a module
-# below any mode, and the store nothing reads back.
+# below any mode, the store nothing reads back, and two registers inside the
+# path that no frame can show.
 #
 # What the modes render is a machine claim and lives in tests/cpu/vid.
 
@@ -26,3 +27,11 @@ rp6502_add_test(font
     INCLUDES ${RP6502_ASSETS} ${RP6502_TEST_TABLES} ${RP6502_SRC}
     LIBS fpga_oracle)
 add_dependencies(test_font vid_font_tables vid_palette_tables aud_sine_tables)
+
+# Two registers inside the video path. Both ride corpus ROMs whose pictures
+# tests/cpu/vid already checks on both machines; what is left over is what
+# only this one has.
+rp6502_add_machine_test(vidregs FIRMWARE
+    SOURCES test_vidregs.cpp
+    DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+    TIMEOUT 900)

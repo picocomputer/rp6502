@@ -193,13 +193,13 @@ function(rp6502_add_machine_test name)
         set(M_PREFIX V${M_TOP})
     endif()
 
-    # Firmware is what the test costs as much as what it needs, so it is a
-    # label as well as the definitions it brings in below. Not "soft-cpu":
-    # ctest -L takes a regex, and that one is matched by -L cpu.
     # sim, not rtl: what a test claims is the directory it lives in, and
     # tests/cpu holds machine tests too. This says how it runs — on the
     # simulator — which is a question about cost, not about the claim.
     set(_labels sim machine)
+    # Firmware is what the test costs as much as what it needs, so it is a
+    # label as well as the definitions it brings in below. Not "soft-cpu":
+    # ctest -L takes a regex, and -L cpu would match it.
     if(M_FIRMWARE)
         list(APPEND _labels firmware)
     endif()

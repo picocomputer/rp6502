@@ -5,16 +5,19 @@
 #
 # The video-mode corpus against its readers.
 #
-# tests/roms/vidmodes.py writes forty-seven ROMs; tests/cpu/vid/test_vidmodes.c
-# boots each one and asserts a settled picture, and tests/cpu/vid/test_modes.cpp
-# runs the same files on both machines and demands pixel equality. Both name
-# every file by hand, and they have to: the case names are not the file names,
-# because test_modes.cpp names its cases for what they prove. Generating the
-# lists would take that away.
+# tests/roms/vidmodes.py writes forty-seven ROMs. tests/cpu/vid/test_modes.c
+# boots nearly all of them on whichever machine its tree builds and holds each
+# frame to the CRC in its case; the one fixture the two machines disagree
+# about by design is asserted in tests/rtl/vid, where the machine that owns
+# that behaviour is.
 #
-# So the names stay written by hand and this says whether they are all there.
-# A fixture added to the generator and to only one of the two suites is not a
-# failure anywhere — it is forty-six of forty-seven, quietly, forever.
+# The suites name every file by hand, and they have to: the case names are not
+# the file names, because they name what they prove. Generating the lists
+# would take that away.
+#
+# So the names stay written by hand and this says whether they are all read by
+# something. A fixture added to the generator and to no suite is not a failure
+# anywhere — it is forty-six of forty-seven, quietly, forever.
 
 import argparse
 import re
@@ -59,17 +62,24 @@ def main():
         print("vidmodes_gate: the manifest is empty", file=sys.stderr)
         return 1
 
-    bad = 0
+    # Covered by some suite, not by every suite. A fixture the machines
+    # disagree about on purpose is asserted where the machine that owns it
+    # is, so demanding each reader take the whole corpus would fail for the
+    # one case that cannot be shared. What must not happen is a generated
+    # fixture nobody boots.
+    seen = set()
+    per = []
     for suite in a.suite:
-        missing = sorted(set(known) - read(suite, known))
-        if missing:
-            bad = 1
-            print(f"{Path(suite).name} reads {len(known) - len(missing)} of "
-                  f"{len(known)} fixtures, missing: {', '.join(missing)}",
-                  file=sys.stderr)
-    if not bad:
-        print(f"vidmodes: {len(known)} fixtures, {len(a.suite)} readers, all covered")
-    return bad
+        mine = read(suite, known)
+        per.append(f"{Path(suite).name} {len(mine)}")
+        seen |= mine
+    missing = sorted(set(known) - seen)
+    if missing:
+        print(f"{len(known) - len(missing)} of {len(known)} fixtures are read "
+              f"by a suite, missing: {', '.join(missing)}", file=sys.stderr)
+        return 1
+    print(f"vidmodes: {len(known)} fixtures, all read — {', '.join(per)}")
+    return 0
 
 
 if __name__ == "__main__":

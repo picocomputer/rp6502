@@ -141,10 +141,26 @@ The suite is filed by what a test claims, not by which build runs it.
 filesystem, HID, the RIA's API. Where a claim can be made of both
 implementations it is written once and run against whichever machine the tree
 builds: the CPU corpora answer `dut.h`, which `chips_dut.c` and
-`w65c02_dut.cpp` both implement, and the mode ROMs boot on the emulator or on
-the fabric. Registrations that need a simulator, the shipped binary or the
-staged assets guard on those existing, so the same directory serves every
-tree.
+`w65c02_dut.cpp` both implement, and `tests/bench/mut.h` is the same idea for
+the whole machine — boot a program, take a frame — with `mut_emu.c` and
+`mut_rtl.cpp` behind it. Registrations that need a simulator, the shipped
+binary or the staged assets guard on those existing, so the same directory
+serves every tree.
+
+A test that renders carries its own expectation, as a CRC of the settled
+frame written into the case:
+
+    UTEST(mode3, two_bpp8_fills_serial_640x480)
+    {
+        run_case(utest_result, "fill_heavy640", 0x42E2D810, MUT_BUDGET_UNDER);
+    }
+
+Both machines answer to that number, so either can be tested without the
+other — neither is the other's oracle. A failure prints what it got beside
+what it expected; re-blessing a deliberate renderer change is editing the case
+that failed, so the expectation and the claim move in one diff. Setting
+`RP6502_BLESS_CRC` makes a run print every case's observed value in the form
+it is pasted back as.
 
 `tests/host/emu` and `tests/host/pocket` are claims about a program or a
 board rather than about the RP6502: the command line, the script channel and

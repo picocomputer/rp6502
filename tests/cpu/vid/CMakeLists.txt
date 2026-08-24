@@ -1,10 +1,11 @@
 # The video path: the raster's product, the five modes, the font store and
 # the terminal.
 #
-# The mode ROMs are the corpus, generated once in rp6502_tests.cmake. Both
-# machines boot the same files: this tree's C renderer asserts a settled,
-# non-empty picture, and where a simulator is present the same corpus is
-# rendered by the fabric and compared pixel for pixel against the oracle.
+# The mode ROMs are the corpus, generated once in rp6502_tests.cmake, and the
+# manifest beside them states each one's canvas. test_modes.c boots every one
+# of them and checks the frame against the CRC written down in the case —
+# the same source and the same numbers whichever machine this tree builds,
+# which is what mut.h exists for.
 
 # --- One representative mode through the whole emulator: the tiled renderer,
 # xreg, and the keyboard bitmap, driven by a real program. ---
@@ -12,21 +13,36 @@ rp6502_add_test(tiles
     SOURCES test_tiles.c
     LIBS emu_core FIXTURE mode2.rp6502 TIMEOUT 60)
 
-# --- The corpus in the emulator: every depth and canvas boots and settles ---
-rp6502_add_test(vidmodes LIBS emu_core
-    DEFS ROMS_DIR="${RP6502_TEST_CORPUS}" TIMEOUT 120)
+# --- The whole corpus, frame by frame, against the CRC in each case ---
+# One source, two bindings: the tree that has a simulator runs it on the
+# verilated machine and splits the cases, because each is a simulation worth
+# naming on its own; the tree that has emu_core runs the same cases in a
+# fifth of a second. Neither is the other's oracle any more — both answer to
+# the numbers in test_modes.c.
+if(COMMAND rp6502_add_machine_test)
+    rp6502_add_machine_test(modes FIRMWARE SPLIT
+        SOURCES test_modes.c ${RP6502_BENCH}/mut_rtl.cpp
+        DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+        TIMEOUT 900)
+else()
+    rp6502_add_test(modes SPLIT LIBS emu_core
+        SOURCES test_modes.c ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+        TIMEOUT 120)
+endif()
 
-# The corpus against both its readers. Neither suite can enumerate what
-# vidmodes.py writes, and the case names are not the file names — test_modes
-# names its cases for what they prove — so the lists stay written by hand and
-# this says whether they are all there. Both suites are named whether or not
-# this tree builds the second one: the question has one answer.
+# The corpus against its readers. The suites cannot enumerate what vidmodes.py
+# writes, and the case names are not the file names — they name what they
+# prove — so the lists stay written by hand and this says whether they are all
+# there. Two suites, because one fixture's picture is a fabric claim and is
+# asserted where that machine is: see tests/rtl/vid.
 add_test(NAME vidmodes_corpus
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_TESTS_DIR}/gen/vidmodes_gate.py
         --manifest ${RP6502_TEST_CORPUS}/manifest.txt
-        --suite ${CMAKE_CURRENT_LIST_DIR}/test_vidmodes.c
-        --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.cpp)
+        --suite ${CMAKE_CURRENT_LIST_DIR}/test_modes.c
+        --suite ${RP6502_TESTS_DIR}/rtl/vid/test_vidregs.cpp)
 set_tests_properties(vidmodes_corpus PROPERTIES LABELS "gate;vid")
 
 if(COMMAND rp6502_add_machine_test)
@@ -48,18 +64,4 @@ if(RP6502_SOFT_CPU)
 
     # The glyphs end to end: the asset beside the core reaches the store.
     rp6502_add_machine_test(fontstore ORACLE FIRMWARE TIMEOUT 900)
-
-    # The corpus again, this time pixel-exact against the oracle: mode 1
-    # character cells per format; mode 2 tile maps per depth and tile size
-    # with trims, wraps and the composite; mode 3 bitmaps per depth and
-    # canvas; mode 4 raw sixteen-bit sprites with opacity metadata; mode 5
-    # the foreground walk, clips and per-sprite palettes. One binary, and
-    # SPLIT gives each fixture its own ctest name — mode1.* through
-    # mode5.*, the names the five separate suites used to register. It
-    # also measures what the render spends — the engines race the beam —
-    # on the fixtures heavy enough to be worth asking, because those are
-    # these fixtures and a second suite over them was a second boot.
-    rp6502_add_machine_test(modes ORACLE FIRMWARE SPLIT
-        DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
-        TIMEOUT 900)
 endif()
