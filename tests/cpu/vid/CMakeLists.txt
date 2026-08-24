@@ -32,6 +32,20 @@ else()
         TIMEOUT 120)
 endif()
 
+# The terminal end to end: one banner program, the frame it leaves.
+if(COMMAND rp6502_add_machine_test)
+    if(RP6502_SOFT_CPU)
+        rp6502_add_machine_test(banner FIRMWARE
+            SOURCES test_banner.cpp ${RP6502_BENCH}/mut_rtl.cpp
+            TIMEOUT 900)
+    endif()
+else()
+    rp6502_add_test(banner LIBS emu_core
+        SOURCES test_banner.cpp ${RP6502_BENCH}/mut_emu.c
+        INCLUDES ${RP6502_BENCH}
+        TIMEOUT 60)
+endif()
+
 # The syscall ABI's console stream, on whichever machine this tree built.
 if(COMMAND rp6502_add_machine_test)
     if(RP6502_SOFT_CPU)
@@ -65,9 +79,6 @@ if(COMMAND rp6502_add_machine_test)
 endif()
 
 if(RP6502_SOFT_CPU)
-    # The M3 frame test: one banner ROM, two machines, pixel-exact.
-    rp6502_add_machine_test(banner ORACLE FIRMWARE TIMEOUT 900)
-
     # The M3 scripted session settled and pixel-exact, plus the RTL-relative
     # blink phase check.
     rp6502_add_machine_test(session ORACLE FIRMWARE TIMEOUT 900)
