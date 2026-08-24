@@ -5,8 +5,8 @@
 #
 # The video-mode corpus against its readers.
 #
-# tests/roms/vidmodes.py writes forty-seven ROMs; tests/vid/test_vidmodes.c
-# boots each one and asserts a settled picture, and tests/vid/test_modes.cpp
+# tests/roms/vidmodes.py writes forty-seven ROMs; tests/emu/vid/test_vidmodes.c
+# boots each one and asserts a settled picture, and tests/rtl/vid/test_modes.cpp
 # runs the same files on both machines and demands pixel equality. Both name
 # every file by hand, and they have to: the case names are not the file names,
 # because test_modes.cpp names its cases for what they prove. Generating the

@@ -10,12 +10,12 @@
  *
  * The CRC is spelled out rather than taken from mem_crc32 because a
  * bench builds images for tests that link no emulator, and a table this
- * short is cheaper than the dependency. tests/ria/test_units.c holds
+ * short is cheaper than the dependency. tests/emu/ria/test_units.c holds
  * mem_crc32 to the same vectors.
  *
  * tests/gen/rp6502_rom.py is this file in Python, for the generators that
  * write images to disk. The two must agree on the header format; there
- * is one format, and tests/ria/test_rom.cpp is where it is asserted.
+ * is one format, and tests/rtl/ria/test_rom.cpp is where it is asserted.
  */
 
 #ifndef _TESTS_BENCH_TB_ROM_H_

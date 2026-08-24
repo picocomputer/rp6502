@@ -37,20 +37,24 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
 ## Layout
 
-    src/core/       the machine: C and SystemVerilog together, and its CMake
+    src/core/       the machine: C and SystemVerilog together, and the CMake
+                    modules every root includes
     src/host/pocket/sw/  the soft CPU's firmware, C for the Hazard3
-    src/host/       every host the machine runs on, emulated or fabric
+    src/host/       every host the machine runs on, emulated or fabric, and a
+                    CMake project root apiece
 
 `src/host/pocket` sits beside `src/host/web` and `src/host/linux` because they
-are the same kind of thing — a wrapper binding one machine to one host. Only
-the Pocket's happens to be SystemVerilog. MiSTer arrives as `src/host/mister`
-and one more `include()` line in `CMakeLists.txt`; nothing here changes.
+are the same kind of thing — a wrapper binding one machine to one host, each
+with a CMake root of its own. Only the Pocket's happens to be SystemVerilog.
+MiSTer arrives as `src/host/mister` with a root like this one's; nothing here
+changes.
 
-Tests live with every other test, in `tests/`, filed by subsystem rather than
-by host: the verilated `aud_psg` is in `tests/aud` beside the `psg.c` it is
-held to, not in a directory of its own. `tests/bench` carries the Verilator
-testbench and the emu_core reference oracle; `tests/host/pocket` carries what
-is genuinely about this board rather than about the machine.
+Tests are in two halves. `tests/emu` rides in each emulator root's build and
+needs only a C compiler; `tests/rtl` is a project root of its own and is where
+everything that needs Verilator lives, filed by the same subsystem names.
+`tests/bench` carries the Verilator testbench and the emu_core reference
+oracle, shared by both; `tests/rtl/pocket` carries what is genuinely about this
+board rather than about the machine.
 
 ## Building the simulation
 
@@ -59,10 +63,10 @@ machine and on `emu_core`, then compare — the emulator is the reference for
 behavior the RTL must reproduce.
 
     sudo apt-get install verilator gtkwave ninja-build
-    cd src/core
-    cmake --preset verilator/Release
-    cmake --build --preset Tests
-    ctest --preset verilator/Release
+    cd tests/rtl
+    cmake --preset release
+    cmake --build --preset release
+    ctest --preset release
 
 Ninja is required, not preferred, and CMake stops if it is missing: this is
 two dozen test binaries over a handful of shared verilated models, and make
@@ -75,31 +79,34 @@ machine and nineteen compiles of the five megabytes of C++ each one produced
 take the longest are registered a case at a time, so the suite is bounded by
 its slowest case rather than by its slowest binary.
 
-## The four trees
+## The two trees
 
-`CMakePresets.json` has one entry per job this source tree can do, and each
-is a build directory of its own. What varies is whether the verilated
-machine and its tests are part of it — `RP6502_RTL_SIM`.
+This source tree is no longer a project root. What was four presets under one
+`CMakeLists.txt` is two roots that include the modules here:
 
-| preset | builds in | what it is for |
+| root | builds in | what it is for |
 | --- | --- | --- |
-| `verilator/Release` | `build/verilator/release` | the simulation and the whole suite |
-| `verilator/Debug` | `build/verilator/debug` | the same, unoptimised, for stepping a testbench |
-| `pocket` | `build/pocket` | the Analogue Pocket core |
-| `quartus` | `build/quartus` | area and timing, all pins virtual |
+| `tests/rtl` | `build/rtl` | the simulation and its whole suite |
+| `src/host/pocket` | `build/pocket` | the Analogue Pocket core, and `synth` for area and timing |
+
+A Debug simulation is `-DCMAKE_BUILD_TYPE=Debug` on the first of those, for
+the rare case of stepping a testbench.
 
 **A bitstream needs Quartus and `gcc-riscv64-unknown-elf`, and nothing
 else.** No Verilator, no host test suite. That was not true for a while:
 the Quartus projects were built from a source list defined inside a
 `verilator_FOUND` guard, so a machine without a simulator had no bitstream
 target at all — including the CI runner whose whole job is fitting one. The
-list moved to `machine.cmake`, which every configuration includes, and it is
+list moved to `machine.cmake`, which both roots include, and it is
 still the list the simulation verilates, so the thing measured is still the
 thing tested.
 
-Without Verilator only the oracle tests build; CMake warns and continues.
+The simulation, for its part, requires Verilator rather than warning and
+carrying on: a tree that exists to run the RTL has nothing to offer without
+it, and the C suite it used to fall back to is `tests/emu`, which runs in the
+emulator's own build.
 
-Both presets also write `inputs/`, which is what CI reads to decide whether
+Both roots also write `inputs/`, which is what CI reads to decide whether
 the fit and the simulation are owed at all. Nothing there is maintained by
 hand: the lists come from the same variables the `DEPENDS` are built from, so
 a file that reaches a build reaches the list that wakes it. That matters more
@@ -111,7 +118,7 @@ files, because a bump reaches a diff as a gitlink and no other way.
 
 Set `RP6502_RTL_TRACE` to a path to capture an FST trace, viewable in gtkwave:
 
-    RP6502_RTL_TRACE=rtl.fst ./build/verilator/release/tests/vid/test_raster
+    RP6502_RTL_TRACE=rtl.fst ./build/rtl/vid/test_raster
 
 `test_raster` is the one built with `TRACE_FST`, because the trace costs
 simulation speed and only the test that reads waveforms wants it.

@@ -214,14 +214,14 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/core/emu -B build/emulator/release -G Ninja \
+          cmake -S src/host/linux -B build/linux/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build build/emulator/release
+          cmake --build build/linux/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/emulator/release --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/linux/release --output-on-failure --parallel $(nproc)
 
       # tar, not zip: it is what a Linux user expects and the only container
       # here that carries the execute bit through GitHub's artifact round-trip.
@@ -229,7 +229,7 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir stage
-          cp build/emulator/release/rp6502-emu stage/
+          cp build/linux/release/rp6502-emu stage/
           cp src/dist/linux/README.txt stage/
           tar -czf "$ARCHIVE" -C stage rp6502-emu README.txt
 
@@ -255,15 +255,15 @@ jobs:
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/core/emu -B build/emulator/release -G Ninja \
+          cmake -S src/host/macos -B build/macos/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build build/emulator/release
+          cmake --build build/macos/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/emulator/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
+        run: ctest --test-dir build/macos/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
       - name: Package macos
         env:
@@ -278,7 +278,7 @@ jobs:
           mkdir stage
           APP=stage/rp6502-emu.app
           mkdir -p "$APP/Contents/MacOS"
-          cp build/emulator/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
+          cp build/macos/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
           chmod +x "$APP/Contents/MacOS/rp6502-emu"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -329,19 +329,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build python3
 
-      # No emsdk step: the wasm preset's toolchain file fetches the submodule
-      # and runs install and activate itself, which is the path a developer
+      # No emsdk step: this root names its own toolchain file, which fetches the
+      # submodule and runs install and activate itself — the path a developer
       # takes and the only one that was never exercised here. Nothing is
       # sourced either — the toolchain includes Emscripten's own cmake file,
       # so emcc is found by absolute path rather than off PATH.
       - name: Build web bundle
         run: |
           set -exo pipefail
-          cd src/core/emu
-          cmake --preset wasm -DRP6502_STRICT_SUBMODULES=ON \
+          cd src/host/web
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build --preset wasm
+          cmake --build --preset release
 
       - name: Package itch.io
         run: |
@@ -379,7 +379,7 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/core/emu
+          cd src/host/win
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
@@ -391,7 +391,7 @@ jobs:
       # count is spelled a different way in each of them.
       - name: Run emulator tests
         shell: pwsh
-        run: ctest --test-dir build/emulator/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
+        run: ctest --test-dir build/win/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
 
       # Compress-Archive rather than bash zip: Windows ships it, and there are
       # no mode bits here worth preserving.
@@ -400,7 +400,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory stage | Out-Null
-          Copy-Item build/emulator/release/rp6502-emu.exe stage/
+          Copy-Item build/win/release/rp6502-emu.exe stage/
           Copy-Item src/dist/windows/README.txt stage/
           Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
@@ -468,9 +468,9 @@ jobs:
   # runs when the diff touched something it reads and not otherwise. That
   # question is sim-inputs.txt, written by the tree it describes: the machine,
   # the firmware, emu_core, every bench and every generated asset. It used to
-  # be a glob on src/core, which was wrong in both directions — the benches are
-  # in tests/ and the oracle is out of src/core/emu, so a commit touching only those
-  # skipped the suite that covers it.
+  # be a glob on src/core, which was wrong in both directions — the benches and
+  # the suite are in tests/ and the oracle is built out of src/core/emu and
+  # src/host, so a commit touching only those skipped the suite that covers it.
   # ---------------------------------------------------------------------------
   rtl-tests:
     needs: rtl-changed
@@ -493,25 +493,24 @@ jobs:
       - name: Configure & build simulation (Release)
         run: |
           set -euxo pipefail
-          cmake --preset verilator/Release -DRP6502_STRICT_SUBMODULES=ON
-          cmake --build --preset Tests
-        working-directory: src/core
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON
+          cmake --build --preset release
+        working-directory: tests/rtl
 
       - name: Run simulation tests
-        run: ctest --test-dir build/verilator/release --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/rtl --output-on-failure --parallel $(nproc)
 
   # rtl-changed: whether this commit touched anything the two long jobs read.
   # GitHub filters a whole workflow by path, never one job, so the question is
   # asked here and answered once — twice over, since the fit and the simulation
   # are made of different things.
   #
-  # It configures a tree to find out. That is the point: the lists come from the
-  # code that reads them, so there is no second copy here to fall out of step
-  # with the DEPENDS that decide the build. The sim preset rather than the
-  # pocket one because tests/CMakeLists.txt guards the Pocket benches on
-  # RP6502_VERILATE, and Verilator is found QUIET — without it those benches
-  # would drop out of the list and the gate would wave through a commit they
-  # cover. One configure writes both sets. It costs seven seconds.
+  # It configures the two trees to find out. That is the point: the lists come
+  # from the code that reads them, so there is no second copy here to fall out
+  # of step with the DEPENDS that decide the build. Two configures because the
+  # two lists have two authors now — tests/rtl writes what the simulation
+  # reads, src/host/pocket what the fit does — and each is a project root of
+  # its own. Between them they cost a few seconds.
   #
   # This job is not folded into rtl-tests because a job's outputs are readable
   # only once it has finished: pocket would then wait out the whole suite before
@@ -534,8 +533,8 @@ jobs:
             gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 
       # Shims only, and no pull. find_program takes a shell script off PATH
-      # whether or not the image behind it exists, which is what lets
-      # pocket.cmake's guard pass and its lists be written on a runner that is
+      # whether or not the image behind it exists, which is what lets the
+      # Pocket root's guard pass and its lists be written on a runner that is
       # never going to fit anything.
       - name: Quartus stubs, so the pocket lists are written
         run: |
@@ -549,15 +548,20 @@ jobs:
           done
           echo "$shims" >> "$GITHUB_PATH"
 
-      - name: Configure, for the lists
-        run: cmake --preset verilator/Release
-        working-directory: src/core
+      - name: Configure the simulation, for its list
+        run: cmake --preset release
+        working-directory: tests/rtl
+
+      - name: Configure the Pocket, for its list
+        run: cmake --preset release
+        working-directory: src/host/pocket
 
       - name: What did this commit touch
         id: gate
         run: |
           set -euo pipefail
-          I=build/verilator/release/inputs
+          SIM=build/rtl/inputs
+          POCKET=build/pocket/inputs
 
           # A tag and a hand-started run answer yes without asking, so a release
           # is never assembled out of jobs that declined to run.
@@ -605,8 +609,8 @@ jobs:
             done <<< "$files"
             echo false
           }
-          rtl=$(touched $I/sim-inputs.txt)
-          pocket=$(touched $I/pocket-inputs.txt)
+          rtl=$(touched $SIM/sim-inputs.txt)
+          pocket=$(touched $POCKET/pocket-inputs.txt)
           echo "rtl=$rtl" >> "$GITHUB_OUTPUT"
           echo "pocket=$pocket" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
@@ -623,8 +627,8 @@ jobs:
   # assemble installs, and for src/vga/term, which generates the font and
   # palette ROMs in the fabric.
   #
-  # So it asks the build graph instead. pocket.cmake writes out the lists its
-  # own DEPENDS are made of, and rtl-changed answers against those: pad.c wakes
+  # So it asks the build graph instead. The Pocket root writes out the lists
+  # its own DEPENDS are made of, and rtl-changed answers against those: pad.c wakes
   # a fit because the firmware compiles it, and the USB stack beside it does
   # not, which no glob over src/ria can express.
   pocket:
@@ -689,23 +693,23 @@ jobs:
           echo "$shims" >> "$GITHUB_PATH"
           "$shims/quartus_sta" --version
 
-      # One preset and one target. The pocket tree is Quartus and the
+      # One preset and the default target. The pocket tree is Quartus and the
       # RISC-V compiler and nothing else — no Verilator, which this runner
       # does not install and which a bitstream never needed.
       #
       # The firmware, the fit, the bitstream it goes into and the card tree
-      # are one graph, so asking for the card asks for all of it in the
-      # order it has to happen. A core built without the firmware boots a
-      # soft CPU fetching zeros, which looks exactly like dead hardware and
-      # is not.
+      # are one graph, and the card is what this root builds, so asking for it
+      # asks for all of that in the order it has to happen. A core built
+      # without the firmware boots a soft CPU fetching zeros, which looks
+      # exactly like dead hardware and is not.
       - name: Build core package
         run: |
           set -euxo pipefail
-          cmake --preset pocket \
+          cmake --preset release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build --preset "Card package"
-        working-directory: src/core
+          cmake --build --preset release
+        working-directory: src/host/pocket
 
       # Zipped here rather than downstream so the card's own root is the zip's
       # root, and so an empty package fails this job instead of quietly

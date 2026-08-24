@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # A .rp6502 that writes a file, closes it, opens it again, reads it
-# back, and prints what came back. tests/host/pocket/test_pfile.cpp asserts
+# back, and prints what came back. tests/rtl/pocket/test_pfile.cpp asserts
 # the printed bytes, so the whole path — the 6502's syscalls, the
 # shared std.c, the Pocket's MSC0: driver, pocket_file, and a host
 # playing the APF target commands — is proven by one string arriving.

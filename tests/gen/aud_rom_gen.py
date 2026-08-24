@@ -10,7 +10,7 @@
 # debug audio on hardware was a program that makes a sound and leaves
 # the screen alone.
 #
-# tests/aud/test_aud.cpp runs these same files, so what sounds on a
+# tests/rtl/aud/test_aud.cpp runs these same files, so what sounds on a
 # Pocket and what the simulation asserts cannot drift apart.
 
 import argparse

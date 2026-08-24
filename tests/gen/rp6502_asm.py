@@ -26,7 +26,7 @@
 # tests/bench/tb_asm.h is a much smaller 65C02 in C++, for benches that build a
 # program from a C++ value at run time. It is not this file in another
 # language and does not track it; what the two share is checked by
-# tests/ria/test_asm.cpp.
+# tests/emu/ria/test_asm.cpp.
 
 import argparse
 import importlib.util

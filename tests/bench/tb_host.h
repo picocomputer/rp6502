@@ -13,7 +13,7 @@
  *
  * Only what the loader uses is modelled — the data table, a slot read
  * for exec's pull, and the name behind Get File. Open, write and flush
- * are the drive's, and tests/host/pocket has a fuller host for those.
+ * are the drive's, and tests/rtl/pocket has a fuller host for those.
  *
  * Commands complete in the cycle they are issued. Nothing here is trying
  * to be a timing model; pocket_file's own bench is where the deadlines

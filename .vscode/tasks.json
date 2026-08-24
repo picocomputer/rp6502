@@ -82,13 +82,29 @@
                 "debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/core/emu"
+                "cwd": "${workspaceFolder}/src/host/linux"
             },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": []
+            "problemMatcher": [],
+            "linux": {
+                "options": {
+                    "cwd": "${workspaceFolder}/src/host/linux"
+                }
+            },
+            "osx": {
+                "options": {
+                    "cwd": "${workspaceFolder}/src/host/macos"
+                }
+            },
+            "windows": {
+                "command": "cmake",
+                "options": {
+                    "cwd": "${workspaceFolder}/src/host/win"
+                }
+            }
         },
         {
             "label": "emu: Build (Debug)",
@@ -100,14 +116,30 @@
                 "debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/core/emu"
+                "cwd": "${workspaceFolder}/src/host/linux"
             },
             "dependsOn": "emu: Configure (Debug)",
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": "$gcc"
+            "problemMatcher": "$gcc",
+            "linux": {
+                "options": {
+                    "cwd": "${workspaceFolder}/src/host/linux"
+                }
+            },
+            "osx": {
+                "options": {
+                    "cwd": "${workspaceFolder}/src/host/macos"
+                }
+            },
+            "windows": {
+                "command": "cmake",
+                "options": {
+                    "cwd": "${workspaceFolder}/src/host/win"
+                }
+            }
         },
         {
             "label": "emu: Test",
@@ -115,7 +147,7 @@
             "command": "ctest",
             "args": [
                 "--test-dir",
-                "${workspaceFolder}/build/emulator/debug",
+                "${workspaceFolder}/build/linux/debug",
                 "--output-on-failure"
             ],
             "dependsOn": "emu: Build (Debug)",
@@ -123,25 +155,29 @@
                 "reveal": "always",
                 "panel": "dedicated"
             },
-            "problemMatcher": "$gcc"
-        },
-        {
-            "label": "rtl: Firmware",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "--preset",
-                "Firmware"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/src/core"
+            "problemMatcher": "$gcc",
+            "linux": {
+                "args": [
+                    "--test-dir",
+                    "${workspaceFolder}/build/linux/debug",
+                    "--output-on-failure"
+                ]
             },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
+            "osx": {
+                "args": [
+                    "--test-dir",
+                    "${workspaceFolder}/build/macos/debug",
+                    "--output-on-failure"
+                ]
             },
-            "problemMatcher": "$gcc"
+            "windows": {
+                "command": "ctest",
+                "args": [
+                    "--test-dir",
+                    "${workspaceFolder}/build/win/debug",
+                    "--output-on-failure"
+                ]
+            }
         },
         {
             "label": "rtl: Tests",
@@ -149,52 +185,16 @@
             "command": "ctest",
             "args": [
                 "--preset",
-                "verilator/Release"
+                "release"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/core"
+                "cwd": "${workspaceFolder}/tests/rtl"
             },
             "presentation": {
                 "reveal": "always",
                 "panel": "dedicated"
             },
             "problemMatcher": "$gcc"
-        },
-        {
-            "label": "rtl: Area and timing",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "--preset",
-                "Machine"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/src/core"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "pocket: Bitstream",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "--preset",
-                "Bitstream"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/src/core"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
         },
         {
             "label": "pocket: Card package",
@@ -203,28 +203,10 @@
             "args": [
                 "--build",
                 "--preset",
-                "Card package"
+                "release"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/core"
-            },
-            "presentation": {
-                "reveal": "always",
-                "panel": "dedicated"
-            },
-            "problemMatcher": []
-        },
-        {
-            "label": "pocket: Area and timing",
-            "type": "process",
-            "command": "cmake",
-            "args": [
-                "--build",
-                "--preset",
-                "Pocket core"
-            ],
-            "options": {
-                "cwd": "${workspaceFolder}/src/core"
+                "cwd": "${workspaceFolder}/src/host/pocket"
             },
             "presentation": {
                 "reveal": "always",

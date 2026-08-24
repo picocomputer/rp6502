@@ -1,5 +1,5 @@
-# Shared CTest wiring. Both trees add tests/ and get the suites their build
-# can run; this file carries what all of them need.
+# Shared CTest wiring. tests/emu rides in a host's build and tests/rtl is a
+# root of its own; this file carries what both of them need.
 #
 # The harness is utest.h, from its own repository rather than out of sokol's
 # test directory. The copy in there is a fork of an older one, and what it is
@@ -8,8 +8,8 @@
 # also means the simulation tree stops pulling an entire graphics library to
 # get one header — sokol is the emulator's dependency, not the RTL's.
 
-# Entered from both trees, so it asks rather than assuming the emulator's
-# side already did.
+# Entered from both trees, so it asks rather than assuming the other
+# already did.
 include(${RP6502_ROOT}/submodules.cmake)
 rp6502_submodule(vendor/utest SENTINEL utest.h
     WANTS "the test harness")
@@ -27,7 +27,7 @@ set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 # generator makes one image, and hid/kbl.c reads it a word at a time. No
 # machine here compiles it: the RIA firmware generates its own copy in its
 # own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
-# already translated. Only tests/ria wants it, to check the image against
+# already translated. Only the kbl suites want it, to check the image against
 # the defs it came from, so it is built here rather than in a machine's
 # tree that would never name it. See src/gen/kbd_layout_gen.py.
 set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
@@ -102,7 +102,7 @@ function(rp6502_test_rom target)
     # a generated file never appears in a diff — and they go into the same
     # property rp6502_add_test appends to, because to the question "does this
     # commit change the simulation" a ROM the simulation boots and a test that
-    # boots it are one answer. src/core/CMakeLists.txt reads this.
+    # boots it are one answer. tests/rtl/CMakeLists.txt reads this.
     set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${R_GEN} ${R_DEPENDS})
     add_custom_command(OUTPUT ${R_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${R_GEN} ${R_ARGS}
@@ -323,7 +323,7 @@ function(rp6502_add_test name)
         set(T_SOURCES test_${name}.c)
     endif()
 
-    # Every test in both trees comes through here, so this is the one place
+    # Every test in either tree comes through here, so this is the one place
     # that can say what the suite is made of without naming any of it.
     foreach(_s IN LISTS T_SOURCES)
         if(NOT IS_ABSOLUTE ${_s})

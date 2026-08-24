@@ -40,13 +40,13 @@ android {
     namespace 'com.picocomputer.rp6502'
     compileSdk 35
 
-    // Pinned, because unpinned means CI and a desktop can compile the same
-    // source against different NDKs and only one of them finds out.
-    ndkVersion '27.2.12479018'
+    // Pinned in gradle.properties, which CMakeLists.txt reads too so a
+    // configure without Gradle picks the same one.
+    ndkVersion project.rpNdkVersion
 
     defaultConfig {
         applicationId "com.picocomputer.rp6502"
-        minSdk 28
+        minSdk project.rpMinSdk.toInteger()
         targetSdk 35
         // 0.0 is the placeholder that says nobody set a version, the same one
         // the Pocket core ships. versionCode has to be an integer under
@@ -57,9 +57,11 @@ android {
 
         externalNativeBuild {
             cmake {
-                // The standard is src/core/emu/CMakeLists.txt's to set, except the
-                // stamp, which only the build that was asked for it knows.
-                arguments("-DANDROID_STL=c++_shared",
+                // The standard is src/host/android/CMakeLists.txt's to set, except
+                // the stamp, which only the build that was asked for it knows.
+                // RP6502_GRADLE tells that file this is the Gradle way in, so it
+                // does not offer an apk target that would re-enter this build.
+                arguments("-DRP6502_GRADLE=ON",
                     "-DRP6502_VERSION=$rpVersion",
                     "-DRP6502_CI=$rpCi")
             }
@@ -79,7 +81,7 @@ android {
 
     externalNativeBuild {
         cmake {
-            path "../../core/emu/CMakeLists.txt"
+            path "CMakeLists.txt"
             buildStagingDirectory file("$out/cxx")
         }
     }

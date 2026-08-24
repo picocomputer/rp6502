@@ -29,7 +29,7 @@
  * right when it wasn't: the Farrow measured -35 dB at 16 kHz and -14 dB at
  * 20 kHz through the Pocket's ratio, which made it the last lossy stage on
  * a path that is otherwise sixteen bits end to end. See rsmp_coef_gen.py
- * for the design and tests/aud/test_rsmp.c for the measurement — that file
+ * for the design and tests/emu/aud/test_rsmp.c for the measurement — that file
  * is the ruler, and the ruler was wrong twice before the filter was.
  *
  * Integer throughout, and that is deliberate: aud_rsmp.sv is held to this
