@@ -26,4 +26,10 @@ instructed to.
 
 Comments. Default to NOT adding one. Add a comment only for a non-obvious
 *why* — never a play-by-play of the *what*. Commentary about work in progress
-must never be added.
+must never be added. Provide an understanding, not a narration.
+
+Vocabulary: A Picocomputer and a machine are the same thing – the collection
+of everything that makes a functioning device. The term "soft cpu" is
+ambiguous because the FPGA has two, the 65C02 and the RISC-V. Every machine
+has a 6502 CPU and at least one host CPU – this is the definition of a
+Picocomputer.
