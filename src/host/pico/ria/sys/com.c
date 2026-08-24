@@ -770,9 +770,9 @@ static void com_stdio_out_flush(void)
     com_uart_flush();
 }
 
-static int com_stdio_in_chars(char *buf, int length)
+size_t com_stdin_read(char *buf, size_t length)
 {
-    int count = 0;
+    size_t count = 0;
 
     // Take char from RIA register
     if (REGS(0xFFE0) & 0b01000000)
@@ -782,14 +782,22 @@ static int com_stdio_in_chars(char *buf, int length)
         REGS(0xFFE2) = 0;
     }
 
-    // Pick up new chars via the sticky merge picker. stdio sees a
-    // flat byte stream — the source tag is irrelevant here. The
-    // per-source readers inside com_rx_pick recover the offered byte
-    // when tagged for their source, so any byte sitting in the handoff
-    // slot is delivered here without a separate drain.
+    // Pick up new chars via the sticky merge picker. A reader here sees a
+    // flat byte stream — the source tag is irrelevant. The per-source
+    // readers inside com_rx_pick recover the offered byte when tagged for
+    // their source, so any byte sitting in the handoff slot is delivered
+    // here without a separate drain.
     count += com_rx_pick(&buf[count], length - count, NULL);
 
-    return count ? count : PICO_ERROR_NO_DATA;
+    return count;
+}
+
+/* The monitor and the startup purges still read through the SDK, which
+ * wants a driver rather than a count. */
+static int com_stdio_in_chars(char *buf, int length)
+{
+    size_t count = com_stdin_read(buf, (size_t)length);
+    return count ? (int)count : PICO_ERROR_NO_DATA;
 }
 
 static stdio_driver_t com_stdio_driver = {

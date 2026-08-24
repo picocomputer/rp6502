@@ -74,6 +74,17 @@ void com_set_bel(bool value);
  * will answer the host's query itself. */
 void com_in_write_reply(const char *s, size_t n);
 
+/* The console's merged input, as the OS's raw console read (TTY:) takes it:
+ * up to count bytes, however many are queued now, 0 when none. Not the line
+ * editor's door -- that one is com_getchar, and rln owns the editing.
+ *
+ * A machine whose 6502 reads the console through registers of its own stages
+ * a byte there before the program asks, and this reclaims it before draining
+ * the rings, oldest first. Mixing the two is undefined by the machine's own
+ * documentation, which is what licenses the steal -- and without it that byte
+ * is stranded until the program happens to read the register. */
+size_t com_stdin_read(char *buf, size_t count);
+
 /* The sink term.c hands over at init; the console fans printf output to it
  * alongside its own. */
 void com_set_term_out(void (*out_chars)(const char *buf, int len));

@@ -161,6 +161,20 @@ static int ria_uart_rx_next(void)
     return com_getchar(&src);
 }
 
+/* The byte a $FFE0 read pulled into the latch and the 6502 never took.
+ * Answering the ready bit commits a byte out of the console's rings, so a
+ * program reading the console some other way has to be able to get it
+ * back -- see com_stdin_read, and ria/sys/com.c, which does the same. */
+bool ria_reg_rx_reclaim(char *ch)
+{
+    if (!(regs[0x00] & RIA_UART_RX_READY))
+        return false;
+    *ch = (char)regs[0x02];
+    regs[0x00] &= ~RIA_UART_RX_READY;
+    regs[0x02] = 0;
+    return true;
+}
+
 uint8_t ria_reg_read(uint16_t addr)
 {
     switch (addr & 0x1F)

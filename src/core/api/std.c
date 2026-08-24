@@ -14,12 +14,6 @@
 #include "core/pix.h"
 #include "host.h"
 
-/* The last thing core asks a Pico SDK header for. std_tty_read reads the
- * console through the firmware's stdio, and on the RIA that door is not
- * com_getchar's: the driver behind it first reclaims a byte already staged
- * in the 6502's own $FFE0/$FFE2 window. Until which door a read() syscall
- * should knock on is decided, the shim stays. */
-#include <pico/stdio.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -135,15 +129,7 @@ static std_rw_result std_tty_read(int desc, char *buf, uint32_t count, uint32_t 
 {
     (void)desc;
     (void)err;
-    uint32_t i = 0;
-    for (; i < count; i++)
-    {
-        int ch = stdio_getchar_timeout_us(0);
-        if (ch == PICO_ERROR_TIMEOUT)
-            break;
-        buf[i] = (char)ch;
-    }
-    *bytes_read = i;
+    *bytes_read = (uint32_t)com_stdin_read(buf, count);
     return STD_OK;
 }
 

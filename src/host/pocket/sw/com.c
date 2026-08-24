@@ -74,6 +74,23 @@ static int ring_pop(ring_t *r)
     return b;
 }
 
+/* No register window to reclaim here: the fabric asks for a byte only
+ * when the 6502 has one outstanding, so nothing is staged ahead of a
+ * reader. See core/com.h, and ria/sys/com.c where a byte can be. */
+size_t com_stdin_read(char *buf, size_t count)
+{
+    size_t n = 0;
+    for (; n < count; n++)
+    {
+        com_source_t src = COM_SOURCE_ANY;
+        int c = com_getchar(&src);
+        if (c < 0)
+            break;
+        buf[n] = (char)c;
+    }
+    return n;
+}
+
 int com_getchar(com_source_t *src)
 {
     if (*src == COM_SOURCE_ANY)

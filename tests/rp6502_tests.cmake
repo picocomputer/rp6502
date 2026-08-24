@@ -188,6 +188,17 @@ rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the filesystem conformance ROM")
 
+# The console read as a device. A program can open TTY: and read it raw,
+# with no line editor in between, and nothing was asking whether a byte
+# typed at the machine arrives there -- the conformance ROM opens that
+# descriptor and closes it without reading a byte through it.
+set(TTY_ROM ${RP6502_TEST_ROM_DIR}/tty.rp6502)
+rp6502_test_rom(tty_rom GEN ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
+    ARGS --emit ${TTY_ROM}
+    OUTPUTS ${TTY_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the raw console read ROM")
+
 # rp6502_add_script_test(<name> [SCRIPT <file>] [ROM <file>]
 #                        [FIXTURE <file in roms/>] [ARGS <emu arg>...]
 #                        [DEPENDS <target>...] [TIMEOUT <seconds>])

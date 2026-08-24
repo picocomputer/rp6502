@@ -56,6 +56,12 @@ typedef struct
     uint8_t irq_pending; /* latched pending sources, ORed onto IRQB while enabled */
 } ria_t;
 
+/* Take back a byte staged in the $FFE2 latch, false when none is. The
+ * console's raw read uses it so a byte the ready bit committed is not
+ * stranded there. Not the firmware's ria_uart_rx_reclaim, which takes
+ * from the slot a byte reaches the latch through. */
+bool ria_reg_rx_reclaim(char *ch);
+
 uint8_t ria_reg_read(uint16_t addr);
 void ria_reg_write(uint16_t addr, uint8_t data);
 

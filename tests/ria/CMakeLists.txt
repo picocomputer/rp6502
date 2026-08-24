@@ -142,6 +142,14 @@ if(RP6502_SOFT_CPU)
     rp6502_add_machine_test(rom FIRMWARE TIMEOUT 900)
 endif()
 
+# The console read raw, which the line editor is not in: the program holds
+# TTY: open and echoes what arrives, so a typed byte reaching it is the
+# whole claim. Its script is the file that assembles it.
+if(TARGET rp6502-emu)
+    rp6502_add_script_test(tty DRIVER ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
+        ROM ${TTY_ROM} DEPENDS tty_rom TIMEOUT 120)
+endif()
+
 # The ANSI keyboard against the line editor, through the shipped binary: type
 # and wait against a program that reads whole lines. test_adventure above
 # injects on stdin, so the two prove different halves of the same path.

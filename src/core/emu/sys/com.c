@@ -112,6 +112,27 @@ int com_peekchar(com_source_t src)
 }
 
 /* ------------------------------------------------------------------ */
+size_t com_stdin_read(char *buf, size_t count)
+{
+    size_t n = 0;
+    /* The register window first: a read of $FFE0 pulls a byte into the
+     * $FFE2 latch to answer the ready bit, and a program that polls the
+     * one while reading the console through the other would otherwise
+     * leave it there. The firmware reclaims the same way. */
+    if (n < count && ria_reg_rx_reclaim(&buf[n]))
+        n++;
+    for (; n < count; n++)
+    {
+        com_source_t src = COM_SOURCE_ANY;
+        int c = com_getchar(&src);
+        if (c < 0)
+            break;
+        buf[n] = (char)c;
+    }
+    return n;
+}
+
+/* ------------------------------------------------------------------ */
 /* Console output: the TX wire to the terminal                          */
 /* ------------------------------------------------------------------ */
 
