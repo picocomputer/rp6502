@@ -79,11 +79,13 @@ rp6502_submodule(vendor/opl2_fpga
 set(W65C02_GEN ${RP6502_SRC}/gen/w65c02_rom_gen.py)
 add_test(NAME w65c02_gen
     COMMAND ${CMAKE_COMMAND} -E env python3 ${W65C02_GEN} --report)
+set_tests_properties(w65c02_gen PROPERTIES LABELS "gate")
 
 # The bitstream byte-reversal for the Pocket's rbf_r, an involution.
 add_test(NAME rbf_r
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/gen/rbf_r_gen.py --check)
+set_tests_properties(rbf_r PROPERTIES LABELS "gate")
 
 set(W65C02_ROM ${RP6502_ASSETS}/w65c02_rom_pkg.sv)
 rp6502_machine_asset(w65c02_rom GEN ${W65C02_GEN}
@@ -174,6 +176,7 @@ add_test(NAME kbdlay_json
         ${RP6502_SRC}/gen/kbd_layout_gen.py --manifest ${KBDLAY_MANIFEST}
         --check-interact ${POCKET_CORE_JSON}/interact.json
         --check-data ${POCKET_CORE_JSON}/data.json)
+set_tests_properties(kbdlay_json PROPERTIES LABELS "gate")
 
 # Where the host writes each slot and where the firmware reads it are
 # the same map kept in two files, and a disagreement is silent.
@@ -186,3 +189,4 @@ add_test(NAME stage_map
         --engine ${RP6502_SRC}/core/machine/sst_engine.sv
         --sst ${RP6502_HOST_POCKET}/pocket_sst.sv
         --top ${RP6502_SRC}/host/pocket/core_top.sv)
+set_tests_properties(stage_map PROPERTIES LABELS "gate")

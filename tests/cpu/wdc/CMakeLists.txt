@@ -1,15 +1,12 @@
-# The 65C02 and its VIA, as the emulator implements them.
+# The 65C02 and its VIA.
 #
-# The evidence lives here and is read from both trees: dut.h is the interface,
-# vec.c and klaus.c are the corpora, chips_dut.c is this machine's
-# implementation under them. tests/rtl/wdc compiles these same files against
-# w65c02_dut.cpp, which is the fabric's — so the two are held to one standard
-# rather than to two copies of one.
+# The 6502 exists twice, and dut.h is what both answer: chips_dut.c is the
+# emulator's, w65c02_dut.cpp the fabric's. The corpora and the runners — vec.c,
+# klaus.c, the scenarios, the recorded traces — are the evidence, held by one
+# copy each, so neither implementation can drift alone and neither has a
+# standard of its own.
 
-set(CPU_DUT ${CMAKE_CURRENT_LIST_DIR}/chips_dut.c)
-set(CPU_INCLUDES
-    ${CMAKE_CURRENT_LIST_DIR}
-    ${RP6502_VENDOR})
+set(CPU_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_VENDOR})
 
 # --- SingleStepTests: per-cycle bus traces, one instruction per case ---
 # Upstream carries five CPU families, so SPARSE takes the one we run.
@@ -29,9 +26,13 @@ if(RP6502_HAVE_SSTESTS)
         COMMENT "Encoding SingleStepTests vectors (${SSVEC_COUNT}/opcode)"
         VERBATIM)
     add_custom_target(cpu_vectors DEPENDS ${VECTORS})
+    # The encoder decides what the corpus is, so a change to it is a change to
+    # what both CPUs are held to.
+    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS
+        ${CMAKE_CURRENT_LIST_DIR}/ssvec.py)
 
     rp6502_add_test(vectors
-        SOURCES test_vectors.c vec.c ${CPU_DUT}
+        SOURCES test_vectors.c vec.c chips_dut.c
         INCLUDES ${CPU_INCLUDES}
         DEFS VECTORS="${VECTORS}"
         TIMEOUT 300)
@@ -51,7 +52,7 @@ set(KLAUS ${RP6502_ROOT}/vendor/6502_65C02_functional_tests/bin_files)
 
 if(RP6502_HAVE_KLAUS)
     rp6502_add_test(klaus
-        SOURCES test_klaus.c klaus.c ${CPU_DUT}
+        SOURCES test_klaus.c klaus.c chips_dut.c
         INCLUDES ${CPU_INCLUDES}
         DEFS
             KLAUS_6502="${KLAUS}/6502_functional_test.bin"
@@ -66,7 +67,7 @@ endif()
 # is a weaker claim that survives a checkout without them. It also covers the
 # pins, which neither corpus exercises.
 rp6502_add_test(w65c02_chips
-    SOURCES test_w65c02_chips.c lockstep_scen.c ${CPU_DUT}
+    SOURCES test_w65c02_chips.c lockstep_scen.c chips_dut.c
     INCLUDES ${CPU_INCLUDES}
     DEFS W65C02_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/w65c02_golden.txt")
 
@@ -79,3 +80,35 @@ rp6502_add_test(w65c22_chips
     SOURCES test_w65c22_chips.c w65c22_scen.c
     INCLUDES ${CPU_INCLUDES}
     DEFS W65C22_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/w65c22_golden.txt")
+
+# The same corpora and the same scenarios, against the fabric's CPU and VIA.
+# Only a tree with a simulator can register these; the sources beside them are
+# the ones above.
+if(COMMAND rp6502_add_module_test)
+    if(RP6502_HAVE_SSTESTS AND RP6502_HAVE_KLAUS)
+        rp6502_add_module_test(w65c02
+            TOP w65c02
+            RTL ${W65C02_ROM} ${RP6502_SRC}/core/wdc/w65c02.sv
+            SOURCES test_w65c02.cpp w65c02_dut.cpp vec.c klaus.c
+            INCLUDES ${CPU_INCLUDES}
+            DEFS
+                VECTORS="${VECTORS}"
+                KLAUS_6502="${KLAUS}/6502_functional_test.bin"
+                KLAUS_65C02="${KLAUS}/65C02_extended_opcodes_test.bin"
+            DEPENDS cpu_vectors w65c02_rom
+            TIMEOUT 900)
+    else()
+        message(WARNING "SingleStepTests or Klaus absent — w65c02 RTL"
+            " conformance skipped.")
+    endif()
+
+    # --- The VIA in RTL, against chips/m6522.h in lockstep ---
+    # T1/T2 timers and their interrupts are live machine features; see
+    # emu/emu/via.c for the wiring this reproduces.
+    rp6502_add_module_test(w65c22
+        TOP w65c22
+        RTL ${RP6502_SRC}/core/wdc/w65c22.sv
+        SOURCES test_w65c22.cpp w65c22_scen.c
+        INCLUDES ${CPU_INCLUDES}
+        TIMEOUT 300)
+endif()

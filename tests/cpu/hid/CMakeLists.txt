@@ -1,0 +1,29 @@
+# Pointers and pads, each driven by the SDK demo that exercises it.
+
+# --- 6522 VIA timer IRQ + HID mouse, via the paint_mou demo ---
+rp6502_add_test(paint_mou LIBS emu_core FIXTURE paint_mou.rp6502 TIMEOUT 60)
+
+# --- Absolute pointer (tablet) window encoding, via paint_tab ---
+rp6502_add_test(paint_tab LIBS emu_core FIXTURE paint_tab.rp6502 TIMEOUT 60)
+
+# --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
+rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
+
+# The same claims through the shipped binary, driven the way a developer
+# drives it. The C tests above reach APIs no script can — pad_xreg's bounds,
+# the unmapping — and these reach cli.c, main.c and scr.c, which no C test
+# does. Each sits beside the one it overlaps rather than in a directory about
+# the host, so "how is the pointer proven" has one place to look.
+if(TARGET rp6502-emu)
+    # The connected gate, the four-player XRAM block, and the status nibble.
+    rp6502_add_script_test(gamepad FIXTURE gamepad.rp6502)
+
+    # The HID bitmap a program polls, not the stdin stream.
+    rp6502_add_script_test(keyboard FIXTURE mode2.rp6502)
+
+    # Relative mouse, through the 6522 timer IRQ the paint demo runs its ISR on.
+    rp6502_add_script_test(pointer FIXTURE paint_mou.rp6502)
+
+    # Absolute pointer: the window-encoded coordinates in the tablet block.
+    rp6502_add_script_test(tablet FIXTURE paint_tab.rp6502)
+endif()

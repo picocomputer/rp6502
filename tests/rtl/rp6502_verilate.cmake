@@ -149,7 +149,7 @@ function(rp6502_add_module_test name)
     endif()
     # Built up rather than passed through: a bare TIMEOUT with nothing after
     # it is a parse warning, not a no-op.
-    set(_args SOURCES ${U_SOURCES} LABELS rtl module)
+    set(_args SOURCES ${U_SOURCES} LABELS sim module)
     foreach(kw INCLUDES DEFS LIBS TIMEOUT)
         if(U_${kw})
             list(APPEND _args ${kw} ${U_${kw}})
@@ -194,10 +194,14 @@ function(rp6502_add_machine_test name)
     endif()
 
     # Firmware is what the test costs as much as what it needs, so it is a
-    # label as well as the definitions it brings in below.
-    set(_labels rtl machine)
+    # label as well as the definitions it brings in below. Not "soft-cpu":
+    # ctest -L takes a regex, and that one is matched by -L cpu.
+    # sim, not rtl: what a test claims is the directory it lives in, and
+    # tests/cpu holds machine tests too. This says how it runs — on the
+    # simulator — which is a question about cost, not about the claim.
+    set(_labels sim machine)
     if(M_FIRMWARE)
-        list(APPEND _labels soft-cpu)
+        list(APPEND _labels firmware)
     endif()
     set(_args SOURCES ${M_SOURCES} LABELS ${_labels}
         INCLUDES ${RP6502_BENCH} ${RP6502_ASSETS} ${RP6502_SRC})

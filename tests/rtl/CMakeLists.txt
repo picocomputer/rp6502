@@ -5,10 +5,10 @@
 # anyone working on C should pay by accident, and Verilator being installed is
 # not a reason to pay it. Opening this tree is how you ask.
 #
-# The other half is tests/emu, which the desktop hosts add to their own build.
-# Where a claim is about both machines it is made from both trees against one
-# set of evidence: the corpora, the DUT interface and the shared drivers live
-# beside the emulator's implementation and are named here by path.
+# This root also adds tests/cpu — the machine's own suites, the same directory
+# a desktop tree adds — so a claim that can be made of both machines is made
+# here of this one, from the same source. What is in this directory is what
+# has no other implementation to be held against.
 #
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.
@@ -82,13 +82,18 @@ include(${CMAKE_CURRENT_LIST_DIR}/rp6502_verilate.cmake)
 
 add_subdirectory(${RP6502_ROOT}/tests/bench bench)
 
+# The machine's own suites, the same directory the desktop trees add. Its
+# simulator-shaped registrations wake up here because rp6502_verilate.cmake
+# above defined the helpers they guard on.
+add_subdirectory(${RP6502_ROOT}/tests/cpu cpu)
+
+# What only a simulator can answer, and the board this tree fits.
 add_subdirectory(aud)
 add_subdirectory(vid)
-add_subdirectory(mem)
 add_subdirectory(ria)
 add_subdirectory(rv)
 add_subdirectory(wdc)
-add_subdirectory(pocket)
+add_subdirectory(${RP6502_ROOT}/tests/host/pocket host/pocket)
 
 # What the simulation is made from, last because the subdirectories above are
 # what fill it. Every part of it is something that already knew: the machine
@@ -98,9 +103,9 @@ add_subdirectory(pocket)
 # on an include path and no target lists those — the way machine.cmake sweeps
 # the firmware's for its own DEPENDS.
 #
-# The emulator's suite is in the list too. It is not built here, but a change
-# to a corpus or a DUT this tree compiles from tests/emu is a change to the
-# simulation, and the file that decides it has to be named where it lives.
+# tests/cpu is in the list too: its corpora, its DUTs and its fixtures are
+# compiled here, so a change to any of them is a change to the simulation, and
+# the file that decides it has to be named where it lives.
 get_property(TEST_INPUTS GLOBAL PROPERTY RP6502_TEST_INPUTS)
 get_property(ASSET_INPUTS GLOBAL PROPERTY RP6502_ASSET_INPUTS)
 get_property(RP6502_SUBMODULES GLOBAL PROPERTY RP6502_SUBMODULES)

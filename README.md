@@ -135,22 +135,42 @@ measure. It needs Quartus and `gcc-riscv64-unknown-elf` and nothing else.
 
 The suite is in two halves, because they cost wildly different amounts.
 
-`tests/emu` is the C and script tests. It rides in each emulator root's build,
-so building any of the three above builds it, and `ctest` in that build
-directory runs it in a couple of seconds. Nothing in it needs Verilator.
+The suite is filed by what a test claims, not by which build runs it.
 
-`tests/rtl` is the verilated machine — the RTL modules, the whole-machine
-comparisons against the emulator as the reference oracle, and the Pocket's own
-bridge. It is a project root of its own, so it costs nothing until you open it,
-and it needs Verilator plus `gcc-riscv64-unknown-elf` for the soft CPU. Where a
-claim is about both machines it is made from both halves against one set of
-evidence: `tests/rtl/wdc` compiles the corpora and the DUT interface out of
-`tests/emu/wdc` rather than keeping a second copy of them.
+`tests/cpu` is the machine's own — the 6502 and its VIA, the video modes, the
+filesystem, HID, the RIA's API. Where a claim can be made of both
+implementations it is written once and run against whichever machine the tree
+builds: the CPU corpora answer `dut.h`, which `chips_dut.c` and
+`w65c02_dut.cpp` both implement, and the mode ROMs boot on the emulator or on
+the fabric. Registrations that need a simulator, the shipped binary or the
+staged assets guard on those existing, so the same directory serves every
+tree.
 
-    cd tests/rtl
+`tests/host/emu` and `tests/host/pocket` are claims about a program or a
+board rather than about the RP6502: the command line, the script channel and
+the debugger for one; the bridge, the SDRAM staging and the dock's HID
+mapping for the other.
+
+`tests/rtl` is what only a simulator can answer — the beam, the modules below
+any mode, pin-scripted lockstep, the soft CPU — and it is also the project
+root that builds the verilated machine.
+
+So an emulator build runs its host tests and the machine's; the fpga build
+runs its host tests, the machine's, and the RTL's:
+
+    cd src/host/linux        # or win, macos
     cmake --preset release
     cmake --build --preset release
-    ctest --preset release
+    ctest --preset release           # host/emu + cpu, a couple of seconds
+
+    cd tests/rtl                     # needs Verilator, and
+    cmake --preset release           # gcc-riscv64-unknown-elf for the soft CPU
+    cmake --build --preset release
+    ctest --preset release           # host/pocket + cpu + rtl
+
+`ctest -L cpu`, `-L rtl`, `-L host.emu` and `-L host.pocket` pick out a slice
+by what is claimed. `-L sim` cuts the other way — everything the simulator
+runs, wherever it lives, which is the slow half of the fpga build.
 
 ## General Linux and WSL notes
 

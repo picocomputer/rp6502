@@ -390,7 +390,7 @@ pretending.
 
 Three descriptors carry the whole mapping, so a wrong one would build
 clean and boot clean and be wrong only under a hand on a controller.
-`tests/emu/hid/test_apf.c` is what stands in for that hand: registers in,
+`tests/host/pocket/test_apf.c` is what stands in for that hand: registers in,
 XRAM records out, against the real drivers.
 
 Two things a RIA has are not here. There is no monitor, so

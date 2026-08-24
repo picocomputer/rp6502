@@ -7,7 +7,7 @@
 #
 # There is no bell here as a module of its own. The bell is a voice of aud_psg
 # that the soft CPU drives, so what used to be its own test is now the
-# machine's — see test_aud.
+# machine's — tests/cpu/aud, with the rest of what both machines answer.
 
 # host/pocket for "host.h": these compile core drivers, which ask their
 # host where to place things, and any machine that is not a Pico answers
@@ -61,18 +61,3 @@ rp6502_add_module_test(opl
     INCLUDES ${RP6502_BENCH}
     DEPENDS opl2_lut_rom
     TIMEOUT 300)
-
-if(RP6502_SOFT_CPU)
-    # Both engines end to end: a program asks for the device, pours its
-    # registers in through RW0, and the machine makes a noise inside a couple
-    # of frames. This is the plumbing test — the xreg dispatch, the write
-    # snoop, and the sample grid — not a waveform one; test_psg holds the PSG
-    # bit-exact, and the OPL2 has no emulator to agree with.
-    rp6502_add_machine_test(aud FIRMWARE
-        DEFS AUD_ROM_PSG="${AUD_ROM_PSG}" AUD_ROM_OPL="${AUD_ROM_OPL}"
-            AUD_ROM_PSG_PRE="${AUD_ROM_PSG_PRE}"
-            AUD_ROM_OPL_EXIT="${AUD_ROM_OPL_EXIT}"
-            AUD_ROM_BEL="${AUD_ROM_BEL}" AUD_ROM_OPL_BEL="${AUD_ROM_OPL_BEL}"
-        DEPENDS aud_roms
-        TIMEOUT 600)
-endif()

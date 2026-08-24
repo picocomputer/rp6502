@@ -23,7 +23,7 @@
 #
 # Every one of those is the integer output floor rather than the filter, so
 # they are a statement about the ruler, not about how good this can get.
-# tests/emu/aud/test_rsmp.c is that ruler and is the thing to re-run.
+# tests/cpu/aud/test_rsmp.c is that ruler and is the thing to re-run.
 #
 # The Farrow computes its coefficients from a polynomial in the phase, which
 # costs multiplies and buys nothing above the midband; this looks them up,

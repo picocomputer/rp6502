@@ -71,4 +71,9 @@ target_sources(rp6502-emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
 rp6502_emu_debugger(rp6502-emu)
 
 enable_testing()
-add_subdirectory(${RP6502_ROOT}/tests/emu tests)
+# What a C compiler can answer: this program's own tests, and the machine's.
+# tests/cpu registers what needs a simulator only where one exists, so the
+# same directory serves this tree and the fpga one.
+include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
+add_subdirectory(${RP6502_ROOT}/tests/host/emu tests/host/emu)
+add_subdirectory(${RP6502_ROOT}/tests/cpu tests/cpu)

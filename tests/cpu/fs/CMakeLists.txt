@@ -13,7 +13,7 @@ rp6502_add_test(fatfs LIBS emu_core)
 rp6502_add_test(dir LIBS emu_core FIXTURE dir.rp6502 TIMEOUT 60)
 
 # --- The conformance ROM on this machine too ---
-# The same forty-eight checks the Pocket's bench runs (tests/rtl/pocket,
+# The same forty-eight checks the Pocket's bench runs (tests/host/pocket,
 # pfile.the_whole_drive_conforms), against a host-backed drive. Four of them
 # describe the platform rather than the filesystem and are expected to differ;
 # the generator says which, so this asserts that they are the only ones.

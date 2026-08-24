@@ -1,5 +1,6 @@
-# Shared CTest wiring. tests/emu rides in a host's build and tests/rtl is a
-# root of its own; this file carries what both of them need.
+# Shared CTest wiring. tests/cpu and tests/host/emu ride in a host's build,
+# tests/rtl is a root of its own that adds tests/cpu too; this file carries
+# what all of them need.
 #
 # The harness is utest.h, from its own repository rather than out of sokol's
 # test directory. The copy in there is a fork of an older one, and what it is

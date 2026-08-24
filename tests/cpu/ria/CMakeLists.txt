@@ -40,15 +40,6 @@ add_test(NAME rom_tool
         --scratch ${CMAKE_CURRENT_BINARY_DIR})
 set_tests_properties(rom_tool PROPERTIES LABELS "gate;ria")
 
-# --- Unit tests (crc32, .rp6502 loader, xreg dispatch, CLI parser) ---
-rp6502_add_test(units
-    SOURCES test_units.c ${RP6502_SRC}/core/emu/app/cli.c
-    LIBS emu_core FIXTURE adventure.rp6502)
-if(WIN32) # cli.c needs the same getopt the app uses
-    target_link_libraries(test_units PRIVATE wingetopt)
-    target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
-endif()
-
 # --- Feature interfaces ($FFF0 SIGINT IRQ, launcher chain, teletype bell) ---
 rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502)
 
@@ -90,17 +81,55 @@ rp6502_add_test(kbl
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${KBDLAY_DIR})
 add_dependencies(test_kbl kbdlay)
 
+# --- The same two suites over the ports that stage a binary ---
+# uni_word and kbl_word are the one thing a port writes: one links the
+# generated C and reads an array, one stages the .bin and reads a window.
+# Both come out of one generator, so these are the suites above over the
+# other port — only a tree that builds the assets has one to be wrong about.
+if(OEMCP_BIN)
+    rp6502_add_test(uni_bin
+        SOURCES test_uni.c ${RP6502_SRC}/core/api/uni.c uni_bin.c
+            ${RP6502_VENDOR}/fatfs/ffunicode.c
+        INCLUDES ${RP6502_SRC} ${RP6502_VENDOR} ${OEMCP_DIR}
+        DEFS OEMCP_BIN_PATH="${OEMCP_BIN}")
+    add_dependencies(test_uni_bin oemcp oemcp_bin)
+    set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
+        TARGET_DIRECTORY test_uni_bin PROPERTIES COMPILE_DEFINITIONS
+        "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
+endif()
+
+if(KBDLAY_BIN)
+    rp6502_add_test(kbl_bin
+        SOURCES test_kbl.c ${RP6502_SRC}/core/hid/kbl.c kbl_bin.c
+        INCLUDES ${RP6502_SRC} ${KBDLAY_DIR}
+        DEFS KBDLAY_BIN_PATH="${KBDLAY_BIN}")
+    add_dependencies(test_kbl_bin kbdlay kbdlay_bin)
+endif()
+
+if(COMMAND rp6502_add_machine_test)
+    # The whole machine so far boots a program that talks through the RIA's
+    # bare UART.
+    rp6502_add_machine_test(hello TIMEOUT 120)
+endif()
+
+if(RP6502_SOFT_CPU)
+    # Op 0x01 dispatch against the oracle, and the RTL program it lands.
+    rp6502_add_machine_test(xreg ORACLE FIRMWARE TIMEOUT 900)
+
+    # The .rp6502 loader against the staged window, the testbench playing
+    # the platform bridge.
+    rp6502_add_machine_test(rom FIRMWARE TIMEOUT 900)
+endif()
+
 # The console read raw, which the line editor is not in: the program holds
 # TTY: open and echoes what arrives, so a typed byte reaching it is the
 # whole claim. Its script is the file that assembles it.
 if(TARGET rp6502-emu)
     rp6502_add_script_test(tty DRIVER ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
         ROM ${TTY_ROM} DEPENDS tty_rom TIMEOUT 120)
-endif()
 
-# The ANSI keyboard against the line editor, through the shipped binary: type
-# and wait against a program that reads whole lines. test_adventure above
-# injects on stdin, so the two prove different halves of the same path.
-if(TARGET rp6502-emu)
+    # The ANSI keyboard against the line editor, through the shipped binary:
+    # type and wait against a program that reads whole lines. test_adventure
+    # above injects on stdin, so the two prove different halves of one path.
     rp6502_add_script_test(adventure FIXTURE adventure.rp6502)
 endif()

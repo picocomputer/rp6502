@@ -1,7 +1,8 @@
 # XRAM and the RIA's data ports into it.
 #
-# Wholly a machine claim: the emulator's memory is an array, and what is worth
-# asking is whether the fabric's answers it. So there is no tests/emu/mem.
+# Both claims are about the whole machine staging and stepping through the
+# ports, so both need one to run: there is nothing here a C compiler alone
+# can answer, and the directory is empty in a tree without a simulator.
 
 if(RP6502_SOFT_CPU)
     # XRAM records through the staged loader, judged by the oracle.

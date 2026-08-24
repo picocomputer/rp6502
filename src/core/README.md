@@ -49,12 +49,12 @@ with a CMake root of its own. Only the Pocket's happens to be SystemVerilog.
 MiSTer arrives as `src/host/mister` with a root like this one's; nothing here
 changes.
 
-Tests are in two halves. `tests/emu` rides in each emulator root's build and
-needs only a C compiler; `tests/rtl` is a project root of its own and is where
-everything that needs Verilator lives, filed by the same subsystem names.
-`tests/bench` carries the Verilator testbench and the emu_core reference
-oracle, shared by both; `tests/rtl/pocket` carries what is genuinely about this
-board rather than about the machine.
+Tests are filed by claim. `tests/cpu` is the machine's, written once and run
+against whichever machine a tree builds; `tests/rtl` is what only a simulator
+can answer, and is also the root that builds the verilated machine;
+`tests/host/pocket` carries what is genuinely about this board rather than
+about the machine. `tests/bench` carries the Verilator testbench and the
+emu_core reference oracle.
 
 ## Building the simulation
 
@@ -103,7 +103,7 @@ thing tested.
 
 The simulation, for its part, requires Verilator rather than warning and
 carrying on: a tree that exists to run the RTL has nothing to offer without
-it, and the C suite it used to fall back to is `tests/emu`, which runs in the
+it, and the C suite it used to fall back to is `tests/cpu`, which runs in the
 emulator's own build.
 
 Both roots also write `inputs/`, which is what CI reads to decide whether
