@@ -88,7 +88,7 @@ This source tree is no longer a project root. What was four presets under one
 | root | builds in | what it is for |
 | --- | --- | --- |
 | `tests/rtl` | `build/rtl` | the simulation and its whole suite |
-| `src/host/pocket` | `build/pocket` | the Analogue Pocket core, and `synth` for area and timing |
+| `src/mach/pocket` | `build/pocket` | the Analogue Pocket core, and `synth` for area and timing |
 
 A Debug simulation is `-DCMAKE_BUILD_TYPE=Debug` on the first of those, for
 the rare case of stepping a testbench.
