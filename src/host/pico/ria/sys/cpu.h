@@ -34,9 +34,7 @@ void cpu_reclock(void);
 // to guarantee the 6502 gets two clock cycles during reset.
 uint32_t cpu_get_reset_us(void);
 
-// Configuration setting PHI2
+// Configuration setting PHI2 (the pair it validates into is core/cpu.h's)
 void cpu_load_phi2_khz(const char *str);
-bool cpu_set_phi2_khz(uint16_t phi2_khz);
-uint16_t cpu_get_phi2_khz(void);
 
 #endif /* _RIA_SYS_CPU_H_ */

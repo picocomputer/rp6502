@@ -10,10 +10,7 @@
 
 #include <stdint.h>
 
-/* The firmware contract: sys_init (the monitor's startup banner) and sys_main (the
- * RP2350 clock and voltage), neither of which the emulator implements. SYS_RP2350_KHZ
- * comes from here too. */
-#include "host/pico/ria/sys/sys.h"
+#include "core/sys.h" /* SYS_RP2350_KHZ */
 
 /* The RIA's PIO clock divider is 16.8 fixed point, so a PHI2 period is
  * 32*int + frac/8 system ticks — not an integer. Counting the system clock in

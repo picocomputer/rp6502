@@ -14,7 +14,7 @@
 
 #include "core/aud/aud.h"
 #include "core/aud/bel.h"
-#include "host/pico/ria/sys/mem.h"
+#include "core/mem.h"
 
 #include "aud_sine_tables.h"
 

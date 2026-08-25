@@ -21,7 +21,7 @@
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/api/pro.h"
-#include "host/pico/ria/main.h"
+#include "core/main.h"
 
 #include <stdio.h>
 #include <string.h>

@@ -12,23 +12,6 @@
 
 #include "core/hid/hid.h"
 #include "core/api/oem.h"
-#include "host/pico/ria/ble/ble.h"
-#include "host/pico/ria/usb/usb.h"
-
-bool usb_boot_enumerating(void)
-{
-    return false;
-}
-
-void usb_set_hid_leds(uint8_t leds)
-{
-    (void)leds;
-}
-
-void ble_set_hid_leds(uint8_t leds)
-{
-    (void)leds;
-}
 
 uint16_t oem_get_code_page_run(void)
 {

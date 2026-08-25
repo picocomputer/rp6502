@@ -9,7 +9,8 @@
 #define _CORE_SYS_COM_H_
 
 #include "core/com.h"
-#include "host/pico/ria/sys/com.h"
+#include <stddef.h>
+#include <stdint.h>
 
 /* The KBD source. hid/kbd.c owns this ring and is the only caller: every host
  * keystroke, scripted or typed, enters the machine through one seam. */

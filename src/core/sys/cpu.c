@@ -7,7 +7,7 @@
 
 #include "chips/chips/w65c02.h"
 #include "core/sys/cpu.h"
-#include "host/pico/ria/sys/sys.h"
+#include "core/sys.h"
 
 static w65c02_t cpu;
 

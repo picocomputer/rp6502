@@ -29,4 +29,10 @@ bool cpu_active(void);
 uint16_t cpu_get_phi2_khz_run(void);
 void cpu_set_phi2_khz_run(uint16_t phi2_khz);
 
+/* What was asked for, which is not always what runs: the rate a config store
+ * or a command line chose, held until the next cpu_init. False if it is out of
+ * the range above. */
+bool cpu_set_phi2_khz(uint16_t phi2_khz);
+uint16_t cpu_get_phi2_khz(void);
+
 #endif /* _CORE_CPU_H_ */

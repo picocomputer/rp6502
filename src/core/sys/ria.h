@@ -21,11 +21,15 @@ extern "C"
 {
 #endif
 
-/* The firmware contract ria.c implements: ria_run, ria_task, ria_active,
- * ria_trigger_vsync, ria_trigger_sigint, ria_get_sigint. The PIO/UART/mbuf half is
- * firmware-only and has no emulator implementation; ria_active is always false here
- * (no mbuf transfers). */
-#include "host/pico/ria/sys/ria.h"
+/* The bus this RIA sits on: ria_active, ria_trigger_sigint, ria_get_sigint. The
+ * PIO/UART/mbuf half is firmware-only and has no implementation here; ria_active
+ * is always false (no mbuf transfers). */
+#include "core/main.h"
+
+/* Program start, per-frame service, and the vsync the video half raises. */
+void ria_run(void);
+void ria_task(void);
+void ria_trigger_vsync(void);
 
 /* The RIA decodes the RIA_MMAP_* register window, drives data on reads and asserts
  * IRQB. The OS services its registers trigger — stdio/file I/O, exec, the VGA/PSG/OPL
