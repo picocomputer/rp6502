@@ -65,6 +65,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/mou.c
     ${RP6502_SRC}/core/hid/pad.c
     ${RP6502_SRC}/core/hid/tab.c
+    # hid, kbd and pad twice: core/hid is the device layer every machine has,
+    # core/sys is what a software machine answers where fabric or a firmware
+    # would. Same names because they are the same devices.
     ${RP6502_SRC}/core/sys/hid.c
     ${RP6502_SRC}/core/sys/kbd.c
     ${RP6502_SRC}/core/sys/kbt.c
