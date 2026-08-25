@@ -26,4 +26,10 @@ if(TARGET rp6502-emu)
 
     # Absolute pointer: the window-encoded coordinates in the tablet block.
     rp6502_add_script_test(tablet FIXTURE paint_tab.rp6502)
+
+    # And the other half of every one of those: a device nobody mapped is
+    # silent. Each block's address register means nowhere until a program says
+    # otherwise, and nowhere is the one address a driver cannot be allowed to
+    # guess -- zero is XRAM a program is already using.
+    rp6502_add_script_test(unmapped FIXTURE mode2.rp6502)
 endif()

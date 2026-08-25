@@ -52,6 +52,10 @@ void main_init(void)
     pro_init();
     cpu_init();
     aud_init();
+    kbd_init();
+    mou_init();
+    pad_init();
+    tab_init();
     com_init();
     std_init();
     rln_init();
