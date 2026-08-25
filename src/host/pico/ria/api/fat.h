@@ -4,14 +4,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_API_FAT_H_
-#define _CORE_API_FAT_H_
+#ifndef _RIA_API_FAT_H_
+#define _RIA_API_FAT_H_
 
 /* The FatFs filesystem module: the stdio file driver (the catch-all entry in
  * std.c's driver table — open/close/read/write/lseek/sync over a FIL pool) and the
  * file/directory management API (the 0x1B..0x2E syscalls, over its own DIR pool).
- * FatFs-only — the block device (diskio) is supplied by the platform (usb/msc.c on
- * hardware, a RAM disk in the emulator), so this file is shared with the emulator.
+ * FatFs-only — the block device (diskio) is usb/msc.c.
  */
 
 #include <stddef.h>
@@ -20,11 +19,6 @@
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "fatfs/ff.h"
-
-/* Push one FILINFO onto the xstack in the 6502-visible field order. Shared with
- * the drives that synthesize a FILINFO of their own rather than reading one from
- * FatFs -- the layout is this module's either way. */
-bool fat_push_filinfo(FILINFO *fno);
 
 // Convert a FatFs FRESULT to an api_errno.
 api_errno fat_fresult_to_api_errno(unsigned fresult);
@@ -61,4 +55,4 @@ bool fat_api_setlabel(void);
 bool fat_api_getlabel(void);
 bool fat_api_getfree(void);
 
-#endif /* _CORE_API_FAT_H_ */
+#endif /* _RIA_API_FAT_H_ */

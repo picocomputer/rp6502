@@ -11,7 +11,6 @@
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/vga/vga.h"
-#include <fatfs/ff.h>
 #include "core/api/uni.h"
 #include "host.h"
 #include <string.h>
@@ -37,8 +36,11 @@ static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
     // cp >= 900 are DBCS; allow SBCS only
-    if (cp < 900 && f_setcp(cp) == FR_OK)
+    if (cp < 900 && uni_has_page(cp))
+    {
+        oem_fs_code_page(cp);
         oem_code_page_run = cp;
+    }
     if (old_code_page != oem_code_page_run)
     {
         vga_set_code_page(oem_code_page_run);

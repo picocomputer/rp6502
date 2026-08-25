@@ -8,7 +8,7 @@
 #include "core/api/api.h"
 #include "core/api/atr.h"
 #include "core/api/clk.h"
-#include "core/api/fat.h"
+#include "api/fat.h"
 #include "core/api/oem.h"
 #include "core/api/pro.h"
 #include "core/api/std.h"

@@ -75,7 +75,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/log.c
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c
-    ${RP6502_SRC}/core/sys/tmp.c
     ${RP6502_SRC}/core/pix.c
     ${RP6502_SRC}/core/rand.c
     ${RP6502_SRC}/core/sys/rand.c
@@ -95,7 +94,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/arg.c
     ${RP6502_SRC}/core/api/atr.c
     ${RP6502_SRC}/core/api/clk.c
-    ${RP6502_SRC}/core/api/fat.c
+    ${RP6502_SRC}/core/api/dir.c
     ${RP6502_SRC}/core/api/oem.c
     ${RP6502_SRC}/core/api/uni.c
     ${OEMCP_C}
@@ -119,7 +118,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/term/font.c
     ${RP6502_SRC}/core/term/term.c
     ${RP6502_VENDOR}/emu8950/emu8950.c
-    ${RP6502_VENDOR}/fatfs/ff.c
 )
 
 # The vendored firmware targets the 32-bit RP2350, where pointers are 32-bit, so the

@@ -84,6 +84,14 @@ static int uni_page(uint16_t cp)
     return -1;
 }
 
+/* Whether the tables carry a page at all. The filesystem below may keep a
+ * page of its own, but it cannot spell a character these tables cannot. */
+bool uni_has_page(uint16_t cp)
+{
+    uni_ready();
+    return uni_page(cp) >= 0;
+}
+
 WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     if (oem < 0x80)

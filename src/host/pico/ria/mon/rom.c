@@ -6,7 +6,7 @@
 
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "core/api/fat.h"
+#include "api/fat.h"
 #include "core/api/oem.h"
 #include "core/api/arg.h"
 #include "core/api/pro.h"
@@ -18,6 +18,7 @@
 #include "ria/sys/mem.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
+#include "sys/path.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/lfs.h"
@@ -477,7 +478,7 @@ void rom_exec(void)
         if (!rom_copy_install_name(NULL, argv0 + 1, 0))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
-    const char *filepath = str_abs_path(argv0);
+    const char *filepath = path_abs(argv0);
     if (!filepath)
     {
         if (!strchr(argv0, ':'))
@@ -498,7 +499,7 @@ void rom_exec(void)
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     memcpy(path, filepath, flen + 1);
     // Skip case correction for installed ROMs (live in flash, not on disk).
-    if (*argv0 != ':' && !str_correct_basename(path, sizeof path))
+    if (*argv0 != ':' && !path_correct_basename(path, sizeof path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));

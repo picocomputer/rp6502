@@ -34,6 +34,9 @@ uint16_t uni_word(uint32_t index);
  * do it themselves the first time they are asked. */
 bool uni_init(void);
 
+/* True when the tables carry this code page. */
+bool uni_has_page(uint16_t cp);
+
 /* Only where FatFs is not. ff.h declares these itself, in types it picks
  * per platform — uint16_t/uint32_t on the C99 branch, windows.h's WORD and
  * DWORD wherever _WIN32 is defined — and DWORD is not uint32_t there. So

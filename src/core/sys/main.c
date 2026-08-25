@@ -11,7 +11,6 @@
 #include "core/dap/dbg.h"
 #include "core/sys/msc.h"
 #include "core/sys/rom.h"
-#include "core/sys/tmp.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
@@ -26,7 +25,6 @@
 #include "core/api/api.h"
 #include "core/api/atr.h"
 #include "core/api/std.h"
-#include "core/api/fat.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
 #include "core/api/tim.h"
@@ -72,7 +70,6 @@ void main_run(void)
     pro_run();
     com_run();
     rln_run();
-    fat_run();
     api_run();
     clk_run();
     ria_run();
@@ -88,7 +85,6 @@ void main_stop(void)
     api_stop();
     oem_stop(); /* a run-only code page belongs to the run that set it */
     std_stop();
-    fat_stop();
     msc_stop();
     kbd_stop();
     mou_stop();
@@ -173,12 +169,10 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
     return true;
 }
 
-/* The 6502 syscall op -> handler table. A runtime array (not a switch) so the dir
- * slots can be swapped between the emu's host handlers and the REAL firmware
- * fat_api_* (core/api/fat.c) when a RAM FatFs is mounted. The dir slots
- * default to host below; main_dir_ops_set() swaps them. */
+/* The 6502 syscall op -> handler table. The firmware's is a switch in its own
+ * main.c. */
 typedef bool (*api_op_fn)(void);
-static api_op_fn api_ops[0x40] = {
+static const api_op_fn api_ops[0x40] = {
     [0x01] = pix_api_xreg,
     [0x02] = atr_api_phi2,
     [0x03] = atr_api_code_page,
@@ -230,38 +224,6 @@ static api_op_fn api_ops[0x40] = {
     [0x3F] = clk_api_time_get,
 };
 
-/* Swap the dir op slots: the firmware's own fat_api_* (over the RAM FatFs) when
- * fat, else the emu's host handlers. */
-void main_dir_ops_set(bool fat)
-{
-    static const struct
-    {
-        uint8_t op;
-        api_op_fn host, fat;
-    } slots[] = {
-        {0x1B, msc_api_unlink, fat_api_unlink},
-        {0x1C, msc_api_rename, fat_api_rename},
-        {0x1F, msc_api_stat, fat_api_stat},
-        {0x20, msc_api_opendir, fat_api_opendir},
-        {0x21, msc_api_readdir, fat_api_readdir},
-        {0x22, msc_api_closedir, fat_api_closedir},
-        {0x23, msc_api_telldir, fat_api_telldir},
-        {0x24, msc_api_seekdir, fat_api_seekdir},
-        {0x25, msc_api_rewinddir, fat_api_rewinddir},
-        {0x26, msc_api_chmod, fat_api_chmod},
-        {0x27, msc_api_utime, fat_api_utime},
-        {0x28, msc_api_mkdir, fat_api_mkdir},
-        {0x29, msc_api_chdir, fat_api_chdir},
-        {0x2A, msc_api_chdrive, fat_api_chdrive},
-        {0x2B, msc_api_getcwd, fat_api_getcwd},
-        {0x2C, msc_api_setlabel, fat_api_setlabel},
-        {0x2D, msc_api_getlabel, fat_api_getlabel},
-        {0x2E, msc_api_getfree, fat_api_getfree},
-    };
-    for (size_t i = 0; i < sizeof(slots) / sizeof(slots[0]); i++)
-        api_ops[slots[i].op] = fat ? slots[i].fat : slots[i].host;
-}
-
 /* The registry api_task dispatches through; the firmware's is the switch in
  * main.c. Returns true if the op has more work (api_working) and should be
  * re-dispatched, false once it has returned to the 6502. */
@@ -273,7 +235,6 @@ bool main_api(uint8_t operation)
 
 static const std_driver_t std_drivers[] = {
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
-    {tmp_std_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
     {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
 };
 

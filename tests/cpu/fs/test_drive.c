@@ -9,8 +9,6 @@
  *     from MSC0:, but never the cwd and never enumerated or stat'd.
  *   - the native MSC0: (no chroot): a relative path resolves the process cwd,
  *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
- *   - the ephemeral RAM disk: MSC0: backed by a fresh RAM FatFs (the shared
- *     core/api/fat.c driver), swapped in as the active dir vtable + file driver.
  */
 
 #include "core/api/std.h"
@@ -18,8 +16,6 @@
 #include "core/sys/msc.h"
 #include "host/fs.h"
 #include "core/mem/mem.h"
-#include "core/sys/tmp.h"
-#include "fatfs/ff.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"
@@ -198,44 +194,6 @@ UTEST(drive, mount_transparent_no_chroot)
     msc_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
-}
-
-/* A RAM FatFs backs MSC0:: mount swaps the 6502 file
- * syscalls to the shared fat_std_* driver and the dir syscalls to the firmware's
- * fat_api_* (via the OP array), all over the RAM disk. We inspect the volume with
- * FatFs f_* directly and round-trip a file through the std_* file driver. */
-UTEST(drive, ramfs_is_fresh)
-{
-    std_stop();
-    ASSERT_TRUE(tmp_mount());
-    ASSERT_TRUE(tmp_active()); /* the 6502 syscalls now route to the RAM FatFs */
-
-    /* getcwd reports the FatFs volume root, not a host path. */
-    char cwd[64];
-    ASSERT_EQ(f_getcwd(cwd, sizeof(cwd)), FR_OK);
-    ASSERT_EQ(strncmp(cwd, "MSC0:", 5), 0);
-
-    /* Empty to start: the file is not there yet. */
-    FILINFO info;
-    ASSERT_EQ(f_stat("scratch.dat", &info), FR_NO_FILE);
-
-    /* Write via the FatFs file driver (std_* -> fat_std_* on the RAM disk) ... */
-    make_file("scratch.dat", "tmp", 3);
-
-    /* ... and it lands on the RAM FatFs. */
-    ASSERT_EQ(f_stat("scratch.dat", &info), FR_OK);
-    ASSERT_EQ(info.fsize, 3u);
-
-    /* Read it back through the file driver. */
-    int f = ssys_open("scratch.dat", O_RD);
-    ASSERT_TRUE(f >= 0);
-    char buf[8] = {0};
-    ASSERT_EQ(ssys_read(f, buf, 8), 3);
-    ASSERT_STREQ(buf, "tmp");
-    ssys_close(f);
-
-    /* Deactivate the FatFs backend so later tests use the host filesystem. */
-    tmp_unmount();
 }
 
 /* Data transfers are non-blocking: the driver returns STD_PENDING until the transfer

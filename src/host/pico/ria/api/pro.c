@@ -13,6 +13,7 @@
 #include "ria/mon/rom.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
+#include "sys/path.h"
 #include "ria/usb/nfc.h"
 #include <fatfs/ff.h>
 #include <stdio.h>
@@ -78,16 +79,14 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     bool has_drive = (strchr(first_arg, ':') != NULL);
     if (has_drive)
     {
-        // NFC paths ignore the CWD: imply the leading '/' after the
-        // drive. This also copies first_arg out of the static buffer
-        // it shares with str_abs_path.
+        // NFC paths ignore the CWD: imply the leading '/' after the drive.
         const char *colon = strchr(first_arg, ':');
         const char *rest = colon + 1;
         if (str_is_sep(*rest))
             rest++;
         snprintf(path, sizeof(path), "%.*s/%s",
                  (int)(colon + 1 - first_arg), first_arg, rest);
-        const char *abs = str_abs_path(path);
+        const char *abs = path_abs(path);
         if (!abs)
             goto fail;
         strncpy(path, abs, sizeof(path) - 1);
@@ -100,7 +99,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         // Build canonical "MSC0:/path"
         const char *p = (*first_arg == '/') ? first_arg + 1 : first_arg;
         snprintf(path, sizeof(path), "MSC0:/%s", p);
-        const char *abs = str_abs_path(path);
+        const char *abs = path_abs(path);
         if (!abs)
             goto fail;
         strncpy(path, abs, sizeof(path) - 1);
@@ -120,7 +119,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     }
 
     // Splice the on-disk basename so argv[0] preserves case.
-    if (!str_correct_basename(path, sizeof(path)))
+    if (!path_correct_basename(path, sizeof(path)))
         goto fail;
     DBG("pro_nfc argv[0] %s\n", path);
 

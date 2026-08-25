@@ -20,26 +20,6 @@
 // True if c is a path separator. FatFs accepts both '/' and '\'.
 #define str_is_sep(c) ((c) == '/' || (c) == '\\')
 
-// Converts a FatFS path to a fully-qualified absolute path,
-// resolving the CWD for relative paths.
-// Returns a pointer to static storage valid until the next str_* call;
-// path must not alias it (copy a str_parse_string result out first).
-// Returns NULL if the path exceeds 255 characters or CWD lookup fails.
-const char *str_abs_path(const char *path);
-
-// Look up the on-disk filename for path (case-insensitive). On success
-// writes the on-disk basename (NUL-terminated) to out and returns true.
-// f_stat returns the input case for LFN files; this iterates the parent
-// via f_readdir to recover the real case. out_size must be at least
-// FF_LFN_BUF + 1 bytes (256) to fit any FatFs LFN.
-bool str_lookup_basename(const char *path, char *out, size_t out_size);
-
-// Replace path's basename in place with the case stored on disk.
-// Returns false only if the corrected path wouldn't fit in path_size
-// (caller should treat as fatal). Returns true on success or when the
-// lookup gracefully fails (path left unchanged).
-bool str_correct_basename(char *path, size_t path_size);
-
 // Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
 

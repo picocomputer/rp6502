@@ -6,12 +6,13 @@
  * The FatFs filesystem module: the stdio file driver (open/close/read/write/lseek/
  * sync over a FIL pool, extracted from usb/msc.c) and the file/directory management
  * API (the 0x1B..0x2E syscalls, over a DIR pool). FatFs-only — the block device
- * (diskio) is provided by the platform, so the desktop emulator reuses this over a
- * RAM disk.
+ * (diskio) is usb/msc.c.
  */
 
 #include "core/api/api.h"
-#include "core/api/fat.h"
+#include "core/api/dir.h"
+#include "core/api/oem.h"
+#include "api/fat.h"
 #include "fatfs/ff.h"
 #include <assert.h>
 #include <stdio.h>
@@ -68,6 +69,12 @@ api_errno fat_fresult_to_api_errno(unsigned fresult)
         assert(false); // internal error
         return API_EIO;
     }
+}
+
+/* FatFs converts filenames through its own active page, so it is told. */
+void oem_fs_code_page(uint16_t cp)
+{
+    f_setcp(cp);
 }
 
 bool fat_std_handles(const char *path)
@@ -321,27 +328,6 @@ void fat_stop(void)
     }
 }
 
-bool fat_push_filinfo(FILINFO *fno)
-{
-    // Push fields in reverse so they land in forward
-    // order in the 6502-visible struct.
-    bool ok = true;
-    for (int i = FF_LFN_BUF; i >= 0; i--)
-        ok &= api_push_char(&fno->fname[i]);
-    for (int i = FF_SFN_BUF; i >= 0; i--)
-        ok &= api_push_char(&fno->altname[i]);
-    ok &= api_push_uint8(&fno->fattrib);
-    ok &= api_push_uint16(&fno->crtime);
-    ok &= api_push_uint16(&fno->crdate);
-    ok &= api_push_uint16(&fno->ftime);
-    ok &= api_push_uint16(&fno->fdate);
-    uint32_t fsize = fno->fsize;
-    if (fno->fsize > 0xFFFFFFFF)
-        fsize = 0xFFFFFFFF;
-    ok &= api_push_uint32(&fsize);
-    return ok;
-}
-
 // int f_stat (const char *path, struct f_stat *dirent);
 bool fat_api_stat(void)
 {
@@ -351,7 +337,7 @@ bool fat_api_stat(void)
     FRESULT fresult = f_stat(path, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    if (!fat_push_filinfo(&fno))
+    if (!dir_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
@@ -393,7 +379,7 @@ bool fat_api_readdir(void)
         return api_return_fresult(fresult);
     if (fno.fname[0])
         tells[des]++;
-    if (!fat_push_filinfo(&fno))
+    if (!dir_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }

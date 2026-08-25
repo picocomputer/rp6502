@@ -123,7 +123,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/arg.c
     ${RP6502_ROOT}/src/core/api/atr.c
     ${RP6502_ROOT}/src/core/api/clk.c
-    ${RP6502_ROOT}/src/core/api/fat.c
+    ${RP6502_ROOT}/src/core/api/dir.c
+    ${RIA_SRC}/api/fat.c
     ${RP6502_ROOT}/src/core/api/oem.c
     ${RIA_SRC}/api/pro.c
     ${RP6502_ROOT}/src/core/api/uni.c
@@ -174,6 +175,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/led.c
     ${RIA_SRC}/sys/lfs.c
     ${RIA_SRC}/sys/mem.c
+    ${RIA_SRC}/sys/path.c
     ${RIA_SRC}/sys/pix.c
     ${RIA_SRC}/sys/ria.c
     ${RIA_SRC}/sys/sys.c

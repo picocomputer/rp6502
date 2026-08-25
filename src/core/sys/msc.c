@@ -12,8 +12,8 @@
 #include "host/dir.h"
 #include "host.h"
 #include "core/mem/mem.h"
-#include "core/api/fat.h"
-#include "fatfs/ff.h"
+#include "core/api/dir.h"
+#include "core/api/oem.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -380,6 +380,12 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
 
 /* Pack a host time into the FatFs 16-bit date/time the 6502 expects (local
  * time, FAT epoch 1980). Times before 1980 clamp to the epoch. */
+/* A host filesystem takes filenames as bytes; there is no page to set. */
+void oem_fs_code_page(uint16_t cp)
+{
+    (void)cp;
+}
+
 static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 {
     struct tm tm;
@@ -519,7 +525,7 @@ bool msc_api_stat(void)
     const char *base = strrchr(host, '/');
     FILINFO fno;
     info_from_stat(&fno, &meta, base ? base + 1 : host);
-    if (!fat_push_filinfo(&fno))
+    if (!dir_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
@@ -553,7 +559,7 @@ bool msc_api_readdir(void)
     api_errno err;
     if (host_next_entry(API_A, &fno, &err) < 0)
         return api_return_errno(err);
-    if (!fat_push_filinfo(&fno))
+    if (!dir_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
