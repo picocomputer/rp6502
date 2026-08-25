@@ -13,6 +13,9 @@
 
 #include "libretro.h"
 
+/* Ask the frontend what it can do, once, before anything is read. */
+void input_init(retro_environment_t environ_cb);
+
 /* One key going down or up, as the frontend's keyboard callback delivers it.
  * character is what the frontend's layout composed, or 0 where it has none. */
 void input_keyboard_event(bool down, unsigned keycode, uint32_t character,

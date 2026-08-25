@@ -78,9 +78,17 @@ typedef struct
     char option_key[FE_MAX_OPTS][64];
     int option_count;
     bool options_declared;
+    int options_version_asked;
+    bool variables_declared; /* the pre-versions form, for an old frontend */
+    bool input_descriptors_set;
+    bool controller_info_set;
+    bool asked_for_bitmasks;
     int get_variable_calls;
 
     /* What we answer when it asks. */
+    unsigned options_version; /* what this frontend claims to speak */
+    bool offer_bitmasks;
+    char option_text[FE_MAX_OPTS][256];
     const char *option_value[FE_MAX_OPTS];
     bool variables_dirty;
     char save_dir[1024];
@@ -95,7 +103,7 @@ typedef struct
     unsigned frame_w, frame_h;
     size_t frame_pitch;
     uint32_t frame_copy[640 * 480];
-    int video_calls, poll_calls, state_calls, audio_calls;
+    int video_calls, poll_calls, state_calls, audio_calls, mask_reads;
     size_t audio_frames;
     bool state_read_before_poll;
 } fe_t;
@@ -144,7 +152,21 @@ static int16_t fe_input_state(unsigned port, unsigned device, unsigned index, un
     fe.state_calls++;
     if (fe.poll_calls == 0)
         fe.state_read_before_poll = true;
-    if (port >= FE_MAX_PORTS || index >= 8 || id >= FE_STATE_IDS)
+    if (port >= FE_MAX_PORTS)
+        return 0;
+    /* The whole pad at once, which is what a core asks for when the frontend
+     * offered bitmasks. Assembled from the same buttons a case set, so a
+     * suite says what is pressed once and both ways of reading agree. */
+    if (device == RETRO_DEVICE_JOYPAD && id == RETRO_DEVICE_ID_JOYPAD_MASK)
+    {
+        fe.mask_reads++;
+        int16_t mask = 0;
+        for (unsigned b = 0; b <= RETRO_DEVICE_ID_JOYPAD_R3; b++)
+            if (fe.input[port][0][b])
+                mask |= (int16_t)(1 << b);
+        return mask;
+    }
+    if (index >= 8 || id >= FE_STATE_IDS)
         return 0;
     /* One table per (port, index); the device is how a case says which set of
      * ids it means, and the ids of the devices we answer do not collide. */
@@ -167,7 +189,7 @@ static bool fe_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_SET_GEOMETRY:
     {
-        const struct retro_game_geometry *g = data;
+        const struct retro_game_geometry *g = (const struct retro_game_geometry *)data;
         if (fe.geom_count < FE_MAX_GEOM)
         {
             fe.geom[fe.geom_count].width = g->base_width;
@@ -183,12 +205,39 @@ static bool fe_environment(unsigned cmd, void *data)
         return true;
 
     case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION:
-        *(unsigned *)data = 2;
+        fe.options_version_asked++;
+        *(unsigned *)data = fe.options_version;
         return true;
+
+    case RETRO_ENVIRONMENT_SET_VARIABLES:
+    {
+        const struct retro_variable *v = (const struct retro_variable *)data;
+        fe.variables_declared = true;
+        for (; v && v->key && fe.option_count < FE_MAX_OPTS; v++)
+        {
+            snprintf(fe.option_key[fe.option_count], sizeof fe.option_key[0], "%s", v->key);
+            snprintf(fe.option_text[fe.option_count], sizeof fe.option_text[0], "%s",
+                     v->value ? v->value : "");
+            fe.option_count++;
+        }
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
+        fe.input_descriptors_set = true;
+        return true;
+
+    case RETRO_ENVIRONMENT_SET_CONTROLLER_INFO:
+        fe.controller_info_set = true;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS:
+        fe.asked_for_bitmasks = true;
+        return fe.offer_bitmasks;
 
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
     {
-        const struct retro_core_options_v2 *o = data;
+        const struct retro_core_options_v2 *o = (const struct retro_core_options_v2 *)data;
         fe.options_declared = true;
         for (const struct retro_core_option_v2_definition *d = o->definitions;
              d && d->key && fe.option_count < FE_MAX_OPTS; d++)
@@ -201,7 +250,7 @@ static bool fe_environment(unsigned cmd, void *data)
 
     case RETRO_ENVIRONMENT_GET_VARIABLE:
     {
-        struct retro_variable *v = data;
+        struct retro_variable *v = (struct retro_variable *)data;
         fe.get_variable_calls++;
         v->value = NULL;
         for (int i = 0; i < fe.option_count; i++)
@@ -250,9 +299,11 @@ static bool fe_environment(unsigned cmd, void *data)
 /* Every entry point, resolved up front: a core missing one is not a core,
  * and finding that out here beats finding it out in whichever case ran
  * first. */
-static void fe_open(void)
+static void fe_open_as(unsigned options_version, bool offer_bitmasks)
 {
     memset(&fe, 0, sizeof fe);
+    fe.options_version = options_version;
+    fe.offer_bitmasks = offer_bitmasks;
     fe.lib = dlopen(RETRO_SO, RTLD_NOW | RTLD_LOCAL);
     if (!fe.lib)
     {
@@ -291,6 +342,13 @@ static void fe_open(void)
     fe.set_input_poll(fe_input_poll);
     fe.set_input_state(fe_input_state);
     fe.init();
+}
+
+/* The frontend a case gets unless it wants an older one: current core
+ * options, and the input bitmask a modern frontend offers. */
+static void fe_open(void)
+{
+    fe_open_as(2, true);
 }
 
 static void fe_close(void)

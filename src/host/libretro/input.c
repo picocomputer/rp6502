@@ -272,6 +272,13 @@ static unsigned port_device[PAD_PLAYERS] = {
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD,
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
 static bool port_live[PAD_PLAYERS];
+static bool have_bitmasks;
+
+void input_init(retro_environment_t environ_cb)
+{
+    /* One call per pad instead of sixteen, where the frontend offers it. */
+    have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
+}
 
 void input_set_port_device(unsigned port, unsigned device)
 {
@@ -288,13 +295,16 @@ void input_set_port_device(unsigned port, unsigned device)
 /* A face/shoulder button, taking the analog reading where the frontend has
  * one. A frontend without analog buttons answers 0 to the analog query, which
  * is also what a released button reads, so the digital query settles it. */
-static uint16_t button_value(retro_input_state_t state, unsigned port, unsigned id)
+static uint16_t button_value(retro_input_state_t state, unsigned port, unsigned id,
+                             int16_t mask)
 {
     uint16_t v = (uint16_t)state(port, RETRO_DEVICE_ANALOG,
                                  RETRO_DEVICE_INDEX_ANALOG_BUTTON, id);
     if (v)
         return v;
-    return state(port, RETRO_DEVICE_JOYPAD, 0, id) ? 0x7FFF : 0;
+    bool down = have_bitmasks ? (mask & (1 << id)) != 0
+                              : state(port, RETRO_DEVICE_JOYPAD, 0, id) != 0;
+    return down ? 0x7FFF : 0;
 }
 
 static void poll_pads(retro_input_state_t state)
@@ -327,13 +337,19 @@ static void poll_pads(retro_input_state_t state)
             {RETRO_DEVICE_ID_JOYPAD_L3, PAD_BTN_L3},
             {RETRO_DEVICE_ID_JOYPAD_R3, PAD_BTN_R3},
         };
+        int16_t mask = 0;
+        if (have_bitmasks)
+            mask = state((unsigned)p, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_MASK);
         for (size_t i = 0; i < sizeof digital / sizeof *digital; i++)
-            pad_button_apply(digital[i].btn,
-                             state((unsigned)p, RETRO_DEVICE_JOYPAD, 0, digital[i].id) != 0,
-                             &dpad, &b0, &b1);
+        {
+            bool down = have_bitmasks
+                            ? (mask & (1 << digital[i].id)) != 0
+                            : state((unsigned)p, RETRO_DEVICE_JOYPAD, 0, digital[i].id) != 0;
+            pad_button_apply(digital[i].btn, down, &dpad, &b0, &b1);
+        }
 
-        uint16_t lt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_L2);
-        uint16_t rt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_R2);
+        uint16_t lt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_L2, mask);
+        uint16_t rt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_R2, mask);
         pad_button_apply(PAD_BTN_L2, lt != 0, &dpad, &b0, &b1);
         pad_button_apply(PAD_BTN_R2, rt != 0, &dpad, &b0, &b1);
 
@@ -347,7 +363,12 @@ static void poll_pads(retro_input_state_t state)
         int ry = state((unsigned)p, RETRO_DEVICE_ANALOG,
                        RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
 
-        pad_connect(p, true, PAD_TYPE_WESTERN, port_device[p] == RETRO_DEVICE_ANALOG);
+        /* A RetroPad is a western-layout pad with two sticks — that is the
+         * abstraction, whatever hardware is behind it. Claiming the sticks
+         * only for RETRO_DEVICE_ANALOG would deny them to most players,
+         * because a frontend reports a plain joypad for an analog controller
+         * unless someone goes and changes it. */
+        pad_connect(p, true, PAD_TYPE_WESTERN, true);
         port_live[p] = true;
         pad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);
     }

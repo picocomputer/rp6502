@@ -144,15 +144,104 @@ unsigned retro_api_version(void)
     return RETRO_API_VERSION;
 }
 
+/* What each RetroPad button does on this machine, so a frontend's remapper
+ * and its on-screen pad have something to say instead of a number. The
+ * machine's pad is a modern one and the mapping is positional, so the labels
+ * are the machine's own names for the buttons under the same thumbs. */
+static const struct retro_input_descriptor input_descriptors[] = {
+#define PAD_DESC(port)                                                             \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up"},         \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down"},     \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left"},     \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_RIGHT, "D-Pad Right"},   \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_B, "A"},                 \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_A, "B"},                 \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_Y, "X"},                 \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_X, "Y"},                 \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L, "L1"},                \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R, "R1"},                \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L2, "L2"},               \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R2, "R2"},               \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_L3, "L3"},               \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_R3, "R3"},               \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_SELECT, "Select"},       \
+    {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_START, "Start"},         \
+    {port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,                    \
+     RETRO_DEVICE_ID_ANALOG_X, "Left Stick X"},                                    \
+    {port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_LEFT,                    \
+     RETRO_DEVICE_ID_ANALOG_Y, "Left Stick Y"},                                    \
+    {port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT,                   \
+     RETRO_DEVICE_ID_ANALOG_X, "Right Stick X"},                                   \
+    {port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT,                   \
+     RETRO_DEVICE_ID_ANALOG_Y, "Right Stick Y"}
+    PAD_DESC(0), PAD_DESC(1), PAD_DESC(2), PAD_DESC(3),
+#undef PAD_DESC
+    {0, 0, 0, 0, NULL},
+};
+
+/* The machine has four pads and reads them as one modern controller each.
+ * Saying so is how a frontend knows the ports exist at all. */
+static const struct retro_controller_description pad_types[] = {
+    {"Gamepad", RETRO_DEVICE_JOYPAD},
+    {"Gamepad (Analog)", RETRO_DEVICE_ANALOG},
+    {NULL, 0},
+};
+
+static const struct retro_controller_info controller_info[] = {
+    {pad_types, 2}, {pad_types, 2}, {pad_types, 2}, {pad_types, 2}, {NULL, 0},
+};
+
+/* The same options a frontend too old for v2 can still read. Two forms cover
+ * every frontend there is: v2 is what a current one wants, and SET_VARIABLES
+ * is what every version understood before options had versions at all — a
+ * frontend that speaks the v1 in between speaks this too. Built from the one
+ * list above so a new option cannot reach half the frontends. */
+static struct retro_variable variables[
+    sizeof option_defs / sizeof *option_defs];
+static char variable_text[sizeof option_defs / sizeof *option_defs][256];
+
+static void declare_options(retro_environment_t cb)
+{
+    unsigned version = 0;
+    if (cb(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &version) && version >= 2)
+    {
+        cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, &options_v2);
+        return;
+    }
+
+    /* "label; first|second|third", the shape every frontend has understood
+     * since before core options had versions. */
+    size_t n = 0;
+    for (const struct retro_core_option_v2_definition *d = option_defs; d->key; d++, n++)
+    {
+        size_t at = (size_t)snprintf(variable_text[n], sizeof variable_text[0],
+                                     "%s; ", d->desc);
+        /* The default goes first: that is how this form says which it is. */
+        for (int pass = 0; pass < 2; pass++)
+            for (const struct retro_core_option_value *v = d->values; v->value; v++)
+            {
+                bool is_default = d->default_value && !strcmp(v->value, d->default_value);
+                if (is_default != (pass == 0))
+                    continue;
+                if (at < sizeof variable_text[0])
+                    at += (size_t)snprintf(variable_text[n] + at,
+                                           sizeof variable_text[0] - at, "%s%s",
+                                           at && variable_text[n][at - 1] != ' ' ? "|" : "",
+                                           v->value);
+            }
+        variables[n].key = d->key;
+        variables[n].value = variable_text[n];
+    }
+    variables[n].key = NULL;
+    variables[n].value = NULL;
+    cb(RETRO_ENVIRONMENT_SET_VARIABLES, variables);
+}
+
 void retro_set_environment(retro_environment_t cb)
 {
     environ_cb = cb;
-
-    unsigned version = 0;
-    if (cb(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &version) && version >= 2)
-        cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, &options_v2);
-    else
-        cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL, &options_v2);
+    declare_options(cb);
+    cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void *)controller_info);
 }
 
 void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
@@ -170,7 +259,10 @@ void retro_init(void)
 
     struct retro_keyboard_callback kb = {input_keyboard_event};
     if (environ_cb)
+    {
         environ_cb(RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK, &kb);
+        input_init(environ_cb);
+    }
 }
 
 void retro_deinit(void)
@@ -299,6 +391,8 @@ bool retro_load_game(const struct retro_game_info *game)
     if (!fs_realpath(given, loaded_rom, sizeof loaded_rom))
         snprintf(loaded_rom, sizeof loaded_rom, "%s", given);
 
+    environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_descriptors);
+
     enter_save_directory(game->path);
 
     return boot(loaded_rom);
@@ -426,7 +520,9 @@ void *retro_get_memory_data(unsigned id)
     switch (id)
     {
     case RETRO_MEMORY_SYSTEM_RAM: return ram;
-    case RETRO_MEMORY_VIDEO_RAM: return xram;
+    /* xram is volatile because the machine's own readers race the bus with
+     * it; a frontend reading it between frames does not. */
+    case RETRO_MEMORY_VIDEO_RAM: return (void *)xram;
     default: return NULL;
     }
 }
