@@ -1,15 +1,22 @@
 # The POSIX host seam, for the hosts whose OS is one.
 #
-# Linux and macOS share all four of these files and differ only in the entropy
+# Linux and macOS share all of these files and differ only in the entropy
 # source and the frame-pacer sleep, which is what each one's own host.c is.
 # The web and Android hosts take dir.c and host.c from here directly and bring
 # their own fs.c — neither has <aio.h> — so they do not include this.
+#
+# fs.c is the seam minus its byte transport, and the transport is a file of
+# its own because there is more than one right answer: fs_aio.c for a host
+# that owns its process, fs_sync.c for one that is a guest in someone
+# else's. This include takes the asynchronous one; a root that wants the
+# other names these three files itself.
 #
 # Included after emu.cmake: it adds to emu_core.
 
 target_sources(emu_core PRIVATE
     ${RP6502_SRC}/core/posix/dir.c
     ${RP6502_SRC}/core/posix/fs.c
+    ${RP6502_SRC}/core/posix/fs_aio.c
     ${RP6502_SRC}/core/posix/host.c)
 
 # POSIX AIO. On macOS aio_read is in libc and there is no librt to find; the

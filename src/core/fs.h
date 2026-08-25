@@ -9,9 +9,10 @@
  *
  * The software hosts' seam: the emulator's drives are a real filesystem
  * underneath, and each OS answers these its own way -- core/posix/fs.c for the
- * POSIX family, host/win/fs.c, host/web/fs.c, host/android/fs.c. A Pico has its
- * own storage and a Pocket has the card, so neither implements any of it and
- * neither compiles a caller.
+ * POSIX family (with its byte transport beside it, fs_aio.c or fs_sync.c),
+ * host/win/fs.c, host/web/fs.c, host/android/fs.c. A Pico has its own storage
+ * and a Pocket has the card, so neither implements any of it and neither
+ * compiles a caller.
  */
 
 #ifndef _CORE_FS_H_
@@ -61,7 +62,7 @@ typedef enum
 
 FILE *fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
 int fs_open(const char *path, int flags, int mode);
-int fs_close(int fd); /* reaps a still-in-flight fs_read/fs_write on this fd first */
+int fs_close(int fd); /* settles a still-in-flight fs_read/fs_write on this fd first */
 int64_t fs_lseek(int fd, int64_t off, int whence);
 int fs_ftruncate(int fd, int64_t length);
 fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
