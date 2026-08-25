@@ -18,6 +18,7 @@
 #include "ria/sys/mem.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
+#include "core/sys/rom_rec.h"
 #include "sys/path.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
@@ -48,8 +49,7 @@ static enum {
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
-static bool rom_has_reset_lo;
-static bool rom_has_reset_hi;
+static rom_rec_vectors_t rom_vectors;
 static bool lfs_file_open;
 static lfs_file_t lfs_file;
 LFS_FILE_CONFIG(lfs_file_config, static);
@@ -209,8 +209,7 @@ static bool rom_open(const char *path)
             return false;
         }
     }
-    rom_has_reset_lo = false;
-    rom_has_reset_hi = false;
+    rom_vectors = (rom_rec_vectors_t){0};
     return true;
 invalid:
     mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
@@ -265,42 +264,32 @@ static bool rom_next_chunk(void)
         rom_report_io(err);
         return false;
     }
-    if (mbuf[0] == '#')
-        return true; // skip comment lines
-    uint32_t rom_crc;
-    const char *args = (char *)mbuf;
-    if (str_parse_uint32(&args, &rom_addr) &&
-        str_parse_uint32(&args, &rom_len) &&
-        str_parse_uint32(&args, &rom_crc) &&
-        str_parse_end(args))
+    /* A record must fit mbuf whole: this machine stages it there before the
+     * bus carries it across. */
+    rom_rec_t rec;
+    rom_rec_result r = rom_rec_parse((char *)mbuf, MBUF_SIZE, &rec);
+    if (r == ROM_REC_SKIP)
+        return true; /* a blank line or a comment */
+    if (r != ROM_REC_OK)
     {
-        if (rom_addr > 0x1FFFF)
-        {
-            mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-            return false;
-        }
-        if (!rom_len || rom_len > MBUF_SIZE ||
-            (rom_addr < 0x10000 && rom_addr + rom_len > 0x10000) ||
-            (rom_addr + rom_len > 0x20000))
-        {
-            mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-            return false;
-        }
-        if (rom_addr <= 0xFFFC && rom_addr + rom_len > 0xFFFC)
-            rom_has_reset_lo = true;
-        if (rom_addr <= 0xFFFD && rom_addr + rom_len > 0xFFFD)
-            rom_has_reset_hi = true;
-        return rom_read(rom_len, rom_crc);
+        mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+        return false;
     }
-    mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-    return false;
+    rom_addr = rec.addr;
+    rom_len = rec.len;
+    if (!rom_read(rom_len, rec.crc))
+        return false;
+    /* After the read, not before: a record that arrives truncated or fails its
+     * CRC cannot vouch for the vector it was carrying. */
+    rom_rec_note(&rom_vectors, &rec);
+    return true;
 }
 
 static void rom_loading(void)
 {
     if (rom_at_eof())
     {
-        if (rom_has_reset_lo && rom_has_reset_hi)
+        if (rom_rec_complete(&rom_vectors))
         {
             if (usb_boot_enumerating())
                 return;
@@ -406,7 +395,7 @@ void rom_mon_install(const char *args)
     while (!rom_at_eof())
         if (!rom_next_chunk())
             return;
-    if (!rom_has_reset_lo || !rom_has_reset_hi)
+    if (!rom_rec_complete(&rom_vectors))
     {
         mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
         return;

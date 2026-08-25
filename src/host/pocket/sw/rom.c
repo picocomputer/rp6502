@@ -14,6 +14,7 @@
 #include "font.h"
 #include "mmio.h"
 #include "rom.h"
+#include "core/sys/rom_rec.h"
 
 #include "core/api/uni.h"
 #include "core/mem.h"
@@ -99,23 +100,19 @@ bool rom_load_staged(uint32_t len)
         rom_pos = after_magic;
     rom_assets = prog_end < rom_end ? prog_end : 0;
 
-    bool reset_lo = false, reset_hi = false;
+    rom_rec_vectors_t vectors = {0};
     while (rom_pos < prog_end)
     {
         n = rom_gets(line, sizeof(line));
         if (n < 0)
             break;
-        if (n == 0 || line[0] == '#')
+        rom_rec_t rec;
+        rom_rec_result r = rom_rec_parse(line, 0, &rec);
+        if (r == ROM_REC_SKIP)
             continue;
-        const char *p = line;
-        uint32_t addr, reclen, crc;
-        if (!str_parse_uint32(&p, &addr) || !str_parse_uint32(&p, &reclen) ||
-            !str_parse_uint32(&p, &crc) || !str_parse_end(p))
+        if (r != ROM_REC_OK)
             return false;
-        /* RAM below 0x10000, XRAM above, never straddling. */
-        if (addr > 0x1FFFF || reclen == 0 || reclen > 0x20000 - addr ||
-            (addr < 0x10000 && reclen > 0x10000 - addr))
-            return false;
+        const uint32_t addr = rec.addr, reclen = rec.len, crc = rec.crc;
         if (rom_end - rom_pos < reclen)
             return false;
         uint32_t c = 0xFFFFFFFFu;
@@ -135,13 +132,10 @@ bool rom_load_staged(uint32_t len)
         }
         if ((c ^ 0xFFFFFFFFu) != crc)
             return false;
-        if (addr <= 0xFFFC && addr + reclen > 0xFFFC)
-            reset_lo = true;
-        if (addr <= 0xFFFD && addr + reclen > 0xFFFD)
-            reset_hi = true;
+        rom_rec_note(&vectors, &rec);
     }
 
-    return reset_lo && reset_hi;
+    return rom_rec_complete(&vectors);
 }
 
 /* The ROM: drive: read-only windows onto assets in the staged image. An

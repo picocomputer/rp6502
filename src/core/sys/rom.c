@@ -8,6 +8,7 @@
 #include "core/sys/log.h"
 #include "core/sys/msc.h"
 #include "core/sys/rom.h"
+#include "core/sys/rom_rec.h"
 #include "host/fs.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
@@ -419,30 +420,29 @@ bool rom_load(const char *path)
     g_rom_assets_start = (prog_end >= 0) ? (size_t)prog_end : 0;
 
     /* Program memory-chunk records: stream each straight into ram[]/xram[]. */
-    bool reset_lo = false, reset_hi = false;
+    rom_rec_vectors_t vectors = {0};
     while (prog_end < 0 || ftell(f) < prog_end)
     {
         n = fgets_line(f, line, sizeof(line));
         if (n < 0)
             break; /* EOF (classic) */
-        if (n == 0 || line[0] == '#')
-            continue; /* blank or comment */
-        const char *p = line;
-        uint32_t addr, len, crc;
-        if (!str_parse_uint32(&p, &addr) || !str_parse_uint32(&p, &len) ||
-            !str_parse_uint32(&p, &crc) || !str_parse_end(p))
+        rom_rec_t rec;
+        rom_rec_result r = rom_rec_parse(line, 0, &rec);
+        if (r == ROM_REC_SKIP)
+            continue;
+        if (r == ROM_REC_MALFORMED)
         {
             log_error("malformed data record: %s", line);
             fclose(f);
             return false;
         }
-        if (addr > 0x1FFFF || len == 0 || len > 0x20000 - addr ||
-            (addr < 0x10000 && len > 0x10000 - addr))
+        if (r == ROM_REC_RANGE)
         {
-            log_error("data record out of range (addr=$%X len=$%X)", addr, len);
+            log_error("data record out of range (addr=$%X len=$%X)", rec.addr, rec.len);
             fclose(f);
             return false;
         }
+        const uint32_t addr = rec.addr, len = rec.len, crc = rec.crc;
         uint8_t *dst = (addr > 0xFFFF) ? (uint8_t *)&xram[addr - 0x10000] : &ram[addr];
         /* A ROM load must not write the RIA register window. The firmware's
          * ria_write_buf skips $FF00-$FFF9 (only the $FFFA-$FFFF vectors land in
@@ -472,17 +472,14 @@ bool rom_load(const char *path)
         for (uint32_t a = 0xFFFA; a < 0x10000; a++)
             if (a >= addr && a < addr + len)
                 regs[a & 0x1F] = ram[a];
-        if (addr <= 0xFFFC && addr + len > 0xFFFC)
-            reset_lo = true;
-        if (addr <= 0xFFFD && addr + len > 0xFFFD)
-            reset_hi = true;
+        rom_rec_note(&vectors, &rec);
     }
 
     /* Named assets follow the program chunks; they are not parsed here — a ROM:
      * open scans the directory (from g_rom_assets_start) for the named entry and
      * reads it on demand, so the bytes never enter RAM. */
     fclose(f);
-    if (!reset_lo || !reset_hi)
+    if (!rom_rec_complete(&vectors))
     {
         log_error("ROM has no reset vector ($FFFC/$FFFD)");
         return false;
