@@ -36,15 +36,22 @@ rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
     SPARSE include WANTS "the libretro API header")
 set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 
-# The POSIX seam without posix.cmake, for its byte transport: a core is
-# unloaded at the frontend's convenience, and glibc's POSIX AIO would still
-# have helper threads holding a buffer inside a library that is going away.
-target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/core/posix/dir.c
-    ${RP6502_SRC}/core/posix/fs.c
-    ${RP6502_SRC}/core/posix/fs_sync.c
-    ${RP6502_SRC}/core/posix/host.c
-    host.c)
+# The host OS seam. Windows takes the Win32 one whole: overlapped I/O is the
+# kernel's own, so there is nothing left running inside a library a frontend
+# unloads. Everyone else takes the POSIX seam without posix.cmake, for its
+# byte transport — glibc's POSIX AIO would still have helper threads holding
+# a buffer inside a library that is going away.
+if(WIN32)
+    include(${RP6502_SRC}/core/windows/windows.cmake)
+    target_sources(emu_core PRIVATE host_win.c)
+else()
+    target_sources(emu_core PRIVATE
+        ${RP6502_SRC}/core/posix/dir.c
+        ${RP6502_SRC}/core/posix/fs.c
+        ${RP6502_SRC}/core/posix/fs_sync.c
+        ${RP6502_SRC}/core/posix/host.c
+        host.c)
+endif()
 
 # Everything that reaches a shared object has to be relocatable, emu_core
 # included — it is a static library only on the way in.
@@ -66,18 +73,35 @@ target_link_libraries(rp6502_libretro PRIVATE emu_core)
 target_include_directories(rp6502_libretro PRIVATE ${RP6502_LIBRETRO_INCLUDE})
 target_include_directories(emu_core PUBLIC ${RP6502_LIBRETRO_INCLUDE})
 
-if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE AND NOT WIN32)
-    # The ABI is the entire export surface. libretro.h marks the retro_*
-    # definitions visible itself, so hiding everything by default leaves
-    # exactly them, and the version script says so a second time where a
-    # toolchain would otherwise re-export what it inlined.
+# The ABI is the entire export surface. libretro.h marks the retro_*
+# definitions visible itself, so hiding everything by default leaves exactly
+# them; each format then says so a second time, where a toolchain would
+# otherwise re-export what it inlined. MSVC needs none of this — dllexport
+# is the whole mechanism there and nothing is exported without it.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(emu_core PRIVATE -fvisibility=hidden)
     target_compile_options(rp6502_libretro PRIVATE -fvisibility=hidden)
-    target_link_options(rp6502_libretro PRIVATE
-        -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/link.T
-        -Wl,--no-undefined)
-    set_target_properties(rp6502_libretro PROPERTIES
-        LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/link.T)
+    if(APPLE)
+        # ld64 takes an export list, not a version script.
+        target_link_options(rp6502_libretro PRIVATE
+            -Wl,-exported_symbols_list,${CMAKE_CURRENT_LIST_DIR}/link_apple.exp)
+        set_target_properties(rp6502_libretro PROPERTIES
+            LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/link_apple.exp)
+    elseif(WIN32)
+        # A PE export table is the dllexports libretro.h already wrote, and
+        # their presence is what turns off MinGW ld's export-everything
+        # default — so there is nothing left to hide and no script to say it
+        # with. -static-libgcc keeps the DLL from wanting a runtime nobody
+        # who downloads a core has.
+        target_link_options(rp6502_libretro PRIVATE
+            -Wl,--no-undefined -static-libgcc)
+    else()
+        target_link_options(rp6502_libretro PRIVATE
+            -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/link.T
+            -Wl,--no-undefined)
+        set_target_properties(rp6502_libretro PROPERTIES
+            LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/link.T)
+    endif()
 endif()
 
 rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/core/emu/app/version.c)

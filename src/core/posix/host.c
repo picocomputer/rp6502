@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * POSIX-family host-OS primitives (core/host.h host_*), shared by linux,
- * macos, web and android; the counterpart of host/win/host.c. The two that
+ * macos, web and android; the counterpart of core/windows/host.c. The two that
  * differ by OS, host_entropy_64 and host_sleep_until_ns, are in each host's
  * own host.c.
  */

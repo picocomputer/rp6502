@@ -6,7 +6,7 @@
  * Shared Win32 seam helpers. See win/win.h.
  */
 
-#include "host/win/win.h"
+#include "core/windows/win.h"
 #include <errno.h>
 
 void win_set_errno(DWORD e)

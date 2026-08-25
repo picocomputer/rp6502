@@ -16,7 +16,7 @@
 #include <stdio.h>
 /* The case-insensitive compares a layout name is matched with. Named by
  * POSIX rather than by C, and a host that has no such header supplies
- * one — see src/host/win. */
+ * one — see src/core/windows. */
 #include <strings.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)

@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Small helpers shared by the Win32 seam implementations (win/{fs,dir,os}.c).
+ * Small helpers shared by the Win32 seam implementations (core/windows/{fs,dir,host}.c).
  */
 
-#ifndef _HOST_WIN_WIN_H_
-#define _HOST_WIN_WIN_H_
+#ifndef _CORE_WINDOWS_WIN_H_
+#define _CORE_WINDOWS_WIN_H_
 
 #include <windows.h>
 
@@ -19,4 +19,4 @@ void win_set_errno(DWORD e);
 /* Rewrite '\\' to '/' in place (guest paths are '/'-separated). */
 void win_to_slash(char *p);
 
-#endif /* _HOST_WIN_WIN_H_ */
+#endif /* _CORE_WINDOWS_WIN_H_ */

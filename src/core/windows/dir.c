@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows directory enumeration (host/host.h dir_*), the Win32 counterpart of
+ * Windows directory enumeration (core/dir.h dir_*), the Win32 counterpart of
  * core/posix/dir.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
@@ -14,7 +14,7 @@
 
 #include "core/dir.h"
 #include "core/api/oem.h"
-#include "host/win/win.h"
+#include "core/windows/win.h"
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>

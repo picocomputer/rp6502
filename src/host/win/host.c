@@ -3,52 +3,21 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows host-OS primitives (core/host.h host_*), the Win32 counterpart of
- * core/posix/host.c. Several are documented no-ops because the Win32 presentation path
- * already provides the behavior (D3D11 Present paces the frame loop; MSVC's
- * struct tm has no timezone fields and strftime uses the thread locale).
+ * Win32 primitives that are this program's rather than the operating
+ * system's. What Windows answers for every host of ours is in
+ * core/windows/host.c; these three differ because the emulator is a program
+ * with a window and a console and an ANSI main(), and a libretro core is
+ * none of those things.
  */
 
 #include "host.h"
 #include "core/api/oem.h"
-#include "core/emu/app/cli.h"          /* host_console_attach */
-#include "core/emu/app/rand.h"         /* host_entropy_64 */
-#include "core/emu/app/window.h"       /* host_mono_ns, host_sleep_until_ns */
-#include "core/emu/dbg/dbgui_layout.h" /* host_config_dir, host_ensure_parent_dir */
-#include "host/win/win.h"
-#include <direct.h>
-#include <io.h>
+#include "core/emu/app/cli.h"    /* host_console_attach */
+#include "core/emu/app/window.h" /* host_sleep_until_ns */
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <windows.h>
-
-/* ---- entropy ---- */
-
-uint64_t host_entropy_64(void)
-{
-    LARGE_INTEGER f, c;
-    FILETIME ft;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&c);
-    GetSystemTimeAsFileTime(&ft);
-    uint64_t s = (uint64_t)c.QuadPart * 6364136223846793005ull +
-                 ((uint64_t)ft.dwHighDateTime << 32 | ft.dwLowDateTime) +
-                 (uint64_t)(uintptr_t)&f + (uint64_t)f.QuadPart;
-    return s ? s : 1;
-}
-
-/* ---- monotonic clock + frame-pacer sleep ---- */
-
-uint64_t host_mono_ns(void)
-{
-    LARGE_INTEGER f, c;
-    QueryPerformanceFrequency(&f);
-    QueryPerformanceCounter(&c);
-    return (uint64_t)((double)c.QuadPart * 1e9 / (double)f.QuadPart);
-}
 
 void host_sleep_until_ns(uint64_t target)
 {
@@ -57,42 +26,6 @@ void host_sleep_until_ns(uint64_t target)
 
 /* ---- broken-down time ---- */
 
-bool host_localtime(time_t t, struct tm *out)
-{
-    return localtime_s(out, &t) == 0;
-}
-
-bool host_gmtime(time_t t, struct tm *out)
-{
-    return gmtime_s(out, &t) == 0;
-}
-
-/* ---- host-locale strftime ---- */
-
-void host_locale_reset(void) {} /* MSVC strftime uses the thread locale directly */
-
-size_t host_strftime_local(char *buf, size_t max, const char *fmt, const struct tm *tm)
-{
-    return strftime(buf, max, fmt, tm);
-}
-
-void host_tm_apply_zone(struct tm *tm, const struct tm *probe)
-{
-    (void)tm, (void)probe; /* MSVC struct tm carries no tm_gmtoff/tm_zone */
-}
-
-/* ---- config location ---- */
-
-bool host_config_dir(char *buf, size_t sz)
-{
-    const char *base = getenv("APPDATA");
-    if (!base || !base[0])
-        return false;
-    snprintf(buf, sz, "%s\\rp6502-emu", base);
-    return true;
-}
-
-/* GUI-subsystem processes don't inherit an interactive console's stdio. */
 void host_console_attach(void)
 {
     HANDLE pre_out = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -108,27 +41,6 @@ void host_console_attach(void)
         freopen("CONIN$", "r", stdin);
 }
 
-void host_ensure_parent_dir(const char *filepath)
-{
-    char tmp[1024];
-    snprintf(tmp, sizeof tmp, "%s", filepath);
-    char *s1 = strrchr(tmp, '/');
-    char *s2 = strrchr(tmp, '\\');
-    char *slash = (s2 > s1) ? s2 : s1;
-    if (!slash || slash == tmp)
-        return;
-    *slash = 0;
-    for (char *p = tmp + 1; *p; p++)
-        if (*p == '/' || *p == '\\')
-        {
-            char c = *p;
-            *p = 0;
-            _mkdir(tmp);
-            *p = c;
-        }
-    _mkdir(tmp);
-}
-
 /* The ANSI main()'s argv is in the process ACP, not UTF-8. */
 bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
@@ -139,28 +51,4 @@ bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
         return false;
     oem_from_wide((const uint16_t *)w, dst, dstsz);
     return true;
-}
-
-/* ---- test-only helpers ---- */
-
-bool host_make_tmpdir(char *buf, size_t sz)
-{
-    wchar_t tmp[MAX_PATH], name[MAX_PATH];
-    if (GetTempPathW(MAX_PATH, tmp) == 0)
-        return false;
-    /* GetTempFileNameW makes a uniquely-named file; drop it and reuse the name
-     * for a directory (the Win32 stand-in for mkdtemp). */
-    if (GetTempFileNameW(tmp, L"rp6", 0, name) == 0)
-        return false;
-    _wunlink(name);
-    if (_wmkdir(name) != 0)
-        return false;
-    oem_from_wide((const uint16_t *)name, buf, sz);
-    win_to_slash(buf);
-    return true;
-}
-
-void host_setenv(const char *name, const char *value)
-{
-    _putenv_s(name, value);
 }

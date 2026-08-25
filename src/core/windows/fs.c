@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows filesystem primitives (host/host.h fs_*), the Win32 counterpart of
+ * Windows filesystem primitives (core/fs.h fs_*), the Win32 counterpart of
  * core/posix/fs.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
@@ -19,11 +19,19 @@
  *   - byte I/O uses overlapped HANDLEs (FILE_FLAG_OVERLAPPED) with a tracked offset, so
  *     fs_read/fs_write are the non-blocking transfer; fs_open returns an index into
  *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
+ *
+ * The transport stays in this file, where core/posix keeps its own in
+ * fs_aio.c and fs_sync.c. There is no second answer to choose between:
+ * overlapped I/O is the kernel's, so unlike glibc's POSIX AIO there is no
+ * pool of helper threads that could outlive an unloaded library, and
+ * fs_close settles the one transfer in flight. And the transport owns
+ * fs_open — the overlapped flag is given when the handle is made — so it
+ * could not be lifted out of here even if there were a reason to.
  */
 
 #include "core/fs.h"
 #include "core/api/oem.h"
-#include "host/win/win.h"
+#include "core/windows/win.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>

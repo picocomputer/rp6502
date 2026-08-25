@@ -24,8 +24,8 @@ include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
 include(${RP6502_SRC}/core/emu/emu.cmake)
-# No POSIX seam here: this host answers all four of them itself.
-target_sources(emu_core PRIVATE dir.c fs.c host.c win.c)
+include(${RP6502_SRC}/core/windows/windows.cmake)
+target_sources(emu_core PRIVATE host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

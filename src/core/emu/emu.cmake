@@ -175,7 +175,7 @@ if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 else()
     # Shims MSVC alone needs, including a <strings.h> it has no system header for.
-    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/win)
+    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/core/windows)
     target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.

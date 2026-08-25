@@ -80,12 +80,14 @@ include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
 include(${RP6502_SRC}/core/emu/emu.cmake)
-# Bionic has no <aio.h> and we don't thread host I/O, so Android gets its own
-# synchronous fs seam (like web). dir stays on posix; os = posix common + android.
+# Bionic has no <aio.h>, and the shared seam has a synchronous transport for
+# exactly that reason — the libretro core takes the same pair on every OS
+# that is not Windows. One bionic filesystem answer, not two.
 target_sources(emu_core PRIVATE
     ${RP6502_SRC}/core/posix/dir.c
+    ${RP6502_SRC}/core/posix/fs.c
+    ${RP6502_SRC}/core/posix/fs_sync.c
     ${RP6502_SRC}/core/posix/host.c
-    fs.c
     host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

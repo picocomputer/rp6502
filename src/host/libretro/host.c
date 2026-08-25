@@ -3,21 +3,34 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The one host-OS primitive that differs from the shared core/posix/host.c:
- * entropy. There is no frame-pacer sleep here — the frontend paces the core,
- * so nothing in this host ever waits.
+ * The one POSIX primitive this host answers itself: entropy. Everything else
+ * a POSIX system has to say is in core/posix/host.c, and there is no
+ * frame-pacer sleep here because the frontend paces the core — nothing in
+ * this host ever waits.
+ *
+ * /dev/urandom rather than getrandom(2), which is Linux's and is gated
+ * behind API 28 on Android. This one host spans Linux, macOS and Android,
+ * and the file is there on all of them; what reads the result is the
+ * reproducibility PRNG in core/emu/app/rand.c, not a key.
  */
 
 #include "host.h"
 #include "core/emu/app/rand.h" /* host_entropy_64 */
-#include <sys/random.h>
+#include <fcntl.h>
 #include <time.h>
+#include <unistd.h>
 
 uint64_t host_entropy_64(void)
 {
     uint64_t s;
-    if (getrandom(&s, sizeof s, 0) == (ssize_t)sizeof s && s)
-        return s;
+    int fd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+    if (fd >= 0)
+    {
+        ssize_t got = read(fd, &s, sizeof s);
+        close(fd);
+        if (got == (ssize_t)sizeof s && s)
+            return s;
+    }
     struct timespec mono = {0}, real = {0};
     clock_gettime(CLOCK_MONOTONIC, &mono);
     clock_gettime(CLOCK_REALTIME, &real);
