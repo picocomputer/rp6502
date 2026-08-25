@@ -74,7 +74,7 @@ static inline int32_t dsys_axsreg(void)
     return (int32_t)((uint32_t)lo | ((uint32_t)API_SREG << 16));
 }
 
-/* Decode the FILINFO a stat/readdir handler pushed (reverse of dir_push_filinfo). */
+/* Decode the FILINFO a stat/readdir handler pushed (reverse of fat_push_filinfo). */
 static inline void dsys_filinfo(FILINFO *fno)
 {
     size_t p = xstack_ptr;

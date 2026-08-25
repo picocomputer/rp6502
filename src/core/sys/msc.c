@@ -12,6 +12,7 @@
 #include "host/dir.h"
 #include "host.h"
 #include "core/sys/mem.h"
+#include "core/api/fat.h"
 #include "fatfs/ff.h"
 #include <ctype.h>
 #include <errno.h>
@@ -416,27 +417,6 @@ static void info_from_stat(FILINFO *fno, const struct fs_meta *m, const char *na
     fat_pack_time(m->crtime, &fno->crdate, &fno->crtime);
 }
 
-/* Push one entry in the firmware FILINFO byte order: fields reversed so they land
- * forward in the 6502-visible struct (mirrors firmware dir_push_filinfo). */
-static bool dir_push_filinfo(FILINFO *fno)
-{
-    bool ok = true;
-    for (int i = FF_LFN_BUF; i >= 0; i--)
-        ok &= api_push_char(&fno->fname[i]);
-    for (int i = FF_SFN_BUF; i >= 0; i--)
-        ok &= api_push_char(&fno->altname[i]);
-    ok &= api_push_uint8(&fno->fattrib);
-    ok &= api_push_uint16(&fno->crtime);
-    ok &= api_push_uint16(&fno->crdate);
-    ok &= api_push_uint16(&fno->ftime);
-    ok &= api_push_uint16(&fno->fdate);
-    uint32_t fsize = fno->fsize;
-    if (fno->fsize > 0xFFFFFFFF)
-        fsize = 0xFFFFFFFF;
-    ok &= api_push_uint32(&fsize);
-    return ok;
-}
-
 /* Fail the syscall from the current errno (mapped to an api_errno). */
 static bool host_err(void)
 {
@@ -539,7 +519,7 @@ bool msc_api_stat(void)
     const char *base = strrchr(host, '/');
     FILINFO fno;
     info_from_stat(&fno, &meta, base ? base + 1 : host);
-    if (!dir_push_filinfo(&fno))
+    if (!fat_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
@@ -573,7 +553,7 @@ bool msc_api_readdir(void)
     api_errno err;
     if (host_next_entry(API_A, &fno, &err) < 0)
         return api_return_errno(err);
-    if (!dir_push_filinfo(&fno))
+    if (!fat_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }

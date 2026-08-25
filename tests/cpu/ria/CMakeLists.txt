@@ -50,7 +50,7 @@ rp6502_add_test(adventure LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
 rp6502_add_test(exec LIBS emu_core FIXTURE exec.rp6502 TIMEOUT 60)
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---
-rp6502_add_test(rtc SOURCES test_rtc.c ${RP6502_BENCH}/tb_hostos.c
+rp6502_add_test(rtc SOURCES test_rtc.c ${RP6502_TB_HOSTOS}
     LIBS emu_core FIXTURE rtc.rp6502 TIMEOUT 60)
 
 # --- Master clock + PHI2 in the emulator (reproducible run timing) ---

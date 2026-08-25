@@ -10,7 +10,7 @@
 #include "core/sys/rom.h"
 #include "host/fs.h"
 #include "core/sys/mem.h"
-#include <ctype.h>
+#include "core/str/str.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -34,7 +34,6 @@ static size_t g_rom_assets_start;
 static uint32_t g_rom_generation; /* bumped per successful rom_load; ROM Help watches it */
 
 static long fgets_line(FILE *f, char *line, size_t cap);
-static bool parse_u32(const char **pp, uint32_t *out);
 
 /* Name the backing .rp6502 for the ROM: drive; the loader also records where its
  * asset directory begins (g_rom_assets_start). */
@@ -72,7 +71,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
         {
             const char *p = line + 2;
             uint32_t alen, acrc;
-            if (!parse_u32(&p, &alen) || !parse_u32(&p, &acrc))
+            if (!str_parse_uint32(&p, &alen) || !str_parse_uint32(&p, &acrc))
                 break;
             while (*p == ' ' || *p == '\t')
                 p++;
@@ -264,52 +263,6 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
     return rom_window_open(g_rom_src, base, len, err);
 }
 
-static bool parse_u32(const char **pp, uint32_t *out)
-{
-    const char *p = *pp;
-    while (*p == ' ' || *p == '\t')
-        p++;
-    uint32_t v = 0;
-    int n = 0;
-    bool hex = false;
-    if (*p == '$')
-    {
-        hex = true;
-        p++;
-    }
-    else if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
-    {
-        hex = true;
-        p += 2;
-    }
-    if (hex)
-        while (isxdigit((unsigned char)*p))
-        {
-            char c = *p++;
-            int d = (c <= '9') ? c - '0' : (toupper((unsigned char)c) - 'A' + 10);
-            v = v * 16 + (uint32_t)d;
-            n++;
-        }
-    else
-        while (isdigit((unsigned char)*p))
-        {
-            v = v * 10 + (uint32_t)(*p++ - '0');
-            n++;
-        }
-    if (!n)
-        return false;
-    *pp = p;
-    *out = v;
-    return true;
-}
-
-static bool parse_end(const char *p)
-{
-    while (*p == ' ' || *p == '\t')
-        p++;
-    return *p == 0;
-}
-
 /* Read one text line from f into line[] (NUL-terminated, CR/LF stripped, capped).
  * Returns its length, or -1 at EOF with nothing read. The file position is left
  * at the first byte after the line's newline — i.e. the start of a record's raw
@@ -448,7 +401,7 @@ bool rom_load(const char *path)
     {
         const char *p = line + 2;
         uint32_t chunks_len, image_crc;
-        if (!parse_u32(&p, &chunks_len) || !parse_u32(&p, &image_crc))
+        if (!str_parse_uint32(&p, &chunks_len) || !str_parse_uint32(&p, &image_crc))
         {
             log_error("bad header line");
             fclose(f);
@@ -476,8 +429,8 @@ bool rom_load(const char *path)
             continue; /* blank or comment */
         const char *p = line;
         uint32_t addr, len, crc;
-        if (!parse_u32(&p, &addr) || !parse_u32(&p, &len) ||
-            !parse_u32(&p, &crc) || !parse_end(p))
+        if (!str_parse_uint32(&p, &addr) || !str_parse_uint32(&p, &len) ||
+            !str_parse_uint32(&p, &crc) || !str_parse_end(p))
         {
             log_error("malformed data record: %s", line);
             fclose(f);

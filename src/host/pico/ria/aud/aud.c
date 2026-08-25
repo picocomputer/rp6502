@@ -31,8 +31,6 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #define AUD_R_CHAN (pwm_gpio_to_channel(AUD_R_PIN))
 #define AUD_R_SLICE (pwm_gpio_to_slice_num(AUD_R_PIN))
 
-int16_t aud_sine_table[256];
-
 static irq_handler_t aud_irq_fn;
 static uint32_t aud_irq_rate;
 
@@ -65,9 +63,7 @@ void __in_flash("aud_init") aud_init(void)
     gpio_set_function(AUD_L_PIN, GPIO_FUNC_PWM);
     gpio_set_function(AUD_R_PIN, GPIO_FUNC_PWM);
 
-    // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
-    for (unsigned i = 0; i < 256; i++)
-        aud_sine_table[i] = lround(cos(M_PI * 2.0 / 256 * i) * -32767);
+    aud_sine_init();
 
     irq_set_priority(PWM_IRQ_WRAP_0, PICO_DEFAULT_IRQ_PRIORITY + 0x10);
     psg_setup(aud_native_rate());

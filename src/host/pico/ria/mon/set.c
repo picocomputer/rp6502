@@ -6,6 +6,7 @@
 
 #include "core/api/oem.h"
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbt.h"

@@ -5,6 +5,7 @@
  */
 
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbt.h"
 #include "ria/mon/hlp.h"

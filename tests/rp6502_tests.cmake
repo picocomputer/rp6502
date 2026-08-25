@@ -23,6 +23,14 @@ set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 # and the sys shims for the C tests, the tb_* benches for the RTL ones. Every
 # test gets it on the include path, because which of them a test needs is not
 # worth stating.
+# The two host helpers only tests want, as a translation unit per host rather
+# than one file forked down the middle.
+if(WIN32)
+    set(RP6502_TB_HOSTOS ${CMAKE_CURRENT_LIST_DIR}/bench/tb_hostos_win.c)
+else()
+    set(RP6502_TB_HOSTOS ${CMAKE_CURRENT_LIST_DIR}/bench/tb_hostos_posix.c)
+endif()
+
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
 # The keyboard layouts as a C table. The def files are the source, the

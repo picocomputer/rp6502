@@ -47,6 +47,13 @@ bool main_break(void);
 // to fall back to. A RIA with none registered breaks to the monitor.
 bool main_break_to_launcher(void);
 
+/* PIX XREG register dispatch: device 0 (the RIA's own HID and audio), device 1
+ * (the video device). A machine whose PIX is a real bus takes the two as one
+ * call and routes on the device number; these are the shape for the machines
+ * that deliver to themselves. */
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
+bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
+
 /* The bus between the 6502 and the machine. A machine with no such transfer
  * answers false and never latches. */
 

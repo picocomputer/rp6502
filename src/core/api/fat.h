@@ -19,6 +19,12 @@
 #include <stdbool.h>
 #include "core/api/api.h"
 #include "core/api/std.h"
+#include "fatfs/ff.h"
+
+/* Push one FILINFO onto the xstack in the 6502-visible field order. Shared with
+ * the drives that synthesize a FILINFO of their own rather than reading one from
+ * FatFs -- the layout is this module's either way. */
+bool fat_push_filinfo(FILINFO *fno);
 
 // Convert a FatFs FRESULT to an api_errno.
 api_errno fat_fresult_to_api_errno(unsigned fresult);

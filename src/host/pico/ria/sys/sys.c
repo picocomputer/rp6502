@@ -9,6 +9,7 @@
 #include "core/api/arg.h"
 #include "core/api/pro.h"
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"
 #include "ria/net/ntp.h"

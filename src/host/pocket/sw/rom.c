@@ -16,6 +16,8 @@
 #include "rom.h"
 
 #include "core/api/uni.h"
+#include "core/mem.h"
+#include "core/str/str.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -34,24 +36,6 @@ static uint8_t rom_byte(uint32_t at)
 }
 /* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
-
-/* CRC-32/ISO-HDLC a nibble at a time; the image is checked byte by byte
- * as it lands, so this is the loader's inner loop. Reflected polynomial,
- * low nibble first: t[i] is 0xEDB88320 folded through i four times. */
-static const uint32_t rom_crc_nibble[16] = {
-    0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu,
-    0x76DC4190u, 0x6B6B51F4u, 0x4DB26158u, 0x5005713Cu,
-    0xEDB88320u, 0xF00F9344u, 0xD6D6A3E8u, 0xCB61B38Cu,
-    0x9B64C2B0u, 0x86D3D2D4u, 0xA00AE278u, 0xBDBDF21Cu,
-};
-
-static uint32_t rom_crc32(uint32_t crc, uint8_t byte)
-{
-    crc ^= byte;
-    crc = (crc >> 4) ^ rom_crc_nibble[crc & 0x0F];
-    crc = (crc >> 4) ^ rom_crc_nibble[crc & 0x0F];
-    return crc;
-}
 
 /* One text line, NUL-terminated, CR/LF stripped, capped; length or -1 at
  * end with nothing read. The position is left at the first byte after the
@@ -74,51 +58,6 @@ static long rom_gets(char *line, size_t cap)
     return (long)i;
 }
 
-static bool parse_u32(const char **pp, uint32_t *out)
-{
-    const char *p = *pp;
-    while (*p == ' ' || *p == '\t')
-        p++;
-    uint32_t v = 0;
-    int n = 0;
-    bool hex = false;
-    if (*p == '$')
-    {
-        hex = true;
-        p++;
-    }
-    else if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
-    {
-        hex = true;
-        p += 2;
-    }
-    if (hex)
-        while (isxdigit((unsigned char)*p))
-        {
-            char c = *p++;
-            int d = (c <= '9') ? c - '0' : (toupper((unsigned char)c) - 'A' + 10);
-            v = v * 16 + (uint32_t)d;
-            n++;
-        }
-    else
-        while (isdigit((unsigned char)*p))
-        {
-            v = v * 10 + (uint32_t)(*p++ - '0');
-            n++;
-        }
-    if (!n)
-        return false;
-    *pp = p;
-    *out = v;
-    return true;
-}
-
-static bool parse_end(const char *p)
-{
-    while (*p == ' ' || *p == '\t')
-        p++;
-    return *p == 0;
-}
 
 static int rom_strncasecmp(const char *a, const char *b, size_t n)
 {
@@ -152,7 +91,7 @@ bool rom_load_staged(uint32_t len)
     {
         const char *p = line + 2;
         uint32_t chunks_len, image_crc;
-        if (!parse_u32(&p, &chunks_len) || !parse_u32(&p, &image_crc))
+        if (!str_parse_uint32(&p, &chunks_len) || !str_parse_uint32(&p, &image_crc))
             return false;
         prog_end = rom_pos + chunks_len;
     }
@@ -170,8 +109,8 @@ bool rom_load_staged(uint32_t len)
             continue;
         const char *p = line;
         uint32_t addr, reclen, crc;
-        if (!parse_u32(&p, &addr) || !parse_u32(&p, &reclen) ||
-            !parse_u32(&p, &crc) || !parse_end(p))
+        if (!str_parse_uint32(&p, &addr) || !str_parse_uint32(&p, &reclen) ||
+            !str_parse_uint32(&p, &crc) || !str_parse_end(p))
             return false;
         /* RAM below 0x10000, XRAM above, never straddling. */
         if (addr > 0x1FFFF || reclen == 0 || reclen > 0x20000 - addr ||
@@ -184,7 +123,7 @@ bool rom_load_staged(uint32_t len)
         {
             uint32_t a = addr + i;
             uint8_t b = rom_byte(rom_pos++);
-            c = rom_crc32(c, b);
+            c = mem_crc32(c, &b, 1);
             if (a > 0xFFFF)
                 XRAM_WIN[a - 0x10000] = b;
             /* A load never writes the RIA window's low page; the vectors
@@ -257,7 +196,7 @@ static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
             return false;
         const char *p = line + 2;
         uint32_t alen, acrc;
-        if (!parse_u32(&p, &alen) || !parse_u32(&p, &acrc))
+        if (!str_parse_uint32(&p, &alen) || !str_parse_uint32(&p, &acrc))
             return false;
         while (*p == ' ' || *p == '\t')
             p++;

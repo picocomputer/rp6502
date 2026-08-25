@@ -104,6 +104,20 @@ target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
+A refactor that was meant to move code and not change it can say so.
+`tests/fwsize.py` compares two firmware ELFs function by function, after
+undoing what LTO renames, and reports what resized rather than what the
+section totals drifted by:
+
+    cp build/ria/rp6502-ria-w.elf /tmp/before.elf
+    # ...change something...
+    python3 tests/fwsize.py --nm ~/.pico-sdk/toolchain/15_2_Rel1/bin/arm-none-eabi-nm \
+        /tmp/before.elf build/ria/rp6502-ria-w.elf
+
+It exits non-zero when anything moved, so it also works as a gate in a
+script. The soft CPU's image is `build/rtl/assets/sw.elf` with
+`--nm riscv64-unknown-elf-nm`.
+
 To build the emulator, select Folder:emu and Configure:Debug or
 Configure:Release. On the Debug side panel select
 "Emulator Debug" and press F5. You'll get prompted to select one of the

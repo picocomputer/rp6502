@@ -6,6 +6,7 @@
  */
 
 #include "core/sys/rand.h"
+#include "core/rand.h"
 #include "host.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -34,9 +35,5 @@ uint64_t host_rand_64(void)
 {
     if (!rand_seeded)
         rand_set_seed(host_entropy_64());
-    rand_state = rand_state * 6364136223846793005ull + 1442695040888963407ull;
-    uint64_t x = rand_state ^ (rand_state >> 33);
-    x *= 0xff51afd7ed558ccdull;
-    x ^= x >> 33;
-    return x;
+    return rand_step(&rand_state);
 }

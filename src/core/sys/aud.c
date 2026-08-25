@@ -15,8 +15,6 @@
 #include <math.h>
 #include <string.h>
 
-int16_t aud_sine_table[256];
-
 /* The active device's sample handler + rate, installed by aud_setup. */
 static void (*aud_irq_fn)(void);
 static uint32_t aud_irq_rate;
@@ -32,9 +30,7 @@ uint32_t aud_native_rate(void) { return g_native_rate; }
 
 void aud_init(void)
 {
-    // Phase 0 starts at the trough (-cos), so readers can index the raw phase.
-    for (unsigned i = 0; i < 256; i++)
-        aud_sine_table[i] = (int16_t)lround(cos(M_PI * 2.0 / 256 * i) * -32767);
+    aud_sine_init();
     psg_setup(aud_native_rate());
     aud_stop(); // the standing BEL device + a clean host ring (firmware aud.c)
 }

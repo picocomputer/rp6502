@@ -321,7 +321,7 @@ void fat_stop(void)
     }
 }
 
-static bool dir_push_filinfo(FILINFO *fno)
+bool fat_push_filinfo(FILINFO *fno)
 {
     // Push fields in reverse so they land in forward
     // order in the 6502-visible struct.
@@ -351,7 +351,7 @@ bool fat_api_stat(void)
     FRESULT fresult = f_stat(path, &fno);
     if (fresult != FR_OK)
         return api_return_fresult(fresult);
-    if (!dir_push_filinfo(&fno))
+    if (!fat_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }
@@ -393,7 +393,7 @@ bool fat_api_readdir(void)
         return api_return_fresult(fresult);
     if (fno.fname[0])
         tells[des]++;
-    if (!dir_push_filinfo(&fno))
+    if (!fat_push_filinfo(&fno))
         return api_return_errno(API_ENOMEM);
     return api_return_ax(0);
 }

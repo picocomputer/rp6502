@@ -5,6 +5,7 @@
  */
 
 #include "core/sys/mem.h"
+#include "core/rand.h"
 #include <assert.h>
 #include <stdalign.h>
 #include <string.h>
@@ -42,16 +43,13 @@ void mem_set_fill(bool random, uint8_t value, uint64_t seed)
 /* The fill gets its own stream instead of drawing from host_rand_64, which is
  * what the 6502's rand() syscall reads: 128KB of draws would move the sequence
  * every seeded program sees, and then changing the fill would be changing two
- * things at once. Same LCG and finalizer as app/rand.c, salted off the run's
+ * things at once. Same step (core/rand.h), salted off the run's
  * seed by the golden ratio so the two streams start apart. */
 static void mem_fill(uint8_t *dst, size_t len, uint64_t *state)
 {
     for (size_t i = 0; i < len; i += sizeof(uint64_t))
     {
-        *state = *state * 6364136223846793005ull + 1442695040888963407ull;
-        uint64_t x = *state ^ (*state >> 33);
-        x *= 0xff51afd7ed558ccdull;
-        x ^= x >> 33;
+        uint64_t x = rand_step(state);
         memcpy(dst + i, &x, sizeof x);
     }
 }
