@@ -17,6 +17,12 @@
                 "paint_tab.rp6502",
                 "gamepad.rp6502"
             ]
+        },
+        {
+            "id": "romPath",
+            "type": "promptString",
+            "description": "Path to a .rp6502 ROM (relative paths resolve from the workspace folder)",
+            "default": "tests/roms/adventure.rp6502"
         }
     ],
     "configurations": [
@@ -101,6 +107,162 @@
             },
             "windows": {
                 "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+            }
+        },
+        {
+            "name": "Emulator Debug (path…)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/linux/debug/rp6502-emu",
+            "args": [
+                "--debug",
+                "${input:romPath}"
+            ],
+            // The workspace folder, not src/core/emu: rom.c resolves a bare
+            // path against the process cwd, so a typed relative path needs a
+            // base anyone can predict.
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "emu: Build (Debug)",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb hangs downloading before main() (WSL/cppdbg)",
+                    "text": "set debuginfod urls ",
+                    "ignoreFailures": true
+                }
+            ],
+            "linux": {
+                "program": "${workspaceFolder}/build/linux/debug/rp6502-emu"
+            },
+            "osx": {
+                "program": "${workspaceFolder}/build/macos/debug/rp6502-emu"
+            },
+            "windows": {
+                "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+            }
+        },
+        {
+            // The core is not a program, so the program is the frontend and
+            // the core is what it is told to load. Breakpoints in retro.c
+            // bind when RetroArch dlopens it.
+            "name": "RetroArch Debug",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/usr/bin/retroarch",
+            "args": [
+                "-L",
+                "${workspaceFolder}/build/libretro/debug/rp6502_libretro.so",
+                "${workspaceFolder}/tests/roms/${input:romPick}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "libretro: Build (Debug)",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb spends minutes fetching symbols for every library RetroArch links",
+                    "text": "set debuginfod urls ",
+                    "ignoreFailures": true
+                }
+            ],
+            "linux": {
+                "program": "/usr/bin/retroarch",
+                // A per-OS block replaces the property outright, so the
+                // debuginfod blank has to be repeated here.
+                "environment": [
+                    {
+                        "name": "DEBUGINFOD_URLS",
+                        "value": ""
+                    },
+                    {
+                        // WSLg's compositor does not offer server-side
+                        // decorations, and RetroArch's Wayland backend draws
+                        // none of its own, so the window arrives with no title
+                        // bar and no way to close it. Hiding the socket gets
+                        // X11, which WSLg gives a real window. Harmless on a
+                        // compositor that does decorate.
+                        "name": "WAYLAND_DISPLAY",
+                        "value": "nonexistent-0"
+                    }
+                ]
+            },
+            "osx": {
+                "program": "/Applications/RetroArch.app/Contents/MacOS/RetroArch"
+            }
+        },
+        {
+            "name": "RetroArch Debug (path…)",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "/usr/bin/retroarch",
+            "args": [
+                "-L",
+                "${workspaceFolder}/build/libretro/debug/rp6502_libretro.so",
+                "${input:romPath}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "DEBUGINFOD_URLS",
+                    "value": ""
+                }
+            ],
+            "stopAtEntry": false,
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "preLaunchTask": "libretro: Build (Debug)",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "blank = disable debuginfod, else gdb spends minutes fetching symbols for every library RetroArch links",
+                    "text": "set debuginfod urls ",
+                    "ignoreFailures": true
+                }
+            ],
+            "linux": {
+                "program": "/usr/bin/retroarch",
+                "environment": [
+                    {
+                        "name": "DEBUGINFOD_URLS",
+                        "value": ""
+                    },
+                    {
+                        "name": "WAYLAND_DISPLAY",
+                        "value": "nonexistent-0"
+                    }
+                ]
+            },
+            "osx": {
+                "program": "/Applications/RetroArch.app/Contents/MacOS/RetroArch"
             }
         },
         {
