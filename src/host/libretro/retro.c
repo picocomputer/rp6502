@@ -111,21 +111,37 @@ static const char *option_value(const char *key)
     return NULL;
 }
 
-/* The config half of the settings pattern, applied before main_init the way
- * the desktop applies its command line. A value we cannot read is the default
- * — a frontend is not a place to refuse to start over a bad number. */
-static void apply_options(void)
+/* The config half of the settings pattern, applied before every boot the way
+ * the desktop applies its command line before its one. A value we cannot
+ * read is the default — a frontend is not a place to refuse to start over a
+ * bad number.
+ *
+ * `started` says the drivers have already adopted their config once, so a
+ * setting has to be given to the running machine as well: cpu_init and
+ * oem_init only read the config half at cold boot, and a program restarted
+ * after someone changed a setting should come up with the setting. */
+static void apply_options(bool started)
 {
     const char *v = option_value("rp6502_phi2");
     long khz = v ? strtol(v, NULL, 10) : 0;
     if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
+    {
         cpu_set_phi2_khz((uint16_t)khz);
+        if (started)
+            cpu_set_phi2_khz_run((uint16_t)khz);
+    }
 
     v = option_value("rp6502_code_page");
     long cp = v ? strtol(v, NULL, 10) : 0;
     if (cp > 0 && cp <= UINT16_MAX)
+    {
         oem_set_code_page((uint16_t)cp);
+        if (started)
+            oem_set_code_page_run((uint16_t)cp);
+    }
 
+    /* Read by mem_init, which every boot calls, so this one needs no
+     * second telling. */
     v = option_value("rp6502_mem_fill");
     if (v && !strcmp(v, "00"))
         mem_set_fill(false, 0x00, rand_seed_value());
@@ -342,6 +358,7 @@ static void enter_save_directory(const char *content_path)
  * bench boots with. */
 static bool boot(const char *rom_oem)
 {
+    apply_options(machine_inited);
     if (machine_inited)
     {
         main_stop();
@@ -349,7 +366,6 @@ static bool boot(const char *rom_oem)
     }
     else
     {
-        apply_options();
         main_init();
         machine_inited = true;
     }

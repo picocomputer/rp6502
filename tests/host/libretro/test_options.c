@@ -127,6 +127,34 @@ UTEST(options, a_change_is_noticed_while_running)
     fe_close();
 }
 
+/* A setting changed between programs takes effect on the next one. The
+ * drivers adopt their config at cold boot and a core outlives several
+ * programs, so this is a claim about the second boot and not the first. */
+UTEST(options, a_setting_changed_between_programs_is_taken)
+{
+    fe_open_as(2, true);
+    for (int i = 0; i < fe.option_count; i++)
+        fe.option_value[i] = NULL;
+    ASSERT_TRUE(fe_load(ROMS_DIR "/mode3_8bpp.rp6502"));
+    fe_run(10);
+    fe.unload_game();
+
+    /* A fill of ones, which the machine can be asked about afterwards. */
+    for (int i = 0; i < fe.option_count; i++)
+        if (!strcmp(fe.option_key[i], "rp6502_mem_fill"))
+            fe.option_value[i] = "ff";
+    ASSERT_TRUE(fe_load(ROMS_DIR "/mode3_8bpp.rp6502"));
+    fe_run(10);
+
+    const uint8_t *xram = (const uint8_t *)fe.get_memory_data(RETRO_MEMORY_VIDEO_RAM);
+    ASSERT_TRUE(xram != NULL);
+    /* The very top of XRAM: no corpus program writes there, so what is there
+     * is what the fill put there. */
+    ASSERT_EQ(xram[0xFFFF], 0xFF);
+    fe.unload_game();
+    fe_close();
+}
+
 /* The bitmask is an offer, not a requirement: a frontend that does not make
  * it still has its pads read. */
 UTEST(options, a_frontend_without_bitmasks_still_has_pads)
