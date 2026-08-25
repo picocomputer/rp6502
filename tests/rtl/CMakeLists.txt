@@ -13,7 +13,7 @@
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 project(rp6502-rtl C CXX)
 
@@ -39,9 +39,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
-get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/../../src ABSOLUTE)
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
+cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../..)
+set(RP6502_SRC ${RP6502_ROOT}/src)
+set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
