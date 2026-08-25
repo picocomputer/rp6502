@@ -447,8 +447,16 @@ jobs:
                    android-arm64; do
             [ -d "stage/$d" ] || { echo "missing platform: $d" >&2; exit 1; }
           done
-          test -f stage/rp6502_libretro.info
           test -f stage/README.txt
+          # Every job generates this file and the last one merged wins, so a
+          # job built without the version would quietly hand the bundle its
+          # own timestamp. The version is a fact of this run; say so here.
+          V='${{ needs.version.outputs.version }}'
+          got=$(sed -n 's/^display_version = "\(.*\)"$/\1/p' stage/rp6502_libretro.info)
+          if [ "$got" != "$V" ] && [ "$got" != "CI $V" ]; then
+            echo "info says '$got', this run is '$V'" >&2
+            exit 1
+          fi
           (cd stage && zip -qr "$GITHUB_WORKSPACE/$ARCHIVE" .)
           unzip -l "$ARCHIVE"
 
@@ -468,6 +476,7 @@ jobs:
   # android-28 is the floor the APK already declares.
   # ---------------------------------------------------------------------------
   libretro-android:
+    needs: [version]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -479,7 +488,9 @@ jobs:
             -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
-            -DRP6502_TESTS=OFF
+            -DRP6502_TESTS=OFF \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build build/libretro/android
 
       - name: Check the export surface
