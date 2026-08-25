@@ -12,18 +12,18 @@
  * reader that must choose between sources, does not fit above this seam and
  * keeps its own com.c. */
 
-#ifndef _CORE_COM_CON_H_
-#define _CORE_COM_CON_H_
+#ifndef _CORE_COM_TTY_H_
+#define _CORE_COM_TTY_H_
 
 #include <stdbool.h>
 #include <stdint.h>
 
 /* Terminal-bound bytes, already CRLF-translated. Where they go is the
  * machine's: a memory-mapped console register, a host's stderr. */
-void con_write(const char *buf, int len);
+void tty_write(const char *buf, int len);
 
 /* Take back a byte the register window staged ahead of a reader, if this
  * machine stages one. False when there is nothing to reclaim. */
-bool con_reg_reclaim(char *out);
+bool tty_reg_reclaim(char *out);
 
-#endif /* _CORE_COM_CON_H_ */
+#endif /* _CORE_COM_TTY_H_ */

@@ -8,7 +8,7 @@
  * and the register-window byte the RIA model stages.
  */
 
-#include "core/com/con.h"
+#include "core/com/tty.h"
 #include "core/api/oem.h"
 #include "core/ria/ria.h"
 
@@ -18,7 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void con_write(const char *buf, int len)
+void tty_write(const char *buf, int len)
 {
     /* EMU_ECHO mirrors the terminal stream to the host's stderr, so a
      * program's output is visible without rendering a frame. Host streams
@@ -37,7 +37,7 @@ void con_write(const char *buf, int len)
 
 /* A read of $FFE0 pulls a byte into the $FFE2 latch to answer the ready bit;
  * this is where it comes back. */
-bool con_reg_reclaim(char *out)
+bool tty_reg_reclaim(char *out)
 {
     return ria_reg_rx_reclaim(out);
 }

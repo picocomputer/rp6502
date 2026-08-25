@@ -10,11 +10,11 @@
  * The rules here are the machine's, not the wire's -- a Ctrl-C latches a
  * SIGINT wherever it enters, a BEL in program output rings the teletype, a
  * bare newline is spelled CRLF -- so they are written once and every machine
- * of this shape gets all of them. The wire is core/com/con.h.
+ * of this shape gets all of them. The wire is core/com/tty.h.
  */
 
 #include "core/com/com.h"
-#include "core/com/con.h"
+#include "core/com/tty.h"
 #include "core/api/oem.h"
 #include "core/aud/bel.h"
 #include "core/main.h"
@@ -125,7 +125,7 @@ size_t com_stdin_read(char *buf, size_t count)
     /* A machine that stages a byte in its register window to answer a ready
      * bit has to take it back, or a program polling the one while reading the
      * console through the other leaves it stranded. */
-    if (n < count && con_reg_reclaim(&buf[n]))
+    if (n < count && tty_reg_reclaim(&buf[n]))
         n++;
     for (; n < count; n++)
     {
@@ -165,7 +165,7 @@ void com_tx_write(const char *buf, int len)
         for (int i = 0; i < len; i++)
             if (buf[i] == '\a')
                 bel_add(&bel_teletype);
-    con_write(buf, len);
+    tty_write(buf, len);
     if (com_term_out)
         com_term_out(buf, len);
 }

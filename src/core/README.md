@@ -44,7 +44,7 @@ implementations of one claim and the tests hold them to it:
 
 A machine is not a fork. Where one implementation can serve every machine it
 lives here and each machine answers the few calls that are genuinely its own:
-the console is `com/`, over the wire in `com/con.h`; the launcher chain is
+the console is `com/`, over the wire in `com/tty.h`; the launcher chain is
 `api/pro.c`, over how a machine starts a program; the scanline program is
 `vga/prog.c`, over what a machine's canvas is.
 

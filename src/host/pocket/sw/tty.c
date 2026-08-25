@@ -8,7 +8,7 @@
  * carries. Plus the stream picolibc wants before printf will link.
  */
 
-#include "core/com/con.h"
+#include "core/com/tty.h"
 #include "core/com.h"
 
 #include "log.h"
@@ -17,7 +17,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 
-void con_write(const char *buf, int len)
+void tty_write(const char *buf, int len)
 {
     for (int i = 0; i < len; i++)
     {
@@ -28,7 +28,7 @@ void con_write(const char *buf, int len)
 
 /* The fabric asks for a byte only when the 6502 has one outstanding, so
  * nothing is ever staged ahead of a reader. */
-bool con_reg_reclaim(char *out)
+bool tty_reg_reclaim(char *out)
 {
     (void)out;
     return false;
@@ -37,16 +37,16 @@ bool con_reg_reclaim(char *out)
 /* picolibc wants a stream before printf will link. Pointing it at com_putchar
  * puts a plain printf through the same CRLF expansion, bell scan and terminal
  * tap as com_printf. */
-static int con_stdio_putc(char c, FILE *f)
+static int tty_stdio_putc(char c, FILE *f)
 {
     (void)f;
     return com_putchar((unsigned char)c);
 }
 
-static FILE con_stdio = FDEV_SETUP_STREAM(con_stdio_putc, NULL, NULL,
+static FILE tty_stdio = FDEV_SETUP_STREAM(tty_stdio_putc, NULL, NULL,
                                           _FDEV_SETUP_WRITE);
-FILE *const stdout = &con_stdio;
-FILE *const stderr = &con_stdio;
+FILE *const stdout = &tty_stdio;
+FILE *const stderr = &tty_stdio;
 
 /* Streamed rather than buffered: the FILE below already reaches com_putchar,
  * and a 4 KB stack has no room for a formatting buffer. */

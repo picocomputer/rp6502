@@ -113,11 +113,11 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
-        ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/con.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
         ${SW_SRC}/kbl.c ${SW_SRC}/log.c ${SW_SRC}/mem.c
         ${SW_SRC}/msc.c ${SW_SRC}/pix.c
         ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
         ${RP6502_SRC}/core/pix.c
