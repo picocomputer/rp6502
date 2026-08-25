@@ -148,31 +148,7 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
             /* Mode select (xregs[1]); params at addresses 2.. were stored first
              * by the high->low dispatch. Mirrors vga main_prog, then clears the
              * registers so the next program starts fresh. */
-            bool ok;
-            switch (word)
-            {
-            case 0:
-                ok = mode0_prog(xregs);
-                break;
-            case 1:
-                ok = mode1_prog(xregs);
-                break;
-            case 2:
-                ok = mode2_prog(xregs);
-                break;
-            case 3:
-                ok = mode3_prog(xregs);
-                break;
-            case 4:
-                ok = mode4_prog(xregs);
-                break;
-            case 5:
-                ok = mode5_prog(xregs);
-                break;
-            default:
-                ok = false; /* all VGA modes modeled */
-                break;
-            }
+            bool ok = vga_mode_prog(word, xregs);
             memset(xregs, 0, sizeof(xregs));
             return ok;
         }

@@ -20,7 +20,7 @@ void vid_restore(void);
 /* The shadow of the window register, for the wake log. */
 uint32_t vid_prog_word_get(void);
 
-bool vid_mode0_prog(uint16_t *xregs);
+bool mode0_prog(uint16_t *xregs);
 
 
 #endif /* _FPGA_SW_VID_H_ */

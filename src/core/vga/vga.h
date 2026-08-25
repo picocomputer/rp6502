@@ -39,6 +39,24 @@ int16_t vga_canvas_height(void);
 // The code page the display renders text in.
 void vga_set_code_page(uint16_t cp);
 
+/* Program the canvas for a mode number, as the mode xreg asked. */
+bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
+
+/* How big a canvas is. A pure fact about the code, which is why every
+ * machine had written it out: the console is the 640x480 one. */
+static inline void vga_canvas_geometry(vga_canvas_t code, int *w, int *h)
+{
+    switch (code)
+    {
+    case vga_canvas_320_240: *w = 320; *h = 240; break;
+    case vga_canvas_320_180: *w = 320; *h = 180; break;
+    case vga_canvas_640_360: *w = 640; *h = 360; break;
+    case vga_canvas_console:
+    case vga_canvas_640_480:
+    default: *w = 640; *h = 480; break;
+    }
+}
+
 // Number of programmable scanlines, also bounds scanline_id.
 #define VGA_PROG_MAX 512
 

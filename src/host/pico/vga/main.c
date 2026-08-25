@@ -68,23 +68,7 @@ void main_post_reclock(void)
 
 bool main_prog(uint16_t *xregs)
 {
-    switch (xregs[1])
-    {
-    case 0:
-        return mode0_prog(xregs);
-    case 1:
-        return mode1_prog(xregs);
-    case 2:
-        return mode2_prog(xregs);
-    case 3:
-        return mode3_prog(xregs);
-    case 4:
-        return mode4_prog(xregs);
-    case 5:
-        return mode5_prog(xregs);
-    default:
-        return false;
-    }
+    return vga_mode_prog(xregs[1], xregs);
 }
 
 int main(void)

@@ -122,32 +122,8 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
         }
         if (address == 1)
         {
-            bool ok;
             vga_prog_mode((uint8_t)word, main_xregs[2]);
-            switch (word)
-            {
-            case 0:
-                ok = vid_mode0_prog(main_xregs);
-                break;
-            case 1:
-                ok = mode1_prog(main_xregs);
-                break;
-            case 2:
-                ok = mode2_prog(main_xregs);
-                break;
-            case 3:
-                ok = mode3_prog(main_xregs);
-                break;
-            case 4:
-                ok = mode4_prog(main_xregs);
-                break;
-            case 5:
-                ok = mode5_prog(main_xregs);
-                break;
-            default:
-                ok = false;
-                break;
-            }
+            bool ok = vga_mode_prog(word, main_xregs);
             for (int i = 0; i < 16; i++)
                 main_xregs[i] = 0;
             return ok;

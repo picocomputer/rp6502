@@ -141,6 +141,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/hid/tab.c
         ${RP6502_SRC}/core/str/rln.c
         ${RP6502_SRC}/core/str/str.c
+        ${RP6502_SRC}/core/vga/mode.c
         ${RP6502_SRC}/core/vga/mode1.c
         ${RP6502_SRC}/core/vga/mode2.c
         ${RP6502_SRC}/core/vga/mode3.c

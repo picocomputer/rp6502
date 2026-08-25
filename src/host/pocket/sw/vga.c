@@ -42,19 +42,9 @@ int16_t vga_canvas_height(void)
     return vga_canvas_h;
 }
 
-/* Declared in ria/sys/vga.h rather than this platform's header, because
- * tab.c is shared. */
 void vga_canvas_size(int *w, int *h)
 {
-    switch (vga_canvas_code)
-    {
-    case vga_canvas_320_240: *w = 320; *h = 240; break;
-    case vga_canvas_320_180: *w = 320; *h = 180; break;
-    case vga_canvas_640_360: *w = 640; *h = 360; break;
-    case vga_canvas_console:
-    case vga_canvas_640_480:
-    default: *w = 640; *h = 480; break;
-    }
+    vga_canvas_geometry(vga_canvas_code, w, h);
 }
 
 int16_t vga_vsync_scanline(void)
@@ -186,7 +176,7 @@ bool vga_set_canvas(uint16_t canvas)
     if (canvas == vga_canvas_console)
     {
         uint16_t xregs[8] = {0};
-        vid_mode0_prog(xregs);
+        mode0_prog(xregs);
     }
     return true;
 }

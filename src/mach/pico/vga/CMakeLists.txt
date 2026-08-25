@@ -33,6 +33,7 @@ target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/core/vga/prog.c
+    ${RP6502_ROOT}/src/core/vga/mode.c
     ${RP6502_ROOT}/src/core/vga/mode0.c
     ${RP6502_ROOT}/src/core/vga/mode1.c
     ${RP6502_ROOT}/src/core/vga/mode2.c

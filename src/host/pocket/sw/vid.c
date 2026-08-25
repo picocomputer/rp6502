@@ -23,7 +23,7 @@
  * no way to ask the fabric what it used to be. */
 static uint32_t vid_prog_word;
 
-bool vid_mode0_prog(uint16_t *xregs)
+bool mode0_prog(uint16_t *xregs)
 {
     int16_t plane = (int16_t)xregs[2];
     int16_t scanline_begin = (int16_t)xregs[3];
