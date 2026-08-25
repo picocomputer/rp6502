@@ -3,11 +3,11 @@
 #
 # The thinnest host there is: no window, no audio device, no input loop, no
 # main(). A frontend owns all four and calls retro_run once a frame. So this
-# root takes emu_core and none of app.cmake — the sokol window, the command
+# root takes emu_core and none of sokol.cmake — the sokol window, the command
 # line, the script channel and the debugger are all things a core has no use
 # for.
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 project(rp6502-emu-libretro C CXX)
 
@@ -22,9 +22,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
-get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
-get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
+cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
+set(RP6502_SRC ${RP6502_ROOT}/src)
+set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
@@ -35,10 +35,10 @@ include(${RP6502_ROOT}/version.cmake)
 # core.json — so the .info in a release zip says what the binary beside it
 # reports, tag or CI run or the day someone built it.
 string(REGEX REPLACE "^Version " "" RP6502_INFO_VERSION "${RP6502_VERSION_STAMP}")
-configure_file(${RP6502_SRC}/dist/libretro/rp6502_libretro.info.in
+configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info.in
     ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
 
-set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
+set(RP6502_HOST ${RP6502_SRC}/host/libretro)
 include(${RP6502_SRC}/core/emu.cmake)
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
@@ -52,14 +52,14 @@ set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 # a buffer inside a library that is going away.
 if(WIN32)
     include(${RP6502_SRC}/host/windows/windows.cmake)
-    target_sources(emu_core PRIVATE host_win.c)
+    target_sources(emu_core PRIVATE ${RP6502_HOST}/host_win.c)
 else()
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/posix/dir.c
         ${RP6502_SRC}/host/posix/fs.c
         ${RP6502_SRC}/host/posix/fs_sync.c
         ${RP6502_SRC}/host/posix/host.c
-        host.c)
+        ${RP6502_HOST}/host.c)
 endif()
 
 # Everything that reaches a shared object has to be relocatable, emu_core
@@ -74,8 +74,8 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 # frontend loads rp6502_libretro.so, so the target name is the file name and
 # PREFIX is what keeps the "lib" off.
 add_library(rp6502_libretro SHARED
-    retro.c
-    input.c
+    ${RP6502_HOST}/retro.c
+    ${RP6502_HOST}/input.c
     ${RP6502_SRC}/core/sys/version.c)
 set_target_properties(rp6502_libretro PROPERTIES PREFIX "")
 target_link_libraries(rp6502_libretro PRIVATE emu_core)
@@ -93,9 +93,9 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     if(APPLE)
         # ld64 takes an export list, not a version script.
         target_link_options(rp6502_libretro PRIVATE
-            -Wl,-exported_symbols_list,${CMAKE_CURRENT_LIST_DIR}/link_apple.exp)
+            -Wl,-exported_symbols_list,${RP6502_HOST}/link_apple.exp)
         set_target_properties(rp6502_libretro PROPERTIES
-            LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/link_apple.exp)
+            LINK_DEPENDS ${RP6502_HOST}/link_apple.exp)
     elseif(WIN32)
         # A PE export table is the dllexports libretro.h already wrote, and
         # their presence is what turns off MinGW ld's export-everything
@@ -106,10 +106,10 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
             -Wl,--no-undefined -static-libgcc)
     else()
         target_link_options(rp6502_libretro PRIVATE
-            -Wl,--version-script=${CMAKE_CURRENT_LIST_DIR}/link.T
+            -Wl,--version-script=${RP6502_HOST}/link.T
             -Wl,--no-undefined)
         set_target_properties(rp6502_libretro PROPERTIES
-            LINK_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/link.T)
+            LINK_DEPENDS ${RP6502_HOST}/link.T)
     endif()
 endif()
 

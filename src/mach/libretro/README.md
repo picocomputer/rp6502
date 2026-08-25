@@ -1,7 +1,7 @@
 # The machine as a libretro core
 
 Notes for working on this host. Nothing here is needed to use the core —
-that is `src/dist/libretro/README.txt`.
+that is `src/mach/libretro/dist/README.txt`.
 
 ## What this host is
 
@@ -144,13 +144,13 @@ steps, for when it is:
 1. PR the `rp6502_libretro.info` out of a tagged build to
    [libretro-super](https://github.com/libretro/libretro-super/tree/master/dist/info)
    as `dist/info/rp6502_libretro.info`. It is already inside the release
-   zip — the template is `src/dist/libretro/rp6502_libretro.info.in` and
+   zip — the template is `src/mach/libretro/dist/rp6502_libretro.info.in` and
    the build fills its version in from `version.cmake`, so the file to
    send is the generated one and never the template.
 2. Ask the libretro team — an issue on libretro-super, or Discord — to
    mirror this repository on git.libretro.com and enable its pipeline.
    `.gitlab-ci.yml` at the top of this repository is what their buildbot
-   reads; it names `src/host/libretro` as the CMake root and builds the
+   reads; it names `src/mach/libretro` as the CMake root and builds the
    `rp6502_libretro` target, which is why that target has exactly that
    name. Its Windows job asks for their MSVC template rather than the
    mingw one, because MSVC is the Windows toolchain this repository

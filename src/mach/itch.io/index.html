@@ -113,13 +113,13 @@
   <!-- The list of test ROMs, written by CMake. Absent until the web target is
        built, which is what lets the page say so instead of showing an empty
        menu. Synchronous, so window.ROMS is settled before the script below. -->
-  <script src="../../../build/web/roms.js"></script>
+  <script src="../../../build/itch.io/roms.js"></script>
   <script>
     // This page is served from the source tree, not copied into the build, so
     // everything it loads is addressed relative to src/host/web/. The emulator comes
     // out of the bundle the web build assembles; the ROMs are the committed
     // test corpus. Both need an HTTP origin — see README.md for serving it.
-    var EMU = '../../../build/web/bundle/rp6502.js';
+    var EMU = '../../../build/itch.io/bundle/rp6502.js';
     var ROMS_DIR = '../../../tests/roms/';
     var BUILD_FIRST = 'Build the WebAssembly target first — CMake side panel, '
       + 'Folder:web, then F7.';

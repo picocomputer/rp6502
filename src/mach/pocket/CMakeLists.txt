@@ -9,13 +9,13 @@
 # compiler in the graph is the RISC-V one machine.cmake finds for the soft
 # CPU's firmware, and it is invoked by a custom command.
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 project(rp6502-pocket NONE)
 
-get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
-get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
+cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
+set(RP6502_SRC ${RP6502_ROOT}/src)
+set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
 # -DRP6502_VERSION / -DRP6502_CI reach core.json's metadata, read by the same
 # version.cmake the firmware and the emulator use.
@@ -297,16 +297,15 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
 
     # Everything the SD card needs, assembled. The JSONs, the images and
-    # the tree come from src/dist/pocket as they are; the bitstream and the
-    # glyph asset are built. It carries Saves/rp6502/common/ because the host
-    # will not create it and the drive is nothing without it.
+    # the tree come from dist/ beside this file as they are; the bitstream and
+    # the glyph asset are built. It carries Saves/rp6502/common/ because the
+    # host will not create it and the drive is nothing without it.
     #
-    # The shipped tree lives with the other shipped trees under src/dist,
-    # rather than under the wrapper that happens to build it. Nothing in it
-    # is SystemVerilog or Quartus; it is a folder of JSON and artwork that
-    # goes on a card.
+    # The shipped tree lives with the root that packages it, the way every
+    # machine's does. Nothing in it is SystemVerilog or Quartus; it is a
+    # folder of JSON and artwork that goes on a card.
     set(PKG_DIR ${CMAKE_BINARY_DIR}/package)
-    set(PKG_DIST ${RP6502_SRC}/dist/pocket)
+    set(PKG_DIST ${CMAKE_CURRENT_LIST_DIR}/dist)
     file(GLOB_RECURSE PKG_DIST_FILES ${PKG_DIST}/*)
     add_custom_command(OUTPUT ${POCKET_DIR}/package.stamp
         COMMAND ${CMAKE_COMMAND} -E rm -rf ${PKG_DIR}
@@ -315,7 +314,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
             -DCORE_JSON=${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.json
             "-DVERSION=${RP6502_VERSION_VALUE}"
             "-DCI=${RP6502_CI_VALUE}"
-            -P ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
+            -P ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
         COMMAND ${CMAKE_COMMAND} -E copy ${VID_FONT_BIN}
@@ -329,7 +328,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
         DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN} ${KBDLAY_BIN}
             ${PKG_DIST_FILES}
-            ${RP6502_SRC}/host/pocket/stamp_core_json.cmake
+            ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
     add_custom_target(pocket ALL DEPENDS ${POCKET_DIR}/package.stamp)

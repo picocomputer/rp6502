@@ -63,7 +63,7 @@ include(${RP6502_SRC}/core/machine.cmake)
 if(WIN32)
     message(FATAL_ERROR
         "the verilated machine needs a POSIX host; "
-        "the C suites are in src/host/win's tree")
+        "the C suites are in src/mach/emu's tree")
 elseif(APPLE)
     set(RP6502_HOST ${RP6502_SRC}/host/macos)
 else()

@@ -79,10 +79,10 @@
             "command": "cmake",
             "args": [
                 "--preset",
-                "debug"
+                "linux-debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/host/linux"
+                "cwd": "${workspaceFolder}/src/mach/emu"
             },
             "presentation": {
                 "reveal": "always",
@@ -90,20 +90,23 @@
             },
             "problemMatcher": [],
             "linux": {
-                "options": {
-                    "cwd": "${workspaceFolder}/src/host/linux"
-                }
+                "args": [
+                    "--preset",
+                    "linux-debug"
+                ]
             },
             "osx": {
-                "options": {
-                    "cwd": "${workspaceFolder}/src/host/macos"
-                }
+                "args": [
+                    "--preset",
+                    "macos-debug"
+                ]
             },
             "windows": {
                 "command": "cmake",
-                "options": {
-                    "cwd": "${workspaceFolder}/src/host/win"
-                }
+                "args": [
+                    "--preset",
+                    "windows-debug"
+                ]
             }
         },
         {
@@ -113,10 +116,10 @@
             "args": [
                 "--build",
                 "--preset",
-                "debug"
+                "linux-debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/host/linux"
+                "cwd": "${workspaceFolder}/src/mach/emu"
             },
             "dependsOn": "emu: Configure (Debug)",
             "presentation": {
@@ -125,20 +128,26 @@
             },
             "problemMatcher": "$gcc",
             "linux": {
-                "options": {
-                    "cwd": "${workspaceFolder}/src/host/linux"
-                }
+                "args": [
+                    "--build",
+                    "--preset",
+                    "linux-debug"
+                ]
             },
             "osx": {
-                "options": {
-                    "cwd": "${workspaceFolder}/src/host/macos"
-                }
+                "args": [
+                    "--build",
+                    "--preset",
+                    "macos-debug"
+                ]
             },
             "windows": {
                 "command": "cmake",
-                "options": {
-                    "cwd": "${workspaceFolder}/src/host/win"
-                }
+                "args": [
+                    "--build",
+                    "--preset",
+                    "windows-debug"
+                ]
             }
         },
         {
@@ -147,7 +156,7 @@
             "command": "ctest",
             "args": [
                 "--test-dir",
-                "${workspaceFolder}/build/linux/debug",
+                "${workspaceFolder}/build/emu/linux/debug",
                 "--output-on-failure"
             ],
             "dependsOn": "emu: Build (Debug)",
@@ -159,14 +168,14 @@
             "linux": {
                 "args": [
                     "--test-dir",
-                    "${workspaceFolder}/build/linux/debug",
+                    "${workspaceFolder}/build/emu/linux/debug",
                     "--output-on-failure"
                 ]
             },
             "osx": {
                 "args": [
                     "--test-dir",
-                    "${workspaceFolder}/build/macos/debug",
+                    "${workspaceFolder}/build/emu/macos/debug",
                     "--output-on-failure"
                 ]
             },
@@ -174,7 +183,7 @@
                 "command": "ctest",
                 "args": [
                     "--test-dir",
-                    "${workspaceFolder}/build/win/debug",
+                    "${workspaceFolder}/build/emu/windows/debug",
                     "--output-on-failure"
                 ]
             }
@@ -188,7 +197,7 @@
                 "debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/host/libretro"
+                "cwd": "${workspaceFolder}/src/mach/libretro"
             },
             "presentation": {
                 "reveal": "always",
@@ -206,7 +215,7 @@
                 "debug"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/host/libretro"
+                "cwd": "${workspaceFolder}/src/mach/libretro"
             },
             "dependsOn": "libretro: Configure (Debug)",
             "presentation": {
@@ -295,7 +304,7 @@
                 "release"
             ],
             "options": {
-                "cwd": "${workspaceFolder}/src/host/pocket"
+                "cwd": "${workspaceFolder}/src/mach/pocket"
             },
             "presentation": {
                 "reveal": "always",

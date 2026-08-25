@@ -2,14 +2,14 @@
 #
 # Two ways in. Gradle configures this file through AGP's externalNativeBuild,
 # passing its own toolchain, ABI and platform; that build packages and signs.
-# A standalone `cmake -S src/host/android -B build/android/cmake` finds the
+# A standalone `cmake -S src/mach/android -B build/android/cmake` finds the
 # same pinned NDK itself, which is what gives an editor a compile_commands.json
 # and what lets the library be built without Gradle at all.
 #
 # The pins live in gradle.properties, which Gradle reads as project properties
 # and this file reads as text, so the NDK and the API level are written once.
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 # Read the pins before project(): the toolchain has to be chosen first.
 set(RP6502_GRADLE_PROPERTIES ${CMAKE_CURRENT_LIST_DIR}/gradle.properties)
@@ -71,14 +71,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
-get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../.. ABSOLUTE)
-get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
+cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../../..)
+set(RP6502_SRC ${RP6502_ROOT}/src)
+set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
+set(RP6502_HOST ${RP6502_SRC}/host/android)
 include(${RP6502_SRC}/core/emu.cmake)
 # Bionic has no <aio.h>, and the shared seam has a synchronous transport for
 # exactly that reason — the libretro core takes the same pair on every OS
@@ -88,7 +88,7 @@ target_sources(emu_core PRIVATE
     ${RP6502_SRC}/host/posix/fs.c
     ${RP6502_SRC}/host/posix/fs_sync.c
     ${RP6502_SRC}/host/posix/host.c
-    host.c)
+    ${RP6502_HOST}/host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
@@ -97,7 +97,7 @@ include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 # No main() and no SOKOL_NO_ENTRY: this host enters through sokol_main in
 # window.c, which NativeActivity calls.
-add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} window.c)
+add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} ${RP6502_HOST}/window.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 

@@ -1,5 +1,8 @@
 # The RP6502-RIA (and W)
 
+# The firmware's own sources; this file is the parts list, they are the parts.
+set(RIA_SRC ${RP6502_ROOT}/src/host/pico/ria)
+
 # If you have thoroughly tested a third-party RP2350 board
 # in the reference design then please submit a pull request.
 if (PICO_BOARD STREQUAL "pico2_w" OR
@@ -92,18 +95,18 @@ target_compile_options(${RIA_TARGET} PRIVATE
 )
 
 # A duplicated locale id in def/str_*.def would silently leave a hole
-set_source_files_properties(str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
+set_source_files_properties(${RP6502_ROOT}/src/core/str/str.c PROPERTIES COMPILE_OPTIONS "-Werror=override-init")
 
 target_include_directories(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
     ${CMAKE_CURRENT_BINARY_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}
+    ${RIA_SRC}
     ${RP6502_ROOT}/src
     ${RP6502_ROOT}/vendor
 )
 
 target_compile_definitions(${RIA_TARGET} PRIVATE
-    CYW43_CONFIG_FILE="${CMAKE_CURRENT_LIST_DIR}/cyw43_config.h"
+    CYW43_CONFIG_FILE="${RIA_SRC}/cyw43_config.h"
     PICO_FLASH_ASSUME_CORE1_SAFE=1
     LFS_NO_ASSERT=1
     LFS_NO_MALLOC=1
@@ -112,7 +115,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 )
 
 target_sources(${RIA_TARGET} PRIVATE
-    main.c
+    ${RIA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/api/api.c
@@ -121,18 +124,18 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/clk.c
     ${RP6502_ROOT}/src/core/api/fat.c
     ${RP6502_ROOT}/src/core/api/oem.c
-    api/pro.c
+    ${RIA_SRC}/api/pro.c
     ${RP6502_ROOT}/src/core/api/uni.c
     ${OEMCP_C}
     ${RP6502_ROOT}/src/core/api/std.c
-    api/tim.c
-    aud/aud.c
+    ${RIA_SRC}/api/tim.c
+    ${RIA_SRC}/aud/aud.c
     ${RP6502_ROOT}/src/core/aud/bel.c
     ${RP6502_ROOT}/src/core/aud/bel_presets.c
     ${RP6502_ROOT}/src/core/aud/opl.c
     ${RP6502_ROOT}/src/core/aud/psg.c
-    ble/ble.c
-    ble/tlv.c
+    ${RIA_SRC}/ble/ble.c
+    ${RIA_SRC}/ble/tlv.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/kbd.c
     ${RP6502_ROOT}/src/core/hid/kbl.c
@@ -142,44 +145,44 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/pad.c
     ${RP6502_ROOT}/src/core/hid/parse.c
     ${RP6502_ROOT}/src/core/hid/tab.c
-    mon/dsk.c
-    mon/fil.c
-    mon/hlp.c
-    mon/mon.c
-    mon/ram.c
-    mon/rom.c
-    mon/set.c
-    mon/uf2.c
-    mon/vip.c
-    net/cmd.c
-    net/cyw.c
-    net/mdm.c
-    net/net.c
-    net/ntp.c
-    net/tel.c
-    net/wfi.c
+    ${RIA_SRC}/mon/dsk.c
+    ${RIA_SRC}/mon/fil.c
+    ${RIA_SRC}/mon/hlp.c
+    ${RIA_SRC}/mon/mon.c
+    ${RIA_SRC}/mon/ram.c
+    ${RIA_SRC}/mon/rom.c
+    ${RIA_SRC}/mon/set.c
+    ${RIA_SRC}/mon/uf2.c
+    ${RIA_SRC}/mon/vip.c
+    ${RIA_SRC}/net/cmd.c
+    ${RIA_SRC}/net/cyw.c
+    ${RIA_SRC}/net/mdm.c
+    ${RIA_SRC}/net/net.c
+    ${RIA_SRC}/net/ntp.c
+    ${RIA_SRC}/net/tel.c
+    ${RIA_SRC}/net/wfi.c
     ${RP6502_ROOT}/src/core/str/rln.c
     ${RP6502_ROOT}/src/core/str/str.c
-    sys/cfg.c
-    sys/com.c
-    sys/cpu.c
-    sys/led.c
-    sys/lfs.c
-    sys/mem.c
-    sys/pix.c
-    sys/ria.c
-    sys/sys.c
-    sys/vga.c
-    usb/mid.c
-    usb/msc.c
-    usb/nfc.c
-    usb/usb.c
-    usb/vcp.c
-    usb/xin.c
+    ${RIA_SRC}/sys/cfg.c
+    ${RIA_SRC}/sys/com.c
+    ${RIA_SRC}/sys/cpu.c
+    ${RIA_SRC}/sys/led.c
+    ${RIA_SRC}/sys/lfs.c
+    ${RIA_SRC}/sys/mem.c
+    ${RIA_SRC}/sys/pix.c
+    ${RIA_SRC}/sys/ria.c
+    ${RIA_SRC}/sys/sys.c
+    ${RIA_SRC}/sys/vga.c
+    ${RIA_SRC}/usb/mid.c
+    ${RIA_SRC}/usb/msc.c
+    ${RIA_SRC}/usb/nfc.c
+    ${RIA_SRC}/usb/usb.c
+    ${RIA_SRC}/usb/vcp.c
+    ${RIA_SRC}/usb/xin.c
 )
 
 rp6502_use_version_header(${RIA_TARGET}
-    sys/sys.c
+    ${RIA_SRC}/sys/sys.c
 )
 
 target_sources(${RIA_TARGET} PRIVATE
@@ -212,7 +215,7 @@ target_link_libraries(${RIA_TARGET} PRIVATE
 )
 
 pico_generate_pio_header(${RIA_TARGET}
-    ${CMAKE_CURRENT_LIST_DIR}/ria.pio
+    ${RIA_SRC}/ria.pio
 )
 
 # Override various lib files with custom code.

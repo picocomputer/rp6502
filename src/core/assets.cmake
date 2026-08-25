@@ -164,7 +164,7 @@ rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/kbd_layout_gen.py
 # slot declares the image's exact size, so both are checked against
 # def/kbd.def rather than kept in step by hand.
 set(POCKET_CORE_JSON
-    ${RP6502_SRC}/dist/pocket/Cores/Rumbledethumps.RP6502)
+    ${RP6502_SRC}/mach/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME kbdlay_json
     COMMAND ${CMAKE_COMMAND} -E env python3
         ${RP6502_SRC}/core/gen/kbd_layout_gen.py --manifest ${KBDLAY_MANIFEST}

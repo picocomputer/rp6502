@@ -30,12 +30,12 @@
             "name": "Emulator Debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/linux/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu",
             "args": [
                 "--debug",
                 "${workspaceFolder}/tests/roms/${input:romPick}"
             ],
-            "cwd": "${workspaceFolder}/src/core/emu",
+            "cwd": "${workspaceFolder}/src/core/sys",
             "environment": [
                 {
                     "name": "DEBUGINFOD_URLS",
@@ -59,24 +59,24 @@
                 }
             ],
             "linux": {
-                "program": "${workspaceFolder}/build/linux/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu"
             },
             "osx": {
-                "program": "${workspaceFolder}/build/macos/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/emu/macos/debug/rp6502-emu"
             },
             "windows": {
-                "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+                "program": "${workspaceFolder}/build/emu/windows/debug/rp6502-emu.exe"
             }
         },
         {
             "name": "Emulator Debug (no ROM)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/linux/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu",
             "args": [
                 "--debug"
             ],
-            "cwd": "${workspaceFolder}/src/core/emu",
+            "cwd": "${workspaceFolder}/src/core/sys",
             "environment": [
                 {
                     "name": "DEBUGINFOD_URLS",
@@ -100,25 +100,25 @@
                 }
             ],
             "linux": {
-                "program": "${workspaceFolder}/build/linux/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu"
             },
             "osx": {
-                "program": "${workspaceFolder}/build/macos/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/emu/macos/debug/rp6502-emu"
             },
             "windows": {
-                "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+                "program": "${workspaceFolder}/build/emu/windows/debug/rp6502-emu.exe"
             }
         },
         {
             "name": "Emulator Debug (path…)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/linux/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu",
             "args": [
                 "--debug",
                 "${input:romPath}"
             ],
-            // The workspace folder, not src/core/emu: rom.c resolves a bare
+            // The workspace folder, not src/core/sys: rom.c resolves a bare
             // path against the process cwd, so a typed relative path needs a
             // base anyone can predict.
             "cwd": "${workspaceFolder}",
@@ -145,13 +145,13 @@
                 }
             ],
             "linux": {
-                "program": "${workspaceFolder}/build/linux/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/emu/linux/debug/rp6502-emu"
             },
             "osx": {
-                "program": "${workspaceFolder}/build/macos/debug/rp6502-emu"
+                "program": "${workspaceFolder}/build/emu/macos/debug/rp6502-emu"
             },
             "windows": {
-                "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+                "program": "${workspaceFolder}/build/emu/windows/debug/rp6502-emu.exe"
             }
         },
         {

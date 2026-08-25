@@ -26,7 +26,7 @@ The native library alone builds without Gradle, which is what gives an editor
 a `compile_commands.json`. Set `ANDROID_HOME` and:
 
 ```bash
-cmake -S src/host/android -B build/android/cmake -G Ninja
+cmake -S src/mach/android -B build/android/cmake -G Ninja
 cmake --build build/android/cmake
 ```
 
@@ -35,7 +35,7 @@ Gradle build below.
 
 ### Step 1: Navigate to the Android project folder
 ```bash
-cd src/host/android
+cd src/mach/android
 ```
 
 ### Step 2: Compile the APK
