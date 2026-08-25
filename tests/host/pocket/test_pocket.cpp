@@ -28,6 +28,7 @@
 #include "Vtb_pocket.h"
 #include "Vtb_pocket___024root.h"
 
+#include "corpus.h"
 #include "crc32.h"
 
 #include "tb_asm.h"
@@ -257,28 +258,6 @@ static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
     if (slot_out)
         *slot_out = slot;
     return at;
-}
-
-/* The corpus states its own shape, the same file tests/cpu/vid reads. A
- * canvas asserted from the manifest rather than from a machine is the
- * difference between proving the geometry and watching one agree with
- * itself. */
-static bool corpus_size(const char *name, int *width, int *height)
-{
-    FILE *f = fopen(ROMS_DIR "/manifest.txt", "r");
-    if (!f)
-        return false;
-    char n[128];
-    int w, h;
-    bool found = false;
-    while (fscanf(f, "%127s %d %d", n, &w, &h) == 3)
-        if (!strcmp(n, name))
-        {
-            *width = w, *height = h, found = true;
-            break;
-        }
-    fclose(f);
-    return found;
 }
 
 static std::vector<uint8_t> read_rom(const char *name)

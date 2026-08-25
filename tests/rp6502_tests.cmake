@@ -292,12 +292,16 @@ function(rp6502_add_script_test name)
 endfunction()
 
 # rp6502_add_test(<name> [SOURCES ...] [LIBS ...] [INCLUDES ...] [DEFS ...]
-#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT])
+#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT]
+#                        [DEPENDS <target> ...])
 #
 # Builds test_<name> from test_<name>.c unless SOURCES says otherwise, and
 # registers it as CTest <name>. FIXTURE becomes TEST_FIXTURE, the absolute path
 # a test opens — every test uses at most one. TEST_SCRATCH is where a test
 # writes throwaway files, so a run from any directory never litters the tree.
+# DEPENDS names a target the test needs built but does not link, which is what
+# a suite that opens the artifact rather than its objects has instead of a
+# link line.
 #
 # SPLIT registers each UTEST case as its own CTest test instead. For the long
 # ones that is the difference between a suite bounded by its slowest binary and
@@ -306,7 +310,7 @@ endfunction()
 # asked for rather than assumed.
 function(rp6502_add_test name)
     cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT"
-        "SOURCES;LIBS;INCLUDES;DEFS;LABELS" ${ARGN})
+        "SOURCES;LIBS;INCLUDES;DEFS;LABELS;DEPENDS" ${ARGN})
 
     # What a test is about is the directory it lives in, and what it costs is
     # which helper registered it. Both are already known here, so neither is
@@ -354,7 +358,7 @@ function(rp6502_add_test name)
         target_compile_definitions(test_${name} PRIVATE ${T_DEFS})
     endif()
 
-    add_dependencies(test_${name} rp6502_test_corpus)
+    add_dependencies(test_${name} rp6502_test_corpus ${T_DEPENDS})
 
     set(_cases ${name})
     if(T_SPLIT)
