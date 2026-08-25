@@ -85,6 +85,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/sys.c
     ${RP6502_SRC}/core/sys/vga.c
     ${RP6502_SRC}/core/wdc/via.c
+    ${RP6502_SRC}/core/wdc/w65c02.c
     ${RP6502_SRC}/core/api/api.c
     ${RP6502_SRC}/core/api/arg.c
     ${RP6502_SRC}/core/api/atr.c

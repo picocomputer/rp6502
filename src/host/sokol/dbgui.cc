@@ -39,7 +39,7 @@ extern "C"
 #include "core/sys/version.h"
 #include "host/sokol/icon.h"    /* icon_desc() - Credits masthead icon */
 
-#include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in sys/cpu.c) */
+#include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in wdc/w65c02.c) */
 #include "chips/chips/m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
 
 #include "sokol/sokol_app.h"
