@@ -94,8 +94,14 @@ typedef struct
     char save_dir[1024];
     bool have_save_dir;
 
-    /* What the devices are doing. */
-    int16_t input[FE_MAX_PORTS][8][FE_STATE_IDS];
+    /* What the devices are doing. A table per device, because their id
+     * spaces overlap: RETRO_DEVICE_ID_ANALOG_X is 0 and so is
+     * RETRO_DEVICE_ID_JOYPAD_B, and a stick deflected in one is not a
+     * button held in the other. */
+    int16_t input[FE_MAX_PORTS][8][FE_STATE_IDS];   /* joypad, by id */
+    int16_t analog[FE_MAX_PORTS][8][FE_STATE_IDS];  /* sticks and triggers */
+    int16_t pointer[8][FE_STATE_IDS];
+    int16_t mouse[FE_STATE_IDS];
     unsigned port_device[FE_MAX_PORTS];
 
     /* What we were handed back. */
@@ -174,10 +180,13 @@ static int16_t fe_input_state(unsigned port, unsigned device, unsigned index, un
     }
     if (index >= 8 || id >= FE_STATE_IDS)
         return 0;
-    /* One table per (port, index); the device is how a case says which set of
-     * ids it means, and the ids of the devices we answer do not collide. */
-    (void)device;
-    return fe.input[port][index][id];
+    switch (device)
+    {
+    case RETRO_DEVICE_ANALOG: return fe.analog[port][index][id];
+    case RETRO_DEVICE_POINTER: return fe.pointer[index][id];
+    case RETRO_DEVICE_MOUSE: return fe.mouse[id];
+    default: return fe.input[port][index][id];
+    }
 }
 
 static bool fe_environment(unsigned cmd, void *data)

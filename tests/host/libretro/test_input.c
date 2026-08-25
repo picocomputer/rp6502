@@ -46,6 +46,7 @@ static void press(unsigned port, unsigned id, bool down)
 static void start_pad_program(int *utest_result)
 {
     memset(fe.input, 0, sizeof fe.input);
+    memset(fe.analog, 0, sizeof fe.analog);
     ASSERT_TRUE(fe_load(ROMS_DIR "/gamepad.rp6502"));
     fe_run(40);
 }
@@ -95,11 +96,14 @@ UTEST(input, the_south_button_is_the_machines_a)
 UTEST(input, a_stick_derives_its_digital_reading)
 {
     start_pad_program(utest_result);
-    fe.input[0][RETRO_DEVICE_INDEX_ANALOG_LEFT][RETRO_DEVICE_ID_ANALOG_Y] = -0x7F00;
+    fe.analog[0][RETRO_DEVICE_INDEX_ANALOG_LEFT][RETRO_DEVICE_ID_ANALOG_Y] = -0x7F00;
     fe_run(20);
     const uint8_t *rec = pad_record(0);
     ASSERT_EQ(rec[0], 0xD0);
     ASSERT_EQ(rec[1], 0x01); /* left stick full north */
+    /* A stick is not a button: deflecting one presses nothing. */
+    ASSERT_EQ(rec[2], 0x00);
+    ASSERT_EQ(rec[3], 0x00);
     fe.unload_game();
 }
 

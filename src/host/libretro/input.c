@@ -136,8 +136,18 @@ static char ascii_from_key(unsigned k, bool shift)
         static const char shifted[] = ")!@#$%^&*(";
         return shift ? shifted[k - RETROK_0] : (char)('0' + (k - RETROK_0));
     }
+    /* The keypad prints its digit when NumLock is on, and a frontend that
+     * sends no character still has to be able to type one. */
+    if (k >= RETROK_KP0 && k <= RETROK_KP9)
+        return (char)('0' + (k - RETROK_KP0));
     switch (k)
     {
+    case RETROK_KP_PERIOD: return '.';
+    case RETROK_KP_DIVIDE: return '/';
+    case RETROK_KP_MULTIPLY: return '*';
+    case RETROK_KP_MINUS: return '-';
+    case RETROK_KP_PLUS: return '+';
+    case RETROK_KP_EQUALS: return '=';
     case RETROK_SPACE: return ' ';
     case RETROK_MINUS: return shift ? '_' : '-';
     case RETROK_EQUALS: return shift ? '+' : '=';
@@ -280,6 +290,16 @@ void input_init(retro_environment_t environ_cb)
     have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
 }
 
+void input_reset(void)
+{
+    for (int p = 0; p < PAD_PLAYERS; p++)
+    {
+        port_device[p] = RETRO_DEVICE_JOYPAD;
+        port_live[p] = false;
+    }
+    have_bitmasks = false;
+}
+
 void input_set_port_device(unsigned port, unsigned device)
 {
     if (port >= PAD_PLAYERS)
@@ -393,9 +413,13 @@ static void poll_pointer(retro_input_state_t state)
 
         /* [-0x7FFF, 0x7FFF] spans the frame we last handed over, whatever the
          * frontend then did with it on screen. */
+        /* Contacts, not a hovering cursor. tab_host_pointer would declare a
+         * host cursor available, and this host has none to lend: libretro
+         * gives a core no way to ask a frontend to draw one, so a program
+         * that hid its own pointer for ours would be left with neither.
+         * Touch is also what the frontend's pointer is for. */
         tab_point_t pts[TAB_MAX_CONTACTS];
         int n = 0;
-        bool pressed0 = false;
         for (int i = 0; i < count; i++)
         {
             if (!state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_PRESSED))
@@ -404,16 +428,10 @@ static void poll_pointer(retro_input_state_t state)
             int py = state(0, RETRO_DEVICE_POINTER, (unsigned)i, RETRO_DEVICE_ID_POINTER_Y);
             pts[n].x = (int16_t)(((px + 0x7FFF) * (w - 1)) / 0xFFFE);
             pts[n].y = (int16_t)(((py + 0x7FFF) * (h - 1)) / 0xFFFE);
-            if (i == 0)
-                pressed0 = true;
             n++;
         }
-        if (n > 1)
+        if (n)
             tab_host_touch(pts, n);
-        else if (n == 1)
-            /* One contact is a pointer rather than a finger, and a pointer
-             * carries a button the touch form has no room for. */
-            tab_host_pointer(pts[0].x, pts[0].y, pressed0 ? TAB_FLAG_LEFT : 0);
         else
             tab_host_clear();
     }
@@ -432,10 +450,20 @@ static void poll_pointer(retro_input_state_t state)
         if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE))
             buttons |= 4;
         mou_host_buttons(buttons);
-        int up = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP);
-        int dn = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN);
-        if (up || dn)
-            mou_host_wheel(up ? 1 : -1, 0);
+    }
+
+    /* One scroll, both devices — the same wheel a mouse-mapped program reads
+     * is the one a tablet-mapped program reads, as on the desktop. */
+    int dwheel = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELUP) -
+                 state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_WHEELDOWN);
+    int dpan = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELUP) -
+               state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN);
+    if (dwheel || dpan)
+    {
+        if (tab_is_mapped())
+            tab_host_wheel(dwheel, dpan);
+        if (mou_is_mapped())
+            mou_host_wheel(dwheel, dpan);
     }
 }
 

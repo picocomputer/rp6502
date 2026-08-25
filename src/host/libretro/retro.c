@@ -38,8 +38,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The machine's audio is generated at this rate and handed over unresampled;
- * aud.h's own default is the same number, so nothing is told to change. */
+/* The rate this core declares in av_info, and the rate aud_pump converts to.
+ * Most of the machine's voices are generated at it already and pass through
+ * untouched; the OPL2 is not, because a YM3812 runs at 49716 Hz. */
 #define RETRO_AUD_RATE 48000
 #define RETRO_AUD_FRAMES_MAX (RETRO_AUD_RATE / VGA_HZ + 64)
 
@@ -51,11 +52,10 @@ static retro_input_state_t input_state_cb;
 static retro_log_printf_t log_cb;
 
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-/* Floats on the way out of the machine, int16 pairs on the way to the
- * frontend, in that order and in this one buffer. */
-static float audio_buf[RETRO_AUD_FRAMES_MAX * 2];
+static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
 
-static char loaded_rom[MSC_MAX_PATH]; /* OEM, for retro_reset */
+static char loaded_rom[MSC_MAX_PATH];    /* OEM, absolute, for retro_reset */
+static char loaded_path[MSC_MAX_PATH];   /* as the frontend spelled it */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
@@ -283,8 +283,19 @@ void retro_init(void)
     }
 }
 
+/* The other half of retro_init. A frontend may init again afterwards, and
+ * what it gets then should be this library as it was loaded, not as the
+ * last session left it. */
 void retro_deinit(void)
 {
+    if (machine_inited)
+        main_stop();
+    machine_inited = false;
+    loaded_rom[0] = 0;
+    loaded_path[0] = 0;
+    shutdown_sent = false;
+    geom_w = geom_h = 0;
+    input_reset();
     log_set_sink(NULL);
     log_cb = NULL;
 }
@@ -411,7 +422,8 @@ bool retro_load_game(const struct retro_game_info *game)
 
     environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_descriptors);
 
-    enter_save_directory(game->path);
+    snprintf(loaded_path, sizeof loaded_path, "%s", game->path);
+    enter_save_directory(loaded_path);
 
     return boot(loaded_rom);
 }
@@ -429,12 +441,18 @@ void retro_unload_game(void)
     if (machine_inited)
         main_stop();
     loaded_rom[0] = 0;
+    loaded_path[0] = 0;
 }
 
+/* A reset is the boot a load does, and all of it: the program left the
+ * machine in some directory of its own, and a fresh start does not inherit
+ * where it got to. */
 void retro_reset(void)
 {
-    if (loaded_rom[0])
-        boot(loaded_rom);
+    if (!loaded_rom[0])
+        return;
+    enter_save_directory(loaded_path);
+    boot(loaded_rom);
 }
 
 /* ------------------------------------------------------------------ */
@@ -454,30 +472,44 @@ static void swizzle(uint32_t *px, size_t n)
     }
 }
 
+static int audio_frames_sent;
+
+/* aud_pump's sink: the machine's floats as the int16 pairs libretro takes.
+ * It arrives already at the rate this core declared, which is the whole
+ * reason to go through aud_pump — a YM3812 runs at 49716 Hz or it is not
+ * one, and resampling it is the machine's business rather than ours. */
+static int push_frames(const float *frames, int n)
+{
+    int done = 0;
+    while (done < n)
+    {
+        int chunk = n - done;
+        if (chunk > RETRO_AUD_FRAMES_MAX)
+            chunk = RETRO_AUD_FRAMES_MAX;
+        for (int i = 0; i < chunk * 2; i++)
+        {
+            float s = frames[done * 2 + i];
+            s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
+            audio_buf[i] = (int16_t)(s * 32767.0f);
+        }
+        audio_batch_cb(audio_buf, (size_t)chunk);
+        done += chunk;
+    }
+    audio_frames_sent += n;
+    return n;
+}
+
 static void push_audio(void)
 {
-    int frames = aud_read(audio_buf, RETRO_AUD_FRAMES_MAX);
-    /* The int16 pairs libretro takes, written over the floats they came
-     * from: each one is half the width of the sample it replaces, so the
-     * write for a frame is always behind the read, and one buffer does. */
-    int16_t *out = (int16_t *)audio_buf;
-    if (frames > 0)
-    {
-        for (int i = 0; i < frames * 2; i++)
-        {
-            float s = audio_buf[i];
-            s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
-            out[i] = (int16_t)(s * 32767.0f);
-        }
-    }
-    else
-    {
-        /* Silence still has to arrive, or a frontend syncing to sound waits
-         * for a frame that never sounds. */
-        frames = RETRO_AUD_RATE / VGA_HZ;
-        memset(out, 0, (size_t)frames * 2 * sizeof *out);
-    }
-    audio_batch_cb(out, (size_t)frames);
+    audio_frames_sent = 0;
+    aud_pump(RETRO_AUD_RATE, push_frames);
+    if (audio_frames_sent)
+        return;
+    /* A silent machine still has to keep time, or a frontend syncing on
+     * sound waits for a frame that never sounds. */
+    int frames = RETRO_AUD_RATE / VGA_HZ;
+    memset(audio_buf, 0, (size_t)frames * 2 * sizeof *audio_buf);
+    audio_batch_cb(audio_buf, (size_t)frames);
 }
 
 void retro_run(void)
@@ -504,8 +536,6 @@ void retro_run(void)
     vga_canvas_size(&w, &h);
     if (w != geom_w || h != geom_h)
     {
-        geom_w = w;
-        geom_h = h;
         struct retro_game_geometry geom = {
             .base_width = (unsigned)w,
             .base_height = (unsigned)h,
@@ -513,7 +543,14 @@ void retro_run(void)
             .max_height = VGA_MAX_HEIGHT,
             .aspect_ratio = 4.0f / 3.0f,
         };
-        environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geom);
+        /* Only remember having said it if it was heard. A frontend without
+         * this call is told again on the next frame, which costs nothing and
+         * is the only way it can ever learn. */
+        if (environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geom))
+        {
+            geom_w = w;
+            geom_h = h;
+        }
     }
 
     swizzle(frame_buf, (size_t)w * (size_t)h);

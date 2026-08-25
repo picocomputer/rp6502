@@ -139,12 +139,44 @@ UTEST(load, a_boot_is_a_fresh_machine)
     fe.unload_game();
 }
 
-/* Reset is a reboot of the same program, so it settles to the picture a
- * fresh load of it settles to. The machine is compared with itself — no
- * other machine says what that picture is. */
+/* Reset is a reboot: the image is laid down again over a machine that has
+ * been wiped. Asked of memory the loader wrote and something else then
+ * changed, because a picture that would settle the same way whether or not
+ * anything happened is a claim that cannot fail. */
+UTEST(load, reset_is_a_reboot)
+{
+    uint8_t pat[256];
+    for (int i = 0; i < 256; i++)
+        pat[i] = (uint8_t)(i ^ 0x5A);
+    std::vector<uint8_t> rom = rom_shell();
+    tb_rom_record(rom, 0x10200, pat, sizeof(pat));
+    const char *path = write_rom("reset.rp6502", rom);
+    ASSERT_TRUE(path != NULL);
+    ASSERT_TRUE(fe_load(path));
+    fe_run(20);
+
+    uint8_t *xram = (uint8_t *)fe.get_memory_data(RETRO_MEMORY_VIDEO_RAM);
+    ASSERT_TRUE(xram != NULL);
+    ASSERT_EQ(0, memcmp(xram + 0x0200, pat, sizeof pat));
+
+    /* Scribble over what the loader put there ... */
+    memset(xram + 0x0200, 0xC3, sizeof pat);
+    ASSERT_NE(0, memcmp(xram + 0x0200, pat, sizeof pat));
+
+    /* ... and the reset lays the image down again. */
+    fe.reset();
+    fe_run(20);
+    xram = (uint8_t *)fe.get_memory_data(RETRO_MEMORY_VIDEO_RAM);
+    ASSERT_EQ(0, memcmp(xram + 0x0200, pat, sizeof pat));
+    fe.unload_game();
+}
+
+/* And it settles to the same picture a fresh load of it settles to. The
+ * machine is compared with itself — no other machine says what that
+ * picture is. */
 UTEST(load, reset_settles_where_a_fresh_load_does)
 {
-    const char *path = write_rom("reset.rp6502", rom_shell());
+    const char *path = write_rom("reset2.rp6502", rom_shell());
     ASSERT_TRUE(path != NULL);
     ASSERT_TRUE(fe_load(path));
     fe_run(20);

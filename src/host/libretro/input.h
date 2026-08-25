@@ -29,4 +29,7 @@ void input_poll(retro_input_state_t state);
 /* What the frontend says is plugged into a port; RETRO_DEVICE_NONE unplugs. */
 void input_set_port_device(unsigned port, unsigned device);
 
+/* Forget what this frontend said, for a core being taken down. */
+void input_reset(void);
+
 #endif /* _HOST_LIBRETRO_INPUT_H_ */

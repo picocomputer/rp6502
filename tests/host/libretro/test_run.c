@@ -90,6 +90,26 @@ UTEST(run, a_program_that_plays_something_is_heard)
     fe.unload_game();
 }
 
+/* The OPL2 generates at 49716 Hz because a YM3812 does, and this core told
+ * the frontend 48000. A second of frames still has to be a second of sound
+ * at the rate that was declared, or everything plays sharp and a frontend
+ * syncing on audio drags the machine off 60 Hz to keep up. */
+UTEST(run, a_device_at_its_own_rate_still_arrives_at_ours)
+{
+    ASSERT_TRUE(fe_load(AUD_ROM_OPL));
+    fe.audio_peak = 0;
+    fe_run(20); /* let the program reach its note */
+    fe.audio_frames = 0;
+    fe_run(60);
+    ASSERT_TRUE(fe.audio_peak > 0); /* it is really the OPL sounding */
+
+    /* The resampler's output length varies by a sample either way as its
+     * phase carries, so this is the rate and not an exact count. */
+    ASSERT_TRUE(fe.audio_frames > (size_t)47900);
+    ASSERT_TRUE(fe.audio_frames < (size_t)48100);
+    fe.unload_game();
+}
+
 /* Silence is still handed over, at the same rate. */
 UTEST(run, a_silent_program_still_keeps_time)
 {

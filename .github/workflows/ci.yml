@@ -297,7 +297,8 @@ jobs:
           cp build/libretro/release/rp6502_libretro.so stage/
           cp src/dist/libretro/rp6502_libretro.info stage/
           cp src/dist/libretro/README.txt stage/
-          (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" .)
+          (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" \
+             rp6502_libretro.so rp6502_libretro.info README.txt)
 
       - uses: actions/upload-artifact@v7
         with:
