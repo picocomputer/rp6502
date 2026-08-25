@@ -72,10 +72,14 @@ UTEST(rom, loads_a_headerless_image)
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(main_xreg_0(0, 0, 0));  /* RIA-local devices: accepted (stub) */
-    ASSERT_TRUE(main_xreg_1(0, 0, 3));  /* VGA canvas 640x480 */
-    ASSERT_FALSE(main_xreg_1(15, 1, 0)); /* VGA control channel: reg 0 is DISPLAY, other regs have no emu analog (NAK) */
-    ASSERT_TRUE(main_xreg_1(5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(main_xreg_0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(main_xreg_1(0, 0, 3)); /* VGA canvas 640x480 */
+    /* The control channel: CODE_PAGE is answered, and so is DISPLAY, which is
+     * not exercised here because it resets the machine. The rest are registers
+     * of a real VGA chip that a machine which is its own has no analog for. */
+    ASSERT_TRUE(main_xreg_1(15, 1, 437));
+    ASSERT_FALSE(main_xreg_1(15, 2, 0));
+    ASSERT_TRUE(main_xreg_1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report

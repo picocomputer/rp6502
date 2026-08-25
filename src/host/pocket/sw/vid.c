@@ -57,7 +57,7 @@ bool mode0_prog(uint16_t *xregs)
 void vid_init(void)
 {
     font_init();
-    vga_set_canvas(0);
+    vga_canvas_select(0);
 }
 
 static void vid_publish(void)

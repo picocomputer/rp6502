@@ -39,6 +39,18 @@ int16_t vga_canvas_height(void);
 // The code page the display renders text in.
 void vga_set_code_page(uint16_t cp);
 
+/* Select a canvas, which discards whatever was programmed on the last one.
+ * False for a canvas this machine does not have. A machine whose video device
+ * is across a bus does not choose here -- it writes the wire and shadows what
+ * it wrote (host/pico/ria/sys/vga.c). */
+bool vga_canvas_select(uint16_t canvas);
+
+/* A mode program is about to be laid down, before any of its planes are
+ * booked. A machine whose renderer needs to be told which mode it is about to
+ * draw -- fabric does, software does not, because software is told by the
+ * plane it is handed -- publishes it here. */
+void vga_mode_begin(uint8_t mode, uint16_t attr);
+
 /* Program the canvas for a mode number, as the mode xreg asked. */
 bool vga_mode_prog(uint16_t mode, uint16_t *xregs);
 

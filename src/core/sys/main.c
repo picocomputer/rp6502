@@ -99,51 +99,6 @@ void main_stop(void)
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
 
-/* The VGA mode-xreg accumulator, shared by channel 0 (CANVAS/MODE) and channel 15
- * (DISPLAY, which clears it) — mirrors the file-level xregs in vga/sys/pix.c. */
-static uint16_t xregs[16];
-
-bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
-{
-    if (channel == 0)
-    {
-        xregs[address & 0x0F] = word;
-        if (address == 0)
-        {
-            bool ok = vga_set_canvas(word);
-            memset(xregs, 0, sizeof(xregs)); /* fresh state per pix.c */
-            return ok;
-        }
-        if (address == 1)
-        {
-            /* Mode select (xregs[1]); params at addresses 2.. were stored first
-             * by the high->low dispatch. Mirrors vga main_prog, then clears the
-             * registers so the next program starts fresh. */
-            bool ok = vga_mode_prog(word, xregs);
-            memset(xregs, 0, sizeof(xregs));
-            return ok;
-        }
-        return true; /* parameter register stored */
-    }
-    if (channel == 0x0F)
-    {
-        /* VGA control channel — RIA-private (guest writes NAK in pix_api_xreg).
-         * Mirrors vga/sys/pix.c pix_ch15_xreg; only registers with an emu analog
-         * are handled. */
-        if (address == 0x00) /* DISPLAY: also resets to the console canvas */
-        {
-            vga_set_canvas(vga_canvas_console); /* == firmware vga_xreg_canvas(NULL) */
-            term_RIS_no_clear();                /* preserve-screen terminal RIS */
-            memset(xregs, 0, sizeof(xregs));
-            return true;
-        }
-        return false; /* no emu analog for the other control registers */
-    }
-    /* Channels 1-14 reach external bus devices with no ACK; the emulator has none,
-     * so a no-op success. */
-    return true;
-}
-
 const dir_backend_t *main_dir_backend(void)
 {
     return &msc_dir_backend;

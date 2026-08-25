@@ -75,53 +75,6 @@ bool ria_get_sigint(void)
     return latched;
 }
 
-static uint16_t main_xregs[16];
-
-bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
-{
-    if (channel == 0)
-    {
-        main_xregs[address & 0x0F] = word;
-        if (address == 0)
-        {
-            bool ok = vga_set_canvas(word);
-            for (int i = 0; i < 16; i++)
-                main_xregs[i] = 0;
-            return ok;
-        }
-        if (address == 1)
-        {
-            vga_prog_mode((uint8_t)word, main_xregs[2]);
-            bool ok = vga_mode_prog(word, main_xregs);
-            for (int i = 0; i < 16; i++)
-                main_xregs[i] = 0;
-            return ok;
-        }
-        return true;
-    }
-    if (channel == 0x0F)
-    {
-        /* RIA-private: pix_api_xreg refuses a guest write, so these
-         * arrive only from stop(). */
-        switch (address)
-        {
-        case 0x00:
-            /* DISPLAY, which is also the console reset. */
-            vga_set_canvas(vga_canvas_console);
-            term_RIS_no_clear();
-            for (int i = 0; i < 16; i++)
-                main_xregs[i] = 0;
-            return true;
-        case 0x01:
-            font_set_code_page(word);
-            return true;
-        }
-        return false;
-    }
-    /* Channels 1-14 reach external bus devices with no ACK; none exist. */
-    return true;
-}
-
 /* std.c wants the catch-all last, so the mass-storage drive follows ROM. */
 const dir_backend_t *main_dir_backend(void)
 {

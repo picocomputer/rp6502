@@ -10,6 +10,7 @@
  * hardware.
  */
 
+#include "font.h"
 #include "mmio.h"
 #include "vga.h"
 #include "vid.h"
@@ -52,7 +53,8 @@ int16_t vga_vsync_scanline(void)
     return vga_highest_scanline;
 }
 
-void vga_prog_mode(uint8_t mode, uint16_t attr)
+/* The fabric renders, so it is told which mode before the planes arrive. */
+void vga_mode_begin(uint8_t mode, uint16_t attr)
 {
     vga_pub_mode = mode;
     vga_pub_attr = attr;
@@ -144,7 +146,7 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
     return true;
 }
 
-bool vga_set_canvas(uint16_t canvas)
+bool vga_canvas_select(uint16_t canvas)
 {
     switch (canvas)
     {
@@ -184,7 +186,7 @@ bool vga_set_canvas(uint16_t canvas)
 /* A wake reconfigures the part, so these two come back at their
  * power-on values -- console, and a vsync line of 480 -- while the
  * blob has brought back the scanline table they belong to and the
- * shadows above that say what they were. Not vga_set_canvas: that
+ * shadows above that say what they were. Not vga_canvas_select: that
  * sweeps the table, which is exactly what the blob just restored.
  *
  * The canvas is the whole picture. It is the scaler mode the raster
@@ -197,4 +199,10 @@ void vga_restore(void)
 {
     VID_CANVAS = (uint32_t)vga_canvas_code;
     VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
+}
+
+/* One font store, and the glyphs in it are this page's. */
+void vga_set_code_page(uint16_t cp)
+{
+    font_set_code_page(cp);
 }

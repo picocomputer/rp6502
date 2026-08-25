@@ -69,7 +69,7 @@ uint8_t vga_get_display_type(void)
  * reinstalls the terminal program so a return to it keeps rendering. An
  * out-of-range code is rejected (false) with no state change, as the firmware
  * NAKs it. */
-bool vga_set_canvas(uint16_t canvas)
+bool vga_canvas_select(uint16_t canvas)
 {
     switch (canvas)
     {
@@ -99,6 +99,14 @@ bool vga_set_canvas(uint16_t canvas)
     return true;
 }
 
+/* Software renders from the plane it is handed, so there is nothing to
+ * publish ahead of one. */
+void vga_mode_begin(uint8_t mode, uint16_t attr)
+{
+    (void)mode;
+    (void)attr;
+}
+
 void vga_set_code_page(uint16_t cp)
 {
     font_set_code_page(cp);
@@ -106,7 +114,7 @@ void vga_set_code_page(uint16_t cp)
 
 void vga_init(void)
 {
-    vga_set_canvas(0); /* console = 640x480, installs the term program */
+    vga_canvas_select(0); /* console = 640x480, installs the term program */
 }
 
 static bool vga_needs_reset;
