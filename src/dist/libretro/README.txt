@@ -19,6 +19,7 @@ each:
     linux-aarch64/rp6502_libretro.so
     windows-x86_64/rp6502_libretro.dll
     macos-arm64/rp6502_libretro.dylib
+    android-arm64/rp6502_libretro.so
 
 Take the one for your machine, put it in the directory your
 frontend keeps its cores in, and put rp6502_libretro.info beside
