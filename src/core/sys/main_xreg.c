@@ -1,0 +1,60 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * Which device an XREG write reaches on device 0, the RIA's own -- the one
+ * that never crosses a bus even where there is one, because the registers it
+ * carries belong to the chip the 6502 is talking to.
+ *
+ * Six rows, and every machine has all six: four human interface devices on
+ * channel 0 and two sound chips on channel 1. Each machine wrote them out
+ * again, in a different shape each time -- nested ifs, a guarded switch, a
+ * switch over channel*256+address -- and they always had to agree, because
+ * the numbers are the 6502's ABI and not any machine's choice.
+ */
+
+#include "core/main.h"
+#include "core/aud/opl.h"
+#include "core/aud/psg.h"
+#include "core/hid/hid.h"
+#include "core/hid/kbd.h"
+#include "core/hid/mou.h"
+#include "core/hid/pad.h"
+#include "core/hid/tab.h"
+
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
+{
+    if (channel == 0) /* human interface devices -> XRAM report blocks */
+    {
+        bool ok;
+        switch (address)
+        {
+        case 0:
+            ok = kbd_xreg(word);
+            break;
+        case 1:
+            ok = mou_xreg(word);
+            break;
+        case 2:
+            ok = pad_xreg(word);
+            break;
+        case 3:
+            ok = tab_xreg(word);
+            break;
+        default:
+            return false;
+        }
+        hid_remapped();
+        return ok;
+    }
+    if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
+    {
+        if (address == 0)
+            return psg_xreg(word);
+        if (address == 1)
+            return opl_xreg(word);
+        return false;
+    }
+    return false;
+}

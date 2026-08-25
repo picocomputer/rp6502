@@ -23,6 +23,13 @@ void hid_set_leds(uint8_t leds);
  * holds off deciding a layout. False where enumeration is not a thing. */
 bool hid_boot_enumerating(void);
 
+/* An XREG write just pointed a device at a new XRAM report block, which blanks
+ * the record. Where this machine's transport holds the current state rather
+ * than resending it on its own, that state has to go out again -- a control
+ * standing still is news to a record that was just emptied. Nothing to do
+ * where reports arrive continuously. */
+void hid_remapped(void);
+
 uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);

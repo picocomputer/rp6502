@@ -75,38 +75,6 @@ bool ria_get_sigint(void)
     return latched;
 }
 
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
-{
-    if (channel == 0 && address <= 3)
-    {
-        bool ok;
-        switch (address)
-        {
-        case 0:
-            ok = kbd_xreg(word);
-            break;
-        case 1:
-            ok = mou_xreg(word);
-            break;
-        case 2:
-            ok = pad_xreg(word);
-            break;
-        default:
-            ok = tab_xreg(word);
-            break;
-        }
-        /* Mapping blanks the record; reports only arrive on movement, so
-         * the next one has to count as news. */
-        apf_refresh();
-        return ok;
-    }
-    if (channel == 1 && address == 0)
-        return aud_psg_xreg(word);
-    if (channel == 1 && address == 1)
-        return aud_opl_xreg(word);
-    return false;
-}
-
 static uint16_t main_xregs[16];
 
 bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)

@@ -237,29 +237,6 @@ void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
     pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
-// PIX XREG writes to the RIA device will dispatch here.
-bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
-{
-    switch (chan * 256 + addr)
-    {
-    // Channel 0 for human interface devices.
-    case 0x000:
-        return kbd_xreg(word);
-    case 0x001:
-        return mou_xreg(word);
-    case 0x002:
-        return pad_xreg(word);
-    case 0x003:
-        return tab_xreg(word);
-    // Channel 1 for audio devices.
-    case 0x100:
-        return psg_xreg(word);
-    case 0x101:
-        return opl_xreg(word);
-    default:
-        return false;
-    }
-}
 
 /*****************************/
 /* This is the OS scheduler. */

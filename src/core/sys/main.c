@@ -99,33 +99,6 @@ void main_stop(void)
 /* Dispatch                                                            */
 /* ------------------------------------------------------------------ */
 
-/* PIX XREG register dispatch. Device 0 is the RIA-local virtual device (HID +
- * audio); device 1 is the VGA. False on an unhandled channel/address. */
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
-{
-    if (channel == 0) /* human interface devices -> XRAM report blocks */
-    {
-        if (address == 0)
-            return kbd_xreg(word);
-        if (address == 1)
-            return mou_xreg(word);
-        if (address == 2)
-            return pad_xreg(word);
-        if (address == 3)
-            return tab_xreg(word);
-        return false;
-    }
-    if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
-    {
-        if (address == 0)
-            return psg_xreg(word);
-        if (address == 1)
-            return opl_xreg(word);
-        return false;
-    }
-    return false;
-}
-
 /* The VGA mode-xreg accumulator, shared by channel 0 (CANVAS/MODE) and channel 15
  * (DISPLAY, which clears it) — mirrors the file-level xregs in vga/sys/pix.c. */
 static uint16_t xregs[16];

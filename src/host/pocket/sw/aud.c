@@ -118,7 +118,7 @@ void aud_restore(void)
     bel_init();
 }
 
-bool aud_psg_xreg(uint16_t word)
+bool psg_xreg(uint16_t word)
 {
     if (word & 0x0001 || word > 0x10000 - 64 ||
         ((word >> 8) != ((word + 63) >> 8)))
@@ -141,7 +141,7 @@ bool aud_psg_xreg(uint16_t word)
 /* Page-aligned is the whole validation: the device is a 256-byte mirror
  * of the chip's register file. The zeroing is for a program that reads
  * back what it just programmed; the engine never reads the page. */
-bool aud_opl_xreg(uint16_t word)
+bool opl_xreg(uint16_t word)
 {
     if (word & 0x00FF)
     {

@@ -24,6 +24,5 @@
 
 void main_task(void);
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
-bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word);
 
 #endif /* _RIA_MAIN_H_ */

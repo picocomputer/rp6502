@@ -418,3 +418,9 @@ bool hid_boot_enumerating(void)
 {
     return usb_boot_enumerating();
 }
+
+/* Devices report on their own schedule and a remapped block refills from the
+ * next one, so there is nothing held here to send again. */
+void hid_remapped(void)
+{
+}

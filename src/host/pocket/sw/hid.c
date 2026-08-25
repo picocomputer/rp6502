@@ -11,6 +11,7 @@
 #include "font.h"
 
 #include "core/hid/hid.h"
+#include "apf.h"
 #include "core/api/oem.h"
 
 uint16_t oem_get_code_page_run(void)
@@ -35,4 +36,12 @@ void hid_set_leds(uint8_t leds)
 bool hid_boot_enumerating(void)
 {
     return false;
+}
+
+/* The dock sends a report only when something moves, and the registers it
+ * fills are levels, so a control standing still would leave the blank the
+ * mapping just wrote. */
+void hid_remapped(void)
+{
+    apf_refresh();
 }
