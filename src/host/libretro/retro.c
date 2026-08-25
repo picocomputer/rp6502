@@ -1,0 +1,458 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * The machine as a libretro core.
+ *
+ * A frontend owns the loop, so this host has none: retro_run advances the
+ * machine exactly one 60 Hz frame and hands over the picture and the sound
+ * it made. That is the whole of the difference from the desktop hosts, whose
+ * window.c does the pacing the frontend does here.
+ *
+ * There is no monitor on this host and no debugger. A .rp6502 is what runs,
+ * and when it stops, the core is done.
+ */
+
+#include "input.h"
+
+#include "core/api/oem.h"
+#include "core/emu/app/rand.h"
+#include "core/emu/app/version.h"
+#include "core/emu/emu/aud.h"
+#include "core/emu/emu/log.h"
+#include "core/emu/emu/msc.h"
+#include "core/emu/emu/pro.h"
+#include "core/emu/emu/rom.h"
+#include "core/emu/main.h"
+#include "core/emu/sys/cpu.h"
+#include "core/emu/sys/mem.h"
+#include "core/emu/sys/sys.h"
+#include "core/emu/sys/vga.h"
+#include "core/fs.h"
+#include "host.h"
+
+#include "libretro.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/* The machine's audio is generated at this rate and handed over unresampled;
+ * aud.h's own default is the same number, so nothing is told to change. */
+#define RETRO_AUD_RATE 48000
+#define RETRO_AUD_FRAMES_MAX (RETRO_AUD_RATE / VGA_HZ + 64)
+
+static retro_environment_t environ_cb;
+static retro_video_refresh_t video_cb;
+static retro_audio_sample_batch_t audio_batch_cb;
+static retro_input_poll_t input_poll_cb;
+static retro_input_state_t input_state_cb;
+static retro_log_printf_t log_cb;
+
+static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
+static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
+
+static char loaded_rom[MSC_MAX_PATH]; /* OEM, for retro_reset */
+static bool machine_inited;
+static int geom_w, geom_h;
+static bool shutdown_sent;
+
+/* ------------------------------------------------------------------ */
+/* Environment                                                         */
+/* ------------------------------------------------------------------ */
+
+static void retro_log_sink(const char *msg)
+{
+    if (log_cb)
+        log_cb(RETRO_LOG_ERROR, "%s\n", msg);
+    else
+        fprintf(stderr, "rp6502: %s\n", msg);
+}
+
+static const struct retro_core_option_v2_definition option_defs[] = {
+    {
+        "rp6502_phi2", "CPU Speed", NULL,
+        "How fast the 65C02 runs. The hardware is adjustable too, and a program "
+        "written for a slower machine may want a slower one here.",
+        NULL, NULL,
+        {{"8000", "8.0 MHz"}, {"6000", "6.0 MHz"}, {"4000", "4.0 MHz"},
+         {"2000", "2.0 MHz"}, {"1000", "1.0 MHz"}, {NULL, NULL}},
+        "8000",
+    },
+    {
+        "rp6502_code_page", "Code Page", NULL,
+        "The OEM code page the terminal and the filesystem speak.",
+        NULL, NULL,
+        {{"437", "437 (US)"}, {"850", "850 (Latin-1)"}, {"852", "852 (Latin-2)"},
+         {"858", "858 (Latin-1 + Euro)"}, {"866", "866 (Cyrillic)"}, {NULL, NULL}},
+        "437",
+    },
+    {
+        "rp6502_mem_fill", "Memory At Power-On", NULL,
+        "What RAM holds before a program writes it. Real SRAM comes up random, "
+        "and a program that reads what it never wrote should fail here the way "
+        "it would on hardware.",
+        NULL, NULL,
+        {{"random", "Random"}, {"00", "Zeros"}, {"ff", "Ones"}, {NULL, NULL}},
+        "random",
+    },
+    {NULL, NULL, NULL, NULL, NULL, NULL, {{NULL, NULL}}, NULL},
+};
+
+static struct retro_core_options_v2 options_v2 = {
+    NULL, (struct retro_core_option_v2_definition *)option_defs};
+
+static const char *option_value(const char *key)
+{
+    struct retro_variable var = {key, NULL};
+    if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var))
+        return var.value;
+    return NULL;
+}
+
+/* The config half of the settings pattern, applied before main_init the way
+ * the desktop applies its command line. A value we cannot read is the default
+ * — a frontend is not a place to refuse to start over a bad number. */
+static void apply_options(void)
+{
+    const char *v = option_value("rp6502_phi2");
+    long khz = v ? strtol(v, NULL, 10) : 0;
+    if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
+        cpu_set_phi2_khz((uint16_t)khz);
+
+    v = option_value("rp6502_code_page");
+    long cp = v ? strtol(v, NULL, 10) : 0;
+    if (cp > 0 && cp <= UINT16_MAX)
+        oem_set_code_page((uint16_t)cp);
+
+    v = option_value("rp6502_mem_fill");
+    if (v && !strcmp(v, "00"))
+        mem_set_fill(false, 0x00, rand_seed_value());
+    else if (v && !strcmp(v, "ff"))
+        mem_set_fill(false, 0xFF, rand_seed_value());
+    else
+        mem_set_fill(true, 0, rand_seed_value());
+}
+
+/* ------------------------------------------------------------------ */
+/* Startup                                                             */
+/* ------------------------------------------------------------------ */
+
+unsigned retro_api_version(void)
+{
+    return RETRO_API_VERSION;
+}
+
+void retro_set_environment(retro_environment_t cb)
+{
+    environ_cb = cb;
+
+    unsigned version = 0;
+    if (cb(RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION, &version) && version >= 2)
+        cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2, &options_v2);
+    else
+        cb(RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2_INTL, &options_v2);
+}
+
+void retro_set_video_refresh(retro_video_refresh_t cb) { video_cb = cb; }
+void retro_set_audio_sample(retro_audio_sample_t cb) { (void)cb; }
+void retro_set_audio_sample_batch(retro_audio_sample_batch_t cb) { audio_batch_cb = cb; }
+void retro_set_input_poll(retro_input_poll_t cb) { input_poll_cb = cb; }
+void retro_set_input_state(retro_input_state_t cb) { input_state_cb = cb; }
+
+void retro_init(void)
+{
+    struct retro_log_callback logging;
+    if (environ_cb && environ_cb(RETRO_ENVIRONMENT_GET_LOG_INTERFACE, &logging))
+        log_cb = logging.log;
+    log_set_sink(retro_log_sink);
+
+    struct retro_keyboard_callback kb = {input_keyboard_event};
+    if (environ_cb)
+        environ_cb(RETRO_ENVIRONMENT_SET_KEYBOARD_CALLBACK, &kb);
+}
+
+void retro_deinit(void)
+{
+    log_set_sink(NULL);
+    log_cb = NULL;
+}
+
+void retro_get_system_info(struct retro_system_info *info)
+{
+    memset(info, 0, sizeof *info);
+    info->library_name = "Picocomputer 6502";
+    /* The frontend prints this beside the name, so it supplies the word the
+     * stamp has in front of a tagged build. */
+    info->library_version = version_string() +
+                            (strncmp(version_string(), "Version ", 8) ? 0 : 8);
+    info->valid_extensions = "rp6502";
+    /* A program's assets are never read into memory: a ROM: open scans the
+     * file for them on demand, so the file has to stay where it is. */
+    info->need_fullpath = true;
+    info->block_extract = false;
+}
+
+void retro_get_system_av_info(struct retro_system_av_info *info)
+{
+    memset(info, 0, sizeof *info);
+    /* The boot console is the largest canvas; a program that picks a smaller
+     * one says so with SET_GEOMETRY as it comes up. */
+    info->geometry.base_width = VGA_MAX_WIDTH;
+    info->geometry.base_height = VGA_MAX_HEIGHT;
+    info->geometry.max_width = VGA_MAX_WIDTH;
+    info->geometry.max_height = VGA_MAX_HEIGHT;
+    info->geometry.aspect_ratio = 4.0f / 3.0f;
+    info->timing.fps = VGA_HZ;
+    info->timing.sample_rate = RETRO_AUD_RATE;
+}
+
+void retro_set_controller_port_device(unsigned port, unsigned device)
+{
+    input_set_port_device(port, device);
+}
+
+/* ------------------------------------------------------------------ */
+/* Content                                                             */
+/* ------------------------------------------------------------------ */
+
+/* Where the frontend wants a program's saves to go. MSC0: is still the whole
+ * host filesystem, as on every other host; this is only where a program
+ * starts out. */
+static void enter_save_directory(const char *content_path)
+{
+    const char *dir = NULL;
+    if (!environ_cb || !environ_cb(RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY, &dir) || !dir || !*dir)
+    {
+        /* No save directory: the program's own folder, which is where the SDK
+         * puts what it ships beside a ROM. */
+        static char own[MSC_MAX_PATH];
+        snprintf(own, sizeof own, "%s", content_path);
+        char *slash = strrchr(own, '/');
+#ifdef _WIN32
+        char *back = strrchr(own, '\\');
+        if (back > slash)
+            slash = back;
+#endif
+        if (!slash)
+            return;
+        *slash = 0;
+        dir = own;
+    }
+    char oem[MSC_MAX_PATH];
+    if (host_argv_to_oem(dir, oem, sizeof oem))
+        fs_chdir(oem);
+}
+
+/* Stand a program up: a fresh machine, the image, then run. The first load
+ * cold-boots; every one after is the same fresh-machine sequence the test
+ * bench boots with. */
+static bool boot(const char *rom_oem)
+{
+    if (machine_inited)
+    {
+        main_stop();
+        mem_init();
+    }
+    else
+    {
+        apply_options();
+        main_init();
+        machine_inited = true;
+    }
+    if (!rom_load(rom_oem))
+        return false;
+    vga_set_framebuffer(frame_buf);
+    pro_set_argv(rom_oem, 0, NULL);
+    pro_set_launcher(false);
+    main_run();
+    shutdown_sent = false;
+    geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */
+    return true;
+}
+
+bool retro_load_game(const struct retro_game_info *game)
+{
+    if (!game || !game->path)
+    {
+        log_error("this core plays a .rp6502 program; there is nothing to run");
+        return false;
+    }
+
+    enum retro_pixel_format fmt = RETRO_PIXEL_FORMAT_XRGB8888;
+    if (!environ_cb(RETRO_ENVIRONMENT_SET_PIXEL_FORMAT, &fmt))
+    {
+        log_error("this frontend cannot show XRGB8888");
+        return false;
+    }
+
+    /* Absolute before anything moves: the frontend's path is relative to a
+     * directory we are about to leave, and retro_reset has to find the same
+     * file again from wherever the program has since gone. */
+    char given[MSC_MAX_PATH];
+    if (!host_argv_to_oem(game->path, given, sizeof given))
+    {
+        log_error("ROM path too long");
+        return false;
+    }
+    if (!fs_realpath(given, loaded_rom, sizeof loaded_rom))
+        snprintf(loaded_rom, sizeof loaded_rom, "%s", given);
+
+    enter_save_directory(game->path);
+
+    return boot(loaded_rom);
+}
+
+bool retro_load_game_special(unsigned type, const struct retro_game_info *info, size_t num)
+{
+    (void)type;
+    (void)info;
+    (void)num;
+    return false;
+}
+
+void retro_unload_game(void)
+{
+    if (machine_inited)
+        main_stop();
+    loaded_rom[0] = 0;
+}
+
+void retro_reset(void)
+{
+    if (loaded_rom[0])
+        boot(loaded_rom);
+}
+
+/* ------------------------------------------------------------------ */
+/* Running                                                             */
+/* ------------------------------------------------------------------ */
+
+/* The machine paints RGBA8 (0xAABBGGRR); libretro asked for XRGB8888
+ * (0x00RRGGBB). Red and blue trade places, which is its own inverse, so the
+ * pixels the tests hash are the pixels a frontend gets. In place is safe:
+ * every visible scanline is repainted before it is handed over again. */
+static void swizzle(uint32_t *px, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+    {
+        uint32_t v = px[i];
+        px[i] = (v & 0x0000FF00u) | ((v & 0x000000FFu) << 16) | ((v >> 16) & 0xFFu);
+    }
+}
+
+static void push_audio(void)
+{
+    int frames = aud_read((float *)audio_buf, RETRO_AUD_FRAMES_MAX);
+    if (frames > 0)
+    {
+        /* Read as float into the same storage and convert backwards, so the
+         * int16 it becomes never overwrites a float still to be read. */
+        const float *src = (const float *)audio_buf;
+        for (int i = frames * 2 - 1; i >= 0; i--)
+        {
+            float s = src[i];
+            s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
+            audio_buf[i] = (int16_t)(s * 32767.0f);
+        }
+    }
+    else
+    {
+        /* Silence still has to arrive, or a frontend syncing to sound waits
+         * for a frame that never sounds. */
+        frames = RETRO_AUD_RATE / VGA_HZ;
+        memset(audio_buf, 0, (size_t)frames * 2 * sizeof *audio_buf);
+    }
+    audio_batch_cb(audio_buf, (size_t)frames);
+}
+
+void retro_run(void)
+{
+    bool updated = false;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE, &updated) && updated)
+    {
+        const char *v = option_value("rp6502_phi2");
+        long khz = v ? strtol(v, NULL, 10) : 0;
+        if (khz >= CPU_PHI2_MIN_KHZ && khz <= CPU_PHI2_MAX_KHZ)
+            cpu_set_phi2_khz_run((uint16_t)khz);
+        v = option_value("rp6502_code_page");
+        long cp = v ? strtol(v, NULL, 10) : 0;
+        if (cp > 0 && cp <= UINT16_MAX)
+            oem_set_code_page_run((uint16_t)cp);
+    }
+
+    input_poll_cb();
+    input_poll(input_state_cb);
+
+    sys_run_frame();
+
+    int w, h;
+    vga_canvas_size(&w, &h);
+    if (w != geom_w || h != geom_h)
+    {
+        geom_w = w;
+        geom_h = h;
+        struct retro_game_geometry geom = {
+            .base_width = (unsigned)w,
+            .base_height = (unsigned)h,
+            .max_width = VGA_MAX_WIDTH,
+            .max_height = VGA_MAX_HEIGHT,
+            .aspect_ratio = 4.0f / 3.0f,
+        };
+        environ_cb(RETRO_ENVIRONMENT_SET_GEOMETRY, &geom);
+    }
+
+    swizzle(frame_buf, (size_t)w * (size_t)h);
+    video_cb(frame_buf, (unsigned)w, (unsigned)h, (size_t)w * sizeof *frame_buf);
+
+    push_audio();
+
+    /* The program stopped and there is no monitor here to fall back to, so
+     * the core is finished. The frame above is the last thing it drew. */
+    if (cpu_halted() && !shutdown_sent)
+    {
+        shutdown_sent = true;
+        environ_cb(RETRO_ENVIRONMENT_SHUTDOWN, NULL);
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* Memory, and the things this core does not do                        */
+/* ------------------------------------------------------------------ */
+
+void *retro_get_memory_data(unsigned id)
+{
+    switch (id)
+    {
+    case RETRO_MEMORY_SYSTEM_RAM: return ram;
+    case RETRO_MEMORY_VIDEO_RAM: return xram;
+    default: return NULL;
+    }
+}
+
+size_t retro_get_memory_size(unsigned id)
+{
+    switch (id)
+    {
+    case RETRO_MEMORY_SYSTEM_RAM: return 0x10000;
+    case RETRO_MEMORY_VIDEO_RAM: return 0x10000;
+    default: return 0;
+    }
+}
+
+/* No savestates yet. Answering zero is how a core says so; answering anything
+ * else promises rewind and netplay this machine cannot keep. */
+size_t retro_serialize_size(void) { return 0; }
+bool retro_serialize(void *data, size_t size) { (void)data; (void)size; return false; }
+bool retro_unserialize(const void *data, size_t size) { (void)data; (void)size; return false; }
+
+void retro_cheat_reset(void) {}
+void retro_cheat_set(unsigned index, bool enabled, const char *code)
+{
+    (void)index;
+    (void)enabled;
+    (void)code;
+}
+
+unsigned retro_get_region(void) { return RETRO_REGION_NTSC; }
