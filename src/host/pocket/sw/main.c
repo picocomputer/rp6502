@@ -26,6 +26,7 @@
 #include "vga.h"
 #include "vid.h"
 #include "core/api/api.h"
+#include "core/api/atr.h"
 #include "core/api/clk.h"
 #include "core/api/pro.h"
 #include "core/api/std.h"
@@ -56,8 +57,21 @@ bool ria_active(void)
     return false;
 }
 
+/* No fabric path raises the 6502's IRQ for this, so a signal here is what a
+ * program finds when it asks rather than something that interrupts it. The
+ * latch still has to exist, or Ctrl-C is a keystroke that does nothing. */
+static bool ria_sigint;
+
 void ria_trigger_sigint(void)
 {
+    ria_sigint = true;
+}
+
+bool ria_get_sigint(void)
+{
+    bool latched = ria_sigint;
+    ria_sigint = false;
+    return latched;
 }
 
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
@@ -196,125 +210,21 @@ bool main_api(uint8_t operation)
     case 0x01:
         return pix_api_xreg();
     case 0x02:
-        return api_return_ax(cpu_get_phi2_khz_run());
+        return atr_api_phi2();
     case 0x03:
-        /* A page this machine does not carry is a no-op; the get that
-         * follows says which page is actually in force. */
-        if (font_has_code_page(API_AX))
-            font_set_code_page(API_AX);
-        return api_return_ax(font_get_code_page());
+        return atr_api_code_page();
     case 0x04:
-        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+        return atr_api_lrand();
     case 0x06:
-        if (!api_set_errno_opt(API_A))
-            return api_return_errno(API_EINVAL);
-        return api_return_ax(0);
+        return atr_api_errno_opt();
     case 0x08:
         return pro_api_argv();
     case 0x09:
         return pro_api_exec();
     case 0x0A:
-        switch (API_A)
-        {
-        case 0x00:
-            return api_return_axsreg(api_get_errno_opt());
-        case 0x01:
-            return api_return_axsreg(cpu_get_phi2_khz_run());
-        case 0x02:
-            return api_return_axsreg(font_get_code_page());
-        case 0x03:
-            return api_return_axsreg(rln_get_max_length());
-        case 0x04:
-            return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
-        case 0x05:
-            return api_return_axsreg(com_get_bel());
-        case 0x06:
-            return api_return_axsreg(pro_has_launcher());
-        case 0x09:
-            return api_return_axsreg(rln_get_caps());
-        case 0x0A:
-            return api_return_axsreg(rln_get_term_width());
-        case 0x0B:
-            return api_return_axsreg(rln_get_term_height());
-        case 0x0C:
-            return api_return_axsreg(rln_get_suppress_nl());
-        case 0x10:
-            return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
-        case 0x11:
-            return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
-        case 0x12:
-            return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
-        case 0x13:
-            return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
-        default:
-            return api_return_errno(API_EINVAL);
-        }
+        return atr_api_get();
     case 0x0B:
-    {
-        uint32_t value;
-        if (!api_pop_uint32_end(&value))
-            return api_return_errno(API_EINVAL);
-        if (value > 0x7FFFFFFF)
-            return api_return_errno(API_EINVAL);
-        switch (API_A)
-        {
-        case 0x00:
-            if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
-                return api_return_errno(API_EINVAL);
-            break;
-        case 0x01:
-            if (value < CPU_PHI2_MIN_KHZ || value > CPU_PHI2_MAX_KHZ)
-                return api_return_errno(API_EINVAL);
-            cpu_set_phi2_khz_run((uint16_t)value);
-            break;
-        case 0x02:
-            /* oem_set_code_page_run is a void: a page that will not take
-             * leaves the old one in force and still answers with success. */
-            if (value > UINT16_MAX)
-                return api_return_errno(API_EINVAL);
-            if (font_has_code_page((uint16_t)value))
-                font_set_code_page((uint16_t)value);
-            break;
-        case 0x03:
-            if (value > UINT8_MAX)
-                return api_return_errno(API_EINVAL);
-            rln_set_max_length((uint8_t)value);
-            break;
-        case 0x05:
-            if (value > 1)
-                return api_return_errno(API_EINVAL);
-            com_set_bel(value);
-            break;
-        case 0x06:
-            if (value > 1)
-                return api_return_errno(API_EINVAL);
-            pro_set_launcher(value);
-            break;
-        case 0x09:
-            if (value > 2)
-                return api_return_errno(API_EINVAL);
-            rln_set_caps((uint8_t)value);
-            break;
-        case 0x0A:
-            if (value > UINT16_MAX)
-                return api_return_errno(API_EINVAL);
-            rln_set_term_width((uint16_t)value);
-            break;
-        case 0x0B:
-            if (value > UINT16_MAX)
-                return api_return_errno(API_EINVAL);
-            rln_set_term_height((uint16_t)value);
-            break;
-        case 0x0C:
-            if (value > 1)
-                return api_return_errno(API_EINVAL);
-            rln_set_suppress_nl((uint8_t)value);
-            break;
-        default:
-            return api_return_errno(API_EINVAL);
-        }
-        return api_return_ax(0);
-    }
+        return atr_api_set();
     case 0x14:
         return std_api_open();
     case 0x15:
@@ -597,6 +507,8 @@ int main(void)
             }
             else if (API_OP == 0xFF)
             {
+                /* Captured before api_return_ax clobbers A/X. */
+                pro_set_exit_code((int16_t)API_AX);
                 main_stop();
                 api_return_ax(0);
             }

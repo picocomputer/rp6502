@@ -144,6 +144,14 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     push(0); push(0); push(1); push(0xB5); /* 437 */
     opn(0x0B, 2);
     opn(0x0A, 2);
+
+    /* ATR_EXIT_CODE and ATR_SIGINT, which are reads a program makes about
+     * the run it is in: nothing has exited and nothing has interrupted, so
+     * both answer zero on a machine that keeps them at all. They are here
+     * because one machine used to answer EINVAL to the pair -- its attribute
+     * table was a copy that never grew the two entries. */
+    opn(0x0A, 7);
+    opn(0x0A, 8);
     p.stp();
 
     rom = tb_rom_image(TB_ORG, p.b);

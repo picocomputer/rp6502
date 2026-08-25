@@ -18,6 +18,14 @@ uint16_t oem_get_code_page_run(void)
     return font_get_code_page();
 }
 
+/* A page this machine does not carry leaves the one in force; the get that
+ * follows says which that is. */
+void oem_set_code_page_run(uint16_t cp)
+{
+    if (font_has_code_page(cp))
+        font_set_code_page(cp);
+}
+
 /* The dock's controllers have no lamps and nothing enumerates. */
 void hid_set_leds(uint8_t leds)
 {

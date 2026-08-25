@@ -93,6 +93,21 @@ void pro_cancel_launcher(void)
     pro_launcher_path[0] = '\0';
 }
 
+/* The last program's exit code, for the EXIT_CODE attribute. The fabric
+ * cannot raise the 6502's IRQ for a signal, but a code a program returned
+ * is just a number, and every other machine answers with it. */
+static int16_t pro_exit_code;
+
+int16_t pro_get_exit_code(void)
+{
+    return pro_exit_code;
+}
+
+void pro_set_exit_code(int16_t code)
+{
+    pro_exit_code = code;
+}
+
 /* An exec the program asked for wins; otherwise it returns to the
  * launcher. The launcher's own exit ends the chain. */
 void pro_stop(void)
