@@ -4,13 +4,12 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Project definitions for both RIA and VIA.
+# Project definitions for both RIA and VGA.
 # Please change name for hardware forks.
 # Creator flag hides MAC and SSID.
 # RP6502_LOCALE is the build default locale.
 set(RP6502_PROJECT_DEFINITIONS
     RP6502_NAME="Picocomputer 6502"
-    RP6502_VERSION=""
     RP6502_LOCALE=EN
     RP6502_EXFAT=0
     RP6502_CREATOR=0
@@ -77,5 +76,5 @@ project(RP6502 C CXX ASM)
 pico_sdk_init()
 
 foreach(_dir IN LISTS RP6502_PROJECT_DIRECTORIES)
-    add_subdirectory(${RP6502_ROOT}/src/${_dir} ${_dir})
+    add_subdirectory(${RP6502_ROOT}/src/host/pico/${_dir} ${_dir})
 endforeach()

@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The OPL resampler's polyphase coefficients, for src/emu/emu/rsmp.c and for
+# The OPL resampler's polyphase coefficients, for src/core/emu/emu/rsmp.c and for
 # src/rtl/aud/aud_rsmp.sv, which has to reproduce that C sample for
 # sample. Standard library only, so this can run in the build rather than
 # committing three thousand numbers that a reader cannot check by eye.
@@ -23,7 +23,7 @@
 #
 # Every one of those is the integer output floor rather than the filter, so
 # they are a statement about the ruler, not about how good this can get.
-# tests/aud/test_rsmp.c is that ruler and is the thing to re-run.
+# tests/cpu/aud/test_rsmp.c is that ruler and is the thing to re-run.
 #
 # The Farrow computes its coefficients from a polynomial in the phase, which
 # costs multiplies and buys nothing above the midband; this looks them up,

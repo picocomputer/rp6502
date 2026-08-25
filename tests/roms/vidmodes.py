@@ -20,16 +20,32 @@ import argparse
 import sys
 from pathlib import Path
 
-# The assembler and the container live with the other generators; this
-# one lives beside the corpus it writes.
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src" / "gen"))
-from rp6502_rom import Asm, Rom  # noqa: E402
+# The assembler and the container live with the other test generators;
+# this one lives beside the corpus it writes.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "gen"))
+from rp6502_asm import Asm  # noqa: E402
+from rp6502_rom import Rom  # noqa: E402
 
 ap = argparse.ArgumentParser(description=__doc__)
 ap.add_argument("--out", type=Path, required=True,
                 help="directory to write the corpus into")
-OUT = ap.parse_args().out
+ap.add_argument("--emit-manifest", type=Path,
+                help="one line per ROM: name width height")
+ARGS = ap.parse_args()
+OUT = ARGS.out
 OUT.mkdir(parents=True, exist_ok=True)
+
+# What each canvas selection means in pixels, which is the one thing a suite
+# has to know about a fixture it did not write. The corpus is generated and a
+# reader cannot enumerate it, so it says so itself rather than being copied
+# into every suite that boots it.
+CANVAS_SIZE = {0: (640, 480), 1: (320, 240), 2: (320, 180),
+               3: (640, 480), 4: (640, 360)}
+MANIFEST = []
+
+
+def note(name, canvas):
+    MANIFEST.append((name, *CANVAS_SIZE[canvas]))
 
 
 def say(p, text):
@@ -37,20 +53,23 @@ def say(p, text):
     # on the TX-ready bit, store it. The terminal model keeps the text
     # across canvas switches, so a mode-0 slot shows it anywhere.
     for ch in text.encode("latin-1"):
-        p.lda(ch)
-        p.bit(0xFFE0)
-        p.emit(0x10, 0xFB)
-        p.sta(0xFFE1)
+        wait = p.local("say")
+        p.lda_imm(ch)
+        p.symbol(wait)
+        p.bit_abs(0xFFE0)
+        p.bpl(wait)
+        p.sta_abs(0xFFE1)
 
 
-def prog(canvas, progs, speak=None):
+def prog(canvas, progs, speak=None, stop=True):
     p = Asm()
     if speak:
         say(p, speak)
     p.xreg(1, 0, 0, canvas)
     for words in progs:
         p.xreg(1, 0, 1, *words)
-    p.stp()
+    if stop:
+        p.stp()
     return p
 
 
@@ -58,6 +77,7 @@ def rom(name, canvas, progs, xram_chunks, speak=None):
     r = Rom().program(prog(canvas, progs, speak))
     for addr, data in xram_chunks:
         r.record(0x10000 + addr, data)
+    note(name, canvas)
     r.write(OUT / f"{name}.rp6502")
 
 
@@ -149,7 +169,10 @@ def mode5(name, canvas, attr, plane, sprites, n_pals=1,
     size = 8 << ((attr >> 3) & 7)
     dsize = size * (size * bpp // 8)
     img_base = 0x4000
-    pal_base = 0x0200
+    # Clear of the descriptor array, which is eight bytes a
+    # sprite and runs past $0200 once a fixture asks for more
+    # than thirty-two of them.
+    pal_base = 0x0400
     cfg = bytearray()
     for x, y, im, ps in sprites:
         if ps is None:
@@ -184,7 +207,10 @@ def mode4(name, canvas, plane, log_size, sprites,
     # continuous full rows on odd — read only by the sprites that ask.
     size = 1 << log_size
     stride = size * size * 2 + size * 4
-    img_base = 0x4000
+    # Above the mode-3 fills these fixtures stage at $2000, the
+    # largest of which is 15,000 bytes: images at $4000 were being
+    # overwritten by the bitmap that loaded after them.
+    img_base = 0x6000
     cfg = bytearray()
     for x, y, im, meta in sprites:
         cfg += le16(x, y, img_base + im * stride)
@@ -213,7 +239,10 @@ def mode4a(name, canvas, plane, log_size, sprites,
     # matrix words {a00, a01, b0, a10, a11, b1}.
     size = 1 << log_size
     stride = size * size * 2
-    img_base = 0x4000
+    # Above the mode-3 fills these fixtures stage at $2000, the
+    # largest of which is 15,000 bytes: images at $4000 were being
+    # overwritten by the bitmap that loaded after them.
+    img_base = 0x6000
     cfg = bytearray()
     for tr, x, y, im in sprites:
         cfg += le16(*tr)
@@ -465,8 +494,7 @@ mode0mix("mode0_win180", 2, 1, 0, 0)
 # The graphics round trip home: a canvas, a fill, then the console
 # again — the return must republish the vsync line and the console
 # must still be whole.
-p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY)
-p.b.pop()  # the STP; two canvas xregs need a hand-built tail
+p = prog(4, [(3, 3, 0x0100, 0, 0, 0)], speak=MODE0_SAY, stop=False)
 p.xreg(1, 0, 0, 0)
 p.stp()
 r = Rom().program(p)
@@ -474,6 +502,9 @@ r.record(0x10000 + 0x0100,
          bytearray((0, 0)) + le16(20, 10, 200, 150, 0x0800, 0xFFFF))
 r.record(0x10000 + 0x0800,
          bytes((i * 13 + 7) & 0xFF for i in range(200 * 150)))
+# It ends on the console canvas, not the one it opened with, and what a
+# suite measures is where it settled.
+note("mode0_return", 0)
 r.write(OUT / "mode0_return.rp6502")
 
 # The serial fill canary: two 8bpp XRAM-palette fills — the costliest
@@ -488,3 +519,7 @@ rom("fill_heavy640", 3,
      (0x1800, bytes((i * 11 + 3) & 0xFF for i in range(64 * 64))),
      (0x0200, le16(*((0x0020 | (i * 2657)) for i in range(256)))),
      (0x0600, le16(*((0x0020 | (i * 1031 + 5)) for i in range(256))))])
+
+if ARGS.emit_manifest:
+    ARGS.emit_manifest.write_text(
+        "".join(f"{n} {w} {h}\n" for n, w, h in sorted(MANIFEST)))

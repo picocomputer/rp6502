@@ -1,43 +1,295 @@
-# Shared CTest wiring. Both trees add tests/ and get the suites their build
-# can run; this file carries what all of them need. Uses utest.h (vendored
-# with sokol).
+# Shared CTest wiring. tests/cpu and tests/host/emu ride in a host's build,
+# tests/rtl is a root of its own that adds tests/cpu too; this file carries
+# what all of them need.
+#
+# The harness is utest.h, from its own repository rather than out of sokol's
+# test directory. The copy in there is a fork of an older one, and what it is
+# missing is most of the complaints: --list-tests, the annotated assertions,
+# UTEST_SKIP, and a C++ printer that can take a uint64_t. Taking it directly
+# also means the simulation tree stops pulling an entire graphics library to
+# get one header — sokol is the emulator's dependency, not the RTL's.
 
-# Entered from both trees, so it asks rather than assuming the emulator's
-# side already did.
+# Entered from both trees, so it asks rather than assuming the other
+# already did.
 include(${RP6502_ROOT}/submodules.cmake)
-rp6502_submodule(vendor/sokol SENTINEL tests/functional/utest.h
+rp6502_submodule(vendor/utest SENTINEL utest.h
     WANTS "the test harness")
 
-set(RP6502_UTEST_DIR ${RP6502_VENDOR}/sokol/tests/functional)
+set(RP6502_UTEST_DIR ${RP6502_VENDOR}/utest)
 set(RP6502_TESTS_DIR ${CMAKE_CURRENT_LIST_DIR})
 set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 
-# The harness both sides share: emu_boot.h and the sys shims for the C tests,
-# the tb_* benches and the oracle for the RTL ones. Every test gets it on the
-# include path, because which of them a test needs is not worth stating.
+# The harness both sides share: mut.h and the machine it binds to, emu_boot.h
+# and the sys shims for the C tests, the tb_* benches for the RTL ones. Every
+# test gets it on the include path, because which of them a test needs is not
+# worth stating.
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
+
+# The keyboard layouts as a C table. The def files are the source, the
+# generator makes one image, and hid/kbl.c reads it a word at a time. No
+# machine here compiles it: the RIA firmware generates its own copy in its
+# own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
+# already translated. Only the kbl suites want it, to check the image against
+# the defs it came from, so it is built here rather than in a machine's
+# tree that would never name it. See src/gen/kbd_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
+set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
+set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
+set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR})
+add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
+    COMMAND ${CMAKE_COMMAND} -E env python3 ${KBDLAY_GEN}
+        --manifest ${KBDLAY_MANIFEST} --emit-c ${KBDLAY_C} --emit-h ${KBDLAY_H}
+    DEPENDS ${KBDLAY_GEN} ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
+    COMMENT "Generating the keyboard layouts"
+    VERBATIM)
+add_custom_target(kbdlay DEPENDS ${KBDLAY_C} ${KBDLAY_H})
 
 # The video-mode corpus is generated, not committed. Every byte of it comes
 # out of vidmodes.py, so a committed copy is only a second copy that can
 # disagree with its generator. What stays in roms/ is the cc65-built programs,
 # which have no generator and are reached by FIXTURE rather than from here.
-set(RP6502_TEST_CORPUS ${CMAKE_BINARY_DIR}/roms)
+set(RP6502_TEST_ROM_DIR ${CMAKE_BINARY_DIR}/roms)
+set(RP6502_TEST_CORPUS ${RP6502_TEST_ROM_DIR})
 if(NOT TARGET rp6502_test_corpus)
     set(RP6502_CORPUS_GEN ${RP6502_TEST_ROMS}/vidmodes.py)
-    # It assembles through src/gen/rp6502_rom.py like every other ROM
+    # It assembles and packages through tests/gen like every other ROM
     # generator, so a change there is a change to the corpus.
-    set(RP6502_CORPUS_ASM ${RP6502_ROOT}/src/gen/rp6502_rom.py)
-    # A stamp rather than the forty-one names: listing them here would be the
-    # same duplication in a different file.
+    set(RP6502_CORPUS_ASM
+        ${RP6502_TESTS_DIR}/gen/rp6502_asm.py
+        ${RP6502_TESTS_DIR}/gen/rp6502_rom.py)
+    # A stamp rather than the names: listing them here would be the same
+    # duplication in a different file, and it would be wrong within a month.
+    # The manifest beside them is how a suite asks what it is looking at —
+    # the geometry the emulator's suite used to carry as forty-seven pairs of
+    # numbers, one of which was wrong.
     add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/roms.stamp
         COMMAND ${CMAKE_COMMAND} -E env python3
             ${RP6502_CORPUS_GEN} --out ${RP6502_TEST_CORPUS}
+            --emit-manifest ${RP6502_TEST_CORPUS}/manifest.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_BINARY_DIR}/roms.stamp
         DEPENDS ${RP6502_CORPUS_GEN} ${RP6502_CORPUS_ASM}
         COMMENT "Generating the video-mode ROM corpus"
         VERBATIM)
     add_custom_target(rp6502_test_corpus DEPENDS ${CMAKE_BINARY_DIR}/roms.stamp)
+    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS
+        ${RP6502_CORPUS_GEN} ${RP6502_CORPUS_ASM})
 endif()
+
+# --- The generated 6502 programs ---
+#
+# A .rp6502 is a program, not a package. Nothing verilates one and nothing
+# links one, so unlike the assets in src/core/assets.cmake these need no
+# configure-time copy; a build rule is enough. They are here because the
+# machine that runs them is not the point of them: a program that writes a
+# file, reads it back and prints what came back makes the same claim on a
+# Pocket, on a Pico and in the emulator. While these rules belonged to the
+# FPGA tree that was the only tree that could make it, and the whole drive
+# conformance ROM ran nowhere else.
+
+# One target the programs hang off. A C test reaches its ROM through
+# add_dependencies on its executable; a script test has no executable to hang
+# one on, so this is ALL.
+if(NOT TARGET rp6502_test_roms)
+    add_custom_target(rp6502_test_roms ALL)
+    add_dependencies(rp6502_test_roms rp6502_test_corpus)
+endif()
+
+# rp6502_test_rom(<target> GEN <script> OUTPUTS <file>... [ARGS <arg>...]
+#                 [DEPENDS <file>...] COMMENT <text>)
+function(rp6502_test_rom target)
+    cmake_parse_arguments(R "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
+    # The generator and its sources stand for the outputs in the input list —
+    # a generated file never appears in a diff — and they go into the same
+    # property rp6502_add_test appends to, because to the question "does this
+    # commit change the simulation" a ROM the simulation boots and a test that
+    # boots it are one answer. tests/rtl/CMakeLists.txt reads this.
+    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${R_GEN} ${R_DEPENDS})
+    add_custom_command(OUTPUT ${R_OUTPUTS}
+        COMMAND ${CMAKE_COMMAND} -E env python3 ${R_GEN} ${R_ARGS}
+        DEPENDS ${R_GEN} ${R_DEPENDS}
+        COMMENT ${R_COMMENT}
+        VERBATIM)
+    add_custom_target(${target} DEPENDS ${R_OUTPUTS})
+    add_dependencies(rp6502_test_roms ${target})
+endfunction()
+
+# The assembler and the container every one of these generators writes
+# through. A change to either changes every ROM, so every ROM names them.
+set(RP6502_ROM_GEN
+    ${RP6502_TESTS_DIR}/gen/rp6502_asm.py
+    ${RP6502_TESTS_DIR}/gen/rp6502_rom.py)
+
+# Two audio programs that make one note and leave the console alone, so
+# the machine's own diagnostics stay readable while a device is driven.
+# test_aud runs these same files, which is what keeps a note that sounds
+# on hardware and a note the simulation asserts from drifting apart.
+set(AUD_ROM_PSG ${RP6502_TEST_ROM_DIR}/psg.rp6502)
+set(AUD_ROM_PSG_PRE ${RP6502_TEST_ROM_DIR}/psg_pre.rp6502)
+set(AUD_ROM_OPL ${RP6502_TEST_ROM_DIR}/opl.rp6502)
+set(AUD_ROM_OPL_EXIT ${RP6502_TEST_ROM_DIR}/opl_exit.rp6502)
+set(AUD_ROM_BEL ${RP6502_TEST_ROM_DIR}/bel.rp6502)
+set(AUD_ROM_OPL_BEL ${RP6502_TEST_ROM_DIR}/opl_bel.rp6502)
+rp6502_test_rom(aud_roms GEN ${RP6502_TESTS_DIR}/gen/aud_rom_gen.py
+    ARGS --emit-psg ${AUD_ROM_PSG} --emit-psg-pre ${AUD_ROM_PSG_PRE}
+        --emit-opl ${AUD_ROM_OPL}
+        --emit-opl-exit ${AUD_ROM_OPL_EXIT}
+        --emit-bel ${AUD_ROM_BEL} --emit-opl-bel ${AUD_ROM_OPL_BEL}
+    OUTPUTS ${AUD_ROM_PSG} ${AUD_ROM_PSG_PRE} ${AUD_ROM_OPL}
+        ${AUD_ROM_OPL_EXIT}
+        ${AUD_ROM_BEL} ${AUD_ROM_OPL_BEL}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the audio bring-up ROMs")
+
+# The file round trip, generated the same way and shipped the same way.
+# The file that is open when the machine sleeps. It reads a chunk at a
+# time so that wherever a sleep lands, a read lands after the resume.
+set(STREAM_ROM ${RP6502_TEST_ROM_DIR}/stream.rp6502)
+rp6502_test_rom(stream_rom GEN ${RP6502_TESTS_DIR}/gen/stream_rom_gen.py
+    ARGS --emit ${STREAM_ROM}
+    OUTPUTS ${STREAM_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the streaming-read ROM")
+
+set(FILE_ROM ${RP6502_TEST_ROM_DIR}/file.rp6502)
+rp6502_test_rom(file_rom GEN ${RP6502_TESTS_DIR}/gen/file_rom_gen.py
+    ARGS --emit ${FILE_ROM}
+    OUTPUTS ${FILE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the file round-trip ROM")
+
+# The same round trip past the transfer window. It ships but is not a
+# test: what it exists to ask — whether the Pocket's resize keeps what
+# was already in the file — has no answer in simulation, because the
+# bench answers the way we assumed.
+set(BIGFILE_ROM ${RP6502_TEST_ROM_DIR}/bigfile.rp6502)
+rp6502_test_rom(bigfile_rom GEN ${RP6502_TESTS_DIR}/gen/bigfile_rom_gen.py
+    ARGS --emit ${BIGFILE_ROM}
+    OUTPUTS ${BIGFILE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the multi-chunk file ROM")
+
+# The create path has never worked on hardware and the name turned out
+# not to matter. This walks a list of names in one boot so the next
+# guess costs a card copy instead of a fit.
+set(PROBE_ROM ${RP6502_TEST_ROM_DIR}/probe.rp6502)
+rp6502_test_rom(probe_rom GEN ${RP6502_TESTS_DIR}/gen/probe_rom_gen.py
+    ARGS --emit ${PROBE_ROM}
+    OUTPUTS ${PROBE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the open-file probe ROM")
+
+# The whole drive in one boot: forty-eight checks the machine decides
+# for itself. It runs here against the bench's host as well as on the
+# card, so a bug in the ROM is found before a photograph is.
+set(FSTEST_ROM ${RP6502_TEST_ROM_DIR}/fstest.rp6502)
+rp6502_test_rom(fstest_rom GEN ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py
+    ARGS --emit ${FSTEST_ROM}
+    OUTPUTS ${FSTEST_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the filesystem conformance ROM")
+
+# The console read as a device. A program can open TTY: and read it raw,
+# with no line editor in between, and nothing was asking whether a byte
+# typed at the machine arrives there -- the conformance ROM opens that
+# descriptor and closes it without reading a byte through it.
+set(TTY_ROM ${RP6502_TEST_ROM_DIR}/tty.rp6502)
+rp6502_test_rom(tty_rom GEN ${RP6502_TESTS_DIR}/gen/tty_rom_gen.py
+    ARGS --emit ${TTY_ROM}
+    OUTPUTS ${TTY_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the raw console read ROM")
+
+# rp6502_add_script_test(<name> [SCRIPT <file>] [ROM <file>]
+#                        [FIXTURE <file in roms/>] [ARGS <emu arg>...]
+#                        [DEPENDS <target>...] [TIMEOUT <seconds>])
+#
+# A 6502 program and a script that watches it, as one CTest. The program makes
+# the claims it can make from inside the machine and prints them; the script
+# drives the inputs no program can give itself and reads the answers back.
+# That pairing is what a functional test of this machine is, and it existed
+# only as hand-written add_test lines under host/emu, where no subsystem could
+# reach it.
+#
+# No SPLIT, and for the opposite reason to rp6502_add_test's. There, splitting
+# turns a suite bounded by its slowest binary into one bounded by its slowest
+# case, because the binary is a nine-minute simulation. Here a boot costs
+# milliseconds and the point is that it answers twenty questions; a case apiece
+# would boot twenty times to save nothing.
+function(rp6502_add_script_test name)
+    cmake_parse_arguments(S "" "SCRIPT;DRIVER;ROM;FIXTURE;TIMEOUT" "ARGS;DEPENDS" ${ARGN})
+    if(NOT TARGET rp6502-emu)
+        message(FATAL_ERROR
+            "rp6502_add_script_test(${name}) drives the shipped binary.\n"
+            "  Guard the call with if(TARGET rp6502-emu).")
+    endif()
+
+    if(S_DRIVER)
+        # The other shape: the file that assembles the program drives it too,
+        # over the pipe scr.c answers on. One file, one set of constants, and
+        # a static script that could disagree with its program is not written.
+        if(NOT IS_ABSOLUTE ${S_DRIVER})
+            set(S_DRIVER ${CMAKE_CURRENT_LIST_DIR}/${S_DRIVER})
+        endif()
+        set(S_SCRIPT ${S_DRIVER})
+    else()
+        if(NOT S_SCRIPT)
+            set(S_SCRIPT ${name}.txt)
+        endif()
+        if(NOT IS_ABSOLUTE ${S_SCRIPT})
+            set(S_SCRIPT ${CMAKE_CURRENT_LIST_DIR}/${S_SCRIPT})
+        endif()
+    endif()
+    if(S_FIXTURE)
+        set(S_ROM ${RP6502_TEST_ROMS}/${S_FIXTURE})
+    endif()
+    if(NOT S_ROM)
+        message(FATAL_ERROR "rp6502_add_script_test(${name}) names no program")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${S_SCRIPT})
+
+    # A directory of its own. A script test writes where it is standing — a
+    # screenshot, and every file the program creates on a host-backed drive —
+    # and two of them in one directory under ctest --parallel is how a suite
+    # starts failing on other people's machines.
+    set(_work ${CMAKE_CURRENT_BINARY_DIR}/script.${name})
+    file(MAKE_DIRECTORY ${_work})
+
+    file(RELATIVE_PATH _dir ${RP6502_TESTS_DIR} ${CMAKE_CURRENT_LIST_DIR})
+    string(REPLACE "/" "." _dir "${_dir}")
+
+    # --mute so a runner opens no audio device, --seed and --fill so a program
+    # that asks for entropy or reads memory it never wrote is asked the same
+    # question every run.
+    if(S_DRIVER)
+        # The driver spawns the emulator itself, so it is told where both are.
+        add_test(NAME script.${name}
+            COMMAND ${CMAKE_COMMAND} -E env python3 ${S_DRIVER} --drive
+                --emu $<TARGET_FILE:rp6502-emu> --rom ${S_ROM} ${S_ARGS})
+    else()
+        add_test(NAME script.${name}
+            COMMAND rp6502-emu --mute --seed 1 --fill 0 ${S_ARGS}
+                --script ${S_SCRIPT} ${S_ROM})
+    endif()
+    if(NOT S_TIMEOUT)
+        set(S_TIMEOUT 120)
+    endif()
+    # EMU_ECHO mirrors the terminal to stderr (emu/sys/com.c). A script fails on
+    # one line and the question is always what the machine had been saying, so
+    # --output-on-failure carries the console with it.
+    set_tests_properties(script.${name} PROPERTIES
+        WORKING_DIRECTORY ${_work}
+        TIMEOUT ${S_TIMEOUT}
+        ENVIRONMENT EMU_ECHO=1
+        LABELS "script;${_dir}")
+
+    # add_test cannot depend on a target, and a script test has no executable
+    # to hang one on, so a ROM it needs is hung off the aggregate instead.
+    if(S_DEPENDS)
+        add_dependencies(rp6502_test_roms ${S_DEPENDS})
+    endif()
+endfunction()
 
 # rp6502_add_test(<name> [SOURCES ...] [LIBS ...] [INCLUDES ...] [DEFS ...]
 #                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT])
@@ -53,13 +305,27 @@ endif()
 # second it would cost more in process starts than it saves, which is why it is
 # asked for rather than assumed.
 function(rp6502_add_test name)
-    cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT" "SOURCES;LIBS;INCLUDES;DEFS" ${ARGN})
+    cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT"
+        "SOURCES;LIBS;INCLUDES;DEFS;LABELS" ${ARGN})
+
+    # What a test is about is the directory it lives in, and what it costs is
+    # which helper registered it. Both are already known here, so neither is
+    # asked for: a LABELS argument at every call site would be a third copy of
+    # two things the build can see, and the first to go stale would be the one
+    # nobody reruns. CMAKE_CURRENT_LIST_DIR inside a function is the caller's,
+    # which is the same reason relative SOURCES resolve.
+    file(RELATIVE_PATH _dir ${RP6502_TESTS_DIR} ${CMAKE_CURRENT_LIST_DIR})
+    string(REPLACE "/" "." _dir "${_dir}")
+    if(NOT T_LABELS)
+        set(T_LABELS c)
+    endif()
+    list(APPEND T_LABELS ${_dir})
 
     if(NOT T_SOURCES)
         set(T_SOURCES test_${name}.c)
     endif()
 
-    # Every test in both trees comes through here, so this is the one place
+    # Every test in either tree comes through here, so this is the one place
     # that can say what the suite is made of without naming any of it.
     foreach(_s IN LISTS T_SOURCES)
         if(NOT IS_ABSOLUTE ${_s})
@@ -92,10 +358,16 @@ function(rp6502_add_test name)
 
     set(_cases ${name})
     if(T_SPLIT)
-        # utest.h takes --filter but cannot list what it holds, so the cases are
-        # read out of the source. Every one of them is a plain one-line UTEST(),
-        # and the file is a configure dependency, so adding a case is enough to
-        # register it.
+        # The cases are read out of the source. Every one of them is a plain
+        # one-line UTEST(), and the file is a configure dependency, so adding a
+        # case is enough to register it.
+        #
+        # utest.h can list them itself now, which would be the more honest
+        # question to ask — it would see a case behind an #if, and this cannot.
+        # But asking means running the binary, so registration moves from
+        # configure time to build time and a per-case TIMEOUT gets harder. The
+        # four suites that split have no conditional cases, and the two answers
+        # agree today; when they stop agreeing, --list-tests is the way out.
         list(GET T_SOURCES 0 _src)
         if(NOT IS_ABSOLUTE ${_src})
             set(_src ${CMAKE_CURRENT_LIST_DIR}/${_src})
@@ -119,6 +391,7 @@ function(rp6502_add_test name)
             set(_filter --filter=${_case})
         endif()
         add_test(NAME ${_case} COMMAND test_${name} ${_filter})
+        set_tests_properties(${_case} PROPERTIES LABELS "${T_LABELS}")
         if(T_TIMEOUT)
             set_tests_properties(${_case} PROPERTIES TIMEOUT ${T_TIMEOUT})
         endif()

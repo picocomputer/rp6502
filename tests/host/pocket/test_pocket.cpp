@@ -3,13 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The whole Pocket stack against the oracle: the host streams a real
- * .rp6502 over the bridge into SDRAM, the run gate releases the
- * machine, the firmware loads the ROM through the stalled staging
- * window, and the program paints. The frame the scaler receives —
- * decoded from vs/hs/de at 25.2 MHz and unpacked from RGB888 — must
- * be settled and pixel-exact against emu_core running the same file,
- * across every canvas geometry the mapping owns. The reload case
+ * The whole Pocket stack: the host streams a real .rp6502 over the
+ * bridge into SDRAM, the run gate releases the machine, the firmware
+ * loads the ROM through the stalled staging window, and the program
+ * paints. The frame the scaler receives — decoded from vs/hs/de at
+ * 25.2 MHz and unpacked from RGB888 — must be settled and match the
+ * CRC written down beside each case, across every canvas geometry the
+ * mapping owns. What the machine paints into that frame is checked in
+ * tests/cpu/vid against these same ROMs, on both machines; what is
+ * left here is the trip out through the scaler. The reload case
  * runs the host's mid-session order — Reset Enter, a new slot,
  * completion, Exit — with a button held through the whole load: the
  * scaler re-arms on the new machine's first frame and the held press
@@ -19,19 +21,17 @@
  * the order of a mid-session reload, and the data slot handshake were
  * reverse engineered from a real Pocket rather than read out of a
  * specification, because there is not one. Expect errors in it. The
- * oracle half of this test is exact — emu_core is the same machine —
- * but everything the bench does as the host is a guess we have not
- * been able to disprove.
+ * frame half of this test is exact, but everything the bench does as
+ * the host is a guess we have not been able to disprove.
  */
 
 #include "Vtb_pocket.h"
 #include "Vtb_pocket___024root.h"
 
-#include "oracle.h"
-extern "C" {
-#include "vga/term/font.h"
-}
+#include "crc32.h"
 
+#include "tb_asm.h"
+#include "tb_rom.h"
 #include "tb_stage.h"
 #include "tb_tcm.h"
 #include "utest.h"
@@ -259,14 +259,26 @@ static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
     return at;
 }
 
-/* The oracle's framebuffer is RGBA with the same replication the
- * adapter does; repack it into the scaler's RGB888 lanes. */
-static uint32_t scaler_rgb(uint32_t rgba)
+/* The corpus states its own shape, the same file tests/cpu/vid reads. A
+ * canvas asserted from the manifest rather than from a machine is the
+ * difference between proving the geometry and watching one agree with
+ * itself. */
+static bool corpus_size(const char *name, int *width, int *height)
 {
-    uint32_t r = rgba & 0xFF;
-    uint32_t g = (rgba >> 8) & 0xFF;
-    uint32_t b = (rgba >> 16) & 0xFF;
-    return (r << 16) | (g << 8) | b;
+    FILE *f = fopen(ROMS_DIR "/manifest.txt", "r");
+    if (!f)
+        return false;
+    char n[128];
+    int w, h;
+    bool found = false;
+    while (fscanf(f, "%127s %d %d", n, &w, &h) == 3)
+        if (!strcmp(n, name))
+        {
+            *width = w, *height = h, found = true;
+            break;
+        }
+    fclose(f);
+    return found;
 }
 
 static std::vector<uint8_t> read_rom(const char *name)
@@ -331,29 +343,26 @@ static void host_load(const std::vector<uint8_t> &rom)
     dut->dataslot_allcomplete = 1;
 }
 
-/* Compare the settled scaler frame against the oracle for the same
- * file. `wait` is false when the caller already ran the machine to
- * quiet — the judgment can only be made once per run, since a
- * finished machine and one that has not started look alike from
- * outside. */
-static void run_and_compare(int *utest_result, const char *name,
-                            bool wait = true)
+/* Check the settled scaler frame against the CRC in the case. `wait` is
+ * false when the caller already ran the machine to quiet — the judgment
+ * can only be made once per run, since a finished machine and one that
+ * has not started look alike from outside.
+ *
+ * Set RP6502_BLESS_CRC to have a run print each observed value in the
+ * form it is pasted back as. */
+static void run_and_check(int *utest_result, const char *name,
+                          uint32_t expect, bool wait = true)
 {
-    ASSERT_TRUE(oracle_restart(
-        (std::string(ROMS_DIR "/") + name + ".rp6502").c_str()));
-    oracle_run_frames(30);
     int ow = 0, oh = 0;
-    oracle_canvas_size(&ow, &oh);
-    const uint32_t *ofb = oracle_framebuffer();
+    ASSERT_TRUE(corpus_size(name, &ow, &oh));
 
     if (wait)
         ASSERT_TRUE(run_until_quiet());
 
-    /* Canvas-native: the stream is exactly ow x oh pixels and lines up
-     * with the oracle's framebuffer one to one. The old compare here
-     * re-implemented the duplication in C to expand the oracle up to
-     * 640x480 — the hardware stopped pretending, so the test stops
-     * compensating. */
+    /* Canvas-native: the stream is exactly ow x oh pixels. The old
+     * compare here re-implemented the duplication in C to expand a
+     * 320-wide picture up to 640x480 — the hardware stopped pretending,
+     * so the test stops compensating. */
     static uint32_t fb[640 * 480];
     int slot = -1;
     const size_t got = capture_frame(fb, sizeof fb / sizeof *fb, &slot);
@@ -363,21 +372,15 @@ static void run_and_compare(int *utest_result, const char *name,
                                     : (oh == 240 ? 2 : 3);
     ASSERT_EQ(slot, want_slot);
 
-    int diffs = 0;
-    for (int y = 0; y < oh; y++)
-        for (int x = 0; x < ow; x++)
-        {
-            const uint32_t want =
-                scaler_rgb(ofb[(size_t)y * (size_t)ow + (size_t)x]);
-            if (fb[(size_t)y * (size_t)ow + (size_t)x] != want)
-            {
-                if (getenv("POCKET_DEBUG") && diffs < 20)
-                    fprintf(stderr, "diff x=%d y=%d rtl=%06X want=%06X\n",
-                            x, y, fb[(size_t)y * (size_t)ow + (size_t)x], want);
-                diffs++;
-            }
-        }
-    ASSERT_EQ(diffs, 0);
+    uint32_t crc = bench_crc32(fb, got * sizeof(uint32_t));
+    if (getenv("RP6502_BLESS_CRC"))
+        fprintf(stderr, "    %-12s 0x%08X\n", name, crc);
+    else if (crc != expect)
+    {
+        fprintf(stderr, "%s: scaler frame crc 0x%08X, expected 0x%08X\n",
+                name, crc, expect);
+        ASSERT_EQ(crc, expect);
+    }
 }
 
 static void power_on(int *utest_result)
@@ -434,28 +437,36 @@ static void power_on(int *utest_result)
             (uint16_t)(oemcp[i] | (oemcp[i + 1] << 8));
 }
 
-static void run_case(int *utest_result, const char *name)
+static void run_case(int *utest_result, const char *name, uint32_t expect)
 {
     std::vector<uint8_t> rom = read_rom(name);
     ASSERT_TRUE(rom.size() > 0);
     power_on(utest_result);
     host_load(rom);
     dut->reset_n = 1;
-    run_and_compare(utest_result, name);
+    run_and_check(utest_result, name, expect);
 }
 
 UTEST(pocket, canvas3_640x480)
 {
-    run_case(utest_result, "mode3_8bpp");
+    run_case(utest_result, "mode3_8bpp", 0x29DB5FC9);
 
-    /* The asset made the whole trip: host bridge to SDRAM to the
-     * firmware's copy to the store the scanout reads. */
+    /* The asset made the whole trip: the slot the host filled, the
+     * firmware's read of it, and the store the scanout reads. The face is
+     * built from the asset's pieces rather than copied out of one of them,
+     * so what is checked is the face — against the number below, the same
+     * way every other picture in the suite is checked. What that face has
+     * to be is tests/rtl/vid's, against the font.c the asset comes from;
+     * this is the trip. */
     auto &f16 = dut->rootp->tb_pocket__DOT__core__DOT__machine__DOT__vid_font__DOT__f16;
-    for (size_t i = 0; i < 4096; i += 4)
-        ASSERT_EQ(f16[i / 4],
-                  (uint32_t)font16[i] | ((uint32_t)font16[i + 1] << 8)
-                      | ((uint32_t)font16[i + 2] << 16)
-                      | ((uint32_t)font16[i + 3] << 24));
+    static uint32_t face[1024];
+    for (size_t i = 0; i < 1024; i++)
+        face[i] = f16[i];
+    uint32_t fcrc = bench_crc32(face, sizeof face);
+    if (getenv("RP6502_BLESS_CRC"))
+        fprintf(stderr, "    %-12s 0x%08X\n", "font16 store", fcrc);
+    else
+        ASSERT_EQ(fcrc, 0x0A77F72Cu);
 
     /* The codec side is alive: LRCK ticks at audio rate. */
     int lrck_flips = 0;
@@ -474,17 +485,17 @@ UTEST(pocket, canvas3_640x480)
 
 UTEST(pocket, canvas1_320x240)
 {
-    run_case(utest_result, "mode3_1bpp");
+    run_case(utest_result, "mode3_1bpp", 0x41437F1B);
 }
 
 UTEST(pocket, canvas2_320x180_native)
 {
-    run_case(utest_result, "mode3_4bppr");
+    run_case(utest_result, "mode3_4bppr", 0xCF839AEC);
 }
 
 UTEST(pocket, canvas4_640x360_native)
 {
-    run_case(utest_result, "mode3_16bpp");
+    run_case(utest_result, "mode3_16bpp", 0xFB9D8EDE);
 }
 
 UTEST(pocket, reload_with_a_button_held)
@@ -494,7 +505,7 @@ UTEST(pocket, reload_with_a_button_held)
     power_on(utest_result);
     host_load(first);
     dut->reset_n = 1;
-    run_and_compare(utest_result, "mode3_8bpp");
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
 
     /* The host reloads a different slot; a button goes down before
      * the reset and stays down through the whole load. */
@@ -517,7 +528,7 @@ UTEST(pocket, reload_with_a_button_held)
     ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__cont_key_sys[0], 0u);
 
     /* And the scaler re-armed on the new machine's frame. */
-    run_and_compare(utest_result, "mode3_1bpp", false);
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
 }
 
 UTEST(pocket, hot_reload_without_a_reset)
@@ -527,7 +538,7 @@ UTEST(pocket, hot_reload_without_a_reset)
     power_on(utest_result);
     host_load(first);
     dut->reset_n = 1;
-    run_and_compare(utest_result, "mode3_8bpp");
+    run_and_check(utest_result, "mode3_8bpp", 0x29DB5FC9);
 
     /* The Core Settings pick, as the debug log spells it: no Reset
      * Enter, no 0x008A — the request write drops completion, the new
@@ -539,7 +550,7 @@ UTEST(pocket, hot_reload_without_a_reset)
     host_load(second);
 
     ASSERT_TRUE(run_until_quiet(nullptr));
-    run_and_compare(utest_result, "mode3_1bpp", false);
+    run_and_check(utest_result, "mode3_1bpp", 0x41437F1B, false);
 }
 
 UTEST_STATE();
@@ -548,9 +559,111 @@ int main(int argc, const char *const argv[])
 {
     Verilated::commandArgs(argc, const_cast<char **>(argv));
     dut = new Vtb_pocket;
-    oracle_init();
     int rc = utest_main(argc, argv);
     dut->final();
     delete dut;
     return rc;
+}
+
+/* --- The pad the dock holds, as the record a program reads --- *
+ *
+ * Everything else about a controller is proved on the other machine: the
+ * script suite plugs pads into the emulator and reads the same ten bytes
+ * back. Nothing did it here, so the dock's registers reached ria/hid and
+ * were never asked what came out -- the one part of this path that is the
+ * machine's rather than the transport's.
+ *
+ * The program is here rather than in a fixture because it is three
+ * instructions: map the block and stay up. What it maps is what apf.c
+ * fills, so the assertions are on XRAM and not on anything printed. */
+static std::vector<uint8_t> pad_mapper(uint16_t at)
+{
+    tb_asm p;
+    /* xreg device 0 (the RIA's own devices), channel 0, address 2: the
+     * gamepad block, four ten-byte records from `at`. */
+    p.push(0);
+    p.push(0);
+    p.push(2);
+    p.pushw(at);
+    p.call(0x01);
+    uint16_t here = p.here();
+    p.jmp(here); /* stay up: the pad is reported to a running machine */
+
+    std::vector<uint8_t> rom;
+    const char magic[] = "#!RP6502\n";
+    rom.insert(rom.end(), magic, magic + strlen(magic));
+    tb_rom_record(rom, TB_ORG, p.b.data(), p.b.size());
+    const uint8_t reset[] = {(uint8_t)TB_ORG, (uint8_t)(TB_ORG >> 8)};
+    tb_rom_record(rom, 0xFFFC, reset, sizeof reset);
+    return rom;
+}
+
+/* One byte of XRAM, which the fabric keeps as four byte lanes. */
+static uint8_t xram_at(uint16_t a)
+{
+    auto *r = dut->rootp;
+    size_t w = a >> 2;
+    switch (a & 3)
+    {
+    case 0: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem0[w];
+    case 1: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem1[w];
+    case 2: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem2[w];
+    default: return r->tb_pocket__DOT__core__DOT__machine__DOT__xram__DOT__mem3[w];
+    }
+}
+
+/* The machine keeps running: this one does not stop, so quiet is not the
+ * signal and frames are counted instead. */
+static void run_frames(int n)
+{
+    int prev = dut->tb_pocket_vs;
+    long budget = (long)n * 900000L;
+    while (n > 0 && budget-- > 0)
+    {
+        tick();
+        int vs = dut->tb_pocket_vs;
+        if (vs && !prev)
+            n--;
+        prev = vs;
+    }
+}
+
+UTEST(pocket, the_pad_the_dock_holds_reaches_xram)
+{
+    static const uint16_t AT = 0xFF00;
+    /* The dock's key word: the type nibble on top, then the buttons the
+     * Pocket's own face carries. apf.c reads exactly this. */
+    static const uint32_t TYPE_PAD = 2u << 28;
+
+    power_on(utest_result);
+    host_load(pad_mapper(AT));
+    dut->reset_n = 1;
+    run_frames(10);
+
+    /* Nothing docked: a blank record, and the connected bit clear is the
+     * gate a program reads before anything else. */
+    ASSERT_EQ((uint32_t)xram_at(AT), 0u);
+
+    /* Docked, with down and A held. */
+    dut->cont1_key = TYPE_PAD | (1u << 1) | (1u << 4);
+    run_frames(10);
+    ASSERT_EQ((uint32_t)(xram_at(AT) & 0x80), 0x80u);   /* connected */
+    ASSERT_EQ((uint32_t)(xram_at(AT) & 0x0F), 0x02u);   /* dpad down */
+    ASSERT_EQ((uint32_t)(xram_at(AT + 2) & 0x01), 0x01u); /* button0: A */
+
+    /* A release clears only what it named. */
+    dut->cont1_key = TYPE_PAD | (1u << 4);
+    run_frames(10);
+    ASSERT_EQ((uint32_t)(xram_at(AT) & 0x0F), 0x00u);
+    ASSERT_EQ((uint32_t)(xram_at(AT + 2) & 0x01), 0x01u);
+
+    /* Player 1 is a record of its own and nothing is in it. */
+    ASSERT_EQ((uint32_t)xram_at(AT + 10), 0u);
+
+    /* Undocked blanks the whole record, which is how a program tells a
+     * pad that let go from one that left. */
+    dut->cont1_key = 0;
+    run_frames(20);
+    for (int i = 0; i < 10; i++)
+        ASSERT_EQ((uint32_t)xram_at(AT + i), 0u);
 }

@@ -52,7 +52,7 @@ For a native x64 emulator build (MSVC + Ninja, no WSL/MSYS2), open an
 **x64 Native Tools Command Prompt for VS**, then:
 
 ```
-cd src\emu
+cd src\host\win
 cmake --preset debug
 cmake --build --preset debug
 ```
@@ -78,49 +78,119 @@ brew install cmake ninja pkg-config
 
 ## Building with CMake and VS Code
 
-The rp6502 and emu project use different CMake models on purpose. The first
-thing you need to remember is that F7 builds with the CMake extension settings
-and F5 launches a debug session with the Debug settings.
+Every buildable thing is a CMake project root of its own, one per host, and
+`.vscode/settings.json` lists them all. Pick one from the CMake side panel's
+Folder list; the Configure list is then that root's own presets. F7 builds with
+the CMake extension settings and F5 launches a debug session with the Debug
+settings.
 
-To build for web, select Folder:emu and Configure:WebAssembly from the CMake
-side panel; the toolchain installs itself the first time.
-Pressing F7 builds `build/web/bundle`, a ready-to-publish itch.io sample that
-plays one program (`adventure.rp6502` by default) — see
-`src/dist/itch.io/README.txt` to retarget and deploy it.
+| Folder | builds | build directory |
+| --- | --- | --- |
+| `rp6502` (the repository root) | the two Pico firmwares | `build/` |
+| `src/host/linux` | the emulator on Linux, and its test suite | `build/linux/{debug,release}` |
+| `src/host/win` | the same on Windows | `build/win/{debug,release}` |
+| `src/host/macos` | the same on macOS | `build/macos/{debug,release}` |
+| `src/host/web` | the itch.io bundle | `build/web` |
+| `src/host/android` | the native library, and an `apk` target | `build/android/` |
+| `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
+| `tests/rtl` | the verilated machine and its suite | `build/rtl` |
 
-`src/emu/index.html` is the tester: a menu of every test ROM, run against that
-same bundle. It stays in the source tree, so serve the repository root rather
-than the build. Use the VS Code live preview extension `ms-vscode.live-server`
-and open `src/emu/index.html`, or a simple python server. Neither page works
-from a `file://` URL; the browser needs an HTTP origin to fetch a ROM or stream
-the wasm.
-`python3 -m http.server 8000` then http://localhost:8000/src/emu/index.html
+Adding MiSTer is a directory beside `src/host/pocket` and one more line in that
+list; nothing else changes.
 
-To build firmware, select Folder:rp6502 and Configure:Pico from the CMake side
-panel. Select either the Debug or Release variant. You must select the launch
+To build firmware, select Folder:rp6502. Select either the Debug or Release
+variant, and `-DPICO_BOARD=pico2` for a RIA without the radio (the Pico
+extension's **Switch Board** does the same thing). You must select the launch
 target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
-To build the emulator, from the CMake side panel
-select Folder:emu and Configure:Debug or Configure:Release. On the Debug side
-panel you select "Emulator Debug" and press F5. You'll get prompted to select
-one of the included test roms to run. You'll also have a binary in build/emulator
-which supports the Debug Adapter Protocol (DAP) that you can use with
-vscode-cc65, or any other IDE thats support DAP.
+To build the emulator, select the folder for your platform and
+Configure:Debug or Configure:Release. On the Debug side panel select
+"Emulator Debug" and press F5. You'll get prompted to select one of the
+included test roms to run. You'll also have a binary that supports the Debug
+Adapter Protocol (DAP) that you can use with vscode-cc65, or any other IDE
+that supports DAP.
 
-To build the FPGA core, select Folder:rtl. Its Configure list is one entry per
-job, each with a build directory of its own:
+To build for web, select Folder:web; the Emscripten toolchain installs itself
+the first time and needs no preset argument to find. Pressing F7 builds
+`build/web/bundle`, a ready-to-publish itch.io sample that plays one program
+(`adventure.rp6502` by default) — see `src/dist/itch.io/README.txt` to retarget
+and deploy it.
 
-    verilator/Release   the simulation and its tests
-    verilator/Debug     the same, unoptimised, for stepping a testbench
-    pocket              the Analogue Pocket core
-    quartus             area and timing, all pins virtual
+`src/host/web/index.html` is the tester: a menu of every test ROM, run against
+that same bundle. It stays in the source tree, so serve the repository root
+rather than the build. Use the VS Code live preview extension
+`ms-vscode.live-server` and open `src/host/web/index.html`, or a simple python
+server. Neither page works from a `file://` URL; the browser needs an HTTP
+origin to fetch a ROM or stream the wasm.
+`python3 -m http.server 8000` then http://localhost:8000/src/host/web/index.html
 
-Pick one and the Build list changes with it — under `pocket` it offers
-**Card package** and **Bitstream**, under the Verilator presets **Tests** and
-**Firmware**. F7 builds whichever is selected. Naming every host explicitly is
-so MiSTer can arrive without renaming anything.
+To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
+into `build/pocket/package`; `pocket-bitstream`, `pocket-fit` and `synth` are
+targets in the build-target selector if you want to stop earlier or just
+measure. It needs Quartus and `gcc-riscv64-unknown-elf` and nothing else.
+
+## Testing
+
+The suite is in two halves, because they cost wildly different amounts.
+
+The suite is filed by what a test claims, not by which build runs it.
+
+`tests/cpu` is the machine's own — the 6502 and its VIA, the video modes, the
+filesystem, HID, the RIA's API. Where a claim can be made of both
+implementations it is written once and run against whichever machine the tree
+builds, through a seam:
+
+| seam | binds | so one suite covers |
+| --- | --- | --- |
+| `dut.h` / `cpu_dut.h` | `chips_dut.c`, `w65c02_dut.cpp` | the 6502, per cycle |
+| `via_dut.h` | `via_chips.c`, `via_rtl.cpp` | the 6522, per cycle |
+| `tests/bench/mut.h` | `mut_emu.c`, `mut_rtl.cpp` | the whole machine — boot a program, take a frame |
+
+Registrations that need a simulator, the shipped binary or the staged assets
+guard on those existing, so the same directory serves every tree.
+
+A test that renders carries its own expectation, as a CRC of the settled
+frame written into the case:
+
+    UTEST(mode3, two_bpp8_fills_serial_640x480)
+    {
+        run_case(utest_result, "fill_heavy640", 0x42E2D810, MUT_BUDGET_UNDER);
+    }
+
+Both machines answer to that number, so either can be tested without the
+other — neither is the other's oracle. A failure prints what it got beside
+what it expected; re-blessing a deliberate renderer change is editing the case
+that failed, so the expectation and the claim move in one diff. Setting
+`RP6502_BLESS_CRC` makes a run print every case's observed value in the form
+it is pasted back as.
+
+`tests/host/emu` and `tests/host/pocket` are claims about a program or a
+board rather than about the RP6502: the command line, the script channel and
+the debugger for one; the bridge, the SDRAM staging and the dock's HID
+mapping for the other.
+
+`tests/rtl` is what only a simulator can answer — the beam, the modules below
+any mode, pin-scripted lockstep, the soft CPU — and it is also the project
+root that builds the verilated machine.
+
+So an emulator build runs its host tests and the machine's; the fpga build
+runs its host tests, the machine's, and the RTL's:
+
+    cd src/host/linux        # or win, macos
+    cmake --preset release
+    cmake --build --preset release
+    ctest --preset release           # host/emu + cpu, a couple of seconds
+
+    cd tests/rtl                     # needs Verilator, and
+    cmake --preset release           # gcc-riscv64-unknown-elf for the soft CPU
+    cmake --build --preset release
+    ctest --preset release           # host/pocket + cpu + rtl
+
+`ctest -L cpu`, `-L rtl`, `-L host.emu` and `-L host.pocket` pick out a slice
+by what is claimed. `-L sim` cuts the other way — everything the simulator
+runs, wherever it lives, which is the slow half of the fpga build.
 
 ## General Linux and WSL notes
 

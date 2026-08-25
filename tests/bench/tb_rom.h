@@ -10,12 +10,12 @@
  *
  * The CRC is spelled out rather than taken from mem_crc32 because a
  * bench builds images for tests that link no emulator, and a table this
- * short is cheaper than the dependency. tests/ria/test_units.c holds
+ * short is cheaper than the dependency. tests/host/emu/test_units.c holds
  * mem_crc32 to the same vectors.
  *
- * src/gen/rp6502_rom.py is this file in Python, for the generators that
+ * tests/gen/rp6502_rom.py is this file in Python, for the generators that
  * write images to disk. The two must agree on the header format; there
- * is one format, and tests/ria/test_rom.cpp is where it is asserted.
+ * is one format, and tests/rtl/ria/test_rom.cpp is where it is asserted.
  */
 
 #ifndef _TESTS_BENCH_TB_ROM_H_
@@ -85,8 +85,8 @@ static std::vector<uint8_t> tb_rom_image(uint16_t org,
     return tb_rom_image(org, prog.data(), prog.size());
 }
 
-/* An image on disk, for the half of a comparison that boots from a
- * file: the oracle takes a path, the machine takes the bytes. */
+/* An image on disk, for a suite that assembles its program and then boots it
+ * through mut_boot, which takes a path. */
 static bool tb_rom_write(const char *path, const std::vector<uint8_t> &rom)
 {
     FILE *f = fopen(path, "wb");

@@ -24,12 +24,12 @@
             "name": "Emulator Debug",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/emulator/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/linux/debug/rp6502-emu",
             "args": [
                 "--debug",
                 "${workspaceFolder}/tests/roms/${input:romPick}"
             ],
-            "cwd": "${workspaceFolder}/src/emu",
+            "cwd": "${workspaceFolder}/src/core/emu",
             "environment": [
                 {
                     "name": "DEBUGINFOD_URLS",
@@ -51,17 +51,26 @@
                     "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
-            ]
+            ],
+            "linux": {
+                "program": "${workspaceFolder}/build/linux/debug/rp6502-emu"
+            },
+            "osx": {
+                "program": "${workspaceFolder}/build/macos/debug/rp6502-emu"
+            },
+            "windows": {
+                "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+            }
         },
         {
             "name": "Emulator Debug (no ROM)",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/build/emulator/debug/rp6502-emu",
+            "program": "${workspaceFolder}/build/linux/debug/rp6502-emu",
             "args": [
                 "--debug"
             ],
-            "cwd": "${workspaceFolder}/src/emu",
+            "cwd": "${workspaceFolder}/src/core/emu",
             "environment": [
                 {
                     "name": "DEBUGINFOD_URLS",
@@ -83,7 +92,16 @@
                     "text": "set debuginfod urls ",
                     "ignoreFailures": true
                 }
-            ]
+            ],
+            "linux": {
+                "program": "${workspaceFolder}/build/linux/debug/rp6502-emu"
+            },
+            "osx": {
+                "program": "${workspaceFolder}/build/macos/debug/rp6502-emu"
+            },
+            "windows": {
+                "program": "${workspaceFolder}/build/win/debug/rp6502-emu.exe"
+            }
         },
         {
             "name": "Pico Debug (Cortex-Debug)",

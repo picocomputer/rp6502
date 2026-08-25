@@ -1,0 +1,34 @@
+# A device nobody mapped writes nothing.
+#
+# Each of the four HID blocks lives wherever a program maps it, and the address
+# register comes up holding the sentinel that means nowhere. A driver whose init
+# never ran holds zero instead, which is a real address -- so every one of them
+# reports into XRAM 0, on top of whatever the program keeps there. mode2.rp6502
+# maps no device and draws nowhere near the bottom of XRAM, so anything that
+# lands here came from a driver that should have been silent.
+
+run 30
+poke xram:0 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5
+
+mouse move 5 5
+mouse buttons 1
+mouse wheel 3
+run 5
+peek xram:0 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5
+
+tablet at 100 100 1
+tablet touch 60,60
+tablet wheel 2
+run 5
+peek xram:0 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5
+
+press a
+press b
+run 5
+peek xram:0 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5
+
+pad 0 connect
+pad 0 press a
+pad 0 stick 40 40 -40 -40
+run 5
+peek xram:0 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5 $A5

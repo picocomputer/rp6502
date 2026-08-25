@@ -390,7 +390,7 @@ pretending.
 
 Three descriptors carry the whole mapping, so a wrong one would build
 clean and boot clean and be wrong only under a hand on a controller.
-`tests/hid/test_apf.c` is what stands in for that hand: registers in,
+`tests/host/pocket/test_apf.c` is what stands in for that hand: registers in,
 XRAM records out, against the real drivers.
 
 Two things a RIA has are not here. There is no monitor, so
@@ -623,7 +623,7 @@ the people who wrote the firmware.
 
 `fstest.rp6502` exercises the whole drive in one boot and prints its own
 verdict, in the simulator as well as on the card. The build leaves it in
-`build/verilator/release/tests/` with the other bring-up ROMs; they are not part of
+`build/rtl/roms/` with the other bring-up ROMs; they are not part of
 the distribution. When this prose and that ROM disagree, the ROM is
 right.
 
@@ -718,11 +718,11 @@ debug log shows:
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 
-From `src/rtl`, `cmake --preset pocket` then
-`cmake --build --preset "Card package"` assembles the card tree into
+From this directory, `cmake --preset release` then
+`cmake --build --preset release` assembles the card tree into
 `build/pocket/package`. Zip the three top directories at the archive
-root as `Rumbledethumps.RP6502_<version>_<date>.zip`. The `Bitstream` build
-preset stops one step earlier, at `build/pocket/bitstream/core.bin`.
+root as `Rumbledethumps.RP6502_<version>_<date>.zip`. The `pocket-bitstream`
+target stops one step earlier, at `build/pocket/bitstream/core.bin`.
 
 That tree needs Quartus and `gcc-riscv64-unknown-elf` and nothing else — no
 Verilator, no test suite.
@@ -735,7 +735,7 @@ of them your edit touched.
 
 Placing and routing is about nine minutes and turns on the RTL, the
 constraints and the fitter assignments. Putting firmware into the
-bitstream is about twenty seconds and turns on `src/rtl/sw`. Copying the
+bitstream is about twenty seconds and turns on `src/host/pocket/sw`. Copying the
 card tree is instant.
 
 The firmware is cheap because it is not logic. It is the initial contents
@@ -763,14 +763,14 @@ project file cannot be a dependency of the fit.** The fitter writes the
 `AUTO FIT` now that ours overrides it, rewriting every path relative — so
 it differs from what CMake generated the moment a fit ends, and a fit that
 depended on it would be out of date again before anyone typed anything.
-`synth.cmake` stands in for it, being what decides its content.
+The code that decides its content stands in for it.
 
 `bitstream` is incremental now, so the honest loop is to type it whenever
 unsure — an unchanged tree costs nothing, and a changed one needs the fit
 anyway.
 
 The bring-up ROMs — `fstest`, `file`, `bigfile`, `psg`, `opl`, `probe` —
-are built into `build/verilator/release/tests/` and are deliberately not in the
+are built into `build/rtl/roms/` and are deliberately not in the
 package. Copy the ones you want into `Assets/rp6502/common/` on a card
 when testing. The root-spelling `roots` probe answered its question —
 relative names resolve against a pinned `/Saves/rp6502/common/` —

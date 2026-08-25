@@ -13,8 +13,8 @@
 #ifndef _EMU_TESTS_DIRSYS_H_
 #define _EMU_TESTS_DIRSYS_H_
 
-#include "ria/api/api.h"
-#include "emu/sys/mem.h" /* xstack */
+#include "core/api/api.h"
+#include "core/emu/sys/mem.h" /* xstack */
 #include "fatfs/ff.h"    /* FILINFO */
 #include <stdint.h>
 #include <stdio.h>

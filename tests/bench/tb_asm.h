@@ -12,7 +12,7 @@
  * talks to $FFxx, so zero page would save bytes nobody is counting and
  * cost a second spelling of every instruction.
  *
- * src/gen/rp6502_rom.py is the same instruction set in Python. They are
+ * tests/gen/rp6502_rom.py is the same instruction set in Python. They are
  * two spellings of one machine, so a program written against either
  * reads the same.
  */

@@ -1,9 +1,35 @@
 # The Analogue Pocket's own layer: the host bridge, its SDRAM staging, the
-# scaler crossing and the codec.
+# scaler crossing, the codec, and what its dock says it holds.
 #
 # These are here rather than under a subsystem because they genuinely are
 # about the host. A bridge FIFO crossing 74.25 MHz into 50.4 MHz is not a
 # fact about the RP6502; it is a fact about this board.
+#
+# One of them needs no simulator — the dock's HID mapping is C — but it is a
+# claim about this board either way, so it sits with the rest and runs
+# wherever the board is built.
+
+# --- What the Pocket says its dock holds, against the drivers it tells ---
+# The dock's registers are handed to core/hid as HID reports, and the driver
+# structs apf.c writes out are what says where every bit went. Wrong ones
+# build clean and boot clean, so the registers go in here and the XRAM
+# records come back out. The real drivers: it is the firmware's mapping
+# being asked about.
+rp6502_add_test(apf
+    SOURCES test_apf.c
+        ${RP6502_SRC}/core/hid/hid.c
+        ${RP6502_SRC}/core/hid/kbd.c
+        ${RP6502_SRC}/core/hid/kbl.c
+        ${RP6502_SRC}/core/hid/kbt.c
+        ${RP6502_SRC}/core/hid/mou.c
+        ${RP6502_SRC}/core/hid/pad.c
+        ${RP6502_SRC}/core/hid/tab.c
+        ${RP6502_SRC}/core/api/uni.c
+        ${KBDLAY_C} ${OEMCP_C}
+        apf_host.c
+    INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}
+        ${KBDLAY_DIR} ${OEMCP_DIR})
+add_dependencies(test_apf kbdlay oemcp)
 
 set(POCKET_TB ${CMAKE_CURRENT_LIST_DIR})
 set(POCKET_STACK
@@ -71,8 +97,8 @@ rp6502_add_module_test(pbridge
     TIMEOUT 300)
 
 if(RP6502_SOFT_CPU)
-    # --- The whole Pocket stack, frame-exact against the oracle ---
-    rp6502_add_machine_test(pocket ORACLE FIRMWARE SPLIT
+    # --- The whole Pocket stack, frame-exact ---
+    rp6502_add_machine_test(pocket FIRMWARE SPLIT
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"

@@ -8,12 +8,12 @@
  * decided which physical button is BTN_SOUTH and which axis is the right
  * stick, over USB and Bluetooth alike, so there is no mapping database here
  * and none is wanted. The layout below is the kernel's own gamepad API
- * (Documentation/input/gamepad.rst), which is not the HID layout ria/hid/pad.c
+ * (Documentation/input/gamepad.rst), which is not the HID layout core/hid/pad.c
  * parses: here the triggers are ABS_Z and ABS_RZ and the right stick is
  * ABS_RX/ABS_RY.
  */
 
-#include "emu/app/pad_input.h"
+#include "core/emu/app/pad_input.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -57,7 +57,7 @@ typedef struct
 static pad_device_t pad_devices[PAD_PLAYERS];
 static int pad_rescan;
 
-/* ria/hid/hid.c's scaling, over the kernel's per-axis range instead of a
+/* core/hid/hid.c's scaling, over the kernel's per-axis range instead of a
  * report descriptor's. No deadzone: the analog values reach a program as the
  * hardware sends them, and pad.c applies its own where it makes the digital
  * sticks byte. */

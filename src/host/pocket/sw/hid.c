@@ -1,0 +1,47 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * What the shared HID drivers reach for and this machine does not have.
+ * The APF bus has no boot enumeration and no lock LEDs, and the font
+ * asset is the only code page there is.
+ */
+
+#include "font.h"
+
+#include "core/hid/hid.h"
+#include "core/api/oem.h"
+#include "host/pico/ria/ble/ble.h"
+#include "host/pico/ria/usb/usb.h"
+
+bool usb_boot_enumerating(void)
+{
+    return false;
+}
+
+void usb_set_hid_leds(uint8_t leds)
+{
+    (void)leds;
+}
+
+void ble_set_hid_leds(uint8_t leds)
+{
+    (void)leds;
+}
+
+uint16_t oem_get_code_page_run(void)
+{
+    return font_get_code_page();
+}
+
+/* The dock's controllers have no lamps and nothing enumerates. */
+void hid_set_leds(uint8_t leds)
+{
+    (void)leds;
+}
+
+bool hid_boot_enumerating(void)
+{
+    return false;
+}

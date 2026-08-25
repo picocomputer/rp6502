@@ -4,20 +4,14 @@
 #     CI 31666918326              an untagged CI build, -DRP6502_CI=<run id>
 #     Aug 12 2026 20:17:46 PDT    a developer's own build
 #
-# The firmware root and src/emu both include this; src/host/pocket writes the
+# The firmware root and src/core/emu both include this; src/host/pocket writes the
 # same three forms into core.json, without the "Version " prefix the Pocket UI
 # supplies itself.
 
 include_guard(GLOBAL)
 
-set(RP6502_VERSION_VALUE "")
-foreach(_def IN LISTS RP6502_PROJECT_DEFINITIONS)
-    if(_def MATCHES "^RP6502_VERSION=\"(.*)\"$")
-        set(RP6502_VERSION_VALUE "${CMAKE_MATCH_1}")
-    endif()
-endforeach()
-
 # -DRP6502_VERSION=<v> (release builds) overrides an empty default
+set(RP6502_VERSION_VALUE "")
 if(DEFINED RP6502_VERSION AND NOT RP6502_VERSION STREQUAL "")
     set(RP6502_VERSION_VALUE "${RP6502_VERSION}")
 endif()

@@ -10,8 +10,9 @@ Before building, ensure you have the following installed on your machine:
 1. **Java JDK 17** (e.g., installable via Homebrew: `brew install openjdk@17`).
 2. **Android SDK & NDK**:
    - Can be installed via Android Studio.
-   - NDK **27.2.12479018**, pinned in `build.gradle`; Gradle fetches it if the
-     SDK does not already have it.
+   - NDK **27.2.12479018**, pinned in `gradle.properties`; Gradle fetches it if
+     the SDK does not already have it. `CMakeLists.txt` reads the same pin, so
+     a build without Gradle cannot pick a different one.
 3. **ADB (Android Debug Bridge)**:
    - Part of the Android SDK platform tools, used to install APKs and push files.
 
@@ -20,6 +21,17 @@ Before building, ensure you have the following installed on your machine:
 ## How to Build
 
 All builds can be run directly from the command line using the Gradle wrapper inside this directory.
+
+The native library alone builds without Gradle, which is what gives an editor
+a `compile_commands.json`. Set `ANDROID_HOME` and:
+
+```bash
+cmake -S src/host/android -B build/android/cmake -G Ninja
+cmake --build build/android/cmake
+```
+
+From that tree, `cmake --build build/android/cmake --target apk` runs the
+Gradle build below.
 
 ### Step 1: Navigate to the Android project folder
 ```bash

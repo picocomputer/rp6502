@@ -1,0 +1,4 @@
+# 010 is ten. C would read the leading zero as octal and make it eight,
+# which is not what a byte value written in a script means.
+run 1
+peek ram:$C000 10 10

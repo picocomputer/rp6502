@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten filesystem primitives (host/host.h). The same POSIX calls as posix/fs.c
+ * Emscripten filesystem primitives (host/host.h). The same POSIX calls as core/posix/fs.c
  * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_read/fs_write
- * complete in one call and never return STD_PENDING — a zero-latency read has nothing to
+ * complete in one call and never return FS_IO_PENDING — a zero-latency read has nothing to
  * keep alive. Web is single-threaded with no POSIX aio, so it gets its own seam.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-8 with
@@ -14,8 +14,8 @@
  * oem_from_utf8().
  */
 
-#include "host/host.h"
-#include "ria/api/oem.h"
+#include "core/fs.h"
+#include "core/api/oem.h"
 #include <emscripten.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -184,28 +184,28 @@ int fs_close(int fd)
     return close(fd);
 }
 
-std_rw_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
     ssize_t r = read(fd, buf, count);
     if (r < 0)
     {
         *got = 0;
-        return STD_ERROR;
+        return FS_IO_ERROR;
     }
     *got = (uint32_t)r;
-    return STD_OK;
+    return FS_IO_OK;
 }
 
-std_rw_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
     ssize_t r = write(fd, buf, count);
     if (r < 0)
     {
         *put = 0;
-        return STD_ERROR;
+        return FS_IO_ERROR;
     }
     *put = (uint32_t)r;
-    return STD_OK;
+    return FS_IO_OK;
 }
 
 int64_t fs_lseek(int fd, int64_t off, int whence)
@@ -219,7 +219,7 @@ int fs_ftruncate(int fd, int64_t length)
 }
 
 /* Flush the MSC0: drive (IDBFS) to IndexedDB so writes survive a reload.
- * Async/fire-and-forget. The --tmpdrive lives in a RAM FatFs, so a sync there
+ * Async/fire-and-forget. A RAM FatFs holds no host file, so a sync there
  * persists nothing — it expires with the session. EM_JS emits an imported symbol,
  * so wrap it in a plain fs_sync the cross-TU caller (msc.c) can link against. */
 EM_JS(void, web_idbfs_sync, (void), {

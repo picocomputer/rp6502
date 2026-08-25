@@ -1075,11 +1075,14 @@ class ROM:
 
     def has_reset_vector(self) -> bool:
         """Returns true if $FFFC and $FFFD have been set."""
-        return bool(self.alloc[0xFFFC] and self.alloc[0xFFFD])
+        return bool(self.alloc.get(0xFFFC) and self.alloc.get(0xFFFD))
 
     def next_rom_data(self, addr: int):
         """Find next up-to-1k chunk starting at addr, never crossing 64k page."""
-        for addr in range(addr, 0x1000000):
+        # Bounded by what was allocated rather than by the address space: the
+        # scan to $1000000 costs a third of a second per image, which every
+        # generated ROM and every send_rom was paying to find nothing.
+        for addr in range(addr, max(self.alloc, default=-1) + 1):
             if self.alloc.get(addr):
                 page_end = (addr | 0xFFFF) + 1
                 length = 0
@@ -1089,6 +1092,37 @@ class ROM:
                         break
                 return addr, bytearray(self.data[addr + i] for i in range(length))
         return None, None
+
+    def to_bytes(self) -> bytes:
+        """The .rp6502 image: the magic line, the memory chunks as one null
+        asset, then the named ones."""
+        out = f"#!{SCRIPT_NAME}\r\n".encode("ascii")
+        chunks = b""
+        addr, data = self.next_rom_data(0)
+        while data is not None:
+            header = f"${addr:04X} ${len(data):03X} ${binascii.crc32(data):08X}\r\n"
+            chunks += header.encode("ascii") + bytes(data)
+            addr += len(data)
+            addr, data = self.next_rom_data(addr)
+        if chunks:
+            out += f"#>${len(chunks):08X} ${binascii.crc32(chunks):08X}\r\n".encode(
+                "ascii"
+            )
+            out += chunks
+        for asset_name, asset_data in self.assets:
+            out += (
+                f"#>${len(asset_data):08X} "
+                f"${binascii.crc32(asset_data):08X} {asset_name}\r\n"
+            ).encode("ascii")
+            out += asset_data
+        return out
+
+    def write(self, path) -> int:
+        """The image on disk. Returns its length."""
+        data = self.to_bytes()
+        with open(path, "wb") as file:
+            file.write(data)
+        return len(data)
 
 
 class Emulator:
@@ -1522,31 +1556,7 @@ def exec_args():
         for file in args.filename[extras_start:]:
             print(f"[{os.path.basename(__file__)}] Adding ROM asset {file}")
             rom.add_rom_file(file)
-        with open(args.out, "wb+") as file:
-            file.write(f"#!{SCRIPT_NAME}\r\n".encode("ascii"))
-            # Build null asset (memory chunks blob)
-            chunks = b""
-            addr, data = rom.next_rom_data(0)
-            while data is not None:
-                header = f"${addr:04X} ${len(data):03X} ${binascii.crc32(data):08X}\r\n"
-                chunks += header.encode("ascii") + bytes(data)
-                addr += len(data)
-                addr, data = rom.next_rom_data(addr)
-            if chunks:
-                file.write(
-                    f"#>${len(chunks):08X} ${binascii.crc32(chunks):08X}\r\n".encode(
-                        "ascii"
-                    )
-                )
-                file.write(chunks)
-            # Write named assets
-            for asset_name, asset_data in rom.assets:
-                file.write(
-                    f"#>${len(asset_data):08X} ${binascii.crc32(asset_data):08X} {asset_name}\r\n".encode(
-                        "ascii"
-                    )
-                )
-                file.write(asset_data)
+        rom.write(args.out)
 
     if args.command == "emu":
         # `emu` exists to launch the emulator as the IDE's debug adapter, which

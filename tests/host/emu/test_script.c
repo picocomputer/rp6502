@@ -10,9 +10,9 @@
  * nothing observable from inside a script can.
  */
 
-#include "emu/app/scr.h"
-#include "emu/emu/rom.h"
-#include "emu/sys/sys.h"
+#include "core/emu/app/scr.h"
+#include "core/emu/emu/rom.h"
+#include "core/emu/sys/sys.h"
 #include "emu_boot.h"
 #include <stdio.h>
 
@@ -34,7 +34,7 @@ static unsigned long frames_for(const char *text)
     {
         scr_task();
         if (scr_running())
-            sys_run_frame();
+            scr_needs_pixels() ? sys_run_frame() : sys_run_frame_norender();
     }
     return sys_frame_count() - before;
 }
@@ -64,6 +64,32 @@ UTEST(script, budget_is_exact)
 {
     ASSERT_EQ(frames_for("wait \"no program says this\" 5\n"), 5ul);
     ASSERT_EQ(frames_for("expect-exit 0 7\n"), 7ul);
+}
+
+/* Waiting on memory is the handshake a generated program answers, so it has to
+ * cost what it says: nothing when the byte is already there, and the whole
+ * budget when it never arrives. */
+UTEST(script, waiting_on_memory_is_exact)
+{
+    ASSERT_EQ(frames_for("poke ram:$0200 $A5\nwait ram:$0200 $A5 9\n"), 0ul);
+    ASSERT_EQ(frames_for("poke ram:$0200 $00\nwait ram:$0200 $A5 5\n"), 5ul);
+}
+
+/* Skipping the pixels through the middle of a run must not change what a frame
+ * is: the counter, vsync and every task still run, so the count is the same as
+ * a run whose frames are each observed. */
+UTEST(script, the_render_gate_keeps_the_count)
+{
+    ASSERT_EQ(frames_for("run 30\n"), 30ul);
+    ASSERT_EQ(frames_for("run 10\npoke ram:$0200 $01\nrun 10\nrun 10\n"), 30ul);
+}
+
+/* Answers are off until a script asks, so a preamble costs no frames and says
+ * nothing, and turning them on is itself a command like any other. */
+UTEST(script, replies_cost_no_frames)
+{
+    ASSERT_EQ(frames_for("reply\nreply off\n"), 0ul);
+    ASSERT_EQ(frames_for("reply\nrun 4\n"), 4ul);
 }
 
 UTEST_MAIN_EMU();
