@@ -51,7 +51,9 @@ static retro_input_state_t input_state_cb;
 static retro_log_printf_t log_cb;
 
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
-static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
+/* Floats on the way out of the machine, int16 pairs on the way to the
+ * frontend, in that order and in this one buffer. */
+static float audio_buf[RETRO_AUD_FRAMES_MAX * 2];
 
 static char loaded_rom[MSC_MAX_PATH]; /* OEM, for retro_reset */
 static bool machine_inited;
@@ -454,17 +456,18 @@ static void swizzle(uint32_t *px, size_t n)
 
 static void push_audio(void)
 {
-    int frames = aud_read((float *)audio_buf, RETRO_AUD_FRAMES_MAX);
+    int frames = aud_read(audio_buf, RETRO_AUD_FRAMES_MAX);
+    /* The int16 pairs libretro takes, written over the floats they came
+     * from: each one is half the width of the sample it replaces, so the
+     * write for a frame is always behind the read, and one buffer does. */
+    int16_t *out = (int16_t *)audio_buf;
     if (frames > 0)
     {
-        /* Read as float into the same storage and convert backwards, so the
-         * int16 it becomes never overwrites a float still to be read. */
-        const float *src = (const float *)audio_buf;
-        for (int i = frames * 2 - 1; i >= 0; i--)
+        for (int i = 0; i < frames * 2; i++)
         {
-            float s = src[i];
+            float s = audio_buf[i];
             s = s > 1.0f ? 1.0f : (s < -1.0f ? -1.0f : s);
-            audio_buf[i] = (int16_t)(s * 32767.0f);
+            out[i] = (int16_t)(s * 32767.0f);
         }
     }
     else
@@ -472,9 +475,9 @@ static void push_audio(void)
         /* Silence still has to arrive, or a frontend syncing to sound waits
          * for a frame that never sounds. */
         frames = RETRO_AUD_RATE / VGA_HZ;
-        memset(audio_buf, 0, (size_t)frames * 2 * sizeof *audio_buf);
+        memset(out, 0, (size_t)frames * 2 * sizeof *out);
     }
-    audio_batch_cb(audio_buf, (size_t)frames);
+    audio_batch_cb(out, (size_t)frames);
 }
 
 void retro_run(void)

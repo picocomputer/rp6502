@@ -104,6 +104,7 @@ typedef struct
     size_t frame_pitch;
     uint32_t frame_copy[640 * 480];
     int video_calls, poll_calls, state_calls, audio_calls, mask_reads;
+    int audio_peak; /* loudest sample handed over, to tell sound from silence */
     size_t audio_frames;
     bool state_read_before_poll;
 } fe_t;
@@ -128,9 +129,14 @@ static void fe_video(const void *data, unsigned width, unsigned height, size_t p
 
 static size_t fe_audio_batch(const int16_t *data, size_t frames)
 {
-    (void)data;
     fe.audio_calls++;
     fe.audio_frames += frames;
+    for (size_t i = 0; data && i < frames * 2; i++)
+    {
+        int v = data[i] < 0 ? -data[i] : data[i];
+        if (v > fe.audio_peak)
+            fe.audio_peak = v;
+    }
     return frames;
 }
 

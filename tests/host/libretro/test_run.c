@@ -74,6 +74,34 @@ UTEST(run, a_second_of_frames_is_a_second_of_sound)
     fe.unload_game();
 }
 
+/* A program that plays something is heard. The frame count alone would be
+ * satisfied by handing over silence forever, which is what a conversion
+ * that dropped the samples on the floor would do. */
+UTEST(run, a_program_that_plays_something_is_heard)
+{
+    ASSERT_TRUE(fe_load(FIXTURES_DIR "/furelise.rp6502"));
+    fe.audio_peak = 0;
+    fe_run(120);
+    ASSERT_TRUE(fe.audio_peak > 0);
+    /* And it is music rather than a buffer read as the wrong type: every
+     * sample the machine makes is inside the range, so the loudest one is
+     * too. */
+    ASSERT_TRUE(fe.audio_peak <= 32767);
+    fe.unload_game();
+}
+
+/* Silence is still handed over, at the same rate. */
+UTEST(run, a_silent_program_still_keeps_time)
+{
+    ASSERT_TRUE(fe_load(ROM("mode3_8bpp")));
+    fe.audio_peak = 0;
+    fe.audio_frames = 0;
+    fe_run(60);
+    ASSERT_EQ(fe.audio_frames, (size_t)48000);
+    ASSERT_EQ(fe.audio_peak, 0);
+    fe.unload_game();
+}
+
 /* Nothing is handed over outside retro_run. A frontend has not set up a
  * frame yet when it is loading content. */
 UTEST(run, nothing_is_handed_over_outside_a_run)
