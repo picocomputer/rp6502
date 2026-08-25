@@ -9,6 +9,7 @@
 #include "core/api/atr.h"
 #include "core/api/clk.h"
 #include "api/fat.h"
+#include "core/api/dir.h"
 #include "core/api/oem.h"
 #include "core/api/pro.h"
 #include "core/api/std.h"
@@ -72,6 +73,11 @@
 /**************************************/
 
 // Driver table, msc is catch-all and must be last.
+const dir_backend_t *main_dir_backend(void)
+{
+    return &fat_dir_backend;
+}
+
 static __in_flash("std_drivers") const std_driver_t std_drivers[] = {
     {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
@@ -175,7 +181,7 @@ static void run(void)
     pro_run();
     com_run();
     rln_run();
-    fat_run();
+    dir_run();
     vga_run();
     api_run();
     clk_run();
@@ -194,7 +200,7 @@ static void stop(void)
     oem_stop();
     std_stop();
     mid_stop();
-    fat_stop();
+    dir_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -303,45 +309,45 @@ bool main_api(uint8_t operation)
     case 0x1A:
         return std_api_lseek_cc65();
     case 0x1B:
-        return fat_api_unlink();
+        return dir_api_unlink();
     case 0x1C:
-        return fat_api_rename();
+        return dir_api_rename();
     case 0x1D:
         return std_api_lseek_llvm();
     case 0x1E:
         return std_api_syncfs();
     case 0x1F:
-        return fat_api_stat();
+        return dir_api_stat();
     case 0x20:
-        return fat_api_opendir();
+        return dir_api_opendir();
     case 0x21:
-        return fat_api_readdir();
+        return dir_api_readdir();
     case 0x22:
-        return fat_api_closedir();
+        return dir_api_closedir();
     case 0x23:
-        return fat_api_telldir();
+        return dir_api_telldir();
     case 0x24:
-        return fat_api_seekdir();
+        return dir_api_seekdir();
     case 0x25:
-        return fat_api_rewinddir();
+        return dir_api_rewinddir();
     case 0x26:
-        return fat_api_chmod();
+        return dir_api_chmod();
     case 0x27:
-        return fat_api_utime();
+        return dir_api_utime();
     case 0x28:
-        return fat_api_mkdir();
+        return dir_api_mkdir();
     case 0x29:
-        return fat_api_chdir();
+        return dir_api_chdir();
     case 0x2A:
-        return fat_api_chdrive();
+        return dir_api_chdrive();
     case 0x2B:
-        return fat_api_getcwd();
+        return dir_api_getcwd();
     case 0x2C:
-        return fat_api_setlabel();
+        return dir_api_setlabel();
     case 0x2D:
-        return fat_api_getlabel();
+        return dir_api_getlabel();
     case 0x2E:
-        return fat_api_getfree();
+        return dir_api_getfree();
     case 0x30:
         return rln_api_lastkey();
     case 0x31:

@@ -24,6 +24,7 @@
 #include "core/ria/ria.h"
 #include "core/api/api.h"
 #include "core/api/atr.h"
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
@@ -70,6 +71,7 @@ void main_run(void)
     pro_run();
     com_run();
     rln_run();
+    dir_run();
     api_run();
     clk_run();
     ria_run();
@@ -85,7 +87,7 @@ void main_stop(void)
     api_stop();
     oem_stop(); /* a run-only code page belongs to the run that set it */
     std_stop();
-    msc_stop();
+    dir_stop();
     kbd_stop();
     mou_stop();
     pad_stop();
@@ -193,26 +195,26 @@ static const api_op_fn api_ops[0x40] = {
     [0x18] = std_api_write_xstack,
     [0x19] = std_api_write_xram,
     [0x1A] = std_api_lseek_cc65,
-    [0x1B] = msc_api_unlink,
-    [0x1C] = msc_api_rename,
+    [0x1B] = dir_api_unlink,
+    [0x1C] = dir_api_rename,
     [0x1D] = std_api_lseek_llvm,
     [0x1E] = std_api_syncfs,
-    [0x1F] = msc_api_stat,
-    [0x20] = msc_api_opendir,
-    [0x21] = msc_api_readdir,
-    [0x22] = msc_api_closedir,
-    [0x23] = msc_api_telldir,
-    [0x24] = msc_api_seekdir,
-    [0x25] = msc_api_rewinddir,
-    [0x26] = msc_api_chmod,
-    [0x27] = msc_api_utime,
-    [0x28] = msc_api_mkdir,
-    [0x29] = msc_api_chdir,
-    [0x2A] = msc_api_chdrive,
-    [0x2B] = msc_api_getcwd,
-    [0x2C] = msc_api_setlabel,
-    [0x2D] = msc_api_getlabel,
-    [0x2E] = msc_api_getfree,
+    [0x1F] = dir_api_stat,
+    [0x20] = dir_api_opendir,
+    [0x21] = dir_api_readdir,
+    [0x22] = dir_api_closedir,
+    [0x23] = dir_api_telldir,
+    [0x24] = dir_api_seekdir,
+    [0x25] = dir_api_rewinddir,
+    [0x26] = dir_api_chmod,
+    [0x27] = dir_api_utime,
+    [0x28] = dir_api_mkdir,
+    [0x29] = dir_api_chdir,
+    [0x2A] = dir_api_chdrive,
+    [0x2B] = dir_api_getcwd,
+    [0x2C] = dir_api_setlabel,
+    [0x2D] = dir_api_getlabel,
+    [0x2E] = dir_api_getfree,
     [0x30] = rln_api_lastkey,
     [0x31] = rln_api_peek,
     [0x32] = rln_api_poke,
@@ -231,6 +233,11 @@ bool main_api(uint8_t operation)
 {
     api_op_fn fn = operation < 0x40 ? api_ops[operation] : NULL;
     return fn ? fn() : api_return_errno(API_ENOSYS);
+}
+
+const dir_backend_t *main_dir_backend(void)
+{
+    return &msc_dir_backend;
 }
 
 static const std_driver_t std_drivers[] = {

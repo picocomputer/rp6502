@@ -29,6 +29,7 @@
 #include "core/api/atr.h"
 #include "core/api/clk.h"
 #include "core/api/pro.h"
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/api/uni.h"
@@ -154,6 +155,11 @@ bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
 }
 
 /* std.c wants the catch-all last, so the mass-storage drive follows ROM. */
+const dir_backend_t *main_dir_backend(void)
+{
+    return &msc_dir_backend;
+}
+
 static const std_driver_t main_drivers[] = {
     {
         .handles = rom_std_handles,
@@ -228,11 +234,11 @@ bool main_api(uint8_t operation)
     case 0x1E:
         return std_api_syncfs();
     case 0x29:
-        return msc_api_chdir();
+        return dir_api_chdir();
     case 0x2A:
-        return msc_api_chdrive();
+        return dir_api_chdrive();
     case 0x2B:
-        return msc_api_getcwd();
+        return dir_api_getcwd();
     case 0x30:
         return rln_api_lastkey();
     case 0x31:

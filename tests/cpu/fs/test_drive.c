@@ -11,6 +11,7 @@
  *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
  */
 
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/sys/rom.h"
 #include "core/sys/msc.h"
@@ -121,26 +122,26 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     ASSERT_TRUE(rom_install(TEST_FIXTURE)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
-    msc_api_stat();
+    dir_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":");
-    msc_api_opendir();
+    dir_api_opendir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":"); /* not a cwd-able drive */
-    msc_api_chdrive();
+    dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    msc_api_unlink();
+    dir_api_unlink();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":sub");
-    msc_api_mkdir();
+    dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
     dsys_path("MSC0::adventure.rp6502");
-    msc_api_stat();
+    dir_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
 }
 
@@ -151,7 +152,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
@@ -169,12 +170,12 @@ UTEST(drive, mount_transparent_no_chroot)
 
     /* chdir into a subdir; getcwd tracks the native cwd. */
     dsys_path("sub");
-    msc_api_mkdir();
+    dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("sub");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "/sub");
     ASSERT_STREQ(cwd, expect);
@@ -182,16 +183,16 @@ UTEST(drive, mount_transparent_no_chroot)
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
      * old --drive-root chroot would have refused this with EACCES). */
     dsys_path("..");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
 }

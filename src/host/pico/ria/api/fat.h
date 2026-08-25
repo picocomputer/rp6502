@@ -8,8 +8,8 @@
 #define _RIA_API_FAT_H_
 
 /* The FatFs filesystem module: the stdio file driver (the catch-all entry in
- * std.c's driver table — open/close/read/write/lseek/sync over a FIL pool) and the
- * file/directory management API (the 0x1B..0x2E syscalls, over its own DIR pool).
+ * std.c's driver table — open/close/read/write/lseek/sync over a FIL pool) and
+ * this machine's drive for the directory syscalls, over its own DIR pool.
  * FatFs-only — the block device (diskio) is usb/msc.c.
  */
 
@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "core/api/api.h"
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "fatfs/ff.h"
 
@@ -31,28 +32,7 @@ std_rw_result fat_std_write(int desc, const char *buf, uint32_t count, uint32_t 
 int fat_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 std_rw_result fat_std_sync(int desc, api_errno *err);
 
-// Main events
-void fat_run(void);
-void fat_stop(void);
-
-// The file/directory management API implementations
-bool fat_api_stat(void);
-bool fat_api_opendir(void);
-bool fat_api_readdir(void);
-bool fat_api_closedir(void);
-bool fat_api_telldir(void);
-bool fat_api_seekdir(void);
-bool fat_api_rewinddir(void);
-bool fat_api_unlink(void);
-bool fat_api_rename(void);
-bool fat_api_chmod(void);
-bool fat_api_utime(void);
-bool fat_api_mkdir(void);
-bool fat_api_chdir(void);
-bool fat_api_chdrive(void);
-bool fat_api_getcwd(void);
-bool fat_api_setlabel(void);
-bool fat_api_getlabel(void);
-bool fat_api_getfree(void);
+// This drive, for core/api/dir.c's handlers.
+extern const dir_backend_t fat_dir_backend;
 
 #endif /* _RIA_API_FAT_H_ */
