@@ -19,26 +19,41 @@ direction and lives in `src/host`: `os.h`, `fs.h`, `dir.h`.
 A subsystem keeps its C and its SystemVerilog together, because they are two
 implementations of one claim and the tests hold them to it:
 
-    api/      the 6502 syscall ABI
-    aud/      the bell, the PSG, the OPL2, the resampler
+    api/      the 6502 syscall ABI, and the launcher chain behind it
+    aud/      the bell, the PSG, the OPL2, the resampler, the mixer
+    com/      the console: two rings, a bell, and what a Ctrl-C means
+    dap/      the debug adapter, the DWARF and cc65 readers, the engine
     def/      X-macro data: keyboard layouts, localized strings
-    hid/      keyboards, mice, gamepads, tablets, and the report parser
+    hid/      keyboards, mice, gamepads, tablets, the report parser, and
+              what a key spells on the wire
     machine/  the machine's RTL top, and its timing constraints
     mem/ ria/ rv/    RAM, the register window, the soft RISC-V SoC
     str/ term/       readline and the ANSI terminal
-    vga/      the video modes, as renderers and as fabric
-    wdc/      the 6502 and the VIA
+    sys/      what a machine has rather than what it is made of: the frame
+              and bus engine, the drives, the clock, the log, the version
+    vga/      the video modes and the scanline program, as renderers and
+              as fabric
+    wdc/      the 6502 and the VIA, as software and as fabric
 
-## The software machine
+## One implementation, or a good reason
 
-`core/sys` is what the fabric does in fabric and a firmware does in silicon,
-written in C: the bus and clock engine, the RIA, the video and audio devices,
-the drives, the debug seam. It is a peer of `host/pico/ria` and
-`host/pocket/sw`, not a layer above them.
+A machine is not a fork. Where one implementation can serve every machine it
+lives here and each machine answers the few calls that are genuinely its own:
+the console is `com/`, over the wire in `com/con.h`; the launcher chain is
+`api/pro.c`, over how a machine starts a program; the scanline program is
+`vga/prog.c`, over what a machine's canvas is.
 
-`core/dap` is the debug adapter and the DWARF/cc65 readers behind it — machine
-debugging, independent of any window. The interface that draws it belongs to
-whoever has a screen, and is `src/host/sokol`.
+Where a machine is genuinely different it says so and keeps its own — the
+RIA's console arbitrates a real serial port against a keyboard and a network
+socket, and does not fit above that seam.
+
+What this buys is not lines. A copy drifts: the Pocket lost Ctrl-C for as
+long as its console was a copy of the emulator's, because the copy was taken
+before the latch existed and nobody diffed them again. A machine cannot lose
+a feature it does not implement.
+
+The interface that draws a debugger belongs to whoever has a screen, and is
+`src/host/sokol`; what it draws is `dap/`.
 
 ## The parts lists
 
