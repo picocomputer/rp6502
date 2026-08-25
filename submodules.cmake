@@ -56,13 +56,6 @@ function(rp6502_submodule path)
         set(S_SUPER ${RP6502_ROOT})
     endif()
     set(_dir ${S_SUPER}/${path})
-    # For the input lists. A submodule reaches a diff as its gitlink and never
-    # as a file inside it, so the files a list names can all be a submodule's
-    # and still never match a bump of it. The path has to be there in its own
-    # right, and asking here is what keeps that true of one nobody has added
-    # yet.
-    set_property(GLOBAL APPEND PROPERTY RP6502_SUBMODULES ${_dir})
-
     # Offered whether or not it is needed, so the way to fetch or refresh it
     # is the same command either way.
     if(S_TARGET AND NOT TARGET ${S_TARGET})

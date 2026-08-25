@@ -73,10 +73,6 @@ if(RP6502_HAVE_SSTESTS)
         COMMENT "Encoding SingleStepTests vectors (${SSVEC_COUNT}/opcode)"
         VERBATIM)
     add_custom_target(cpu_vectors DEPENDS ${VECTORS})
-    # The encoder decides what the corpus is, so a change to it is a change to
-    # what both CPUs are held to.
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS
-        ${CMAKE_CURRENT_LIST_DIR}/ssvec.py)
 
     rp6502_add_cpu_test(vectors
         SOURCES test_vectors.c vec.c

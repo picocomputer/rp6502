@@ -19,7 +19,6 @@ file(MAKE_DIRECTORY ${RP6502_TEST_TABLES})
 #                   [DEPENDS <file>...] COMMENT <text>)
 function(rp6502_test_table target)
     cmake_parse_arguments(H "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${H_GEN} ${H_DEPENDS})
     add_custom_command(OUTPUT ${H_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${H_GEN} ${H_ARGS}
         DEPENDS ${H_GEN} ${H_DEPENDS}

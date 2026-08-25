@@ -73,8 +73,6 @@ if(NOT TARGET rp6502_test_corpus)
         COMMENT "Generating the video-mode ROM corpus"
         VERBATIM)
     add_custom_target(rp6502_test_corpus DEPENDS ${CMAKE_BINARY_DIR}/roms.stamp)
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS
-        ${RP6502_CORPUS_GEN} ${RP6502_CORPUS_ASM})
 endif()
 
 # --- The generated 6502 programs ---
@@ -105,7 +103,6 @@ function(rp6502_test_rom target)
     # property rp6502_add_test appends to, because to the question "does this
     # commit change the simulation" a ROM the simulation boots and a test that
     # boots it are one answer. tests/rtl/CMakeLists.txt reads this.
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${R_GEN} ${R_DEPENDS})
     add_custom_command(OUTPUT ${R_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${R_GEN} ${R_ARGS}
         DEPENDS ${R_GEN} ${R_DEPENDS}
@@ -247,8 +244,6 @@ function(rp6502_add_script_test name)
     if(NOT S_ROM)
         message(FATAL_ERROR "rp6502_add_script_test(${name}) names no program")
     endif()
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${S_SCRIPT})
-
     # A directory of its own. A script test writes where it is standing — a
     # screenshot, and every file the program creates on a host-backed drive —
     # and two of them in one directory under ctest --parallel is how a suite
@@ -328,15 +323,6 @@ function(rp6502_add_test name)
     if(NOT T_SOURCES)
         set(T_SOURCES test_${name}.c)
     endif()
-
-    # Every test in either tree comes through here, so this is the one place
-    # that can say what the suite is made of without naming any of it.
-    foreach(_s IN LISTS T_SOURCES)
-        if(NOT IS_ABSOLUTE ${_s})
-            set(_s ${CMAKE_CURRENT_LIST_DIR}/${_s})
-        endif()
-        set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${_s})
-    endforeach()
 
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE

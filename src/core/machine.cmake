@@ -12,35 +12,6 @@
 # names it in the stage_map gate.
 set(RP6502_HOST_POCKET ${RP6502_SRC}/host/pocket/core)
 
-# rp6502_inputs(<name> <file>...)
-#
-# Writes inputs/<name>, one repository-relative path per line, for a build that
-# is not this one. CI decides whether a job is owed before it has a tree to ask,
-# and the only thing that knows what a job reads is the code that reads it. A
-# workflow keeping its own list of directories is a second copy of these
-# DEPENDS, and was one: a glob woke the fit for the Pocket's firmware, which
-# costs an assemble, and never woke it for the two Pico firmwares, of which it
-# compiles about twenty of a hundred and thirty.
-#
-# Relative and sorted so the answer does not depend on where the tree sits or
-# what order a list was built in. Anything inside the build directory is
-# dropped: a generated file cannot appear in a diff, and what actually decides
-# one is its generator, which is named instead.
-function(rp6502_inputs name)
-    set(_rel "")
-    foreach(_f IN LISTS ARGN)
-        string(FIND ${_f} ${CMAKE_BINARY_DIR} _in_build)
-        if(NOT _in_build EQUAL 0)
-            file(RELATIVE_PATH _r ${RP6502_ROOT} ${_f})
-            list(APPEND _rel ${_r})
-        endif()
-    endforeach()
-    list(SORT _rel)
-    list(REMOVE_DUPLICATES _rel)
-    string(REPLACE ";" "\n" _text "${_rel}")
-    file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/inputs/${name} CONTENT "${_text}\n")
-endfunction()
-
 include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
 
 # The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
