@@ -82,8 +82,15 @@ endif()
 
 rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/core/emu/app/version.c)
 
-enable_testing()
-# What a C compiler can answer: this core's own claims, and the machine's.
-include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
-add_subdirectory(${RP6502_ROOT}/tests/host/libretro tests/host/libretro)
-add_subdirectory(${RP6502_ROOT}/tests/cpu tests/cpu)
+# The suite needs python3 and the generated ROM corpus, which a buildbot
+# building a core to ship has no use for. Every other root builds its tests
+# unconditionally because every other root is somebody's working tree; this
+# one is also read by strangers' CI.
+option(RP6502_TESTS "Build the test suite" ON)
+if(RP6502_TESTS)
+    enable_testing()
+    # What a C compiler can answer: this core's own claims, and the machine's.
+    include(${RP6502_ROOT}/tests/rp6502_tests.cmake)
+    add_subdirectory(${RP6502_ROOT}/tests/host/libretro tests/host/libretro)
+    add_subdirectory(${RP6502_ROOT}/tests/cpu tests/cpu)
+endif()

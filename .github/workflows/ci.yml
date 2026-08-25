@@ -241,6 +241,72 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # libretro: build the core, run its suite, ship a zip per arch. No desktop
+  # dev packages: this host has no window and no audio device, which is most
+  # of what makes it a core. The libretro buildbot ships its own builds from
+  # .gitlab-ci.yml; this job is how we find out we broke it.
+  # ---------------------------------------------------------------------------
+  libretro:
+    name: libretro-${{ matrix.arch }}
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04,     arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro-linux-${{ matrix.arch }}.zip
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build
+
+      - name: Configure & build core (Release)
+        run: |
+          set -euxo pipefail
+          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
+          cmake --build build/libretro/release
+
+      - name: Run core tests
+        run: ctest --test-dir build/libretro/release --output-on-failure --parallel $(nproc)
+
+      # The ABI is the whole export surface, and a build that grew another
+      # one is a build that leaks the machine into a frontend's namespace.
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          nm -D --defined-only build/libretro/release/rp6502_libretro.so \
+            | awk '{print $3}' | grep -v '^retro_' > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+      # zip, not tar: a core carries no execute bit, and it is what every
+      # other core ships as and what a handheld's file manager understands.
+      - name: Package libretro-linux-${{ matrix.arch }}
+        run: |
+          set -euxo pipefail
+          mkdir stage
+          cp build/libretro/release/rp6502_libretro.so stage/
+          cp src/dist/libretro/rp6502_libretro.info stage/
+          cp src/dist/libretro/README.txt stage/
+          (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" .)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
   # macos: build and test on arm64, wrap the binary in an unsigned .app.
   # ---------------------------------------------------------------------------
   macos:
@@ -748,8 +814,8 @@ jobs:
   # everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, sdk-tools, pico, linux, macos, itch-io, windows, android,
-            pocket, rtl-tests]
+    needs: [version, sdk-tools, pico, linux, libretro, macos, itch-io, windows,
+            android, pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -776,6 +842,7 @@ jobs:
           assets=()
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
+                   libretro-linux-x86_64.zip libretro-linux-aarch64.zip \
                    pocket.zip itch.io.zip android.apk; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
@@ -806,6 +873,8 @@ jobs:
             dist/rp6502-${{ needs.version.outputs.version }}-macos.zip
             dist/rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
             dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz
+            dist/rp6502-${{ needs.version.outputs.version }}-libretro-linux-x86_64.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-libretro-linux-aarch64.zip
             dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
             dist/rp6502-${{ needs.version.outputs.version }}-itch.io.zip
             dist/rp6502-${{ needs.version.outputs.version }}-android.apk
@@ -824,6 +893,8 @@ jobs:
             | `rp6502-${{ needs.version.outputs.version }}-macos.zip` | Emulator, macOS 11+ Apple silicon |
             | `rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz` | Emulator, Linux x86_64 (glibc 2.35+) |
             | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
+            | `rp6502-${{ needs.version.outputs.version }}-libretro-linux-x86_64.zip` | RetroArch core, Linux x86_64 |
+            | `rp6502-${{ needs.version.outputs.version }}-libretro-linux-aarch64.zip` | RetroArch core, Linux aarch64 |
             | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
             | `rp6502-${{ needs.version.outputs.version }}-itch.io.zip` | Publish a program on itch.io |
             | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |

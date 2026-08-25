@@ -13,6 +13,7 @@
         "${workspaceFolder}/src/host/macos",
         "${workspaceFolder}/src/host/web",
         "${workspaceFolder}/src/host/android",
+        "${workspaceFolder}/src/host/libretro",
         "${workspaceFolder}/src/host/pocket",
         "${workspaceFolder}/tests/rtl"
     ],

@@ -92,6 +92,7 @@ settings.
 | `src/host/macos` | the same on macOS | `build/macos/{debug,release}` |
 | `src/host/web` | the itch.io bundle | `build/web` |
 | `src/host/android` | the native library, and an `apk` target | `build/android/` |
+| `src/host/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
 | `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
 | `tests/rtl` | the verilated machine and its suite | `build/rtl` |
 
