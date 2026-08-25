@@ -295,7 +295,7 @@ jobs:
           set -euxo pipefail
           mkdir stage
           cp build/libretro/release/rp6502_libretro.so stage/
-          cp src/dist/libretro/rp6502_libretro.info stage/
+          cp build/libretro/release/rp6502_libretro.info stage/
           cp src/dist/libretro/README.txt stage/
           (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" \
              rp6502_libretro.so rp6502_libretro.info README.txt)
@@ -365,7 +365,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory stage | Out-Null
           Copy-Item build/libretro/release/rp6502_libretro.dll stage/
-          Copy-Item src/dist/libretro/rp6502_libretro.info stage/
+          Copy-Item build/libretro/release/rp6502_libretro.info stage/
           Copy-Item src/dist/libretro/README.txt stage/
           Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
@@ -416,7 +416,7 @@ jobs:
           set -euxo pipefail
           mkdir stage
           cp build/libretro/release/rp6502_libretro.dylib stage/
-          cp src/dist/libretro/rp6502_libretro.info stage/
+          cp build/libretro/release/rp6502_libretro.info stage/
           cp src/dist/libretro/README.txt stage/
           (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" \
              rp6502_libretro.dylib rp6502_libretro.info README.txt)

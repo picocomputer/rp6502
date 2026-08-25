@@ -6,7 +6,7 @@ corename = "Picocomputer 6502"
 categories = "Emulator"
 license = "BSD-3-Clause"
 permissions = ""
-display_version = "0.31"
+display_version = "@RP6502_INFO_VERSION@"
 
 # Hardware Information
 manufacturer = "Rumbledethumps"

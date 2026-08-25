@@ -135,9 +135,12 @@ WAYLAND_DISPLAY=nonexistent-0 retroarch -L … game.rp6502
 Not done yet, and not something this repository can do on its own. The
 steps, for when it is:
 
-1. PR `src/dist/libretro/rp6502_libretro.info` to
+1. PR the `rp6502_libretro.info` out of a tagged build to
    [libretro-super](https://github.com/libretro/libretro-super/tree/master/dist/info)
-   as `dist/info/rp6502_libretro.info`.
+   as `dist/info/rp6502_libretro.info`. It is already inside the release
+   zip — the template is `src/dist/libretro/rp6502_libretro.info.in` and
+   the build fills its version in from `version.cmake`, so the file to
+   send is the generated one and never the template.
 2. Ask the libretro team — an issue on libretro-super, or Discord — to
    mirror this repository on git.libretro.com and enable its pipeline.
    `.gitlab-ci.yml` at the top of this repository is what their buildbot

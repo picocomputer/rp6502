@@ -29,6 +29,15 @@ get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
+# The core's metadata carries a version, and this repository has exactly one
+# of those. Strip the word a frontend prints for itself, which is the same
+# strip retro_get_system_info does and the same one the Pocket does for
+# core.json — so the .info in a release zip says what the binary beside it
+# reports, tag or CI run or the day someone built it.
+string(REGEX REPLACE "^Version " "" RP6502_INFO_VERSION "${RP6502_VERSION_STAMP}")
+configure_file(${RP6502_SRC}/dist/libretro/rp6502_libretro.info.in
+    ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
+
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
 include(${RP6502_SRC}/core/emu/emu.cmake)
 

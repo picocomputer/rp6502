@@ -113,6 +113,14 @@ included test roms to run. You'll also have a binary that supports the Debug
 Adapter Protocol (DAP) that you can use with vscode-cc65, or any other IDE
 that supports DAP.
 
+To build the libretro core, select Folder:libretro and Configure:Debug. On
+the Debug side panel select "RetroArch Debug" and press F5; it builds the
+core, launches RetroArch on it, and stops at your breakpoints. You'll get
+prompted for one of the included test roms, or use "RetroArch Debug
+(path…)" to type the path of any ROM you like. RetroArch has to be
+installed; on WSL the launch configuration already works around the
+missing window decorations.
+
 To build for web, select Folder:web; the Emscripten toolchain installs itself
 the first time and needs no preset argument to find. Pressing F7 builds
 `build/web/bundle`, a ready-to-publish itch.io sample that plays one program
