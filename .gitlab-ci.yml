@@ -21,7 +21,7 @@ include:
   - project: 'libretro-infrastructure/ci-templates'
     file: '/linux-cmake.yml'
   - project: 'libretro-infrastructure/ci-templates'
-    file: '/windows-cmake-mingw.yml'
+    file: '/windows-cmake-msvc19.yml'
   - project: 'libretro-infrastructure/ci-templates'
     file: '/android-cmake.yml'
   - project: 'libretro-infrastructure/ci-templates'
@@ -42,8 +42,12 @@ libretro-build-linux-x64:
 
 libretro-build-windows-x64:
   extends:
-    - .libretro-windows-cmake-x86_64
+    - .libretro-windows-msvc19-cmake-x86_64
     - .core-defs
+  variables:
+    # The Visual Studio generator is multi-config, so the DLL lands under
+    # the configuration rather than at the build root.
+    EXTRA_PATH: Release
 
 libretro-build-osx-x64:
   extends:

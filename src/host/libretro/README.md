@@ -143,7 +143,9 @@ steps, for when it is:
    `.gitlab-ci.yml` at the top of this repository is what their buildbot
    reads; it names `src/host/libretro` as the CMake root and builds the
    `rp6502_libretro` target, which is why that target has exactly that
-   name.
+   name. Its Windows job asks for their MSVC template rather than the
+   mingw one, because MSVC is the Windows toolchain this repository
+   builds and tests.
 3. The buildbot's nightlies then appear under Online Updater / Core
    Downloader.
 

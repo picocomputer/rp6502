@@ -429,50 +429,11 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # libretro-mingw: the buildbot compiles this core for Windows with mingw-w64
-  # rather than MSVC, and a toolchain nobody here runs is a toolchain nobody
-  # breaks on purpose. Build-only with the buildbot's own RP6502_TESTS=OFF —
-  # the suite runs under MSVC above; this is where the compiler that ships to
-  # players gets its say. Nothing here is published.
-  # ---------------------------------------------------------------------------
-  libretro-mingw:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Install mingw-w64
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build mingw-w64
-
-      - name: Configure & build core (Release, x86_64-w64-mingw32)
-        run: |
-          set -euxo pipefail
-          cmake -S src/host/libretro -B build/libretro/mingw -G Ninja \
-            -DCMAKE_SYSTEM_NAME=Windows \
-            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
-            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
-            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
-            -DRP6502_TESTS=OFF
-          cmake --build build/libretro/mingw
-
-      - name: Check the export surface
-        run: |
-          set -euxo pipefail
-          x86_64-w64-mingw32-objdump -p build/libretro/mingw/rp6502_libretro.dll \
-            | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^$/p' \
-            | awk '/\[[ 0-9]+\]/{print $NF}' > exports.txt
-          grep -q '^retro_init$' exports.txt
-          grep -v '^retro_' exports.txt > unexpected.txt || true
-          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
-
-  # ---------------------------------------------------------------------------
   # libretro-android: the buildbot's other target, built with the runner's own
   # NDK. Not src/host/android — that root is the APK. This is the same
   # src/host/libretro the buildbot's android template points at, driven by the
-  # NDK's toolchain file. Build-only, like mingw: the tests would be arm64
-  # Android binaries. android-28 is the floor the APK already declares.
+  # NDK's toolchain file. Build-only: the tests would be arm64 Android
+  # binaries. android-28 is the floor the APK already declares.
   # ---------------------------------------------------------------------------
   libretro-android:
     runs-on: ubuntu-24.04
@@ -863,19 +824,19 @@ jobs:
   # Every job named below runs unconditionally on a tag, so none can be skipped
   # and there is no absent asset to tolerate.
   #
-  # Four of them build nothing this publishes and are named anyway. rtl-tests
+  # Three of them build nothing this publishes and are named anyway. rtl-tests
   # is the evidence the core works, and a tag that fitted a bitstream the
   # suite rejects should not reach a release page. sdk-tools verifies the
   # checksums every project fetches tools/ against, so a broken one breaks the
-  # update for everyone and the person who finds out is a user. libretro-mingw
-  # and libretro-android compile the core with the two toolchains the libretro
-  # buildbot ships to players, which nothing else here runs — a tag whose core
-  # does not build for them is a tag whose nightlies will not either.
+  # update for everyone and the person who finds out is a user.
+  # libretro-android compiles the core with the NDK the libretro buildbot
+  # ships to players, which nothing else here runs — a tag whose core does not
+  # build for it is a tag whose nightlies will not either.
   # ---------------------------------------------------------------------------
   release:
     needs: [version, sdk-tools, pico, linux, libretro, libretro-windows,
-            libretro-macos, libretro-mingw, libretro-android, macos, itch-io,
-            windows, android, pocket, rtl-tests]
+            libretro-macos, libretro-android, macos, itch-io, windows, android,
+            pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
