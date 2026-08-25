@@ -247,7 +247,10 @@ static void run_frame(bool render)
     const char *exec_path = pro_take_exec();
     if (exec_path)
     {
-        main_stop(); /* tear down the outgoing program (cpu_stop halts it) */
+        /* Committed here rather than left for the next frame: the load below
+         * writes the RAM the outgoing program was running out of. */
+        main_stop();
+        main_commit();
         if (!rom_load(exec_path))
         {
             log_error("exec failed to load '%s'", exec_path);
@@ -255,6 +258,7 @@ static void run_frame(bool render)
         }
         else
             main_run(); /* start the incoming program; keeps VSYNC + clock */
+        main_commit();
     }
 }
 

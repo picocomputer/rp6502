@@ -136,7 +136,7 @@ static void init(void)
 }
 
 /* The 6502 coming out of reset. */
-static void run(void)
+void main_on_run(void)
 {
     pro_run();
     com_run();
@@ -148,7 +148,7 @@ static void run(void)
 
 /* The 6502 going into reset. Nothing here is on the platform's reset, so
  * anything a program left running is the firmware's to put back. */
-static void stop(void)
+void main_on_stop(void)
 {
     cpu_stop(); /* Must be first. */
     rln_stop();
@@ -175,35 +175,6 @@ static uint8_t main_upd_seen;
 static bool main_rom_len(uint32_t *len)
 {
     return msc_slot_len(MSC_SLOT_ROM, len) && *len;
-}
-
-static enum state {
-    stopped,
-    starting,
-    running,
-    stopping,
-} volatile main_state;
-
-/* Callers belong in the loop's stopped block and nowhere else: promoted
- * out of stopping, this would skip the outgoing program's teardown. */
-void main_run(void)
-{
-    if (main_state != running)
-        main_state = starting;
-}
-
-void main_stop(void)
-{
-    cpu_stop(); /* RESB down now; the rest of the fan-out can wait. */
-    if (main_state == starting)
-        main_state = stopped;
-    else if (main_state != stopped)
-        main_state = stopping;
-}
-
-bool main_active(void)
-{
-    return main_state != stopped;
 }
 
 /* No monitor here, so there is nothing a break could drop into. */
@@ -395,19 +366,10 @@ int main(void)
             restage = true;
             main_stop();
         }
-        if (main_state == starting)
-        {
-            run();
-            main_state = running;
-        }
-        if (main_state == stopping)
-        {
-            stop();
-            main_state = stopped;
-        }
-        /* Below both branches rather than inside stopping: a machine
-         * already stopped is owed no stop and would otherwise never launch. */
-        if (main_state == stopped)
+        main_commit();
+        /* Below the commit rather than inside it: a machine already stopped is
+         * owed no stop and would otherwise never launch. */
+        if (!main_active())
         {
             if (restage)
             {

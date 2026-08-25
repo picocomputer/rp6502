@@ -66,7 +66,8 @@ void main_init(void)
     vga_init();
 }
 
-void main_run(void)
+/* The 6502 coming out of reset. */
+void main_on_run(void)
 {
     pro_run();
     com_run();
@@ -79,7 +80,8 @@ void main_run(void)
     cpu_run(); /* must be last */
 }
 
-void main_stop(void)
+/* The 6502 going into reset. */
+void main_on_stop(void)
 {
     cpu_stop(); /* must be first */
     vga_stop();

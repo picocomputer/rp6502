@@ -99,7 +99,8 @@ UTEST(mode2, stop_resets_canvas_to_console)
     run_frames(20);
     ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240); /* gfx canvas active */
 
-    main_stop();      /* the outgoing program stops (as on a ROM swap) */
+    main_stop(); /* the outgoing program stops (as on a ROM swap) */
+    main_commit();
     sys_run_frame(); /* vga_task performs the armed console reset */
     ASSERT_EQ(vga_get_canvas(), vga_canvas_console);
 }

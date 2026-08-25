@@ -290,7 +290,10 @@ void retro_init(void)
 void retro_deinit(void)
 {
     if (machine_inited)
+    {
         main_stop();
+        main_commit(); /* no more frames after this to do it in */
+    }
     machine_inited = false;
     loaded_rom[0] = 0;
     loaded_path[0] = 0;
@@ -416,6 +419,7 @@ static bool boot(const char *rom_oem)
     if (machine_inited)
     {
         main_stop();
+        main_commit(); /* before mem_init and the load wipe what it runs on */
         mem_init();
     }
     else
@@ -429,6 +433,7 @@ static bool boot(const char *rom_oem)
     pro_set_argv(rom_oem, 0, NULL);
     pro_set_launcher(false);
     main_run();
+    main_commit();
     shutdown_sent = false;
     geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */
     return true;
@@ -483,7 +488,10 @@ bool retro_load_game_special(unsigned type, const struct retro_game_info *info, 
 void retro_unload_game(void)
 {
     if (machine_inited)
+    {
         main_stop();
+        main_commit(); /* the frontend may never call us again */
+    }
     loaded_rom[0] = 0;
     loaded_path[0] = 0;
 }

@@ -285,6 +285,7 @@ int main(int argc, char **argv)
         return 1;
 
     main_run(); /* start the machine — main_init only initialized the drivers */
+    main_commit();
 
     /* A script is the clock, always: it runs the machine here rather than under a
      * window, so a frame elapses only because the script asked for one and its

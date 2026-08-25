@@ -476,6 +476,7 @@ sapp_desc sokol_main(int argc, char* argv[])
     {
         g_android_menu_active = false;
         main_run(); // start the boot ROM
+        main_commit();
     }
     else
     {

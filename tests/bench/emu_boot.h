@@ -30,13 +30,17 @@
 
 /* Program change: end the previous program, load rom, start it — what an exec
  * and a ROM drop do. The first call per process runs on the just-inited, not-yet-
- * running machine, so its main_stop is a harmless no-op on the idle drivers. */
+ * running machine, so its main_stop is a harmless no-op on the idle drivers.
+ * Committed on the spot, as the machine does it: the load writes the RAM the
+ * outgoing program was running out of. */
 static inline bool emu_restart(const char *rom)
 {
     main_stop();
+    main_commit();
     if (!rom_load(rom))
         return false;
     main_run();
+    main_commit();
     return true;
 }
 

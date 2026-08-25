@@ -24,6 +24,11 @@
 // the 6502 is running or about to run once RESB rises.
 bool cpu_active(void);
 
+/* RESB down. Called from inside main_stop rather than the fan-out behind it,
+ * because a 6502 left running would keep asking for what is being torn
+ * down. */
+void cpu_stop(void);
+
 /* In kHz. The setter may land on a nearby achievable rate; the getter reports
  * the one chosen. */
 uint16_t cpu_get_phi2_khz_run(void);

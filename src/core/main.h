@@ -27,6 +27,16 @@ void main_run(void);
 // It will safely do nothing if the 6502 is already stopped.
 void main_stop(void);
 
+/* Perform a start or stop that was asked for. A machine calls this from its
+ * loop, at a point where it can afford the fan-out. */
+void main_commit(void);
+
+/* The fan-outs themselves, which are the machine's: what it has to bring up
+ * for a program to run, and what it has to put away afterwards. The ordering
+ * within them is the whole content, so they stay where the reasons are. */
+void main_on_run(void);
+void main_on_stop(void);
+
 // This platform's stdio driver table (built in its main.c).
 const std_driver_t *main_std_drivers(size_t *count);
 

@@ -146,6 +146,7 @@ UTEST(rtc, stop_reverts_run_code_page)
     oem_set_code_page_run(guest); /* a guest program changed the run page */
     ASSERT_EQ(oem_get_code_page_run(), guest);
     main_stop();
+    main_commit();
     ASSERT_EQ(oem_get_code_page_run(), resolved);
 }
 

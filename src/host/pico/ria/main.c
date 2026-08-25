@@ -176,7 +176,7 @@ static void task(void)
 }
 
 // Event to start running the 6502.
-static void run(void)
+void main_on_run(void)
 {
     pro_run();
     com_run();
@@ -190,7 +190,7 @@ static void run(void)
 }
 
 // Event to stop the 6502.
-static void stop(void)
+void main_on_stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop();
@@ -243,27 +243,6 @@ void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 /*****************************/
 
 static bool is_breaking;
-static enum state {
-    stopped,
-    starting,
-    running,
-    stopping,
-} volatile main_state;
-
-void main_run(void)
-{
-    if (main_state != running)
-        main_state = starting;
-}
-
-void main_stop(void)
-{
-    cpu_stop(); // Pull down RESB
-    if (main_state == starting)
-        main_state = stopped;
-    else if (main_state != stopped)
-        main_state = stopping;
-}
 
 bool main_break(void)
 {
@@ -282,11 +261,6 @@ bool main_break_to_launcher(void)
     return true;
 }
 
-bool main_active(void)
-{
-    return main_state != stopped;
-}
-
 int main(void)
 {
     sys_main();
@@ -298,16 +272,7 @@ int main(void)
         task();
         if (is_breaking)
             main_stop();
-        if (main_state == starting)
-        {
-            run();
-            main_state = running;
-        }
-        if (main_state == stopping)
-        {
-            stop();
-            main_state = stopped;
-        }
+        main_commit();
         if (is_breaking)
         {
             break_();
