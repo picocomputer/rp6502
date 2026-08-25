@@ -75,6 +75,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c
     ${RP6502_SRC}/core/sys/tmp.c
+    ${RP6502_SRC}/core/pix.c
     ${RP6502_SRC}/core/rand.c
     ${RP6502_SRC}/core/sys/rand.c
     ${RP6502_SRC}/core/sys/cfg.c
@@ -103,6 +104,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/aud/psg.c
     ${RP6502_SRC}/core/str/rln.c
     ${RP6502_SRC}/core/str/str.c
+    ${RP6502_SRC}/core/vga/prog.c
     ${RP6502_SRC}/core/vga/mode0.c
     ${RP6502_SRC}/core/vga/mode1.c
     ${RP6502_SRC}/core/vga/mode2.c

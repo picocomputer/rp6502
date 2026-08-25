@@ -25,6 +25,12 @@
  * that have one XRAM and one of everything else. */
 bool pix_api_xreg(void);
 
+/* Where a message goes once the two virtual devices are ruled out, for the
+ * machines whose bus is a function call (core/pix.c). Returns the device's
+ * ACK/NAK, true where there is nothing to reach. A machine with a real bus
+ * implements pix_api_xreg itself and never defines this. */
+bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word);
+
 /* Room for at least one more. False means try again later: on a Pico the FIFO
  * is finite and std_task retires its forwarding count through this. */
 bool pix_ready(void);

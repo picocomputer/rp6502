@@ -8,6 +8,7 @@
 #ifndef _CORE_SYS_VGA_H_
 #define _CORE_SYS_VGA_H_
 
+#include "core/vga/vga.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -53,48 +54,8 @@ void vga_set_framebuffer(uint32_t *fb);
  * without owning them (a screenshot, a frame hash). NULL when none is set. */
 uint32_t *vga_get_framebuffer(void);
 
-/* ------------------------------------------------------------------ */
-/* Firmware VGA ABI reached by the vendored term.c / rln.c / the mode  */
-/* renderers through the firmware path "sys/vga.h", which the emu       */
-/* include path resolves here directly. vga.c implements them; the      */
-/* emulator collapses the PIO scanout into a single in-process render.  */
-/* ------------------------------------------------------------------ */
-
-int16_t vga_canvas_height(void);
-
-/* Canvas selector (mirrors ria/sys/vga.h vga_canvas_t). */
-typedef enum
-{
-    vga_canvas_console = 0,
-    vga_canvas_320_240,
-    vga_canvas_320_180,
-    vga_canvas_640_480,
-    vga_canvas_640_360,
-} vga_canvas_t;
-
-bool vga_connected(void);          /* the emulator always has a display */
-vga_canvas_t vga_get_canvas(void);
-uint8_t vga_get_display_type(void);
-void vga_set_code_page(uint16_t cp); /* no PIX bus; loads the font directly */
-
-#define VGA_PROG_MAX 512
-
-bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                   uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t plane_id, int16_t scanline,
-                                   int16_t width, uint16_t *rgb,
-                                   uint16_t config_ptr));
-
-bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                        uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t plane_id, int16_t scanline,
-                                        int16_t width, uint16_t *rgb,
-                                        uint16_t config_ptr));
-
-bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                     uint16_t config_ptr, uint16_t length,
-                     void (*sprite_fn)(int16_t scanline, int16_t width,
-                                       uint16_t *rgb, uint16_t config_ptr,
-                                       uint16_t length));
+/* The rest of what a machine's video answers -- the canvas, the scanline
+ * program, the code page -- is core/vga/vga.h, which every machine shares.
+ * This file is only what the emulator additionally has: a framebuffer. */
 
 #endif /* _CORE_SYS_VGA_H_ */
