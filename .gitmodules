@@ -43,3 +43,6 @@
 [submodule "vendor/utest"]
 	path = vendor/utest
 	url = https://github.com/sheredom/utest.h.git
+[submodule "vendor/libretro-common"]
+	path = vendor/libretro-common
+	url = https://github.com/libretro/libretro-common.git
