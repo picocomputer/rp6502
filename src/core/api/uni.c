@@ -26,7 +26,23 @@
  * never per character of a stream.
  */
 
+/* FatFs where there is one: it declares these three itself, in types it
+ * picks per platform, and a definition here has to be the same types. Not
+ * every tree that compiles this file has the header — the simulation's
+ * bench does not — so the fallback below is what its C99 branch would
+ * have given us. */
+#ifdef __has_include
+#if __has_include(<fatfs/ff.h>)
+#include <fatfs/ff.h>
+#endif
+#endif
 #include "core/api/uni.h"
+
+#ifndef FF_DEFINED
+typedef uint16_t WCHAR;
+typedef uint16_t WORD;
+typedef uint32_t DWORD;
+#endif
 
 /* The image's header, as oem_table_gen.py lays it out. */
 #define UNI_MAGIC 0x4F43u
@@ -68,7 +84,7 @@ static int uni_page(uint16_t cp)
     return -1;
 }
 
-uint16_t ff_oem2uni(uint16_t oem, uint16_t cp)
+WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     if (oem < 0x80)
         return oem; /* ASCII passes through every page */
@@ -80,7 +96,7 @@ uint16_t ff_oem2uni(uint16_t oem, uint16_t cp)
                     + (oem - 0x80u));
 }
 
-uint16_t ff_uni2oem(uint32_t uni, uint16_t cp)
+WCHAR ff_uni2oem(DWORD uni, WORD cp)
 {
     if (uni < 0x80)
         return (uint16_t)uni;
@@ -102,7 +118,7 @@ uint16_t ff_uni2oem(uint32_t uni, uint16_t cp)
  * Command zero is followed by that many replacements; the rest are
  * arithmetic on the code point itself, which is how the whole of
  * Unicode's simple case mapping fits in a few hundred words. */
-uint32_t ff_wtoupper(uint32_t uni)
+DWORD ff_wtoupper(DWORD uni)
 {
     if (uni >= 0x10000)
         return uni; /* nothing outside the BMP has a simple up-case */

@@ -6,13 +6,13 @@
 
 #include "core/api/api.h"
 #include "core/api/oem.h"
-#include "core/api/uni.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbt.h"
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/vga/vga.h"
 #include <fatfs/ff.h>
+#include "core/api/uni.h"
 #include "host.h"
 #include <string.h>
 

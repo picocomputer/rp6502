@@ -8,10 +8,10 @@
 #define _CORE_API_UNI_H_
 
 /* The OEM code page conversions, in place of FatFs's ffunicode.c. The
- * three entry points below belong to FatFs and keep its names, because
- * ff.c calls them from a dozen places and oem.c calls two of them; they
- * are declared in fatfs/ff.h and repeated here only for a build that
- * has no FatFs at all.
+ * three entry points below belong to FatFs and keep its names and its
+ * types, because ff.c calls them from a dozen places and oem.c calls two
+ * of them; they are declared in fatfs/ff.h and repeated here only for a
+ * build that has no FatFs at all.
  *
  * The tables are data, not code, and the platform says where they live:
  * uni_word is the one thing a port has to write. A machine with flash
@@ -34,9 +34,16 @@ uint16_t uni_word(uint32_t index);
  * do it themselves the first time they are asked. */
 bool uni_init(void);
 
+/* Only where FatFs is not. ff.h declares these itself, in types it picks
+ * per platform — uint16_t/uint32_t on the C99 branch, windows.h's WORD and
+ * DWORD wherever _WIN32 is defined — and DWORD is not uint32_t there. So
+ * ff.h is the authority whenever a translation unit has it, and this is
+ * for one that does not. */
+#ifndef FF_DEFINED
 uint16_t ff_oem2uni(uint16_t oem, uint16_t cp);
 uint16_t ff_uni2oem(uint32_t uni, uint16_t cp);
 uint32_t ff_wtoupper(uint32_t uni);
+#endif
 
 /* The UTF-8 codec, against an explicit code page. oem.c wraps these
  * with the page it is currently holding; a platform with no oem.c calls
