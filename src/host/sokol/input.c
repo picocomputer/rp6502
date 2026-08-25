@@ -8,10 +8,10 @@
 #include "host/sokol/input.h"
 
 #include "host/sokol/window.h"
-#include "core/sys/kbd.h"
+#include "core/hid/kbd_text.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
-#include "core/sys/vga.h"
+#include "core/vga/vga_emu.h"
 #include "sokol/sokol_app.h"
 #include <math.h>
 #include <stdbool.h>

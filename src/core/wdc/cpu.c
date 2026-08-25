@@ -6,7 +6,7 @@
  */
 
 #include "chips/chips/w65c02.h"
-#include "core/sys/cpu.h"
+#include "core/wdc/cpu.h"
 #include "core/sys.h"
 
 static w65c02_t cpu;

@@ -7,11 +7,11 @@
 
 #include "core/sys/pro.h"
 #include "core/com/com.h"
-#include "core/sys/cpu.h"
-#include "core/sys/mem.h"
+#include "core/wdc/cpu.h"
+#include "core/mem/mem.h"
 #include "core/sys/main.h"
 #include "core/api/api.h"
-#include "core/sys/ria.h"
+#include "core/ria/ria.h"
 #include <string.h>
 
 /* The RIA chip instance. ria.c keeps a single ria_t and ticks it on the 6502 bus,

@@ -57,9 +57,9 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/main.c
     ${RP6502_SRC}/core/sys/pro.c
     ${RP6502_SRC}/core/sys/tim.c
-    ${RP6502_SRC}/core/sys/aud.c
+    ${RP6502_SRC}/core/aud/aud_mix.c
     ${RP6502_SRC}/core/aud/rsmp.c
-    ${RP6502_SRC}/core/sys/dbg.c
+    ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/vt.c
     ${RP6502_SRC}/core/hid/hid.c
     ${RP6502_SRC}/core/hid/kbd.c
@@ -69,9 +69,9 @@ add_library(emu_core STATIC
     # hid and kbd twice: core/hid is the device layer every machine has,
     # core/sys is what a software machine answers where fabric or a firmware
     # would. Same names because they are the same devices.
-    ${RP6502_SRC}/core/sys/hid.c
-    ${RP6502_SRC}/core/sys/kbd.c
-    ${RP6502_SRC}/core/sys/kbt.c
+    ${RP6502_SRC}/core/hid/hid_null.c
+    ${RP6502_SRC}/core/hid/kbd_text.c
+    ${RP6502_SRC}/core/hid/kbt_null.c
     ${RP6502_SRC}/core/sys/log.c
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c
@@ -82,12 +82,12 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/cfg.c
     ${RP6502_SRC}/core/com/com.c
     ${RP6502_SRC}/core/sys/con.c
-    ${RP6502_SRC}/core/sys/cpu.c
-    ${RP6502_SRC}/core/sys/mem.c
+    ${RP6502_SRC}/core/wdc/cpu.c
+    ${RP6502_SRC}/core/mem/mem.c
     ${RP6502_SRC}/core/sys/pix.c
-    ${RP6502_SRC}/core/sys/ria.c
+    ${RP6502_SRC}/core/ria/ria.c
     ${RP6502_SRC}/core/sys/sys.c
-    ${RP6502_SRC}/core/sys/vga.c
+    ${RP6502_SRC}/core/vga/vga.c
     ${RP6502_SRC}/core/wdc/via.c
     ${RP6502_SRC}/core/wdc/w65c02.c
     ${RP6502_SRC}/core/api/api.c
@@ -133,7 +133,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
         ${RP6502_SRC}/core/vga/mode5.c
         PROPERTIES COMPILE_OPTIONS "-Wno-pointer-to-int-cast"
     )
-    # ram/xram (core/sys/mem.c) are 64 KB tentative definitions; -fno-common keeps them in
+    # ram/xram (core/mem/mem.c) are 64 KB tentative definitions; -fno-common keeps them in
     # .bss (the modern GCC/Clang default) so macOS ld doesn't warn about reducing their
     # oversized __common alignment.
     target_compile_options(emu_core PRIVATE -fno-common)

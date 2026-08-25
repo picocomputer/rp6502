@@ -11,7 +11,7 @@
 #include "host/fs.h"
 #include "host/dir.h"
 #include "host.h"
-#include "core/sys/mem.h"
+#include "core/mem/mem.h"
 #include "core/api/fat.h"
 #include "fatfs/ff.h"
 #include <ctype.h>

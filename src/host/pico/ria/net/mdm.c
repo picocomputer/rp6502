@@ -40,7 +40,7 @@ bool mdm_set_listen_port(uint16_t port)
 #include "ria/net/mdm.h"
 #include "ria/net/net.h"
 #include "ria/net/cyw.h"
-#include "ria/net/tel.h"
+#include "ria/net/telnet.h"
 #include "ria/net/wfi.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -573,7 +573,7 @@ bool mdm_dial(const char *s)
         return false;
     if (mdm_conn->state == mdm_state_ringing)
     {
-        tel_reject(mdm_conn->settings.listen_port);
+        telnet_reject(mdm_conn->settings.listen_port);
         mdm_conn->ring_count = 0;
         mdm_conn->state = mdm_state_on_hook;
     }
@@ -618,7 +618,7 @@ bool mdm_connect(void)
             mdm_set_response_fn_state(mdm_response_code, 1); // CONNECT
         mdm_conn->state = mdm_state_connected;
         mdm_conn->in_command_mode = false;
-        tel_negotiate(mdm_desc(), mdm_conn->settings.net_mode != 0,
+        telnet_negotiate(mdm_desc(), mdm_conn->settings.net_mode != 0,
                       mdm_conn->settings.tty_type);
         return true;
     }
@@ -629,7 +629,7 @@ bool mdm_hangup(void)
 {
     if (mdm_conn->state == mdm_state_ringing)
     {
-        tel_reject(mdm_conn->settings.listen_port);
+        telnet_reject(mdm_conn->settings.listen_port);
         mdm_conn->state = mdm_state_on_hook;
         mdm_conn->in_command_mode = true;
         mdm_conn->ring_count = 0;
@@ -639,7 +639,7 @@ bool mdm_hangup(void)
     {
         mdm_conn->state = mdm_state_on_hook;
         mdm_conn->in_command_mode = true;
-        tel_close(mdm_desc());
+        telnet_close(mdm_desc());
         return true;
     }
     return false;
@@ -704,7 +704,7 @@ bool mdm_answer(void)
     if (mdm_conn->state != mdm_state_ringing)
         return false;
     mdm_conn->is_answering = true;
-    if (!tel_accept(mdm_desc(), mdm_conn->settings.listen_port,
+    if (!telnet_accept(mdm_desc(), mdm_conn->settings.listen_port,
                     mdm_conn->settings.net_mode != 0, mdm_conn->settings.tty_type,
                     mdm_net_on_close))
     {
@@ -755,16 +755,16 @@ static void mdm_listen_update(void)
     {
         if (mdm_conn->state == mdm_state_ringing)
         {
-            tel_reject(active);
+            telnet_reject(active);
             mdm_conn->state = mdm_state_on_hook;
             mdm_conn->ring_count = 0;
         }
-        tel_listen_close(active);
+        telnet_listen_close(active);
         mdm_conn->active_listen_port = 0;
     }
     if (wanted == 0)
         return;
-    if (wanted == com_tel_get_port())
+    if (wanted == com_telnet_get_port())
     {
         DBG("NET MDM %d listen_port conflicts with console, reset to 0\n", mdm_desc());
         mdm_conn->settings.listen_port = 0;
@@ -772,7 +772,7 @@ static void mdm_listen_update(void)
     }
     if (!wfi_ready())
         return;
-    if (tel_listen(wanted, mdm_net_on_accept))
+    if (telnet_listen(wanted, mdm_net_on_accept))
     {
         mdm_conn->active_listen_port = wanted;
         DBG("NET MDM %d listening on port %u\n", mdm_desc(), wanted);
@@ -781,7 +781,7 @@ static void mdm_listen_update(void)
 
 bool mdm_set_listen_port(uint16_t port)
 {
-    if (port > 0 && port == com_tel_get_port())
+    if (port > 0 && port == com_telnet_get_port())
         return false;
     mdm_conn->settings.listen_port = port;
     mdm_listen_update();
@@ -823,7 +823,7 @@ void mdm_task()
         mdm_listen_update();
         if (mdm_conn->state == mdm_state_ringing)
         {
-            if (!tel_has_pending(mdm_conn->settings.listen_port))
+            if (!telnet_has_pending(mdm_conn->settings.listen_port))
             {
                 // Call gone (answered elsewhere or remote hung up)
                 mdm_conn->state = mdm_state_on_hook;
@@ -849,7 +849,7 @@ void mdm_task()
         {
             if (wfi_ready())
             {
-                if (tel_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port,
+                if (telnet_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port,
                              mdm_net_on_close))
                     mdm_conn->state = mdm_state_dialing;
                 else
@@ -888,10 +888,10 @@ static void mdm_conn_stop(mdm_conn_t *conn)
     mdm_conn = conn;
     if (conn->active_listen_port > 0)
     {
-        tel_listen_close(conn->active_listen_port);
+        telnet_listen_close(conn->active_listen_port);
         conn->active_listen_port = 0;
     }
-    tel_close((int)(conn - mdm_conns));
+    telnet_close((int)(conn - mdm_conns));
     conn->is_open = false;
     conn->cmd_buf_len = 0;
     conn->response_buf_head = 0;
@@ -1098,7 +1098,7 @@ std_rw_result mdm_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_
         // Read from the telephone connection in data mode.
         if (!mdm_conn->in_command_mode)
         {
-            uint16_t got = tel_rx(mdm_desc(), &buf[pos], (uint16_t)(count - pos));
+            uint16_t got = telnet_rx(mdm_desc(), &buf[pos], (uint16_t)(count - pos));
             pos += got;
             if (got == 0 && mdm_conn->state == mdm_state_disconnecting)
             {
@@ -1146,7 +1146,7 @@ std_rw_result mdm_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         return STD_OK;
     }
     uint16_t bw = count > UINT16_MAX ? UINT16_MAX : (uint16_t)count;
-    bw = tel_tx(mdm_desc(), buf, bw);
+    bw = telnet_tx(mdm_desc(), buf, bw);
     for (uint16_t i = 0; i < bw; i++)
         mdm_tx_escape_observer(buf[i]);
     *bytes_written = bw;

@@ -15,8 +15,8 @@
 #include "core/api/clk.h"
 #include "core/api/oem.h"
 #include "core/com/com.h"
-#include "core/sys/mem.h"
-#include "core/sys/cpu.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
 #include "tb_hostos.h"
 #include "emu_boot.h"
 #include <stdlib.h>

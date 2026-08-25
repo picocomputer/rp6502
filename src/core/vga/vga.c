@@ -5,11 +5,11 @@
  *
  */
 
-#include "core/sys/mem.h"
+#include "core/mem/mem.h"
 #include "core/pix.h"
 #include "core/sys/main.h"
-#include "core/sys/ria.h"
-#include "core/sys/vga.h"
+#include "core/ria/ria.h"
+#include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
 #include "core/vga/mode0.h"
 #include "core/term/term.h"

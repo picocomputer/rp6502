@@ -13,9 +13,9 @@
  */
 
 #include "core/hid/mou.h"
-#include "core/sys/mem.h"
-#include "core/sys/cpu.h"
-#include "core/sys/vga.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
+#include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "emu_boot.h"
 

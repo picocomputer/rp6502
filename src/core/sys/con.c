@@ -10,7 +10,7 @@
 
 #include "core/com/con.h"
 #include "core/api/oem.h"
-#include "core/sys/ria.h"
+#include "core/ria/ria.h"
 
 #include "core/com/com.h"
 

@@ -19,8 +19,8 @@
 #include "core/hid/pad.h"
 #include "core/sys/main.h"
 #include "core/sys/rom.h"
-#include "core/sys/cpu.h"
-#include "core/sys/vga.h"
+#include "core/wdc/cpu.h"
+#include "core/vga/vga_emu.h"
 #include <android/input.h>
 #include <android/keycodes.h>
 #include <android/native_activity.h>

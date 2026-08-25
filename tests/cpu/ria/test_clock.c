@@ -9,7 +9,7 @@
  * independent of PHI2 — exactly what makes timed tests repeatable.
  */
 
-#include "core/sys/cpu.h"
+#include "core/wdc/cpu.h"
 #include "host.h"
 #include "emu_boot.h"
 

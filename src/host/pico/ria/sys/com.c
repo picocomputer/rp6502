@@ -12,7 +12,7 @@
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
-#include "ria/net/tel.h"
+#include "ria/net/telnet.h"
 #include "ria/sys/vga.h"
 #include "ria/net/cyw.h"
 #include "ria/net/wfi.h"
@@ -20,7 +20,7 @@
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
-#include "ria/sys/com_tel.h"
+#include "ria/sys/com_telnet.h"
 #include <stdlib.h>
 #include <string.h>
 #include <pico/stdlib.h>
@@ -185,7 +185,7 @@ static size_t com_read_source(com_source_t src, char *buf, size_t length)
     case COM_SOURCE_UART:
         return com_uart_read(buf, length);
     case COM_SOURCE_TEL:
-        return com_tel_read(buf, length);
+        return com_telnet_read(buf, length);
     case COM_SOURCE_ANY:
         break;
     }
@@ -244,7 +244,7 @@ static void com_uart_flush(void)
 // __dmb() pairing with the producer DMB in ria_uart_tx_write().
 static void com_tx_fanout(void)
 {
-    while (com_uart_tx_writable() && com_tel_tx_writable())
+    while (com_uart_tx_writable() && com_telnet_tx_writable())
     {
         bool work = false;
         if (com_tx_core0_head != com_tx_core0_tail)
@@ -252,17 +252,17 @@ static void com_tx_fanout(void)
             size_t next = (com_tx_core0_tail + 1) % COM_TX_CORE0_BUF_SIZE;
             char ch = com_tx_core0_buf[next];
             com_uart_tx_write(ch);
-            com_tel_tx_write(ch);
+            com_telnet_tx_write(ch);
             com_tx_core0_tail = next;
             work = true;
-            if (!com_uart_tx_writable() || !com_tel_tx_writable())
+            if (!com_uart_tx_writable() || !com_telnet_tx_writable())
                 break;
         }
         uint8_t ch1;
         if (ria_uart_tx_dequeue(&ch1))
         {
             com_uart_tx_write((char)ch1);
-            com_tel_tx_write((char)ch1);
+            com_telnet_tx_write((char)ch1);
             work = true;
         }
         if (!work)
@@ -314,7 +314,7 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
 
     if (source == COM_SOURCE_TEL || source == COM_SOURCE_ANY)
     {
-        size_t i = com_tel_read(buf, length);
+        size_t i = com_telnet_read(buf, length);
         if (i)
         {
             source = COM_SOURCE_TEL;
@@ -379,7 +379,7 @@ int com_peekchar(com_source_t src)
     case COM_SOURCE_UART:
         return com_uart_peek();
     case COM_SOURCE_TEL:
-        return com_tel_peek();
+        return com_telnet_peek();
     default:
         return -1;
     }
@@ -393,7 +393,7 @@ static void com_stdio_pump(void)
     com_tx_fanout();
     com_uart_drain_tx();
     com_uart_drain_rx();
-    com_tel_pump();
+    com_telnet_pump();
 }
 
 static void com_stdio_out_chars(const char *buf, int len)
@@ -513,10 +513,10 @@ void com_break(void)
         ;
 
 #ifdef RP6502_RIA_W
-    if (com_tel_connected())
-        while (tel_rx(SYS_TEL_DESC, scratch, sizeof scratch))
+    if (com_telnet_connected())
+        while (telnet_rx(SYS_TELNET_DESC, scratch, sizeof scratch))
             ;
-    com_tel_clear_rx();
+    com_telnet_clear_rx();
 #endif
 
     REGS(0xFFE0) = 0;
@@ -535,7 +535,7 @@ void com_task(void)
     // bursts can back up without overflowing the tiny hw FIFO and so
     // SIGINT scans / break detection run every tick regardless of
     // whether anything downstream is consuming. kbd and telnet have
-    // their own upstream rings (kbd_key_queue and com_tel_rx_buf)
+    // their own upstream rings (kbd_key_queue and com_telnet_rx_buf)
     // so they don't need a pump here.
     com_uart_drain_rx();
 
@@ -567,7 +567,7 @@ void com_task(void)
         main_break();
     break_detect = current_break;
 
-    com_tel_task();
+    com_telnet_task();
 }
 
 bool com_get_bel(void)

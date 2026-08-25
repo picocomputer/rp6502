@@ -8,11 +8,11 @@
  * drive. Exercised headlessly against adventure.rp6502 — no window required.
  */
 
-#include "core/sys/dbg.h"
-#include "core/sys/mem.h"
-#include "core/sys/cpu.h"
-#include "core/sys/vga.h"
-#include "core/sys/kbd.h"
+#include "core/dap/dbg.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
+#include "core/vga/vga_emu.h"
+#include "core/hid/kbd_text.h"
 #include "emu_boot.h"
 #include <string.h>
 

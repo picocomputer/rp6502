@@ -9,7 +9,7 @@
 #include "core/sys/msc.h"
 #include "core/sys/rom.h"
 #include "host/fs.h"
-#include "core/sys/mem.h"
+#include "core/mem/mem.h"
 #include "core/str/str.h"
 #include <errno.h>
 #include <fcntl.h>

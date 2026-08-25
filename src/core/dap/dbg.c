@@ -20,7 +20,7 @@
  * re-triggers without a special "skip the current breakpoint" dance.
  */
 
-#include "core/sys/dbg.h"
+#include "core/dap/dbg.h"
 #include <stdatomic.h>
 #include <string.h>
 

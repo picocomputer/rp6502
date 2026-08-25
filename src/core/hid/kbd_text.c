@@ -12,7 +12,7 @@
  */
 
 #include "core/api/oem.h"
-#include "core/sys/kbd.h"
+#include "core/hid/kbd_text.h"
 #include "core/hid/vt.h"
 #include "core/com/com.h"
 #include "core/hid/kbd.h"

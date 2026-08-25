@@ -15,7 +15,7 @@
 
 #include "host/sokol/pad_input.h"
 #include "core/sys/main.h"
-#include "core/sys/mem.h"
+#include "core/mem/mem.h"
 
 #include "utest.h"
 

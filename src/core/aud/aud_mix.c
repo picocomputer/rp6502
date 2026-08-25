@@ -5,9 +5,9 @@
  *
  */
 
-#include "core/sys/aud.h"
-#include "core/sys/mem.h"
-#include "core/sys/vga.h"
+#include "core/aud/aud_mix.h"
+#include "core/mem/mem.h"
+#include "core/vga/vga_emu.h"
 #include "core/aud/rsmp.h"
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"

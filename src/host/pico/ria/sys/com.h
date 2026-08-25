@@ -33,12 +33,12 @@ void com_stop(void);
 void com_break(void);
 
 // Telnet console server settings
-void com_tel_load_port(const char *str);
-void com_tel_load_key(const char *str);
-bool com_tel_set_port(uint16_t port);
-bool com_tel_set_key(const char *key);
-uint16_t com_tel_get_port(void);
-const char *com_tel_get_key(void);
+void com_telnet_load_port(const char *str);
+void com_telnet_load_key(const char *str);
+bool com_telnet_set_port(uint16_t port);
+bool com_telnet_set_key(const char *key);
+uint16_t com_telnet_get_port(void);
+const char *com_telnet_get_key(void);
 
 // Console TX, UTF-8 formatted. Pico only: the monitor, BLE and the
 // network status lines are the callers.

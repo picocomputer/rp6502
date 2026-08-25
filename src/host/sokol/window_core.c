@@ -32,19 +32,19 @@
 #include "host/sokol/pad_input.h"
 #endif
 #include "core/sys/version.h"
-#include "core/sys/aud.h"
-#include "core/sys/dbg.h"
+#include "core/aud/aud_mix.h"
+#include "core/dap/dbg.h"
 #include "core/sys/pro.h"
 #include "core/api/oem.h"
-#include "core/sys/kbd.h"
+#include "core/hid/kbd_text.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
 #include "core/sys/rom.h"
-#include "core/sys/cpu.h"
+#include "core/wdc/cpu.h"
 #include "core/sys/main.h"
 #include "core/sys/sys.h"
 #include "host/fs.h"
-#include "core/sys/vga.h"
+#include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>

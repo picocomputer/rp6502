@@ -8,7 +8,7 @@
 
 #include "ria/main.h"
 #include "ria/net/net.h"
-#include "ria/net/tel.h"
+#include "ria/net/telnet.h"
 #include "ria/sys/com.h"
 #include "ria/sys/ria.h"
 #include <pico/stdlib.h>
@@ -490,7 +490,7 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
 // -- Telnet protocol API --
 
 // Decode up to `cap` bytes from the wire into `out`, driving the IAC state
-// machine. Shared by tel_rx and the console-server drain path. Also opportunistic-
+// machine. Shared by telnet_rx and the console-server drain path. Also opportunistic-
 // ally retries any failed-to-send negotiation commands.
 static uint16_t tel_decode(int desc, char *out, uint16_t cap)
 {
@@ -512,7 +512,7 @@ static uint16_t tel_decode(int desc, char *out, uint16_t cap)
     return out_pos;
 }
 
-uint16_t tel_rx(int desc, char *buf, uint16_t len)
+uint16_t telnet_rx(int desc, char *buf, uint16_t len)
 {
     tel_conn_t *tc = &tel_conns[desc];
     if (!tc->telnet_mode)
@@ -522,7 +522,7 @@ uint16_t tel_rx(int desc, char *buf, uint16_t len)
 
 // Hand back a fresh NAWS window size, consuming the pending flag. False
 // when nothing new arrived since the last call.
-bool tel_get_naws(int desc, uint16_t *w, uint16_t *h)
+bool telnet_get_naws(int desc, uint16_t *w, uint16_t *h)
 {
     tel_conn_t *tc = &tel_conns[desc];
     if (!tc->naws_dirty)
@@ -547,7 +547,7 @@ static uint16_t tel_tx_step(uint8_t byte, bool binary_tx, int next)
     return 1;
 }
 
-uint16_t tel_tx(int desc, const char *buf, uint16_t len)
+uint16_t telnet_tx(int desc, const char *buf, uint16_t len)
 {
     tel_conn_t *tc = &tel_conns[desc];
     if (!tc->telnet_mode)
@@ -640,7 +640,7 @@ uint16_t tel_tx(int desc, const char *buf, uint16_t len)
     return consumed;
 }
 
-bool tel_open(int desc, const char *hostname, uint16_t port,
+bool telnet_open(int desc, const char *hostname, uint16_t port,
               void (*on_close)(int))
 {
     return net_open(desc, hostname, port, on_close);
@@ -651,7 +651,7 @@ static void tel_reset(int desc)
     memset(&tel_conns[desc], 0, sizeof(tel_conn_t));
 }
 
-void tel_close(int desc)
+void telnet_close(int desc)
 {
     net_close(desc);
     tel_reset(desc);
@@ -677,7 +677,7 @@ static void tel_q_ask_him_enable(int desc, tel_conn_t *tc, int idx)
     }
 }
 
-void tel_negotiate(int desc, bool telnet_mode, const char *ttype)
+void telnet_negotiate(int desc, bool telnet_mode, const char *ttype)
 {
     tel_conn_t *tc = &tel_conns[desc];
     tc->telnet_mode = telnet_mode;
@@ -709,17 +709,17 @@ static void tel_negotiate_server(int desc)
     DBG("NET TEL server negotiation sent\n");
 }
 
-bool tel_listen(uint16_t port, net_accept_fn on_accept)
+bool telnet_listen(uint16_t port, net_accept_fn on_accept)
 {
     return net_listen(port, on_accept);
 }
 
-void tel_listen_close(uint16_t port)
+void telnet_listen_close(uint16_t port)
 {
     net_listen_close(port);
 }
 
-bool tel_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
+bool telnet_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
                 void (*on_close)(int))
 {
     // Modem-emulator role: the retro machine is always the terminal, even
@@ -727,13 +727,13 @@ bool tel_accept(int desc, uint16_t port, bool telnet_mode, const char *ttype,
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
         return false;
-    tel_negotiate(desc, telnet_mode, ttype);
+    telnet_negotiate(desc, telnet_mode, ttype);
     return true;
 }
 
-// Sibling to tel_accept, but with server-side negotiation — the retro
+// Sibling to telnet_accept, but with server-side negotiation — the retro
 // machine is hosting (console server role).
-bool tel_accept_server(int desc, uint16_t port, void (*on_close)(int))
+bool telnet_accept_server(int desc, uint16_t port, void (*on_close)(int))
 {
     tel_reset(desc);
     if (!net_accept(desc, port, on_close))
@@ -742,12 +742,12 @@ bool tel_accept_server(int desc, uint16_t port, void (*on_close)(int))
     return true;
 }
 
-void tel_reject(uint16_t port)
+void telnet_reject(uint16_t port)
 {
     net_reject(port);
 }
 
-bool tel_has_pending(uint16_t port)
+bool telnet_has_pending(uint16_t port)
 {
     return net_has_pending(port);
 }

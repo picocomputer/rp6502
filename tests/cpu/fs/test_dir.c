@@ -17,7 +17,7 @@
 #include "core/sys/msc.h"
 #include "host/fs.h"
 #include "tb_hostos.h"
-#include "core/sys/cpu.h"
+#include "core/wdc/cpu.h"
 #include "emu_boot.h"
 #include <stdio.h>
 #include <stdlib.h>

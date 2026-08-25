@@ -14,7 +14,7 @@
 #include "core/com/com.h"
 #include "core/sys/msc.h"
 #include "host/fs.h"
-#include "core/sys/cpu.h"
+#include "core/wdc/cpu.h"
 #include "emu_boot.h"
 #include <stdlib.h>
 #include <string.h>

@@ -11,12 +11,12 @@
 
 #include "core/sys/pro.h"
 #include "core/api/std.h"
-#include "core/sys/aud.h"
-#include "core/sys/mem.h"
+#include "core/aud/aud_mix.h"
+#include "core/mem/mem.h"
 #include "core/aud/bel.h"
-#include "core/sys/kbd.h"
+#include "core/hid/kbd_text.h"
 #include "core/com/com.h"
-#include "core/sys/ria.h"
+#include "core/ria/ria.h"
 #include "stdsys.h"
 #include "emu_boot.h"
 #include <stdio.h>

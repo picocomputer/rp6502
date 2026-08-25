@@ -13,8 +13,8 @@
 
 #include "core/com/com.h"
 #include "core/hid/pad.h"
-#include "core/sys/mem.h"
-#include "core/sys/cpu.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
 #include "emu_boot.h"
 #include <string.h>
 

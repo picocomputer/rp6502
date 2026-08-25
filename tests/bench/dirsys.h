@@ -14,7 +14,7 @@
 #define _EMU_TESTS_DIRSYS_H_
 
 #include "core/api/api.h"
-#include "core/sys/mem.h" /* xstack */
+#include "core/mem/mem.h" /* xstack */
 #include "fatfs/ff.h"    /* FILINFO */
 #include <stdint.h>
 #include <stdio.h>

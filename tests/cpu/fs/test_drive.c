@@ -17,7 +17,7 @@
 #include "core/sys/rom.h"
 #include "core/sys/msc.h"
 #include "host/fs.h"
-#include "core/sys/mem.h"
+#include "core/mem/mem.h"
 #include "core/sys/tmp.h"
 #include "fatfs/ff.h"
 #include "dirsys.h"

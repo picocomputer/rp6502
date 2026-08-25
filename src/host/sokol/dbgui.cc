@@ -20,15 +20,15 @@
 
 extern "C"
 {
-#include "core/sys/aud.h"
-#include "core/sys/dbg.h"
-#include "core/sys/cpu.h"
-#include "core/sys/mem.h"
+#include "core/aud/aud_mix.h"
+#include "core/dap/dbg.h"
+#include "core/wdc/cpu.h"
+#include "core/mem/mem.h"
 #include "core/sys/sys.h"
 #include "core/api/oem.h" /* oem_get_code_page_run (RIA panel status) */
 #include "core/sys/pro.h" /* pro_get_exit_code (exit-code display) */
 #include "core/sys/main.h"
-#include "core/sys/vga.h"
+#include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "host/sokol/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "host/sokol/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */

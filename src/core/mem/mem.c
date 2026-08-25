@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/sys/mem.h"
+#include "core/mem/mem.h"
 #include "core/rand.h"
 #include <assert.h>
 #include <stdalign.h>

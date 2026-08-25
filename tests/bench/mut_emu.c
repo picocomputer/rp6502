@@ -13,8 +13,8 @@
 #include "mut.h"
 
 #include "core/com/com.h"
-#include "core/sys/mem.h"
-#include "core/sys/vga.h"
+#include "core/mem/mem.h"
+#include "core/vga/vga_emu.h"
 #include "emu_boot.h"
 
 #include <string.h>

@@ -9,8 +9,8 @@
 #include "core/api/pro.h"
 #include "core/sys/msc.h"
 #include "host/fs.h"
-#include "core/sys/mem.h"
-#include "core/sys/cpu.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include <stdio.h>

@@ -21,7 +21,7 @@
 
 #include "chips/ui/ui_chip.h"       /* ui_chip_t / ui_chip_desc_t */
 #include "chips/ui/ui_settings.h"   /* ui_settings_t */
-#include "core/sys/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_MMAP_* */
+#include "core/ria/ria.h"     /* ria_t, ria_chip, RIA_PIN_*, RIA_MMAP_* */
 
 #ifdef __cplusplus
 extern "C"
@@ -62,8 +62,8 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 #include <assert.h>
 #define CHIPS_ASSERT(c) assert(c)
 #endif
-#include "core/sys/mem.h"      /* ram, xstack_ptr */
-#include "core/sys/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
+#include "core/mem/mem.h"      /* ram, xstack_ptr */
+#include "core/wdc/cpu.h"      /* cpu_get_phi2_khz_run (Status) */
 #include "core/api/oem.h"      /* oem_get_code_page_run (Status) */
 
 /* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
