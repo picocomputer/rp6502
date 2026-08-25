@@ -59,6 +59,7 @@ static char loaded_path[MSC_MAX_PATH];   /* as the frontend spelled it */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
+static bool hint_shown;
 
 /* ------------------------------------------------------------------ */
 /* Environment                                                         */
@@ -295,6 +296,7 @@ void retro_deinit(void)
     loaded_path[0] = 0;
     shutdown_sent = false;
     geom_w = geom_h = 0;
+    hint_shown = false;
     input_reset();
     log_set_sink(NULL);
     log_cb = NULL;
@@ -337,6 +339,45 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 /* ------------------------------------------------------------------ */
 /* Content                                                             */
 /* ------------------------------------------------------------------ */
+
+/* Say once, on screen, how to type.
+ *
+ * A frontend binds the keyboard to its own pad and hotkeys, so on a machine
+ * that is a computer the keyboard looks broken until the player turns that
+ * off — Game Focus, in RetroArch. The core cannot turn it on and there is
+ * no environment call to ask, so the honest thing is to tell them. Once per
+ * session: it is an instruction, not a status. */
+static void say_how_to_type(void)
+{
+    if (hint_shown || !environ_cb)
+        return;
+    hint_shown = true;
+
+    static const char text[] =
+        "Keyboard: turn on Game Focus to type (Scroll Lock in RetroArch)";
+
+    unsigned version = 0;
+    if (environ_cb(RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION, &version) &&
+        version >= 1)
+    {
+        struct retro_message_ext msg = {
+            .msg = text,
+            .duration = 6000,
+            .priority = 1,
+            .level = RETRO_LOG_INFO,
+            .target = RETRO_MESSAGE_TARGET_ALL,
+            .type = RETRO_MESSAGE_TYPE_NOTIFICATION,
+            .progress = -1,
+        };
+        environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE_EXT, &msg);
+        return;
+    }
+
+    /* A frontend from before that call still has the old one, which counts
+     * in frames rather than milliseconds. */
+    struct retro_message msg = {.msg = text, .frames = 6 * VGA_HZ};
+    environ_cb(RETRO_ENVIRONMENT_SET_MESSAGE, &msg);
+}
 
 /* Where the frontend wants a program's saves to go. MSC0: is still the whole
  * host filesystem, as on every other host; this is only where a program
@@ -425,7 +466,10 @@ bool retro_load_game(const struct retro_game_info *game)
     snprintf(loaded_path, sizeof loaded_path, "%s", game->path);
     enter_save_directory(loaded_path);
 
-    return boot(loaded_rom);
+    if (!boot(loaded_rom))
+        return false;
+    say_how_to_type();
+    return true;
 }
 
 bool retro_load_game_special(unsigned type, const struct retro_game_info *info, size_t num)

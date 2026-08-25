@@ -284,10 +284,32 @@ static unsigned port_device[PAD_PLAYERS] = {
 static bool port_live[PAD_PLAYERS];
 static bool have_bitmasks;
 
+/* How many players the frontend actually has. The machine has four ports
+ * and a frontend offers four whether or not anyone is holding anything, so
+ * connecting all of them would show four players to a program counting
+ * them. GET_INPUT_MAX_USERS is the frontend saying how many are real; a
+ * frontend that will not answer gets all four, which is where this
+ * started. */
+static int max_users = PAD_PLAYERS;
+static retro_environment_t input_environ;
+
 void input_init(retro_environment_t environ_cb)
 {
+    input_environ = environ_cb;
     /* One call per pad instead of sixteen, where the frontend offers it. */
     have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
+}
+
+/* Asked every frame rather than once: the count "may change between frames"
+ * (libretro.h), which is a controller being plugged in while a program runs. */
+static void refresh_max_users(void)
+{
+    unsigned n = 0;
+    if (input_environ &&
+        input_environ(RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS, &n) && n)
+        max_users = (int)(n < PAD_PLAYERS ? n : PAD_PLAYERS);
+    else
+        max_users = PAD_PLAYERS;
 }
 
 void input_reset(void)
@@ -298,6 +320,8 @@ void input_reset(void)
         port_live[p] = false;
     }
     have_bitmasks = false;
+    max_users = PAD_PLAYERS;
+    input_environ = NULL;
 }
 
 void input_set_port_device(unsigned port, unsigned device)
@@ -331,8 +355,18 @@ static void poll_pads(retro_input_state_t state)
 {
     for (int p = 0; p < PAD_PLAYERS; p++)
     {
-        if (port_device[p] == RETRO_DEVICE_NONE)
+        if (port_device[p] == RETRO_DEVICE_NONE || p >= max_users)
+        {
+            /* A player the frontend does not have is one the machine does
+             * not have either, and saying so once is what keeps a program
+             * from waiting on someone who is not there. */
+            if (port_live[p])
+            {
+                pad_connect(p, false, PAD_TYPE_UNKNOWN, false);
+                port_live[p] = false;
+            }
             continue;
+        }
 
         uint8_t dpad = 0, b0 = 0, b1 = 0;
         static const struct
@@ -469,6 +503,7 @@ static void poll_pointer(retro_input_state_t state)
 
 void input_poll(retro_input_state_t state)
 {
+    refresh_max_users();
     poll_pads(state);
     poll_pointer(state);
 }

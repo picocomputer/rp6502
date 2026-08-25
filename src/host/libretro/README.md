@@ -16,15 +16,15 @@ The seams it needs were already there:
 | --- | --- |
 | a frame | `sys_run_frame`, which is exactly what `retro_run` is asked for |
 | a picture | `vga_set_framebuffer` + `vga_canvas_size`, and `SET_GEOMETRY` when the canvas changes |
-| sound | `aud_read`, native-rate stereo at the 48 kHz this core declares, so nothing is resampled |
+| sound | `aud_pump`, which converts to the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
 | devices | the `kbd_` / `pad_` / `mou_` / `tab_` host entry points, the same ones the web host drives |
 | a program | `rom_load`, `pro_set_argv`, `main_run` |
 
 Two things are converted on the way out. The machine paints RGBA8 and
 libretro asked for XRGB8888, so red and blue trade places — an exchange
 that is its own inverse, which is why `tests/cpu/vid` answers here with
-the same CRCs it answers everywhere. And the audio ring is floats, which
-become the int16 pairs the batch callback takes.
+the same CRCs it answers everywhere. And what `aud_pump` hands over is
+floats, which become the int16 pairs the batch callback takes.
 
 There is no monitor on this host, and no debugger or scripting. A
 `.rp6502` runs; when it stops, the core sends `RETRO_ENVIRONMENT_SHUTDOWN`
@@ -60,16 +60,52 @@ retroarch -v -L build/libretro/release/rp6502_libretro.so tests/roms/adventure.r
 Headless, for a smoke check — `--max-frames` runs N frames and exits:
 
 ```
-printf 'video_driver = "null"\naudio_driver = "null"\ninput_driver = "null"\nmenu_driver = "null"\n' > /tmp/headless.cfg
+cat > /tmp/headless.cfg <<'EOF'
+video_driver = "null"
+audio_driver = "null"
+input_driver = "null"
+menu_driver = "null"
+config_save_on_exit = "false"
+EOF
 retroarch --appendconfig /tmp/headless.cfg --max-frames 600 -v \
     -L build/libretro/release/rp6502_libretro.so tests/roms/adventure.rp6502
 ```
+
+`config_save_on_exit` is not optional there. RetroArch saves its
+configuration when it quits, appended files included, so without it those
+four null drivers become permanent and every later run is headless with no
+window and no sound.
 
 That only says the library loads and does not crash, which is why it is
 not a ctest: a frontend agreeing with us is not evidence about the
 machine, and making it one would be handing the oracle back to something
 outside this repository. The suite holds the core to the contract;
 RetroArch is where a person looks at it.
+
+### Typing
+
+A frontend binds the keyboard to its own pad and hotkeys — in RetroArch
+Enter is Start, `p` pauses, and `x z s a q w` are face and shoulder
+buttons — so on a machine that is a computer the keyboard looks dead. The
+player turns that off with **Game Focus**, which is Scroll Lock by
+default, and the core says so on screen when a program loads.
+
+Settings > Input > "Auto Enable Game Focus" set to **Detect** makes it
+automatic for cores that register a keyboard callback, which this one
+does.
+
+### Under WSL
+
+WSLg's compositor does not advertise `zxdg_decoration_manager_v1`, and
+RetroArch's Wayland backend draws no decorations of its own, so the window
+arrives with no title bar and no way to move or close it. Nothing is wrong
+with the install — server-side decorations are optional in Wayland and
+several compositors decline them. Hide the Wayland socket and X11 gets
+used instead, which under WSLg means a real Windows window:
+
+```
+WAYLAND_DISPLAY=nonexistent-0 retroarch -L … game.rp6502
+```
 
 ### What to look at
 

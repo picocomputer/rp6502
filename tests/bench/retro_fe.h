@@ -84,10 +84,14 @@ typedef struct
     bool controller_info_set;
     bool asked_for_bitmasks;
     int get_variable_calls;
+    char message[256];   /* the last thing the core asked us to show */
+    int message_count;
 
     /* What we answer when it asks. */
     unsigned options_version; /* what this frontend claims to speak */
     bool offer_bitmasks;
+    unsigned message_version; /* 0 = only the old SET_MESSAGE */
+    int max_users;            /* -1 = will not say */
     char option_text[FE_MAX_OPTS][256];
     const char *option_value[FE_MAX_OPTS];
     bool variables_dirty;
@@ -250,6 +254,32 @@ static bool fe_environment(unsigned cmd, void *data)
         fe.asked_for_bitmasks = true;
         return fe.offer_bitmasks;
 
+    case RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS:
+        if (fe.max_users < 0)
+            return false;
+        *(unsigned *)data = (unsigned)fe.max_users;
+        return true;
+
+    case RETRO_ENVIRONMENT_GET_MESSAGE_INTERFACE_VERSION:
+        *(unsigned *)data = fe.message_version;
+        return fe.message_version > 0;
+
+    case RETRO_ENVIRONMENT_SET_MESSAGE_EXT:
+    {
+        const struct retro_message_ext *m = (const struct retro_message_ext *)data;
+        snprintf(fe.message, sizeof fe.message, "%s", m->msg ? m->msg : "");
+        fe.message_count++;
+        return true;
+    }
+
+    case RETRO_ENVIRONMENT_SET_MESSAGE:
+    {
+        const struct retro_message *m = (const struct retro_message *)data;
+        snprintf(fe.message, sizeof fe.message, "%s", m->msg ? m->msg : "");
+        fe.message_count++;
+        return true;
+    }
+
     case RETRO_ENVIRONMENT_SET_CORE_OPTIONS_V2:
     {
         const struct retro_core_options_v2 *o = (const struct retro_core_options_v2 *)data;
@@ -319,6 +349,8 @@ static void fe_open_as(unsigned options_version, bool offer_bitmasks)
     memset(&fe, 0, sizeof fe);
     fe.options_version = options_version;
     fe.offer_bitmasks = offer_bitmasks;
+    fe.message_version = 1;
+    fe.max_users = -1; /* a frontend that will not say, unless a case does */
     fe.lib = dlopen(RETRO_SO, RTLD_NOW | RTLD_LOCAL);
     if (!fe.lib)
     {

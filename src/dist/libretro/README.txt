@@ -37,9 +37,16 @@ RP6502 tag:
     https://itch.io/games/tag-rp6502
 
 The Picocomputer is a computer, so a program may want a keyboard,
-a mouse, or up to four gamepads. RetroArch sends the keyboard to
-the core only while Game Focus is on - press Scroll Lock to
-toggle it, or the hotkey your frontend uses.
+a mouse, or up to four gamepads.
+
+The keyboard needs one setting. RetroArch binds keys to its own
+controller and hotkeys - Enter is Start, "p" pauses - so until you
+turn that off, typing does not reach the program. Press Scroll
+Lock for Game Focus, and the whole keyboard is the computer's.
+
+To have it on every time, set Settings / Input / Auto Enable Game
+Focus to "Detect". This core tells RetroArch it wants a keyboard,
+which is what that setting looks for.
 
 A program's saves go to the save directory your frontend has
 chosen for it.
