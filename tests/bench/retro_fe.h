@@ -22,12 +22,67 @@
 
 #include "libretro.h"
 
-#include <dlfcn.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* The frontend's loader. Windows spells dlopen differently, and this is the
+ * one place in the test tree that opens a library, so the difference lives
+ * here and nowhere else. LoadLibrary resolves every import as it loads,
+ * which is the RTLD_NOW the other branch asks for, and local is the only
+ * scope Windows has. */
+#ifdef _WIN32
+#include <windows.h>
+
+static void *fe_dl_open(const char *path)
+{
+    /* RETRO_SO is $<TARGET_FILE:...>: absolute, forward slashes, which
+     * LoadLibrary takes as readily as backslashes. */
+    return (void *)LoadLibraryA(path);
+}
+
+static void *fe_dl_sym(void *lib, const char *name)
+{
+    /* Through void*, which Windows promises works and which keeps
+     * -Wcast-function-type off the typed fields FE_SYM writes. */
+    return (void *)GetProcAddress((HMODULE)lib, name);
+}
+
+static void fe_dl_close(void *lib)
+{
+    FreeLibrary((HMODULE)lib);
+}
+
+static void fe_dl_error(void)
+{
+    fprintf(stderr, "retro_fe: %s: Windows error %lu\n", RETRO_SO,
+            (unsigned long)GetLastError());
+}
+#else
+#include <dlfcn.h>
+
+static void *fe_dl_open(const char *path)
+{
+    return dlopen(path, RTLD_NOW | RTLD_LOCAL);
+}
+
+static void *fe_dl_sym(void *lib, const char *name)
+{
+    return dlsym(lib, name);
+}
+
+static void fe_dl_close(void *lib)
+{
+    dlclose(lib);
+}
+
+static void fe_dl_error(void)
+{
+    fprintf(stderr, "retro_fe: %s\n", dlerror());
+}
+#endif
 
 #define FE_MAX_GEOM 32
 #define FE_MAX_OPTS 32
@@ -333,7 +388,7 @@ static bool fe_environment(unsigned cmd, void *data)
 #define FE_SYM(field, name)                                    \
     do                                                         \
     {                                                          \
-        *(void **)(&fe.field) = dlsym(fe.lib, name);           \
+        *(void **)(&fe.field) = fe_dl_sym(fe.lib, name);           \
         if (!fe.field)                                         \
         {                                                      \
             fprintf(stderr, "retro_fe: %s is not exported\n", name); \
@@ -351,10 +406,10 @@ static void fe_open_as(unsigned options_version, bool offer_bitmasks)
     fe.offer_bitmasks = offer_bitmasks;
     fe.message_version = 1;
     fe.max_users = -1; /* a frontend that will not say, unless a case does */
-    fe.lib = dlopen(RETRO_SO, RTLD_NOW | RTLD_LOCAL);
+    fe.lib = fe_dl_open(RETRO_SO);
     if (!fe.lib)
     {
-        fprintf(stderr, "retro_fe: %s\n", dlerror());
+        fe_dl_error();
         exit(1);
     }
     FE_SYM(api_version, "retro_api_version");
@@ -403,7 +458,7 @@ static void fe_close(void)
     if (!fe.lib)
         return;
     fe.deinit();
-    dlclose(fe.lib);
+    fe_dl_close(fe.lib);
     fe.lib = NULL;
 }
 

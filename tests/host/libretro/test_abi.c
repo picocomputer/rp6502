@@ -7,7 +7,7 @@
  *
  * The ABI is the whole of a core's surface. That is a claim about the file
  * on disk — which symbols a frontend can reach in it — so it is asked of the
- * file on disk, through the same dlopen a frontend uses.
+ * file on disk, through the same loader a frontend uses.
  */
 
 #include "retro_fe.h"
@@ -44,7 +44,7 @@ UTEST(abi, the_machine_is_not_exported)
     };
     for (size_t i = 0; i < sizeof inside / sizeof *inside; i++)
     {
-        void *sym = dlsym(fe.lib, inside[i]);
+        void *sym = fe_dl_sym(fe.lib, inside[i]);
         ASSERT_TRUE_MSG(sym == NULL, inside[i]);
     }
 }
