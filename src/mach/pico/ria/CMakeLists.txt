@@ -137,6 +137,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/aud/psg.c
     ${RIA_SRC}/ble/ble.c
     ${RIA_SRC}/ble/tlv.c
+    ${RP6502_ROOT}/src/core/hid/vt.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/kbd.c
     ${RP6502_ROOT}/src/core/hid/kbl.c

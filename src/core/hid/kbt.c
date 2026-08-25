@@ -15,6 +15,7 @@
 #include "core/hid/kbd.h"
 #include "core/hid/kbl.h"
 #include "core/hid/kbt.h"
+#include "core/hid/vt.h"
 #include "core/hid/usage.h"
 #include "core/cfg.h"
 #include "host.h"
@@ -80,22 +81,15 @@ static void kbt_queue_str(const char *str)
 
 static void kbt_queue_vt100(char c0, char c1, int ansi_mod)
 {
-
     char s[16];
-    if (ansi_mod == 1)
-        snprintf(s, 16, "\33%c%c", c0, c1);
-    else
-        snprintf(s, 16, "\33[1;%d%c", ansi_mod, c1);
+    vt_vt100(s, sizeof s, c0, c1, ansi_mod);
     return kbt_queue_str(s);
 }
 
 static void kbt_queue_vt220(int num, int ansi_mod)
 {
     char s[16];
-    if (ansi_mod == 1)
-        snprintf(s, 16, "\33[%d~", num);
-    else
-        snprintf(s, 16, "\33[%d;%d~", num, ansi_mod);
+    vt_vt220(s, sizeof s, num, ansi_mod);
     return kbt_queue_str(s);
 }
 
@@ -120,12 +114,13 @@ static void kbt_queue_char_char(char ch0, char ch1)
     }
 }
 
+/* The shared promotion, plus the one a keycode answers: this machine is
+ * holding the key, not the character it typed. */
 static char kbt_ctrl_promote(char ch, uint8_t keycode)
 {
-    if (ch >= '`' && ch <= '~')
-        return ch - 96;
-    if (ch >= '@' && ch <= '_')
-        return ch - 64;
+    char c = vt_ctrl_promote(ch);
+    if (c)
+        return c;
     if (keycode == HID_KEY_BACKSPACE)
         return '\b';
     return 0;
@@ -428,15 +423,7 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         }
     }
     // Modifier key annotation
-    int ansi_modifier = 1;
-    if (key_shift)
-        ansi_modifier += 1;
-    if (key_alt)
-        ansi_modifier += 2;
-    if (key_ctrl)
-        ansi_modifier += 4;
-    if (key_gui)
-        ansi_modifier += 8;
+    int ansi_modifier = vt_ansi_mod(key_shift, key_alt, key_ctrl, key_gui);
     switch (keycode)
     {
     case HID_KEY_ARROW_UP:

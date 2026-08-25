@@ -13,6 +13,7 @@
 
 #include "core/api/oem.h"
 #include "core/sys/kbd.h"
+#include "core/hid/vt.h"
 #include "core/sys/com.h"
 #include "core/hid/kbd.h"
 #include <stdio.h>
@@ -30,23 +31,12 @@ void kbd_text(const char *utf8)
         com_kbd_push_byte(oem);
 }
 
-/* C0 promotion of a printable byte, mirroring the firmware kbd_ctrl_promote.
- * 0 for a byte outside the two promotable ranges. */
-static char kbd_ctrl_promote(char ch)
-{
-    if (ch >= '`' && ch <= '~')
-        return (char)(ch - 96);
-    if (ch >= '@' && ch <= '_')
-        return (char)(ch - 64);
-    return 0;
-}
-
 /* A Ctrl+<letter> chord from the host keyboard, promoted to its C0 control byte
  * (Ctrl-A=0x01 .. Ctrl-Z=0x1A). Ctrl-C latches SIGINT on the way into the ring
  * (com.c scans for it), so a break is caught even if the ring is undrained. */
 void kbd_ctrl_letter(char letter)
 {
-    char c = kbd_ctrl_promote(letter);
+    char c = vt_ctrl_promote(letter);
     if (c)
         com_kbd_push_byte((uint8_t)c);
 }
@@ -57,7 +47,7 @@ void kbd_alt_char(char ch, bool ctrl)
         return;
     if (ctrl)
     {
-        char c = kbd_ctrl_promote(ch);
+        char c = vt_ctrl_promote(ch);
         if (c)
             ch = c;
     }
@@ -65,34 +55,24 @@ void kbd_alt_char(char ch, bool ctrl)
     com_kbd_push_byte((uint8_t)ch);
 }
 
-/* ESC[1;{mod}{c1} when modified, else the bare ESC{c0}{c1} (e.g. ESC[A for an
- * arrow, ESC O P for F1). Mirrors the firmware kbd_queue_vt100. */
 static void kbd_queue_vt100(char c0, char c1, int mod)
 {
     char s[16];
-    if (mod == 1)
-        snprintf(s, sizeof s, "\33%c%c", c0, c1);
-    else
-        snprintf(s, sizeof s, "\33[1;%d%c", mod, c1);
-    com_kbd_push(s, strlen(s));
+    com_kbd_push(s, vt_vt100(s, sizeof s, c0, c1, mod));
 }
 
-/* VT220 numbered key: ESC[{num}~, or ESC[{num};{mod}~ when modified. */
 static void kbd_queue_vt220(int num, int mod)
 {
     char s[16];
-    if (mod == 1)
-        snprintf(s, sizeof s, "\33[%d~", num);
-    else
-        snprintf(s, sizeof s, "\33[%d;%d~", num, mod);
-    com_kbd_push(s, strlen(s));
+    com_kbd_push(s, vt_vt220(s, sizeof s, num, mod));
 }
 
 void kbd_key(kbd_key_t key, bool ctrl, bool shift, bool alt)
 {
     /* xterm modifier number: 1 + shift + alt*2 + ctrl*4. gui/super is omitted:
      * the WM owns it and the input layer does not forward it. */
-    int mod = 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0);
+    /* No gui bit: the window manager owns that key on a desktop. */
+    int mod = vt_ansi_mod(shift, alt, ctrl, false);
     switch (key)
     {
     case KBD_KEY_ENTER:

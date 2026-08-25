@@ -60,6 +60,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/aud.c
     ${RP6502_SRC}/core/aud/rsmp.c
     ${RP6502_SRC}/core/sys/dbg.c
+    ${RP6502_SRC}/core/hid/vt.c
     ${RP6502_SRC}/core/hid/hid.c
     ${RP6502_SRC}/core/hid/kbd.c
     ${RP6502_SRC}/core/hid/mou.c
