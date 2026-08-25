@@ -111,6 +111,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/str/rln.c
     ${RP6502_SRC}/core/str/str.c
     ${RP6502_SRC}/core/vga/prog.c
+    ${RP6502_SRC}/core/vga/canvas.c
     ${RP6502_SRC}/core/vga/mode.c
     ${RP6502_SRC}/core/vga/mode0.c
     ${RP6502_SRC}/core/vga/mode1.c

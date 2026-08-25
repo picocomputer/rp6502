@@ -17,16 +17,6 @@
 #include "core/vga/pixel_format.h"
 #include <string.h>
 
-/* Current canvas geometry. The boot console is 640x480. */
-static int16_t g_canvas_w = VGA_MAX_WIDTH;
-static int16_t g_canvas_h = VGA_MAX_HEIGHT;
-static vga_canvas_t g_canvas_code = vga_canvas_console;
-
-bool vga_canvas_is_console(void)
-{
-    return g_canvas_code == vga_canvas_console;
-}
-
 /* RGB555(+alpha bit) -> RGBA8 (0xAABBGGRR). Computed inline rather than through a
  * 256 KB value-indexed table: the shifts vectorize, and keeping the cache free
  * for the CPU core and framebuffer beats a table that thrashes on color-rich
@@ -42,19 +32,9 @@ static inline uint32_t rgb555_to_rgba8(uint16_t px)
     return r | (g << 8) | (b << 16) | 0xFF000000u;
 }
 
-int16_t vga_canvas_height(void)
-{
-    return g_canvas_h;
-}
-
 bool vga_connected(void)
 {
     return true;
-}
-
-vga_canvas_t vga_get_canvas(void)
-{
-    return g_canvas_code;
 }
 
 uint8_t vga_get_display_type(void)
@@ -64,39 +44,17 @@ uint8_t vga_get_display_type(void)
 }
 
 
-/* Map a canvas code to its pixel geometry (see vga/sys/vga.h vga_canvas_t) and
- * clear all programming, mirroring firmware vga_xreg_canvas. The console canvas
- * reinstalls the terminal program so a return to it keeps rendering. An
- * out-of-range code is rejected (false) with no state change, as the firmware
- * NAKs it. */
-bool vga_canvas_select(uint16_t canvas)
+/* A software renderer keeps its programming in the scanline table, and that
+ * is the whole of what it has to forget. Nothing else needs telling: what
+ * draws next reads the canvas when it is asked to. */
+void vga_canvas_reset(void)
 {
-    switch (canvas)
-    {
-    case 1: /* vga_canvas_320_240 */
-        g_canvas_w = 320, g_canvas_h = 240;
-        break;
-    case 2: /* vga_canvas_320_180 */
-        g_canvas_w = 320, g_canvas_h = 180;
-        break;
-    case 4: /* vga_canvas_640_360 */
-        g_canvas_w = 640, g_canvas_h = 360;
-        break;
-    case 0: /* vga_canvas_console */
-    case 3: /* vga_canvas_640_480 */
-        g_canvas_w = 640, g_canvas_h = 480;
-        break;
-    default:
-        return false;
-    }
-    g_canvas_code = (vga_canvas_t)canvas;
     vga_prog_reset();
-    if (canvas == vga_canvas_console)
-    {
-        uint16_t xregs[8] = {0};
-        mode0_prog(xregs); /* console term across the whole canvas */
-    }
-    return true;
+}
+
+void vga_canvas_publish(vga_canvas_t canvas)
+{
+    (void)canvas;
 }
 
 /* Software renders from the plane it is handed, so there is nothing to
@@ -145,17 +103,9 @@ int vga_vsync_scanline(void)
     /* Mirror the firmware (vga_scanline_complete): vsync fires at the highest
      * scanline any program renders, clamped to / falling back to the canvas
      * height (the visible region) — not the full 525-line frame. */
-    if (vga_prog_highest() > 0 && vga_prog_highest() <= g_canvas_h)
+    if (vga_prog_highest() > 0 && vga_prog_highest() <= vga_canvas_height())
         return vga_prog_highest();
-    return g_canvas_h;
-}
-
-/* Current canvas pixel size (≤ VGA_MAX_WIDTH x VGA_MAX_HEIGHT). The presentation
- * layer reads this to size its texture and scale the canvas to the display. */
-void vga_canvas_size(int *w, int *h)
-{
-    *w = g_canvas_w;
-    *h = g_canvas_h;
+    return vga_canvas_height();
 }
 
 /* The app-owned framebuffer the scanlines render into (the window's texture
@@ -175,7 +125,7 @@ uint32_t *vga_get_framebuffer(void)
 }
 
 /* Render ONE scanline y of the canvas into fb at the canvas's native stride
- * (g_canvas_w). Each plane runs its fill and then its own sprites — slot k's
+ * (the canvas width). Each plane runs its fill and then its own sprites — slot k's
  * sprites belong to plane k, over a zeroed buffer when no fill ran. (The RIA
  * firmware paints sprites into the lowest filled buffer to skip the memset;
  * that is a bandwidth optimization whose artifacts are not modeled.) The
@@ -185,7 +135,7 @@ uint32_t *vga_get_framebuffer(void)
  * background of a text layer above it. */
 static void render_scanline(int y, uint32_t *fb)
 {
-    const int W = g_canvas_w;
+    const int W = vga_canvas_width();
     uint16_t plane[SCANVIDEO_PLANE_COUNT][VGA_MAX_WIDTH];
     const vga_prog_t *p = vga_prog_row((int16_t)y);
     bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};

@@ -17,8 +17,6 @@
 
 #include "core/term/term.h"
 
-static int16_t vga_canvas_h = 480;
-static vga_canvas_t vga_canvas_code = vga_canvas_console;
 static int16_t vga_highest_scanline;
 static uint8_t vga_pub_mode;
 static uint16_t vga_pub_attr;
@@ -28,24 +26,9 @@ bool vga_connected(void)
     return true;
 }
 
-vga_canvas_t vga_get_canvas(void)
-{
-    return vga_canvas_code;
-}
-
 uint8_t vga_get_display_type(void)
 {
     return 1;
-}
-
-int16_t vga_canvas_height(void)
-{
-    return vga_canvas_h;
-}
-
-void vga_canvas_size(int *w, int *h)
-{
-    vga_canvas_geometry(vga_canvas_code, w, h);
 }
 
 int16_t vga_vsync_scanline(void)
@@ -64,9 +47,9 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
                     int16_t *scanline_end)
 {
     if (!*scanline_end)
-        *scanline_end = vga_canvas_h;
+        *scanline_end = vga_canvas_height();
     if (plane < 0 || plane >= 3 ||
-        scanline_begin < 0 || *scanline_end > vga_canvas_h ||
+        scanline_begin < 0 || *scanline_end > vga_canvas_height() ||
         *scanline_end - scanline_begin < 1)
         return false;
     if (*scanline_end > vga_highest_scanline)
@@ -111,7 +94,7 @@ bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
                                    uint16_t *, uint16_t))
 {
     (void)fill_fn;
-    if (vga_canvas_code == vga_canvas_console)
+    if (vga_canvas_is_console())
         return false;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
@@ -133,7 +116,7 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
                                        uint16_t, uint16_t))
 {
     (void)sprite_fn;
-    if (vga_canvas_code == vga_canvas_console)
+    if (vga_canvas_is_console())
         return false;
     if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
         return false;
@@ -146,27 +129,11 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
     return true;
 }
 
-bool vga_canvas_select(uint16_t canvas)
+/* The fabric holds the programming, so forgetting it is a sweep of the
+ * scanline registers and the mode 0 masks -- and this machine's own record of
+ * how far down the picture goes, which is not the shared table's. */
+void vga_canvas_reset(void)
 {
-    switch (canvas)
-    {
-    case 1: /* vga_canvas_320_240 */
-        vga_canvas_h = 240;
-        break;
-    case 2: /* vga_canvas_320_180 */
-        vga_canvas_h = 180;
-        break;
-    case 4: /* vga_canvas_640_360 */
-        vga_canvas_h = 360;
-        break;
-    case 0: /* vga_canvas_console */
-    case 3: /* vga_canvas_640_480 */
-        vga_canvas_h = 480;
-        break;
-    default:
-        return false;
-    }
-    vga_canvas_code = (vga_canvas_t)canvas;
     for (int16_t i = 0; i < 512; i++)
         for (int16_t p = 0; p < 3; p++)
             for (int16_t w = 0; w < 4; w++)
@@ -174,13 +141,12 @@ bool vga_canvas_select(uint16_t canvas)
     for (int16_t i = 0; i < 16; i++)
         vga_mode0_mask[i] = 0;
     vga_highest_scanline = 0;
+}
+
+/* The fabric sizes the picture, so it is told. */
+void vga_canvas_publish(vga_canvas_t canvas)
+{
     VID_CANVAS = canvas;
-    if (canvas == vga_canvas_console)
-    {
-        uint16_t xregs[8] = {0};
-        mode0_prog(xregs);
-    }
-    return true;
 }
 
 /* A wake reconfigures the part, so these two come back at their
@@ -197,7 +163,7 @@ bool vga_canvas_select(uint16_t canvas)
  * a black screen over a program that is still running. */
 void vga_restore(void)
 {
-    VID_CANVAS = (uint32_t)vga_canvas_code;
+    VID_CANVAS = (uint32_t)vga_get_canvas();
     VID_VSYNC_LINE = (uint32_t)vga_highest_scanline;
 }
 

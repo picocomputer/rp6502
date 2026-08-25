@@ -35,6 +35,11 @@ uint8_t vga_get_display_type(void);
 // Pixel dimensions of the current canvas.
 void vga_canvas_size(int *w, int *h);
 int16_t vga_canvas_height(void);
+int16_t vga_canvas_width(void);
+
+/* The console canvas is the one a machine boots into and returns to; the
+ * graphics modes are the other four. */
+bool vga_canvas_is_console(void);
 
 // The code page the display renders text in.
 void vga_set_code_page(uint16_t cp);
@@ -44,6 +49,14 @@ void vga_set_code_page(uint16_t cp);
  * is across a bus does not choose here -- it writes the wire and shadows what
  * it wrote (host/pico/ria/sys/vga.c). */
 bool vga_canvas_select(uint16_t canvas);
+
+/* How this machine forgets a mode program, because the canvas it described is
+ * gone: a table to sweep, or registers to blank. */
+void vga_canvas_reset(void);
+
+/* Tell whatever has to be told which canvas is up. Nothing to do where the
+ * selection is only a variable. */
+void vga_canvas_publish(vga_canvas_t canvas);
 
 /* A mode program is about to be laid down, before any of its planes are
  * booked. A machine whose renderer needs to be told which mode it is about to

@@ -50,9 +50,4 @@ int16_t vga_prog_highest(void);
  * keeps no table, because the rule is the machine's, not the storage's. */
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end);
 
-/* ---- what a machine answers for its own canvas ---- */
-
-/* The console is a text canvas: the graphics modes refuse to program over it. */
-bool vga_canvas_is_console(void);
-
 #endif /* _CORE_VGA_PROG_H_ */
