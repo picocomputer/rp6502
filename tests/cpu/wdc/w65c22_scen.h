@@ -8,7 +8,7 @@
  * They were two suites asking the same question of two implementations;
  * one set of scenarios and one recording is what keeps that one question.
  *
- * Register traffic only — the ports are unwired, exactly as emu/emu/via.c
+ * Register traffic only — the ports are unwired, exactly as core/wdc/via.c
  * leaves them.
  */
 

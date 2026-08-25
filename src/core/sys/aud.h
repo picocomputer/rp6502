@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_AUD_AUD_H_
-#define _EMU_AUD_AUD_H_
+#ifndef _CORE_SYS_AUD_H_
+#define _CORE_SYS_AUD_H_
 
 #include <stdbool.h>
 
@@ -47,4 +47,4 @@ void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames));
 const float *aud_viz_buffer(int *num_samples);
 int aud_viz_pos(void); /* current write position in that buffer */
 
-#endif /* _EMU_AUD_AUD_H_ */
+#endif /* _CORE_SYS_AUD_H_ */

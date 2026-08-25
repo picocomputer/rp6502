@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/cfg.h"
 
 /* The emulator persists no configuration; settings live for the process. */
 void cfg_save(void)

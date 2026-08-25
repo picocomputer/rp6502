@@ -16,7 +16,7 @@
 #include "sokol/sokol_gfx.h" /* sokol_debugtext.h needs sg_* types declared first */
 #include "sokol/sokol_log.h"
 #include "sokol/util/sokol_debugtext.h"
-#include "core/sys/pad.h"
+#include "core/hid/pad.h"
 #include "core/sys/main.h"
 #include "core/sys/rom.h"
 #include "core/sys/cpu.h"

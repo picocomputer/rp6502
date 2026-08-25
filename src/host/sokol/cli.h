@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_APP_CLI_H_
-#define _EMU_APP_CLI_H_
+#ifndef _HOST_SOKOL_CLI_H_
+#define _HOST_SOKOL_CLI_H_
 
 #include <stddef.h>
 #include <stdint.h>
@@ -45,12 +45,6 @@ typedef struct
     int n_rom_args;
 } cli_options;
 
-/* Reattach stdio to the parent console when launched from one, so the printing
- * below reaches a terminal; no-op where it already does. Only Windows needs it,
- * where the emulator is a GUI-subsystem .exe and --help would otherwise vanish.
- * Implemented per host in host/<os>/host.c. */
-void host_console_attach(void);
-
 void cli_options_init(cli_options *o);
 
 /* Parse argv (argv[0] is the program name, per the getopt convention) into o,
@@ -71,4 +65,4 @@ void cli_usage(FILE *out, const char *argv0);
 /* The path component after the last '/'. */
 const char *cli_base_name(const char *p);
 
-#endif /* _EMU_APP_CLI_H_ */
+#endif /* _HOST_SOKOL_CLI_H_ */

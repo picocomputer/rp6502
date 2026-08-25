@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_API_PRO_H_
-#define _EMU_API_PRO_H_
+#ifndef _CORE_SYS_PRO_H_
+#define _CORE_SYS_PRO_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,4 +35,4 @@ int16_t pro_get_exit_code(void);
 void pro_set_exit_code(int16_t code); /* record a code for a non-EXIT stop (failed exec) */
 bool pro_exit(int16_t exit_code);     /* true if a launcher re-exec was scheduled */
 
-#endif /* _EMU_API_PRO_H_ */
+#endif /* _CORE_SYS_PRO_H_ */

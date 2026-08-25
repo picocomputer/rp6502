@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_SYS_MEM_H_
-#define _EMU_SYS_MEM_H_
+#ifndef _CORE_SYS_MEM_H_
+#define _CORE_SYS_MEM_H_
 
 #include "core/mem.h"
 
@@ -34,4 +34,4 @@ void mem_init(void);
 /* One PHI2 tick of the SRAM. data is in/out. */
 void mem_tick(uint16_t addr, bool read, uint8_t *data);
 
-#endif /* _EMU_SYS_MEM_H_ */
+#endif /* _CORE_SYS_MEM_H_ */

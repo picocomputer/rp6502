@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_APP_WINDOW_H_
-#define _EMU_APP_WINDOW_H_
+#ifndef _HOST_SOKOL_WINDOW_H_
+#define _HOST_SOKOL_WINDOW_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -27,13 +27,6 @@ int window_run(uint32_t *fb, double scale, bool have_scale, bool vsync, bool exi
  * program; headless: no window) returns false, and the caller prints usage and
  * exits. */
 bool window_wait_for_rom(void);
-
-/* Real time, for pacing the frame loop against the display -- not the machine's
- * clock (host/os.h host_clock_us), which the window deliberately lets drift
- * when the host falls behind. Implemented per host in host/<os>/host.c; the
- * sleep is a no-op where the present already paces. */
-uint64_t host_mono_ns(void);
-void host_sleep_until_ns(uint64_t target);
 
 /* Letterbox/pillarbox fill color behind the canvas (RGB 0-255, default black). */
 void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b);
@@ -80,4 +73,4 @@ bool window_canvas_from_fb(float px, float py, int *cx, int *cy);
  * letterbox. */
 void window_set_pointer_on_canvas(bool on);
 
-#endif /* _EMU_APP_WINDOW_H_ */
+#endif /* _HOST_SOKOL_WINDOW_H_ */

@@ -15,7 +15,6 @@
  */
 
 #include "host.h"
-#include "core/sys/rand.h" /* host_entropy_64 */
 #include <fcntl.h>
 #include <time.h>
 #include <unistd.h>

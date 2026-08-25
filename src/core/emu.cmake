@@ -65,13 +65,12 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/mou.c
     ${RP6502_SRC}/core/hid/pad.c
     ${RP6502_SRC}/core/hid/tab.c
-    # hid, kbd and pad twice: core/hid is the device layer every machine has,
+    # hid and kbd twice: core/hid is the device layer every machine has,
     # core/sys is what a software machine answers where fabric or a firmware
     # would. Same names because they are the same devices.
     ${RP6502_SRC}/core/sys/hid.c
     ${RP6502_SRC}/core/sys/kbd.c
     ${RP6502_SRC}/core/sys/kbt.c
-    ${RP6502_SRC}/core/sys/pad.c
     ${RP6502_SRC}/core/sys/log.c
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c
@@ -177,8 +176,10 @@ target_compile_definitions(emu_core PUBLIC
 if(NOT MSVC)
     target_link_libraries(emu_core PUBLIC m)
 else()
-    # Shims MSVC alone needs, including a <strings.h> it has no system header for.
-    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/windows)
+    # Shims MSVC alone needs, including a <strings.h> it has no system header
+    # for. Their own directory: this goes on every consumer's include path, and
+    # the host's own headers are not ours to publish.
+    target_include_directories(emu_core PUBLIC ${RP6502_SRC}/host/windows/msvc)
     target_compile_options(emu_core PUBLIC /utf-8 /experimental:c11atomics /FIcompat.h)
     # Shared firmware idioms MSVC dislikes but GCC/Clang accept: #pragma GCC (C4068) and
     # `return void_expr;` from a void function (C4098). GCC gates any real value-return.

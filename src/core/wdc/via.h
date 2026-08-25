@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_SYS_VIA_H_
-#define _EMU_SYS_VIA_H_
+#ifndef _CORE_WDC_VIA_H_
+#define _CORE_WDC_VIA_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -25,4 +25,4 @@ bool via_tick(uint16_t addr, bool read, uint8_t *data);
 /* The live chip instance (m6522_t*), for the debugger UI + DAP register access. */
 void *via_chip(void);
 
-#endif /* _EMU_SYS_VIA_H_ */
+#endif /* _CORE_WDC_VIA_H_ */

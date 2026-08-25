@@ -12,7 +12,7 @@
  */
 
 #include "core/sys/com.h"
-#include "core/sys/pad.h"
+#include "core/hid/pad.h"
 #include "core/sys/mem.h"
 #include "core/sys/cpu.h"
 #include "emu_boot.h"

@@ -5,10 +5,10 @@
  *
  */
 
-#ifndef _EMU_APP_PAD_INPUT_H_
-#define _EMU_APP_PAD_INPUT_H_
+#ifndef _HOST_SOKOL_PAD_INPUT_H_
+#define _HOST_SOKOL_PAD_INPUT_H_
 
-#include "core/sys/pad.h"
+#include "core/hid/pad.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -52,4 +52,4 @@ void host_pad_close(void);
  * Called once per presented frame while a program has the block mapped. */
 int host_pad_poll(pad_host_t *pads, int max);
 
-#endif /* _EMU_APP_PAD_INPUT_H_ */
+#endif /* _HOST_SOKOL_PAD_INPUT_H_ */

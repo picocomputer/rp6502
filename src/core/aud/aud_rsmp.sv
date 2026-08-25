@@ -7,7 +7,7 @@
  * runs at its own rate or it is not a YM3812, so this exists for that one
  * engine and nothing else.
  *
- * Bit-exact with emu/emu/rsmp.c, off the same generated coefficients.
+ * Bit-exact with core/aud/rsmp.c, off the same generated coefficients.
  * That one reads pushed and this one pulled, because there the sink is a
  * buffer; they walk the same phase against the same taps in the same
  * order, so the streams stay equal.

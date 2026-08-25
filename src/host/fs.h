@@ -10,13 +10,13 @@
  * The software hosts' seam: the emulator's drives are a real filesystem
  * underneath, and each OS answers these its own way -- host/posix/fs.c for the
  * POSIX family (with its byte transport beside it, fs_aio.c or fs_sync.c),
- * host/windows/fs.c, host/web/fs.c. A Pico has its own storage
+ * host/windows/fs.c, host/emsdk/fs.c. A Pico has its own storage
  * and a Pocket has the card, so neither implements any of it and neither
  * compiles a caller.
  */
 
-#ifndef _CORE_FS_H_
-#define _CORE_FS_H_
+#ifndef _HOST_FS_H_
+#define _HOST_FS_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -69,4 +69,4 @@ fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
-#endif /* _CORE_FS_H_ */
+#endif /* _HOST_FS_H_ */

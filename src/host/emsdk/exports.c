@@ -10,7 +10,7 @@
  */
 
 #include "core/hid/mou.h"
-#include "core/sys/pad.h"
+#include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include <emscripten.h>
 #include <stdint.h>

@@ -9,8 +9,8 @@
  * half -- see host/fs.h for who implements it and who does not.
  */
 
-#ifndef _CORE_DIR_H_
-#define _CORE_DIR_H_
+#ifndef _HOST_DIR_H_
+#define _HOST_DIR_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,4 +21,4 @@ int dir_read(void *d, char *name, size_t namesz, bool *is_dir);
 void dir_rewind(void *d);
 void dir_close(void *d);
 
-#endif /* _CORE_DIR_H_ */
+#endif /* _HOST_DIR_H_ */

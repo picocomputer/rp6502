@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_SYS_COM_H_
-#define _EMU_SYS_COM_H_
+#ifndef _CORE_SYS_COM_H_
+#define _CORE_SYS_COM_H_
 
 #include "core/com.h"
 #include "host/pico/ria/sys/com.h"
@@ -35,4 +35,4 @@ void com_tx_write(const char *buf, int len);
  * program output without rendering a frame. */
 void com_set_tx_tap(void (*tap)(const char *buf, int len));
 
-#endif /* _EMU_SYS_COM_H_ */
+#endif /* _CORE_SYS_COM_H_ */

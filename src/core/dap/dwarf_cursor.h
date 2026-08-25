@@ -8,8 +8,8 @@
  * check ok and abort the current unit.
  */
 
-#ifndef _EMU_DBG_DWARF_CURSOR_H_
-#define _EMU_DBG_DWARF_CURSOR_H_
+#ifndef _CORE_DAP_DWARF_CURSOR_H_
+#define _CORE_DAP_DWARF_CURSOR_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -28,4 +28,4 @@ uint64_t dwarf_uleb(dwarf_cur *c);
 int64_t dwarf_sleb(dwarf_cur *c);
 const char *dwarf_cstr(dwarf_cur *c);
 
-#endif /* _EMU_DBG_DWARF_CURSOR_H_ */
+#endif /* _CORE_DAP_DWARF_CURSOR_H_ */

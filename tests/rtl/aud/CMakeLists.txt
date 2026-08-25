@@ -31,7 +31,7 @@ rp6502_add_module_test(psg
     ARGS -GRATE=48000 -GTICKS_PER_SAMPLE=1200
     TIMEOUT 300)
 
-# --- The resampler in RTL, against emu/emu/rsmp.c in lockstep ---
+# --- The resampler in RTL, against core/aud/rsmp.c in lockstep ---
 # test_rsmp says whether the filter is any good; this says whether the
 # fabric copies it exactly. Both read one generated coefficient design.
 rp6502_add_module_test(rsmp_rtl

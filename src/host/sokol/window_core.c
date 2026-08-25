@@ -10,6 +10,7 @@
  * implemented in host/<os>/window.c.
  */
 
+#include "host/os.h" /* host_mono_ns, host_sleep_until_ns */
 #include "host/sokol/window.h"
 #include "host/sokol/window_core.h"
 #include "sokol/sokol_app.h"

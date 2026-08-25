@@ -11,8 +11,8 @@
  * [off, off+size) bounds checks. The image owns the file bytes until elf_close.
  */
 
-#ifndef _EMU_DBG_DWARF_ELF_H_
-#define _EMU_DBG_DWARF_ELF_H_
+#ifndef _CORE_DAP_DWARF_ELF_H_
+#define _CORE_DAP_DWARF_ELF_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -38,4 +38,4 @@ const char *elf_section_name(const elf_image *im, int i);
 /* First section named `name` -> its file offset + size; false (and 0/0) if absent. */
 bool elf_find_section(const elf_image *im, const char *name, uint32_t *off, uint32_t *size);
 
-#endif /* _EMU_DBG_DWARF_ELF_H_ */
+#endif /* _CORE_DAP_DWARF_ELF_H_ */

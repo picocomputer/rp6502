@@ -9,7 +9,6 @@
  */
 
 #include "host.h"
-#include "core/sys/rand.h" /* host_entropy_64 */
 #include "host/sokol/window.h" /* host_sleep_until_ns */
 #include <sys/random.h>
 #include <time.h>

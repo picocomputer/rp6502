@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_HOST_ROM_H_
-#define _EMU_HOST_ROM_H_
+#ifndef _CORE_SYS_ROM_H_
+#define _CORE_SYS_ROM_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -51,4 +51,4 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz);
  * the help asset when the loaded ROM changes while the window is open. */
 uint32_t rom_generation(void);
 
-#endif /* _EMU_HOST_ROM_H_ */
+#endif /* _CORE_SYS_ROM_H_ */

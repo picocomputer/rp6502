@@ -14,8 +14,8 @@
  * here -- a Pico has its own storage and a Pocket has the card, so the
  * filesystem is the software hosts' seam and lives in host/fs.h. */
 
-#ifndef _CORE_HOST_H_
-#define _CORE_HOST_H_
+#ifndef _HOST_OS_H_
+#define _HOST_OS_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -76,8 +76,12 @@ static inline bool host_deadline_passed(host_deadline_t d) { return host_clock_u
 
 /* The stream the 6502's rand() reads. A Pico has a hardware RNG; the emulator
  * and a Pocket run a generator of their own so a run can be reproduced. Not
- * host entropy, which seeds that generator -- see core/sys/rand.h. */
+ * host entropy, which seeds that generator -- see the seed material below. */
 uint64_t host_rand_64(void);
+
+/* Seed material for that generator, from the host RNG or its clocks. Only a
+ * machine that runs a generator of its own asks for this. */
+uint64_t host_entropy_64(void);
 
 /* Broken-down host time (local zone / UTC). False when t is out of the host's range. */
 bool host_localtime(time_t t, struct tm *out);
@@ -92,4 +96,27 @@ void host_tm_apply_zone(struct tm *tm, const struct tm *probe); /* copy tm_gmtof
  * does not fit. */
 bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz);
 
-#endif /* _CORE_HOST_H_ */
+/* ---- what only a host with a window, a console or a config dir answers ---- */
+/* Declared here with the rest of the contract, so a seam that implements them
+ * needs no header from the application that calls them. A host that is none of
+ * those things leaves them unimplemented and nothing links against them.
+ *
+ * Real time, for pacing a frame loop against the display -- not host_clock_us
+ * above, which a window deliberately lets drift when the host falls behind. The
+ * sleep is a no-op where the present already paces. */
+uint64_t host_mono_ns(void);
+void host_sleep_until_ns(uint64_t target);
+
+/* Reattach stdio to the parent console when launched from one; no-op where it
+ * already does. Only Windows needs it, where the emulator is a GUI-subsystem
+ * .exe and --help would otherwise vanish. */
+void host_console_attach(void);
+
+/* Where an application's config file goes, in the host's native path spelling
+ * -- the machine has no config directory, an application does. This is also
+ * where the literal "rp6502-emu" lives. ensure_parent_dir works in host path
+ * encoding, not the guest OEM the fs_* seam speaks, so it is not fs_mkdir. */
+bool host_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
+void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
+
+#endif /* _HOST_OS_H_ */

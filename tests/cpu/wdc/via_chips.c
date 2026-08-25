@@ -6,7 +6,7 @@
  * The VIA under test, when it is the emulator's — chips/chips/m6522.h, which
  * is someone else's code this machine depends on.
  *
- * The wiring is emu/emu/via.c's, which is what this reproduces: CS1 asserted,
+ * The wiring is core/wdc/via.c's, which is what this reproduces: CS1 asserted,
  * ports unwired, RW high to read.
  */
 

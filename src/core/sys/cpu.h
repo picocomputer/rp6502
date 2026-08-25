@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_SYS_CPU_H_
-#define _EMU_SYS_CPU_H_
+#ifndef _CORE_SYS_CPU_H_
+#define _CORE_SYS_CPU_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -53,4 +53,4 @@ void *cpu_chip(void); /* w65c02_t* */
  * observer is registered. */
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
-#endif /* _EMU_SYS_CPU_H_ */
+#endif /* _CORE_SYS_CPU_H_ */

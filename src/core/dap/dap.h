@@ -9,8 +9,8 @@
  * --dap mode.
  */
 
-#ifndef _EMU_DBG_DAP_H_
-#define _EMU_DBG_DAP_H_
+#ifndef _CORE_DAP_DAP_H_
+#define _CORE_DAP_DAP_H_
 
 /* Create the DAP session, register handlers, and bind it to stdin/stdout.
  * cppdap runs the message reader on its own thread; handlers either marshal work
@@ -38,4 +38,4 @@ bool dap_quit_requested(void);
 /* Close the session (window teardown). */
 void dap_stop(void);
 
-#endif /* _EMU_DBG_DAP_H_ */
+#endif /* _CORE_DAP_DAP_H_ */

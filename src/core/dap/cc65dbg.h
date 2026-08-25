@@ -11,8 +11,8 @@
  * addresses are the 6502 load addresses (the emulator's PC directly).
  */
 
-#ifndef _EMU_DBG_CC65DBG_H_
-#define _EMU_DBG_CC65DBG_H_
+#ifndef _CORE_DAP_CC65DBG_H_
+#define _CORE_DAP_CC65DBG_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -93,4 +93,4 @@ typedef struct
 /* The segments that have a name and a non-zero size. Returns count (<= max). */
 int cc65dbg_segments(const cc65dbg_t *db, cc65seg_t *out, int max);
 
-#endif /* _EMU_DBG_CC65DBG_H_ */
+#endif /* _CORE_DAP_CC65DBG_H_ */

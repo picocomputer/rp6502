@@ -11,7 +11,7 @@
 #include "core/str/str.h"
 #include "host/sokol/cli.h"
 #include "core/sys/kbd.h"
-#include "core/sys/pad.h"
+#include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/sys/main.h"
 #include "core/sys/rom.h"

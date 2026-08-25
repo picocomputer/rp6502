@@ -11,9 +11,6 @@
 
 #include "host.h"
 #include "core/api/oem.h"
-#include "host/sokol/cli.h"          /* host_console_attach */
-#include "host/sokol/window.h"       /* host_mono_ns */
-#include "host/sokol/dbgui_layout.h" /* host_config_dir, host_ensure_parent_dir */
 #include <errno.h>
 #include <locale.h>
 #include <stdio.h>
@@ -118,21 +115,4 @@ void host_console_attach(void) {}
 bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {
     return oem_from_utf8(arg, dst, dstsz) < dstsz;
-}
-
-/* ---- test-only helpers ---- */
-
-bool host_make_tmpdir(char *buf, size_t sz)
-{
-    char tmpl[] = "/tmp/rp6502_test_XXXXXX";
-    const char *d = mkdtemp(tmpl);
-    if (!d || strlen(d) >= sz)
-        return false;
-    memcpy(buf, d, strlen(d) + 1);
-    return true;
-}
-
-void host_setenv(const char *name, const char *value)
-{
-    setenv(name, value, 1);
 }

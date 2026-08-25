@@ -9,8 +9,8 @@
  * is in debug mode (dbg_is_active()).
  */
 
-#ifndef _EMU_DBG_DBGUI_H_
-#define _EMU_DBG_DBGUI_H_
+#ifndef _HOST_SOKOL_DBGUI_H_
+#define _HOST_SOKOL_DBGUI_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -56,4 +56,4 @@ bool dbgui_wants_mouse(void);
  * debugger panel. Only valid while the debugger is active. */
 int dbgui_mouse_cursor(void);
 
-#endif /* _EMU_DBG_DBGUI_H_ */
+#endif /* _HOST_SOKOL_DBGUI_H_ */

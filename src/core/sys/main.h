@@ -12,8 +12,8 @@
  * sys/mem.c).
  */
 
-#ifndef _EMU_MAIN_H_
-#define _EMU_MAIN_H_
+#ifndef _CORE_SYS_MAIN_H_
+#define _CORE_SYS_MAIN_H_
 
 #include "core/main.h"
 
@@ -31,4 +31,4 @@ void main_dir_ops_set(bool fat);
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
 bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
 
-#endif /* _EMU_MAIN_H_ */
+#endif /* _CORE_SYS_MAIN_H_ */

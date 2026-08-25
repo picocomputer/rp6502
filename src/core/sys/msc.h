@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_HOST_MSC_H_
-#define _EMU_HOST_MSC_H_
+#ifndef _CORE_SYS_MSC_H_
+#define _CORE_SYS_MSC_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -63,4 +63,4 @@ bool msc_api_getfree(void);
 
 void msc_stop(void); /* close open host directories (machine reset) */
 
-#endif /* _EMU_HOST_MSC_H_ */
+#endif /* _CORE_SYS_MSC_H_ */

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_HID_KBD_H_
-#define _EMU_HID_KBD_H_
+#ifndef _CORE_SYS_KBD_H_
+#define _CORE_SYS_KBD_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -86,4 +86,4 @@ void kbd_task(void);
 uint8_t kbd_hid_from_name(const char *name);
 bool kbd_key_from_name(const char *name, kbd_key_t *key);
 
-#endif /* _EMU_HID_KBD_H_ */
+#endif /* _CORE_SYS_KBD_H_ */

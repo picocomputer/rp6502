@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_SYS_VGA_H_
-#define _EMU_SYS_VGA_H_
+#ifndef _CORE_SYS_VGA_H_
+#define _CORE_SYS_VGA_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -97,4 +97,4 @@ bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end
                                        uint16_t *rgb, uint16_t config_ptr,
                                        uint16_t length));
 
-#endif /* _EMU_SYS_VGA_H_ */
+#endif /* _CORE_SYS_VGA_H_ */

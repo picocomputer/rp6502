@@ -6,8 +6,8 @@
  * Small helpers shared by the Win32 seam implementations (host/windows/{fs,dir,host}.c).
  */
 
-#ifndef _CORE_WINDOWS_WIN_H_
-#define _CORE_WINDOWS_WIN_H_
+#ifndef _HOST_WINDOWS_WIN_H_
+#define _HOST_WINDOWS_WIN_H_
 
 #include <windows.h>
 
@@ -19,4 +19,4 @@ void win_set_errno(DWORD e);
 /* Rewrite '\\' to '/' in place (guest paths are '/'-separated). */
 void win_to_slash(char *p);
 
-#endif /* _CORE_WINDOWS_WIN_H_ */
+#endif /* _HOST_WINDOWS_WIN_H_ */

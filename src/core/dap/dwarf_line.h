@@ -10,8 +10,8 @@
  * 6502 load addresses, i.e. the emulator's PC directly.
  */
 
-#ifndef _EMU_DBG_DWARF_LINE_H_
-#define _EMU_DBG_DWARF_LINE_H_
+#ifndef _CORE_DAP_DWARF_LINE_H_
+#define _CORE_DAP_DWARF_LINE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -53,4 +53,4 @@ typedef struct
 /* The SHF_ALLOC sections with a non-zero size. Returns count (<= max). */
 int dwarf_line_sections(const dwarf_line_t *dl, dwarf_section_t *out, int max);
 
-#endif /* _EMU_DBG_DWARF_LINE_H_ */
+#endif /* _CORE_DAP_DWARF_LINE_H_ */

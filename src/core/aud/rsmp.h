@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _EMU_EMU_RSMP_H_
-#define _EMU_EMU_RSMP_H_
+#ifndef _CORE_AUD_RSMP_H_
+#define _CORE_AUD_RSMP_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -74,4 +74,4 @@ uint64_t rsmp_step(uint32_t in_rate, uint32_t out_rate);
  * stretching. Returns the count written to out. */
 int rsmp_push(rsmp_t *r, int32_t x, uint64_t step, int32_t *out, int max_out);
 
-#endif /* _EMU_EMU_RSMP_H_ */
+#endif /* _CORE_AUD_RSMP_H_ */

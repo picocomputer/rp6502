@@ -113,7 +113,7 @@ rp6502_add_test(w65c02_chips
 
 # --- The VIA, directed cases and recorded traces ---
 # T1/T2 timers and their interrupts are live machine features; see
-# emu/emu/via.c for the wiring both implementations are driven through.
+# core/wdc/via.c for the wiring both implementations are driven through.
 rp6502_add_via_test(w65c22
     SOURCES test_w65c22.c w65c22_scen.c
     DEFS W65C22_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/w65c22_golden.txt")

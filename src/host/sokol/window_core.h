@@ -10,8 +10,8 @@
  * core supplies the render/frame/present pipeline and the four sokol callbacks.
  */
 
-#ifndef _EMU_APP_WINDOW_CORE_H_
-#define _EMU_APP_WINDOW_CORE_H_
+#ifndef _HOST_SOKOL_WINDOW_CORE_H_
+#define _HOST_SOKOL_WINDOW_CORE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -85,4 +85,4 @@ void host_window_files_dropped(void);
  * Called when the docs link under the drop-a-ROM prompt is clicked. */
 void host_window_open_url(const char *url);
 
-#endif /* _EMU_APP_WINDOW_CORE_H_ */
+#endif /* _HOST_SOKOL_WINDOW_CORE_H_ */

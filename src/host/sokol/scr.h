@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_APP_SCR_H_
-#define _EMU_APP_SCR_H_
+#ifndef _HOST_SOKOL_SCR_H_
+#define _HOST_SOKOL_SCR_H_
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -14,7 +14,7 @@
 /* Scripted input: a line-oriented command language that plugs in gamepads,
  * moves pointers, types and asserts, so a program reading its input from XRAM
  * can be tested with nothing at the keyboard. This is a host in the same sense
- * as host/web/exports.c and host/android/window.c — it assembles reports and
+ * as host/emsdk/exports.c and host/android/window.c — it assembles reports and
  * hands them to the same hid seams a real device would.
  *
  * A failed assertion prints the script line and ends the run; scr_exit_code is
@@ -59,4 +59,4 @@ bool scr_command(const char *line);
 /* 0 when every assertion held. */
 int scr_exit_code(void);
 
-#endif /* _EMU_APP_SCR_H_ */
+#endif /* _HOST_SOKOL_SCR_H_ */

@@ -10,7 +10,7 @@
 #include "core/sys/pro.h"
 #include "core/sys/kbd.h"
 #include "core/hid/mou.h"
-#include "core/sys/pad.h"
+#include "host/sokol/pad.h"
 #include "core/hid/tab.h"
 #include "core/sys/com.h"
 #include "core/sys/cpu.h"

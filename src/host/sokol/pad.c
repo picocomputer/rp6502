@@ -7,7 +7,7 @@
  * script, a config file, a host's key bindings.
  */
 
-#include "core/sys/pad.h"
+#include "host/sokol/pad.h"
 #include <stddef.h>
 #include <strings.h>
 

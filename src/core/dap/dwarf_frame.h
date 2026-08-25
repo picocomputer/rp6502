@@ -10,8 +10,8 @@
  * heuristic hardware-stack scan + prologue-size chaining used before CFI existed.
  */
 
-#ifndef _EMU_DBG_DWARF_FRAME_H_
-#define _EMU_DBG_DWARF_FRAME_H_
+#ifndef _CORE_DAP_DWARF_FRAME_H_
+#define _CORE_DAP_DWARF_FRAME_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -44,4 +44,4 @@ dwarf_unwind_t dwarf_frame_step(const dwarf_frame_t *df, uint16_t pc,
 /* True if any FDE covers pc (i.e. CFI-based unwinding is available here). */
 bool dwarf_frame_has(const dwarf_frame_t *df, uint16_t pc);
 
-#endif /* _EMU_DBG_DWARF_FRAME_H_ */
+#endif /* _CORE_DAP_DWARF_FRAME_H_ */

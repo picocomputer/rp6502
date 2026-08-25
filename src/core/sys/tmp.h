@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _EMU_HOST_TMP_H_
-#define _EMU_HOST_TMP_H_
+#ifndef _CORE_SYS_TMP_H_
+#define _CORE_SYS_TMP_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -22,4 +22,4 @@ bool tmp_std_handles(const char *path); /* std.c fat driver's handles: gated on 
  * in std.c's table and gated on tmp_active(); the dir syscalls run the firmware's
  * fat_api_* (core/api/fat.c), swapped in via main_dir_ops_set(). */
 
-#endif /* _EMU_HOST_TMP_H_ */
+#endif /* _CORE_SYS_TMP_H_ */

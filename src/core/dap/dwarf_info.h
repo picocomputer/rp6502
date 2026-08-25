@@ -20,8 +20,8 @@
  *                          caller's readmem callback).
  */
 
-#ifndef _EMU_DBG_DWARF_INFO_H_
-#define _EMU_DBG_DWARF_INFO_H_
+#ifndef _CORE_DAP_DWARF_INFO_H_
+#define _CORE_DAP_DWARF_INFO_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -110,4 +110,4 @@ bool dwarf_type_member(const dtype_t *t, int i, const char **name,
 /* DW_KIND_ENUM: the enumerator name for value, or NULL. */
 const char *dwarf_type_enum_name(const dtype_t *t, int64_t value);
 
-#endif /* _EMU_DBG_DWARF_INFO_H_ */
+#endif /* _CORE_DAP_DWARF_INFO_H_ */
