@@ -14,16 +14,25 @@ rp6502_add_test(tiles
     LIBS emu_core FIXTURE mode2.rp6502 TIMEOUT 60)
 
 # --- The whole corpus, frame by frame, against the CRC in each case ---
-# One source, two bindings: the tree that has a simulator runs it on the
+# One source, three bindings: the tree that has a simulator runs it on the
 # verilated machine and splits the cases, because each is a simulation worth
-# naming on its own; the tree that has emu_core runs the same cases in a
-# fifth of a second. Neither is the other's oracle any more — both answer to
-# the numbers in test_modes.c.
+# naming on its own; the tree that ships a libretro core asks the core, which
+# is the shipped library and not a pile of its objects; the tree that has
+# emu_core runs the same cases in a fifth of a second. None is another's
+# oracle — all three answer to the numbers in test_modes.c.
 if(COMMAND rp6502_add_machine_test)
     rp6502_add_machine_test(modes FIRMWARE SPLIT
         SOURCES test_modes.c ${RP6502_BENCH}/mut_rtl.cpp
         DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
         TIMEOUT 900)
+elseif(TARGET rp6502_libretro)
+    rp6502_add_test(modes SPLIT LIBS ${CMAKE_DL_LIBS}
+        SOURCES test_modes.c ${RP6502_BENCH}/mut_libretro.c
+        INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+        DEFS ROMS_DIR="${RP6502_TEST_CORPUS}"
+            RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
+        DEPENDS rp6502_libretro
+        TIMEOUT 120)
 else()
     rp6502_add_test(modes SPLIT LIBS emu_core
         SOURCES test_modes.c ${RP6502_BENCH}/mut_emu.c
@@ -39,6 +48,13 @@ if(COMMAND rp6502_add_machine_test)
             SOURCES test_banner.cpp ${RP6502_BENCH}/mut_rtl.cpp
             TIMEOUT 900)
     endif()
+elseif(TARGET rp6502_libretro)
+    rp6502_add_test(banner LIBS ${CMAKE_DL_LIBS}
+        SOURCES test_banner.cpp ${RP6502_BENCH}/mut_libretro.c
+        INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+        DEFS RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
+        DEPENDS rp6502_libretro
+        TIMEOUT 120)
 else()
     rp6502_add_test(banner LIBS emu_core
         SOURCES test_banner.cpp ${RP6502_BENCH}/mut_emu.c
@@ -53,6 +69,13 @@ if(COMMAND rp6502_add_machine_test)
             SOURCES test_session.cpp ${RP6502_BENCH}/mut_rtl.cpp
             TIMEOUT 900)
     endif()
+elseif(TARGET rp6502_libretro)
+    rp6502_add_test(session LIBS ${CMAKE_DL_LIBS}
+        SOURCES test_session.cpp ${RP6502_BENCH}/mut_libretro.c
+        INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+        DEFS RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
+        DEPENDS rp6502_libretro
+        TIMEOUT 120)
 else()
     rp6502_add_test(session LIBS emu_core
         SOURCES test_session.cpp ${RP6502_BENCH}/mut_emu.c
