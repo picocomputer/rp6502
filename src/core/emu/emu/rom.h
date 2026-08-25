@@ -25,8 +25,8 @@ bool rom_resolve(const char *path, char *out, size_t outsz);
  * (MSC0:/...), or an overlay ROM name; rom_load resolves it. The program
  * memory-chunk records are streamed straight into ram[]/xram[]; the named assets
  * are NOT read — only the start of the asset directory is noted, so a ROM: read
- * scans the file for the entry on demand. Returns false (message on stderr) on
- * any format or CRC error. */
+ * scans the file for the entry on demand. Returns false (message to the log
+ * sink) on any format or CRC error. */
 bool rom_load(const char *path);
 
 /* ---- ROM: drive (rom.c): the .rp6502's bundled assets, read on demand from the

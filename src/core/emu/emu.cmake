@@ -69,6 +69,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/emu/hid/kbd.c
     ${RP6502_SRC}/core/emu/hid/kbt.c
     ${RP6502_SRC}/core/emu/hid/pad.c
+    ${RP6502_SRC}/core/emu/emu/log.c
     ${RP6502_SRC}/core/emu/emu/msc.c
     ${RP6502_SRC}/core/emu/emu/rom.c
     ${RP6502_SRC}/core/emu/emu/tmp.c

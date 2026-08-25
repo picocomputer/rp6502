@@ -5,6 +5,7 @@
  *
  */
 
+#include "core/emu/emu/log.h"
 #include "core/emu/emu/msc.h"
 #include "core/emu/emu/rom.h"
 #include "core/fs.h"
@@ -418,13 +419,13 @@ bool rom_load(const char *path)
     char host[MSC_MAX_PATH];
     if (!rom_resolve(path, host, sizeof(host)))
     {
-        fprintf(stderr, "rp6502-emu: cannot resolve ROM '%s'\n", path);
+        log_error("cannot resolve ROM '%s'", path);
         return false;
     }
     FILE *f = fs_fopen_rd(host);
     if (!f)
     {
-        fprintf(stderr, "rp6502-emu: cannot open ROM '%s'\n", path);
+        log_error("cannot open ROM '%s'", path);
         return false;
     }
 
@@ -432,7 +433,7 @@ bool rom_load(const char *path)
     if (fgets_line(f, line, sizeof(line)) < 0 ||
         strncasecmp(line, "#!RP6502", 8) != 0)
     {
-        fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
+        log_error("not a .rp6502 file (bad magic)");
         fclose(f);
         return false;
     }
@@ -449,7 +450,7 @@ bool rom_load(const char *path)
         uint32_t chunks_len, image_crc;
         if (!parse_u32(&p, &chunks_len) || !parse_u32(&p, &image_crc))
         {
-            fprintf(stderr, "rp6502-emu: bad header line\n");
+            log_error("bad header line");
             fclose(f);
             return false;
         }
@@ -478,15 +479,14 @@ bool rom_load(const char *path)
         if (!parse_u32(&p, &addr) || !parse_u32(&p, &len) ||
             !parse_u32(&p, &crc) || !parse_end(p))
         {
-            fprintf(stderr, "rp6502-emu: malformed data record: %s\n", line);
+            log_error("malformed data record: %s", line);
             fclose(f);
             return false;
         }
         if (addr > 0x1FFFF || len == 0 || len > 0x20000 - addr ||
             (addr < 0x10000 && len > 0x10000 - addr))
         {
-            fprintf(stderr, "rp6502-emu: data record out of range (addr=$%X len=$%X)\n",
-                    addr, len);
+            log_error("data record out of range (addr=$%X len=$%X)", addr, len);
             fclose(f);
             return false;
         }
@@ -501,13 +501,13 @@ bool rom_load(const char *path)
             memcpy(guard_save, &ram[0xFF00], sizeof guard_save);
         if (fread(dst, 1, len, f) != len)
         {
-            fprintf(stderr, "rp6502-emu: truncated data record at $%X\n", addr);
+            log_error("truncated data record at $%X", addr);
             fclose(f);
             return false;
         }
         if (mem_crc32(0, dst, len) != crc)
         {
-            fprintf(stderr, "rp6502-emu: CRC mismatch in record at $%X\n", addr);
+            log_error("CRC mismatch in record at $%X", addr);
             fclose(f);
             return false;
         }
@@ -531,7 +531,7 @@ bool rom_load(const char *path)
     fclose(f);
     if (!reset_lo || !reset_hi)
     {
-        fprintf(stderr, "rp6502-emu: ROM has no reset vector ($FFFC/$FFFD)\n");
+        log_error("ROM has no reset vector ($FFFC/$FFFD)");
         return false;
     }
     g_rom_generation++;

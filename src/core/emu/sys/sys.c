@@ -8,6 +8,7 @@
 #include "core/emu/emu/pro.h"
 #include "core/emu/emu/aud.h"
 #include "core/emu/dbg/dbg.h"
+#include "core/emu/emu/log.h"
 #include "core/emu/emu/rom.h"
 #include "core/emu/hid/kbd.h"
 #include "core/emu/main.h"
@@ -249,7 +250,7 @@ static void run_frame(bool render)
         main_stop(); /* tear down the outgoing program (cpu_stop halts it) */
         if (!rom_load(exec_path))
         {
-            fprintf(stderr, "rp6502-emu: exec failed to load '%s'\n", exec_path);
+            log_error("exec failed to load '%s'", exec_path);
             pro_set_exit_code(1); /* stays halted from main_stop */
         }
         else
