@@ -37,8 +37,8 @@ void mut_init(int argc, const char *const argv[])
     fe_open();
     /* The machine's RAM comes up random here as it does on the desktop, and
      * an expectation written against a random fill would be a different
-     * number every run. The corpus answers to the reproducible one. */
-    fe.option_value[0] = NULL; /* whatever the core defaults to for speed */
+     * number every run. The corpus answers to the reproducible one; every
+     * other setting is whatever the core defaults to. */
     for (int i = 0; i < fe.option_count; i++)
         if (!strcmp(fe.option_key[i], "rp6502_mem_fill"))
             fe.option_value[i] = "00";
