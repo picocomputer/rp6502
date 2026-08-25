@@ -168,6 +168,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/str/str.c
     ${RIA_SRC}/sys/cfg.c
     ${RIA_SRC}/sys/com.c
+    ${RIA_SRC}/sys/com_tel.c
+    ${RIA_SRC}/sys/com_utf8.c
     ${RIA_SRC}/sys/cpu.c
     ${RIA_SRC}/sys/led.c
     ${RIA_SRC}/sys/lfs.c

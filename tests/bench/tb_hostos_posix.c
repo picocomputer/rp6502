@@ -11,6 +11,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h> /* mkdtemp: stdlib.h on glibc, here on macOS */
 
 bool host_make_tmpdir(char *buf, size_t sz)
 {
