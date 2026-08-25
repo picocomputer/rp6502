@@ -308,6 +308,198 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
+  # libretro-windows: the same core with MSVC, and the same suite — the bench
+  # opens the .dll the way a frontend does, so what passes is the artifact.
+  # dumpbin is the dev shell's nm, which is why the export check enters the
+  # shell a second time.
+  # ---------------------------------------------------------------------------
+  libretro-windows:
+    needs: [version]
+    runs-on: windows-2025
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro-windows.zip
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure & build core (Release)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
+          cd src/host/libretro
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
+            "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
+            "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run core tests
+        shell: pwsh
+        run: ctest --test-dir build/libretro/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
+
+      # The ABI is the whole export surface on this linker as on every other.
+      # An empty table is not a clean one, so the first thing checked is that
+      # the table was read at all.
+      - name: Check the export surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
+          $names = (dumpbin /exports build\libretro\release\rp6502_libretro.dll) |
+            Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if (-not ($names -contains 'retro_init')) { Write-Error 'no export table'; exit 1 }
+          $bad = @($names | Where-Object { $_ -notlike 'retro_*' })
+          if ($bad.Count) { $bad; exit 1 }
+
+      - name: Package libretro-windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory stage | Out-Null
+          Copy-Item build/libretro/release/rp6502_libretro.dll stage/
+          Copy-Item src/dist/libretro/rp6502_libretro.info stage/
+          Copy-Item src/dist/libretro/README.txt stage/
+          Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-macos: the core on the other desktop, arm64 like the .app — the
+  # buildbot's osx-x86 job covers the Intel Macs. Mach-O wears a leading
+  # underscore, and this is the only continuous proof that the export list
+  # ld64 takes says what the version script says everywhere else.
+  # ---------------------------------------------------------------------------
+  libretro-macos:
+    needs: [version]
+    runs-on: macos-15
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro-macos.zip
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure & build core (Release, arm64)
+        run: |
+          set -euxo pipefail
+          cmake -S src/host/libretro -B build/libretro/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
+          cmake --build build/libretro/release
+
+      - name: Run core tests
+        run: ctest --test-dir build/libretro/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
+
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          nm -gU build/libretro/release/rp6502_libretro.dylib | awk '{print $3}' > exports.txt
+          grep -q '^_retro_init$' exports.txt   # an empty read is not a clean one
+          grep -v '^_retro_' exports.txt > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+      - name: Package libretro-macos
+        run: |
+          set -euxo pipefail
+          mkdir stage
+          cp build/libretro/release/rp6502_libretro.dylib stage/
+          cp src/dist/libretro/rp6502_libretro.info stage/
+          cp src/dist/libretro/README.txt stage/
+          (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" \
+             rp6502_libretro.dylib rp6502_libretro.info README.txt)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-mingw: the buildbot compiles this core for Windows with mingw-w64
+  # rather than MSVC, and a toolchain nobody here runs is a toolchain nobody
+  # breaks on purpose. Build-only with the buildbot's own RP6502_TESTS=OFF —
+  # the suite runs under MSVC above; this is where the compiler that ships to
+  # players gets its say. Nothing here is published.
+  # ---------------------------------------------------------------------------
+  libretro-mingw:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install mingw-w64
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build mingw-w64
+
+      - name: Configure & build core (Release, x86_64-w64-mingw32)
+        run: |
+          set -euxo pipefail
+          cmake -S src/host/libretro -B build/libretro/mingw -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Windows \
+            -DCMAKE_C_COMPILER=x86_64-w64-mingw32-gcc \
+            -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_TESTS=OFF
+          cmake --build build/libretro/mingw
+
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          x86_64-w64-mingw32-objdump -p build/libretro/mingw/rp6502_libretro.dll \
+            | sed -n '/\[Ordinal\/Name Pointer\] Table/,/^$/p' \
+            | awk '/\[[ 0-9]+\]/{print $NF}' > exports.txt
+          grep -q '^retro_init$' exports.txt
+          grep -v '^retro_' exports.txt > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+  # ---------------------------------------------------------------------------
+  # libretro-android: the buildbot's other target, built with the runner's own
+  # NDK. Not src/host/android — that root is the APK. This is the same
+  # src/host/libretro the buildbot's android template points at, driven by the
+  # NDK's toolchain file. Build-only, like mingw: the tests would be arm64
+  # Android binaries. android-28 is the floor the APK already declares.
+  # ---------------------------------------------------------------------------
+  libretro-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure & build core (Release, arm64-v8a)
+        run: |
+          set -euxo pipefail
+          cmake -S src/host/libretro -B build/libretro/android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_TESTS=OFF
+          cmake --build build/libretro/android
+
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          NM="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$NM" -D --defined-only build/libretro/android/rp6502_libretro.so \
+            | awk '{print $3}' > exports.txt
+          grep -q '^retro_init$' exports.txt
+          grep -v '^retro_' exports.txt > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+  # ---------------------------------------------------------------------------
   # macos: build and test on arm64, wrap the binary in an unsigned .app.
   # ---------------------------------------------------------------------------
   macos:
@@ -671,15 +863,19 @@ jobs:
   # Every job named below runs unconditionally on a tag, so none can be skipped
   # and there is no absent asset to tolerate.
   #
-  # Two of them build nothing this publishes and are named anyway. rtl-tests is
-  # the evidence the core works, and a tag that fitted a bitstream the suite
-  # rejects should not reach a release page. sdk-tools verifies the checksums
-  # every project fetches tools/ against, so a broken one breaks the update for
-  # everyone and the person who finds out is a user.
+  # Four of them build nothing this publishes and are named anyway. rtl-tests
+  # is the evidence the core works, and a tag that fitted a bitstream the
+  # suite rejects should not reach a release page. sdk-tools verifies the
+  # checksums every project fetches tools/ against, so a broken one breaks the
+  # update for everyone and the person who finds out is a user. libretro-mingw
+  # and libretro-android compile the core with the two toolchains the libretro
+  # buildbot ships to players, which nothing else here runs — a tag whose core
+  # does not build for them is a tag whose nightlies will not either.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, sdk-tools, pico, linux, libretro, macos, itch-io, windows,
-            android, pocket, rtl-tests]
+    needs: [version, sdk-tools, pico, linux, libretro, libretro-windows,
+            libretro-macos, libretro-mingw, libretro-android, macos, itch-io,
+            windows, android, pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -707,6 +903,7 @@ jobs:
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
                    libretro-linux-x86_64.zip libretro-linux-aarch64.zip \
+                   libretro-windows.zip libretro-macos.zip \
                    pocket.zip itch.io.zip android.apk; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
@@ -739,6 +936,8 @@ jobs:
             dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz
             dist/rp6502-${{ needs.version.outputs.version }}-libretro-linux-x86_64.zip
             dist/rp6502-${{ needs.version.outputs.version }}-libretro-linux-aarch64.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-libretro-windows.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-libretro-macos.zip
             dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
             dist/rp6502-${{ needs.version.outputs.version }}-itch.io.zip
             dist/rp6502-${{ needs.version.outputs.version }}-android.apk
@@ -759,6 +958,8 @@ jobs:
             | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
             | `rp6502-${{ needs.version.outputs.version }}-libretro-linux-x86_64.zip` | RetroArch core, Linux x86_64 |
             | `rp6502-${{ needs.version.outputs.version }}-libretro-linux-aarch64.zip` | RetroArch core, Linux aarch64 |
+            | `rp6502-${{ needs.version.outputs.version }}-libretro-windows.zip` | RetroArch core, Windows x64 |
+            | `rp6502-${{ needs.version.outputs.version }}-libretro-macos.zip` | RetroArch core, macOS Apple silicon |
             | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
             | `rp6502-${{ needs.version.outputs.version }}-itch.io.zip` | Publish a program on itch.io |
             | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |

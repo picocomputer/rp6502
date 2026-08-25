@@ -38,7 +38,10 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-`build/libretro/release/rp6502_libretro.so` is the core. The suite is
+The same three commands build it on Windows, from a Visual Studio x64
+developer prompt, and on macOS — this is one root on every OS, and the
+seam under it is `core/posix` or `core/windows` depending on which one you
+are. The core is `rp6502_libretro.so`, `.dll`, or `.dylib`. The suite is
 two halves: `tests/cpu` is the machine, answering through the shipped
 library via `tests/bench/mut_libretro.c`, and `tests/host/libretro` is
 this core as a libretro citizen. Both open the `.so` rather than linking
@@ -46,12 +49,22 @@ its objects, because the export list and the version script are exactly
 what a pile of objects cannot be wrong about.
 
 ```
-nm -D --defined-only build/libretro/release/rp6502_libretro.so
+nm -D --defined-only build/libretro/release/rp6502_libretro.so   # ELF
+nm -gU build/libretro/release/rp6502_libretro.dylib              # Mach-O, _retro_*
+dumpbin /exports build\libretro\release\rp6502_libretro.dll    # PE
 ```
 
-should print `retro_*` and nothing else.
+should print `retro_*` and nothing else. CI checks all three, which is the
+only continuous proof of the two nobody here can run.
 
 ## Running it in a frontend
+
+From VS Code, F5 on **RetroArch Debug** builds the debug core, launches
+RetroArch on it, and stops at breakpoints in `retro.c`. It picks a ROM from
+`tests/roms`; **RetroArch Debug (path…)** takes any path you type. Both
+carry the WSL workaround below, so nobody has to remember it.
+
+By hand:
 
 ```
 retroarch -v -L build/libretro/release/rp6502_libretro.so tests/roms/adventure.rp6502
