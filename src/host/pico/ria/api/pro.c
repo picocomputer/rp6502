@@ -24,93 +24,40 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // Records argv[0] of the currently running process.
-static char pro_running_path[256];
 
 // Records the launcher that will re-run when program ends.
-static char pro_launcher_path[256];
 
-static int16_t pro_exit_code;
 
-void pro_run(void)
+/* This machine loads through a task-driven state machine; both of these are
+ * rom_exec picking up the argv the caller has already set. Op 0x09 stops the
+ * program first -- the relaunch is running inside a stop already. */
+void pro_exec_start(const char *path)
 {
-    const char *argv0 = arg_index(0);
-    if (argv0)
-    {
-        strncpy(pro_running_path, argv0, sizeof(pro_running_path) - 1);
-        pro_running_path[sizeof(pro_running_path) - 1] = '\0';
-    }
-    else
-        pro_running_path[0] = '\0';
-}
-
-void pro_stop(void)
-{
-    pro_exit_code = API_AX;
-    if (rom_active())
-    {
-        // A new ROM load is already in flight (pro_api_exec or pro_nfc);
-        // skip the launcher re-exec so we don't clobber it.
-        pro_running_path[0] = '\0';
-        return;
-    }
-    bool relaunch = !pro_is_launcher() && pro_launcher_path[0] != '\0';
-    pro_running_path[0] = '\0';
-    if (!relaunch)
-        pro_launcher_path[0] = '\0';
-    else
-    {
-        arg_clear();
-        arg_append(pro_launcher_path);
-        rom_exec();
-    }
-}
-
-void pro_cancel_launcher(void)
-{
-    pro_launcher_path[0] = '\0';
-}
-
-bool pro_api_argv(void)
-{
-    return api_return_ax(arg_push_xstack());
-}
-
-bool pro_api_exec(void)
-{
-    if (!arg_pull_xstack())
-        return api_return_errno(API_EINVAL);
-    // Committed to the exec; rom.c surfaces any load errors on the console.
+    (void)path;
     main_stop();
     rom_exec();
-    return api_return_ax(0);
 }
 
-bool pro_has_launcher(void)
+void pro_exec_relaunch(const char *path)
 {
-    return pro_launcher_path[0] != '\0';
+    (void)path;
+    rom_exec();
 }
 
-void pro_set_launcher(bool is_launcher)
+/* A load already committed by pro_api_exec or pro_nfc must not be clobbered
+ * by the launcher. */
+bool pro_exec_inflight(void)
 {
-    if (is_launcher)
-    {
-        strncpy(pro_launcher_path, pro_running_path, sizeof(pro_launcher_path) - 1);
-        pro_launcher_path[sizeof(pro_launcher_path) - 1] = '\0';
-    }
-    else
-        pro_launcher_path[0] = '\0';
+    return rom_active();
 }
 
-bool pro_is_launcher(void)
-{
-    return pro_launcher_path[0] != '\0' &&
-           strcmp(pro_running_path, pro_launcher_path) == 0;
-}
 
-int16_t pro_get_exit_code(void)
-{
-    return pro_exit_code;
-}
+
+
+
+
+
+
 
 void pro_nfc(const uint8_t *tag_data, size_t len)
 {
@@ -177,7 +124,7 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
         goto fail;
     DBG("pro_nfc argv[0] %s\n", path);
 
-    if (strcmp(path, pro_running_path) == 0)
+    if (strcmp(path, pro_running()) == 0)
         goto already_running;
 
     // Full success

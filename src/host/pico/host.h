@@ -27,6 +27,9 @@
 #define HOST_INTERP 1
 #define HOST_TERM_MAX_HEIGHT 32
 
+/* The launcher chain's path buffer, before the contract's default. */
+#define PRO_PATH_MAX 256
+
 #include "host/os.h"
 
 #endif /* _HOST_PICO_HOST_H_ */

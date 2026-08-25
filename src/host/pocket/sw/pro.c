@@ -31,10 +31,6 @@
 
 static char pro_argv0[PRO_ARGV0_MAX];
 static char pro_exec_path[PRO_ARGV0_MAX];
-/* pro_argv0 is the host's answer and does not change on an exec, so the
- * chain tracks argv[0] of each run instead. */
-static char pro_running_path[PRO_ARGV0_MAX];
-static char pro_launcher_path[PRO_ARGV0_MAX];
 static bool pro_exec_pending;
 
 /* Once per staged image, not once per run: asking is a blocking bridge
@@ -45,9 +41,9 @@ void pro_restage(void)
     pro_exec_pending = false;
     /* A program the user picked from the menu supersedes the chain the
      * one before it was in. */
-    pro_launcher_path[0] = '\0';
-    pro_running_path[0] = '\0';
+    pro_cancel_launcher();
     arg_clear();
+    pro_run(); /* an empty argv: nothing is running until the image starts */
     if (msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
         arg_append(pro_argv0);
 }
@@ -56,96 +52,39 @@ void pro_restage(void)
  * store holds; before any exec that is the host's answer. */
 const char *pro_staged_path(void)
 {
-    return pro_running_path[0] ? pro_running_path : pro_argv0;
+    return pro_running()[0] ? pro_running() : pro_argv0;
 }
 
-void pro_run(void)
-{
-    const char *argv0 = arg_index(0);
-    if (argv0 && strlen(argv0) < sizeof pro_running_path)
-        memcpy(pro_running_path, argv0, strlen(argv0) + 1);
-    else
-        pro_running_path[0] = '\0';
-}
 
-bool pro_has_launcher(void)
-{
-    return pro_launcher_path[0] != '\0';
-}
 
-void pro_set_launcher(bool is_launcher)
-{
-    if (is_launcher)
-        memcpy(pro_launcher_path, pro_running_path,
-               strlen(pro_running_path) + 1);
-    else
-        pro_launcher_path[0] = '\0';
-}
 
-bool pro_is_launcher(void)
-{
-    return pro_launcher_path[0] != '\0' &&
-           strcmp(pro_running_path, pro_launcher_path) == 0;
-}
 
-void pro_cancel_launcher(void)
-{
-    pro_launcher_path[0] = '\0';
-}
-
-/* The last program's exit code, for the EXIT_CODE attribute. The fabric
- * cannot raise the 6502's IRQ for a signal, but a code a program returned
- * is just a number, and every other machine answers with it. */
-static int16_t pro_exit_code;
-
-int16_t pro_get_exit_code(void)
-{
-    return pro_exit_code;
-}
-
-void pro_set_exit_code(int16_t code)
-{
-    pro_exit_code = code;
-}
 
 /* An exec the program asked for wins; otherwise it returns to the
  * launcher. The launcher's own exit ends the chain. */
-void pro_stop(void)
+/* Both stage the image; op 0x09 also stops the machine, because the
+ * program that asked is already gone and the staging store is the console's
+ * competitor for the bridge. The relaunch is inside a stop already. */
+void pro_exec_start(const char *path)
 {
-    bool relaunch = !pro_exec_pending && pro_has_launcher() &&
-                    !pro_is_launcher();
-    pro_running_path[0] = '\0';
-    if (!relaunch)
-    {
-        if (!pro_exec_pending)
-            pro_launcher_path[0] = '\0';
-        return;
-    }
-    memcpy(pro_exec_path, pro_launcher_path, strlen(pro_launcher_path) + 1);
-    pro_exec_pending = true;
-    arg_clear();
-    arg_append(pro_exec_path);
+    pro_exec_relaunch(path);
+    main_stop();
 }
 
-bool pro_api_argv(void)
+void pro_exec_relaunch(const char *path)
 {
-    return api_return_ax(arg_push_xstack());
-}
-
-bool pro_api_exec(void)
-{
-    if (!arg_pull_xstack())
-        return api_return_errno(API_EINVAL);
-    const char *path = arg_index(0);
-    if (!path || strlen(path) >= sizeof pro_exec_path)
-        return api_return_errno(API_EINVAL);
     memcpy(pro_exec_path, path, strlen(path) + 1);
     pro_exec_pending = true;
-    /* Committed: errors surface on the console, because the program that
-     * asked is already gone. */
-    main_stop();
-    return api_return_ax(0);
 }
+
+/* A staged image is a load this machine has committed to: the chain must
+ * not put the launcher over it. */
+bool pro_exec_inflight(void)
+{
+    return pro_exec_pending;
+}
+
+
 
 bool pro_exec_take(void)
 {

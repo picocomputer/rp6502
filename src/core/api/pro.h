@@ -18,7 +18,13 @@
  */
 
 void pro_run(void);
-void pro_stop(void);
+
+/* A program stopped. True when the launcher was asked for and the machine
+ * keeps running; false when the chain has ended. */
+bool pro_stop(void);
+
+/* argv[0] of what is running now, empty between programs. */
+const char *pro_running(void);
 
 /* The API implementation
  */
@@ -39,6 +45,25 @@ bool pro_has_launcher(void);
 void pro_set_launcher(bool is_launcher);
 bool pro_is_launcher(void);
 int16_t pro_get_exit_code(void);
+
+/* The code a program returned, for a stop that did not come through the
+ * EXIT syscall -- a failed exec, where the machine halts with nothing to
+ * run -- and for the machines whose EXIT handler reads it themselves. */
+void pro_set_exit_code(int16_t code);
+
+/* ---- what a machine answers about starting the next program ---- */
+
+/* Op 0x09 asked for a new program: commit to it, stopping whatever this
+ * machine has to stop. The argv buffer already holds what it will be given. */
+void pro_exec_start(const char *path);
+
+/* The launcher is being re-run from inside a stop that is already underway,
+ * so this one only commits the load. */
+void pro_exec_relaunch(const char *path);
+
+/* True while a load this machine has already committed to is on its way, so
+ * the chain must not schedule another over it. */
+bool pro_exec_inflight(void);
 
 // Load a ROM via NFC
 void pro_nfc(const uint8_t *tag_data, size_t len);

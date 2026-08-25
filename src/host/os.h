@@ -60,6 +60,14 @@
 #define HOST_TERM_MAX_HEIGHT 30
 #endif
 
+/* How long a path this machine keeps for the launcher chain. A host OS path
+ * can be long; a Pico holds what its monitor accepts, and a soft CPU counting
+ * static RAM holds less. Each machine that is not a host OS says so before
+ * including this. */
+#ifndef PRO_PATH_MAX
+#define PRO_PATH_MAX 4096
+#endif
+
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
  * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not

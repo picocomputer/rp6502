@@ -6,6 +6,7 @@
  */
 
 #include "core/sys/pro.h"
+#include "core/api/pro.h"
 #include "core/sys/msc.h"
 #include "host/fs.h"
 #include "core/sys/mem.h"
@@ -15,13 +16,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* Launcher chain (firmware pro.c): pro_running_path is argv[0] of the program
- * running now; pro_launcher_path is the ROM to re-run when a program exits.
- * pro_exit_code holds the last exit code for the EXIT_CODE attribute. */
-static char pro_running_path[MSC_MAX_PATH];
-static char pro_launcher_path[MSC_MAX_PATH];
-static int16_t pro_exit_code;
 
 /* Pending exec (op 0x09): the new program loads at the frame boundary rather
  * than mid-tick, so the master clock and the partially-run frame stay
@@ -80,90 +74,34 @@ bool pro_set_argv(const char *rom, int argc, char *const *args)
     return ok;
 }
 
-/* Snapshot argv[0] of the program now starting (firmware pro_run), so
- * pro_running_path always names what is running. */
-void pro_run(void)
-{
-    const char *argv0 = arg_index(0);
-    snprintf(pro_running_path, sizeof pro_running_path, "%s", argv0 ? argv0 : "");
-}
-
-/* LAUNCHER attribute get: is a launcher armed? */
-bool pro_has_launcher(void)
-{
-    return pro_launcher_path[0] != '\0';
-}
-
-/* LAUNCHER attribute set: a program registers ITSELF (its argv[0]) as the
- * launcher to re-run after each child exits, or clears the chain. */
-void pro_set_launcher(bool is_launcher)
-{
-    if (is_launcher)
-        snprintf(pro_launcher_path, sizeof pro_launcher_path, "%s", pro_running_path);
-    else
-        pro_launcher_path[0] = '\0';
-}
-
-/* True when the program running now is the launcher itself — the chain ends
- * here rather than re-running it forever. */
-bool pro_is_launcher(void)
-{
-    return pro_launcher_path[0] != '\0' &&
-           strcmp(pro_running_path, pro_launcher_path) == 0;
-}
-
-int16_t pro_get_exit_code(void)
-{
-    return pro_exit_code;
-}
-
-/* Record an exit code for a stop that doesn't go through the EXIT syscall — a
- * failed exec, where the machine halts with no program to run. */
-void pro_set_exit_code(int16_t code)
-{
-    pro_exit_code = code;
-}
-
-/* Program EXIT (op 0xFF), mirroring firmware pro_stop. Records the exit code
- * and, if a launcher is armed and the exiting program is not itself the
- * launcher, schedules a re-exec of the launcher ROM and returns true (the
- * machine keeps running). Otherwise the chain ends and it returns false, so the
- * caller halts. */
+/* Program EXIT (op 0xFF). Records the code, then the shared chain decides
+ * whether there is a launcher to go back to; false means nothing is left to
+ * run and the caller halts. */
 bool pro_exit(int16_t exit_code)
 {
-    pro_exit_code = exit_code;
-    bool relaunch = !pro_is_launcher() && pro_has_launcher();
-    pro_running_path[0] = '\0';
-    if (!relaunch)
-    {
-        pro_launcher_path[0] = '\0';
-        return false;
-    }
-    /* Build the relaunch argv from a copy: arg_append overwrites the argv buffer,
-     * and the launcher path must survive to seed pro_running_path on reload. */
-    char path[MSC_MAX_PATH];
-    snprintf(path, sizeof path, "%s", pro_launcher_path);
-    arg_clear();
-    arg_append(path);
+    pro_set_exit_code(exit_code);
+    return pro_stop();
+}
+
+/* Both are the same note here: this machine loads at the frame boundary
+ * rather than mid-tick, where the master clock and a half-run frame would
+ * disagree. pro_exec halts the 6502, which is all the stopping op 0x09
+ * needs. */
+void pro_exec_start(const char *path)
+{
     pro_exec(path);
-    return true;
 }
 
-/* op 0x08: read the running program's argv onto the xstack. */
-bool pro_api_argv(void)
+void pro_exec_relaunch(const char *path)
 {
-    return api_return_ax(arg_push_xstack());
+    pro_exec(path);
 }
 
-/* op 0x09: replace the running program. The xstack holds the new argv buffer;
- * argv[0] names the .rp6502 to load. Committed once validated — load errors
- * surface on reload, matching the firmware. */
-bool pro_api_exec(void)
+/* Never: a pending exec on this machine is the note the frame loop is about
+ * to read, including the one the chain itself just wrote. A load someone else
+ * committed cannot be outstanding at a stop, because an exec halts the 6502
+ * on the spot rather than letting it reach EXIT. */
+bool pro_exec_inflight(void)
 {
-    if (!arg_pull_xstack())
-        return api_return_errno(API_EINVAL);
-    /* argv[0] (an MSC0:/overlay/host name) is resolved by the loader at the
-     * frame boundary. */
-    pro_exec(arg_index(0));
-    return api_return_ax(0);
+    return false;
 }
