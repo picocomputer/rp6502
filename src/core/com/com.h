@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _CORE_SYS_COM_H_
-#define _CORE_SYS_COM_H_
+#ifndef _CORE_COM_COM_H_
+#define _CORE_COM_COM_H_
 
 #include "core/com.h"
 #include <stddef.h>
@@ -25,15 +25,15 @@ void com_init(void);
  * survives an exec). The cold-boot ring flush is com_init. */
 void com_run(void);
 
-/* The wire to the terminal: the pico stdio shim hands the captured driver's
- * out_chars here (the analog of the firmware's UART/PIX fanout target). */
-
-/* The single terminal sink (the firmware UART-drain analog): tap/echo/BEL
- * observe every terminal-bound byte here, then it goes out the wire. */
+/* The single terminal sink: the tap, the bell and the wire all observe every
+ * terminal-bound byte here, once, after CRLF translation. */
 void com_tx_write(const char *buf, int len);
+
+/* CRLF-translate, then the sink. Where a machine's own com_printf ends. */
+void com_crlf_write(const char *buf, int len);
 
 /* Tap the terminal OUT stream (NULL to clear). Used by tests to assert
  * program output without rendering a frame. */
 void com_set_tx_tap(void (*tap)(const char *buf, int len));
 
-#endif /* _CORE_SYS_COM_H_ */
+#endif /* _CORE_COM_COM_H_ */

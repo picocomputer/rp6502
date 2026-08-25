@@ -13,7 +13,7 @@
  * assertions are on the program's real text.
  */
 
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/msc.h"
 #include "host/fs.h"
 #include "tb_hostos.h"

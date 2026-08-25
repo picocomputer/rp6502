@@ -68,6 +68,14 @@
 #define PRO_PATH_MAX 4096
 #endif
 
+/* Each console ring, in bytes; a power of two. Two of these exist, one for
+ * what was typed and one for what the terminal answered, and neither is a
+ * buffer anything waits on: a paste drips in behind com_kbd_free and replies
+ * arrive in bounded bursts. */
+#ifndef COM_RING_SIZE
+#define COM_RING_SIZE 256
+#endif
+
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
  * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not

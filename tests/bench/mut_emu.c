@@ -12,7 +12,7 @@
 
 #include "mut.h"
 
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/mem.h"
 #include "core/sys/vga.h"
 #include "emu_boot.h"

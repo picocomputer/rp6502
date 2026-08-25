@@ -6,7 +6,7 @@
  */
 
 #include "core/sys/pro.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/cpu.h"
 #include "core/sys/mem.h"
 #include "core/sys/main.h"

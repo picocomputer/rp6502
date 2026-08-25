@@ -9,9 +9,8 @@
 
 #include "core/com.h"
 
-/* This machine's console lifecycle, called from its main.c. */
-void com_init(void);
-void com_run(void);
+/* This machine's once-a-frame console service; the rest of the console is
+ * core/com.h, answered by core/com/com.c. */
 void com_task(void);
 
 #endif /* _FPGA_SW_COM_H_ */

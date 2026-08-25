@@ -12,7 +12,7 @@
 #include "core/hid/mou.h"
 #include "host/sokol/pad.h"
 #include "core/hid/tab.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/cpu.h"
 #include "core/sys/mem.h"
 #include "core/sys/vga.h"

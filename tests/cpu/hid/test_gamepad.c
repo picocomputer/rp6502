@@ -11,7 +11,7 @@
  * ~1 Hz cursor blink, so a frame CRC would not be stable frame to frame.
  */
 
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/hid/pad.h"
 #include "core/sys/mem.h"
 #include "core/sys/cpu.h"

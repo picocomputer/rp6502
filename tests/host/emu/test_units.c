@@ -16,7 +16,7 @@
 #include "core/sys/main.h"
 #include "core/sys/rom.h"
 #include "core/sys/mem.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>

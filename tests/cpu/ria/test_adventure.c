@@ -14,7 +14,7 @@
  */
 
 #include "core/sys/kbd.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/cpu.h"
 #include "emu_boot.h"
 #include <string.h>

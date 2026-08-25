@@ -14,7 +14,7 @@
 #include "core/api/oem.h"
 #include "core/sys/kbd.h"
 #include "core/hid/vt.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/hid/kbd.h"
 #include <stdio.h>
 #include <stdlib.h>

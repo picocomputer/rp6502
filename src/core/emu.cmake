@@ -80,7 +80,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/rand.c
     ${RP6502_SRC}/core/sys/rand.c
     ${RP6502_SRC}/core/sys/cfg.c
-    ${RP6502_SRC}/core/sys/com.c
+    ${RP6502_SRC}/core/com/com.c
+    ${RP6502_SRC}/core/sys/con.c
     ${RP6502_SRC}/core/sys/cpu.c
     ${RP6502_SRC}/core/sys/mem.c
     ${RP6502_SRC}/core/sys/pix.c

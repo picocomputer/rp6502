@@ -15,7 +15,7 @@
 #include "core/sys/mem.h"
 #include "core/aud/bel.h"
 #include "core/sys/kbd.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/ria.h"
 #include "stdsys.h"
 #include "emu_boot.h"

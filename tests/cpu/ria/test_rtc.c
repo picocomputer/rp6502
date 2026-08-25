@@ -14,7 +14,7 @@
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/mem.h"
 #include "core/sys/cpu.h"
 #include "tb_hostos.h"

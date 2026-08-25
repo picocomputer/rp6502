@@ -12,7 +12,7 @@
 #include "core/sys/msc.h"
 #include "core/sys/rom.h"
 #include "core/sys/tmp.h"
-#include "core/sys/com.h"
+#include "core/com/com.h"
 #include "core/sys/cpu.h"
 #include "core/sys/mem.h"
 #include "core/pix.h"
