@@ -5,15 +5,15 @@
  *
  * Win32 primitives that are this program's rather than the operating
  * system's. What Windows answers for every host of ours is in
- * core/windows/host.c; these three differ because the emulator is a program
+ * host/windows/host.c; these three differ because the emulator is a program
  * with a window and a console and an ANSI main(), and a libretro core is
  * none of those things.
  */
 
 #include "host.h"
 #include "core/api/oem.h"
-#include "core/emu/app/cli.h"    /* host_console_attach */
-#include "core/emu/app/window.h" /* host_sleep_until_ns */
+#include "host/sokol/cli.h"    /* host_console_attach */
+#include "host/sokol/window.h" /* host_sleep_until_ns */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>

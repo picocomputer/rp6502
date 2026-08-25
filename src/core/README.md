@@ -5,14 +5,15 @@ first target; MiSTer is planned. Both are Cyclone V, so this directory stays
 platform independent and each host gets a thin wrapper in `src/host/`.
 
 The 6502, VIA, video renderers and audio are RTL. A Hazard3 soft RISC-V runs a
-trimmed build of the real `src/ria` firmware C for the OS layer — syscalls, HID
-and ROM loading — mirroring the RP2350 + W65C02 split of the real machine.
+trimmed build of the real `src/host/pico/ria` firmware C for the OS layer —
+syscalls, HID and ROM loading — mirroring the RP2350 + W65C02 split of the
+real machine.
 
 ## Audio
 
-The PSG is RTL and agrees with `ria/aud/psg.c` sample for sample in lockstep.
+The PSG is RTL and agrees with `core/aud/psg.c` sample for sample in lockstep.
 Its ninth voice is the console bell, configured by the soft CPU: the sounds
-are `ria/aud/bel_presets.c` and the queue and lifetime are
+are `core/aud/bel_presets.c` and the queue and lifetime are
 `src/host/pocket/sw/bel.c`, so fabric holds a voice and software holds the bell.
 
 Nothing gates the mix. Every engine and the bell sum, on one sample tick —
@@ -39,15 +40,15 @@ in `vendor/opl2_fpga_rp6502`, each annotated where it sits.
 
     src/core/       the machine: C and SystemVerilog together, and the CMake
                     modules every root includes
+    src/core/sys/   the software machine — what the RTL does in fabric, in C
     src/host/pocket/sw/  the soft CPU's firmware, C for the Hazard3
-    src/host/       every host the machine runs on, emulated or fabric, and a
-                    CMake project root apiece
+    src/host/       every OS and platform the machine runs on
 
-`src/host/pocket` sits beside `src/host/web` and `src/host/linux` because they
-are the same kind of thing — a wrapper binding one machine to one host, each
-with a CMake root of its own. Only the Pocket's happens to be SystemVerilog.
-MiSTer arrives as `src/host/mister` with a root like this one's; nothing here
-changes.
+`src/host/pocket` sits beside `src/host/emsdk` and `src/host/linux` because
+they are the same kind of thing — what binds one machine to one host. Only the
+Pocket's happens to be SystemVerilog. The three seams shared across hosts sit
+directly in `src/host/`: `os.h`, `fs.h` and `dir.h`, what every platform
+answers. MiSTer arrives as `src/host/mister`; nothing here changes.
 
 Tests are filed by claim. `tests/cpu` is the machine's, written once and run
 against whichever machine a tree builds; `tests/rtl` is what only a simulator

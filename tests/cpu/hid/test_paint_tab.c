@@ -12,9 +12,9 @@
  */
 
 #include "core/hid/tab.h"
-#include "core/emu/sys/cpu.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/vga.h"
+#include "core/sys/cpu.h"
+#include "core/sys/mem.h"
+#include "core/sys/vga.h"
 #include "emu_boot.h"
 
 static uint32_t fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];

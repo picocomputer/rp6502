@@ -10,7 +10,7 @@
  * five kilobytes of table and three short functions, wrapped in enough
  * FF_CODE_PAGE conditionals that the functions cannot be read without
  * first deciding which build you are in. The tables now come out of
- * src/gen/oem_table_gen.py — same numbers, lifted from the
+ * src/core/gen/oem_table_gen.py — same numbers, lifted from the
  * same file — and the logic is here, once, with no build to choose.
  *
  * There is a second reason. The Pocket has no room to link five

@@ -11,8 +11,8 @@
  * DW_OP_regx RS0 = reg 0x30000). The fixture is committed; no toolchain needed.
  */
 
-#include "core/emu/dbg/dwarf_info.h"
-#include "core/emu/dbg/dwarf_line.h"
+#include "core/dap/dwarf_info.h"
+#include "core/dap/dwarf_line.h"
 #include "utest.h"
 
 #include <string.h>

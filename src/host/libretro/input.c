@@ -14,12 +14,12 @@
 
 #include "input.h"
 
-#include "core/emu/hid/kbd.h"
+#include "core/sys/kbd.h"
 #include "core/hid/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
-#include "core/emu/sys/vga.h"
+#include "core/sys/vga.h"
 
 #include "libretro.h"
 

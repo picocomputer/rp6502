@@ -8,7 +8,7 @@
 #define _CORE_HID_KBL_H_
 
 /* The keyboard layout database, generated from def/kbd_*.def by
- * src/gen/kbd_layout_gen.py.
+ * src/core/gen/kbd_layout_gen.py.
  *
  * Every read goes through kbl_word, which the platform supplies: a RIA
  * links the tables into flash, the Pocket stages them in SDRAM and

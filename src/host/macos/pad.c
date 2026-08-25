@@ -14,7 +14,7 @@
  * with everything else rather than from a thread.
  */
 
-#include "core/emu/app/pad_input.h"
+#include "host/sokol/pad_input.h"
 
 #import <GameController/GameController.h>
 

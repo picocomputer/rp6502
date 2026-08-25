@@ -23,22 +23,22 @@ get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
-include(${RP6502_SRC}/core/emu/emu.cmake)
-include(${RP6502_SRC}/core/posix/posix.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/host/posix/posix.cmake)
 target_sources(emu_core PRIVATE host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/core/emu/app/app.cmake)
+include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/core/emu/app/main.c
+    ${RP6502_SRC}/host/sokol/main.c
     ${RP6502_EMU_WINDOW}
     window.c
     pad.c
-    ${RP6502_SRC}/core/emu/app/pad_input.c)
+    ${RP6502_SRC}/host/sokol/pad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE
     SOKOL_NO_ENTRY SOKOL_METAL RP6502_PAD_HOST)
@@ -46,9 +46,9 @@ target_compile_definitions(rp6502-emu PRIVATE
 # sokol on macOS needs Objective-C; compile the impl units as .m and
 # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
 set_source_files_properties(
-    ${RP6502_SRC}/core/emu/app/sokol_impl.c
-    ${RP6502_SRC}/core/emu/app/window_core.c
-    ${RP6502_SRC}/core/emu/app/input.c
+    ${RP6502_SRC}/host/sokol/sokol_impl.c
+    ${RP6502_SRC}/host/sokol/window_core.c
+    ${RP6502_SRC}/host/sokol/input.c
     window.c
     pad.c
     PROPERTIES COMPILE_FLAGS "-x objective-c")
@@ -58,7 +58,7 @@ target_link_libraries(rp6502-emu PRIVATE
     "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
     "-framework MetalKit" "-framework AudioToolbox" "-framework GameController")
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/emu/app/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
 
 rp6502_emu_debugger(rp6502-emu)
 

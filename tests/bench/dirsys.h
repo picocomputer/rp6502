@@ -7,14 +7,14 @@
  * msc_api_*) the way the 6502 does: stage the args on the xstack / in the API
  * registers, call the handler, then read the AX result and decode any pushed
  * FILINFO / string. The handlers are the unit under test; they call the platform
- * primitives (host/host.h) for the actual OS operations.
+ * primitives (host/os.h) for the actual OS operations.
  */
 
 #ifndef _EMU_TESTS_DIRSYS_H_
 #define _EMU_TESTS_DIRSYS_H_
 
 #include "core/api/api.h"
-#include "core/emu/sys/mem.h" /* xstack */
+#include "core/sys/mem.h" /* xstack */
 #include "fatfs/ff.h"    /* FILINFO */
 #include <stdint.h>
 #include <stdio.h>

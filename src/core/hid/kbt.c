@@ -22,7 +22,7 @@
 #include <string.h>
 /* The case-insensitive compares a layout name is matched with. Named by
  * POSIX rather than by C, and a host that has no such header supplies
- * one — see src/core/windows. */
+ * one — see src/host/windows. */
 #include <strings.h>
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)

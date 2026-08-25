@@ -37,7 +37,7 @@ rp6502_add_module_test(psg
 rp6502_add_module_test(rsmp_rtl
     TOP aud_rsmp
     RTL ${RSMP_COEF_PKG} ${RP6502_SRC}/core/aud/aud_rsmp.sv
-    SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/emu/emu/rsmp.c
+    SOURCES test_rsmp_rtl.cpp ${RP6502_SRC}/core/aud/rsmp.c
     INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR}
     DEPENDS rsmp_coef rsmp_coef_pkg
     TIMEOUT 300)

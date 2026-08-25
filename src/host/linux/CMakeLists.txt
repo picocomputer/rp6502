@@ -23,8 +23,8 @@ get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
-include(${RP6502_SRC}/core/emu/emu.cmake)
-include(${RP6502_SRC}/core/posix/posix.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/host/posix/posix.cmake)
 target_sources(emu_core PRIVATE host.c)
 
 # One optimization unit in Release, as it was when this tree was one file:
@@ -33,7 +33,7 @@ target_sources(emu_core PRIVATE host.c)
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/core/emu/app/app.cmake)
+include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 # The desktop window + audio stack. Windows/macOS/web/Android carry their own
 # (D3D11/Metal/WebGL/AAudio); Linux/BSD needs GL + X11 (+ Xi/Xcursor) and ALSA.
@@ -54,11 +54,11 @@ find_package(Threads REQUIRED)
 # feed pad.c.
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/core/emu/app/main.c
+    ${RP6502_SRC}/host/sokol/main.c
     ${RP6502_EMU_WINDOW}
     window.c
     pad.c
-    ${RP6502_SRC}/core/emu/app/pad_input.c)
+    ${RP6502_SRC}/host/sokol/pad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core
     OpenGL::GL X11::X11 X11::Xi X11::Xcursor ALSA::ALSA
     ${CMAKE_DL_LIBS} Threads::Threads)
@@ -68,7 +68,7 @@ target_compile_definitions(rp6502-emu PRIVATE
 
 # On rp6502-emu rather than emu_core: the simulation links emu_core too, as its
 # reference oracle, where a version is nothing to stamp.
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/emu/app/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
 
 rp6502_emu_debugger(rp6502-emu)
 

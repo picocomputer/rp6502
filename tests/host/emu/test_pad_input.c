@@ -13,9 +13,9 @@
  * when someone else's battery dies is the bug this is here to prevent.
  */
 
-#include "core/emu/app/pad_input.h"
-#include "core/emu/main.h"
-#include "core/emu/sys/mem.h"
+#include "host/sokol/pad_input.h"
+#include "core/sys/main.h"
+#include "core/sys/mem.h"
 
 #include "utest.h"
 

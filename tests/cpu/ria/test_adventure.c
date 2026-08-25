@@ -13,9 +13,9 @@
  * assertions are on the program's actual text and survive font/term changes.
  */
 
-#include "core/emu/hid/kbd.h"
-#include "core/emu/sys/com.h"
-#include "core/emu/sys/cpu.h"
+#include "core/sys/kbd.h"
+#include "core/sys/com.h"
+#include "core/sys/cpu.h"
 #include "emu_boot.h"
 #include <string.h>
 

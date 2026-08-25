@@ -18,7 +18,7 @@
  * only those frames rather than wedging the pump.
  */
 
-#include "core/emu/emu/aud.h"
+#include "core/sys/aud.h"
 #include "core/aud/bel.h"
 #include "emu_boot.h"
 

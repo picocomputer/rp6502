@@ -39,7 +39,7 @@ configure_file(${RP6502_SRC}/dist/libretro/rp6502_libretro.info.in
     ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
-include(${RP6502_SRC}/core/emu/emu.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
 
 rp6502_submodule(vendor/libretro-common SENTINEL include/libretro.h
     SPARSE include WANTS "the libretro API header")
@@ -51,14 +51,14 @@ set(RP6502_LIBRETRO_INCLUDE ${RP6502_VENDOR}/libretro-common/include)
 # byte transport — glibc's POSIX AIO would still have helper threads holding
 # a buffer inside a library that is going away.
 if(WIN32)
-    include(${RP6502_SRC}/core/windows/windows.cmake)
+    include(${RP6502_SRC}/host/windows/windows.cmake)
     target_sources(emu_core PRIVATE host_win.c)
 else()
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/core/posix/dir.c
-        ${RP6502_SRC}/core/posix/fs.c
-        ${RP6502_SRC}/core/posix/fs_sync.c
-        ${RP6502_SRC}/core/posix/host.c
+        ${RP6502_SRC}/host/posix/dir.c
+        ${RP6502_SRC}/host/posix/fs.c
+        ${RP6502_SRC}/host/posix/fs_sync.c
+        ${RP6502_SRC}/host/posix/host.c
         host.c)
 endif()
 
@@ -76,7 +76,7 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 add_library(rp6502_libretro SHARED
     retro.c
     input.c
-    ${RP6502_SRC}/core/emu/app/version.c)
+    ${RP6502_SRC}/core/sys/version.c)
 set_target_properties(rp6502_libretro PROPERTIES PREFIX "")
 target_link_libraries(rp6502_libretro PRIVATE emu_core)
 target_include_directories(rp6502_libretro PRIVATE ${RP6502_LIBRETRO_INCLUDE})
@@ -113,7 +113,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/core/emu/app/version.c)
+rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/core/sys/version.c)
 
 # The suite needs python3 and the generated ROM corpus, which a buildbot
 # building a core to ship has no use for. Every other root builds its tests

@@ -9,14 +9,14 @@
 
 #include "core/api/oem.h"
 #include "core/str/str.h"
-#include "core/emu/app/cli.h"
-#include "core/emu/hid/kbd.h"
-#include "core/emu/hid/pad.h"
+#include "host/sokol/cli.h"
+#include "core/sys/kbd.h"
+#include "core/sys/pad.h"
 #include "core/hid/tab.h"
-#include "core/emu/main.h"
-#include "core/emu/emu/rom.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/com.h"
+#include "core/sys/main.h"
+#include "core/sys/rom.h"
+#include "core/sys/mem.h"
+#include "core/sys/com.h"
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>

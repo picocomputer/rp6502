@@ -7,7 +7,7 @@ that is `src/dist/libretro/README.txt`.
 
 A libretro frontend owns the loop, the window, the audio device and the
 input hardware, and calls `retro_run` once per video frame. So this host
-is `emu_core` and an ABI file, and none of `src/core/emu/app` — no sokol,
+is `emu_core` and an ABI file, and none of `src/host/sokol` — no sokol,
 no command line, no script channel, no debugger, no `main()`.
 
 The seams it needs were already there:
@@ -40,7 +40,7 @@ ctest --preset release
 
 The same three commands build it on Windows, from a Visual Studio x64
 developer prompt, and on macOS — this is one root on every OS, and the
-seam under it is `core/posix` or `core/windows` depending on which one you
+seam under it is `host/posix` or `host/windows` depending on which one you
 are. The core is `rp6502_libretro.so`, `.dll`, or `.dylib`. The suite is
 two halves: `tests/cpu` is the machine, answering through the shipped
 library via `tests/bench/mut_libretro.c`, and `tests/host/libretro` is

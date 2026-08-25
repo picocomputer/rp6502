@@ -9,7 +9,7 @@
  * cost a Pocket a USB stack.
  *
  * Only what core/hid/kbd.c uses. The RIA build compares every one against
- * the vendored TinyUSB header (src/gen/hid_usage_check.py) because that is
+ * the vendored TinyUSB header (src/core/gen/hid_usage_check.py) because that is
  * the tree that has it -- the machines that need this file do not, which is
  * the whole reason it exists.
  */

@@ -13,7 +13,7 @@
 #include <pico.h>
 #include <pico/stdlib.h>
 
-/* This machine means all of it. Defined before core/host.h, which supplies
+/* This machine means all of it. Defined before host/os.h, which supplies
  * the do-nothing answers every other machine gives. */
 #define HOST_IN_FLASH(group) __in_flash(group)
 #define HOST_NOT_IN_FLASH(group) __not_in_flash(group)
@@ -27,6 +27,6 @@
 #define HOST_INTERP 1
 #define HOST_TERM_MAX_HEIGHT 32
 
-#include "core/host.h"
+#include "host/os.h"
 
 #endif /* _HOST_PICO_HOST_H_ */

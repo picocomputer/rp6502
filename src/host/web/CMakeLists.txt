@@ -32,23 +32,23 @@ get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
-include(${RP6502_SRC}/core/emu/emu.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
 # The browser has no <aio.h>, so this host brings its own fs seam and takes
 # only the two files a POSIX host shares.
 target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/core/posix/dir.c
-    ${RP6502_SRC}/core/posix/host.c
+    ${RP6502_SRC}/host/posix/dir.c
+    ${RP6502_SRC}/host/posix/host.c
     fs.c
     host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/core/emu/app/app.cmake)
+include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/core/emu/app/main.c
+    ${RP6502_SRC}/host/sokol/main.c
     exports.c
     ${RP6502_EMU_WINDOW}
     window.c)
@@ -67,7 +67,7 @@ target_link_options(rp6502-emu PRIVATE
     "-lidbfs.js"
     "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,addRunDependency,removeRunDependency")
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/emu/app/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
 
 # One web output: build/web/bundle is the shippable itch.io sample, and the
 # link writes rp6502.js/.wasm straight into it so the engine exists once.

@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What both Pico firmwares answer of core/host.h. What only one of them
+ * What both Pico firmwares answer of host/os.h. What only one of them
  * answers is in host_ria.c.
  *
  * TIMER0's raw 64-bit microsecond counter, free-running since reset.

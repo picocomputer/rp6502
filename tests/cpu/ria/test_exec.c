@@ -10,11 +10,11 @@
  * loading a program by its MSC0: path, and the frame-boundary CPU restart.
  */
 
-#include "core/emu/emu/pro.h"
-#include "core/emu/sys/com.h"
-#include "core/emu/emu/msc.h"
-#include "core/fs.h"
-#include "core/emu/sys/cpu.h"
+#include "core/sys/pro.h"
+#include "core/sys/com.h"
+#include "core/sys/msc.h"
+#include "host/fs.h"
+#include "core/sys/cpu.h"
 #include "emu_boot.h"
 #include <stdlib.h>
 #include <string.h>

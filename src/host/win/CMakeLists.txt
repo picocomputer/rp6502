@@ -23,22 +23,22 @@ get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
-include(${RP6502_SRC}/core/emu/emu.cmake)
-include(${RP6502_SRC}/core/windows/windows.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/host/windows/windows.cmake)
 target_sources(emu_core PRIVATE host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/core/emu/app/app.cmake)
+include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/core/emu/app/main.c
+    ${RP6502_SRC}/host/sokol/main.c
     ${RP6502_EMU_WINDOW}
     window.c
     pad.c
-    ${RP6502_SRC}/core/emu/app/pad_input.c)
+    ${RP6502_SRC}/host/sokol/pad_input.c)
 # hid for the raw-HID gamepads; the XInput runtime is LoadLibrary'd because
 # its DLL name varies and the Guide button is only at an ordinal.
 target_link_libraries(rp6502-emu PRIVATE emu_core d3d11 dxgi shell32 hid user32)
@@ -60,7 +60,7 @@ add_subdirectory(${RP6502_VENDOR}/wingetopt wingetopt)
 target_link_libraries(rp6502-emu PRIVATE wingetopt)
 target_compile_definitions(rp6502-emu PRIVATE _BSD_SOURCE)
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/emu/app/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
 
 # The version metadata Explorer reads. RC is not one of project()'s languages,
 # so it is enabled where it is used; both rc.exe and windres accept this file.

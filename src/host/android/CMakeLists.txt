@@ -79,21 +79,21 @@ get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
 include(${RP6502_ROOT}/version.cmake)
 
 set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
-include(${RP6502_SRC}/core/emu/emu.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
 # Bionic has no <aio.h>, and the shared seam has a synchronous transport for
 # exactly that reason — the libretro core takes the same pair on every OS
 # that is not Windows. One bionic filesystem answer, not two.
 target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/core/posix/dir.c
-    ${RP6502_SRC}/core/posix/fs.c
-    ${RP6502_SRC}/core/posix/fs_sync.c
-    ${RP6502_SRC}/core/posix/host.c
+    ${RP6502_SRC}/host/posix/dir.c
+    ${RP6502_SRC}/host/posix/fs.c
+    ${RP6502_SRC}/host/posix/fs_sync.c
+    ${RP6502_SRC}/host/posix/host.c
     host.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/core/emu/app/app.cmake)
+include(${RP6502_SRC}/host/sokol/sokol.cmake)
 
 # No main() and no SOKOL_NO_ENTRY: this host enters through sokol_main in
 # window.c, which NativeActivity calls.
@@ -101,7 +101,7 @@ add_library(rp6502-emu SHARED ${RP6502_EMU_APP} ${RP6502_EMU_WINDOW} window.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core android log EGL GLESv3 aaudio)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_GLES3 RP6502_ANDROID_INPUT_HOOK)
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/emu/app/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
 
 # The APK, for the standalone tree only: under AGP this same file is being
 # read by the Gradle build that would be invoked, and RP6502_GRADLE is how it

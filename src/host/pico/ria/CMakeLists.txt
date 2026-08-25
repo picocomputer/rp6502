@@ -16,8 +16,8 @@ endif()
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
 # generator so the logic in api/uni.c can be read without a
-# preprocessor. See src/gen/oem_table_gen.py.
-set(OEMCP_GEN ${RP6502_ROOT}/src/gen/oem_table_gen.py)
+# preprocessor. See src/core/gen/oem_table_gen.py.
+set(OEMCP_GEN ${RP6502_ROOT}/src/core/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_ROOT}/vendor/fatfs/ffunicode.c)
 set(OEMCP_C ${CMAKE_CURRENT_BINARY_DIR}/oemcp.c)
 set(OEMCP_H ${CMAKE_CURRENT_BINARY_DIR}/oemcp.h)
@@ -29,8 +29,8 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     VERBATIM)
 
 # The keyboard layouts, out of def/kbd_*.def and into one image hid/kbl.c
-# reads a word at a time. See src/gen/kbd_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_ROOT}/src/gen/kbd_layout_gen.py)
+# reads a word at a time. See src/core/gen/kbd_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_ROOT}/src/core/gen/kbd_layout_gen.py)
 set(KBDLAY_MANIFEST ${RP6502_ROOT}/src/core/def/kbd.def)
 file(GLOB KBDLAY_DEFS ${RP6502_ROOT}/src/core/def/kbd_*.def)
 set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
@@ -52,10 +52,10 @@ set(HID_USAGE ${RP6502_ROOT}/src/core/hid/usage.h)
 set(HID_VENDOR ${RP6502_ROOT}/vendor/tinyusb/src/class/hid/hid.h)
 add_custom_command(OUTPUT ${HID_USAGE_STAMP}
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_ROOT}/src/gen/hid_usage_check.py
+        ${RP6502_ROOT}/src/core/gen/hid_usage_check.py
         --usage ${HID_USAGE} --vendor ${HID_VENDOR}
     COMMAND ${CMAKE_COMMAND} -E touch ${HID_USAGE_STAMP}
-    DEPENDS ${RP6502_ROOT}/src/gen/hid_usage_check.py ${HID_USAGE} ${HID_VENDOR}
+    DEPENDS ${RP6502_ROOT}/src/core/gen/hid_usage_check.py ${HID_USAGE} ${HID_VENDOR}
     COMMENT "Checking core/hid/usage.h against TinyUSB"
     VERBATIM)
 add_custom_target(hid_usage DEPENDS ${HID_USAGE_STAMP})

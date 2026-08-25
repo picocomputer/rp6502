@@ -11,10 +11,10 @@
  * ~1 Hz cursor blink, so a frame CRC would not be stable frame to frame.
  */
 
-#include "core/emu/sys/com.h"
-#include "core/emu/hid/pad.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/cpu.h"
+#include "core/sys/com.h"
+#include "core/sys/pad.h"
+#include "core/sys/mem.h"
+#include "core/sys/cpu.h"
 #include "emu_boot.h"
 #include <string.h>
 

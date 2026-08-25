@@ -13,7 +13,7 @@
  *   auto `local` at c_sp+4; global `gcounter`; the `main` csym is a function.
  */
 
-#include "core/emu/dbg/cc65dbg.h"
+#include "core/dap/cc65dbg.h"
 #include "utest.h"
 
 #include <string.h>

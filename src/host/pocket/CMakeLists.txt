@@ -211,13 +211,13 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # why sw_bin is named as a target rather than a file: it orders the
     # firmware ahead of the fit without making a firmware change cost one.
     add_custom_command(OUTPUT ${POCKET_DIR}/fit.stamp
-        COMMAND python3 ${RP6502_SRC}/gen/rv_tcm_gen.py
+        COMMAND python3 ${RP6502_SRC}/core/gen/rv_tcm_gen.py
             ${SW_BIN} ${POCKET_DIR}/sw ${TCM_WORDS}
         COMMAND ${QUARTUS_MAP} rp6502
         # A design that cannot fit says so in the map's register count;
         # the fitter only says it half an hour slower. This has to run
         # between the two, or it is decoration.
-        COMMAND python3 ${RP6502_SRC}/gen/map_gate.py
+        COMMAND python3 ${RP6502_SRC}/core/gen/map_gate.py
             ${POCKET_DIR}/output_files/rp6502.map.rpt
         COMMAND ${QUARTUS_FIT} rp6502
         COMMAND ${QUARTUS_STA} rp6502
@@ -230,8 +230,8 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/fit.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${BS_SOURCES} sw_bin
-            ${RP6502_SRC}/gen/rv_tcm_gen.py
-            ${RP6502_SRC}/gen/map_gate.py
+            ${RP6502_SRC}/core/gen/rv_tcm_gen.py
+            ${RP6502_SRC}/core/gen/map_gate.py
             ${RP6502_SRC}/host/pocket/quartus/sta_paths.tcl
         COMMENT "Fitting the Pocket core"
         VERBATIM)
@@ -251,17 +251,17 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # for them. A gate that fails leaves no stamp, and signoff is
     # still owed against the same fit the next time anyone asks.
     add_custom_command(OUTPUT ${POCKET_DIR}/signoff.stamp
-        COMMAND python3 ${RP6502_SRC}/gen/sta_gate.py
+        COMMAND python3 ${RP6502_SRC}/core/gen/sta_gate.py
             ${POCKET_DIR}/output_files/rp6502.sta.rpt
             ${POCKET_DIR}/output_files/rp6502.paths.rpt
         COMMAND ${QUARTUS_DRC} rp6502
-        COMMAND python3 ${RP6502_SRC}/gen/drc_gate.py
+        COMMAND python3 ${RP6502_SRC}/core/gen/drc_gate.py
             ${POCKET_DIR}/output_files/rp6502.drc.rpt
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/signoff.stamp
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${POCKET_DIR}/fit.stamp
-            ${RP6502_SRC}/gen/sta_gate.py ${RP6502_SRC}/gen/drc_gate.py
+            ${RP6502_SRC}/core/gen/sta_gate.py ${RP6502_SRC}/core/gen/drc_gate.py
             ${RP6502_SRC}/host/pocket/quartus/drc_baseline.txt
         COMMENT "Signing off the Pocket fit"
         VERBATIM)
@@ -282,16 +282,16 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
     # Verified the only way worth trusting: the same firmware fitted from
     # scratch and assembled this way produce the same bytes.
     add_custom_command(OUTPUT ${POCKET_DIR}/core.bin
-        COMMAND python3 ${RP6502_SRC}/gen/rv_mif_gen.py
+        COMMAND python3 ${RP6502_SRC}/core/gen/rv_mif_gen.py
             ${SW_BIN} ${POCKET_DIR}/db ${TCM_WORDS}
         COMMAND ${QUARTUS_CDB} rp6502 --update_mif
         COMMAND ${QUARTUS_ASM} rp6502
-        COMMAND python3 ${RP6502_SRC}/gen/rbf_r_gen.py
+        COMMAND python3 ${RP6502_SRC}/core/gen/rbf_r_gen.py
             ${POCKET_DIR}/output_files/rp6502.rbf
             ${POCKET_DIR}/core.bin
         WORKING_DIRECTORY ${POCKET_DIR}
         DEPENDS ${POCKET_DIR}/signoff.stamp ${SW_BIN}
-            ${RP6502_SRC}/gen/rv_mif_gen.py ${RP6502_SRC}/gen/rbf_r_gen.py
+            ${RP6502_SRC}/core/gen/rv_mif_gen.py ${RP6502_SRC}/core/gen/rbf_r_gen.py
         COMMENT "Putting the firmware into the Pocket bitstream"
         VERBATIM)
     add_custom_target(pocket-bitstream DEPENDS ${POCKET_DIR}/core.bin)
