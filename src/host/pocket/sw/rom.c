@@ -15,6 +15,7 @@
 #include "mmio.h"
 #include "rom.h"
 #include "core/sys/rom_rec.h"
+#include "core/sys/rom_win.h"
 
 #include "core/api/uni.h"
 #include "core/mem.h"
@@ -147,11 +148,21 @@ bool rom_load_staged(uint32_t len)
  * follows it. */
 #define ROM_OPEN_MAX 16
 
-static struct
+static rom_win_t rom_slots[ROM_OPEN_MAX];
+
+/* The whole image is already in the staging store, a byte at a time through
+ * a window that cannot fetch anything wider. */
+static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
+                               uint32_t count, uint32_t *got, api_errno *err)
 {
-    bool used;
-    uint32_t base, len, pos;
-} rom_win_pool[ROM_OPEN_MAX];
+    (void)w, (void)err;
+    for (uint32_t i = 0; i < count; i++)
+        buf[i] = (char)rom_byte(at + i);
+    *got = count;
+    return STD_OK;
+}
+
+static const rom_win_pool_t rom_pool = {rom_slots, ROM_OPEN_MAX, rom_fetch};
 
 static bool rom_path_is_rom(const char *path, const char **rest)
 {
@@ -233,78 +244,29 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    for (int d = 0; d < ROM_OPEN_MAX; d++)
-        if (!rom_win_pool[d].used)
-        {
-            rom_win_pool[d].used = true;
-            rom_win_pool[d].base = base;
-            rom_win_pool[d].len = len;
-            rom_win_pool[d].pos = 0;
-            return d;
-        }
-    *err = API_EMFILE;
-    return -1;
-}
-
-static int rom_win(int desc)
-{
-    if (desc < 0 || desc >= ROM_OPEN_MAX || !rom_win_pool[desc].used)
-        return -1;
-    return desc;
+    return rom_win_alloc(&rom_pool, base, len, -1, err);
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    if (rom_win(desc) < 0)
+    rom_win_t *w = rom_win_get(&rom_pool, desc);
+    if (!w)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-    rom_win_pool[desc].used = false;
+    w->used = false;
     return STD_OK;
 }
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *got, api_errno *err)
 {
-    if (rom_win(desc) < 0)
-    {
-        *got = 0;
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    uint32_t pos = rom_win_pool[desc].pos, len = rom_win_pool[desc].len;
-    uint32_t avail = pos < len ? len - pos : 0;
-    uint32_t want = count < avail ? count : avail;
-    uint32_t at = rom_win_pool[desc].base + pos;
-    for (uint32_t i = 0; i < want; i++)
-        buf[i] = (char)rom_byte(at + i);
-    rom_win_pool[desc].pos = pos + want;
-    *got = want; /* short or zero at the window's end, which is EOF */
-    return STD_OK;
+    return rom_win_read(&rom_pool, desc, buf, count, got, err);
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err)
 {
-    if (rom_win(desc) < 0)
-    {
-        *err = API_EBADF;
-        return -1;
-    }
-    int32_t from = whence == SEEK_SET   ? 0
-                   : whence == SEEK_CUR ? (int32_t)rom_win_pool[desc].pos
-                   : whence == SEEK_END ? (int32_t)rom_win_pool[desc].len
-                                        : -1;
-    if (from < 0 || from + off < 0)
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
-    int32_t np = from + off;
-    if ((uint32_t)np > rom_win_pool[desc].len)
-        np = (int32_t)rom_win_pool[desc].len;
-    rom_win_pool[desc].pos = (uint32_t)np;
-    *pos = np;
-    return 0;
+    return rom_win_lseek(&rom_pool, desc, whence, off, pos, err);
 }

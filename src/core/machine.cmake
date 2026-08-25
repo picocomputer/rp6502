@@ -122,6 +122,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/bel.c
         ${RP6502_SRC}/core/sys/pix.c
         ${RP6502_SRC}/core/sys/rom_rec.c
+        ${RP6502_SRC}/core/sys/rom_win.c
         ${RP6502_SRC}/core/sys/main_xreg.c
         ${RP6502_SRC}/core/rand.c
         ${RP6502_SRC}/core/main.c

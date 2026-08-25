@@ -9,6 +9,7 @@
 #include "core/sys/msc.h"
 #include "core/sys/rom.h"
 #include "core/sys/rom_rec.h"
+#include "core/sys/rom_win.h"
 #include "host/fs.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
@@ -133,22 +134,21 @@ static bool path_is_rom(const char *path, const char **rest)
 /* ---- Read-only file windows [base, base+len) into a host file, opened by the ROM:
  * asset driver. The window's fd is kept positioned at base + pos, and reads go through
  * the non-blocking fs seam. Descriptors index the pool. ---- */
-struct rom_window
-{
-    bool used;
-    int fd;
-    size_t base;
-    size_t len;
-    size_t pos;
-};
-static struct rom_window windows[ROM_OPEN_MAX];
+static rom_win_t windows[ROM_OPEN_MAX];
 
-static struct rom_window *rom_win(int desc)
+/* This machine's bytes are in a host file, and each window keeps its own
+ * descriptor, so the seek is only to put it where the window is. */
+static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
+                               uint32_t count, uint32_t *got, api_errno *err)
 {
-    if (desc < 0 || desc >= ROM_OPEN_MAX || !windows[desc].used)
-        return NULL;
-    return &windows[desc];
+    fs_lseek(w->fd, (int64_t)at, SEEK_SET);
+    std_rw_result r = msc_io_to_std_result(fs_read(w->fd, buf, count, got));
+    if (r == STD_ERROR)
+        *err = msc_errno_to_api_errno(errno);
+    return r;
 }
+
+static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
 
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
@@ -159,24 +159,15 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
         *err = msc_errno_to_api_errno(errno);
         return -1;
     }
-    int des = 0;
-    for (; des < ROM_OPEN_MAX; des++)
-        if (!windows[des].used)
-            break;
-    if (des == ROM_OPEN_MAX)
-    {
+    int des = rom_win_alloc(&rom_pool, (uint32_t)base, (uint32_t)len, fd, err);
+    if (des < 0)
         fs_close(fd);
-        *err = API_EMFILE;
-        return -1;
-    }
-    windows[des] = (struct rom_window){.used = true, .fd = fd, .base = base, .len = len};
-    fs_lseek(fd, (int64_t)base, SEEK_SET); /* window reads start at base; keep fd == base + pos */
     return des;
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    struct rom_window *w = rom_win(desc);
+    rom_win_t *w = rom_win_get(&rom_pool, desc);
     if (!w)
     {
         *err = API_EBADF;
@@ -190,52 +181,12 @@ std_rw_result rom_std_close(int desc, api_errno *err)
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    struct rom_window *w = rom_win(desc);
-    if (!w)
-    {
-        *got = 0;
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    size_t avail = (w->pos < w->len) ? w->len - w->pos : 0;
-    uint32_t want = count < avail ? count : (uint32_t)avail;
-    if (want == 0)
-    {
-        *got = 0;
-        return STD_OK; /* at the window's end (EOF): nothing to read */
-    }
-    std_rw_result r = msc_io_to_std_result(fs_read(w->fd, buf, want, got));
-    if (r == STD_OK)
-        w->pos += *got;
-    else if (r == STD_ERROR)
-        *err = msc_errno_to_api_errno(errno);
-    return r;
+    return rom_win_read(&rom_pool, desc, buf, count, got, err);
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    struct rom_window *w = rom_win(desc);
-    if (!w)
-    {
-        *err = API_EBADF;
-        return -1;
-    }
-    long base = (whence == SEEK_SET) ? 0
-                : (whence == SEEK_CUR) ? (long)w->pos
-                : (whence == SEEK_END) ? (long)w->len
-                                       : -1;
-    if (base < 0 || base + off < 0)
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
-    long np = base + off;
-    if ((size_t)np > w->len) /* clamp to the asset extent (firmware rom_std_lseek) */
-        np = (long)w->len;
-    w->pos = (size_t)np;
-    fs_lseek(w->fd, (int64_t)(w->base + w->pos), SEEK_SET); /* keep fd == base + pos for fs_read */
-    *pos = (int32_t)w->pos;
-    return 0;
+    return rom_win_lseek(&rom_pool, desc, whence, off, pos, err);
 }
 
 /* ---- The ROM: driver (read-only asset windows), registered in std.c's table. ---- */
