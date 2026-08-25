@@ -527,25 +527,16 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # rtl-tests: verilate the machine and run it against the emu_core oracle.
+  # rtl-tests: verilate the machine and run its suite.
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   #
-  # Ten minutes, most of it running the suite rather than building it, so it
-  # runs when the diff touched something it reads and not otherwise. That
-  # question is sim-inputs.txt, written by the tree it describes: the machine,
-  # the firmware, emu_core, every bench and every generated asset. It used to
-  # be a glob on src/core, which was wrong in both directions — the benches and
-  # the suite are in tests/ and the oracle is built out of src/core/emu and
-  # src/host, so a commit touching only those skipped the suite that covers it.
+  # Ten minutes, most of it running the suite rather than building it. It used
+  # to be gated on whether the diff touched anything the tree reads, which cost
+  # a minute and a half of configuring to find out — the gate was worth less
+  # than it cost, so it is gone and this simply runs.
   # ---------------------------------------------------------------------------
   rtl-tests:
-    needs: rtl-changed
-    if: >-
-      ${{ !cancelled() && (
-      github.event_name == 'workflow_dispatch'
-      || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changed'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -567,144 +558,16 @@ jobs:
       - name: Run simulation tests
         run: ctest --test-dir build/rtl --output-on-failure --parallel $(nproc)
 
-  # rtl-changed: whether this commit touched anything the two long jobs read.
-  # GitHub filters a whole workflow by path, never one job, so the question is
-  # asked here and answered once — twice over, since the fit and the simulation
-  # are made of different things.
-  #
-  # It configures the two trees to find out. That is the point: the lists come
-  # from the code that reads them, so there is no second copy here to fall out
-  # of step with the DEPENDS that decide the build. Two configures because the
-  # two lists have two authors now — tests/rtl writes what the simulation
-  # reads, src/host/pocket what the fit does — and each is a project root of
-  # its own. Between them they cost a few seconds.
-  #
-  # This job is not folded into rtl-tests because a job's outputs are readable
-  # only once it has finished: pocket would then wait out the whole suite before
-  # starting, and a full run would go from twenty-one minutes to thirty-one.
-  rtl-changed:
-    runs-on: ubuntu-24.04
-    outputs:
-      rtl: ${{ steps.gate.outputs.rtl }}
-      pocket: ${{ steps.gate.outputs.pocket }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Install build dependencies + Verilator + RISC-V toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build python3 verilator \
-            gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
-
-      # Shims only, and no pull. find_program takes a shell script off PATH
-      # whether or not the image behind it exists, which is what lets the
-      # Pocket root's guard pass and its lists be written on a runner that is
-      # never going to fit anything.
-      - name: Quartus stubs, so the pocket lists are written
-        run: |
-          set -euxo pipefail
-          shims="$HOME/.quartus-shims"
-          mkdir -p "$shims"
-          for tool in quartus_map quartus_fit quartus_sta \
-                      quartus_asm quartus_drc quartus_cdb; do
-            printf '#!/usr/bin/env bash\nexit 1\n' > "$shims/$tool"
-            chmod +x "$shims/$tool"
-          done
-          echo "$shims" >> "$GITHUB_PATH"
-
-      - name: Configure the simulation, for its list
-        run: cmake --preset release
-        working-directory: tests/rtl
-
-      - name: Configure the Pocket, for its list
-        run: cmake --preset release
-        working-directory: src/host/pocket
-
-      - name: What did this commit touch
-        id: gate
-        run: |
-          set -euo pipefail
-          SIM=build/rtl/inputs
-          POCKET=build/pocket/inputs
-
-          # A tag and a hand-started run answer yes without asking, so a release
-          # is never assembled out of jobs that declined to run.
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch \
-                || "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "rtl=true" >> "$GITHUB_OUTPUT"
-            echo "pocket=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # The previous push, not the base: a push that left the RTL alone
-          # should cost nothing even when an earlier commit in the same pull
-          # request moved it. Opening one has no before, so it reads as the
-          # whole branch.
-          base="${{ github.event.before }}"
-          if [[ -z "$base" && "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            base=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
-          fi
-          # A new branch has no before, a force push can leave one that is gone,
-          # and neither is a no. A job that was not needed costs time; one that
-          # was skipped ships a stale core.
-          if [[ -z "$base" ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            echo "rtl=true" >> "$GITHUB_OUTPUT"
-            echo "pocket=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Captured rather than piped: grep -q closes early, and under pipefail
-          # that returns git's SIGPIPE status, so this would fail on precisely
-          # the commits that matched.
-          files=$(git diff --name-only "$base" HEAD)
-          echo "$files"
-
-          # A changed path counts if a list names it, or if it is a directory a
-          # list names something inside — which is how a submodule bump lands,
-          # since it reaches a diff as its gitlink and never as a file in it.
-          touched() {
-            local list p
-            list=$(sort -u "$1")
-            while IFS= read -r p; do
-              [ -n "$p" ] || continue
-              if grep -qxF "$p" <<< "$list" || grep -q "^${p}/" <<< "$list"; then
-                echo true; return
-              fi
-            done <<< "$files"
-            echo false
-          }
-          rtl=$(touched $SIM/sim-inputs.txt)
-          pocket=$(touched $POCKET/pocket-inputs.txt)
-          echo "rtl=$rtl" >> "$GITHUB_OUTPUT"
-          echo "pocket=$pocket" >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
-
   # pocket: the bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
   # by-product.
   #
-  # A fit is tens of minutes and needs a 20 GB toolchain, and this used to run
-  # on whether a diff touched src/core. That was the wrong question twice over.
-  # Yes for the firmware under src/host/pocket/sw, which costs an assemble and not a
-  # placement, and yes for the whole life of a pull request once any commit in
-  # it moved the RTL. No for src/ria and src/vga, compiled into the image that
-  # assemble installs, and for src/vga/term, which generates the font and
-  # palette ROMs in the fabric.
-  #
-  # So it asks the build graph instead. The Pocket root writes out the lists
-  # its own DEPENDS are made of, and rtl-changed answers against those: pad.c wakes
-  # a fit because the firmware compiles it, and the USB stack beside it does
-  # not, which no glob over src/ria can express.
+  # A fit is tens of minutes and needs a 20 GB toolchain, and it used to be
+  # gated on whether the diff touched anything the fit reads. Answering that
+  # took a job of its own that configured two trees to find out, and the
+  # answer was not worth what it cost to ask.
   pocket:
-    needs: [version, rtl-changed]
-    if: >-
-      ${{ !cancelled() && (
-      github.event_name == 'workflow_dispatch'
-      || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changed'].outputs.pocket != 'false') }}
+    needs: [version]
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
