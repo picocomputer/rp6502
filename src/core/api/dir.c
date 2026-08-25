@@ -51,10 +51,10 @@ static bool dir_return(bool ok, api_errno err)
     return ok ? api_return_ax(0) : api_return_errno(err);
 }
 
-/* A call this drive does not have. */
+/* A call this drive does not have. The xstack is left where it is, which is
+ * what an op with no handler at all does. */
 static bool dir_enosys(void)
 {
-    xstack_ptr = XSTACK_SIZE;
     return api_return_errno(API_ENOSYS);
 }
 
@@ -235,12 +235,12 @@ bool dir_api_rename(void)
 bool dir_api_chmod(void)
 {
     const dir_backend_t *d = main_dir_backend();
+    if (!d->chmod)
+        return dir_enosys();
     uint8_t mask = API_A;
     uint8_t attr;
     if (!api_pop_uint8(&attr))
         return api_return_errno(API_EINVAL);
-    if (!d->chmod)
-        return dir_enosys();
     api_errno err;
     return dir_return(d->chmod(dir_path(), attr, mask, &err), err);
 }
@@ -248,6 +248,8 @@ bool dir_api_chmod(void)
 bool dir_api_utime(void)
 {
     const dir_backend_t *d = main_dir_backend();
+    if (!d->utime)
+        return dir_enosys();
     /* All four are popped whether or not this drive stores creation times,
      * because the 6502 pushed all four. */
     FILINFO fno;
@@ -256,8 +258,6 @@ bool dir_api_utime(void)
         !api_pop_uint16(&fno.ftime) ||
         !api_pop_uint16(&fno.fdate))
         return api_return_errno(API_EINVAL);
-    if (!d->utime)
-        return dir_enosys();
     api_errno err;
     return dir_return(d->utime(dir_path(), &fno, &err), err);
 }

@@ -129,6 +129,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/clk.c
         ${RP6502_SRC}/core/api/std.c
         ${RP6502_SRC}/core/api/dir.c
+        ${RP6502_SRC}/core/api/ops.c
         ${RP6502_SRC}/core/api/uni.c
         # The real HID drivers, told by apf.c what the dock holds. No
         # descriptor ever reaches this machine, so core/hid/parse.c is

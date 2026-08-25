@@ -27,9 +27,6 @@ void main_run(void);
 // It will safely do nothing if the 6502 is already stopped.
 void main_stop(void);
 
-// API calls are dispatched here.
-bool main_api(uint8_t operation);
-
 // This platform's stdio driver table (built in its main.c).
 const std_driver_t *main_std_drivers(size_t *count);
 
