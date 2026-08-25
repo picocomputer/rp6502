@@ -8,11 +8,16 @@ libretro core, and an FPGA core on the Analogue Pocket.
 ## The contracts
 
 The headers at the root of this directory are what a machine must answer:
-`cfg.h` `com.h` `cpu.h` `main.h` `mem.h` `pix.h`. Each has three
-implementations — `core/sys` for a machine made of software, `host/pico/ria`
-for the RP2350 firmware, `host/pocket/sw` for the Hazard3 soft CPU — and none
-of them is the reference. What a *host* owes the machine is the other
-direction and lives in `src/host`: `os.h`, `fs.h`, `dir.h`.
+`cfg.h` `com.h` `cpu.h` `main.h` `mem.h` `pix.h` `sys.h`. Three machines
+answer them — the software one whose parts are filed by subsystem below,
+`host/pico/ria` for the RP2350 firmware, `host/pocket/sw` for the Hazard3
+soft CPU — and none of the three is the reference. Where two of them would
+answer the same way, one implementation here answers for both and they
+supply the difference; `com.h` is the furthest along, with one console and
+a wire apiece.
+
+What a *host* owes the machine is the other direction and lives in
+`src/host`: `os.h`, `fs.h`, `dir.h`.
 
 ## The subsystems
 
