@@ -12,19 +12,25 @@ Most people never need this file. RetroArch's Online Updater has
 the core under "Picocomputer 6502", and installing it that way
 keeps it up to date.
 
-To install this build by hand, put the core in the directory your
-frontend keeps its cores in, and rp6502_libretro.info beside it in
-the info directory. RetroArch prints both paths under Settings /
-Directory. The core is rp6502_libretro.so on Linux,
-rp6502_libretro.dll on Windows, and rp6502_libretro.dylib on
-macOS.
+This zip holds the core for every platform we build, a folder
+each:
+
+    linux-x86_64/rp6502_libretro.so
+    linux-aarch64/rp6502_libretro.so
+    windows-x86_64/rp6502_libretro.dll
+    macos-arm64/rp6502_libretro.dylib
+
+Take the one for your machine, put it in the directory your
+frontend keeps its cores in, and put rp6502_libretro.info beside
+it in the info directory. RetroArch prints both paths under
+Settings / Directory; on Linux they are usually:
 
     ~/.config/retroarch/cores
     ~/.config/retroarch/info
 
 You can also load it without installing it at all:
 
-    retroarch -L rp6502_libretro.so program.rp6502
+    retroarch -L linux-x86_64/rp6502_libretro.so program.rp6502
 
 
 Running software

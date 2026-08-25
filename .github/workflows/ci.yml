@@ -256,8 +256,6 @@ jobs:
           - { runner: ubuntu-22.04,     arch: x86_64 }
           - { runner: ubuntu-22.04-arm, arch: aarch64 }
     runs-on: ${{ matrix.runner }}
-    env:
-      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro-linux-${{ matrix.arch }}.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -288,23 +286,22 @@ jobs:
             | awk '{print $3}' | grep -v '^retro_' > unexpected.txt || true
           if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
 
-      # zip, not tar: a core carries no execute bit, and it is what every
-      # other core ships as and what a handheld's file manager understands.
-      - name: Package libretro-linux-${{ matrix.arch }}
+      # A folder per platform, because every core is named the same and only
+      # its directory says which machine it is for. The info file and the
+      # readme are identical everywhere, so they sit at the top of the bundle
+      # and whichever job lands last writes them.
+      - name: Stage libretro-linux-${{ matrix.arch }}
         run: |
           set -euxo pipefail
-          mkdir stage
-          cp build/libretro/release/rp6502_libretro.so stage/
+          mkdir -p stage/linux-${{ matrix.arch }}
+          cp build/libretro/release/rp6502_libretro.so stage/linux-${{ matrix.arch }}/
           cp build/libretro/release/rp6502_libretro.info stage/
           cp src/dist/libretro/README.txt stage/
-          (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" \
-             rp6502_libretro.so rp6502_libretro.info README.txt)
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARCHIVE }}
-          path: ${{ env.ARCHIVE }}
-          archive: false
+          name: libretro-stage-linux-${{ matrix.arch }}
+          path: stage/
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -316,8 +313,6 @@ jobs:
   libretro-windows:
     needs: [version]
     runs-on: windows-2025
-    env:
-      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro-windows.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -359,21 +354,19 @@ jobs:
           $bad = @($names | Where-Object { $_ -notlike 'retro_*' })
           if ($bad.Count) { $bad; exit 1 }
 
-      - name: Package libretro-windows
+      - name: Stage libretro-windows
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          New-Item -ItemType Directory stage | Out-Null
-          Copy-Item build/libretro/release/rp6502_libretro.dll stage/
+          New-Item -ItemType Directory stage/windows-x86_64 -Force | Out-Null
+          Copy-Item build/libretro/release/rp6502_libretro.dll stage/windows-x86_64/
           Copy-Item build/libretro/release/rp6502_libretro.info stage/
           Copy-Item src/dist/libretro/README.txt stage/
-          Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.ARCHIVE }}
-          path: ${{ env.ARCHIVE }}
-          archive: false
+          name: libretro-stage-windows-x86_64
+          path: stage/
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -385,8 +378,6 @@ jobs:
   libretro-macos:
     needs: [version]
     runs-on: macos-15
-    env:
-      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro-macos.zip
     steps:
       - uses: actions/checkout@v7
 
@@ -411,15 +402,54 @@ jobs:
           grep -v '^_retro_' exports.txt > unexpected.txt || true
           if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
 
-      - name: Package libretro-macos
+      - name: Stage libretro-macos
         run: |
           set -euxo pipefail
-          mkdir stage
-          cp build/libretro/release/rp6502_libretro.dylib stage/
+          mkdir -p stage/macos-arm64
+          cp build/libretro/release/rp6502_libretro.dylib stage/macos-arm64/
           cp build/libretro/release/rp6502_libretro.info stage/
           cp src/dist/libretro/README.txt stage/
-          (cd stage && zip -q "$GITHUB_WORKSPACE/$ARCHIVE" \
-             rp6502_libretro.dylib rp6502_libretro.info README.txt)
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libretro-stage-macos-arm64
+          path: stage/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-bundle: one zip, every platform. A core is one thing, and a
+  # release page that lists it once per machine would bury the firmware and
+  # the emulators under it — libretro itself builds for twenty-odd platforms,
+  # so this is the shape that does not grow a row every time one is added.
+  #
+  # A folder per platform inside, because the core is named the same on all
+  # of them and only the directory says which is which. The info file and the
+  # readme are identical everywhere and sit at the top.
+  # ---------------------------------------------------------------------------
+  libretro-bundle:
+    needs: [version, libretro, libretro-windows, libretro-macos]
+    runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro.zip
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: libretro-stage-*
+          path: stage
+          merge-multiple: true
+
+      - name: Bundle every platform
+        run: |
+          set -euxo pipefail
+          # Every staging job contributed, or the bundle is short a machine
+          # and nobody would notice until a player did.
+          for d in linux-x86_64 linux-aarch64 windows-x86_64 macos-arm64; do
+            [ -d "stage/$d" ] || { echo "missing platform: $d" >&2; exit 1; }
+          done
+          test -f stage/rp6502_libretro.info
+          test -f stage/README.txt
+          (cd stage && zip -qr "$GITHUB_WORKSPACE/$ARCHIVE" .)
+          unzip -l "$ARCHIVE"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -834,9 +864,8 @@ jobs:
   # build for it is a tag whose nightlies will not either.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, sdk-tools, pico, linux, libretro, libretro-windows,
-            libretro-macos, libretro-android, macos, itch-io, windows, android,
-            pocket, rtl-tests]
+    needs: [version, sdk-tools, pico, linux, libretro-bundle, libretro-android,
+            macos, itch-io, windows, android, pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -863,8 +892,7 @@ jobs:
           assets=()
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
-                   libretro-linux-x86_64.zip libretro-linux-aarch64.zip \
-                   libretro-windows.zip libretro-macos.zip \
+                   libretro.zip \
                    pocket.zip itch.io.zip android.apk; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
@@ -895,10 +923,7 @@ jobs:
             dist/rp6502-${{ needs.version.outputs.version }}-macos.zip
             dist/rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
             dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz
-            dist/rp6502-${{ needs.version.outputs.version }}-libretro-linux-x86_64.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-libretro-linux-aarch64.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-libretro-windows.zip
-            dist/rp6502-${{ needs.version.outputs.version }}-libretro-macos.zip
+            dist/rp6502-${{ needs.version.outputs.version }}-libretro.zip
             dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
             dist/rp6502-${{ needs.version.outputs.version }}-itch.io.zip
             dist/rp6502-${{ needs.version.outputs.version }}-android.apk
@@ -917,10 +942,7 @@ jobs:
             | `rp6502-${{ needs.version.outputs.version }}-macos.zip` | Emulator, macOS 11+ Apple silicon |
             | `rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz` | Emulator, Linux x86_64 (glibc 2.35+) |
             | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
-            | `rp6502-${{ needs.version.outputs.version }}-libretro-linux-x86_64.zip` | RetroArch core, Linux x86_64 |
-            | `rp6502-${{ needs.version.outputs.version }}-libretro-linux-aarch64.zip` | RetroArch core, Linux aarch64 |
-            | `rp6502-${{ needs.version.outputs.version }}-libretro-windows.zip` | RetroArch core, Windows x64 |
-            | `rp6502-${{ needs.version.outputs.version }}-libretro-macos.zip` | RetroArch core, macOS Apple silicon |
+            | `rp6502-${{ needs.version.outputs.version }}-libretro.zip` | RetroArch core, every platform — or install it from the Core Downloader |
             | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
             | `rp6502-${{ needs.version.outputs.version }}-itch.io.zip` | Publish a program on itch.io |
             | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |

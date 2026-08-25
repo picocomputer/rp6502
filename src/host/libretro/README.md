@@ -57,6 +57,12 @@ dumpbin /exports build\libretro\release\rp6502_libretro.dll    # PE
 should print `retro_*` and nothing else. CI checks all three, which is the
 only continuous proof of the two nobody here can run.
 
+Each platform builds in its own CI job and one `libretro-bundle` job
+collects them into a single `rp6502-<version>-libretro.zip`, a folder per
+platform. A core is one thing, and a release page listing it once per
+machine would bury everything else — libretro builds for twenty-odd
+platforms, and this shape does not grow a row for each.
+
 ## Running it in a frontend
 
 From VS Code, F5 on **RetroArch Debug** builds the debug core, launches
