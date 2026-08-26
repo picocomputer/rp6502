@@ -9,7 +9,7 @@
 #include "core/api/std.h"
 #include "core/sys/msc.h"
 #include "host/fs.h"
-#include "host/dir.h"
+#include "host/fs_dir.h"
 #include "host.h"
 #include "core/mem/mem.h"
 #include "core/api/dir.h"
@@ -499,7 +499,7 @@ static bool msc_dir_opendir(const char *path, int *des, api_errno *err)
         return false;
     }
     TO_HOST(path, host);
-    void *dp = dir_open(host);
+    void *dp = fs_dir_open(host);
     if (!host_ok(dp != NULL, err))
         return false;
     dirs[i].used = true;
@@ -519,7 +519,7 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
     int r;
     do
     {
-        r = dir_read(d->dp, name, sizeof(name), &is_dir);
+        r = fs_dir_read(d->dp, name, sizeof(name), &is_dir);
         if (!host_ok(r >= 0, err))
             return false;
         if (r == 0)
@@ -545,7 +545,7 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
 static bool msc_dir_closedir(int des, api_errno *err)
 {
     (void)err;
-    dir_close(dirs[des].dp);
+    fs_dir_close(dirs[des].dp);
     dirs[des].used = false;
     dirs[des].dp = NULL;
     return true;
@@ -554,7 +554,7 @@ static bool msc_dir_closedir(int des, api_errno *err)
 static bool msc_dir_rewinddir(int des, api_errno *err)
 {
     (void)err;
-    dir_rewind(dirs[des].dp);
+    fs_dir_rewind(dirs[des].dp);
     return true;
 }
 
