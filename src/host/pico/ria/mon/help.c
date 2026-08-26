@@ -8,7 +8,7 @@
 #include "ria/api/tim.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbt.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
@@ -17,7 +17,7 @@
 #include <pico.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HLP)
+#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HELP)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -29,9 +29,9 @@ typedef struct
     const char *const cmd;
     int prose; // localized string id for S()
     mon_response_fn extra_fn;
-} hlp_entry_t;
+} help_entry_t;
 
-__in_flash("hlp_commands") static const hlp_entry_t HLP_COMMANDS[] = {
+__in_flash("help_commands") static const help_entry_t HELP_COMMANDS[] = {
     {STR_SET, STR_HELP_SET, NULL},
     {STR_STATUS, STR_HELP_STATUS, NULL},
     {STR_SYSTEM, STR_HELP_SYSTEM, NULL},
@@ -66,9 +66,9 @@ __in_flash("hlp_commands") static const hlp_entry_t HLP_COMMANDS[] = {
     {STR_BINARY, STR_HELP_BINARY, NULL},
     {STR_DISK, STR_HELP_DISK, NULL},
 };
-static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
+static const size_t HELP_COMMANDS_COUNT = sizeof HELP_COMMANDS / sizeof *HELP_COMMANDS;
 
-__in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
+__in_flash("help_settings") static const help_entry_t HELP_SETTINGS[] = {
 #define X(ltr, fmt, get, load, attr, setfn, respfn, help, helpfn) {attr, help, helpfn},
 #define XCFG(...)
 #define XMON(attr, setfn, respfn, help, helpfn) {attr, help, helpfn},
@@ -77,9 +77,9 @@ __in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
 #undef XCFG
 #undef XMON
 };
-static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
+static const size_t HELP_SETTINGS_COUNT = sizeof HELP_SETTINGS / sizeof *HELP_SETTINGS;
 
-__in_flash("hlp_disk") static const hlp_entry_t HLP_DISK[] = {
+__in_flash("help_disk") static const help_entry_t HELP_DISK[] = {
     {STR_INFO, STR_HELP_DISK_INFO, NULL},
 #if RP6502_EXFAT
     {STR_FORMAT, STR_HELP_DISK_FORMAT, NULL},
@@ -90,9 +90,9 @@ __in_flash("hlp_disk") static const hlp_entry_t HLP_DISK[] = {
     {STR_VERIFY, STR_HELP_DISK_VERIFY, NULL},
     {STR_LABEL, STR_HELP_DISK_LABEL, NULL},
 };
-static const size_t HLP_DISK_COUNT = sizeof HLP_DISK / sizeof *HLP_DISK;
+static const size_t HELP_DISK_COUNT = sizeof HELP_DISK / sizeof *HELP_DISK;
 
-static const char *hlp_find(const hlp_entry_t *tbl, size_t n,
+static const char *help_find(const help_entry_t *tbl, size_t n,
                             const char *key, mon_response_fn *fn)
 {
     for (size_t i = 0; i < n; i++)
@@ -105,7 +105,7 @@ static const char *hlp_find(const hlp_entry_t *tbl, size_t n,
     return NULL;
 }
 
-const char *hlp_lookup(const char *word, const char *sub, mon_response_fn *fn)
+const char *help_lookup(const char *word, const char *sub, mon_response_fn *fn)
 {
     if (fn)
         *fn = NULL;
@@ -115,21 +115,21 @@ const char *hlp_lookup(const char *word, const char *sub, mon_response_fn *fn)
     if (sub)
     {
         if (!strcasecmp(word, STR_SET))
-            return hlp_find(HLP_SETTINGS, HLP_SETTINGS_COUNT, sub, fn);
+            return help_find(HELP_SETTINGS, HELP_SETTINGS_COUNT, sub, fn);
         if (!strcasecmp(word, STR_DISK))
-            return hlp_find(HLP_DISK, HLP_DISK_COUNT, sub, fn);
+            return help_find(HELP_DISK, HELP_DISK_COUNT, sub, fn);
         return NULL;
     }
     // ABOUT and CREDITS share the non-localized credits help.
     if (!strcasecmp(word, STR_ABOUT) || !strcasecmp(word, STR_CREDITS))
         return STR_HELP_ABOUT;
-    return hlp_find(HLP_COMMANDS, HLP_COMMANDS_COUNT, word, fn);
+    return help_find(HELP_COMMANDS, HELP_COMMANDS_COUNT, word, fn);
 }
 
 // Split a help query into its command word and optional SET/DISK sub-key. word
 // is copied out because str_parse_string reuses one shared buffer, so parsing
 // the sub-key would otherwise clobber word.
-static void hlp_split(const char *args, char *word, size_t word_size, const char **sub)
+static void help_split(const char *args, char *word, size_t word_size, const char **sub)
 {
     const char *tok = str_parse_string(&args);
     strncpy(word, tok ? tok : "", word_size - 1);
@@ -139,7 +139,7 @@ static void hlp_split(const char *args, char *word, size_t word_size, const char
         *sub = str_parse_string(&args);
 }
 
-void hlp_mon_help(const char *args)
+void help_mon_help(const char *args)
 {
     if (!*args)
     {
@@ -149,9 +149,9 @@ void hlp_mon_help(const char *args)
     }
     char word[16];
     const char *sub;
-    hlp_split(args, word, sizeof word, &sub);
+    help_split(args, word, sizeof word, &sub);
     mon_response_fn fn;
-    const char *prose = hlp_lookup(word, sub, &fn);
+    const char *prose = help_lookup(word, sub, &fn);
     if (!prose)
     {
         rom_mon_help(args);
@@ -169,10 +169,10 @@ void hlp_mon_help(const char *args)
         mon_add_response_fn(fn);
 }
 
-bool hlp_topic_exists(const char *buf)
+bool help_topic_exists(const char *buf)
 {
     char word[16];
     const char *sub;
-    hlp_split(buf, word, sizeof word, &sub);
-    return hlp_lookup(word, sub, NULL) != NULL;
+    help_split(buf, word, sizeof word, &sub);
+    return help_lookup(word, sub, NULL) != NULL;
 }

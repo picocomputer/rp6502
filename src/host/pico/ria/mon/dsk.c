@@ -6,7 +6,7 @@
 
 #include "ria/main.h"
 #include "ria/mon/dsk.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -717,7 +717,7 @@ static bool dsk_match_drive(const char *t, int *vol)
 // Queue a disk subcommand's help (shown when its required drive is missing).
 static void dsk_sub_help(const char *sub)
 {
-    const char *prose = hlp_lookup(STR_DISK, sub, NULL);
+    const char *prose = help_lookup(STR_DISK, sub, NULL);
     if (prose)
         mon_add_response_utf8(prose);
 }

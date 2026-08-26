@@ -8,7 +8,7 @@
 #include "core/api/oem.h"
 #include "ria/mon/dsk.h"
 #include "ria/mon/fil.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "ria/mon/rom.h"
@@ -81,9 +81,9 @@ __in_flash("mon_commands") static struct
     const char *const cmd;
     mon_command_fn func;
 } const MON_COMMANDS[] = {
-    {STR_HELP, hlp_mon_help},
-    {STR_H, hlp_mon_help},
-    {STR_QUESTION_MARK, hlp_mon_help},
+    {STR_HELP, help_mon_help},
+    {STR_H, help_mon_help},
+    {STR_QUESTION_MARK, help_mon_help},
     {STR_STATUS, sys_mon_status},
     {STR_SET, set_mon_set},
     {STR_LS, fil_mon_dir},

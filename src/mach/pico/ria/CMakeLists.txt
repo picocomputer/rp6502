@@ -156,7 +156,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/tab.c
     ${RIA_SRC}/mon/dsk.c
     ${RIA_SRC}/mon/fil.c
-    ${RIA_SRC}/mon/hlp.c
+    ${RIA_SRC}/mon/help.c
     ${RIA_SRC}/mon/mon.c
     ${RIA_SRC}/mon/ram.c
     ${RIA_SRC}/mon/rom.c

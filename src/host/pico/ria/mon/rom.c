@@ -11,7 +11,7 @@
 #include "core/api/arg.h"
 #include "core/api/pro.h"
 #include "core/api/std.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
@@ -415,12 +415,12 @@ void rom_mon_install(const char *args)
     }
     // Test for system conflicts
     if (mon_command_exists(lfs_name) ||
-        hlp_topic_exists(lfs_name))
+        help_topic_exists(lfs_name))
     {
         mon_add_response_utf8(S(STR_ERR_ROM_NAME_INVALID));
         return;
     }
-    // mon_command_exists and hlp_topic_exists nuke our string
+    // mon_command_exists and help_topic_exists nuke our string
     tok = str_parse_string(&args_start);
     if (!rom_open(tok))
         return;

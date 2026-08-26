@@ -8,7 +8,7 @@
 #include "ria/net/cyw.h"
 #include "ria/net/mdm.h"
 #include "ria/net/wfi.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <stdio.h>
@@ -448,7 +448,7 @@ static bool cmd_parse_amp(const char **s)
 static bool cmd_help_response(const char *name)
 {
     mon_response_fn fn;
-    if (!hlp_lookup(STR_SET, name, &fn))
+    if (!help_lookup(STR_SET, name, &fn))
         return false;
     if (fn)
         mdm_set_response_fn(fn);
