@@ -122,6 +122,7 @@ static void __in_flash("init") init(void)
     led_init();
     aud_init();
     kbd_init();
+    kbt_init(); /* the speller is this machine's, not the device layer's */
     mou_init();
     pad_init();
     tab_init();

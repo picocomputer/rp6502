@@ -75,4 +75,11 @@ void kbd_toggle_lock(uint8_t bit);
 // A host that decodes its own keyboard, in place of a report.
 void kbd_hid_set(uint8_t keycode, bool down);
 
+/* Offered to whatever spells for this machine: every new key press, and the
+ * modifier byte after every report. A firmware's layout engine answers these;
+ * a machine whose host produced the characters before the keystroke arrived
+ * answers with nothing and takes the text instead. */
+void kbd_spell_key(uint8_t modifier, uint8_t keycode);
+void kbd_spell_modifiers(uint8_t modifier);
+
 #endif /* _CORE_HID_KBD_H_ */

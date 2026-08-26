@@ -6,10 +6,11 @@
 
 /* The keyboard's terminal half: keys in, console characters out.
  *
- * kbd.c reports which keys are down; this decides what that spells. A host
- * whose OS already produced characters -- a desktop, where the layout, the
- * dead keys and the code page are the window system's job -- links a null
- * implementation and never compiles a layout.
+ * kbd.c reports which keys are down and offers each press to whatever spells
+ * for this machine -- core/hid/kbd.h declares that seam. This answers it with
+ * a layout, dead keys and a code page. A machine whose host produced the
+ * characters first answers the same seam with nothing and takes text instead,
+ * which is a different file and not this contract.
  */
 
 #ifndef _CORE_HID_KBT_H_
@@ -23,12 +24,6 @@ void kbt_init(void);
 
 // Auto-repeat: the held key is re-read from kbd, so a release ends it.
 void kbt_task(void);
-
-// One key pressed, by value. Repeats come from kbt_task, not from here.
-void kbt_key_down(uint8_t modifier, uint8_t keycode);
-
-// The modifier byte after every report, for the Alt-code release.
-void kbt_modifiers(uint8_t modifier);
 
 // Drain the character queue into buf.
 size_t kbt_in_chars(char *buf, size_t length);

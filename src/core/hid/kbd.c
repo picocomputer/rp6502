@@ -5,26 +5,10 @@
  */
 
 #include "core/main.h"
-#include "core/api/oem.h"
-#include "core/api/uni.h"
 #include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
 #include "core/hid/hid.h"
-#include "core/cfg.h"
 #include "host.h"
 #include "core/hid/usage.h"
-#include <stdio.h>
-/* The case-insensitive compares a layout name is matched with. Named by
- * POSIX rather than by C, and a host that has no such header supplies
- * one — see src/host/windows. */
-#include <strings.h>
-
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
-#include <stdio.h>
-#define DBG(...) printf(__VA_ARGS__)
-#else
-static inline void DBG(const char *fmt, ...) { (void)fmt; }
-#endif
 
 // RP6502 and Windows boots like an IBM AT with num lock on.
 // The Raspberry Pi Keyboard uses num lock to enable a num pad over
@@ -97,7 +81,6 @@ void HOST_IN_FLASH("kbd_init") kbd_init(void)
     kbd_stop();
     kbd_hid_leds = KEYBOARD_LED_NUMLOCK;
     kbd_send_leds();
-    kbt_init();
 }
 
 void kbd_stop(void)
@@ -204,11 +187,11 @@ void kbd_report(int slot, uint8_t const *data, size_t size)
         bool curr = KBD_KEY_BIT_VAL(conn->keys, i);
         bool prev = KBD_KEY_BIT_VAL(old_keys, i);
         if (curr && !prev)
-            kbt_key_down(KBD_MODIFIER(kbd_keys), i);
+            kbd_spell_key(KBD_MODIFIER(kbd_keys), i);
     }
 
     // Check for releasing ALT key during ALT mode.
-    kbt_modifiers(KBD_MODIFIER(kbd_keys));
+    kbd_spell_modifiers(KBD_MODIFIER(kbd_keys));
 
     kbd_publish();
 }

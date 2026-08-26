@@ -126,6 +126,7 @@ static void init(void)
     if (!kbl_init())
         printf("kbd: no layouts\n");
     kbd_init();
+    kbt_init(); /* the speller is this machine's, not the device layer's */
     mou_init();
     pad_init();
     tab_init();

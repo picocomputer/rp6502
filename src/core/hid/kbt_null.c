@@ -11,19 +11,20 @@
  * are the seam and nothing more.
  */
 
+#include "core/hid/kbd.h"
 #include "core/hid/kbt.h"
 
 void kbt_init(void)
 {
 }
 
-void kbt_key_down(uint8_t modifier, uint8_t keycode)
+void kbd_spell_key(uint8_t modifier, uint8_t keycode)
 {
     (void)modifier;
     (void)keycode;
 }
 
-void kbt_modifiers(uint8_t modifier)
+void kbd_spell_modifiers(uint8_t modifier)
 {
     (void)modifier;
 }

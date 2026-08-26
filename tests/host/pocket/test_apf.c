@@ -20,6 +20,7 @@
  * are never dereferenced here, because nothing below calls apf_task.
  */
 
+#include "core/api/oem.h"
 #include "core/hid/kbd.h"
 #include "core/hid/kbt.h"
 #include "core/hid/mou.h"

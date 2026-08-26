@@ -716,7 +716,7 @@ void HOST_IN_FLASH("kbt_init") kbt_init(void)
 
 /* Once per report, so an Alt code committed while Alt was held is emitted
  * when it is released. */
-void kbt_modifiers(uint8_t modifier)
+void kbd_spell_modifiers(uint8_t modifier)
 {
     if (kbt_alt_mode &&
         !(modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)))
@@ -727,7 +727,7 @@ void kbt_modifiers(uint8_t modifier)
     }
 }
 
-void kbt_key_down(uint8_t modifier, uint8_t keycode)
+void kbd_spell_key(uint8_t modifier, uint8_t keycode)
 {
     kbt_queue_key(modifier, keycode, true);
 }
