@@ -5,7 +5,7 @@
 #
 # The emulator's script channel, driven from Python.
 #
-# src/host/sokol/scr.c is the same protocol in C, and the two are one
+# src/host/sokol/script.c is the same protocol in C, and the two are one
 # design: `--script -` reads commands from stdin, and `reply` turns on one
 # answer per command on stdout -- ok, ok <values>, or fail <why>. A command
 # that blocks answers when it finishes, not when it parses, so the reply for
@@ -77,7 +77,7 @@ class Emu:
         if reply is None:
             raise ScriptError(f"the machine stopped before answering {line!r}")
         if reply.startswith("fail"):
-            # scr_error ends the run, so nothing further can be asked.
+            # script_error ends the run, so nothing further can be asked.
             raise ScriptError(f"{line!r}: {reply[5:] or 'failed'}")
         if reply == "ok":
             return ""

@@ -11,7 +11,7 @@ rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
 
 # The same claims through the shipped binary, driven the way a developer
 # drives it. The C tests above reach APIs no script can — pad_xreg's bounds,
-# the unmapping — and these reach cli.c, main.c and scr.c, which no C test
+# the unmapping — and these reach cli.c, main.c and script.c, which no C test
 # does. Each sits beside the one it overlaps rather than in a directory about
 # the host, so "how is the pointer proven" has one place to look.
 if(TARGET rp6502-emu)

@@ -18,7 +18,7 @@ rp6502_add_test(dir SOURCES test_dir.c ${RP6502_TB_HOSTOS}
 # the generator says which, so this asserts that they are the only ones.
 #
 # The script is not written down: the file that assembles the program drives
-# it too, over the pipe scr.c answers on, so the expectation and the program
+# it too, over the pipe script.c answers on, so the expectation and the program
 # it is about cannot drift apart.
 if(TARGET rp6502-emu)
     rp6502_add_script_test(fstest DRIVER ${RP6502_TESTS_DIR}/gen/fstest_rom_gen.py

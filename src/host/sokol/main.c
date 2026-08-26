@@ -22,7 +22,7 @@
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli.h"
-#include "host/sokol/scr.h"
+#include "host/sokol/script.h"
 #include "host/sokol/credits.h"
 #include "core/sys/version.h"
 #include <stdio.h>
@@ -77,13 +77,13 @@ int main(int argc, char **argv)
     if (cli_parse_args(argc, argv, &o))
     {
         cli_usage(stderr, argv[0]);
-        scr_usage(stderr);
+        script_usage(stderr);
         return 2;
     }
     if (o.help)
     {
         cli_usage(stdout, argv[0]);
-        scr_usage(stdout);
+        script_usage(stdout);
         return 0;
     }
 
@@ -250,7 +250,7 @@ int main(int argc, char **argv)
         if (o.screenshot || o.script || !window_wait_for_rom())
         {
             cli_usage(stderr, argv[0]);
-            scr_usage(stderr);
+            script_usage(stderr);
             return 2;
         }
         apply_options(&o);
@@ -281,7 +281,7 @@ int main(int argc, char **argv)
 
     /* Armed before the machine starts so the script's first check sees the
      * program's first output. */
-    if (o.script && !scr_load(o.script))
+    if (o.script && !script_load(o.script))
         return 1;
 
     main_run(); /* start the machine — main_init only initialized the drivers */
@@ -291,24 +291,24 @@ int main(int argc, char **argv)
      * window, so a frame elapses only because the script asked for one and its
      * verdict is the process exit code. Pacing a script against the host's clock
      * would make every frame count a lower bound instead of a number. */
-    if (scr_loaded())
+    if (script_loaded())
     {
-        while (scr_running())
+        while (script_running())
         {
-            scr_task(); /* returns owing exactly one frame, or done */
-            if (scr_running())
+            script_task(); /* returns owing exactly one frame, or done */
+            if (script_running())
             {
                 /* Rendered when the script could look at it: shot, crc and the
                  * mark family must see real pixels, and the frame a command
                  * runs after is the only one they ever see. */
-                if (scr_needs_pixels())
+                if (script_needs_pixels())
                     sys_run_frame();
                 else
                     sys_run_frame_norender();
             }
         }
-        if (scr_exit_code() || !o.screenshot)
-            return scr_exit_code(); /* a passing script may still want the shot */
+        if (script_exit_code() || !o.screenshot)
+            return script_exit_code(); /* a passing script may still want the shot */
     }
 
     if (o.screenshot)

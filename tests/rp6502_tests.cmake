@@ -232,7 +232,7 @@ function(rp6502_add_script_test name)
 
     if(S_DRIVER)
         # The other shape: the file that assembles the program drives it too,
-        # over the pipe scr.c answers on. One file, one set of constants, and
+        # over the pipe script.c answers on. One file, one set of constants, and
         # a static script that could disagree with its program is not written.
         if(NOT IS_ABSOLUTE ${S_DRIVER})
             set(S_DRIVER ${CMAKE_CURRENT_LIST_DIR}/${S_DRIVER})

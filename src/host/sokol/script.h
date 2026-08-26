@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_SOKOL_SCR_H_
-#define _HOST_SOKOL_SCR_H_
+#ifndef _HOST_SOKOL_SCRIPT_H_
+#define _HOST_SOKOL_SCRIPT_H_
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -17,7 +17,7 @@
  * as host/emsdk/exports.c and host/android/window.c — it assembles reports and
  * hands them to the same hid seams a real device would.
  *
- * A failed assertion prints the script line and ends the run; scr_exit_code is
+ * A failed assertion prints the script line and ends the run; script_exit_code is
  * what the process should return.
  *
  * `reply` turns on a line of stdout per command — ok, ok <values>, or
@@ -29,34 +29,34 @@
 /* Open a script and arm it. "-" reads stdin one line at a time, which is what
  * lets a driver in any language work the machine: the machine waits for each
  * line, so the driver is the clock. */
-bool scr_load(const char *path);
+bool script_load(const char *path);
 
 /* The verbs, for --help. Printed here rather than in cli.c so the list
  * cannot drift from what the parser accepts. */
-void scr_usage(FILE *out);
+void script_usage(FILE *out);
 
 /* True when --script was given at all, and true while the script is still
  * going. A loaded script that stopped running is a finished run. */
-bool scr_loaded(void);
-bool scr_running(void);
+bool script_loaded(void);
+bool script_running(void);
 
 /* Advance the script until it owes the machine a frame: settle whatever it is
  * waiting for, then run commands until the next one that has to wait. Returning
  * IS the request for a frame, so the caller runs exactly one and calls again —
  * which is what makes `run 600` six hundred frames and not "at least" six
  * hundred. The script is the only clock; nothing paces it against real time. */
-void scr_task(void);
+void script_task(void);
 
-/* Whether the frame scr_task just asked for is one the script can observe.
+/* Whether the frame script_task just asked for is one the script can observe.
  * False through the middle of a run, where the pixels are never looked at. */
-bool scr_needs_pixels(void);
+bool script_needs_pixels(void);
 
 /* Run one command line. False on a bad line or a failed assertion, either of
  * which ends the run. Public so a transport other than a file can drive the
  * same verbs. */
-bool scr_command(const char *line);
+bool script_command(const char *line);
 
 /* 0 when every assertion held. */
-int scr_exit_code(void);
+int script_exit_code(void);
 
-#endif /* _HOST_SOKOL_SCR_H_ */
+#endif /* _HOST_SOKOL_SCRIPT_H_ */

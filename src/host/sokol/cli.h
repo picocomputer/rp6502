@@ -57,7 +57,7 @@ void cli_options_init(cli_options *o);
 int cli_parse_args(int argc, char **argv, cli_options *o);
 
 /* Print the option summary to stderr (argv0 names the program). */
-/* The options. The script verbs are scr_usage()'s, and the two are
+/* The options. The script verbs are script_usage()'s, and the two are
  * printed together for --help — cli.c is linked by things that carry no
  * script driver. */
 void cli_usage(FILE *out, const char *argv0);

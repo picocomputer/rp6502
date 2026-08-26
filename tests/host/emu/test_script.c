@@ -4,19 +4,19 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The script's clock. A script is the only thing that advances the machine
- * under --script, and scr_task hands control back exactly when it owes a
+ * under --script, and script_task hands control back exactly when it owes a
  * frame — so `run 600` is six hundred frames, not "at least six hundred".
  * The .txt suites next door prove the verbs; this proves the count, which
  * nothing observable from inside a script can.
  */
 
-#include "host/sokol/scr.h"
+#include "host/sokol/script.h"
 #include "core/sys/rom.h"
 #include "core/sys/sys.h"
 #include "emu_boot.h"
 #include <stdio.h>
 
-/* main.c's loop, which is the contract: one frame per scr_task that asks. */
+/* main.c's loop, which is the contract: one frame per script_task that asks. */
 static unsigned long frames_for(const char *text)
 {
     char path[512];
@@ -27,14 +27,14 @@ static unsigned long frames_for(const char *text)
     fputs(text, f);
     fclose(f);
 
-    if (!emu_restart(TEST_FIXTURE) || !scr_load(path))
+    if (!emu_restart(TEST_FIXTURE) || !script_load(path))
         return (unsigned long)-1;
     unsigned long before = sys_frame_count();
-    while (scr_running())
+    while (script_running())
     {
-        scr_task();
-        if (scr_running())
-            scr_needs_pixels() ? sys_run_frame() : sys_run_frame_norender();
+        script_task();
+        if (script_running())
+            script_needs_pixels() ? sys_run_frame() : sys_run_frame_norender();
     }
     return sys_frame_count() - before;
 }
