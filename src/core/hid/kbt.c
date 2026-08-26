@@ -83,20 +83,6 @@ static void kbt_queue_str(const char *str)
     }
 }
 
-static void kbt_queue_vt100(char c0, char c1, int ansi_mod)
-{
-    char s[16];
-    vt_vt100(s, sizeof s, c0, c1, ansi_mod);
-    return kbt_queue_str(s);
-}
-
-static void kbt_queue_vt220(int num, int ansi_mod)
-{
-    char s[16];
-    vt_vt220(s, sizeof s, num, ansi_mod);
-    return kbt_queue_str(s);
-}
-
 static void kbt_queue_char(char ch)
 {
     if ((kbt_key_queue_head + 1) % KBT_KEY_QUEUE_SIZE != kbt_key_queue_tail)
@@ -442,53 +428,9 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     }
     // Modifier key annotation
     int ansi_modifier = vt_ansi_mod(key_shift, key_alt, key_ctrl, key_gui);
-    switch (keycode)
-    {
-    case HID_KEY_ARROW_UP:
-        return kbt_queue_vt100('[', 'A', ansi_modifier);
-    case HID_KEY_ARROW_DOWN:
-        return kbt_queue_vt100('[', 'B', ansi_modifier);
-    case HID_KEY_ARROW_RIGHT:
-        return kbt_queue_vt100('[', 'C', ansi_modifier);
-    case HID_KEY_ARROW_LEFT:
-        return kbt_queue_vt100('[', 'D', ansi_modifier);
-    case HID_KEY_F1:
-        return kbt_queue_vt100('O', 'P', ansi_modifier);
-    case HID_KEY_F2:
-        return kbt_queue_vt100('O', 'Q', ansi_modifier);
-    case HID_KEY_F3:
-        return kbt_queue_vt100('O', 'R', ansi_modifier);
-    case HID_KEY_F4:
-        return kbt_queue_vt100('O', 'S', ansi_modifier);
-    case HID_KEY_F5:
-        return kbt_queue_vt220(15, ansi_modifier);
-    case HID_KEY_F6:
-        return kbt_queue_vt220(17, ansi_modifier);
-    case HID_KEY_F7:
-        return kbt_queue_vt220(18, ansi_modifier);
-    case HID_KEY_F8:
-        return kbt_queue_vt220(19, ansi_modifier);
-    case HID_KEY_F9:
-        return kbt_queue_vt220(20, ansi_modifier);
-    case HID_KEY_F10:
-        return kbt_queue_vt220(21, ansi_modifier);
-    case HID_KEY_F11:
-        return kbt_queue_vt220(23, ansi_modifier);
-    case HID_KEY_F12:
-        return kbt_queue_vt220(24, ansi_modifier);
-    case HID_KEY_HOME:
-        return kbt_queue_vt100('[', 'H', ansi_modifier);
-    case HID_KEY_INSERT:
-        return kbt_queue_vt220(2, ansi_modifier);
-    case HID_KEY_DELETE:
-        return kbt_queue_vt220(3, ansi_modifier);
-    case HID_KEY_END:
-        return kbt_queue_vt100('[', 'F', ansi_modifier);
-    case HID_KEY_PAGE_UP:
-        return kbt_queue_vt220(5, ansi_modifier);
-    case HID_KEY_PAGE_DOWN:
-        return kbt_queue_vt220(6, ansi_modifier);
-    }
+    char seq[16];
+    if (vt_key(seq, sizeof(seq), keycode, ansi_modifier))
+        kbt_queue_str(seq);
 }
 
 static int kbt_sanitize_layout(const char *kb)

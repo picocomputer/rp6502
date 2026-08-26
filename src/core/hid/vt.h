@@ -18,6 +18,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /* The ANSI modifier parameter: 1 with nothing held, +1 shift, +2 alt,
  * +4 ctrl, +8 gui. A host whose window manager owns the gui key passes
@@ -30,6 +31,13 @@ size_t vt_vt100(char *out, size_t cap, char c0, char c1, int ansi_mod);
 
 /* The numbered form: ESC[{num}~, or ESC[{num};{mod}~ when modified. */
 size_t vt_vt220(char *out, size_t cap, int num, int ansi_mod);
+
+/* The escape sequence a key with no character of its own spells, chosen by HID
+ * usage: the twelve function keys and the ten navigation keys. Zero for any
+ * other usage, including Enter, Tab, Escape and Backspace -- those have
+ * characters, and which character is the machine's to say. Both machines
+ * reach here holding a usage already, so neither needs a key enum. */
+size_t vt_key(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
 
 /* C0 promotion of a printable byte: Ctrl-A is 0x01 through Ctrl-Z 0x1A, and
  * the punctuation range with it. 0 for a byte outside both. Backspace is a
