@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_HID_MOU_H_
-#define _CORE_HID_MOU_H_
+#ifndef _CORE_HID_MOUSE_H_
+#define _CORE_HID_MOUSE_H_
 
 /* HID Mouse driver
  */
@@ -19,12 +19,12 @@
 /* Main events
  */
 
-#define MOU_MAX_MICE 4
+#define MOUSE_MAX_MICE 4
 
 /* One mouse, as the driver reads it. A descriptor is parsed into this;
  * a machine with no descriptor to parse writes one out. */
 // Mouse descriptors are normalized to this structure.
-typedef struct mou_connection
+typedef struct mouse_connection
 {
     bool valid;
     int slot;          // HID slot
@@ -40,32 +40,32 @@ typedef struct mou_connection
     uint16_t pan_offset; // Horizontal pan/tilt
     uint8_t pan_size;
     uint8_t buttons; // Last reported button state
-} mou_connection_t;
+} mouse_connection_t;
 
-void mou_init(void);
-void mou_stop(void);
+void mouse_init(void);
+void mouse_stop(void);
 
 // Set the extended register value.
-bool mou_xreg(uint16_t word);
+bool mouse_xreg(uint16_t word);
 
 // Whether a program has asked for this device's block.
-bool mou_is_mapped(void);
+bool mouse_is_mapped(void);
 
 /* A host that decodes its own pointer, in place of a report. dx/dy are
  * in the block's counter units and fractions are carried between calls;
  * the wheel and pan bytes are 8-bit wrapping accumulators, and the
  * button byte is in HID order (bit 0 left, 1 right, 2 middle). */
-void mou_host_move(float dx, float dy);
-void mou_host_wheel(int dwheel, int dpan);
-void mou_host_buttons(uint8_t buttons);
+void mouse_host_move(float dx, float dy);
+void mouse_host_wheel(int dwheel, int dpan);
+void mouse_host_buttons(uint8_t buttons);
 
 // Parse HID report descriptor for mouse.
-bool mou_mount(int slot, const mou_connection_t *desc);
+bool mouse_mount(int slot, const mouse_connection_t *desc);
 
 // Clean up descriptor when device is disconnected.
-bool mou_umount(int slot);
+bool mouse_umount(int slot);
 
 // Process HID report.
-void mou_report(int slot, uint8_t const *report, size_t size);
+void mouse_report(int slot, uint8_t const *report, size_t size);
 
-#endif /* _CORE_HID_MOU_H_ */
+#endif /* _CORE_HID_MOUSE_H_ */

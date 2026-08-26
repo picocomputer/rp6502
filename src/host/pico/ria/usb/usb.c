@@ -8,7 +8,7 @@
 #include "fatfs/ff.h"
 #include "core/hid/parse.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/tab.h"
 #include "core/hid/pad.h"
 #include "host/hcd.h"
@@ -44,7 +44,7 @@ static uint8_t usb_hid_leds;
 static uint8_t usb_hid_leds_next_dev;
 static uint8_t usb_hid_leds_next_idx;
 static uint8_t usb_count_hid_keyboard;
-static uint8_t usb_count_hid_mou;
+static uint8_t usb_count_hid_mouse;
 static uint8_t usb_count_hid_pad;
 static absolute_time_t usb_enum_timeout;
 static bool usb_boot_enum_finished;
@@ -136,7 +136,7 @@ int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
     int count_ep_free = hcd_free_ep_count();
     com_snprintf_utf8(buf, buf_size, STR_STATUS_USB,
                       usb_count_hid_keyboard, usb_count_hid_keyboard == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
-                      usb_count_hid_mou, usb_count_hid_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
+                      usb_count_hid_mouse, usb_count_hid_mouse == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                       count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
                       count_ep_free, count_ep_free == 1 ? S(STR_EP_FREE_SINGULAR) : S(STR_EP_FREE_PLURAL));
     return -1;
@@ -175,7 +175,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_parse(desc_report, desc_len, &parsed);
 
     /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    int slot = hid_mount(&parsed.keyboard, &parsed.mou, &parsed.tab, &parsed.pad,
+    int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tab, &parsed.pad,
                          vendor_id, product_id, PAD_TYPE_UNKNOWN);
     if (slot < 0)
         return;
@@ -187,8 +187,8 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
         ++usb_count_hid_keyboard;
         usb_hid_leds_restart();
     }
-    if (claims & HID_CLAIM_MOU)
-        ++usb_count_hid_mou;
+    if (claims & HID_CLAIM_MOUSE)
+        ++usb_count_hid_mouse;
     if (claims & HID_CLAIM_PAD)
     {
         ++usb_count_hid_pad;
@@ -211,8 +211,8 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
     uint8_t claims = hid_slot_claims(slot);
     if (claims & HID_CLAIM_KEYBOARD)
         --usb_count_hid_keyboard;
-    if (claims & HID_CLAIM_MOU)
-        --usb_count_hid_mou;
+    if (claims & HID_CLAIM_MOUSE)
+        --usb_count_hid_mouse;
     if (claims & HID_CLAIM_PAD)
         --usb_count_hid_pad;
     hid_umount(slot);

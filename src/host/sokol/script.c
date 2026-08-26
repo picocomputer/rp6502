@@ -9,7 +9,7 @@
 #include "host/sokol/png.h"
 #include "core/sys/proc.h"
 #include "core/sys/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "host/sokol/pad.h"
 #include "core/hid/tab.h"
 #include "core/com/com.h"
@@ -394,7 +394,7 @@ static bool script_cmd_mouse(char *p)
         long dx, dy;
         if (!script_number(&p, &dx) || !script_number(&p, &dy))
             return script_error("mouse move wants dx dy");
-        mou_host_move((float)dx, (float)dy);
+        mouse_host_move((float)dx, (float)dy);
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -404,7 +404,7 @@ static bool script_cmd_mouse(char *p)
             return script_error("mouse wheel wants a count");
         if (script_more(&p) && !script_number(&p, &pan))
             return script_error("mouse wheel wants a pan count");
-        mou_host_wheel((int)wheel, (int)pan);
+        mouse_host_wheel((int)wheel, (int)pan);
         return true;
     }
     if (verb && !strcasecmp(verb, "buttons"))
@@ -412,7 +412,7 @@ static bool script_cmd_mouse(char *p)
         long mask;
         if (!script_number(&p, &mask) || mask < 0 || mask > 255)
             return script_error("mouse buttons wants a bitmap 0..255");
-        mou_host_buttons((uint8_t)mask);
+        mouse_host_buttons((uint8_t)mask);
         return true;
     }
     return script_error("mouse wants move, wheel or buttons");

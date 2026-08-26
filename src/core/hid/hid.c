@@ -7,7 +7,7 @@
 #include <string.h>
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "host.h"
@@ -116,7 +116,7 @@ uint8_t hid_slot_claims(int slot)
 }
 
 int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
-                                      const mou_connection_t *mou,
+                                      const mouse_connection_t *mouse,
                                       const tab_connection_t *tab,
                                       const pad_connection_t *pad,
                                       uint16_t vendor_id, uint16_t product_id,
@@ -135,8 +135,8 @@ int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
     uint8_t claims = 0;
     if (keyboard && keyboard_mount(slot, keyboard, vendor_id, product_id))
         claims |= HID_CLAIM_KEYBOARD;
-    if (mou && mou_mount(slot, mou))
-        claims |= HID_CLAIM_MOU;
+    if (mouse && mouse_mount(slot, mouse))
+        claims |= HID_CLAIM_MOUSE;
     if (tab && tab_mount(slot, tab))
         claims |= HID_CLAIM_TAB;
     if (pad && pad_mount(slot, pad, vendor_id, product_id, button_type))
@@ -153,8 +153,8 @@ void hid_report(int slot, const uint8_t *data, uint16_t len)
     uint8_t claims = hid_claims[slot];
     if (claims & HID_CLAIM_KEYBOARD)
         keyboard_report(slot, data, len);
-    if (claims & HID_CLAIM_MOU)
-        mou_report(slot, data, len);
+    if (claims & HID_CLAIM_MOUSE)
+        mouse_report(slot, data, len);
     if (claims & HID_CLAIM_TAB)
         tab_report(slot, data, len);
     if (claims & HID_CLAIM_PAD)
@@ -168,8 +168,8 @@ void hid_umount(int slot)
     uint8_t claims = hid_claims[slot];
     if (claims & HID_CLAIM_KEYBOARD)
         keyboard_umount(slot);
-    if (claims & HID_CLAIM_MOU)
-        mou_umount(slot);
+    if (claims & HID_CLAIM_MOUSE)
+        mouse_umount(slot);
     if (claims & HID_CLAIM_TAB)
         tab_umount(slot);
     if (claims & HID_CLAIM_PAD)

@@ -9,7 +9,7 @@
 
 #include "host/sokol/window.h"
 #include "core/sys/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/tab.h"
 #include "core/vga/vga_emu.h"
 #include "sokol/sokol_app.h"
@@ -277,18 +277,18 @@ static void input_key(const sapp_event *e)
  * counts regardless of the canvas resolution. */
 #define INPUT_MOUSE_REF_WIDTH 640.0f
 
-static uint8_t mouse_buttons; /* host mouse button bitmap while captured */
+static uint8_t host_mouse_buttons; /* host mouse button bitmap while captured */
 
 /* Set or clear a captured mouse button (0..2 = left/right/middle) and publish. */
-static void set_mouse_button(int btn, bool down)
+static void set_host_mouse_button(int btn, bool down)
 {
     if (btn < 0 || btn > 2)
         return;
     if (down)
-        mouse_buttons |= (uint8_t)(1u << btn);
+        host_mouse_buttons |= (uint8_t)(1u << btn);
     else
-        mouse_buttons &= (uint8_t)~(1u << btn);
-    mou_host_buttons(mouse_buttons);
+        host_mouse_buttons &= (uint8_t)~(1u << btn);
+    mouse_host_buttons(host_mouse_buttons);
 }
 
 /* ------------------------------------------------------------------ */
@@ -296,7 +296,7 @@ static void set_mouse_button(int btn, bool down)
 /* ------------------------------------------------------------------ */
 
 /* Left/right/middle bit (TAB_FLAG_*) for a sokol mouse button. */
-static uint8_t mouse_button_bit(sapp_mousebutton mb)
+static uint8_t host_mouse_button_bit(sapp_mousebutton mb)
 {
     return mb == SAPP_MOUSEBUTTON_LEFT     ? TAB_FLAG_LEFT
            : mb == SAPP_MOUSEBUTTON_RIGHT  ? TAB_FLAG_RIGHT
@@ -317,7 +317,7 @@ static uint8_t pointer_buttons(const sapp_event *e)
         b |= TAB_FLAG_RIGHT;
     if (e->modifiers & SAPP_MODIFIER_MMB)
         b |= TAB_FLAG_MIDDLE;
-    uint8_t bit = mouse_button_bit(e->mouse_button);
+    uint8_t bit = host_mouse_button_bit(e->mouse_button);
     if (e->type == SAPP_EVENTTYPE_MOUSE_DOWN)
         b |= bit;
     else if (e->type == SAPP_EVENTTYPE_MOUSE_UP)
@@ -346,9 +346,9 @@ static bool input_tablet(const sapp_event *e)
             tab_host_pointer(cx, cy, buttons);
         else
             tab_host_clear(); /* outside the canvas: no contact, all buttons released */
-        if (mou_is_mapped()) /* the same physical pointer also drives the mouse block */
+        if (mouse_is_mapped()) /* the same physical pointer also drives the mouse block */
         {
-            mou_host_buttons(buttons);
+            mouse_host_buttons(buttons);
             if (e->type == SAPP_EVENTTYPE_MOUSE_MOVE)
             {
                 int cw, ch;
@@ -357,7 +357,7 @@ static bool input_tablet(const sapp_event *e)
                 if (onscreen_w > 0.0f)
                 {
                     float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w;
-                    mou_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
+                    mouse_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
                 }
             }
         }
@@ -365,8 +365,8 @@ static bool input_tablet(const sapp_event *e)
     }
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         tab_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
-        if (mou_is_mapped()) /* the same scroll also drives the mouse block */
-            mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+        if (mouse_is_mapped()) /* the same scroll also drives the mouse block */
+            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         return true;
     case SAPP_EVENTTYPE_MOUSE_LEAVE:
         window_set_pointer_on_canvas(false); /* hand the cursor back to the system */
@@ -428,15 +428,15 @@ void input_event(const sapp_event *e)
         {
             /* First click captures the mouse (only once a program wants it);
              * the click itself is consumed by the capture. */
-            if (mou_is_mapped())
+            if (mouse_is_mapped())
                 sapp_lock_mouse(true);
         }
         else
-            set_mouse_button(e->mouse_button, true);
+            set_host_mouse_button(e->mouse_button, true);
         break;
     case SAPP_EVENTTYPE_MOUSE_UP:
         if (sapp_mouse_locked())
-            set_mouse_button(e->mouse_button, false);
+            set_host_mouse_button(e->mouse_button, false);
         break;
     case SAPP_EVENTTYPE_MOUSE_MOVE:
         if (sapp_mouse_locked())
@@ -447,13 +447,13 @@ void input_event(const sapp_event *e)
             if (onscreen_w > 0.0f)
             {
                 float gain = INPUT_MOUSE_REF_WIDTH / onscreen_w; /* counts per fb pixel */
-                mou_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
+                mouse_host_move(e->mouse_dx * gain, e->mouse_dy * gain);
             }
         }
         break;
     case SAPP_EVENTTYPE_MOUSE_SCROLL:
         if (sapp_mouse_locked())
-            mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
+            mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
         keyboard_paste(sapp_get_clipboard_string());

@@ -37,7 +37,7 @@
 #include "core/sys/proc.h"
 #include "core/api/oem.h"
 #include "core/sys/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/tab.h"
 #include "core/sys/rom.h"
 #include "core/wdc/cpu.h"
@@ -333,12 +333,12 @@ static void update_title(void)
         v = 1;
         t = "Picocomputer 6502 (stopped)";
     }
-    else if (mou_is_mapped() && sapp_mouse_locked())
+    else if (mouse_is_mapped() && sapp_mouse_locked())
     {
         v = 3;
         t = "Picocomputer 6502  -  Esc releases mouse";
     }
-    else if (mou_is_mapped() && !tab_is_mapped())
+    else if (mouse_is_mapped() && !tab_is_mapped())
     {
         v = 2;
         t = "Picocomputer 6502  -  click to capture mouse";
@@ -457,7 +457,7 @@ void window_core_frame(void)
     /* Release a captured mouse if the program gave up the device (exec'd away,
      * unmapped) or mapped the absolute tablet (which never captures); then refresh
      * the title (run state + capture hint). */
-    if (sapp_mouse_locked() && (!mou_is_mapped() || tab_is_mapped()))
+    if (sapp_mouse_locked() && (!mouse_is_mapped() || tab_is_mapped()))
         sapp_lock_mouse(false);
     update_title();
     /* A host overlay (the Android ROM menu, the desktop no-ROM prompt) holds the

@@ -1,4 +1,4 @@
-# The relative mouse. paint_mou.rp6502 maps the HID mouse block and arms a 6522
+# The relative mouse. paint_mouse.rp6502 maps the HID mouse block and arms a 6522
 # timer IRQ whose handler reads the counters and moves a pointer sprite. Held
 # still the frame is identical, so a changed canvas after host motion is the
 # whole chain: the mouse block, the VIA IRQ, and the program's ISR.

@@ -28,11 +28,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
  * wheel, pan, contacts — is one contiguous run. */
 /* A relative mouse reports device counts (mickeys) far finer than a canvas
  * pixel, so it is tracked in a fixed reference resolution at the legacy mouse
- * rate (mou.c reports counts >>1) and then scaled to the canvas — so the ROM
+ * rate (mouse.c reports counts >>1) and then scaled to the canvas — so the ROM
  * gets absolute XY at a width-independent speed and needs no compensation. */
 #define TAB_REF_WIDTH 640
 #define TAB_REF_HEIGHT 480
-#define TAB_MOUSE_DIV 2 /* counts per reference pixel; matches mou.c's >>1 */
+#define TAB_MOUSE_DIV 2 /* counts per reference pixel; matches mouse.c's >>1 */
 
 static uint8_t tab_state[TAB_BLOCK_SIZE];
 static uint16_t tab_xram;

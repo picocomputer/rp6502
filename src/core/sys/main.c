@@ -18,7 +18,7 @@
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/ria/ria.h"
@@ -52,7 +52,7 @@ void main_init(void)
     cpu_init();
     aud_init();
     keyboard_init();
-    mou_init();
+    mouse_init();
     pad_init();
     tab_init();
     com_init();
@@ -91,7 +91,7 @@ void main_on_stop(void)
     std_stop();
     dir_stop();
     keyboard_stop();
-    mou_stop();
+    mouse_stop();
     pad_stop();
     tab_stop();
     aud_stop();

@@ -9,7 +9,7 @@
  * before KEEPALIVE marks the symbols. Compiled only for the Emscripten host.
  */
 
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include <emscripten.h>
@@ -17,9 +17,9 @@
 
 /* The shell shows the mouse "click to capture" hint only once a program maps the
  * mouse; capture (pointer lock) and motion scaling ride the shared sokol path. */
-EMSCRIPTEN_KEEPALIVE int mou_mapped(void)
+EMSCRIPTEN_KEEPALIVE int mouse_mapped(void)
 {
-    return mou_is_mapped() ? 1 : 0;
+    return mouse_is_mapped() ? 1 : 0;
 }
 
 /* Same hint drops once a program maps the tablet (it takes the pointer without

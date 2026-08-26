@@ -20,7 +20,7 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/hid/usage.h"
@@ -34,7 +34,7 @@
 #define APF_TYPE_PAD 2     /* docked controller, no analog */
 #define APF_TYPE_PAD_ANA 3 /* docked controller, with analog */
 #define APF_TYPE_KEYBOARD 4
-#define APF_TYPE_MOU 5
+#define APF_TYPE_MOUSE 5
 
 /* What the drivers are told a device is. A USB device says this with a
  * report descriptor; the dock has none to say it with, so where every
@@ -76,7 +76,7 @@ static const keyboard_connection_t apf_keyboard_desc = {
 
 /* Eight buttons, a byte of padding, then two 16-bit movements. Buttons,
  * X and Y are all the docked mouse documents, so there is no wheel. */
-static const mou_connection_t apf_mou_desc = {
+static const mouse_connection_t apf_mouse_desc = {
     .valid = true,
     .button_offsets = {0, 1, 2, 3, 4, 5, 6, 7},
     .x_relative = true,
@@ -85,7 +85,7 @@ static const mou_connection_t apf_mou_desc = {
 
 /* The same mouse read as a pointer, which is what a USB mouse gets too:
  * its first button is the tip a program draws with. */
-static const tab_connection_t apf_mou_tab_desc = {
+static const tab_connection_t apf_mouse_tab_desc = {
     .valid = true,
     .button_offsets = {0, 1, 2, 3, 4},
     .x_relative = true,
@@ -113,8 +113,8 @@ static struct
     int8_t slot; // where ria/hid mounted it, -1 for nothing
     uint8_t report[APF_REPORT_MAX];
     uint8_t len;
-    uint16_t mou_seen;
-    bool mou_have_seen;
+    uint16_t mouse_seen;
+    bool mouse_have_seen;
 } apf_slots[MMIO_CONT_SLOTS];
 
 static void apf_mount(int slot, uint8_t type)
@@ -140,9 +140,9 @@ static void apf_mount(int slot, uint8_t type)
     case APF_TYPE_KEYBOARD:
         apf_slots[slot].slot = (int8_t)hid_mount(&apf_keyboard_desc, NULL, NULL, NULL, 0, 0, 0);
         return;
-    case APF_TYPE_MOU:
-        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mou_desc,
-                                                 &apf_mou_tab_desc, NULL, 0, 0, 0);
+    case APF_TYPE_MOUSE:
+        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mouse_desc,
+                                                 &apf_mouse_tab_desc, NULL, 0, 0, 0);
         return;
     default:
         return;
@@ -208,7 +208,7 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         report[6] = (uint8_t)(trig >> 8);
         report[7] = (uint8_t)trig;
         return 8;
-    case APF_TYPE_MOU:
+    case APF_TYPE_MOUSE:
     {
         /* The first report's deltas are however far the hand went before
          * anyone was listening. */
@@ -244,14 +244,14 @@ static void apf_slot_task(int slot)
      * is the only way to tell a hand that did not move from a report that
      * never came, and reading the same delta twice slides the pointer. */
     bool first = false;
-    if (type == APF_TYPE_MOU)
+    if (type == APF_TYPE_MOUSE)
     {
         uint16_t count = apf_swap16(key);
-        if (apf_slots[slot].mou_have_seen && count == apf_slots[slot].mou_seen)
+        if (apf_slots[slot].mouse_have_seen && count == apf_slots[slot].mouse_seen)
             return;
-        first = !apf_slots[slot].mou_have_seen;
-        apf_slots[slot].mou_seen = count;
-        apf_slots[slot].mou_have_seen = true;
+        first = !apf_slots[slot].mouse_have_seen;
+        apf_slots[slot].mouse_seen = count;
+        apf_slots[slot].mouse_have_seen = true;
     }
 
     uint8_t report[APF_REPORT_MAX];
@@ -261,7 +261,7 @@ static void apf_slot_task(int slot)
         return;
     /* An unmoved level is the same report, and resending it would repeat
      * a key at the speed of the loop. A mouse passed its counter above. */
-    if (type == APF_TYPE_MOU || apf_changed(slot, report, len))
+    if (type == APF_TYPE_MOUSE || apf_changed(slot, report, len))
         apf_report(slot, report, len);
 }
 
@@ -275,7 +275,7 @@ void apf_refresh(void)
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
     {
         apf_slots[slot].len = 0;
-        apf_slots[slot].mou_have_seen = false;
+        apf_slots[slot].mouse_have_seen = false;
     }
 }
 

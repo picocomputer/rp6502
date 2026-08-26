@@ -18,7 +18,7 @@
 #include "core/aud/psg.h"
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 
@@ -33,7 +33,7 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
             ok = keyboard_xreg(word);
             break;
         case 1:
-            ok = mou_xreg(word);
+            ok = mouse_xreg(word);
             break;
         case 2:
             ok = pad_xreg(word);

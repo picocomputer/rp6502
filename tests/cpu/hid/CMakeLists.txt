@@ -1,7 +1,7 @@
 # Pointers and pads, each driven by the SDK demo that exercises it.
 
-# --- 6522 VIA timer IRQ + HID mouse, via the paint_mou demo ---
-rp6502_add_test(paint_mou LIBS emu_core FIXTURE paint_mou.rp6502 TIMEOUT 60)
+# --- 6522 VIA timer IRQ + HID mouse, via the paint_mouse demo ---
+rp6502_add_test(paint_mouse LIBS emu_core FIXTURE paint_mouse.rp6502 TIMEOUT 60)
 
 # --- Absolute pointer (tablet) window encoding, via paint_tab ---
 rp6502_add_test(paint_tab LIBS emu_core FIXTURE paint_tab.rp6502 TIMEOUT 60)
@@ -22,7 +22,7 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(keyboard FIXTURE mode2.rp6502)
 
     # Relative mouse, through the 6522 timer IRQ the paint demo runs its ISR on.
-    rp6502_add_script_test(pointer FIXTURE paint_mou.rp6502)
+    rp6502_add_script_test(pointer FIXTURE paint_mouse.rp6502)
 
     # Absolute pointer: the window-encoded coordinates in the tablet block.
     rp6502_add_script_test(tablet FIXTURE paint_tab.rp6502)

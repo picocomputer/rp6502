@@ -16,7 +16,7 @@
 
 #include "core/sys/keyboard.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/vga/vga_emu.h"
@@ -423,12 +423,12 @@ static void poll_pointer(retro_input_state_t state)
             tab_host_clear();
     }
 
-    if (mou_is_mapped())
+    if (mouse_is_mapped())
     {
         int dx = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_X);
         int dy = state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_Y);
         if (dx || dy)
-            mou_host_move((float)dx, (float)dy);
+            mouse_host_move((float)dx, (float)dy);
         uint8_t buttons = 0;
         if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_LEFT))
             buttons |= 1;
@@ -436,7 +436,7 @@ static void poll_pointer(retro_input_state_t state)
             buttons |= 2;
         if (state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_MIDDLE))
             buttons |= 4;
-        mou_host_buttons(buttons);
+        mouse_host_buttons(buttons);
     }
 
     /* One scroll, both devices — the same wheel a mouse-mapped program reads
@@ -449,8 +449,8 @@ static void poll_pointer(retro_input_state_t state)
     {
         if (tab_is_mapped())
             tab_host_wheel(dwheel, dpan);
-        if (mou_is_mapped())
-            mou_host_wheel(dwheel, dpan);
+        if (mouse_is_mapped())
+            mouse_host_wheel(dwheel, dpan);
     }
 }
 

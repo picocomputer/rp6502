@@ -36,7 +36,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/layout.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/main.h"
@@ -127,7 +127,7 @@ static void init(void)
         printf("keyboard: no layouts\n");
     keyboard_init();
     keymap_init(); /* the speller is this machine's, not the device layer's */
-    mou_init();
+    mouse_init();
     pad_init();
     tab_init();
     apf_init();
@@ -157,7 +157,7 @@ void main_on_stop(void)
     std_stop();
     msc_stop(); /* after std_stop: its closes are what park a read */
     keyboard_stop();
-    mou_stop();
+    mouse_stop();
     pad_stop();
     tab_stop();
     aud_stop();

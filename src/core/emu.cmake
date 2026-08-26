@@ -63,7 +63,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/vt.c
     ${RP6502_SRC}/core/hid/hid.c
     ${RP6502_SRC}/core/hid/keyboard.c
-    ${RP6502_SRC}/core/hid/mou.c
+    ${RP6502_SRC}/core/hid/mouse.c
     ${RP6502_SRC}/core/hid/pad.c
     ${RP6502_SRC}/core/hid/tab.c
     # Two HID layers: the device layer every machine has is above, and these

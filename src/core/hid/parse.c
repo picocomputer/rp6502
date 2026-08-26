@@ -225,7 +225,7 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
 
 typedef struct
 {
-    uint16_t keyboard, mou, tab, digitizer, pad;
+    uint16_t keyboard, mouse, tab, digitizer, pad;
 } hid_choice_t;
 
 static void hid_choose(uint16_t *chosen, uint16_t report_id)
@@ -245,7 +245,7 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
     if (axis || button || (f->usage_page == 0x02 && (f->usage == 0xC4 || f->usage == 0xC5)))
         hid_choose(&c->pad, f->report_id);
     if ((f->usage_page == 0x01 && f->usage == 0x30 && (f->input_flags & 0x04)) || button)
-        hid_choose(&c->mou, f->report_id);
+        hid_choose(&c->mouse, f->report_id);
     if ((f->usage_page == 0x01 && (f->usage == 0x30 || f->usage == 0x31)) || button ||
         (f->usage_page == 0x0D && (f->usage == 0x42 || f->usage == 0x32)))
         hid_choose(&c->tab, f->report_id);
@@ -263,7 +263,7 @@ typedef struct
 {
     hid_parsed_t *out;
     const hid_choice_t *choice;
-    uint32_t keyboard_app, mou_app, pad_app;
+    uint32_t keyboard_app, mouse_app, pad_app;
 } hid_fill_t;
 
 static void hid_locate(uint16_t *offset, uint8_t *size, const hid_field_t *f)
@@ -325,27 +325,27 @@ static void hid_fill_keyboard(keyboard_connection_t *keyboard, const hid_field_t
     }
 }
 
-static void hid_fill_mou(mou_connection_t *mou, const hid_field_t *f)
+static void hid_fill_mou(mouse_connection_t *mouse, const hid_field_t *f)
 {
     if (f->usage_page == 0x09)
     {
-        if (f->usage >= 1 && f->usage <= 8 && !mou->button_offsets[f->usage - 1])
-            mou->button_offsets[f->usage - 1] = f->bit_pos;
+        if (f->usage >= 1 && f->usage <= 8 && !mouse->button_offsets[f->usage - 1])
+            mouse->button_offsets[f->usage - 1] = f->bit_pos;
         return;
     }
     if (f->usage_page == 0x0C && f->usage == 0x238)
-        hid_locate(&mou->pan_offset, &mou->pan_size, f);
+        hid_locate(&mouse->pan_offset, &mouse->pan_size, f);
     if (f->usage_page != 0x01)
         return;
     switch (f->usage)
     {
     case 0x30:
-        if (!mou->x_size)
-            mou->x_relative = (f->input_flags & 0x04) != 0;
-        hid_locate(&mou->x_offset, &mou->x_size, f);
+        if (!mouse->x_size)
+            mouse->x_relative = (f->input_flags & 0x04) != 0;
+        hid_locate(&mouse->x_offset, &mouse->x_size, f);
         break;
-    case 0x31: hid_locate(&mou->y_offset, &mou->y_size, f); break;
-    case 0x38: hid_locate(&mou->wheel_offset, &mou->wheel_size, f); break;
+    case 0x31: hid_locate(&mouse->y_offset, &mouse->y_size, f); break;
+    case 0x38: hid_locate(&mouse->wheel_offset, &mouse->wheel_size, f); break;
     }
 }
 
@@ -427,11 +427,11 @@ static bool hid_fill_field(const hid_field_t *f, void *context)
             fill->keyboard_app = f->app_usage;
         hid_fill_keyboard(&fill->out->keyboard, f);
     }
-    if (f->report_id == c->mou)
+    if (f->report_id == c->mouse)
     {
-        if (fill->mou_app == HID_APP_NONE)
-            fill->mou_app = f->app_usage;
-        hid_fill_mou(&fill->out->mou, f);
+        if (fill->mouse_app == HID_APP_NONE)
+            fill->mouse_app = f->app_usage;
+        hid_fill_mou(&fill->out->mouse, f);
     }
     if (f->report_id == c->tab)
         hid_fill_tab(&fill->out->tab, f);
@@ -466,7 +466,7 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     /* A report id of 0xFFFF means the device declared none, and then the
      * report has no leading id byte to skip. */
     out->keyboard.report_id = choice.keyboard == HID_NO_REPORT ? 0 : (uint8_t)choice.keyboard;
-    out->mou.report_id = choice.mou == HID_NO_REPORT ? 0 : (uint8_t)choice.mou;
+    out->mouse.report_id = choice.mouse == HID_NO_REPORT ? 0 : (uint8_t)choice.mouse;
     out->tab.report_id = choice.tab == HID_NO_REPORT ? 0 : (uint8_t)choice.tab;
     out->pad.report_id = choice.pad == HID_NO_REPORT ? 0 : (uint8_t)choice.pad;
 
@@ -475,8 +475,8 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     out->keyboard.valid = out->keyboard.codes_count || out->keyboard.runs[0].count;
 
     // If it squeaks like a mouse: an X the device moves us by, not to.
-    out->mou.valid = out->mou.x_size > 0 &&
-                     (fill.mou_app == HID_APP_MOUSE || out->mou.x_relative);
+    out->mouse.valid = out->mouse.x_size > 0 &&
+                     (fill.mouse_app == HID_APP_MOUSE || out->mouse.x_relative);
 
     /* A relative mouse or an absolute digitizer/pen; not an absolute
      * Generic-Desktop device with no digitizer usage, which is a gamepad's

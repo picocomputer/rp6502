@@ -14,7 +14,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "ria/ble/ble.h"
 #include "core/hid/parse.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/tab.h"
 #include "core/hid/pad.h"
 #include "ria/net/cyw.h"
@@ -42,7 +42,7 @@ static enum {
 static uint8_t ble_enabled = 1;
 static bool ble_pairing;
 static uint8_t ble_count_keyboard;
-static uint8_t ble_count_mou;
+static uint8_t ble_count_mouse;
 static uint8_t ble_count_pad;
 
 // LED output report state for BLE keyboards
@@ -209,7 +209,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             hid_parsed_t parsed;
             hid_parse(descriptor, descriptor_len, &parsed);
             /* No vendor or product id over BLE, so nothing is ever certain. */
-            int slot = hid_mount(&parsed.keyboard, &parsed.mou, &parsed.tab, &parsed.pad,
+            int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tab, &parsed.pad,
                                  0, 0, PAD_TYPE_UNKNOWN);
             if (slot < 0)
                 continue;
@@ -221,8 +221,8 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
                 ++ble_count_keyboard;
                 ble_hid_leds_at = get_absolute_time();
             }
-            if (claims & HID_CLAIM_MOU)
-                ++ble_count_mou;
+            if (claims & HID_CLAIM_MOUSE)
+                ++ble_count_mouse;
             if (claims & HID_CLAIM_PAD)
                 ++ble_count_pad;
         }
@@ -241,8 +241,8 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             uint8_t claims = hid_slot_claims(slot);
             if (claims & HID_CLAIM_KEYBOARD)
                 --ble_count_keyboard;
-            if (claims & HID_CLAIM_MOU)
-                --ble_count_mou;
+            if (claims & HID_CLAIM_MOUSE)
+                --ble_count_mouse;
             if (claims & HID_CLAIM_PAD)
                 --ble_count_pad;
             hid_umount(slot);
@@ -599,7 +599,7 @@ void ble_shutdown(void)
         while (hci_get_state() != HCI_STATE_OFF)
             main_task();
         assert(ble_count_keyboard == 0);
-        assert(ble_count_mou == 0);
+        assert(ble_count_mouse == 0);
         assert(ble_count_pad == 0);
         hci_remove_event_handler(&hci_event_callback_registration);
         sm_remove_event_handler(&sm_event_callback_registration);
@@ -620,7 +620,7 @@ int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
         if (cyw_get_rf_enable())
             com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_FULL,
                               ble_count_keyboard, ble_count_keyboard == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
-                              ble_count_mou, ble_count_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
+                              ble_count_mouse, ble_count_mouse == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                               ble_count_pad, ble_count_pad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
                               ble_pairing ? S(STR_BLE_PAIRING) : "");
         else

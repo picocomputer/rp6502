@@ -14,14 +14,14 @@
 
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 
 typedef struct
 {
     keyboard_connection_t keyboard;
-    mou_connection_t mou;
+    mouse_connection_t mouse;
     tab_connection_t tab;
     pad_connection_t pad;
 } hid_parsed_t;

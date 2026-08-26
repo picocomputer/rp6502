@@ -93,13 +93,13 @@ UTEST(pointer, letting_go_ends_the_contact)
     fe.unload_game();
 }
 
-/* paint_mou.rp6502 reads the relative counters under a timer interrupt and
+/* paint_mouse.rp6502 reads the relative counters under a timer interrupt and
  * moves a sprite, so motion is a picture that changed and stillness is one
  * that did not. */
 UTEST(pointer, a_relative_pointer_reaches_the_mouse)
 {
     memset(fe.mouse, 0, sizeof fe.mouse);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_mou.rp6502"));
+    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_mouse.rp6502"));
     fe_run(60);
     frame_copy(settled);
 

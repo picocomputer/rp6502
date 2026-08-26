@@ -23,7 +23,7 @@
 #include "core/api/oem.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
-#include "core/hid/mou.h"
+#include "core/hid/mouse.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/mem.h"
@@ -38,7 +38,7 @@
  * would land in another's record rather than in nothing. */
 #define AT_PAD 0x1000
 #define AT_KEYBOARD 0x2000
-#define AT_MOU 0x3000
+#define AT_MOUSE 0x3000
 
 /* pad_xram_t, which apf.c's descriptor exists to fill correctly. */
 #define PAD_DPAD 0
@@ -67,7 +67,7 @@ static uint8_t feed(int slot, uint8_t type, uint32_t key, uint32_t joy,
 {
     uint8_t report[APF_REPORT_MAX];
     uint8_t len = apf_build(type, key, joy, trig, first, report);
-    if (len && (type == APF_TYPE_MOU || apf_changed(slot, report, len)))
+    if (len && (type == APF_TYPE_MOUSE || apf_changed(slot, report, len)))
         apf_report(slot, report, len);
     return len;
 }
@@ -78,7 +78,7 @@ static void reset_all(void)
         apf_umount(slot);
     apf_refresh();
     keyboard_init();
-    mou_init();
+    mouse_init();
     pad_init();
     tab_init();
     /* Whatever the last case typed is still queued — keyboard_init does not
@@ -88,7 +88,7 @@ static void reset_all(void)
         ;
     memset((uint8_t *)xram, 0, 0x10000);
     keyboard_xreg(AT_KEYBOARD);
-    mou_xreg(AT_MOU);
+    mouse_xreg(AT_MOUSE);
     pad_xreg(AT_PAD);
 }
 
@@ -351,32 +351,32 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
 UTEST(apf, a_mouse_moves_and_clicks)
 {
     reset_all();
-    apf_mount(3, APF_TYPE_MOU);
+    apf_mount(3, APF_TYPE_MOUSE);
 
     /* The first report after it appears carries no movement, however
      * far the hand went before anyone was listening. The movements are
      * byte swapped in the register, so +0x40 arrives as 0x4000. */
-    feed(3, APF_TYPE_MOU, 0x50000001u, 0x00014000u, 0x4000, true);
-    uint8_t x0 = xram[AT_MOU + 1];
-    uint8_t y0 = xram[AT_MOU + 2];
-    ASSERT_EQ(xram[AT_MOU + 0], 0x01); /* joy[23:16] is the buttons */
+    feed(3, APF_TYPE_MOUSE, 0x50000001u, 0x00014000u, 0x4000, true);
+    uint8_t x0 = xram[AT_MOUSE + 1];
+    uint8_t y0 = xram[AT_MOUSE + 2];
+    ASSERT_EQ(xram[AT_MOUSE + 0], 0x01); /* joy[23:16] is the buttons */
 
     /* Then movement accumulates, published at half resolution. */
-    feed(3, APF_TYPE_MOU, 0x50000200u, 0x00004000u, 0x2000, false);
-    ASSERT_EQ(xram[AT_MOU + 1], (uint8_t)(x0 + 0x20));
-    ASSERT_EQ(xram[AT_MOU + 2], (uint8_t)(y0 + 0x10));
-    ASSERT_EQ(xram[AT_MOU + 0], 0x00);
+    feed(3, APF_TYPE_MOUSE, 0x50000200u, 0x00004000u, 0x2000, false);
+    ASSERT_EQ(xram[AT_MOUSE + 1], (uint8_t)(x0 + 0x20));
+    ASSERT_EQ(xram[AT_MOUSE + 2], (uint8_t)(y0 + 0x10));
+    ASSERT_EQ(xram[AT_MOUSE + 0], 0x00);
 
     /* Negative deltas go the other way, which is what the descriptor's
      * signed sixteen-bit fields are for. -0x40 is 0xFFC0, and swapped
      * that is 0xC0FF. */
-    feed(3, APF_TYPE_MOU, 0x50000300u, 0x0000C0FFu, 0xE0FF, false);
-    ASSERT_EQ(xram[AT_MOU + 1], (uint8_t)(x0 + 0x20 - 0x20));
-    ASSERT_EQ(xram[AT_MOU + 2], (uint8_t)(y0 + 0x10 - 0x10));
+    feed(3, APF_TYPE_MOUSE, 0x50000300u, 0x0000C0FFu, 0xE0FF, false);
+    ASSERT_EQ(xram[AT_MOUSE + 1], (uint8_t)(x0 + 0x20 - 0x20));
+    ASSERT_EQ(xram[AT_MOUSE + 2], (uint8_t)(y0 + 0x10 - 0x10));
 
     /* No wheel and no pan on this bus, so those bytes stay put. */
-    ASSERT_EQ(xram[AT_MOU + 3], 0);
-    ASSERT_EQ(xram[AT_MOU + 4], 0);
+    ASSERT_EQ(xram[AT_MOUSE + 3], 0);
+    ASSERT_EQ(xram[AT_MOUSE + 4], 0);
 }
 
 /* The same mouse report is a pointer to tab.c, which is how the tablet
@@ -385,13 +385,13 @@ UTEST(apf, a_mouse_is_also_a_pointer)
 {
     reset_all();
     tab_xreg(0x4000);
-    apf_mount(3, APF_TYPE_MOU);
+    apf_mount(3, APF_TYPE_MOUSE);
 
-    feed(3, APF_TYPE_MOU, 0x50000001u, 0x00000000u, 0x0000, true);
+    feed(3, APF_TYPE_MOUSE, 0x50000001u, 0x00000000u, 0x0000, true);
     /* Contact zero's byte 0 carries the state bits; a pointer that has
      * reported at all is present. */
     uint8_t before = xram[0x4000 + 4];
-    feed(3, APF_TYPE_MOU, 0x50000200u, 0x00010001u, 0x0001, false);
+    feed(3, APF_TYPE_MOUSE, 0x50000200u, 0x00010001u, 0x0001, false);
     ASSERT_NE(xram[0x4000 + 4], (uint8_t)(before ^ 0xFF));
     /* The button reached it: tab.c's tip switch is the first button. */
     ASSERT_NE(xram[0x4000 + 4] & 1, 0);
