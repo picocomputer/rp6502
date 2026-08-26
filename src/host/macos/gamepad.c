@@ -91,51 +91,51 @@ int host_gamepad_poll(gamepad_host_t *gamepads, int max)
     {
         if (count >= max)
             break;
-        GCExtendedGamepad *gamepad = controller.extendedGamepad;
-        if (!gamepad)
+        GCExtendedGamepad *gc = controller.extendedGamepad;
+        if (!gc)
             continue; /* a remote or a micro gamepad is not one of these */
 
         gamepad_host_t *gamepad = &gamepads[count++];
         memset(gamepad, 0, sizeof(*gamepad));
         gamepad->id = gamepad_macos_id(controller);
         gamepad->type = gamepad_macos_type(controller);
-        gamepad->sticks = gamepad.leftThumbstick != nil && gamepad.rightThumbstick != nil;
+        gamepad->sticks = gc.leftThumbstick != nil && gc.rightThumbstick != nil;
 
         const struct
         {
             GCControllerButtonInput *input;
             gamepad_button_t button;
         } buttons[] = {
-            {gamepad.buttonA, GAMEPAD_BTN_A},
-            {gamepad.buttonB, GAMEPAD_BTN_B},
-            {gamepad.buttonX, GAMEPAD_BTN_X},
-            {gamepad.buttonY, GAMEPAD_BTN_Y},
-            {gamepad.leftShoulder, GAMEPAD_BTN_L1},
-            {gamepad.rightShoulder, GAMEPAD_BTN_R1},
-            {gamepad.leftTrigger, GAMEPAD_BTN_L2},
-            {gamepad.rightTrigger, GAMEPAD_BTN_R2},
-            {gamepad.buttonOptions, GAMEPAD_BTN_SELECT},
-            {gamepad.buttonMenu, GAMEPAD_BTN_START},
-            {gamepad.buttonHome, GAMEPAD_BTN_HOME},
-            {gamepad.leftThumbstickButton, GAMEPAD_BTN_L3},
-            {gamepad.rightThumbstickButton, GAMEPAD_BTN_R3},
-            {gamepad.dpad.up, GAMEPAD_BTN_DPAD_UP},
-            {gamepad.dpad.down, GAMEPAD_BTN_DPAD_DOWN},
-            {gamepad.dpad.left, GAMEPAD_BTN_DPAD_LEFT},
-            {gamepad.dpad.right, GAMEPAD_BTN_DPAD_RIGHT},
+            {gc.buttonA, GAMEPAD_BTN_A},
+            {gc.buttonB, GAMEPAD_BTN_B},
+            {gc.buttonX, GAMEPAD_BTN_X},
+            {gc.buttonY, GAMEPAD_BTN_Y},
+            {gc.leftShoulder, GAMEPAD_BTN_L1},
+            {gc.rightShoulder, GAMEPAD_BTN_R1},
+            {gc.leftTrigger, GAMEPAD_BTN_L2},
+            {gc.rightTrigger, GAMEPAD_BTN_R2},
+            {gc.buttonOptions, GAMEPAD_BTN_SELECT},
+            {gc.buttonMenu, GAMEPAD_BTN_START},
+            {gc.buttonHome, GAMEPAD_BTN_HOME},
+            {gc.leftThumbstickButton, GAMEPAD_BTN_L3},
+            {gc.rightThumbstickButton, GAMEPAD_BTN_R3},
+            {gc.dpad.up, GAMEPAD_BTN_DPAD_UP},
+            {gc.dpad.down, GAMEPAD_BTN_DPAD_DOWN},
+            {gc.dpad.left, GAMEPAD_BTN_DPAD_LEFT},
+            {gc.dpad.right, GAMEPAD_BTN_DPAD_RIGHT},
         };
         for (size_t i = 0; i < sizeof buttons / sizeof buttons[0]; i++)
             if (buttons[i].input)
                 gamepad_button_apply(buttons[i].button, buttons[i].input.isPressed,
-                                 &gamepad->dpad, &gamepad->button0, &gamepad->button1);
+                                     &gamepad->dpad, &gamepad->button0, &gamepad->button1);
 
-        gamepad->lx = gamepad_macos_axis(gamepad.leftThumbstick.xAxis.value);
-        gamepad->rx = gamepad_macos_axis(gamepad.rightThumbstick.xAxis.value);
+        gamepad->lx = gamepad_macos_axis(gc.leftThumbstick.xAxis.value);
+        gamepad->rx = gamepad_macos_axis(gc.rightThumbstick.xAxis.value);
         /* Apple's sticks are up-positive and the report's are down-positive. */
-        gamepad->ly = gamepad_macos_axis(-gamepad.leftThumbstick.yAxis.value);
-        gamepad->ry = gamepad_macos_axis(-gamepad.rightThumbstick.yAxis.value);
-        gamepad->lt = gamepad_macos_trigger(gamepad.leftTrigger.value);
-        gamepad->rt = gamepad_macos_trigger(gamepad.rightTrigger.value);
+        gamepad->ly = gamepad_macos_axis(-gc.leftThumbstick.yAxis.value);
+        gamepad->ry = gamepad_macos_axis(-gc.rightThumbstick.yAxis.value);
+        gamepad->lt = gamepad_macos_trigger(gc.leftTrigger.value);
+        gamepad->rt = gamepad_macos_trigger(gc.rightTrigger.value);
     }
     return count;
 }

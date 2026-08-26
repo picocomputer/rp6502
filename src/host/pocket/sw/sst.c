@@ -69,7 +69,7 @@ static void sst_log_restore(uint32_t ctl)
     LOG_SAY("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
            (unsigned)(us >> 32), (unsigned)us);
     LOG_SAY("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
-           (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
+            (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
            (unsigned)vid_prog_word_get(), (unsigned)font_get_code_page());
     LOG_SAY("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
            (unsigned)(MMIO_UPD_N & 0xFFu), (unsigned)main_boot_wake,

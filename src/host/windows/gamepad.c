@@ -364,7 +364,7 @@ static void gamepad_hid_parse(gamepad_hid_t *hid)
             unsigned index = usages[i] - 1u;
             if (index < sizeof map / sizeof map[0])
                 gamepad_button_apply(map[index], true, &state->dpad,
-                                 &state->button0, &state->button1);
+                                     &state->button0, &state->button1);
             /* Usages 17-20 are the discrete d-pad an Xbox-style descriptor
              * uses instead of a hat, the same place gamepad.c reads them. */
             else if (index >= 16 && index <= 19)

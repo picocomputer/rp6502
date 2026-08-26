@@ -362,13 +362,13 @@ static void poll_gamepads(retro_input_state_t state)
 
         /* The block's units: sticks signed 8-bit, triggers unsigned 8-bit. */
         int lx = state((unsigned)p, RETRO_DEVICE_ANALOG,
-                       RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) >> 8;
+                        RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_X) >> 8;
         int ly = state((unsigned)p, RETRO_DEVICE_ANALOG,
-                       RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
+                        RETRO_DEVICE_INDEX_ANALOG_LEFT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
         int rx = state((unsigned)p, RETRO_DEVICE_ANALOG,
-                       RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) >> 8;
+                        RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_X) >> 8;
         int ry = state((unsigned)p, RETRO_DEVICE_ANALOG,
-                       RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
+                        RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
 
         /* A RetroPad is a western-layout gamepad with two sticks — that is the
          * abstraction, whatever hardware is behind it. Claiming the sticks

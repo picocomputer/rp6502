@@ -282,7 +282,7 @@ int main(void)
     main_boot_slot = MMIO_SLOT;
     main_boot_upd = (uint8_t)MMIO_UPD_N;
     LOG_SAY("main: boot wake=%u slot=%08x upd=%u\n",
-               (unsigned)main_boot_wake, (unsigned)main_boot_slot,
+            (unsigned)main_boot_wake, (unsigned)main_boot_slot,
                (unsigned)main_boot_upd);
     if (!main_wake_pending)
         main_stage();

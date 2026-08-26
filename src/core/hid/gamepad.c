@@ -598,7 +598,7 @@ void gamepad_home_button(int slot, bool pressed)
 _Static_assert(GAMEPAD_LED_REPORT_MAX >= 47, "GAMEPAD_LED_REPORT_MAX too small for DS5");
 _Static_assert(GAMEPAD_LED_REPORT_MAX >= 31, "GAMEPAD_LED_REPORT_MAX too small for DS4");
 bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
-                          uint8_t *report_id, uint16_t *report_len)
+                              uint8_t *report_id, uint16_t *report_len)
 {
     int player = gamepad_get_player_num(slot);
     if (player < 0)
@@ -684,7 +684,7 @@ static bool gamepad_button_loc(gamepad_button_t button, int *field, uint8_t *mas
 }
 
 void gamepad_button_apply(gamepad_button_t button, bool down,
-                      uint8_t *dpad, uint8_t *button0, uint8_t *button1)
+                          uint8_t *dpad, uint8_t *button0, uint8_t *button1)
 {
     int field;
     uint8_t mask;
@@ -722,7 +722,7 @@ void gamepad_hid_set(int player, gamepad_button_t button, bool down)
 }
 
 void gamepad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
-                     int lx, int ly, int rx, int ry, int lt, int rt)
+                         int lx, int ly, int rx, int ry, int lt, int rt)
 {
     if (player < 0 || player >= GAMEPAD_PLAYERS)
         return;

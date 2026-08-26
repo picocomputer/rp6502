@@ -139,17 +139,17 @@ void gamepad_hid_set(int player, gamepad_button_t button, bool down);
 /* A whole report from one, in the block's own units: signed sticks, unsigned
  * triggers, and the dpad and button bytes as the block carries them. */
 void gamepad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
-                     int lx, int ly, int rx, int ry, int lt, int rt);
+                         int lx, int ly, int rx, int ry, int lt, int rt);
 
 /* Set or clear one button in a report a host is assembling field by field,
  * which is how the desktop backends read their controllers. */
 void gamepad_button_apply(gamepad_button_t button, bool down,
-                      uint8_t *dpad, uint8_t *button0, uint8_t *button1);
+                          uint8_t *dpad, uint8_t *button0, uint8_t *button1);
 
 // Parse HID report descriptor for gamepad. Devices recognized by vendor and
 // product id label themselves and ignore button_type.
 bool gamepad_mount(int slot, const gamepad_connection_t *desc,
-               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
+                   uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Clean up descriptor when device is disconnected.
 bool gamepad_umount(int slot);
@@ -170,6 +170,6 @@ int gamepad_get_player_num(int slot);
 // Writes into buf which must be GAMEPAD_LED_REPORT_MAX bytes.
 // Sets report_id and report_len. Returns true if a LED report was written.
 bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
-                          uint8_t *report_id, uint16_t *report_len);
+                              uint8_t *report_id, uint16_t *report_len);
 
 #endif /* _CORE_HID_GAMEPAD_H_ */

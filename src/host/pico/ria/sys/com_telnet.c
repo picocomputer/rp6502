@@ -120,7 +120,7 @@ size_t com_telnet_read(char *buf, size_t length)
 int com_telnet_peek(void)
 {
     return com_ring_peek((const uint8_t *)com_telnet_rx_buf, COM_TELNET_RX_BUF_SIZE,
-                         com_telnet_rx_head, com_telnet_rx_tail);
+                          com_telnet_rx_head, com_telnet_rx_tail);
 }
 
 static void com_telnet_drain_tx(void)

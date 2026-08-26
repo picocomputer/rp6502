@@ -93,7 +93,7 @@ __in_flash("help_disk") static const help_entry_t HELP_DISK[] = {
 static const size_t HELP_DISK_COUNT = sizeof HELP_DISK / sizeof *HELP_DISK;
 
 static const char *help_find(const help_entry_t *tbl, size_t n,
-                            const char *key, mon_response_fn *fn)
+                             const char *key, mon_response_fn *fn)
 {
     for (size_t i = 0; i < n; i++)
         if (!strcasecmp(key, tbl[i].cmd))

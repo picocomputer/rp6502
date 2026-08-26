@@ -113,7 +113,7 @@ static void gamepad_apply_button(gamepad_device_t *dev, uint16_t code, bool down
     default: return;
     }
     gamepad_button_apply(button, down, &dev->state.dpad,
-                     &dev->state.button0, &dev->state.button1);
+                         &dev->state.button0, &dev->state.button1);
 }
 
 static void gamepad_apply_hat(gamepad_device_t *dev, uint16_t code, int32_t value)
@@ -121,16 +121,16 @@ static void gamepad_apply_hat(gamepad_device_t *dev, uint16_t code, int32_t valu
     if (code == ABS_HAT0X)
     {
         gamepad_button_apply(GAMEPAD_BTN_DPAD_LEFT, value < 0, &dev->state.dpad,
-                         &dev->state.button0, &dev->state.button1);
+                             &dev->state.button0, &dev->state.button1);
         gamepad_button_apply(GAMEPAD_BTN_DPAD_RIGHT, value > 0, &dev->state.dpad,
-                         &dev->state.button0, &dev->state.button1);
+                             &dev->state.button0, &dev->state.button1);
     }
     else
     {
         gamepad_button_apply(GAMEPAD_BTN_DPAD_UP, value < 0, &dev->state.dpad,
-                         &dev->state.button0, &dev->state.button1);
+                             &dev->state.button0, &dev->state.button1);
         gamepad_button_apply(GAMEPAD_BTN_DPAD_DOWN, value > 0, &dev->state.dpad,
-                         &dev->state.button0, &dev->state.button1);
+                             &dev->state.button0, &dev->state.button1);
     }
 }
 

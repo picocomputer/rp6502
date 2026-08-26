@@ -160,7 +160,7 @@ static void modem_resp_reset(void)
 {
     if (modem_conn->resp_fn && modem_conn->resp_state >= 0)
         modem_conn->resp_fn(modem_conn->resp_buf, MODEM_RESPONSE_RENDER_SIZE, -1,
-                          MODEM_RESPONSE_WIDTH);
+                            MODEM_RESPONSE_WIDTH);
     modem_conn->resp_fn = NULL;
     modem_conn->resp_state = -1;
     modem_conn->resp_len = 0;
@@ -1069,7 +1069,7 @@ std_rw_result modem_std_read(int desc, char *buf, uint32_t count, uint32_t *byte
             {
                 modem_conn->resp_buf[0] = 0;
                 modem_conn->resp_state = modem_conn->resp_fn(modem_conn->resp_buf,
-                                                         MODEM_RESPONSE_RENDER_SIZE,
+                                                             MODEM_RESPONSE_RENDER_SIZE,
                                                          modem_conn->resp_state,
                                                          MODEM_RESPONSE_WIDTH);
                 modem_conn->resp_len = strlen(modem_conn->resp_buf);

@@ -205,7 +205,7 @@ static const char *drive_scheme_word(void)
 // suffix: extra word (Quick/Full) or NULL. label: in parens when non-empty (NULL/"" omits).
 // The `n >= size` guards stop a truncated segment from underflowing size - n.
 static void drive_fmt_desc(char *out, size_t size, const char *scheme, const char *fsname,
-                         uint32_t au_bytes, const char *suffix, const char *label)
+                           uint32_t au_bytes, const char *suffix, const char *label)
 {
     size_t n = 0;
     if (scheme)

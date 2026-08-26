@@ -50,7 +50,7 @@ void keyboard_stop(void);
 
 // Claim this device, if its map describes a keyboard.
 bool keyboard_mount(int slot, const keyboard_connection_t *desc,
-               uint16_t vendor_id, uint16_t product_id);
+                    uint16_t vendor_id, uint16_t product_id);
 
 // Clean up descriptor when device is disconnected.
 bool keyboard_umount(int slot);

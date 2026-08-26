@@ -228,7 +228,7 @@ static void keymap_queue_key(uint8_t modifier, uint8_t keycode, bool initial_pre
     if (key_alt && !ch && keycode < 128)
     {
         ch = ff_uni2oem(layout_code_point(keymap_layout_index, keycode,
-                                       is_shifted ? LAYOUT_SHIFT : LAYOUT_PLAIN),
+                                          is_shifted ? LAYOUT_SHIFT : LAYOUT_PLAIN),
                         code_page);
         if (key_ctrl)
         {

@@ -116,7 +116,7 @@ uint8_t hid_slot_claims(int slot)
 }
 
 int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
-                                      const mouse_connection_t *mouse,
+                                         const mouse_connection_t *mouse,
                                       const tablet_connection_t *tablet,
                                       const gamepad_connection_t *gamepad,
                                       uint16_t vendor_id, uint16_t product_id,

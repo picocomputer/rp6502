@@ -105,7 +105,7 @@ void usb_task(void)
         uint8_t report_id;
         uint16_t report_len;
         if (gamepad_build_led_report(usb_hid_slot[i], led_buf,
-                                 &report_id, &report_len))
+                                     &report_id, &report_len))
         {
             if (!tuh_hid_send_report(usb_gamepad_led_dev[i], i,
                                      report_id, led_buf, report_len))

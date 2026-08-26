@@ -144,18 +144,18 @@ void mouse_report(int slot, uint8_t const *data, size_t size)
 
     // Extract movement data
     mouse_x += hid_extract_signed(report_data, report_data_len,
-                                conn->x_offset, conn->x_size);
+                                  conn->x_offset, conn->x_size);
     mouse_state.x = mouse_x >> 1;
     if (conn->y_size > 0)
         mouse_y += hid_extract_signed(report_data, report_data_len,
-                                    conn->y_offset, conn->y_size);
+                                      conn->y_offset, conn->y_size);
     mouse_state.y = mouse_y >> 1;
     if (conn->wheel_size > 0)
         mouse_state.wheel += hid_extract_signed(report_data, report_data_len,
-                                              conn->wheel_offset, conn->wheel_size);
+                                                conn->wheel_offset, conn->wheel_size);
     if (conn->pan_size > 0)
         mouse_state.pan += hid_extract_signed(report_data, report_data_len,
-                                            conn->pan_offset, conn->pan_size);
+                                              conn->pan_offset, conn->pan_size);
 
     mouse_write_xram();
 }

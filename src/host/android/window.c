@@ -334,7 +334,7 @@ bool rp6502_android_input_hook(const void* native_event)
                 return 0; // Not handled
         }
         gamepad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
-                        g_android_lx, g_android_ly, g_android_rx, g_android_ry,
+                            g_android_lx, g_android_ly, g_android_rx, g_android_ry,
                         g_android_lt, g_android_rt);
         return 1; // Handled
     }
@@ -392,7 +392,7 @@ bool rp6502_android_input_hook(const void* native_event)
         g_android_rt = (int)(rt_val * 255.0f);
 
         gamepad_host_report(0, g_android_dpad, g_android_button0, g_android_button1,
-                        g_android_lx, g_android_ly, g_android_rx, g_android_ry,
+                            g_android_lx, g_android_ly, g_android_rx, g_android_ry,
                         g_android_lt, g_android_rt);
         return 1; // Handled
     }

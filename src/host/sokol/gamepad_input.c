@@ -108,6 +108,6 @@ void gamepad_input_task(void)
          * so what it claims is restated with every report. */
         gamepad_connect(player, true, gamepad->type, gamepad->sticks);
         gamepad_host_report(player, gamepad->dpad, gamepad->button0, gamepad->button1,
-                        gamepad->lx, gamepad->ly, gamepad->rx, gamepad->ry, gamepad->lt, gamepad->rt);
+                            gamepad->lx, gamepad->ly, gamepad->rx, gamepad->ry, gamepad->lt, gamepad->rt);
     }
 }

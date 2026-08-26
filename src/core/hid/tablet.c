@@ -116,7 +116,7 @@ static void tablet_write_xram(void)
     if (tablet_xram == 0xFFFF)
         return;
     memcpy((uint8_t *)&xram[tablet_xram + TABLET_OFF_STATUS], &tablet_state[TABLET_OFF_STATUS],
-           TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
+            TABLET_BLOCK_SIZE - TABLET_OFF_STATUS);
 }
 
 void HOST_IN_FLASH("tablet_init") tablet_init(void)
@@ -281,10 +281,10 @@ void tablet_report(int slot, uint8_t const *data, size_t size)
     // Scroll: only a mouse carries these; a pen/touch has wheel_size 0 and is skipped.
     if (conn->wheel_size > 0)
         tablet_state[TABLET_OFF_WHEEL] += hid_extract_signed(report_data, report_data_len,
-                                                       conn->wheel_offset, conn->wheel_size);
+                                                             conn->wheel_offset, conn->wheel_size);
     if (conn->pan_size > 0)
         tablet_state[TABLET_OFF_PAN] += hid_extract_signed(report_data, report_data_len,
-                                                     conn->pan_offset, conn->pan_size);
+                                                           conn->pan_offset, conn->pan_size);
 
     tablet_put_contact(0, (uint8_t)(buttons | (hover ? TABLET_FLAG_HOVER : 0)), tablet_x, tablet_y);
     tablet_write_xram();

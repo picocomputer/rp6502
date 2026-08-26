@@ -160,7 +160,7 @@ static int com_uart_peek(void)
 {
     com_uart_drain_rx();
     return com_ring_peek((const uint8_t *)com_uart_rx_buf, COM_UART_RX_BUF_SIZE,
-                         com_uart_rx_head, com_uart_rx_tail);
+                          com_uart_rx_head, com_uart_rx_tail);
 }
 
 // Local keyboard input. Steals the cross-core handoff slot if it was

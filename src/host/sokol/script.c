@@ -289,7 +289,7 @@ static void script_gamepad_publish(int player)
 {
     gamepad_connect(player, true, script_gamepad[player].type, script_gamepad[player].sticks);
     gamepad_host_report(player, script_gamepad[player].dpad, script_gamepad[player].button0,
-                    script_gamepad[player].button1, script_gamepad[player].lx, script_gamepad[player].ly,
+                        script_gamepad[player].button1, script_gamepad[player].lx, script_gamepad[player].ly,
                     script_gamepad[player].rx, script_gamepad[player].ry, script_gamepad[player].lt,
                     script_gamepad[player].rt);
 }
@@ -354,7 +354,7 @@ static bool script_cmd_gamepad(char *p)
             if (!gamepad_button_from_name(name, &button))
                 return script_error("unknown pad button '%s'", name);
             gamepad_button_apply(button, down, &script_gamepad[player].dpad,
-                             &script_gamepad[player].button0, &script_gamepad[player].button1);
+                                 &script_gamepad[player].button0, &script_gamepad[player].button1);
             count++;
         }
         if (!count)
@@ -659,7 +659,7 @@ bool script_command(const char *line)
                 return script_error("peek runs past the end of memory");
             if (base[addr + i] != (uint8_t)want)
                 return script_error("$%04lX+%d is $%02X, expected $%02lX",
-                                 addr, i, base[addr + i], want);
+                                    addr, i, base[addr + i], want);
             i++;
         }
         if (!i)
@@ -812,7 +812,7 @@ static bool script_settle(void)
         if (script_spend())
             return false;
         return script_error("timed out waiting for %s:$%04lX to read $%02X; it is $%02X",
-                         script_addr_base == xram ? "xram" : "ram", script_addr,
+                            script_addr_base == xram ? "xram" : "ram", script_addr,
                          script_addr_want, script_addr_base[script_addr]);
     case SCRIPT_TYPING:
         if (!keyboard_paste_busy())

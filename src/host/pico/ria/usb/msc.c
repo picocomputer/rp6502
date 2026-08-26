@@ -1946,7 +1946,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
             snprintf(sizebuf, sizeof(sizebuf), "%s", S(STR_PARENS_NO_MEDIA));
         else
             str_size((uint64_t)msc_pdrv[pdrv].block_count * msc_pdrv[pdrv].block_size,
-                     sizebuf, sizeof(sizebuf));
+                      sizebuf, sizeof(sizebuf));
         scsi_inquiry_resp_t inq;
         msc_status_t status = msc_scsi_inquiry(pdrv, &inq);
         if (status == MSC_STATUS_PASSED)

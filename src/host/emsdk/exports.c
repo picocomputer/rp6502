@@ -39,7 +39,7 @@ EMSCRIPTEN_KEEPALIVE int gamepad_mapped(void)
 }
 
 EMSCRIPTEN_KEEPALIVE void gamepad_host(int player, int dpad, int button0, int button1,
-                                   int lx, int ly, int rx, int ry, int lt, int rt,
+                                       int lx, int ly, int rx, int ry, int lt, int rt,
                                    int type, int sticks)
 {
     gamepad_connect(player, true, (uint8_t)type, sticks != 0);
