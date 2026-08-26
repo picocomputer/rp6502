@@ -104,8 +104,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     # CONFIGURE_DEPENDS because a plain GLOB is evaluated once: a new header
     # would go untracked, and a deleted one leaves ninja demanding a file no
     # rule can produce.
+    # The .def files are headers by another name: this image compiles
+    # core/str/str.c, which includes core/def/str_sys.def, so editing one has
+    # to relink sw.bin. Only this build needs saying -- the RIA and the
+    # emulator get it from gcc depfiles.
     file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
         ${RP6502_SRC}/core/*.h
+        ${RP6502_SRC}/core/def/*.def
         ${RP6502_SRC}/host/pocket/*.h
         ${RP6502_SRC}/host/pico/ria/*.h
         ${RP6502_SRC}/host/pico/vga/*.h)
