@@ -9,7 +9,7 @@
 #include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
@@ -362,17 +362,17 @@ static void set_locale(const char *args)
 static int set_keyboard_layout_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *list = kbt_get_layout_list();
+    const char *list = keymap_get_layout_list();
     if (strchr(list, ' '))
         snprintf(buf, buf_size, STR_SET_KB_LIST_RESPONSE, list);
     else
-        snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbt_get_layout(), kbt_get_layout_verbose());
+        snprintf(buf, buf_size, STR_SET_KB_RESPONSE, keymap_get_layout(), keymap_get_layout_verbose());
     return -1;
 }
 
 static void set_keyboard_layout(const char *args)
 {
-    if (*args && !kbt_set_layout(args))
+    if (*args && !keymap_set_layout(args))
     {
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;

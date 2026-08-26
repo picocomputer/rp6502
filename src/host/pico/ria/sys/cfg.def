@@ -32,7 +32,7 @@ X(   P,  "%u", cpu_get_phi2_khz,         cpu_load_phi2_khz,         STR_PHI2,  s
 XMON(                                                              STR_BOOT,  set_boot,       set_boot_response,    STR_HELP_SET_BOOT,   NULL)
 X(   T,  "%s", tim_get_time_zone,        tim_load_time_zone,        STR_TZ,    set_time_zone,  set_time_zone_response, STR_HELP_SET_TZ,   tim_tzdata_response)
 X(   M,  "%s", str_get_locale,           str_load_locale,           STR_LOC,   set_locale,     set_locale_response,  STR_HELP_SET_LOC,    str_locales_response)
-X(   L,  "%s", kbt_get_layout_list,      kbt_load_layout,           STR_KB,    set_keyboard_layout, set_keyboard_layout_response, STR_HELP_SET_KB,  kbt_layouts_response)
+X(   L,  "%s", keymap_get_layout_list,      keymap_load_layout,           STR_KB,    set_keyboard_layout, set_keyboard_layout_response, STR_HELP_SET_KB,  keymap_layouts_response)
 X(   S,  "%u", oem_get_code_page,        oem_load_code_page,        STR_CP,    set_code_page,  set_code_page_response, STR_HELP_SET_CP,   NULL)
 X(   D,  "%u", vga_get_display_type,     vga_load_display_type,     STR_VGA,   set_vga,        set_vga_response,     STR_HELP_SET_VGA,    NULL)
 X(   N,  "%u", nfc_get_enabled,          nfc_load_enabled,          STR_NFC,   set_nfc,        set_nfc_response,     STR_HELP_SET_NFC,    NULL)

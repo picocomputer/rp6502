@@ -8,7 +8,7 @@
 #define _CORE_HID_KEYBOARD_H_
 
 /* Which keys are down, as a bitmap the 6502 polls. What that spells is
- * core/hid/kbt.h.
+ * core/hid/keymap.h.
  */
 
 #include <stddef.h>

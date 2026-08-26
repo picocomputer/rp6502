@@ -9,7 +9,7 @@
 #include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"

@@ -8,7 +8,7 @@
 #include "core/api/oem.h"
 #include "core/aud/bel.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
@@ -164,14 +164,14 @@ static int com_uart_peek(void)
 }
 
 // Local keyboard input. Steals the cross-core handoff slot if it was
-// tagged KEYBOARD, then reads from kbt_in_chars. No internal sticky
+// tagged KEYBOARD, then reads from keymap_in_chars. No internal sticky
 // dwell — the outer com_rx_pick holds against the other sources at
 // the 1 ms grain.
 static size_t com_keyboard_read(char *buf, size_t length)
 {
     size_t count = com_recover_rx_char(buf, COM_SOURCE_KEYBOARD);
     if (count < length)
-        count += kbt_in_chars(&buf[count], length - count);
+        count += keymap_in_chars(&buf[count], length - count);
     return count;
 }
 
@@ -509,7 +509,7 @@ void com_break(void)
     com_uart_rx_head = com_uart_rx_tail = 0;
 
     char scratch[16];
-    while (kbt_in_chars(scratch, sizeof scratch))
+    while (keymap_in_chars(scratch, sizeof scratch))
         ;
 
 #ifdef RP6502_RIA_W

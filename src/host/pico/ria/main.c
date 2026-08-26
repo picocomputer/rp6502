@@ -19,7 +19,7 @@
 #include "core/aud/psg.h"
 #include "ria/ble/ble.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -122,7 +122,7 @@ static void __in_flash("init") init(void)
     led_init();
     aud_init();
     keyboard_init();
-    kbt_init(); /* the speller is this machine's, not the device layer's */
+    keymap_init(); /* the speller is this machine's, not the device layer's */
     mou_init();
     pad_init();
     tab_init();
@@ -149,7 +149,7 @@ void main_task(void)
     std_task();
     cpu_task();
     ria_task();
-    kbt_task();
+    keymap_task();
     mid_task();
     cyw_task();
     vga_task();

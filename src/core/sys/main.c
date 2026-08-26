@@ -100,7 +100,7 @@ void main_on_stop(void)
 /* Nowhere to break to: this machine has no monitor, and the key that asked is
  * an ordinary key. core/main.h documents false as that answer, so these satisfy
  * the contract rather than stub around it -- and without them emu_core cannot
- * link core/hid/kbt.c, which is the only caller. */
+ * link core/hid/keymap.c, which is the only caller. */
 bool main_break(void)
 {
     return false;

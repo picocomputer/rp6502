@@ -34,7 +34,7 @@
 #include "core/api/tim.h"
 #include "core/api/uni.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "core/hid/layout.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
@@ -126,7 +126,7 @@ static void init(void)
     if (!layout_init())
         printf("keyboard: no layouts\n");
     keyboard_init();
-    kbt_init(); /* the speller is this machine's, not the device layer's */
+    keymap_init(); /* the speller is this machine's, not the device layer's */
     mou_init();
     pad_init();
     tab_init();
@@ -313,7 +313,7 @@ int main(void)
         }
         cfg_task();
         apf_task();
-        kbt_task(); /* the repeat timer; apf_task does the reports */
+        keymap_task(); /* the repeat timer; apf_task does the reports */
         std_task();
         com_task();
         log_task();

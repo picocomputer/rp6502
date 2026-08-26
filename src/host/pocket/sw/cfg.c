@@ -19,7 +19,7 @@
 
 #include "core/cfg.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "core/hid/layout.h"
 
 #include <string.h>
@@ -39,7 +39,7 @@ static void cfg_apply_layout(int32_t kb)
         return;
     layout_name((int)kb - 1, name);
     if (name[0])
-        kbt_load_layout(name);
+        keymap_load_layout(name);
 }
 
 void cfg_task(void)

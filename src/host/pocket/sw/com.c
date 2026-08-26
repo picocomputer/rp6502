@@ -14,7 +14,7 @@
 #include "mmio.h"
 
 #include "core/com.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 
 #include <stdint.h>
 
@@ -54,6 +54,6 @@ void com_task(void)
         com_keyboard_push_byte((uint8_t)k);
 
     char buf[16];
-    size_t n = kbt_in_chars(buf, sizeof buf);
+    size_t n = keymap_in_chars(buf, sizeof buf);
     com_keyboard_push(buf, n);
 }

@@ -22,7 +22,7 @@
 
 #include "core/api/oem.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keymap.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -84,7 +84,7 @@ static void reset_all(void)
     /* Whatever the last case typed is still queued — keyboard_init does not
      * empty a queue a console would have drained. */
     char drain[64];
-    while (kbt_in_chars(drain, sizeof drain))
+    while (keymap_in_chars(drain, sizeof drain))
         ;
     memset((uint8_t *)xram, 0, 0x10000);
     keyboard_xreg(AT_KEYBOARD);
@@ -282,12 +282,12 @@ UTEST(apf, a_keyboard_sets_the_bitmap)
 UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
-    kbt_load_layout("US");
+    keymap_load_layout("US");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'a');
 
     /* Shift is the modifier byte's bit 1, in [15:8], and the layout's
@@ -295,15 +295,15 @@ UTEST(apf, a_keyboard_types_through_its_layout)
      * but never shifts, which is what hardware showed. */
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x04000000u, 0x0000, false);
-    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'A');
 
     /* And a layout that moves a key moves it: on the German layout the
      * key at 0x1C types z, not y. */
-    kbt_load_layout("DE");
+    keymap_load_layout("DE");
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x1C000000u, 0x0000, false);
-    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'z');
 }
 
@@ -319,7 +319,7 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
 {
     reset_all();
     oem_set_code_page_run(437);
-    kbt_load_layout("US-INTL");
+    keymap_load_layout("US-INTL");
     apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
@@ -330,10 +330,10 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
     feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x35000000u, 0x0000, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    size_t n437 = kbt_in_chars(buf, sizeof buf);
+    size_t n437 = keymap_in_chars(buf, sizeof buf);
     for (size_t i = 0; i < n437; i++)
         ASSERT_NE((unsigned char)buf[i], 0xC6);
-    while (kbt_in_chars(buf, sizeof buf)) /* nothing of 437 left queued */
+    while (keymap_in_chars(buf, sizeof buf)) /* nothing of 437 left queued */
         ;
 
     /* The same two keys, after the page moves under the layout. */
@@ -342,7 +342,7 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
     feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x35000000u, 0x0000, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
     feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
-    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ(keymap_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ((unsigned char)buf[0], 0xC6);
 }
 
