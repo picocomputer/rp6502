@@ -10,4 +10,6 @@
 #define XR(name, value)
 #define XKEY(kc, u, s, a, sa, caps)
 #define XDEAD(...)
+#define XCFG(...)
+#define XMON(...)
 #endif
