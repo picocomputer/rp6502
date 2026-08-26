@@ -47,7 +47,7 @@ typedef enum
 } kbd_key_t;
 
 /* The ANSI keyboard stream. Everything a host types enters here — nothing else
- * pushes the com keyboard ring (see emu/sys/com.h). */
+ * pushes the com keyboard ring (see core/com/com.h). */
 
 /* Queue printable UTF-8 input as OEM bytes, converting each sequence to the
  * active code page. */

@@ -5,7 +5,7 @@
  *
  * macOS window host: the sokol entry (window_run -> sapp_run). Cocoa needs no
  * manual resize or aspect hint, so those hooks are no-ops; the render/frame/
- * present pipeline is in app/window_core.c.
+ * present pipeline is in host/sokol/window_core.c.
  */
 
 #include "host/sokol/window.h"

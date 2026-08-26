@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Internal interface between the shared, host-neutral window core
- * (app/window_core.c) and the per-host window files (host/<os>/window.c).
- * Not a public header — app code uses app/window.h. The per-host file supplies
+ * (host/sokol/window_core.c) and the per-host window files (host/<os>/window.c).
+ * Not a public header — app code uses host/sokol/window.h. The per-host file supplies
  * the entry point (window_run / sokol_main) and the host_window_* hooks; the
  * core supplies the render/frame/present pipeline and the four sokol callbacks.
  */

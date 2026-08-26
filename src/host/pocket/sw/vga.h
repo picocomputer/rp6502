@@ -12,7 +12,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-/* Both sides of the VGA contract on one machine, the emu/sys/vga.h
+/* Both sides of the VGA contract on one machine, the core/vga/vga.h
  * shape. What only the fabric has.
  */
 
@@ -28,7 +28,7 @@ bool vga_prog_valid(int16_t plane, int16_t scanline_begin,
  * Here the fabric does, told which mode by vga_mode_begin before the call,
  * so it is ignored -- but it stays in the signature because core/vga/mode0.c
  * passes it and term.c drags the five-parameter declaration into this same
- * link through vga/sys/vga.h. */
+ * link through core/vga/vga.h. */
 bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin,
                         int16_t scanline_end, uint16_t config_ptr,
                         bool (*fill_fn)(int16_t, int16_t, int16_t,

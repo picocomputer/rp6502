@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Both sides of the VGA contract on one machine, emu/sys/vga.c's shape.
+ * Both sides of the VGA contract on one machine, core/vga/vga.c's shape.
  * There is no g_prog array: the RTL scanline program is the storage, and
  * entries are published tagged with the mode and attribute the
  * dispatcher announced, because a fill-function pointer means nothing to

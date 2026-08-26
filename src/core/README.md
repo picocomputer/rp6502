@@ -13,8 +13,12 @@ answer them — the software one whose parts are filed by subsystem below,
 `host/pico/ria` for the RP2350 firmware, `host/pocket/sw` for the Hazard3
 soft CPU — and none of the three is the reference. Where two of them would
 answer the same way, one implementation here answers for both and they
-supply the difference; `com.h` is the furthest along, with one console and
-a wire apiece.
+supply the difference.
+
+`main.h` is the one all three now share outright: starting and stopping the
+6502 is a request, `main.c` holds the state it is a request against, and each
+machine supplies only its own fan-outs and the moment it can afford to run
+them.
 
 What a *host* owes the machine is the other direction and lives in
 `src/host`: `os.h`, `fs.h`, `dir.h`.
@@ -35,7 +39,8 @@ implementations of one claim and the tests hold them to it:
     mem/ ria/ rv/    RAM, the register window, the soft RISC-V SoC
     str/ term/       readline and the ANSI terminal
     sys/      what a machine has rather than what it is made of: the frame
-              and bus engine, the drives, the clock, the log, the version
+              and bus engine, the PIX bus, the XREG rows, the drives, the
+              ROM format, the clock, the log, the version
     vga/      the video modes and the scanline program, as renderers and
               as fabric
     wdc/      the 6502 and the VIA, as software and as fabric
@@ -46,7 +51,10 @@ A machine is not a fork. Where one implementation can serve every machine it
 lives here and each machine answers the few calls that are genuinely its own:
 the console is `com/`, over the wire in `com/tty.h`; the launcher chain is
 `api/pro.c`, over how a machine starts a program; the scanline program is
-`vga/prog.c`, over what a machine's canvas is.
+`vga/prog.c`, over what a machine's canvas is. The 6502's own ABI is the
+clearest case, because none of it was ever a machine's to choose: which
+handler a syscall reaches is `api/ops.c`, the eighteen directory calls are
+`api/dir.c` over a drive, and the XREG rows are `sys/main_xreg.c`.
 
 Where a machine is genuinely different it says so and keeps its own — the
 RIA's console arbitrates a real serial port against a keyboard and a network

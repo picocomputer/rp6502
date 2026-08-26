@@ -69,7 +69,7 @@ void ui_ria_load_settings(ui_ria_t *win, const ui_settings_t *settings);
 /* The RIA shares the 6502 bus but wires only its own pins: CS, RW, D0-D7, and
  * the low 5 address lines (A0-A4) that select its 32-byte register window. A5-A15
  * are decoded off-chip into CS, so they never reach the RIA. Pins are fed live
- * from ria_chip()->PINS in the RIA's own layout (RIA_PIN_*, emu/sys/ria.h). */
+ * from ria_chip()->PINS in the RIA's own layout (RIA_PIN_*, core/ria/ria.h). */
 static const ui_chip_pin_t _ui_ria_pins[] = {
     {"D0", 0, RIA_PIN_D0 << 0}, {"D1", 1, RIA_PIN_D0 << 1},
     {"D2", 2, RIA_PIN_D0 << 2}, {"D3", 3, RIA_PIN_D0 << 3},

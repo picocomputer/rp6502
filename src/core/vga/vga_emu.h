@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _CORE_SYS_VGA_H_
-#define _CORE_SYS_VGA_H_
+#ifndef _CORE_VGA_VGA_EMU_H_
+#define _CORE_VGA_VGA_EMU_H_
 
 #include "core/vga/vga.h"
 #include <stdbool.h>
@@ -23,9 +23,6 @@ void vga_stop(void);
 /* Perform an armed console reset via the DISPLAY xreg; call once per frame. */
 void vga_task(void);
 
-/* Select a canvas geometry (vga_canvas_t code from vga/sys/vga.h). Returns
- * false for an out-of-range code, leaving the canvas state unchanged. */
-
 /* The scanline at which vsync fires for the current frame — the highest
  * scanline any installed program renders (firmware fires ria_vsync there). */
 int vga_vsync_scanline(void);
@@ -35,7 +32,6 @@ int vga_vsync_scanline(void);
  * so mid-frame state changes land on later lines (raster effects), matching
  * real per-scanline scanout. */
 void vga_render_scanline(int y);
-void vga_canvas_size(int *w, int *h);
 
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */
@@ -57,4 +53,4 @@ uint32_t *vga_get_framebuffer(void);
  * program, the code page -- is core/vga/vga.h, which every machine shares.
  * This file is only what the emulator additionally has: a framebuffer. */
 
-#endif /* _CORE_SYS_VGA_H_ */
+#endif /* _CORE_VGA_VGA_EMU_H_ */

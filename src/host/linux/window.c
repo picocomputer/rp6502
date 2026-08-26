@@ -5,7 +5,7 @@
  *
  * Linux window host: the X11 WM seam (resize + aspect hint) and the sokol entry
  * (window_run -> sapp_run). The render/frame/present pipeline is in
- * app/window_core.c.
+ * host/sokol/window_core.c.
  */
 
 #include "host/sokol/window.h"

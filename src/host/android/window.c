@@ -7,7 +7,7 @@
  * NativeActivity glue owns the real entry point), the native gamepad/menu input
  * hook, the on-screen ROM-select menu (sdtx overlay + storage scanning + JNI
  * all-files-access permission), and the host_window_* hooks. The render/frame/
- * present pipeline is in app/window_core.c.
+ * present pipeline is in host/sokol/window_core.c.
  */
 
 #include "host/sokol/window.h"

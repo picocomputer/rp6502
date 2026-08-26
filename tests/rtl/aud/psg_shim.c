@@ -6,7 +6,7 @@
  * The seams psg.c stands on, provided flat so the lockstep test runs
  * the vendored DSP against the verilated engine with no emulator in
  * between: XRAM and its write-notify queue with the RW engine's push
- * (emu/sys/ria.c's), and the sample output capture. The bell is the
+ * (core/ria/ria.c's), and the sample output capture. The bell is the
  * real bel.c, linked whole.
  */
 
