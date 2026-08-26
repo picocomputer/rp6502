@@ -5,7 +5,7 @@
  */
 
 #include "core/api/api.h"
-#include "core/api/atr.h"
+#include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
 #include "core/api/pro.h"
@@ -18,77 +18,77 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_ATR)
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_ATTR)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // Attribute IDs
-#define ATR_ERRNO_OPT 0x00
-#define ATR_PHI2_KHZ 0x01
-#define ATR_CODE_PAGE 0x02
-#define ATR_RLN_LENGTH 0x03
-#define ATR_LRAND 0x04
-#define ATR_BEL 0x05
-#define ATR_LAUNCHER 0x06
-#define ATR_EXIT_CODE 0x07
-#define ATR_SIGINT 0x08
-#define ATR_RLN_CAPS 0x09
-#define ATR_RLN_WIDTH 0x0A
-#define ATR_RLN_HEIGHT 0x0B
-#define ATR_RLN_SUPPRESS_NL 0x0C
-#define ATR_CLK_RUN_MS 0x10
-#define ATR_CLK_RUN_CS 0x11
-#define ATR_CLK_RUN_DS 0x12
-#define ATR_CLK_RUN_S 0x13
+#define ATTR_ERRNO_OPT 0x00
+#define ATTR_PHI2_KHZ 0x01
+#define ATTR_CODE_PAGE 0x02
+#define ATTR_RLN_LENGTH 0x03
+#define ATTR_LRAND 0x04
+#define ATTR_BEL 0x05
+#define ATTR_LAUNCHER 0x06
+#define ATTR_EXIT_CODE 0x07
+#define ATTR_SIGINT 0x08
+#define ATTR_RLN_CAPS 0x09
+#define ATTR_RLN_WIDTH 0x0A
+#define ATTR_RLN_HEIGHT 0x0B
+#define ATTR_RLN_SUPPRESS_NL 0x0C
+#define ATTR_CLK_RUN_MS 0x10
+#define ATTR_CLK_RUN_CS 0x11
+#define ATTR_CLK_RUN_DS 0x12
+#define ATTR_CLK_RUN_S 0x13
 
-// long ria_get_attr(uint8_t attr_id);
-bool atr_api_get(void)
+// long ria_attr_get(uint8_t attr_id);
+bool attr_api_get(void)
 {
     switch (API_A)
     {
-    case ATR_ERRNO_OPT:
+    case ATTR_ERRNO_OPT:
         return api_return_axsreg(api_get_errno_opt());
-    case ATR_PHI2_KHZ:
+    case ATTR_PHI2_KHZ:
         return api_return_axsreg(cpu_get_phi2_khz_run());
-    case ATR_CODE_PAGE:
+    case ATTR_CODE_PAGE:
         return api_return_axsreg(oem_get_code_page_run());
-    case ATR_RLN_LENGTH:
+    case ATTR_RLN_LENGTH:
         return api_return_axsreg(rln_get_max_length());
-    case ATR_LRAND:
+    case ATTR_LRAND:
         return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
-    case ATR_BEL:
+    case ATTR_BEL:
         return api_return_axsreg(com_get_bel());
-    case ATR_LAUNCHER:
+    case ATTR_LAUNCHER:
         return api_return_axsreg(pro_has_launcher());
-    case ATR_EXIT_CODE:
+    case ATTR_EXIT_CODE:
         return api_return_axsreg((uint16_t)pro_get_exit_code());
-    case ATR_SIGINT:
+    case ATTR_SIGINT:
         return api_return_axsreg(ria_get_sigint());
-    case ATR_RLN_CAPS:
+    case ATTR_RLN_CAPS:
         return api_return_axsreg(rln_get_caps());
-    case ATR_RLN_WIDTH:
+    case ATTR_RLN_WIDTH:
         return api_return_axsreg(rln_get_term_width());
-    case ATR_RLN_HEIGHT:
+    case ATTR_RLN_HEIGHT:
         return api_return_axsreg(rln_get_term_height());
-    case ATR_RLN_SUPPRESS_NL:
+    case ATTR_RLN_SUPPRESS_NL:
         return api_return_axsreg(rln_get_suppress_nl());
-    case ATR_CLK_RUN_MS:
+    case ATTR_CLK_RUN_MS:
         return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
-    case ATR_CLK_RUN_CS:
+    case ATTR_CLK_RUN_CS:
         return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
-    case ATR_CLK_RUN_DS:
+    case ATTR_CLK_RUN_DS:
         return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
-    case ATR_CLK_RUN_S:
+    case ATTR_CLK_RUN_S:
         return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
     default:
         return api_return_errno(API_EINVAL);
     }
 }
 
-// int ria_set_attr(uint32_t attr, uint8_t attr_id);
-bool atr_api_set(void)
+// int ria_attr_set(uint32_t attr, uint8_t attr_id);
+bool attr_api_set(void)
 {
     uint32_t value;
     if (!api_pop_uint32_end(&value))
@@ -97,62 +97,62 @@ bool atr_api_set(void)
         return api_return_errno(API_EINVAL);
     switch (API_A)
     {
-    case ATR_ERRNO_OPT:
+    case ATTR_ERRNO_OPT:
         if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
             return api_return_errno(API_EINVAL);
         break;
-    case ATR_PHI2_KHZ:
+    case ATTR_PHI2_KHZ:
         if (value > UINT16_MAX)
             return api_return_errno(API_EINVAL);
         cpu_set_phi2_khz_run((uint16_t)value);
         break;
-    case ATR_CODE_PAGE:
+    case ATTR_CODE_PAGE:
         if (value > UINT16_MAX)
             return api_return_errno(API_EINVAL);
         oem_set_code_page_run((uint16_t)value);
         break;
-    case ATR_RLN_LENGTH:
+    case ATTR_RLN_LENGTH:
         if (value > UINT8_MAX)
             return api_return_errno(API_EINVAL);
         rln_set_max_length((uint8_t)value);
         break;
-    case ATR_BEL:
+    case ATTR_BEL:
         if (value > 1)
             return api_return_errno(API_EINVAL);
         com_set_bel(value);
         break;
-    case ATR_LAUNCHER:
+    case ATTR_LAUNCHER:
         if (value > 1)
             return api_return_errno(API_EINVAL);
         pro_set_launcher(value);
         break;
-    case ATR_RLN_CAPS:
+    case ATTR_RLN_CAPS:
         if (value > 2)
             return api_return_errno(API_EINVAL);
         rln_set_caps((uint8_t)value);
         break;
-    case ATR_RLN_WIDTH:
+    case ATTR_RLN_WIDTH:
         if (value > UINT16_MAX)
             return api_return_errno(API_EINVAL);
         rln_set_term_width((uint16_t)value);
         break;
-    case ATR_RLN_HEIGHT:
+    case ATTR_RLN_HEIGHT:
         if (value > UINT16_MAX)
             return api_return_errno(API_EINVAL);
         rln_set_term_height((uint16_t)value);
         break;
-    case ATR_RLN_SUPPRESS_NL:
+    case ATTR_RLN_SUPPRESS_NL:
         if (value > 1)
             return api_return_errno(API_EINVAL);
         rln_set_suppress_nl((uint8_t)value);
         break;
-    case ATR_LRAND:      // Read only
-    case ATR_EXIT_CODE:  // Read only
-    case ATR_SIGINT:     // Read only
-    case ATR_CLK_RUN_MS: // Read only
-    case ATR_CLK_RUN_CS: // Read only
-    case ATR_CLK_RUN_DS: // Read only
-    case ATR_CLK_RUN_S:  // Read only
+    case ATTR_LRAND:      // Read only
+    case ATTR_EXIT_CODE:  // Read only
+    case ATTR_SIGINT:     // Read only
+    case ATTR_CLK_RUN_MS: // Read only
+    case ATTR_CLK_RUN_CS: // Read only
+    case ATTR_CLK_RUN_DS: // Read only
+    case ATTR_CLK_RUN_S:  // Read only
     default:
         return api_return_errno(API_EINVAL);
     }
@@ -165,13 +165,13 @@ bool atr_api_set(void)
  */
 
 // int phi2(void) - set/get CPU clock
-bool atr_api_phi2(void)
+bool attr_api_phi2(void)
 {
     return api_return_ax(cpu_get_phi2_khz_run());
 }
 
 // int codepage(unsigned cp) - set/get OEM code page
-bool atr_api_code_page(void)
+bool attr_api_code_page(void)
 {
     uint16_t cp = API_AX;
     if (cp)
@@ -180,13 +180,13 @@ bool atr_api_code_page(void)
 }
 
 // long lrand(void) - get random number
-bool atr_api_lrand(void)
+bool attr_api_lrand(void)
 {
     return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
 }
 
 // int errno_opt(unsigned char opt) - set errno mapping
-bool atr_api_errno_opt(void)
+bool attr_api_errno_opt(void)
 {
     uint8_t opt = API_A;
     if (!api_set_errno_opt(opt))

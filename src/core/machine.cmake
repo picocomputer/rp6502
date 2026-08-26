@@ -134,7 +134,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/main.c
         ${RP6502_SRC}/core/api/api.c
         ${RP6502_SRC}/core/api/arg.c
-        ${RP6502_SRC}/core/api/atr.c
+        ${RP6502_SRC}/core/api/attr.c
         ${RP6502_SRC}/core/api/pro.c
         ${RP6502_SRC}/core/api/clk.c
         ${RP6502_SRC}/core/api/std.c

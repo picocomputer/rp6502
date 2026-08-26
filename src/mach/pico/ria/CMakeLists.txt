@@ -122,7 +122,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/api.c
     ${RP6502_ROOT}/src/core/api/pro.c
     ${RP6502_ROOT}/src/core/api/arg.c
-    ${RP6502_ROOT}/src/core/api/atr.c
+    ${RP6502_ROOT}/src/core/api/attr.c
     ${RP6502_ROOT}/src/core/api/clk.c
     ${RP6502_ROOT}/src/core/api/dir.c
     ${RP6502_ROOT}/src/core/api/ops.c

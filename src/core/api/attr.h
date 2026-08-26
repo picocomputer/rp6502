@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_API_ATR_H_
-#define _CORE_API_ATR_H_
+#ifndef _CORE_API_ATTR_H_
+#define _CORE_API_ATTR_H_
 
 /* The ATR driver dispatches get/set attribute calls.
  * The API allows for 256 attributes of 31 bits.
@@ -18,15 +18,15 @@
 /* The API implementation
  */
 
-bool atr_api_get(void);
-bool atr_api_set(void);
+bool attr_api_get(void);
+bool attr_api_set(void);
 
 /* Deprecated API
  */
 
-bool atr_api_phi2(void);
-bool atr_api_code_page(void);
-bool atr_api_lrand(void);
-bool atr_api_errno_opt(void);
+bool attr_api_phi2(void);
+bool attr_api_code_page(void);
+bool attr_api_lrand(void);
+bool attr_api_errno_opt(void);
 
-#endif /* _CORE_API_ATR_H_ */
+#endif /* _CORE_API_ATTR_H_ */

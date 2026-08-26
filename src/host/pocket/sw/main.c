@@ -26,7 +26,7 @@
 #include "vga.h"
 #include "vid.h"
 #include "core/api/api.h"
-#include "core/api/atr.h"
+#include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "core/api/pro.h"
 #include "core/api/dir.h"

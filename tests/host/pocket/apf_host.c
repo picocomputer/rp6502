@@ -33,7 +33,7 @@ void hid_set_leds(uint8_t leds)
 
 /* CP437 to start, which is what every layout's code points are converted
  * through unless something says otherwise. Settable because the real machine's
- * is: a 6502 program can move it through ATR_CODE_PAGE, and what that does to
+ * is: a 6502 program can move it through ATTR_CODE_PAGE, and what that does to
  * the layout is worth being able to ask. */
 static uint16_t apf_host_code_page = 437;
 

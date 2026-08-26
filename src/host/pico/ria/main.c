@@ -6,7 +6,7 @@
 
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "core/api/atr.h"
+#include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "api/fat.h"
 #include "core/api/dir.h"

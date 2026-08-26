@@ -47,14 +47,14 @@ static void xreg_rom(std::vector<uint8_t> &rom)
         p.put_errno();
     };
 
-    /* ATR_ERRNO_OPT first, because until a program picks a map every
+    /* ATTR_ERRNO_OPT first, because until a program picks a map every
      * errno reads back as -1 — which is also what api_run left in the
      * register, so nothing below could tell a refusal from a success
      * without this. */
     push(0); push(0); push(0); push(1); /* cc65 */
     opn(0x0B, 0);
 
-    /* ATR_CLK_RUN_*, before anything that fails: errno is sticky, so
+    /* ATTR_CLK_RUN_*, before anything that fails: errno is sticky, so
      * only here is 0xFFFF still the untouched value and an absent case
      * still visible. The run clock itself is not compared; it is a
      * different number of microseconds on a simulated machine than on
@@ -117,7 +117,7 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     push(0); push(1); push(1); pushw(0xF000);
     op1();
 
-    /* ATR_BEL: read the default, mute, ring silently, reject a bad
+    /* ATTR_BEL: read the default, mute, ring silently, reject a bad
      * value, unmute, ring for real. */
     opn(0x0A, 5);
     push(0); push(0); push(0); push(0);
@@ -130,7 +130,7 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 5);
     p.store(TB_RIA_TX, 0x07); /* BEL, rings */
 
-    /* ATR_CODE_PAGE: a page both machines carry, one neither does — a
+    /* ATTR_CODE_PAGE: a page both machines carry, one neither does — a
      * no-op that still answers success — and back to 437. Relative
      * moves only, so this does not also assert that two machines boot
      * the same locale. The soft CPU's page list is the font asset's and
@@ -145,7 +145,7 @@ static void xreg_rom(std::vector<uint8_t> &rom)
     opn(0x0B, 2);
     opn(0x0A, 2);
 
-    /* ATR_EXIT_CODE and ATR_SIGINT, which are reads a program makes about
+    /* ATTR_EXIT_CODE and ATTR_SIGINT, which are reads a program makes about
      * the run it is in: nothing has exited and nothing has interrupted, so
      * both answer zero on a machine that keeps them at all. They are here
      * because one machine used to answer EINVAL to the pair -- its attribute

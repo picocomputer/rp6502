@@ -18,7 +18,7 @@
 
 #include "core/api/ops.h"
 #include "core/api/api.h"
-#include "core/api/atr.h"
+#include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
 #include "core/api/pro.h"
@@ -36,21 +36,21 @@ bool ops_dispatch(uint8_t operation)
     case 0x01:
         return pix_api_xreg();
     case 0x02:
-        return atr_api_phi2();
+        return attr_api_phi2();
     case 0x03:
-        return atr_api_code_page();
+        return attr_api_code_page();
     case 0x04:
-        return atr_api_lrand();
+        return attr_api_lrand();
     case 0x06:
-        return atr_api_errno_opt();
+        return attr_api_errno_opt();
     case 0x08:
         return pro_api_argv();
     case 0x09:
         return pro_api_exec();
     case 0x0A:
-        return atr_api_get();
+        return attr_api_get();
     case 0x0B:
-        return atr_api_set();
+        return attr_api_set();
     case 0x0F:
         return clk_api_clock();
     case 0x10:

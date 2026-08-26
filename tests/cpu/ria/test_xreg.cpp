@@ -9,7 +9,7 @@
  * left: the error paths — misaligned stack, bad device, the RIA-private VGA
  * control channel — a canvas switch and a full mode 3 program, the sprite
  * slots, the PSG and OPL pointers through the soft CPU's validation both
- * ways, and the ATR set, ATR_BEL among it.
+ * ways, and the ATR set, ATTR_BEL among it.
  *
  * The stream those probes print is the expectation, byte for byte, and an
  * array rather than a checksum on purpose: the whole value of the suite is

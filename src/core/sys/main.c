@@ -23,7 +23,7 @@
 #include "core/hid/tab.h"
 #include "core/ria/ria.h"
 #include "core/api/api.h"
-#include "core/api/atr.h"
+#include "core/api/attr.h"
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/clk.h"
