@@ -25,7 +25,7 @@ void vga_task(void);
 
 /* The scanline at which vsync fires for the current frame — the highest
  * scanline any installed program renders (firmware fires ria_vsync there). */
-int vga_vsync_scanline(void);
+int16_t vga_vsync_scanline(void);
 
 /* Render one scanline y of the current frame into the present buffer (RGBA8
  * 0xAABBGGRR, canvas-native stride). Interleaved with the CPU between scanlines

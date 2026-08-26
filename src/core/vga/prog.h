@@ -46,8 +46,9 @@ void vga_prog_reset(void);
 int16_t vga_prog_highest(void);
 
 /* Bound a booking against the canvas and this plane, resolving a zero end to
- * "the bottom", and track the highest line. Shared even by a machine that
- * keeps no table, because the rule is the machine's, not the storage's. */
+ * "the bottom", and track the highest line. A machine whose program lives in
+ * fabric registers bounds its own, because the numbers it bounds against are
+ * the fabric's -- see the note above about not linking this file. */
 bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end);
 
 #endif /* _CORE_VGA_PROG_H_ */

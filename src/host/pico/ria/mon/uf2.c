@@ -415,7 +415,7 @@ static void uf2_progress(void)
 // mbuf layout during RIA write phase:
 //   [0..FLASH_PAGE_SIZE)                 — page accumulator (persisted)
 //   [FLASH_PAGE_SIZE .. FLASH_PAGE_SIZE+512) — 512-B block read
-// (MBUF_SIZE == 1024 B; these are disjoint. See src/ria/sys/mem.h.)
+// (MBUF_SIZE == 1024 B; these are disjoint. See src/host/pico/ria/sys/mem.h.)
 #define UF2_RIA_PAGE_BUF (mbuf)
 #define UF2_RIA_BLOCK_BUF (mbuf + FLASH_PAGE_SIZE)
 

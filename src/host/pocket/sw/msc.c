@@ -211,7 +211,7 @@ static void msc_win_u32(uint32_t off, uint32_t v)
  * looked up by its id. */
 #define MSC_DT_PAIRS 20
 
-uint32_t msc_dt(uint32_t word)
+static uint32_t msc_dt(uint32_t word)
 {
     FILE_ID = word;
     msc_command(FILE_OP_DT);

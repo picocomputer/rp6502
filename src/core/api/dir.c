@@ -16,7 +16,7 @@
  * because a directory read is a directory read. */
 static int32_t tells[DIR_MAX_OPEN];
 
-bool dir_push_filinfo(FILINFO *fno)
+static bool dir_push_filinfo(FILINFO *fno)
 {
     /* Push fields in reverse so they land in forward
      * order in the 6502-visible struct. */

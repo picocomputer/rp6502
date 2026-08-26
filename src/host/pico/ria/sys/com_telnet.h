@@ -5,8 +5,8 @@
  */
 
 /* The seam between the console and its telnet source -- com.c on one side,
- * com_tel.c on the other, both halves of one module. Not to be confused with
- * net/tel.h, which is the TCP layer this stands on.
+ * com_telnet.c on the other, both halves of one module. Not to be confused with
+ * net/telnet.h, which is the TCP layer this stands on.
  *
  * The telnet console, as the console sees it: one more source to read, peek
  * and write, plus the pump its TCP stack needs and a way to say whether

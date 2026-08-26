@@ -68,8 +68,6 @@ typedef struct
 /* This machine's drive, supplied by its main.c. */
 const dir_backend_t *main_dir_backend(void);
 
-/* Push one FILINFO onto the xstack in the 6502-visible field order. */
-bool dir_push_filinfo(FILINFO *fno);
 
 /* Machine events: a run starts with no directory open. */
 void dir_run(void);

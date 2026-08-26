@@ -98,7 +98,7 @@ void vga_task(void)
     }
 }
 
-int vga_vsync_scanline(void)
+int16_t vga_vsync_scanline(void)
 {
     /* Mirror the firmware (vga_scanline_complete): vsync fires at the highest
      * scanline any program renders, clamped to / falling back to the canvas

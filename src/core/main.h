@@ -55,9 +55,9 @@ bool main_break(void);
 bool main_break_to_launcher(void);
 
 /* PIX XREG register dispatch: device 0 (the RIA's own HID and audio), device 1
- * (the video device). A machine whose PIX is a real bus takes the two as one
- * call and routes on the device number; these are the shape for the machines
- * that deliver to themselves. */
+ * (the video device). Device 0 never crosses a bus, so every machine answers
+ * it locally. Device 1 is answered here only by a machine that is its own
+ * video; one with a real bus sends it and the far end answers. */
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
 bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
 

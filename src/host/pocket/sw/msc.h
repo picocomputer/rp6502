@@ -56,7 +56,6 @@ void msc_log(void);
 
 /* By word index, not by slot: the table is id/size pairs and the host
  * decides where each pair lands. */
-uint32_t msc_dt(uint32_t word);
 
 /* Blocking. */
 bool msc_slot_len(uint32_t slot, uint32_t *len);
@@ -71,8 +70,6 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap);
  * only ever called with the 6502 stopped. */
 bool msc_stage_rom(const char *path, uint32_t *len);
 
-/* chdir always errors; chdrive accepts only this drive's names. */
-
 bool msc_std_handles(const char *path);
 int msc_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result msc_std_close(int desc, api_errno *err);
@@ -83,7 +80,6 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
 std_rw_result msc_std_sync(int desc, api_errno *err);
 int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err);
-
 
 /* This drive, for core/api/dir.c's handlers. */
 extern const dir_backend_t msc_dir_backend;

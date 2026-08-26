@@ -21,6 +21,8 @@
 #include "core/mem.h"
 #include <string.h>
 
+static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word);
+
 /* The i-th xreg data word (target address+i) sits at xstack[SIZE-5-2i]. */
 static uint16_t pix_word_at(int i)
 {
@@ -69,7 +71,7 @@ bool pix_api_xreg(void)
 /* Where a message goes on a machine whose devices are all itself. Device 0 is
  * the shared XRAM, already written; the video half is a call; and 2-7 would
  * have gone over a bus that is not there. */
-bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
+static bool pix_deliver(uint8_t dev, uint8_t channel, uint8_t byte, uint16_t word)
 {
     if (dev == PIX_DEVICE_VGA)
         return main_xreg_1(channel, byte, word);

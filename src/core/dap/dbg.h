@@ -11,8 +11,8 @@
  * reader thread may set; it is a lone atomic flag.
  */
 
-#ifndef _CORE_SYS_DBG_H_
-#define _CORE_SYS_DBG_H_
+#ifndef _CORE_DAP_DBG_H_
+#define _CORE_DAP_DBG_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -102,4 +102,4 @@ unsigned dbg_segments_generation(void);                      /* bumps on each se
  * true if the machine must stop BEFORE running the instruction's effect at pc. */
 bool dbg_at_instruction(uint16_t pc, uint8_t sp);
 
-#endif /* _CORE_SYS_DBG_H_ */
+#endif /* _CORE_DAP_DBG_H_ */

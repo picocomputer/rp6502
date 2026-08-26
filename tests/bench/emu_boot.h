@@ -13,7 +13,7 @@
 #include "utest.h"
 
 /* The emulator lifecycle is init-once + load/run/stop per program (see
- * emu/main.c): the stop belongs to the program that ran, not to the one about
+ * core/sys/main.c): the stop belongs to the program that ran, not to the one about
  * to. A test binary initializes the drivers exactly once, in a custom main(),
  * and each case ends the program the previous case left running before loading
  * its own. */

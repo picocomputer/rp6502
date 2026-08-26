@@ -3,13 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The emulator's runner — the counterpart to ria/main.c. Cold boot (main_init),
- * the run/stop lifecycle, and the syscall op registry (main_api) the shared
- * core/api/api.c dispatches through via "main.h".
- *
- * The machine itself — the bus, the system clock and the frame engine — is
- * sys/sys.c; each chip's tick lives with the chip (sys/cpu.c, emu/via.c, sys/ria.c,
- * sys/mem.c).
+ * The software machine's cold boot: one fan-out to every subsystem it has.
+ * Everything else it answers for is elsewhere -- the run/stop lifecycle in
+ * core/main.c, the syscall table in core/api/ops.c, the frame and bus engine
+ * in core/sys/sys.c, and each chip's tick beside the chip.
  */
 
 #ifndef _CORE_SYS_MAIN_H_

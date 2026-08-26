@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _CORE_SYS_RIA_H_
-#define _CORE_SYS_RIA_H_
+#ifndef _CORE_RIA_RIA_H_
+#define _CORE_RIA_RIA_H_
 
 /* Pulled in ahead of the extern "C" block so the firmware header's own includes
  * are already-guarded no-ops by the time it is reached. */
@@ -83,4 +83,4 @@ bool ria_irq_asserted(void);
 }
 #endif
 
-#endif /* _CORE_SYS_RIA_H_ */
+#endif /* _CORE_RIA_RIA_H_ */

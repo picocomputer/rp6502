@@ -20,7 +20,5 @@ void pro_restage(void);
  * to now. Empty before anything has been staged. */
 const char *pro_staged_path(void);
 
-/* Record what the EXIT syscall returned, for the attribute that reports it. */
-void pro_set_exit_code(int16_t code);
 
 #endif /* _FPGA_SW_PRO_H_ */
