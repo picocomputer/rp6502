@@ -233,6 +233,37 @@ UTEST(kbd, ansi_sequences)
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
+/* Ctrl and Alt on the four keys that spell a character of their own. The
+ * console keymap defines no control form for Enter, Tab or Escape -- each is
+ * already a C0 control -- so the key still types itself, while Alt is an ESC
+ * prefix over whatever the other modifiers settled on. */
+UTEST(kbd, ctrl_and_alt_on_control_keys)
+{
+    char b[16];
+
+    com_init();
+    kbd_key(HID_KEY_ENTER, true, false, false);
+    kbd_key(HID_KEY_TAB, true, false, false);
+    kbd_key(HID_KEY_ESCAPE, true, false, false);
+    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
+
+    com_init();
+    kbd_key(HID_KEY_ENTER, false, false, true);
+    kbd_key(HID_KEY_TAB, false, false, true);
+    kbd_key(HID_KEY_ESCAPE, false, false, true);
+    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
+
+    /* Alt composes with Ctrl instead of replacing it: ESC, then the byte
+     * Ctrl already chose. */
+    com_init();
+    kbd_key(HID_KEY_BACKSPACE, false, false, true);
+    kbd_key(HID_KEY_BACKSPACE, true, false, true);
+    ASSERT_EQ(kbd_drain(b, sizeof b), 4);
+    ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
+}
+
 /* Typed text is converted UTF-8 -> active OEM code page (default 437). */
 UTEST(kbd, text_to_oem)
 {

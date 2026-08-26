@@ -113,6 +113,11 @@ static char kbt_ctrl_promote(char ch, uint8_t keycode)
         return c;
     if (keycode == HID_KEY_BACKSPACE)
         return '\b';
+    /* Enter, Tab and Escape are C0 controls already, so Ctrl has nothing left
+     * to promote and the key still types itself. The console keymap defines no
+     * control form for these three for the same reason. */
+    if ((unsigned char)ch < 0x20)
+        return ch;
     return 0;
 }
 

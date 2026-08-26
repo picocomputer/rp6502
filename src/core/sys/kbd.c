@@ -63,20 +63,30 @@ void kbd_alt_char(char ch, bool ctrl)
  * as a chord. */
 bool kbd_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 {
+    char ch = 0;
     switch (hid_usage)
     {
     case HID_KEY_ENTER:
     case HID_KEY_KEYPAD_ENTER:
-        com_kbd_push("\r", 1);
-        return true;
+        ch = '\r';
+        break;
     case HID_KEY_BACKSPACE:
-        com_kbd_push(ctrl ? "\x08" : "\x7f", 1);
-        return true;
+        ch = ctrl ? '\b' : 0x7f;
+        break;
     case HID_KEY_TAB:
-        com_kbd_push("\t", 1);
-        return true;
+        ch = '\t';
+        break;
     case HID_KEY_ESCAPE:
-        com_kbd_push("\x1b", 1);
+        ch = 0x1b;
+        break;
+    }
+    if (ch)
+    {
+        /* Alt prefixes with ESC rather than changing what the key spells, so it
+         * composes with whatever the other modifiers already decided. */
+        if (alt)
+            com_kbd_push_byte(0x1b);
+        com_kbd_push_byte((uint8_t)ch);
         return true;
     }
     /* No gui bit: the window manager owns that key on a desktop. */
