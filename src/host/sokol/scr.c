@@ -591,10 +591,9 @@ bool scr_command(const char *line)
             else
                 return scr_error("unknown modifier '%s'", plus + 1);
         }
-        kbd_key_t key;
-        if (!kbd_key_from_name(name, &key))
+        uint8_t hid = kbd_hid_from_name(name);
+        if (!hid || !kbd_key(hid, ctrl, shift, alt))
             return scr_error("'%s' has no key sequence", name);
-        kbd_key(key, ctrl, shift, alt);
         return true;
     }
 

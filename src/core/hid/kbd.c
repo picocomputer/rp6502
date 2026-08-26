@@ -76,6 +76,24 @@ static void kbd_send_leds()
     hid_set_leds(kbd_hid_leds);
 }
 
+uint8_t kbd_keypad_nav(uint8_t hid_usage)
+{
+    switch (hid_usage)
+    {
+    case HID_KEY_KEYPAD_1: return HID_KEY_END;
+    case HID_KEY_KEYPAD_2: return HID_KEY_ARROW_DOWN;
+    case HID_KEY_KEYPAD_3: return HID_KEY_PAGE_DOWN;
+    case HID_KEY_KEYPAD_4: return HID_KEY_ARROW_LEFT;
+    case HID_KEY_KEYPAD_6: return HID_KEY_ARROW_RIGHT;
+    case HID_KEY_KEYPAD_7: return HID_KEY_HOME;
+    case HID_KEY_KEYPAD_8: return HID_KEY_ARROW_UP;
+    case HID_KEY_KEYPAD_9: return HID_KEY_PAGE_UP;
+    case HID_KEY_KEYPAD_0: return HID_KEY_INSERT;
+    case HID_KEY_KEYPAD_DECIMAL: return HID_KEY_DELETE;
+    }
+    return HID_KEY_NONE; /* KP5, and anything not on the keypad */
+}
+
 void HOST_IN_FLASH("kbd_init") kbd_init(void)
 {
     kbd_stop();

@@ -185,42 +185,7 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     {
         if (is_numlock)
             key_shift = false;
-        switch (keycode)
-        {
-        case HID_KEY_KEYPAD_1:
-            keycode = HID_KEY_END;
-            break;
-        case HID_KEY_KEYPAD_2:
-            keycode = HID_KEY_ARROW_DOWN;
-            break;
-        case HID_KEY_KEYPAD_3:
-            keycode = HID_KEY_PAGE_DOWN;
-            break;
-        case HID_KEY_KEYPAD_4:
-            keycode = HID_KEY_ARROW_LEFT;
-            break;
-        case HID_KEY_KEYPAD_5:
-            keycode = HID_KEY_NONE;
-            break;
-        case HID_KEY_KEYPAD_6:
-            keycode = HID_KEY_ARROW_RIGHT;
-            break;
-        case HID_KEY_KEYPAD_7:
-            keycode = HID_KEY_HOME;
-            break;
-        case HID_KEY_KEYPAD_8:
-            keycode = HID_KEY_ARROW_UP;
-            break;
-        case HID_KEY_KEYPAD_9:
-            keycode = HID_KEY_PAGE_UP;
-            break;
-        case HID_KEY_KEYPAD_0:
-            keycode = HID_KEY_INSERT;
-            break;
-        case HID_KEY_KEYPAD_DECIMAL:
-            keycode = HID_KEY_DELETE;
-            break;
-        }
+        keycode = kbd_keypad_nav(keycode);
     }
     // ALT codes
     if (kbt_alt_mode || (keycode >= HID_KEY_KEYPAD_1 &&

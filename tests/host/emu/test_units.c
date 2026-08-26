@@ -10,6 +10,7 @@
 #include "core/api/oem.h"
 #include "core/str/str.h"
 #include "host/sokol/cli.h"
+#include "core/hid/usage.h"
 #include "core/sys/kbd.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -173,61 +174,61 @@ UTEST(kbd, ansi_sequences)
     char b[32];
 
     com_init();
-    kbd_key(KBD_KEY_UP, false, false, false);
+    kbd_key(HID_KEY_ARROW_UP, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
 
     com_init();
-    kbd_key(KBD_KEY_F1, false, false, false);
+    kbd_key(HID_KEY_F1, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
 
     com_init();
-    kbd_key(KBD_KEY_F5, false, false, false);
+    kbd_key(HID_KEY_F5, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
 
     com_init();
-    kbd_key(KBD_KEY_F12, false, false, false);
+    kbd_key(HID_KEY_F12, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
     com_init();
-    kbd_key(KBD_KEY_INSERT, false, false, false);
+    kbd_key(HID_KEY_INSERT, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
     com_init();
-    kbd_key(KBD_KEY_HOME, false, false, false);
+    kbd_key(HID_KEY_HOME, false, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
     com_init();
-    kbd_key(KBD_KEY_UP, true, false, false); /* ctrl -> 5 */
+    kbd_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
     com_init();
-    kbd_key(KBD_KEY_F1, false, true, false); /* shift -> 2 */
+    kbd_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
     com_init();
-    kbd_key(KBD_KEY_END, false, true, true); /* shift+alt -> 4 */
+    kbd_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
     com_init();
-    kbd_key(KBD_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
+    kbd_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(kbd_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_init();
-    kbd_key(KBD_KEY_ENTER, false, false, false);
-    kbd_key(KBD_KEY_BACKSPACE, false, false, false);
-    kbd_key(KBD_KEY_BACKSPACE, true, false, false);
+    kbd_key(HID_KEY_ENTER, false, false, false);
+    kbd_key(HID_KEY_BACKSPACE, false, false, false);
+    kbd_key(HID_KEY_BACKSPACE, true, false, false);
     ASSERT_EQ(kbd_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }

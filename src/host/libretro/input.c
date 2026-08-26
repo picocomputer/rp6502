@@ -164,56 +164,6 @@ static char ascii_from_key(unsigned k, bool shift)
     }
 }
 
-/* A numpad key with NumLock off is the navigation key printed under the digit;
- * unlike sokol, a frontend tells us which it is. */
-static bool numpad_nav(unsigned k, bool numlock, kbd_key_t *key)
-{
-    if (numlock)
-        return false;
-    switch (k)
-    {
-    case RETROK_KP1: *key = KBD_KEY_END; return true;
-    case RETROK_KP2: *key = KBD_KEY_DOWN; return true;
-    case RETROK_KP3: *key = KBD_KEY_PAGE_DOWN; return true;
-    case RETROK_KP4: *key = KBD_KEY_LEFT; return true;
-    case RETROK_KP6: *key = KBD_KEY_RIGHT; return true;
-    case RETROK_KP7: *key = KBD_KEY_HOME; return true;
-    case RETROK_KP8: *key = KBD_KEY_UP; return true;
-    case RETROK_KP9: *key = KBD_KEY_PAGE_UP; return true;
-    case RETROK_KP0: *key = KBD_KEY_INSERT; return true;
-    case RETROK_KP_PERIOD: *key = KBD_KEY_DELETE; return true;
-    default: return false;
-    }
-}
-
-static bool named_key(unsigned k, kbd_key_t *key)
-{
-    if (k >= RETROK_F1 && k <= RETROK_F12)
-    {
-        *key = (kbd_key_t)(KBD_KEY_F1 + (k - RETROK_F1));
-        return true;
-    }
-    switch (k)
-    {
-    case RETROK_RETURN:
-    case RETROK_KP_ENTER: *key = KBD_KEY_ENTER; return true;
-    case RETROK_BACKSPACE: *key = KBD_KEY_BACKSPACE; return true;
-    case RETROK_TAB: *key = KBD_KEY_TAB; return true;
-    case RETROK_ESCAPE: *key = KBD_KEY_ESCAPE; return true;
-    case RETROK_UP: *key = KBD_KEY_UP; return true;
-    case RETROK_DOWN: *key = KBD_KEY_DOWN; return true;
-    case RETROK_LEFT: *key = KBD_KEY_LEFT; return true;
-    case RETROK_RIGHT: *key = KBD_KEY_RIGHT; return true;
-    case RETROK_HOME: *key = KBD_KEY_HOME; return true;
-    case RETROK_END: *key = KBD_KEY_END; return true;
-    case RETROK_INSERT: *key = KBD_KEY_INSERT; return true;
-    case RETROK_DELETE: *key = KBD_KEY_DELETE; return true;
-    case RETROK_PAGEUP: *key = KBD_KEY_PAGE_UP; return true;
-    case RETROK_PAGEDOWN: *key = KBD_KEY_PAGE_DOWN; return true;
-    default: return false;
-    }
-}
-
 void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
                           uint16_t key_modifiers)
 {
@@ -235,13 +185,16 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
     default: break;
     }
 
-    kbd_key_t key;
-    if (numpad_nav(keycode, (key_modifiers & RETROKMOD_NUMLOCK) != 0, &key) ||
-        named_key(keycode, &key))
+    /* A numpad key with NumLock off is the navigation key printed under the
+     * digit; unlike sokol, a frontend tells us which it is. */
+    if (!(key_modifiers & RETROKMOD_NUMLOCK))
     {
-        kbd_key(key, ctrl, shift, alt);
-        return;
+        uint8_t nav = kbd_keypad_nav(hid);
+        if (nav)
+            hid = nav;
     }
+    if (kbd_key(hid, ctrl, shift, alt))
+        return;
 
     /* Ctrl+<key> is a C0 byte and Alt+<key> is ESC then the byte, so neither
      * is the character the frontend composed; both are built from the keycode

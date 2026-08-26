@@ -75,6 +75,11 @@ void kbd_toggle_lock(uint8_t bit);
 // A host that decodes its own keyboard, in place of a report.
 void kbd_hid_set(uint8_t keycode, bool down);
 
+/* What a keypad key navigates to with NumLock off: KP7 is Home, KP2 is Down,
+ * KP5 is nowhere. Zero for any usage that is not on the keypad, and for KP5.
+ * A keyboard fact, so every machine reads the same one. */
+uint8_t kbd_keypad_nav(uint8_t hid_usage);
+
 /* Offered to whatever spells for this machine: every new key press, and the
  * modifier byte after every report. A firmware's layout engine answers these;
  * a machine whose host produced the characters before the keystroke arrived

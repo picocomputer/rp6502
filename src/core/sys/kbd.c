@@ -13,6 +13,7 @@
 
 #include "core/api/oem.h"
 #include "core/sys/kbd.h"
+#include "core/hid/usage.h"
 #include "core/hid/vt.h"
 #include "core/com/com.h"
 #include "core/hid/kbd.h"
@@ -55,79 +56,37 @@ void kbd_alt_char(char ch, bool ctrl)
     com_kbd_push_byte((uint8_t)ch);
 }
 
-static void kbd_queue_vt100(char c0, char c1, int mod)
+/* A key with no character of its own, by HID usage. The four that do have one
+ * are answered here because what they spell is this machine's to say -- the
+ * firmware reads them from its layout instead. Everything else is the shared
+ * table. False when the usage spells nothing, so a caller can go on to try it
+ * as a chord. */
+bool kbd_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 {
-    char s[16];
-    com_kbd_push(s, vt_vt100(s, sizeof s, c0, c1, mod));
-}
-
-static void kbd_queue_vt220(int num, int mod)
-{
-    char s[16];
-    com_kbd_push(s, vt_vt220(s, sizeof s, num, mod));
-}
-
-void kbd_key(kbd_key_t key, bool ctrl, bool shift, bool alt)
-{
-    /* xterm modifier number: 1 + shift + alt*2 + ctrl*4. gui/super is omitted:
-     * the WM owns it and the input layer does not forward it. */
-    /* No gui bit: the window manager owns that key on a desktop. */
-    int mod = vt_ansi_mod(shift, alt, ctrl, false);
-    switch (key)
+    switch (hid_usage)
     {
-    case KBD_KEY_ENTER:
-        return com_kbd_push("\r", 1);
-    case KBD_KEY_BACKSPACE:
-        return com_kbd_push(ctrl ? "\x08" : "\x7f", 1);
-    case KBD_KEY_TAB:
-        return com_kbd_push("\t", 1);
-    case KBD_KEY_ESCAPE:
-        return com_kbd_push("\x1b", 1);
-    case KBD_KEY_UP:
-        return kbd_queue_vt100('[', 'A', mod);
-    case KBD_KEY_DOWN:
-        return kbd_queue_vt100('[', 'B', mod);
-    case KBD_KEY_RIGHT:
-        return kbd_queue_vt100('[', 'C', mod);
-    case KBD_KEY_LEFT:
-        return kbd_queue_vt100('[', 'D', mod);
-    case KBD_KEY_HOME:
-        return kbd_queue_vt100('[', 'H', mod);
-    case KBD_KEY_END:
-        return kbd_queue_vt100('[', 'F', mod);
-    case KBD_KEY_INSERT:
-        return kbd_queue_vt220(2, mod);
-    case KBD_KEY_DELETE:
-        return kbd_queue_vt220(3, mod);
-    case KBD_KEY_PAGE_UP:
-        return kbd_queue_vt220(5, mod);
-    case KBD_KEY_PAGE_DOWN:
-        return kbd_queue_vt220(6, mod);
-    case KBD_KEY_F1:
-        return kbd_queue_vt100('O', 'P', mod);
-    case KBD_KEY_F2:
-        return kbd_queue_vt100('O', 'Q', mod);
-    case KBD_KEY_F3:
-        return kbd_queue_vt100('O', 'R', mod);
-    case KBD_KEY_F4:
-        return kbd_queue_vt100('O', 'S', mod);
-    case KBD_KEY_F5:
-        return kbd_queue_vt220(15, mod);
-    case KBD_KEY_F6:
-        return kbd_queue_vt220(17, mod);
-    case KBD_KEY_F7:
-        return kbd_queue_vt220(18, mod);
-    case KBD_KEY_F8:
-        return kbd_queue_vt220(19, mod);
-    case KBD_KEY_F9:
-        return kbd_queue_vt220(20, mod);
-    case KBD_KEY_F10:
-        return kbd_queue_vt220(21, mod);
-    case KBD_KEY_F11:
-        return kbd_queue_vt220(23, mod);
-    case KBD_KEY_F12:
-        return kbd_queue_vt220(24, mod);
+    case HID_KEY_ENTER:
+    case HID_KEY_KEYPAD_ENTER:
+        com_kbd_push("\r", 1);
+        return true;
+    case HID_KEY_BACKSPACE:
+        com_kbd_push(ctrl ? "\x08" : "\x7f", 1);
+        return true;
+    case HID_KEY_TAB:
+        com_kbd_push("\t", 1);
+        return true;
+    case HID_KEY_ESCAPE:
+        com_kbd_push("\x1b", 1);
+        return true;
     }
+    /* No gui bit: the window manager owns that key on a desktop. */
+    char seq[16];
+    size_t n = vt_key(seq, sizeof seq, hid_usage,
+                      vt_ansi_mod(shift, alt, ctrl, false));
+    if (!n)
+        return false;
+    com_kbd_push(seq, n);
+    return true;
 }
 
 /* ------------------------------------------------------------------ */
@@ -186,7 +145,7 @@ void kbd_task(void)
         char c = kbd_paste_buf[kbd_paste_pos];
         if (c == '\r' || c == '\n')
         {
-            kbd_key(KBD_KEY_ENTER, false, false, false);
+            kbd_key(HID_KEY_ENTER, false, false, false);
             kbd_paste_pos++;
             if (c == '\r' && kbd_paste_pos < kbd_paste_len &&
                 kbd_paste_buf[kbd_paste_pos] == '\n')
@@ -194,7 +153,7 @@ void kbd_task(void)
         }
         else if (c == '\t')
         {
-            kbd_key(KBD_KEY_TAB, false, false, false);
+            kbd_key(HID_KEY_TAB, false, false, false);
             kbd_paste_pos++;
         }
         else if ((uint8_t)c < 32 || c == 127)
@@ -228,55 +187,54 @@ static const struct
 {
     const char *name;
     uint8_t hid;
-    int8_t key;
 } kbd_named[] = {
-    {"enter", 0x28, KBD_KEY_ENTER},
-    {"escape", 0x29, KBD_KEY_ESCAPE},
-    {"backspace", 0x2A, KBD_KEY_BACKSPACE},
-    {"tab", 0x2B, KBD_KEY_TAB},
-    {"up", 0x52, KBD_KEY_UP},
-    {"down", 0x51, KBD_KEY_DOWN},
-    {"left", 0x50, KBD_KEY_LEFT},
-    {"right", 0x4F, KBD_KEY_RIGHT},
-    {"home", 0x4A, KBD_KEY_HOME},
-    {"end", 0x4D, KBD_KEY_END},
-    {"insert", 0x49, KBD_KEY_INSERT},
-    {"delete", 0x4C, KBD_KEY_DELETE},
-    {"pageup", 0x4B, KBD_KEY_PAGE_UP},
-    {"pagedown", 0x4E, KBD_KEY_PAGE_DOWN},
-    {"kpenter", 0x58, KBD_KEY_ENTER},
-    {"space", 0x2C, -1},
-    {"minus", 0x2D, -1},
-    {"equal", 0x2E, -1},
-    {"leftbracket", 0x2F, -1},
-    {"rightbracket", 0x30, -1},
-    {"backslash", 0x31, -1},
-    {"semicolon", 0x33, -1},
-    {"apostrophe", 0x34, -1},
-    {"grave", 0x35, -1},
-    {"comma", 0x36, -1},
-    {"period", 0x37, -1},
-    {"slash", 0x38, -1},
-    {"capslock", 0x39, -1},
-    {"printscreen", 0x46, -1},
-    {"scrolllock", 0x47, -1},
-    {"pause", 0x48, -1},
-    {"numlock", 0x53, -1},
-    {"menu", 0x65, -1},
-    {"kpdivide", 0x54, -1},
-    {"kpmultiply", 0x55, -1},
-    {"kpsubtract", 0x56, -1},
-    {"kpadd", 0x57, -1},
-    {"kpdecimal", 0x63, -1},
-    {"kpequal", 0x67, -1},
-    {"lctrl", 0xE0, -1},
-    {"lshift", 0xE1, -1},
-    {"lalt", 0xE2, -1},
-    {"lsuper", 0xE3, -1},
-    {"rctrl", 0xE4, -1},
-    {"rshift", 0xE5, -1},
-    {"ralt", 0xE6, -1},
-    {"rsuper", 0xE7, -1},
+    {"enter", 0x28},
+    {"escape", 0x29},
+    {"backspace", 0x2A},
+    {"tab", 0x2B},
+    {"up", 0x52},
+    {"down", 0x51},
+    {"left", 0x50},
+    {"right", 0x4F},
+    {"home", 0x4A},
+    {"end", 0x4D},
+    {"insert", 0x49},
+    {"delete", 0x4C},
+    {"pageup", 0x4B},
+    {"pagedown", 0x4E},
+    {"kpenter", 0x58},
+    {"space", 0x2C},
+    {"minus", 0x2D},
+    {"equal", 0x2E},
+    {"leftbracket", 0x2F},
+    {"rightbracket", 0x30},
+    {"backslash", 0x31},
+    {"semicolon", 0x33},
+    {"apostrophe", 0x34},
+    {"grave", 0x35},
+    {"comma", 0x36},
+    {"period", 0x37},
+    {"slash", 0x38},
+    {"capslock", 0x39},
+    {"printscreen", 0x46},
+    {"scrolllock", 0x47},
+    {"pause", 0x48},
+    {"numlock", 0x53},
+    {"menu", 0x65},
+    {"kpdivide", 0x54},
+    {"kpmultiply", 0x55},
+    {"kpsubtract", 0x56},
+    {"kpadd", 0x57},
+    {"kpdecimal", 0x63},
+    {"kpequal", 0x67},
+    {"lctrl", 0xE0},
+    {"lshift", 0xE1},
+    {"lalt", 0xE2},
+    {"lsuper", 0xE3},
+    {"rctrl", 0xE4},
+    {"rshift", 0xE5},
+    {"ralt", 0xE6},
+    {"rsuper", 0xE7},
 };
 
 /* "f1".."f12" -> 1..12, else 0. */
@@ -324,25 +282,6 @@ uint8_t kbd_hid_from_name(const char *name)
         if (!strcasecmp(name, kbd_named[i].name))
             return kbd_named[i].hid;
     return 0;
-}
-
-bool kbd_key_from_name(const char *name, kbd_key_t *key)
-{
-    if (!name || !name[0])
-        return false;
-    int f = kbd_fkey_num(name);
-    if (f)
-    {
-        *key = (kbd_key_t)(KBD_KEY_F1 + f - 1);
-        return true;
-    }
-    for (size_t i = 0; i < sizeof kbd_named / sizeof kbd_named[0]; i++)
-        if (kbd_named[i].key >= 0 && !strcasecmp(name, kbd_named[i].name))
-        {
-            *key = (kbd_key_t)kbd_named[i].key;
-            return true;
-        }
-    return false;
 }
 
 /* core/hid/kbd.h's seam, answered by a machine that had an OS to ask. Every

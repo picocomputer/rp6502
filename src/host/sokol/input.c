@@ -198,53 +198,35 @@ static void input_key(const sapp_event *e)
         bool ctrl = (e->modifiers & SAPP_MODIFIER_CTRL) != 0;
         bool shift = (e->modifiers & SAPP_MODIFIER_SHIFT) != 0;
         bool alt = (e->modifiers & SAPP_MODIFIER_ALT) != 0;
+        uint8_t hid = sokol_to_hid(e->key_code);
         suppress_char = false;
         switch (e->key_code)
         {
-        case SAPP_KEYCODE_ESCAPE: kbd_key(KBD_KEY_ESCAPE, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_ENTER:
-        case SAPP_KEYCODE_KP_ENTER: kbd_key(KBD_KEY_ENTER, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_BACKSPACE: kbd_key(KBD_KEY_BACKSPACE, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_TAB: kbd_key(KBD_KEY_TAB, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_UP: kbd_key(KBD_KEY_UP, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_DOWN: kbd_key(KBD_KEY_DOWN, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_LEFT: kbd_key(KBD_KEY_LEFT, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_RIGHT: kbd_key(KBD_KEY_RIGHT, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_HOME: kbd_key(KBD_KEY_HOME, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_END: kbd_key(KBD_KEY_END, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_DELETE: kbd_key(KBD_KEY_DELETE, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_INSERT: kbd_key(KBD_KEY_INSERT, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_PAGE_UP: kbd_key(KBD_KEY_PAGE_UP, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_PAGE_DOWN: kbd_key(KBD_KEY_PAGE_DOWN, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F1: kbd_key(KBD_KEY_F1, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F2: kbd_key(KBD_KEY_F2, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F3: kbd_key(KBD_KEY_F3, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F4: kbd_key(KBD_KEY_F4, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F5: kbd_key(KBD_KEY_F5, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F6: kbd_key(KBD_KEY_F6, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F7: kbd_key(KBD_KEY_F7, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F8: kbd_key(KBD_KEY_F8, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F9: kbd_key(KBD_KEY_F9, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F10: kbd_key(KBD_KEY_F10, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F11: kbd_key(KBD_KEY_F11, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_F12: kbd_key(KBD_KEY_F12, ctrl, shift, alt); break;
         case SAPP_KEYCODE_NUM_LOCK: kbd_toggle_lock(1); break;
         case SAPP_KEYCODE_CAPS_LOCK: kbd_toggle_lock(2); break;
         case SAPP_KEYCODE_SCROLL_LOCK: kbd_toggle_lock(4); break;
         /* NumLock-off numpad navigation. sokol reports no NumLock modifier, so
-         * always nav and swallow the digit CHAR the host emits when NumLock is on. */
-        case SAPP_KEYCODE_KP_1: suppress_char = true; kbd_key(KBD_KEY_END, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_2: suppress_char = true; kbd_key(KBD_KEY_DOWN, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_3: suppress_char = true; kbd_key(KBD_KEY_PAGE_DOWN, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_4: suppress_char = true; kbd_key(KBD_KEY_LEFT, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_5: suppress_char = true; break;
-        case SAPP_KEYCODE_KP_6: suppress_char = true; kbd_key(KBD_KEY_RIGHT, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_7: suppress_char = true; kbd_key(KBD_KEY_HOME, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_8: suppress_char = true; kbd_key(KBD_KEY_UP, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_9: suppress_char = true; kbd_key(KBD_KEY_PAGE_UP, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_0: suppress_char = true; kbd_key(KBD_KEY_INSERT, ctrl, shift, alt); break;
-        case SAPP_KEYCODE_KP_DECIMAL: suppress_char = true; kbd_key(KBD_KEY_DELETE, ctrl, shift, alt); break;
+         * always nav and swallow the digit CHAR the host emits when NumLock is
+         * on. KP5 navigates nowhere, so it only swallows. */
+        case SAPP_KEYCODE_KP_1:
+        case SAPP_KEYCODE_KP_2:
+        case SAPP_KEYCODE_KP_3:
+        case SAPP_KEYCODE_KP_4:
+        case SAPP_KEYCODE_KP_5:
+        case SAPP_KEYCODE_KP_6:
+        case SAPP_KEYCODE_KP_7:
+        case SAPP_KEYCODE_KP_8:
+        case SAPP_KEYCODE_KP_9:
+        case SAPP_KEYCODE_KP_0:
+        case SAPP_KEYCODE_KP_DECIMAL:
+            suppress_char = true;
+            kbd_key(kbd_keypad_nav(hid), ctrl, shift, alt);
+            break;
         default:
+            /* A key that spells a sequence of its own -- Enter, Tab, an arrow,
+             * a function key -- takes it; the rest fall through to the chords. */
+            if (kbd_key(hid, ctrl, shift, alt))
+                break;
             /* Ctrl+<key> -> C0 control byte (Ctrl-C latches SIGINT). Cover the full
              * @.._ / `..~ range the firmware promotes (Ctrl+[ = ESC, Ctrl+\ = FS,
              * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; kbd_ctrl_letter gates
