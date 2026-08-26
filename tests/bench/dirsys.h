@@ -3,18 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Test helpers to drive the host filesystem syscall handlers (emu/emu/msc.c
+ * Test helpers to drive the host filesystem syscall handlers (core/sys/msc.c
  * msc_api_*) the way the 6502 does: stage the args on the xstack / in the API
  * registers, call the handler, then read the AX result and decode any pushed
  * FILINFO / string. The handlers are the unit under test; they call the platform
- * primitives (host/host.h) for the actual OS operations.
+ * primitives (host/os.h) for the actual OS operations.
  */
 
 #ifndef _EMU_TESTS_DIRSYS_H_
 #define _EMU_TESTS_DIRSYS_H_
 
 #include "core/api/api.h"
-#include "core/emu/sys/mem.h" /* xstack */
+#include "core/mem/mem.h" /* xstack */
 #include "fatfs/ff.h"    /* FILINFO */
 #include <stdint.h>
 #include <stdio.h>
@@ -74,7 +74,7 @@ static inline int32_t dsys_axsreg(void)
     return (int32_t)((uint32_t)lo | ((uint32_t)API_SREG << 16));
 }
 
-/* Decode the FILINFO a stat/readdir handler pushed (reverse of dir_push_filinfo). */
+/* Decode the FILINFO a stat/readdir handler pushed (reverse of fat_push_filinfo). */
 static inline void dsys_filinfo(FILINFO *fno)
 {
     size_t p = xstack_ptr;

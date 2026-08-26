@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The soft CPU's runner, this platform's ria/main.c.
+ * The soft CPU's runner, this platform's host/pico/ria/main.c.
  */
 
 #include <stdio.h>
@@ -13,34 +13,35 @@
 #include "bel.h"
 #include "cfg.h"
 #include "com.h"
+#include "cpu.h"
 #include "font.h"
 #include "log.h"
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
-#include "pro.h"
+#include "proc.h"
 #include "rand.h"
 #include "rom.h"
 #include "sst.h"
 #include "vga.h"
 #include "vid.h"
 #include "core/api/api.h"
+#include "core/api/attr.h"
 #include "core/api/clk.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
+#include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/api/uni.h"
-#include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
-#include "core/hid/kbl.h"
-#include "core/hid/mou.h"
-#include "core/hid/pad.h"
-#include "core/hid/tab.h"
-#include "host/pico/ria/main.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/keymap.h"
+#include "core/hid/layout.h"
+#include "core/hid/mouse.h"
+#include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
+#include "core/main.h"
 #include "core/str/rln.h"
-#include "host/pico/ria/sys/cpu.h"
 #include "core/pix.h"
-#include "host/pico/ria/sys/ria.h"
 #include "core/vga/mode1.h"
 #include "core/vga/mode2.h"
 #include "core/vga/mode3.h"
@@ -57,114 +58,29 @@ bool ria_active(void)
     return false;
 }
 
+/* No fabric path raises the 6502's IRQ for this, so a signal here is what a
+ * program finds when it asks rather than something that interrupts it. The
+ * latch still has to exist, or Ctrl-C is a keystroke that does nothing. */
+static bool ria_sigint;
+
 void ria_trigger_sigint(void)
 {
+    ria_sigint = true;
 }
 
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
+bool ria_get_sigint(void)
 {
-    if (channel == 0 && address <= 3)
-    {
-        bool ok;
-        switch (address)
-        {
-        case 0:
-            ok = kbd_xreg(word);
-            break;
-        case 1:
-            ok = mou_xreg(word);
-            break;
-        case 2:
-            ok = pad_xreg(word);
-            break;
-        default:
-            ok = tab_xreg(word);
-            break;
-        }
-        /* Mapping blanks the record; reports only arrive on movement, so
-         * the next one has to count as news. */
-        apf_refresh();
-        return ok;
-    }
-    if (channel == 1 && address == 0)
-        return aud_psg_xreg(word);
-    if (channel == 1 && address == 1)
-        return aud_opl_xreg(word);
-    return false;
-}
-
-static uint16_t main_xregs[16];
-
-bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
-{
-    if (channel == 0)
-    {
-        main_xregs[address & 0x0F] = word;
-        if (address == 0)
-        {
-            bool ok = vga_set_canvas(word);
-            for (int i = 0; i < 16; i++)
-                main_xregs[i] = 0;
-            return ok;
-        }
-        if (address == 1)
-        {
-            bool ok;
-            vga_prog_mode((uint8_t)word, main_xregs[2]);
-            switch (word)
-            {
-            case 0:
-                ok = vid_mode0_prog(main_xregs);
-                break;
-            case 1:
-                ok = mode1_prog(main_xregs);
-                break;
-            case 2:
-                ok = mode2_prog(main_xregs);
-                break;
-            case 3:
-                ok = mode3_prog(main_xregs);
-                break;
-            case 4:
-                ok = mode4_prog(main_xregs);
-                break;
-            case 5:
-                ok = mode5_prog(main_xregs);
-                break;
-            default:
-                ok = false;
-                break;
-            }
-            for (int i = 0; i < 16; i++)
-                main_xregs[i] = 0;
-            return ok;
-        }
-        return true;
-    }
-    if (channel == 0x0F)
-    {
-        /* RIA-private: pix_api_xreg refuses a guest write, so these
-         * arrive only from stop(). */
-        switch (address)
-        {
-        case 0x00:
-            /* DISPLAY, which is also the console reset. */
-            vga_set_canvas(vga_canvas_console);
-            term_RIS_no_clear();
-            for (int i = 0; i < 16; i++)
-                main_xregs[i] = 0;
-            return true;
-        case 0x01:
-            font_set_code_page(word);
-            return true;
-        }
-        return false;
-    }
-    /* Channels 1-14 reach external bus devices with no ACK; none exist. */
-    return true;
+    bool latched = ria_sigint;
+    ria_sigint = false;
+    return latched;
 }
 
 /* std.c wants the catch-all last, so the mass-storage drive follows ROM. */
+const dir_backend_t *main_dir_backend(void)
+{
+    return &msc_dir_backend;
+}
+
 static const std_driver_t main_drivers[] = {
     {
         .handles = rom_std_handles,
@@ -190,187 +106,6 @@ const std_driver_t *main_std_drivers(size_t *count)
     return main_drivers;
 }
 
-bool main_api(uint8_t operation)
-{
-    switch (operation)
-    {
-    case 0x01:
-        return pix_api_xreg();
-    case 0x02:
-        return api_return_ax(cpu_get_phi2_khz_run());
-    case 0x03:
-        /* A page this machine does not carry is a no-op; the get that
-         * follows says which page is actually in force. */
-        if (font_has_code_page(API_AX))
-            font_set_code_page(API_AX);
-        return api_return_ax(font_get_code_page());
-    case 0x04:
-        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
-    case 0x06:
-        if (!api_set_errno_opt(API_A))
-            return api_return_errno(API_EINVAL);
-        return api_return_ax(0);
-    case 0x08:
-        return pro_api_argv();
-    case 0x09:
-        return pro_api_exec();
-    case 0x0A:
-        switch (API_A)
-        {
-        case 0x00:
-            return api_return_axsreg(api_get_errno_opt());
-        case 0x01:
-            return api_return_axsreg(cpu_get_phi2_khz_run());
-        case 0x02:
-            return api_return_axsreg(font_get_code_page());
-        case 0x03:
-            return api_return_axsreg(rln_get_max_length());
-        case 0x04:
-            return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
-        case 0x05:
-            return api_return_axsreg(com_get_bel());
-        case 0x06:
-            return api_return_axsreg(pro_has_launcher());
-        case 0x09:
-            return api_return_axsreg(rln_get_caps());
-        case 0x0A:
-            return api_return_axsreg(rln_get_term_width());
-        case 0x0B:
-            return api_return_axsreg(rln_get_term_height());
-        case 0x0C:
-            return api_return_axsreg(rln_get_suppress_nl());
-        case 0x10:
-            return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
-        case 0x11:
-            return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
-        case 0x12:
-            return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
-        case 0x13:
-            return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
-        default:
-            return api_return_errno(API_EINVAL);
-        }
-    case 0x0B:
-    {
-        uint32_t value;
-        if (!api_pop_uint32_end(&value))
-            return api_return_errno(API_EINVAL);
-        if (value > 0x7FFFFFFF)
-            return api_return_errno(API_EINVAL);
-        switch (API_A)
-        {
-        case 0x00:
-            if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
-                return api_return_errno(API_EINVAL);
-            break;
-        case 0x01:
-            if (value < CPU_PHI2_MIN_KHZ || value > CPU_PHI2_MAX_KHZ)
-                return api_return_errno(API_EINVAL);
-            cpu_set_phi2_khz_run((uint16_t)value);
-            break;
-        case 0x02:
-            /* oem_set_code_page_run is a void: a page that will not take
-             * leaves the old one in force and still answers with success. */
-            if (value > UINT16_MAX)
-                return api_return_errno(API_EINVAL);
-            if (font_has_code_page((uint16_t)value))
-                font_set_code_page((uint16_t)value);
-            break;
-        case 0x03:
-            if (value > UINT8_MAX)
-                return api_return_errno(API_EINVAL);
-            rln_set_max_length((uint8_t)value);
-            break;
-        case 0x05:
-            if (value > 1)
-                return api_return_errno(API_EINVAL);
-            com_set_bel(value);
-            break;
-        case 0x06:
-            if (value > 1)
-                return api_return_errno(API_EINVAL);
-            pro_set_launcher(value);
-            break;
-        case 0x09:
-            if (value > 2)
-                return api_return_errno(API_EINVAL);
-            rln_set_caps((uint8_t)value);
-            break;
-        case 0x0A:
-            if (value > UINT16_MAX)
-                return api_return_errno(API_EINVAL);
-            rln_set_term_width((uint16_t)value);
-            break;
-        case 0x0B:
-            if (value > UINT16_MAX)
-                return api_return_errno(API_EINVAL);
-            rln_set_term_height((uint16_t)value);
-            break;
-        case 0x0C:
-            if (value > 1)
-                return api_return_errno(API_EINVAL);
-            rln_set_suppress_nl((uint8_t)value);
-            break;
-        default:
-            return api_return_errno(API_EINVAL);
-        }
-        return api_return_ax(0);
-    }
-    case 0x14:
-        return std_api_open();
-    case 0x15:
-        return std_api_close();
-    case 0x16:
-        return std_api_read_xstack();
-    case 0x17:
-        return std_api_read_xram();
-    case 0x18:
-        return std_api_write_xstack();
-    case 0x19:
-        return std_api_write_xram();
-    case 0x0F:
-        return clk_api_clock();
-    case 0x10:
-        return clk_api_get_res();
-    case 0x11:
-        return clk_api_get_time();
-    case 0x12:
-        return clk_api_set_time();
-    case 0x1A:
-        return std_api_lseek_cc65();
-    case 0x1D:
-        return std_api_lseek_llvm();
-    case 0x1E:
-        return std_api_syncfs();
-    case 0x29:
-        return msc_api_chdir();
-    case 0x2A:
-        return msc_api_chdrive();
-    case 0x2B:
-        return msc_api_getcwd();
-    case 0x30:
-        return rln_api_lastkey();
-    case 0x31:
-        return rln_api_peek();
-    case 0x32:
-        return rln_api_poke();
-    case 0x3A:
-        return clk_api_gmtime();
-    case 0x3B:
-        return clk_api_localtime();
-    case 0x3C:
-        return clk_api_mktime();
-    case 0x3D:
-        return clk_api_strftime();
-    case 0x3E:
-        return clk_api_time_set();
-    case 0x3F:
-        return clk_api_time_get();
-    default:
-        return api_return_errno(API_ENOSYS);
-    }
-}
-
 /* No str_init: one locale and no S() callers, so the localized chain is
  * meant to collect under --gc-sections. */
 static void init(void)
@@ -388,12 +123,13 @@ static void init(void)
      * them, so a missing one is reported rather than fatal. */
     if (!uni_init())
         printf("oem: no tables\n");
-    if (!kbl_init())
-        printf("kbd: no layouts\n");
-    kbd_init();
-    mou_init();
-    pad_init();
-    tab_init();
+    if (!layout_init())
+        printf("keyboard: no layouts\n");
+    keyboard_init();
+    keymap_init(); /* the speller is this machine's, not the device layer's */
+    mouse_init();
+    gamepad_init();
+    tablet_init();
     apf_init();
     vid_init();
     tim_init();
@@ -401,9 +137,9 @@ static void init(void)
 }
 
 /* The 6502 coming out of reset. */
-static void run(void)
+void main_on_run(void)
 {
-    pro_run();
+    proc_run();
     com_run();
     rln_run();
     api_run();
@@ -413,20 +149,20 @@ static void run(void)
 
 /* The 6502 going into reset. Nothing here is on the platform's reset, so
  * anything a program left running is the firmware's to put back. */
-static void stop(void)
+void main_on_stop(void)
 {
     cpu_stop(); /* Must be first. */
     rln_stop();
     api_stop();
     std_stop();
     msc_stop(); /* after std_stop: its closes are what park a read */
-    kbd_stop();
-    mou_stop();
-    pad_stop();
-    tab_stop();
+    keyboard_stop();
+    mouse_stop();
+    gamepad_stop();
+    tablet_stop();
     aud_stop();
     /* argv belongs to the image, not the run, so it is not cleared here. */
-    pro_stop();
+    proc_stop();
     /* Last, where the RIA's deferred vga_task puts it. */
     main_xreg_1(0x0F, 0x01, 437);
     main_xreg_1(0x0F, 0x00, vga_get_display_type());
@@ -442,45 +178,16 @@ static bool main_rom_len(uint32_t *len)
     return msc_slot_len(MSC_SLOT_ROM, len) && *len;
 }
 
-static enum state {
-    stopped,
-    starting,
-    running,
-    stopping,
-} volatile main_state;
-
-/* Callers belong in the loop's stopped block and nowhere else: promoted
- * out of stopping, this would skip the outgoing program's teardown. */
-void main_run(void)
-{
-    if (main_state != running)
-        main_state = starting;
-}
-
-void main_stop(void)
-{
-    cpu_stop(); /* RESB down now; the rest of the fan-out can wait. */
-    if (main_state == starting)
-        main_state = stopped;
-    else if (main_state != stopped)
-        main_state = stopping;
-}
-
-bool main_active(void)
-{
-    return main_state != stopped;
-}
-
 /* No monitor here, so there is nothing a break could drop into. */
 bool main_break(void)
 {
     return false;
 }
 
-/* Alt-F4. Stopping is enough, because pro_stop puts the launcher back. */
+/* Alt-F4. Stopping is enough, because proc_stop puts the launcher back. */
 bool main_break_to_launcher(void)
 {
-    if (!pro_has_launcher() || pro_is_launcher())
+    if (!proc_has_launcher() || proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
     main_stop();
@@ -541,7 +248,7 @@ static void main_stage(void)
     bool ok = staged && rom_load_staged(len);
     /* After the load, not before: Get File needs the host, which at boot
      * is still staging, and asking first burns the bridge's whole deadline. */
-    pro_restage();
+    proc_restage();
     /* Cleared once the image is dealt with, so a watcher can tell a load
      * in progress from a finished one. */
     MMIO_SLOT = 0;
@@ -575,7 +282,7 @@ int main(void)
     main_boot_slot = MMIO_SLOT;
     main_boot_upd = (uint8_t)MMIO_UPD_N;
     LOG_SAY("main: boot wake=%u slot=%08x upd=%u\n",
-               (unsigned)main_boot_wake, (unsigned)main_boot_slot,
+            (unsigned)main_boot_wake, (unsigned)main_boot_slot,
                (unsigned)main_boot_upd);
     if (!main_wake_pending)
         main_stage();
@@ -598,13 +305,15 @@ int main(void)
             }
             else if (API_OP == 0xFF)
             {
+                /* Captured before api_return_ax clobbers A/X. */
+                proc_set_exit_code((int16_t)API_AX);
                 main_stop();
                 api_return_ax(0);
             }
         }
         cfg_task();
         apf_task();
-        kbt_task(); /* the repeat timer; apf_task does the reports */
+        keymap_task(); /* the repeat timer; apf_task does the reports */
         std_task();
         com_task();
         log_task();
@@ -658,19 +367,10 @@ int main(void)
             restage = true;
             main_stop();
         }
-        if (main_state == starting)
-        {
-            run();
-            main_state = running;
-        }
-        if (main_state == stopping)
-        {
-            stop();
-            main_state = stopped;
-        }
-        /* Below both branches rather than inside stopping: a machine
-         * already stopped is owed no stop and would otherwise never launch. */
-        if (main_state == stopped)
+        main_commit();
+        /* Below the commit rather than inside it: a machine already stopped is
+         * owed no stop and would otherwise never launch. */
+        if (!main_active())
         {
             if (restage)
             {
@@ -681,7 +381,7 @@ int main(void)
                 com_putchar('\n');
                 main_stage();
             }
-            else if (pro_exec_take())
+            else if (proc_exec_take())
                 main_run();
         }
     }

@@ -6,7 +6,7 @@
 
 #ifdef RP6502_RIA_W
 
-#include "ria/net/mdm.h"
+#include "ria/net/modem.h"
 #include "ria/net/net.h"
 #include <lwip/ip.h>
 #include <lwip/tcp.h>
@@ -329,10 +329,10 @@ static err_t net_connected(void *arg, struct tcp_pcb *tpcb, err_t err)
     }
     DBG("NET TCP Connected %d\n", err);
     nc->state = net_state_connected;
-    if (desc < NET_MDM_DESCS)
+    if (desc < NET_MODEM_DESCS)
     {
-        mdm_set_conn(desc);
-        mdm_connect();
+        modem_set_conn(desc);
+        modem_connect();
     }
     return ERR_OK;
 }

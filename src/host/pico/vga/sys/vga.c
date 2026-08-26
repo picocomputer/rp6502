@@ -7,6 +7,7 @@
 #include "vga/main.h"
 #include "vga/sys/ria.h"
 #include "vga/sys/vga.h"
+#include "core/vga/prog.h"
 #include "core/mem.h"
 #include "core/term/term.h"
 #include "vga/scanvideo/scanvideo.h"
@@ -18,28 +19,8 @@
 #pragma GCC push_options
 #pragma GCC optimize("O3")
 
-typedef struct
-{
-    bool (*fill_fn[SCANVIDEO_PLANE_COUNT])(int16_t plane_id,
-                                           int16_t scanline,
-                                           int16_t width,
-                                           uint16_t *rgb,
-                                           uint16_t config_ptr);
-    uint16_t fill_config[SCANVIDEO_PLANE_COUNT];
-
-    void (*sprite_fn[SCANVIDEO_PLANE_COUNT])(int16_t scanline,
-                                             int16_t width,
-                                             uint16_t *rgb,
-                                             uint16_t config_ptr,
-                                             uint16_t length);
-    uint16_t sprite_config[SCANVIDEO_PLANE_COUNT];
-    uint16_t sprite_length[SCANVIDEO_PLANE_COUNT];
-} vga_prog_t;
-static vga_prog_t vga_prog[VGA_PROG_MAX];
-
 static mutex_t vga_scanline_mutex;
 static volatile bool vga_rendering[2];
-static int16_t vga_highest_scanline;
 static volatile uint16_t vga_vsync_frame_fired;
 static volatile vga_display_t vga_display_current;
 static vga_display_t vga_display_selected;
@@ -232,8 +213,8 @@ static void __not_in_flash_func(vga_scanline_complete)(uint32_t scanline_id)
 {
     int16_t scanline = scanvideo_scanline_number(scanline_id);
     int16_t view_height = vga_view_current->height;
-    int16_t highest = vga_highest_scanline > 0 && vga_highest_scanline <= view_height
-                          ? vga_highest_scanline
+    int16_t highest = vga_prog_highest() > 0 && vga_prog_highest() <= view_height
+                          ? vga_prog_highest()
                           : view_height;
     if (scanline + 1 < highest && scanline != 0)
         return;
@@ -266,7 +247,7 @@ static void vga_render_scanline(void)
     uint32_t *const data[SCANVIDEO_PLANE_COUNT] = {scanline_buffer->data0, scanline_buffer->data1, scanline_buffer->data2};
     bool filled[SCANVIDEO_PLANE_COUNT] = {false, false, false};
     uint32_t *foreground = NULL;
-    vga_prog_t prog = vga_prog[scanline_id];
+    vga_prog_t prog = *vga_prog_row(scanline_id);
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
         if (prog.fill_fn[i])
@@ -388,8 +369,7 @@ void vga_xreg_canvas(uint16_t *xregs)
             ria_nak();
         return;
     }
-    memset(&vga_prog, 0, sizeof(vga_prog));
-    vga_highest_scanline = 0;
+    vga_prog_reset();
     if (canvas == vga_canvas_console)
         vga_reset_console_prog();
     if (xregs)
@@ -425,81 +405,9 @@ void vga_task(void)
     vga_render_scanline();
 }
 
-static bool vga_prog_valid(int16_t plane, int16_t scanline_begin, int16_t *scanline_end)
+bool vga_canvas_is_console(void)
 {
-    if (!*scanline_end)
-        *scanline_end = vga_canvas_height();
-    if (plane < 0 || plane >= SCANVIDEO_PLANE_COUNT ||
-        scanline_begin < 0 || *scanline_end > vga_canvas_height() ||
-        *scanline_end - scanline_begin < 1)
-        return false;
-    if (*scanline_end > vga_highest_scanline)
-        vga_highest_scanline = *scanline_end;
-    return true;
-}
-
-bool vga_prog_fill(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                   uint16_t config_ptr,
-                   bool (*fill_fn)(int16_t plane_id,
-                                   int16_t scanline,
-                                   int16_t width,
-                                   uint16_t *rgb,
-                                   uint16_t config_ptr))
-{
-    if (vga_canvas_selected == vga_canvas_console)
-        return false;
-    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
-        return false;
-    for (int16_t i = scanline_begin; i < scanline_end; i++)
-    {
-        vga_prog[i].fill_config[plane] = config_ptr;
-        vga_prog[i].fill_fn[plane] = fill_fn;
-    }
-    return true;
-}
-
-bool vga_prog_exclusive(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                        uint16_t config_ptr,
-                        bool (*fill_fn)(int16_t plane_id,
-                                        int16_t scanline,
-                                        int16_t width,
-                                        uint16_t *rgb,
-                                        uint16_t config_ptr))
-{
-    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
-        return false;
-    // Remove all previous programming
-    for (uint16_t i = 0; i < VGA_PROG_MAX; i++)
-        for (uint16_t j = 0; j < SCANVIDEO_PLANE_COUNT; j++)
-            if (vga_prog[i].fill_fn[j] == fill_fn)
-                vga_prog[i].fill_fn[j] = NULL;
-    for (int16_t i = scanline_begin; i < scanline_end; i++)
-    {
-        vga_prog[i].fill_config[plane] = config_ptr;
-        vga_prog[i].fill_fn[plane] = fill_fn;
-    }
-    return true;
-}
-
-bool vga_prog_sprite(int16_t plane, int16_t scanline_begin, int16_t scanline_end,
-                     uint16_t config_ptr, uint16_t length,
-                     void (*sprite_fn)(int16_t scanline,
-                                       int16_t width,
-                                       uint16_t *rgb,
-                                       uint16_t config_ptr,
-                                       uint16_t length))
-{
-    if (vga_canvas_selected == vga_canvas_console)
-        return false;
-    if (!vga_prog_valid(plane, scanline_begin, &scanline_end))
-        return false;
-    for (int16_t i = scanline_begin; i < scanline_end; i++)
-    {
-        vga_prog[i].sprite_config[plane] = config_ptr;
-        vga_prog[i].sprite_length[plane] = length;
-        vga_prog[i].sprite_fn[plane] = sprite_fn;
-    }
-    return true;
+    return vga_canvas_selected == vga_canvas_console;
 }
 
 #pragma GCC pop_options

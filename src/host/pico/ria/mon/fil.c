@@ -8,6 +8,7 @@
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
+#include "sys/path.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/ria.h"
 #include <assert.h>
@@ -47,7 +48,7 @@ static FRESULT fil_resolve_dst(const char *src, const char *dst,
         f_closedir(&dir);
         // Use src's on-disk basename so case is preserved.
         char fname[FF_LFN_BUF + 1];
-        if (!str_lookup_basename(src, fname, sizeof fname))
+        if (!path_lookup_basename(src, fname, sizeof fname))
             return FR_NO_FILE;
         // Skip the joiner if dst already ends in a separator or a drive
         // colon; "0:name" must stay relative to that drive's directory.
@@ -255,8 +256,7 @@ void fil_mon_dir(const char *args)
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    // Stage the path in mbuf: str_abs_path reuses str_buf (where a parsed
-    // arg lives) as scratch, and the header response reads it from mbuf.
+    // Stage the path in mbuf, which is where the header response reads it.
     const char *target = raw ? raw : ".";
     memcpy(mbuf, target, strlen(target) + 1);
 
@@ -266,13 +266,13 @@ void fil_mon_dir(const char *args)
         return;
 
     // Resolve to the absolute path of the dir being listed, back into mbuf,
-    // then fix the basename to the case stored on disk: str_abs_path keeps
+    // then fix the basename to the case stored on disk: path_abs keeps
     // segments as typed, whereas f_getcwd reconstructs them from disk.
-    const char *abs = str_abs_path((char *)mbuf);
+    const char *abs = path_abs((char *)mbuf);
     if (abs)
     {
         memcpy(mbuf, abs, strlen(abs) + 1);
-        str_correct_basename((char *)mbuf, MBUF_SIZE);
+        path_correct_basename((char *)mbuf, MBUF_SIZE);
     }
     else
         mbuf[0] = '\0';

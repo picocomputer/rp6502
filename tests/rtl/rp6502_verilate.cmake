@@ -19,7 +19,6 @@ file(MAKE_DIRECTORY ${RP6502_TEST_TABLES})
 #                   [DEPENDS <file>...] COMMENT <text>)
 function(rp6502_test_table target)
     cmake_parse_arguments(H "" "GEN;COMMENT" "OUTPUTS;ARGS;DEPENDS" ${ARGN})
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${H_GEN} ${H_DEPENDS})
     add_custom_command(OUTPUT ${H_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${H_GEN} ${H_ARGS}
         DEPENDS ${H_GEN} ${H_DEPENDS}
@@ -29,27 +28,27 @@ function(rp6502_test_table target)
 endfunction()
 
 set(VID_FONT_H ${RP6502_TEST_TABLES}/vid_font_tables.h)
-rp6502_test_table(vid_font_tables GEN ${RP6502_SRC}/gen/vid_font_gen.py
+rp6502_test_table(vid_font_tables GEN ${RP6502_SRC}/core/gen/vid_font_gen.py
     ARGS --emit-h ${VID_FONT_H}
     OUTPUTS ${VID_FONT_H}
     DEPENDS ${RP6502_SRC}/core/term/font.c
     COMMENT "Generating the font tables test_font reads")
 
 set(VID_PALETTE_H ${RP6502_TEST_TABLES}/vid_palette_tables.h)
-rp6502_test_table(vid_palette_tables GEN ${RP6502_SRC}/gen/vid_palette_gen.py
+rp6502_test_table(vid_palette_tables GEN ${RP6502_SRC}/core/gen/vid_palette_gen.py
     ARGS --emit-h ${VID_PALETTE_H}
     OUTPUTS ${VID_PALETTE_H}
     DEPENDS ${RP6502_SRC}/core/term/color.c
     COMMENT "Generating the palette tables the pixel tests read")
 
 set(AUD_SINE_H ${RP6502_TEST_TABLES}/aud_sine_tables.h)
-rp6502_test_table(aud_sine_tables GEN ${RP6502_SRC}/gen/aud_sine_gen.py
+rp6502_test_table(aud_sine_tables GEN ${RP6502_SRC}/core/gen/aud_sine_gen.py
     ARGS --emit-h ${AUD_SINE_H}
     OUTPUTS ${AUD_SINE_H}
     COMMENT "Generating the sine table the PSG shim reads")
 
 set(OPL2_LUT_H ${RP6502_TEST_TABLES}/opl2_lut_tables.h)
-rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/gen/opl2_lut_gen.py
+rp6502_test_table(opl2_lut_tables GEN ${RP6502_SRC}/core/gen/opl2_lut_gen.py
     ARGS --log-sine ${OPL2_LUT_SRC}/opl2_log_sine_lut.sv
         --exp ${OPL2_LUT_SRC}/opl2_exp_lut.sv --emit-h ${OPL2_LUT_H}
     OUTPUTS ${OPL2_LUT_H}

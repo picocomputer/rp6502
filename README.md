@@ -87,15 +87,14 @@ settings.
 | Folder | builds | build directory |
 | --- | --- | --- |
 | `rp6502` (the repository root) | the two Pico firmwares | `build/` |
-| `src/host/linux` | the emulator on Linux, and its test suite | `build/linux/{debug,release}` |
-| `src/host/win` | the same on Windows | `build/win/{debug,release}` |
-| `src/host/macos` | the same on macOS | `build/macos/{debug,release}` |
-| `src/host/web` | the itch.io bundle | `build/web` |
-| `src/host/android` | the native library, and an `apk` target | `build/android/` |
-| `src/host/pocket` | the Analogue Pocket card package | `build/pocket` |
+| `src/mach/emu` | the emulator on Linux, Windows and macOS, and its test suite | `build/emu/<os>/{debug,release}` |
+| `src/mach/itch.io` | the itch.io bundle | `build/itch.io` |
+| `src/mach/android` | the native library, and an `apk` target | `build/android/` |
+| `src/mach/libretro` | the libretro core, and its test suite | `build/libretro/{debug,release}` |
+| `src/mach/pocket` | the Analogue Pocket card package | `build/pocket` |
 | `tests/rtl` | the verilated machine and its suite | `build/rtl` |
 
-Adding MiSTer is a directory beside `src/host/pocket` and one more line in that
+Adding MiSTer is a directory beside `src/mach/pocket` and one more line in that
 list; nothing else changes.
 
 To build firmware, select Folder:rp6502. Select either the Debug or Release
@@ -105,26 +104,48 @@ target for debugging here, either rp6502-ria or rp6502-vga. Pressing F7 will
 build the firmware. On the Debug side panel, select the "Pico Debug" option that
 matches your debugging setup (probably Cortex-Debug), then press F5.
 
-To build the emulator, select the folder for your platform and
-Configure:Debug or Configure:Release. On the Debug side panel select
+A refactor that was meant to move code and not change it can say so.
+`tests/fwsize.py` compares two firmware ELFs function by function, after
+undoing what LTO renames, and reports what resized rather than what the
+section totals drifted by:
+
+    cp build/ria/rp6502-ria-w.elf /tmp/before.elf
+    # ...change something...
+    python3 tests/fwsize.py --nm ~/.pico-sdk/toolchain/15_2_Rel1/bin/arm-none-eabi-nm \
+        /tmp/before.elf build/ria/rp6502-ria-w.elf
+
+It exits non-zero when anything moved, so it also works as a gate in a
+script. The soft CPU's image is `build/rtl/assets/sw.elf` with
+`--nm riscv64-unknown-elf-nm`.
+
+To build the emulator, select Folder:emu and Configure:Debug or
+Configure:Release. On the Debug side panel select
 "Emulator Debug" and press F5. You'll get prompted to select one of the
 included test roms to run. You'll also have a binary that supports the Debug
 Adapter Protocol (DAP) that you can use with vscode-cc65, or any other IDE
 that supports DAP.
 
-To build for web, select Folder:web; the Emscripten toolchain installs itself
+To build the libretro core, select Folder:libretro and Configure:Debug. On
+the Debug side panel select "RetroArch Debug" and press F5; it builds the
+core, launches RetroArch on it, and stops at your breakpoints. You'll get
+prompted for one of the included test roms, or use "RetroArch Debug
+(path…)" to type the path of any ROM you like. RetroArch has to be
+installed; on WSL the launch configuration already works around the
+missing window decorations.
+
+To build for web, select Folder:itch.io; the Emscripten toolchain installs itself
 the first time and needs no preset argument to find. Pressing F7 builds
-`build/web/bundle`, a ready-to-publish itch.io sample that plays one program
-(`adventure.rp6502` by default) — see `src/dist/itch.io/README.txt` to retarget
+`build/itch.io/bundle`, a ready-to-publish itch.io sample that plays one program
+(`adventure.rp6502` by default) — see `src/mach/itch.io/dist/README.txt` to retarget
 and deploy it.
 
-`src/host/web/index.html` is the tester: a menu of every test ROM, run against
+`src/mach/itch.io/index.html` is the tester: a menu of every test ROM, run against
 that same bundle. It stays in the source tree, so serve the repository root
 rather than the build. Use the VS Code live preview extension
-`ms-vscode.live-server` and open `src/host/web/index.html`, or a simple python
+`ms-vscode.live-server` and open `src/mach/itch.io/index.html`, or a simple python
 server. Neither page works from a `file://` URL; the browser needs an HTTP
 origin to fetch a ROM or stream the wasm.
-`python3 -m http.server 8000` then http://localhost:8000/src/host/web/index.html
+`python3 -m http.server 8000` then http://localhost:8000/src/mach/itch.io/index.html
 
 To build the Pocket core, select Folder:pocket. F7 assembles the SD card tree
 into `build/pocket/package`; `pocket-bitstream`, `pocket-fit` and `synth` are
@@ -178,10 +199,10 @@ root that builds the verilated machine.
 So an emulator build runs its host tests and the machine's; the fpga build
 runs its host tests, the machine's, and the RTL's:
 
-    cd src/host/linux        # or win, macos
-    cmake --preset release
-    cmake --build --preset release
-    ctest --preset release           # host/emu + cpu, a couple of seconds
+    cd src/mach/emu                  # one root for all three desktops
+    cmake --preset linux-release     # or macos-release, windows-release
+    cmake --build --preset linux-release
+    ctest --preset linux-release     # host/emu + cpu, a couple of seconds
 
     cd tests/rtl                     # needs Verilator, and
     cmake --preset release           # gcc-riscv64-unknown-elf for the soft CPU

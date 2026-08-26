@@ -27,8 +27,15 @@ void main_run(void);
 // It will safely do nothing if the 6502 is already stopped.
 void main_stop(void);
 
-// API calls are dispatched here.
-bool main_api(uint8_t operation);
+/* Perform a start or stop that was asked for. A machine calls this from its
+ * loop, at a point where it can afford the fan-out. */
+void main_commit(void);
+
+/* The fan-outs themselves, which are the machine's: what it has to bring up
+ * for a program to run, and what it has to put away afterwards. The ordering
+ * within them is the whole content, so they stay where the reasons are. */
+void main_on_run(void);
+void main_on_stop(void);
 
 // This platform's stdio driver table (built in its main.c).
 const std_driver_t *main_std_drivers(size_t *count);
@@ -46,6 +53,13 @@ bool main_break(void);
 // platform, and with none registered on a platform that has no monitor
 // to fall back to. A RIA with none registered breaks to the monitor.
 bool main_break_to_launcher(void);
+
+/* PIX XREG register dispatch: device 0 (the RIA's own HID and audio), device 1
+ * (the video device). Device 0 never crosses a bus, so every machine answers
+ * it locally. Device 1 is answered here only by a machine that is its own
+ * video; one with a real bus sends it and the far end answers. */
+bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
+bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
 
 /* The bus between the 6502 and the machine. A machine with no such transfer
  * answers false and never latches. */

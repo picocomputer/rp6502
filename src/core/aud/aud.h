@@ -75,4 +75,7 @@ uint32_t aud_native_rate(void);
 
 extern int16_t aud_sine_table[256];
 
+/* Build it. Every machine calls this from its own aud_init. */
+void aud_sine_init(void);
+
 #endif /* _CORE_AUD_AUD_H_ */

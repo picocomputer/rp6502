@@ -132,17 +132,17 @@ X(STR_ERR_FATFS_TOO_MANY_OPEN_FILES, "?Zbyt wiele otwartych plików\n") // 18
 X(STR_ERR_FATFS_INVALID_PARAMETER, "?Nieprawidłowy parametr\n")        // 19
 
 // WiFi status
-X(STR_WFI_NOT_CONFIGURED, "nieskonfigurowano")
-X(STR_WFI_WAITING, "oczekiwanie")
-X(STR_WFI_JOINING, "dołączanie")
-X(STR_WFI_GETTING_IP, "pobieranie IP")
-X(STR_WFI_CONNECTING, "łączenie")
-X(STR_WFI_CONNECTED, "połączono")
-X(STR_WFI_NO_IP_ADDRESS, "brak adresu IP")
-X(STR_WFI_SSID_NOT_FOUND, "nie znaleziono SSID")
-X(STR_WFI_AUTH_FAILED, "błąd uwierzytelniania")
-X(STR_WFI_CONNECT_FAILED, "błąd połączenia")
-X(STR_WFI_NO_NETWORKS, "Nie znaleziono sieci")
+X(STR_WIFI_NOT_CONFIGURED, "nieskonfigurowano")
+X(STR_WIFI_WAITING, "oczekiwanie")
+X(STR_WIFI_JOINING, "dołączanie")
+X(STR_WIFI_GETTING_IP, "pobieranie IP")
+X(STR_WIFI_CONNECTING, "łączenie")
+X(STR_WIFI_CONNECTED, "połączono")
+X(STR_WIFI_NO_IP_ADDRESS, "brak adresu IP")
+X(STR_WIFI_SSID_NOT_FOUND, "nie znaleziono SSID")
+X(STR_WIFI_AUTH_FAILED, "błąd uwierzytelniania")
+X(STR_WIFI_CONNECT_FAILED, "błąd połączenia")
+X(STR_WIFI_NO_NETWORKS, "Nie znaleziono sieci")
 
 // Network Time Protocol status
 X(STR_NTP_NO_NETWORK, "brak sieci")

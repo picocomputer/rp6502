@@ -1,0 +1,48 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ * SPDX-License-Identifier: Unlicense
+ */
+
+/* Every persisted setting, once.
+ *
+ * This list used to be written out eight times -- the file format's comment,
+ * the printf that writes it, the arguments to that printf, the switch that
+ * reads it back, the monitor's SET table, the SET listing, the HELP SET table,
+ * and the help prose. Seven of those are here now; the eighth is localized
+ * English, French and Polish, which is not data.
+ *
+ * X    a setting the file keeps and SET can change
+ * XCFG the file keeps it, but no one may set it: the machine manages it
+ * XMON SET can change it, but it is not a "+" line in the file
+ *
+ * The order is the order SET prints in, which is the only one anybody sees.
+ * The file's line order follows from it and does not matter: a line is found
+ * by its letter, so a config written by any build loads on any other.
+ *
+ * The letters C and R are retired -- they were Caps and RESB. Do not reuse.
+ */
+
+// clang-format off
+#include "core/def/def.h"
+
+//   ltr fmt   getter                    loader                     attribute  setter          responder             help                 help responder
+X(   P,  "%u", cpu_get_phi2_khz,         cpu_load_phi2_khz,         STR_PHI2,  set_phi2,       set_phi2_response,    STR_HELP_SET_PHI2,   NULL)
+XMON(                                                              STR_BOOT,  set_boot,       set_boot_response,    STR_HELP_SET_BOOT,   NULL)
+X(   T,  "%s", tim_get_time_zone,        tim_load_time_zone,        STR_TZ,    set_time_zone,  set_time_zone_response, STR_HELP_SET_TZ,   tim_tzdata_response)
+X(   M,  "%s", str_get_locale,           str_load_locale,           STR_LOC,   set_locale,     set_locale_response,  STR_HELP_SET_LOC,    str_locales_response)
+X(   L,  "%s", keymap_get_layout_list,      keymap_load_layout,           STR_KB,    set_keyboard_layout, set_keyboard_layout_response, STR_HELP_SET_KB,  keymap_layouts_response)
+X(   S,  "%u", oem_get_code_page,        oem_load_code_page,        STR_CP,    set_code_page,  set_code_page_response, STR_HELP_SET_CP,   NULL)
+X(   D,  "%u", vga_get_display_type,     vga_load_display_type,     STR_VGA,   set_vga,        set_vga_response,     STR_HELP_SET_VGA,    NULL)
+X(   N,  "%u", nfc_get_enabled,          nfc_load_enabled,          STR_NFC,   set_nfc,        set_nfc_response,     STR_HELP_SET_NFC,    NULL)
+XCFG(H,  "%s", vcp_get_nfc_device_hash,  vcp_load_nfc_device_hash)
+#ifdef RP6502_RIA_W
+X(   E,  "%u", cyw_get_rf_enable,        cyw_load_rf_enable,        STR_RF,    set_rf,         set_rf_response,      STR_HELP_SET_RF,     NULL)
+X(   F,  "%s", cyw_get_rf_country_code,  cyw_load_rf_country_code,  STR_RFCC,  set_rfcc,       set_rfcc_response,    STR_HELP_SET_RFCC,   cyw_country_code_response)
+X(   W,  "%s", wifi_get_ssid,             wifi_load_ssid,             STR_SSID,  set_ssid,       set_ssid_response,    STR_HELP_SET_SSID,   wifi_scan_response)
+X(   K,  "%s", wifi_get_pass,             wifi_load_pass,             STR_PASS,  set_pass,       set_pass_response,    STR_HELP_SET_PASS,   NULL)
+X(   O,  "%u", com_telnet_get_port,      com_telnet_load_port,      STR_PORT,  set_port,       set_port_response,    STR_HELP_SET_PORT,   NULL)
+X(   A,  "%s", com_telnet_get_key,       com_telnet_load_key,       STR_KEY,   set_key,        set_key_response,     STR_HELP_SET_KEY,    NULL)
+X(   B,  "%u", ble_get_enabled,          ble_load_enabled,          STR_BLE,   set_ble,        set_ble_response,     STR_HELP_SET_BLE,    NULL)
+#endif /* RP6502_RIA_W */

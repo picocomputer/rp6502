@@ -32,7 +32,7 @@
 #include <string>
 #include <vector>
 
-/* rgb555_to_rgba8, byte for byte the emulator's (emu/sys/vga.c). */
+/* rgb555_to_rgba8, byte for byte the emulator's (core/vga/vga.c). */
 
 /* The banner: reset SGR, clear, home, hide the cursor, then exercise
  * text, color, reverse, and underline. Printed under the $FFE0 ready

@@ -13,9 +13,9 @@
  * assertions are on the program's actual text and survive font/term changes.
  */
 
-#include "core/emu/hid/kbd.h"
-#include "core/emu/sys/com.h"
-#include "core/emu/sys/cpu.h"
+#include "core/sys/keyboard.h"
+#include "core/com/com.h"
+#include "core/wdc/cpu.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -37,7 +37,7 @@ static bool boot(const char *input)
         return false;
     com_set_tx_tap(tap);
     if (input)
-        kbd_paste(input);
+        keyboard_paste(input);
     return true;
 }
 

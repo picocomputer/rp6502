@@ -25,6 +25,7 @@
  * that have one XRAM and one of everything else. */
 bool pix_api_xreg(void);
 
+
 /* Room for at least one more. False means try again later: on a Pico the FIFO
  * is finite and std_task retires its forwarding count through this. */
 bool pix_ready(void);

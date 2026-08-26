@@ -6,6 +6,7 @@
 
 #include "ria/main.h"
 #include "core/api/api.h"
+#include "core/api/proc.h"
 #include "ria/mon/mon.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -413,7 +414,13 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         api_return_ax(0);
                     }
                     else if (data == 0xFF) // exit()
+                    {
+                        // Captured before the stop, while A and X still hold
+                        // what the program exited with, for a launcher to read
+                        // back through ATTR_EXIT_CODE.
+                        proc_set_exit_code((int16_t)API_AX);
                         main_stop();
+                    }
                     break;
                 case CASE_WRITE(0xFFEC): // xstack
                     if (xstack_ptr)

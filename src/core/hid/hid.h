@@ -23,6 +23,13 @@ void hid_set_leds(uint8_t leds);
  * holds off deciding a layout. False where enumeration is not a thing. */
 bool hid_boot_enumerating(void);
 
+/* An XREG write just pointed a device at a new XRAM report block, which blanks
+ * the record. Where this machine's transport holds the current state rather
+ * than resending it on its own, that state has to go out again -- a control
+ * standing still is news to a record that was just emptied. Nothing to do
+ * where reports arrive continuously. */
+void hid_remapped(void);
+
 uint32_t hid_extract_bits(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 int32_t hid_extract_signed(const uint8_t *report, uint16_t report_len, uint16_t bit_offset, uint8_t bit_size);
 uint8_t hid_scale_analog(uint32_t raw_value, uint8_t bit_size, int32_t logical_min, int32_t logical_max);
@@ -46,10 +53,10 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
 
 /* The drivers' own structs are what a device is offered as. Their headers
  * include this one, so they are named here rather than included. */
-typedef struct kbd_connection kbd_connection_t;
-typedef struct mou_connection mou_connection_t;
-typedef struct tab_connection tab_connection_t;
-typedef struct pad_connection pad_connection_t;
+typedef struct keyboard_connection keyboard_connection_t;
+typedef struct mouse_connection mouse_connection_t;
+typedef struct tablet_connection tablet_connection_t;
+typedef struct gamepad_connection gamepad_connection_t;
 
 /* Devices that at least one driver wanted. A machine with more physical
  * ports than this simply runs out, which is what the drivers do too. A
@@ -58,9 +65,9 @@ typedef struct pad_connection pad_connection_t;
 #define HID_MAX_SLOTS 16
 #endif
 
-#define HID_CLAIM_KBD (1 << 0)
-#define HID_CLAIM_MOU (1 << 1)
-#define HID_CLAIM_TAB (1 << 2)
+#define HID_CLAIM_KEYBOARD (1 << 0)
+#define HID_CLAIM_MOUSE (1 << 1)
+#define HID_CLAIM_TABLET (1 << 2)
 #define HID_CLAIM_PAD (1 << 3)
 
 /* Offer a device to the drivers it might be, and keep which ones took it.
@@ -70,9 +77,9 @@ typedef struct pad_connection pad_connection_t;
  * interface keeps that slot beside whatever else it knows about the
  * device; nothing here can name a device on its behalf.
  *
- * Deliberately not exclusive: a mouse is a pointer to both mou and tab. */
-int hid_mount(const kbd_connection_t *kbd, const mou_connection_t *mou,
-              const tab_connection_t *tab, const pad_connection_t *pad,
+ * Deliberately not exclusive: a mouse is a pointer to both mouse and tablet. */
+int hid_mount(const keyboard_connection_t *keyboard, const mouse_connection_t *mouse,
+              const tablet_connection_t *tablet, const gamepad_connection_t *gamepad,
               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Hand a report to the drivers that claimed the slot, and no others.

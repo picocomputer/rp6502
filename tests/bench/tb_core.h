@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Testbench around the verilated rp6502 machine. Single instance, like the chip
- * models in emu/sys — the machine is a singleton in a test process too.
+ * models in core/sys — the machine is a singleton in a test process too.
  *
  * Set RP6502_RTL_TRACE to a path to write an FST trace of the run.
  */

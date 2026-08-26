@@ -22,7 +22,7 @@
 
 extern "C"
 {
-#include "core/emu/emu/rsmp.h"
+#include "core/aud/rsmp.h"
 }
 
 #include "utest.h"

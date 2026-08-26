@@ -137,7 +137,7 @@ static bool tb_boot(Dut *dut, const std::vector<uint8_t> &rom,
 }
 #endif /* SW_BIN */
 
-/* rgb555_to_rgba8, byte for byte the emulator's (emu/sys/vga.c). Both
+/* rgb555_to_rgba8, byte for byte the emulator's (core/vga/vga.c). Both
  * framebuffers are compared word for word, so this has to be the same
  * arithmetic and not merely the same colors. */
 static uint32_t tb_rgba8(uint16_t px)

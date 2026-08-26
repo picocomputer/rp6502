@@ -24,9 +24,20 @@
 // the 6502 is running or about to run once RESB rises.
 bool cpu_active(void);
 
+/* RESB down. Called from inside main_stop rather than the fan-out behind it,
+ * because a 6502 left running would keep asking for what is being torn
+ * down. */
+void cpu_stop(void);
+
 /* In kHz. The setter may land on a nearby achievable rate; the getter reports
  * the one chosen. */
 uint16_t cpu_get_phi2_khz_run(void);
 void cpu_set_phi2_khz_run(uint16_t phi2_khz);
+
+/* What was asked for, which is not always what runs: the rate a config store
+ * or a command line chose, held until the next cpu_init. False if it is out of
+ * the range above. */
+bool cpu_set_phi2_khz(uint16_t phi2_khz);
+uint16_t cpu_get_phi2_khz(void);
 
 #endif /* _CORE_CPU_H_ */

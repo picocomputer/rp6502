@@ -20,7 +20,7 @@ extern "C"
 {
 /* emu_boot.h is the emulator suites' C header and carries no linkage guard of
  * its own; every other consumer is C. */
-#include "core/emu/main.h"
+#include "core/sys/main.h"
 }
 
 #include "utest.h"

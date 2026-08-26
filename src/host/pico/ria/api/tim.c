@@ -6,6 +6,7 @@
 
 #include "core/api/oem.h"
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
@@ -358,8 +359,8 @@ bool tim_set_time_zone(const char *tz)
         else
             setenv(STR_TZ, tim_tzinfo_tz[tim_tzinfo_index], 1);
         tzset();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 

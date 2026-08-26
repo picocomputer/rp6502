@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What only the RIA answers of core/host.h. The VGA firmware compiles none of
+ * What only the RIA answers of host/os.h. The VGA firmware compiles none of
  * core/api, so nothing in it reaches for a random number and pico_rand stays
  * out of that image.
  *

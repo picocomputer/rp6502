@@ -27,6 +27,7 @@
  * is skipped rather than invented.
  */
 
+#include "corpus.h"
 #include "crc32.h"
 #include "mut.h"
 #include "utest.h"
@@ -34,28 +35,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-/* The corpus is generated and cannot be enumerated from here, so it says its
- * own shape: one line of name, width and height per ROM. Carrying the geometry
- * at each call site meant forty-seven pairs of numbers that no one could check
- * against the generator, and one of them was wrong. */
-static bool corpus_size(const char *name, int *width, int *height)
-{
-    FILE *f = fopen(ROMS_DIR "/manifest.txt", "r");
-    if (!f)
-        return false;
-    char n[128];
-    int w, h;
-    bool found = false;
-    while (fscanf(f, "%127s %d %d", n, &w, &h) == 3)
-        if (!strcmp(n, name))
-        {
-            *width = w, *height = h, found = true;
-            break;
-        }
-    fclose(f);
-    return found;
-}
 
 static uint32_t settled[640 * 480];
 

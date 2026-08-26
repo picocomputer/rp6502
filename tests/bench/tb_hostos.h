@@ -3,14 +3,14 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Two host helpers only tests call. They were in core/host.h, which is the
+ * Two host helpers only tests call. They were in host/os.h, which is the
  * machine's contract, and the machine has never wanted a temp directory or an
  * environment variable -- the tests do, to stand up a scratch MSC0: and to pin
  * TZ and LC_ALL before asking the clock what time it is.
  *
- * They keep the host_ prefix and their bodies stay in host/<os>/host.c, where
- * the Win32 spellings need oem_from_wide and win_to_slash. So this header is
- * named for the tests that use it rather than for the file that defines it.
+ * They keep the host_ prefix -- they answer for the host, they are simply not
+ * part of the contract every host owes the machine. The bodies are in
+ * tb_hostos.c beside this, so a shipped binary carries neither.
  */
 
 #ifndef _TESTS_BENCH_TB_HOSTOS_H_

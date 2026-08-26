@@ -3,14 +3,13 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Linux host-OS primitives that differ from the shared core/posix/host.c: entropy
+ * Linux host-OS primitives that differ from the shared host/posix/host.c: entropy
  * (getrandom) and the frame-pacer sleep (clock_nanosleep, absolute). Everything
- * else a POSIX host needs lives in core/posix/host.c.
+ * else a POSIX host needs lives in host/posix/host.c.
  */
 
 #include "host.h"
-#include "core/emu/app/rand.h" /* host_entropy_64 */
-#include "core/emu/app/window.h" /* host_sleep_until_ns */
+#include "host/sokol/window.h" /* host_sleep_until_ns */
 #include <sys/random.h>
 #include <time.h>
 

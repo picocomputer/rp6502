@@ -7,10 +7,10 @@
 #include "core/api/oem.h"
 #include "fatfs/ff.h"
 #include "core/hid/parse.h"
-#include "core/hid/kbd.h"
-#include "core/hid/mou.h"
-#include "core/hid/tab.h"
-#include "core/hid/pad.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/mouse.h"
+#include "core/hid/tablet.h"
+#include "core/hid/gamepad.h"
 #include "host/hcd.h"
 #include "ria/main.h"
 #include "core/str/str.h"
@@ -32,10 +32,10 @@ extern int hcd_free_ep_count(void);
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
-_Static_assert(CFG_TUH_HID <= 8, "usb_pad_led_pending bitmask is 8 bits");
+_Static_assert(CFG_TUH_HID <= 8, "usb_gamepad_led_pending bitmask is 8 bits");
 
-static uint8_t usb_pad_led_pending;
-static uint8_t usb_pad_led_dev[CFG_TUH_HID];
+static uint8_t usb_gamepad_led_pending;
+static uint8_t usb_gamepad_led_dev[CFG_TUH_HID];
 
 /* TinyUSB hands out one interface index across every device, so it is
  * what a mounted device is remembered by here. -1 is nothing mounted. */
@@ -43,9 +43,9 @@ static int8_t usb_hid_slot[CFG_TUH_HID];
 static uint8_t usb_hid_leds;
 static uint8_t usb_hid_leds_next_dev;
 static uint8_t usb_hid_leds_next_idx;
-static uint8_t usb_count_hid_kbd;
-static uint8_t usb_count_hid_mou;
-static uint8_t usb_count_hid_pad;
+static uint8_t usb_count_hid_keyboard;
+static uint8_t usb_count_hid_mouse;
+static uint8_t usb_count_hid_gamepad;
 static absolute_time_t usb_enum_timeout;
 static bool usb_boot_enum_finished;
 
@@ -98,20 +98,20 @@ void __in_flash("usb_init") usb_init(void)
 void usb_task(void)
 {
     tuh_task();
-    while (usb_pad_led_pending)
+    while (usb_gamepad_led_pending)
     {
-        int i = __builtin_ctz(usb_pad_led_pending);
-        uint8_t led_buf[PAD_LED_REPORT_MAX];
+        int i = __builtin_ctz(usb_gamepad_led_pending);
+        uint8_t led_buf[GAMEPAD_LED_REPORT_MAX];
         uint8_t report_id;
         uint16_t report_len;
-        if (pad_build_led_report(usb_hid_slot[i], led_buf,
-                                 &report_id, &report_len))
+        if (gamepad_build_led_report(usb_hid_slot[i], led_buf,
+                                     &report_id, &report_len))
         {
-            if (!tuh_hid_send_report(usb_pad_led_dev[i], i,
+            if (!tuh_hid_send_report(usb_gamepad_led_dev[i], i,
                                      report_id, led_buf, report_len))
                 break; // EP busy, resume next task
         }
-        usb_pad_led_pending &= ~(1u << i);
+        usb_gamepad_led_pending &= ~(1u << i);
     }
     while (usb_hid_leds_next_dev)
     {
@@ -132,11 +132,11 @@ void usb_task(void)
 int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    int count_gamepad = usb_count_hid_pad + xin_status_count();
+    int count_gamepad = usb_count_hid_gamepad + xin_status_count();
     int count_ep_free = hcd_free_ep_count();
     com_snprintf_utf8(buf, buf_size, STR_STATUS_USB,
-                      usb_count_hid_kbd, usb_count_hid_kbd == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
-                      usb_count_hid_mou, usb_count_hid_mou == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
+                      usb_count_hid_keyboard, usb_count_hid_keyboard == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
+                      usb_count_hid_mouse, usb_count_hid_mouse == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                       count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
                       count_ep_free, count_ep_free == 1 ? S(STR_EP_FREE_SINGULAR) : S(STR_EP_FREE_PLURAL));
     return -1;
@@ -174,28 +174,28 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_parsed_t parsed;
     hid_parse(desc_report, desc_len, &parsed);
 
-    /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    int slot = hid_mount(&parsed.kbd, &parsed.mou, &parsed.tab, &parsed.pad,
-                         vendor_id, product_id, PAD_TYPE_UNKNOWN);
+    /* Generic HID says nothing about its labels; gamepad.c knows the Sony ids. */
+    int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tablet, &parsed.gamepad,
+                         vendor_id, product_id, GAMEPAD_TYPE_UNKNOWN);
     if (slot < 0)
         return;
     usb_hid_slot[idx] = (int8_t)slot;
     uint8_t claims = hid_slot_claims(slot);
 
-    if (claims & HID_CLAIM_KBD)
+    if (claims & HID_CLAIM_KEYBOARD)
     {
-        ++usb_count_hid_kbd;
+        ++usb_count_hid_keyboard;
         usb_hid_leds_restart();
     }
-    if (claims & HID_CLAIM_MOU)
-        ++usb_count_hid_mou;
+    if (claims & HID_CLAIM_MOUSE)
+        ++usb_count_hid_mouse;
     if (claims & HID_CLAIM_PAD)
     {
-        ++usb_count_hid_pad;
+        ++usb_count_hid_gamepad;
 
         // Defer player LED send — not safe during mount callback
-        usb_pad_led_dev[idx] = dev_addr;
-        usb_pad_led_pending |= (1u << idx);
+        usb_gamepad_led_dev[idx] = dev_addr;
+        usb_gamepad_led_pending |= (1u << idx);
     }
 
     tuh_hid_receive_report(dev_addr, idx);
@@ -209,12 +209,12 @@ void tuh_hid_umount_cb(uint8_t dev_addr, uint8_t idx)
         return;
     usb_hid_slot[idx] = -1;
     uint8_t claims = hid_slot_claims(slot);
-    if (claims & HID_CLAIM_KBD)
-        --usb_count_hid_kbd;
-    if (claims & HID_CLAIM_MOU)
-        --usb_count_hid_mou;
+    if (claims & HID_CLAIM_KEYBOARD)
+        --usb_count_hid_keyboard;
+    if (claims & HID_CLAIM_MOUSE)
+        --usb_count_hid_mouse;
     if (claims & HID_CLAIM_PAD)
-        --usb_count_hid_pad;
+        --usb_count_hid_gamepad;
     hid_umount(slot);
 }
 
@@ -241,7 +241,7 @@ uint16_t usb_desc_string_ulen(const void *desc_buf, size_t desc_buf_size)
     uint16_t max_ulen = (desc_buf_size - sizeof(tusb_desc_string_t)) / sizeof(uint16_t);
     if (ulen > max_ulen)
         ulen = max_ulen;
-    // Some devices over-report bLength and pad the string with NUL.
+    // Some devices over-report bLength and gamepad the string with NUL.
     while (ulen > 0 && desc->utf16le[ulen - 1] == 0)
         ulen--;
     return ulen;
@@ -407,7 +407,7 @@ bool tuh_enum_descriptor_configuration_cb(uint8_t daddr, uint8_t cfg_index,
     return true;
 }
 
-/* Two transports here; core/hid/kbd.c asks for one. */
+/* Two transports here; core/hid/keyboard.c asks for one. */
 void hid_set_leds(uint8_t leds)
 {
     usb_set_hid_leds(leds);
@@ -417,4 +417,10 @@ void hid_set_leds(uint8_t leds)
 bool hid_boot_enumerating(void)
 {
     return usb_boot_enumerating();
+}
+
+/* Devices report on their own schedule and a remapped block refills from the
+ * next one, so there is nothing held here to send again. */
+void hid_remapped(void)
+{
 }

@@ -6,9 +6,9 @@
 
 #include "ria/main.h"
 #include "core/api/oem.h"
-#include "ria/mon/dsk.h"
+#include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "ria/mon/rom.h"
@@ -81,9 +81,9 @@ __in_flash("mon_commands") static struct
     const char *const cmd;
     mon_command_fn func;
 } const MON_COMMANDS[] = {
-    {STR_HELP, hlp_mon_help},
-    {STR_H, hlp_mon_help},
-    {STR_QUESTION_MARK, hlp_mon_help},
+    {STR_HELP, help_mon_help},
+    {STR_H, help_mon_help},
+    {STR_QUESTION_MARK, help_mon_help},
     {STR_STATUS, sys_mon_status},
     {STR_SET, set_mon_set},
     {STR_LS, fil_mon_dir},
@@ -106,7 +106,7 @@ __in_flash("mon_commands") static struct
     {STR_MOVE, fil_mon_move},
     {STR_MV, fil_mon_move},
     {STR_BINARY, ram_mon_binary},
-    {STR_DISK, dsk_mon_disk},
+    {STR_DISK, drive_mon_disk},
 };
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
@@ -450,7 +450,7 @@ static void mon_more(void)
     {
         // Non-blocking byte-driven drain: any keypress advances past
         // --more--, but ESC-prefixed sequences (arrow keys, F-keys,
-        // Alt+key, anything kbd.c emits via vt100/vt220) are consumed
+        // Alt+key, anything keyboard.c emits via vt100/vt220) are consumed
         // whole so their tail doesn't leak into the next prompt.
         int ch;
         while ((ch = stdio_getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)
@@ -633,7 +633,7 @@ void mon_task(void)
             }
             else if ((unsigned char)c < 0x20)
             {
-                // A control byte (ESC sequence, tab, ...) whose on-screen width we
+                // A control byte (ESC sequence, tablet, ...) whose on-screen width we
                 // can't track; stop wrap/column injection for the rest of the chain.
                 mon_response_width_aware = true;
             }
@@ -651,7 +651,7 @@ void mon_task(void)
         rom_active() ||
         fil_active() ||
         uf2_active() ||
-        dsk_active() ||
+        drive_active() ||
         usb_boot_enumerating())
         return;
     // The monitor has control

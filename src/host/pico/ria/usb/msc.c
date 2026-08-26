@@ -1906,7 +1906,7 @@ DRESULT disk_ioctl(BYTE pdrv, BYTE cmd, void *buff)
 
 // Remount after format/zero so the next access re-reads the new (or, after
 // zero, absent) filesystem.
-void msc_dsk_reenumerate(uint8_t pdrv)
+void msc_drive_reenumerate(uint8_t pdrv)
 {
     if (pdrv >= FF_VOLUMES || msc_pdrv[pdrv].status == msc_volume_free)
         return;
@@ -1946,7 +1946,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
             snprintf(sizebuf, sizeof(sizebuf), "%s", S(STR_PARENS_NO_MEDIA));
         else
             str_size((uint64_t)msc_pdrv[pdrv].block_count * msc_pdrv[pdrv].block_size,
-                     sizebuf, sizeof(sizebuf));
+                      sizebuf, sizeof(sizebuf));
         scsi_inquiry_resp_t inq;
         msc_status_t status = msc_scsi_inquiry(pdrv, &inq);
         if (status == MSC_STATUS_PASSED)
@@ -1972,15 +1972,15 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
     return state + 1;
 }
 
-/* ---- Disk utility (mon/dsk.c) support -------------------------------------
+/* ---- Disk utility (mon/drive.c) support -------------------------------------
  * These resolve a logical volume (MSCn:) to its physical drive and expose
  * device/geometry/format primitives. All run in the FatFs-safe task tier.
  */
 
 // Map an "MSCn"/"MSCn:" name or the "n"/"n:" shortcut (case-insensitive) to a
 // logical volume index, or -1. The volume need not be in use; callers validate
-// with msc_dsk_get_info.
-int msc_dsk_vol_from_name(const char *name)
+// with msc_drive_get_info.
+int msc_drive_vol_from_name(const char *name)
 {
     char buf[6];
     size_t n = 0;
@@ -1999,7 +1999,7 @@ int msc_dsk_vol_from_name(const char *name)
     return -1;
 }
 
-static bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
+static bool msc_drive_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
 {
     if (vol >= FF_VOLUMES || msc_pdrv[vol].status == msc_volume_free)
         return false;
@@ -2009,10 +2009,10 @@ static bool msc_dsk_pdrv_of_vol(uint8_t vol, uint8_t *pdrv)
 
 // Resolve a volume to its descriptor: media presence/geometry, device class,
 // mount generation, and the canonical "MSCn:" volume path.
-bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
+bool msc_drive_get_info(uint8_t vol, msc_drive_info_t *out)
 {
     uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
         return false;
     if (disk_status(pdrv) == STA_NOINIT)
         disk_initialize(pdrv);
@@ -2030,10 +2030,10 @@ bool msc_dsk_get_info(uint8_t vol, msc_dsk_info_t *out)
     return true;
 }
 
-bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5])
+bool msc_drive_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char rev[5])
 {
     uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
         return false;
     scsi_inquiry_resp_t inq;
     if (msc_scsi_inquiry(pdrv, &inq) != MSC_STATUS_PASSED)
@@ -2050,10 +2050,10 @@ bool msc_dsk_inquiry_strings(uint8_t vol, char vendor[9], char product[17], char
     return true;
 }
 
-bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size)
+bool msc_drive_serial(uint8_t vol, char *dst, size_t dst_size)
 {
     uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv) || dst_size == 0)
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv) || dst_size == 0)
         return false;
     const void *s = usb_string_fetch_serial(msc_pdrv[pdrv].dev_addr);
     if (!s)
@@ -2062,26 +2062,26 @@ bool msc_dsk_serial(uint8_t vol, char *dst, size_t dst_size)
     return dst[0] != '\0';
 }
 
-bool msc_dsk_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count)
+bool msc_drive_read(uint8_t vol, void *buf, uint64_t lba, uint32_t count)
 {
     uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
         return false;
     return disk_read(pdrv, (BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-bool msc_dsk_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
+bool msc_drive_write(uint8_t vol, const void *buf, uint64_t lba, uint32_t count)
 {
     uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
         return false;
     return disk_write(pdrv, (const BYTE *)buf, (LBA_t)lba, count) == RES_OK;
 }
 
-bool msc_dsk_format_track(uint8_t vol, uint8_t track, uint8_t head)
+bool msc_drive_format_track(uint8_t vol, uint8_t track, uint8_t head)
 {
     uint8_t pdrv;
-    if (!msc_dsk_pdrv_of_vol(vol, &pdrv))
+    if (!msc_drive_pdrv_of_vol(vol, &pdrv))
         return false;
     if (msc_pdrv[pdrv].write_prot)
         return false;

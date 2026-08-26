@@ -128,17 +128,17 @@ X(STR_ERR_FATFS_TOO_MANY_OPEN_FILES, "?Too many open files\n") // 18
 X(STR_ERR_FATFS_INVALID_PARAMETER, "?Invalid parameter\n")     // 19
 
 // WiFi status
-X(STR_WFI_NOT_CONFIGURED, "not configured")
-X(STR_WFI_WAITING, "waiting")
-X(STR_WFI_JOINING, "joining")
-X(STR_WFI_GETTING_IP, "getting IP")
-X(STR_WFI_CONNECTING, "connecting")
-X(STR_WFI_CONNECTED, "connected")
-X(STR_WFI_NO_IP_ADDRESS, "no IP address")
-X(STR_WFI_SSID_NOT_FOUND, "ssid not found")
-X(STR_WFI_AUTH_FAILED, "auth failed")
-X(STR_WFI_CONNECT_FAILED, "connect failed")
-X(STR_WFI_NO_NETWORKS, "No networks found")
+X(STR_WIFI_NOT_CONFIGURED, "not configured")
+X(STR_WIFI_WAITING, "waiting")
+X(STR_WIFI_JOINING, "joining")
+X(STR_WIFI_GETTING_IP, "getting IP")
+X(STR_WIFI_CONNECTING, "connecting")
+X(STR_WIFI_CONNECTED, "connected")
+X(STR_WIFI_NO_IP_ADDRESS, "no IP address")
+X(STR_WIFI_SSID_NOT_FOUND, "ssid not found")
+X(STR_WIFI_AUTH_FAILED, "auth failed")
+X(STR_WIFI_CONNECT_FAILED, "connect failed")
+X(STR_WIFI_NO_NETWORKS, "No networks found")
 
 // Network Time Protocol status
 X(STR_NTP_NO_NETWORK, "no network")

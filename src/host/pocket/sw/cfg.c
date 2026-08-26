@@ -18,9 +18,9 @@
 #include "mmio.h"
 
 #include "core/cfg.h"
-#include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
-#include "core/hid/kbl.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/keymap.h"
+#include "core/hid/layout.h"
 
 #include <string.h>
 
@@ -31,15 +31,15 @@ static int32_t cfg_kb = -1;
 
 /* One layout, not a list: the menu is two button presses away, so
  * GUI+Space has nothing to cycle between. Zero is a menu that has said
- * nothing and leaves kbd_init's default standing. */
+ * nothing and leaves keyboard_init's default standing. */
 static void cfg_apply_layout(int32_t kb)
 {
-    char name[KBL_NAME_MAX];
+    char name[LAYOUT_NAME_MAX];
     if (kb <= 0)
         return;
-    kbl_name((int)kb - 1, name);
+    layout_name((int)kb - 1, name);
     if (name[0])
-        kbt_load_layout(name);
+        keymap_load_layout(name);
 }
 
 void cfg_task(void)

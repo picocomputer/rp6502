@@ -7,12 +7,13 @@
 #include "rp6502_version.h"
 #include "ria/main.h"
 #include "core/api/arg.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"
 #include "ria/net/ntp.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/sys.h"
 #include "ria/sys/vga.h"
@@ -94,7 +95,7 @@ void sys_mon_status(const char *args)
     mon_add_response_utf8(SYS_NAME);
     mon_add_response_utf8(SYS_VERSION);
     mon_add_response_fn(vga_status_response);
-    mon_add_response_fn(wfi_status_response);
+    mon_add_response_fn(wifi_status_response);
     mon_add_response_fn(ntp_status_response);
     mon_add_response_fn(tim_status_response);
     mon_add_response_fn(ble_status_response);

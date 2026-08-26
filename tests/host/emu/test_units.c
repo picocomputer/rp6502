@@ -9,14 +9,15 @@
 
 #include "core/api/oem.h"
 #include "core/str/str.h"
-#include "core/emu/app/cli.h"
-#include "core/emu/hid/kbd.h"
-#include "core/emu/hid/pad.h"
-#include "core/hid/tab.h"
-#include "core/emu/main.h"
-#include "core/emu/emu/rom.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/com.h"
+#include "host/sokol/cli.h"
+#include "core/hid/usage.h"
+#include "core/sys/keyboard.h"
+#include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
+#include "core/sys/main.h"
+#include "core/sys/rom.h"
+#include "core/mem/mem.h"
+#include "core/com/com.h"
 #include "utest.h"
 #include <stdio.h>
 #include <string.h>
@@ -72,27 +73,31 @@ UTEST(rom, loads_a_headerless_image)
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(main_xreg_0(0, 0, 0));  /* RIA-local devices: accepted (stub) */
-    ASSERT_TRUE(main_xreg_1(0, 0, 3));  /* VGA canvas 640x480 */
-    ASSERT_FALSE(main_xreg_1(15, 1, 0)); /* VGA control channel: reg 0 is DISPLAY, other regs have no emu analog (NAK) */
-    ASSERT_TRUE(main_xreg_1(5, 0, 0));  /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(main_xreg_0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(main_xreg_1(0, 0, 3)); /* VGA canvas 640x480 */
+    /* The control channel: CODE_PAGE is answered, and so is DISPLAY, which is
+     * not exercised here because it resets the machine. The rest are registers
+     * of a real VGA chip that a machine which is its own has no analog for. */
+    ASSERT_TRUE(main_xreg_1(15, 1, 437));
+    ASSERT_FALSE(main_xreg_1(15, 2, 0));
+    ASSERT_TRUE(main_xreg_1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
  * encoding that mirrors the firmware (status bits, analog->digital sticks byte,
  * L2/R2 trigger<->button coupling). */
-UTEST(pad, host_report_encoding)
+UTEST(gamepad, host_report_encoding)
 {
-    pad_stop();
-    ASSERT_FALSE(pad_is_mapped()); /* nothing touches input until a ROM maps it */
+    gamepad_stop();
+    ASSERT_FALSE(gamepad_is_mapped()); /* nothing touches input until a ROM maps it */
 
     ASSERT_TRUE(main_xreg_0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
-    ASSERT_TRUE(pad_is_mapped());
+    ASSERT_TRUE(gamepad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
     /* Player 0: dpad up + A, left stick full north, host sure of nothing. */
-    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
-    pad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0);
+    gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0);
     ASSERT_EQ(xram[0xFF00 + 0], 0x81);          /* dpad up | connected */
     ASSERT_EQ(xram[0xFF00 + 1], 0x01);          /* sticks: left=N, right=center */
     ASSERT_EQ(xram[0xFF00 + 2], 0x01);          /* button0: A */
@@ -101,152 +106,183 @@ UTEST(pad, host_report_encoding)
 
     /* Type and sticks are claims about the controller, made when it is
      * plugged in, and they land in their own bits. */
-    pad_connect(1, true, PAD_TYPE_PLAYSTATION, true);
+    gamepad_connect(1, true, GAMEPAD_TYPE_PLAYSTATION, true);
     ASSERT_EQ(xram[0xFF00 + 10], 0xF0); /* connected | sticks | playstation */
-    pad_connect(1, true, PAD_TYPE_EASTERN, false);
+    gamepad_connect(1, true, GAMEPAD_TYPE_EASTERN, false);
     ASSERT_EQ(xram[0xFF00 + 10], 0xA0); /* connected | eastern, no sticks */
-    pad_connect(1, true, PAD_TYPE_WESTERN, true);
+    gamepad_connect(1, true, GAMEPAD_TYPE_WESTERN, true);
     ASSERT_EQ(xram[0xFF00 + 10], 0xD0); /* connected | sticks | western */
 
     /* L2 button with no analog reads full-scale; analog past deadzone asserts
      * the button — both couplings, like the firmware. */
-    pad_connect(2, true, PAD_TYPE_UNKNOWN, false);
-    pad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0);
+    gamepad_connect(2, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0);
     ASSERT_EQ(xram[0xFF00 + 20 + 8], 255);  /* lt forced to full */
     ASSERT_EQ(xram[0xFF00 + 20 + 3], 0x01); /* button1 keeps L2 */
-    pad_connect(3, true, PAD_TYPE_UNKNOWN, false);
-    pad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200);
+    gamepad_connect(3, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200);
     ASSERT_EQ(xram[0xFF00 + 30 + 3], 0x02); /* rt>deadzone asserts R2 */
 
     /* Unplug blanks the record; unmapping clears the gate. */
-    pad_connect(0, false, PAD_TYPE_UNKNOWN, false);
+    gamepad_connect(0, false, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
     ASSERT_TRUE(main_xreg_0(0, 2, 0xFFFF));
-    ASSERT_FALSE(pad_is_mapped());
+    ASSERT_FALSE(gamepad_is_mapped());
 }
 
 /* The tablet's mouse-format wheel/pan: header bytes +2/+3 are 8-bit wrapping
  * accumulators fed by host scroll, exactly like the mouse block. */
-UTEST(tab, host_wheel_encoding)
+UTEST(tablet, host_wheel_encoding)
 {
-    tab_stop();
-    ASSERT_FALSE(tab_is_mapped()); /* nothing touches input until a ROM maps it */
+    tablet_stop();
+    ASSERT_FALSE(tablet_is_mapped()); /* nothing touches input until a ROM maps it */
 
     ASSERT_TRUE(main_xreg_0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
-    ASSERT_TRUE(tab_is_mapped());
+    ASSERT_TRUE(tablet_is_mapped());
     ASSERT_EQ(xram[0xFF00 + 2], 0x00); /* wheel default 0 */
     ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
 
-    tab_host_wheel(3, -2);
+    tablet_host_wheel(3, -2);
     ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)3);  /* wheel accumulates */
     ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)-2); /* pan accumulates (wraps) */
 
-    tab_host_wheel(-4, 5);
+    tablet_host_wheel(-4, 5);
     ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
     ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)3);  /* -2 + 5 */
 
     ASSERT_TRUE(main_xreg_0(0, 3, 0xFFFF));
-    ASSERT_FALSE(tab_is_mapped());
+    ASSERT_FALSE(tablet_is_mapped());
 }
 
-/* Drain the keyboard com ring (what kbd_key/kbd_text push) into buf. */
-static int kbd_drain(char *buf, int max)
+/* Drain the keyboard com ring (what keyboard_key/keyboard_text push) into buf. */
+static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
-    com_source_t src = COM_SOURCE_KBD;
+    com_source_t src = COM_SOURCE_KEYBOARD;
     while (n < max && (c = com_getchar(&src)) >= 0)
     {
         buf[n++] = (char)c;
-        src = COM_SOURCE_KBD;
+        src = COM_SOURCE_KEYBOARD;
     }
     return n;
 }
 
 /* The special-key ANSI the firmware (and xterm) emit, including the
  * ESC[1;{mod} modifier annotations. */
-UTEST(kbd, ansi_sequences)
+UTEST(keyboard, ansi_sequences)
 {
     char b[32];
 
     com_init();
-    kbd_key(KBD_KEY_UP, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_ARROW_UP, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
 
     com_init();
-    kbd_key(KBD_KEY_F1, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_F1, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
 
     com_init();
-    kbd_key(KBD_KEY_F5, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 5);
+    keyboard_key(HID_KEY_F5, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
 
     com_init();
-    kbd_key(KBD_KEY_F12, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 5);
+    keyboard_key(HID_KEY_F12, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
     com_init();
-    kbd_key(KBD_KEY_INSERT, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 4);
+    keyboard_key(HID_KEY_INSERT, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
     com_init();
-    kbd_key(KBD_KEY_HOME, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_HOME, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
     com_init();
-    kbd_key(KBD_KEY_UP, true, false, false); /* ctrl -> 5 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
     com_init();
-    kbd_key(KBD_KEY_F1, false, true, false); /* shift -> 2 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
     com_init();
-    kbd_key(KBD_KEY_END, false, true, true); /* shift+alt -> 4 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
     com_init();
-    kbd_key(KBD_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_init();
-    kbd_key(KBD_KEY_ENTER, false, false, false);
-    kbd_key(KBD_KEY_BACKSPACE, false, false, false);
-    kbd_key(KBD_KEY_BACKSPACE, true, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_ENTER, false, false, false);
+    keyboard_key(HID_KEY_BACKSPACE, false, false, false);
+    keyboard_key(HID_KEY_BACKSPACE, true, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
+/* Ctrl and Alt on the four keys that spell a character of their own. The
+ * console keymap defines no control form for Enter, Tab or Escape -- each is
+ * already a C0 control -- so the key still types itself, while Alt is an ESC
+ * prefix over whatever the other modifiers settled on. */
+UTEST(keyboard, ctrl_and_alt_on_control_keys)
+{
+    char b[16];
+
+    com_init();
+    keyboard_key(HID_KEY_ENTER, true, false, false);
+    keyboard_key(HID_KEY_TAB, true, false, false);
+    keyboard_key(HID_KEY_ESCAPE, true, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
+    ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
+
+    com_init();
+    keyboard_key(HID_KEY_ENTER, false, false, true);
+    keyboard_key(HID_KEY_TAB, false, false, true);
+    keyboard_key(HID_KEY_ESCAPE, false, false, true);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
+    ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
+
+    /* Alt composes with Ctrl instead of replacing it: ESC, then the byte
+     * Ctrl already chose. */
+    com_init();
+    keyboard_key(HID_KEY_BACKSPACE, false, false, true);
+    keyboard_key(HID_KEY_BACKSPACE, true, false, true);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
+    ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
+}
+
 /* Typed text is converted UTF-8 -> active OEM code page (default 437). */
-UTEST(kbd, text_to_oem)
+UTEST(keyboard, text_to_oem)
 {
     char b[32];
     str_init(); /* apply the default locale: code page 437 */
 
     com_init();
-    kbd_text("Hi!"); /* ASCII passes through */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_text("Hi!"); /* ASCII passes through */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
     com_init();
-    kbd_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 1);
+    keyboard_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    kbd_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 1);
+    keyboard_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
 }
 

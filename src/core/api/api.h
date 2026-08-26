@@ -8,7 +8,7 @@
 #define _CORE_API_API_H_
 
 /* The API driver manages function calls from the 6502.
- * Ops are latched here and dispatched through main_api(); this header
+ * Ops are latched here and dispatched through core/api/ops.c; this header
  * also holds the fastcall registers and helpers for API implementations.
  */
 

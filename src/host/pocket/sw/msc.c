@@ -211,7 +211,7 @@ static void msc_win_u32(uint32_t off, uint32_t v)
  * looked up by its id. */
 #define MSC_DT_PAIRS 20
 
-uint32_t msc_dt(uint32_t word)
+static uint32_t msc_dt(uint32_t word)
 {
     FILE_ID = word;
     msc_command(FILE_OP_DT);
@@ -894,29 +894,37 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
     return 0;
 }
 
+/* ---- The drive, as core/api/dir.c asks for it ---------------------------- */
+
 /* Synthetic: the host cannot be asked. Spelled from the drive so
  * appending a name opens the same file the bare name does. */
-bool msc_api_getcwd(void)
+static bool msc_dir_getcwd(char *buf, size_t size, api_errno *err)
 {
     static const char cwd[] = "MSC0:/Saves/rp6502/common/";
-    uint16_t len = sizeof cwd - 1;
-    xstack_ptr = XSTACK_SIZE - len;
-    memcpy(&xstack[xstack_ptr], cwd, len);
-    return api_return_ax(len + 1);
+    if (size < sizeof cwd)
+    {
+        *err = API_ENOMEM;
+        return false;
+    }
+    memcpy(buf, cwd, sizeof cwd);
+    return true;
 }
 
-bool msc_api_chdir(void)
+static bool msc_dir_chdrive(const char *drive, api_errno *err)
 {
-    xstack_ptr = XSTACK_SIZE;
-    return api_return_errno(API_ENOSYS);
-}
-
-bool msc_api_chdrive(void)
-{
-    const char *name = (const char *)&xstack[xstack_ptr];
-    xstack_ptr = XSTACK_SIZE;
-    const char *rest = msc_strip_drive(name);
+    const char *rest = msc_strip_drive(drive);
     if (!rest || *rest)
-        return api_return_errno(API_ENODEV);
-    return api_return_ax(0);
+    {
+        *err = API_ENODEV;
+        return false;
+    }
+    return true;
 }
+
+/* One folder, no directories to walk and no metadata to read, so all this
+ * drive answers is where it is and that it is the only one. The rest of the
+ * slots stay empty and the syscalls above them say ENOSYS. */
+const dir_backend_t msc_dir_backend = {
+    .chdrive = msc_dir_chdrive,
+    .getcwd = msc_dir_getcwd,
+};

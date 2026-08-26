@@ -6,18 +6,21 @@
 
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "core/api/fat.h"
+#include "api/fat.h"
 #include "core/api/oem.h"
 #include "core/api/arg.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/std.h"
-#include "ria/mon/hlp.h"
+#include "ria/mon/help.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
 #include "ria/sys/mem.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
+#include "core/sys/rom_rec.h"
+#include "core/sys/rom_win.h"
+#include "sys/path.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/lfs.h"
@@ -47,8 +50,7 @@ static enum {
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
-static bool rom_has_reset_lo;
-static bool rom_has_reset_hi;
+static rom_rec_vectors_t rom_vectors;
 static bool lfs_file_open;
 static lfs_file_t lfs_file;
 LFS_FILE_CONFIG(lfs_file_config, static);
@@ -57,14 +59,7 @@ static uint32_t rom_end_pos;
 static uint32_t rom_assets_start;
 
 #define ROM_ASSET_MAX 8
-typedef struct
-{
-    bool is_open;
-    uint32_t start;  // absolute file offset where asset data begins
-    uint32_t length; // byte length of the asset data
-    uint32_t pos;    // current read position (0-based from start)
-} rom_asset_fd_t;
-static rom_asset_fd_t rom_assets[ROM_ASSET_MAX];
+static rom_win_t rom_slots[ROM_ASSET_MAX];
 
 // Read one line into mbuf (CR/LF stripped). Returns the line length, 0 at EOF
 // (or a blank line); *err gets the I/O error (>0 FRESULT, <0 lfs) or 0.
@@ -115,7 +110,7 @@ static void rom_close(void)
         fat_fil.obj.fs = NULL;
     }
     for (int i = 0; i < ROM_ASSET_MAX; i++)
-        rom_assets[i].is_open = false;
+        rom_slots[i].used = false;
 }
 
 // Seek the open ROM file. *err (NULL-tolerant) gets the I/O error on failure.
@@ -143,6 +138,44 @@ static bool rom_fseek_to(uint32_t pos, int *err)
     }
     return true;
 }
+
+/* One handle serves the loader and every open asset, so each read seeks to
+ * where the window is before taking its bytes. */
+static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
+                               uint32_t count, uint32_t *got, api_errno *err)
+{
+    (void)w;
+    if (!rom_fseek_to(at, NULL))
+    {
+        *got = 0;
+        *err = API_EIO;
+        return STD_ERROR;
+    }
+    if (fat_fil.obj.fs)
+    {
+        UINT br;
+        FRESULT fresult = f_read(&fat_fil, buf, count, &br);
+        *got = br;
+        if (fresult != FR_OK)
+        {
+            *err = fat_fresult_to_api_errno(fresult);
+            return STD_ERROR;
+        }
+        return STD_OK;
+    }
+    lfs_ssize_t result = lfs_file_read(&lfs_volume, &lfs_file, buf, count);
+    if (result < 0)
+    {
+        *got = 0;
+        *err = lfs_error_to_api_errno((int)result);
+        return STD_ERROR;
+    }
+    *got = (uint32_t)result;
+    return STD_OK;
+}
+
+static const rom_win_pool_t rom_pool = {rom_slots, ROM_ASSET_MAX, rom_fetch};
+
 
 static void rom_report_io(int err)
 {
@@ -208,8 +241,7 @@ static bool rom_open(const char *path)
             return false;
         }
     }
-    rom_has_reset_lo = false;
-    rom_has_reset_hi = false;
+    rom_vectors = (rom_rec_vectors_t){0};
     return true;
 invalid:
     mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
@@ -264,42 +296,32 @@ static bool rom_next_chunk(void)
         rom_report_io(err);
         return false;
     }
-    if (mbuf[0] == '#')
-        return true; // skip comment lines
-    uint32_t rom_crc;
-    const char *args = (char *)mbuf;
-    if (str_parse_uint32(&args, &rom_addr) &&
-        str_parse_uint32(&args, &rom_len) &&
-        str_parse_uint32(&args, &rom_crc) &&
-        str_parse_end(args))
+    /* A record must fit mbuf whole: this machine stages it there before the
+     * bus carries it across. */
+    rom_rec_t rec;
+    rom_rec_result r = rom_rec_parse((char *)mbuf, MBUF_SIZE, &rec);
+    if (r == ROM_REC_SKIP)
+        return true; /* a blank line or a comment */
+    if (r != ROM_REC_OK)
     {
-        if (rom_addr > 0x1FFFF)
-        {
-            mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-            return false;
-        }
-        if (!rom_len || rom_len > MBUF_SIZE ||
-            (rom_addr < 0x10000 && rom_addr + rom_len > 0x10000) ||
-            (rom_addr + rom_len > 0x20000))
-        {
-            mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-            return false;
-        }
-        if (rom_addr <= 0xFFFC && rom_addr + rom_len > 0xFFFC)
-            rom_has_reset_lo = true;
-        if (rom_addr <= 0xFFFD && rom_addr + rom_len > 0xFFFD)
-            rom_has_reset_hi = true;
-        return rom_read(rom_len, rom_crc);
+        mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+        return false;
     }
-    mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-    return false;
+    rom_addr = rec.addr;
+    rom_len = rec.len;
+    if (!rom_read(rom_len, rec.crc))
+        return false;
+    /* After the read, not before: a record that arrives truncated or fails its
+     * CRC cannot vouch for the vector it was carrying. */
+    rom_rec_note(&rom_vectors, &rec);
+    return true;
 }
 
 static void rom_loading(void)
 {
     if (rom_at_eof())
     {
-        if (rom_has_reset_lo && rom_has_reset_hi)
+        if (rom_rec_complete(&rom_vectors))
         {
             if (usb_boot_enumerating())
                 return;
@@ -393,19 +415,19 @@ void rom_mon_install(const char *args)
     }
     // Test for system conflicts
     if (mon_command_exists(lfs_name) ||
-        hlp_topic_exists(lfs_name))
+        help_topic_exists(lfs_name))
     {
         mon_add_response_utf8(S(STR_ERR_ROM_NAME_INVALID));
         return;
     }
-    // mon_command_exists and hlp_topic_exists nuke our string
+    // mon_command_exists and help_topic_exists nuke our string
     tok = str_parse_string(&args_start);
     if (!rom_open(tok))
         return;
     while (!rom_at_eof())
         if (!rom_next_chunk())
             return;
-    if (!rom_has_reset_lo || !rom_has_reset_hi)
+    if (!rom_rec_complete(&rom_vectors))
     {
         mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
         return;
@@ -477,7 +499,7 @@ void rom_exec(void)
         if (!rom_copy_install_name(NULL, argv0 + 1, 0))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
-    const char *filepath = str_abs_path(argv0);
+    const char *filepath = path_abs(argv0);
     if (!filepath)
     {
         if (!strchr(argv0, ':'))
@@ -498,7 +520,7 @@ void rom_exec(void)
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     memcpy(path, filepath, flen + 1);
     // Skip case correction for installed ROMs (live in flash, not on disk).
-    if (*argv0 != ':' && !str_correct_basename(path, sizeof path))
+    if (*argv0 != ':' && !path_correct_basename(path, sizeof path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
@@ -968,106 +990,27 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
                         : API_ENOENT;
         return -1;
     }
-    uint32_t data_start = rom_ftell();
-    for (int s = 0; s < ROM_ASSET_MAX; s++)
-    {
-        if (!rom_assets[s].is_open)
-        {
-            rom_assets[s].is_open = true;
-            rom_assets[s].start = data_start;
-            rom_assets[s].length = asset_len;
-            rom_assets[s].pos = 0;
-            return s;
-        }
-    }
-    *err = API_EMFILE;
-    return -1;
+    return rom_win_alloc(&rom_pool, rom_ftell(), asset_len, -1, err);
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    (void)err;
-    rom_assets[desc].is_open = false;
+    rom_win_t *w = rom_win_get(&rom_pool, desc);
+    if (!w)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    w->used = false;
     return STD_OK;
 }
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err)
 {
-    rom_asset_fd_t *afd = &rom_assets[desc];
-    uint32_t remaining = afd->length - afd->pos;
-    if (count > remaining)
-        count = remaining;
-    if (!count)
-    {
-        *bytes_read = 0;
-        return STD_OK;
-    }
-    if (!rom_fseek_to(afd->start + afd->pos, NULL))
-    {
-        *bytes_read = 0;
-        *err = API_EIO;
-        return STD_ERROR;
-    }
-    if (fat_fil.obj.fs)
-    {
-        UINT br;
-        FRESULT fresult = f_read(&fat_fil, buf, count, &br);
-        *bytes_read = br;
-        if (fresult != FR_OK)
-        {
-            *err = fat_fresult_to_api_errno(fresult);
-            return STD_ERROR;
-        }
-    }
-    else
-    {
-        lfs_ssize_t result = lfs_file_read(&lfs_volume, &lfs_file, buf, count);
-        if (result < 0)
-        {
-            *bytes_read = 0;
-            *err = lfs_error_to_api_errno((int)result);
-            return STD_ERROR;
-        }
-        *bytes_read = (uint32_t)result;
-    }
-    afd->pos += *bytes_read;
-    return STD_OK;
+    return rom_win_read(&rom_pool, desc, buf, count, bytes_read, err);
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err)
 {
-    rom_asset_fd_t *afd = &rom_assets[desc];
-    int32_t new_pos;
-    if (whence == SEEK_SET)
-    {
-        if (offset < 0)
-        {
-            *err = API_EINVAL;
-            return -1;
-        }
-        new_pos = offset;
-    }
-    else if (whence == SEEK_CUR)
-    {
-        new_pos = (int32_t)afd->pos + offset;
-    }
-    else if (whence == SEEK_END)
-    {
-        new_pos = (int32_t)afd->length + offset;
-    }
-    else
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
-    if (new_pos < 0)
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
-    if ((uint32_t)new_pos > afd->length)
-        new_pos = (int32_t)afd->length;
-    afd->pos = (uint32_t)new_pos;
-    *pos = new_pos;
-    return 0;
+    return rom_win_lseek(&rom_pool, desc, whence, offset, pos, err);
 }

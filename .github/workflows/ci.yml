@@ -173,7 +173,7 @@ jobs:
           cp build/vga/rp6502-vga.uf2       "stage/rp6502-${V}-vga.uf2"
           # The README names the files it tells you to FLASH, so the version
           # has to reach it too.
-          sed "s/@VERSION@/${V}/g" src/dist/pico/README.txt > stage/README.txt
+          sed "s/@VERSION@/${V}/g" src/mach/pico/dist/README.txt > stage/README.txt
           ( cd stage && zip -r "$GITHUB_WORKSPACE/${ARCHIVE}" . )
 
       - uses: actions/upload-artifact@v7
@@ -214,14 +214,14 @@ jobs:
       - name: Configure & build emulator (Release)
         run: |
           set -euxo pipefail
-          cmake -S src/host/linux -B build/linux/release -G Ninja \
+          cmake -S src/mach/emu -B build/emu/linux/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build build/linux/release
+          cmake --build build/emu/linux/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/linux/release --output-on-failure --parallel $(nproc)
+        run: ctest --test-dir build/emu/linux/release --output-on-failure --parallel $(nproc)
 
       # tar, not zip: it is what a Linux user expects and the only container
       # here that carries the execute bit through GitHub's artifact round-trip.
@@ -229,8 +229,8 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir stage
-          cp build/linux/release/rp6502-emu stage/
-          cp src/dist/linux/README.txt stage/
+          cp build/emu/linux/release/rp6502-emu stage/
+          cp src/mach/emu/dist/linux/README.txt stage/
           tar -czf "$ARCHIVE" -C stage rp6502-emu README.txt
 
       - uses: actions/upload-artifact@v7
@@ -238,6 +238,283 @@ jobs:
           name: ${{ env.ARCHIVE }}
           path: ${{ env.ARCHIVE }}
           archive: false
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro: build the core, run its suite, ship a zip per arch. No desktop
+  # dev packages: this host has no window and no audio device, which is most
+  # of what makes it a core. The libretro buildbot ships its own builds from
+  # .gitlab-ci.yml; this job is how we find out we broke it.
+  # ---------------------------------------------------------------------------
+  libretro:
+    name: libretro-${{ matrix.arch }}
+    needs: [version]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-22.04,     arch: x86_64 }
+          - { runner: ubuntu-22.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build
+
+      - name: Configure & build core (Release)
+        run: |
+          set -euxo pipefail
+          cmake -S src/mach/libretro -B build/libretro/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
+          cmake --build build/libretro/release
+
+      - name: Run core tests
+        run: ctest --test-dir build/libretro/release --output-on-failure --parallel $(nproc)
+
+      # The ABI is the whole export surface, and a build that grew another
+      # one is a build that leaks the machine into a frontend's namespace.
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          nm -D --defined-only build/libretro/release/rp6502_libretro.so \
+            | awk '{print $3}' | grep -v '^retro_' > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+      # A folder per platform, because every core is named the same and only
+      # its directory says which machine it is for. The info file and the
+      # readme are identical everywhere, so they sit at the top of the bundle
+      # and whichever job lands last writes them.
+      - name: Stage libretro-linux-${{ matrix.arch }}
+        run: |
+          set -euxo pipefail
+          mkdir -p stage/linux-${{ matrix.arch }}
+          cp build/libretro/release/rp6502_libretro.so stage/linux-${{ matrix.arch }}/
+          cp build/libretro/release/rp6502_libretro.info stage/
+          cp src/mach/libretro/dist/README.txt stage/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libretro-stage-linux-${{ matrix.arch }}
+          path: stage/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-windows: the same core with MSVC, and the same suite — the bench
+  # opens the .dll the way a frontend does, so what passes is the artifact.
+  # dumpbin is the dev shell's nm, which is why the export check enters the
+  # shell a second time.
+  # ---------------------------------------------------------------------------
+  libretro-windows:
+    needs: [version]
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure & build core (Release)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
+          cd src/mach/libretro
+          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
+            "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
+            "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build --preset release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Run core tests
+        shell: pwsh
+        run: ctest --test-dir build/libretro/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
+
+      # The ABI is the whole export surface on this linker as on every other.
+      # An empty table is not a clean one, so the first thing checked is that
+      # the table was read at all.
+      - name: Check the export surface
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -property installationPath
+          Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
+          Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
+          $names = (dumpbin /exports build\libretro\release\rp6502_libretro.dll) |
+            Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]{8}\s+(\S+)' |
+            ForEach-Object { $_.Matches[0].Groups[1].Value }
+          if (-not ($names -contains 'retro_init')) { Write-Error 'no export table'; exit 1 }
+          $bad = @($names | Where-Object { $_ -notlike 'retro_*' })
+          if ($bad.Count) { $bad; exit 1 }
+
+      - name: Stage libretro-windows
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory stage/windows-x86_64 -Force | Out-Null
+          Copy-Item build/libretro/release/rp6502_libretro.dll stage/windows-x86_64/
+          Copy-Item build/libretro/release/rp6502_libretro.info stage/
+          Copy-Item src/mach/libretro/dist/README.txt stage/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libretro-stage-windows-x86_64
+          path: stage/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-macos: the core on the other desktop, arm64 like the .app — the
+  # buildbot's osx-x86 job covers the Intel Macs. Mach-O wears a leading
+  # underscore, and this is the only continuous proof that the export list
+  # ld64 takes says what the version script says everywhere else.
+  # ---------------------------------------------------------------------------
+  libretro-macos:
+    needs: [version]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure & build core (Release, arm64)
+        run: |
+          set -euxo pipefail
+          cmake -S src/mach/libretro -B build/libretro/release -G Ninja \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
+          cmake --build build/libretro/release
+
+      - name: Run core tests
+        run: ctest --test-dir build/libretro/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
+
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          nm -gU build/libretro/release/rp6502_libretro.dylib | awk '{print $3}' > exports.txt
+          grep -q '^_retro_init$' exports.txt   # an empty read is not a clean one
+          grep -v '^_retro_' exports.txt > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+      - name: Stage libretro-macos
+        run: |
+          set -euxo pipefail
+          mkdir -p stage/macos-arm64
+          cp build/libretro/release/rp6502_libretro.dylib stage/macos-arm64/
+          cp build/libretro/release/rp6502_libretro.info stage/
+          cp src/mach/libretro/dist/README.txt stage/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libretro-stage-macos-arm64
+          path: stage/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-bundle: one zip, every platform. A core is one thing, and a
+  # release page that lists it once per machine would bury the firmware and
+  # the emulators under it — libretro itself builds for twenty-odd platforms,
+  # so this is the shape that does not grow a row every time one is added.
+  #
+  # A folder per platform inside, because the core is named the same on all
+  # of them and only the directory says which is which. The info file and the
+  # readme are identical everywhere and sit at the top.
+  # ---------------------------------------------------------------------------
+  libretro-bundle:
+    needs: [version, libretro, libretro-windows, libretro-macos, libretro-android]
+    runs-on: ubuntu-24.04
+    env:
+      ARCHIVE: rp6502-${{ needs.version.outputs.version }}-libretro.zip
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: libretro-stage-*
+          path: stage
+          merge-multiple: true
+
+      - name: Bundle every platform
+        run: |
+          set -euxo pipefail
+          # Every staging job contributed, or the bundle is short a machine
+          # and nobody would notice until a player did.
+          for d in linux-x86_64 linux-aarch64 windows-x86_64 macos-arm64 \
+                   android-arm64; do
+            [ -d "stage/$d" ] || { echo "missing platform: $d" >&2; exit 1; }
+          done
+          test -f stage/README.txt
+          # Every job generates this file and the last one merged wins, so a
+          # job built without the version would quietly hand the bundle its
+          # own timestamp. The version is a fact of this run; say so here.
+          V='${{ needs.version.outputs.version }}'
+          got=$(sed -n 's/^display_version = "\(.*\)"$/\1/p' stage/rp6502_libretro.info)
+          if [ "$got" != "$V" ] && [ "$got" != "CI $V" ]; then
+            echo "info says '$got', this run is '$V'" >&2
+            exit 1
+          fi
+          (cd stage && zip -qr "$GITHUB_WORKSPACE/$ARCHIVE" .)
+          unzip -l "$ARCHIVE"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+          archive: false
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # libretro-android: the buildbot's other target, built with the runner's own
+  # NDK. Not src/mach/android — that root is the APK. This is the same
+  # src/mach/libretro the buildbot's android template points at, driven by the
+  # NDK's toolchain file. No ctest: the tests would be arm64 Android binaries,
+  # so what is checked here is that it builds and exports nothing extra.
+  # android-28 is the floor the APK already declares.
+  # ---------------------------------------------------------------------------
+  libretro-android:
+    needs: [version]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure & build core (Release, arm64-v8a)
+        run: |
+          set -euxo pipefail
+          cmake -S src/mach/libretro -B build/libretro/android -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_LATEST_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
+            -DRP6502_STRICT_SUBMODULES=ON -DCMAKE_BUILD_TYPE=Release \
+            -DRP6502_TESTS=OFF \
+            -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
+            -DRP6502_CI="${{ needs.version.outputs.fwci }}"
+          cmake --build build/libretro/android
+
+      - name: Check the export surface
+        run: |
+          set -euxo pipefail
+          NM="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$NM" -D --defined-only build/libretro/android/rp6502_libretro.so \
+            | awk '{print $3}' > exports.txt
+          grep -q '^retro_init$' exports.txt
+          grep -v '^retro_' exports.txt > unexpected.txt || true
+          if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+
+      - name: Stage libretro-android
+        run: |
+          set -euxo pipefail
+          mkdir -p stage/android-arm64
+          cp build/libretro/android/rp6502_libretro.so stage/android-arm64/
+          cp build/libretro/android/rp6502_libretro.info stage/
+          cp src/mach/libretro/dist/README.txt stage/
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: libretro-stage-android-arm64
+          path: stage/
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
@@ -255,15 +532,15 @@ jobs:
       - name: Configure & build emulator (Release, arm64)
         run: |
           set -euxo pipefail
-          cmake -S src/host/macos -B build/macos/release -G Ninja \
+          cmake -S src/mach/emu -B build/emu/macos/release -G Ninja \
             -DRP6502_STRICT_SUBMODULES=ON \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=arm64 \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
-          cmake --build build/macos/release
+          cmake --build build/emu/macos/release
 
       - name: Run emulator tests
-        run: ctest --test-dir build/macos/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
+        run: ctest --test-dir build/emu/macos/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
       - name: Package macos
         env:
@@ -278,7 +555,7 @@ jobs:
           mkdir stage
           APP=stage/rp6502-emu.app
           mkdir -p "$APP/Contents/MacOS"
-          cp build/macos/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
+          cp build/emu/macos/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
           chmod +x "$APP/Contents/MacOS/rp6502-emu"
           cat > "$APP/Contents/Info.plist" <<PLIST
           <?xml version="1.0" encoding="UTF-8"?>
@@ -299,7 +576,7 @@ jobs:
           </dict>
           </plist>
           PLIST
-          cp src/dist/macos/README.txt stage/
+          cp src/mach/emu/dist/macos/README.txt stage/
           # ditto is the platform's own archiver: it keeps the bundle's mode
           # bits and extended attributes, which zip and upload-artifact do not.
           # No --keepParent, so stage/'s contents land at the zip root.
@@ -337,7 +614,7 @@ jobs:
       - name: Build web bundle
         run: |
           set -exo pipefail
-          cd src/host/web
+          cd src/mach/itch.io
           cmake --preset release -DRP6502_STRICT_SUBMODULES=ON \
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
@@ -346,7 +623,7 @@ jobs:
       - name: Package itch.io
         run: |
           set -euxo pipefail
-          cd build/web/bundle
+          cd build/itch.io/bundle
           zip -r "$GITHUB_WORKSPACE/$ARCHIVE" .
 
       - uses: actions/upload-artifact@v7
@@ -379,19 +656,19 @@ jobs:
           $vsPath = & $vswhere -latest -property installationPath
           Import-Module (Join-Path $vsPath 'Common7\Tools\Microsoft.VisualStudio.DevShell.dll')
           Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation -DevCmdArguments '-arch=x64 -no_logo'
-          cd src/host/win
-          cmake --preset release -DRP6502_STRICT_SUBMODULES=ON `
+          cd src/mach/emu
+          cmake --preset windows-release -DRP6502_STRICT_SUBMODULES=ON `
             "-DRP6502_VERSION=${{ needs.version.outputs.fwver }}" `
             "-DRP6502_CI=${{ needs.version.outputs.fwci }}"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build --preset release
+          cmake --build --preset windows-release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       # pwsh is the default here, but this file mixes shells, and the core
       # count is spelled a different way in each of them.
       - name: Run emulator tests
         shell: pwsh
-        run: ctest --test-dir build/win/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
+        run: ctest --test-dir build/emu/windows/release --output-on-failure --parallel $env:NUMBER_OF_PROCESSORS
 
       # Compress-Archive rather than bash zip: Windows ships it, and there are
       # no mode bits here worth preserving.
@@ -400,8 +677,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory stage | Out-Null
-          Copy-Item build/win/release/rp6502-emu.exe stage/
-          Copy-Item src/dist/windows/README.txt stage/
+          Copy-Item build/emu/windows/release/rp6502-emu.exe stage/
+          Copy-Item src/mach/emu/dist/windows/README.txt stage/
           Compress-Archive -Path stage/* -DestinationPath "$env:ARCHIVE"
 
       - uses: actions/upload-artifact@v7
@@ -440,7 +717,7 @@ jobs:
           if [ -n "$FWVER" ]; then
             CODE=$(echo "$FWVER" | awk -F. '{printf "%d", $1*10000 + $2*100 + $3}')
           fi
-          cd src/host/android
+          cd src/mach/android
           ./gradlew assembleRelease \
             -PrpVersion="${FWVER:-}" -PrpCi="${FWCI:-}" -PrpVersionCode="$CODE"
 
@@ -460,25 +737,16 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # rtl-tests: verilate the machine and run it against the emu_core oracle.
+  # rtl-tests: verilate the machine and run its suite.
   # Needs Verilator 5 (ubuntu-24.04 carries 5.020); the verilate() call compiles
   # with -Wall, so any RTL warning fails the build.
   #
-  # Ten minutes, most of it running the suite rather than building it, so it
-  # runs when the diff touched something it reads and not otherwise. That
-  # question is sim-inputs.txt, written by the tree it describes: the machine,
-  # the firmware, emu_core, every bench and every generated asset. It used to
-  # be a glob on src/core, which was wrong in both directions — the benches and
-  # the suite are in tests/ and the oracle is built out of src/core/emu and
-  # src/host, so a commit touching only those skipped the suite that covers it.
+  # Ten minutes, most of it running the suite rather than building it. It used
+  # to be gated on whether the diff touched anything the tree reads, which cost
+  # a minute and a half of configuring to find out — the gate was worth less
+  # than it cost, so it is gone and this simply runs.
   # ---------------------------------------------------------------------------
   rtl-tests:
-    needs: rtl-changed
-    if: >-
-      ${{ !cancelled() && (
-      github.event_name == 'workflow_dispatch'
-      || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changed'].outputs.rtl != 'false') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -500,144 +768,16 @@ jobs:
       - name: Run simulation tests
         run: ctest --test-dir build/rtl --output-on-failure --parallel $(nproc)
 
-  # rtl-changed: whether this commit touched anything the two long jobs read.
-  # GitHub filters a whole workflow by path, never one job, so the question is
-  # asked here and answered once — twice over, since the fit and the simulation
-  # are made of different things.
-  #
-  # It configures the two trees to find out. That is the point: the lists come
-  # from the code that reads them, so there is no second copy here to fall out
-  # of step with the DEPENDS that decide the build. Two configures because the
-  # two lists have two authors now — tests/rtl writes what the simulation
-  # reads, src/host/pocket what the fit does — and each is a project root of
-  # its own. Between them they cost a few seconds.
-  #
-  # This job is not folded into rtl-tests because a job's outputs are readable
-  # only once it has finished: pocket would then wait out the whole suite before
-  # starting, and a full run would go from twenty-one minutes to thirty-one.
-  rtl-changed:
-    runs-on: ubuntu-24.04
-    outputs:
-      rtl: ${{ steps.gate.outputs.rtl }}
-      pocket: ${{ steps.gate.outputs.pocket }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Install build dependencies + Verilator + RISC-V toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake ninja-build python3 verilator \
-            gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
-
-      # Shims only, and no pull. find_program takes a shell script off PATH
-      # whether or not the image behind it exists, which is what lets the
-      # Pocket root's guard pass and its lists be written on a runner that is
-      # never going to fit anything.
-      - name: Quartus stubs, so the pocket lists are written
-        run: |
-          set -euxo pipefail
-          shims="$HOME/.quartus-shims"
-          mkdir -p "$shims"
-          for tool in quartus_map quartus_fit quartus_sta \
-                      quartus_asm quartus_drc quartus_cdb; do
-            printf '#!/usr/bin/env bash\nexit 1\n' > "$shims/$tool"
-            chmod +x "$shims/$tool"
-          done
-          echo "$shims" >> "$GITHUB_PATH"
-
-      - name: Configure the simulation, for its list
-        run: cmake --preset release
-        working-directory: tests/rtl
-
-      - name: Configure the Pocket, for its list
-        run: cmake --preset release
-        working-directory: src/host/pocket
-
-      - name: What did this commit touch
-        id: gate
-        run: |
-          set -euo pipefail
-          SIM=build/rtl/inputs
-          POCKET=build/pocket/inputs
-
-          # A tag and a hand-started run answer yes without asking, so a release
-          # is never assembled out of jobs that declined to run.
-          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch \
-                || "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "rtl=true" >> "$GITHUB_OUTPUT"
-            echo "pocket=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # The previous push, not the base: a push that left the RTL alone
-          # should cost nothing even when an earlier commit in the same pull
-          # request moved it. Opening one has no before, so it reads as the
-          # whole branch.
-          base="${{ github.event.before }}"
-          if [[ -z "$base" && "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            base=$(git merge-base "origin/${{ github.base_ref }}" HEAD || true)
-          fi
-          # A new branch has no before, a force push can leave one that is gone,
-          # and neither is a no. A job that was not needed costs time; one that
-          # was skipped ships a stale core.
-          if [[ -z "$base" ]] || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
-            echo "rtl=true" >> "$GITHUB_OUTPUT"
-            echo "pocket=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          # Captured rather than piped: grep -q closes early, and under pipefail
-          # that returns git's SIGPIPE status, so this would fail on precisely
-          # the commits that matched.
-          files=$(git diff --name-only "$base" HEAD)
-          echo "$files"
-
-          # A changed path counts if a list names it, or if it is a directory a
-          # list names something inside — which is how a submodule bump lands,
-          # since it reaches a diff as its gitlink and never as a file in it.
-          touched() {
-            local list p
-            list=$(sort -u "$1")
-            while IFS= read -r p; do
-              [ -n "$p" ] || continue
-              if grep -qxF "$p" <<< "$list" || grep -q "^${p}/" <<< "$list"; then
-                echo true; return
-              fi
-            done <<< "$files"
-            echo false
-          }
-          rtl=$(touched $SIM/sim-inputs.txt)
-          pocket=$(touched $POCKET/pocket-inputs.txt)
-          echo "rtl=$rtl" >> "$GITHUB_OUTPUT"
-          echo "pocket=$pocket" >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
-
   # pocket: the bitstream, and whether it closed. Quartus writes one out either
   # way, so the slack is the thing being tested here — the .rbf_r is a
   # by-product.
   #
-  # A fit is tens of minutes and needs a 20 GB toolchain, and this used to run
-  # on whether a diff touched src/core. That was the wrong question twice over.
-  # Yes for the firmware under src/host/pocket/sw, which costs an assemble and not a
-  # placement, and yes for the whole life of a pull request once any commit in
-  # it moved the RTL. No for src/ria and src/vga, compiled into the image that
-  # assemble installs, and for src/vga/term, which generates the font and
-  # palette ROMs in the fabric.
-  #
-  # So it asks the build graph instead. The Pocket root writes out the lists
-  # its own DEPENDS are made of, and rtl-changed answers against those: pad.c wakes
-  # a fit because the firmware compiles it, and the USB stack beside it does
-  # not, which no glob over src/ria can express.
+  # A fit is tens of minutes and needs a 20 GB toolchain, and it used to be
+  # gated on whether the diff touched anything the fit reads. Answering that
+  # took a job of its own that configured two trees to find out, and the
+  # answer was not worth what it cost to ask.
   pocket:
-    needs: [version, rtl-changed]
-    if: >-
-      ${{ !cancelled() && (
-      github.event_name == 'workflow_dispatch'
-      || startsWith(github.ref, 'refs/tags/')
-      || needs['rtl-changed'].outputs.pocket != 'false') }}
+    needs: [version]
     runs-on: ubuntu-24.04
     env:
       QUARTUS_IMAGE: raetro/quartus:21.1
@@ -709,7 +849,7 @@ jobs:
             -DRP6502_VERSION="${{ needs.version.outputs.fwver }}" \
             -DRP6502_CI="${{ needs.version.outputs.fwci }}"
           cmake --build --preset release
-        working-directory: src/host/pocket
+        working-directory: src/mach/pocket
 
       # Zipped here rather than downstream so the card's own root is the zip's
       # root, and so an empty package fails this job instead of quietly
@@ -741,15 +881,15 @@ jobs:
   # Every job named below runs unconditionally on a tag, so none can be skipped
   # and there is no absent asset to tolerate.
   #
-  # Two of them build nothing this publishes and are named anyway. rtl-tests is
-  # the evidence the core works, and a tag that fitted a bitstream the suite
-  # rejects should not reach a release page. sdk-tools verifies the checksums
-  # every project fetches tools/ against, so a broken one breaks the update for
-  # everyone and the person who finds out is a user.
+  # Two of them build nothing this publishes and are named anyway. rtl-tests
+  # is the evidence the core works, and a tag that fitted a bitstream the
+  # suite rejects should not reach a release page. sdk-tools verifies the
+  # checksums every project fetches tools/ against, so a broken one breaks the
+  # update for everyone and the person who finds out is a user.
   # ---------------------------------------------------------------------------
   release:
-    needs: [version, sdk-tools, pico, linux, macos, itch-io, windows, android,
-            pocket, rtl-tests]
+    needs: [version, sdk-tools, pico, linux, libretro-bundle, macos, itch-io,
+            windows, android, pocket, rtl-tests]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -776,6 +916,7 @@ jobs:
           assets=()
           for w in pico.zip windows.zip macos.zip \
                    linux-x86_64.tar.gz linux-aarch64.tar.gz \
+                   libretro.zip \
                    pocket.zip itch.io.zip android.apk; do
             f="rp6502-${V}-${w}"
             src=$(find _artifacts -type f -name "$f" | head -1)
@@ -806,6 +947,7 @@ jobs:
             dist/rp6502-${{ needs.version.outputs.version }}-macos.zip
             dist/rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz
             dist/rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz
+            dist/rp6502-${{ needs.version.outputs.version }}-libretro.zip
             dist/rp6502-${{ needs.version.outputs.version }}-pocket.zip
             dist/rp6502-${{ needs.version.outputs.version }}-itch.io.zip
             dist/rp6502-${{ needs.version.outputs.version }}-android.apk
@@ -824,6 +966,7 @@ jobs:
             | `rp6502-${{ needs.version.outputs.version }}-macos.zip` | Emulator, macOS 11+ Apple silicon |
             | `rp6502-${{ needs.version.outputs.version }}-linux-x86_64.tar.gz` | Emulator, Linux x86_64 (glibc 2.35+) |
             | `rp6502-${{ needs.version.outputs.version }}-linux-aarch64.tar.gz` | Emulator, Linux aarch64 (glibc 2.35+) |
+            | `rp6502-${{ needs.version.outputs.version }}-libretro.zip` | RetroArch core, every platform — or install it from the Core Downloader |
             | `rp6502-${{ needs.version.outputs.version }}-pocket.zip` | Analogue Pocket core, extract to the card root |
             | `rp6502-${{ needs.version.outputs.version }}-itch.io.zip` | Publish a program on itch.io |
             | `rp6502-${{ needs.version.outputs.version }}-android.apk` | Emulator, Android arm64 |

@@ -6,9 +6,9 @@
 
 #include "ria/net/cmd.h"
 #include "ria/net/cyw.h"
-#include "ria/net/mdm.h"
-#include "ria/net/wfi.h"
-#include "ria/mon/hlp.h"
+#include "ria/net/modem.h"
+#include "ria/net/wifi.h"
+#include "ria/mon/help.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <stdio.h>
@@ -52,16 +52,16 @@ static bool cmd_dial(const char **s)
         // Hayes: bare ATDS= means entry 0.
         if (num < 0)
             num = 0;
-        if (num >= MDM_PHONEBOOK_ENTRIES || (*s)[0])
+        if (num >= MODEM_PHONEBOOK_ENTRIES || (*s)[0])
             return false;
-        address = mdm_read_phonebook_entry(num);
+        address = modem_read_phonebook_entry(num);
     }
     else
     {
         address = *s;
         *s += strlen(*s);
     }
-    return mdm_dial(address);
+    return modem_dial(address);
 }
 
 // E0, E1
@@ -70,10 +70,10 @@ static bool cmd_echo(const char **s)
     switch (cmd_parse_num(s))
     {
     case 0:
-        mdm_settings()->echo = 0;
+        modem_settings()->echo = 0;
         return true;
     case 1:
-        mdm_settings()->echo = 1;
+        modem_settings()->echo = 1;
         return true;
     }
     return false;
@@ -99,7 +99,7 @@ static bool cmd_hangup(const char **s)
     {
     case -1:
     case 0:
-        mdm_hangup();
+        modem_hangup();
         return true;
     }
     return false;
@@ -112,7 +112,7 @@ static bool cmd_online(const char **s)
     {
     case -1:
     case 0:
-        return mdm_connect();
+        return modem_connect();
     }
     return false;
 }
@@ -123,13 +123,13 @@ static bool cmd_quiet(const char **s)
     switch (cmd_parse_num(s))
     {
     case 0:
-        mdm_settings()->quiet = 0;
+        modem_settings()->quiet = 0;
         return true;
     case 1:
-        mdm_settings()->quiet = 1;
+        modem_settings()->quiet = 1;
         return true;
     case 2:
-        mdm_settings()->quiet = 2;
+        modem_settings()->quiet = 2;
         return true;
     }
     return false;
@@ -139,25 +139,25 @@ static int cmd_s_query_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     uint8_t val = 0;
-    switch (mdm_settings()->s_pointer)
+    switch (modem_settings()->s_pointer)
     {
     case 0:
-        val = mdm_settings()->auto_answer;
+        val = modem_settings()->auto_answer;
         break;
     case 1:
-        val = mdm_get_ring_count();
+        val = modem_get_ring_count();
         break;
     case 2:
-        val = mdm_settings()->esc_char;
+        val = modem_settings()->esc_char;
         break;
     case 3:
-        val = mdm_settings()->cr_char;
+        val = modem_settings()->cr_char;
         break;
     case 4:
-        val = mdm_settings()->lf_char;
+        val = modem_settings()->lf_char;
         break;
     case 5:
-        val = mdm_settings()->bs_char;
+        val = modem_settings()->bs_char;
         break;
     }
     snprintf(buf, buf_size, "%u\r\n", val);
@@ -179,7 +179,7 @@ static bool cmd_s_pointer(const char **s)
     case 3:
     case 4:
     case 5:
-        mdm_settings()->s_pointer = num;
+        modem_settings()->s_pointer = num;
         return true;
     default:
         return false;
@@ -190,7 +190,7 @@ static bool cmd_s_pointer(const char **s)
 static bool cmd_s_query(const char **s)
 {
     (void)s;
-    mdm_set_response_fn(cmd_s_query_response);
+    modem_set_response_fn(cmd_s_query_response);
     return true;
 }
 
@@ -201,22 +201,22 @@ static bool cmd_s_set(const char **s)
     // Hayes: bare ATS= writes 0.
     if (num < 0)
         num = 0;
-    switch (mdm_settings()->s_pointer)
+    switch (modem_settings()->s_pointer)
     {
     case 0:
-        mdm_settings()->auto_answer = num;
+        modem_settings()->auto_answer = num;
         return true;
     case 2:
-        mdm_settings()->esc_char = num;
+        modem_settings()->esc_char = num;
         return true;
     case 3:
-        mdm_settings()->cr_char = num;
+        modem_settings()->cr_char = num;
         return true;
     case 4:
-        mdm_settings()->lf_char = num;
+        modem_settings()->lf_char = num;
         return true;
     case 5:
-        mdm_settings()->bs_char = num;
+        modem_settings()->bs_char = num;
         return true;
     default:
         return false;
@@ -229,10 +229,10 @@ static bool cmd_verbose(const char **s)
     switch (cmd_parse_num(s))
     {
     case 0:
-        mdm_settings()->verbose = 0;
+        modem_settings()->verbose = 0;
         return true;
     case 1:
-        mdm_settings()->verbose = 1;
+        modem_settings()->verbose = 1;
         return true;
     }
     return false;
@@ -244,7 +244,7 @@ static bool cmd_progress(const char **s)
     int value = cmd_parse_num(s);
     if (value >= 0 && value <= 4)
     {
-        mdm_settings()->progress = value;
+        modem_settings()->progress = value;
         return true;
     }
     return false;
@@ -257,7 +257,7 @@ static bool cmd_reset(const char **s)
     {
     case -1:
     case 0:
-        return mdm_read_settings(mdm_settings());
+        return modem_read_settings(modem_settings());
     }
     return false;
 }
@@ -269,7 +269,7 @@ static bool cmd_load_factory(const char **s)
     {
     case -1:
     case 0:
-        mdm_factory_settings(mdm_settings());
+        modem_factory_settings(modem_settings());
         return true;
     }
     return false;
@@ -278,8 +278,8 @@ static bool cmd_load_factory(const char **s)
 // &V
 static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsigned)
 {
-    mdm_settings_t stored_settings;
-    if (!mdm_settings_persistent() && state >= 6 && state <= 10)
+    modem_settings_t stored_settings;
+    if (!modem_settings_persistent() && state >= 6 && state <= 10)
         state = 11;
     switch (state)
     {
@@ -288,28 +288,28 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
         break;
     case 1:
         snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u \\T=%s\r\n",
-                 mdm_settings()->echo,
-                 mdm_settings()->quiet,
-                 mdm_settings()->verbose,
-                 mdm_settings()->progress,
-                 mdm_settings()->listen_port,
-                 mdm_settings()->net_mode,
-                 mdm_settings()->tty_type);
+                 modem_settings()->echo,
+                 modem_settings()->quiet,
+                 modem_settings()->verbose,
+                 modem_settings()->progress,
+                 modem_settings()->listen_port,
+                 modem_settings()->net_mode,
+                 modem_settings()->tty_type);
         break;
     case 2:
         snprintf(buf, buf_size, "S0:%03u S1:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
-                 mdm_settings()->auto_answer,
-                 mdm_get_ring_count(),
-                 mdm_settings()->esc_char,
-                 mdm_settings()->cr_char,
-                 mdm_settings()->lf_char,
-                 mdm_settings()->bs_char);
+                 modem_settings()->auto_answer,
+                 modem_get_ring_count(),
+                 modem_settings()->esc_char,
+                 modem_settings()->cr_char,
+                 modem_settings()->lf_char,
+                 modem_settings()->bs_char);
         break;
     case 3:
         snprintf(buf, buf_size, "\r\nSTORED PROFILE:\r\n");
         break;
     case 4:
-        mdm_read_settings(&stored_settings);
+        modem_read_settings(&stored_settings);
         snprintf(buf, buf_size, "E%u Q%u V%u X%u \\L%u \\N%u \\T=%s\r\n",
                  stored_settings.echo,
                  stored_settings.quiet,
@@ -320,7 +320,7 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
                  stored_settings.tty_type);
         break;
     case 5:
-        mdm_read_settings(&stored_settings);
+        modem_read_settings(&stored_settings);
         snprintf(buf, buf_size, "S0:%03u S2:%03u S3:%03u S4:%03u S5:%03u\r\n",
                  stored_settings.auto_answer,
                  stored_settings.esc_char,
@@ -332,16 +332,16 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
         snprintf(buf, buf_size, "\r\nTELEPHONE NUMBERS:\r\n");
         break;
     case 7:
-        snprintf(buf, buf_size, "0=%s\r\n", mdm_read_phonebook_entry(0));
+        snprintf(buf, buf_size, "0=%s\r\n", modem_read_phonebook_entry(0));
         break;
     case 8:
-        snprintf(buf, buf_size, "1=%s\r\n", mdm_read_phonebook_entry(1));
+        snprintf(buf, buf_size, "1=%s\r\n", modem_read_phonebook_entry(1));
         break;
     case 9:
-        snprintf(buf, buf_size, "2=%s\r\n", mdm_read_phonebook_entry(2));
+        snprintf(buf, buf_size, "2=%s\r\n", modem_read_phonebook_entry(2));
         break;
     case 10:
-        snprintf(buf, buf_size, "3=%s\r\n", mdm_read_phonebook_entry(3));
+        snprintf(buf, buf_size, "3=%s\r\n", modem_read_phonebook_entry(3));
         break;
     case 11:
         snprintf(buf, buf_size, "\r\nNETWORK:\r\n");
@@ -355,14 +355,14 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
     case 13:
 #if RP6502_CREATOR
         com_snprintf_utf8(buf, buf_size, "+SSID:%s\r\n",
-                          strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+                          strlen(wifi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
-        snprintf(buf, buf_size, "+SSID:%s\r\n", wfi_get_ssid());
+        snprintf(buf, buf_size, "+SSID:%s\r\n", wifi_get_ssid());
 #endif
         break;
     case 14:
         com_snprintf_utf8(buf, buf_size, "+PASS:%s\r\n",
-                          strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+                          strlen(wifi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
         break;
     default:
         return -1;
@@ -376,7 +376,7 @@ static bool cmd_view_config(const char **s)
     switch (cmd_parse_num(s))
     {
     case -1:
-        mdm_set_response_fn(cmd_view_config_response);
+        modem_set_response_fn(cmd_view_config_response);
         return true;
     }
     return false;
@@ -389,7 +389,7 @@ static bool cmd_save_nvram(const char **s)
     {
     case -1:
     case 0:
-        return mdm_write_settings(mdm_settings());
+        return modem_write_settings(modem_settings());
     }
     return false;
 }
@@ -409,7 +409,7 @@ static bool cmd_save_phonebook(const char **s)
     if (*p == '=' && p > *s)
     {
         int parsed = cmd_parse_num(s);
-        if (parsed >= MDM_PHONEBOOK_ENTRIES)
+        if (parsed >= MODEM_PHONEBOOK_ENTRIES)
             return false;
         num = (unsigned)parsed;
         ++*s;
@@ -418,7 +418,7 @@ static bool cmd_save_phonebook(const char **s)
     {
         ++*s;
     }
-    bool result = mdm_write_phonebook_entry(*s, num);
+    bool result = modem_write_phonebook_entry(*s, num);
     *s += strlen(*s);
     return result;
 }
@@ -448,10 +448,10 @@ static bool cmd_parse_amp(const char **s)
 static bool cmd_help_response(const char *name)
 {
     mon_response_fn fn;
-    if (!hlp_lookup(STR_SET, name, &fn))
+    if (!help_lookup(STR_SET, name, &fn))
         return false;
     if (fn)
-        mdm_set_response_fn(fn);
+        modem_set_response_fn(fn);
     return true;
 }
 
@@ -478,7 +478,7 @@ static bool cmd_plus_rfcc(const char **s)
         return result;
     }
     case '?':
-        mdm_set_response_fn(cmd_plus_rfcc_response);
+        modem_set_response_fn(cmd_plus_rfcc_response);
         return true;
     case '!':
         return cmd_help_response(STR_RFCC);
@@ -493,9 +493,9 @@ static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state, unsigne
     (void)state;
 #if RP6502_CREATOR
     com_snprintf_utf8(buf, buf_size, "%s\r\n",
-                      strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+                      strlen(wifi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
-    snprintf(buf, buf_size, "%s\r\n", wfi_get_ssid());
+    snprintf(buf, buf_size, "%s\r\n", wifi_get_ssid());
 #endif
     return -1;
 }
@@ -509,12 +509,12 @@ static bool cmd_plus_ssid(const char **s)
     {
     case '=':
     {
-        bool result = wfi_set_ssid(*s);
+        bool result = wifi_set_ssid(*s);
         *s += strlen(*s);
         return result;
     }
     case '?':
-        mdm_set_response_fn(cmd_plus_ssid_response);
+        modem_set_response_fn(cmd_plus_ssid_response);
         return true;
     case '!':
         return cmd_help_response(STR_SSID);
@@ -527,7 +527,7 @@ static bool cmd_plus_ssid(const char **s)
 static int cmd_plus_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    com_snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wifi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
 }
 
@@ -540,12 +540,12 @@ static bool cmd_plus_pass(const char **s)
     {
     case '=':
     {
-        bool result = wfi_set_pass(*s);
+        bool result = wifi_set_pass(*s);
         *s += strlen(*s);
         return result;
     }
     case '?':
-        mdm_set_response_fn(cmd_plus_pass_response);
+        modem_set_response_fn(cmd_plus_pass_response);
         return true;
     }
     --*s;
@@ -577,7 +577,7 @@ static bool cmd_parse_plus(const char **s)
 static int cmd_backslash_n_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, "%u\r\n", mdm_settings()->net_mode);
+    snprintf(buf, buf_size, "%u\r\n", modem_settings()->net_mode);
     return -1;
 }
 
@@ -588,13 +588,13 @@ static bool cmd_backslash_n(const char **s)
     if (ch == '?')
     {
         ++*s;
-        mdm_set_response_fn(cmd_backslash_n_response);
+        modem_set_response_fn(cmd_backslash_n_response);
         return true;
     }
     int num = cmd_parse_num(s);
     if (num >= 0 && num <= 1)
     {
-        mdm_settings()->net_mode = num;
+        modem_settings()->net_mode = num;
         return true;
     }
     return false;
@@ -604,7 +604,7 @@ static bool cmd_backslash_n(const char **s)
 static int cmd_backslash_t_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, "%s\r\n", mdm_settings()->tty_type);
+    snprintf(buf, buf_size, "%s\r\n", modem_settings()->tty_type);
     return -1;
 }
 
@@ -616,14 +616,14 @@ static bool cmd_backslash_t(const char **s)
     switch (ch)
     {
     case '?':
-        mdm_set_response_fn(cmd_backslash_t_response);
+        modem_set_response_fn(cmd_backslash_t_response);
         return true;
     case '=':
     {
         size_t len = strlen(*s);
-        if (len >= sizeof(mdm_settings()->tty_type))
+        if (len >= sizeof(modem_settings()->tty_type))
             return false;
-        strcpy(mdm_settings()->tty_type, *s);
+        strcpy(modem_settings()->tty_type, *s);
         *s += len;
         return true;
     }
@@ -636,7 +636,7 @@ static bool cmd_backslash_t(const char **s)
 static int cmd_backslash_l_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    snprintf(buf, buf_size, "%u\r\n", mdm_settings()->listen_port);
+    snprintf(buf, buf_size, "%u\r\n", modem_settings()->listen_port);
     return -1;
 }
 
@@ -647,12 +647,12 @@ static bool cmd_backslash_l(const char **s)
     if (ch == '?')
     {
         ++*s;
-        mdm_set_response_fn(cmd_backslash_l_response);
+        modem_set_response_fn(cmd_backslash_l_response);
         return true;
     }
     int num = cmd_parse_num(s);
     if (num >= 0 && num <= 65535)
-        return mdm_set_listen_port((uint16_t)num);
+        return modem_set_listen_port((uint16_t)num);
     return false;
 }
 
@@ -682,7 +682,7 @@ bool cmd_parse(const char **s)
     switch (toupper(ch))
     {
     case 'A':
-        return mdm_answer();
+        return modem_answer();
     case 'D':
         return cmd_dial(s);
     case 'E':

@@ -24,6 +24,15 @@ if(COMMAND rp6502_add_machine_test)
             SOURCES test_xram.cpp ${RP6502_BENCH}/mut_rtl.cpp
             TIMEOUT 900)
     endif()
+elseif(TARGET rp6502_libretro)
+    # Through the core's own memory interface, which is how a frontend reads
+    # XRAM for a cheat or an achievement — not a way in made for a test.
+    rp6502_add_test(xram LIBS ${CMAKE_DL_LIBS}
+        SOURCES test_xram.cpp ${RP6502_BENCH}/mut_libretro.c
+        INCLUDES ${RP6502_BENCH} ${RP6502_LIBRETRO_INCLUDE}
+        DEFS RETRO_SO="$<TARGET_FILE:rp6502_libretro>"
+        DEPENDS rp6502_libretro
+        TIMEOUT 120)
 else()
     rp6502_add_test(xram LIBS emu_core
         SOURCES test_xram.cpp ${RP6502_BENCH}/mut_emu.c

@@ -23,18 +23,26 @@ set(RP6502_TEST_ROMS ${RP6502_TESTS_DIR}/roms)
 # and the sys shims for the C tests, the tb_* benches for the RTL ones. Every
 # test gets it on the include path, because which of them a test needs is not
 # worth stating.
+# The two host helpers only tests want, as a translation unit per host rather
+# than one file forked down the middle.
+if(WIN32)
+    set(RP6502_TB_HOSTOS ${CMAKE_CURRENT_LIST_DIR}/bench/tb_hostos_win.c)
+else()
+    set(RP6502_TB_HOSTOS ${CMAKE_CURRENT_LIST_DIR}/bench/tb_hostos_posix.c)
+endif()
+
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
 # The keyboard layouts as a C table. The def files are the source, the
-# generator makes one image, and hid/kbl.c reads it a word at a time. No
+# generator makes one image, and hid/layout.c reads it a word at a time. No
 # machine here compiles it: the RIA firmware generates its own copy in its
 # own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
-# already translated. Only the kbl suites want it, to check the image against
+# already translated. Only the layout suites want it, to check the image against
 # the defs it came from, so it is built here rather than in a machine's
-# tree that would never name it. See src/gen/kbd_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_SRC}/gen/kbd_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
+# tree that would never name it. See src/core/gen/keyboard_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
 set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
 set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
 set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR})
@@ -73,8 +81,6 @@ if(NOT TARGET rp6502_test_corpus)
         COMMENT "Generating the video-mode ROM corpus"
         VERBATIM)
     add_custom_target(rp6502_test_corpus DEPENDS ${CMAKE_BINARY_DIR}/roms.stamp)
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS
-        ${RP6502_CORPUS_GEN} ${RP6502_CORPUS_ASM})
 endif()
 
 # --- The generated 6502 programs ---
@@ -105,7 +111,6 @@ function(rp6502_test_rom target)
     # property rp6502_add_test appends to, because to the question "does this
     # commit change the simulation" a ROM the simulation boots and a test that
     # boots it are one answer. tests/rtl/CMakeLists.txt reads this.
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${R_GEN} ${R_DEPENDS})
     add_custom_command(OUTPUT ${R_OUTPUTS}
         COMMAND ${CMAKE_COMMAND} -E env python3 ${R_GEN} ${R_ARGS}
         DEPENDS ${R_GEN} ${R_DEPENDS}
@@ -227,7 +232,7 @@ function(rp6502_add_script_test name)
 
     if(S_DRIVER)
         # The other shape: the file that assembles the program drives it too,
-        # over the pipe scr.c answers on. One file, one set of constants, and
+        # over the pipe script.c answers on. One file, one set of constants, and
         # a static script that could disagree with its program is not written.
         if(NOT IS_ABSOLUTE ${S_DRIVER})
             set(S_DRIVER ${CMAKE_CURRENT_LIST_DIR}/${S_DRIVER})
@@ -247,8 +252,6 @@ function(rp6502_add_script_test name)
     if(NOT S_ROM)
         message(FATAL_ERROR "rp6502_add_script_test(${name}) names no program")
     endif()
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${S_SCRIPT})
-
     # A directory of its own. A script test writes where it is standing — a
     # screenshot, and every file the program creates on a host-backed drive —
     # and two of them in one directory under ctest --parallel is how a suite
@@ -275,7 +278,7 @@ function(rp6502_add_script_test name)
     if(NOT S_TIMEOUT)
         set(S_TIMEOUT 120)
     endif()
-    # EMU_ECHO mirrors the terminal to stderr (emu/sys/com.c). A script fails on
+    # EMU_ECHO mirrors the terminal to stderr (core/sys/tty.c). A script fails on
     # one line and the question is always what the machine had been saying, so
     # --output-on-failure carries the console with it.
     set_tests_properties(script.${name} PROPERTIES
@@ -292,12 +295,16 @@ function(rp6502_add_script_test name)
 endfunction()
 
 # rp6502_add_test(<name> [SOURCES ...] [LIBS ...] [INCLUDES ...] [DEFS ...]
-#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT])
+#                        [FIXTURE <file in roms/>] [TIMEOUT <seconds>] [SPLIT]
+#                        [DEPENDS <target> ...])
 #
 # Builds test_<name> from test_<name>.c unless SOURCES says otherwise, and
 # registers it as CTest <name>. FIXTURE becomes TEST_FIXTURE, the absolute path
 # a test opens — every test uses at most one. TEST_SCRATCH is where a test
 # writes throwaway files, so a run from any directory never litters the tree.
+# DEPENDS names a target the test needs built but does not link, which is what
+# a suite that opens the artifact rather than its objects has instead of a
+# link line.
 #
 # SPLIT registers each UTEST case as its own CTest test instead. For the long
 # ones that is the difference between a suite bounded by its slowest binary and
@@ -306,7 +313,7 @@ endfunction()
 # asked for rather than assumed.
 function(rp6502_add_test name)
     cmake_parse_arguments(T "SPLIT" "FIXTURE;TIMEOUT"
-        "SOURCES;LIBS;INCLUDES;DEFS;LABELS" ${ARGN})
+        "SOURCES;LIBS;INCLUDES;DEFS;LABELS;DEPENDS" ${ARGN})
 
     # What a test is about is the directory it lives in, and what it costs is
     # which helper registered it. Both are already known here, so neither is
@@ -324,15 +331,6 @@ function(rp6502_add_test name)
     if(NOT T_SOURCES)
         set(T_SOURCES test_${name}.c)
     endif()
-
-    # Every test in either tree comes through here, so this is the one place
-    # that can say what the suite is made of without naming any of it.
-    foreach(_s IN LISTS T_SOURCES)
-        if(NOT IS_ABSOLUTE ${_s})
-            set(_s ${CMAKE_CURRENT_LIST_DIR}/${_s})
-        endif()
-        set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS ${_s})
-    endforeach()
 
     add_executable(test_${name} ${T_SOURCES})
     target_include_directories(test_${name} PRIVATE
@@ -354,7 +352,7 @@ function(rp6502_add_test name)
         target_compile_definitions(test_${name} PRIVATE ${T_DEFS})
     endif()
 
-    add_dependencies(test_${name} rp6502_test_corpus)
+    add_dependencies(test_${name} rp6502_test_corpus ${T_DEPENDS})
 
     set(_cases ${name})
     if(T_SPLIT)

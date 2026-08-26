@@ -22,8 +22,8 @@
 // sized larger to leave headroom for TIME_WAIT and accept-in-flight PCBs.
 #define NET_MAX_CONNECTIONS MEMP_NUM_TCP_PCB_LISTEN
 #define NET_MAX_LISTENERS MEMP_NUM_TCP_PCB_LISTEN
-#define NET_MDM_DESCS (NET_MAX_CONNECTIONS - NET_REM_DESCS)
-#define SYS_TEL_DESC NET_MDM_DESCS
+#define NET_MODEM_DESCS (NET_MAX_CONNECTIONS - NET_REM_DESCS)
+#define SYS_TELNET_DESC NET_MODEM_DESCS
 #define NET_CONN_PBUF_DEPTH (TCP_WND / TCP_MSS + 1)
 
 typedef bool (*net_accept_fn)(uint16_t port);

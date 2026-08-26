@@ -39,7 +39,7 @@
 #define TERM_STD_HEIGHT 30
 /* The tallest terminal any view can ask for -- 512 scanlines over a
  * 16-line font on the one machine that has them. See HOST_TERM_MAX_HEIGHT
- * in core/host.h for what it costs everyone else. */
+ * in host/os.h for what it costs everyone else. */
 #define TERM_MAX_HEIGHT HOST_TERM_MAX_HEIGHT
 #define TERM_MAX_WIDTH 80
 #define TERM_TAB_BITMAP_BYTES ((TERM_MAX_WIDTH + 7) / 8)

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/ops.h"
 #include "core/main.h"
 #include "core/api/api.h"
 #include "core/cpu.h"
@@ -80,8 +81,8 @@ static uint8_t api_errno_opt;
 static uint8_t api_active_op;
 
 // The 6502 requests an API op by writing API_OP and spinning on API_BUSY.
-// The op is latched in api_active_op and main_api() is polled until the
-// handler returns false.
+// The op is latched in api_active_op and dispatched until the handler
+// returns false.
 void api_task(void)
 {
     // Latch called op in case 6502 app misbehaves
@@ -92,7 +93,7 @@ void api_task(void)
         if (op != 0x00 && op != 0xFF)
             api_active_op = op;
     }
-    if (api_active_op && !main_api(api_active_op))
+    if (api_active_op && !ops_dispatch(api_active_op))
         api_active_op = 0;
 }
 

@@ -7,10 +7,10 @@
 #ifndef _CORE_API_TIM_H_
 #define _CORE_API_TIM_H_
 
-#define TIM_TZ_MAX_SIZE 64
-
-/* The TIM driver owns the real time clock and the time zone.
- */
+/* The TIM driver owns the real time clock and the time zone. What a machine
+ * with a monitor and a settings store does with the zone -- the tz database,
+ * the status column, the POSIX string it loads -- is that machine's, and is
+ * declared beside it. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -21,18 +21,6 @@
  */
 
 void tim_init(void);
-
-// Print for status command
-int tim_status_response(char *buf, size_t buf_size, int state, unsigned width);
-
-// Show tz database
-int tim_tzdata_response(char *buf, size_t buf_size, int state, unsigned width);
-
-// Configuration setting TZ
-// Use POSIX TZ format. e.g. PST8PDT,M3.2.0/2,M11.1.0/2
-void tim_load_time_zone(const char *str);
-bool tim_set_time_zone(const char *tz);
-const char *tim_get_time_zone(void);
 
 // Real time clock
 bool tim_get_time(struct timespec *ts);

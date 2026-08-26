@@ -19,10 +19,10 @@
 #include "mmio.h"
 
 #include "core/hid/hid.h"
-#include "core/hid/kbd.h"
-#include "core/hid/mou.h"
-#include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/mouse.h"
+#include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
 #include "core/hid/usage.h"
 
 #include <stdint.h>
@@ -33,17 +33,17 @@
 #define APF_TYPE_POCKET 1  /* the Pocket's own buttons, player one */
 #define APF_TYPE_PAD 2     /* docked controller, no analog */
 #define APF_TYPE_PAD_ANA 3 /* docked controller, with analog */
-#define APF_TYPE_KBD 4
-#define APF_TYPE_MOU 5
+#define APF_TYPE_KEYBOARD 4
+#define APF_TYPE_MOUSE 5
 
 /* What the drivers are told a device is. A USB device says this with a
  * report descriptor; the dock has none to say it with, so where every
  * field sits is stated outright -- these are the bit positions apf_build
  * writes to.
  *
- * The button numbers are the ones pad.c files at index n-1: 1-16 land in
+ * The button numbers are the ones gamepad.c files at index n-1: 1-16 land in
  * the two button bytes and 17-20 are read as the d-pad. */
-static const pad_connection_t apf_pad_desc = {
+static const gamepad_connection_t apf_gamepad_desc = {
     .valid = true,
     .x_absolute = true,
     .button_offsets = {
@@ -51,8 +51,8 @@ static const pad_connection_t apf_pad_desc = {
         10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
         0, 1, 2, 3}};
 
-// The same pad, with two sticks and two triggers a byte each behind it.
-static const pad_connection_t apf_pad_ana_desc = {
+// The same gamepad, with two sticks and two triggers a byte each behind it.
+static const gamepad_connection_t apf_gamepad_ana_desc = {
     .valid = true,
     .x_absolute = true,
     .x_offset = 2 * 8, .x_size = 8, .x_max = 255,
@@ -68,7 +68,7 @@ static const pad_connection_t apf_pad_ana_desc = {
 
 /* A boot keyboard's report: the modifier byte, a reserved byte, then six
  * scan codes. */
-static const kbd_connection_t apf_kbd_desc = {
+static const keyboard_connection_t apf_keyboard_desc = {
     .valid = true,
     .runs = {{.bit_pos = 0, .usage_min = HID_KEY_CONTROL_LEFT, .count = 8}},
     .codes_offset = 2 * 8,
@@ -76,7 +76,7 @@ static const kbd_connection_t apf_kbd_desc = {
 
 /* Eight buttons, a byte of padding, then two 16-bit movements. Buttons,
  * X and Y are all the docked mouse documents, so there is no wheel. */
-static const mou_connection_t apf_mou_desc = {
+static const mouse_connection_t apf_mouse_desc = {
     .valid = true,
     .button_offsets = {0, 1, 2, 3, 4, 5, 6, 7},
     .x_relative = true,
@@ -85,7 +85,7 @@ static const mou_connection_t apf_mou_desc = {
 
 /* The same mouse read as a pointer, which is what a USB mouse gets too:
  * its first button is the tip a program draws with. */
-static const tab_connection_t apf_mou_tab_desc = {
+static const tablet_connection_t apf_mouse_tablet_desc = {
     .valid = true,
     .button_offsets = {0, 1, 2, 3, 4},
     .x_relative = true,
@@ -113,14 +113,14 @@ static struct
     int8_t slot; // where ria/hid mounted it, -1 for nothing
     uint8_t report[APF_REPORT_MAX];
     uint8_t len;
-    uint16_t mou_seen;
-    bool mou_have_seen;
+    uint16_t mouse_seen;
+    bool mouse_have_seen;
 } apf_slots[MMIO_CONT_SLOTS];
 
 static void apf_mount(int slot, uint8_t type)
 {
-    const pad_connection_t *pad = NULL;
-    uint8_t button_type = PAD_TYPE_UNKNOWN;
+    const gamepad_connection_t *gamepad = NULL;
+    uint8_t button_type = GAMEPAD_TYPE_UNKNOWN;
     switch (type)
     {
     /* The Pocket's own buttons are the only ones here whose labels we
@@ -128,26 +128,26 @@ static void apf_mount(int slot, uint8_t type)
      * is in the dock arrives through the same normalized bitmap, so it
      * could be wearing any labels at all. */
     case APF_TYPE_POCKET:
-        button_type = PAD_TYPE_EASTERN;
-        pad = &apf_pad_desc;
+        button_type = GAMEPAD_TYPE_EASTERN;
+        gamepad = &apf_gamepad_desc;
         break;
     case APF_TYPE_PAD:
-        pad = &apf_pad_desc;
+        gamepad = &apf_gamepad_desc;
         break;
     case APF_TYPE_PAD_ANA:
-        pad = &apf_pad_ana_desc;
+        gamepad = &apf_gamepad_ana_desc;
         break;
-    case APF_TYPE_KBD:
-        apf_slots[slot].slot = (int8_t)hid_mount(&apf_kbd_desc, NULL, NULL, NULL, 0, 0, 0);
+    case APF_TYPE_KEYBOARD:
+        apf_slots[slot].slot = (int8_t)hid_mount(&apf_keyboard_desc, NULL, NULL, NULL, 0, 0, 0);
         return;
-    case APF_TYPE_MOU:
-        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mou_desc,
-                                                 &apf_mou_tab_desc, NULL, 0, 0, 0);
+    case APF_TYPE_MOUSE:
+        apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mouse_desc,
+                                                 &apf_mouse_tablet_desc, NULL, 0, 0, 0);
         return;
     default:
         return;
     }
-    apf_slots[slot].slot = (int8_t)hid_mount(NULL, NULL, NULL, pad, 0, 0, button_type);
+    apf_slots[slot].slot = (int8_t)hid_mount(NULL, NULL, NULL, gamepad, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)
@@ -181,7 +181,7 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
     case APF_TYPE_POCKET:
     case APF_TYPE_PAD:
         /* Their descriptor stops after the buttons, so the axis words are
-         * not ours to send. pad.c centres what it isn't told and reads a
+         * not ours to send. gamepad.c centres what it isn't told and reads a
          * pressed L2/R2 as a full trigger. */
         report[0] = (uint8_t)key;
         report[1] = (uint8_t)(key >> 8);
@@ -196,7 +196,7 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         report[6] = (uint8_t)trig;
         report[7] = (uint8_t)(trig >> 8);
         return 8;
-    case APF_TYPE_KBD:
+    case APF_TYPE_KEYBOARD:
         /* The modifier field's first byte, so the high half of its
          * halfword. */
         report[0] = (uint8_t)(key >> 8);
@@ -208,7 +208,7 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         report[6] = (uint8_t)(trig >> 8);
         report[7] = (uint8_t)trig;
         return 8;
-    case APF_TYPE_MOU:
+    case APF_TYPE_MOUSE:
     {
         /* The first report's deltas are however far the hand went before
          * anyone was listening. */
@@ -244,14 +244,14 @@ static void apf_slot_task(int slot)
      * is the only way to tell a hand that did not move from a report that
      * never came, and reading the same delta twice slides the pointer. */
     bool first = false;
-    if (type == APF_TYPE_MOU)
+    if (type == APF_TYPE_MOUSE)
     {
         uint16_t count = apf_swap16(key);
-        if (apf_slots[slot].mou_have_seen && count == apf_slots[slot].mou_seen)
+        if (apf_slots[slot].mouse_have_seen && count == apf_slots[slot].mouse_seen)
             return;
-        first = !apf_slots[slot].mou_have_seen;
-        apf_slots[slot].mou_seen = count;
-        apf_slots[slot].mou_have_seen = true;
+        first = !apf_slots[slot].mouse_have_seen;
+        apf_slots[slot].mouse_seen = count;
+        apf_slots[slot].mouse_have_seen = true;
     }
 
     uint8_t report[APF_REPORT_MAX];
@@ -261,7 +261,7 @@ static void apf_slot_task(int slot)
         return;
     /* An unmoved level is the same report, and resending it would repeat
      * a key at the speed of the loop. A mouse passed its counter above. */
-    if (type == APF_TYPE_MOU || apf_changed(slot, report, len))
+    if (type == APF_TYPE_MOUSE || apf_changed(slot, report, len))
         apf_report(slot, report, len);
 }
 
@@ -275,7 +275,7 @@ void apf_refresh(void)
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
     {
         apf_slots[slot].len = 0;
-        apf_slots[slot].mou_have_seen = false;
+        apf_slots[slot].mouse_have_seen = false;
     }
 }
 

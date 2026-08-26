@@ -28,6 +28,7 @@
 #include "Vtb_pocket.h"
 #include "Vtb_pocket___024root.h"
 
+#include "corpus.h"
 #include "crc32.h"
 
 #include "tb_asm.h"
@@ -257,28 +258,6 @@ static size_t capture_frame(uint32_t *fb, size_t max_px, int *slot_out)
     if (slot_out)
         *slot_out = slot;
     return at;
-}
-
-/* The corpus states its own shape, the same file tests/cpu/vid reads. A
- * canvas asserted from the manifest rather than from a machine is the
- * difference between proving the geometry and watching one agree with
- * itself. */
-static bool corpus_size(const char *name, int *width, int *height)
-{
-    FILE *f = fopen(ROMS_DIR "/manifest.txt", "r");
-    if (!f)
-        return false;
-    char n[128];
-    int w, h;
-    bool found = false;
-    while (fscanf(f, "%127s %d %d", n, &w, &h) == 3)
-        if (!strcmp(n, name))
-        {
-            *width = w, *height = h, found = true;
-            break;
-        }
-    fclose(f);
-    return found;
 }
 
 static std::vector<uint8_t> read_rom(const char *name)
@@ -518,7 +497,7 @@ UTEST(pocket, reload_with_a_button_held)
 
     ASSERT_TRUE(run_until_quiet(nullptr));
 
-    /* The pad is state, so a button held across a reboot is simply
+    /* The gamepad is state, so a button held across a reboot is simply
      * still held on the other side — there is no delivery to count
      * and no edge to miss while the machine was away. */
     ASSERT_EQ(dut->rootp->tb_pocket__DOT__core__DOT__cont_key_sys[0], 1u << 4);
@@ -565,10 +544,10 @@ int main(int argc, const char *const argv[])
     return rc;
 }
 
-/* --- The pad the dock holds, as the record a program reads --- *
+/* --- The gamepad the dock holds, as the record a program reads --- *
  *
  * Everything else about a controller is proved on the other machine: the
- * script suite plugs pads into the emulator and reads the same ten bytes
+ * script suite plugs gamepads into the emulator and reads the same ten bytes
  * back. Nothing did it here, so the dock's registers reached ria/hid and
  * were never asked what came out -- the one part of this path that is the
  * machine's rather than the transport's.
@@ -576,7 +555,7 @@ int main(int argc, const char *const argv[])
  * The program is here rather than in a fixture because it is three
  * instructions: map the block and stay up. What it maps is what apf.c
  * fills, so the assertions are on XRAM and not on anything printed. */
-static std::vector<uint8_t> pad_mapper(uint16_t at)
+static std::vector<uint8_t> gamepad_mapper(uint16_t at)
 {
     tb_asm p;
     /* xreg device 0 (the RIA's own devices), channel 0, address 2: the
@@ -587,7 +566,7 @@ static std::vector<uint8_t> pad_mapper(uint16_t at)
     p.pushw(at);
     p.call(0x01);
     uint16_t here = p.here();
-    p.jmp(here); /* stay up: the pad is reported to a running machine */
+    p.jmp(here); /* stay up: the gamepad is reported to a running machine */
 
     std::vector<uint8_t> rom;
     const char magic[] = "#!RP6502\n";
@@ -628,7 +607,7 @@ static void run_frames(int n)
     }
 }
 
-UTEST(pocket, the_pad_the_dock_holds_reaches_xram)
+UTEST(pocket, the_gamepad_the_dock_holds_reaches_xram)
 {
     static const uint16_t AT = 0xFF00;
     /* The dock's key word: the type nibble on top, then the buttons the
@@ -636,7 +615,7 @@ UTEST(pocket, the_pad_the_dock_holds_reaches_xram)
     static const uint32_t TYPE_PAD = 2u << 28;
 
     power_on(utest_result);
-    host_load(pad_mapper(AT));
+    host_load(gamepad_mapper(AT));
     dut->reset_n = 1;
     run_frames(10);
 
@@ -661,7 +640,7 @@ UTEST(pocket, the_pad_the_dock_holds_reaches_xram)
     ASSERT_EQ((uint32_t)xram_at(AT + 10), 0u);
 
     /* Undocked blanks the whole record, which is how a program tells a
-     * pad that let go from one that left. */
+     * gamepad that let go from one that left. */
     dut->cont1_key = 0;
     run_frames(20);
     for (int i = 0; i < 10; i++)

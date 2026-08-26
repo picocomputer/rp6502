@@ -12,9 +12,9 @@
 
 #include "mut.h"
 
-#include "core/emu/sys/com.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/vga.h"
+#include "core/com/com.h"
+#include "core/mem/mem.h"
+#include "core/vga/vga_emu.h"
 #include "emu_boot.h"
 
 #include <string.h>
@@ -74,10 +74,12 @@ bool mut_boot(const char *rom)
      * to be able to say what XRAM held before its program ran. mem_init is
      * the first of the drivers, so the loader's bytes still land on top. */
     main_stop();
+    main_commit();
     mem_init();
     if (!rom_load(rom))
         return false;
     main_run();
+    main_commit();
     vga_set_framebuffer(mut_fb);
     for (int i = 0; i < MUT_SETTLE_FRAMES; i++)
         sys_run_frame();

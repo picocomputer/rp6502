@@ -143,7 +143,7 @@ module pocket_bridge (
      * bridge answers reads elsewhere. The firmware puts the pieces back
      * together. */
     logic [31:0] utz_74, utzm_74, utzs_74;
-    /* The keyboard layout, by its position in def/kbd.def plus one, so
+    /* The keyboard layout, by its position in def/keyboard.def plus one, so
      * a register nobody has written yet names no layout at all. */
     logic [31:0] kb_74;
     always_ff @(posedge clk_74a or negedge arst_n) begin

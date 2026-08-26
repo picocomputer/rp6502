@@ -1,6 +1,6 @@
 # What the Design Assistant finds today, and why each entry is still
 # here. Anything above these numbers fails the build; see
-# src/gen/drc_gate.py. Lower a line when a fix lands.
+# src/core/gen/drc_gate.py. Lower a line when a fix lands.
 #
 # Every count and every attribution below was read out of the report
 # rather than reasoned about. The D101 entry used to claim the opposite

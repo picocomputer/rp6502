@@ -10,10 +10,10 @@
  * + palette), and the HID keyboard XRAM bitmap.
  */
 
-#include "core/emu/hid/kbd.h"
-#include "core/emu/sys/cpu.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/vga.h"
+#include "core/sys/keyboard.h"
+#include "core/wdc/cpu.h"
+#include "core/mem/mem.h"
+#include "core/vga/vga_emu.h"
 #include "core/term/color.h"
 #include "emu_boot.h"
 
@@ -74,16 +74,16 @@ UTEST(mode2, keyboard_presses_exit)
     ASSERT_FALSE(cpu_halted()); /* scrolling, no key down */
 
     /* First scroll -> exit -> reprogram to 16x16 tiles, scroll again. */
-    kbd_hid_set(0x2C, true); /* press space */
+    keyboard_hid_set(0x2C, true); /* press space */
     run_frames(5);
-    kbd_hid_set(0x2C, false); /* release */
+    keyboard_hid_set(0x2C, false); /* release */
     run_frames(10);
     ASSERT_FALSE(cpu_halted()); /* now in the second scroll loop */
 
     /* Second scroll -> exit -> program prints and exits. */
-    kbd_hid_set(0x2C, true);
+    keyboard_hid_set(0x2C, true);
     run_frames(5);
-    kbd_hid_set(0x2C, false);
+    keyboard_hid_set(0x2C, false);
     run_frames(10);
     ASSERT_TRUE(cpu_halted());
 }
@@ -99,7 +99,8 @@ UTEST(mode2, stop_resets_canvas_to_console)
     run_frames(20);
     ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240); /* gfx canvas active */
 
-    main_stop();      /* the outgoing program stops (as on a ROM swap) */
+    main_stop(); /* the outgoing program stops (as on a ROM swap) */
+    main_commit();
     sys_run_frame(); /* vga_task performs the armed console reset */
     ASSERT_EQ(vga_get_canvas(), vga_canvas_console);
 }

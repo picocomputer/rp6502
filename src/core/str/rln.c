@@ -161,7 +161,7 @@ static uint8_t rln_rendered_max_row;   // highest row index rln has written to i
 static uint8_t rln_last_render_buflen; // buflen as of last render in no-wrap mode
 
 // Per-source state: rln_sources[s] holds the parser + CPR/DA2/defer
-// bookkeeping for each com input source (kbd, uart, tel). rln_poke_source
+// bookkeeping for each com input source (keyboard, uart, tel). rln_poke_source
 // is separate — fed synchronously from rln_poke (the 6502 API).
 static rln_source_t rln_sources[COM_SOURCE_COUNT];
 static rln_source_t rln_poke_source;
@@ -196,7 +196,7 @@ static bool rln_source_busy(com_source_t s)
 
 static bool rln_any_source_busy(void)
 {
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         if (rln_source_busy(s))
             return true;
     return false;
@@ -228,7 +228,7 @@ static void rln_defer_check_resolved(com_source_t s)
 
 static bool rln_any_defer_pending(void)
 {
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         if (rln_sources[s].defer_pending)
             return true;
     return false;
@@ -245,7 +245,7 @@ static void rln_cpr_forget_stale(com_source_t s)
 
 static void rln_forget_all_stale(void)
 {
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_cpr_forget_stale(s);
 }
 
@@ -284,7 +284,7 @@ static void rln_complete(bool timed_out)
         rln_complete_now(timed_out);
         return;
     }
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         rln_defer_arm(s);
     rln_complete_deferred = true;
     rln_complete_deferred_timed_out = timed_out;
@@ -1172,7 +1172,7 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
                    a->csi_private == '>' &&
                    term == 'c');
     // Tracked sources (UART/TEL) are the ones whose CPR/DA2 replies are
-    // real protocol responses. KBD typed input can look like a reply but
+    // real protocol responses. KEYBOARD typed input can look like a reply but
     // isn't; the poke source is virtual (src=COM_SOURCE_ANY). All
     // CPR/DA2 handling below gates on this.
     bool tracked = (src == COM_SOURCE_UART || src == COM_SOURCE_TEL);
@@ -1257,7 +1257,7 @@ static void rln_ansi_dispatch_or_defer(rln_source_t *a,
 
 // Feed one byte through a per-stream parser. src identifies the parser
 // to dispatch_or_defer, which uses it to gate CPR/DA2 tracking on
-// tracked terminal sources (UART/TEL); KBD and the poke source
+// tracked terminal sources (UART/TEL); KEYBOARD and the poke source
 // (src=COM_SOURCE_ANY) skip the tracking but still parse normally.
 static void rln_ansi_feed(rln_source_t *a, com_source_t src, uint8_t b)
 {
@@ -1322,13 +1322,13 @@ static void rln_enter_edit(void)
     else
         rln_sync_cursor_to(rln_bufpos);
     // Drain each parser's deferred bytes through itself, in com_source_t
-    // order (KBD, UART, TEL), then the poke parser separately below.
-    // dispatch_or_defer gates protocol tracking on src, so KBD and poke
+    // order (KEYBOARD, UART, TEL), then the poke parser separately below.
+    // dispatch_or_defer gates protocol tracking on src, so KEYBOARD and poke
     // (src=COM_SOURCE_ANY) skip it. Abort the cascade if a dispatched CR
     // mid-drain completes the line — any later drains would replay stale
     // bytes into the next line's parsers.
     rln_read_callback_t cb_at_start = rln_callback;
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
         rln_ansi_drain_deferred(&rln_sources[s], s);
         if (rln_callback != cb_at_start || rln_complete_deferred)
@@ -1354,7 +1354,7 @@ static void rln_handshake_fallback(void)
     // deadline is the only DA2-deaf signal. Any source that delivered
     // CPR1 but never replied DA2 is DA2-deaf; latch off for everyone.
     if (rln_cpr_initial == 1)
-        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
             if (rln_sources[s].cpr_expecting == 0 && !rln_sources[s].da2_seen)
             {
                 rln_decscusr_ok = false;
@@ -1414,7 +1414,7 @@ static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
         rln_phase = rln_phase_width_cpr;
     // Highest-priority qualified terminal wins: telnet CPR over uart CPR. A
     // source qualifies once it has answered its quota (cpr_expecting == 0) with
-    // a real edge past the prompt (cpr_w > cpr_pcol). KBD sends no real CPR so
+    // a real edge past the prompt (cpr_w > cpr_pcol). KEYBOARD sends no real CPR so
     // it never qualifies. No longer a min across terminals.
     rln_source_t *pick = NULL;
     if (rln_sources[COM_SOURCE_TEL].cpr_expecting == 0 &&
@@ -1472,7 +1472,7 @@ void rln_read_line(rln_read_callback_t callback)
     // still owes us CPRs this round, so defer must engage even before
     // the first CPR of this round arrives).
     bool sticky_cpr_seen[COM_SOURCE_COUNT];
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
         sticky_cpr_seen[s] = rln_sources[s].cpr_seen;
     memset(rln_sources, 0, sizeof rln_sources);
     memset(&rln_poke_source, 0, sizeof rln_poke_source);
@@ -1481,7 +1481,7 @@ void rln_read_line(rln_read_callback_t callback)
     // all attached terminals and any of them may reply. Non-terminal
     // sources have cpr_seen=false so they never block defer regardless.
     rln_cpr_initial = (rln_width_override && rln_height_override) ? 1 : 2;
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
         rln_sources[s].cpr_seen = sticky_cpr_seen[s];
         rln_sources[s].cpr_expecting = rln_cpr_initial;
@@ -1546,7 +1546,7 @@ static int rln_read_next(com_source_t *out_src)
     *out_src = COM_SOURCE_ANY;
     if (!rln_complete_deferred)
         return com_getchar(out_src);
-    for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+    for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
     {
         if (!rln_sources[s].defer_pending)
             continue;
@@ -1597,7 +1597,7 @@ void rln_task(void)
         // is feeding bytes without completing the CPR exchange — abandon
         // the handshake and enter edit phase so the line can flow.
         bool any_overflow = false;
-        for (com_source_t s = COM_SOURCE_KBD; s < COM_SOURCE_COUNT; s++)
+        for (com_source_t s = COM_SOURCE_KEYBOARD; s < COM_SOURCE_COUNT; s++)
             if (rln_sources[s].buf_len >= RLN_BUF_SIZE)
                 any_overflow = true;
         if (rln_phase != rln_phase_edit && (ch == '\r' || any_overflow))

@@ -8,11 +8,11 @@
  * drive. Exercised headlessly against adventure.rp6502 — no window required.
  */
 
-#include "core/emu/dbg/dbg.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/cpu.h"
-#include "core/emu/sys/vga.h"
-#include "core/emu/hid/kbd.h"
+#include "core/dap/dbg.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
+#include "core/vga/vga_emu.h"
+#include "core/sys/keyboard.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -229,7 +229,7 @@ UTEST(dbg, continue_runs_to_exit)
     ASSERT_FALSE(dbg_is_stopped());
 
     /* Decline the intro prompt, "quit", then confirm "yes" -> the game exits. */
-    kbd_paste("no\nquit\nyes\n");
+    keyboard_paste("no\nquit\nyes\n");
     for (int i = 0; i < 600 && !cpu_halted(); i++)
         sys_run_frame();
     ASSERT_TRUE(cpu_halted());

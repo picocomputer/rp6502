@@ -8,9 +8,9 @@
 # live with that subsystem in tests/cpu; what is left is about the program.
 
 # The exception: how many frames a script spends is the one thing a script
-# cannot check about itself, so that one is a C test around scr.c.
+# cannot check about itself, so that one is a C test around script.c.
 rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
-    SOURCES test_script.c ${RP6502_SRC}/core/emu/app/scr.c ${RP6502_SRC}/core/emu/app/png.c
+    SOURCES test_script.c ${RP6502_SRC}/host/sokol/script.c ${RP6502_SRC}/host/sokol/png.c ${RP6502_SRC}/host/sokol/gamepad.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.
@@ -51,7 +51,7 @@ set_tests_properties(cli_fill_is_decimal PROPERTIES LABELS "cli;host.emu")
 # Here rather than under cpu/ria because cli.c is this program's, and the
 # loader and dispatch cases ride along in the same binary.
 rp6502_add_test(units
-    SOURCES test_units.c ${RP6502_SRC}/core/emu/app/cli.c
+    SOURCES test_units.c ${RP6502_SRC}/host/sokol/cli.c
     LIBS emu_core FIXTURE adventure.rp6502)
 if(WIN32) # cli.c needs the same getopt the app uses
     target_link_libraries(test_units PRIVATE wingetopt)
@@ -65,8 +65,8 @@ rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 # Reading a controller is per-OS code no runner has hardware for. Everything
 # above that seam is not, and the privacy gate and player numbering are the
 # parts worth being sure of.
-rp6502_add_test(pad_input LIBS emu_core
-    SOURCES test_pad_input.c ${RP6502_SRC}/core/emu/app/pad_input.c)
+rp6502_add_test(gamepad_input LIBS emu_core
+    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/gamepad_input.c)
 
 # --- The debugger: the engine, the DWARF and cc65 readers, the disassembler ---
 # Their fixtures live here rather than in roms/ because none of them is a
@@ -83,21 +83,21 @@ rp6502_add_test(dbg LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
 # the parser only needs libc and the fixture is committed (no toolchain).
 rp6502_add_test(dwarf5
     SOURCES test_dwarf5.c
-        ${RP6502_SRC}/core/emu/dbg/dwarf_info.c ${RP6502_SRC}/core/emu/dbg/dwarf_line.c
-        ${RP6502_SRC}/core/emu/dbg/dwarf_cursor.c ${RP6502_SRC}/core/emu/dbg/dwarf_elf.c
+        ${RP6502_SRC}/core/dap/dwarf_info.c ${RP6502_SRC}/core/dap/dwarf_line.c
+        ${RP6502_SRC}/core/dap/dwarf_cursor.c ${RP6502_SRC}/core/dap/dwarf_elf.c
     INCLUDES ${RP6502_SRC} FIXTURE host/emu/dwtest.elf)
 
 # DWARF .debug_frame CFI unwinder (dwarf_frame.c): two-stack unwind.
 rp6502_add_test(dwarf_frame
     SOURCES test_dwarf_frame.c
-        ${RP6502_SRC}/core/emu/dbg/dwarf_frame.c ${RP6502_SRC}/core/emu/dbg/dwarf_cursor.c
-        ${RP6502_SRC}/core/emu/dbg/dwarf_elf.c
+        ${RP6502_SRC}/core/dap/dwarf_frame.c ${RP6502_SRC}/core/dap/dwarf_cursor.c
+        ${RP6502_SRC}/core/dap/dwarf_elf.c
     INCLUDES ${RP6502_SRC} FIXTURE host/emu/dwtest.elf)
 
 # cc65 .dbg reader (cc65dbg.c): line mapping + funcs + untyped variables.
 # Fixture is the committed, hand-authored cc65.dbg (plain text, no toolchain).
 rp6502_add_test(cc65dbg
-    SOURCES test_cc65dbg.c ${RP6502_SRC}/core/emu/dbg/cc65dbg.c
+    SOURCES test_cc65dbg.c ${RP6502_SRC}/core/dap/cc65dbg.c
     INCLUDES ${RP6502_SRC} FIXTURE host/emu/cc65.dbg)
 
 # W65C02S disassembler (vendor/chips/util/w65c02dasm.h, driving the ui_dbg

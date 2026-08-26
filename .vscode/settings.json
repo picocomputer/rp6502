@@ -8,12 +8,11 @@
     },
     "cmake.sourceDirectory": [
         "${workspaceFolder}",
-        "${workspaceFolder}/src/host/linux",
-        "${workspaceFolder}/src/host/win",
-        "${workspaceFolder}/src/host/macos",
-        "${workspaceFolder}/src/host/web",
-        "${workspaceFolder}/src/host/android",
-        "${workspaceFolder}/src/host/pocket",
+        "${workspaceFolder}/src/mach/emu",
+        "${workspaceFolder}/src/mach/android",
+        "${workspaceFolder}/src/mach/libretro",
+        "${workspaceFolder}/src/mach/pocket",
+        "${workspaceFolder}/src/mach/itch.io",
         "${workspaceFolder}/tests/rtl"
     ],
     "cmake.buildDirectory": "${sourceDirectory}/build",

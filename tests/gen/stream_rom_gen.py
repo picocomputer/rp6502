@@ -24,7 +24,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import rp6502_scr  # noqa: E402
+import rp6502_script  # noqa: E402
 from rp6502_asm import (API_A, OP_CLOSE, OP_OPEN, OP_READ_XSTACK, O_RDONLY,
                         XSTACK, Asm)
 from rp6502_rom import image
@@ -91,7 +91,7 @@ def drive(emu, rom):
     def body(e):
         # The tail arrives only after every chunk before it did.
         e.cmd(f'wait "{DONE.decode().rstrip()}"')
-    return rp6502_scr.drive(emu, rom, body)
+    return rp6502_script.drive(emu, rom, body)
 
 
 def main():

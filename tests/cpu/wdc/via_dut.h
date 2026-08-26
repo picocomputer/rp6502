@@ -34,7 +34,7 @@ extern "C"
     /* Power-on reset. Every scenario starts from one. */
     void via_reset(void);
 
-    /* One cycle, the way emu/emu/via.c wires it: *data is what a read
+    /* One cycle, the way core/wdc/via.c wires it: *data is what a read
      * returned (meaningless on a write or an idle), *irq the IRQ line as this
      * cycle left it. */
     void via_step(const w65c22_op_t *op, uint8_t *data, bool *irq);

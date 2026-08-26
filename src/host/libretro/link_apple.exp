@@ -1,0 +1,3 @@
+# The libretro ABI is the whole of what a core offers; the underscore is
+# Mach-O's. link.T states the same fact for ELF.
+_retro_*

@@ -202,7 +202,7 @@ bool pix_api_xreg(void)
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);
             }
-            if (!main_xreg(pix_channel, pix_addr, data))
+            if (!main_xreg_0(pix_channel, pix_addr, data))
             {
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);

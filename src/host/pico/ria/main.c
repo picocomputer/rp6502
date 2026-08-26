@@ -6,32 +6,33 @@
 
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "core/api/atr.h"
+#include "core/api/attr.h"
 #include "core/api/clk.h"
-#include "core/api/fat.h"
+#include "api/fat.h"
+#include "core/api/dir.h"
 #include "core/api/oem.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/aud.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "ria/ble/ble.h"
-#include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
-#include "core/hid/mou.h"
-#include "core/hid/pad.h"
-#include "core/hid/tab.h"
-#include "ria/mon/dsk.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/keymap.h"
+#include "core/hid/mouse.h"
+#include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
+#include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/uf2.h"
 #include "ria/net/cyw.h"
-#include "ria/net/mdm.h"
+#include "ria/net/modem.h"
 #include "ria/net/ntp.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -72,8 +73,13 @@
 /**************************************/
 
 // Driver table, msc is catch-all and must be last.
+const dir_backend_t *main_dir_backend(void)
+{
+    return &fat_dir_backend;
+}
+
 static __in_flash("std_drivers") const std_driver_t std_drivers[] = {
-    {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
+    {modem_std_handles, modem_std_open, modem_std_close, modem_std_read, modem_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
     {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, mid_std_sync, NULL},
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
@@ -115,13 +121,14 @@ static void __in_flash("init") init(void)
     oem_init();
     led_init();
     aud_init();
-    kbd_init();
-    mou_init();
-    pad_init();
-    tab_init();
+    keyboard_init();
+    keymap_init(); /* the speller is this machine's, not the device layer's */
+    mouse_init();
+    gamepad_init();
+    tablet_init();
     rom_init();
     tim_init();
-    mdm_init();
+    modem_init();
     rln_init();
 
     // USB near end for boot enum timing
@@ -142,16 +149,16 @@ void main_task(void)
     std_task();
     cpu_task();
     ria_task();
-    kbt_task();
+    keymap_task();
     mid_task();
     cyw_task();
     vga_task();
     com_task();
-    wfi_task();
+    wifi_task();
     ntp_task();
     ble_task();
     led_task();
-    mdm_task();
+    modem_task();
     ram_task();
 }
 
@@ -170,12 +177,12 @@ static void task(void)
 }
 
 // Event to start running the 6502.
-static void run(void)
+void main_on_run(void)
 {
-    pro_run();
+    proc_run();
     com_run();
     rln_run();
-    fat_run();
+    dir_run();
     vga_run();
     api_run();
     clk_run();
@@ -184,7 +191,7 @@ static void run(void)
 }
 
 // Event to stop the 6502.
-static void stop(void)
+void main_on_stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop();
@@ -194,15 +201,15 @@ static void stop(void)
     oem_stop();
     std_stop();
     mid_stop();
-    fat_stop();
-    kbd_stop();
-    mou_stop();
-    pad_stop();
-    tab_stop();
+    dir_stop();
+    keyboard_stop();
+    mouse_stop();
+    gamepad_stop();
+    tablet_stop();
     aud_stop();
-    mdm_stop();
+    modem_stop();
     rom_stop();
-    pro_stop();
+    proc_stop();
     mon_stop();
     com_stop(); // Adds newline
     ria_stop(); // Last for stops that check ria_active()
@@ -212,7 +219,7 @@ static void stop(void)
 // Stop will be executed first if 6502 is running.
 static void break_(void) // break is keyword
 {
-    dsk_break();
+    drive_break();
     fil_break();
     mon_break();
     ram_break();
@@ -231,169 +238,16 @@ void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
     pix_reclock(clkdiv_int, clkdiv_frac);
 }
 
-// PIX XREG writes to the RIA device will dispatch here.
-bool main_xreg(uint8_t chan, uint8_t addr, uint16_t word)
-{
-    switch (chan * 256 + addr)
-    {
-    // Channel 0 for human interface devices.
-    case 0x000:
-        return kbd_xreg(word);
-    case 0x001:
-        return mou_xreg(word);
-    case 0x002:
-        return pad_xreg(word);
-    case 0x003:
-        return tab_xreg(word);
-    // Channel 1 for audio devices.
-    case 0x100:
-        return psg_xreg(word);
-    case 0x101:
-        return opl_xreg(word);
-    default:
-        return false;
-    }
-}
-
-// API call implementations should return true if they have more
-// work to process. They will be called repeatedly until returning
-// false. Be sure any state is reset in a stop() handler.
-bool main_api(uint8_t operation)
-{
-    switch (operation)
-    {
-    case 0x01:
-        return pix_api_xreg();
-    case 0x02:
-        return atr_api_phi2();
-    case 0x03:
-        return atr_api_code_page();
-    case 0x04:
-        return atr_api_lrand();
-    case 0x06:
-        return atr_api_errno_opt();
-    case 0x08:
-        return pro_api_argv();
-    case 0x09:
-        return pro_api_exec();
-    case 0x0A:
-        return atr_api_get();
-    case 0x0B:
-        return atr_api_set();
-    case 0x0F:
-        return clk_api_clock();
-    case 0x10:
-        return clk_api_get_res();
-    case 0x11:
-        return clk_api_get_time();
-    case 0x12:
-        return clk_api_set_time();
-    case 0x14:
-        return std_api_open();
-    case 0x15:
-        return std_api_close();
-    case 0x16:
-        return std_api_read_xstack();
-    case 0x17:
-        return std_api_read_xram();
-    case 0x18:
-        return std_api_write_xstack();
-    case 0x19:
-        return std_api_write_xram();
-    case 0x1A:
-        return std_api_lseek_cc65();
-    case 0x1B:
-        return fat_api_unlink();
-    case 0x1C:
-        return fat_api_rename();
-    case 0x1D:
-        return std_api_lseek_llvm();
-    case 0x1E:
-        return std_api_syncfs();
-    case 0x1F:
-        return fat_api_stat();
-    case 0x20:
-        return fat_api_opendir();
-    case 0x21:
-        return fat_api_readdir();
-    case 0x22:
-        return fat_api_closedir();
-    case 0x23:
-        return fat_api_telldir();
-    case 0x24:
-        return fat_api_seekdir();
-    case 0x25:
-        return fat_api_rewinddir();
-    case 0x26:
-        return fat_api_chmod();
-    case 0x27:
-        return fat_api_utime();
-    case 0x28:
-        return fat_api_mkdir();
-    case 0x29:
-        return fat_api_chdir();
-    case 0x2A:
-        return fat_api_chdrive();
-    case 0x2B:
-        return fat_api_getcwd();
-    case 0x2C:
-        return fat_api_setlabel();
-    case 0x2D:
-        return fat_api_getlabel();
-    case 0x2E:
-        return fat_api_getfree();
-    case 0x30:
-        return rln_api_lastkey();
-    case 0x31:
-        return rln_api_peek();
-    case 0x32:
-        return rln_api_poke();
-    case 0x3A:
-        return clk_api_gmtime();
-    case 0x3B:
-        return clk_api_localtime();
-    case 0x3C:
-        return clk_api_mktime();
-    case 0x3D:
-        return clk_api_strftime();
-    case 0x3E:
-        return clk_api_time_set();
-    case 0x3F:
-        return clk_api_time_get();
-    }
-    return api_return_errno(API_ENOSYS);
-}
 
 /*****************************/
 /* This is the OS scheduler. */
 /*****************************/
 
 static bool is_breaking;
-static enum state {
-    stopped,
-    starting,
-    running,
-    stopping,
-} volatile main_state;
-
-void main_run(void)
-{
-    if (main_state != running)
-        main_state = starting;
-}
-
-void main_stop(void)
-{
-    cpu_stop(); // Pull down RESB
-    if (main_state == starting)
-        main_state = stopped;
-    else if (main_state != stopped)
-        main_state = stopping;
-}
 
 bool main_break(void)
 {
-    pro_cancel_launcher();
+    proc_cancel_launcher();
     is_breaking = true;
     return true;
 }
@@ -401,16 +255,11 @@ bool main_break(void)
 bool main_break_to_launcher(void)
 {
     // From the launcher there is nowhere to return to.
-    if (pro_is_launcher())
+    if (proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
     is_breaking = true;
     return true;
-}
-
-bool main_active(void)
-{
-    return main_state != stopped;
 }
 
 int main(void)
@@ -424,16 +273,7 @@ int main(void)
         task();
         if (is_breaking)
             main_stop();
-        if (main_state == starting)
-        {
-            run();
-            main_state = running;
-        }
-        if (main_state == stopping)
-        {
-            stop();
-            main_state = stopped;
-        }
+        main_commit();
         if (is_breaking)
         {
             break_();

@@ -7,6 +7,6 @@
 #ifndef _HOST_ANDROID_HOST_H_
 #define _HOST_ANDROID_HOST_H_
 
-#include "core/host.h"
+#include "host/os.h"
 
 #endif /* _HOST_ANDROID_HOST_H_ */

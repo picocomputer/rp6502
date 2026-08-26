@@ -1,0 +1,212 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "linux-base",
+            "hidden": true,
+            "inherits": "base",
+            "condition": {
+                "type": "allOf",
+                "conditions": [
+                    {
+                        "type": "notEquals",
+                        "lhs": "${hostSystemName}",
+                        "rhs": "Windows"
+                    },
+                    {
+                        "type": "notEquals",
+                        "lhs": "${hostSystemName}",
+                        "rhs": "Darwin"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "macos-base",
+            "hidden": true,
+            "inherits": "base",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Darwin"
+            }
+        },
+        {
+            "name": "windows-base",
+            "hidden": true,
+            "inherits": "base",
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "linux-debug",
+            "displayName": "Debug",
+            "inherits": "linux-base",
+            "binaryDir": "${sourceDir}/../../../build/emu/linux/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "description": "Disable optimizations - include debug information."
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Release",
+            "inherits": "linux-base",
+            "binaryDir": "${sourceDir}/../../../build/emu/linux/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "description": "Optimized for speed - exclude debug information."
+        },
+        {
+            "name": "macos-debug",
+            "displayName": "Debug",
+            "inherits": "macos-base",
+            "binaryDir": "${sourceDir}/../../../build/emu/macos/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "description": "Disable optimizations - include debug information."
+        },
+        {
+            "name": "macos-release",
+            "displayName": "Release",
+            "inherits": "macos-base",
+            "binaryDir": "${sourceDir}/../../../build/emu/macos/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "description": "Optimized for speed - exclude debug information."
+        },
+        {
+            "name": "windows-debug",
+            "displayName": "Debug",
+            "inherits": "windows-base",
+            "binaryDir": "${sourceDir}/../../../build/emu/windows/debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            },
+            "description": "Disable optimizations - include debug information."
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Release",
+            "inherits": "windows-base",
+            "binaryDir": "${sourceDir}/../../../build/emu/windows/release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "description": "Optimized for speed - exclude debug information."
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release"
+        },
+        {
+            "name": "macos-debug",
+            "configurePreset": "macos-debug"
+        },
+        {
+            "name": "macos-release",
+            "configurePreset": "macos-release"
+        },
+        {
+            "name": "windows-debug",
+            "configurePreset": "windows-debug"
+        },
+        {
+            "name": "windows-release",
+            "configurePreset": "windows-release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "linux-debug",
+            "displayName": "Tests",
+            "configurePreset": "linux-debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Tests",
+            "configurePreset": "linux-release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
+            }
+        },
+        {
+            "name": "macos-debug",
+            "displayName": "Tests",
+            "configurePreset": "macos-debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
+            }
+        },
+        {
+            "name": "macos-release",
+            "displayName": "Tests",
+            "configurePreset": "macos-release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
+            }
+        },
+        {
+            "name": "windows-debug",
+            "displayName": "Tests",
+            "configurePreset": "windows-debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
+            }
+        },
+        {
+            "name": "windows-release",
+            "displayName": "Tests",
+            "configurePreset": "windows-release",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "jobs": 16
+            }
+        }
+    ]
+}

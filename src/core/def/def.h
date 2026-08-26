@@ -1,5 +1,5 @@
 /*
- * CONTRIBUTING: see kbd.def and str.def
+ * CONTRIBUTING: see keyboard.def and str.def
  */
 
 // Editor-only no-op stubs so a lone *.def opens without red squiggles.
@@ -10,4 +10,6 @@
 #define XR(name, value)
 #define XKEY(kc, u, s, a, sa, caps)
 #define XDEAD(...)
+#define XCFG(...)
+#define XMON(...)
 #endif

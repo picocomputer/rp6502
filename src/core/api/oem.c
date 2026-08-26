@@ -6,13 +6,11 @@
 
 #include "core/api/api.h"
 #include "core/api/oem.h"
-#include "core/api/uni.h"
-#include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keyboard.h"
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/vga/vga.h"
-#include <fatfs/ff.h>
+#include "core/api/uni.h"
 #include "host.h"
 #include <string.h>
 
@@ -37,13 +35,13 @@ static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
     // cp >= 900 are DBCS; allow SBCS only
-    if (cp < 900 && f_setcp(cp) == FR_OK)
-        oem_code_page_run = cp;
-    if (old_code_page != oem_code_page_run)
+    if (cp < 900 && uni_has_page(cp))
     {
-        vga_set_code_page(oem_code_page_run);
-        kbt_rebuild_code_page_cache();
+        oem_fs_code_page(cp);
+        oem_code_page_run = cp;
     }
+    if (old_code_page != oem_code_page_run)
+        vga_set_code_page(oem_code_page_run);
 }
 
 void HOST_IN_FLASH("oem_init") oem_init(void)
@@ -69,25 +67,17 @@ void oem_set_code_page_run(uint16_t cp)
 
 bool oem_set_code_page(uint16_t cp)
 {
-    if (cp == 0)
+    if (cp)
     {
-        // Auto: track the locale's default code page.
-        if (oem_code_page_set != 0)
-        {
-            oem_code_page_set = 0;
-            oem_request_code_page(oem_resolve());
-            cfg_save();
-        }
-        return true;
+        // Applying it is the only way to know whether a page is carried.
+        oem_request_code_page(cp);
+        if (cp != oem_code_page_run)
+            return false;
     }
-    oem_request_code_page(cp);
-    if (cp != oem_code_page_run)
-        return false;
-    if (oem_code_page_set != cp)
-    {
-        oem_code_page_set = cp;
-        cfg_save();
-    }
+    // Zero is auto: track whatever the locale's default is.
+    oem_code_page_set = cp;
+    oem_request_code_page(oem_resolve());
+    cfg_save();
     return true;
 }
 

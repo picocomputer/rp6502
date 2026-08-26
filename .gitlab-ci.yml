@@ -1,0 +1,77 @@
+# The libretro buildbot.
+#
+# Read on git.libretro.com, which mirrors this repository, and by nothing
+# here: GitHub Actions is .github/workflows/ci.yml. Their runners build the
+# core for the platforms their Core Downloader serves, which is how a person
+# on a handheld gets it without ever seeing this repository.
+#
+# The templates want a CMake root and a target named ${CORENAME}_libretro,
+# which is what src/mach/libretro builds and why that target has that name.
+
+.core-defs:
+  variables:
+    CORENAME: rp6502
+    CMAKE_SOURCE_ROOT: src/mach/libretro
+    # Submodules: the root fetches the two it reads when it configures, so a
+    # checkout with none still builds. STRICT makes a fetch that failed say
+    # so here rather than as a missing header later.
+    CORE_ARGS: -DRP6502_STRICT_SUBMODULES=ON -DRP6502_TESTS=OFF -DRP6502_CI=$CI_PIPELINE_ID
+
+include:
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/linux-cmake.yml'
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/windows-cmake-msvc19.yml'
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/android-cmake.yml'
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/osx-cmake-x86.yml'
+  - project: 'libretro-infrastructure/ci-templates'
+    file: '/osx-cmake-arm64.yml'
+
+stages:
+  - build-prepare
+  - build-shared
+  - build-static
+
+# Desktops.
+libretro-build-linux-x64:
+  extends:
+    - .libretro-linux-cmake-x86_64
+    - .core-defs
+
+libretro-build-windows-x64:
+  extends:
+    - .libretro-windows-msvc19-cmake-x86_64
+    - .core-defs
+  variables:
+    # The Visual Studio generator is multi-config, so the DLL lands under
+    # the configuration rather than at the build root.
+    EXTRA_PATH: Release
+
+libretro-build-osx-x64:
+  extends:
+    - .libretro-osx-cmake-x86
+    - .core-defs
+
+libretro-build-osx-arm64:
+  extends:
+    - .libretro-osx-cmake-arm64
+    - .core-defs
+
+# Handhelds. The Anbernic-class devices run either a Linux CFW with a
+# 64-bit RetroArch or Android, so these two are what reaches them.
+libretro-build-linux-aarch64:
+  extends:
+    - .libretro-linux-cmake-aarch64
+    - .core-defs
+
+android-arm64-v8a:
+  extends:
+    - .libretro-android-cmake-arm64-v8a
+    - .core-defs
+
+android-armeabi-v7a:
+  extends:
+    - .libretro-android-cmake-armeabi-v7a
+    - .core-defs

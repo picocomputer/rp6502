@@ -14,10 +14,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// We run the RP2350 at 256MHz with 0.05V boost.
-// One user tested up to 280 MHz on the default 1.10V.
-// https://forums.raspberrypi.com/viewtopic.php?t=375975
-#define SYS_RP2350_KHZ 256000
+#include "core/sys.h" /* SYS_RP2350_KHZ, the rate every machine answers to */
+
+// The boost that rate is tested at, which only the board that sets it needs.
 #define SYS_RP2350_VREG VREG_VOLTAGE_1_15
 
 /* Main events

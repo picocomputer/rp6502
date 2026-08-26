@@ -13,17 +13,17 @@
  */
 
 #include "core/hid/hid.h"
-#include "core/hid/kbd.h"
-#include "core/hid/mou.h"
-#include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/mouse.h"
+#include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
 
 typedef struct
 {
-    kbd_connection_t kbd;
-    mou_connection_t mou;
-    tab_connection_t tab;
-    pad_connection_t pad;
+    keyboard_connection_t keyboard;
+    mouse_connection_t mouse;
+    tablet_connection_t tablet;
+    gamepad_connection_t gamepad;
 } hid_parsed_t;
 
 /* One walk fills all four. Each carries its own valid flag saying whether

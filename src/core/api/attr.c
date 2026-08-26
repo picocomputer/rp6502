@@ -1,0 +1,195 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+
+#include "core/api/api.h"
+#include "core/api/attr.h"
+#include "core/api/clk.h"
+#include "core/api/oem.h"
+#include "core/api/proc.h"
+#include "core/api/std.h"
+#include "core/str/rln.h"
+#include "core/com.h"
+#include "core/cpu.h"
+#include "core/main.h"
+#include "host.h"
+#include <stdio.h>
+#include <string.h>
+
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_ATTR)
+#define DBG(...) printf(__VA_ARGS__)
+#else
+static inline void DBG(const char *fmt, ...) { (void)fmt; }
+#endif
+
+// Attribute IDs
+#define ATTR_ERRNO_OPT 0x00
+#define ATTR_PHI2_KHZ 0x01
+#define ATTR_CODE_PAGE 0x02
+#define ATTR_RLN_LENGTH 0x03
+#define ATTR_LRAND 0x04
+#define ATTR_BEL 0x05
+#define ATTR_LAUNCHER 0x06
+#define ATTR_EXIT_CODE 0x07
+#define ATTR_SIGINT 0x08
+#define ATTR_RLN_CAPS 0x09
+#define ATTR_RLN_WIDTH 0x0A
+#define ATTR_RLN_HEIGHT 0x0B
+#define ATTR_RLN_SUPPRESS_NL 0x0C
+#define ATTR_CLK_RUN_MS 0x10
+#define ATTR_CLK_RUN_CS 0x11
+#define ATTR_CLK_RUN_DS 0x12
+#define ATTR_CLK_RUN_S 0x13
+
+// long ria_attr_get(uint8_t attr_id);
+bool attr_api_get(void)
+{
+    switch (API_A)
+    {
+    case ATTR_ERRNO_OPT:
+        return api_return_axsreg(api_get_errno_opt());
+    case ATTR_PHI2_KHZ:
+        return api_return_axsreg(cpu_get_phi2_khz_run());
+    case ATTR_CODE_PAGE:
+        return api_return_axsreg(oem_get_code_page_run());
+    case ATTR_RLN_LENGTH:
+        return api_return_axsreg(rln_get_max_length());
+    case ATTR_LRAND:
+        return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+    case ATTR_BEL:
+        return api_return_axsreg(com_get_bel());
+    case ATTR_LAUNCHER:
+        return api_return_axsreg(proc_has_launcher());
+    case ATTR_EXIT_CODE:
+        return api_return_axsreg((uint16_t)proc_get_exit_code());
+    case ATTR_SIGINT:
+        return api_return_axsreg(ria_get_sigint());
+    case ATTR_RLN_CAPS:
+        return api_return_axsreg(rln_get_caps());
+    case ATTR_RLN_WIDTH:
+        return api_return_axsreg(rln_get_term_width());
+    case ATTR_RLN_HEIGHT:
+        return api_return_axsreg(rln_get_term_height());
+    case ATTR_RLN_SUPPRESS_NL:
+        return api_return_axsreg(rln_get_suppress_nl());
+    case ATTR_CLK_RUN_MS:
+        return api_return_axsreg(clk_get_run(1000) & 0x7FFFFFFF);
+    case ATTR_CLK_RUN_CS:
+        return api_return_axsreg(clk_get_run(10000) & 0x7FFFFFFF);
+    case ATTR_CLK_RUN_DS:
+        return api_return_axsreg(clk_get_run(100000) & 0x7FFFFFFF);
+    case ATTR_CLK_RUN_S:
+        return api_return_axsreg(clk_get_run(1000000) & 0x7FFFFFFF);
+    default:
+        return api_return_errno(API_EINVAL);
+    }
+}
+
+// int ria_attr_set(uint32_t attr, uint8_t attr_id);
+bool attr_api_set(void)
+{
+    uint32_t value;
+    if (!api_pop_uint32_end(&value))
+        return api_return_errno(API_EINVAL);
+    if (value > 0x7FFFFFFF)
+        return api_return_errno(API_EINVAL);
+    switch (API_A)
+    {
+    case ATTR_ERRNO_OPT:
+        if (value > UINT8_MAX || !api_set_errno_opt((uint8_t)value))
+            return api_return_errno(API_EINVAL);
+        break;
+    case ATTR_PHI2_KHZ:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
+        cpu_set_phi2_khz_run((uint16_t)value);
+        break;
+    case ATTR_CODE_PAGE:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
+        oem_set_code_page_run((uint16_t)value);
+        break;
+    case ATTR_RLN_LENGTH:
+        if (value > UINT8_MAX)
+            return api_return_errno(API_EINVAL);
+        rln_set_max_length((uint8_t)value);
+        break;
+    case ATTR_BEL:
+        if (value > 1)
+            return api_return_errno(API_EINVAL);
+        com_set_bel(value);
+        break;
+    case ATTR_LAUNCHER:
+        if (value > 1)
+            return api_return_errno(API_EINVAL);
+        proc_set_launcher(value);
+        break;
+    case ATTR_RLN_CAPS:
+        if (value > 2)
+            return api_return_errno(API_EINVAL);
+        rln_set_caps((uint8_t)value);
+        break;
+    case ATTR_RLN_WIDTH:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
+        rln_set_term_width((uint16_t)value);
+        break;
+    case ATTR_RLN_HEIGHT:
+        if (value > UINT16_MAX)
+            return api_return_errno(API_EINVAL);
+        rln_set_term_height((uint16_t)value);
+        break;
+    case ATTR_RLN_SUPPRESS_NL:
+        if (value > 1)
+            return api_return_errno(API_EINVAL);
+        rln_set_suppress_nl((uint8_t)value);
+        break;
+    case ATTR_LRAND:      // Read only
+    case ATTR_EXIT_CODE:  // Read only
+    case ATTR_SIGINT:     // Read only
+    case ATTR_CLK_RUN_MS: // Read only
+    case ATTR_CLK_RUN_CS: // Read only
+    case ATTR_CLK_RUN_DS: // Read only
+    case ATTR_CLK_RUN_S:  // Read only
+    default:
+        return api_return_errno(API_EINVAL);
+    }
+    return api_return_ax(0);
+}
+
+/*
+ * Legacy single-purpose handlers (opcodes 0x02-0x06).
+ * Still dispatched from main.c; also reachable via the unified attribute API.
+ */
+
+// int phi2(void) - set/get CPU clock
+bool attr_api_phi2(void)
+{
+    return api_return_ax(cpu_get_phi2_khz_run());
+}
+
+// int codepage(unsigned cp) - set/get OEM code page
+bool attr_api_code_page(void)
+{
+    uint16_t cp = API_AX;
+    if (cp)
+        oem_set_code_page_run(cp);
+    return api_return_ax(oem_get_code_page_run());
+}
+
+// long lrand(void) - get random number
+bool attr_api_lrand(void)
+{
+    return api_return_axsreg(host_rand_64() & 0x7FFFFFFF);
+}
+
+// int errno_opt(unsigned char opt) - set errno mapping
+bool attr_api_errno_opt(void)
+{
+    uint8_t opt = API_A;
+    if (!api_set_errno_opt(opt))
+        return api_return_errno(API_EINVAL);
+    return api_return_ax(0);
+}

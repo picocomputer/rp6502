@@ -9,17 +9,14 @@
  *     from MSC0:, but never the cwd and never enumerated or stat'd.
  *   - the native MSC0: (no chroot): a relative path resolves the process cwd,
  *     absolute MSC0:/ is the OS root, and ".." walks the real tree.
- *   - the ephemeral RAM disk: MSC0: backed by a fresh RAM FatFs (the shared
- *     core/api/fat.c driver), swapped in as the active dir vtable + file driver.
  */
 
+#include "core/api/dir.h"
 #include "core/api/std.h"
-#include "core/emu/emu/rom.h"
-#include "core/emu/emu/msc.h"
-#include "core/fs.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/emu/tmp.h"
-#include "fatfs/ff.h"
+#include "core/sys/rom.h"
+#include "core/sys/msc.h"
+#include "host/fs.h"
+#include "core/mem/mem.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"
@@ -125,26 +122,26 @@ UTEST(drive, install_null_drive_has_no_cwd_dir_stat)
     ASSERT_TRUE(rom_install(TEST_FIXTURE)); /* ":adventure.rp6502" */
 
     dsys_path(":adventure.rp6502");
-    msc_api_stat();
+    dir_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":");
-    msc_api_opendir();
+    dir_api_opendir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":"); /* not a cwd-able drive */
-    msc_api_chdrive();
+    dir_api_chdrive();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":adventure.rp6502");
-    msc_api_unlink();
+    dir_api_unlink();
     ASSERT_EQ(dsys_ax(), -1);
     dsys_path(":sub");
-    msc_api_mkdir();
+    dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), -1);
     /* "MSC0::name" must not alias the null drive onto a host path either. */
     dsys_path("MSC0::adventure.rp6502");
-    msc_api_stat();
+    dir_api_stat();
     ASSERT_EQ(dsys_ax(), -1);
 }
 
@@ -155,7 +152,7 @@ UTEST(drive, mount_transparent_no_chroot)
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
     char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
     ASSERT_STREQ(cwd, expect);
@@ -173,12 +170,12 @@ UTEST(drive, mount_transparent_no_chroot)
 
     /* chdir into a subdir; getcwd tracks the native cwd. */
     dsys_path("sub");
-    msc_api_mkdir();
+    dir_api_mkdir();
     ASSERT_EQ(dsys_ax(), 0);
     dsys_path("sub");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "/sub");
     ASSERT_STREQ(cwd, expect);
@@ -186,56 +183,18 @@ UTEST(drive, mount_transparent_no_chroot)
     /* ".." climbs back to the launch dir, then ABOVE it — no confinement (the
      * old --drive-root chroot would have refused this with EACCES). */
     dsys_path("..");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "");
     ASSERT_STREQ(cwd, expect);
     dsys_path("..");
-    msc_api_chdir();
+    dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    msc_api_getcwd();
+    dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     ASSERT_STRNE(cwd, expect); /* now above the launch dir */
-}
-
-/* A RAM FatFs backs MSC0:: mount swaps the 6502 file
- * syscalls to the shared fat_std_* driver and the dir syscalls to the firmware's
- * fat_api_* (via the OP array), all over the RAM disk. We inspect the volume with
- * FatFs f_* directly and round-trip a file through the std_* file driver. */
-UTEST(drive, ramfs_is_fresh)
-{
-    std_stop();
-    ASSERT_TRUE(tmp_mount());
-    ASSERT_TRUE(tmp_active()); /* the 6502 syscalls now route to the RAM FatFs */
-
-    /* getcwd reports the FatFs volume root, not a host path. */
-    char cwd[64];
-    ASSERT_EQ(f_getcwd(cwd, sizeof(cwd)), FR_OK);
-    ASSERT_EQ(strncmp(cwd, "MSC0:", 5), 0);
-
-    /* Empty to start: the file is not there yet. */
-    FILINFO info;
-    ASSERT_EQ(f_stat("scratch.dat", &info), FR_NO_FILE);
-
-    /* Write via the FatFs file driver (std_* -> fat_std_* on the RAM disk) ... */
-    make_file("scratch.dat", "tmp", 3);
-
-    /* ... and it lands on the RAM FatFs. */
-    ASSERT_EQ(f_stat("scratch.dat", &info), FR_OK);
-    ASSERT_EQ(info.fsize, 3u);
-
-    /* Read it back through the file driver. */
-    int f = ssys_open("scratch.dat", O_RD);
-    ASSERT_TRUE(f >= 0);
-    char buf[8] = {0};
-    ASSERT_EQ(ssys_read(f, buf, 8), 3);
-    ASSERT_STREQ(buf, "tmp");
-    ssys_close(f);
-
-    /* Deactivate the FatFs backend so later tests use the host filesystem. */
-    tmp_unmount();
 }
 
 /* Data transfers are non-blocking: the driver returns STD_PENDING until the transfer

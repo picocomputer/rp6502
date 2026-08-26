@@ -6,7 +6,7 @@
 # Enough 65C02 to write the programs the generators are for.
 #
 # The instruction set is not typed out here. It is derived from
-# vendor/chips/codegen/w65c02_gen.py, the same table src/gen/w65c02_rom_gen.py
+# vendor/chips/codegen/w65c02_gen.py, the same table src/core/gen/w65c02_rom_gen.py
 # reads to build the RTL's decode ROM and the same one the C emulation is
 # generated from. Three implementations of this processor already agree about
 # which opcode is which because they read one table; an assembler that retyped

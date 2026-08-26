@@ -26,7 +26,7 @@ extern "C"
 {
 /* The emulator's tables, as reference data. Its header carries no linkage
  * guard of its own; every other consumer is C. */
-#include "core/emu/main.h"
+#include "core/sys/main.h"
 }
 #include "tb_asm.h"
 #include "tb_machine.h"

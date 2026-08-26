@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The pocket port of the .rp6502 loader, from emu/emu/rom.c. The
+ * The pocket port of the .rp6502 loader, from core/sys/rom.c. The
  * emulator streams from a host file; here the whole image is resident in
  * the staging store. Same format, same rules: a load never writes
  * $FF00-$FFF9, the $FFFA-$FFFF vectors land in the register cells with
@@ -14,8 +14,12 @@
 #include "font.h"
 #include "mmio.h"
 #include "rom.h"
+#include "core/sys/rom_rec.h"
+#include "core/sys/rom_win.h"
 
 #include "core/api/uni.h"
+#include "core/mem.h"
+#include "core/str/str.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -34,24 +38,6 @@ static uint8_t rom_byte(uint32_t at)
 }
 /* Where the asset directory starts, or 0 for an image without one. */
 static uint32_t rom_assets;
-
-/* CRC-32/ISO-HDLC a nibble at a time; the image is checked byte by byte
- * as it lands, so this is the loader's inner loop. Reflected polynomial,
- * low nibble first: t[i] is 0xEDB88320 folded through i four times. */
-static const uint32_t rom_crc_nibble[16] = {
-    0x00000000u, 0x1DB71064u, 0x3B6E20C8u, 0x26D930ACu,
-    0x76DC4190u, 0x6B6B51F4u, 0x4DB26158u, 0x5005713Cu,
-    0xEDB88320u, 0xF00F9344u, 0xD6D6A3E8u, 0xCB61B38Cu,
-    0x9B64C2B0u, 0x86D3D2D4u, 0xA00AE278u, 0xBDBDF21Cu,
-};
-
-static uint32_t rom_crc32(uint32_t crc, uint8_t byte)
-{
-    crc ^= byte;
-    crc = (crc >> 4) ^ rom_crc_nibble[crc & 0x0F];
-    crc = (crc >> 4) ^ rom_crc_nibble[crc & 0x0F];
-    return crc;
-}
 
 /* One text line, NUL-terminated, CR/LF stripped, capped; length or -1 at
  * end with nothing read. The position is left at the first byte after the
@@ -74,51 +60,6 @@ static long rom_gets(char *line, size_t cap)
     return (long)i;
 }
 
-static bool parse_u32(const char **pp, uint32_t *out)
-{
-    const char *p = *pp;
-    while (*p == ' ' || *p == '\t')
-        p++;
-    uint32_t v = 0;
-    int n = 0;
-    bool hex = false;
-    if (*p == '$')
-    {
-        hex = true;
-        p++;
-    }
-    else if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
-    {
-        hex = true;
-        p += 2;
-    }
-    if (hex)
-        while (isxdigit((unsigned char)*p))
-        {
-            char c = *p++;
-            int d = (c <= '9') ? c - '0' : (toupper((unsigned char)c) - 'A' + 10);
-            v = v * 16 + (uint32_t)d;
-            n++;
-        }
-    else
-        while (isdigit((unsigned char)*p))
-        {
-            v = v * 10 + (uint32_t)(*p++ - '0');
-            n++;
-        }
-    if (!n)
-        return false;
-    *pp = p;
-    *out = v;
-    return true;
-}
-
-static bool parse_end(const char *p)
-{
-    while (*p == ' ' || *p == '\t')
-        p++;
-    return *p == 0;
-}
 
 static int rom_strncasecmp(const char *a, const char *b, size_t n)
 {
@@ -152,7 +93,7 @@ bool rom_load_staged(uint32_t len)
     {
         const char *p = line + 2;
         uint32_t chunks_len, image_crc;
-        if (!parse_u32(&p, &chunks_len) || !parse_u32(&p, &image_crc))
+        if (!str_parse_uint32(&p, &chunks_len) || !str_parse_uint32(&p, &image_crc))
             return false;
         prog_end = rom_pos + chunks_len;
     }
@@ -160,23 +101,19 @@ bool rom_load_staged(uint32_t len)
         rom_pos = after_magic;
     rom_assets = prog_end < rom_end ? prog_end : 0;
 
-    bool reset_lo = false, reset_hi = false;
+    rom_rec_vectors_t vectors = {0};
     while (rom_pos < prog_end)
     {
         n = rom_gets(line, sizeof(line));
         if (n < 0)
             break;
-        if (n == 0 || line[0] == '#')
+        rom_rec_t rec;
+        rom_rec_result r = rom_rec_parse(line, 0, &rec);
+        if (r == ROM_REC_SKIP)
             continue;
-        const char *p = line;
-        uint32_t addr, reclen, crc;
-        if (!parse_u32(&p, &addr) || !parse_u32(&p, &reclen) ||
-            !parse_u32(&p, &crc) || !parse_end(p))
+        if (r != ROM_REC_OK)
             return false;
-        /* RAM below 0x10000, XRAM above, never straddling. */
-        if (addr > 0x1FFFF || reclen == 0 || reclen > 0x20000 - addr ||
-            (addr < 0x10000 && reclen > 0x10000 - addr))
-            return false;
+        const uint32_t addr = rec.addr, reclen = rec.len, crc = rec.crc;
         if (rom_end - rom_pos < reclen)
             return false;
         uint32_t c = 0xFFFFFFFFu;
@@ -184,7 +121,7 @@ bool rom_load_staged(uint32_t len)
         {
             uint32_t a = addr + i;
             uint8_t b = rom_byte(rom_pos++);
-            c = rom_crc32(c, b);
+            c = mem_crc32(c, &b, 1);
             if (a > 0xFFFF)
                 XRAM_WIN[a - 0x10000] = b;
             /* A load never writes the RIA window's low page; the vectors
@@ -196,13 +133,10 @@ bool rom_load_staged(uint32_t len)
         }
         if ((c ^ 0xFFFFFFFFu) != crc)
             return false;
-        if (addr <= 0xFFFC && addr + reclen > 0xFFFC)
-            reset_lo = true;
-        if (addr <= 0xFFFD && addr + reclen > 0xFFFD)
-            reset_hi = true;
+        rom_rec_note(&vectors, &rec);
     }
 
-    return reset_lo && reset_hi;
+    return rom_rec_complete(&vectors);
 }
 
 /* The ROM: drive: read-only windows onto assets in the staged image. An
@@ -214,11 +148,21 @@ bool rom_load_staged(uint32_t len)
  * follows it. */
 #define ROM_OPEN_MAX 16
 
-static struct
+static rom_win_t rom_slots[ROM_OPEN_MAX];
+
+/* The whole image is already in the staging store, a byte at a time through
+ * a window that cannot fetch anything wider. */
+static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
+                               uint32_t count, uint32_t *got, api_errno *err)
 {
-    bool used;
-    uint32_t base, len, pos;
-} rom_win_pool[ROM_OPEN_MAX];
+    (void)w, (void)err;
+    for (uint32_t i = 0; i < count; i++)
+        buf[i] = (char)rom_byte(at + i);
+    *got = count;
+    return STD_OK;
+}
+
+static const rom_win_pool_t rom_pool = {rom_slots, ROM_OPEN_MAX, rom_fetch};
 
 static bool rom_path_is_rom(const char *path, const char **rest)
 {
@@ -257,7 +201,7 @@ static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
             return false;
         const char *p = line + 2;
         uint32_t alen, acrc;
-        if (!parse_u32(&p, &alen) || !parse_u32(&p, &acrc))
+        if (!str_parse_uint32(&p, &alen) || !str_parse_uint32(&p, &acrc))
             return false;
         while (*p == ' ' || *p == '\t')
             p++;
@@ -300,78 +244,29 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    for (int d = 0; d < ROM_OPEN_MAX; d++)
-        if (!rom_win_pool[d].used)
-        {
-            rom_win_pool[d].used = true;
-            rom_win_pool[d].base = base;
-            rom_win_pool[d].len = len;
-            rom_win_pool[d].pos = 0;
-            return d;
-        }
-    *err = API_EMFILE;
-    return -1;
-}
-
-static int rom_win(int desc)
-{
-    if (desc < 0 || desc >= ROM_OPEN_MAX || !rom_win_pool[desc].used)
-        return -1;
-    return desc;
+    return rom_win_alloc(&rom_pool, base, len, -1, err);
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    if (rom_win(desc) < 0)
+    rom_win_t *w = rom_win_get(&rom_pool, desc);
+    if (!w)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-    rom_win_pool[desc].used = false;
+    w->used = false;
     return STD_OK;
 }
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *got, api_errno *err)
 {
-    if (rom_win(desc) < 0)
-    {
-        *got = 0;
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    uint32_t pos = rom_win_pool[desc].pos, len = rom_win_pool[desc].len;
-    uint32_t avail = pos < len ? len - pos : 0;
-    uint32_t want = count < avail ? count : avail;
-    uint32_t at = rom_win_pool[desc].base + pos;
-    for (uint32_t i = 0; i < want; i++)
-        buf[i] = (char)rom_byte(at + i);
-    rom_win_pool[desc].pos = pos + want;
-    *got = want; /* short or zero at the window's end, which is EOF */
-    return STD_OK;
+    return rom_win_read(&rom_pool, desc, buf, count, got, err);
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err)
 {
-    if (rom_win(desc) < 0)
-    {
-        *err = API_EBADF;
-        return -1;
-    }
-    int32_t from = whence == SEEK_SET   ? 0
-                   : whence == SEEK_CUR ? (int32_t)rom_win_pool[desc].pos
-                   : whence == SEEK_END ? (int32_t)rom_win_pool[desc].len
-                                        : -1;
-    if (from < 0 || from + off < 0)
-    {
-        *err = API_EINVAL;
-        return -1;
-    }
-    int32_t np = from + off;
-    if ((uint32_t)np > rom_win_pool[desc].len)
-        np = (int32_t)rom_win_pool[desc].len;
-    rom_win_pool[desc].pos = (uint32_t)np;
-    *pos = np;
-    return 0;
+    return rom_win_lseek(&rom_pool, desc, whence, off, pos, err);
 }

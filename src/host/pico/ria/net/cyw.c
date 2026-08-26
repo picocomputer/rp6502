@@ -14,7 +14,7 @@ void cyw_task(void) {}
 #include "ria/ble/ble.h"
 #include "ria/mon/mon.h"
 #include "ria/net/cyw.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
@@ -123,9 +123,9 @@ static int cyw_lookup_country(const char *cc)
 
 static void cyw_reset_radio(void)
 {
-    // ble_shutdown calls main_task which can restart wfi early
+    // ble_shutdown calls main_task which can restart wifi early
     ble_shutdown(); // must be first
-    wfi_shutdown(); // must be second
+    wifi_shutdown(); // must be second
     cyw43_arch_deinit();
     cyw_init();
 }
@@ -190,8 +190,8 @@ bool cyw_set_rf_enable(uint8_t rf)
     {
         cyw_rf_enable = rf;
         cyw_reset_radio();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 
@@ -214,8 +214,8 @@ bool cyw_set_rf_country_code(const char *rfcc)
     {
         cyw_country = country;
         cyw_reset_radio();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 

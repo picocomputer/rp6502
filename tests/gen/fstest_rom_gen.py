@@ -31,7 +31,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import rp6502_scr  # noqa: E402
+import rp6502_script  # noqa: E402
 from rp6502_asm import (API_A, OP_CHDIR, OP_CHDRIVE, OP_CLOSE, OP_GETCWD,
                         OP_GMTIME, OP_LOCALTIME, OP_LSEEK, OP_OPEN,
                         OP_READ_XSTACK, OP_SYNCFS, OP_TIME_GET,
@@ -742,7 +742,7 @@ def drive(emu, rom):
         if PLATFORM:
             e.cmd(f'peek ${FAILS:04X} '
                   + " ".join(f"${i:02X}" for i in PLATFORM))
-    return rp6502_scr.drive(emu, rom, body, env={"TZ": TZ})
+    return rp6502_script.drive(emu, rom, body, env={"TZ": TZ})
 
 
 def main():

@@ -13,7 +13,7 @@
 # RP6502_SOFT_CPU  the RISC-V toolchain is present, so anything that needs a
 #                  booted soft CPU can be registered.
 
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.21)
 
 project(rp6502-rtl C CXX)
 
@@ -39,9 +39,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 
-get_filename_component(RP6502_SRC ${CMAKE_CURRENT_LIST_DIR}/../../src ABSOLUTE)
-get_filename_component(RP6502_ROOT ${CMAKE_CURRENT_LIST_DIR}/../.. ABSOLUTE)
-get_filename_component(RP6502_VENDOR ${RP6502_ROOT}/vendor ABSOLUTE)
+cmake_path(SET RP6502_ROOT NORMALIZE ${CMAKE_CURRENT_LIST_DIR}/../..)
+set(RP6502_SRC ${RP6502_ROOT}/src)
+set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
@@ -63,14 +63,14 @@ include(${RP6502_SRC}/core/machine.cmake)
 if(WIN32)
     message(FATAL_ERROR
         "the verilated machine needs a POSIX host; "
-        "the C suites are in src/host/win's tree")
+        "the C suites are in src/mach/emu's tree")
 elseif(APPLE)
     set(RP6502_HOST ${RP6502_SRC}/host/macos)
 else()
     set(RP6502_HOST ${RP6502_SRC}/host/linux)
 endif()
-include(${RP6502_SRC}/core/emu/emu.cmake)
-include(${RP6502_SRC}/core/posix/posix.cmake)
+include(${RP6502_SRC}/core/emu.cmake)
+include(${RP6502_SRC}/host/posix/posix.cmake)
 target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
@@ -92,38 +92,3 @@ add_subdirectory(ria)
 add_subdirectory(rv)
 add_subdirectory(wdc)
 add_subdirectory(${RP6502_ROOT}/tests/host/pocket host/pocket)
-
-# What the simulation is made from, last because the subdirectories above are
-# what fill it. Every part of it is something that already knew: the machine
-# and its firmware are lists here, the emulator's sources are its own, every
-# test arrives through rp6502_add_test and every generated asset through
-# rp6502_machine_asset. Only the benches are swept, because they are headers
-# on an include path and no target lists those — the way machine.cmake sweeps
-# the firmware's for its own DEPENDS.
-#
-# tests/cpu is in the list too: its corpora, its DUTs and its fixtures are
-# compiled here, so a change to any of them is a change to the simulation, and
-# the file that decides it has to be named where it lives. Its headers are
-# swept for the same reason the benches are — a suite's program builder is a
-# header two tests include, and no target lists one.
-get_property(TEST_INPUTS GLOBAL PROPERTY RP6502_TEST_INPUTS)
-get_property(ASSET_INPUTS GLOBAL PROPERTY RP6502_ASSET_INPUTS)
-get_property(RP6502_SUBMODULES GLOBAL PROPERTY RP6502_SUBMODULES)
-get_target_property(EMU_INPUTS emu_core SOURCES)
-file(GLOB BENCH_INPUTS ${RP6502_ROOT}/tests/bench/*)
-file(GLOB_RECURSE SUITE_HEADERS CONFIGURE_DEPENDS ${RP6502_ROOT}/tests/*.h)
-rp6502_inputs(sim-inputs.txt
-    ${RP6502_MACHINE_SOURCES} ${SW_SOURCES} ${SW_HEADERS} ${SW_SRC}/link.ld
-    ${TEST_INPUTS} ${ASSET_INPUTS} ${EMU_INPUTS} ${BENCH_INPUTS}
-    ${SUITE_HEADERS}
-    # hazard3 is reached off verilator's -y and sokol carries the harness,
-    # so neither names a file any target lists; a bump of any of them
-    # reaches a diff only as its gitlink.
-    ${RP6502_SUBMODULES}
-    ${CMAKE_CURRENT_LIST_FILE}
-    ${CMAKE_CURRENT_LIST_DIR}/rp6502_verilate.cmake
-    ${RP6502_SRC}/core/machine.cmake
-    ${RP6502_SRC}/core/assets.cmake
-    ${RP6502_SRC}/core/emu/emu.cmake
-    ${RP6502_SRC}/core/posix/posix.cmake
-    ${RP6502_ROOT}/tests/rp6502_tests.cmake)

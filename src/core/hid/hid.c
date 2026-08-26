@@ -6,10 +6,10 @@
 
 #include <string.h>
 #include "core/hid/hid.h"
-#include "core/hid/kbd.h"
-#include "core/hid/mou.h"
-#include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/mouse.h"
+#include "core/hid/gamepad.h"
+#include "core/hid/tablet.h"
 #include "host.h"
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
@@ -115,10 +115,10 @@ uint8_t hid_slot_claims(int slot)
     return (slot >= 0 && slot < HID_MAX_SLOTS) ? hid_claims[slot] : 0;
 }
 
-int HOST_IN_FLASH("hid_mount") hid_mount(const kbd_connection_t *kbd,
-                                      const mou_connection_t *mou,
-                                      const tab_connection_t *tab,
-                                      const pad_connection_t *pad,
+int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
+                                         const mouse_connection_t *mouse,
+                                      const tablet_connection_t *tablet,
+                                      const gamepad_connection_t *gamepad,
                                       uint16_t vendor_id, uint16_t product_id,
                                       uint8_t button_type)
 {
@@ -133,13 +133,13 @@ int HOST_IN_FLASH("hid_mount") hid_mount(const kbd_connection_t *kbd,
         return -1;
 
     uint8_t claims = 0;
-    if (kbd && kbd_mount(slot, kbd, vendor_id, product_id))
-        claims |= HID_CLAIM_KBD;
-    if (mou && mou_mount(slot, mou))
-        claims |= HID_CLAIM_MOU;
-    if (tab && tab_mount(slot, tab))
-        claims |= HID_CLAIM_TAB;
-    if (pad && pad_mount(slot, pad, vendor_id, product_id, button_type))
+    if (keyboard && keyboard_mount(slot, keyboard, vendor_id, product_id))
+        claims |= HID_CLAIM_KEYBOARD;
+    if (mouse && mouse_mount(slot, mouse))
+        claims |= HID_CLAIM_MOUSE;
+    if (tablet && tablet_mount(slot, tablet))
+        claims |= HID_CLAIM_TABLET;
+    if (gamepad && gamepad_mount(slot, gamepad, vendor_id, product_id, button_type))
         claims |= HID_CLAIM_PAD;
 
     hid_claims[slot] = claims;
@@ -151,14 +151,14 @@ void hid_report(int slot, const uint8_t *data, uint16_t len)
     if (slot < 0 || slot >= HID_MAX_SLOTS)
         return;
     uint8_t claims = hid_claims[slot];
-    if (claims & HID_CLAIM_KBD)
-        kbd_report(slot, data, len);
-    if (claims & HID_CLAIM_MOU)
-        mou_report(slot, data, len);
-    if (claims & HID_CLAIM_TAB)
-        tab_report(slot, data, len);
+    if (claims & HID_CLAIM_KEYBOARD)
+        keyboard_report(slot, data, len);
+    if (claims & HID_CLAIM_MOUSE)
+        mouse_report(slot, data, len);
+    if (claims & HID_CLAIM_TABLET)
+        tablet_report(slot, data, len);
     if (claims & HID_CLAIM_PAD)
-        pad_report(slot, data, len);
+        gamepad_report(slot, data, len);
 }
 
 void hid_umount(int slot)
@@ -166,13 +166,13 @@ void hid_umount(int slot)
     if (slot < 0 || slot >= HID_MAX_SLOTS)
         return;
     uint8_t claims = hid_claims[slot];
-    if (claims & HID_CLAIM_KBD)
-        kbd_umount(slot);
-    if (claims & HID_CLAIM_MOU)
-        mou_umount(slot);
-    if (claims & HID_CLAIM_TAB)
-        tab_umount(slot);
+    if (claims & HID_CLAIM_KEYBOARD)
+        keyboard_umount(slot);
+    if (claims & HID_CLAIM_MOUSE)
+        mouse_umount(slot);
+    if (claims & HID_CLAIM_TABLET)
+        tablet_umount(slot);
     if (claims & HID_CLAIM_PAD)
-        pad_umount(slot);
+        gamepad_umount(slot);
     hid_claims[slot] = 0;
 }

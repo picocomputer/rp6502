@@ -73,10 +73,6 @@ if(RP6502_HAVE_SSTESTS)
         COMMENT "Encoding SingleStepTests vectors (${SSVEC_COUNT}/opcode)"
         VERBATIM)
     add_custom_target(cpu_vectors DEPENDS ${VECTORS})
-    # The encoder decides what the corpus is, so a change to it is a change to
-    # what both CPUs are held to.
-    set_property(GLOBAL APPEND PROPERTY RP6502_TEST_INPUTS
-        ${CMAKE_CURRENT_LIST_DIR}/ssvec.py)
 
     rp6502_add_cpu_test(vectors
         SOURCES test_vectors.c vec.c
@@ -117,7 +113,7 @@ rp6502_add_test(w65c02_chips
 
 # --- The VIA, directed cases and recorded traces ---
 # T1/T2 timers and their interrupts are live machine features; see
-# emu/emu/via.c for the wiring both implementations are driven through.
+# core/wdc/via.c for the wiring both implementations are driven through.
 rp6502_add_via_test(w65c22
     SOURCES test_w65c22.c w65c22_scen.c
     DEFS W65C22_GOLDEN="${CMAKE_CURRENT_LIST_DIR}/w65c22_golden.txt")

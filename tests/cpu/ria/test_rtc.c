@@ -14,9 +14,9 @@
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
-#include "core/emu/sys/com.h"
-#include "core/emu/sys/mem.h"
-#include "core/emu/sys/cpu.h"
+#include "core/com/com.h"
+#include "core/mem/mem.h"
+#include "core/wdc/cpu.h"
 #include "tb_hostos.h"
 #include "emu_boot.h"
 #include <stdlib.h>
@@ -146,6 +146,7 @@ UTEST(rtc, stop_reverts_run_code_page)
     oem_set_code_page_run(guest); /* a guest program changed the run page */
     ASSERT_EQ(oem_get_code_page_run(), guest);
     main_stop();
+    main_commit();
     ASSERT_EQ(oem_get_code_page_run(), resolved);
 }
 

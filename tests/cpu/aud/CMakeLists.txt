@@ -8,7 +8,7 @@
 # ruler. Measures the filter rather than asserting it, so a change that
 # quietly makes it worse fails here instead of on someone's headphones. ---
 rp6502_add_test(rsmp
-    SOURCES test_rsmp.c ${RP6502_SRC}/core/emu/emu/rsmp.c
+    SOURCES test_rsmp.c ${RP6502_SRC}/core/aud/rsmp.c
     INCLUDES ${RP6502_SRC} ${RSMP_COEF_DIR})
 add_dependencies(test_rsmp rsmp_coef)
 if(NOT WIN32)

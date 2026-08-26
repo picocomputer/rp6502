@@ -1,0 +1,31 @@
+# Software Information
+display_name = "Picocomputer 6502"
+authors = "Rumbledethumps"
+supported_extensions = "rp6502"
+corename = "Picocomputer 6502"
+categories = "Emulator"
+license = "BSD-3-Clause"
+permissions = ""
+display_version = "@RP6502_INFO_VERSION@"
+
+# Hardware Information
+manufacturer = "Rumbledethumps"
+systemname = "Picocomputer 6502"
+systemid = "rp6502"
+
+# Libretro Features
+supports_no_game = "false"
+savestate = "false"
+savestate_features = "null"
+cheats = "false"
+input_descriptors = "true"
+memory_descriptors = "false"
+libretro_saves = "false"
+core_options = "true"
+load_subsystem = "false"
+hw_render = "false"
+needs_fullpath = "true"
+disk_control = "false"
+is_experimental = "false"
+
+description = "The Picocomputer 6502, a modern-retro computer built around a WDC 65C02. This core runs the same programs, distributed as .rp6502 files, that the hardware and the desktop emulators run. Programs may use the keyboard, a mouse, and up to four gamepads. Find software on itch.io under the RP6502 tag."

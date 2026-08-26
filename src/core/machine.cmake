@@ -12,35 +12,6 @@
 # names it in the stage_map gate.
 set(RP6502_HOST_POCKET ${RP6502_SRC}/host/pocket/core)
 
-# rp6502_inputs(<name> <file>...)
-#
-# Writes inputs/<name>, one repository-relative path per line, for a build that
-# is not this one. CI decides whether a job is owed before it has a tree to ask,
-# and the only thing that knows what a job reads is the code that reads it. A
-# workflow keeping its own list of directories is a second copy of these
-# DEPENDS, and was one: a glob woke the fit for the Pocket's firmware, which
-# costs an assemble, and never woke it for the two Pico firmwares, of which it
-# compiles about twenty of a hundred and thirty.
-#
-# Relative and sorted so the answer does not depend on where the tree sits or
-# what order a list was built in. Anything inside the build directory is
-# dropped: a generated file cannot appear in a diff, and what actually decides
-# one is its generator, which is named instead.
-function(rp6502_inputs name)
-    set(_rel "")
-    foreach(_f IN LISTS ARGN)
-        string(FIND ${_f} ${CMAKE_BINARY_DIR} _in_build)
-        if(NOT _in_build EQUAL 0)
-            file(RELATIVE_PATH _r ${RP6502_ROOT} ${_f})
-            list(APPEND _rel ${_r})
-        endif()
-    endforeach()
-    list(SORT _rel)
-    list(REMOVE_DUPLICATES _rel)
-    string(REPLACE ";" "\n" _text "${_rel}")
-    file(GENERATE OUTPUT ${CMAKE_BINARY_DIR}/inputs/${name} CONTENT "${_text}\n")
-endfunction()
-
 include(${CMAKE_CURRENT_LIST_DIR}/assets.cmake)
 
 # The OPL2 is vendored under LGPL-3.0 and credited in the Pocket
@@ -133,8 +104,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     # CONFIGURE_DEPENDS because a plain GLOB is evaluated once: a new header
     # would go untracked, and a deleted one leaves ninja demanding a file no
     # rule can produce.
+    # The .def files are headers by another name: this image compiles
+    # core/str/str.c, which includes core/def/str_sys.def, so editing one has
+    # to relink sw.bin. Only this build needs saying -- the RIA and the
+    # emulator get it from gcc depfiles.
     file(GLOB_RECURSE SW_HEADERS CONFIGURE_DEPENDS
         ${RP6502_SRC}/core/*.h
+        ${RP6502_SRC}/core/def/*.def
         ${RP6502_SRC}/host/pocket/*.h
         ${RP6502_SRC}/host/pico/ria/*.h
         ${RP6502_SRC}/host/pico/vga/*.h)
@@ -142,31 +118,45 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
-        ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
-        ${SW_SRC}/kbl.c ${SW_SRC}/log.c ${SW_SRC}/mem.c
-        ${SW_SRC}/msc.c ${SW_SRC}/pix.c
-        ${SW_SRC}/pro.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
+        ${SW_SRC}/layout.c ${SW_SRC}/log.c ${SW_SRC}/mem.c
+        ${SW_SRC}/msc.c
+        ${SW_SRC}/proc.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
+        ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
+        ${RP6502_SRC}/core/sys/pix.c
+        ${RP6502_SRC}/core/sys/rom_rec.c
+        ${RP6502_SRC}/core/sys/rom_win.c
+        ${RP6502_SRC}/core/sys/main_xreg_0.c
+        ${RP6502_SRC}/core/sys/main_xreg_1.c
+        ${RP6502_SRC}/core/rand.c
+        ${RP6502_SRC}/core/main.c
         ${RP6502_SRC}/core/api/api.c
         ${RP6502_SRC}/core/api/arg.c
+        ${RP6502_SRC}/core/api/attr.c
+        ${RP6502_SRC}/core/api/proc.c
         ${RP6502_SRC}/core/api/clk.c
         ${RP6502_SRC}/core/api/std.c
+        ${RP6502_SRC}/core/api/dir.c
+        ${RP6502_SRC}/core/api/ops.c
         ${RP6502_SRC}/core/api/uni.c
         # The real HID drivers, told by apf.c what the dock holds. No
         # descriptor ever reaches this machine, so core/hid/parse.c is
-        # not here. The layouts are an asset, so kbl.c reads them rather
+        # not here. The layouts are an asset, so layout.c reads them rather
         # than linking twenty kilobytes of table into a 96 KB memory.
+        ${RP6502_SRC}/core/hid/vt.c
         ${RP6502_SRC}/core/hid/hid.c
-        ${RP6502_SRC}/core/hid/kbd.c
-        ${RP6502_SRC}/core/hid/kbl.c
-        ${RP6502_SRC}/core/hid/kbt.c
-        ${RP6502_SRC}/core/hid/mou.c
-        ${RP6502_SRC}/core/hid/pad.c
-        ${RP6502_SRC}/core/hid/tab.c
+        ${RP6502_SRC}/core/hid/keyboard.c
+        ${RP6502_SRC}/core/hid/layout.c
+        ${RP6502_SRC}/core/hid/keymap.c
+        ${RP6502_SRC}/core/hid/mouse.c
+        ${RP6502_SRC}/core/hid/gamepad.c
+        ${RP6502_SRC}/core/hid/tablet.c
         ${RP6502_SRC}/core/str/rln.c
         ${RP6502_SRC}/core/str/str.c
+        ${RP6502_SRC}/core/vga/canvas.c
+        ${RP6502_SRC}/core/vga/mode.c
         ${RP6502_SRC}/core/vga/mode1.c
         ${RP6502_SRC}/core/vga/mode2.c
         ${RP6502_SRC}/core/vga/mode3.c

@@ -43,7 +43,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
-#include "pro.h"
+#include "proc.h"
 #include "rom.h"
 #include "vga.h"
 #include "vid.h"
@@ -69,7 +69,7 @@ static void sst_log_restore(uint32_t ctl)
     LOG_SAY("sst: restore ctl=%02x mtime=%u:%u\n", (unsigned)(ctl & 0xFFu),
            (unsigned)(us >> 32), (unsigned)us);
     LOG_SAY("sst: canvas=%u vsync=%u prog=%08x page=%u\n",
-           (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
+            (unsigned)vga_get_canvas(), (unsigned)vga_vsync_scanline(),
            (unsigned)vid_prog_word_get(), (unsigned)font_get_code_page());
     LOG_SAY("sst: slot=%u upd=%u boot=%u/%u/%u\n", (unsigned)MMIO_SLOT,
            (unsigned)(MMIO_UPD_N & 0xFFu), (unsigned)main_boot_wake,
@@ -156,7 +156,7 @@ void sst_task(void)
          * Relative against absolute: msc_stage_rom opens under the
          * assets folder, so the host spells back what this side asked
          * for with that in front. */
-        const char *want = pro_staged_path();
+        const char *want = proc_staged_path();
         char bound[128];
         uint32_t len = 0;
         bool same = false;

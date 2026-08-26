@@ -6,13 +6,14 @@
 
 #include "core/api/oem.h"
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
-#include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/keymap.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/com.h"
@@ -22,6 +23,9 @@
 #include "ria/sys/vga.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
+
+#include <stdarg.h> /* before pico/printf.h, which uses va_list without it */
+#include <pico/printf.h>
 
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
 #include <stdio.h>
@@ -53,6 +57,93 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
+/* Every setting, rendered. Called twice: once against the file to find out
+ * whether anything actually changed, once to write it if something did. */
+struct cfg_sink
+{
+    lfs_file_t *file;
+    int error;
+    bool compare; /* reading the file alongside, not writing it */
+    bool differs;
+};
+
+static void cfg_sink_cb(char character, void *arg)
+{
+    struct cfg_sink *sink = arg;
+    if (sink->error < 0)
+        return;
+    if (sink->compare)
+    {
+        char have;
+        if (sink->differs)
+            return;
+        if (lfs_file_read(&lfs_volume, sink->file, &have, 1) != 1 ||
+            have != character)
+            sink->differs = true;
+        return;
+    }
+    lfs_ssize_t result = lfs_file_write(&lfs_volume, sink->file, &character, 1);
+    if (result < 0)
+        sink->error = (int)result;
+}
+
+/* Must stay a function, not a macro: the settings expand from a directive,
+ * and a directive among a function-like macro's arguments is undefined
+ * (C11 6.10.3p11). */
+static int cfg_printf(struct cfg_sink *sink, const char *format, ...)
+{
+    va_list va;
+    va_start(va, format);
+    // vfctprintf is Marco Paland's "Tiny printf" from the Pi Pico SDK
+    int result = vfctprintf(cfg_sink_cb, sink, format, va);
+    va_end(va);
+    return result;
+}
+
+static int cfg_emit(struct cfg_sink *sink, const char *opt_str)
+{
+    /* The format and the arguments are two expansions of one table. Legal
+     * because a directive is processed on lines, before adjacent string
+     * literals are joined -- but cfg_printf must stay a function, because a
+     * directive among a function-like macro's arguments is undefined
+     * (C11 6.10.3p11). */
+#define X(ltr, fmt, get, load, ...) "+" #ltr fmt "\n"
+#define XCFG(ltr, fmt, get, load) "+" #ltr fmt "\n"
+#define XMON(...)
+    return cfg_printf(sink,
+                      "+V%u\n"
+#include "ria/sys/cfg.def"
+                      "%s",
+#undef X
+#undef XCFG
+#undef XMON
+#define X(ltr, fmt, get, load, ...) get(),
+#define XCFG(ltr, fmt, get, load) get(),
+#define XMON(...)
+                      CFG_VERSION,
+#include "ria/sys/cfg.def"
+                      opt_str);
+#undef X
+#undef XCFG
+#undef XMON
+}
+
+/* Which loader a "+" line belongs to. An if-chain rather than a switch:
+ * stringizing a letter gives "P", and "P"[0] is not an integer constant
+ * expression, so it cannot be a case label. */
+static void cfg_load_line(char letter, const char *str)
+{
+#define X(ltr, fmt, get, load, ...) \
+    if (letter == #ltr[0])          \
+        return load(str);
+#define XCFG(ltr, fmt, get, load) X(ltr, fmt, get, load)
+#define XMON(...)
+#include "ria/sys/cfg.def"
+#undef X
+#undef XCFG
+#undef XMON
+}
+
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(const char *opt_str)
 {
@@ -75,52 +166,35 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                 break;
             mbuf[0] = 0;
         }
-        lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
-        mon_add_response_lfs(lfsresult);
     }
+    /* Read it back against what we would write. An unchanged config leaves the
+     * file untouched -- and untouched means no flash write at all, because
+     * opening RDWR|CREAT on an existing file does not mark it dirty and
+     * lfs_file_close then has nothing to sync. Only the truncate below would,
+     * which is why it cannot happen before this. */
+    struct cfg_sink sink = {.file = &lfs_file, .compare = true};
+    lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
     if (lfsresult >= 0)
-        lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0);
-    if (lfsresult >= 0)
+        lfsresult = cfg_emit(&sink, opt_str);
+    if (lfsresult >= 0 && sink.error < 0)
+        lfsresult = sink.error;
+    if (lfsresult >= 0 && !sink.differs)
     {
-        lfsresult = lfs_printf(&lfs_volume, &lfs_file,
-                               "+V%u\n"
-                               "+P%u\n"
-                               "+T%s\n"
-                               "+M%s\n"
-                               "+S%u\n"
-                               "+L%s\n"
-                               "+D%u\n"
-                               "+N%u\n"
-                               "+H%s\n"
-#ifdef RP6502_RIA_W
-                               "+E%u\n"
-                               "+F%s\n"
-                               "+W%s\n"
-                               "+K%s\n"
-                               "+B%u\n"
-                               "+O%u\n"
-                               "+A%s\n"
-#endif /* RP6502_RIA_W */
-                               "%s",
-                               CFG_VERSION,
-                               cpu_get_phi2_khz(),
-                               tim_get_time_zone(),
-                               str_get_locale(),
-                               oem_get_code_page(),
-                               kbt_get_layout_list(),
-                               vga_get_display_type(),
-                               nfc_get_enabled(),
-                               vcp_get_nfc_device_hash(),
-#ifdef RP6502_RIA_W
-                               cyw_get_rf_enable(),
-                               cyw_get_rf_country_code(),
-                               wfi_get_ssid(),
-                               wfi_get_pass(),
-                               ble_get_enabled(),
-                               com_tel_get_port(),
-                               com_tel_get_key(),
-#endif /* RP6502_RIA_W */
-                               opt_str);
+        /* Same bytes, but the file may still be longer than what we rendered. */
+        char extra;
+        if (lfs_file_read(&lfs_volume, &lfs_file, &extra, 1) == 1)
+            sink.differs = true;
+    }
+    if (lfsresult >= 0 && sink.differs)
+    {
+        sink.compare = false;
+        lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
+        if (lfsresult >= 0)
+            lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0);
+        if (lfsresult >= 0)
+            lfsresult = cfg_emit(&sink, opt_str);
+        if (lfsresult >= 0 && sink.error < 0)
+            lfsresult = sink.error;
     }
     mon_add_response_lfs(lfsresult);
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
@@ -155,58 +229,7 @@ static void cfg_load_with_boot_opt(bool boot_only)
         if (len < 2)
             continue;
         const char *str = (char *)mbuf + 2;
-        switch (mbuf[1])
-        {
-        case 'P':
-            cpu_load_phi2_khz(str);
-            break;
-        case 'T':
-            tim_load_time_zone(str);
-            break;
-        case 'M':
-            str_load_locale(str);
-            break;
-        case 'S':
-            oem_load_code_page(str);
-            break;
-        case 'L':
-            kbt_load_layout(str);
-            break;
-        case 'D':
-            vga_load_display_type(str);
-            break;
-        case 'N':
-            nfc_load_enabled(str);
-            break;
-        case 'H':
-            vcp_load_nfc_device_hash(str);
-            break;
-#ifdef RP6502_RIA_W
-        case 'E':
-            cyw_load_rf_enable(str);
-            break;
-        case 'F':
-            cyw_load_rf_country_code(str);
-            break;
-        case 'W':
-            wfi_load_ssid(str);
-            break;
-        case 'K':
-            wfi_load_pass(str);
-            break;
-        case 'B':
-            ble_load_enabled(str);
-            break;
-        case 'O':
-            com_tel_load_port(str);
-            break;
-        case 'A':
-            com_tel_load_key(str);
-            break;
-#endif /* RP6502_RIA_W */
-        default:
-            break;
-        }
+        cfg_load_line(mbuf[1], str);
     }
     lfsresult = lfs_file_close(&lfs_volume, &lfs_file);
     mon_add_response_lfs(lfsresult);

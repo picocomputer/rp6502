@@ -28,7 +28,7 @@
 /* Where a byte came from, or which one to read. */
 typedef enum
 {
-    COM_SOURCE_KBD,
+    COM_SOURCE_KEYBOARD,
     COM_SOURCE_UART,
     COM_SOURCE_TEL,
     COM_SOURCE_COUNT,

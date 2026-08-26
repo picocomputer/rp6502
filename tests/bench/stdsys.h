@@ -14,7 +14,7 @@
 
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/emu/sys/mem.h"
+#include "core/mem/mem.h"
 #include "dirsys.h"
 #include <stdint.h>
 #include <string.h>

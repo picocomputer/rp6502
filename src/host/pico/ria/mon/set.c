@@ -6,14 +6,15 @@
 
 #include "core/api/oem.h"
 #include "core/api/tim.h"
+#include "ria/api/tim.h"
 #include "ria/ble/ble.h"
-#include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/keymap.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
 #include "ria/net/cyw.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
@@ -169,7 +170,7 @@ static void set_rfcc(const char *args)
 static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *ssid = wfi_get_ssid();
+    const char *ssid = wifi_get_ssid();
 #if RP6502_CREATOR
     com_snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
                       strlen(ssid) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
@@ -183,7 +184,7 @@ static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
 static int set_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *pass = wfi_get_pass();
+    const char *pass = wifi_get_pass();
     com_snprintf_utf8(buf, buf_size, STR_SET_PASS_RESPONSE,
                       strlen(pass) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
@@ -196,10 +197,10 @@ static void set_ssid(const char *args)
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
     if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        wfi_set_ssid("");
+        wifi_set_ssid("");
     else
     {
-        if (!tok || !str_parse_end(scan) || !wfi_set_ssid(tok))
+        if (!tok || !str_parse_end(scan) || !wifi_set_ssid(tok))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
     mon_add_response_fn(set_ssid_response);
@@ -213,10 +214,10 @@ static void set_pass(const char *args)
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
     if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        wfi_set_pass("");
+        wifi_set_pass("");
     else
     {
-        if (!tok || !str_parse_end(scan) || !wfi_set_pass(tok))
+        if (!tok || !str_parse_end(scan) || !wifi_set_pass(tok))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
     mon_add_response_fn(set_ssid_response);
@@ -248,7 +249,7 @@ static void set_ble(const char *args)
 static int set_key_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *key = com_tel_get_key();
+    const char *key = com_telnet_get_key();
     com_snprintf_utf8(buf, buf_size, STR_SET_KEY_RESPONSE,
                       strlen(key) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
@@ -257,9 +258,9 @@ static int set_key_response(char *buf, size_t buf_size, int state, unsigned)
 static int set_port_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    bool en = com_tel_get_port() > 0 && com_tel_get_key()[0];
+    bool en = com_telnet_get_port() > 0 && com_telnet_get_key()[0];
     com_snprintf_utf8(buf, buf_size, STR_SET_PORT_RESPONSE,
-                      com_tel_get_port(), en ? S(STR_ENABLED) : S(STR_DISABLED));
+                      com_telnet_get_port(), en ? S(STR_ENABLED) : S(STR_DISABLED));
     return -1;
 }
 
@@ -270,7 +271,7 @@ static void set_port(const char *args)
     uint16_t val;
     if (!str_parse_uint16(&args, &val) ||
         !str_parse_end(args) ||
-        !com_tel_set_port(val))
+        !com_telnet_set_port(val))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     mon_add_response_fn(set_port_response);
     mon_add_response_fn(set_key_response);
@@ -283,10 +284,10 @@ static void set_key(const char *args)
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
     if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        com_tel_set_key("");
+        com_telnet_set_key("");
     else
     {
-        if (!tok || !str_parse_end(scan) || !com_tel_set_key(tok))
+        if (!tok || !str_parse_end(scan) || !com_telnet_set_key(tok))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
     mon_add_response_fn(set_port_response);
@@ -358,25 +359,25 @@ static void set_locale(const char *args)
     mon_add_response_fn(set_locale_response);
 }
 
-static int set_kbd_layout_response(char *buf, size_t buf_size, int state, unsigned)
+static int set_keyboard_layout_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *list = kbt_get_layout_list();
+    const char *list = keymap_get_layout_list();
     if (strchr(list, ' '))
         snprintf(buf, buf_size, STR_SET_KB_LIST_RESPONSE, list);
     else
-        snprintf(buf, buf_size, STR_SET_KB_RESPONSE, kbt_get_layout(), kbt_get_layout_verbose());
+        snprintf(buf, buf_size, STR_SET_KB_RESPONSE, keymap_get_layout(), keymap_get_layout_verbose());
     return -1;
 }
 
-static void set_kbd_layout(const char *args)
+static void set_keyboard_layout(const char *args)
 {
-    if (*args && !kbt_set_layout(args))
+    if (*args && !keymap_set_layout(args))
     {
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    mon_add_response_fn(set_kbd_layout_response);
+    mon_add_response_fn(set_keyboard_layout_response);
 }
 
 typedef void (*set_function)(const char *);
@@ -385,23 +386,13 @@ __in_flash("set_attributes") static struct
     const char *const attr;
     set_function func;
 } const SET_ATTRIBUTES[] = {
-    {STR_PHI2, set_phi2},
-    {STR_BOOT, set_boot},
-    {STR_TZ, set_time_zone},
-    {STR_LOC, set_locale},
-    {STR_KB, set_kbd_layout},
-    {STR_CP, set_code_page},
-    {STR_VGA, set_vga},
-    {STR_NFC, set_nfc},
-#ifdef RP6502_RIA_W
-    {STR_RF, set_rf},
-    {STR_RFCC, set_rfcc},
-    {STR_SSID, set_ssid},
-    {STR_PASS, set_pass},
-    {STR_PORT, set_port},
-    {STR_KEY, set_key},
-    {STR_BLE, set_ble},
-#endif
+#define X(ltr, fmt, get, load, attr, setfn, ...) {attr, setfn},
+#define XCFG(...)
+#define XMON(attr, setfn, ...) {attr, setfn},
+#include "ria/sys/cfg.def"
+#undef X
+#undef XCFG
+#undef XMON
 };
 static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
 
@@ -425,21 +416,11 @@ void set_mon_set(const char *args)
         return;
     }
     // No args, show everything
-    mon_add_response_fn(set_phi2_response);
-    mon_add_response_fn(set_boot_response);
-    mon_add_response_fn(set_time_zone_response);
-    mon_add_response_fn(set_locale_response);
-    mon_add_response_fn(set_kbd_layout_response);
-    mon_add_response_fn(set_code_page_response);
-    mon_add_response_fn(set_vga_response);
-    mon_add_response_fn(set_nfc_response);
-#ifdef RP6502_RIA_W
-    mon_add_response_fn(set_rf_response);
-    mon_add_response_fn(set_rfcc_response);
-    mon_add_response_fn(set_ssid_response);
-    mon_add_response_fn(set_pass_response);
-    mon_add_response_fn(set_port_response);
-    mon_add_response_fn(set_key_response);
-    mon_add_response_fn(set_ble_response);
-#endif
+#define X(ltr, fmt, get, load, attr, setfn, respfn, ...) mon_add_response_fn(respfn);
+#define XCFG(...)
+#define XMON(attr, setfn, respfn, ...) mon_add_response_fn(respfn);
+#include "ria/sys/cfg.def"
+#undef X
+#undef XCFG
+#undef XMON
 }

@@ -28,7 +28,7 @@ rp6502_submodule(vendor/tinyusb
 rp6502_submodule(vendor/littlefs SENTINEL lfs.c
     WANTS "the firmware's flash filesystem")
 
-# Project subdirectories (under ${RP6502_ROOT}/src).
+# Project subdirectories (under ${RP6502_ROOT}/src/mach/pico).
 set(RP6502_PROJECT_DIRECTORIES
     ria
     vga
@@ -76,5 +76,5 @@ project(RP6502 C CXX ASM)
 pico_sdk_init()
 
 foreach(_dir IN LISTS RP6502_PROJECT_DIRECTORIES)
-    add_subdirectory(${RP6502_ROOT}/src/host/pico/${_dir} ${_dir})
+    add_subdirectory(${RP6502_ROOT}/src/mach/pico/${_dir} ${_dir})
 endforeach()

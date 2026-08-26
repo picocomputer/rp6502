@@ -114,7 +114,7 @@
 /* The interact menu's persisted settings, read-only. The UTC offset
  * arrives in three pieces because a menu list holds sixteen options and
  * the offset spans twenty-seven whole hours. SET_KB is a position in
- * def/kbd.def plus one, so zero is a menu that has said nothing.
+ * def/keyboard.def plus one, so zero is a menu that has said nothing.
  * RTC_EPOCH is local wall time, written once at boot by 0x0090. */
 #define SET_KB (*(volatile uint32_t *)0x80010000u)
 #define SET_TZ_HOUR (*(volatile uint32_t *)0x80010008u)

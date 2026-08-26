@@ -18,17 +18,14 @@ void main_wake_failed(void);
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "core/main.h" /* main_xreg_0/_1, which this machine answers */
+
 /* What main() saw at boot, said later: the moment it is knowable is the
  * moment the host may be streaming a blob in, and the console competes
  * with that stream for the staging store. */
 extern bool main_boot_wake;
 extern uint32_t main_boot_slot;
 extern uint8_t main_boot_upd;
-
-/* The xreg fan-outs, the emulator's shape: device 0 is the RIA-local
- * virtual xreg, device 1 the video device on this fabric. */
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
-bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
 
 /* This platform's time zone is the menu's UTC offset in signed
  * minutes, not a POSIX string; time.c turns it into one for the C

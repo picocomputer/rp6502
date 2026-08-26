@@ -8,10 +8,12 @@
 #define _FPGA_SW_COM_H_
 
 #include "core/com.h"
+#include "core/com/com.h"
 
-/* This machine's console lifecycle, called from its main.c. */
-void com_init(void);
-void com_run(void);
+/* This machine's once-a-frame console service. The rest of the console is the
+ * shared one: what any machine may ask of a console is core/com.h, and what
+ * this machine's is made of -- the rings, the bell, the single sink -- is
+ * core/com/com.h. */
 void com_task(void);
 
 #endif /* _FPGA_SW_COM_H_ */
