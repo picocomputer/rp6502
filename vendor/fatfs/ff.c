@@ -6046,12 +6046,12 @@ static FRESULT create_partition (
 
 
 /* RP6502 mkfs preview hook: f_mkfs reports the FS type and cluster size it has
-   chosen, so the disk monitor (mon/dsk.c) can preview a format without
+   chosen, so the disk monitor (mon/drive.c) can preview a format without
    duplicating this selection logic. Called at the two points where each branch
    has finalized (fsty, cluster) and is about to TRIM/write: [1/2] FAT, [2/2]
    exFAT. Returns nonzero only during a preview, which stops f_mkfs early (FR_OK,
-   nothing written). Re-apply on a FatFs upgrade. (Defined in mon/dsk.c.) */
-int dsk_mkfs_capture (BYTE fsty, DWORD au_sectors);
+   nothing written). Re-apply on a FatFs upgrade. (Defined in mon/drive.c.) */
+int drive_mkfs_capture (BYTE fsty, DWORD au_sectors);
 
 FRESULT f_mkfs (
 	const TCHAR* path,		/* Logical drive number */
@@ -6215,7 +6215,7 @@ FRESULT f_mkfs (
 		n_clst = (DWORD)((sz_vol - (b_data - b_vol)) / sz_au);	/* Number of clusters */
 		if (n_clst <16) LEAVE_MKFS(FR_MKFS_ABORTED);			/* Too few clusters? */
 		if (n_clst > MAX_EXFAT) LEAVE_MKFS(FR_MKFS_ABORTED);	/* Too many clusters? */
-		if (dsk_mkfs_capture(FS_EXFAT, sz_au)) LEAVE_MKFS(FR_OK);	/* RP6502 mkfs preview hook [2/2]; TRIM relocated below it */
+		if (drive_mkfs_capture(FS_EXFAT, sz_au)) LEAVE_MKFS(FR_OK);	/* RP6502 mkfs preview hook [2/2]; TRIM relocated below it */
 #if FF_USE_TRIM
 		lba[0] = b_vol; lba[1] = b_vol + sz_vol - 1;	/* Inform storage device that the volume area may be erased */
 		disk_ioctl(pdrv, CTRL_TRIM, lba);
@@ -6434,7 +6434,7 @@ FRESULT f_mkfs (
 			break;
 		} while (1);
 
-		if (dsk_mkfs_capture(fsty, pau)) LEAVE_MKFS(FR_OK);	/* RP6502 mkfs preview hook [1/2] (before TRIM/writes) */
+		if (drive_mkfs_capture(fsty, pau)) LEAVE_MKFS(FR_OK);	/* RP6502 mkfs preview hook [1/2] (before TRIM/writes) */
 #if FF_USE_TRIM
 		lba[0] = b_vol; lba[1] = b_vol + sz_vol - 1;	/* Inform storage device that the volume area may be erased */
 		disk_ioctl(pdrv, CTRL_TRIM, lba);

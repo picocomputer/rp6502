@@ -6,7 +6,7 @@
 
 #include "ria/main.h"
 #include "core/api/oem.h"
-#include "ria/mon/dsk.h"
+#include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
 #include "ria/mon/help.h"
 #include "ria/mon/mon.h"
@@ -106,7 +106,7 @@ __in_flash("mon_commands") static struct
     {STR_MOVE, fil_mon_move},
     {STR_MV, fil_mon_move},
     {STR_BINARY, ram_mon_binary},
-    {STR_DISK, dsk_mon_disk},
+    {STR_DISK, drive_mon_disk},
 };
 static const size_t MON_COMMANDS_COUNT = sizeof MON_COMMANDS / sizeof *MON_COMMANDS;
 
@@ -651,7 +651,7 @@ void mon_task(void)
         rom_active() ||
         fil_active() ||
         uf2_active() ||
-        dsk_active() ||
+        drive_active() ||
         usb_boot_enumerating())
         return;
     // The monitor has control

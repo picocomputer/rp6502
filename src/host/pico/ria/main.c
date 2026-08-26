@@ -23,7 +23,7 @@
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
-#include "ria/mon/dsk.h"
+#include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
@@ -219,7 +219,7 @@ void main_on_stop(void)
 // Stop will be executed first if 6502 is running.
 static void break_(void) // break is keyword
 {
-    dsk_break();
+    drive_break();
     fil_break();
     mon_break();
     ram_break();

@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _RIA_MON_DSK_H_
-#define _RIA_MON_DSK_H_
+#ifndef _RIA_MON_DRIVE_H_
+#define _RIA_MON_DRIVE_H_
 
 /* Disk utility: show info, format, zero, verify, and label USB drives.
  */
@@ -17,12 +17,12 @@
 /* Main events
  */
 
-void dsk_break(void);
+void drive_break(void);
 
 // Monitor command handler for "DISK".
-void dsk_mon_disk(const char *args);
+void drive_mon_disk(const char *args);
 
 // True while a destructive/scan pass is running.
-bool dsk_active(void);
+bool drive_active(void);
 
-#endif /* _RIA_MON_DSK_H_ */
+#endif /* _RIA_MON_DRIVE_H_ */
