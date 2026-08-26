@@ -3,15 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Absolute-pointer ("tablet") integration, driven by paint_tab.rp6502. Paint
+ * Absolute-pointer ("tablet") integration, driven by paint_tablet.rp6502. Paint
  * maps the tablet (xreg device 0, channel 0, address 3) and, in its main loop,
  * decodes contact 0's absolute X/Y from the unary window encoding and moves the
  * on-screen pointer sprite. Feeding an absolute host position and seeing the
- * frame change proves the whole chain: tab.c window-encoded XRAM -> the ROM's
+ * frame change proves the whole chain: tablet.c window-encoded XRAM -> the ROM's
  * first-non-zero decode -> the sprite. No capture / no VIA IRQ, unlike the mouse.
  */
 
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"
@@ -32,18 +32,18 @@ static void run(int n)
         sys_run_frame();
 }
 
-UTEST(paint_tab, absolute_pointer_moves)
+UTEST(paint_tablet, absolute_pointer_moves)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     vga_set_framebuffer(fb);
     run(60); /* set up mode 3 + picker + pointer, map the tablet */
 
-    ASSERT_TRUE(tab_is_mapped()); /* xreg_ria_tablet ran */
+    ASSERT_TRUE(tablet_is_mapped()); /* xreg_ria_tablet ran */
 
     /* A touch reports host_cursor=0, so the ROM draws its own sprite (and, tip
      * down, paints). Held still, the frame is static. */
-    tab_point_t p = {60, 60};
-    tab_host_touch(&p, 1);
+    tablet_point_t p = {60, 60};
+    tablet_host_touch(&p, 1);
     run(10);
     uint32_t still = frame_crc();
     run(20);
@@ -54,7 +54,7 @@ UTEST(paint_tab, absolute_pointer_moves)
      * absolute position, so a frame change is the end-to-end proof. */
     p.x = 280;
     p.y = 200;
-    tab_host_touch(&p, 1);
+    tablet_host_touch(&p, 1);
     run(20);
     ASSERT_NE(frame_crc(), still);
 

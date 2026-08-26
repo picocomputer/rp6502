@@ -20,7 +20,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/ria/ria.h"
 #include "core/api/api.h"
 #include "core/api/attr.h"
@@ -54,7 +54,7 @@ void main_init(void)
     keyboard_init();
     mouse_init();
     pad_init();
-    tab_init();
+    tablet_init();
     com_init();
     std_init();
     rln_init();
@@ -93,7 +93,7 @@ void main_on_stop(void)
     keyboard_stop();
     mouse_stop();
     pad_stop();
-    tab_stop();
+    tablet_stop();
     aud_stop();
 }
 

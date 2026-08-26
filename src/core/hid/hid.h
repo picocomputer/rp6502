@@ -55,7 +55,7 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
  * include this one, so they are named here rather than included. */
 typedef struct keyboard_connection keyboard_connection_t;
 typedef struct mouse_connection mouse_connection_t;
-typedef struct tab_connection tab_connection_t;
+typedef struct tablet_connection tablet_connection_t;
 typedef struct pad_connection pad_connection_t;
 
 /* Devices that at least one driver wanted. A machine with more physical
@@ -67,7 +67,7 @@ typedef struct pad_connection pad_connection_t;
 
 #define HID_CLAIM_KEYBOARD (1 << 0)
 #define HID_CLAIM_MOUSE (1 << 1)
-#define HID_CLAIM_TAB (1 << 2)
+#define HID_CLAIM_TABLET (1 << 2)
 #define HID_CLAIM_PAD (1 << 3)
 
 /* Offer a device to the drivers it might be, and keep which ones took it.
@@ -77,9 +77,9 @@ typedef struct pad_connection pad_connection_t;
  * interface keeps that slot beside whatever else it knows about the
  * device; nothing here can name a device on its behalf.
  *
- * Deliberately not exclusive: a mouse is a pointer to both mouse and tab. */
+ * Deliberately not exclusive: a mouse is a pointer to both mouse and tablet. */
 int hid_mount(const keyboard_connection_t *keyboard, const mouse_connection_t *mouse,
-              const tab_connection_t *tab, const pad_connection_t *pad,
+              const tablet_connection_t *tablet, const pad_connection_t *pad,
               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Hand a report to the drivers that claimed the slot, and no others.

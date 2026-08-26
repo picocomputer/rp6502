@@ -50,12 +50,12 @@ static bool frame_differs(const uint32_t *other)
 
 static uint32_t settled[640 * 480];
 
-/* paint_tab.rp6502 decodes contact 0 and draws there, so a pointer that
+/* paint_tablet.rp6502 decodes contact 0 and draws there, so a pointer that
  * moved is a picture that changed. */
 UTEST(pointer, an_absolute_pointer_reaches_the_tablet)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tab.rp6502"));
+    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tablet.rp6502"));
     point_at(0.25f, 0.25f, true);
     fe_run(60);
     frame_copy(settled);
@@ -78,7 +78,7 @@ UTEST(pointer, an_absolute_pointer_reaches_the_tablet)
 UTEST(pointer, letting_go_ends_the_contact)
 {
     memset(fe.pointer, 0, sizeof fe.pointer);
-    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tab.rp6502"));
+    ASSERT_TRUE(fe_load(FIXTURES_DIR "/paint_tablet.rp6502"));
     point_at(0.30f, 0.30f, true);
     fe_run(60);
 

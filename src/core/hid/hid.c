@@ -9,7 +9,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "host.h"
 
 #if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_HID)
@@ -117,7 +117,7 @@ uint8_t hid_slot_claims(int slot)
 
 int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
                                       const mouse_connection_t *mouse,
-                                      const tab_connection_t *tab,
+                                      const tablet_connection_t *tablet,
                                       const pad_connection_t *pad,
                                       uint16_t vendor_id, uint16_t product_id,
                                       uint8_t button_type)
@@ -137,8 +137,8 @@ int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
         claims |= HID_CLAIM_KEYBOARD;
     if (mouse && mouse_mount(slot, mouse))
         claims |= HID_CLAIM_MOUSE;
-    if (tab && tab_mount(slot, tab))
-        claims |= HID_CLAIM_TAB;
+    if (tablet && tablet_mount(slot, tablet))
+        claims |= HID_CLAIM_TABLET;
     if (pad && pad_mount(slot, pad, vendor_id, product_id, button_type))
         claims |= HID_CLAIM_PAD;
 
@@ -155,8 +155,8 @@ void hid_report(int slot, const uint8_t *data, uint16_t len)
         keyboard_report(slot, data, len);
     if (claims & HID_CLAIM_MOUSE)
         mouse_report(slot, data, len);
-    if (claims & HID_CLAIM_TAB)
-        tab_report(slot, data, len);
+    if (claims & HID_CLAIM_TABLET)
+        tablet_report(slot, data, len);
     if (claims & HID_CLAIM_PAD)
         pad_report(slot, data, len);
 }
@@ -170,8 +170,8 @@ void hid_umount(int slot)
         keyboard_umount(slot);
     if (claims & HID_CLAIM_MOUSE)
         mouse_umount(slot);
-    if (claims & HID_CLAIM_TAB)
-        tab_umount(slot);
+    if (claims & HID_CLAIM_TABLET)
+        tablet_umount(slot);
     if (claims & HID_CLAIM_PAD)
         pad_umount(slot);
     hid_claims[slot] = 0;

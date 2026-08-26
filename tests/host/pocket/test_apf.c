@@ -25,7 +25,7 @@
 #include "core/hid/keymap.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/mem.h"
 
 #include "host/pocket/sw/apf.c"
@@ -80,7 +80,7 @@ static void reset_all(void)
     keyboard_init();
     mouse_init();
     pad_init();
-    tab_init();
+    tablet_init();
     /* Whatever the last case typed is still queued — keyboard_init does not
      * empty a queue a console would have drained. */
     char drain[64];
@@ -379,12 +379,12 @@ UTEST(apf, a_mouse_moves_and_clicks)
     ASSERT_EQ(xram[AT_MOUSE + 4], 0);
 }
 
-/* The same mouse report is a pointer to tab.c, which is how the tablet
+/* The same mouse report is a pointer to tablet.c, which is how the tablet
  * driver gets hooked up at all on this platform. */
 UTEST(apf, a_mouse_is_also_a_pointer)
 {
     reset_all();
-    tab_xreg(0x4000);
+    tablet_xreg(0x4000);
     apf_mount(3, APF_TYPE_MOUSE);
 
     feed(3, APF_TYPE_MOUSE, 0x50000001u, 0x00000000u, 0x0000, true);
@@ -393,7 +393,7 @@ UTEST(apf, a_mouse_is_also_a_pointer)
     uint8_t before = xram[0x4000 + 4];
     feed(3, APF_TYPE_MOUSE, 0x50000200u, 0x00010001u, 0x0001, false);
     ASSERT_NE(xram[0x4000 + 4], (uint8_t)(before ^ 0xFF));
-    /* The button reached it: tab.c's tip switch is the first button. */
+    /* The button reached it: tablet.c's tip switch is the first button. */
     ASSERT_NE(xram[0x4000 + 4] & 1, 0);
 }
 

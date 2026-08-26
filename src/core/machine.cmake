@@ -152,7 +152,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/hid/keymap.c
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/pad.c
-        ${RP6502_SRC}/core/hid/tab.c
+        ${RP6502_SRC}/core/hid/tablet.c
         ${RP6502_SRC}/core/str/rln.c
         ${RP6502_SRC}/core/str/str.c
         ${RP6502_SRC}/core/vga/canvas.c

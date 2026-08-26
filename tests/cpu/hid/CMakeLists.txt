@@ -3,8 +3,8 @@
 # --- 6522 VIA timer IRQ + HID mouse, via the paint_mouse demo ---
 rp6502_add_test(paint_mouse LIBS emu_core FIXTURE paint_mouse.rp6502 TIMEOUT 60)
 
-# --- Absolute pointer (tablet) window encoding, via paint_tab ---
-rp6502_add_test(paint_tab LIBS emu_core FIXTURE paint_tab.rp6502 TIMEOUT 60)
+# --- Absolute pointer (tablet) window encoding, via paint_tablet ---
+rp6502_add_test(paint_tablet LIBS emu_core FIXTURE paint_tablet.rp6502 TIMEOUT 60)
 
 # --- Gamepad (HID pad xreg + pad_xram_t mirror), via the gamepad tester ---
 rp6502_add_test(gamepad LIBS emu_core FIXTURE gamepad.rp6502 TIMEOUT 60)
@@ -25,7 +25,7 @@ if(TARGET rp6502-emu)
     rp6502_add_script_test(pointer FIXTURE paint_mouse.rp6502)
 
     # Absolute pointer: the window-encoded coordinates in the tablet block.
-    rp6502_add_script_test(tablet FIXTURE paint_tab.rp6502)
+    rp6502_add_script_test(tablet FIXTURE paint_tablet.rp6502)
 
     # And the other half of every one of those: a device nobody mapped is
     # silent. Each block's address register means nowhere until a program says

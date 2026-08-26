@@ -18,7 +18,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
 
 #include "libretro.h"
@@ -390,22 +390,22 @@ static void poll_pads(retro_input_state_t state)
  * a reason to watch where anyone is pointing. */
 static void poll_pointer(retro_input_state_t state)
 {
-    if (tab_is_mapped())
+    if (tablet_is_mapped())
     {
         int w, h;
         vga_canvas_size(&w, &h);
         int count = state(0, RETRO_DEVICE_POINTER, 0, RETRO_DEVICE_ID_POINTER_COUNT);
-        if (count > TAB_MAX_CONTACTS)
-            count = TAB_MAX_CONTACTS;
+        if (count > TABLET_MAX_CONTACTS)
+            count = TABLET_MAX_CONTACTS;
 
         /* [-0x7FFF, 0x7FFF] spans the frame we last handed over, whatever the
          * frontend then did with it on screen. */
-        /* Contacts, not a hovering cursor. tab_host_pointer would declare a
+        /* Contacts, not a hovering cursor. tablet_host_pointer would declare a
          * host cursor available, and this host has none to lend: libretro
          * gives a core no way to ask a frontend to draw one, so a program
          * that hid its own pointer for ours would be left with neither.
          * Touch is also what the frontend's pointer is for. */
-        tab_point_t pts[TAB_MAX_CONTACTS];
+        tablet_point_t pts[TABLET_MAX_CONTACTS];
         int n = 0;
         for (int i = 0; i < count; i++)
         {
@@ -418,9 +418,9 @@ static void poll_pointer(retro_input_state_t state)
             n++;
         }
         if (n)
-            tab_host_touch(pts, n);
+            tablet_host_touch(pts, n);
         else
-            tab_host_clear();
+            tablet_host_clear();
     }
 
     if (mouse_is_mapped())
@@ -447,8 +447,8 @@ static void poll_pointer(retro_input_state_t state)
                state(0, RETRO_DEVICE_MOUSE, 0, RETRO_DEVICE_ID_MOUSE_HORIZ_WHEELDOWN);
     if (dwheel || dpan)
     {
-        if (tab_is_mapped())
-            tab_host_wheel(dwheel, dpan);
+        if (tablet_is_mapped())
+            tablet_host_wheel(dwheel, dpan);
         if (mouse_is_mapped())
             mouse_host_wheel(dwheel, dpan);
     }

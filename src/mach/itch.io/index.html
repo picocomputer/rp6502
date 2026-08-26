@@ -244,7 +244,7 @@
           'adventure.rp6502': 'Adventure',
           'mode2.rp6502': 'Mode 2 — tiled bitmap',
           'paint_mouse.rp6502': 'Paint — mouse',
-          'paint_tab.rp6502': 'Paint — tablet',
+          'paint_tablet.rp6502': 'Paint — tablet',
           'furelise.rp6502': 'Für Elise — PSG',
           'gamepad.rp6502': 'Gamepad tester',
           'rtc.rp6502': 'Clock / RTC',
@@ -428,7 +428,7 @@
       // mouse; the browser also shows its own "press Esc" pointer-lock notice.
       function initMouseHint() {
         var mapped = Module._mouse_mapped;
-        var tabMapped = Module._tab_mapped;
+        var tabMapped = Module._tablet_mapped;
         var hint = document.getElementById('mouse-hint');
         if (!mapped || !hint) return;
         function update() {

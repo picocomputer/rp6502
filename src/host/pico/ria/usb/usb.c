@@ -9,7 +9,7 @@
 #include "core/hid/parse.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/hid/pad.h"
 #include "host/hcd.h"
 #include "ria/main.h"
@@ -175,7 +175,7 @@ void tuh_hid_mount_cb(uint8_t dev_addr, uint8_t idx, uint8_t const *desc_report,
     hid_parse(desc_report, desc_len, &parsed);
 
     /* Generic HID says nothing about its labels; pad.c knows the Sony ids. */
-    int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tab, &parsed.pad,
+    int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tablet, &parsed.pad,
                          vendor_id, product_id, PAD_TYPE_UNKNOWN);
     if (slot < 0)
         return;

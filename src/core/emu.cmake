@@ -65,7 +65,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/keyboard.c
     ${RP6502_SRC}/core/hid/mouse.c
     ${RP6502_SRC}/core/hid/pad.c
-    ${RP6502_SRC}/core/hid/tab.c
+    ${RP6502_SRC}/core/hid/tablet.c
     # Two HID layers: the device layer every machine has is above, and these
     # are what a software machine answers where another has fabric or a
     # firmware -- the host already produced the characters, so there is no

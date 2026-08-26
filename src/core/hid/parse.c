@@ -225,7 +225,7 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
 
 typedef struct
 {
-    uint16_t keyboard, mouse, tab, digitizer, pad;
+    uint16_t keyboard, mouse, tablet, digitizer, pad;
 } hid_choice_t;
 
 static void hid_choose(uint16_t *chosen, uint16_t report_id)
@@ -248,7 +248,7 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
         hid_choose(&c->mouse, f->report_id);
     if ((f->usage_page == 0x01 && (f->usage == 0x30 || f->usage == 0x31)) || button ||
         (f->usage_page == 0x0D && (f->usage == 0x42 || f->usage == 0x32)))
-        hid_choose(&c->tab, f->report_id);
+        hid_choose(&c->tablet, f->report_id);
     if (f->app_usage == HID_APP_DIGITIZER || f->app_usage == HID_APP_PEN ||
         f->app_usage == HID_APP_TOUCH || (f->usage_page == 0x0D && f->usage == 0x42))
         hid_choose(&c->digitizer, f->report_id);
@@ -349,35 +349,35 @@ static void hid_fill_mou(mouse_connection_t *mouse, const hid_field_t *f)
     }
 }
 
-static void hid_fill_tab(tab_connection_t *tab, const hid_field_t *f)
+static void hid_fill_tablet(tablet_connection_t *tablet, const hid_field_t *f)
 {
     if (f->usage_page == 0x09)
     {
-        if (f->usage >= 1 && f->usage <= 5 && tab->button_offsets[f->usage - 1] == HID_ABSENT)
-            tab->button_offsets[f->usage - 1] = f->bit_pos;
+        if (f->usage >= 1 && f->usage <= 5 && tablet->button_offsets[f->usage - 1] == HID_ABSENT)
+            tablet->button_offsets[f->usage - 1] = f->bit_pos;
         return;
     }
     if (f->usage_page == 0x0D)
     {
-        if (f->usage == 0x42 && tab->tip_offset == HID_ABSENT)
-            tab->tip_offset = f->bit_pos;
-        else if (f->usage == 0x32 && tab->inrange_offset == HID_ABSENT)
-            tab->inrange_offset = f->bit_pos;
+        if (f->usage == 0x42 && tablet->tip_offset == HID_ABSENT)
+            tablet->tip_offset = f->bit_pos;
+        else if (f->usage == 0x32 && tablet->inrange_offset == HID_ABSENT)
+            tablet->inrange_offset = f->bit_pos;
         return;
     }
     if (f->usage_page == 0x0C && f->usage == 0x238)
-        hid_locate(&tab->pan_offset, &tab->pan_size, f);
+        hid_locate(&tablet->pan_offset, &tablet->pan_size, f);
     if (f->usage_page != 0x01)
         return;
     switch (f->usage)
     {
     case 0x30:
-        if (!tab->x_size)
-            tab->x_relative = (f->input_flags & 0x04) != 0;
-        hid_locate_range(&tab->x_offset, &tab->x_size, &tab->x_min, &tab->x_max, f);
+        if (!tablet->x_size)
+            tablet->x_relative = (f->input_flags & 0x04) != 0;
+        hid_locate_range(&tablet->x_offset, &tablet->x_size, &tablet->x_min, &tablet->x_max, f);
         break;
-    case 0x31: hid_locate_range(&tab->y_offset, &tab->y_size, &tab->y_min, &tab->y_max, f); break;
-    case 0x38: hid_locate(&tab->wheel_offset, &tab->wheel_size, f); break;
+    case 0x31: hid_locate_range(&tablet->y_offset, &tablet->y_size, &tablet->y_min, &tablet->y_max, f); break;
+    case 0x38: hid_locate(&tablet->wheel_offset, &tablet->wheel_size, f); break;
     }
 }
 
@@ -433,8 +433,8 @@ static bool hid_fill_field(const hid_field_t *f, void *context)
             fill->mouse_app = f->app_usage;
         hid_fill_mou(&fill->out->mouse, f);
     }
-    if (f->report_id == c->tab)
-        hid_fill_tab(&fill->out->tab, f);
+    if (f->report_id == c->tablet)
+        hid_fill_tablet(&fill->out->tablet, f);
     if (f->report_id == c->pad)
     {
         if (fill->pad_app == HID_APP_NONE)
@@ -448,9 +448,9 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
 {
     memset(out, 0, sizeof(*out));
     for (int i = 0; i < 5; i++)
-        out->tab.button_offsets[i] = HID_ABSENT;
-    out->tab.tip_offset = HID_ABSENT;
-    out->tab.inrange_offset = HID_ABSENT;
+        out->tablet.button_offsets[i] = HID_ABSENT;
+    out->tablet.tip_offset = HID_ABSENT;
+    out->tablet.inrange_offset = HID_ABSENT;
     for (int i = 0; i < PAD_MAX_BUTTONS; i++)
         out->pad.button_offsets[i] = HID_ABSENT;
 
@@ -458,7 +458,7 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
                            HID_NO_REPORT, HID_NO_REPORT};
     hid_descriptor_parse(desc, desc_len, hid_choose_field, &choice);
     if (choice.digitizer != HID_NO_REPORT)
-        choice.tab = choice.digitizer;
+        choice.tablet = choice.digitizer;
 
     hid_fill_t fill = {out, &choice, HID_APP_NONE, HID_APP_NONE, HID_APP_NONE};
     hid_descriptor_parse(desc, desc_len, hid_fill_field, &fill);
@@ -467,7 +467,7 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
      * report has no leading id byte to skip. */
     out->keyboard.report_id = choice.keyboard == HID_NO_REPORT ? 0 : (uint8_t)choice.keyboard;
     out->mouse.report_id = choice.mouse == HID_NO_REPORT ? 0 : (uint8_t)choice.mouse;
-    out->tab.report_id = choice.tab == HID_NO_REPORT ? 0 : (uint8_t)choice.tab;
+    out->tablet.report_id = choice.tablet == HID_NO_REPORT ? 0 : (uint8_t)choice.tablet;
     out->pad.report_id = choice.pad == HID_NO_REPORT ? 0 : (uint8_t)choice.pad;
 
     /* What each driver will take. A descriptor that says what it is gets
@@ -481,9 +481,9 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     /* A relative mouse or an absolute digitizer/pen; not an absolute
      * Generic-Desktop device with no digitizer usage, which is a gamepad's
      * sticks. */
-    out->tab.valid = out->tab.x_size > 0 && out->tab.y_size > 0 &&
-                     (out->tab.x_relative || out->tab.tip_offset != HID_ABSENT ||
-                      out->tab.inrange_offset != HID_ABSENT);
+    out->tablet.valid = out->tablet.x_size > 0 && out->tablet.y_size > 0 &&
+                     (out->tablet.x_relative || out->tablet.tip_offset != HID_ABSENT ||
+                      out->tablet.inrange_offset != HID_ABSENT);
 
     /* If it creaks like a gamepad. A mouse has buttons and an X too, but
      * its X is relative, and a digital pad has no axes at all, so its

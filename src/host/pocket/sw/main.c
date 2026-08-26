@@ -38,7 +38,7 @@
 #include "core/hid/layout.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/main.h"
 #include "core/str/rln.h"
 #include "core/pix.h"
@@ -129,7 +129,7 @@ static void init(void)
     keymap_init(); /* the speller is this machine's, not the device layer's */
     mouse_init();
     pad_init();
-    tab_init();
+    tablet_init();
     apf_init();
     vid_init();
     tim_init();
@@ -159,7 +159,7 @@ void main_on_stop(void)
     keyboard_stop();
     mouse_stop();
     pad_stop();
-    tab_stop();
+    tablet_stop();
     aud_stop();
     /* argv belongs to the image, not the run, so it is not cleared here. */
     proc_stop();

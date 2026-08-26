@@ -11,7 +11,7 @@
 
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include <emscripten.h>
 #include <stdint.h>
 
@@ -24,9 +24,9 @@ EMSCRIPTEN_KEEPALIVE int mouse_mapped(void)
 
 /* Same hint drops once a program maps the tablet (it takes the pointer without
  * capturing it). */
-EMSCRIPTEN_KEEPALIVE int tab_mapped(void)
+EMSCRIPTEN_KEEPALIVE int tablet_mapped(void)
 {
-    return tab_is_mapped() ? 1 : 0;
+    return tablet_is_mapped() ? 1 : 0;
 }
 
 /* The page's Gamepad-API poller only runs once pad_mapped() reports a program

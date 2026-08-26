@@ -16,13 +16,13 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 
 typedef struct
 {
     keyboard_connection_t keyboard;
     mouse_connection_t mouse;
-    tab_connection_t tab;
+    tablet_connection_t tablet;
     pad_connection_t pad;
 } hid_parsed_t;
 

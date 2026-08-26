@@ -38,7 +38,7 @@
 #include "core/api/oem.h"
 #include "core/sys/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/sys/rom.h"
 #include "core/wdc/cpu.h"
 #include "core/sys/main.h"
@@ -257,16 +257,16 @@ bool window_canvas_from_fb(float px, float py, int *cx, int *cy)
 }
 
 /* Map the ROM's tablet control byte to a sokol system cursor. */
-static sapp_mouse_cursor tab_cursor_to_sokol(uint8_t shape)
+static sapp_mouse_cursor tablet_cursor_to_sokol(uint8_t shape)
 {
     switch (shape)
     {
-    case TAB_CURSOR_ARROW: return SAPP_MOUSECURSOR_ARROW;
-    case TAB_CURSOR_CROSSHAIR: return SAPP_MOUSECURSOR_CROSSHAIR;
-    case TAB_CURSOR_IBEAM: return SAPP_MOUSECURSOR_IBEAM;
-    case TAB_CURSOR_HAND: return SAPP_MOUSECURSOR_POINTING_HAND;
-    case TAB_CURSOR_RESIZE_EW: return SAPP_MOUSECURSOR_RESIZE_EW;
-    case TAB_CURSOR_RESIZE_NS: return SAPP_MOUSECURSOR_RESIZE_NS;
+    case TABLET_CURSOR_ARROW: return SAPP_MOUSECURSOR_ARROW;
+    case TABLET_CURSOR_CROSSHAIR: return SAPP_MOUSECURSOR_CROSSHAIR;
+    case TABLET_CURSOR_IBEAM: return SAPP_MOUSECURSOR_IBEAM;
+    case TABLET_CURSOR_HAND: return SAPP_MOUSECURSOR_POINTING_HAND;
+    case TABLET_CURSOR_RESIZE_EW: return SAPP_MOUSECURSOR_RESIZE_EW;
+    case TABLET_CURSOR_RESIZE_NS: return SAPP_MOUSECURSOR_RESIZE_NS;
     default: return SAPP_MOUSECURSOR_DEFAULT;
     }
 }
@@ -282,7 +282,7 @@ void window_set_pointer_on_canvas(bool on)
     pointer_on_canvas = on;
 }
 
-/* Apply the tablet ROM's requested host cursor (control byte): TAB_CURSOR_OFF
+/* Apply the tablet ROM's requested host cursor (control byte): TABLET_CURSOR_OFF
  * hides it (the ROM draws its own), otherwise show that shape. This is the sole
  * cursor writer (simgui's own control is disabled), run every frame so a ROM
  * cursor change or a debugger panel-hover change is reflected promptly. Over a
@@ -294,23 +294,23 @@ static void update_cursor(void)
     if (dbg_is_active() && dbgui_wants_mouse())
     {
         /* Over a debugger panel ImGui owns the shape; apply it (simgui no longer
-         * does) and keep the pointer visible over any TAB_CURSOR_OFF hide. */
+         * does) and keep the pointer visible over any TABLET_CURSOR_OFF hide. */
         sapp_set_mouse_cursor((sapp_mouse_cursor)dbgui_mouse_cursor());
         sapp_show_mouse(true);
         return;
     }
 #endif
-    if (tab_is_mapped() && pointer_on_canvas)
+    if (tablet_is_mapped() && pointer_on_canvas)
     {
         had_tablet = true;
-        int shape = tab_control();
-        if (shape >= TAB_CURSOR_COUNT)
-            shape = TAB_CURSOR_OFF;
-        if (shape == TAB_CURSOR_OFF)
+        int shape = tablet_control();
+        if (shape >= TABLET_CURSOR_COUNT)
+            shape = TABLET_CURSOR_OFF;
+        if (shape == TABLET_CURSOR_OFF)
             sapp_show_mouse(false);
         else
         {
-            sapp_set_mouse_cursor(tab_cursor_to_sokol(shape));
+            sapp_set_mouse_cursor(tablet_cursor_to_sokol(shape));
             sapp_show_mouse(true);
         }
     }
@@ -338,7 +338,7 @@ static void update_title(void)
         v = 3;
         t = "Picocomputer 6502  -  Esc releases mouse";
     }
-    else if (mouse_is_mapped() && !tab_is_mapped())
+    else if (mouse_is_mapped() && !tablet_is_mapped())
     {
         v = 2;
         t = "Picocomputer 6502  -  click to capture mouse";
@@ -457,7 +457,7 @@ void window_core_frame(void)
     /* Release a captured mouse if the program gave up the device (exec'd away,
      * unmapped) or mapped the absolute tablet (which never captures); then refresh
      * the title (run state + capture hint). */
-    if (sapp_mouse_locked() && (!mouse_is_mapped() || tab_is_mapped()))
+    if (sapp_mouse_locked() && (!mouse_is_mapped() || tablet_is_mapped()))
         sapp_lock_mouse(false);
     update_title();
     /* A host overlay (the Android ROM menu, the desktop no-ROM prompt) holds the

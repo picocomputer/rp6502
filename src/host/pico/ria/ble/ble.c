@@ -15,7 +15,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include "core/hid/parse.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/hid/pad.h"
 #include "ria/net/cyw.h"
 #include "core/str/str.h"
@@ -209,7 +209,7 @@ static void ble_hids_host_handler(uint8_t packet_type, uint16_t channel, uint8_t
             hid_parsed_t parsed;
             hid_parse(descriptor, descriptor_len, &parsed);
             /* No vendor or product id over BLE, so nothing is ever certain. */
-            int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tab, &parsed.pad,
+            int slot = hid_mount(&parsed.keyboard, &parsed.mouse, &parsed.tablet, &parsed.pad,
                                  0, 0, PAD_TYPE_UNKNOWN);
             if (slot < 0)
                 continue;

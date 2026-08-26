@@ -11,7 +11,7 @@
 #include "core/sys/keyboard.h"
 #include "core/hid/mouse.h"
 #include "host/sokol/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
@@ -428,18 +428,18 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet at wants x y");
         if (script_more(&p) && (!script_number(&p, &buttons) || buttons < 0 || buttons > 255))
             return script_error("tablet at wants a button bitmap 0..255");
-        tab_host_pointer((int)x, (int)y, (uint8_t)buttons);
+        tablet_host_pointer((int)x, (int)y, (uint8_t)buttons);
         return true;
     }
     if (verb && !strcasecmp(verb, "touch"))
     {
-        tab_point_t points[TAB_MAX_CONTACTS];
+        tablet_point_t points[TABLET_MAX_CONTACTS];
         int count = 0;
         char *word;
         while ((word = script_word(&p)) != NULL)
         {
-            if (count == TAB_MAX_CONTACTS)
-                return script_error("tablet touch takes at most %d contacts", TAB_MAX_CONTACTS);
+            if (count == TABLET_MAX_CONTACTS)
+                return script_error("tablet touch takes at most %d contacts", TABLET_MAX_CONTACTS);
             char *comma = strchr(word, ',');
             if (!comma)
                 return script_error("tablet touch wants x,y pairs");
@@ -452,7 +452,7 @@ static bool script_cmd_tablet(char *p)
             points[count].y = (int16_t)y;
             count++;
         }
-        tab_host_touch(points, count);
+        tablet_host_touch(points, count);
         return true;
     }
     if (verb && !strcasecmp(verb, "wheel"))
@@ -462,12 +462,12 @@ static bool script_cmd_tablet(char *p)
             return script_error("tablet wheel wants a count");
         if (script_more(&p) && !script_number(&p, &pan))
             return script_error("tablet wheel wants a pan count");
-        tab_host_wheel((int)wheel, (int)pan);
+        tablet_host_wheel((int)wheel, (int)pan);
         return true;
     }
     if (verb && !strcasecmp(verb, "clear"))
     {
-        tab_host_clear();
+        tablet_host_clear();
         return true;
     }
     return script_error("tablet wants at, touch, wheel or clear");

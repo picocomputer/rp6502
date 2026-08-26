@@ -633,7 +633,7 @@ void mon_task(void)
             }
             else if ((unsigned char)c < 0x20)
             {
-                // A control byte (ESC sequence, tab, ...) whose on-screen width we
+                // A control byte (ESC sequence, tablet, ...) whose on-screen width we
                 // can't track; stop wrap/column injection for the rest of the chain.
                 mon_response_width_aware = true;
             }

@@ -22,7 +22,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/pad.h"
-#include "core/hid/tab.h"
+#include "core/hid/tablet.h"
 #include "core/hid/usage.h"
 
 #include <stdint.h>
@@ -85,7 +85,7 @@ static const mouse_connection_t apf_mouse_desc = {
 
 /* The same mouse read as a pointer, which is what a USB mouse gets too:
  * its first button is the tip a program draws with. */
-static const tab_connection_t apf_mouse_tab_desc = {
+static const tablet_connection_t apf_mouse_tablet_desc = {
     .valid = true,
     .button_offsets = {0, 1, 2, 3, 4},
     .x_relative = true,
@@ -142,7 +142,7 @@ static void apf_mount(int slot, uint8_t type)
         return;
     case APF_TYPE_MOUSE:
         apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mouse_desc,
-                                                 &apf_mouse_tab_desc, NULL, 0, 0, 0);
+                                                 &apf_mouse_tablet_desc, NULL, 0, 0, 0);
         return;
     default:
         return;
