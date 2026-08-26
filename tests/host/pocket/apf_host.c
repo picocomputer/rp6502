@@ -31,11 +31,20 @@ void hid_set_leds(uint8_t leds)
     (void)leds;
 }
 
-/* CP437, which is what every layout's code points are converted
- * through unless something says otherwise. */
+/* CP437 to start, which is what every layout's code points are converted
+ * through unless something says otherwise. Settable because the real machine's
+ * is: a 6502 program can move it through ATR_CODE_PAGE, and what that does to
+ * the layout is worth being able to ask. */
+static uint16_t apf_host_code_page = 437;
+
 uint16_t oem_get_code_page_run(void)
 {
-    return 437;
+    return apf_host_code_page;
+}
+
+void oem_set_code_page_run(uint16_t cp)
+{
+    apf_host_code_page = cp;
 }
 
 /* The console canvas, so an absolute pointer has a space to be in. */

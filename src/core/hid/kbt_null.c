@@ -27,8 +27,3 @@ void kbt_modifiers(uint8_t modifier)
 {
     (void)modifier;
 }
-
-// No dead-key cache: a conversion happens per keystroke.
-void kbt_rebuild_code_page_cache(void)
-{
-}

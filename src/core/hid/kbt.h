@@ -36,8 +36,6 @@ size_t kbt_in_chars(char *buf, size_t length);
 // Responder prints all keyboard layout options.
 int kbt_layouts_response(char *buf, size_t buf_size, int state, unsigned width);
 
-// Called when code page changes so cache can be rebuilt.
-void kbt_rebuild_code_page_cache(void);
 
 // Configuration setting KB
 #define KBT_LAYOUT_LIST_SIZE 40

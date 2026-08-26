@@ -7,7 +7,6 @@
 #include "core/api/api.h"
 #include "core/api/oem.h"
 #include "core/hid/kbd.h"
-#include "core/hid/kbt.h"
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/vga/vga.h"
@@ -42,10 +41,7 @@ static void oem_request_code_page(uint16_t cp)
         oem_code_page_run = cp;
     }
     if (old_code_page != oem_code_page_run)
-    {
         vga_set_code_page(oem_code_page_run);
-        kbt_rebuild_code_page_cache();
-    }
 }
 
 void HOST_IN_FLASH("oem_init") oem_init(void)

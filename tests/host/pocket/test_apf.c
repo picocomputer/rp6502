@@ -306,6 +306,45 @@ UTEST(apf, a_keyboard_types_through_its_layout)
     ASSERT_EQ(buf[0], 'z');
 }
 
+/* A dead key composes against a table of OEM bytes, so that table is only good
+ * for the code page it was built from. A 6502 program can change the page while
+ * a layout is loaded, and nothing tells the keyboard -- on this machine the page
+ * is the font's, and the font does not know a keyboard exists. So the keyboard
+ * has to notice for itself.
+ *
+ * The discriminator is a character one page has and the other does not: a with
+ * tilde is 0xC6 in CP850 and absent from CP437. */
+UTEST(apf, dead_keys_follow_a_code_page_change)
+{
+    reset_all();
+    oem_set_code_page_run(437);
+    kbt_load_layout("US-INTL");
+    apf_mount(2, APF_TYPE_KBD);
+
+    char buf[8];
+
+    /* Shift+0x35 is the tilde, the dead key. CP437 cannot spell what it
+     * composes to, so the pair does not compose -- an unmatched dead key
+     * types both of its characters. Whatever it did, it was not 0xC6. */
+    feed(2, APF_TYPE_KBD, 0x40000200u, 0x35000000u, 0x0000, false);
+    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
+    size_t n437 = kbt_in_chars(buf, sizeof buf);
+    for (size_t i = 0; i < n437; i++)
+        ASSERT_NE((unsigned char)buf[i], 0xC6);
+    while (kbt_in_chars(buf, sizeof buf)) /* nothing of 437 left queued */
+        ;
+
+    /* The same two keys, after the page moves under the layout. */
+    oem_set_code_page_run(850);
+    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KBD, 0x40000200u, 0x35000000u, 0x0000, false);
+    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
+    ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
+    ASSERT_EQ((unsigned char)buf[0], 0xC6);
+}
+
 /* The mouse: buttons and two signed movements, and the report counter
  * that says a report is new. */
 UTEST(apf, a_mouse_moves_and_clicks)

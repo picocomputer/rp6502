@@ -59,6 +59,10 @@ static char kbt_dead_key1;
 static char kbt_deadkey_cache[KBT_DEADKEY_CACHE_SIZE];
 static char const (*kbt_cached_dead2)[3];
 static char const (*kbt_cached_dead3)[4];
+/* Which page the cache above was built for. A flag rather than a sentinel page,
+ * so both live in .bss instead of one of them in .data. */
+static uint16_t kbt_cache_code_page;
+static bool kbt_cache_valid;
 
 // The active layout's name and description, copied out of the database
 // so the settings pattern can keep returning a pointer.
@@ -144,7 +148,7 @@ static void kbt_apply_active(void)
     }
     kbl_name(kbt_layout_index, kbt_layout_name);
     kbl_description(kbt_layout_index, kbt_layout_description);
-    kbt_rebuild_code_page_cache();
+    kbt_cache_valid = false;
 }
 
 static void kbt_cycle_layout(void)
@@ -162,8 +166,22 @@ static void kbt_cycle_layout(void)
     kbt_apply_active();
 }
 
+/* The cache holds OEM bytes, so it is only good for the page it was built from.
+ * Checked here rather than driven from oem.c: not every machine routes a code
+ * page change through a module that could tell us -- the Pocket's is its font's
+ * -- and on the RIA the USB task runs before this one, so a keystroke could
+ * otherwise beat the rebuild by a whole pass of the loop. */
+static void kbt_rebuild_code_page_cache(void);
+
+static void kbt_cache_ready(void)
+{
+    if (!kbt_cache_valid || kbt_cache_code_page != oem_get_code_page_run())
+        kbt_rebuild_code_page_cache();
+}
+
 static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
 {
+    kbt_cache_ready();
     bool key_shift = modifier & (KEYBOARD_MODIFIER_LEFTSHIFT | KEYBOARD_MODIFIER_RIGHTSHIFT);
     bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
     bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
@@ -589,10 +607,12 @@ int kbt_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
     return state + 1;
 }
 
-void kbt_rebuild_code_page_cache(void)
+static void kbt_rebuild_code_page_cache(void)
 {
     size_t cache_index = 0;
     uint16_t code_page = oem_get_code_page_run();
+    kbt_cache_code_page = code_page;
+    kbt_cache_valid = true;
     unsigned count2 = kbl_dead2_count(kbt_layout_index);
     unsigned count3 = kbl_dead3_count(kbt_layout_index);
     kbt_cached_dead2 = (void *)&kbt_deadkey_cache[cache_index];
