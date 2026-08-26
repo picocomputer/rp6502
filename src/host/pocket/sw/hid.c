@@ -27,6 +27,16 @@ void oem_set_code_page_run(uint16_t cp)
         font_set_code_page(cp);
 }
 
+/* The locale picks a default code page, and on this machine the code page IS
+ * the font's. There is no override to resolve against -- one locale, no SET --
+ * so the locale's choice simply takes effect. Defined because core/str/str.c
+ * calls it from str_apply_locale; without it that chain is unlinkable and only
+ * --gc-sections has been hiding it. */
+void oem_locale_changed(uint16_t cp)
+{
+    oem_set_code_page_run(cp);
+}
+
 /* The dock's controllers have no lamps and nothing enumerates. */
 void hid_set_leds(uint8_t leds)
 {

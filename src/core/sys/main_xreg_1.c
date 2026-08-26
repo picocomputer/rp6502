@@ -3,65 +3,20 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Which device an XREG write reaches: device 0, the RIA's own -- the one that
- * never crosses a bus even where there is one, because the registers it
- * carries belong to the chip the 6502 is talking to -- and device 1, the
- * video device, on a machine that is its own.
+ * Device 1 of the XREG space, the video device, on a machine that is its own.
  *
- * The rows are the 6502's ABI and not any machine's choice, so they always had
- * to agree; they were just written out again per machine, in a different shape
- * each time. A machine whose video device is a real chip across four wires
- * answers device 1 at the far end instead (host/pico/vga/sys/pix.c).
+ * Only a machine that renders its own video may list this file: it reaches
+ * core/vga/canvas.c, core/vga/mode.c and core/term/term.c, and a machine
+ * linking none of those cannot resolve it. A machine whose video device is a
+ * real chip across four wires answers device 1 at the far end instead
+ * (host/pico/vga/sys/pix.c) and lists core/sys/main_xreg_0.c alone.
  */
 
 #include "core/main.h"
-#include "core/aud/opl.h"
-#include "core/aud/psg.h"
-#include "core/hid/hid.h"
-#include "core/hid/kbd.h"
-#include "core/hid/mou.h"
-#include "core/hid/pad.h"
-#include "core/hid/tab.h"
 #include "core/term/term.h"
 #include "core/vga/vga.h"
 
 #include <string.h>
-
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
-{
-    if (channel == 0) /* human interface devices -> XRAM report blocks */
-    {
-        bool ok;
-        switch (address)
-        {
-        case 0:
-            ok = kbd_xreg(word);
-            break;
-        case 1:
-            ok = mou_xreg(word);
-            break;
-        case 2:
-            ok = pad_xreg(word);
-            break;
-        case 3:
-            ok = tab_xreg(word);
-            break;
-        default:
-            return false;
-        }
-        hid_remapped();
-        return ok;
-    }
-    if (channel == 1) /* audio: PSG at address 0, OPL at address 1 */
-    {
-        if (address == 0)
-            return psg_xreg(word);
-        if (address == 1)
-            return opl_xreg(word);
-        return false;
-    }
-    return false;
-}
 
 /* The mode program being assembled. Channel 0 stores each register as it
  * arrives and the mode write consumes the lot; the dispatch in core/sys/pix.c
