@@ -14,7 +14,7 @@
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
 #include "core/aud/bel.h"
-#include "core/sys/keyboard.h"
+#include "core/sys/vtkeys.h"
 #include "core/com/com.h"
 #include "core/ria/ria.h"
 #include "stdsys.h"
@@ -31,12 +31,12 @@ UTEST(features, sigint_irq)
     ASSERT_FALSE(ria_irq_asserted()); /* idle at boot */
 
     /* The SIGINT attribute consumes the latch once. */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_TRUE(ria_get_sigint());
     ASSERT_FALSE(ria_get_sigint());
 
     /* With the IRQ disabled, a pending SIGINT does not assert the line. */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_FALSE(ria_irq_asserted());
 
     /* Writing the enable mask also acks the bits it names (firmware fallthrough),
@@ -45,7 +45,7 @@ UTEST(features, sigint_irq)
     ASSERT_FALSE(ria_irq_asserted());
 
     /* A fresh Ctrl-C now drives the IRQ line. */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_TRUE(ria_irq_asserted());
 
     /* Reading $FFF0 returns the pending flags and acknowledges them. */
@@ -63,7 +63,7 @@ UTEST(features, ria_tick_holds_irq_through_ack)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     ria_reg_write(0xFFF0, 0x40); /* enable SIGINT (the write acks it too) */
-    keyboard_ctrl_letter('c');
+    vtkeys_ctrl_letter('c');
     ASSERT_TRUE(ria_irq_asserted());
 
     uint8_t data = 0;

@@ -12,8 +12,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The KEYBOARD source. hid/keyboard.c owns this ring and is the only caller: every host
- * keystroke, scripted or typed, enters the machine through one seam. */
+/* The KEYBOARD source: every host keystroke, scripted or typed, enters the
+ * machine here. The pushers are core/sys/vtkeys.c and the Pocket's own com.c.
+ * A RIA is not among them -- it links no core/com at all, and its console
+ * pulls from keymap_in_chars instead, which is why the keymap keeps a queue. */
 void com_keyboard_push(const char *s, size_t n);
 void com_keyboard_push_byte(uint8_t b);
 size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it */

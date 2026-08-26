@@ -8,7 +8,9 @@
 #include "host/sokol/input.h"
 
 #include "host/sokol/window.h"
-#include "core/sys/keyboard.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/usage.h"
+#include "core/sys/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
@@ -90,35 +92,6 @@ static uint8_t sokol_to_hid(int kc)
     }
 }
 
-/* Encode one Unicode codepoint to a NUL-terminated UTF-8 string (keyboard_text then
- * maps it to the active OEM code page). */
-static const char *utf8_encode(uint32_t cp, char dst[5])
-{
-    int n = 0;
-    if (cp < 0x80)
-        dst[n++] = (char)cp;
-    else if (cp < 0x800)
-    {
-        dst[n++] = (char)(0xC0 | (cp >> 6));
-        dst[n++] = (char)(0x80 | (cp & 0x3F));
-    }
-    else if (cp < 0x10000)
-    {
-        dst[n++] = (char)(0xE0 | (cp >> 12));
-        dst[n++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        dst[n++] = (char)(0x80 | (cp & 0x3F));
-    }
-    else
-    {
-        dst[n++] = (char)(0xF0 | (cp >> 18));
-        dst[n++] = (char)(0x80 | ((cp >> 12) & 0x3F));
-        dst[n++] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        dst[n++] = (char)(0x80 | (cp & 0x3F));
-    }
-    dst[n] = 0;
-    return dst;
-}
-
 /* US-ASCII of a printable sokol keycode honoring shift, else 0. Alt combos fire
  * no CHAR event, so an Alt+key Meta escape is reconstructed here — a US-layout
  * approximation, not an OEM-codepage match. */
@@ -131,8 +104,19 @@ static char ascii_from_key(int kc, bool shift)
         static const char shifted[] = ")!@#$%^&*(";
         return shift ? shifted[kc - SAPP_KEYCODE_0] : (char)('0' + (kc - SAPP_KEYCODE_0));
     }
+    /* The keypad prints its digit when NumLock is on, and an Alt chord over
+     * it fires no CHAR event to read one from. libretro answered this and
+     * this side had not. */
+    if (kc >= SAPP_KEYCODE_KP_0 && kc <= SAPP_KEYCODE_KP_9)
+        return (char)('0' + (kc - SAPP_KEYCODE_KP_0));
     switch (kc)
     {
+    case SAPP_KEYCODE_KP_DECIMAL: return '.';
+    case SAPP_KEYCODE_KP_DIVIDE: return '/';
+    case SAPP_KEYCODE_KP_MULTIPLY: return '*';
+    case SAPP_KEYCODE_KP_SUBTRACT: return '-';
+    case SAPP_KEYCODE_KP_ADD: return '+';
+    case SAPP_KEYCODE_KP_EQUAL: return '=';
     case SAPP_KEYCODE_SPACE: return ' ';
     case SAPP_KEYCODE_MINUS: return shift ? '_' : '-';
     case SAPP_KEYCODE_EQUAL: return shift ? '+' : '=';
@@ -189,8 +173,7 @@ static void input_key(const sapp_event *e)
                   (ALTGR_IS_CTRL_ALT &&
                    (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
-            char u[5];
-            keyboard_text(utf8_encode(e->char_code, u));
+            vtkeys_char(e->char_code);
         }
         break;
     case SAPP_EVENTTYPE_KEY_DOWN:
@@ -202,9 +185,9 @@ static void input_key(const sapp_event *e)
         suppress_char = false;
         switch (e->key_code)
         {
-        case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(1); break;
-        case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(2); break;
-        case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(4); break;
+        case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK); break;
+        case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK); break;
+        case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK); break;
         /* NumLock-off numpad navigation. sokol reports no NumLock modifier, so
          * always nav and swallow the digit CHAR the host emits when NumLock is
          * on. KP5 navigates nowhere, so it only swallows. */
@@ -220,16 +203,16 @@ static void input_key(const sapp_event *e)
         case SAPP_KEYCODE_KP_0:
         case SAPP_KEYCODE_KP_DECIMAL:
             suppress_char = true;
-            keyboard_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
+            vtkeys_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
             break;
         default:
-            /* A key that spells a sequence of its own -- Enter, Tab, an arrow,
+            /* A key that sends a sequence of its own -- Enter, Tab, an arrow,
              * a function key -- takes it; the rest fall through to the chords. */
-            if (keyboard_key(hid, ctrl, shift, alt))
+            if (vtkeys_key(hid, ctrl, shift, alt))
                 break;
             /* Ctrl+<key> -> C0 control byte (Ctrl-C latches SIGINT). Cover the full
              * @.._ / `..~ range the firmware promotes (Ctrl+[ = ESC, Ctrl+\ = FS,
-             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; keyboard_ctrl_letter gates
+             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; vtkeys_ctrl_letter gates
              * the valid range. The CHAR case above drops the X11 duplicate. */
             if (ctrl && !alt)
             {
@@ -251,13 +234,13 @@ static void input_key(const sapp_event *e)
                     sapp_query_desc().enable_clipboard)
                     ch = 0;
 #endif
-                keyboard_ctrl_letter(ch);
+                vtkeys_ctrl_letter(ch);
             }
             /* Alt+<printable> -> ESC<char> (Meta). No CHAR fires for Alt combos.
              * Ctrl+Alt is excluded only where it means AltGr, whose composed char
              * arrives via the CHAR case above. */
             else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-                keyboard_alt_char(ascii_from_key(e->key_code, shift), ctrl);
+                vtkeys_alt_char(ascii_from_key(e->key_code, shift), ctrl);
             break;
         }
         break;
@@ -456,7 +439,7 @@ void input_event(const sapp_event *e)
             mouse_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
-        keyboard_paste(sapp_get_clipboard_string());
+        vtkeys_paste(sapp_get_clipboard_string());
         break;
     default:
         break;

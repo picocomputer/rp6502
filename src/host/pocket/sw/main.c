@@ -126,7 +126,7 @@ static void init(void)
     if (!layout_init())
         printf("keyboard: no layouts\n");
     keyboard_init();
-    keymap_init(); /* the speller is this machine's, not the device layer's */
+    keymap_init(); /* the keymap is this machine's, not the device layer's */
     mouse_init();
     gamepad_init();
     tablet_init();

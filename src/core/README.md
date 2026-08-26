@@ -34,7 +34,7 @@ implementations of one claim and the tests hold them to it:
     dap/      the debug adapter, the DWARF and cc65 readers, the engine
     def/      X-macro data: keyboard layouts, localized strings
     hid/      keyboards, mice, gamepads, tablets, the report parser, and
-              what a key spells on the wire
+              what a key sends on the wire
     machine/  the machine's RTL top, and its timing constraints
     mem/ ria/ rv/    RAM, the register window, the soft RISC-V SoC
     str/ term/       readline and the ANSI terminal

@@ -6,11 +6,10 @@
 
 /* The keyboard's terminal half: keys in, console characters out.
  *
- * keyboard.c reports which keys are down and offers each press to whatever spells
- * for this machine -- core/hid/keyboard.h declares that seam. This answers it with
- * a layout, dead keys and a code page. A machine whose host produced the
- * characters first answers the same seam with nothing and takes text instead,
- * which is a different file and not this contract.
+ * keyboard.c reports which keys are down and offers each press to this machine's
+ * keymap. This answers with a layout, dead keys and a code page. A machine whose
+ * host produced the characters first answers with nothing and takes text
+ * instead -- src/core/sys/vtkeys.c, a different file and not this contract.
  */
 
 #ifndef _CORE_HID_KEYMAP_H_
@@ -19,6 +18,14 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+/* Every new key press, and the modifier byte after every report. A firmware
+ * answers with a layout; a machine whose host resolved the characters before
+ * the keystroke arrived answers with nothing -- src/core/sys/vtkeys.c. The
+ * prefix names the answerer, so the declaration lives in the answerer's
+ * header and core/hid/keyboard.h stays one module end to end. */
+void keymap_on_key(uint8_t modifier, uint8_t keycode);
+void keymap_on_modifiers(uint8_t modifier);
 
 void keymap_init(void);
 

@@ -119,7 +119,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
         ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
-        ${SW_SRC}/layout.c ${SW_SRC}/log.c ${SW_SRC}/mem.c
+        ${SW_SRC}/log.c ${SW_SRC}/mem.c
         ${SW_SRC}/msc.c
         ${SW_SRC}/proc.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
@@ -145,7 +145,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         # descriptor ever reaches this machine, so core/hid/parse.c is
         # not here. The layouts are an asset, so layout.c reads them rather
         # than linking twenty kilobytes of table into a 96 KB memory.
-        ${RP6502_SRC}/core/hid/vt.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/layout.c

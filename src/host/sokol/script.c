@@ -8,7 +8,9 @@
 #include "host/sokol/script.h"
 #include "host/sokol/png.h"
 #include "core/sys/proc.h"
-#include "core/sys/keyboard.h"
+#include "core/hid/keyboard.h"
+#include "core/hid/usage.h"
+#include "core/sys/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "host/sokol/gamepad.h"
 #include "core/hid/tablet.h"
@@ -473,6 +475,118 @@ static bool script_cmd_tablet(char *p)
     return script_error("tablet wants at, touch, wheel or clear");
 }
 
+/* ------------------------------------------------------------------ */
+/* Key names                                                           */
+/* ------------------------------------------------------------------ */
+
+/* Only the script language takes a key as text; every other caller already
+ * holds a usage. So the table lives here rather than in core, where libretro
+ * and android were linking it and never asking. */
+
+/* The keys with a name instead of a character. Letters, digits, function keys
+ * and the keypad are computed below rather than listed. key is -1 where the key
+ * has no xterm sequence of its own. */
+static const struct
+{
+    const char *name;
+    uint8_t hid;
+} script_named[] = {
+    {"enter", 0x28},
+    {"escape", 0x29},
+    {"backspace", 0x2A},
+    {"tab", 0x2B},
+    {"up", 0x52},
+    {"down", 0x51},
+    {"left", 0x50},
+    {"right", 0x4F},
+    {"home", 0x4A},
+    {"end", 0x4D},
+    {"insert", 0x49},
+    {"delete", 0x4C},
+    {"pageup", 0x4B},
+    {"pagedown", 0x4E},
+    {"kpenter", 0x58},
+    {"space", 0x2C},
+    {"minus", 0x2D},
+    {"equal", 0x2E},
+    {"leftbracket", 0x2F},
+    {"rightbracket", 0x30},
+    {"backslash", 0x31},
+    {"semicolon", 0x33},
+    {"apostrophe", 0x34},
+    {"grave", 0x35},
+    {"comma", 0x36},
+    {"period", 0x37},
+    {"slash", 0x38},
+    {"capslock", 0x39},
+    {"printscreen", 0x46},
+    {"scrolllock", 0x47},
+    {"pause", 0x48},
+    {"numlock", 0x53},
+    {"menu", 0x65},
+    {"kpdivide", 0x54},
+    {"kpmultiply", 0x55},
+    {"kpsubtract", 0x56},
+    {"kpadd", 0x57},
+    {"kpdecimal", 0x63},
+    {"kpequal", 0x67},
+    {"lctrl", 0xE0},
+    {"lshift", 0xE1},
+    {"lalt", 0xE2},
+    {"lsuper", 0xE3},
+    {"rctrl", 0xE4},
+    {"rshift", 0xE5},
+    {"ralt", 0xE6},
+    {"rsuper", 0xE7},
+};
+
+/* "f1".."f12" -> 1..12, else 0. */
+static int script_fkey_num(const char *name)
+{
+    if (name[0] != 'f' && name[0] != 'F')
+        return 0;
+    int n = 0;
+    const char *p = name + 1;
+    if (!*p)
+        return 0;
+    for (; *p; p++)
+    {
+        if (*p < '0' || *p > '9')
+            return 0;
+        n = n * 10 + (*p - '0');
+    }
+    return (n >= 1 && n <= 12) ? n : 0;
+}
+
+static uint8_t script_hid_from_name(const char *name)
+{
+    if (!name || !name[0])
+        return 0;
+    if (!name[1]) /* a bare letter or digit is its own name */
+    {
+        char c = name[0];
+        if (c >= 'A' && c <= 'Z')
+            c = (char)(c + 32);
+        if (c >= 'a' && c <= 'z')
+            return (uint8_t)(0x04 + c - 'a');
+        if (c >= '1' && c <= '9')
+            return (uint8_t)(0x1E + c - '1');
+        if (c == '0')
+            return 0x27;
+        return 0;
+    }
+    if ((name[0] == 'k' || name[0] == 'K') && (name[1] == 'p' || name[1] == 'P') &&
+        name[2] >= '0' && name[2] <= '9' && !name[3])
+        return name[2] == '0' ? 0x62 : (uint8_t)(0x59 + name[2] - '1');
+    int f = script_fkey_num(name);
+    if (f)
+        return (uint8_t)(0x3A + f - 1);
+    for (size_t i = 0; i < sizeof script_named / sizeof script_named[0]; i++)
+        if (!strcasecmp(name, script_named[i].name))
+            return script_named[i].hid;
+    return 0;
+}
+
 bool script_command(const char *line)
 {
     char buf[SCRIPT_LINE_MAX];
@@ -564,13 +678,14 @@ bool script_command(const char *line)
         long frames = SCRIPT_WAIT_FRAMES;
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("type wants a frame budget");
-        keyboard_paste(text);
+        vtkeys_paste(text);
         /* Blocks until the ring has it all, so back-to-back type commands
          * cannot replace each other mid-drip. */
         script_wait = SCRIPT_TYPING;
         script_budget = (unsigned long)frames;
         return true;
     }
+
 
     if (!strcasecmp(cmd, "key"))
     {
@@ -591,8 +706,8 @@ bool script_command(const char *line)
             else
                 return script_error("unknown modifier '%s'", plus + 1);
         }
-        uint8_t hid = keyboard_hid_from_name(name);
-        if (!hid || !keyboard_key(hid, ctrl, shift, alt))
+        uint8_t hid = script_hid_from_name(name);
+        if (!hid || !vtkeys_key(hid, ctrl, shift, alt))
             return script_error("'%s' has no key sequence", name);
         return true;
     }
@@ -604,7 +719,7 @@ bool script_command(const char *line)
         int count = 0;
         while ((name = script_word(&p)) != NULL)
         {
-            uint8_t hid = keyboard_hid_from_name(name);
+            uint8_t hid = script_hid_from_name(name);
             if (!hid)
             {
                 char *num = name;
@@ -627,11 +742,11 @@ bool script_command(const char *line)
         if (!which)
             which = "";
         if (!strcasecmp(which, "num"))
-            keyboard_toggle_lock(1);
+            keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK);
         else if (!strcasecmp(which, "caps"))
-            keyboard_toggle_lock(2);
+            keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK);
         else if (!strcasecmp(which, "scroll"))
-            keyboard_toggle_lock(4);
+            keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK);
         else
             return script_error("lock wants num, caps or scroll");
         return true;
@@ -815,7 +930,7 @@ static bool script_settle(void)
                             script_addr_base == xram ? "xram" : "ram", script_addr,
                          script_addr_want, script_addr_base[script_addr]);
     case SCRIPT_TYPING:
-        if (!keyboard_paste_busy())
+        if (!vtkeys_paste_busy())
             break;
         if (script_spend())
             return false;

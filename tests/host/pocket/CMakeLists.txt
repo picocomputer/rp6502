@@ -24,7 +24,6 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
-        ${RP6502_SRC}/core/hid/vt.c
         ${RP6502_SRC}/core/api/uni.c
         ${KBDLAY_C} ${OEMCP_C}
         apf_host.c

@@ -36,7 +36,7 @@
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
 #include "core/api/oem.h"
-#include "core/sys/keyboard.h"
+#include "core/sys/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/sys/rom.h"
@@ -635,7 +635,7 @@ bool window_core_boot_rom(const char *path)
             return false;
         }
     }
-    keyboard_paste_cancel(); /* the new program must not receive an old paste */
+    vtkeys_paste_cancel(); /* the new program must not receive an old paste */
     /* A dropped ROM is a program change (stop + load + run), not a machine reboot:
      * the code page / PHI2 ride through from the previous program, like an exec. */
     /* Committed here rather than left for the next frame: the load below

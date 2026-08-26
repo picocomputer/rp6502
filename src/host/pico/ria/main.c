@@ -122,7 +122,7 @@ static void __in_flash("init") init(void)
     led_init();
     aud_init();
     keyboard_init();
-    keymap_init(); /* the speller is this machine's, not the device layer's */
+    keymap_init(); /* the keymap is this machine's, not the device layer's */
     mouse_init();
     gamepad_init();
     tablet_init();

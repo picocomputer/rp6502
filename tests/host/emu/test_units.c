@@ -11,7 +11,7 @@
 #include "core/str/str.h"
 #include "host/sokol/cli.h"
 #include "core/hid/usage.h"
-#include "core/sys/keyboard.h"
+#include "core/sys/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/sys/main.h"
@@ -154,7 +154,7 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_FALSE(tablet_is_mapped());
 }
 
-/* Drain the keyboard com ring (what keyboard_key/keyboard_text push) into buf. */
+/* Drain the keyboard com ring (what vtkeys_key/vtkeys_text push) into buf. */
 static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
@@ -174,66 +174,66 @@ UTEST(keyboard, ansi_sequences)
     char b[32];
 
     com_init();
-    keyboard_key(HID_KEY_ARROW_UP, false, false, false);
+    vtkeys_key(HID_KEY_ARROW_UP, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
 
     com_init();
-    keyboard_key(HID_KEY_F1, false, false, false);
+    vtkeys_key(HID_KEY_F1, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
 
     com_init();
-    keyboard_key(HID_KEY_F5, false, false, false);
+    vtkeys_key(HID_KEY_F5, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
 
     com_init();
-    keyboard_key(HID_KEY_F12, false, false, false);
+    vtkeys_key(HID_KEY_F12, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
     com_init();
-    keyboard_key(HID_KEY_INSERT, false, false, false);
+    vtkeys_key(HID_KEY_INSERT, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
     com_init();
-    keyboard_key(HID_KEY_HOME, false, false, false);
+    vtkeys_key(HID_KEY_HOME, false, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
     com_init();
-    keyboard_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
+    vtkeys_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
     com_init();
-    keyboard_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
+    vtkeys_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
     com_init();
-    keyboard_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
+    vtkeys_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
     com_init();
-    keyboard_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
+    vtkeys_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_init();
-    keyboard_key(HID_KEY_ENTER, false, false, false);
-    keyboard_key(HID_KEY_BACKSPACE, false, false, false);
-    keyboard_key(HID_KEY_BACKSPACE, true, false, false);
+    vtkeys_key(HID_KEY_ENTER, false, false, false);
+    vtkeys_key(HID_KEY_BACKSPACE, false, false, false);
+    vtkeys_key(HID_KEY_BACKSPACE, true, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
-/* Ctrl and Alt on the four keys that spell a character of their own. The
+/* Ctrl and Alt on the four keys that type a character of their own. The
  * console keymap defines no control form for Enter, Tab or Escape -- each is
  * already a C0 control -- so the key still types itself, while Alt is an ESC
  * prefix over whatever the other modifiers settled on. */
@@ -242,24 +242,24 @@ UTEST(keyboard, ctrl_and_alt_on_control_keys)
     char b[16];
 
     com_init();
-    keyboard_key(HID_KEY_ENTER, true, false, false);
-    keyboard_key(HID_KEY_TAB, true, false, false);
-    keyboard_key(HID_KEY_ESCAPE, true, false, false);
+    vtkeys_key(HID_KEY_ENTER, true, false, false);
+    vtkeys_key(HID_KEY_TAB, true, false, false);
+    vtkeys_key(HID_KEY_ESCAPE, true, false, false);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
 
     com_init();
-    keyboard_key(HID_KEY_ENTER, false, false, true);
-    keyboard_key(HID_KEY_TAB, false, false, true);
-    keyboard_key(HID_KEY_ESCAPE, false, false, true);
+    vtkeys_key(HID_KEY_ENTER, false, false, true);
+    vtkeys_key(HID_KEY_TAB, false, false, true);
+    vtkeys_key(HID_KEY_ESCAPE, false, false, true);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
     /* Alt composes with Ctrl instead of replacing it: ESC, then the byte
      * Ctrl already chose. */
     com_init();
-    keyboard_key(HID_KEY_BACKSPACE, false, false, true);
-    keyboard_key(HID_KEY_BACKSPACE, true, false, true);
+    vtkeys_key(HID_KEY_BACKSPACE, false, false, true);
+    vtkeys_key(HID_KEY_BACKSPACE, true, false, true);
     ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
@@ -271,17 +271,17 @@ UTEST(keyboard, text_to_oem)
     str_init(); /* apply the default locale: code page 437 */
 
     com_init();
-    keyboard_text("Hi!"); /* ASCII passes through */
+    vtkeys_text("Hi!"); /* ASCII passes through */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
     com_init();
-    keyboard_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
+    vtkeys_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    keyboard_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
+    vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
 }

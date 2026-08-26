@@ -17,6 +17,7 @@
 #include "core/pix.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
+#include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
@@ -129,4 +130,22 @@ const std_driver_t *main_std_drivers(size_t *count)
 {
     *count = sizeof(std_drivers) / sizeof(std_drivers[0]);
     return std_drivers;
+}
+
+/* core/hid/hid.h's host hooks, answered by a machine with no transport of
+ * its own: the lock keys belong to the desktop's own keyboard, there is
+ * nothing to enumerate at boot, and a remapped device is refilled by the
+ * next thing the window hands us. */
+void hid_set_leds(uint8_t leds)
+{
+    (void)leds;
+}
+
+bool hid_boot_enumerating(void)
+{
+    return false;
+}
+
+void hid_remapped(void)
+{
 }

@@ -12,7 +12,7 @@
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
-#include "core/sys/keyboard.h"
+#include "core/sys/vtkeys.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -229,7 +229,7 @@ UTEST(dbg, continue_runs_to_exit)
     ASSERT_FALSE(dbg_is_stopped());
 
     /* Decline the intro prompt, "quit", then confirm "yes" -> the game exits. */
-    keyboard_paste("no\nquit\nyes\n");
+    vtkeys_paste("no\nquit\nyes\n");
     for (int i = 0; i < 600 && !cpu_halted(); i++)
         sys_run_frame();
     ASSERT_TRUE(cpu_halted());

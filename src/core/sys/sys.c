@@ -10,7 +10,7 @@
 #include "core/dap/dbg.h"
 #include "core/sys/log.h"
 #include "core/sys/rom.h"
-#include "core/sys/keyboard.h"
+#include "core/sys/vtkeys.h"
 #include "core/sys/main.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
@@ -233,7 +233,7 @@ static void run_frame(bool render)
      * so a paste arriving this frame is read this frame. Here rather than in the
      * window loop: the windowed app, the headless batch and a script all share this
      * frame boundary and must pace a paste the same way. */
-    keyboard_task();
+    vtkeys_task();
     /* Pump the line editor (drains keyboard + terminal replies, echoes, fires the
      * read callback) then advance any blocking syscall waiting on it. */
     rln_task();
