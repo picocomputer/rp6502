@@ -70,9 +70,8 @@ add_library(emu_core STATIC
     # are what a software machine answers where another has fabric or a
     # firmware -- the host already produced the characters, so there is no
     # layout engine here at all.
-    ${RP6502_SRC}/core/hid/hid_null.c
-    ${RP6502_SRC}/core/hid/kbd_text.c
-    ${RP6502_SRC}/core/hid/kbt_null.c
+    ${RP6502_SRC}/core/sys/hid.c
+    ${RP6502_SRC}/core/sys/kbd.c
     ${RP6502_SRC}/core/sys/log.c
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c

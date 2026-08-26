@@ -14,7 +14,7 @@
 
 #include "input.h"
 
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/hid/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"

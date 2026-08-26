@@ -14,7 +14,7 @@
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
 #include "core/aud/bel.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/com/com.h"
 #include "core/ria/ria.h"
 #include "stdsys.h"

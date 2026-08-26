@@ -8,7 +8,7 @@
 #include "host/sokol/scr.h"
 #include "host/sokol/png.h"
 #include "core/sys/pro.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/hid/mou.h"
 #include "host/sokol/pad.h"
 #include "core/hid/tab.h"

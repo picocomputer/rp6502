@@ -12,7 +12,7 @@
  */
 
 #include "core/api/oem.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/hid/vt.h"
 #include "core/com/com.h"
 #include "core/hid/kbd.h"
@@ -343,4 +343,18 @@ bool kbd_key_from_name(const char *name, kbd_key_t *key)
             return true;
         }
     return false;
+}
+
+/* core/hid/kbd.h's seam, answered by a machine that had an OS to ask. Every
+ * key still reaches kbd.c for the bitmap a program reads, but what it spells
+ * was decided before the keystroke arrived -- kbd_text above takes that. */
+void kbd_spell_key(uint8_t modifier, uint8_t keycode)
+{
+    (void)modifier;
+    (void)keycode;
+}
+
+void kbd_spell_modifiers(uint8_t modifier)
+{
+    (void)modifier;
 }

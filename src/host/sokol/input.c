@@ -8,7 +8,7 @@
 #include "host/sokol/input.h"
 
 #include "host/sokol/window.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
 #include "core/vga/vga_emu.h"

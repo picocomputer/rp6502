@@ -10,7 +10,7 @@
 #include "core/dap/dbg.h"
 #include "core/sys/log.h"
 #include "core/sys/rom.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/sys/main.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"

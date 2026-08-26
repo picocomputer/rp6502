@@ -36,7 +36,7 @@
 #include "core/dap/dbg.h"
 #include "core/sys/pro.h"
 #include "core/api/oem.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
 #include "core/sys/rom.h"

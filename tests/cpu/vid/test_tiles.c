@@ -10,7 +10,7 @@
  * + palette), and the HID keyboard XRAM bitmap.
  */
 
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"

@@ -12,7 +12,7 @@
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "emu_boot.h"
 #include <string.h>
 

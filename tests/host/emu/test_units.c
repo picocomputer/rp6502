@@ -10,7 +10,7 @@
 #include "core/api/oem.h"
 #include "core/str/str.h"
 #include "host/sokol/cli.h"
-#include "core/hid/kbd_text.h"
+#include "core/sys/kbd.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/sys/main.h"
