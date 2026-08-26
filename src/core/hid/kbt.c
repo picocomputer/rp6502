@@ -13,7 +13,7 @@
 #include "core/api/oem.h"
 #include "core/api/uni.h"
 #include "core/hid/keyboard.h"
-#include "core/hid/kbl.h"
+#include "core/hid/layout.h"
 #include "core/hid/kbt.h"
 #include "core/hid/vt.h"
 #include "core/hid/usage.h"
@@ -66,8 +66,8 @@ static bool kbt_cache_valid;
 
 // The active layout's name and description, copied out of the database
 // so the settings pattern can keep returning a pointer.
-static char kbt_layout_name[KBL_NAME_MAX];
-static char kbt_layout_description[KBL_DESC_MAX];
+static char kbt_layout_name[LAYOUT_NAME_MAX];
+static char kbt_layout_description[LAYOUT_DESC_MAX];
 
 static void kbt_queue_str(const char *str)
 {
@@ -127,18 +127,18 @@ static void kbt_apply_active(void)
     size_t len = 0;
     while (kbt_layout_pos[len] && kbt_layout_pos[len] != ' ')
         len++;
-    for (int i = 0; i < kbl_count(); i++)
+    for (int i = 0; i < layout_count(); i++)
     {
-        char name[KBL_NAME_MAX];
-        kbl_name(i, name);
+        char name[LAYOUT_NAME_MAX];
+        layout_name(i, name);
         if (strlen(name) == len && !strncmp(kbt_layout_pos, name, len))
         {
             kbt_layout_index = i;
             break;
         }
     }
-    kbl_name(kbt_layout_index, kbt_layout_name);
-    kbl_description(kbt_layout_index, kbt_layout_description);
+    layout_name(kbt_layout_index, kbt_layout_name);
+    layout_description(kbt_layout_index, kbt_layout_description);
     kbt_cache_valid = false;
 }
 
@@ -211,7 +211,7 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
         return;
     }
     // Shift and caps lock logic
-    bool use_caps_lock = keycode < 128 && kbl_use_caps(kbt_layout_index, keycode);
+    bool use_caps_lock = keycode < 128 && layout_use_caps(kbt_layout_index, keycode);
     bool is_shifted = key_shift ^ (is_capslock && use_caps_lock);
     // Find plain typed or AltGr character
     uint16_t code_page = oem_get_code_page_run();
@@ -220,15 +220,15 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
                                        KEYBOARD_MODIFIER_LEFTGUI |
                                        KEYBOARD_MODIFIER_RIGHTGUI)))
     {
-        unsigned col = ((modifier & KEYBOARD_MODIFIER_RIGHTALT) ? KBL_ALTGR : 0) |
-                       (is_shifted ? KBL_SHIFT : 0);
-        ch = ff_uni2oem(kbl_code_point(kbt_layout_index, keycode, col), code_page);
+        unsigned col = ((modifier & KEYBOARD_MODIFIER_RIGHTALT) ? LAYOUT_ALTGR : 0) |
+                       (is_shifted ? LAYOUT_SHIFT : 0);
+        ch = ff_uni2oem(layout_code_point(kbt_layout_index, keycode, col), code_page);
     }
     // ALT characters not found in AltGr get escaped
     if (key_alt && !ch && keycode < 128)
     {
-        ch = ff_uni2oem(kbl_code_point(kbt_layout_index, keycode,
-                                       is_shifted ? KBL_SHIFT : KBL_PLAIN),
+        ch = ff_uni2oem(layout_code_point(kbt_layout_index, keycode,
+                                       is_shifted ? LAYOUT_SHIFT : LAYOUT_PLAIN),
                         code_page);
         if (key_ctrl)
         {
@@ -407,10 +407,10 @@ static int kbt_sanitize_layout(const char *kb)
 {
     int default_index = 0;
     int found_index = -1;
-    for (int i = 0; i < kbl_count(); i++)
+    for (int i = 0; i < layout_count(); i++)
     {
-        char name[KBL_NAME_MAX];
-        kbl_name(i, name);
+        char name[LAYOUT_NAME_MAX];
+        layout_name(i, name);
         if (!strcasecmp(name, "US"))
             default_index = i;
         if (!strcasecmp(name, kb))
@@ -457,11 +457,11 @@ static bool kbt_build_layout_list(const char *in, char *out, size_t size)
         size_t tok_len = 0;
         while (in[tok_len] && in[tok_len] != ' ')
             tok_len++;
-        char name[KBL_NAME_MAX];
+        char name[LAYOUT_NAME_MAX];
         name[0] = 0;
-        for (int i = 0; i < kbl_count(); i++)
+        for (int i = 0; i < layout_count(); i++)
         {
-            kbl_name(i, name);
+            layout_name(i, name);
             if (strlen(name) == tok_len && !strncasecmp(in, name, tok_len))
                 break;
             name[0] = 0;
@@ -501,20 +501,20 @@ void kbt_task(void)
 int kbt_layouts_response(char *buf, size_t buf_size, int state, unsigned width)
 {
     (void)width;
-    if (state < 0 || state >= kbl_count())
+    if (state < 0 || state >= layout_count())
         return -1;
-    char name[KBL_NAME_MAX];
-    char desc[KBL_DESC_MAX];
+    char name[LAYOUT_NAME_MAX];
+    char desc[LAYOUT_DESC_MAX];
     int maxlen = 0;
-    for (int i = 0; i < kbl_count(); i++)
+    for (int i = 0; i < layout_count(); i++)
     {
-        kbl_name(i, name);
+        layout_name(i, name);
         int thislen = strlen(name);
         if (thislen > maxlen)
             maxlen = thislen;
     }
-    kbl_name(state, name);
-    kbl_description(state, desc);
+    layout_name(state, name);
+    layout_description(state, desc);
     snprintf(buf, buf_size, "  %*s - \a%s\n", maxlen, name, desc);
     return state + 1;
 }
@@ -525,15 +525,15 @@ static void kbt_rebuild_code_page_cache(void)
     uint16_t code_page = oem_get_code_page_run();
     kbt_cache_code_page = code_page;
     kbt_cache_valid = true;
-    unsigned count2 = kbl_dead2_count(kbt_layout_index);
-    unsigned count3 = kbl_dead3_count(kbt_layout_index);
+    unsigned count2 = layout_dead2_count(kbt_layout_index);
+    unsigned count3 = layout_dead3_count(kbt_layout_index);
     kbt_cached_dead2 = (void *)&kbt_deadkey_cache[cache_index];
     for (unsigned i = 0; i < count2; i++)
     {
         for (unsigned j = 0; j < 3; j++)
         {
             kbt_deadkey_cache[cache_index] = ff_uni2oem(
-                kbl_dead2(kbt_layout_index, i, j), code_page);
+                layout_dead2(kbt_layout_index, i, j), code_page);
             if (++cache_index >= sizeof(kbt_deadkey_cache))
                 goto overflow_error;
         }
@@ -547,7 +547,7 @@ static void kbt_rebuild_code_page_cache(void)
         for (unsigned j = 0; j < 4; j++)
         {
             kbt_deadkey_cache[cache_index] = ff_uni2oem(
-                kbl_dead3(kbt_layout_index, i, j), code_page);
+                layout_dead3(kbt_layout_index, i, j), code_page);
             if (++cache_index >= sizeof(kbt_deadkey_cache))
                 goto overflow_error;
         }
@@ -578,7 +578,7 @@ size_t kbt_in_chars(char *buf, size_t length)
 void kbt_load_layout(const char *str)
 {
     if (!kbt_build_layout_list(str, kbt_layout_list, sizeof kbt_layout_list))
-        kbl_name(kbt_sanitize_layout(""), kbt_layout_list);
+        layout_name(kbt_sanitize_layout(""), kbt_layout_list);
     kbt_layout_pos = kbt_layout_list;
     kbt_layout_loaded = true;
     kbt_apply_active();
@@ -620,7 +620,7 @@ void HOST_IN_FLASH("kbt_init") kbt_init(void)
 {
     if (!kbt_layout_loaded)
     {
-        kbl_name(kbt_sanitize_layout(""), kbt_layout_list);
+        layout_name(kbt_sanitize_layout(""), kbt_layout_list);
         kbt_layout_pos = kbt_layout_list;
         kbt_apply_active();
     }

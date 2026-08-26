@@ -11,9 +11,9 @@
 
 #include "mmio.h"
 
-#include "core/hid/kbl.h"
+#include "core/hid/layout.h"
 
-uint16_t kbl_word(uint32_t index)
+uint16_t layout_word(uint32_t index)
 {
     uint32_t at = index * 2;
     return (uint16_t)KBDLAY[at] | ((uint16_t)KBDLAY[at + 1] << 8);

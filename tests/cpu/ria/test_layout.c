@@ -10,14 +10,14 @@
  * through a Python generator instead, which is a second reader of a
  * format only a preprocessor understood — so this file includes the
  * same manifest the same way and compares every code point, every caps
- * lock flag and every dead key against what kbl.c reads back.
+ * lock flag and every dead key against what layout.c reads back.
  *
  * A layout that types the wrong character is not something a machine
  * notices, and on a Pocket the tables are an asset that a build can
  * quietly leave stale. This is what says otherwise.
  */
 
-#include "core/hid/kbl.h"
+#include "core/hid/layout.h"
 #include "utest.h"
 
 #include <stdint.h>
@@ -131,18 +131,18 @@ static unsigned ref_dead3_count(int lay)
     return n;
 }
 
-UTEST(kbl, every_layout_matches_its_def)
+UTEST(layout, every_layout_matches_its_def)
 {
     int failures = 0;
-    ASSERT_TRUE(kbl_init());
-    ASSERT_EQ(kbl_count(), REF_COUNT);
+    ASSERT_TRUE(layout_init());
+    ASSERT_EQ(layout_count(), REF_COUNT);
 
     for (int lay = 0; lay < REF_COUNT; lay++)
     {
-        char name[KBL_NAME_MAX];
-        char desc[KBL_DESC_MAX];
-        kbl_name(lay, name);
-        kbl_description(lay, desc);
+        char name[LAYOUT_NAME_MAX];
+        char desc[LAYOUT_DESC_MAX];
+        layout_name(lay, name);
+        layout_description(lay, desc);
         if (strcmp(name, ref_layouts[lay].name))
             FAIL("layout %d is %s, def says %s\n",
                  lay, name, ref_layouts[lay].name);
@@ -154,14 +154,14 @@ UTEST(kbl, every_layout_matches_its_def)
         {
             for (unsigned col = 0; col < 4; col++)
             {
-                uint16_t got = kbl_code_point(lay, kc, col);
+                uint16_t got = layout_code_point(lay, kc, col);
                 uint32_t want = ref_keys[lay][kc][col];
                 if (got != want)
                     FAIL("%s keycode 0x%02X column %u is U+%04X, "
                          "def says U+%04X\n",
                          name, kc, col, got, want);
             }
-            bool caps = kbl_use_caps(lay, kc);
+            bool caps = layout_use_caps(lay, kc);
             bool want_caps = ref_keys[lay][kc][4] != 0;
             if (caps != want_caps)
                 FAIL("%s keycode 0x%02X caps lock is %d, def says %d\n",
@@ -170,25 +170,25 @@ UTEST(kbl, every_layout_matches_its_def)
 
         unsigned n2 = ref_dead2_count(lay);
         unsigned n3 = ref_dead3_count(lay);
-        if (kbl_dead2_count(lay) != n2)
+        if (layout_dead2_count(lay) != n2)
             FAIL("%s has %u two-key dead entries, def has %u\n",
-                 name, kbl_dead2_count(lay), n2);
-        if (kbl_dead3_count(lay) != n3)
+                 name, layout_dead2_count(lay), n2);
+        if (layout_dead3_count(lay) != n3)
             FAIL("%s has %u three-key dead entries, def has %u\n",
-                 name, kbl_dead3_count(lay), n3);
+                 name, layout_dead3_count(lay), n3);
         for (unsigned i = 0; i < n2; i++)
             for (unsigned j = 0; j < 3; j++)
-                if (kbl_dead2(lay, i, j) != ref_dead2[lay][i][j])
+                if (layout_dead2(lay, i, j) != ref_dead2[lay][i][j])
                     FAIL("%s dead2 %u field %u is U+%04X, "
                          "def says U+%04X\n",
-                         name, i, j, kbl_dead2(lay, i, j),
+                         name, i, j, layout_dead2(lay, i, j),
                          ref_dead2[lay][i][j]);
         for (unsigned i = 0; i < n3; i++)
             for (unsigned j = 0; j < 4; j++)
-                if (kbl_dead3(lay, i, j) != ref_dead3[lay][i][j])
+                if (layout_dead3(lay, i, j) != ref_dead3[lay][i][j])
                     FAIL("%s dead3 %u field %u is U+%04X, "
                          "def says U+%04X\n",
-                         name, i, j, kbl_dead3(lay, i, j),
+                         name, i, j, layout_dead3(lay, i, j),
                          ref_dead3[lay][i][j]);
     }
 
@@ -196,15 +196,15 @@ UTEST(kbl, every_layout_matches_its_def)
 
 /* A layout that is not there reads empty rather than reading something else:
  * this is what a machine whose asset failed to load does with every key. */
-UTEST(kbl, a_layout_out_of_range_reads_empty)
+UTEST(layout, a_layout_out_of_range_reads_empty)
 {
-    ASSERT_TRUE(kbl_init());
+    ASSERT_TRUE(layout_init());
 
-    char name[KBL_NAME_MAX];
-    kbl_name(REF_COUNT, name);
+    char name[LAYOUT_NAME_MAX];
+    layout_name(REF_COUNT, name);
     ASSERT_EQ(name[0], 0);
-    ASSERT_EQ(kbl_code_point(REF_COUNT, 0x04, 0), 0);
-    ASSERT_EQ(kbl_code_point(-1, 0x04, 0), 0);
+    ASSERT_EQ(layout_code_point(REF_COUNT, 0x04, 0), 0);
+    ASSERT_EQ(layout_code_point(-1, 0x04, 0), 0);
 }
 
 UTEST_MAIN();

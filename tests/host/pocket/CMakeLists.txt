@@ -19,7 +19,7 @@ rp6502_add_test(apf
     SOURCES test_apf.c
         ${RP6502_SRC}/core/hid/hid.c
         ${RP6502_SRC}/core/hid/keyboard.c
-        ${RP6502_SRC}/core/hid/kbl.c
+        ${RP6502_SRC}/core/hid/layout.c
         ${RP6502_SRC}/core/hid/kbt.c
         ${RP6502_SRC}/core/hid/mou.c
         ${RP6502_SRC}/core/hid/pad.c

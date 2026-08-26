@@ -35,7 +35,7 @@
 #include "core/api/uni.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
-#include "core/hid/kbl.h"
+#include "core/hid/layout.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -123,7 +123,7 @@ static void init(void)
      * them, so a missing one is reported rather than fatal. */
     if (!uni_init())
         printf("oem: no tables\n");
-    if (!kbl_init())
+    if (!layout_init())
         printf("keyboard: no layouts\n");
     keyboard_init();
     kbt_init(); /* the speller is this machine's, not the device layer's */

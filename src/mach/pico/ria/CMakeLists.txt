@@ -31,7 +31,7 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     COMMENT "Generating the OEM code page tables"
     VERBATIM)
 
-# The keyboard layouts, out of def/keyboard_*.def and into one image hid/kbl.c
+# The keyboard layouts, out of def/keyboard_*.def and into one image hid/layout.c
 # reads a word at a time. See src/core/gen/keyboard_layout_gen.py.
 set(KBDLAY_GEN ${RP6502_ROOT}/src/core/gen/keyboard_layout_gen.py)
 set(KBDLAY_MANIFEST ${RP6502_ROOT}/src/core/def/keyboard.def)
@@ -147,7 +147,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/vt.c
     ${RP6502_ROOT}/src/core/hid/hid.c
     ${RP6502_ROOT}/src/core/hid/keyboard.c
-    ${RP6502_ROOT}/src/core/hid/kbl.c
+    ${RP6502_ROOT}/src/core/hid/layout.c
     ${RP6502_ROOT}/src/core/hid/kbt.c
     ${KBDLAY_C}
     ${RP6502_ROOT}/src/core/hid/mou.c

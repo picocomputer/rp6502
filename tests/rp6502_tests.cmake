@@ -34,10 +34,10 @@ endif()
 set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 
 # The keyboard layouts as a C table. The def files are the source, the
-# generator makes one image, and hid/kbl.c reads it a word at a time. No
+# generator makes one image, and hid/layout.c reads it a word at a time. No
 # machine here compiles it: the RIA firmware generates its own copy in its
 # own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
-# already translated. Only the kbl suites want it, to check the image against
+# already translated. Only the layout suites want it, to check the image against
 # the defs it came from, so it is built here rather than in a machine's
 # tree that would never name it. See src/core/gen/keyboard_layout_gen.py.
 set(KBDLAY_GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py)

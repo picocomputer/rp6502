@@ -20,7 +20,7 @@
 #include "core/cfg.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
-#include "core/hid/kbl.h"
+#include "core/hid/layout.h"
 
 #include <string.h>
 
@@ -34,10 +34,10 @@ static int32_t cfg_kb = -1;
  * nothing and leaves keyboard_init's default standing. */
 static void cfg_apply_layout(int32_t kb)
 {
-    char name[KBL_NAME_MAX];
+    char name[LAYOUT_NAME_MAX];
     if (kb <= 0)
         return;
-    kbl_name((int)kb - 1, name);
+    layout_name((int)kb - 1, name);
     if (name[0])
         kbt_load_layout(name);
 }

@@ -71,19 +71,19 @@ set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
     TARGET_DIRECTORY test_uni PROPERTIES COMPILE_DEFINITIONS
     "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 
-# --- The keyboard layouts (core/hid/kbl.c) against the def files they are
+# --- The keyboard layouts (core/hid/layout.c) against the def files they are
 # generated from. def/keyboard_*.def is what a contributor edits and what keyboard.c
 # used to include as X macros; the generator is a second reader of that
 # format, so the manifest is included here the old way and every code
 # point compared. ---
 set_source_files_properties(${KBDLAY_C} PROPERTIES GENERATED TRUE)
-rp6502_add_test(kbl
-    SOURCES test_kbl.c ${RP6502_SRC}/core/hid/kbl.c ${KBDLAY_C}
+rp6502_add_test(layout
+    SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c ${KBDLAY_C}
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC} ${KBDLAY_DIR})
-add_dependencies(test_kbl kbdlay)
+add_dependencies(test_layout kbdlay)
 
 # --- The same two suites over the ports that stage a binary ---
-# uni_word and kbl_word are the one thing a port writes: one links the
+# uni_word and layout_word are the one thing a port writes: one links the
 # generated C and reads an array, one stages the .bin and reads a window.
 # Both come out of one generator, so these are the suites above over the
 # other port — only a tree that builds the assets has one to be wrong about.
@@ -100,11 +100,11 @@ if(OEMCP_BIN)
 endif()
 
 if(KBDLAY_BIN)
-    rp6502_add_test(kbl_bin
-        SOURCES test_kbl.c ${RP6502_SRC}/core/hid/kbl.c kbl_bin.c
+    rp6502_add_test(layout_bin
+        SOURCES test_layout.c ${RP6502_SRC}/core/hid/layout.c layout_bin.c
         INCLUDES ${RP6502_SRC} ${KBDLAY_DIR}
         DEFS KBDLAY_BIN_PATH="${KBDLAY_BIN}")
-    add_dependencies(test_kbl_bin kbdlay kbdlay_bin)
+    add_dependencies(test_layout_bin kbdlay kbdlay_bin)
 endif()
 
 if(COMMAND rp6502_add_machine_test)
