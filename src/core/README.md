@@ -50,7 +50,7 @@ implementations of one claim and the tests hold them to it:
 A machine is not a fork. Where one implementation can serve every machine it
 lives here and each machine answers the few calls that are genuinely its own:
 the console is `com/`, over the wire in `com/tty.h`; the launcher chain is
-`api/pro.c`, over how a machine starts a program; the scanline program is
+`api/proc.c`, over how a machine starts a program; the scanline program is
 `vga/prog.c`, over what a machine's canvas is. The 6502's own ABI is the
 clearest case, because none of it was ever a machine's to choose: which
 handler a syscall reaches is `api/ops.c`, the eighteen directory calls are

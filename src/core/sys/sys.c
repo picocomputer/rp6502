@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/log.h"
@@ -241,10 +241,10 @@ static void run_frame(bool render)
     aud_task();
 
     /* An exec committed this frame: load the new program and restart the CPU,
-     * keeping the system clock and the argv pro_api_exec stored. main_stop arms the
+     * keeping the system clock and the argv proc_api_exec stored. main_stop arms the
      * console reset (vga_task performs it before the new program draws), as on real
      * hardware; the screen text survives (preserve-screen terminal RIS). */
-    const char *exec_path = pro_take_exec();
+    const char *exec_path = proc_take_exec();
     if (exec_path)
     {
         /* Committed here rather than left for the next frame: the load below
@@ -254,7 +254,7 @@ static void run_frame(bool render)
         if (!rom_load(exec_path))
         {
             log_error("exec failed to load '%s'", exec_path);
-            pro_set_exit_code(1); /* stays halted from main_stop */
+            proc_set_exit_code(1); /* stays halted from main_stop */
         }
         else
             main_run(); /* start the incoming program; keeps VSYNC + clock */

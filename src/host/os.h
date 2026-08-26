@@ -64,8 +64,8 @@
  * can be long; a Pico holds what its monitor accepts, and a soft CPU counting
  * static RAM holds less. Each machine that is not a host OS says so before
  * including this. */
-#ifndef PRO_PATH_MAX
-#define PRO_PATH_MAX 4096
+#ifndef PROC_PATH_MAX
+#define PROC_PATH_MAX 4096
 #endif
 
 /* Each console ring, in bytes; a power of two. Two of these exist, one for

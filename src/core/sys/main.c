@@ -6,7 +6,7 @@
  */
 
 #include "core/sys/main.h"
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/msc.h"
@@ -48,7 +48,7 @@
 void main_init(void)
 {
     mem_init();
-    pro_init();
+    proc_init();
     cpu_init();
     aud_init();
     kbd_init();
@@ -69,7 +69,7 @@ void main_init(void)
 /* The 6502 coming out of reset. */
 void main_on_run(void)
 {
-    pro_run();
+    proc_run();
     com_run();
     rln_run();
     dir_run();

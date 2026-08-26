@@ -8,7 +8,7 @@
 #include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "core/api/oem.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"
 #include "core/com.h"
@@ -61,9 +61,9 @@ bool attr_api_get(void)
     case ATTR_BEL:
         return api_return_axsreg(com_get_bel());
     case ATTR_LAUNCHER:
-        return api_return_axsreg(pro_has_launcher());
+        return api_return_axsreg(proc_has_launcher());
     case ATTR_EXIT_CODE:
-        return api_return_axsreg((uint16_t)pro_get_exit_code());
+        return api_return_axsreg((uint16_t)proc_get_exit_code());
     case ATTR_SIGINT:
         return api_return_axsreg(ria_get_sigint());
     case ATTR_RLN_CAPS:
@@ -124,7 +124,7 @@ bool attr_api_set(void)
     case ATTR_LAUNCHER:
         if (value > 1)
             return api_return_errno(API_EINVAL);
-        pro_set_launcher(value);
+        proc_set_launcher(value);
         break;
     case ATTR_RLN_CAPS:
         if (value > 2)

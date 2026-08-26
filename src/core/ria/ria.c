@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
@@ -75,9 +75,9 @@ static void ria_syscall(uint8_t op)
     {
         int16_t code = (int16_t)API_AX; /* capture before api_return_ax clobbers A/X */
         (void)api_return_ax(0);
-        /* If a launcher is armed, pro_exit re-execs it (machine keeps running);
+        /* If a launcher is armed, proc_exit re-execs it (machine keeps running);
          * otherwise the chain has ended, so halt. */
-        if (!pro_exit(code))
+        if (!proc_exit(code))
             cpu_set_halted(true);
         return;
     }

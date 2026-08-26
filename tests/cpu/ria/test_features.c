@@ -9,7 +9,7 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
@@ -80,30 +80,30 @@ UTEST(features, launcher_chain)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* A shell starts and registers itself as the launcher. */
-    pro_set_argv("MSC0:/shell.rp6502", 0, NULL);
-    ASSERT_FALSE(pro_has_launcher());
-    pro_set_launcher(true);
-    ASSERT_TRUE(pro_has_launcher());
-    ASSERT_TRUE(pro_is_launcher());
+    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    ASSERT_FALSE(proc_has_launcher());
+    proc_set_launcher(true);
+    ASSERT_TRUE(proc_has_launcher());
+    ASSERT_TRUE(proc_is_launcher());
 
-    /* It execs a game (the reload calls pro_run): the game is not the launcher. */
-    pro_set_argv("MSC0:/game.rp6502", 0, NULL);
-    ASSERT_FALSE(pro_is_launcher());
-    ASSERT_TRUE(pro_has_launcher());
+    /* It execs a game (the reload calls proc_run): the game is not the launcher. */
+    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    ASSERT_FALSE(proc_is_launcher());
+    ASSERT_TRUE(proc_has_launcher());
 
     /* The game exits -> the launcher is scheduled to re-run, chain still armed. */
-    ASSERT_TRUE(pro_exit(7));
-    ASSERT_EQ(pro_get_exit_code(), 7);
-    ASSERT_TRUE(pro_has_launcher());
+    ASSERT_TRUE(proc_exit(7));
+    ASSERT_EQ(proc_get_exit_code(), 7);
+    ASSERT_TRUE(proc_has_launcher());
 
-    /* The frame loop reloads the shell (pro_exit set its argv); pro_run picks it
+    /* The frame loop reloads the shell (proc_exit set its argv); proc_run picks it
      * up, so the shell is running again and is the launcher. */
-    pro_run();
-    ASSERT_TRUE(pro_is_launcher());
+    proc_run();
+    ASSERT_TRUE(proc_is_launcher());
 
     /* The shell itself exits -> no relaunch, chain cleared. */
-    ASSERT_FALSE(pro_exit(0));
-    ASSERT_FALSE(pro_has_launcher());
+    ASSERT_FALSE(proc_exit(0));
+    ASSERT_FALSE(proc_has_launcher());
 }
 
 /* Empty args are protocol elements: the seeded argv keeps them, so the
@@ -114,8 +114,8 @@ UTEST(features, empty_args_kept)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     char *args[] = {"", "x", ""};
-    ASSERT_TRUE(pro_set_argv("MSC0:/a.rp6502", 3, args));
-    ASSERT_FALSE(pro_api_argv()); /* false = op complete, not still working */
+    ASSERT_TRUE(proc_set_argv("MSC0:/a.rp6502", 3, args));
+    ASSERT_FALSE(proc_api_argv()); /* false = op complete, not still working */
 
     const uint8_t *blob = &xstack[xstack_ptr];
     int argc = 0;

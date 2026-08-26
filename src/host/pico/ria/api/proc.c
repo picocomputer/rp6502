@@ -6,7 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/api/arg.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/aud/bel.h"
 #include "ria/main.h"
 #include "ria/mon/mon.h"
@@ -18,7 +18,7 @@
 #include <fatfs/ff.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PRO)
+#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PROC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -32,22 +32,22 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 /* This machine loads through a task-driven state machine; both of these are
  * rom_exec picking up the argv the caller has already set. Op 0x09 stops the
  * program first -- the relaunch is running inside a stop already. */
-void pro_exec_start(const char *path)
+void proc_exec_start(const char *path)
 {
     (void)path;
     main_stop();
     rom_exec();
 }
 
-void pro_exec_relaunch(const char *path)
+void proc_exec_relaunch(const char *path)
 {
     (void)path;
     rom_exec();
 }
 
-/* A load already committed by pro_api_exec or pro_nfc must not be clobbered
+/* A load already committed by proc_api_exec or proc_nfc must not be clobbered
  * by the launcher. */
-bool pro_exec_inflight(void)
+bool proc_exec_inflight(void)
 {
     return rom_active();
 }
@@ -60,14 +60,14 @@ bool pro_exec_inflight(void)
 
 
 
-void pro_nfc(const uint8_t *tag_data, size_t len)
+void proc_nfc(const uint8_t *tag_data, size_t len)
 {
     char path[256];
-    DBG("pro_nfc(%zu bytes)\n", len);
+    DBG("proc_nfc(%zu bytes)\n", len);
 
     if (!nfc_parse_text(tag_data, len, path, sizeof(path)))
         goto fail;
-    DBG("pro_nfc text %s\n", path);
+    DBG("proc_nfc text %s\n", path);
 
     // Parse the first arg for the ROM path. NFC tags address filesystem
     // ROMs only; ':installed' names are rejected.
@@ -121,9 +121,9 @@ void pro_nfc(const uint8_t *tag_data, size_t len)
     // Splice the on-disk basename so argv[0] preserves case.
     if (!path_correct_basename(path, sizeof(path)))
         goto fail;
-    DBG("pro_nfc argv[0] %s\n", path);
+    DBG("proc_nfc argv[0] %s\n", path);
 
-    if (strcmp(path, pro_running()) == 0)
+    if (strcmp(path, proc_running()) == 0)
         goto already_running;
 
     // Full success

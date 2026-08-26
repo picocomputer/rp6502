@@ -120,7 +120,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/main.c
     ${RP6502_ROOT}/src/core/api/api.c
-    ${RP6502_ROOT}/src/core/api/pro.c
+    ${RP6502_ROOT}/src/core/api/proc.c
     ${RP6502_ROOT}/src/core/api/arg.c
     ${RP6502_ROOT}/src/core/api/attr.c
     ${RP6502_ROOT}/src/core/api/clk.c
@@ -131,7 +131,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/sys/rom_win.c
     ${RIA_SRC}/api/fat.c
     ${RP6502_ROOT}/src/core/api/oem.c
-    ${RIA_SRC}/api/pro.c
+    ${RIA_SRC}/api/proc.c
     ${RP6502_ROOT}/src/core/api/uni.c
     ${OEMCP_C}
     ${RP6502_ROOT}/src/core/api/std.c

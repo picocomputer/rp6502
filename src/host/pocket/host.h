@@ -8,7 +8,7 @@
 #define _HOST_POCKET_HOST_H_
 
 /* The launcher chain's path buffer, before the contract's default. */
-#define PRO_PATH_MAX 128
+#define PROC_PATH_MAX 128
 
 /* Static RAM, and the keyboard ring is fed by a 16-entry key queue. */
 #define COM_RING_SIZE 128

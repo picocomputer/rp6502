@@ -7,7 +7,7 @@
 
 #include "host/sokol/scr.h"
 #include "host/sokol/png.h"
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/sys/kbd.h"
 #include "core/hid/mou.h"
 #include "host/sokol/pad.h"
@@ -823,7 +823,7 @@ static bool scr_settle(void)
     case SCR_EXIT:
         if (cpu_halted())
         {
-            int code = pro_get_exit_code();
+            int code = proc_get_exit_code();
             if (code != scr_exit_want)
                 return scr_error("exit code %d, expected %d", code, scr_exit_want);
             break;

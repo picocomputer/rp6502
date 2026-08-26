@@ -21,7 +21,7 @@
 #include "core/api/attr.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/pix.h"
 #include "core/str/rln.h"
@@ -44,9 +44,9 @@ bool ops_dispatch(uint8_t operation)
     case 0x06:
         return attr_api_errno_opt();
     case 0x08:
-        return pro_api_argv();
+        return proc_api_argv();
     case 0x09:
-        return pro_api_exec();
+        return proc_api_exec();
     case 0x0A:
         return attr_api_get();
     case 0x0B:

@@ -456,7 +456,7 @@ the filename into memory the core nominates. That has to be the SDRAM
 staging store, since the bridge writes nowhere else — the outbound
 window Open File uses is write-only from the host's side — so the
 answer lands in a dedicated scratch above the assets at the top of the
-store. The firmware asks once per staged image, in `pro_restage()`. An
+store. The firmware asks once per staged image, in `proc_restage()`. An
 `exec` does not ask — the outgoing program has already said what the
 arguments are.
 

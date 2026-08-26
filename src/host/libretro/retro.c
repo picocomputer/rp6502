@@ -22,7 +22,7 @@
 #include "core/aud/aud_mix.h"
 #include "core/sys/log.h"
 #include "core/sys/msc.h"
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/sys/rom.h"
 #include "core/sys/main.h"
 #include "core/wdc/cpu.h"
@@ -430,8 +430,8 @@ static bool boot(const char *rom_oem)
     if (!rom_load(rom_oem))
         return false;
     vga_set_framebuffer(frame_buf);
-    pro_set_argv(rom_oem, 0, NULL);
-    pro_set_launcher(false);
+    proc_set_argv(rom_oem, 0, NULL);
+    proc_set_launcher(false);
     main_run();
     main_commit();
     shutdown_sent = false;

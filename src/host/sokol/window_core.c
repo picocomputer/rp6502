@@ -34,7 +34,7 @@
 #include "core/sys/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/api/oem.h"
 #include "core/sys/kbd.h"
 #include "core/hid/mou.h"
@@ -644,8 +644,8 @@ bool window_core_boot_rom(const char *path)
     main_commit();
     if (!rom_load(oem))
         return false; /* RAM may be part-written; stays halted from main_stop */
-    pro_set_argv(oem, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
-    pro_set_launcher(false);    /* a drop breaks any launcher chain */
+    proc_set_argv(oem, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
+    proc_set_launcher(false);    /* a drop breaks any launcher chain */
     main_run();
     main_commit();
     return true;
@@ -993,7 +993,7 @@ void window_core_event(const sapp_event *e)
  * stays 0. */
 int window_core_exit_code(void)
 {
-    return (app.exit_on_halt && cpu_halted()) ? pro_get_exit_code() : 0;
+    return (app.exit_on_halt && cpu_halted()) ? proc_get_exit_code() : 0;
 }
 
 void window_core_cleanup(void)

@@ -46,7 +46,7 @@ rp6502_add_test(features LIBS emu_core FIXTURE adventure.rp6502)
 # --- Adventure integration (ROM-asset files + interactive stdin via rln) ---
 rp6502_add_test(adventure LIBS emu_core FIXTURE adventure.rp6502 TIMEOUT 60)
 
-# --- Exec/argv (pro.c ops 0x08/0x09) + MSC0: program loading ---
+# --- Exec/argv (proc.c ops 0x08/0x09) + MSC0: program loading ---
 rp6502_add_test(exec LIBS emu_core FIXTURE exec.rp6502 TIMEOUT 60)
 
 # --- Clock/time API (host wall clock + timezone + locale + OEM code page) ---

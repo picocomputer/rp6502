@@ -43,7 +43,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
-#include "pro.h"
+#include "proc.h"
 #include "rom.h"
 #include "vga.h"
 #include "vid.h"
@@ -156,7 +156,7 @@ void sst_task(void)
          * Relative against absolute: msc_stage_rom opens under the
          * assets folder, so the host spells back what this side asked
          * for with that in front. */
-        const char *want = pro_staged_path();
+        const char *want = proc_staged_path();
         char bound[128];
         uint32_t len = 0;
         bool same = false;

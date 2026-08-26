@@ -15,44 +15,44 @@
  */
 
 #include "msc.h"
-#include "pro.h"
+#include "proc.h"
 #include "rom.h"
 
 #include "core/api/api.h"
 #include "core/api/arg.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/main.h"
 
 #include <stdio.h>
 #include <string.h>
 
 /* Short of the host's 256-byte field because this is static RAM. */
-#define PRO_ARGV0_MAX 128
+#define PROC_ARGV0_MAX 128
 
-static char pro_argv0[PRO_ARGV0_MAX];
-static char pro_exec_path[PRO_ARGV0_MAX];
-static bool pro_exec_pending;
+static char proc_argv0[PROC_ARGV0_MAX];
+static char proc_exec_path[PROC_ARGV0_MAX];
+static bool proc_exec_pending;
 
 /* Once per staged image, not once per run: asking is a blocking bridge
  * command and a run does not change the answer. Never on an exec, where
  * the argument buffer already holds what the outgoing program passed. */
-void pro_restage(void)
+void proc_restage(void)
 {
-    pro_exec_pending = false;
+    proc_exec_pending = false;
     /* A program the user picked from the menu supersedes the chain the
      * one before it was in. */
-    pro_cancel_launcher();
+    proc_cancel_launcher();
     arg_clear();
-    pro_run(); /* an empty argv: nothing is running until the image starts */
-    if (msc_getfile(MSC_SLOT_ROM, pro_argv0, sizeof pro_argv0))
-        arg_append(pro_argv0);
+    proc_run(); /* an empty argv: nothing is running until the image starts */
+    if (msc_getfile(MSC_SLOT_ROM, proc_argv0, sizeof proc_argv0))
+        arg_append(proc_argv0);
 }
 
 /* An exec staged its own image, so the chain's path is the one the
  * store holds; before any exec that is the host's answer. */
-const char *pro_staged_path(void)
+const char *proc_staged_path(void)
 {
-    return pro_running()[0] ? pro_running() : pro_argv0;
+    return proc_running()[0] ? proc_running() : proc_argv0;
 }
 
 
@@ -65,36 +65,36 @@ const char *pro_staged_path(void)
 /* Both stage the image; op 0x09 also stops the machine, because the
  * program that asked is already gone and the staging store is the console's
  * competitor for the bridge. The relaunch is inside a stop already. */
-void pro_exec_start(const char *path)
+void proc_exec_start(const char *path)
 {
-    pro_exec_relaunch(path);
+    proc_exec_relaunch(path);
     main_stop();
 }
 
-void pro_exec_relaunch(const char *path)
+void proc_exec_relaunch(const char *path)
 {
-    memcpy(pro_exec_path, path, strlen(path) + 1);
-    pro_exec_pending = true;
+    memcpy(proc_exec_path, path, strlen(path) + 1);
+    proc_exec_pending = true;
 }
 
 /* A staged image is a load this machine has committed to: the chain must
  * not put the launcher over it. */
-bool pro_exec_inflight(void)
+bool proc_exec_inflight(void)
 {
-    return pro_exec_pending;
+    return proc_exec_pending;
 }
 
 
 
-bool pro_exec_take(void)
+bool proc_exec_take(void)
 {
-    if (!pro_exec_pending)
+    if (!proc_exec_pending)
         return false;
-    pro_exec_pending = false;
+    proc_exec_pending = false;
     uint32_t len;
-    if (!msc_stage_rom(pro_exec_path, &len))
+    if (!msc_stage_rom(proc_exec_path, &len))
     {
-        printf("exec: no %s\n", pro_exec_path);
+        printf("exec: no %s\n", proc_exec_path);
         return false;
     }
     if (!rom_load_staged(len))

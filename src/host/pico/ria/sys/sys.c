@@ -7,7 +7,7 @@
 #include "rp6502_version.h"
 #include "ria/main.h"
 #include "core/api/arg.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
 #include "ria/ble/ble.h"

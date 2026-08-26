@@ -8,7 +8,7 @@
 #include "core/api/oem.h"
 #include "core/main.h"
 #include "core/str/str.h"
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "host/sokol/window.h"
 #include "host.h"
 #include "core/aud/aud_mix.h"
@@ -54,7 +54,7 @@ static void apply_options(const cli_options *o)
 static int run_dap(const cli_options *o)
 {
     cpu_set_halted(true); /* the machine is initialized; hold it (no program yet)
-                           * until the DAP launch loads + runs one via pro_exec */
+                           * until the DAP launch loads + runs one via proc_exec */
     dbg_set_active(true);
 
     apply_options(o);
@@ -265,7 +265,7 @@ int main(int argc, char **argv)
 
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
 
-    if (!pro_set_argv(rom, o.n_rom_args, o.rom_args))
+    if (!proc_set_argv(rom, o.n_rom_args, o.rom_args))
     {
         fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
         return 1;
@@ -325,7 +325,7 @@ int main(int argc, char **argv)
         if (!png_write(o.screenshot, cw, ch, g_fb))
             return 1;
         printf("rp6502-emu: wrote %s (%d frames; cpu %s, exit code %d)\n",
-               o.screenshot, frames, cpu_halted() ? "halted" : "running", pro_get_exit_code());
+               o.screenshot, frames, cpu_halted() ? "halted" : "running", proc_get_exit_code());
         return 0;
     }
 

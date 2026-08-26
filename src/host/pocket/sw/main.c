@@ -19,7 +19,7 @@
 #include "main.h"
 #include "mmio.h"
 #include "msc.h"
-#include "pro.h"
+#include "proc.h"
 #include "rand.h"
 #include "rom.h"
 #include "sst.h"
@@ -28,7 +28,7 @@
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
@@ -139,7 +139,7 @@ static void init(void)
 /* The 6502 coming out of reset. */
 void main_on_run(void)
 {
-    pro_run();
+    proc_run();
     com_run();
     rln_run();
     api_run();
@@ -162,7 +162,7 @@ void main_on_stop(void)
     tab_stop();
     aud_stop();
     /* argv belongs to the image, not the run, so it is not cleared here. */
-    pro_stop();
+    proc_stop();
     /* Last, where the RIA's deferred vga_task puts it. */
     main_xreg_1(0x0F, 0x01, 437);
     main_xreg_1(0x0F, 0x00, vga_get_display_type());
@@ -184,10 +184,10 @@ bool main_break(void)
     return false;
 }
 
-/* Alt-F4. Stopping is enough, because pro_stop puts the launcher back. */
+/* Alt-F4. Stopping is enough, because proc_stop puts the launcher back. */
 bool main_break_to_launcher(void)
 {
-    if (!pro_has_launcher() || pro_is_launcher())
+    if (!proc_has_launcher() || proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
     main_stop();
@@ -248,7 +248,7 @@ static void main_stage(void)
     bool ok = staged && rom_load_staged(len);
     /* After the load, not before: Get File needs the host, which at boot
      * is still staging, and asking first burns the bridge's whole deadline. */
-    pro_restage();
+    proc_restage();
     /* Cleared once the image is dealt with, so a watcher can tell a load
      * in progress from a finished one. */
     MMIO_SLOT = 0;
@@ -306,7 +306,7 @@ int main(void)
             else if (API_OP == 0xFF)
             {
                 /* Captured before api_return_ax clobbers A/X. */
-                pro_set_exit_code((int16_t)API_AX);
+                proc_set_exit_code((int16_t)API_AX);
                 main_stop();
                 api_return_ax(0);
             }
@@ -381,7 +381,7 @@ int main(void)
                 com_putchar('\n');
                 main_stage();
             }
-            else if (pro_exec_take())
+            else if (proc_exec_take())
                 main_run();
         }
     }

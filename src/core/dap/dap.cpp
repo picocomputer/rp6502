@@ -25,7 +25,7 @@
 extern "C"
 {
 #include "core/api/oem.h"
-#include "core/sys/pro.h"
+#include "core/sys/proc.h"
 #include "core/dap/dbg.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
@@ -275,7 +275,7 @@ bool g_stop_on_entry = false;
 bool g_stop_on_exit = true; /* present program exit as a stop, not a terminate */
 bool g_terminated = false;
 bool g_term_sent = false; /* a TerminatedEvent has gone out; don't repeat it at teardown */
-bool g_launch_requested = false; /* a launch reached pro_exec; used to detect a load that never started */
+bool g_launch_requested = false; /* a launch reached proc_exec; used to detect a load that never started */
 unsigned g_stop_gen = 0;         /* bumped on each client-visible stop */
 unsigned g_varnodes_gen = ~0u;   /* the g_stop_gen g_varnodes were built for */
 std::vector<std::string> g_default_args; /* ROM argv[1..] for launch requests that carry none */
@@ -1522,18 +1522,18 @@ extern "C" void dap_start(void)
                 std::vector<char *> argv;
                 for (const std::string &a : args)
                     argv.push_back(const_cast<char *>(a.c_str()));
-                if (!pro_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
+                if (!proc_set_argv(prog_oem.c_str(), (int)argv.size(), argv.data()))
                 {
                     /* Args over the 512-byte argv buffer. The response already
                      * went out, so run anyway — but with argv[0] intact (the
                      * re-exec invariant) and the failure in the Debug Console. */
-                    pro_set_argv(prog_oem.c_str(), 0, NULL);
+                    proc_set_argv(prog_oem.c_str(), 0, NULL);
                     dap::OutputEvent ev;
                     ev.category = "console";
                     ev.output = "rp6502-emu: ROM argv overflow; launch args dropped\n";
                     g_session->send(ev);
                 }
-                pro_exec(prog_oem.c_str());
+                proc_exec(prog_oem.c_str());
             }
             g_launch_requested = true; /* dap_pump can now detect a load that never started */
         });
@@ -2230,10 +2230,10 @@ extern "C" void dap_pump(void)
      * frame commit (CPU left halted, entry stop unconsumed) or an empty program was
      * launched. Without this the session hangs — both the entry-resolve branch above
      * and the exit branch below wait on g_reached_entry / g_launch_done. Resolve the
-     * launch so the exit branch announces/terminates. pro_exec_pending() excludes the
-     * window between pro_exec() and its commit. */
+     * launch so the exit branch announces/terminates. proc_exec_pending() excludes the
+     * window between proc_exec() and its commit. */
     if (!g_launch_done && g_launch_requested && g_configured.load() &&
-        !g_reached_entry && !pro_exec_pending() && cpu_halted() && !dbg_is_stopped())
+        !g_reached_entry && !proc_exec_pending() && cpu_halted() && !dbg_is_stopped())
     {
         g_launch_done = true;
         if (g_session)
@@ -2255,7 +2255,7 @@ extern "C" void dap_pump(void)
         {
             /* The numeric exit code the client (VS Code) renders itself. */
             dap::ExitedEvent exited;
-            exited.exitCode = pro_get_exit_code();
+            exited.exitCode = proc_get_exit_code();
             g_session->send(exited);
             if (g_stop_on_exit)
             {
@@ -2263,7 +2263,7 @@ extern "C" void dap_pump(void)
                 dbg_note_stop(w65c02_pc(cpu())); /* present halt as a stop */
                 dap::StoppedEvent ev;
                 ev.reason = "exited";
-                ev.description = "Program exited (code " + std::to_string(pro_get_exit_code()) +
+                ev.description = "Program exited (code " + std::to_string(proc_get_exit_code()) +
                                  ") — press Stop to close";
                 ev.threadId = 1;
                 ev.allThreadsStopped = true;

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 #include "core/aud/bel.h"
@@ -334,7 +334,7 @@ static void nfc_read_complete(void)
     nfc_tag_ready = true;
     nfc_goto(NFC_CARD_PRESENT, NFC_POLL_INTERVAL_MS);
     if (nfc_tag_len > 0 && !nfc_api_open)
-        pro_nfc(nfc_tag_buf, nfc_tag_len);
+        proc_nfc(nfc_tag_buf, nfc_tag_len);
 }
 
 static void nfc_read_fail(void)

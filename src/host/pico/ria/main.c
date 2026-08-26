@@ -11,7 +11,7 @@
 #include "api/fat.h"
 #include "core/api/dir.h"
 #include "core/api/oem.h"
-#include "core/api/pro.h"
+#include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/aud.h"
@@ -179,7 +179,7 @@ static void task(void)
 // Event to start running the 6502.
 void main_on_run(void)
 {
-    pro_run();
+    proc_run();
     com_run();
     rln_run();
     dir_run();
@@ -209,7 +209,7 @@ void main_on_stop(void)
     aud_stop();
     modem_stop();
     rom_stop();
-    pro_stop();
+    proc_stop();
     mon_stop();
     com_stop(); // Adds newline
     ria_stop(); // Last for stops that check ria_active()
@@ -247,7 +247,7 @@ static bool is_breaking;
 
 bool main_break(void)
 {
-    pro_cancel_launcher();
+    proc_cancel_launcher();
     is_breaking = true;
     return true;
 }
@@ -255,7 +255,7 @@ bool main_break(void)
 bool main_break_to_launcher(void)
 {
     // From the launcher there is nowhere to return to.
-    if (pro_is_launcher())
+    if (proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
     is_breaking = true;
