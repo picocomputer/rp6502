@@ -30,7 +30,7 @@
 #include "ria/mon/rom.h"
 #include "ria/mon/uf2.h"
 #include "ria/net/cyw.h"
-#include "ria/net/mdm.h"
+#include "ria/net/modem.h"
 #include "ria/net/ntp.h"
 #include "ria/net/wifi.h"
 #include "core/str/rln.h"
@@ -79,7 +79,7 @@ const dir_backend_t *main_dir_backend(void)
 }
 
 static __in_flash("std_drivers") const std_driver_t std_drivers[] = {
-    {mdm_std_handles, mdm_std_open, mdm_std_close, mdm_std_read, mdm_std_write, NULL, NULL},
+    {modem_std_handles, modem_std_open, modem_std_close, modem_std_read, modem_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},
     {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, mid_std_sync, NULL},
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
@@ -128,7 +128,7 @@ static void __in_flash("init") init(void)
     tab_init();
     rom_init();
     tim_init();
-    mdm_init();
+    modem_init();
     rln_init();
 
     // USB near end for boot enum timing
@@ -158,7 +158,7 @@ void main_task(void)
     ntp_task();
     ble_task();
     led_task();
-    mdm_task();
+    modem_task();
     ram_task();
 }
 
@@ -207,7 +207,7 @@ void main_on_stop(void)
     pad_stop();
     tab_stop();
     aud_stop();
-    mdm_stop();
+    modem_stop();
     rom_stop();
     pro_stop();
     mon_stop();

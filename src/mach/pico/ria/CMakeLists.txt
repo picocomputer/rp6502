@@ -165,7 +165,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/mon/vip.c
     ${RIA_SRC}/net/cmd.c
     ${RIA_SRC}/net/cyw.c
-    ${RIA_SRC}/net/mdm.c
+    ${RIA_SRC}/net/modem.c
     ${RIA_SRC}/net/net.c
     ${RIA_SRC}/net/ntp.c
     ${RIA_SRC}/net/telnet.c
