@@ -386,23 +386,13 @@ __in_flash("set_attributes") static struct
     const char *const attr;
     set_function func;
 } const SET_ATTRIBUTES[] = {
-    {STR_PHI2, set_phi2},
-    {STR_BOOT, set_boot},
-    {STR_TZ, set_time_zone},
-    {STR_LOC, set_locale},
-    {STR_KB, set_kbd_layout},
-    {STR_CP, set_code_page},
-    {STR_VGA, set_vga},
-    {STR_NFC, set_nfc},
-#ifdef RP6502_RIA_W
-    {STR_RF, set_rf},
-    {STR_RFCC, set_rfcc},
-    {STR_SSID, set_ssid},
-    {STR_PASS, set_pass},
-    {STR_PORT, set_port},
-    {STR_KEY, set_key},
-    {STR_BLE, set_ble},
-#endif
+#define X(ltr, fmt, get, load, attr, setfn, ...) {attr, setfn},
+#define XCFG(...)
+#define XMON(attr, setfn, ...) {attr, setfn},
+#include "ria/sys/cfg.def"
+#undef X
+#undef XCFG
+#undef XMON
 };
 static const size_t SET_ATTRIBUTES_COUNT = sizeof SET_ATTRIBUTES / sizeof *SET_ATTRIBUTES;
 
@@ -426,21 +416,11 @@ void set_mon_set(const char *args)
         return;
     }
     // No args, show everything
-    mon_add_response_fn(set_phi2_response);
-    mon_add_response_fn(set_boot_response);
-    mon_add_response_fn(set_time_zone_response);
-    mon_add_response_fn(set_locale_response);
-    mon_add_response_fn(set_kbd_layout_response);
-    mon_add_response_fn(set_code_page_response);
-    mon_add_response_fn(set_vga_response);
-    mon_add_response_fn(set_nfc_response);
-#ifdef RP6502_RIA_W
-    mon_add_response_fn(set_rf_response);
-    mon_add_response_fn(set_rfcc_response);
-    mon_add_response_fn(set_ssid_response);
-    mon_add_response_fn(set_pass_response);
-    mon_add_response_fn(set_port_response);
-    mon_add_response_fn(set_key_response);
-    mon_add_response_fn(set_ble_response);
-#endif
+#define X(ltr, fmt, get, load, attr, setfn, respfn, ...) mon_add_response_fn(respfn);
+#define XCFG(...)
+#define XMON(attr, setfn, respfn, ...) mon_add_response_fn(respfn);
+#include "ria/sys/cfg.def"
+#undef X
+#undef XCFG
+#undef XMON
 }

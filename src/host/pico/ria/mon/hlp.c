@@ -69,23 +69,13 @@ __in_flash("hlp_commands") static const hlp_entry_t HLP_COMMANDS[] = {
 static const size_t HLP_COMMANDS_COUNT = sizeof HLP_COMMANDS / sizeof *HLP_COMMANDS;
 
 __in_flash("hlp_settings") static const hlp_entry_t HLP_SETTINGS[] = {
-    {STR_PHI2, STR_HELP_SET_PHI2, NULL},
-    {STR_BOOT, STR_HELP_SET_BOOT, NULL},
-    {STR_TZ, STR_HELP_SET_TZ, tim_tzdata_response},
-    {STR_LOC, STR_HELP_SET_LOC, str_locales_response},
-    {STR_KB, STR_HELP_SET_KB, kbt_layouts_response},
-    {STR_CP, STR_HELP_SET_CP, NULL},
-    {STR_VGA, STR_HELP_SET_VGA, NULL},
-    {STR_NFC, STR_HELP_SET_NFC, NULL},
-#ifdef RP6502_RIA_W
-    {STR_RF, STR_HELP_SET_RF, NULL},
-    {STR_RFCC, STR_HELP_SET_RFCC, cyw_country_code_response},
-    {STR_SSID, STR_HELP_SET_SSID, wfi_scan_response},
-    {STR_PASS, STR_HELP_SET_PASS, NULL},
-    {STR_BLE, STR_HELP_SET_BLE, NULL},
-    {STR_PORT, STR_HELP_SET_PORT, NULL},
-    {STR_KEY, STR_HELP_SET_KEY, NULL},
-#endif
+#define X(ltr, fmt, get, load, attr, setfn, respfn, help, helpfn) {attr, help, helpfn},
+#define XCFG(...)
+#define XMON(attr, setfn, respfn, help, helpfn) {attr, help, helpfn},
+#include "ria/sys/cfg.def"
+#undef X
+#undef XCFG
+#undef XMON
 };
 static const size_t HLP_SETTINGS_COUNT = sizeof HLP_SETTINGS / sizeof *HLP_SETTINGS;
 
