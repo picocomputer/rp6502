@@ -162,7 +162,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/mon/rom.c
     ${RIA_SRC}/mon/set.c
     ${RIA_SRC}/mon/uf2.c
-    ${RIA_SRC}/mon/vip.c
     ${RIA_SRC}/net/cmd.c
     ${RIA_SRC}/net/cyw.c
     ${RIA_SRC}/net/modem.c

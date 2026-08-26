@@ -198,5 +198,3 @@ X(STR_HELP_ABOUT_W,
   "   CYW43xx driver - \aCopyright (c) 2019-2022 George Robotics Pty Ltd.\n"
   "          BTstack - \aCopyright (c) 2009 BlueKitchen GmbH\n"
   "             lwIP - \aCopyright (c) 2001-2002 Swedish Institute of Computer Science.\n")
-X(STR_HELP_ABOUT_VIP,
-  "             VIPs - ")
