@@ -14,7 +14,7 @@
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
 #include "ria/net/cyw.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
@@ -170,7 +170,7 @@ static void set_rfcc(const char *args)
 static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *ssid = wfi_get_ssid();
+    const char *ssid = wifi_get_ssid();
 #if RP6502_CREATOR
     com_snprintf_utf8(buf, buf_size, STR_SET_SSID_RESPONSE,
                       strlen(ssid) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
@@ -184,7 +184,7 @@ static int set_ssid_response(char *buf, size_t buf_size, int state, unsigned)
 static int set_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    const char *pass = wfi_get_pass();
+    const char *pass = wifi_get_pass();
     com_snprintf_utf8(buf, buf_size, STR_SET_PASS_RESPONSE,
                       strlen(pass) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
@@ -197,10 +197,10 @@ static void set_ssid(const char *args)
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
     if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        wfi_set_ssid("");
+        wifi_set_ssid("");
     else
     {
-        if (!tok || !str_parse_end(scan) || !wfi_set_ssid(tok))
+        if (!tok || !str_parse_end(scan) || !wifi_set_ssid(tok))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
     mon_add_response_fn(set_ssid_response);
@@ -214,10 +214,10 @@ static void set_pass(const char *args)
     const char *scan = args;
     const char *tok = str_parse_string(&scan);
     if (tok && !strcmp(tok, "-") && str_parse_end(scan) && *args != '"')
-        wfi_set_pass("");
+        wifi_set_pass("");
     else
     {
-        if (!tok || !str_parse_end(scan) || !wfi_set_pass(tok))
+        if (!tok || !str_parse_end(scan) || !wifi_set_pass(tok))
             return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     }
     mon_add_response_fn(set_ssid_response);

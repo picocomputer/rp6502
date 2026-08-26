@@ -169,7 +169,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/net/net.c
     ${RIA_SRC}/net/ntp.c
     ${RIA_SRC}/net/telnet.c
-    ${RIA_SRC}/net/wfi.c
+    ${RIA_SRC}/net/wifi.c
     ${RP6502_ROOT}/src/core/str/rln.c
     ${RP6502_ROOT}/src/core/str/str.c
     ${RIA_SRC}/sys/cfg.c

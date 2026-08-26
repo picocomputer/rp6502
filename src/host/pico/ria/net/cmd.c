@@ -7,7 +7,7 @@
 #include "ria/net/cmd.h"
 #include "ria/net/cyw.h"
 #include "ria/net/mdm.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "ria/mon/help.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -355,14 +355,14 @@ static int cmd_view_config_response(char *buf, size_t buf_size, int state, unsig
     case 13:
 #if RP6502_CREATOR
         com_snprintf_utf8(buf, buf_size, "+SSID:%s\r\n",
-                          strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+                          strlen(wifi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
-        snprintf(buf, buf_size, "+SSID:%s\r\n", wfi_get_ssid());
+        snprintf(buf, buf_size, "+SSID:%s\r\n", wifi_get_ssid());
 #endif
         break;
     case 14:
         com_snprintf_utf8(buf, buf_size, "+PASS:%s\r\n",
-                          strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+                          strlen(wifi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
         break;
     default:
         return -1;
@@ -493,9 +493,9 @@ static int cmd_plus_ssid_response(char *buf, size_t buf_size, int state, unsigne
     (void)state;
 #if RP6502_CREATOR
     com_snprintf_utf8(buf, buf_size, "%s\r\n",
-                      strlen(wfi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+                      strlen(wifi_get_ssid()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
 #else
-    snprintf(buf, buf_size, "%s\r\n", wfi_get_ssid());
+    snprintf(buf, buf_size, "%s\r\n", wifi_get_ssid());
 #endif
     return -1;
 }
@@ -509,7 +509,7 @@ static bool cmd_plus_ssid(const char **s)
     {
     case '=':
     {
-        bool result = wfi_set_ssid(*s);
+        bool result = wifi_set_ssid(*s);
         *s += strlen(*s);
         return result;
     }
@@ -527,7 +527,7 @@ static bool cmd_plus_ssid(const char **s)
 static int cmd_plus_pass_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    com_snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wfi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
+    com_snprintf_utf8(buf, buf_size, "%s\r\n", strlen(wifi_get_pass()) ? S(STR_PARENS_SET) : S(STR_PARENS_NONE));
     return -1;
 }
 
@@ -540,7 +540,7 @@ static bool cmd_plus_pass(const char **s)
     {
     case '=':
     {
-        bool result = wfi_set_pass(*s);
+        bool result = wifi_set_pass(*s);
         *s += strlen(*s);
         return result;
     }

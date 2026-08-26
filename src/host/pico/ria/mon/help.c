@@ -12,7 +12,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include <pico.h>
 #include <string.h>

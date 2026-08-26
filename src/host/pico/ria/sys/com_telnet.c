@@ -21,7 +21,7 @@
 #include "core/str/str.h"
 #include "core/str/rln.h"
 #include "core/main.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -248,7 +248,7 @@ static void com_telnet_drain_rx(void)
 
 static bool com_telnet_should_listen(void)
 {
-    return com_telnet_port > 0 && com_telnet_key[0] != 0 && wfi_ready();
+    return com_telnet_port > 0 && com_telnet_key[0] != 0 && wifi_ready();
 }
 
 // Unified teardown for both full shutdown (target=IDLE, closes the

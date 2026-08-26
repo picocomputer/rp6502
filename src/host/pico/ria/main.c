@@ -32,7 +32,7 @@
 #include "ria/net/cyw.h"
 #include "ria/net/mdm.h"
 #include "ria/net/ntp.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
@@ -154,7 +154,7 @@ void main_task(void)
     cyw_task();
     vga_task();
     com_task();
-    wfi_task();
+    wifi_task();
     ntp_task();
     ble_task();
     led_task();

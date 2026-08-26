@@ -11,7 +11,7 @@ int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 #else
 
 #include "ria/net/ntp.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <lwip/dns.h>
@@ -153,7 +153,7 @@ static void ntp_udp_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p, const i
 
 void ntp_task(void)
 {
-    if (!wfi_ready() && ntp_state != ntp_state_success)
+    if (!wifi_ready() && ntp_state != ntp_state_success)
     {
         ntp_state = ntp_state_init;
         ntp_retry_count = 0;

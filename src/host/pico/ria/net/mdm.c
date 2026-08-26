@@ -41,7 +41,7 @@ bool mdm_set_listen_port(uint16_t port)
 #include "ria/net/net.h"
 #include "ria/net/cyw.h"
 #include "ria/net/telnet.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/lfs.h"
@@ -770,7 +770,7 @@ static void mdm_listen_update(void)
         mdm_conn->settings.listen_port = 0;
         return;
     }
-    if (!wfi_ready())
+    if (!wifi_ready())
         return;
     if (telnet_listen(wanted, mdm_net_on_accept))
     {
@@ -847,7 +847,7 @@ void mdm_task()
         }
         if (mdm_conn->state == mdm_state_wait)
         {
-            if (wfi_ready())
+            if (wifi_ready())
             {
                 if (telnet_open(mdm_desc(), mdm_conn->cmd_buf, mdm_conn->dial_port,
                              mdm_net_on_close))
@@ -860,7 +860,7 @@ void mdm_task()
                     mdm_set_response_fn_state(mdm_response_code, 3); // NO CARRIER
                 }
             }
-            else if (!wfi_connecting())
+            else if (!wifi_connecting())
             {
                 DBG("NET MDM dial failed, wifi not connecting\n");
                 mdm_conn->state = mdm_state_on_hook;

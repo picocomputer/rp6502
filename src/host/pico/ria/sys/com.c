@@ -15,7 +15,7 @@
 #include "ria/net/telnet.h"
 #include "ria/sys/vga.h"
 #include "ria/net/cyw.h"
-#include "ria/net/wfi.h"
+#include "ria/net/wifi.h"
 #include "ria/sys/cfg.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
