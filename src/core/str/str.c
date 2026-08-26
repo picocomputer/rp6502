@@ -219,10 +219,8 @@ bool str_set_locale(const char *name)
     if (strcasecmp(name, str_locale_names[new_index]))
         return false;
     if (str_locale_index != new_index)
-    {
         str_apply_locale(new_index);
-        cfg_save();
-    }
+    cfg_save();
     return true;
 }
 

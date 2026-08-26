@@ -330,8 +330,8 @@ bool com_telnet_set_port(uint16_t port)
         com_telnet_port = port;
         if (port == 0)
             com_telnet_shutdown();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 
@@ -346,8 +346,8 @@ bool com_telnet_set_key(const char *key)
         com_telnet_key[n] = 0;
         if (com_telnet_key[0] == 0)
             com_telnet_shutdown();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 

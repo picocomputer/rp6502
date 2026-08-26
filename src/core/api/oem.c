@@ -67,25 +67,17 @@ void oem_set_code_page_run(uint16_t cp)
 
 bool oem_set_code_page(uint16_t cp)
 {
-    if (cp == 0)
+    if (cp)
     {
-        // Auto: track the locale's default code page.
-        if (oem_code_page_set != 0)
-        {
-            oem_code_page_set = 0;
-            oem_request_code_page(oem_resolve());
-            cfg_save();
-        }
-        return true;
+        // Applying it is the only way to know whether a page is carried.
+        oem_request_code_page(cp);
+        if (cp != oem_code_page_run)
+            return false;
     }
-    oem_request_code_page(cp);
-    if (cp != oem_code_page_run)
-        return false;
-    if (oem_code_page_set != cp)
-    {
-        oem_code_page_set = cp;
-        cfg_save();
-    }
+    // Zero is auto: track whatever the locale's default is.
+    oem_code_page_set = cp;
+    oem_request_code_page(oem_resolve());
+    cfg_save();
     return true;
 }
 

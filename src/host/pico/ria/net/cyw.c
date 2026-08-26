@@ -190,8 +190,8 @@ bool cyw_set_rf_enable(uint8_t rf)
     {
         cyw_rf_enable = rf;
         cyw_reset_radio();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 
@@ -214,8 +214,8 @@ bool cyw_set_rf_country_code(const char *rfcc)
     {
         cyw_country = country;
         cyw_reset_radio();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 

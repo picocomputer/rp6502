@@ -24,6 +24,9 @@
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 
+#include <stdarg.h> /* before pico/printf.h, which uses va_list without it */
+#include <pico/printf.h>
+
 #if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
@@ -54,6 +57,92 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 
 #define CFG_VERSION 1
 
+/* Every setting, rendered. Called twice: once against the file to find out
+ * whether anything actually changed, once to write it if something did. */
+struct cfg_sink
+{
+    lfs_file_t *file;
+    int error;
+    bool compare; /* reading the file alongside, not writing it */
+    bool differs;
+};
+
+static void cfg_sink_cb(char character, void *arg)
+{
+    struct cfg_sink *sink = arg;
+    if (sink->error < 0)
+        return;
+    if (sink->compare)
+    {
+        char have;
+        if (sink->differs)
+            return;
+        if (lfs_file_read(&lfs_volume, sink->file, &have, 1) != 1 ||
+            have != character)
+            sink->differs = true;
+        return;
+    }
+    lfs_ssize_t result = lfs_file_write(&lfs_volume, sink->file, &character, 1);
+    if (result < 0)
+        sink->error = (int)result;
+}
+
+/* Must stay a function, not a macro: the settings expand from a directive,
+ * and a directive among a function-like macro's arguments is undefined
+ * (C11 6.10.3p11). */
+static int cfg_printf(struct cfg_sink *sink, const char *format, ...)
+{
+    va_list va;
+    va_start(va, format);
+    // vfctprintf is Marco Paland's "Tiny printf" from the Pi Pico SDK
+    int result = vfctprintf(cfg_sink_cb, sink, format, va);
+    va_end(va);
+    return result;
+}
+
+static int cfg_emit(struct cfg_sink *sink, const char *opt_str)
+{
+    return cfg_printf(sink,
+                      "+V%u\n"
+                      "+P%u\n"
+                      "+T%s\n"
+                      "+M%s\n"
+                      "+S%u\n"
+                      "+L%s\n"
+                      "+D%u\n"
+                      "+N%u\n"
+                      "+H%s\n"
+#ifdef RP6502_RIA_W
+                      "+E%u\n"
+                      "+F%s\n"
+                      "+W%s\n"
+                      "+K%s\n"
+                      "+B%u\n"
+                      "+O%u\n"
+                      "+A%s\n"
+#endif /* RP6502_RIA_W */
+                      "%s",
+                      CFG_VERSION,
+                      cpu_get_phi2_khz(),
+                      tim_get_time_zone(),
+                      str_get_locale(),
+                      oem_get_code_page(),
+                      kbt_get_layout_list(),
+                      vga_get_display_type(),
+                      nfc_get_enabled(),
+                      vcp_get_nfc_device_hash(),
+#ifdef RP6502_RIA_W
+                      cyw_get_rf_enable(),
+                      cyw_get_rf_country_code(),
+                      wfi_get_ssid(),
+                      wfi_get_pass(),
+                      ble_get_enabled(),
+                      com_telnet_get_port(),
+                      com_telnet_get_key(),
+#endif /* RP6502_RIA_W */
+                      opt_str);
+}
+
 // Optional string can replace boot string
 static void cfg_save_with_boot_opt(const char *opt_str)
 {
@@ -76,52 +165,35 @@ static void cfg_save_with_boot_opt(const char *opt_str)
                 break;
             mbuf[0] = 0;
         }
-        lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
-        mon_add_response_lfs(lfsresult);
     }
+    /* Read it back against what we would write. An unchanged config leaves the
+     * file untouched -- and untouched means no flash write at all, because
+     * opening RDWR|CREAT on an existing file does not mark it dirty and
+     * lfs_file_close then has nothing to sync. Only the truncate below would,
+     * which is why it cannot happen before this. */
+    struct cfg_sink sink = {.file = &lfs_file, .compare = true};
+    lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
     if (lfsresult >= 0)
-        lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0);
-    if (lfsresult >= 0)
+        lfsresult = cfg_emit(&sink, opt_str);
+    if (lfsresult >= 0 && sink.error < 0)
+        lfsresult = sink.error;
+    if (lfsresult >= 0 && !sink.differs)
     {
-        lfsresult = lfs_printf(&lfs_volume, &lfs_file,
-                               "+V%u\n"
-                               "+P%u\n"
-                               "+T%s\n"
-                               "+M%s\n"
-                               "+S%u\n"
-                               "+L%s\n"
-                               "+D%u\n"
-                               "+N%u\n"
-                               "+H%s\n"
-#ifdef RP6502_RIA_W
-                               "+E%u\n"
-                               "+F%s\n"
-                               "+W%s\n"
-                               "+K%s\n"
-                               "+B%u\n"
-                               "+O%u\n"
-                               "+A%s\n"
-#endif /* RP6502_RIA_W */
-                               "%s",
-                               CFG_VERSION,
-                               cpu_get_phi2_khz(),
-                               tim_get_time_zone(),
-                               str_get_locale(),
-                               oem_get_code_page(),
-                               kbt_get_layout_list(),
-                               vga_get_display_type(),
-                               nfc_get_enabled(),
-                               vcp_get_nfc_device_hash(),
-#ifdef RP6502_RIA_W
-                               cyw_get_rf_enable(),
-                               cyw_get_rf_country_code(),
-                               wfi_get_ssid(),
-                               wfi_get_pass(),
-                               ble_get_enabled(),
-                               com_telnet_get_port(),
-                               com_telnet_get_key(),
-#endif /* RP6502_RIA_W */
-                               opt_str);
+        /* Same bytes, but the file may still be longer than what we rendered. */
+        char extra;
+        if (lfs_file_read(&lfs_volume, &lfs_file, &extra, 1) == 1)
+            sink.differs = true;
+    }
+    if (lfsresult >= 0 && sink.differs)
+    {
+        sink.compare = false;
+        lfsresult = lfs_file_rewind(&lfs_volume, &lfs_file);
+        if (lfsresult >= 0)
+            lfsresult = lfs_file_truncate(&lfs_volume, &lfs_file, 0);
+        if (lfsresult >= 0)
+            lfsresult = cfg_emit(&sink, opt_str);
+        if (lfsresult >= 0 && sink.error < 0)
+            lfsresult = sink.error;
     }
     mon_add_response_lfs(lfsresult);
     int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);

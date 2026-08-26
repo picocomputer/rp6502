@@ -359,8 +359,8 @@ bool tim_set_time_zone(const char *tz)
         else
             setenv(STR_TZ, tim_tzinfo_tz[tim_tzinfo_index], 1);
         tzset();
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 

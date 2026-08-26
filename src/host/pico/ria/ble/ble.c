@@ -651,11 +651,8 @@ bool ble_set_enabled(unsigned ble)
         ble = 0;
     if (ble > 1)
         ble = 1;
-    if (ble_enabled != ble)
-    {
-        ble_enabled = ble;
-        cfg_save();
-    }
+    ble_enabled = ble;
+    cfg_save();
     return true;
 }
 

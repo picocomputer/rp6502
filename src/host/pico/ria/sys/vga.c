@@ -458,8 +458,8 @@ bool vga_set_display_type(uint8_t display_type)
     {
         vga_display_type = display_type;
         vga_needs_reset = true;
-        cfg_save();
     }
+    cfg_save();
     return true;
 }
 

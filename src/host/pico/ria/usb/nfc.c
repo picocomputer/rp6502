@@ -422,11 +422,7 @@ static void nfc_apply_cfg(uint8_t val)
         break;
     case NFC_CFG_FORGET:
         nfc_close_device();
-        if (vcp_get_nfc_device_hash()[0])
-        {
-            vcp_set_nfc_device_name("");
-            cfg_save();
-        }
+        vcp_set_nfc_device_name(""); /* saves for itself; empty is idempotent */
         nfc_goto(NFC_OFF, 0);
         break;
     }
@@ -450,11 +446,8 @@ bool nfc_set_enabled(uint8_t val)
     uint8_t persist = (val == NFC_CFG_OFF || val == NFC_CFG_FORGET)
                           ? NFC_CFG_OFF
                           : NFC_CFG_ON;
-    if (nfc_enabled != persist)
-    {
-        nfc_enabled = persist;
-        cfg_save();
-    }
+    nfc_enabled = persist;
+    cfg_save();
     return true;
 }
 
@@ -632,9 +625,8 @@ void nfc_task(void)
         {
             char name[8];
             nfc_vcp_name(name, sizeof(name));
-            if (vcp_set_nfc_device_name(name))
+            if (vcp_set_nfc_device_name(name)) /* saves the hash itself */
             {
-                cfg_save();
                 nfc_success();
                 nfc_start_tx(NFC_SAM_TX);
                 break;

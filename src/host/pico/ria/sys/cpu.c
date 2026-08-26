@@ -147,11 +147,8 @@ bool cpu_set_phi2_khz(uint16_t phi2_khz)
     if (phi2_khz < CPU_PHI2_MIN_KHZ || phi2_khz > CPU_PHI2_MAX_KHZ)
         return false;
     cpu_change_phi2_khz(phi2_khz);
-    if (cpu_phi2_khz_set != cpu_phi2_khz_run)
-    {
-        cpu_phi2_khz_set = cpu_phi2_khz_run;
-        cfg_save();
-    }
+    cpu_phi2_khz_set = cpu_phi2_khz_run;
+    cfg_save();
     return true;
 }
 

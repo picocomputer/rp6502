@@ -5,6 +5,7 @@
  */
 
 #include "ria/usb/vcp.h"
+#include "core/cfg.h"
 #include "core/str/str.h"
 #include "ria/usb/usb.h"
 #include <tusb.h>
@@ -371,6 +372,7 @@ bool vcp_set_nfc_device_name(const char *name)
     {
         vcp_nfc_device_hash[0] = '\0';
         vcp_nfc_device_idx = -1;
+        cfg_save();
         return true;
     }
     if (!vcp_std_handles(name))
@@ -383,6 +385,7 @@ bool vcp_set_nfc_device_name(const char *name)
         return false;
     strcpy(vcp_nfc_device_hash, hash);
     vcp_nfc_device_idx = idx;
+    cfg_save();
     return true;
 }
 

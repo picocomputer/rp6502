@@ -412,8 +412,8 @@ bool wfi_set_ssid(const char *ssid)
             wfi_pass[0] = 0;
             strncpy(wfi_ssid, ssid, sizeof(wfi_ssid));
             wfi_shutdown();
-            cfg_save();
         }
+        cfg_save();
         return true;
     }
     return false;
@@ -442,8 +442,8 @@ bool wfi_set_pass(const char *pass)
         {
             strncpy(wfi_pass, pass, sizeof(wfi_pass));
             wfi_shutdown();
-            cfg_save();
         }
+        cfg_save();
         return true;
     }
     return false;
