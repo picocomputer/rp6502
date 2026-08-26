@@ -6,8 +6,8 @@
 
 /* The keyboard's terminal half: keys in, console characters out.
  *
- * kbd.c reports which keys are down and offers each press to whatever spells
- * for this machine -- core/hid/kbd.h declares that seam. This answers it with
+ * keyboard.c reports which keys are down and offers each press to whatever spells
+ * for this machine -- core/hid/keyboard.h declares that seam. This answers it with
  * a layout, dead keys and a code page. A machine whose host produced the
  * characters first answers the same seam with nothing and takes text instead,
  * which is a different file and not this contract.
@@ -22,7 +22,7 @@
 
 void kbt_init(void);
 
-// Auto-repeat: the held key is re-read from kbd, so a release ends it.
+// Auto-repeat: the held key is re-read from keyboard, so a release ends it.
 void kbt_task(void);
 
 // Drain the character queue into buf.

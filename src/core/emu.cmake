@@ -62,7 +62,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/dap/dbg.c
     ${RP6502_SRC}/core/hid/vt.c
     ${RP6502_SRC}/core/hid/hid.c
-    ${RP6502_SRC}/core/hid/kbd.c
+    ${RP6502_SRC}/core/hid/keyboard.c
     ${RP6502_SRC}/core/hid/mou.c
     ${RP6502_SRC}/core/hid/pad.c
     ${RP6502_SRC}/core/hid/tab.c
@@ -71,7 +71,7 @@ add_library(emu_core STATIC
     # firmware -- the host already produced the characters, so there is no
     # layout engine here at all.
     ${RP6502_SRC}/core/sys/hid.c
-    ${RP6502_SRC}/core/sys/kbd.c
+    ${RP6502_SRC}/core/sys/keyboard.c
     ${RP6502_SRC}/core/sys/log.c
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c

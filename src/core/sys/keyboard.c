@@ -8,41 +8,41 @@
  * The firmware turns HID keycodes into characters through its own layout
  * tables, because a Pico has nobody to ask. A desktop OS has done that
  * work before the keystroke arrives, so this takes the text and leaves
- * the keycodes to core/hid/kbd.c, which keeps the bitmap a program polls.
+ * the keycodes to core/hid/keyboard.c, which keeps the bitmap a program polls.
  */
 
 #include "core/api/oem.h"
-#include "core/sys/kbd.h"
+#include "core/sys/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vt.h"
 #include "core/com/com.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
-void kbd_text(const char *utf8)
+void keyboard_text(const char *utf8)
 {
     if (!utf8)
         return;
     const char *p = utf8;
     unsigned char oem;
     while ((oem = oem_from_utf8_next(&p)))
-        com_kbd_push_byte(oem);
+        com_keyboard_push_byte(oem);
 }
 
 /* A Ctrl+<letter> chord from the host keyboard, promoted to its C0 control byte
  * (Ctrl-A=0x01 .. Ctrl-Z=0x1A). Ctrl-C latches SIGINT on the way into the ring
  * (com.c scans for it), so a break is caught even if the ring is undrained. */
-void kbd_ctrl_letter(char letter)
+void keyboard_ctrl_letter(char letter)
 {
     char c = vt_ctrl_promote(letter);
     if (c)
-        com_kbd_push_byte((uint8_t)c);
+        com_keyboard_push_byte((uint8_t)c);
 }
 
-void kbd_alt_char(char ch, bool ctrl)
+void keyboard_alt_char(char ch, bool ctrl)
 {
     if (!ch)
         return;
@@ -52,8 +52,8 @@ void kbd_alt_char(char ch, bool ctrl)
         if (c)
             ch = c;
     }
-    com_kbd_push_byte(0x1b);
-    com_kbd_push_byte((uint8_t)ch);
+    com_keyboard_push_byte(0x1b);
+    com_keyboard_push_byte((uint8_t)ch);
 }
 
 /* A key with no character of its own, by HID usage. The four that do have one
@@ -61,7 +61,7 @@ void kbd_alt_char(char ch, bool ctrl)
  * firmware reads them from its layout instead. Everything else is the shared
  * table. False when the usage spells nothing, so a caller can go on to try it
  * as a chord. */
-bool kbd_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
+bool keyboard_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 {
     char ch = 0;
     switch (hid_usage)
@@ -85,8 +85,8 @@ bool kbd_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
         /* Alt prefixes with ESC rather than changing what the key spells, so it
          * composes with whatever the other modifiers already decided. */
         if (alt)
-            com_kbd_push_byte(0x1b);
-        com_kbd_push_byte((uint8_t)ch);
+            com_keyboard_push_byte(0x1b);
+        com_keyboard_push_byte((uint8_t)ch);
         return true;
     }
     /* No gui bit: the window manager owns that key on a desktop. */
@@ -95,7 +95,7 @@ bool kbd_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
                       vt_ansi_mod(shift, alt, ctrl, false));
     if (!n)
         return false;
-    com_kbd_push(seq, n);
+    com_keyboard_push(seq, n);
     return true;
 }
 
@@ -104,11 +104,11 @@ bool kbd_key(uint8_t hid_usage, bool ctrl, bool shift, bool alt)
 /* ------------------------------------------------------------------ */
 
 /* Text still being dripped into the keyboard ring (NULL = idle). */
-static char *kbd_paste_buf;
-static size_t kbd_paste_len, kbd_paste_pos;
+static char *keyboard_paste_buf;
+static size_t keyboard_paste_len, keyboard_paste_pos;
 
 /* UTF-8 sequence length from the lead byte (1 for ASCII and invalid leads). */
-static size_t kbd_utf8_len(uint8_t lead)
+static size_t keyboard_utf8_len(uint8_t lead)
 {
     if ((lead & 0xe0) == 0xc0)
         return 2;
@@ -119,71 +119,71 @@ static size_t kbd_utf8_len(uint8_t lead)
     return 1;
 }
 
-void kbd_paste_cancel(void)
+void keyboard_paste_cancel(void)
 {
-    free(kbd_paste_buf);
-    kbd_paste_buf = NULL;
+    free(keyboard_paste_buf);
+    keyboard_paste_buf = NULL;
 }
 
-void kbd_paste(const char *utf8)
+void keyboard_paste(const char *utf8)
 {
-    kbd_paste_cancel();
+    keyboard_paste_cancel();
     size_t n = utf8 ? strlen(utf8) : 0;
     if (!n)
         return;
-    kbd_paste_buf = malloc(n);
-    if (!kbd_paste_buf)
+    keyboard_paste_buf = malloc(n);
+    if (!keyboard_paste_buf)
         return;
-    memcpy(kbd_paste_buf, utf8, n);
-    kbd_paste_len = n;
-    kbd_paste_pos = 0;
+    memcpy(keyboard_paste_buf, utf8, n);
+    keyboard_paste_len = n;
+    keyboard_paste_pos = 0;
 }
 
-bool kbd_paste_busy(void)
+bool keyboard_paste_busy(void)
 {
-    return kbd_paste_buf != NULL;
+    return keyboard_paste_buf != NULL;
 }
 
-void kbd_task(void)
+void keyboard_task(void)
 {
-    if (!kbd_paste_buf)
+    if (!keyboard_paste_buf)
         return;
     /* Stay under the ring's headroom so live typing still fits during a long
      * paste; a full ring drops bytes, which would corrupt the paste. */
-    while (kbd_paste_pos < kbd_paste_len && com_kbd_free() > 64)
+    while (keyboard_paste_pos < keyboard_paste_len && com_keyboard_free() > 64)
     {
-        char c = kbd_paste_buf[kbd_paste_pos];
+        char c = keyboard_paste_buf[keyboard_paste_pos];
         if (c == '\r' || c == '\n')
         {
-            kbd_key(HID_KEY_ENTER, false, false, false);
-            kbd_paste_pos++;
-            if (c == '\r' && kbd_paste_pos < kbd_paste_len &&
-                kbd_paste_buf[kbd_paste_pos] == '\n')
-                kbd_paste_pos++; /* CRLF is one Enter */
+            keyboard_key(HID_KEY_ENTER, false, false, false);
+            keyboard_paste_pos++;
+            if (c == '\r' && keyboard_paste_pos < keyboard_paste_len &&
+                keyboard_paste_buf[keyboard_paste_pos] == '\n')
+                keyboard_paste_pos++; /* CRLF is one Enter */
         }
         else if (c == '\t')
         {
-            kbd_key(HID_KEY_TAB, false, false, false);
-            kbd_paste_pos++;
+            keyboard_key(HID_KEY_TAB, false, false, false);
+            keyboard_paste_pos++;
         }
         else if ((uint8_t)c < 32 || c == 127)
         {
-            kbd_paste_pos++; /* strip other control bytes */
+            keyboard_paste_pos++; /* strip other control bytes */
         }
         else
         {
             char seq[5];
-            size_t n = kbd_utf8_len((uint8_t)c);
-            if (n > kbd_paste_len - kbd_paste_pos)
-                n = kbd_paste_len - kbd_paste_pos;
-            memcpy(seq, kbd_paste_buf + kbd_paste_pos, n);
+            size_t n = keyboard_utf8_len((uint8_t)c);
+            if (n > keyboard_paste_len - keyboard_paste_pos)
+                n = keyboard_paste_len - keyboard_paste_pos;
+            memcpy(seq, keyboard_paste_buf + keyboard_paste_pos, n);
             seq[n] = '\0';
-            kbd_text(seq);
-            kbd_paste_pos += n;
+            keyboard_text(seq);
+            keyboard_paste_pos += n;
         }
     }
-    if (kbd_paste_pos >= kbd_paste_len)
-        kbd_paste_cancel();
+    if (keyboard_paste_pos >= keyboard_paste_len)
+        keyboard_paste_cancel();
 }
 
 /* ------------------------------------------------------------------ */
@@ -197,7 +197,7 @@ static const struct
 {
     const char *name;
     uint8_t hid;
-} kbd_named[] = {
+} keyboard_named[] = {
     {"enter", 0x28},
     {"escape", 0x29},
     {"backspace", 0x2A},
@@ -248,7 +248,7 @@ static const struct
 };
 
 /* "f1".."f12" -> 1..12, else 0. */
-static int kbd_fkey_num(const char *name)
+static int keyboard_fkey_num(const char *name)
 {
     if (name[0] != 'f' && name[0] != 'F')
         return 0;
@@ -265,7 +265,7 @@ static int kbd_fkey_num(const char *name)
     return (n >= 1 && n <= 12) ? n : 0;
 }
 
-uint8_t kbd_hid_from_name(const char *name)
+uint8_t keyboard_hid_from_name(const char *name)
 {
     if (!name || !name[0])
         return 0;
@@ -285,25 +285,25 @@ uint8_t kbd_hid_from_name(const char *name)
     if ((name[0] == 'k' || name[0] == 'K') && (name[1] == 'p' || name[1] == 'P') &&
         name[2] >= '0' && name[2] <= '9' && !name[3])
         return name[2] == '0' ? 0x62 : (uint8_t)(0x59 + name[2] - '1');
-    int f = kbd_fkey_num(name);
+    int f = keyboard_fkey_num(name);
     if (f)
         return (uint8_t)(0x3A + f - 1);
-    for (size_t i = 0; i < sizeof kbd_named / sizeof kbd_named[0]; i++)
-        if (!strcasecmp(name, kbd_named[i].name))
-            return kbd_named[i].hid;
+    for (size_t i = 0; i < sizeof keyboard_named / sizeof keyboard_named[0]; i++)
+        if (!strcasecmp(name, keyboard_named[i].name))
+            return keyboard_named[i].hid;
     return 0;
 }
 
-/* core/hid/kbd.h's seam, answered by a machine that had an OS to ask. Every
- * key still reaches kbd.c for the bitmap a program reads, but what it spells
- * was decided before the keystroke arrived -- kbd_text above takes that. */
-void kbd_spell_key(uint8_t modifier, uint8_t keycode)
+/* core/hid/keyboard.h's seam, answered by a machine that had an OS to ask. Every
+ * key still reaches keyboard.c for the bitmap a program reads, but what it spells
+ * was decided before the keystroke arrived -- keyboard_text above takes that. */
+void keyboard_spell_key(uint8_t modifier, uint8_t keycode)
 {
     (void)modifier;
     (void)keycode;
 }
 
-void kbd_spell_modifiers(uint8_t modifier)
+void keyboard_spell_modifiers(uint8_t modifier)
 {
     (void)modifier;
 }

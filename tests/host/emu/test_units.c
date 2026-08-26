@@ -11,7 +11,7 @@
 #include "core/str/str.h"
 #include "host/sokol/cli.h"
 #include "core/hid/usage.h"
-#include "core/sys/kbd.h"
+#include "core/sys/keyboard.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
 #include "core/sys/main.h"
@@ -154,82 +154,82 @@ UTEST(tab, host_wheel_encoding)
     ASSERT_FALSE(tab_is_mapped());
 }
 
-/* Drain the keyboard com ring (what kbd_key/kbd_text push) into buf. */
-static int kbd_drain(char *buf, int max)
+/* Drain the keyboard com ring (what keyboard_key/keyboard_text push) into buf. */
+static int keyboard_drain(char *buf, int max)
 {
     int n = 0, c;
-    com_source_t src = COM_SOURCE_KBD;
+    com_source_t src = COM_SOURCE_KEYBOARD;
     while (n < max && (c = com_getchar(&src)) >= 0)
     {
         buf[n++] = (char)c;
-        src = COM_SOURCE_KBD;
+        src = COM_SOURCE_KEYBOARD;
     }
     return n;
 }
 
 /* The special-key ANSI the firmware (and xterm) emit, including the
  * ESC[1;{mod} modifier annotations. */
-UTEST(kbd, ansi_sequences)
+UTEST(keyboard, ansi_sequences)
 {
     char b[32];
 
     com_init();
-    kbd_key(HID_KEY_ARROW_UP, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_ARROW_UP, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[A", 3)); /* CSI arrow */
 
     com_init();
-    kbd_key(HID_KEY_F1, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_F1, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33OP", 3)); /* SS3 for F1-F4 */
 
     com_init();
-    kbd_key(HID_KEY_F5, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 5);
+    keyboard_key(HID_KEY_F5, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[15~", 5)); /* VT220 numbered */
 
     com_init();
-    kbd_key(HID_KEY_F12, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 5);
+    keyboard_key(HID_KEY_F12, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 5);
     ASSERT_EQ(0, memcmp(b, "\33[24~", 5));
 
     com_init();
-    kbd_key(HID_KEY_INSERT, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 4);
+    keyboard_key(HID_KEY_INSERT, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\33[2~", 4));
 
     com_init();
-    kbd_key(HID_KEY_HOME, false, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_HOME, false, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\33[H", 3));
 
     /* Modifier annotations: 1 + shift + alt*2 + ctrl*4. */
     com_init();
-    kbd_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_ARROW_UP, true, false, false); /* ctrl -> 5 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;5A", 6));
 
     com_init();
-    kbd_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_F1, false, true, false); /* shift -> 2 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;2P", 6));
 
     com_init();
-    kbd_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_END, false, true, true); /* shift+alt -> 4 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[1;4F", 6));
 
     com_init();
-    kbd_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_PAGE_UP, true, false, false); /* ctrl -> 5 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\33[5;5~", 6));
 
     /* Editing keys: CR for Enter, DEL (0x7f) for plain backspace, BS (0x08) with ctrl. */
     com_init();
-    kbd_key(HID_KEY_ENTER, false, false, false);
-    kbd_key(HID_KEY_BACKSPACE, false, false, false);
-    kbd_key(HID_KEY_BACKSPACE, true, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_ENTER, false, false, false);
+    keyboard_key(HID_KEY_BACKSPACE, false, false, false);
+    keyboard_key(HID_KEY_BACKSPACE, true, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\x7f\x08", 3));
 }
 
@@ -237,52 +237,52 @@ UTEST(kbd, ansi_sequences)
  * console keymap defines no control form for Enter, Tab or Escape -- each is
  * already a C0 control -- so the key still types itself, while Alt is an ESC
  * prefix over whatever the other modifiers settled on. */
-UTEST(kbd, ctrl_and_alt_on_control_keys)
+UTEST(keyboard, ctrl_and_alt_on_control_keys)
 {
     char b[16];
 
     com_init();
-    kbd_key(HID_KEY_ENTER, true, false, false);
-    kbd_key(HID_KEY_TAB, true, false, false);
-    kbd_key(HID_KEY_ESCAPE, true, false, false);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_key(HID_KEY_ENTER, true, false, false);
+    keyboard_key(HID_KEY_TAB, true, false, false);
+    keyboard_key(HID_KEY_ESCAPE, true, false, false);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "\r\t\x1b", 3));
 
     com_init();
-    kbd_key(HID_KEY_ENTER, false, false, true);
-    kbd_key(HID_KEY_TAB, false, false, true);
-    kbd_key(HID_KEY_ESCAPE, false, false, true);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 6);
+    keyboard_key(HID_KEY_ENTER, false, false, true);
+    keyboard_key(HID_KEY_TAB, false, false, true);
+    keyboard_key(HID_KEY_ESCAPE, false, false, true);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 6);
     ASSERT_EQ(0, memcmp(b, "\x1b\r\x1b\t\x1b\x1b", 6));
 
     /* Alt composes with Ctrl instead of replacing it: ESC, then the byte
      * Ctrl already chose. */
     com_init();
-    kbd_key(HID_KEY_BACKSPACE, false, false, true);
-    kbd_key(HID_KEY_BACKSPACE, true, false, true);
-    ASSERT_EQ(kbd_drain(b, sizeof b), 4);
+    keyboard_key(HID_KEY_BACKSPACE, false, false, true);
+    keyboard_key(HID_KEY_BACKSPACE, true, false, true);
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 4);
     ASSERT_EQ(0, memcmp(b, "\x1b\x7f\x1b\x08", 4));
 }
 
 /* Typed text is converted UTF-8 -> active OEM code page (default 437). */
-UTEST(kbd, text_to_oem)
+UTEST(keyboard, text_to_oem)
 {
     char b[32];
     str_init(); /* apply the default locale: code page 437 */
 
     com_init();
-    kbd_text("Hi!"); /* ASCII passes through */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 3);
+    keyboard_text("Hi!"); /* ASCII passes through */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 3);
     ASSERT_EQ(0, memcmp(b, "Hi!", 3));
 
     com_init();
-    kbd_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 1);
+    keyboard_text("\xC3\xA9"); /* U+00E9 'é' -> cp437 0x82 */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x82u);
 
     com_init();
-    kbd_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
-    ASSERT_EQ(kbd_drain(b, sizeof b), 1);
+    keyboard_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
+    ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
 }
 

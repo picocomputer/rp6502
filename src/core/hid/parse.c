@@ -225,7 +225,7 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
 
 typedef struct
 {
-    uint16_t kbd, mou, tab, digitizer, pad;
+    uint16_t keyboard, mou, tab, digitizer, pad;
 } hid_choice_t;
 
 static void hid_choose(uint16_t *chosen, uint16_t report_id)
@@ -241,7 +241,7 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
     bool button = f->usage_page == 0x09 && f->usage >= 1 && f->usage <= PAD_MAX_BUTTONS;
 
     if (f->usage_page == 0x07)
-        hid_choose(&c->kbd, f->report_id);
+        hid_choose(&c->keyboard, f->report_id);
     if (axis || button || (f->usage_page == 0x02 && (f->usage == 0xC4 || f->usage == 0xC5)))
         hid_choose(&c->pad, f->report_id);
     if ((f->usage_page == 0x01 && f->usage == 0x30 && (f->input_flags & 0x04)) || button)
@@ -263,7 +263,7 @@ typedef struct
 {
     hid_parsed_t *out;
     const hid_choice_t *choice;
-    uint32_t kbd_app, mou_app, pad_app;
+    uint32_t keyboard_app, mou_app, pad_app;
 } hid_fill_t;
 
 static void hid_locate(uint16_t *offset, uint8_t *size, const hid_field_t *f)
@@ -285,20 +285,20 @@ static void hid_locate_range(uint16_t *offset, uint8_t *size,
     *max = f->logical_max;
 }
 
-static void hid_fill_kbd(kbd_connection_t *kbd, const hid_field_t *f)
+static void hid_fill_keyboard(keyboard_connection_t *keyboard, const hid_field_t *f)
 {
     if (f->usage_page != 0x07)
         return;
     if (HID_FIELD_IS_ARRAY(f) && f->size == 8)
     {
         // Consecutive slots of one array; a gap starts nothing new.
-        if (!kbd->codes_count)
+        if (!keyboard->codes_count)
         {
-            kbd->codes_offset = f->bit_pos;
-            kbd->codes_count = 1;
+            keyboard->codes_offset = f->bit_pos;
+            keyboard->codes_count = 1;
         }
-        else if (f->bit_pos == kbd->codes_offset + (kbd->codes_count * 8))
-            kbd->codes_count++;
+        else if (f->bit_pos == keyboard->codes_offset + (keyboard->codes_count * 8))
+            keyboard->codes_count++;
         return;
     }
     if (HID_FIELD_IS_ARRAY(f) || f->size != 1 || f->usage > 0xFF)
@@ -306,9 +306,9 @@ static void hid_fill_kbd(kbd_connection_t *kbd, const hid_field_t *f)
     /* A bit per usage. Both shapes a keyboard declares -- the modifier
      * byte and an NKRO bitmap -- are runs of consecutive usages one bit
      * apart, so a field either continues the open run or opens a new one. */
-    for (int i = 0; i < KBD_KEY_RUNS; i++)
+    for (int i = 0; i < KEYBOARD_KEY_RUNS; i++)
     {
-        kbd_key_run_t *run = &kbd->runs[i];
+        keyboard_key_run_t *run = &keyboard->runs[i];
         if (!run->count)
         {
             run->bit_pos = f->bit_pos;
@@ -421,11 +421,11 @@ static bool hid_fill_field(const hid_field_t *f, void *context)
     hid_fill_t *fill = (hid_fill_t *)context;
     const hid_choice_t *c = fill->choice;
 
-    if (f->report_id == c->kbd)
+    if (f->report_id == c->keyboard)
     {
         if (f->usage_page == 0x07)
-            fill->kbd_app = f->app_usage;
-        hid_fill_kbd(&fill->out->kbd, f);
+            fill->keyboard_app = f->app_usage;
+        hid_fill_keyboard(&fill->out->keyboard, f);
     }
     if (f->report_id == c->mou)
     {
@@ -465,14 +465,14 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
 
     /* A report id of 0xFFFF means the device declared none, and then the
      * report has no leading id byte to skip. */
-    out->kbd.report_id = choice.kbd == HID_NO_REPORT ? 0 : (uint8_t)choice.kbd;
+    out->keyboard.report_id = choice.keyboard == HID_NO_REPORT ? 0 : (uint8_t)choice.keyboard;
     out->mou.report_id = choice.mou == HID_NO_REPORT ? 0 : (uint8_t)choice.mou;
     out->tab.report_id = choice.tab == HID_NO_REPORT ? 0 : (uint8_t)choice.tab;
     out->pad.report_id = choice.pad == HID_NO_REPORT ? 0 : (uint8_t)choice.pad;
 
     /* What each driver will take. A descriptor that says what it is gets
      * believed; one that does not is judged by what turned up. */
-    out->kbd.valid = out->kbd.codes_count || out->kbd.runs[0].count;
+    out->keyboard.valid = out->keyboard.codes_count || out->keyboard.runs[0].count;
 
     // If it squeaks like a mouse: an X the device moves us by, not to.
     out->mou.valid = out->mou.x_size > 0 &&

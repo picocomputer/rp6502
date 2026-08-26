@@ -8,7 +8,7 @@
 #include "host/sokol/script.h"
 #include "host/sokol/png.h"
 #include "core/sys/proc.h"
-#include "core/sys/kbd.h"
+#include "core/sys/keyboard.h"
 #include "core/hid/mou.h"
 #include "host/sokol/pad.h"
 #include "core/hid/tab.h"
@@ -564,7 +564,7 @@ bool script_command(const char *line)
         long frames = SCRIPT_WAIT_FRAMES;
         if (script_more(&p) && (!script_number(&p, &frames) || frames < 0))
             return script_error("type wants a frame budget");
-        kbd_paste(text);
+        keyboard_paste(text);
         /* Blocks until the ring has it all, so back-to-back type commands
          * cannot replace each other mid-drip. */
         script_wait = SCRIPT_TYPING;
@@ -591,8 +591,8 @@ bool script_command(const char *line)
             else
                 return script_error("unknown modifier '%s'", plus + 1);
         }
-        uint8_t hid = kbd_hid_from_name(name);
-        if (!hid || !kbd_key(hid, ctrl, shift, alt))
+        uint8_t hid = keyboard_hid_from_name(name);
+        if (!hid || !keyboard_key(hid, ctrl, shift, alt))
             return script_error("'%s' has no key sequence", name);
         return true;
     }
@@ -604,7 +604,7 @@ bool script_command(const char *line)
         int count = 0;
         while ((name = script_word(&p)) != NULL)
         {
-            uint8_t hid = kbd_hid_from_name(name);
+            uint8_t hid = keyboard_hid_from_name(name);
             if (!hid)
             {
                 char *num = name;
@@ -613,7 +613,7 @@ bool script_command(const char *line)
                     return script_error("unknown key '%s'", name);
                 hid = (uint8_t)usage;
             }
-            kbd_hid_set(hid, down);
+            keyboard_hid_set(hid, down);
             count++;
         }
         if (!count)
@@ -627,11 +627,11 @@ bool script_command(const char *line)
         if (!which)
             which = "";
         if (!strcasecmp(which, "num"))
-            kbd_toggle_lock(1);
+            keyboard_toggle_lock(1);
         else if (!strcasecmp(which, "caps"))
-            kbd_toggle_lock(2);
+            keyboard_toggle_lock(2);
         else if (!strcasecmp(which, "scroll"))
-            kbd_toggle_lock(4);
+            keyboard_toggle_lock(4);
         else
             return script_error("lock wants num, caps or scroll");
         return true;
@@ -815,7 +815,7 @@ static bool script_settle(void)
                          script_addr_base == xram ? "xram" : "ram", script_addr,
                          script_addr_want, script_addr_base[script_addr]);
     case SCRIPT_TYPING:
-        if (!kbd_paste_busy())
+        if (!keyboard_paste_busy())
             break;
         if (script_spend())
             return false;

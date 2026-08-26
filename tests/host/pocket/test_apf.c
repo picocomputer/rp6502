@@ -21,7 +21,7 @@
  */
 
 #include "core/api/oem.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
@@ -37,7 +37,7 @@
 /* Where each driver publishes. Far enough apart that an overrun by one
  * would land in another's record rather than in nothing. */
 #define AT_PAD 0x1000
-#define AT_KBD 0x2000
+#define AT_KEYBOARD 0x2000
 #define AT_MOU 0x3000
 
 /* pad_xram_t, which apf.c's descriptor exists to fill correctly. */
@@ -77,17 +77,17 @@ static void reset_all(void)
     for (int slot = 0; slot < MMIO_CONT_SLOTS; slot++)
         apf_umount(slot);
     apf_refresh();
-    kbd_init();
+    keyboard_init();
     mou_init();
     pad_init();
     tab_init();
-    /* Whatever the last case typed is still queued — kbd_init does not
+    /* Whatever the last case typed is still queued — keyboard_init does not
      * empty a queue a console would have drained. */
     char drain[64];
     while (kbt_in_chars(drain, sizeof drain))
         ;
     memset((uint8_t *)xram, 0, 0x10000);
-    kbd_xreg(AT_KBD);
+    keyboard_xreg(AT_KEYBOARD);
     mou_xreg(AT_MOU);
     pad_xreg(AT_PAD);
 }
@@ -251,30 +251,30 @@ UTEST(apf, four_pads_are_four_players)
 UTEST(apf, a_keyboard_sets_the_bitmap)
 {
     reset_all();
-    apf_mount(2, APF_TYPE_KBD);
+    apf_mount(2, APF_TYPE_KEYBOARD);
 
     /* Idle: bit 0 of word 0 says no keys are down. */
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    ASSERT_EQ(xram[AT_KBD] & 1, 1);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    ASSERT_EQ(xram[AT_KEYBOARD] & 1, 1);
 
     /* 'a' is 0x04, and APF packs the first four codes into joy, MSB
      * first, with the last two in trig. */
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false);
-    ASSERT_EQ(xram[AT_KBD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
-    ASSERT_EQ(xram[AT_KBD] & 1, 0);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false);
+    ASSERT_EQ(xram[AT_KEYBOARD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
+    ASSERT_EQ(xram[AT_KEYBOARD] & 1, 0);
 
     /* All six at once, and the modifiers, which are keycodes 0xE0 and
      * up. Left shift is bit 1 of the HID modifier byte — and that byte
      * is the modifier field's first, so it arrives in [15:8]. */
-    feed(2, APF_TYPE_KBD, 0x40000200u, 0x04050607u, 0x0809, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x04050607u, 0x0809, false);
     for (uint8_t kc = 0x04; kc <= 0x09; kc++)
-        ASSERT_EQ(xram[AT_KBD + (kc >> 3)] & (1 << (kc & 7)), 1 << (kc & 7));
-    ASSERT_EQ(xram[AT_KBD + (0xE1 >> 3)] & (1 << (0xE1 & 7)), 1 << (0xE1 & 7));
+        ASSERT_EQ(xram[AT_KEYBOARD + (kc >> 3)] & (1 << (kc & 7)), 1 << (kc & 7));
+    ASSERT_EQ(xram[AT_KEYBOARD + (0xE1 >> 3)] & (1 << (0xE1 & 7)), 1 << (0xE1 & 7));
 
     /* Released, all of them: the report is the whole state. */
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    ASSERT_EQ(xram[AT_KBD] & 1, 1);
-    ASSERT_EQ(xram[AT_KBD + (0x04 >> 3)] & (1 << (0x04 & 7)), 0);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    ASSERT_EQ(xram[AT_KEYBOARD] & 1, 1);
+    ASSERT_EQ(xram[AT_KEYBOARD + (0x04 >> 3)] & (1 << (0x04 & 7)), 0);
 }
 
 /* A layout is what turns a scan code into a character, and the console
@@ -283,26 +283,26 @@ UTEST(apf, a_keyboard_types_through_its_layout)
 {
     reset_all();
     kbt_load_layout("US");
-    apf_mount(2, APF_TYPE_KBD);
+    apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
     ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'a');
 
     /* Shift is the modifier byte's bit 1, in [15:8], and the layout's
      * second column. Reading it from [7:0] is a keyboard that types
      * but never shifts, which is what hardware showed. */
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    feed(2, APF_TYPE_KBD, 0x40000200u, 0x04000000u, 0x0000, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x04000000u, 0x0000, false);
     ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'A');
 
     /* And a layout that moves a key moves it: on the German layout the
      * key at 0x1C types z, not y. */
     kbt_load_layout("DE");
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0x1C000000u, 0x0000, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x1C000000u, 0x0000, false);
     ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ(buf[0], 'z');
 }
@@ -320,16 +320,16 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
     reset_all();
     oem_set_code_page_run(437);
     kbt_load_layout("US-INTL");
-    apf_mount(2, APF_TYPE_KBD);
+    apf_mount(2, APF_TYPE_KEYBOARD);
 
     char buf[8];
 
     /* Shift+0x35 is the tilde, the dead key. CP437 cannot spell what it
      * composes to, so the pair does not compose -- an unmatched dead key
      * types both of its characters. Whatever it did, it was not 0xC6. */
-    feed(2, APF_TYPE_KBD, 0x40000200u, 0x35000000u, 0x0000, false);
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
+    feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x35000000u, 0x0000, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
     size_t n437 = kbt_in_chars(buf, sizeof buf);
     for (size_t i = 0; i < n437; i++)
         ASSERT_NE((unsigned char)buf[i], 0xC6);
@@ -338,10 +338,10 @@ UTEST(apf, dead_keys_follow_a_code_page_change)
 
     /* The same two keys, after the page moves under the layout. */
     oem_set_code_page_run(850);
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    feed(2, APF_TYPE_KBD, 0x40000200u, 0x35000000u, 0x0000, false);
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0, 0, false);
-    feed(2, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000200u, 0x35000000u, 0x0000, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0, 0, false);
+    feed(2, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false); /* a */
     ASSERT_EQ(kbt_in_chars(buf, sizeof buf), (size_t)1);
     ASSERT_EQ((unsigned char)buf[0], 0xC6);
 }
@@ -433,9 +433,9 @@ UTEST(apf, a_slot_holds_what_its_type_says)
     reset_all();
 
     /* A keyboard on the slot Analogue puts a pad on. */
-    apf_mount(0, APF_TYPE_KBD);
-    feed(0, APF_TYPE_KBD, 0x40000000u, 0x04000000u, 0x0000, false);
-    ASSERT_EQ(xram[AT_KBD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
+    apf_mount(0, APF_TYPE_KEYBOARD);
+    feed(0, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false);
+    ASSERT_EQ(xram[AT_KEYBOARD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
     /* And no pad appeared for it. */
     ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x80, 0);
 

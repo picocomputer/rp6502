@@ -5,14 +5,14 @@
  */
 
 /* Keys to characters: the layout, dead keys, Alt codes, the VT sequences a
- * terminal expects, and auto-repeat. Separate from kbd.c because a host whose
+ * terminal expects, and auto-repeat. Separate from keyboard.c because a host whose
  * OS has already done this work links kbt_null.c instead and drops the layout
  * database with it. */
 
 #include "core/main.h"
 #include "core/api/oem.h"
 #include "core/api/uni.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbl.h"
 #include "core/hid/kbt.h"
 #include "core/hid/vt.h"
@@ -26,7 +26,7 @@
  * one — see src/host/windows. */
 #include <strings.h>
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KBD)
+#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KEYBOARD)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -177,8 +177,8 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     bool key_alt = modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT);
     bool key_ctrl = modifier & (KEYBOARD_MODIFIER_LEFTCTRL | KEYBOARD_MODIFIER_RIGHTCTRL);
     bool key_gui = modifier & (KEYBOARD_MODIFIER_LEFTGUI | KEYBOARD_MODIFIER_RIGHTGUI);
-    bool is_numlock = kbd_get_leds() & KEYBOARD_LED_NUMLOCK;
-    bool is_capslock = kbd_get_leds() & KEYBOARD_LED_CAPSLOCK;
+    bool is_numlock = keyboard_get_leds() & KEYBOARD_LED_NUMLOCK;
+    bool is_capslock = keyboard_get_leds() & KEYBOARD_LED_CAPSLOCK;
     // Set up for repeat
     kbt_repeat_modifier = modifier;
     kbt_repeat_keycode = keycode;
@@ -190,7 +190,7 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
     {
         if (is_numlock)
             key_shift = false;
-        keycode = kbd_keypad_nav(keycode);
+        keycode = keyboard_keypad_nav(keycode);
     }
     // ALT codes
     if (kbt_alt_mode || (keycode >= HID_KEY_KEYPAD_1 &&
@@ -386,13 +386,13 @@ static void kbt_queue_key(uint8_t modifier, uint8_t keycode, bool initial_press)
             }
             break;
         case HID_KEY_NUM_LOCK:
-            kbd_toggle_lock(KEYBOARD_LED_NUMLOCK);
+            keyboard_toggle_lock(KEYBOARD_LED_NUMLOCK);
             break;
         case HID_KEY_CAPS_LOCK:
-            kbd_toggle_lock(KEYBOARD_LED_CAPSLOCK);
+            keyboard_toggle_lock(KEYBOARD_LED_CAPSLOCK);
             break;
         case HID_KEY_SCROLL_LOCK:
-            kbd_toggle_lock(KEYBOARD_LED_SCROLLLOCK);
+            keyboard_toggle_lock(KEYBOARD_LED_SCROLLLOCK);
             break;
         }
     }
@@ -483,10 +483,10 @@ void kbt_task(void)
 {
     if (kbt_repeat_keycode && host_deadline_passed(kbt_repeat_timer))
     {
-        if (kbd_key_down(kbt_repeat_keycode) &&
-            kbd_get_modifier() == kbt_repeat_modifier)
+        if (keyboard_key_down(kbt_repeat_keycode) &&
+            keyboard_get_modifier() == kbt_repeat_modifier)
         {
-            kbt_queue_key(kbd_get_modifier(), kbt_repeat_keycode, false);
+            kbt_queue_key(keyboard_get_modifier(), kbt_repeat_keycode, false);
         }
         else
         {
@@ -555,13 +555,13 @@ static void kbt_rebuild_code_page_cache(void)
     kbt_deadkey_cache[cache_index] = 0;
     return;
 overflow_error:
-    // Unreachable for a database kbd_layout_gen.py built: it refuses a
+    // Unreachable for a database keyboard_layout_gen.py built: it refuses a
     // layout whose dead keys do not fit here. A machine staging one it
     // did not build loses the composing, not the keyboard.
     kbt_cached_dead2 = (void *)&kbt_deadkey_cache[0];
     kbt_cached_dead3 = (void *)&kbt_deadkey_cache[0];
     kbt_deadkey_cache[0] = 0;
-    DBG("kbd: dead key cache overflow\n");
+    DBG("keyboard: dead key cache overflow\n");
 }
 
 size_t kbt_in_chars(char *buf, size_t length)
@@ -628,7 +628,7 @@ void HOST_IN_FLASH("kbt_init") kbt_init(void)
 
 /* Once per report, so an Alt code committed while Alt was held is emitted
  * when it is released. */
-void kbd_spell_modifiers(uint8_t modifier)
+void keyboard_spell_modifiers(uint8_t modifier)
 {
     if (kbt_alt_mode &&
         !(modifier & (KEYBOARD_MODIFIER_LEFTALT | KEYBOARD_MODIFIER_RIGHTALT)))
@@ -639,7 +639,7 @@ void kbd_spell_modifiers(uint8_t modifier)
     }
 }
 
-void kbd_spell_key(uint8_t modifier, uint8_t keycode)
+void keyboard_spell_key(uint8_t modifier, uint8_t keycode)
 {
     kbt_queue_key(modifier, keycode, true);
 }

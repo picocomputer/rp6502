@@ -6,7 +6,7 @@
 
 #include "core/hid/kbl.h"
 
-/* The image's header and record shape, as kbd_layout_gen.py lays them
+/* The image's header and record shape, as keyboard_layout_gen.py lays them
  * out. The header says where each record starts; a record's own fields
  * are fixed and are the offsets below. */
 #define KBL_MAGIC 0x4C4Bu

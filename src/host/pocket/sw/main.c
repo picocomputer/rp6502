@@ -33,7 +33,7 @@
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/api/uni.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "core/hid/kbl.h"
 #include "core/hid/mou.h"
@@ -124,8 +124,8 @@ static void init(void)
     if (!uni_init())
         printf("oem: no tables\n");
     if (!kbl_init())
-        printf("kbd: no layouts\n");
-    kbd_init();
+        printf("keyboard: no layouts\n");
+    keyboard_init();
     kbt_init(); /* the speller is this machine's, not the device layer's */
     mou_init();
     pad_init();
@@ -156,7 +156,7 @@ void main_on_stop(void)
     api_stop();
     std_stop();
     msc_stop(); /* after std_stop: its closes are what park a read */
-    kbd_stop();
+    keyboard_stop();
     mou_stop();
     pad_stop();
     tab_stop();

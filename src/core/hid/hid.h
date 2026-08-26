@@ -53,7 +53,7 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
 
 /* The drivers' own structs are what a device is offered as. Their headers
  * include this one, so they are named here rather than included. */
-typedef struct kbd_connection kbd_connection_t;
+typedef struct keyboard_connection keyboard_connection_t;
 typedef struct mou_connection mou_connection_t;
 typedef struct tab_connection tab_connection_t;
 typedef struct pad_connection pad_connection_t;
@@ -65,7 +65,7 @@ typedef struct pad_connection pad_connection_t;
 #define HID_MAX_SLOTS 16
 #endif
 
-#define HID_CLAIM_KBD (1 << 0)
+#define HID_CLAIM_KEYBOARD (1 << 0)
 #define HID_CLAIM_MOU (1 << 1)
 #define HID_CLAIM_TAB (1 << 2)
 #define HID_CLAIM_PAD (1 << 3)
@@ -78,7 +78,7 @@ typedef struct pad_connection pad_connection_t;
  * device; nothing here can name a device on its behalf.
  *
  * Deliberately not exclusive: a mouse is a pointer to both mou and tab. */
-int hid_mount(const kbd_connection_t *kbd, const mou_connection_t *mou,
+int hid_mount(const keyboard_connection_t *keyboard, const mou_connection_t *mou,
               const tab_connection_t *tab, const pad_connection_t *pad,
               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 

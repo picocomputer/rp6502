@@ -3,10 +3,10 @@
 #
 # SPDX-License-Identifier: BSD-3-Clause
 #
-# The keyboard layouts, lifted out of src/core/def/kbd_*.def.
+# The keyboard layouts, lifted out of src/core/def/keyboard_*.def.
 #
 # The def files stay the source of truth and stay the thing a
-# contributor edits; see def/kbd.def. What changes is where the numbers
+# contributor edits; see def/keyboard.def. What changes is where the numbers
 # end up. As X macros they became seven [128][5] DWORD tables plus five
 # parallel lookup arrays — twenty kilobytes of flash that a machine with
 # no flash cannot have. The Pocket links its firmware into a 96 KB
@@ -43,7 +43,7 @@ OFF_D3N = OFF_D2N + 1
 OFF_KEYS = OFF_D3N + 1
 OFF_DEAD = OFF_KEYS + KEY_WORDS
 
-# kbd.c caches the dead key tables as OEM characters in a fixed buffer.
+# keyboard.c caches the dead key tables as OEM characters in a fixed buffer.
 # Its overflow path throws the layout's dead keys away, which is a
 # silent loss of function; catching it here means it can only happen to
 # a layout nobody has built yet.
@@ -141,10 +141,10 @@ def find_calls(src, name):
 def eval_char(lit, where):
     body = lit[1:-1]
     if not body:
-        raise SystemExit(f"kbd_layout_gen: {where}: empty character")
+        raise SystemExit(f"keyboard_layout_gen: {where}: empty character")
     if body[0] != "\\":
         if len(body) != 1:
-            raise SystemExit(f"kbd_layout_gen: {where}: multi-char {lit}")
+            raise SystemExit(f"keyboard_layout_gen: {where}: multi-char {lit}")
         return ord(body)
     esc = body[1]
     if esc == "x":
@@ -153,7 +153,7 @@ def eval_char(lit, where):
         return ESCAPES[esc]
     if esc.isdigit():
         return int(body[1:], 8)
-    raise SystemExit(f"kbd_layout_gen: {where}: bad escape {lit}")
+    raise SystemExit(f"keyboard_layout_gen: {where}: bad escape {lit}")
 
 
 def eval_value(arg, where):
@@ -166,12 +166,12 @@ def eval_value(arg, where):
     try:
         return int(arg, 0)
     except ValueError:
-        raise SystemExit(f"kbd_layout_gen: {where}: cannot read {arg}")
+        raise SystemExit(f"keyboard_layout_gen: {where}: cannot read {arg}")
 
 
 def eval_string(arg, where):
     if len(arg) < 2 or arg[0] != '"' or arg[-1] != '"':
-        raise SystemExit(f"kbd_layout_gen: {where}: expected a string, got {arg}")
+        raise SystemExit(f"keyboard_layout_gen: {where}: expected a string, got {arg}")
     return arg[1:-1].encode("ascii").decode("unicode_escape")
 
 
@@ -181,26 +181,26 @@ def parse_layout(path):
 
     begin = find_calls(src, "XBEGIN")
     if len(begin) != 1:
-        raise SystemExit(f"kbd_layout_gen: {where}: expected one XBEGIN")
+        raise SystemExit(f"keyboard_layout_gen: {where}: expected one XBEGIN")
     name = eval_string(begin[0][0], where)
     desc = eval_string(begin[0][1], where)
     if len(name.encode()) >= NAME_MAX:
-        raise SystemExit(f"kbd_layout_gen: {where}: name {name!r} over {NAME_MAX - 1}")
+        raise SystemExit(f"keyboard_layout_gen: {where}: name {name!r} over {NAME_MAX - 1}")
     if len(desc.encode()) >= DESC_MAX:
-        raise SystemExit(f"kbd_layout_gen: {where}: description over {DESC_MAX - 1}")
+        raise SystemExit(f"keyboard_layout_gen: {where}: description over {DESC_MAX - 1}")
 
     keys = [[0] * 4 for _ in range(128)]
     caps = [False] * 128
     for args in find_calls(src, "XKEY"):
         if len(args) != 6:
-            raise SystemExit(f"kbd_layout_gen: {where}: XKEY takes six fields")
+            raise SystemExit(f"keyboard_layout_gen: {where}: XKEY takes six fields")
         kc = eval_value(args[0], where)
         if not 0 <= kc < 128:
-            raise SystemExit(f"kbd_layout_gen: {where}: keycode {kc:#x} over 0x7F")
+            raise SystemExit(f"keyboard_layout_gen: {where}: keycode {kc:#x} over 0x7F")
         for col in range(4):
             cp = eval_value(args[1 + col], where)
             if cp > 0xFFFF:
-                raise SystemExit(f"kbd_layout_gen: {where}: {cp:#x} outside the BMP")
+                raise SystemExit(f"keyboard_layout_gen: {where}: {cp:#x} outside the BMP")
             keys[kc][col] = cp
         caps[kc] = bool(eval_value(args[5], where))
 
@@ -212,24 +212,24 @@ def parse_layout(path):
         elif len(vals) == 4:
             dead3.append(vals)
         else:
-            raise SystemExit(f"kbd_layout_gen: {where}: XDEAD takes three or four")
+            raise SystemExit(f"keyboard_layout_gen: {where}: XDEAD takes three or four")
 
     used = 3 * len(dead2) + 4 * len(dead3) + 2
     if used > DEADKEY_CACHE_SIZE:
-        raise SystemExit(f"kbd_layout_gen: {where}: dead keys need {used} cache "
-                         f"bytes, kbd.c has {DEADKEY_CACHE_SIZE}")
+        raise SystemExit(f"keyboard_layout_gen: {where}: dead keys need {used} cache "
+                         f"bytes, keyboard.c has {DEADKEY_CACHE_SIZE}")
 
     return {"name": name, "desc": desc, "keys": keys, "caps": caps,
             "dead2": dead2, "dead3": dead3}
 
 
 def parse_manifest(manifest):
-    """The def/kbd.def include list, which is the layout order."""
+    """The def/keyboard.def include list, which is the layout order."""
     src = strip_comments(Path(manifest).read_text(encoding="utf-8"))
     base = Path(manifest).parent
-    names = re.findall(r'#\s*include\s+"core/def/(kbd_[A-Za-z0-9_]+\.def)"', src)
+    names = re.findall(r'#\s*include\s+"core/def/(keyboard_[A-Za-z0-9_]+\.def)"', src)
     if not names:
-        raise SystemExit("kbd_layout_gen: no layouts included by kbd.def")
+        raise SystemExit("keyboard_layout_gen: no layouts included by keyboard.def")
     return [parse_layout(base / n) for n in names]
 
 
@@ -247,7 +247,7 @@ def build(manifest):
     # this manifest, and it is worth failing here rather than in a JSON
     # file the host silently rejects.
     if n > 16:
-        raise SystemExit(f"kbd_layout_gen: {n} layouts, and the Pocket's "
+        raise SystemExit(f"keyboard_layout_gen: {n} layouts, and the Pocket's "
                          "keyboard menu holds sixteen")
 
     records = []
@@ -280,7 +280,7 @@ def build(manifest):
     return words, layouts
 
 
-HEADER = """/* Generated by src/core/gen/kbd_layout_gen.py — do not edit.
+HEADER = """/* Generated by src/core/gen/keyboard_layout_gen.py — do not edit.
  *
  * The keyboard layouts as a flat array of 16-bit words, laid out for a
  * reader that can only fetch one word at a time:
@@ -344,7 +344,7 @@ def emit_bin(path, words):
     Path(path).write_bytes(b)
 
 
-DEFAULT_LAYOUT = "US"  # kbd.c falls back to this; the menu must agree
+DEFAULT_LAYOUT = "US"  # keyboard.c falls back to this; the menu must agree
 
 
 def check_interact(path, layouts):
@@ -354,28 +354,28 @@ def check_interact(path, layouts):
     want = [(i + 1, lay["name"]) for i, lay in enumerate(layouts)]
     found = [v for v in variables if v["name"] == "Keyboard"]
     if len(found) != 1:
-        raise SystemExit("kbd_layout_gen: interact.json has no 'Keyboard'")
+        raise SystemExit("keyboard_layout_gen: interact.json has no 'Keyboard'")
     options = found[0]["options"]
     got = [(int(o["value"], 0), o["name"]) for o in options]
     if got != want:
-        raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' options "
-                         f"{got} do not match def/kbd.def {want}")
+        raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' options "
+                         f"{got} do not match def/keyboard.def {want}")
 
     # defaultval indexes the options array — it is not one of their
     # values. Analogue's page does not say so and its own sample is the
     # only evidence; a Pocket booted with the value there came up on the
     # layout one past the intended one. What the default has to be is
-    # whatever kbd.c falls back to when nothing has been chosen.
+    # whatever keyboard.c falls back to when nothing has been chosen.
     default = found[0]["defaultval"]
     if isinstance(default, str):
-        raise SystemExit("kbd_layout_gen: interact.json 'Keyboard' defaultval "
+        raise SystemExit("keyboard_layout_gen: interact.json 'Keyboard' defaultval "
                          f"is the string {default!r}; it is an index")
     if not 0 <= default < len(options):
-        raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' defaultval "
+        raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' defaultval "
                          f"{default} is not an option index")
     if options[default]["name"] != DEFAULT_LAYOUT:
-        raise SystemExit(f"kbd_layout_gen: interact.json 'Keyboard' defaults to "
-                         f"{options[default]['name']}, and kbd.c to "
+        raise SystemExit(f"keyboard_layout_gen: interact.json 'Keyboard' defaults to "
+                         f"{options[default]['name']}, and keyboard.c to "
                          f"{DEFAULT_LAYOUT}")
 
 
@@ -384,10 +384,10 @@ def check_data(path, words):
     slots = doc["data"]["data_slots"]
     found = [s for s in slots if s.get("filename") == "keyboard.bin"]
     if len(found) != 1:
-        raise SystemExit("kbd_layout_gen: data.json has no keyboard.bin slot")
+        raise SystemExit("keyboard_layout_gen: data.json has no keyboard.bin slot")
     size = int(found[0]["size_exact"], 0)
     if size != len(words) * 2:
-        raise SystemExit(f"kbd_layout_gen: data.json says {size} bytes, "
+        raise SystemExit(f"keyboard_layout_gen: data.json says {size} bytes, "
                          f"the layouts are {len(words) * 2}")
 
 

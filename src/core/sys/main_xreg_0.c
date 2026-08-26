@@ -17,7 +17,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/hid/hid.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -30,7 +30,7 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
         switch (address)
         {
         case 0:
-            ok = kbd_xreg(word);
+            ok = keyboard_xreg(word);
             break;
         case 1:
             ok = mou_xreg(word);

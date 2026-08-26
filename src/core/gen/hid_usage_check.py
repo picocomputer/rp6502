@@ -5,7 +5,7 @@
 #
 # core/hid/usage.h against the vendored TinyUSB header.
 #
-# core/hid/kbd.c is compiled for machines that mostly have no USB, so the
+# core/hid/keyboard.c is compiled for machines that mostly have no USB, so the
 # usage table it reads is the machine's own -- learning that Escape is 0x29
 # should not cost a Pocket a USB stack. But the RIA does have USB and its
 # drivers speak TinyUSB's spelling of the same specification, and two
@@ -13,7 +13,7 @@
 # So every constant core/hid/usage.h defines is compared against the
 # vendor's here, on the one build that has both.
 #
-# Only names usage.h defines are checked: it carries what kbd.c uses, not
+# Only names usage.h defines are checked: it carries what keyboard.c uses, not
 # the whole usage table.
 
 import argparse

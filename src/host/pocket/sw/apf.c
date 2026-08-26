@@ -19,7 +19,7 @@
 #include "mmio.h"
 
 #include "core/hid/hid.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -33,7 +33,7 @@
 #define APF_TYPE_POCKET 1  /* the Pocket's own buttons, player one */
 #define APF_TYPE_PAD 2     /* docked controller, no analog */
 #define APF_TYPE_PAD_ANA 3 /* docked controller, with analog */
-#define APF_TYPE_KBD 4
+#define APF_TYPE_KEYBOARD 4
 #define APF_TYPE_MOU 5
 
 /* What the drivers are told a device is. A USB device says this with a
@@ -68,7 +68,7 @@ static const pad_connection_t apf_pad_ana_desc = {
 
 /* A boot keyboard's report: the modifier byte, a reserved byte, then six
  * scan codes. */
-static const kbd_connection_t apf_kbd_desc = {
+static const keyboard_connection_t apf_keyboard_desc = {
     .valid = true,
     .runs = {{.bit_pos = 0, .usage_min = HID_KEY_CONTROL_LEFT, .count = 8}},
     .codes_offset = 2 * 8,
@@ -137,8 +137,8 @@ static void apf_mount(int slot, uint8_t type)
     case APF_TYPE_PAD_ANA:
         pad = &apf_pad_ana_desc;
         break;
-    case APF_TYPE_KBD:
-        apf_slots[slot].slot = (int8_t)hid_mount(&apf_kbd_desc, NULL, NULL, NULL, 0, 0, 0);
+    case APF_TYPE_KEYBOARD:
+        apf_slots[slot].slot = (int8_t)hid_mount(&apf_keyboard_desc, NULL, NULL, NULL, 0, 0, 0);
         return;
     case APF_TYPE_MOU:
         apf_slots[slot].slot = (int8_t)hid_mount(NULL, &apf_mou_desc,
@@ -196,7 +196,7 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
         report[6] = (uint8_t)trig;
         report[7] = (uint8_t)(trig >> 8);
         return 8;
-    case APF_TYPE_KBD:
+    case APF_TYPE_KEYBOARD:
         /* The modifier field's first byte, so the high half of its
          * halfword. */
         report[0] = (uint8_t)(key >> 8);

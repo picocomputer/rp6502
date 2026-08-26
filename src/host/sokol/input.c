@@ -8,7 +8,7 @@
 #include "host/sokol/input.h"
 
 #include "host/sokol/window.h"
-#include "core/sys/kbd.h"
+#include "core/sys/keyboard.h"
 #include "core/hid/mou.h"
 #include "core/hid/tab.h"
 #include "core/vga/vga_emu.h"
@@ -90,7 +90,7 @@ static uint8_t sokol_to_hid(int kc)
     }
 }
 
-/* Encode one Unicode codepoint to a NUL-terminated UTF-8 string (kbd_text then
+/* Encode one Unicode codepoint to a NUL-terminated UTF-8 string (keyboard_text then
  * maps it to the active OEM code page). */
 static const char *utf8_encode(uint32_t cp, char dst[5])
 {
@@ -168,7 +168,7 @@ static void input_key(const sapp_event *e)
     {
         uint8_t hid = sokol_to_hid(e->key_code);
         if (hid)
-            kbd_hid_set(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
+            keyboard_hid_set(hid, e->type == SAPP_EVENTTYPE_KEY_DOWN);
     }
     switch (e->type)
     {
@@ -190,7 +190,7 @@ static void input_key(const sapp_event *e)
                    (e->modifiers & SAPP_MODIFIER_CTRL) && (e->modifiers & SAPP_MODIFIER_ALT))))
         {
             char u[5];
-            kbd_text(utf8_encode(e->char_code, u));
+            keyboard_text(utf8_encode(e->char_code, u));
         }
         break;
     case SAPP_EVENTTYPE_KEY_DOWN:
@@ -202,9 +202,9 @@ static void input_key(const sapp_event *e)
         suppress_char = false;
         switch (e->key_code)
         {
-        case SAPP_KEYCODE_NUM_LOCK: kbd_toggle_lock(1); break;
-        case SAPP_KEYCODE_CAPS_LOCK: kbd_toggle_lock(2); break;
-        case SAPP_KEYCODE_SCROLL_LOCK: kbd_toggle_lock(4); break;
+        case SAPP_KEYCODE_NUM_LOCK: keyboard_toggle_lock(1); break;
+        case SAPP_KEYCODE_CAPS_LOCK: keyboard_toggle_lock(2); break;
+        case SAPP_KEYCODE_SCROLL_LOCK: keyboard_toggle_lock(4); break;
         /* NumLock-off numpad navigation. sokol reports no NumLock modifier, so
          * always nav and swallow the digit CHAR the host emits when NumLock is
          * on. KP5 navigates nowhere, so it only swallows. */
@@ -220,16 +220,16 @@ static void input_key(const sapp_event *e)
         case SAPP_KEYCODE_KP_0:
         case SAPP_KEYCODE_KP_DECIMAL:
             suppress_char = true;
-            kbd_key(kbd_keypad_nav(hid), ctrl, shift, alt);
+            keyboard_key(keyboard_keypad_nav(hid), ctrl, shift, alt);
             break;
         default:
             /* A key that spells a sequence of its own -- Enter, Tab, an arrow,
              * a function key -- takes it; the rest fall through to the chords. */
-            if (kbd_key(hid, ctrl, shift, alt))
+            if (keyboard_key(hid, ctrl, shift, alt))
                 break;
             /* Ctrl+<key> -> C0 control byte (Ctrl-C latches SIGINT). Cover the full
              * @.._ / `..~ range the firmware promotes (Ctrl+[ = ESC, Ctrl+\ = FS,
-             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; kbd_ctrl_letter gates
+             * Ctrl+] = GS, Ctrl+^, Ctrl+_), not just letters; keyboard_ctrl_letter gates
              * the valid range. The CHAR case above drops the X11 duplicate. */
             if (ctrl && !alt)
             {
@@ -251,13 +251,13 @@ static void input_key(const sapp_event *e)
                     sapp_query_desc().enable_clipboard)
                     ch = 0;
 #endif
-                kbd_ctrl_letter(ch);
+                keyboard_ctrl_letter(ch);
             }
             /* Alt+<printable> -> ESC<char> (Meta). No CHAR fires for Alt combos.
              * Ctrl+Alt is excluded only where it means AltGr, whose composed char
              * arrives via the CHAR case above. */
             else if (alt && !(ALTGR_IS_CTRL_ALT && ctrl))
-                kbd_alt_char(ascii_from_key(e->key_code, shift), ctrl);
+                keyboard_alt_char(ascii_from_key(e->key_code, shift), ctrl);
             break;
         }
         break;
@@ -456,7 +456,7 @@ void input_event(const sapp_event *e)
             mou_host_wheel((int)lroundf(e->scroll_y), (int)lroundf(e->scroll_x));
         break;
     case SAPP_EVENTTYPE_CLIPBOARD_PASTED:
-        kbd_paste(sapp_get_clipboard_string());
+        keyboard_paste(sapp_get_clipboard_string());
         break;
     default:
         break;

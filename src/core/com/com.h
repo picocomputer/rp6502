@@ -12,11 +12,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* The KBD source. hid/kbd.c owns this ring and is the only caller: every host
+/* The KEYBOARD source. hid/keyboard.c owns this ring and is the only caller: every host
  * keystroke, scripted or typed, enters the machine through one seam. */
-void com_kbd_push(const char *s, size_t n);
-void com_kbd_push_byte(uint8_t b);
-size_t com_kbd_free(void); /* ring headroom; the paste drip stays below it */
+void com_keyboard_push(const char *s, size_t n);
+void com_keyboard_push_byte(uint8_t b);
+size_t com_keyboard_free(void); /* ring headroom; the paste drip stays below it */
 
 /* Cold-boot flush: clear both input rings and reset BEL (machine power-up). */
 void com_init(void);

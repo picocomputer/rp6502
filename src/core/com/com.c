@@ -38,7 +38,7 @@ typedef struct
     uint16_t tail; /* next read */
 } ring_t;
 
-static ring_t kbd_ring;
+static ring_t keyboard_ring;
 static ring_t uart_ring;
 
 /* Gates the teletype bell rung on a BEL (0x07) in program output. The setting
@@ -49,8 +49,8 @@ static ring_t *ring_for(com_source_t src)
 {
     switch (src)
     {
-    case COM_SOURCE_KBD:
-        return &kbd_ring;
+    case COM_SOURCE_KEYBOARD:
+        return &keyboard_ring;
     case COM_SOURCE_UART:
     case COM_SOURCE_TEL:
         return &uart_ring;
@@ -97,10 +97,10 @@ int com_getchar(com_source_t *src)
             *src = COM_SOURCE_UART;
             return c;
         }
-        c = ring_pop(&kbd_ring);
+        c = ring_pop(&keyboard_ring);
         if (c >= 0)
         {
-            *src = COM_SOURCE_KBD;
+            *src = COM_SOURCE_KEYBOARD;
             return c;
         }
         *src = COM_SOURCE_ANY;
@@ -233,22 +233,22 @@ void com_in_write_reply(const char *s, size_t n)
         ring_push(&uart_ring, (uint8_t)s[i]);
 }
 
-void com_kbd_push(const char *s, size_t n)
+void com_keyboard_push(const char *s, size_t n)
 {
     for (size_t i = 0; i < n; i++)
-        com_kbd_push_byte((uint8_t)s[i]);
+        com_keyboard_push_byte((uint8_t)s[i]);
 }
 
-void com_kbd_push_byte(uint8_t b)
+void com_keyboard_push_byte(uint8_t b)
 {
     if (b == COM_ETX)
         ria_trigger_sigint();
-    ring_push(&kbd_ring, b);
+    ring_push(&keyboard_ring, b);
 }
 
-size_t com_kbd_free(void)
+size_t com_keyboard_free(void)
 {
-    return (size_t)((kbd_ring.tail - kbd_ring.head - 1) & RING_MASK);
+    return (size_t)((keyboard_ring.tail - keyboard_ring.head - 1) & RING_MASK);
 }
 
 bool com_get_bel(void)
@@ -265,7 +265,7 @@ void com_set_bel(bool value)
  * program -- type-ahead survives an exec, and com_run resets the BEL alone. */
 void com_init(void)
 {
-    memset(&kbd_ring, 0, sizeof(kbd_ring));
+    memset(&keyboard_ring, 0, sizeof(keyboard_ring));
     memset(&uart_ring, 0, sizeof(uart_ring));
     com_bel_enabled = true;
 }

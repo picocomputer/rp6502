@@ -7,7 +7,7 @@
 #include "ria/main.h"
 #include "core/api/oem.h"
 #include "core/aud/bel.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
@@ -110,7 +110,7 @@ static bool com_bel_enabled = true;
 // Sticky-picker dwell window: once an RX source fires it locks out the
 // other sources for this many microseconds, so a single keystroke can't
 // slice a paste in half. Used by com_rx_pick across the three real
-// sources (kbd, UART, telnet).
+// sources (keyboard, UART, telnet).
 #define COM_RX_IDLE_US 1000
 
 // Non-consuming peek at the next byte of an SPSC RX ring (head==tail empty;
@@ -164,12 +164,12 @@ static int com_uart_peek(void)
 }
 
 // Local keyboard input. Steals the cross-core handoff slot if it was
-// tagged KBD, then reads from kbt_in_chars. No internal sticky
+// tagged KEYBOARD, then reads from kbt_in_chars. No internal sticky
 // dwell — the outer com_rx_pick holds against the other sources at
 // the 1 ms grain.
-static size_t com_kbd_read(char *buf, size_t length)
+static size_t com_keyboard_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, COM_SOURCE_KBD);
+    size_t count = com_recover_rx_char(buf, COM_SOURCE_KEYBOARD);
     if (count < length)
         count += kbt_in_chars(&buf[count], length - count);
     return count;
@@ -180,8 +180,8 @@ static size_t com_read_source(com_source_t src, char *buf, size_t length)
 {
     switch (src)
     {
-    case COM_SOURCE_KBD:
-        return com_kbd_read(buf, length);
+    case COM_SOURCE_KEYBOARD:
+        return com_keyboard_read(buf, length);
     case COM_SOURCE_UART:
         return com_uart_read(buf, length);
     case COM_SOURCE_TEL:
@@ -284,18 +284,18 @@ static size_t com_rx_pick(char *buf, size_t length, com_source_t *src_out)
     if (source != COM_SOURCE_ANY && time_reached(idle_timer))
         source = COM_SOURCE_ANY;
 
-    if (source == COM_SOURCE_KBD || source == COM_SOURCE_ANY)
+    if (source == COM_SOURCE_KEYBOARD || source == COM_SOURCE_ANY)
     {
-        size_t i = com_kbd_read(buf, length);
+        size_t i = com_keyboard_read(buf, length);
         if (i)
         {
-            source = COM_SOURCE_KBD;
+            source = COM_SOURCE_KEYBOARD;
             idle_timer = make_timeout_time_us(COM_RX_IDLE_US);
             if (src_out)
-                *src_out = COM_SOURCE_KBD;
+                *src_out = COM_SOURCE_KEYBOARD;
             return i;
         }
-        // Kbd doesn't hold the lock when empty.
+        // Keyboard doesn't hold the lock when empty.
         source = COM_SOURCE_ANY;
     }
 
@@ -534,8 +534,8 @@ void com_task(void)
     // RX: always pump the UART hw FIFO into its software ring, so
     // bursts can back up without overflowing the tiny hw FIFO and so
     // SIGINT scans / break detection run every tick regardless of
-    // whether anything downstream is consuming. kbd and telnet have
-    // their own upstream rings (kbd_key_queue and com_telnet_rx_buf)
+    // whether anything downstream is consuming. keyboard and telnet have
+    // their own upstream rings (keyboard_key_queue and com_telnet_rx_buf)
     // so they don't need a pump here.
     com_uart_drain_rx();
 

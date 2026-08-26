@@ -17,7 +17,7 @@
 #include "core/pix.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -51,7 +51,7 @@ void main_init(void)
     proc_init();
     cpu_init();
     aud_init();
-    kbd_init();
+    keyboard_init();
     mou_init();
     pad_init();
     tab_init();
@@ -90,7 +90,7 @@ void main_on_stop(void)
     oem_stop(); /* a run-only code page belongs to the run that set it */
     std_stop();
     dir_stop();
-    kbd_stop();
+    keyboard_stop();
     mou_stop();
     pad_stop();
     tab_stop();

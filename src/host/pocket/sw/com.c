@@ -51,9 +51,9 @@ void com_task(void)
      * drives this register. */
     uint32_t k = MMIO_KBD;
     if (k & 0x100)
-        com_kbd_push_byte((uint8_t)k);
+        com_keyboard_push_byte((uint8_t)k);
 
     char buf[16];
     size_t n = kbt_in_chars(buf, sizeof buf);
-    com_kbd_push(buf, n);
+    com_keyboard_push(buf, n);
 }

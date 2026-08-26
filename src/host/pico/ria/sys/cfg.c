@@ -8,7 +8,7 @@
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
 #include "ria/ble/ble.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"

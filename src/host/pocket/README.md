@@ -316,7 +316,7 @@ list of layouts because reaching its monitor to change one interrupts
 whatever you were doing, and GUI+Space cycling between two is worth the
 machinery there. This menu is two button presses away, so the layout
 that would have been the alternate is just the layout. The entry names
-one by its position in `def/kbd.def` plus one, which leaves zero
+one by its position in `def/keyboard.def` plus one, which leaves zero
 meaning a menu that has said nothing — and the firmware then keeps the
 US default. A ctest reads `interact.json` against the manifest, so
 adding a layout and forgetting the menu fails the build rather than
@@ -328,7 +328,7 @@ inserting one in the middle would renumber what a user already chose.
 values, which Analogue's page never says — only its sample shows it.
 A Pocket set to default came up one layout past the intended one, and
 that is the whole of the evidence. The ctest now checks that the option
-`defaultval` selects is the layout `kbd.c` falls back to, so the two
+`defaultval` selects is the layout `keyboard.c` falls back to, so the two
 defaults cannot disagree again.
 
 **The time zone is three entries, not one.** The Pocket knows nothing
@@ -675,7 +675,7 @@ binaries, which the build supplies:
   it to the video device at every boot.
 - `Assets/rp6502/common/oemcp.bin` and
   `Assets/rp6502/common/keyboard.bin` ride the same way, from
-  `src/core/gen/oem_table_gen.py` and `src/core/gen/kbd_layout_gen.py`. They are
+  `src/core/gen/oem_table_gen.py` and `src/core/gen/keyboard_layout_gen.py`. They are
   the code page conversion tables and the keyboard layouts, both far
   too large to link into a 96 KB tightly coupled memory and both read a
   word at a time through a window that cannot fetch anything wider than
@@ -714,7 +714,7 @@ debug log shows:
 | --- | --- |
 | *no 0x0152 traffic at all* | the soft CPU is not executing, or the host is not answering the log — turn on `CORE_TEST_PATTERN` to tell those apart |
 | `oem: no tables` | the code page slot did not stage; accented filenames will fold to U+FFFD |
-| `kbd: no layouts` | the layout slot did not stage; keys that type a character type nothing |
+| `keyboard: no layouts` | the layout slot did not stage; keys that type a character type nothing |
 | `rom: bad image` | staging read back wrong — SDRAM, not the loader |
 | the program's own output | everything worked and the 6502 is out of reset, so a black screen now is the video path |
 

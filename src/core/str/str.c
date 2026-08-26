@@ -157,7 +157,7 @@ static void str_select_locale(int index)
 }
 
 // Find a locale by short name. Falls back to the build default
-// (RP6502_LOCALE) when name is empty or unknown, mirroring kbd.
+// (RP6502_LOCALE) when name is empty or unknown, mirroring keyboard.
 static int str_sanitize_locale(const char *name)
 {
     const int count = sizeof(str_locale_names) / sizeof(str_locale_names)[0];

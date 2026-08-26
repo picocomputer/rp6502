@@ -450,7 +450,7 @@ static void mon_more(void)
     {
         // Non-blocking byte-driven drain: any keypress advances past
         // --more--, but ESC-prefixed sequences (arrow keys, F-keys,
-        // Alt+key, anything kbd.c emits via vt100/vt220) are consumed
+        // Alt+key, anything keyboard.c emits via vt100/vt220) are consumed
         // whole so their tail doesn't leak into the next prompt.
         int ch;
         while ((ch = stdio_getchar_timeout_us(0)) != PICO_ERROR_TIMEOUT)

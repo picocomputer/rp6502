@@ -72,7 +72,7 @@ set_source_files_properties(${RP6502_VENDOR}/fatfs/ffunicode.c
     "ff_oem2uni=ref_oem2uni;ff_uni2oem=ref_uni2oem;ff_wtoupper=ref_wtoupper")
 
 # --- The keyboard layouts (core/hid/kbl.c) against the def files they are
-# generated from. def/kbd_*.def is what a contributor edits and what kbd.c
+# generated from. def/keyboard_*.def is what a contributor edits and what keyboard.c
 # used to include as X macros; the generator is a second reader of that
 # format, so the manifest is included here the old way and every code
 # point compared. ---

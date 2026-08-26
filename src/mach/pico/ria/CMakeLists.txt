@@ -31,11 +31,11 @@ add_custom_command(OUTPUT ${OEMCP_C} ${OEMCP_H}
     COMMENT "Generating the OEM code page tables"
     VERBATIM)
 
-# The keyboard layouts, out of def/kbd_*.def and into one image hid/kbl.c
-# reads a word at a time. See src/core/gen/kbd_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_ROOT}/src/core/gen/kbd_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_ROOT}/src/core/def/kbd.def)
-file(GLOB KBDLAY_DEFS ${RP6502_ROOT}/src/core/def/kbd_*.def)
+# The keyboard layouts, out of def/keyboard_*.def and into one image hid/kbl.c
+# reads a word at a time. See src/core/gen/keyboard_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_ROOT}/src/core/gen/keyboard_layout_gen.py)
+set(KBDLAY_MANIFEST ${RP6502_ROOT}/src/core/def/keyboard.def)
+file(GLOB KBDLAY_DEFS ${RP6502_ROOT}/src/core/def/keyboard_*.def)
 set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
 set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
 add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
@@ -45,7 +45,7 @@ add_custom_command(OUTPUT ${KBDLAY_C} ${KBDLAY_H}
     COMMENT "Generating the keyboard layouts"
     VERBATIM)
 
-# core/hid/kbd.c reads core/hid/usage.h, the specification's numbers, on
+# core/hid/keyboard.c reads core/hid/usage.h, the specification's numbers, on
 # every machine. This one also has USB, whose drivers speak TinyUSB's
 # spelling of the same specification, and two spellings drift. The check
 # lives here because this is the tree that has TinyUSB: the machines that
@@ -146,7 +146,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/ble/tlv.c
     ${RP6502_ROOT}/src/core/hid/vt.c
     ${RP6502_ROOT}/src/core/hid/hid.c
-    ${RP6502_ROOT}/src/core/hid/kbd.c
+    ${RP6502_ROOT}/src/core/hid/keyboard.c
     ${RP6502_ROOT}/src/core/hid/kbl.c
     ${RP6502_ROOT}/src/core/hid/kbt.c
     ${KBDLAY_C}

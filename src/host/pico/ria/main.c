@@ -18,7 +18,7 @@
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "ria/ble/ble.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
@@ -121,7 +121,7 @@ static void __in_flash("init") init(void)
     oem_init();
     led_init();
     aud_init();
-    kbd_init();
+    keyboard_init();
     kbt_init(); /* the speller is this machine's, not the device layer's */
     mou_init();
     pad_init();
@@ -202,7 +202,7 @@ void main_on_stop(void)
     std_stop();
     mid_stop();
     dir_stop();
-    kbd_stop();
+    keyboard_stop();
     mou_stop();
     pad_stop();
     tab_stop();

@@ -17,7 +17,7 @@ The seams it needs were already there:
 | a frame | `sys_run_frame`, which is exactly what `retro_run` is asked for |
 | a picture | `vga_set_framebuffer` + `vga_canvas_size`, and `SET_GEOMETRY` when the canvas changes |
 | sound | `aud_pump`, which converts to the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
-| devices | the `kbd_` / `pad_` / `mou_` / `tab_` host entry points, the same ones the web host drives |
+| devices | the `keyboard_` / `pad_` / `mou_` / `tab_` host entry points, the same ones the web host drives |
 | a program | `rom_load`, `proc_set_argv`, `main_run` |
 
 Two things are converted on the way out. The machine paints RGBA8 and

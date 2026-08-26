@@ -6,7 +6,7 @@
 
 #include "core/api/api.h"
 #include "core/api/oem.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/vga/vga.h"

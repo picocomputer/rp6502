@@ -39,10 +39,10 @@ set(RP6502_BENCH ${RP6502_TESTS_DIR}/bench)
 # own tree, the Pocket stages the .bin, and the emulator's keyboard arrives
 # already translated. Only the kbl suites want it, to check the image against
 # the defs it came from, so it is built here rather than in a machine's
-# tree that would never name it. See src/core/gen/kbd_layout_gen.py.
-set(KBDLAY_GEN ${RP6502_SRC}/core/gen/kbd_layout_gen.py)
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
+# tree that would never name it. See src/core/gen/keyboard_layout_gen.py.
+set(KBDLAY_GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
 set(KBDLAY_C ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.c)
 set(KBDLAY_H ${CMAKE_CURRENT_BINARY_DIR}/kbdlay.h)
 set(KBDLAY_DIR ${CMAKE_CURRENT_BINARY_DIR})

@@ -151,10 +151,10 @@ rp6502_machine_asset(oemcp_bin GEN ${RP6502_SRC}/core/gen/oem_table_gen.py
 # The keyboard layouts, for the same reason: twenty kilobytes of table
 # as a compiler lays it out, eight as the generator does, and no room
 # for either in a 96 KB tightly coupled memory.
-set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/kbd.def)
-file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/kbd_*.def)
+set(KBDLAY_MANIFEST ${RP6502_SRC}/core/def/keyboard.def)
+file(GLOB KBDLAY_DEFS ${RP6502_SRC}/core/def/keyboard_*.def)
 set(KBDLAY_BIN ${RP6502_ASSETS}/keyboard.bin)
-rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/kbd_layout_gen.py
+rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/keyboard_layout_gen.py
     ARGS --manifest ${KBDLAY_MANIFEST} --emit-bin ${KBDLAY_BIN}
     OUTPUTS ${KBDLAY_BIN}
     DEPENDS ${KBDLAY_MANIFEST} ${KBDLAY_DEFS}
@@ -162,12 +162,12 @@ rp6502_machine_asset(kbdlay_bin GEN ${RP6502_SRC}/core/gen/kbd_layout_gen.py
 
 # The menu picks a layout by its position in the manifest and the data
 # slot declares the image's exact size, so both are checked against
-# def/kbd.def rather than kept in step by hand.
+# def/keyboard.def rather than kept in step by hand.
 set(POCKET_CORE_JSON
     ${RP6502_SRC}/mach/pocket/dist/Cores/Rumbledethumps.RP6502)
 add_test(NAME kbdlay_json
     COMMAND ${CMAKE_COMMAND} -E env python3
-        ${RP6502_SRC}/core/gen/kbd_layout_gen.py --manifest ${KBDLAY_MANIFEST}
+        ${RP6502_SRC}/core/gen/keyboard_layout_gen.py --manifest ${KBDLAY_MANIFEST}
         --check-interact ${POCKET_CORE_JSON}/interact.json
         --check-data ${POCKET_CORE_JSON}/data.json)
 set_tests_properties(kbdlay_json PROPERTIES LABELS "gate")

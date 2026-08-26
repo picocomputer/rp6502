@@ -14,8 +14,8 @@
 
 #include "input.h"
 
-#include "core/sys/kbd.h"
-#include "core/hid/kbd.h"
+#include "core/sys/keyboard.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/mou.h"
 #include "core/hid/pad.h"
 #include "core/hid/tab.h"
@@ -95,7 +95,7 @@ static uint8_t retrok_to_hid(unsigned k)
     }
 }
 
-/* Encode one Unicode codepoint as NUL-terminated UTF-8 (kbd_text then maps it
+/* Encode one Unicode codepoint as NUL-terminated UTF-8 (keyboard_text then maps it
  * to the active OEM code page). */
 static const char *utf8_encode(uint32_t cp, char dst[5])
 {
@@ -169,7 +169,7 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
 {
     uint8_t hid = retrok_to_hid(keycode);
     if (hid)
-        kbd_hid_set(hid, down);
+        keyboard_hid_set(hid, down);
     if (!down)
         return;
 
@@ -179,9 +179,9 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
 
     switch (keycode)
     {
-    case RETROK_NUMLOCK: kbd_toggle_lock(1); return;
-    case RETROK_CAPSLOCK: kbd_toggle_lock(2); return;
-    case RETROK_SCROLLOCK: kbd_toggle_lock(4); return;
+    case RETROK_NUMLOCK: keyboard_toggle_lock(1); return;
+    case RETROK_CAPSLOCK: keyboard_toggle_lock(2); return;
+    case RETROK_SCROLLOCK: keyboard_toggle_lock(4); return;
     default: break;
     }
 
@@ -189,11 +189,11 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * digit; unlike sokol, a frontend tells us which it is. */
     if (!(key_modifiers & RETROKMOD_NUMLOCK))
     {
-        uint8_t nav = kbd_keypad_nav(hid);
+        uint8_t nav = keyboard_keypad_nav(hid);
         if (nav)
             hid = nav;
     }
-    if (kbd_key(hid, ctrl, shift, alt))
+    if (keyboard_key(hid, ctrl, shift, alt))
         return;
 
     /* Ctrl+<key> is a C0 byte and Alt+<key> is ESC then the byte, so neither
@@ -201,12 +201,12 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * the way the firmware promotes them. */
     if (ctrl && !alt)
     {
-        kbd_ctrl_letter(ascii_from_key(keycode, shift));
+        keyboard_ctrl_letter(ascii_from_key(keycode, shift));
         return;
     }
     if (alt)
     {
-        kbd_alt_char(ascii_from_key(keycode, shift), ctrl);
+        keyboard_alt_char(ascii_from_key(keycode, shift), ctrl);
         return;
     }
 
@@ -215,12 +215,12 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
      * that sends none still types, from the US-layout approximation. */
     char u[5];
     if (character >= 32 && character != 127)
-        kbd_text(utf8_encode(character, u));
+        keyboard_text(utf8_encode(character, u));
     else
     {
         char ch = ascii_from_key(keycode, shift);
         if (ch)
-            kbd_text(utf8_encode((uint32_t)(unsigned char)ch, u));
+            keyboard_text(utf8_encode((uint32_t)(unsigned char)ch, u));
     }
 }
 

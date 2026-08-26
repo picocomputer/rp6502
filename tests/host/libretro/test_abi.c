@@ -40,7 +40,7 @@ UTEST(abi, the_machine_is_not_exported)
         "main_init", "main_run", "main_stop", "rom_load", "sys_run_frame",
         "vga_set_framebuffer", "vga_canvas_size", "com_set_tx_tap", "mem_init",
         "aud_read", "aud_pump", "ram", "xram", "regs", "xstack",
-        "kbd_hid_set", "pad_host_report", "fs_open", "fs_read", "log_error",
+        "keyboard_hid_set", "pad_host_report", "fs_open", "fs_read", "log_error",
     };
     for (size_t i = 0; i < sizeof inside / sizeof *inside; i++)
     {

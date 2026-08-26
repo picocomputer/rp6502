@@ -70,7 +70,7 @@
 
 /* Each console ring, in bytes; a power of two. Two of these exist, one for
  * what was typed and one for what the terminal answered, and neither is a
- * buffer anything waits on: a paste drips in behind com_kbd_free and replies
+ * buffer anything waits on: a paste drips in behind com_keyboard_free and replies
  * arrive in bounded bursts. */
 #ifndef COM_RING_SIZE
 #define COM_RING_SIZE 256

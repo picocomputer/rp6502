@@ -18,7 +18,7 @@
 #include "mmio.h"
 
 #include "core/cfg.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "core/hid/kbl.h"
 
@@ -31,7 +31,7 @@ static int32_t cfg_kb = -1;
 
 /* One layout, not a list: the menu is two button presses away, so
  * GUI+Space has nothing to cycle between. Zero is a menu that has said
- * nothing and leaves kbd_init's default standing. */
+ * nothing and leaves keyboard_init's default standing. */
 static void cfg_apply_layout(int32_t kb)
 {
     char name[KBL_NAME_MAX];

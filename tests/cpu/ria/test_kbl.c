@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The keyboard layout database against def/kbd_*.def.
+ * The keyboard layout database against def/keyboard_*.def.
  *
- * The def files are what a contributor edits and what kbd.c used to
+ * The def files are what a contributor edits and what keyboard.c used to
  * include directly, as X macros expanding to flash tables. They now go
  * through a Python generator instead, which is a second reader of a
  * format only a preprocessor understood — so this file includes the
@@ -24,7 +24,7 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The manifest builds its tables here the way kbd.c once did. */
+/* The manifest builds its tables here the way keyboard.c once did. */
 #define XDEAD_PICK(_1, _2, _3, _4, NAME, ...) NAME
 #define XDEAD(...) XDEAD_PICK(__VA_ARGS__, XDEAD3, XDEAD2, , )(__VA_ARGS__)
 
@@ -38,7 +38,7 @@ static const struct
     const char *name;
     const char *desc;
 } ref_layouts[] = {
-#include "core/def/kbd.def"
+#include "core/def/keyboard.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -56,7 +56,7 @@ static const struct
     }          \
     ,
 static const uint32_t ref_keys[REF_COUNT][128][5] = {
-#include "core/def/kbd.def"
+#include "core/def/keyboard.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -65,7 +65,7 @@ static const uint32_t ref_keys[REF_COUNT][128][5] = {
 #undef XEND
 
 /* Sized to the longest layout rather than counted per layout, and
- * terminated the way the tables kbd.c walked were. */
+ * terminated the way the tables keyboard.c walked were. */
 #define REF_DEAD_MAX 128
 
 #define XBEGIN(code, desc) {
@@ -76,7 +76,7 @@ static const uint32_t ref_keys[REF_COUNT][128][5] = {
     }          \
     ,
 static const uint32_t ref_dead2[REF_COUNT][REF_DEAD_MAX][3] = {
-#include "core/def/kbd.def"
+#include "core/def/keyboard.def"
 };
 #undef XBEGIN
 #undef XKEY
@@ -92,7 +92,7 @@ static const uint32_t ref_dead2[REF_COUNT][REF_DEAD_MAX][3] = {
     }          \
     ,
 static const uint32_t ref_dead3[REF_COUNT][REF_DEAD_MAX][4] = {
-#include "core/def/kbd.def"
+#include "core/def/keyboard.def"
 };
 #undef XBEGIN
 #undef XKEY

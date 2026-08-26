@@ -147,7 +147,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         # than linking twenty kilobytes of table into a 96 KB memory.
         ${RP6502_SRC}/core/hid/vt.c
         ${RP6502_SRC}/core/hid/hid.c
-        ${RP6502_SRC}/core/hid/kbd.c
+        ${RP6502_SRC}/core/hid/keyboard.c
         ${RP6502_SRC}/core/hid/kbl.c
         ${RP6502_SRC}/core/hid/kbt.c
         ${RP6502_SRC}/core/hid/mou.c

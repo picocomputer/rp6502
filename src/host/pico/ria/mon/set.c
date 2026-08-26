@@ -8,7 +8,7 @@
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
 #include "ria/ble/ble.h"
-#include "core/hid/kbd.h"
+#include "core/hid/keyboard.h"
 #include "core/hid/kbt.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
@@ -359,7 +359,7 @@ static void set_locale(const char *args)
     mon_add_response_fn(set_locale_response);
 }
 
-static int set_kbd_layout_response(char *buf, size_t buf_size, int state, unsigned)
+static int set_keyboard_layout_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
     const char *list = kbt_get_layout_list();
@@ -370,14 +370,14 @@ static int set_kbd_layout_response(char *buf, size_t buf_size, int state, unsign
     return -1;
 }
 
-static void set_kbd_layout(const char *args)
+static void set_keyboard_layout(const char *args)
 {
     if (*args && !kbt_set_layout(args))
     {
         mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
         return;
     }
-    mon_add_response_fn(set_kbd_layout_response);
+    mon_add_response_fn(set_keyboard_layout_response);
 }
 
 typedef void (*set_function)(const char *);
