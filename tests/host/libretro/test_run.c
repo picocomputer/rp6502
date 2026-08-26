@@ -47,7 +47,7 @@ UTEST(run, one_picture_per_call)
     fe.unload_game();
 }
 
-UTEST(run, the_pad_is_polled_before_it_is_read)
+UTEST(run, the_gamepad_is_polled_before_it_is_read)
 {
     load(utest_result, ROM("mode3_8bpp"));
     fe.poll_calls = 0;

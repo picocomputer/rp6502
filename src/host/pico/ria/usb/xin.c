@@ -9,7 +9,7 @@
  */
 
 #include "core/hid/hid.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "ria/usb/xin.h"
 #include <tusb.h>
 #include <host/usbh_pvt.h>
@@ -98,13 +98,13 @@ static xin_device_t xin_devices[XIN_MAX_DEVICES];
 
 /* XInput is not HID: the controller sends a fixed packet and says nothing
  * about it, so where every field sits is known here rather than read.
- * Button numbers are the ones pad.c files at index n-1, so 1-16 land in
+ * Button numbers are the ones gamepad.c files at index n-1, so 1-16 land in
  * the two button bytes and 17-20 are read as the d-pad.
  *
  * Y and Rz are declared with their range inverted because the sticks
  * report north as positive and the report block wants it negative. */
 
-static const pad_connection_t xin_xbox_360_desc = {
+static const gamepad_connection_t xin_xbox_360_desc = {
     .valid = true,
     .x_absolute = true,
     .x_offset = 6 * 8, .x_size = 16, .x_min = -32768, .x_max = 32767, // left stick X
@@ -121,9 +121,9 @@ static const pad_connection_t xin_xbox_360_desc = {
         // d-pad up, down, left, right
         16, 17, 18, 19}};
 
-/* The Xbox One pads its report with a leading id byte of 0x20, so every
+/* The Xbox One gamepads its report with a leading id byte of 0x20, so every
  * offset is eight bits further in and the triggers are ten bits wide. */
-static const pad_connection_t xin_xbox_one_desc = {
+static const gamepad_connection_t xin_xbox_one_desc = {
     .valid = true,
     .x_absolute = true,
     .report_id = 0x20,
@@ -265,13 +265,13 @@ uint16_t xin_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
     xin_devices[idx].gip_seq = 0;
     xin_devices[idx].init_seq = 0;
 
-    const pad_connection_t *desc = is_xbox_one ? &xin_xbox_one_desc : &xin_xbox_360_desc;
+    const gamepad_connection_t *desc = is_xbox_one ? &xin_xbox_one_desc : &xin_xbox_360_desc;
     uint16_t vendor_id, product_id;
     if (!tuh_vid_pid_get(dev_addr, &vendor_id, &product_id) ||
         (xin_devices[idx].slot = (int8_t)hid_mount(NULL, NULL, NULL, desc, vendor_id,
-                                                   product_id, PAD_TYPE_WESTERN)) < 0)
+                                                   product_id, GAMEPAD_TYPE_WESTERN)) < 0)
     {
-        DBG("XInput: Failed to mount in pad system\n");
+        DBG("XInput: Failed to mount in gamepad system\n");
         tuh_edpt_close(dev_addr, ep_in_desc->bEndpointAddress);
         tuh_edpt_close(dev_addr, ep_out_desc->bEndpointAddress);
         memset(&xin_devices[idx], 0, sizeof(xin_device_t));
@@ -381,7 +381,7 @@ bool xin_class_driver_set_config(uint8_t dev_addr, uint8_t itf_num)
         if (!xin_queue_in(device, idx))
             DBG("XInput: FAILED to queue IN for index %d\n", idx);
 
-        int pnum = pad_get_player_num(xin_devices[idx].slot);
+        int pnum = gamepad_get_player_num(xin_devices[idx].slot);
         device->out_cmd[0] = 0x01;
         device->out_cmd[1] = 0x03;
         device->out_cmd[2] = (uint8_t)(0x06 + (pnum & 0x03));
@@ -482,11 +482,11 @@ bool xin_class_driver_xfer_cb(uint8_t dev_addr, uint8_t ep_addr, xfer_result_t r
                 {
                     uint8_t pressed = report[last_off] & 0x01;
                     DBG("XInput: home button state: %d\n", pressed);
-                    pad_home_button(xin_devices[idx].slot, pressed);
+                    gamepad_home_button(xin_devices[idx].slot, pressed);
                 }
             }
             // Courtesy ACK for the virtual-key report; the button was already
-            // delivered via pad_home_button, so a drop on a busy ep_out is fine.
+            // delivered via gamepad_home_button, so a drop on a busy ep_out is fine.
             if ((report[1] & 0x10) && device->init_done)
             {
                 device->ack_cmd[0] = 0x01;      // GIP_CMD_ACK

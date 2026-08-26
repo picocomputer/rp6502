@@ -29,7 +29,7 @@
 #include "host/sokol/icon.h"
 #include "host/sokol/input.h"
 #ifdef RP6502_PAD_HOST
-#include "host/sokol/pad_input.h"
+#include "host/sokol/gamepad_input.h"
 #endif
 #include "core/sys/version.h"
 #include "core/aud/aud_mix.h"
@@ -409,9 +409,9 @@ void window_core_frame(void)
 #endif
 #ifdef RP6502_PAD_HOST
     /* Once per presented frame: sokol has delivered this frame's key and pointer
-     * events before frame_cb, so reading the pads now gives them the same age as
+     * events before frame_cb, so reading the gamepads now gives them the same age as
      * every other input. */
-    pad_input_task();
+    gamepad_input_task();
 #endif
 
     /* Emulation is paced by an absolute monotonic clock: run exactly the number
@@ -887,9 +887,9 @@ void window_core_draw_prompt(const char *line1, const char *line2)
     float row_mid = (float)cols * 0.5f * h / w; /* grid row at the window center */
     float row1 = row_mid - 1.15f, row2 = row_mid + 0.15f; /* two centered lines */
 
-    float pad_x = glyph * 2.0f, pad_y = glyph * 1.4f;
-    float bw = wide * glyph + 2.0f * pad_x;
-    float bh = (row2 + 1.0f - row1) * glyph + 2.0f * pad_y;
+    float gamepad_x = glyph * 2.0f, gamepad_y = glyph * 1.4f;
+    float bw = wide * glyph + 2.0f * gamepad_x;
+    float bh = (row2 + 1.0f - row1) * glyph + 2.0f * gamepad_y;
     float bx = (w - bw) * 0.5f, by = (h - bh) * 0.5f;
     float border = glyph * 0.42f; /* heavy */
     float rad = glyph * 1.3f;
@@ -999,7 +999,7 @@ int window_core_exit_code(void)
 void window_core_cleanup(void)
 {
 #ifdef RP6502_PAD_HOST
-    pad_input_stop(); /* the window is going; let go of the host's controllers */
+    gamepad_input_stop(); /* the window is going; let go of the host's controllers */
 #endif
     if (aud_enabled())
         saudio_shutdown();

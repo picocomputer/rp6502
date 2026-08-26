@@ -19,7 +19,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 
 bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
@@ -36,7 +36,7 @@ bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
             ok = mouse_xreg(word);
             break;
         case 2:
-            ok = pad_xreg(word);
+            ok = gamepad_xreg(word);
             break;
         case 3:
             ok = tablet_xreg(word);

@@ -10,7 +10,7 @@
 # The exception: how many frames a script spends is the one thing a script
 # cannot check about itself, so that one is a C test around script.c.
 rp6502_add_test(script LIBS emu_core FIXTURE gamepad.rp6502
-    SOURCES test_script.c ${RP6502_SRC}/host/sokol/script.c ${RP6502_SRC}/host/sokol/png.c ${RP6502_SRC}/host/sokol/pad.c
+    SOURCES test_script.c ${RP6502_SRC}/host/sokol/script.c ${RP6502_SRC}/host/sokol/png.c ${RP6502_SRC}/host/sokol/gamepad.c
     TIMEOUT 60)
 
 # Writing memory the program reads, rather than driving it through the inputs.
@@ -65,8 +65,8 @@ rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 # Reading a controller is per-OS code no runner has hardware for. Everything
 # above that seam is not, and the privacy gate and player numbering are the
 # parts worth being sure of.
-rp6502_add_test(pad_input LIBS emu_core
-    SOURCES test_pad_input.c ${RP6502_SRC}/host/sokol/pad_input.c)
+rp6502_add_test(gamepad_input LIBS emu_core
+    SOURCES test_gamepad_input.c ${RP6502_SRC}/host/sokol/gamepad_input.c)
 
 # --- The debugger: the engine, the DWARF and cc65 readers, the disassembler ---
 # Their fixtures live here rather than in roms/ because none of them is a

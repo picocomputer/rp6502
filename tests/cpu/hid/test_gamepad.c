@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Gamepad: the HID pad xreg + the 10-byte-per-player pad_xram_t mirror in
- * pad.c. The xram_mirror case pokes pad.c directly (no ROM). The ROM-driven
+ * Gamepad: the HID gamepad xreg + the 10-byte-per-player gamepad_xram_t mirror in
+ * gamepad.c. The xram_mirror case pokes gamepad.c directly (no ROM). The ROM-driven
  * cases run the gamepad tester (gamepad.rp6502), which continuously prints each
  * player's state and labels an unplugged slot "Disconnected". Output is read
  * through the stdout tap rather than the framebuffer: the terminal carries a
@@ -12,7 +12,7 @@
  */
 
 #include "core/com/com.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "emu_boot.h"
@@ -43,59 +43,59 @@ static void run(int n)
 /* The xreg maps a four-player block (10 bytes each) into XRAM and keeps it in
  * sync. Byte 0 carries the dpad (0x0F) plus the status bits, of which only
  * connected (0x80) is set by a plug with no report behind it yet;
- * bytes 2/3 are button0/button1. No ROM needed — this pokes pad.c directly. */
+ * bytes 2/3 are button0/button1. No ROM needed — this pokes gamepad.c directly. */
 UTEST(gamepad, xram_mirror)
 {
-    pad_stop();
+    gamepad_stop();
 
     /* The block must fit below 0x10000; 40 bytes won't fit above 0xFFD8. */
-    ASSERT_FALSE(pad_xreg(0xFFD9));
-    ASSERT_TRUE(pad_xreg(0xFFD8));
-    ASSERT_TRUE(pad_xreg(0xFF78)); /* an arbitrary in-range address */
+    ASSERT_FALSE(gamepad_xreg(0xFFD9));
+    ASSERT_TRUE(gamepad_xreg(0xFFD8));
+    ASSERT_TRUE(gamepad_xreg(0xFF78)); /* an arbitrary in-range address */
 
     /* Unplugged: the whole 10-byte record reads as zero (no connected bit). */
     for (int i = 0; i < 10; i++)
         ASSERT_EQ(xram[0xFF78 + i], 0);
 
-    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
+    gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78 + 0] & 0x80, 0x80);
 
-    pad_hid_set(0, PAD_BTN_DPAD_LEFT, true);
+    gamepad_hid_set(0, GAMEPAD_BTN_DPAD_LEFT, true);
     ASSERT_EQ(xram[0xFF78 + 0] & 0x0F, 0x04); /* dpad-left bit */
-    pad_hid_set(0, PAD_BTN_A, true);
+    gamepad_hid_set(0, GAMEPAD_BTN_A, true);
     ASSERT_EQ(xram[0xFF78 + 2] & 0x01, 0x01); /* button0: A */
-    pad_hid_set(0, PAD_BTN_START, true);
+    gamepad_hid_set(0, GAMEPAD_BTN_START, true);
     ASSERT_EQ(xram[0xFF78 + 3] & 0x08, 0x08); /* button1: Start */
 
-    pad_hid_set(0, PAD_BTN_DPAD_LEFT, false);
+    gamepad_hid_set(0, GAMEPAD_BTN_DPAD_LEFT, false);
     ASSERT_EQ(xram[0xFF78 + 0] & 0x0F, 0x00); /* released, connected bit stays */
     ASSERT_EQ(xram[0xFF78 + 0] & 0x80, 0x80);
 
     /* Player 1 lives at +10 and is independent of player 0. */
-    pad_connect(1, true, PAD_TYPE_UNKNOWN, false);
+    gamepad_connect(1, true, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78 + 10] & 0x80, 0x80);
     ASSERT_EQ(xram[0xFF78 + 10] & 0x0F, 0x00);
 
     /* Unplugging blanks the whole record. */
-    pad_connect(0, false, PAD_TYPE_UNKNOWN, false);
+    gamepad_connect(0, false, GAMEPAD_TYPE_UNKNOWN, false);
     for (int i = 0; i < 10; i++)
         ASSERT_EQ(xram[0xFF78 + i], 0);
 
-    /* pad_stop unmaps the block: later input must not touch XRAM. */
+    /* gamepad_stop unmaps the block: later input must not touch XRAM. */
     xram[0xFF78] = 0xAB;
-    pad_stop();
-    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
+    gamepad_stop();
+    gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF78], 0xAB);
 }
 
-/* The tester maps the pad block and continuously redraws each player's state.
- * A connected pad prints its button row (which includes "Select"); an unplugged
+/* The tester maps the gamepad block and continuously redraws each player's state.
+ * A connected gamepad prints its button row (which includes "Select"); an unplugged
  * slot prints "Disconnected" instead. */
-UTEST(gamepad, connected_pad_renders)
+UTEST(gamepad, connected_gamepad_renders)
 {
-    pad_stop();
+    gamepad_stop();
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
-    run(20); /* the ROM maps the pad block and draws four empty slots */
+    run(20); /* the ROM maps the gamepad block and draws four empty slots */
 
     cap_reset();
     com_set_tx_tap(tap);
@@ -104,8 +104,8 @@ UTEST(gamepad, connected_pad_renders)
     ASSERT_TRUE(strstr(cap, "Disconnected") != NULL); /* all four unplugged */
     ASSERT_TRUE(strstr(cap, "Select") == NULL);       /* no connected button row */
 
-    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
-    pad_hid_set(0, PAD_BTN_START, true);
+    gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_hid_set(0, GAMEPAD_BTN_START, true);
     run(10);
 
     cap_reset();
@@ -116,16 +116,16 @@ UTEST(gamepad, connected_pad_renders)
     ASSERT_FALSE(cpu_halted());
 }
 
-/* An unplugged controller is gated out: input on a pad whose connected bit is
+/* An unplugged controller is gated out: input on a gamepad whose connected bit is
  * clear never reaches XRAM, so the program keeps the slot "Disconnected". */
-UTEST(gamepad, disconnected_pad_ignored)
+UTEST(gamepad, disconnected_gamepad_ignored)
 {
-    pad_stop();
+    gamepad_stop();
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     run(20);
 
-    /* No pad_connect: the press rides an unplugged controller. */
-    pad_hid_set(0, PAD_BTN_START, true);
+    /* No gamepad_connect: the press rides an unplugged controller. */
+    gamepad_hid_set(0, GAMEPAD_BTN_START, true);
     run(20);
 
     cap_reset();

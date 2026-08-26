@@ -17,7 +17,7 @@ The seams it needs were already there:
 | a frame | `sys_run_frame`, which is exactly what `retro_run` is asked for |
 | a picture | `vga_set_framebuffer` + `vga_canvas_size`, and `SET_GEOMETRY` when the canvas changes |
 | sound | `aud_pump`, which converts to the 48 kHz this core declares — most voices are generated at it already, and the OPL2 is resampled because a YM3812 runs at 49716 Hz |
-| devices | the `keyboard_` / `pad_` / `mouse_` / `tablet_` host entry points, the same ones the web host drives |
+| devices | the `keyboard_` / `gamepad_` / `mouse_` / `tablet_` host entry points, the same ones the web host drives |
 | a program | `rom_load`, `proc_set_argv`, `main_run` |
 
 Two things are converted on the way out. The machine paints RGBA8 and
@@ -103,7 +103,7 @@ RetroArch is where a person looks at it.
 
 ### Typing
 
-A frontend binds the keyboard to its own pad and hotkeys — in RetroArch
+A frontend binds the keyboard to its own gamepad and hotkeys — in RetroArch
 Enter is Start, `p` pauses, and `x z s a q w` are face and shoulder
 buttons — so on a machine that is a computer the keyboard looks dead. The
 player turns that off with **Game Focus**, which is Scroll Lock by

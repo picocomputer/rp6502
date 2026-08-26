@@ -24,7 +24,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/mem.h"
 
@@ -40,19 +40,19 @@
 #define AT_KEYBOARD 0x2000
 #define AT_MOUSE 0x3000
 
-/* pad_xram_t, which apf.c's descriptor exists to fill correctly. */
-#define PAD_DPAD 0
-#define PAD_STICKS 1
-#define PAD_BUTTON0 2
-#define PAD_BUTTON1 3
-#define PAD_LX 4
-#define PAD_LY 5
-#define PAD_RX 6
-#define PAD_RY 7
-#define PAD_LT 8
-#define PAD_RT 9
+/* gamepad_xram_t, which apf.c's descriptor exists to fill correctly. */
+#define GAMEPAD_DPAD 0
+#define GAMEPAD_STICKS 1
+#define GAMEPAD_BUTTON0 2
+#define GAMEPAD_BUTTON1 3
+#define GAMEPAD_LX 4
+#define GAMEPAD_LY 5
+#define GAMEPAD_RX 6
+#define GAMEPAD_RY 7
+#define GAMEPAD_LT 8
+#define GAMEPAD_RT 9
 
-static const uint8_t *pad_rec(int player)
+static const uint8_t *gamepad_rec(int player)
 {
     return (uint8_t *)&xram[AT_PAD + player * 10];
 }
@@ -79,7 +79,7 @@ static void reset_all(void)
     apf_refresh();
     keyboard_init();
     mouse_init();
-    pad_init();
+    gamepad_init();
     tablet_init();
     /* Whatever the last case typed is still queued — keyboard_init does not
      * empty a queue a console would have drained. */
@@ -89,23 +89,23 @@ static void reset_all(void)
     memset((uint8_t *)xram, 0, 0x10000);
     keyboard_xreg(AT_KEYBOARD);
     mouse_xreg(AT_MOUSE);
-    pad_xreg(AT_PAD);
+    gamepad_xreg(AT_PAD);
 }
 
 /* The whole point of the change: every control goes where its own name
  * says. The d-pad is a d-pad and not the left stick, the sticks are the
  * sticks in APF's order, and the triggers are the triggers. */
-UTEST(apf, a_pad_maps_straight_through)
+UTEST(apf, a_gamepad_maps_straight_through)
 {
     reset_all();
     apf_mount(0, APF_TYPE_PAD_ANA);
 
     /* Nothing pressed, sticks centered: connected, and still. */
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x80808080u, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x80, 0x80);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x0F, 0);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON0], 0);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON1], 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x80, 0x80);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x0F, 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON0], 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON1], 0);
 
     /* The four directions, one at a time, in APF's bit order. The XRAM
      * record's own order is up, down, left, right — the same. */
@@ -120,87 +120,87 @@ UTEST(apf, a_pad_maps_straight_through)
     {
         feed(0, APF_TYPE_PAD_ANA, 0x30000000u | dirs[i].key, 0x80808080u,
              0x0000, false);
-        ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x0F, dirs[i].dpad);
+        ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x0F, dirs[i].dpad);
         /* And the d-pad is not the left stick, which is the bug this
          * whole descriptor replaced. */
-        ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 0);
-        ASSERT_EQ((int8_t)pad_rec(0)[PAD_LY], 0);
-        ASSERT_EQ(pad_rec(0)[PAD_STICKS], 0);
+        ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 0);
+        ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LY], 0);
+        ASSERT_EQ(gamepad_rec(0)[GAMEPAD_STICKS], 0);
     }
 
-    /* Every button, at the index pad_xram_t names for it. */
+    /* Every button, at the index gamepad_xram_t names for it. */
     static const struct
     {
         uint32_t key;
         int byte;
         uint8_t bit;
     } buttons[] = {
-        {1u << 4, PAD_BUTTON0, 1u << 0},  /* A      -> index 0 */
-        {1u << 5, PAD_BUTTON0, 1u << 1},  /* B      -> index 1 */
-        {1u << 6, PAD_BUTTON0, 1u << 3},  /* X      -> index 3 */
-        {1u << 7, PAD_BUTTON0, 1u << 4},  /* Y      -> index 4 */
-        {1u << 8, PAD_BUTTON0, 1u << 6},  /* L1     -> index 6 */
-        {1u << 9, PAD_BUTTON0, 1u << 7},  /* R1     -> index 7 */
-        {1u << 14, PAD_BUTTON1, 1u << 2}, /* select -> index 10 */
-        {1u << 15, PAD_BUTTON1, 1u << 3}, /* start  -> index 11 */
-        {1u << 12, PAD_BUTTON1, 1u << 5}, /* L3     -> index 13 */
-        {1u << 13, PAD_BUTTON1, 1u << 6}, /* R3     -> index 14 */
+        {1u << 4, GAMEPAD_BUTTON0, 1u << 0},  /* A      -> index 0 */
+        {1u << 5, GAMEPAD_BUTTON0, 1u << 1},  /* B      -> index 1 */
+        {1u << 6, GAMEPAD_BUTTON0, 1u << 3},  /* X      -> index 3 */
+        {1u << 7, GAMEPAD_BUTTON0, 1u << 4},  /* Y      -> index 4 */
+        {1u << 8, GAMEPAD_BUTTON0, 1u << 6},  /* L1     -> index 6 */
+        {1u << 9, GAMEPAD_BUTTON0, 1u << 7},  /* R1     -> index 7 */
+        {1u << 14, GAMEPAD_BUTTON1, 1u << 2}, /* select -> index 10 */
+        {1u << 15, GAMEPAD_BUTTON1, 1u << 3}, /* start  -> index 11 */
+        {1u << 12, GAMEPAD_BUTTON1, 1u << 5}, /* L3     -> index 13 */
+        {1u << 13, GAMEPAD_BUTTON1, 1u << 6}, /* R3     -> index 14 */
     };
     for (size_t i = 0; i < sizeof buttons / sizeof buttons[0]; i++)
     {
         feed(0, APF_TYPE_PAD_ANA, 0x30000000u | buttons[i].key, 0x80808080u,
              0x0000, false);
-        int other = buttons[i].byte == PAD_BUTTON0 ? PAD_BUTTON1 : PAD_BUTTON0;
-        ASSERT_EQ(pad_rec(0)[buttons[i].byte], buttons[i].bit);
-        ASSERT_EQ(pad_rec(0)[other], 0);
-        ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x0F, 0);
+        int other = buttons[i].byte == GAMEPAD_BUTTON0 ? GAMEPAD_BUTTON1 : GAMEPAD_BUTTON0;
+        ASSERT_EQ(gamepad_rec(0)[buttons[i].byte], buttons[i].bit);
+        ASSERT_EQ(gamepad_rec(0)[other], 0);
+        ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x0F, 0);
     }
 
-    /* L2 and R2 are buttons that pad.c also reads as triggers fully
-     * down, which is how a digital pad gets analog ones. */
+    /* L2 and R2 are buttons that gamepad.c also reads as triggers fully
+     * down, which is how a digital gamepad gets analog ones. */
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u | (1u << 10), 0x80808080u, 0x0000,
          false);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON1] & 0x01, 0x01);
-    ASSERT_EQ(pad_rec(0)[PAD_LT], 255);
-    ASSERT_EQ(pad_rec(0)[PAD_RT], 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON1] & 0x01, 0x01);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_LT], 255);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_RT], 0);
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u | (1u << 11), 0x80808080u, 0x0000,
          false);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON1] & 0x02, 0x02);
-    ASSERT_EQ(pad_rec(0)[PAD_RT], 255);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON1] & 0x02, 0x02);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_RT], 255);
 
     /* The sticks, in APF's word order: left X, left Y, right X, right Y,
      * each unsigned with 0x80 at rest. Four different values, because a
      * swapped pair is what this is looking for. */
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x40C000FFu, 0x0000, false);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 127);  /* joy[7:0]   = 0xFF */
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LY], -128); /* joy[15:8]  = 0x00 */
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_RX], 64);   /* joy[23:16] = 0xC0 */
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_RY], -64);  /* joy[31:24] = 0x40 */
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 127);  /* joy[7:0]   = 0xFF */
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LY], -128); /* joy[15:8]  = 0x00 */
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_RX], 64);   /* joy[23:16] = 0xC0 */
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_RY], -64);  /* joy[31:24] = 0x40 */
 
     /* The triggers, analog, in APF's order: left low, right high. */
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x80808080u, 0x40C0, false);
-    ASSERT_EQ(pad_rec(0)[PAD_LT], 0xC0);
-    ASSERT_EQ(pad_rec(0)[PAD_RT], 0x40);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_LT], 0xC0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_RT], 0x40);
 }
 
-/* A pad with no analog to send still has a d-pad and buttons, and its
+/* A gamepad with no analog to send still has a d-pad and buttons, and its
  * sticks read centered rather than reading whatever the unused words
  * happened to hold. */
-UTEST(apf, a_pad_without_analog_is_centered)
+UTEST(apf, a_gamepad_without_analog_is_centered)
 {
     reset_all();
     apf_mount(1, APF_TYPE_PAD);
     feed(1, APF_TYPE_PAD, 0x20000000u | (1u << 2), 0xDEADBEEFu, 0xFFFF, false);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x0F, 0x4); /* left */
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 0);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LY], 0);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_RX], 0);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_RY], 0);
-    ASSERT_EQ(pad_rec(0)[PAD_LT], 0);
-    ASSERT_EQ(pad_rec(0)[PAD_RT], 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x0F, 0x4); /* left */
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 0);
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LY], 0);
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_RX], 0);
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_RY], 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_LT], 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_RT], 0);
 }
 
-/* The status nibble is the descriptor's other job. A pad whose descriptor
+/* The status nibble is the descriptor's other job. A gamepad whose descriptor
  * declares both sticks says so; one whose descriptor stops after the buttons
  * must not, and must still be recognized as a gamepad at all despite having
  * no axes to creak with. The Pocket's own buttons are the only labels APF
@@ -211,25 +211,25 @@ UTEST(apf, the_status_bits_follow_the_descriptor)
 
     apf_mount(0, APF_TYPE_PAD_ANA);
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u, 0x80808080u, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0xC0); /* connected | sticks */
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0xF0, 0xC0); /* connected | sticks */
 
     reset_all();
     apf_mount(0, APF_TYPE_PAD);
     feed(0, APF_TYPE_PAD, 0x20000000u, 0x80808080u, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0x80); /* connected, nothing claimed */
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0xF0, 0x80); /* connected, nothing claimed */
 
     reset_all();
     apf_mount(0, APF_TYPE_POCKET);
     feed(0, APF_TYPE_POCKET, 0x10000000u, 0x80808080u, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0xF0, 0x80 | (PAD_TYPE_EASTERN << 4));
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0xF0, 0x80 | (GAMEPAD_TYPE_EASTERN << 4));
 
     /* And the labels are a claim about labels only: A is still index 0. */
     feed(0, APF_TYPE_POCKET, 0x10000000u | (1u << 4), 0x80808080u, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON0], 1u << 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON0], 1u << 0);
 }
 
-/* Four slots holding four pads are four players, in slot order. */
-UTEST(apf, four_pads_are_four_players)
+/* Four slots holding four gamepads are four players, in slot order. */
+UTEST(apf, four_gamepads_are_four_players)
 {
     reset_all();
     for (int slot = 0; slot < 4; slot++)
@@ -241,8 +241,8 @@ UTEST(apf, four_pads_are_four_players)
     static const uint8_t want[4] = {1u << 0, 1u << 1, 1u << 3, 1u << 4};
     for (int player = 0; player < 4; player++)
     {
-        ASSERT_EQ(pad_rec(player)[PAD_DPAD] & 0x80, 0x80);
-        ASSERT_EQ(pad_rec(player)[PAD_BUTTON0], want[player]);
+        ASSERT_EQ(gamepad_rec(player)[GAMEPAD_DPAD] & 0x80, 0x80);
+        ASSERT_EQ(gamepad_rec(player)[GAMEPAD_BUTTON0], want[player]);
     }
 }
 
@@ -400,7 +400,7 @@ UTEST(apf, a_mouse_is_also_a_pointer)
 /* Mapping a driver blanks the record it maps, and these registers are
  * levels: a stick held off centre reports the same thing forever, so
  * the pacing above would never send it again. A program that maps the
- * pad with something held must still see it rather than a blank record
+ * gamepad with something held must still see it rather than a blank record
  * that only fills when the hand moves. */
 UTEST(apf, mapping_a_driver_republishes_what_is_held)
 {
@@ -410,21 +410,21 @@ UTEST(apf, mapping_a_driver_republishes_what_is_held)
     /* Held, off centre, and delivered. */
     const uint32_t held = 0x30000000u | (1u << 15); /* start */
     feed(0, APF_TYPE_PAD_ANA, held, 0x808000FFu, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON1] & (1u << 3), 1u << 3);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 127);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON1] & (1u << 3), 1u << 3);
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 127);
 
-    /* The program maps the pad, which blanks every record. */
-    pad_xreg(AT_PAD);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON1] & (1u << 3), 0);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 0);
+    /* The program maps the gamepad, which blanks every record. */
+    gamepad_xreg(AT_PAD);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON1] & (1u << 3), 0);
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 0);
 
     /* The hand has not moved, so the next pass builds a report byte for
      * byte identical to the one already sent. Only apf_refresh makes it
      * news again. */
     apf_refresh();
     feed(0, APF_TYPE_PAD_ANA, held, 0x808000FFu, 0x0000, false);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON1] & (1u << 3), 1u << 3);
-    ASSERT_EQ((int8_t)pad_rec(0)[PAD_LX], 127);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON1] & (1u << 3), 1u << 3);
+    ASSERT_EQ((int8_t)gamepad_rec(0)[GAMEPAD_LX], 127);
 }
 
 /* A slot is what its type nibble says, not what its number is. */
@@ -432,20 +432,20 @@ UTEST(apf, a_slot_holds_what_its_type_says)
 {
     reset_all();
 
-    /* A keyboard on the slot Analogue puts a pad on. */
+    /* A keyboard on the slot Analogue puts a gamepad on. */
     apf_mount(0, APF_TYPE_KEYBOARD);
     feed(0, APF_TYPE_KEYBOARD, 0x40000000u, 0x04000000u, 0x0000, false);
     ASSERT_EQ(xram[AT_KEYBOARD + (0x04 >> 3)] & (1 << (0x04 & 7)), 1 << (0x04 & 7));
-    /* And no pad appeared for it. */
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x80, 0);
+    /* And no gamepad appeared for it. */
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x80, 0);
 
-    /* Unplugged and replaced by a pad, on the same slot. */
+    /* Unplugged and replaced by a gamepad, on the same slot. */
     apf_umount(0);
     apf_mount(0, APF_TYPE_PAD_ANA);
     feed(0, APF_TYPE_PAD_ANA, 0x30000000u | (1u << 4), 0x80808080u, 0x0000,
          false);
-    ASSERT_EQ(pad_rec(0)[PAD_DPAD] & 0x80, 0x80);
-    ASSERT_EQ(pad_rec(0)[PAD_BUTTON0], 1u << 0);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_DPAD] & 0x80, 0x80);
+    ASSERT_EQ(gamepad_rec(0)[GAMEPAD_BUTTON0], 1u << 0);
 }
 
 UTEST_MAIN();

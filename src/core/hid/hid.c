@@ -8,7 +8,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "host.h"
 
@@ -118,7 +118,7 @@ uint8_t hid_slot_claims(int slot)
 int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
                                       const mouse_connection_t *mouse,
                                       const tablet_connection_t *tablet,
-                                      const pad_connection_t *pad,
+                                      const gamepad_connection_t *gamepad,
                                       uint16_t vendor_id, uint16_t product_id,
                                       uint8_t button_type)
 {
@@ -139,7 +139,7 @@ int HOST_IN_FLASH("hid_mount") hid_mount(const keyboard_connection_t *keyboard,
         claims |= HID_CLAIM_MOUSE;
     if (tablet && tablet_mount(slot, tablet))
         claims |= HID_CLAIM_TABLET;
-    if (pad && pad_mount(slot, pad, vendor_id, product_id, button_type))
+    if (gamepad && gamepad_mount(slot, gamepad, vendor_id, product_id, button_type))
         claims |= HID_CLAIM_PAD;
 
     hid_claims[slot] = claims;
@@ -158,7 +158,7 @@ void hid_report(int slot, const uint8_t *data, uint16_t len)
     if (claims & HID_CLAIM_TABLET)
         tablet_report(slot, data, len);
     if (claims & HID_CLAIM_PAD)
-        pad_report(slot, data, len);
+        gamepad_report(slot, data, len);
 }
 
 void hid_umount(int slot)
@@ -173,6 +173,6 @@ void hid_umount(int slot)
     if (claims & HID_CLAIM_TABLET)
         tablet_umount(slot);
     if (claims & HID_CLAIM_PAD)
-        pad_umount(slot);
+        gamepad_umount(slot);
     hid_claims[slot] = 0;
 }

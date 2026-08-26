@@ -5,12 +5,12 @@
  */
 
 #include "core/hid/hid.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/mem.h"
 #include "host.h"
 #include <string.h>
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_PAD)
+#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_GAMEPAD)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
@@ -18,11 +18,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 #endif
 
 // If you're here to remap HID buttons on a new HID gamepad, create
-// a new pad_remap_ function and add it to pad_distill().
+// a new gamepad_remap_ function and add it to gamepad_distill().
 
 // This is the report we generate for XRAM.
 // Direction bits: 0-up, 1-down, 2-left, 3-right
-// Feature bits 0x30 are the PAD_TYPE_ of the face button labels
+// Feature bits 0x30 are the GAMEPAD_TYPE_ of the face button labels
 // Feature bit 0x40 is on when both analog sticks are present
 // Feature bit 0x80 is on when valid gamepad connected
 typedef struct
@@ -37,13 +37,13 @@ typedef struct
     int8_t ry;       // right analog-stick
     uint8_t lt;      // analog left trigger
     uint8_t rt;      // analog right trigger
-} pad_xram_t;
+} gamepad_xram_t;
 
 
 // Deadzone is generous enough for moderately worn sticks.
 // This is only for the analog to digital conversions so
 // it doesn't need to be first-person shooter tight.
-#define PAD_DEADZONE 32
+#define GAMEPAD_DEADZONE 32
 
 // Room for button0 and button1 plus a dpad if needed.
 
@@ -52,17 +52,17 @@ typedef struct
 
 
 // Where in XRAM to place reports, 0xFFFF when disabled.
-static uint16_t pad_xram;
+static uint16_t gamepad_xram;
 
 /* The block as it stands, so a change to one field does not need the rest
  * decoded again -- and so a host that decodes its own controller has
  * somewhere to put what it decoded. */
-static pad_xram_t pad_reports[PAD_MAX_PLAYERS];
+static gamepad_xram_t gamepad_reports[GAMEPAD_MAX_PLAYERS];
 
 // Parsed descriptor structure for fast report parsing.
-static pad_connection_t pad_connections[PAD_MAX_PLAYERS];
+static gamepad_connection_t gamepad_connections[GAMEPAD_MAX_PLAYERS];
 
-static inline void pad_swap_buttons(pad_connection_t *conn, int b0, int b1)
+static inline void gamepad_swap_buttons(gamepad_connection_t *conn, int b0, int b1)
 {
     uint16_t temp = conn->button_offsets[b0];
     conn->button_offsets[b0] = conn->button_offsets[b1];
@@ -70,19 +70,19 @@ static inline void pad_swap_buttons(pad_connection_t *conn, int b0, int b1)
 }
 
 // These are USB gamepads for the Classic, a remake of the PS1/PSOne.
-static void pad_remap_playstation_classic(
-    pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
+static void gamepad_remap_playstation_classic(
+    gamepad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x054C || product_id != 0x05C2)
         return;
     DBG("Playstation Classic remap: vid=0x%04X, pid=0x%04X\n", vendor_id, product_id);
-    conn->features = PAD_FEAT_TYPE(PAD_TYPE_PLAYSTATION);
-    pad_swap_buttons(conn, 0, 2); // buttons
-    pad_swap_buttons(conn, 2, 3); // buttons
-    pad_swap_buttons(conn, 4, 8); // l1/l2
-    pad_swap_buttons(conn, 5, 9); // r1/r2
-    pad_swap_buttons(conn, 4, 6); // l1/bt
-    pad_swap_buttons(conn, 5, 7); // r1/st
+    conn->features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_PLAYSTATION);
+    gamepad_swap_buttons(conn, 0, 2); // buttons
+    gamepad_swap_buttons(conn, 2, 3); // buttons
+    gamepad_swap_buttons(conn, 4, 8); // l1/l2
+    gamepad_swap_buttons(conn, 5, 9); // r1/r2
+    gamepad_swap_buttons(conn, 4, 6); // l1/bt
+    gamepad_swap_buttons(conn, 5, 7); // r1/st
 }
 
 // The 8BitDo M30 is a Sega-style gamepad with wonky button mappings.
@@ -90,8 +90,8 @@ static void pad_remap_playstation_classic(
 // Sadly, remapping C/Z into the correct place would mean a confusing third mapping.
 // The barrier to a better map is that we can't detect an M30 using a USB Bluetooth adapter.
 // The wired DInput mode is unlike any other 8BitDo device so we fix it up here.
-static void pad_remap_8bitdo_m30(
-    pad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
+static void gamepad_remap_8bitdo_m30(
+    gamepad_connection_t *conn, uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id != 0x2DC8 || product_id != 0x5006)
         return;
@@ -101,11 +101,11 @@ static void pad_remap_8bitdo_m30(
     conn->rx_size = 0;
     conn->ry_size = 0;
     // home is on 2 because reasons
-    pad_swap_buttons(conn, 2, PAD_HOME_BUTTON);
+    gamepad_swap_buttons(conn, 2, GAMEPAD_HOME_BUTTON);
 }
 
 // Sony DualShock 4 detection
-static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
+static bool gamepad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
     {
@@ -165,7 +165,7 @@ static bool pad_is_sony_ds4(uint16_t vendor_id, uint16_t product_id)
 }
 
 // Sony DualSense 5 detection
-static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
+static bool gamepad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 {
     if (vendor_id == 0x054C) // Sony Interactive Entertainment
     {
@@ -198,10 +198,10 @@ static bool pad_is_sony_ds5(uint16_t vendor_id, uint16_t product_id)
 }
 
 // Sony DualShock 4 is HID but presents no descriptor
-static const pad_connection_t pad_desc_sony_ds4 = {
+static const gamepad_connection_t gamepad_desc_sony_ds4 = {
     .valid = true,
     .x_absolute = true,
-    .features = PAD_FEAT_TYPE(PAD_TYPE_PLAYSTATION),
+    .features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_PLAYSTATION),
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
     .x_size = 8,
@@ -240,10 +240,10 @@ static const pad_connection_t pad_desc_sony_ds4 = {
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
 // Sony DualSense 5 is HID but presents no descriptor
-static const pad_connection_t pad_desc_sony_ds5 = {
+static const gamepad_connection_t gamepad_desc_sony_ds5 = {
     .valid = true,
     .x_absolute = true,
-    .features = PAD_FEAT_TYPE(PAD_TYPE_PLAYSTATION),
+    .features = GAMEPAD_FEAT_TYPE(GAMEPAD_TYPE_PLAYSTATION),
     .report_id = 1,
     .x_offset = 0 * 8, // left stick X
     .x_size = 8,
@@ -281,24 +281,24 @@ static const pad_connection_t pad_desc_sony_ds5 = {
         // Hat buttons computed from HID hat
         0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF}};
 
-static void pad_distill(
-    pad_connection_t *conn, const pad_connection_t *desc,
+static void gamepad_distill(
+    gamepad_connection_t *conn, const gamepad_connection_t *desc,
     uint16_t vendor_id, uint16_t product_id, uint8_t button_type)
 {
     conn->valid = false;
 
     // Sony gamepads use a pre-computed descriptor.
     // Some may report a descriptor, which we discard.
-    if (pad_is_sony_ds4(vendor_id, product_id))
+    if (gamepad_is_sony_ds4(vendor_id, product_id))
     {
-        *conn = pad_desc_sony_ds4;
-        conn->led_type = PAD_LED_DS4;
+        *conn = gamepad_desc_sony_ds4;
+        conn->led_type = GAMEPAD_LED_DS4;
         DBG("Detected Sony DS4 gamepad, using pre-computed descriptor.\n");
     }
-    else if (pad_is_sony_ds5(vendor_id, product_id))
+    else if (gamepad_is_sony_ds5(vendor_id, product_id))
     {
-        *conn = pad_desc_sony_ds5;
-        conn->led_type = PAD_LED_DS5;
+        *conn = gamepad_desc_sony_ds5;
+        conn->led_type = GAMEPAD_LED_DS5;
         DBG("Detected Sony DS5 gamepad, using pre-computed descriptor.\n");
     }
     else
@@ -306,8 +306,8 @@ static void pad_distill(
         *conn = *desc;
 
         // Add your gamepad override here.
-        pad_remap_8bitdo_m30(conn, vendor_id, product_id);
-        pad_remap_playstation_classic(conn, vendor_id, product_id);
+        gamepad_remap_8bitdo_m30(conn, vendor_id, product_id);
+        gamepad_remap_playstation_classic(conn, vendor_id, product_id);
     }
 
     if (!conn->valid)
@@ -317,20 +317,20 @@ static void pad_distill(
     }
 
     // A device we recognized by id has already labelled itself; otherwise the
-    // transport's claim stands, which is PAD_TYPE_UNKNOWN for generic HID.
-    if (!(conn->features & PAD_FEAT_TYPE_MASK))
-        conn->features |= PAD_FEAT_TYPE(button_type);
+    // transport's claim stands, which is GAMEPAD_TYPE_UNKNOWN for generic HID.
+    if (!(conn->features & GAMEPAD_FEAT_TYPE_MASK))
+        conn->features |= GAMEPAD_FEAT_TYPE(button_type);
     // Both sticks or neither: one stick is not "sticks".
     if (conn->x_size && conn->y_size && conn->z_size && conn->rz_size)
-        conn->features |= PAD_FEAT_STICKS;
-    conn->features |= PAD_FEAT_CONNECTED;
+        conn->features |= GAMEPAD_FEAT_STICKS;
+    conn->features |= GAMEPAD_FEAT_CONNECTED;
 }
 
-static uint8_t pad_encode_stick(int8_t x, int8_t y)
+static uint8_t gamepad_encode_stick(int8_t x, int8_t y)
 {
     // Deadzone check
-    if (x >= -PAD_DEADZONE && x <= PAD_DEADZONE &&
-        y >= -PAD_DEADZONE && y <= PAD_DEADZONE)
+    if (x >= -GAMEPAD_DEADZONE && x <= GAMEPAD_DEADZONE &&
+        y >= -GAMEPAD_DEADZONE && y <= GAMEPAD_DEADZONE)
         return 0; // No direction
 
     // Get absolute values
@@ -359,13 +359,13 @@ static uint8_t pad_encode_stick(int8_t x, int8_t y)
     return result;
 }
 
-static void pad_parse_report(int player, uint8_t const *data, uint16_t report_len, pad_xram_t *report)
+static void gamepad_parse_report(int player, uint8_t const *data, uint16_t report_len, gamepad_xram_t *report)
 {
     // Default empty gamepad report
-    memset(report, 0, sizeof(pad_xram_t));
+    memset(report, 0, sizeof(gamepad_xram_t));
 
     // Add feature bits to dpad
-    pad_connection_t *conn = &pad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[player];
     if (conn->valid)
         report->dpad |= conn->features;
 
@@ -409,7 +409,7 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
 
     // Extract buttons using individual bit offsets
     uint32_t buttons = 0;
-    for (int i = 0; i < PAD_MAX_BUTTONS; i++)
+    for (int i = 0; i < GAMEPAD_MAX_BUTTONS; i++)
     {
         if (conn->button_offsets[i] == 0xFFFF)
             continue;
@@ -423,11 +423,11 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     if (conn->hat_size == 4 && conn->hat_max - conn->hat_min == 7)
     {
         // Convert HID hat format to individual direction bits
-        static const uint8_t hat_to_pad[] = {1, 9, 8, 10, 2, 6, 4, 5};
+        static const uint8_t hat_to_gamepad[] = {1, 9, 8, 10, 2, 6, 4, 5};
         uint32_t raw_hat = hid_extract_bits(data, report_len, conn->hat_offset, conn->hat_size);
         unsigned index = raw_hat - conn->hat_min;
         if (index < 8)
-            report->dpad |= hat_to_pad[index];
+            report->dpad |= hat_to_gamepad[index];
     }
     else
     {
@@ -436,8 +436,8 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
     }
 
     // Generate dpad values for sticks
-    uint8_t stick_l = pad_encode_stick(report->lx, report->ly);
-    uint8_t stick_r = pad_encode_stick(report->rx, report->ry);
+    uint8_t stick_l = gamepad_encode_stick(report->lx, report->ly);
+    uint8_t stick_r = gamepad_encode_stick(report->rx, report->ry);
     report->sticks = stick_l | (stick_r << 4);
 
     // If L2/R2 buttons pressed without any analog movement
@@ -448,115 +448,115 @@ static void pad_parse_report(int player, uint8_t const *data, uint16_t report_le
 
     // Inject Xbox One home button
     if (conn->home_pressed)
-        report->button1 |= (1 << (PAD_HOME_BUTTON - 8));
+        report->button1 |= (1 << (GAMEPAD_HOME_BUTTON - 8));
 
     // If L2/R2 analog movement, ensure button press
-    if (report->lt > PAD_DEADZONE)
+    if (report->lt > GAMEPAD_DEADZONE)
         report->button1 |= (1 << 0); // L2
-    if (report->rt > PAD_DEADZONE)
+    if (report->rt > GAMEPAD_DEADZONE)
         report->button1 |= (1 << 1); // R2
 }
 
-void HOST_IN_FLASH("pad_init") pad_init(void)
+void HOST_IN_FLASH("gamepad_init") gamepad_init(void)
 {
-    pad_stop();
+    gamepad_stop();
 }
 
-void pad_stop(void)
+void gamepad_stop(void)
 {
-    pad_xram = 0xFFFF;
+    gamepad_xram = 0xFFFF;
 }
 
-static void pad_publish(int player)
+static void gamepad_publish(int player)
 {
-    if (pad_xram == 0xFFFF)
+    if (gamepad_xram == 0xFFFF)
         return;
-    memcpy((uint8_t *)&xram[pad_xram + player * (sizeof(pad_xram_t))],
-           &pad_reports[player], sizeof(pad_xram_t));
+    memcpy((uint8_t *)&xram[gamepad_xram + player * (sizeof(gamepad_xram_t))],
+           &gamepad_reports[player], sizeof(gamepad_xram_t));
 }
 
 // Provides first and final updates in xram
-static void pad_reset_xram(int player)
+static void gamepad_reset_xram(int player)
 {
-    pad_parse_report(player, 0, 0, &pad_reports[player]); // get blank
-    pad_publish(player);
+    gamepad_parse_report(player, 0, 0, &gamepad_reports[player]); // get blank
+    gamepad_publish(player);
 }
 
-bool pad_xreg(uint16_t word)
+bool gamepad_xreg(uint16_t word)
 {
-    if (word != 0xFFFF && word > 0x10000 - (sizeof(pad_xram_t)) * PAD_MAX_PLAYERS)
+    if (word != 0xFFFF && word > 0x10000 - (sizeof(gamepad_xram_t)) * GAMEPAD_MAX_PLAYERS)
         return false;
-    pad_xram = word;
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-        pad_reset_xram(i);
+    gamepad_xram = word;
+    for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
+        gamepad_reset_xram(i);
     return true;
 }
 
-bool HOST_IN_FLASH("pad_mount") pad_mount(int slot, const pad_connection_t *desc,
+bool HOST_IN_FLASH("gamepad_mount") gamepad_mount(int slot, const gamepad_connection_t *desc,
                                        uint16_t vendor_id, uint16_t product_id,
                                        uint8_t button_type)
 {
     /* A Sony controller is recognized by its ids alone, because the
      * descriptor it offers is wrong; anything else has to have been
      * read as a gamepad already. */
-    if (!desc->valid && !pad_is_sony_ds4(vendor_id, product_id) &&
-        !pad_is_sony_ds5(vendor_id, product_id))
+    if (!desc->valid && !gamepad_is_sony_ds4(vendor_id, product_id) &&
+        !gamepad_is_sony_ds5(vendor_id, product_id))
         return false;
 
-    pad_connection_t *conn = NULL;
+    gamepad_connection_t *conn = NULL;
     int player;
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
+    for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
     {
-        if (!pad_connections[i].valid)
+        if (!gamepad_connections[i].valid)
         {
-            conn = &pad_connections[i];
+            conn = &gamepad_connections[i];
             player = i;
             break;
         }
     }
     if (!conn)
     {
-        DBG("pad_mount: No available descriptor slots, max players reached\n");
+        DBG("gamepad_mount: No available descriptor slots, max players reached\n");
         return false;
     }
-    DBG("pad_mount: mounting player %d\n", player);
+    DBG("gamepad_mount: mounting player %d\n", player);
 
-    pad_distill(conn, desc, vendor_id, product_id, button_type);
+    gamepad_distill(conn, desc, vendor_id, product_id, button_type);
     if (conn->valid)
     {
         conn->slot = slot;
-        pad_reset_xram(player);
+        gamepad_reset_xram(player);
         return true;
     }
     return false;
 }
 
 // Useful for gamepads that indicate player number.
-int pad_get_player_num(int slot)
+int gamepad_get_player_num(int slot)
 {
-    for (int i = 0; i < PAD_MAX_PLAYERS; i++)
-        if (pad_connections[i].slot == slot && pad_connections[i].valid)
+    for (int i = 0; i < GAMEPAD_MAX_PLAYERS; i++)
+        if (gamepad_connections[i].slot == slot && gamepad_connections[i].valid)
             return i;
     return -1;
 }
 
-bool pad_umount(int slot)
+bool gamepad_umount(int slot)
 {
-    int player = pad_get_player_num(slot);
+    int player = gamepad_get_player_num(slot);
     if (player < 0)
         return false;
-    pad_connection_t *conn = &pad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[player];
     conn->valid = false;
-    pad_reset_xram(player);
+    gamepad_reset_xram(player);
     return true;
 }
 
-void pad_report(int slot, uint8_t const *data, uint16_t len)
+void gamepad_report(int slot, uint8_t const *data, uint16_t len)
 {
-    int player = pad_get_player_num(slot);
+    int player = gamepad_get_player_num(slot);
     if (player < 0)
         return;
-    pad_connection_t *conn = &pad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[player];
 
     const uint8_t *report_data = data;
     uint16_t report_data_len = len;
@@ -569,42 +569,42 @@ void pad_report(int slot, uint8_t const *data, uint16_t len)
         report_data_len = len - 1;
     }
 
-    pad_parse_report(player, report_data, report_data_len, &pad_reports[player]);
-    pad_publish(player);
+    gamepad_parse_report(player, report_data, report_data_len, &gamepad_reports[player]);
+    gamepad_publish(player);
 }
 
 // This is for XBox One/Series gamepads which send
 // the home button down a different path.
-void pad_home_button(int slot, bool pressed)
+void gamepad_home_button(int slot, bool pressed)
 {
-    int player = pad_get_player_num(slot);
+    int player = gamepad_get_player_num(slot);
     if (player < 0)
         return;
-    pad_connection_t *conn = &pad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[player];
 
     // Inject out of band home button into reports
     conn->home_pressed = pressed;
 
     if (pressed)
-        pad_reports[player].button1 |= (1 << (PAD_HOME_BUTTON - 8));
+        gamepad_reports[player].button1 |= (1 << (GAMEPAD_HOME_BUTTON - 8));
     else
-        pad_reports[player].button1 &= ~(1 << (PAD_HOME_BUTTON - 8));
-    pad_publish(player);
+        gamepad_reports[player].button1 &= ~(1 << (GAMEPAD_HOME_BUTTON - 8));
+    gamepad_publish(player);
 }
 
 // Build LED output report for player indicator on Sony controllers.
-// Writes into buf which must be PAD_LED_REPORT_MAX bytes.
+// Writes into buf which must be GAMEPAD_LED_REPORT_MAX bytes.
 // Sets report_id and report_len. Returns true if a LED report was written.
-_Static_assert(PAD_LED_REPORT_MAX >= 47, "PAD_LED_REPORT_MAX too small for DS5");
-_Static_assert(PAD_LED_REPORT_MAX >= 31, "PAD_LED_REPORT_MAX too small for DS4");
-bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
+_Static_assert(GAMEPAD_LED_REPORT_MAX >= 47, "GAMEPAD_LED_REPORT_MAX too small for DS5");
+_Static_assert(GAMEPAD_LED_REPORT_MAX >= 31, "GAMEPAD_LED_REPORT_MAX too small for DS4");
+bool gamepad_build_led_report(int slot, uint8_t buf[GAMEPAD_LED_REPORT_MAX],
                           uint8_t *report_id, uint16_t *report_len)
 {
-    int player = pad_get_player_num(slot);
+    int player = gamepad_get_player_num(slot);
     if (player < 0)
         return false;
 
-    pad_connection_t *conn = &pad_connections[player];
+    gamepad_connection_t *conn = &gamepad_connections[player];
 
     // Player indicator colors: Blue, Red, Green, Pink
     static const uint8_t player_colors[][3] = {
@@ -616,7 +616,7 @@ bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
 
     switch (conn->led_type)
     {
-    case PAD_LED_DS5:
+    case GAMEPAD_LED_DS5:
     {
         // DualSense: player indicator LEDs + lightbar color
         // Player LED patterns: P1=center, P2=inner pair, P3=three, P4=four
@@ -632,7 +632,7 @@ bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
         *report_len = 47;
         return true;
     }
-    case PAD_LED_DS4:
+    case GAMEPAD_LED_DS4:
     {
         // DualShock 4: lightbar color for player indication
         memset(buf, 0, 31);
@@ -649,46 +649,46 @@ bool pad_build_led_report(int slot, uint8_t buf[PAD_LED_REPORT_MAX],
     }
 }
 
-bool pad_is_mapped(void)
+bool gamepad_is_mapped(void)
 {
-    return pad_xram != 0xFFFF;
+    return gamepad_xram != 0xFFFF;
 }
 
 /* Where a flat button id sits in a report: which field, and which bit. */
-static bool pad_button_loc(pad_button_t button, int *field, uint8_t *mask)
+static bool gamepad_button_loc(gamepad_button_t button, int *field, uint8_t *mask)
 {
-    enum { PAD_F_DPAD, PAD_F_BUTTON0, PAD_F_BUTTON1 };
+    enum { GAMEPAD_F_DPAD, GAMEPAD_F_BUTTON0, GAMEPAD_F_BUTTON1 };
     switch (button)
     {
-    case PAD_BTN_DPAD_UP:    *field = PAD_F_DPAD;    *mask = 0x01; return true;
-    case PAD_BTN_DPAD_DOWN:  *field = PAD_F_DPAD;    *mask = 0x02; return true;
-    case PAD_BTN_DPAD_LEFT:  *field = PAD_F_DPAD;    *mask = 0x04; return true;
-    case PAD_BTN_DPAD_RIGHT: *field = PAD_F_DPAD;    *mask = 0x08; return true;
-    case PAD_BTN_A:          *field = PAD_F_BUTTON0; *mask = 0x01; return true;
-    case PAD_BTN_B:          *field = PAD_F_BUTTON0; *mask = 0x02; return true;
-    case PAD_BTN_C:          *field = PAD_F_BUTTON0; *mask = 0x04; return true;
-    case PAD_BTN_X:          *field = PAD_F_BUTTON0; *mask = 0x08; return true;
-    case PAD_BTN_Y:          *field = PAD_F_BUTTON0; *mask = 0x10; return true;
-    case PAD_BTN_Z:          *field = PAD_F_BUTTON0; *mask = 0x20; return true;
-    case PAD_BTN_L1:         *field = PAD_F_BUTTON0; *mask = 0x40; return true;
-    case PAD_BTN_R1:         *field = PAD_F_BUTTON0; *mask = 0x80; return true;
-    case PAD_BTN_L2:         *field = PAD_F_BUTTON1; *mask = 0x01; return true;
-    case PAD_BTN_R2:         *field = PAD_F_BUTTON1; *mask = 0x02; return true;
-    case PAD_BTN_SELECT:     *field = PAD_F_BUTTON1; *mask = 0x04; return true;
-    case PAD_BTN_START:      *field = PAD_F_BUTTON1; *mask = 0x08; return true;
-    case PAD_BTN_HOME:       *field = PAD_F_BUTTON1; *mask = 0x10; return true;
-    case PAD_BTN_L3:         *field = PAD_F_BUTTON1; *mask = 0x20; return true;
-    case PAD_BTN_R3:         *field = PAD_F_BUTTON1; *mask = 0x40; return true;
+    case GAMEPAD_BTN_DPAD_UP:    *field = GAMEPAD_F_DPAD;    *mask = 0x01; return true;
+    case GAMEPAD_BTN_DPAD_DOWN:  *field = GAMEPAD_F_DPAD;    *mask = 0x02; return true;
+    case GAMEPAD_BTN_DPAD_LEFT:  *field = GAMEPAD_F_DPAD;    *mask = 0x04; return true;
+    case GAMEPAD_BTN_DPAD_RIGHT: *field = GAMEPAD_F_DPAD;    *mask = 0x08; return true;
+    case GAMEPAD_BTN_A:          *field = GAMEPAD_F_BUTTON0; *mask = 0x01; return true;
+    case GAMEPAD_BTN_B:          *field = GAMEPAD_F_BUTTON0; *mask = 0x02; return true;
+    case GAMEPAD_BTN_C:          *field = GAMEPAD_F_BUTTON0; *mask = 0x04; return true;
+    case GAMEPAD_BTN_X:          *field = GAMEPAD_F_BUTTON0; *mask = 0x08; return true;
+    case GAMEPAD_BTN_Y:          *field = GAMEPAD_F_BUTTON0; *mask = 0x10; return true;
+    case GAMEPAD_BTN_Z:          *field = GAMEPAD_F_BUTTON0; *mask = 0x20; return true;
+    case GAMEPAD_BTN_L1:         *field = GAMEPAD_F_BUTTON0; *mask = 0x40; return true;
+    case GAMEPAD_BTN_R1:         *field = GAMEPAD_F_BUTTON0; *mask = 0x80; return true;
+    case GAMEPAD_BTN_L2:         *field = GAMEPAD_F_BUTTON1; *mask = 0x01; return true;
+    case GAMEPAD_BTN_R2:         *field = GAMEPAD_F_BUTTON1; *mask = 0x02; return true;
+    case GAMEPAD_BTN_SELECT:     *field = GAMEPAD_F_BUTTON1; *mask = 0x04; return true;
+    case GAMEPAD_BTN_START:      *field = GAMEPAD_F_BUTTON1; *mask = 0x08; return true;
+    case GAMEPAD_BTN_HOME:       *field = GAMEPAD_F_BUTTON1; *mask = 0x10; return true;
+    case GAMEPAD_BTN_L3:         *field = GAMEPAD_F_BUTTON1; *mask = 0x20; return true;
+    case GAMEPAD_BTN_R3:         *field = GAMEPAD_F_BUTTON1; *mask = 0x40; return true;
     }
     return false;
 }
 
-void pad_button_apply(pad_button_t button, bool down,
+void gamepad_button_apply(gamepad_button_t button, bool down,
                       uint8_t *dpad, uint8_t *button0, uint8_t *button1)
 {
     int field;
     uint8_t mask;
-    if (!pad_button_loc(button, &field, &mask))
+    if (!gamepad_button_loc(button, &field, &mask))
         return;
     uint8_t *target = field == 0 ? dpad : field == 1 ? button0 : button1;
     if (down)
@@ -697,36 +697,36 @@ void pad_button_apply(pad_button_t button, bool down,
         *target &= (uint8_t)~mask;
 }
 
-void pad_connect(int player, bool connected, uint8_t type, bool sticks)
+void gamepad_connect(int player, bool connected, uint8_t type, bool sticks)
 {
-    if (player < 0 || player >= PAD_PLAYERS)
+    if (player < 0 || player >= GAMEPAD_PLAYERS)
         return;
-    pad_xram_t *report = &pad_reports[player];
+    gamepad_xram_t *report = &gamepad_reports[player];
     if (connected)
-        report->dpad = (uint8_t)((report->dpad & 0x0F) | PAD_FEAT_CONNECTED |
-                                 PAD_FEAT_TYPE(type) | (sticks ? PAD_FEAT_STICKS : 0));
+        report->dpad = (uint8_t)((report->dpad & 0x0F) | GAMEPAD_FEAT_CONNECTED |
+                                 GAMEPAD_FEAT_TYPE(type) | (sticks ? GAMEPAD_FEAT_STICKS : 0));
     else
         memset(report, 0, sizeof(*report)); // a blank record is unplugged
-    pad_publish(player);
+    gamepad_publish(player);
 }
 
-void pad_hid_set(int player, pad_button_t button, bool down)
+void gamepad_hid_set(int player, gamepad_button_t button, bool down)
 {
-    if (player < 0 || player >= PAD_PLAYERS)
+    if (player < 0 || player >= GAMEPAD_PLAYERS)
         return;
-    pad_xram_t *report = &pad_reports[player];
+    gamepad_xram_t *report = &gamepad_reports[player];
     uint8_t dpad = report->dpad & 0x0F;
-    pad_button_apply(button, down, &dpad, &report->button0, &report->button1);
+    gamepad_button_apply(button, down, &dpad, &report->button0, &report->button1);
     report->dpad = (uint8_t)((report->dpad & 0xF0) | (dpad & 0x0F));
-    pad_publish(player);
+    gamepad_publish(player);
 }
 
-void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
+void gamepad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
                      int lx, int ly, int rx, int ry, int lt, int rt)
 {
-    if (player < 0 || player >= PAD_PLAYERS)
+    if (player < 0 || player >= GAMEPAD_PLAYERS)
         return;
-    pad_xram_t *report = &pad_reports[player];
+    gamepad_xram_t *report = &gamepad_reports[player];
 
     /* The analog triggers and the L2/R2 buttons imply each other, the same
      * way a parsed report makes them: a digital press with no analog reads
@@ -735,9 +735,9 @@ void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
         lt = 255;
     if ((button1 & 0x02) && rt == 0)
         rt = 255;
-    if (lt > PAD_DEADZONE)
+    if (lt > GAMEPAD_DEADZONE)
         button1 |= 0x01;
-    if (rt > PAD_DEADZONE)
+    if (rt > GAMEPAD_DEADZONE)
         button1 |= 0x02;
 
     report->dpad = (uint8_t)((report->dpad & 0xF0) | (dpad & 0x0F));
@@ -749,7 +749,7 @@ void pad_host_report(int player, uint8_t dpad, uint8_t button0, uint8_t button1,
     report->ry = (int8_t)ry;
     report->lt = (uint8_t)lt;
     report->rt = (uint8_t)rt;
-    report->sticks = (uint8_t)(pad_encode_stick(report->lx, report->ly) |
-                               (pad_encode_stick(report->rx, report->ry) << 4));
-    pad_publish(player);
+    report->sticks = (uint8_t)(gamepad_encode_stick(report->lx, report->ly) |
+                               (gamepad_encode_stick(report->rx, report->ry) << 4));
+    gamepad_publish(player);
 }

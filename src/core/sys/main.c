@@ -19,7 +19,7 @@
 #include "core/wdc/via.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/ria/ria.h"
 #include "core/api/api.h"
@@ -53,7 +53,7 @@ void main_init(void)
     aud_init();
     keyboard_init();
     mouse_init();
-    pad_init();
+    gamepad_init();
     tablet_init();
     com_init();
     std_init();
@@ -92,7 +92,7 @@ void main_on_stop(void)
     dir_stop();
     keyboard_stop();
     mouse_stop();
-    pad_stop();
+    gamepad_stop();
     tablet_stop();
     aud_stop();
 }

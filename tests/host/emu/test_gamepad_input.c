@@ -13,7 +13,7 @@
  * when someone else's battery dies is the bug this is here to prevent.
  */
 
-#include "host/sokol/pad_input.h"
+#include "host/sokol/gamepad_input.h"
 #include "core/sys/main.h"
 #include "core/mem/mem.h"
 
@@ -28,48 +28,48 @@ static bool fake_open_result = true;
 static int fake_opens, fake_closes;
 static bool fake_is_open;
 static int fake_polls_while_closed; /* the gate leaking would show up here */
-static pad_host_t fake_pads[PAD_PLAYERS];
+static gamepad_host_t fake_gamepads[GAMEPAD_PLAYERS];
 static int fake_count;
 
-bool host_pad_open(void)
+bool host_gamepad_open(void)
 {
     fake_opens++;
     fake_is_open = fake_open_result;
     return fake_open_result;
 }
 
-void host_pad_close(void)
+void host_gamepad_close(void)
 {
     fake_closes++;
     fake_is_open = false;
 }
 
-int host_pad_poll(pad_host_t *pads, int max)
+int host_gamepad_poll(gamepad_host_t *gamepads, int max)
 {
     if (!fake_is_open)
         fake_polls_while_closed++;
     int count = fake_count < max ? fake_count : max;
-    memcpy(pads, fake_pads, (size_t)count * sizeof(pad_host_t));
+    memcpy(gamepads, fake_gamepads, (size_t)count * sizeof(gamepad_host_t));
     return count;
 }
 
 static void fake_reset(void)
 {
-    pad_input_stop();
+    gamepad_input_stop();
     fake_open_result = true;
     fake_opens = fake_closes = 0;
     fake_is_open = false;
     fake_polls_while_closed = 0;
     fake_count = 0;
-    memset(fake_pads, 0, sizeof(fake_pads));
-    pad_stop();
+    memset(fake_gamepads, 0, sizeof(fake_gamepads));
+    gamepad_stop();
     memset((uint8_t *)xram, 0, 0x10000);
 }
 
 static void fake_plug(int index, uint64_t id)
 {
-    memset(&fake_pads[index], 0, sizeof(fake_pads[index]));
-    fake_pads[index].id = id;
+    memset(&fake_gamepads[index], 0, sizeof(fake_gamepads[index]));
+    fake_gamepads[index].id = id;
     if (index >= fake_count)
         fake_count = index + 1;
 }
@@ -83,12 +83,12 @@ static const uint8_t *rec(int player)
 static void run_frames(int frames)
 {
     for (int i = 0; i < frames; i++)
-        pad_input_task();
+        gamepad_input_task();
 }
 
 /* The web shell's contract, kept on the desktop: no device is touched until a
  * program maps the block, and all of them are released when it stops. */
-UTEST(pad_input, nothing_opens_until_a_program_asks)
+UTEST(gamepad_input, nothing_opens_until_a_program_asks)
 {
     fake_reset();
 
@@ -120,7 +120,7 @@ UTEST(pad_input, nothing_opens_until_a_program_asks)
 
 /* A host with nothing plugged in is ordinary, and is not asked again every
  * frame — a scan of the host's input devices is not a per-frame cost. */
-UTEST(pad_input, a_host_that_cannot_open_is_retried_slowly)
+UTEST(gamepad_input, a_host_that_cannot_open_is_retried_slowly)
 {
     fake_reset();
     fake_open_result = false;
@@ -136,20 +136,20 @@ UTEST(pad_input, a_host_that_cannot_open_is_retried_slowly)
 }
 
 /* Player two stays player two when player one's battery dies. */
-UTEST(pad_input, players_keep_their_number)
+UTEST(gamepad_input, players_keep_their_number)
 {
     fake_reset();
     ASSERT_TRUE(main_xreg_0(0, 2, AT_PAD));
 
     fake_plug(0, 0xAA);
     fake_plug(1, 0xBB);
-    fake_pads[1].button0 = 0x10; /* Y, so player two is identifiable */
+    fake_gamepads[1].button0 = 0x10; /* Y, so player two is identifiable */
     run_frames(1);
     ASSERT_EQ(rec(0)[0] & 0x80, 0x80);
     ASSERT_EQ(rec(1)[2], 0x10);
 
     /* The first one leaves. The list closes up, but the players do not. */
-    fake_pads[0] = fake_pads[1];
+    fake_gamepads[0] = fake_gamepads[1];
     fake_count = 1;
     run_frames(1);
     ASSERT_EQ(rec(0)[0], 0x00); /* player one unplugged */
@@ -157,55 +157,55 @@ UTEST(pad_input, players_keep_their_number)
 
     /* A new controller takes the free slot rather than shuffling anyone. */
     fake_plug(1, 0xCC);
-    fake_pads[1].button0 = 0x01;
+    fake_gamepads[1].button0 = 0x01;
     run_frames(1);
     ASSERT_EQ(rec(0)[2], 0x01);
     ASSERT_EQ(rec(1)[2], 0x10);
 }
 
 /* What a backend claims is what a program reads. */
-UTEST(pad_input, the_claim_reaches_xram)
+UTEST(gamepad_input, the_claim_reaches_xram)
 {
     fake_reset();
     ASSERT_TRUE(main_xreg_0(0, 2, AT_PAD));
 
     fake_plug(0, 0x11);
-    fake_pads[0].type = PAD_TYPE_PLAYSTATION;
-    fake_pads[0].sticks = true;
-    fake_pads[0].dpad = 0x04;
-    fake_pads[0].lx = -100;
+    fake_gamepads[0].type = GAMEPAD_TYPE_PLAYSTATION;
+    fake_gamepads[0].sticks = true;
+    fake_gamepads[0].dpad = 0x04;
+    fake_gamepads[0].lx = -100;
     run_frames(1);
     ASSERT_EQ(rec(0)[0], 0xF4); /* connected | sticks | playstation | left */
     ASSERT_EQ((int8_t)rec(0)[4], -100);
 
-    fake_pads[0].type = PAD_TYPE_UNKNOWN;
-    fake_pads[0].sticks = false;
-    fake_pads[0].dpad = 0;
+    fake_gamepads[0].type = GAMEPAD_TYPE_UNKNOWN;
+    fake_gamepads[0].sticks = false;
+    fake_gamepads[0].dpad = 0;
     run_frames(1);
     ASSERT_EQ(rec(0)[0], 0x80);
 }
 
 /* More controllers than the machine has players: the extras are ignored, and
  * nobody already playing is disturbed by them. */
-UTEST(pad_input, a_fifth_controller_is_ignored)
+UTEST(gamepad_input, a_fifth_controller_is_ignored)
 {
     fake_reset();
     ASSERT_TRUE(main_xreg_0(0, 2, AT_PAD));
 
-    for (int i = 0; i < PAD_PLAYERS; i++)
+    for (int i = 0; i < GAMEPAD_PLAYERS; i++)
     {
         fake_plug(i, 0x100 + (uint64_t)i);
-        fake_pads[i].button0 = (uint8_t)(1u << i);
+        fake_gamepads[i].button0 = (uint8_t)(1u << i);
     }
     run_frames(1);
-    for (int i = 0; i < PAD_PLAYERS; i++)
+    for (int i = 0; i < GAMEPAD_PLAYERS; i++)
         ASSERT_EQ(rec(i)[2], (uint8_t)(1u << i));
 
-    /* host_pad_poll is asked for at most PAD_PLAYERS, so a fifth never even
+    /* host_gamepad_poll is asked for at most GAMEPAD_PLAYERS, so a fifth never even
      * reaches us — but the policy must survive being handed one anyway. */
-    fake_count = PAD_PLAYERS;
+    fake_count = GAMEPAD_PLAYERS;
     run_frames(1);
-    for (int i = 0; i < PAD_PLAYERS; i++)
+    for (int i = 0; i < GAMEPAD_PLAYERS; i++)
         ASSERT_EQ(rec(i)[2], (uint8_t)(1u << i));
 }
 

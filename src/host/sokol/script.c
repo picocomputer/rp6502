@@ -10,7 +10,7 @@
 #include "core/sys/proc.h"
 #include "core/sys/keyboard.h"
 #include "core/hid/mouse.h"
-#include "host/sokol/pad.h"
+#include "host/sokol/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
@@ -64,8 +64,8 @@ static uint8_t script_addr_want;
 static uint32_t script_mark;
 static bool script_marked;
 
-/* Every player's report, assembled here and handed to pad_host_report — the
- * same shape the web and Android hosts keep, so a scripted pad reaches XRAM
+/* Every player's report, assembled here and handed to gamepad_host_report — the
+ * same shape the web and Android hosts keep, so a scripted gamepad reaches XRAM
  * through the code a real one does. */
 static struct
 {
@@ -74,7 +74,7 @@ static struct
     uint8_t type;
     uint8_t dpad, button0, button1;
     int lx, ly, rx, ry, lt, rt;
-} script_pad[4];
+} script_gamepad[4];
 
 /* ------------------------------------------------------------------ */
 /* Console capture                                                     */
@@ -285,13 +285,13 @@ static bool script_address(char **p, uint8_t **base, long *addr)
 /* Commands                                                            */
 /* ------------------------------------------------------------------ */
 
-static void script_pad_publish(int player)
+static void script_gamepad_publish(int player)
 {
-    pad_connect(player, true, script_pad[player].type, script_pad[player].sticks);
-    pad_host_report(player, script_pad[player].dpad, script_pad[player].button0,
-                    script_pad[player].button1, script_pad[player].lx, script_pad[player].ly,
-                    script_pad[player].rx, script_pad[player].ry, script_pad[player].lt,
-                    script_pad[player].rt);
+    gamepad_connect(player, true, script_gamepad[player].type, script_gamepad[player].sticks);
+    gamepad_host_report(player, script_gamepad[player].dpad, script_gamepad[player].button0,
+                    script_gamepad[player].button1, script_gamepad[player].lx, script_gamepad[player].ly,
+                    script_gamepad[player].rx, script_gamepad[player].ry, script_gamepad[player].lt,
+                    script_gamepad[player].rt);
 }
 
 static bool script_canvas_crc(uint32_t *out)
@@ -305,7 +305,7 @@ static bool script_canvas_crc(uint32_t *out)
     return true;
 }
 
-static bool script_cmd_pad(char *p)
+static bool script_cmd_gamepad(char *p)
 {
     long player;
     if (!script_number(&p, &player) || player < 0 || player > 3)
@@ -316,32 +316,32 @@ static bool script_cmd_pad(char *p)
     if (!strcasecmp(verb, "connect") || !strcasecmp(verb, "disconnect"))
     {
         bool connect = !strcasecmp(verb, "connect");
-        memset(&script_pad[player], 0, sizeof script_pad[player]);
-        script_pad[player].connected = connect;
-        /* What a real host would know about the pad it found, if anything. */
+        memset(&script_gamepad[player], 0, sizeof script_gamepad[player]);
+        script_gamepad[player].connected = connect;
+        /* What a real host would know about the gamepad it found, if anything. */
         char *word;
         while (connect && (word = script_word(&p)) != NULL)
         {
             if (!strcasecmp(word, "sticks"))
-                script_pad[player].sticks = true;
+                script_gamepad[player].sticks = true;
             else if (!strcasecmp(word, "western"))
-                script_pad[player].type = PAD_TYPE_WESTERN;
+                script_gamepad[player].type = GAMEPAD_TYPE_WESTERN;
             else if (!strcasecmp(word, "eastern"))
-                script_pad[player].type = PAD_TYPE_EASTERN;
+                script_gamepad[player].type = GAMEPAD_TYPE_EASTERN;
             else if (!strcasecmp(word, "playstation"))
-                script_pad[player].type = PAD_TYPE_PLAYSTATION;
+                script_gamepad[player].type = GAMEPAD_TYPE_PLAYSTATION;
             else
                 return script_error("pad connect wants western, eastern, "
                                  "playstation or sticks, not '%s'",
                                  word);
         }
         if (connect)
-            script_pad_publish((int)player); /* the claim lands now, not on first press */
+            script_gamepad_publish((int)player); /* the claim lands now, not on first press */
         else
-            pad_connect((int)player, false, PAD_TYPE_UNKNOWN, false);
+            gamepad_connect((int)player, false, GAMEPAD_TYPE_UNKNOWN, false);
         return true;
     }
-    if (!script_pad[player].connected)
+    if (!script_gamepad[player].connected)
         return script_error("pad %ld is not connected", player);
     if (!strcasecmp(verb, "press") || !strcasecmp(verb, "release"))
     {
@@ -350,11 +350,11 @@ static bool script_cmd_pad(char *p)
         int count = 0;
         while ((name = script_word(&p)) != NULL)
         {
-            pad_button_t button;
-            if (!pad_button_from_name(name, &button))
+            gamepad_button_t button;
+            if (!gamepad_button_from_name(name, &button))
                 return script_error("unknown pad button '%s'", name);
-            pad_button_apply(button, down, &script_pad[player].dpad,
-                             &script_pad[player].button0, &script_pad[player].button1);
+            gamepad_button_apply(button, down, &script_gamepad[player].dpad,
+                             &script_gamepad[player].button0, &script_gamepad[player].button1);
             count++;
         }
         if (!count)
@@ -366,10 +366,10 @@ static bool script_cmd_pad(char *p)
         for (int i = 0; i < 4; i++)
             if (!script_number(&p, &v[i]) || v[i] < -128 || v[i] > 127)
                 return script_error("pad stick wants lx ly rx ry, each -128..127");
-        script_pad[player].lx = (int)v[0];
-        script_pad[player].ly = (int)v[1];
-        script_pad[player].rx = (int)v[2];
-        script_pad[player].ry = (int)v[3];
+        script_gamepad[player].lx = (int)v[0];
+        script_gamepad[player].ly = (int)v[1];
+        script_gamepad[player].rx = (int)v[2];
+        script_gamepad[player].ry = (int)v[3];
     }
     else if (!strcasecmp(verb, "trigger"))
     {
@@ -377,12 +377,12 @@ static bool script_cmd_pad(char *p)
         for (int i = 0; i < 2; i++)
             if (!script_number(&p, &v[i]) || v[i] < 0 || v[i] > 255)
                 return script_error("pad trigger wants lt rt, each 0..255");
-        script_pad[player].lt = (int)v[0];
-        script_pad[player].rt = (int)v[1];
+        script_gamepad[player].lt = (int)v[0];
+        script_gamepad[player].rt = (int)v[1];
     }
     else
         return script_error("unknown pad verb '%s'", verb);
-    script_pad_publish((int)player);
+    script_gamepad_publish((int)player);
     return true;
 }
 
@@ -638,7 +638,7 @@ bool script_command(const char *line)
     }
 
     if (!strcasecmp(cmd, "pad"))
-        return script_cmd_pad(p);
+        return script_cmd_gamepad(p);
     if (!strcasecmp(cmd, "mouse"))
         return script_cmd_mouse(p);
     if (!strcasecmp(cmd, "tablet"))
@@ -889,11 +889,11 @@ void script_usage(FILE *out)
             "  key <name>[+ctrl][+shift][+alt]   send a key's escape sequence\n"
             "  press/release <key>...    the direct HID bitmap, by name or 0xNN\n"
             "  lock num|caps|scroll      toggle a lock LED\n"
-            "  pad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
-            "  pad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
+            "  gamepad <n> connect [western|eastern|playstation] [sticks] | disconnect\n"
+            "  gamepad <n> press|release <button>...   a b c x y z l1 r1 l2 r2 l3 r3\n"
             "                                      select start home up down left right\n"
-            "  pad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
-            "  pad <n> trigger <lt> <rt>           0..255\n"
+            "  gamepad <n> stick <lx> <ly> <rx> <ry>   -128..127\n"
+            "  gamepad <n> trigger <lt> <rt>           0..255\n"
             "  mouse move <dx> <dy> | wheel <n> [pan] | buttons <mask>\n"
             "  tablet at <x> <y> [buttons] | touch <x>,<y>... | wheel <n> [pan] | clear\n"
             "  expect \"text\" / expect-not \"text\"   the console since the last check\n"

@@ -5,28 +5,28 @@
  *
  */
 
-#ifndef _HOST_SOKOL_PAD_INPUT_H_
-#define _HOST_SOKOL_PAD_INPUT_H_
+#ifndef _HOST_SOKOL_GAMEPAD_INPUT_H_
+#define _HOST_SOKOL_GAMEPAD_INPUT_H_
 
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include <stdbool.h>
 #include <stdint.h>
 
 /* Host gamepads into the emulated ones. The policy — the privacy gate, which
  * host controller is which player, when to look for more — lives in
- * pad_input.c and is the same everywhere. Reading the controllers is the
- * host_pad_ seam below, one implementation per desktop; web and Android have
- * their own paths into pad.c and build a stub.
+ * gamepad_input.c and is the same everywhere. Reading the controllers is the
+ * host_gamepad_ seam below, one implementation per desktop; web and Android have
+ * their own paths into gamepad.c and build a stub.
  *
  * Sokol has no gamepad API, so this is polled rather than delivered as events
  * like the rest of input.c. */
 
-void pad_input_task(void);
+void gamepad_input_task(void);
 
 /* Release the host's controllers and blank every player. */
-void pad_input_stop(void);
+void gamepad_input_stop(void);
 
-/* One host controller, in the units pad_host_report takes, because scaling
+/* One host controller, in the units gamepad_host_report takes, because scaling
  * belongs where the ranges are known. A backend claims a type only when it is
  * certain of the labels, and sticks only when it found both. */
 typedef struct
@@ -35,21 +35,21 @@ typedef struct
     uint8_t dpad, button0, button1;
     int8_t lx, ly, rx, ry;
     uint8_t lt, rt;
-    uint8_t type; /* PAD_TYPE_ */
+    uint8_t type; /* GAMEPAD_TYPE_ */
     bool sticks;
-} pad_host_t;
+} gamepad_host_t;
 
 /* Start reading controllers. Called on the first frame a program has the
  * gamepad block mapped, and not before — until then the emulator must not
  * touch an input device. False when the host has nothing to offer, which is
  * ordinary and is retried. */
-bool host_pad_open(void);
+bool host_gamepad_open(void);
 
-/* Stop reading, release everything, and expect host_pad_open again. */
-void host_pad_close(void);
+/* Stop reading, release everything, and expect host_gamepad_open again. */
+void host_gamepad_close(void);
 
 /* What is connected now, newest state, up to max entries. Returns the count.
  * Called once per presented frame while a program has the block mapped. */
-int host_pad_poll(pad_host_t *pads, int max);
+int host_gamepad_poll(gamepad_host_t *gamepads, int max);
 
-#endif /* _HOST_SOKOL_PAD_INPUT_H_ */
+#endif /* _HOST_SOKOL_GAMEPAD_INPUT_H_ */

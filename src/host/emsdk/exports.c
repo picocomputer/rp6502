@@ -10,7 +10,7 @@
  */
 
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include <emscripten.h>
 #include <stdint.h>
@@ -29,25 +29,25 @@ EMSCRIPTEN_KEEPALIVE int tablet_mapped(void)
     return tablet_is_mapped() ? 1 : 0;
 }
 
-/* The page's Gamepad-API poller only runs once pad_mapped() reports a program
+/* The page's Gamepad-API poller only runs once gamepad_mapped() reports a program
  * pointed the report block at XRAM, so no gamepad access happens until a ROM asks.
- * pad_host writes one player's decoded state (the page computes the canonical
- * bit layout from the browser's "standard" mapping); pad_disconnect clears one. */
-EMSCRIPTEN_KEEPALIVE int pad_mapped(void)
+ * gamepad_host writes one player's decoded state (the page computes the canonical
+ * bit layout from the browser's "standard" mapping); gamepad_disconnect clears one. */
+EMSCRIPTEN_KEEPALIVE int gamepad_mapped(void)
 {
-    return pad_is_mapped() ? 1 : 0;
+    return gamepad_is_mapped() ? 1 : 0;
 }
 
-EMSCRIPTEN_KEEPALIVE void pad_host(int player, int dpad, int button0, int button1,
+EMSCRIPTEN_KEEPALIVE void gamepad_host(int player, int dpad, int button0, int button1,
                                    int lx, int ly, int rx, int ry, int lt, int rt,
                                    int type, int sticks)
 {
-    pad_connect(player, true, (uint8_t)type, sticks != 0);
-    pad_host_report(player, (uint8_t)dpad, (uint8_t)button0, (uint8_t)button1,
+    gamepad_connect(player, true, (uint8_t)type, sticks != 0);
+    gamepad_host_report(player, (uint8_t)dpad, (uint8_t)button0, (uint8_t)button1,
                     lx, ly, rx, ry, lt, rt);
 }
 
-EMSCRIPTEN_KEEPALIVE void pad_disconnect(int player)
+EMSCRIPTEN_KEEPALIVE void gamepad_disconnect(int player)
 {
-    pad_connect(player, false, PAD_TYPE_UNKNOWN, false);
+    gamepad_connect(player, false, GAMEPAD_TYPE_UNKNOWN, false);
 }

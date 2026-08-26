@@ -12,7 +12,7 @@
 #include "host/sokol/cli.h"
 #include "core/hid/usage.h"
 #include "core/sys/keyboard.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/sys/main.h"
 #include "core/sys/rom.h"
@@ -86,18 +86,18 @@ UTEST(xreg, device_channel_dispatch)
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
  * encoding that mirrors the firmware (status bits, analog->digital sticks byte,
  * L2/R2 trigger<->button coupling). */
-UTEST(pad, host_report_encoding)
+UTEST(gamepad, host_report_encoding)
 {
-    pad_stop();
-    ASSERT_FALSE(pad_is_mapped()); /* nothing touches input until a ROM maps it */
+    gamepad_stop();
+    ASSERT_FALSE(gamepad_is_mapped()); /* nothing touches input until a ROM maps it */
 
     ASSERT_TRUE(main_xreg_0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
-    ASSERT_TRUE(pad_is_mapped());
+    ASSERT_TRUE(gamepad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
     /* Player 0: dpad up + A, left stick full north, host sure of nothing. */
-    pad_connect(0, true, PAD_TYPE_UNKNOWN, false);
-    pad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0);
+    gamepad_connect(0, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_host_report(0, 0x01, 0x01, 0x00, 0, -127, 0, 0, 0, 0);
     ASSERT_EQ(xram[0xFF00 + 0], 0x81);          /* dpad up | connected */
     ASSERT_EQ(xram[0xFF00 + 1], 0x01);          /* sticks: left=N, right=center */
     ASSERT_EQ(xram[0xFF00 + 2], 0x01);          /* button0: A */
@@ -106,28 +106,28 @@ UTEST(pad, host_report_encoding)
 
     /* Type and sticks are claims about the controller, made when it is
      * plugged in, and they land in their own bits. */
-    pad_connect(1, true, PAD_TYPE_PLAYSTATION, true);
+    gamepad_connect(1, true, GAMEPAD_TYPE_PLAYSTATION, true);
     ASSERT_EQ(xram[0xFF00 + 10], 0xF0); /* connected | sticks | playstation */
-    pad_connect(1, true, PAD_TYPE_EASTERN, false);
+    gamepad_connect(1, true, GAMEPAD_TYPE_EASTERN, false);
     ASSERT_EQ(xram[0xFF00 + 10], 0xA0); /* connected | eastern, no sticks */
-    pad_connect(1, true, PAD_TYPE_WESTERN, true);
+    gamepad_connect(1, true, GAMEPAD_TYPE_WESTERN, true);
     ASSERT_EQ(xram[0xFF00 + 10], 0xD0); /* connected | sticks | western */
 
     /* L2 button with no analog reads full-scale; analog past deadzone asserts
      * the button — both couplings, like the firmware. */
-    pad_connect(2, true, PAD_TYPE_UNKNOWN, false);
-    pad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0);
+    gamepad_connect(2, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_host_report(2, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0);
     ASSERT_EQ(xram[0xFF00 + 20 + 8], 255);  /* lt forced to full */
     ASSERT_EQ(xram[0xFF00 + 20 + 3], 0x01); /* button1 keeps L2 */
-    pad_connect(3, true, PAD_TYPE_UNKNOWN, false);
-    pad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200);
+    gamepad_connect(3, true, GAMEPAD_TYPE_UNKNOWN, false);
+    gamepad_host_report(3, 0x00, 0x00, 0x00, 0, 0, 0, 0, 0, 200);
     ASSERT_EQ(xram[0xFF00 + 30 + 3], 0x02); /* rt>deadzone asserts R2 */
 
     /* Unplug blanks the record; unmapping clears the gate. */
-    pad_connect(0, false, PAD_TYPE_UNKNOWN, false);
+    gamepad_connect(0, false, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
     ASSERT_TRUE(main_xreg_0(0, 2, 0xFFFF));
-    ASSERT_FALSE(pad_is_mapped());
+    ASSERT_FALSE(gamepad_is_mapped());
 }
 
 /* The tablet's mouse-format wheel/pan: header bytes +2/+3 are 8-bit wrapping

@@ -21,7 +21,7 @@
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
@@ -124,7 +124,7 @@ static void __in_flash("init") init(void)
     keyboard_init();
     keymap_init(); /* the speller is this machine's, not the device layer's */
     mouse_init();
-    pad_init();
+    gamepad_init();
     tablet_init();
     rom_init();
     tim_init();
@@ -204,7 +204,7 @@ void main_on_stop(void)
     dir_stop();
     keyboard_stop();
     mouse_stop();
-    pad_stop();
+    gamepad_stop();
     tablet_stop();
     aud_stop();
     modem_stop();

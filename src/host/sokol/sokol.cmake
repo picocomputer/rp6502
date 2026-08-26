@@ -22,7 +22,7 @@ set(RP6502_EMU_APP
     ${CMAKE_CURRENT_LIST_DIR}/cli.c
     ${CMAKE_CURRENT_LIST_DIR}/input.c
     ${CMAKE_CURRENT_LIST_DIR}/png.c
-    ${CMAKE_CURRENT_LIST_DIR}/pad.c
+    ${CMAKE_CURRENT_LIST_DIR}/gamepad.c
     ${CMAKE_CURRENT_LIST_DIR}/script.c
     ${RP6502_SRC}/core/sys/version.c)
 

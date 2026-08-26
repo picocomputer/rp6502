@@ -8,7 +8,7 @@
  * The frontend owns the hardware here, so nothing in this file opens a
  * device: the keyboard arrives as events and everything else is read once a
  * frame from the callback the frontend gave us. That is why there is no
- * pad_input.c in this host — its whole job is deciding when it is polite to
+ * gamepad_input.c in this host — its whole job is deciding when it is polite to
  * open a controller, and a frontend has already decided.
  */
 
@@ -17,7 +17,7 @@
 #include "core/sys/keyboard.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"
 
@@ -231,10 +231,10 @@ void input_keyboard_event(bool down, unsigned keycode, uint32_t character,
 /* RETRO_DEVICE_NONE until the frontend says otherwise, and a joypad is what
  * the frontend means by nothing said (retro_set_controller_port_device is not
  * guaranteed to be called for a port that is simply plugged in). */
-static unsigned port_device[PAD_PLAYERS] = {
+static unsigned port_device[GAMEPAD_PLAYERS] = {
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD,
     RETRO_DEVICE_JOYPAD, RETRO_DEVICE_JOYPAD};
-static bool port_live[PAD_PLAYERS];
+static bool port_live[GAMEPAD_PLAYERS];
 static bool have_bitmasks;
 
 /* How many players the frontend actually has. The machine has four ports
@@ -243,13 +243,13 @@ static bool have_bitmasks;
  * them. GET_INPUT_MAX_USERS is the frontend saying how many are real; a
  * frontend that will not answer gets all four, which is where this
  * started. */
-static int max_users = PAD_PLAYERS;
+static int max_users = GAMEPAD_PLAYERS;
 static retro_environment_t input_environ;
 
 void input_init(retro_environment_t environ_cb)
 {
     input_environ = environ_cb;
-    /* One call per pad instead of sixteen, where the frontend offers it. */
+    /* One call per gamepad instead of sixteen, where the frontend offers it. */
     have_bitmasks = environ_cb(RETRO_ENVIRONMENT_GET_INPUT_BITMASKS, NULL);
 }
 
@@ -260,31 +260,31 @@ static void refresh_max_users(void)
     unsigned n = 0;
     if (input_environ &&
         input_environ(RETRO_ENVIRONMENT_GET_INPUT_MAX_USERS, &n) && n)
-        max_users = (int)(n < PAD_PLAYERS ? n : PAD_PLAYERS);
+        max_users = (int)(n < GAMEPAD_PLAYERS ? n : GAMEPAD_PLAYERS);
     else
-        max_users = PAD_PLAYERS;
+        max_users = GAMEPAD_PLAYERS;
 }
 
 void input_reset(void)
 {
-    for (int p = 0; p < PAD_PLAYERS; p++)
+    for (int p = 0; p < GAMEPAD_PLAYERS; p++)
     {
         port_device[p] = RETRO_DEVICE_JOYPAD;
         port_live[p] = false;
     }
     have_bitmasks = false;
-    max_users = PAD_PLAYERS;
+    max_users = GAMEPAD_PLAYERS;
     input_environ = NULL;
 }
 
 void input_set_port_device(unsigned port, unsigned device)
 {
-    if (port >= PAD_PLAYERS)
+    if (port >= GAMEPAD_PLAYERS)
         return;
     port_device[port] = device;
     if (device == RETRO_DEVICE_NONE && port_live[port])
     {
-        pad_connect((int)port, false, PAD_TYPE_UNKNOWN, false);
+        gamepad_connect((int)port, false, GAMEPAD_TYPE_UNKNOWN, false);
         port_live[port] = false;
     }
 }
@@ -304,9 +304,9 @@ static uint16_t button_value(retro_input_state_t state, unsigned port, unsigned 
     return down ? 0x7FFF : 0;
 }
 
-static void poll_pads(retro_input_state_t state)
+static void poll_gamepads(retro_input_state_t state)
 {
-    for (int p = 0; p < PAD_PLAYERS; p++)
+    for (int p = 0; p < GAMEPAD_PLAYERS; p++)
     {
         if (port_device[p] == RETRO_DEVICE_NONE || p >= max_users)
         {
@@ -315,7 +315,7 @@ static void poll_pads(retro_input_state_t state)
              * from waiting on someone who is not there. */
             if (port_live[p])
             {
-                pad_connect(p, false, PAD_TYPE_UNKNOWN, false);
+                gamepad_connect(p, false, GAMEPAD_TYPE_UNKNOWN, false);
                 port_live[p] = false;
             }
             continue;
@@ -325,24 +325,24 @@ static void poll_pads(retro_input_state_t state)
         static const struct
         {
             unsigned id;
-            pad_button_t btn;
+            gamepad_button_t btn;
         } digital[] = {
-            {RETRO_DEVICE_ID_JOYPAD_UP, PAD_BTN_DPAD_UP},
-            {RETRO_DEVICE_ID_JOYPAD_DOWN, PAD_BTN_DPAD_DOWN},
-            {RETRO_DEVICE_ID_JOYPAD_LEFT, PAD_BTN_DPAD_LEFT},
-            {RETRO_DEVICE_ID_JOYPAD_RIGHT, PAD_BTN_DPAD_RIGHT},
+            {RETRO_DEVICE_ID_JOYPAD_UP, GAMEPAD_BTN_DPAD_UP},
+            {RETRO_DEVICE_ID_JOYPAD_DOWN, GAMEPAD_BTN_DPAD_DOWN},
+            {RETRO_DEVICE_ID_JOYPAD_LEFT, GAMEPAD_BTN_DPAD_LEFT},
+            {RETRO_DEVICE_ID_JOYPAD_RIGHT, GAMEPAD_BTN_DPAD_RIGHT},
             /* Positional, not by name: the RetroPad's B is its south button
              * and this machine's A is too. */
-            {RETRO_DEVICE_ID_JOYPAD_B, PAD_BTN_A},
-            {RETRO_DEVICE_ID_JOYPAD_A, PAD_BTN_B},
-            {RETRO_DEVICE_ID_JOYPAD_Y, PAD_BTN_X},
-            {RETRO_DEVICE_ID_JOYPAD_X, PAD_BTN_Y},
-            {RETRO_DEVICE_ID_JOYPAD_L, PAD_BTN_L1},
-            {RETRO_DEVICE_ID_JOYPAD_R, PAD_BTN_R1},
-            {RETRO_DEVICE_ID_JOYPAD_SELECT, PAD_BTN_SELECT},
-            {RETRO_DEVICE_ID_JOYPAD_START, PAD_BTN_START},
-            {RETRO_DEVICE_ID_JOYPAD_L3, PAD_BTN_L3},
-            {RETRO_DEVICE_ID_JOYPAD_R3, PAD_BTN_R3},
+            {RETRO_DEVICE_ID_JOYPAD_B, GAMEPAD_BTN_A},
+            {RETRO_DEVICE_ID_JOYPAD_A, GAMEPAD_BTN_B},
+            {RETRO_DEVICE_ID_JOYPAD_Y, GAMEPAD_BTN_X},
+            {RETRO_DEVICE_ID_JOYPAD_X, GAMEPAD_BTN_Y},
+            {RETRO_DEVICE_ID_JOYPAD_L, GAMEPAD_BTN_L1},
+            {RETRO_DEVICE_ID_JOYPAD_R, GAMEPAD_BTN_R1},
+            {RETRO_DEVICE_ID_JOYPAD_SELECT, GAMEPAD_BTN_SELECT},
+            {RETRO_DEVICE_ID_JOYPAD_START, GAMEPAD_BTN_START},
+            {RETRO_DEVICE_ID_JOYPAD_L3, GAMEPAD_BTN_L3},
+            {RETRO_DEVICE_ID_JOYPAD_R3, GAMEPAD_BTN_R3},
         };
         int16_t mask = 0;
         if (have_bitmasks)
@@ -352,13 +352,13 @@ static void poll_pads(retro_input_state_t state)
             bool down = have_bitmasks
                             ? (mask & (1 << digital[i].id)) != 0
                             : state((unsigned)p, RETRO_DEVICE_JOYPAD, 0, digital[i].id) != 0;
-            pad_button_apply(digital[i].btn, down, &dpad, &b0, &b1);
+            gamepad_button_apply(digital[i].btn, down, &dpad, &b0, &b1);
         }
 
         uint16_t lt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_L2, mask);
         uint16_t rt = button_value(state, (unsigned)p, RETRO_DEVICE_ID_JOYPAD_R2, mask);
-        pad_button_apply(PAD_BTN_L2, lt != 0, &dpad, &b0, &b1);
-        pad_button_apply(PAD_BTN_R2, rt != 0, &dpad, &b0, &b1);
+        gamepad_button_apply(GAMEPAD_BTN_L2, lt != 0, &dpad, &b0, &b1);
+        gamepad_button_apply(GAMEPAD_BTN_R2, rt != 0, &dpad, &b0, &b1);
 
         /* The block's units: sticks signed 8-bit, triggers unsigned 8-bit. */
         int lx = state((unsigned)p, RETRO_DEVICE_ANALOG,
@@ -370,14 +370,14 @@ static void poll_pads(retro_input_state_t state)
         int ry = state((unsigned)p, RETRO_DEVICE_ANALOG,
                        RETRO_DEVICE_INDEX_ANALOG_RIGHT, RETRO_DEVICE_ID_ANALOG_Y) >> 8;
 
-        /* A RetroPad is a western-layout pad with two sticks — that is the
+        /* A RetroPad is a western-layout gamepad with two sticks — that is the
          * abstraction, whatever hardware is behind it. Claiming the sticks
          * only for RETRO_DEVICE_ANALOG would deny them to most players,
          * because a frontend reports a plain joypad for an analog controller
          * unless someone goes and changes it. */
-        pad_connect(p, true, PAD_TYPE_WESTERN, true);
+        gamepad_connect(p, true, GAMEPAD_TYPE_WESTERN, true);
         port_live[p] = true;
-        pad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);
+        gamepad_host_report(p, dpad, b0, b1, lx, ly, rx, ry, lt >> 7, rt >> 7);
     }
 }
 
@@ -457,6 +457,6 @@ static void poll_pointer(retro_input_state_t state)
 void input_poll(retro_input_state_t state)
 {
     refresh_max_users();
-    poll_pads(state);
+    poll_gamepads(state);
     poll_pointer(state);
 }

@@ -14,39 +14,39 @@
  * with everything else rather than from a thread.
  */
 
-#include "host/sokol/pad_input.h"
+#include "host/sokol/gamepad_input.h"
 
 #import <GameController/GameController.h>
 
-static bool pad_macos_open;
+static bool gamepad_macos_open;
 
 /* Apple hands out GCController objects, not indices. The pointer is the id
  * for as long as the controller is connected, which is exactly as long as a
  * player should keep their number. */
-static uint64_t pad_macos_id(GCController *controller)
+static uint64_t gamepad_macos_id(GCController *controller)
 {
     return (uint64_t)(uintptr_t)controller;
 }
 
-static uint8_t pad_macos_type(GCController *controller)
+static uint8_t gamepad_macos_type(GCController *controller)
 {
     /* Only what Apple names outright. productCategory is a display string, so
      * this reads the ones that are documented and claims nothing otherwise. */
     NSString *category = controller.productCategory;
     if (!category)
-        return PAD_TYPE_UNKNOWN;
+        return GAMEPAD_TYPE_UNKNOWN;
     if ([category containsString:@"DualSense"] ||
         [category containsString:@"DualShock"])
-        return PAD_TYPE_PLAYSTATION;
+        return GAMEPAD_TYPE_PLAYSTATION;
     if ([category containsString:@"Xbox"])
-        return PAD_TYPE_WESTERN;
+        return GAMEPAD_TYPE_WESTERN;
     if ([category containsString:@"Switch"] ||
         [category containsString:@"Joy-Con"])
-        return PAD_TYPE_EASTERN;
-    return PAD_TYPE_UNKNOWN;
+        return GAMEPAD_TYPE_EASTERN;
+    return GAMEPAD_TYPE_UNKNOWN;
 }
 
-static int8_t pad_macos_axis(float value)
+static int8_t gamepad_macos_axis(float value)
 {
     /* The web shell's rounding, so the same stick reads the same in both. */
     float scaled = value * 127.0f;
@@ -57,7 +57,7 @@ static int8_t pad_macos_axis(float value)
     return (int8_t)lroundf(scaled);
 }
 
-static uint8_t pad_macos_trigger(float value)
+static uint8_t gamepad_macos_trigger(float value)
 {
     float scaled = value * 255.0f;
     if (scaled > 255.0f)
@@ -67,23 +67,23 @@ static uint8_t pad_macos_trigger(float value)
     return (uint8_t)lroundf(scaled);
 }
 
-bool host_pad_open(void)
+bool host_gamepad_open(void)
 {
     /* No startWirelessControllerDiscovery: it asks the user for Bluetooth
      * permission and wants an Info.plist string to explain why. Controllers
      * paired with the system are already in the list. */
-    pad_macos_open = true;
+    gamepad_macos_open = true;
     return true;
 }
 
-void host_pad_close(void)
+void host_gamepad_close(void)
 {
-    pad_macos_open = false;
+    gamepad_macos_open = false;
 }
 
-int host_pad_poll(pad_host_t *pads, int max)
+int host_gamepad_poll(gamepad_host_t *gamepads, int max)
 {
-    if (!pad_macos_open)
+    if (!gamepad_macos_open)
         return 0;
 
     int count = 0;
@@ -95,47 +95,47 @@ int host_pad_poll(pad_host_t *pads, int max)
         if (!gamepad)
             continue; /* a remote or a micro gamepad is not one of these */
 
-        pad_host_t *pad = &pads[count++];
-        memset(pad, 0, sizeof(*pad));
-        pad->id = pad_macos_id(controller);
-        pad->type = pad_macos_type(controller);
-        pad->sticks = gamepad.leftThumbstick != nil && gamepad.rightThumbstick != nil;
+        gamepad_host_t *gamepad = &gamepads[count++];
+        memset(gamepad, 0, sizeof(*gamepad));
+        gamepad->id = gamepad_macos_id(controller);
+        gamepad->type = gamepad_macos_type(controller);
+        gamepad->sticks = gamepad.leftThumbstick != nil && gamepad.rightThumbstick != nil;
 
         const struct
         {
             GCControllerButtonInput *input;
-            pad_button_t button;
+            gamepad_button_t button;
         } buttons[] = {
-            {gamepad.buttonA, PAD_BTN_A},
-            {gamepad.buttonB, PAD_BTN_B},
-            {gamepad.buttonX, PAD_BTN_X},
-            {gamepad.buttonY, PAD_BTN_Y},
-            {gamepad.leftShoulder, PAD_BTN_L1},
-            {gamepad.rightShoulder, PAD_BTN_R1},
-            {gamepad.leftTrigger, PAD_BTN_L2},
-            {gamepad.rightTrigger, PAD_BTN_R2},
-            {gamepad.buttonOptions, PAD_BTN_SELECT},
-            {gamepad.buttonMenu, PAD_BTN_START},
-            {gamepad.buttonHome, PAD_BTN_HOME},
-            {gamepad.leftThumbstickButton, PAD_BTN_L3},
-            {gamepad.rightThumbstickButton, PAD_BTN_R3},
-            {gamepad.dpad.up, PAD_BTN_DPAD_UP},
-            {gamepad.dpad.down, PAD_BTN_DPAD_DOWN},
-            {gamepad.dpad.left, PAD_BTN_DPAD_LEFT},
-            {gamepad.dpad.right, PAD_BTN_DPAD_RIGHT},
+            {gamepad.buttonA, GAMEPAD_BTN_A},
+            {gamepad.buttonB, GAMEPAD_BTN_B},
+            {gamepad.buttonX, GAMEPAD_BTN_X},
+            {gamepad.buttonY, GAMEPAD_BTN_Y},
+            {gamepad.leftShoulder, GAMEPAD_BTN_L1},
+            {gamepad.rightShoulder, GAMEPAD_BTN_R1},
+            {gamepad.leftTrigger, GAMEPAD_BTN_L2},
+            {gamepad.rightTrigger, GAMEPAD_BTN_R2},
+            {gamepad.buttonOptions, GAMEPAD_BTN_SELECT},
+            {gamepad.buttonMenu, GAMEPAD_BTN_START},
+            {gamepad.buttonHome, GAMEPAD_BTN_HOME},
+            {gamepad.leftThumbstickButton, GAMEPAD_BTN_L3},
+            {gamepad.rightThumbstickButton, GAMEPAD_BTN_R3},
+            {gamepad.dpad.up, GAMEPAD_BTN_DPAD_UP},
+            {gamepad.dpad.down, GAMEPAD_BTN_DPAD_DOWN},
+            {gamepad.dpad.left, GAMEPAD_BTN_DPAD_LEFT},
+            {gamepad.dpad.right, GAMEPAD_BTN_DPAD_RIGHT},
         };
         for (size_t i = 0; i < sizeof buttons / sizeof buttons[0]; i++)
             if (buttons[i].input)
-                pad_button_apply(buttons[i].button, buttons[i].input.isPressed,
-                                 &pad->dpad, &pad->button0, &pad->button1);
+                gamepad_button_apply(buttons[i].button, buttons[i].input.isPressed,
+                                 &gamepad->dpad, &gamepad->button0, &gamepad->button1);
 
-        pad->lx = pad_macos_axis(gamepad.leftThumbstick.xAxis.value);
-        pad->rx = pad_macos_axis(gamepad.rightThumbstick.xAxis.value);
+        gamepad->lx = gamepad_macos_axis(gamepad.leftThumbstick.xAxis.value);
+        gamepad->rx = gamepad_macos_axis(gamepad.rightThumbstick.xAxis.value);
         /* Apple's sticks are up-positive and the report's are down-positive. */
-        pad->ly = pad_macos_axis(-gamepad.leftThumbstick.yAxis.value);
-        pad->ry = pad_macos_axis(-gamepad.rightThumbstick.yAxis.value);
-        pad->lt = pad_macos_trigger(gamepad.leftTrigger.value);
-        pad->rt = pad_macos_trigger(gamepad.rightTrigger.value);
+        gamepad->ly = gamepad_macos_axis(-gamepad.leftThumbstick.yAxis.value);
+        gamepad->ry = gamepad_macos_axis(-gamepad.rightThumbstick.yAxis.value);
+        gamepad->lt = gamepad_macos_trigger(gamepad.leftTrigger.value);
+        gamepad->rt = gamepad_macos_trigger(gamepad.rightTrigger.value);
     }
     return count;
 }

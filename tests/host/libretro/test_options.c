@@ -157,7 +157,7 @@ UTEST(options, a_setting_changed_between_programs_is_taken)
 
 /* The bitmask is an offer, not a requirement: a frontend that does not make
  * it still has its pads read. */
-UTEST(options, a_frontend_without_bitmasks_still_has_pads)
+UTEST(options, a_frontend_without_bitmasks_still_has_gamepads)
 {
     fe_open_as(2, false);
     ASSERT_TRUE(fe.asked_for_bitmasks);

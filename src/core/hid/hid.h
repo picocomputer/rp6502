@@ -56,7 +56,7 @@ int8_t hid_scale_analog_signed(uint32_t raw_value, uint8_t bit_size, int32_t log
 typedef struct keyboard_connection keyboard_connection_t;
 typedef struct mouse_connection mouse_connection_t;
 typedef struct tablet_connection tablet_connection_t;
-typedef struct pad_connection pad_connection_t;
+typedef struct gamepad_connection gamepad_connection_t;
 
 /* Devices that at least one driver wanted. A machine with more physical
  * ports than this simply runs out, which is what the drivers do too. A
@@ -79,7 +79,7 @@ typedef struct pad_connection pad_connection_t;
  *
  * Deliberately not exclusive: a mouse is a pointer to both mouse and tablet. */
 int hid_mount(const keyboard_connection_t *keyboard, const mouse_connection_t *mouse,
-              const tablet_connection_t *tablet, const pad_connection_t *pad,
+              const tablet_connection_t *tablet, const gamepad_connection_t *gamepad,
               uint16_t vendor_id, uint16_t product_id, uint8_t button_type);
 
 // Hand a report to the drivers that claimed the slot, and no others.

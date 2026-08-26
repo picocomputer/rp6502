@@ -21,7 +21,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
-#include "core/hid/pad.h"
+#include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/hid/usage.h"
 
@@ -41,9 +41,9 @@
  * field sits is stated outright -- these are the bit positions apf_build
  * writes to.
  *
- * The button numbers are the ones pad.c files at index n-1: 1-16 land in
+ * The button numbers are the ones gamepad.c files at index n-1: 1-16 land in
  * the two button bytes and 17-20 are read as the d-pad. */
-static const pad_connection_t apf_pad_desc = {
+static const gamepad_connection_t apf_gamepad_desc = {
     .valid = true,
     .x_absolute = true,
     .button_offsets = {
@@ -51,8 +51,8 @@ static const pad_connection_t apf_pad_desc = {
         10, 11, 14, 15, HID_ABSENT, 12, 13, HID_ABSENT,
         0, 1, 2, 3}};
 
-// The same pad, with two sticks and two triggers a byte each behind it.
-static const pad_connection_t apf_pad_ana_desc = {
+// The same gamepad, with two sticks and two triggers a byte each behind it.
+static const gamepad_connection_t apf_gamepad_ana_desc = {
     .valid = true,
     .x_absolute = true,
     .x_offset = 2 * 8, .x_size = 8, .x_max = 255,
@@ -119,8 +119,8 @@ static struct
 
 static void apf_mount(int slot, uint8_t type)
 {
-    const pad_connection_t *pad = NULL;
-    uint8_t button_type = PAD_TYPE_UNKNOWN;
+    const gamepad_connection_t *gamepad = NULL;
+    uint8_t button_type = GAMEPAD_TYPE_UNKNOWN;
     switch (type)
     {
     /* The Pocket's own buttons are the only ones here whose labels we
@@ -128,14 +128,14 @@ static void apf_mount(int slot, uint8_t type)
      * is in the dock arrives through the same normalized bitmap, so it
      * could be wearing any labels at all. */
     case APF_TYPE_POCKET:
-        button_type = PAD_TYPE_EASTERN;
-        pad = &apf_pad_desc;
+        button_type = GAMEPAD_TYPE_EASTERN;
+        gamepad = &apf_gamepad_desc;
         break;
     case APF_TYPE_PAD:
-        pad = &apf_pad_desc;
+        gamepad = &apf_gamepad_desc;
         break;
     case APF_TYPE_PAD_ANA:
-        pad = &apf_pad_ana_desc;
+        gamepad = &apf_gamepad_ana_desc;
         break;
     case APF_TYPE_KEYBOARD:
         apf_slots[slot].slot = (int8_t)hid_mount(&apf_keyboard_desc, NULL, NULL, NULL, 0, 0, 0);
@@ -147,7 +147,7 @@ static void apf_mount(int slot, uint8_t type)
     default:
         return;
     }
-    apf_slots[slot].slot = (int8_t)hid_mount(NULL, NULL, NULL, pad, 0, 0, button_type);
+    apf_slots[slot].slot = (int8_t)hid_mount(NULL, NULL, NULL, gamepad, 0, 0, button_type);
 }
 
 static void apf_umount(int slot)
@@ -181,7 +181,7 @@ static uint8_t apf_build(uint8_t type, uint32_t key, uint32_t joy,
     case APF_TYPE_POCKET:
     case APF_TYPE_PAD:
         /* Their descriptor stops after the buttons, so the axis words are
-         * not ours to send. pad.c centres what it isn't told and reads a
+         * not ours to send. gamepad.c centres what it isn't told and reads a
          * pressed L2/R2 as a full trigger. */
         report[0] = (uint8_t)key;
         report[1] = (uint8_t)(key >> 8);

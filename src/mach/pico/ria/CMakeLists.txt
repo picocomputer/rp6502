@@ -151,7 +151,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/hid/keymap.c
     ${KBDLAY_C}
     ${RP6502_ROOT}/src/core/hid/mouse.c
-    ${RP6502_ROOT}/src/core/hid/pad.c
+    ${RP6502_ROOT}/src/core/hid/gamepad.c
     ${RP6502_ROOT}/src/core/hid/parse.c
     ${RP6502_ROOT}/src/core/hid/tablet.c
     ${RIA_SRC}/mon/drive.c

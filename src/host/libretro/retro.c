@@ -164,11 +164,11 @@ unsigned retro_api_version(void)
 }
 
 /* What each RetroPad button does on this machine, so a frontend's remapper
- * and its on-screen pad have something to say instead of a number. The
- * machine's pad is a modern one and the mapping is positional, so the labels
+ * and its on-screen gamepad have something to say instead of a number. The
+ * machine's gamepad is a modern one and the mapping is positional, so the labels
  * are the machine's own names for the buttons under the same thumbs. */
 static const struct retro_input_descriptor input_descriptors[] = {
-#define PAD_DESC(port)                                                             \
+#define GAMEPAD_DESC(port)                                                             \
     {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_UP, "D-Pad Up"},         \
     {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_DOWN, "D-Pad Down"},     \
     {port, RETRO_DEVICE_JOYPAD, 0, RETRO_DEVICE_ID_JOYPAD_LEFT, "D-Pad Left"},     \
@@ -193,21 +193,21 @@ static const struct retro_input_descriptor input_descriptors[] = {
      RETRO_DEVICE_ID_ANALOG_X, "Right Stick X"},                                   \
     {port, RETRO_DEVICE_ANALOG, RETRO_DEVICE_INDEX_ANALOG_RIGHT,                   \
      RETRO_DEVICE_ID_ANALOG_Y, "Right Stick Y"}
-    PAD_DESC(0), PAD_DESC(1), PAD_DESC(2), PAD_DESC(3),
-#undef PAD_DESC
+    GAMEPAD_DESC(0), GAMEPAD_DESC(1), GAMEPAD_DESC(2), GAMEPAD_DESC(3),
+#undef GAMEPAD_DESC
     {0, 0, 0, 0, NULL},
 };
 
-/* The machine has four pads and reads them as one modern controller each.
+/* The machine has four gamepads and reads them as one modern controller each.
  * Saying so is how a frontend knows the ports exist at all. */
-static const struct retro_controller_description pad_types[] = {
+static const struct retro_controller_description gamepad_types[] = {
     {"Gamepad", RETRO_DEVICE_JOYPAD},
     {"Gamepad (Analog)", RETRO_DEVICE_ANALOG},
     {NULL, 0},
 };
 
 static const struct retro_controller_info controller_info[] = {
-    {pad_types, 2}, {pad_types, 2}, {pad_types, 2}, {pad_types, 2}, {NULL, 0},
+    {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {gamepad_types, 2}, {NULL, 0},
 };
 
 /* The same options a frontend too old for v2 can still read. Two forms cover
@@ -345,7 +345,7 @@ void retro_set_controller_port_device(unsigned port, unsigned device)
 
 /* Say once, on screen, how to type.
  *
- * A frontend binds the keyboard to its own pad and hotkeys, so on a machine
+ * A frontend binds the keyboard to its own gamepad and hotkeys, so on a machine
  * that is a computer the keyboard looks broken until the player turns that
  * off — Game Focus, in RetroArch. The core cannot turn it on and there is
  * no environment call to ask, so the honest thing is to tell them. Once per

@@ -78,8 +78,8 @@ add_executable(rp6502-emu
     ${RP6502_SRC}/host/sokol/main.c
     ${RP6502_EMU_WINDOW}
     ${RP6502_HOST}/window.c
-    ${RP6502_HOST}/pad.c
-    ${RP6502_SRC}/host/sokol/pad_input.c)
+    ${RP6502_HOST}/gamepad.c
+    ${RP6502_SRC}/host/sokol/gamepad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
 
@@ -109,10 +109,10 @@ elseif(APPLE)
         ${RP6502_SRC}/host/sokol/window_core.c
         ${RP6502_SRC}/host/sokol/input.c
         ${RP6502_HOST}/window.c
-        ${RP6502_HOST}/pad.c
+        ${RP6502_HOST}/gamepad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")
     # GameController rather than IOKit: Apple's own drivers normalize every
-    # modern pad, and it asks the user for no permission to do it.
+    # modern gamepad, and it asks the user for no permission to do it.
     target_link_libraries(rp6502-emu PRIVATE
         "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework GameController")

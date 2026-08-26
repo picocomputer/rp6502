@@ -8,7 +8,7 @@
  *
  * Only a machine that meets real USB or Bluetooth devices needs this.
  * The others state their devices outright -- see the Sony controllers in
- * pad.c, whose own descriptors lie, and the Pocket's dock -- so they do
+ * gamepad.c, whose own descriptors lie, and the Pocket's dock -- so they do
  * not link it.
  */
 
@@ -225,7 +225,7 @@ static void hid_descriptor_parse(const uint8_t *desc, uint16_t desc_len, hid_fie
 
 typedef struct
 {
-    uint16_t keyboard, mouse, tablet, digitizer, pad;
+    uint16_t keyboard, mouse, tablet, digitizer, gamepad;
 } hid_choice_t;
 
 static void hid_choose(uint16_t *chosen, uint16_t report_id)
@@ -238,12 +238,12 @@ static bool hid_choose_field(const hid_field_t *f, void *context)
 {
     hid_choice_t *c = (hid_choice_t *)context;
     bool axis = f->usage_page == 0x01 && f->usage >= 0x30 && f->usage <= 0x39;
-    bool button = f->usage_page == 0x09 && f->usage >= 1 && f->usage <= PAD_MAX_BUTTONS;
+    bool button = f->usage_page == 0x09 && f->usage >= 1 && f->usage <= GAMEPAD_MAX_BUTTONS;
 
     if (f->usage_page == 0x07)
         hid_choose(&c->keyboard, f->report_id);
     if (axis || button || (f->usage_page == 0x02 && (f->usage == 0xC4 || f->usage == 0xC5)))
-        hid_choose(&c->pad, f->report_id);
+        hid_choose(&c->gamepad, f->report_id);
     if ((f->usage_page == 0x01 && f->usage == 0x30 && (f->input_flags & 0x04)) || button)
         hid_choose(&c->mouse, f->report_id);
     if ((f->usage_page == 0x01 && (f->usage == 0x30 || f->usage == 0x31)) || button ||
@@ -263,7 +263,7 @@ typedef struct
 {
     hid_parsed_t *out;
     const hid_choice_t *choice;
-    uint32_t keyboard_app, mouse_app, pad_app;
+    uint32_t keyboard_app, mouse_app, gamepad_app;
 } hid_fill_t;
 
 static void hid_locate(uint16_t *offset, uint8_t *size, const hid_field_t *f)
@@ -381,21 +381,21 @@ static void hid_fill_tablet(tablet_connection_t *tablet, const hid_field_t *f)
     }
 }
 
-static void hid_fill_pad(pad_connection_t *pad, const hid_field_t *f)
+static void hid_fill_gamepad(gamepad_connection_t *gamepad, const hid_field_t *f)
 {
     if (f->usage_page == 0x09)
     {
-        if (f->usage >= 1 && f->usage <= PAD_MAX_BUTTONS &&
-            pad->button_offsets[f->usage - 1] == HID_ABSENT)
-            pad->button_offsets[f->usage - 1] = f->bit_pos;
+        if (f->usage >= 1 && f->usage <= GAMEPAD_MAX_BUTTONS &&
+            gamepad->button_offsets[f->usage - 1] == HID_ABSENT)
+            gamepad->button_offsets[f->usage - 1] = f->bit_pos;
         return;
     }
     if (f->usage_page == 0x02) // Simulation: the pedals a wheel reports triggers on
     {
         if (f->usage == 0xC5)
-            hid_locate_range(&pad->rx_offset, &pad->rx_size, &pad->rx_min, &pad->rx_max, f);
+            hid_locate_range(&gamepad->rx_offset, &gamepad->rx_size, &gamepad->rx_min, &gamepad->rx_max, f);
         else if (f->usage == 0xC4)
-            hid_locate_range(&pad->ry_offset, &pad->ry_size, &pad->ry_min, &pad->ry_max, f);
+            hid_locate_range(&gamepad->ry_offset, &gamepad->ry_size, &gamepad->ry_min, &gamepad->ry_max, f);
         return;
     }
     if (f->usage_page != 0x01)
@@ -403,16 +403,16 @@ static void hid_fill_pad(pad_connection_t *pad, const hid_field_t *f)
     switch (f->usage)
     {
     case 0x30: // left stick X
-        if (!pad->x_size)
-            pad->x_absolute = !(f->input_flags & 0x04);
-        hid_locate_range(&pad->x_offset, &pad->x_size, &pad->x_min, &pad->x_max, f);
+        if (!gamepad->x_size)
+            gamepad->x_absolute = !(f->input_flags & 0x04);
+        hid_locate_range(&gamepad->x_offset, &gamepad->x_size, &gamepad->x_min, &gamepad->x_max, f);
         break;
-    case 0x31: hid_locate_range(&pad->y_offset, &pad->y_size, &pad->y_min, &pad->y_max, f); break;
-    case 0x32: hid_locate_range(&pad->z_offset, &pad->z_size, &pad->z_min, &pad->z_max, f); break;
-    case 0x33: hid_locate_range(&pad->rx_offset, &pad->rx_size, &pad->rx_min, &pad->rx_max, f); break;
-    case 0x34: hid_locate_range(&pad->ry_offset, &pad->ry_size, &pad->ry_min, &pad->ry_max, f); break;
-    case 0x35: hid_locate_range(&pad->rz_offset, &pad->rz_size, &pad->rz_min, &pad->rz_max, f); break;
-    case 0x39: hid_locate_range(&pad->hat_offset, &pad->hat_size, &pad->hat_min, &pad->hat_max, f); break;
+    case 0x31: hid_locate_range(&gamepad->y_offset, &gamepad->y_size, &gamepad->y_min, &gamepad->y_max, f); break;
+    case 0x32: hid_locate_range(&gamepad->z_offset, &gamepad->z_size, &gamepad->z_min, &gamepad->z_max, f); break;
+    case 0x33: hid_locate_range(&gamepad->rx_offset, &gamepad->rx_size, &gamepad->rx_min, &gamepad->rx_max, f); break;
+    case 0x34: hid_locate_range(&gamepad->ry_offset, &gamepad->ry_size, &gamepad->ry_min, &gamepad->ry_max, f); break;
+    case 0x35: hid_locate_range(&gamepad->rz_offset, &gamepad->rz_size, &gamepad->rz_min, &gamepad->rz_max, f); break;
+    case 0x39: hid_locate_range(&gamepad->hat_offset, &gamepad->hat_size, &gamepad->hat_min, &gamepad->hat_max, f); break;
     }
 }
 
@@ -435,11 +435,11 @@ static bool hid_fill_field(const hid_field_t *f, void *context)
     }
     if (f->report_id == c->tablet)
         hid_fill_tablet(&fill->out->tablet, f);
-    if (f->report_id == c->pad)
+    if (f->report_id == c->gamepad)
     {
-        if (fill->pad_app == HID_APP_NONE)
-            fill->pad_app = f->app_usage;
-        hid_fill_pad(&fill->out->pad, f);
+        if (fill->gamepad_app == HID_APP_NONE)
+            fill->gamepad_app = f->app_usage;
+        hid_fill_gamepad(&fill->out->gamepad, f);
     }
     return true;
 }
@@ -451,8 +451,8 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
         out->tablet.button_offsets[i] = HID_ABSENT;
     out->tablet.tip_offset = HID_ABSENT;
     out->tablet.inrange_offset = HID_ABSENT;
-    for (int i = 0; i < PAD_MAX_BUTTONS; i++)
-        out->pad.button_offsets[i] = HID_ABSENT;
+    for (int i = 0; i < GAMEPAD_MAX_BUTTONS; i++)
+        out->gamepad.button_offsets[i] = HID_ABSENT;
 
     hid_choice_t choice = {HID_NO_REPORT, HID_NO_REPORT, HID_NO_REPORT,
                            HID_NO_REPORT, HID_NO_REPORT};
@@ -468,7 +468,7 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
     out->keyboard.report_id = choice.keyboard == HID_NO_REPORT ? 0 : (uint8_t)choice.keyboard;
     out->mouse.report_id = choice.mouse == HID_NO_REPORT ? 0 : (uint8_t)choice.mouse;
     out->tablet.report_id = choice.tablet == HID_NO_REPORT ? 0 : (uint8_t)choice.tablet;
-    out->pad.report_id = choice.pad == HID_NO_REPORT ? 0 : (uint8_t)choice.pad;
+    out->gamepad.report_id = choice.gamepad == HID_NO_REPORT ? 0 : (uint8_t)choice.gamepad;
 
     /* What each driver will take. A descriptor that says what it is gets
      * believed; one that does not is judged by what turned up. */
@@ -486,15 +486,15 @@ void hid_parse(const uint8_t *desc, uint16_t desc_len, hid_parsed_t *out)
                       out->tablet.inrange_offset != HID_ABSENT);
 
     /* If it creaks like a gamepad. A mouse has buttons and an X too, but
-     * its X is relative, and a digital pad has no axes at all, so its
+     * its X is relative, and a digital gamepad has no axes at all, so its
      * discrete dpad buttons are what say it isn't a keyboard. */
-    bool axes = out->pad.x_size || out->pad.y_size || out->pad.z_size ||
-                out->pad.rz_size || out->pad.rx_size || out->pad.ry_size ||
-                out->pad.hat_size;
-    if (fill.pad_app == HID_APP_GAMEPAD || fill.pad_app == HID_APP_JOYSTICK)
-        out->pad.valid = axes || out->pad.button_offsets[0] != HID_ABSENT;
+    bool axes = out->gamepad.x_size || out->gamepad.y_size || out->gamepad.z_size ||
+                out->gamepad.rz_size || out->gamepad.rx_size || out->gamepad.ry_size ||
+                out->gamepad.hat_size;
+    if (fill.gamepad_app == HID_APP_GAMEPAD || fill.gamepad_app == HID_APP_JOYSTICK)
+        out->gamepad.valid = axes || out->gamepad.button_offsets[0] != HID_ABSENT;
     else
-        out->pad.valid = out->pad.button_offsets[0] != HID_ABSENT &&
-                         (axes ? out->pad.x_absolute
-                               : out->pad.button_offsets[16] != HID_ABSENT);
+        out->gamepad.valid = out->gamepad.button_offsets[0] != HID_ABSENT &&
+                         (axes ? out->gamepad.x_absolute
+                               : out->gamepad.button_offsets[16] != HID_ABSENT);
 }
