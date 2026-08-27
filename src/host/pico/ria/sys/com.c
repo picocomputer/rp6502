@@ -564,7 +564,7 @@ void com_task(void)
     if (current_break)
         hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
     else if (break_detect)
-        main_break();
+        lifecycle_break();
     break_detect = current_break;
 
     com_telnet_task();

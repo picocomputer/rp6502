@@ -69,7 +69,7 @@ static uint16_t drive_strftime(const struct wire_tm *w, const char *fmt,
 UTEST(rtc, prints_fixed_timestamps)
 {
     host_setenv("TZ", "UTC");
-    tzset(); /* adopt the TZ live; main_init's one tzset ran with the host default */
+    tzset(); /* adopt the TZ live; lifecycle_init's one tzset ran with the host default */
     cap_len = 0;
     cap[0] = 0;
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
@@ -145,8 +145,8 @@ UTEST(rtc, stop_reverts_run_code_page)
     const uint16_t guest = resolved == 850 ? 437 : 850;
     oem_set_code_page_run(guest); /* a guest program changed the run page */
     ASSERT_EQ(oem_get_code_page_run(), guest);
-    main_stop();
-    main_commit();
+    lifecycle_stop();
+    lifecycle_commit();
     ASSERT_EQ(oem_get_code_page_run(), resolved);
 }
 
@@ -161,7 +161,7 @@ UTEST(rtc, settime_persists_across_restart)
     clk_api_time_set();
     ASSERT_EQ((uint16_t)(API_A | (API_X << 8)), (uint16_t)0);
 
-    ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* main_stop + main_run */
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* lifecycle_stop + lifecycle_run */
 
     xstack_ptr = XSTACK_SIZE;
     clk_api_time_get();
@@ -177,7 +177,7 @@ UTEST(rtc, settime_persists_across_restart)
 UTEST_STATE();
 int main(int argc, const char *const argv[])
 {
-    host_setenv("LC_ALL", "C"); /* deterministic strftime, adopted by the one main_init */
-    main_init();              /* the drivers initialize exactly once */
+    host_setenv("LC_ALL", "C"); /* deterministic strftime, adopted by the one lifecycle_init */
+    lifecycle_init();              /* the drivers initialize exactly once */
     return utest_main(argc, argv);
 }

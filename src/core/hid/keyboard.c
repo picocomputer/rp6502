@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/hid.h"
 #include "core/hid/keymap.h"

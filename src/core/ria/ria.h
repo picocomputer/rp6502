@@ -24,7 +24,7 @@ extern "C"
 /* The bus this RIA sits on: ria_active, ria_trigger_sigint, ria_get_sigint. The
  * PIO/UART/mbuf half is firmware-only and has no implementation here; ria_active
  * is always false (no mbuf transfers). */
-#include "core/main.h"
+#include "core/lifecycle.h"
 
 /* Program start, per-frame service, and the vsync the video half raises. */
 void ria_run(void);

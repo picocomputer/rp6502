@@ -13,7 +13,7 @@
  * 6502 left running would keep asking for what is being torn down.
  */
 
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/cpu.h"
 
 static enum state
@@ -22,40 +22,40 @@ static enum state
     starting,
     running,
     stopping,
-} volatile main_state;
+} volatile lifecycle_state;
 
-void main_run(void)
+void lifecycle_run(void)
 {
-    if (main_state != running)
-        main_state = starting;
+    if (lifecycle_state != running)
+        lifecycle_state = starting;
 }
 
-void main_stop(void)
+void lifecycle_stop(void)
 {
     cpu_stop(); /* RESB down now; the rest of the fan-out can wait */
-    if (main_state == starting)
-        main_state = stopped; /* never started; nothing to tear down */
-    else if (main_state != stopped)
-        main_state = stopping;
+    if (lifecycle_state == starting)
+        lifecycle_state = stopped; /* never started; nothing to tear down */
+    else if (lifecycle_state != stopped)
+        lifecycle_state = stopping;
 }
 
-bool main_active(void)
+bool lifecycle_active(void)
 {
-    return main_state != stopped;
+    return lifecycle_state != stopped;
 }
 
 /* Perform whatever was asked for. The machine's loop calls this where it can
  * afford to, which is what makes the ask cheap everywhere else. */
-void main_commit(void)
+void lifecycle_commit(void)
 {
-    if (main_state == starting)
+    if (lifecycle_state == starting)
     {
-        main_on_run();
-        main_state = running;
+        lifecycle_on_run();
+        lifecycle_state = running;
     }
-    if (main_state == stopping)
+    if (lifecycle_state == stopping)
     {
-        main_on_stop();
-        main_state = stopped;
+        lifecycle_on_stop();
+        lifecycle_state = stopped;
     }
 }

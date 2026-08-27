@@ -92,7 +92,7 @@ UTEST(mode2, keyboard_presses_exit)
 /* A program stop resets the VGA to the console canvas (firmware vga_stop ->
  * vga_task DISPLAY reset), so the next program starts on the console instead of
  * the previous program's graphics frame. Mirrors what a dropped ROM does: it
- * calls main_stop, and the following frame's vga_task performs the reset. */
+ * calls lifecycle_stop, and the following frame's vga_task performs the reset. */
 UTEST(mode2, stop_resets_canvas_to_console)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
@@ -100,8 +100,8 @@ UTEST(mode2, stop_resets_canvas_to_console)
     run_frames(20);
     ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240); /* gfx canvas active */
 
-    main_stop(); /* the outgoing program stops (as on a ROM swap) */
-    main_commit();
+    lifecycle_stop(); /* the outgoing program stops (as on a ROM swap) */
+    lifecycle_commit();
     sys_run_frame(); /* vga_task performs the armed console reset */
     ASSERT_EQ(vga_get_canvas(), vga_canvas_console);
 }

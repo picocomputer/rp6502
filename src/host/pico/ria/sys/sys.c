@@ -86,7 +86,7 @@ void sys_mon_reset(const char *args)
 {
     (void)args;
     arg_clear();
-    main_run();
+    lifecycle_run();
 }
 
 void sys_mon_status(const char *args)

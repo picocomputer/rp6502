@@ -6,7 +6,7 @@
  */
 
 #include "core/str/oem.h"
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/str/str.h"
 #include "core/sys/proc.h"
 #include "host/sokol/window.h"
@@ -18,7 +18,7 @@
 #include "core/sys/rom.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli.h"
@@ -35,7 +35,7 @@
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 /* Apply the host/window presentation options shared by both launch paths. phi2,
- * cp, seed and fill are machine settings loaded as config before main_init, not
+ * cp, seed and fill are machine settings loaded as config before lifecycle_init, not
  * here -- which is also why they reach every launch path and these do not. */
 static void apply_options(const cli_options *o)
 {
@@ -131,7 +131,7 @@ int main(int argc, char **argv)
      * mirroring the firmware's cfg_init, whose *_load_* verbs run before
      * cpu_init/oem_init adopt them. Everything below needs the drivers + the
      * resolved code page (argv conversion is per-page), so it all follows
-     * main_init; the machine is started (main_run) after the ROM loads. */
+     * lifecycle_init; the machine is started (lifecycle_run) after the ROM loads. */
     if (o.phi2_khz > 0)
     {
         if (o.phi2_khz > UINT16_MAX || !cpu_set_phi2_khz((uint16_t)o.phi2_khz))
@@ -151,7 +151,7 @@ int main(int argc, char **argv)
     }
     /* One seed for the run, reaching both the memory fill and the RNG the ROM
      * reads, from streams far enough apart that the fill cannot move what the
-     * program's rand() returns. Set before main_init because mem_init is the
+     * program's rand() returns. Set before lifecycle_init because mem_init is the
      * first thing it does. */
     if (o.have_seed)
         rand_set_seed((uint64_t)o.seed);
@@ -161,7 +161,7 @@ int main(int argc, char **argv)
     if (o.fill_random && !o.have_seed)
         fprintf(stderr, "rp6502-emu: memory filled at random; --seed %llu repeats it\n",
                 (unsigned long long)rand_seed_value());
-    main_init();
+    lifecycle_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
      * ROM args are guest-bound, so they convert from host argv encoding to OEM
@@ -284,8 +284,8 @@ int main(int argc, char **argv)
     if (o.script && !script_load(o.script))
         return 1;
 
-    main_run(); /* start the machine — main_init only initialized the drivers */
-    main_commit();
+    lifecycle_run(); /* start the machine — lifecycle_init only initialized the drivers */
+    lifecycle_commit();
 
     /* A script is the clock, always: it runs the machine here rather than under a
      * window, so a frame elapses only because the script asked for one and its

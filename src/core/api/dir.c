@@ -7,7 +7,7 @@
  */
 
 #include "core/api/dir.h"
-#include "core/main.h"
+#include "core/lifecycle.h"
 
 #include <string.h>
 

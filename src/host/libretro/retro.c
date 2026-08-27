@@ -24,7 +24,7 @@
 #include "core/sys/msc.h"
 #include "core/sys/proc.h"
 #include "core/sys/rom.h"
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/sys/sys.h"
@@ -291,8 +291,8 @@ void retro_deinit(void)
 {
     if (machine_inited)
     {
-        main_stop();
-        main_commit(); /* no more frames after this to do it in */
+        lifecycle_stop();
+        lifecycle_commit(); /* no more frames after this to do it in */
     }
     machine_inited = false;
     loaded_rom[0] = 0;
@@ -418,13 +418,13 @@ static bool boot(const char *rom_oem)
     apply_options(machine_inited);
     if (machine_inited)
     {
-        main_stop();
-        main_commit(); /* before mem_init and the load wipe what it runs on */
+        lifecycle_stop();
+        lifecycle_commit(); /* before mem_init and the load wipe what it runs on */
         mem_init();
     }
     else
     {
-        main_init();
+        lifecycle_init();
         machine_inited = true;
     }
     if (!rom_load(rom_oem))
@@ -432,8 +432,8 @@ static bool boot(const char *rom_oem)
     vga_set_framebuffer(frame_buf);
     proc_set_argv(rom_oem, 0, NULL);
     proc_set_launcher(false);
-    main_run();
-    main_commit();
+    lifecycle_run();
+    lifecycle_commit();
     shutdown_sent = false;
     geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */
     return true;
@@ -489,8 +489,8 @@ void retro_unload_game(void)
 {
     if (machine_inited)
     {
-        main_stop();
-        main_commit(); /* the frontend may never call us again */
+        lifecycle_stop();
+        lifecycle_commit(); /* the frontend may never call us again */
     }
     loaded_rom[0] = 0;
     loaded_path[0] = 0;

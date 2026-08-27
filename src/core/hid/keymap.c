@@ -9,7 +9,7 @@
  * whose OS has already done this work links neither this nor the layout
  * database -- emu.cmake omits them both. */
 
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
@@ -379,7 +379,7 @@ static bool keymap_chord(const keymap_press_t *k)
         break;
     case HID_KEY_F4:
         // alt-f4 exits and returns to launcher
-        if (k->alt && main_break_to_launcher())
+        if (k->alt && lifecycle_break_to_launcher())
         {
             keymap_abandon();
             return true;
@@ -387,7 +387,7 @@ static bool keymap_chord(const keymap_press_t *k)
         break;
     case HID_KEY_DELETE:
         // ctrl-alt-del exits to monitor, where there is one
-        if (k->ctrl && k->alt && main_break())
+        if (k->ctrl && k->alt && lifecycle_break())
         {
             keymap_abandon();
             return true;

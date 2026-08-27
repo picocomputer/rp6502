@@ -15,7 +15,7 @@
 #include "core/sys/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/sys/rom.h"
 #include "core/mem/mem.h"
 #include "core/com/com.h"
@@ -297,13 +297,13 @@ UTEST(oem, glyph_store_follows_the_run_page)
      * inside it: font_init rebuilds the glyph store knowing nothing of the
      * page, so oem_init has to follow it. */
     ASSERT_TRUE(oem_set_code_page(850));
-    main_init();
+    lifecycle_init();
     ASSERT_EQ((uint16_t)850, oem_get_code_page_run());
     ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
 
     ASSERT_TRUE(oem_set_code_page(0)); /* back to auto */
     str_init();
-    main_init();
+    lifecycle_init();
     ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
 }
 

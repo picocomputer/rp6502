@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/sys/proc.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
@@ -46,7 +46,7 @@
 #include <stdio.h>
 #include <string.h>
 
-void main_init(void)
+void lifecycle_init(void)
 {
     mem_init();
     proc_init();
@@ -68,7 +68,7 @@ void main_init(void)
 }
 
 /* The 6502 coming out of reset. */
-void main_on_run(void)
+void lifecycle_on_run(void)
 {
     proc_run();
     com_run();
@@ -82,7 +82,7 @@ void main_on_run(void)
 }
 
 /* The 6502 going into reset. */
-void main_on_stop(void)
+void lifecycle_on_stop(void)
 {
     cpu_stop(); /* must be first */
     vga_stop();
@@ -99,15 +99,15 @@ void main_on_stop(void)
 }
 
 /* Nowhere to break to: this machine has no monitor, and the key that asked is
- * an ordinary key. core/main.h documents false as that answer, so these satisfy
+ * an ordinary key. core/lifecycle.h documents false as that answer, so these satisfy
  * the contract rather than stub around it -- and without them emu_core cannot
  * link core/hid/keymap.c, which is the only caller. */
-bool main_break(void)
+bool lifecycle_break(void)
 {
     return false;
 }
 
-bool main_break_to_launcher(void)
+bool lifecycle_break_to_launcher(void)
 {
     return false;
 }

@@ -400,7 +400,7 @@ void ram_mon_binary(const char *args)
 
 void ram_task(void)
 {
-    if (main_active())
+    if (lifecycle_active())
         return;
     switch (ram_state)
     {

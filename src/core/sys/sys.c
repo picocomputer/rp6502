@@ -11,7 +11,7 @@
 #include "core/sys/log.h"
 #include "core/sys/rom.h"
 #include "core/sys/vtkeys.h"
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/ria/ria.h"
@@ -47,7 +47,7 @@ uint64_t sys_clk_now(void) { return sys_clk; }
 uint64_t host_clock_us(void) { return sys_clk / SYS_TICKS_PER_US; }
 unsigned long sys_frame_count(void) { return frame_count; }
 
-/* No init: main_init runs exactly once per process, so static zero-initialization
+/* No init: lifecycle_init runs exactly once per process, so static zero-initialization
  * is the cold-boot state. (sys_init in ria/sys/sys.h is the firmware's monitor
  * banner, which the emulator does not implement.) */
 
@@ -241,7 +241,7 @@ static void run_frame(bool render)
     aud_task();
 
     /* An exec committed this frame: load the new program and restart the CPU,
-     * keeping the system clock and the argv proc_api_exec stored. main_stop arms the
+     * keeping the system clock and the argv proc_api_exec stored. lifecycle_stop arms the
      * console reset (vga_task performs it before the new program draws), as on real
      * hardware; the screen text survives (preserve-screen terminal RIS). */
     const char *exec_path = proc_take_exec();
@@ -249,16 +249,16 @@ static void run_frame(bool render)
     {
         /* Committed here rather than left for the next frame: the load below
          * writes the RAM the outgoing program was running out of. */
-        main_stop();
-        main_commit();
+        lifecycle_stop();
+        lifecycle_commit();
         if (!rom_load(exec_path))
         {
             log_error("exec failed to load '%s'", exec_path);
-            proc_set_exit_code(1); /* stays halted from main_stop */
+            proc_set_exit_code(1); /* stays halted from lifecycle_stop */
         }
         else
-            main_run(); /* start the incoming program; keeps VSYNC + clock */
-        main_commit();
+            lifecycle_run(); /* start the incoming program; keeps VSYNC + clock */
+        lifecycle_commit();
     }
 }
 

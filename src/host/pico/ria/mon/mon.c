@@ -489,7 +489,7 @@ static void mon_more(void)
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
-    if (main_active())
+    if (lifecycle_active())
         return;
     if (mon_more_state)
     {

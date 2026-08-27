@@ -11,7 +11,7 @@
  * No machine runs here. Both sides of every comparison are built from the
  * repository on this build: the generated headers by the same python the
  * fabric's packages come from, the runtime tables by emu_core's own
- * initializers. main_init is called for exactly that — font_init fills
+ * initializers. lifecycle_init is called for exactly that — font_init fills
  * storage that is declared uninitialized, so without it these read whatever
  * was in it.
  */
@@ -20,7 +20,7 @@ extern "C"
 {
 /* emu_boot.h is the emulator suites' C header and carries no linkage guard of
  * its own; every other consumer is C. */
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 }
 
 #include "utest.h"
@@ -71,6 +71,6 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    main_init(); /* font_init and the rest of the table builders */
+    lifecycle_init(); /* font_init and the rest of the table builders */
     return utest_main(argc, argv);
 }

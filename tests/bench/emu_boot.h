@@ -7,7 +7,7 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/sys/sys.h"
 #include "core/sys/rom.h"
 #include "utest.h"
@@ -24,23 +24,23 @@
     UTEST_STATE();                                   \
     int main(int argc, const char *const argv[])     \
     {                                                \
-        main_init();                                 \
+        lifecycle_init();                                 \
         return utest_main(argc, argv);               \
     }
 
 /* Program change: end the previous program, load rom, start it — what an exec
  * and a ROM drop do. The first call per process runs on the just-inited, not-yet-
- * running machine, so its main_stop is a harmless no-op on the idle drivers.
+ * running machine, so its lifecycle_stop is a harmless no-op on the idle drivers.
  * Committed on the spot, as the machine does it: the load writes the RAM the
  * outgoing program was running out of. */
 static inline bool emu_restart(const char *rom)
 {
-    main_stop();
-    main_commit();
+    lifecycle_stop();
+    lifecycle_commit();
     if (!rom_load(rom))
         return false;
-    main_run();
-    main_commit();
+    lifecycle_run();
+    lifecycle_commit();
     return true;
 }
 

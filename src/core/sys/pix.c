@@ -16,7 +16,7 @@
  */
 
 #include "core/pix.h"
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/api/api.h"
 #include "core/mem.h"
 #include <string.h>

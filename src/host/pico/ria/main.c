@@ -177,7 +177,7 @@ static void task(void)
 }
 
 // Event to start running the 6502.
-void main_on_run(void)
+void lifecycle_on_run(void)
 {
     proc_run();
     com_run();
@@ -191,7 +191,7 @@ void main_on_run(void)
 }
 
 // Event to stop the 6502.
-void main_on_stop(void)
+void lifecycle_on_stop(void)
 {
     cpu_stop(); // Must be first
     vga_stop();
@@ -245,14 +245,14 @@ void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 
 static bool is_breaking;
 
-bool main_break(void)
+bool lifecycle_break(void)
 {
     proc_cancel_launcher();
     is_breaking = true;
     return true;
 }
 
-bool main_break_to_launcher(void)
+bool lifecycle_break_to_launcher(void)
 {
     // From the launcher there is nowhere to return to.
     if (proc_is_launcher())
@@ -272,8 +272,8 @@ int main(void)
         main_task();
         task();
         if (is_breaking)
-            main_stop();
-        main_commit();
+            lifecycle_stop();
+        lifecycle_commit();
         if (is_breaking)
         {
             break_();

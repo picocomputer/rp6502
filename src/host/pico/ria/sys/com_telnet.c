@@ -20,7 +20,7 @@
 #include "ria/net/cyw.h"
 #include "core/str/str.h"
 #include "core/str/rln.h"
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "ria/net/wifi.h"
 #include <pico/stdlib.h>
 #include <stdio.h>

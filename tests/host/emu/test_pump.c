@@ -60,8 +60,8 @@ static long generate(int frames)
 
 UTEST(pump, a_matched_rate_is_a_copy)
 {
-    main_stop(); /* the standing bell is the device; no program needed */
-    main_commit();
+    lifecycle_stop(); /* the standing bell is the device; no program needed */
+    lifecycle_commit();
     /* The standing bell runs at the native rate, so this is the case that
      * happens on every machine that gives us the rate we asked for. */
     ASSERT_EQ(aud_rate(), (int)aud_native_rate());
@@ -74,7 +74,7 @@ UTEST(pump, a_matched_rate_is_a_copy)
 
 UTEST(pump, a_mismatched_rate_comes_out_the_right_length)
 {
-    main_stop(); /* the standing bell is the device; no program needed */
+    lifecycle_stop(); /* the standing bell is the device; no program needed */
     const int in_rate = aud_rate();
     ASSERT_GT(in_rate, 0);
 
@@ -112,7 +112,7 @@ UTEST(pump, a_mismatched_rate_comes_out_the_right_length)
 
 UTEST(pump, a_full_device_loses_only_what_it_refused)
 {
-    main_stop(); /* the standing bell is the device; no program needed */
+    lifecycle_stop(); /* the standing bell is the device; no program needed */
     bel_add(&bel_teletype);
     for (int f = 0; f < 30; f++)
         aud_task();

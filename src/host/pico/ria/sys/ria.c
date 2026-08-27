@@ -159,7 +159,7 @@ void ria_task(void)
         if (time_reached(action_watchdog_timer))
         {
             action_result = RIA_ACTION_RESULT_TIMEOUT;
-            main_stop();
+            lifecycle_stop();
         }
     }
 
@@ -215,7 +215,7 @@ void ria_read_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_read;
-    main_run();
+    lifecycle_run();
 }
 
 void ria_verify_buf(uint16_t addr)
@@ -235,7 +235,7 @@ void ria_verify_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_verify;
-    main_run();
+    lifecycle_run();
 }
 
 void ria_write_buf(uint16_t addr)
@@ -256,7 +256,7 @@ void ria_write_buf(uint16_t addr)
     // First write doesn't always write because ???
     rw_pos = -1; // force a second write
     action_state = action_state_write;
-    main_run();
+    lifecycle_run();
 }
 
 // 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. act_loop (core 1)
@@ -354,7 +354,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            lifecycle_stop();
                         }
                         else if (++rw_pos > 0 && rw_pos < rw_end)
                         {
@@ -371,7 +371,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (++rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            lifecycle_stop();
                         }
                     }
                     break;
@@ -385,7 +385,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         {
                             if (action_result < 0)
                                 action_result = RIA_ACTION_RESULT_FINISHED;
-                            main_stop();
+                            lifecycle_stop();
                         }
                     }
                     break;
@@ -419,7 +419,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         // what the program exited with, for a launcher to read
                         // back through ATTR_EXIT_CODE.
                         proc_set_exit_code((int16_t)API_AX);
-                        main_stop();
+                        lifecycle_stop();
                     }
                     break;
                 case CASE_WRITE(0xFFEC): // xstack

@@ -37,7 +37,7 @@ void mut_init(int argc, const char *const argv[])
      * that can be reproduced: an expectation written down against a random
      * fill would be a different number every run. */
     mem_set_fill(false, 0, 0);
-    main_init();
+    lifecycle_init();
 }
 
 void mut_free(void)
@@ -73,13 +73,13 @@ bool mut_boot(const char *rom)
      * other machine gets one by construction and a suite written to both has
      * to be able to say what XRAM held before its program ran. mem_init is
      * the first of the drivers, so the loader's bytes still land on top. */
-    main_stop();
-    main_commit();
+    lifecycle_stop();
+    lifecycle_commit();
     mem_init();
     if (!rom_load(rom))
         return false;
-    main_run();
-    main_commit();
+    lifecycle_run();
+    lifecycle_commit();
     vga_set_framebuffer(mut_fb);
     for (int i = 0; i < MUT_SETTLE_FRAMES; i++)
         sys_run_frame();

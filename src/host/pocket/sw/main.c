@@ -39,7 +39,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/str/rln.h"
 #include "core/pix.h"
 #include "core/vga/mode1.h"
@@ -137,7 +137,7 @@ static void init(void)
 }
 
 /* The 6502 coming out of reset. */
-void main_on_run(void)
+void lifecycle_on_run(void)
 {
     proc_run();
     com_run();
@@ -149,7 +149,7 @@ void main_on_run(void)
 
 /* The 6502 going into reset. Nothing here is on the platform's reset, so
  * anything a program left running is the firmware's to put back. */
-void main_on_stop(void)
+void lifecycle_on_stop(void)
 {
     cpu_stop(); /* Must be first. */
     rln_stop();
@@ -179,18 +179,18 @@ static bool main_rom_len(uint32_t *len)
 }
 
 /* No monitor here, so there is nothing a break could drop into. */
-bool main_break(void)
+bool lifecycle_break(void)
 {
     return false;
 }
 
 /* Alt-F4. Stopping is enough, because proc_stop puts the launcher back. */
-bool main_break_to_launcher(void)
+bool lifecycle_break_to_launcher(void)
 {
     if (!proc_has_launcher() || proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
-    main_stop();
+    lifecycle_stop();
     return true;
 }
 
@@ -253,7 +253,7 @@ static void main_stage(void)
      * in progress from a finished one. */
     MMIO_SLOT = 0;
     if (ok)
-        main_run();
+        lifecycle_run();
     else if (staged)
         printf("rom: bad image\n");
 }
@@ -307,7 +307,7 @@ int main(void)
             {
                 /* Captured before api_return_ax clobbers A/X. */
                 proc_set_exit_code((int16_t)API_AX);
-                main_stop();
+                lifecycle_stop();
                 api_return_ax(0);
             }
         }
@@ -344,7 +344,7 @@ int main(void)
              * this line and neither of those says the engine never
              * finished. */
             LOG_SAY("main: blob\n");
-            main_stop();
+            lifecycle_stop();
         }
         main_wake_pending = wake;
 
@@ -357,7 +357,7 @@ int main(void)
         {
             main_upd_seen = upd;
             restage = true;
-            main_stop();
+            lifecycle_stop();
         }
         /* main_stage cleared this after the boot image, so anything
          * standing here again is a fresh settle. Left set until the
@@ -365,12 +365,12 @@ int main(void)
         if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
-            main_stop();
+            lifecycle_stop();
         }
-        main_commit();
+        lifecycle_commit();
         /* Below the commit rather than inside it: a machine already stopped is
          * owed no stop and would otherwise never launch. */
-        if (!main_active())
+        if (!lifecycle_active())
         {
             if (restage)
             {
@@ -382,7 +382,7 @@ int main(void)
                 main_stage();
             }
             else if (proc_exec_take())
-                main_run();
+                lifecycle_run();
         }
     }
 }

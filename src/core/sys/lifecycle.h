@@ -9,13 +9,13 @@
  * in core/sys/sys.c, and each chip's tick beside the chip.
  */
 
-#ifndef _CORE_SYS_MAIN_H_
-#define _CORE_SYS_MAIN_H_
+#ifndef _CORE_SYS_LIFECYCLE_H_
+#define _CORE_SYS_LIFECYCLE_H_
 
-#include "core/main.h"
+#include "core/lifecycle.h"
 
 #include <stdbool.h>
 #include <stdint.h>
-void main_init(void); /* cold boot: fan out to every subsystem */
+void lifecycle_init(void); /* cold boot: fan out to every subsystem */
 
-#endif /* _CORE_SYS_MAIN_H_ */
+#endif /* _CORE_SYS_LIFECYCLE_H_ */

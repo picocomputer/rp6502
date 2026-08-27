@@ -12,7 +12,7 @@
  * (host/pico/vga/sys/pix.c) and lists core/sys/main_xreg_0.c alone.
  */
 
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/term/term.h"
 #include "core/vga/vga.h"
 

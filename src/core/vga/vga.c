@@ -7,7 +7,7 @@
 
 #include "core/mem/mem.h"
 #include "core/pix.h"
-#include "core/sys/main.h"
+#include "core/sys/lifecycle.h"
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
@@ -80,7 +80,7 @@ static bool vga_needs_reset;
 void vga_stop(void)
 {
     /* Reset only on a real program stop (firmware vga_stop). ria_active() is
-     * always false in the emu — no chunked fast-loads — so every main_stop is an
+     * always false in the emu — no chunked fast-loads — so every lifecycle_stop is an
      * idle stop that arms, exactly as the firmware's exec/exit stop does. */
     if (!ria_active())
         vga_needs_reset = true;

@@ -5,7 +5,7 @@
  */
 
 #include "core/api/ops.h"
-#include "core/main.h"
+#include "core/lifecycle.h"
 #include "core/api/api.h"
 #include "core/cpu.h"
 
