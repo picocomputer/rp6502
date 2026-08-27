@@ -25,4 +25,7 @@ bool via_tick(uint16_t addr, bool read, uint8_t *data);
 /* The live chip instance (m6522_t*), for the debugger UI + DAP register access. */
 void *via_chip(void);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define VIA_LIFECYCLE LIFECYCLE(nul_init, via_run, nul_stop, nul_break)
+
 #endif /* _CORE_WDC_VIA_H_ */

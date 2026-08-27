@@ -98,4 +98,7 @@ bool str_set_locale(const char *name);
 const char *str_get_locale(void);
 const char *str_get_locale_verbose(void);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define STR_LIFECYCLE LIFECYCLE(str_init, nul_run, nul_stop, nul_break)
+
 #endif /* _CORE_STR_STR_H_ */

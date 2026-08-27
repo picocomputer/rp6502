@@ -3,9 +3,15 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * This machine's roster: the drivers it is made of, in the order it comes up.
+ * core/lifecycle.c walks it -- forward for init and run, backward for stop.
+ *
+ * It lives with the machine rather than in core because which drivers a
+ * machine has is the one thing core cannot know. The software machines start
+ * from the same list and are free to diverge.
  */
 
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/sys/proc.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
@@ -46,62 +52,40 @@
 #include <stdio.h>
 #include <string.h>
 
+/* What this machine is made of, in the order it comes up. init, run and
+ * break walk this forward; stop walks it backward. */
+#define ROSTER                                                 \
+    RIA_LIFECYCLE, MEM_LIFECYCLE, PROC_LIFECYCLE, STR_LIFECYCLE, \
+    COM_LIFECYCLE, STD_LIFECYCLE, RLN_LIFECYCLE,               \
+    TERM_LIFECYCLE, KEYBOARD_LIFECYCLE, MOUSE_LIFECYCLE,       \
+    GAMEPAD_LIFECYCLE, TABLET_LIFECYCLE, FONT_LIFECYCLE,       \
+    OEM_LIFECYCLE, VGA_LIFECYCLE, AUD_LIFECYCLE,               \
+    TIM_LIFECYCLE, DIR_LIFECYCLE, API_LIFECYCLE,               \
+    CLK_LIFECYCLE, VIA_LIFECYCLE, CPU_LIFECYCLE
+
 void lifecycle_init(void)
 {
-    mem_init();
-    proc_init();
-    cpu_init();
-    aud_init();
-    keyboard_init();
-    mouse_init();
-    gamepad_init();
-    tablet_init();
-    com_init();
-    std_init();
-    rln_init();
-    tim_init();
-    str_init();
-    font_init();
-    oem_init();
-    term_init();
-    vga_init();
+#define LIFECYCLE(i, r, s, b) i();
+    LIFECYCLE_FORWARD(ROSTER)
+#undef LIFECYCLE
 }
 
 /* The 6502 coming out of reset. */
 void lifecycle_on_run(void)
 {
-    proc_run();
-    com_run();
-    rln_run();
-    dir_run();
-    api_run();
-    clk_run();
-    ria_run();
-    via_run();
-    cpu_run(); /* must be last */
+#define LIFECYCLE(i, r, s, b) r();
+    LIFECYCLE_FORWARD(ROSTER)
+#undef LIFECYCLE
 }
 
-/* The 6502 going into reset. */
+/* Going back into it. */
 void lifecycle_on_stop(void)
 {
-    cpu_stop(); /* must be first */
-    vga_stop();
-    rln_stop();
-    api_stop();
-    oem_stop(); /* a run-only code page belongs to the run that set it */
-    std_stop();
-    dir_stop();
-    keyboard_stop();
-    mouse_stop();
-    gamepad_stop();
-    tablet_stop();
-    aud_stop();
+#define LIFECYCLE(i, r, s, b) s();
+    LIFECYCLE_REVERSE(ROSTER)
+#undef LIFECYCLE
 }
 
-/* Nowhere to break to: this machine has no monitor, and the key that asked is
- * an ordinary key. core/lifecycle.h documents false as that answer, so these satisfy
- * the contract rather than stub around it -- and without them emu_core cannot
- * link core/hid/keymap.c, which is the only caller. */
 bool lifecycle_break(void)
 {
     return false;

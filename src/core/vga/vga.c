@@ -9,7 +9,7 @@
 #include "core/ria.h"
 #include "core/mem/mem.h"
 #include "core/pix.h"
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"

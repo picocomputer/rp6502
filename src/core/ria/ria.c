@@ -9,7 +9,7 @@
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/api/api.h"
 #include "core/ria/ria.h"
 #include <string.h>

@@ -40,4 +40,7 @@ void cpu_set_phi2_khz_run(uint16_t phi2_khz);
 bool cpu_set_phi2_khz(uint16_t phi2_khz);
 uint16_t cpu_get_phi2_khz(void);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define CPU_LIFECYCLE LIFECYCLE(cpu_init, cpu_run, cpu_stop, nul_break)
+
 #endif /* _CORE_CPU_H_ */

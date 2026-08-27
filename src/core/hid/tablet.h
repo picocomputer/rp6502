@@ -130,4 +130,7 @@ void tablet_host_clear(void);
  * unmapped. */
 uint8_t tablet_control(void);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define TABLET_LIFECYCLE LIFECYCLE(tablet_init, nul_run, tablet_stop, nul_break)
+
 #endif /* _CORE_HID_TABLET_H_ */

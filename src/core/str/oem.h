@@ -56,4 +56,7 @@ int oem_to_wide(const char *s, uint16_t *w, int wcount);
 size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz);
 size_t oem_from_wide_n(const uint16_t *w, size_t wlen, char *dst, size_t dstsz);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define OEM_LIFECYCLE LIFECYCLE(oem_init, nul_run, oem_stop, nul_break)
+
 #endif /* _CORE_STR_OEM_H_ */

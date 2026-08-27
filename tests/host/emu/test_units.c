@@ -16,7 +16,7 @@
 #include "core/sys/vtkeys.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/sys/rom.h"
 #include "core/mem/mem.h"
 #include "core/com/com.h"

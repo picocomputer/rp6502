@@ -7,7 +7,7 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/sys/sys.h"
 #include "core/sys/rom.h"
 #include "utest.h"

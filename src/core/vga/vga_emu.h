@@ -53,4 +53,9 @@ uint32_t *vga_get_framebuffer(void);
  * program, the code page -- is core/vga/vga.h, which every machine shares.
  * This file is only what the emulator additionally has: a framebuffer. */
 
+/* This driver's lifecycle row; see core/lifecycle.h. A software machine
+ * renders its own video and has no vga_run -- the firmware's is a link
+ * check, not a frame. */
+#define VGA_LIFECYCLE LIFECYCLE(vga_init, nul_run, vga_stop, nul_break)
+
 #endif /* _CORE_VGA_VGA_EMU_H_ */

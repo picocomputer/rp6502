@@ -90,4 +90,7 @@ bool rln_api_lastkey(void);
 bool rln_api_peek(void);
 bool rln_api_poke(void);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define RLN_LIFECYCLE LIFECYCLE(rln_init, rln_run, rln_stop, rln_break)
+
 #endif /* _CORE_STR_RLN_H_ */

@@ -62,6 +62,9 @@ else()
         ${RP6502_HOST}/host.c)
 endif()
 
+# This machine's roster: what it is made of, and the order it comes up in.
+target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c)
+
 # Everything that reaches a shared object has to be relocatable, emu_core
 # included — it is a static library only on the way in.
 set_property(TARGET emu_core PROPERTY POSITION_INDEPENDENT_CODE ON)

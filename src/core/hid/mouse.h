@@ -68,4 +68,7 @@ bool mouse_umount(int slot);
 // Process HID report.
 void mouse_report(int slot, uint8_t const *report, size_t size);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define MOUSE_LIFECYCLE LIFECYCLE(mouse_init, nul_run, mouse_stop, nul_break)
+
 #endif /* _CORE_HID_MOUSE_H_ */

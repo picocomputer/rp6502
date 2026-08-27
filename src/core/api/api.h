@@ -208,4 +208,7 @@ static inline bool api_return_errno(api_errno errnum)
     return api_return_axsreg(-1);
 }
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define API_LIFECYCLE LIFECYCLE(nul_init, api_run, api_stop, nul_break)
+
 #endif /* _CORE_API_API_H_ */

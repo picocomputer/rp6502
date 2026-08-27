@@ -18,7 +18,6 @@
 #include "core/sys/rom.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
-#include "core/sys/lifecycle.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli.h"

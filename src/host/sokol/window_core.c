@@ -41,7 +41,7 @@
 #include "core/hid/tablet.h"
 #include "core/sys/rom.h"
 #include "core/wdc/cpu.h"
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/sys/sys.h"
 #include "host/fs.h"
 #include "core/vga/vga_emu.h"

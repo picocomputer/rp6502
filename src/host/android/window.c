@@ -17,7 +17,7 @@
 #include "sokol/sokol_log.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "core/hid/gamepad.h"
-#include "core/sys/lifecycle.h"
+#include "core/lifecycle.h"
 #include "core/sys/rom.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"

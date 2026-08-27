@@ -68,4 +68,7 @@ typedef struct
  * has no opinion about stdio. */
 const std_driver_t *std_drivers(size_t *count);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define STD_LIFECYCLE LIFECYCLE(std_init, nul_run, std_stop, nul_break)
+
 #endif /* _CORE_API_STD_H_ */
