@@ -184,11 +184,17 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -Os -ffreestanding -nostartfiles
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
             -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
+            # -flto turns a missing prototype into a miscompile of
+            # unrelated code, and this line carried no -W at all.
+            -Werror=implicit-function-declaration
             -I ${RP6502_SRC}/host/pocket
             -I ${RP6502_SRC}
             -I ${RP6502_ASSETS}
             -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
+            # vendored ffconf.h tests it with #if; the other two roots
+            # pass it and this one was relying on undefined-is-zero.
+            -DRP6502_EXFAT=0
             -T ${SW_SRC}/link.ld -Wl,--no-warn-rwx-segments
             -o ${RP6502_ASSETS}/sw.elf
             ${SW_SOURCES}

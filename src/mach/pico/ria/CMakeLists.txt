@@ -89,6 +89,7 @@ target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
 
 target_compile_options(${RIA_TARGET} PRIVATE
     -Wall -Wextra -Wsign-compare
+    $<$<COMPILE_LANGUAGE:C>:-Werror=implicit-function-declaration>
     $<$<COMPILE_LANGUAGE:C>:-Woverride-init>
     $<$<AND:$<CONFIG:Debug>,$<BOOL:${RP6502_RIA_W}>>:-Os>
     $<$<CONFIG:Release>:-Os>
