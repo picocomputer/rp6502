@@ -31,7 +31,7 @@
  * memory: a "ROM:name" open scans the directory in the file for the entry, like
  * the firmware's rom_find_asset, then reads it on demand. A new program replaces
  * these; the MSC0: drive beside them is untouched. */
-static char g_rom_src[FS_MAX_PATH];
+static char g_rom_src[HOST_MAX_PATH];
 static size_t g_rom_assets_start;
 static uint32_t g_rom_generation; /* bumped per successful rom_load; ROM Help watches it */
 
@@ -248,7 +248,7 @@ typedef struct
 {
     bool used;
     char name[INSTALL_NAME_MAX]; /* basename, e.g. "adventure.rp6502" (the text after ":") */
-    char host[FS_MAX_PATH]; /* the backing file */
+    char host[HOST_MAX_PATH]; /* the backing file */
     size_t size;
 } install_t;
 static install_t installs[INSTALL_MAX];
@@ -266,7 +266,7 @@ static const char *host_basename(const char *hostpath)
 bool rom_install(const char *hostpath)
 {
     const char *base = host_basename(hostpath);
-    if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= FS_MAX_PATH)
+    if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
         return false;
     struct host_fs_meta meta;
     if (!host_fs_stat(hostpath, &meta)) /* must exist; size for the whole-file window */
@@ -321,7 +321,7 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
 
 bool rom_load(const char *path)
 {
-    char host[FS_MAX_PATH];
+    char host[HOST_MAX_PATH];
     if (!rom_resolve(path, host, sizeof(host)))
     {
         log_error("cannot resolve ROM '%s'", path);

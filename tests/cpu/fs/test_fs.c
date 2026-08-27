@@ -37,7 +37,7 @@ static char g_dir[256]; /* a temp dir, made the MSC0: cwd */
 
 static bool fresh_cwd(void)
 {
-    char dir[FS_MAX_PATH];
+    char dir[HOST_MAX_PATH];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop(); /* close any files a prior test left open */
@@ -64,7 +64,7 @@ static bool host_exists(const char *rel)
  * path_forms below. */
 static void msc_expect(char *out, size_t sz, const char *suffix)
 {
-    char base[FS_MAX_PATH];
+    char base[HOST_MAX_PATH];
     fs_from_host(g_dir, base, sizeof(base));
     snprintf(out, sz, "%s%s", base, suffix);
 }
@@ -107,7 +107,7 @@ UTEST(fs, chdir_getcwd_relative)
 {
     ASSERT_TRUE(fresh_cwd());
 
-    char cwd[FS_MAX_PATH], expect[FS_MAX_PATH];
+    char cwd[HOST_MAX_PATH], expect[HOST_MAX_PATH];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */
@@ -147,7 +147,7 @@ UTEST(fs, no_chroot_clamp)
     dsys_path("sub");
     dir_api_chdir();
     ASSERT_EQ(dsys_ax(), 0);
-    char cwd[FS_MAX_PATH], expect[FS_MAX_PATH];
+    char cwd[HOST_MAX_PATH], expect[HOST_MAX_PATH];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), "/sub");
@@ -175,7 +175,7 @@ UTEST(fs, no_chroot_clamp)
  * (absolute from the OS root); the Windows //C/ form names an explicit drive. */
 UTEST(fs, path_translation)
 {
-    char host[FS_MAX_PATH], msc[FS_MAX_PATH];
+    char host[HOST_MAX_PATH], msc[HOST_MAX_PATH];
 
     ASSERT_TRUE(fs_to_host("MSC0:/sub/file", host, sizeof(host)));
     ASSERT_STREQ(host, "/sub/file");

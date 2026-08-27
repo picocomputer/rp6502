@@ -54,8 +54,8 @@ static retro_log_printf_t log_cb;
 static uint32_t frame_buf[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 static int16_t audio_buf[RETRO_AUD_FRAMES_MAX * 2];
 
-static char loaded_rom[FS_MAX_PATH];    /* OEM, absolute, for retro_reset */
-static char loaded_path[FS_MAX_PATH];   /* as the frontend spelled it */
+static char loaded_rom[HOST_MAX_PATH];    /* OEM, absolute, for retro_reset */
+static char loaded_path[HOST_MAX_PATH];   /* as the frontend spelled it */
 static bool machine_inited;
 static int geom_w, geom_h;
 static bool shutdown_sent;
@@ -392,7 +392,7 @@ static void enter_save_directory(const char *content_path)
     {
         /* No save directory: the program's own folder, which is where the SDK
          * puts what it ships beside a ROM. */
-        static char own[FS_MAX_PATH];
+        static char own[HOST_MAX_PATH];
         snprintf(own, sizeof own, "%s", content_path);
         char *slash = strrchr(own, '/');
 #ifdef _WIN32
@@ -405,7 +405,7 @@ static void enter_save_directory(const char *content_path)
         *slash = 0;
         dir = own;
     }
-    char oem[FS_MAX_PATH];
+    char oem[HOST_MAX_PATH];
     if (host_argv_to_oem(dir, oem, sizeof oem))
         host_fs_chdir(oem);
 }
@@ -457,7 +457,7 @@ bool retro_load_game(const struct retro_game_info *game)
     /* Absolute before anything moves: the frontend's path is relative to a
      * directory we are about to leave, and retro_reset has to find the same
      * file again from wherever the program has since gone. */
-    char given[FS_MAX_PATH];
+    char given[HOST_MAX_PATH];
     if (!host_argv_to_oem(game->path, given, sizeof given))
     {
         log_error("ROM path too long");

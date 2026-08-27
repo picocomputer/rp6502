@@ -22,7 +22,7 @@
  * consistent. proc_exec() captures the ROM path and stops the current program;
  * the frame loop commits it via proc_take_exec(). */
 static bool exec_pending;
-static char exec_path[FS_MAX_PATH];
+static char exec_path[HOST_MAX_PATH];
 
 void proc_init(void)
 {
@@ -55,7 +55,7 @@ bool proc_exec_pending(void)
  * through realpath. Empty args are kept, like the monitor's LOAD. */
 bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
-    char abs[FS_MAX_PATH], msc[FS_MAX_PATH];
+    char abs[HOST_MAX_PATH], msc[HOST_MAX_PATH];
     const char *argv0 = rom;
     if (!fs_has_drive_prefix(rom) && rom[0] != ':' && host_fs_realpath(rom, abs, sizeof(abs)))
     {

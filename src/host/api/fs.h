@@ -24,6 +24,12 @@
 #include <stdio.h>
 #include <time.h>
 
+/* A buffer for a host path. This is the OS's limit and not the API's: a
+ * host cwd, a realpath, or a path a frontend hands over arrives at whatever
+ * length the OS allows, and is only then measured against what a 6502 can
+ * hold. Paths that came from the 6502 use core/api/fs.h's FS_MAX_PATH. */
+#define HOST_MAX_PATH 4096
+
 /* ---- file metadata (richer than struct stat so each OS fills it faithfully) ---- */
 struct host_fs_meta
 {

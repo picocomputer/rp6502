@@ -434,6 +434,11 @@ static void info_from_stat(FILINFO *fno, const struct host_fs_meta *m, const cha
 
 /* ---- Directory pool ------------------------------------------------------ */
 
+/* A directory entry name as the host hands it back. NAME_MAX is 255 on the
+ * hosts that have one, and a name longer than this cannot be reached through
+ * a path the API can carry anyway. */
+#define FS_MAX_NAME 256
+
 /* An open directory: the platform's stream, plus the path it was opened by,
  * because the host answers a read with a bare name and each entry has to be
  * stat'd through its full path. */
@@ -517,7 +522,7 @@ static bool fs_dir_opendir(const char *path, int *des, api_errno *err)
 static bool fs_dir_readdir(int des, FILINFO *fno, api_errno *err)
 {
     struct host_dir *d = &dirs[des];
-    char name[256]; /* a directory entry name (<= NAME_MAX), not a full path */
+    char name[FS_MAX_NAME]; /* a directory entry name, not a full path */
     bool is_dir;
     int r;
     do
@@ -531,7 +536,7 @@ static bool fs_dir_readdir(int des, FILINFO *fno, api_errno *err)
             return true;
         }
     } while (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
-    char entry[FS_MAX_PATH];
+    char entry[FS_MAX_PATH + FS_MAX_NAME]; /* the open path, a '/', and the name */
     struct host_fs_meta meta;
     if (snprintf(entry, sizeof(entry), "%s/%s", d->host, name) < (int)sizeof(entry) &&
         host_fs_stat(entry, &meta))
@@ -635,7 +640,7 @@ static bool fs_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
 
 static bool fs_dir_getcwd(char *buf, size_t size, api_errno *err)
 {
-    char cwd[FS_MAX_PATH];
+    char cwd[HOST_MAX_PATH];
     if (!host_ok(host_fs_getcwd(cwd, sizeof(cwd)), err))
         return false;
     if (!fs_from_host(cwd, buf, size)) /* did not fit: full-path-or-error */

@@ -45,7 +45,7 @@ UTEST(exec, reexecs_self_with_arg)
      * program can re-exec itself. chdir into the ROM's directory (like launching
      * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
      * MSC0: path and round-trips through the exec resolver. */
-    char abs[FS_MAX_PATH], msc[FS_MAX_PATH], dir[FS_MAX_PATH];
+    char abs[HOST_MAX_PATH], msc[HOST_MAX_PATH], dir[HOST_MAX_PATH];
     ASSERT_TRUE(host_fs_realpath(TEST_FIXTURE, abs, sizeof(abs)));
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');

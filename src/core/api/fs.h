@@ -19,10 +19,16 @@
 #include <stddef.h>
 
 #include "core/api/dir.h"
+#include "core/mem.h"
 #include "core/api/std.h"
 #include "host/api/fs.h"
 
-#define FS_MAX_PATH 4096 /* host path buffer size for fs_to_host callers */
+/* A buffer for a path the API carries. One arrives on the xstack and getcwd
+ * writes one back there, so XSTACK_SIZE is the whole of what the API can
+ * deliver; the extra byte is mem.c's always-zero end+1, which lets the 6502
+ * push a full stack without a terminator of its own. A host path is not
+ * bounded by this -- see host/api/fs.h's HOST_MAX_PATH. */
+#define FS_MAX_PATH (XSTACK_SIZE + 1)
 
 /* Path addressing: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
  * Windows drive. */
