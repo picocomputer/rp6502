@@ -115,7 +115,9 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/host/pico/ria/*.h
         ${RP6502_SRC}/host/pico/vga/*.h)
     set(SW_SOURCES
-        ${SW_SRC}/crt0.S ${SW_SRC}/main.c ${SW_SRC}/apf.c ${SW_SRC}/aud.c
+        ${SW_SRC}/crt0.S ${SW_SRC}/main.c
+        ${RP6502_ROOT}/src/mach/pocket/lifecycle.c
+        ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
         ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c

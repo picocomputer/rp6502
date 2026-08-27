@@ -47,4 +47,7 @@ const char *keymap_get_layout_list(void);
 const char *keymap_get_layout(void);
 const char *keymap_get_layout_verbose(void);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define KEYMAP_LIFECYCLE LIFECYCLE(keymap_init, nul_run, nul_stop, nul_break)
+
 #endif /* _CORE_HID_KEYMAP_H_ */

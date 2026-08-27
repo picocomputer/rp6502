@@ -57,4 +57,7 @@ unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page);
 unsigned char unicode_from_utf8_next(const char **p, uint16_t page);
 int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define UNICODE_LIFECYCLE LIFECYCLE(unicode_init, nul_run, nul_stop, nul_break)
+
 #endif /* _CORE_STR_UNICODE_H_ */

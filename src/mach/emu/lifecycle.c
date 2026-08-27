@@ -55,7 +55,8 @@
 /* What this machine is made of, in the order it comes up. init, run and
  * break walk this forward; stop walks it backward. */
 #define ROSTER                                                 \
-    RIA_LIFECYCLE, MEM_LIFECYCLE, PROC_LIFECYCLE, STR_LIFECYCLE, \
+    RIA_LIFECYCLE, MEM_LIFECYCLE, SYS_PROC_LIFECYCLE,           \
+    PROC_LIFECYCLE, STR_LIFECYCLE,                             \
     COM_LIFECYCLE, STD_LIFECYCLE, RLN_LIFECYCLE,               \
     TERM_LIFECYCLE, KEYBOARD_LIFECYCLE, MOUSE_LIFECYCLE,       \
     GAMEPAD_LIFECYCLE, TABLET_LIFECYCLE, FONT_LIFECYCLE,       \

@@ -9,6 +9,7 @@
  * of latency, never a tear.
  */
 
+#include "core/api/xreg.h"
 #include "font.h"
 #include "mmio.h"
 #include "vga.h"
@@ -98,4 +99,13 @@ void vid_restore(void)
 {
     VID_PROG = vid_prog_word;
     vid_publish();
+}
+
+/* The console's code page and display type, restored on the way out of a
+ * program. Last in the stop order, after everything that could still draw --
+ * which is where the RIA's deferred vga_task puts the same two writes. */
+void vid_stop(void)
+{
+    xreg1(0x0F, 0x01, 437);
+    xreg1(0x0F, 0x00, vga_get_display_type());
 }

@@ -28,4 +28,8 @@ bool proc_exec_pending(void);     /* an exec is queued but not yet committed */
  * proc_exit schedules that re-exec. */
 bool proc_exit(int16_t exit_code);     /* true if a launcher re-exec was scheduled */
 
+/* The pending-exec queue, which is this machine's and not core/api/proc.c's.
+ * Its own row because the two share a prefix and nothing else. */
+#define SYS_PROC_LIFECYCLE LIFECYCLE(proc_init, nul_run, nul_stop, nul_break)
+
 #endif /* _CORE_SYS_PROC_H_ */

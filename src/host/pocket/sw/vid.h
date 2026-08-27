@@ -13,6 +13,9 @@
 /* The terminal view over the scanout hardware: init programs the raster
  * window; task publishes the model's scanout state once per frame. */
 void vid_init(void);
+
+/* Put the display back the way a fresh boot finds it. */
+void vid_stop(void);
 void vid_task(void);
 /* The terminal's raster window, which is written once when the mode is
  * programmed and so is gone after a wake. */
@@ -22,5 +25,10 @@ uint32_t vid_prog_word_get(void);
 
 bool mode0_prog(uint16_t *xregs);
 
+
+/* First in this machine's roster, so reversal puts vid_stop last -- where the
+ * display restore has to be, after everything that could still draw. vid_init
+ * is not here: it needs term_init, so the machine calls it after the walk. */
+#define VID_LIFECYCLE LIFECYCLE(nul_init, nul_run, vid_stop, nul_break)
 
 #endif /* _FPGA_SW_VID_H_ */

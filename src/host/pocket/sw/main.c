@@ -109,69 +109,6 @@ const std_driver_t *std_drivers(size_t *count)
 
 /* No str_init: one locale and no S() callers, so the localized chain is
  * meant to collect under --gc-sections. */
-static void init(void)
-{
-    /* Before anything can print: the ring is what carries the boot
-     * narration to a log that outlives the host's. */
-    log_init();
-    cpu_init();
-    aud_init();
-    com_init();
-    std_init();
-    rln_init();
-    term_init();
-    /* Both assets ride their own data slots. The machine runs without
-     * them, so a missing one is reported rather than fatal. */
-    if (!unicode_init())
-        printf("oem: no tables\n");
-    if (!layout_init())
-        printf("keyboard: no layouts\n");
-    keyboard_init();
-    keymap_init(); /* the keymap is this machine's, not the device layer's */
-    mouse_init();
-    gamepad_init();
-    tablet_init();
-    apf_init();
-    vid_init();
-    tim_init();
-    rand_init();
-}
-
-/* The 6502 coming out of reset. */
-void lifecycle_on_run(void)
-{
-    proc_run();
-    com_run();
-    rln_run();
-    api_run();
-    clk_run();
-    cpu_run(); /* Must be last: this is RESB going high. */
-}
-
-/* The 6502 going into reset. Nothing here is on the platform's reset, so
- * anything a program left running is the firmware's to put back. */
-void lifecycle_on_stop(void)
-{
-    cpu_stop(); /* Must be first. */
-    rln_stop();
-    api_stop();
-    std_stop();
-    msc_stop(); /* after std_stop: its closes are what park a read */
-    keyboard_stop();
-    mouse_stop();
-    gamepad_stop();
-    tablet_stop();
-    aud_stop();
-    /* argv belongs to the image, not the run, so it is not cleared here. */
-    proc_stop();
-    /* Last, where the RIA's deferred vga_task puts it. */
-    xreg1(0x0F, 0x01, 437);
-    xreg1(0x0F, 0x00, vga_get_display_type());
-}
-
-/* A hot reload with bit 6 clear sends no 0x008A; the size posted into
- * MMIO_SLOT is the whole announcement. The 0x008A count is watched
- * beside it because that is what the documentation promises. */
 static uint8_t main_upd_seen;
 
 static bool main_rom_len(uint32_t *len)
@@ -261,7 +198,7 @@ static void main_stage(void)
 
 int main(void)
 {
-    init();
+    lifecycle_init();
 
     /* A blob already in the window means the host is waking this core
      * rather than starting it, and the restore that is coming will
