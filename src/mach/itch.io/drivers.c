@@ -9,12 +9,13 @@
  */
 #include "core/api/dir.h"
 #include "core/api/std.h"
+#include "core/api/drive.h"
 #include "core/api/fs.h"
 #include "core/rom/rom.h"
 
 const dir_backend_t *dir_backend(void)
 {
-    return &fs_dir_backend;
+    return &drive_backend;
 }
 
 static const std_driver_t std_driver_table[] = {

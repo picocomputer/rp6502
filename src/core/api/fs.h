@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-/* The drive a 6502 reaches when a host has a real filesystem underneath it:
- * the std driver for its files, the backend for core/api/dir.c's directory
- * syscalls, and the address translation between the two spellings of a path.
+/* The files on this machine's drive, as the 6502 opens them: the catch-all
+ * entry in std.c's driver table, over host/api/fs.h.
  *
- * Everything below it is host/api/fs.h and host/api/dir.h, so this is the same
- * file on every software machine and the host is what changes.
+ * There is one of these and every machine installs it -- the host underneath
+ * is what changes, and that is the whole of the seam. The directories beside
+ * these files are core/api/dir.c's, over a drive of their own.
  */
 
 #ifndef _CORE_API_FS_H_
@@ -18,7 +18,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-#include "core/api/dir.h"
 #include "core/mem.h"
 #include "core/api/std.h"
 #include "host/api/fs.h"
@@ -46,8 +45,5 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, ap
 std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err);
 std_rw_result fs_std_sync(int desc, api_errno *err);
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
-
-/* This drive, for core/api/dir.c's handlers. */
-extern const dir_backend_t fs_dir_backend;
 
 #endif /* _CORE_API_FS_H_ */

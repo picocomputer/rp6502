@@ -96,6 +96,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/attr.c
     ${RP6502_SRC}/core/api/clk.c
     ${RP6502_SRC}/core/api/dir.c
+    ${RP6502_SRC}/core/api/drive.c
     ${RP6502_SRC}/core/api/fs.c
     ${RP6502_SRC}/core/api/ops.c
     ${RP6502_SRC}/core/str/path.c
