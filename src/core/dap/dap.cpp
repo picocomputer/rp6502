@@ -24,7 +24,7 @@
 
 extern "C"
 {
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/sys/proc.h"
 #include "core/dap/dbg.h"
 #include "core/com/com.h"

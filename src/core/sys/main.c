@@ -28,7 +28,7 @@
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/clk.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/tim.h"
 #include "core/aud/aud.h"
 #include "core/aud/psg.h"

@@ -9,7 +9,7 @@
  * what test_apf.c asks about is where the bits landed.
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/cfg.h"
 #include "core/hid/hid.h"
 #include "core/main.h"

@@ -68,6 +68,13 @@ typedef struct
 /* This machine's drive, supplied by its main.c. */
 const dir_backend_t *main_dir_backend(void);
 
+/* Tell this machine's drive which code page its filenames are in. FatFs keeps
+ * one of its own and must be told; a host filesystem takes the bytes as they
+ * come and has no page to set. Only pages core/str/unicode.c carries reach
+ * here. Declared beside the drive it speaks to rather than in core/str, which
+ * has no business declaring a drive contract. */
+void oem_fs_code_page(uint16_t cp);
+
 
 /* Machine events: a run starts with no directory open. */
 void dir_run(void);

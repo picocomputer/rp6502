@@ -122,7 +122,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/log.c ${SW_SRC}/mem.c
         ${SW_SRC}/msc.c
         ${SW_SRC}/proc.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
-        ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/uni.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
+        ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
         ${RP6502_SRC}/core/sys/pix.c
@@ -140,7 +140,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/std.c
         ${RP6502_SRC}/core/api/dir.c
         ${RP6502_SRC}/core/api/ops.c
-        ${RP6502_SRC}/core/api/uni.c
+        ${RP6502_SRC}/core/str/unicode.c
         # The real HID drivers, told by apf.c what the dock holds. No
         # descriptor ever reaches this machine, so core/hid/parse.c is
         # not here. The layouts are an asset, so layout.c reads them rather

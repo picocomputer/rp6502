@@ -15,7 +15,7 @@
 #include "core/hid/hid.h"
 #include "core/hid/layout.h"
 #include "apf.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 
 /* The keyboard layouts out of the staging store, one word at a time. Same
  * trade as uni.c: twenty kilobytes has no room in the TCM, and the window

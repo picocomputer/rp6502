@@ -5,7 +5,7 @@
  */
 
 #include "ria/main.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/aud/bel.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"

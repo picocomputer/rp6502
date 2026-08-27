@@ -17,7 +17,7 @@
 #include "core/sys/rom_rec.h"
 #include "core/sys/rom_win.h"
 
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 #include "core/mem.h"
 #include "core/str/str.h"
 
@@ -177,7 +177,7 @@ static bool rom_name_eq(const char *utf8, const char *oem)
     uint16_t page = font_get_code_page();
     for (;;)
     {
-        unsigned char a = uni_from_utf8_next(&utf8, page);
+        unsigned char a = unicode_from_utf8_next(&utf8, page);
         unsigned char b = (unsigned char)*oem++;
         if (toupper(a) != toupper(b))
             return false;

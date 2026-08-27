@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/main.h"
 #include "core/str/str.h"
 #include "core/sys/proc.h"

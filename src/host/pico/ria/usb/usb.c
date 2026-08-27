@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "fatfs/ff.h"
 #include "core/hid/parse.h"
 #include "core/hid/keyboard.h"

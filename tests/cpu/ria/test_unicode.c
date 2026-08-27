@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * src/core/api/uni.c against the file it replaces, exhaustively.
+ * src/core/str/unicode.c against the file it replaces, exhaustively.
  *
  * ffunicode.c is compiled beside it with its three entry points renamed,
  * so both implementations are in one process and every input either
@@ -17,7 +17,7 @@
  * costs a fraction of a second and settles the question completely.
  */
 
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 #include "oemcp.h"
 #include "utest.h"
 
@@ -29,17 +29,17 @@ uint32_t ref_wtoupper(uint32_t uni);
 
 /* The pages the image carries, read out of the image itself so this
  * does not become a second list to keep in step. */
-static uint16_t page_at(unsigned i) { return uni_word(4 + i); }
+static uint16_t page_at(unsigned i) { return unicode_word(4 + i); }
 
 UTEST_MAIN();
 
-UTEST(uni, the_image_is_the_one_the_generator_wrote)
+UTEST(unicode, the_image_is_the_one_the_generator_wrote)
 {
-    ASSERT_TRUE(uni_init());
-    ASSERT_EQ(uni_word(1), OEMCP_PAGES);
+    ASSERT_TRUE(unicode_init());
+    ASSERT_EQ(unicode_word(1), OEMCP_PAGES);
 }
 
-UTEST(uni, every_oem_byte_of_every_page_converts_the_same)
+UTEST(unicode, every_oem_byte_of_every_page_converts_the_same)
 {
     for (unsigned p = 0; p < OEMCP_PAGES; p++)
     {
@@ -49,7 +49,7 @@ UTEST(uni, every_oem_byte_of_every_page_converts_the_same)
     }
 }
 
-UTEST(uni, every_code_point_of_every_page_converts_back_the_same)
+UTEST(unicode, every_code_point_of_every_page_converts_back_the_same)
 {
     for (unsigned p = 0; p < OEMCP_PAGES; p++)
     {
@@ -61,7 +61,7 @@ UTEST(uni, every_code_point_of_every_page_converts_back_the_same)
 
 /* A page nobody declared has to fail the same way, since ff.c reads the
  * zero as "no such character" rather than as a character. */
-UTEST(uni, an_unknown_code_page_converts_to_nothing)
+UTEST(unicode, an_unknown_code_page_converts_to_nothing)
 {
     for (uint32_t u = 0x80; u <= 0xFFFF; u += 97)
     {
@@ -72,7 +72,7 @@ UTEST(uni, an_unknown_code_page_converts_to_nothing)
         ASSERT_EQ(ff_oem2uni((uint16_t)b, 1252), ref_oem2uni((uint16_t)b, 1252));
 }
 
-UTEST(uni, the_up_case_map_agrees_across_the_whole_of_unicode)
+UTEST(unicode, the_up_case_map_agrees_across_the_whole_of_unicode)
 {
     for (uint32_t u = 0; u <= 0x10FFFF; u++)
         ASSERT_EQ(ff_wtoupper(u), ref_wtoupper(u));

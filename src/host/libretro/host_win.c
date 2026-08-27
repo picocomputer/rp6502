@@ -13,7 +13,7 @@
  */
 
 #include "host.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 
 bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz)
 {

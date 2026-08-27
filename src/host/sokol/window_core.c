@@ -35,7 +35,7 @@
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/proc.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/sys/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"

@@ -5,7 +5,7 @@
  */
 
 #include "ria/main.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "ria/mon/drive.h"
 #include "ria/mon/fil.h"
 #include "ria/mon/help.h"

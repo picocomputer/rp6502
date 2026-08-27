@@ -13,7 +13,7 @@
 #include "host.h"
 #include "core/mem/mem.h"
 #include "core/api/dir.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>

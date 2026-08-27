@@ -9,7 +9,7 @@
  */
 
 #include "sys/path.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
 #include "fatfs/ff.h"
 #include <ctype.h>

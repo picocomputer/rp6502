@@ -11,7 +11,7 @@
  */
 
 #include "host.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "host/sokol/cli.h"    /* host_console_attach */
 #include "host/sokol/window.h" /* host_sleep_until_ns */
 #include <stdint.h>

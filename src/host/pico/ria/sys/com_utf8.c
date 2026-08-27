@@ -10,7 +10,7 @@
  */
 
 #include "ria/sys/com.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 
 #include <pico/printf.h>
 

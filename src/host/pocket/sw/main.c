@@ -32,7 +32,7 @@
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/keymap.h"
 #include "core/hid/layout.h"
@@ -121,7 +121,7 @@ static void init(void)
     term_init();
     /* Both assets ride their own data slots. The machine runs without
      * them, so a missing one is reported rather than fatal. */
-    if (!uni_init())
+    if (!unicode_init())
         printf("oem: no tables\n");
     if (!layout_init())
         printf("keyboard: no layouts\n");

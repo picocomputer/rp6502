@@ -25,7 +25,7 @@ extern "C"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/sys/sys.h"
-#include "core/api/oem.h" /* oem_get_code_page_run (RIA panel status) */
+#include "core/str/oem.h" /* oem_get_code_page_run (RIA panel status) */
 #include "core/sys/proc.h" /* proc_get_exit_code (exit-code display) */
 #include "core/sys/main.h"
 #include "core/vga/vga_emu.h"

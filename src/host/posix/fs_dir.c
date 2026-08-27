@@ -9,7 +9,7 @@
  */
 
 #include "host/fs_dir.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>

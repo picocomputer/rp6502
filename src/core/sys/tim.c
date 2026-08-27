@@ -6,7 +6,7 @@
  */
 
 #include "host.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/tim.h"
 
 /* Wall-clock offset in seconds. Allows setting time without changing host clock. */

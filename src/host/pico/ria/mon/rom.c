@@ -7,7 +7,7 @@
 #include "ria/main.h"
 #include "core/api/api.h"
 #include "api/fat.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/arg.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"

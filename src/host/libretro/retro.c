@@ -16,7 +16,7 @@
 
 #include "input.h"
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/sys/rand.h"
 #include "core/sys/version.h"
 #include "core/aud/aud_mix.h"

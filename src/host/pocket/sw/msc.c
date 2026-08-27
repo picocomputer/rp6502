@@ -24,7 +24,7 @@
 #include "mmio.h"
 #include "msc.h"
 
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -259,7 +259,7 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
     size_t o = 0;
     for (;;)
     {
-        unsigned char c = uni_from_utf8_next(&p, page);
+        unsigned char c = unicode_from_utf8_next(&p, page);
         if (!c)
             break;
         if (o + 1 >= cap)
@@ -302,7 +302,7 @@ static uint32_t msc_try_open_start(uint32_t slot, const char *name,
     for (const unsigned char *s = (const unsigned char *)name; *s; s++)
     {
         char enc[4];
-        int k = uni_to_utf8_char(*s, page, enc);
+        int k = unicode_to_utf8_char(*s, page, enc);
         if (n + (size_t)k >= MSC_NAME_MAX)
             return MSC_RC_MALFORMED;
         memcpy(pad + n, enc, (size_t)k);

@@ -18,7 +18,7 @@
  * the staging store beside the fonts and are read a word at a time
  * through a window that cannot fetch anything wider than a byte. That
  * only works if every table access goes through one function, which is
- * uni_word, and the platform supplies it.
+ * unicode_word, and the platform supplies it.
  *
  * Conversion is therefore slower here than an array index, and on the
  * Pocket much slower. Nothing on a hot path converts: a code page
@@ -36,7 +36,7 @@
 #include <fatfs/ff.h>
 #endif
 #endif
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 
 #ifndef FF_DEFINED
 typedef uint16_t WCHAR;
@@ -45,62 +45,62 @@ typedef uint32_t DWORD;
 #endif
 
 /* The image's header, as oem_table_gen.py lays it out. */
-#define UNI_MAGIC 0x4F43u
-#define UNI_PAGE_WORDS 128
+#define UNICODE_MAGIC 0x4F43u
+#define UNICODE_PAGE_WORDS 128
 
-static uint32_t uni_pages;
-static uint32_t uni_cp_at;
-static uint32_t uni_page_at;
-static uint32_t uni_cvt1_at;
-static uint32_t uni_cvt2_at;
+static uint32_t unicode_pages;
+static uint32_t unicode_cp_at;
+static uint32_t unicode_page_at;
+static uint32_t unicode_cvt1_at;
+static uint32_t unicode_cvt2_at;
 
-bool uni_init(void)
+bool unicode_init(void)
 {
-    uint32_t c1 = uni_word(2);
-    uni_pages = uni_word(1);
-    uni_cp_at = 4;
-    uni_page_at = uni_cp_at + uni_pages;
-    uni_cvt1_at = uni_page_at + uni_pages * UNI_PAGE_WORDS;
-    uni_cvt2_at = uni_cvt1_at + c1;
-    return uni_word(0) == UNI_MAGIC;
+    uint32_t c1 = unicode_word(2);
+    unicode_pages = unicode_word(1);
+    unicode_cp_at = 4;
+    unicode_page_at = unicode_cp_at + unicode_pages;
+    unicode_cvt1_at = unicode_page_at + unicode_pages * UNICODE_PAGE_WORDS;
+    unicode_cvt2_at = unicode_cvt1_at + c1;
+    return unicode_word(0) == UNICODE_MAGIC;
 }
 
 /* A platform that links the tables in never fails, so it is spared
  * having to say so at boot; the first lookup reads the header. */
-static void uni_ready(void)
+static void unicode_ready(void)
 {
-    if (!uni_page_at)
-        uni_init();
+    if (!unicode_page_at)
+        unicode_init();
 }
 
 /* The image carries the page numbers in a run of its own, so a lookup
  * is a short scan rather than a table of pointers that would have to be
  * relocated for a machine reading them out of a file. */
-static int uni_page(uint16_t cp)
+static int unicode_page(uint16_t cp)
 {
-    for (uint32_t i = 0; i < uni_pages; i++)
-        if (uni_word(uni_cp_at + i) == cp)
+    for (uint32_t i = 0; i < unicode_pages; i++)
+        if (unicode_word(unicode_cp_at + i) == cp)
             return (int)i;
     return -1;
 }
 
 /* Whether the tables carry a page at all. The filesystem below may keep a
  * page of its own, but it cannot spell a character these tables cannot. */
-bool uni_has_page(uint16_t cp)
+bool unicode_has_page(uint16_t cp)
 {
-    uni_ready();
-    return uni_page(cp) >= 0;
+    unicode_ready();
+    return unicode_page(cp) >= 0;
 }
 
 WCHAR ff_oem2uni(WCHAR oem, WORD cp)
 {
     if (oem < 0x80)
         return oem; /* ASCII passes through every page */
-    uni_ready();
-    int p = uni_page(cp);
+    unicode_ready();
+    int p = unicode_page(cp);
     if (p < 0)
         return 0;
-    return uni_word(uni_page_at + (uint32_t)p * UNI_PAGE_WORDS
+    return unicode_word(unicode_page_at + (uint32_t)p * UNICODE_PAGE_WORDS
                     + (oem - 0x80u));
 }
 
@@ -110,13 +110,13 @@ WCHAR ff_uni2oem(DWORD uni, WORD cp)
         return (uint16_t)uni;
     if (uni >= 0x10000)
         return 0; /* half a surrogate pair is not an OEM character */
-    uni_ready();
-    int p = uni_page(cp);
+    unicode_ready();
+    int p = unicode_page(cp);
     if (p < 0)
         return 0;
-    uint32_t at = uni_page_at + (uint32_t)p * UNI_PAGE_WORDS;
-    for (uint32_t i = 0; i < UNI_PAGE_WORDS; i++)
-        if (uni_word(at + i) == uni)
+    uint32_t at = unicode_page_at + (uint32_t)p * UNICODE_PAGE_WORDS;
+    for (uint32_t i = 0; i < UNICODE_PAGE_WORDS; i++)
+        if (unicode_word(at + i) == uni)
             return (uint16_t)(i + 0x80);
     return 0;
 }
@@ -130,15 +130,15 @@ DWORD ff_wtoupper(DWORD uni)
 {
     if (uni >= 0x10000)
         return uni; /* nothing outside the BMP has a simple up-case */
-    uni_ready();
+    unicode_ready();
     uint16_t uc = (uint16_t)uni;
-    uint32_t p = uc < 0x1000 ? uni_cvt1_at : uni_cvt2_at;
+    uint32_t p = uc < 0x1000 ? unicode_cvt1_at : unicode_cvt2_at;
     for (;;)
     {
-        uint16_t base = uni_word(p++);
+        uint16_t base = unicode_word(p++);
         if (base == 0 || uc < base)
             break;
-        uint16_t nc = uni_word(p++);
+        uint16_t nc = unicode_word(p++);
         uint16_t cmd = nc >> 8;
         nc &= 0xFF;
         if (uc < base + nc)
@@ -146,7 +146,7 @@ DWORD ff_wtoupper(DWORD uni)
             switch (cmd)
             {
             case 0:
-                uc = uni_word(p + (uc - base));
+                uc = unicode_word(p + (uc - base));
                 break;
             case 1:
                 uc -= (uc - base) & 1; /* the pairs are lower, upper */
@@ -189,7 +189,7 @@ DWORD ff_wtoupper(DWORD uni)
  * lookups above. oem.c keeps its own names and passes the page it is
  * holding, so nothing that called it has changed. --- */
 
-unsigned char uni_from_codepoint(uint32_t cp, uint16_t page)
+unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page)
 {
     if (cp >= 0xD800 && cp <= 0xDFFF)
         return 0x7F;
@@ -197,7 +197,7 @@ unsigned char uni_from_codepoint(uint32_t cp, uint16_t page)
     return w ? (unsigned char)w : 0x7F;
 }
 
-unsigned char uni_from_utf8_next(const char **p, uint16_t page)
+unsigned char unicode_from_utf8_next(const char **p, uint16_t page)
 {
     const unsigned char *s = (const unsigned char *)*p;
     unsigned char b0 = *s;
@@ -246,10 +246,10 @@ unsigned char uni_from_utf8_next(const char **p, uint16_t page)
     static const uint32_t min_cp[] = {0, 0x80, 0x800, 0x10000};
     if (cp < min_cp[extra] || cp > 0x10FFFF)
         return 0x7F;
-    return uni_from_codepoint(cp, page);
+    return unicode_from_codepoint(cp, page);
 }
 
-int uni_to_utf8_char(unsigned char b, uint16_t page, char *dst)
+int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst)
 {
     uint32_t u = b;
     if (b >= 0x80)

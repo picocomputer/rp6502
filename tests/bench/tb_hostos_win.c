@@ -9,7 +9,7 @@
 
 #include "tb_hostos.h"
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "host/windows/win.h"
 #include <direct.h>
 #include <io.h>

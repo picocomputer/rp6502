@@ -11,7 +11,7 @@
 
 #include "core/api/api.h"
 #include "core/api/dir.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "api/fat.h"
 #include "fatfs/ff.h"
 #include "host.h" /* HOST_IN_FLASH */

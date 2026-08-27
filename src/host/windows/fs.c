@@ -30,7 +30,7 @@
  */
 
 #include "host/fs.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "host/windows/win.h"
 #include <direct.h>
 #include <errno.h>

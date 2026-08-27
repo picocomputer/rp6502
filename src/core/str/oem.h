@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_API_OEM_H_
-#define _CORE_API_OEM_H_
+#ifndef _CORE_STR_OEM_H_
+#define _CORE_STR_OEM_H_
 
 /* The OEM driver manages IBM/DOS style code pages.
  * This affects RP6502-VGA, FatFs, and keyboards.
@@ -34,11 +34,6 @@ bool oem_is_auto(void);
 // Set the locale's default
 void oem_locale_changed(uint16_t cp);
 
-/* Tell this machine's drive which code page its filenames are in. FatFs keeps
- * one of its own and must be told; a host filesystem takes the bytes as they
- * come and has no page to set. Only pages uni.c carries reach here. */
-void oem_fs_code_page(uint16_t cp);
-
 /* OEM <-> Unicode conversion in the running code page.
  * Unmappable input becomes 0x7F (OEM side) or U+FFFD (Unicode side).
  */
@@ -61,4 +56,4 @@ int oem_to_wide(const char *s, uint16_t *w, int wcount);
 size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz);
 size_t oem_from_wide_n(const uint16_t *w, size_t wlen, char *dst, size_t dstsz);
 
-#endif /* _CORE_API_OEM_H_ */
+#endif /* _CORE_STR_OEM_H_ */

@@ -15,7 +15,6 @@
 
 #include "core/com/com.h"
 #include "core/com/tty.h"
-#include "core/api/oem.h"
 #include "core/aud/bel.h"
 #include "core/main.h"
 #include "host.h" /* COM_RING_SIZE */

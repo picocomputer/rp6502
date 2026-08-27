@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/api/tim.h"
 #include "ria/api/tim.h"
 #include "core/str/rln.h"

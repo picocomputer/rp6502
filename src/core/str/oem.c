@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/api/api.h"
-#include "core/api/oem.h"
+#include "core/api/dir.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/vga/vga.h"
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 #include "host.h"
 #include <string.h>
 
@@ -34,7 +34,7 @@ static void oem_request_code_page(uint16_t cp)
 {
     uint16_t old_code_page = oem_code_page_run;
     // cp >= 900 are DBCS; allow SBCS only
-    if (cp < 900 && uni_has_page(cp))
+    if (cp < 900 && unicode_has_page(cp))
     {
         oem_fs_code_page(cp);
         oem_code_page_run = cp;
@@ -118,17 +118,17 @@ void oem_load_code_page(const char *str)
 
 unsigned char oem_from_codepoint(uint32_t cp)
 {
-    return uni_from_codepoint(cp, oem_code_page_run);
+    return unicode_from_codepoint(cp, oem_code_page_run);
 }
 
 unsigned char oem_from_utf8_next(const char **p)
 {
-    return uni_from_utf8_next(p, oem_code_page_run);
+    return unicode_from_utf8_next(p, oem_code_page_run);
 }
 
 int oem_to_utf8_char(unsigned char b, char *dst)
 {
-    return uni_to_utf8_char(b, oem_code_page_run, dst);
+    return unicode_to_utf8_char(b, oem_code_page_run, dst);
 }
 
 // Truncation never splits a sequence: once one doesn't fit, writing stops

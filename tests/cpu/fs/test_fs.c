@@ -11,7 +11,7 @@
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
 #include "core/api/dir.h"
 #include "core/api/std.h"

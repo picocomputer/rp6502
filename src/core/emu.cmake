@@ -24,7 +24,7 @@ if(ipo_ok AND CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
-# generator so the logic in core/api/uni.c can be read without a
+# generator so the logic in core/str/unicode.c can be read without a
 # preprocessor. See src/core/gen/oem_table_gen.py.
 set(OEMCP_GEN ${RP6502_SRC}/core/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_VENDOR}/fatfs/ffunicode.c)
@@ -98,8 +98,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/clk.c
     ${RP6502_SRC}/core/api/dir.c
     ${RP6502_SRC}/core/api/ops.c
-    ${RP6502_SRC}/core/api/oem.c
-    ${RP6502_SRC}/core/api/uni.c
+    ${RP6502_SRC}/core/str/oem.c
+    ${RP6502_SRC}/core/str/unicode.c
     ${OEMCP_C}
     ${RP6502_SRC}/core/api/std.c
     ${RP6502_SRC}/core/aud/aud.c

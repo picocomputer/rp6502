@@ -7,7 +7,7 @@
  * xreg device/channel dispatch, and the CLI parser.
  */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/str/str.h"
 #include "host/sokol/cli.h"

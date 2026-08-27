@@ -18,7 +18,7 @@ endif()
 
 
 # The OEM code page tables, lifted out of vendor/fatfs/ffunicode.c by a
-# generator so the logic in api/uni.c can be read without a
+# generator so the logic in core/str/unicode.c can be read without a
 # preprocessor. See src/core/gen/oem_table_gen.py.
 set(OEMCP_GEN ${RP6502_ROOT}/src/core/gen/oem_table_gen.py)
 set(OEMCP_SRC ${RP6502_ROOT}/vendor/fatfs/ffunicode.c)
@@ -131,9 +131,9 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/sys/rom_rec.c
     ${RP6502_ROOT}/src/core/sys/rom_win.c
     ${RIA_SRC}/api/fat.c
-    ${RP6502_ROOT}/src/core/api/oem.c
+    ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
-    ${RP6502_ROOT}/src/core/api/uni.c
+    ${RP6502_ROOT}/src/core/str/unicode.c
     ${OEMCP_C}
     ${RP6502_ROOT}/src/core/api/std.c
     ${RIA_SRC}/api/tim.c

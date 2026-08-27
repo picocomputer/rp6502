@@ -9,7 +9,7 @@
  */
 
 #include "core/com/tty.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "core/ria/ria.h"
 
 #include "core/com/com.h"

@@ -10,7 +10,7 @@
  */
 
 #include "host.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include <errno.h>
 #include <locale.h>
 #include <stdio.h>

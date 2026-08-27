@@ -24,7 +24,7 @@ rp6502_add_test(apf
         ${RP6502_SRC}/core/hid/mouse.c
         ${RP6502_SRC}/core/hid/gamepad.c
         ${RP6502_SRC}/core/hid/tablet.c
-        ${RP6502_SRC}/core/api/uni.c
+        ${RP6502_SRC}/core/str/unicode.c
         ${KBDLAY_C} ${OEMCP_C}
         apf_host.c
     INCLUDES ${RP6502_SRC}/host/pocket ${RP6502_SRC}

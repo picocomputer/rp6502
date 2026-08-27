@@ -10,7 +10,7 @@
  */
 
 #include "host/fs.h"
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>

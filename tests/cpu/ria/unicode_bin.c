@@ -3,9 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * uni_word from the image on disk, which is the only copy a Pocket has.
+ * unicode_word from the image on disk, which is the only copy a Pocket has.
  *
- * src/core/api/uni.h calls this the one thing a port has to write, and
+ * src/core/str/unicode.h calls this the one thing a port has to write, and
  * there are two ports: a machine that can afford five kilobytes of
  * flash links oemcp.c and reads an array, and a machine that cannot
  * stages oemcp.bin and reads a window. Both come out of one generator,
@@ -18,7 +18,7 @@
  * window is a store and not a stream.
  */
 
-#include "core/api/uni.h"
+#include "core/str/unicode.h"
 #include "oemcp.h"
 
 #include <stdint.h>
@@ -28,12 +28,12 @@
 static uint8_t oemcp_image[OEMCP_BYTES];
 static int oemcp_loaded;
 
-static void uni_bin_load(void)
+static void unicode_bin_load(void)
 {
     FILE *f = fopen(OEMCP_BIN_PATH, "rb");
     if (!f)
     {
-        fprintf(stderr, "uni_bin: cannot open %s\n", OEMCP_BIN_PATH);
+        fprintf(stderr, "unicode_bin: cannot open %s\n", OEMCP_BIN_PATH);
         exit(1);
     }
     size_t n = fread(oemcp_image, 1, sizeof oemcp_image, f);
@@ -42,7 +42,7 @@ static void uni_bin_load(void)
      * is the failure this whole file exists to catch. */
     if (n != sizeof oemcp_image || fgetc(f) != EOF)
     {
-        fprintf(stderr, "uni_bin: %s is %zu bytes, expected %zu\n",
+        fprintf(stderr, "unicode_bin: %s is %zu bytes, expected %zu\n",
                 OEMCP_BIN_PATH, n, sizeof oemcp_image);
         exit(1);
     }
@@ -50,12 +50,12 @@ static void uni_bin_load(void)
     oemcp_loaded = 1;
 }
 
-/* Little-endian halfwords, which is how src/rtl/sw/uni.c reads them out
+/* Little-endian halfwords, which is how src/host/pocket/sw/unicode.c reads them out
  * of the staging window a byte at a time. */
-uint16_t uni_word(uint32_t index)
+uint16_t unicode_word(uint32_t index)
 {
     if (!oemcp_loaded)
-        uni_bin_load();
+        unicode_bin_load();
     if (index >= OEMCP_WORDS)
         return 0;
     uint32_t at = index * 2;

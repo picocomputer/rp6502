@@ -10,8 +10,8 @@
  * database -- emu.cmake omits them both. */
 
 #include "core/main.h"
-#include "core/api/oem.h"
-#include "core/api/uni.h"
+#include "core/str/oem.h"
+#include "core/str/unicode.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/layout.h"
 #include "core/hid/keymap.h"

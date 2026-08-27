@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_API_UNI_H_
-#define _CORE_API_UNI_H_
+#ifndef _CORE_STR_UNICODE_H_
+#define _CORE_STR_UNICODE_H_
 
 /* The OEM code page conversions, in place of FatFs's ffunicode.c. The
  * three entry points below belong to FatFs and keep its names and its
@@ -14,7 +14,7 @@
  * build that has no FatFs at all.
  *
  * The tables are data, not code, and the platform says where they live:
- * uni_word is the one thing a port has to write. A machine with flash
+ * unicode_word is the one thing a port has to write. A machine with flash
  * links them in; the Pocket keeps them in its staging store and reads
  * them a word at a time.
  */
@@ -23,7 +23,7 @@
 #include <stdint.h>
 
 /* One 16-bit word of the table image, by index. Written per platform. */
-uint16_t uni_word(uint32_t index);
+uint16_t unicode_word(uint32_t index);
 
 /* Read the image's header and cache what the lookups need. False when
  * the magic is wrong, which means the tables did not load — a port that
@@ -32,10 +32,10 @@ uint16_t uni_word(uint32_t index);
  *
  * A platform that links the tables in need not call this; the lookups
  * do it themselves the first time they are asked. */
-bool uni_init(void);
+bool unicode_init(void);
 
 /* True when the tables carry this code page. */
-bool uni_has_page(uint16_t cp);
+bool unicode_has_page(uint16_t cp);
 
 /* Only where FatFs is not. ff.h declares these itself, in types it picks
  * per platform — uint16_t/uint32_t on the C99 branch, windows.h's WORD and
@@ -53,8 +53,8 @@ uint32_t ff_wtoupper(uint32_t uni);
  * them directly. A code point with no OEM character becomes '?' and a
  * malformed sequence becomes one '?' — never an ASCII byte the input did
  * not contain, because these decode untrusted host filenames. */
-unsigned char uni_from_codepoint(uint32_t cp, uint16_t page);
-unsigned char uni_from_utf8_next(const char **p, uint16_t page);
-int uni_to_utf8_char(unsigned char b, uint16_t page, char *dst);
+unsigned char unicode_from_codepoint(uint32_t cp, uint16_t page);
+unsigned char unicode_from_utf8_next(const char **p, uint16_t page);
+int unicode_to_utf8_char(unsigned char b, uint16_t page, char *dst);
 
-#endif /* _CORE_API_UNI_H_ */
+#endif /* _CORE_STR_UNICODE_H_ */

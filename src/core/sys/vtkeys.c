@@ -11,8 +11,8 @@
  * the keycodes to core/hid/keyboard.c, which keeps the bitmap a program polls.
  */
 
-#include "core/api/oem.h"
-#include "core/api/uni.h"
+#include "core/str/oem.h"
+#include "core/str/unicode.h"
 #include "core/sys/vtkeys.h"
 #include "core/hid/usage.h"
 #include "core/com/com.h"
@@ -40,7 +40,7 @@ void vtkeys_char(uint32_t codepoint)
      * UTF-8 decoder does with a lead byte it can return directly. */
     com_keyboard_push_byte(codepoint < 0x80
                                ? (uint8_t)codepoint
-                               : uni_from_codepoint(codepoint, oem_get_code_page_run()));
+                               : unicode_from_codepoint(codepoint, oem_get_code_page_run()));
 }
 
 /* A Ctrl+<letter> chord from the host keyboard, promoted to its C0 control byte

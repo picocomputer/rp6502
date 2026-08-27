@@ -17,7 +17,7 @@
 #include <windows.h>
 #include <shellapi.h> /* ShellExecuteA (WIN32_LEAN_AND_MEAN omits it) */
 
-#include "core/api/oem.h"
+#include "core/str/oem.h"
 #include "host/sokol/window.h"
 #include "host/sokol/window_core.h"
 #include "sokol/sokol_app.h"
