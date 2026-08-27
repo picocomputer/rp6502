@@ -56,7 +56,6 @@ if(WIN32)
 else()
     target_sources(emu_core PRIVATE
         ${RP6502_SRC}/host/posix/dir.c
-    ${RP6502_SRC}/host/posix/dirwalk.c
     ${RP6502_SRC}/host/posix/errmap.c
         ${RP6502_SRC}/host/posix/fs.c
         ${RP6502_SRC}/host/posix/fs_sync.c

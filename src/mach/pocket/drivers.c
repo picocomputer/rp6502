@@ -5,8 +5,8 @@
  *
  * What this machine offers a program to open. Which drivers exist is the same
  * kind of fact as which drivers come up, and belongs beside the roster that
- * says so. The drive a path reaches is not listed here: it is one symbol,
- * drive_backend, and the host that is linked defines it.
+ * says so. The drive a path reaches is not listed here: core/api/dir.h names
+ * those calls and the host that is linked defines them.
  */
 
 #include "core/api/dir.h"

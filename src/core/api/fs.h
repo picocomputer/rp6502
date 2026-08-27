@@ -13,7 +13,7 @@
  * host/pocket/sw/fs.c. Linking a different one is the whole of the seam.
  *
  * The directories beside these files are core/api/dir.c's, over a drive each
- * host supplies the same way (core/api/dir.h's drive_backend).
+ * host supplies the same way (core/api/dir.h's drive_* calls).
  */
 
 #ifndef _CORE_API_FS_H_

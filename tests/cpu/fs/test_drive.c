@@ -38,19 +38,19 @@ static char g_dir[256]; /* a temp dir, made the MSC0: mount, in the 6502's spell
 static bool drive_chdir_to(const char *path)
 {
     api_errno err;
-    return drive_backend.chdir(path, &err);
+    return drive_chdir(path, &err);
 }
 
 static bool drive_cwd(char *buf, size_t sz)
 {
     api_errno err;
-    return drive_backend.getcwd(buf, sz, &err);
+    return drive_getcwd(buf, sz, &err);
 }
 
 static bool drive_mkdir_at(const char *path)
 {
     api_errno err;
-    return drive_backend.mkdir(path, &err);
+    return drive_mkdir(path, &err);
 }
 
 static bool fresh(void)

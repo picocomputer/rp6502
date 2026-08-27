@@ -409,7 +409,7 @@ static void enter_save_directory(const char *content_path)
     char oem[HOST_MAX_PATH];
     api_errno err;
     if (host_argv_to_oem(dir, oem, sizeof oem))
-        drive_backend.chdir(oem, &err);
+        drive_chdir(oem, &err);
 }
 
 /* Stand a program up: a fresh machine, the image, then run. The first load

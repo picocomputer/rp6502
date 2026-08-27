@@ -5,15 +5,18 @@
  *
  * This machine's drive: what core/api/dir.c asks a filesystem for, answered
  * by FatFs over its own DIR pool.
+ *
+ * FatFs and the API keep the same eight fields about an entry, because both
+ * of them are FAT's -- but they are two structs, so stat_from_fatfs is where
+ * one becomes the other. Every other machine builds the API's directly.
  */
 
-#include "api/dir.h"
 #include "api/errmap.h"
 #include "core/api/api.h"
 #include "core/api/dir.h"
 #include "fatfs/ff.h"
-#include "host.h" /* HOST_IN_FLASH */
 #include <assert.h>
+#include <string.h>
 
 // Validate essential settings in ffconf.h
 static_assert(FF_LFN_BUF == 255);
@@ -22,6 +25,10 @@ static_assert(FF_USE_CHMOD == 1);
 static_assert(FF_FS_CRTIME == 1);
 static_assert(FF_USE_LABEL == 1);
 static_assert(FF_LFN_UNICODE == 0);
+
+/* The two names are sized the same on both sides, so a copy is a copy. */
+static_assert(FF_LFN_BUF == F_NAME_MAX);
+static_assert(FF_SFN_BUF == F_ALTNAME_MAX);
 
 static DIR dirs[DIR_MAX_OPEN];
 
@@ -44,7 +51,7 @@ static inline bool fat_ok(FRESULT fresult, api_errno *err)
     return false;
 }
 
-static bool fat_dir_validate(int des, api_errno *err)
+bool drive_validate(int des, api_errno *err)
 {
     if (des < 0 || des >= DIR_MAX_OPEN)
     {
@@ -59,12 +66,30 @@ static bool fat_dir_validate(int des, api_errno *err)
     return true;
 }
 
-static bool fat_dir_stat(const char *path, FILINFO *fno, api_errno *err)
+/* FatFs fills its own record; the API has its own, with the same eight fields
+ * because both of them are FAT's. This is the one place they meet. */
+static void stat_from_fatfs(f_stat_t *info, const FILINFO *fno)
 {
-    return fat_ok(f_stat((const TCHAR *)path, fno), err);
+    memcpy(info->fname, fno->fname, sizeof info->fname);
+    memcpy(info->altname, fno->altname, sizeof info->altname);
+    info->fsize = fno->fsize > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)fno->fsize;
+    info->fattrib = fno->fattrib;
+    info->fdate = fno->fdate;
+    info->ftime = fno->ftime;
+    info->crdate = fno->crdate;
+    info->crtime = fno->crtime;
 }
 
-static bool fat_dir_opendir(const char *path, int *des, api_errno *err)
+bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
+{
+    FILINFO fno;
+    if (!fat_ok(f_stat((const TCHAR *)path, &fno), err))
+        return false;
+    stat_from_fatfs(info, &fno);
+    return true;
+}
+
+bool drive_opendir(const char *path, int *des, api_errno *err)
 {
     int i = 0;
     for (; i < DIR_MAX_OPEN; i++)
@@ -81,76 +106,85 @@ static bool fat_dir_opendir(const char *path, int *des, api_errno *err)
     return true;
 }
 
-static bool fat_dir_readdir(int des, FILINFO *fno, api_errno *err)
+bool drive_readdir(int des, f_stat_t *info, api_errno *err)
 {
-    return fat_ok(f_readdir(&dirs[des], fno), err);
+    FILINFO fno;
+    if (!fat_ok(f_readdir(&dirs[des], &fno), err))
+        return false;
+    stat_from_fatfs(info, &fno);
+    return true;
 }
 
-static bool fat_dir_closedir(int des, api_errno *err)
+bool drive_closedir(int des, api_errno *err)
 {
     FRESULT fresult = f_closedir(&dirs[des]);
     dirs[des].obj.fs = 0;
     return fat_ok(fresult, err);
 }
 
-static bool fat_dir_rewinddir(int des, api_errno *err)
+bool drive_rewinddir(int des, api_errno *err)
 {
     return fat_ok(f_rewinddir(&dirs[des]), err);
 }
 
-static bool fat_dir_unlink(const char *path, api_errno *err)
+bool drive_unlink(const char *path, api_errno *err)
 {
     return fat_ok(f_unlink((const TCHAR *)path), err);
 }
 
-static bool fat_dir_rename(const char *oldname, const char *newname, api_errno *err)
+bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     return fat_ok(f_rename((const TCHAR *)oldname, (const TCHAR *)newname), err);
 }
 
-static bool fat_dir_mkdir(const char *path, api_errno *err)
+bool drive_mkdir(const char *path, api_errno *err)
 {
     return fat_ok(f_mkdir((const TCHAR *)path), err);
 }
 
-static bool fat_dir_chdir(const char *path, api_errno *err)
+bool drive_chdir(const char *path, api_errno *err)
 {
     return fat_ok(f_chdir((const TCHAR *)path), err);
 }
 
-static bool fat_dir_chdrive(const char *drive, api_errno *err)
+bool drive_chdrive(const char *drive, api_errno *err)
 {
     return fat_ok(f_chdrive((const TCHAR *)drive), err);
 }
 
-static bool fat_dir_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
+bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
     return fat_ok(f_chmod((const TCHAR *)path, attr, mask), err);
 }
 
-static bool fat_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
+bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
-    return fat_ok(f_utime((const TCHAR *)path, fno), err);
+    /* f_utime reads only the four stamps out of what it is given. */
+    FILINFO fno = {.fdate = info->fdate,
+                   .ftime = info->ftime,
+                   .crdate = info->crdate,
+                   .crtime = info->crtime};
+    return fat_ok(f_utime((const TCHAR *)path, &fno), err);
 }
 
-static bool fat_dir_getcwd(char *buf, size_t size, api_errno *err)
+bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
     return fat_ok(f_getcwd((TCHAR *)buf, (UINT)size), err);
 }
 
-static bool fat_dir_setlabel(const char *path, api_errno *err)
+bool drive_setlabel(const char *path, api_errno *err)
 {
     return fat_ok(f_setlabel((const TCHAR *)path), err);
 }
 
-static bool fat_dir_getlabel(const char *path, char *label, size_t size, api_errno *err)
+bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
     (void)size; /* f_getlabel writes at most 12 bytes, which is what it is given */
     DWORD vsn;
     return fat_ok(f_getlabel((const TCHAR *)path, (TCHAR *)label, &vsn), err);
 }
 
-static bool fat_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
+bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                             api_errno *err)
 {
     DWORD fre_clust;
@@ -164,22 +198,3 @@ static bool fat_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_
     return true;
 }
 
-const dir_backend_t HOST_IN_FLASH("fat_dir") drive_backend = {
-    .stat = fat_dir_stat,
-    .unlink = fat_dir_unlink,
-    .rename = fat_dir_rename,
-    .mkdir = fat_dir_mkdir,
-    .chdir = fat_dir_chdir,
-    .chdrive = fat_dir_chdrive,
-    .chmod = fat_dir_chmod,
-    .utime = fat_dir_utime,
-    .getfree = fat_dir_getfree,
-    .getcwd = fat_dir_getcwd,
-    .getlabel = fat_dir_getlabel,
-    .setlabel = fat_dir_setlabel,
-    .opendir = fat_dir_opendir,
-    .readdir = fat_dir_readdir,
-    .closedir = fat_dir_closedir,
-    .rewinddir = fat_dir_rewinddir,
-    .validate = fat_dir_validate,
-};

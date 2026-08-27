@@ -8,7 +8,16 @@
 #include "core/str/str.h"
 #include "core/cfg.h"
 #include "core/cpu.h"
+/* FatFs where there is one: ff.h declares ff_oem2uni and ff_wtoupper itself,
+ * in types it picks per platform, and it is the authority wherever a tree has
+ * it. core/str/unicode.h declares them for a tree that does not -- the
+ * Pocket, which has no FatFs anywhere. */
+#ifdef __has_include
+#if __has_include(<fatfs/ff.h>)
 #include <fatfs/ff.h>
+#endif
+#endif
+#include "core/str/unicode.h"
 #include <string.h>
 #include <strings.h>
 #include <ctype.h>
@@ -242,11 +251,11 @@ static char str_buf[256];
 // upper-case via ff_wtoupper. strcasecmp would only fold ASCII.
 bool str_oem_eq(const char *a, const char *b)
 {
-    WORD cp = oem_get_code_page_run();
+    uint16_t cp = oem_get_code_page_run();
     for (;;)
     {
-        WCHAR ua = ff_oem2uni((unsigned char)*a, cp);
-        WCHAR ub = ff_oem2uni((unsigned char)*b, cp);
+        uint16_t ua = ff_oem2uni((unsigned char)*a, cp);
+        uint16_t ub = ff_oem2uni((unsigned char)*b, cp);
         if (ff_wtoupper(ua) != ff_wtoupper(ub))
             return false;
         if (!*a)

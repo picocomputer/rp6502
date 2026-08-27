@@ -51,19 +51,19 @@ static void write_file(const char *dir, const char *name, const char *data)
 static bool drive_chdir_to(const char *path)
 {
     api_errno err;
-    return drive_backend.chdir(path, &err);
+    return drive_chdir(path, &err);
 }
 
 static bool drive_cwd(char *buf, size_t sz)
 {
     api_errno err;
-    return drive_backend.getcwd(buf, sz, &err);
+    return drive_getcwd(buf, sz, &err);
 }
 
 static bool drive_mkdir_at(const char *path)
 {
     api_errno err;
-    return drive_backend.mkdir(path, &err);
+    return drive_mkdir(path, &err);
 }
 
 UTEST(dir, lists_directory)

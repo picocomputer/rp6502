@@ -41,19 +41,19 @@ static char g_dir[256]; /* a temp dir, made the cwd, in the 6502's spelling */
 static bool drive_chdir_to(const char *path)
 {
     api_errno err;
-    return drive_backend.chdir(path, &err);
+    return drive_chdir(path, &err);
 }
 
 static bool drive_cwd(char *buf, size_t sz)
 {
     api_errno err;
-    return drive_backend.getcwd(buf, sz, &err);
+    return drive_getcwd(buf, sz, &err);
 }
 
 static bool drive_mkdir_at(const char *path)
 {
     api_errno err;
-    return drive_backend.mkdir(path, &err);
+    return drive_mkdir(path, &err);
 }
 
 static bool fresh_cwd(void)
@@ -249,7 +249,7 @@ UTEST(fs, dir_enumeration)
     ASSERT_EQ(dsys_ax(), 0);
 
     /* stat reports size + synthesized FAT attributes. */
-    FILINFO info;
+    f_stat_t info;
     dsys_path("alpha.txt");
     dir_api_stat();
     ASSERT_EQ(dsys_ax(), 0);
@@ -447,7 +447,7 @@ UTEST(fs, oem_names_roundtrip)
     ASSERT_TRUE(host_exists("nap\xC3\xA9.txt"));
 #endif
 
-    FILINFO info;
+    f_stat_t info;
     dsys_path("");
     dir_api_opendir();
     int des = dsys_ax();

@@ -2,7 +2,7 @@
 #
 # Linux and macOS share all of these files and differ only in the entropy
 # source and the frame-pacer sleep, which is what each one's own host.c is.
-# The web and Android hosts take dir.c, dirent.c, errno.c and host.c from here
+# The web and Android hosts take dir.c, errmap.c and host.c from here
 # directly and bring their own transport — neither has <aio.h> — so they do
 # not include this.
 #
@@ -12,14 +12,10 @@
 # This include takes the asynchronous one; a root that wants the other names
 # these files itself.
 #
-# dir.c is the drive, and dirent.c the directory walk it cannot hold itself --
-# <dirent.h> and FatFs's ff.h both define a type called DIR.
-#
 # Included after emu.cmake: it adds to emu_core.
 
 target_sources(emu_core PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/dir.c
-    ${CMAKE_CURRENT_LIST_DIR}/dirwalk.c
     ${CMAKE_CURRENT_LIST_DIR}/errmap.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
     ${CMAKE_CURRENT_LIST_DIR}/fs_aio.c

@@ -9,12 +9,12 @@
  * Windows keeps what the 6502 asks for. FILE_ATTRIBUTE_READONLY, _HIDDEN,
  * _SYSTEM, _DIRECTORY and _ARCHIVE are the FAT attribute bits, with the same
  * values FAT gave them, and FileTimeToDosDateTime is the FAT date and time --
- * so a FILINFO is read off a find record rather than reconstructed, and none
- * of it is a guess. A find carries all of it, so a read costs no extra call.
+ * so an f_stat_t is read off a find record rather than reconstructed, and
+ * none of it is a guess. A find carries all of it, so a read costs no extra
+ * call.
  *
  * There is no opendir/readdir on Win32: FindFirstFileW/FindNextFileW/FindClose
- * over an opaque heap struct. Nothing collides with ff.h here, so unlike the
- * POSIX side this is one file.
+ * over an opaque heap struct.
  *
  * Paths cross spelled the way the 6502 spells them and in its OEM code page.
  * The drive prefix comes off with path_to_native() and the code page with
@@ -57,33 +57,33 @@ static bool win_ok(BOOL ok, api_errno *err)
     return ok != FALSE;
 }
 
-/* ---- FILINFO, straight off what Win32 keeps ------------------------------ */
+/* ---- f_stat_t, straight off what Win32 keeps ----------------------------- */
 
 /* The FAT attribute bits the 6502 sees, which are the same bits Win32 uses --
  * masked so nothing Windows-only (COMPRESSED, REPARSE_POINT, ...) leaks into
  * a field a program reads as FAT's. */
 #define FS_AM_MASK 0x37 /* RDO|HID|SYS|DIR|ARC */
 
-static void info_from_find(FILINFO *fno, const WIN32_FIND_DATAW *fd, const char *name)
+static void info_from_find(f_stat_t *info, const WIN32_FIND_DATAW *fd, const char *name)
 {
-    snprintf(fno->fname, sizeof(fno->fname), "%s", name);
-    fno->altname[0] = 0; /* the 8.3 name Win32 offers is not asked for here */
+    snprintf(info->fname, sizeof(info->fname), "%s", name);
+    info->altname[0] = 0; /* the 8.3 name Win32 offers is not asked for here */
     uint64_t size = ((uint64_t)fd->nFileSizeHigh << 32) | fd->nFileSizeLow;
-    fno->fsize = size > 0xFFFFFFFF ? 0xFFFFFFFF : (FSIZE_t)size;
-    fno->fattrib = (uint8_t)(fd->dwFileAttributes & FS_AM_MASK);
+    info->fsize = size > 0xFFFFFFFF ? 0xFFFFFFFF : (uint32_t)size;
+    info->fattrib = (uint8_t)(fd->dwFileAttributes & FS_AM_MASK);
     /* A find reports UTC; FAT records local time, which is what the API
      * carries, so each stamp goes through the local conversion on the way. */
     FILETIME lft;
     WORD d = 0, t = 0;
     if (FileTimeToLocalFileTime(&fd->ftLastWriteTime, &lft))
         FileTimeToDosDateTime(&lft, &d, &t);
-    fno->fdate = d;
-    fno->ftime = t;
+    info->fdate = d;
+    info->ftime = t;
     d = t = 0;
     if (FileTimeToLocalFileTime(&fd->ftCreationTime, &lft))
         FileTimeToDosDateTime(&lft, &d, &t);
-    fno->crdate = d;
-    fno->crtime = t;
+    info->crdate = d;
+    info->crtime = t;
 }
 
 /* ---- The drive, as core/api/dir.c asks for it ---------------------------- */
@@ -99,7 +99,7 @@ struct win_dir
 };
 static struct win_dir dirs[DIR_MAX_OPEN];
 
-static bool drive_validate(int des, api_errno *err)
+bool drive_validate(int des, api_errno *err)
 {
     if (des < 0 || des >= DIR_MAX_OPEN)
     {
@@ -114,7 +114,7 @@ static bool drive_validate(int des, api_errno *err)
     return true;
 }
 
-static bool drive_stat(const char *path, FILINFO *fno, api_errno *err)
+bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
@@ -131,11 +131,11 @@ static bool drive_stat(const char *path, FILINFO *fno, api_errno *err)
     fd.nFileSizeHigh = fad.nFileSizeHigh;
     fd.nFileSizeLow = fad.nFileSizeLow;
     /* stat names a single entry; report its basename, not the whole path. */
-    info_from_find(fno, &fd, path_basename(path));
+    info_from_find(info, &fd, path_basename(path));
     return true;
 }
 
-static bool drive_opendir(const char *path, int *des, api_errno *err)
+bool drive_opendir(const char *path, int *des, api_errno *err)
 {
     int i = 0;
     for (; i < DIR_MAX_OPEN; i++)
@@ -176,7 +176,7 @@ static bool drive_opendir(const char *path, int *des, api_errno *err)
 }
 
 /* "." and ".." are not entries the 6502 sees. */
-static bool drive_readdir(int des, FILINFO *fno, api_errno *err)
+bool drive_readdir(int des, f_stat_t *info, api_errno *err)
 {
     struct win_dir *d = &dirs[des];
     if (!d->alive)
@@ -193,7 +193,7 @@ static bool drive_readdir(int des, FILINFO *fno, api_errno *err)
                 DWORD e = GetLastError();
                 if (e == ERROR_NO_MORE_FILES)
                 {
-                    memset(fno, 0, sizeof(*fno)); /* fname[0]==0 signals EOF */
+                    memset(info, 0, sizeof(*info)); /* fname[0]==0 signals EOF */
                     return true;
                 }
                 *err = win_error_to_api(e);
@@ -205,12 +205,12 @@ static bool drive_readdir(int des, FILINFO *fno, api_errno *err)
         oem_from_wide((const uint16_t *)d->fd.cFileName, name, sizeof name);
         if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
             continue;
-        info_from_find(fno, &d->fd, name);
+        info_from_find(info, &d->fd, name);
         return true;
     }
 }
 
-static bool drive_closedir(int des, api_errno *err)
+bool drive_closedir(int des, api_errno *err)
 {
     (void)err;
     struct win_dir *d = &dirs[des];
@@ -222,7 +222,7 @@ static bool drive_closedir(int des, api_errno *err)
     return true;
 }
 
-static bool drive_rewinddir(int des, api_errno *err)
+bool drive_rewinddir(int des, api_errno *err)
 {
     struct win_dir *d = &dirs[des];
     if (d->alive && d->h != INVALID_HANDLE_VALUE)
@@ -238,7 +238,7 @@ static bool drive_rewinddir(int des, api_errno *err)
     return true;
 }
 
-static bool drive_unlink(const char *path, api_errno *err)
+bool drive_unlink(const char *path, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
@@ -254,7 +254,7 @@ static bool drive_unlink(const char *path, api_errno *err)
     return false;
 }
 
-static bool drive_rename(const char *oldname, const char *newname, api_errno *err)
+bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
     wchar_t wo[WIN_WPATH_MAX], wn[WIN_WPATH_MAX];
     if (!path_to_wide(oldname, wo, WIN_WPATH_MAX, err) ||
@@ -263,7 +263,7 @@ static bool drive_rename(const char *oldname, const char *newname, api_errno *er
     return win_ok(MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING), err);
 }
 
-static bool drive_mkdir(const char *path, api_errno *err)
+bool drive_mkdir(const char *path, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
@@ -271,7 +271,7 @@ static bool drive_mkdir(const char *path, api_errno *err)
     return win_ok(CreateDirectoryW(w, NULL), err);
 }
 
-static bool drive_chdir(const char *path, api_errno *err)
+bool drive_chdir(const char *path, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
@@ -282,7 +282,7 @@ static bool drive_chdir(const char *path, api_errno *err)
 
 /* The 6502 sees MSC0: (and the bare current drive); anything else is a
  * missing device. */
-static bool drive_chdrive(const char *drive, api_errno *err)
+bool drive_chdrive(const char *drive, api_errno *err)
 {
     if (drive[0] != ':') /* the null drive (installs) is not a cwd-able drive */
     {
@@ -300,7 +300,7 @@ static bool drive_chdrive(const char *drive, api_errno *err)
 
 /* The attribute bits are Win32's own, so only the ones the API names are
  * touched and the rest of what Windows keeps is left alone. */
-static bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
+bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
     if (!(mask & FS_AM_MASK))
         return true;
@@ -320,13 +320,13 @@ static bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno 
 /* Set the modification time from the FAT date/time -- the same conversion
  * info_from_find does, run backwards. Windows can set the creation time the
  * API also carries, so it does. */
-static bool drive_utime(const char *path, const FILINFO *fno, api_errno *err)
+bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
         return false;
     FILETIME lft, ft;
-    if (!win_ok(DosDateTimeToFileTime(fno->fdate, fno->ftime, &lft), err) ||
+    if (!win_ok(DosDateTimeToFileTime(info->fdate, info->ftime, &lft), err) ||
         !win_ok(LocalFileTimeToFileTime(&lft, &ft), err))
         return false;
     HANDLE h = CreateFileW(w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
@@ -344,7 +344,7 @@ static bool drive_utime(const char *path, const FILINFO *fno, api_errno *err)
     return true;
 }
 
-static bool drive_getcwd(char *buf, size_t size, api_errno *err)
+bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     DWORD n = GetCurrentDirectoryW(WIN_WPATH_MAX, w);
@@ -370,20 +370,20 @@ static bool drive_getcwd(char *buf, size_t size, api_errno *err)
  * a program cannot act on the difference. Report an empty one and accept
  * (ignore) a set, so label-aware programs run rather than erroring -- these
  * are answers, not missing calls, which is why neither slot is left NULL. */
-static bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
+bool drive_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
     (void)path, (void)size, (void)err;
     label[0] = 0;
     return true;
 }
 
-static bool drive_setlabel(const char *path, api_errno *err)
+bool drive_setlabel(const char *path, api_errno *err)
 {
     (void)path, (void)err;
     return true;
 }
 
-static bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
+bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                           api_errno *err)
 {
     /* A drive query names a drive, and no name is the one in use -- the same
@@ -417,22 +417,3 @@ void oem_fs_code_page(uint16_t cp)
     (void)cp;
 }
 
-const dir_backend_t drive_backend = {
-    .stat = drive_stat,
-    .unlink = drive_unlink,
-    .rename = drive_rename,
-    .mkdir = drive_mkdir,
-    .chdir = drive_chdir,
-    .chdrive = drive_chdrive,
-    .chmod = drive_chmod,
-    .utime = drive_utime,
-    .getfree = drive_getfree,
-    .getcwd = drive_getcwd,
-    .getlabel = drive_getlabel,
-    .setlabel = drive_setlabel,
-    .opendir = drive_opendir,
-    .readdir = drive_readdir,
-    .closedir = drive_closedir,
-    .rewinddir = drive_rewinddir,
-    .validate = drive_validate,
-};

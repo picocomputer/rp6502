@@ -193,7 +193,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -I ${RP6502_SRC}/host/pocket
             -I ${RP6502_SRC}
             -I ${RP6502_ASSETS}
-            -I ${RP6502_VENDOR}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             # vendored ffconf.h tests it with #if; the other two roots
             # pass it and this one was relying on undefined-is-zero.
