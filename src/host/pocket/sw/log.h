@@ -10,7 +10,10 @@
 /* Diagnostic narration. It exists to fill the log, so it goes silent
  * with it: an off build must not spend console bytes, because every four
  * of them is a target command on the bridge the drive and the staging
- * store share. Callers include com.h. */
+ * store share. */
+
+#include "core/com.h"
+
 #ifdef RP6502_LOG_FILE
 #define LOG_SAY(...) com_printf(__VA_ARGS__)
 #else
