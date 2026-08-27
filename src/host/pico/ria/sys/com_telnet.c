@@ -107,7 +107,7 @@ void com_telnet_tx_write(char ch)
 
 size_t com_telnet_read(char *buf, size_t length)
 {
-    size_t count = com_recover_rx_char(buf, COM_SOURCE_TEL);
+    size_t count = com_recover_rx_char(buf, length, COM_SOURCE_TEL);
     while (count < length && com_telnet_rx_head != com_telnet_rx_tail)
     {
         com_telnet_rx_tail = (com_telnet_rx_tail + 1) % COM_TELNET_RX_BUF_SIZE;

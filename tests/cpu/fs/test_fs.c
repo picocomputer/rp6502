@@ -482,4 +482,52 @@ UTEST(fs, oem_names_roundtrip)
     ASSERT_EQ(dsys_ax(), -1); /* gone */
 }
 
+/* A read of nothing is a legal thing to ask for -- the API's short-stack pop
+ * makes read(fd, buf, 0) an ordinary 6502 sequence -- and it hands the driver
+ * a buffer at &xstack[XSTACK_SIZE], which is the always-zero guard byte that
+ * terminates an unterminated 6502 string. A driver that writes there anyway
+ * corrupts the next op that reads a path, and the errant byte turns up much
+ * later somewhere else.
+ *
+ * The RIA firmware's console driver did exactly that. It has no test of its
+ * own -- nothing compiles host/pico/ria/sys/com.c -- so this pins the
+ * contract on the copy that is testable, and a second copy that drifts from
+ * it has somewhere to be caught. */
+UTEST(fs, a_read_of_nothing_writes_nothing)
+{
+    ASSERT_TRUE(fresh_cwd());
+    ASSERT_EQ(xstack[XSTACK_SIZE], 0); /* the guard, before anything */
+
+    /* A real file: zero bytes asked for, zero delivered. */
+    make_file("zero.txt", "hello", 5);
+    int f = ssys_open("zero.txt", O_RD);
+    ASSERT_TRUE(f >= 0);
+    char buf[8] = {0};
+    ASSERT_EQ(ssys_read(f, buf, 0), 0);
+    ASSERT_EQ(xstack[XSTACK_SIZE], 0);
+    ssys_close(f);
+
+    /* And the console with a byte actually staged in the $FFE2 latch, which
+     * is the only thing a zero-length console read can find to write. Without
+     * one there is nothing to misplace and the check proves nothing.
+     * std_init opens the reserved descriptors this bench does not otherwise
+     * need; the TTY is 4. */
+    std_init();
+    regs[0x02] = 'X';
+    regs[0x00] |= 0x40; /* RIA_UART_RX_READY: a byte is in the latch */
+    ASSERT_EQ(ssys_read(4 /* STD_FD_TTY */, buf, 0), 0);
+    ASSERT_EQ(xstack[XSTACK_SIZE], 0); /* not written past the buffer */
+    ASSERT_TRUE(regs[0x00] & 0x40);    /* and left staged, not eaten */
+
+    /* A read with room takes it, so it was only deferred. */
+    ASSERT_EQ(ssys_read(4, buf, 1), 1);
+    ASSERT_EQ(buf[0], 'X');
+
+    /* The guard still terminates a full unterminated string, which is the
+     * thing the errant byte used to break. */
+    dsys_path("zero.txt");
+    dir_api_stat();
+    ASSERT_EQ(dsys_ax(), 0);
+}
+
 UTEST_MAIN()
