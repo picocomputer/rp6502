@@ -225,7 +225,15 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     }
     files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & 0x02) != 0};
     if (flags & 0x40) /* APPEND: one-time seek to EOF (O_TRUNC already ran) */
-        fs_lseek(fd, 0, SEEK_END);
+        if (!fs_lseek(fd, 0, SEEK_END))
+        {
+            /* Reporting success here would hand back a descriptor positioned at
+             * the start of a file the guest asked to append to. */
+            *err = msc_errno_to_api_errno(errno);
+            files[des].used = false;
+            fs_close(fd);
+            return -1;
+        }
     return des;
 }
 
@@ -421,12 +429,6 @@ static void info_from_stat(FILINFO *fno, const struct fs_meta *m, const char *na
     fno->fattrib = fat_attrib(m);
     fat_pack_time(m->mtime, &fno->fdate, &fno->ftime);
     fat_pack_time(m->crtime, &fno->crdate, &fno->crtime);
-}
-
-/* Fail the syscall from the current errno (mapped to an api_errno). */
-static bool host_err(void)
-{
-    return api_return_errno(msc_errno_to_api_errno(errno));
 }
 
 /* ---- Directory pool ------------------------------------------------------ */

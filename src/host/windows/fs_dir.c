@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows directory enumeration (host/dir.h dir_*), the Win32 counterpart of
- * host/posix/dir.c.
+ * Windows directory enumeration (host/fs_dir.h fs_dir_*), the Win32 counterpart
+ * of host/posix/fs_dir.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
- * oem_to_wide() (api/oem.h) before every …W call, and convert returned names
+ * oem_to_wide() (core/str/oem.h) before every …W call, and convert returned names
  * back with oem_from_wide(). There is no opendir/readdir on Win32; use
  * FindFirstFileW/FindNextFileW/FindClose over an opaque heap struct.
  */
