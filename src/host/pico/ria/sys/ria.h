@@ -66,4 +66,10 @@ void ria_verify_buf(uint16_t addr);
 // Prints a "?" error and returns true if last mbuf action failed.
 bool ria_handle_error(void);
 
+/* First in this machine's roster, so reversal puts ria_stop last: vga_stop,
+ * rln_stop and com_stop all read ria_active() to tell a program stop from a
+ * fast-load transfer, and ria_stop is what makes it false. ria_init brings up
+ * PIO and launches core1, so it is a prepend, not a row. */
+#define RIA_HW_LIFECYCLE LIFECYCLE(nul_init, ria_run, ria_stop, nul_break)
+
 #endif /* _RIA_SYS_RIA_H_ */

@@ -63,4 +63,8 @@ void vga_set_canvas(uint16_t canvas_word);
 // VGA-bound protocol state pushed from other subsystems
 void vga_set_tel_console_active(bool active);
 
+/* vga_init is a backchannel PIO, two IRQs and a blocking connect, so it is a
+ * prepend and must follow pix_init. */
+#define VGA_HW_LIFECYCLE LIFECYCLE(nul_init, vga_run, vga_stop, vga_break)
+
 #endif /* _RIA_SYS_VGA_H_ */

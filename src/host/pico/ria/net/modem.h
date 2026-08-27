@@ -78,4 +78,7 @@ bool modem_set_listen_port(uint16_t port);
 bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define MODEM_LIFECYCLE LIFECYCLE(modem_init, nul_run, modem_stop, nul_break)
+
 #endif /* _RIA_NET_MODEM_H_ */

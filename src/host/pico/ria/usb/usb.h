@@ -50,4 +50,9 @@ const void *usb_string_fetch_serial(uint8_t daddr);
 // Stable device identity fingerprint (VID/PID/bcdDevice + descriptor strings)
 bool usb_device_id_hash(uint8_t daddr, char *buf, size_t buf_size);
 
+/* Late on purpose. usb_init arms a 355 ms enumeration window that
+ * keyboard_mount reads to decide the Raspberry Pi keyboard's NumLock quirk;
+ * anything slow scheduled inside it makes the quirk stop firing. */
+#define USB_LIFECYCLE LIFECYCLE(usb_init, nul_run, nul_stop, nul_break)
+
 #endif /* _RIA_USB_USB_H_ */

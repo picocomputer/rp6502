@@ -29,4 +29,7 @@ void mem_task(void);
 void mem_break(void);
 void mem_read_mbuf(uint32_t timeout_ms, mem_read_callback_t callback, size_t size);
 
+/* This driver's lifecycle row; see core/lifecycle.h. */
+#define MEM_HW_LIFECYCLE LIFECYCLE(nul_init, nul_run, nul_stop, mem_break)
+
 #endif /* _RIA_SYS_MEM_H_ */

@@ -40,4 +40,8 @@ const char *cyw_get_rf_country_code_verbose(void);
 // List known country codes for help
 int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width);
 
+/* Hardware, but not a prepend: the country code is an argument to the radio's
+ * bring-up call, so this cannot precede the config load. */
+#define CYW_LIFECYCLE LIFECYCLE(cyw_init, nul_run, nul_stop, nul_break)
+
 #endif /* _RIA_NET_CYW_H_ */

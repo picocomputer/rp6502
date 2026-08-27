@@ -93,51 +93,6 @@ const std_driver_t *std_drivers(size_t *count)
     return std_driver_table;
 }
 
-// Many things are sensitive to order in obvious ways, like
-// starting stdio before printing. Please list subtleties.
-
-// Initialization event for power up, reboot command, or reboot button.
-static void __in_flash("init") init(void)
-{
-    // Bring up stdio dispatcher first for DBG().
-    com_init();
-
-    // Queue startup message.
-    sys_init();
-
-    // GPIO drivers.
-    ria_init();
-    pix_init();
-    vga_init(); // Must be after PIX
-
-    // Load config before we continue.
-    lfs_init();
-    cfg_init(); // Config stored on lfs
-
-    // Misc device drivers, add yours here.
-    str_init();
-    std_init();
-    cyw_init();
-    oem_init();
-    led_init();
-    aud_init();
-    keyboard_init();
-    keymap_init(); /* the keymap is this machine's, not the device layer's */
-    mouse_init();
-    gamepad_init();
-    tablet_init();
-    rom_init();
-    tim_init();
-    modem_init();
-    rln_init();
-
-    // USB near end for boot enum timing
-    usb_init();
-
-    // CPU must be last. Triggers a reclock.
-    cpu_init();
-}
-
 // Task events are repeatedly called by the main loop.
 // They must not block. All drivers are state machines.
 
@@ -176,59 +131,8 @@ static void task(void)
     api_task(); // must be last for exec
 }
 
-// Event to start running the 6502.
-void lifecycle_on_run(void)
-{
-    proc_run();
-    com_run();
-    rln_run();
-    dir_run();
-    vga_run();
-    api_run();
-    clk_run();
-    ria_run(); // Must be immediately before cpu
-    cpu_run(); // Must be last
-}
 
-// Event to stop the 6502.
-void lifecycle_on_stop(void)
-{
-    cpu_stop(); // Must be first
-    vga_stop();
-    rln_stop();
-    api_stop();
-    pix_stop();
-    oem_stop();
-    std_stop();
-    mid_stop();
-    dir_stop();
-    keyboard_stop();
-    mouse_stop();
-    gamepad_stop();
-    tablet_stop();
-    aud_stop();
-    modem_stop();
-    rom_stop();
-    proc_stop();
-    mon_stop();
-    com_stop(); // Adds newline
-    ria_stop(); // Last for stops that check ria_active()
-}
 
-// Event for CTRL-ALT-DEL and UART breaks.
-// Stop will be executed first if 6502 is running.
-static void break_(void) // break is keyword
-{
-    drive_break();
-    fil_break();
-    mon_break();
-    ram_break();
-    rom_break();
-    vga_break();
-    mem_break();
-    rln_break();
-    com_break();
-}
 
 // Triggered once after init then after every PHI2 change.
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
@@ -266,7 +170,7 @@ int main(void)
 {
     sys_main();
     cpu_main();
-    init();
+    lifecycle_init();
     while (true)
     {
         main_task();
@@ -276,7 +180,7 @@ int main(void)
         lifecycle_commit();
         if (is_breaking)
         {
-            break_();
+            lifecycle_break_drivers();
             is_breaking = false;
         }
     }
