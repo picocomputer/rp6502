@@ -5,6 +5,8 @@
  *
  */
 
+#include "core/api/xreg.h"
+#include "core/ria.h"
 #include "core/mem/mem.h"
 #include "core/pix.h"
 #include "core/sys/lifecycle.h"
@@ -94,7 +96,7 @@ void vga_task(void)
         /* The RIA-private control channel, which on that machine crosses
          * the bus. Here the VGA is the same binary, so it is the call the
          * message would have become. */
-        main_xreg_1(0xF, 0x00, vga_get_display_type());
+        xreg1(0xF, 0x00, vga_get_display_type());
     }
 }
 

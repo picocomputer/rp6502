@@ -5,14 +5,13 @@
  */
 
 /* The run loop every machine has. Each keeps the rest of its own -- the task
- * pump, reclocking, XREG dispatch -- in its main.h. */
+ * pump, reclocking -- in its own main.h. */
 
 #ifndef _CORE_LIFECYCLE_H_
 #define _CORE_LIFECYCLE_H_
 
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 
 // This is true when the 6502 is running or there's a pending
@@ -50,22 +49,5 @@ bool lifecycle_break(void);
 // platform, and with none registered on a platform that has no monitor
 // to fall back to. A RIA with none registered breaks to the monitor.
 bool lifecycle_break_to_launcher(void);
-
-/* PIX XREG register dispatch: device 0 (the RIA's own HID and audio), device 1
- * (the video device). Device 0 never crosses a bus, so every machine answers
- * it locally. Device 1 is answered here only by a machine that is its own
- * video; one with a real bus sends it and the far end answers. */
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word);
-bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word);
-
-/* The bus between the 6502 and the machine. A machine with no such transfer
- * answers false and never latches. */
-
-// True while a memory transfer to or from the 6502 is in flight.
-bool ria_active(void);
-
-// Returns true once per latched SIGINT, then clears.
-bool ria_get_sigint(void);
-void ria_trigger_sigint(void);
 
 #endif /* _CORE_LIFECYCLE_H_ */

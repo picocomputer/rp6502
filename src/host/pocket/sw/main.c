@@ -6,6 +6,7 @@
  * The soft CPU's runner, this platform's host/pico/ria/main.c.
  */
 
+#include "core/api/xreg.h"
 #include <stdio.h>
 
 #include "apf.h"
@@ -164,8 +165,8 @@ void lifecycle_on_stop(void)
     /* argv belongs to the image, not the run, so it is not cleared here. */
     proc_stop();
     /* Last, where the RIA's deferred vga_task puts it. */
-    main_xreg_1(0x0F, 0x01, 437);
-    main_xreg_1(0x0F, 0x00, vga_get_display_type());
+    xreg1(0x0F, 0x01, 437);
+    xreg1(0x0F, 0x00, vga_get_display_type());
 }
 
 /* A hot reload with bit 6 clear sends no 0x008A; the size posted into

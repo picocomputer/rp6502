@@ -9,7 +9,7 @@
  * core/vga/canvas.c, core/vga/mode.c and core/term/term.c, and a machine
  * linking none of those cannot resolve it. A machine whose video device is a
  * real chip across four wires answers device 1 at the far end instead
- * (host/pico/vga/sys/pix.c) and lists core/sys/main_xreg_0.c alone.
+ * (host/pico/vga/sys/pix.c) and lists core/sys/xreg0.c alone.
  */
 
 #include "core/lifecycle.h"
@@ -29,7 +29,7 @@ static void xregs_clear(void)
     memset(xregs, 0, sizeof(xregs));
 }
 
-bool main_xreg_1(uint8_t channel, uint8_t address, uint16_t word)
+bool xreg1(uint8_t channel, uint8_t address, uint16_t word)
 {
     if (channel == 0)
     {

@@ -6,6 +6,7 @@
 
 #ifdef RP6502_RIA_W
 
+#include "core/ria.h"
 #include "ria/main.h"
 #include "ria/net/net.h"
 #include "ria/net/telnet.h"

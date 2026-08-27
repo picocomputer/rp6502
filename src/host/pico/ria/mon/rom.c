@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
 #include "api/fat.h"

@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/xreg.h"
 #include "ria/main.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
@@ -202,7 +203,7 @@ bool pix_api_xreg(void)
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);
             }
-            if (!main_xreg_0(pix_channel, pix_addr, data))
+            if (!xreg0(pix_channel, pix_addr, data))
             {
                 pix_send_count = 0;
                 return api_return_errno(API_EINVAL);

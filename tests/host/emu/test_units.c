@@ -7,6 +7,7 @@
  * xreg device/channel dispatch, and the CLI parser.
  */
 
+#include "core/api/xreg.h"
 #include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/str/str.h"
@@ -74,14 +75,14 @@ UTEST(rom, loads_a_headerless_image)
 
 UTEST(xreg, device_channel_dispatch)
 {
-    ASSERT_TRUE(main_xreg_0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
-    ASSERT_TRUE(main_xreg_1(0, 0, 3)); /* VGA canvas 640x480 */
+    ASSERT_TRUE(xreg0(0, 0, 0)); /* RIA-local devices: accepted (stub) */
+    ASSERT_TRUE(xreg1(0, 0, 3)); /* VGA canvas 640x480 */
     /* The control channel: CODE_PAGE is answered, and so is DISPLAY, which is
      * not exercised here because it resets the machine. The rest are registers
      * of a real VGA chip that a machine which is its own has no analog for. */
-    ASSERT_TRUE(main_xreg_1(15, 1, 437));
-    ASSERT_FALSE(main_xreg_1(15, 2, 0));
-    ASSERT_TRUE(main_xreg_1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
+    ASSERT_TRUE(xreg1(15, 1, 437));
+    ASSERT_FALSE(xreg1(15, 2, 0));
+    ASSERT_TRUE(xreg1(5, 0, 0)); /* VGA channel 1-14: over the bus, no ACK, AX=0 */
 }
 
 /* The host gamepad bridge (web Gamepad API path): mapping gate + the report
@@ -92,7 +93,7 @@ UTEST(gamepad, host_report_encoding)
     gamepad_stop();
     ASSERT_FALSE(gamepad_is_mapped()); /* nothing touches input until a ROM maps it */
 
-    ASSERT_TRUE(main_xreg_0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
+    ASSERT_TRUE(xreg0(0, 2, 0xFF00)); /* xreg_ria_gamepad(0xFF00) */
     ASSERT_TRUE(gamepad_is_mapped());
     ASSERT_EQ(xram[0xFF00], 0x00); /* published default: player 0 disconnected */
 
@@ -127,7 +128,7 @@ UTEST(gamepad, host_report_encoding)
     /* Unplug blanks the record; unmapping clears the gate. */
     gamepad_connect(0, false, GAMEPAD_TYPE_UNKNOWN, false);
     ASSERT_EQ(xram[0xFF00 + 0], 0x00);
-    ASSERT_TRUE(main_xreg_0(0, 2, 0xFFFF));
+    ASSERT_TRUE(xreg0(0, 2, 0xFFFF));
     ASSERT_FALSE(gamepad_is_mapped());
 }
 
@@ -138,7 +139,7 @@ UTEST(tablet, host_wheel_encoding)
     tablet_stop();
     ASSERT_FALSE(tablet_is_mapped()); /* nothing touches input until a ROM maps it */
 
-    ASSERT_TRUE(main_xreg_0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
+    ASSERT_TRUE(xreg0(0, 3, 0xFF00)); /* xreg_ria_tablet(0xFF00) */
     ASSERT_TRUE(tablet_is_mapped());
     ASSERT_EQ(xram[0xFF00 + 2], 0x00); /* wheel default 0 */
     ASSERT_EQ(xram[0xFF00 + 3], 0x00); /* pan default 0 */
@@ -151,7 +152,7 @@ UTEST(tablet, host_wheel_encoding)
     ASSERT_EQ(xram[0xFF00 + 2], (uint8_t)-1); /* 3 + (-4) wraps */
     ASSERT_EQ(xram[0xFF00 + 3], (uint8_t)3);  /* -2 + 5 */
 
-    ASSERT_TRUE(main_xreg_0(0, 3, 0xFFFF));
+    ASSERT_TRUE(xreg0(0, 3, 0xFFFF));
     ASSERT_FALSE(tablet_is_mapped());
 }
 

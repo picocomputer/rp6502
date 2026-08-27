@@ -13,6 +13,7 @@
  * of this shape gets all of them. The wire is core/com/tty.h.
  */
 
+#include "core/ria.h"
 #include "core/com/com.h"
 #include "core/com/tty.h"
 #include "core/aud/bel.h"

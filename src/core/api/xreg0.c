@@ -22,7 +22,7 @@
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
 
-bool main_xreg_0(uint8_t channel, uint8_t address, uint16_t word)
+bool xreg0(uint8_t channel, uint8_t address, uint16_t word)
 {
     if (channel == 0) /* human interface devices -> XRAM report blocks */
     {

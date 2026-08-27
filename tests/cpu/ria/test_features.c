@@ -9,6 +9,7 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
+#include "core/ria.h"
 #include "core/sys/proc.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"

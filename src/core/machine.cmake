@@ -128,8 +128,8 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/sys/pix.c
         ${RP6502_SRC}/core/sys/rom_rec.c
         ${RP6502_SRC}/core/sys/rom_win.c
-        ${RP6502_SRC}/core/sys/main_xreg_0.c
-        ${RP6502_SRC}/core/sys/main_xreg_1.c
+        ${RP6502_SRC}/core/api/xreg0.c
+        ${RP6502_SRC}/core/api/xreg1.c
         ${RP6502_SRC}/core/rand.c
         ${RP6502_SRC}/core/lifecycle.c
         ${RP6502_SRC}/core/api/api.c
