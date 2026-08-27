@@ -18,7 +18,7 @@
 #include "core/rom/rom.h"
 #include "core/sys/msc.h"
 #include "core/mem/mem.h"
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"

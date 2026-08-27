@@ -14,7 +14,7 @@
  * unmapped. There is nothing to reap here.
  */
 
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include <unistd.h>
 
 fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)

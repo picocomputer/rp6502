@@ -15,7 +15,7 @@
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "core/sys/msc.h"
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "core/mem/mem.h"
 #include "dirsys.h"
 #include "stdsys.h"

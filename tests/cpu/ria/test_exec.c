@@ -13,7 +13,7 @@
 #include "core/api/proc_exec.h"
 #include "core/com/com.h"
 #include "core/sys/msc.h"
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "core/wdc/cpu.h"
 #include "emu_boot.h"
 #include <stdlib.h>

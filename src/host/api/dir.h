@@ -6,7 +6,7 @@
  */
 
 /* Reading a directory, as a host OS keeps them. The filesystem seam's other
- * half -- see host/fs.h for who implements it and who does not, and note the
+ * half -- see host/api/fs.h for who implements it and who does not, and note the
  * prefix belongs to the seam rather than the file, the way host/posix/fs_aio.c
  * defines fs_read.
  *
@@ -14,8 +14,8 @@
  * syscalls. That layer asks this one for the entries it hands back.
  */
 
-#ifndef _HOST_FS_DIR_H_
-#define _HOST_FS_DIR_H_
+#ifndef _HOST_API_DIR_H_
+#define _HOST_API_DIR_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -26,4 +26,4 @@ int fs_dir_read(void *d, char *name, size_t namesz, bool *is_dir);
 void fs_dir_rewind(void *d);
 void fs_dir_close(void *d);
 
-#endif /* _HOST_FS_DIR_H_ */
+#endif /* _HOST_API_DIR_H_ */

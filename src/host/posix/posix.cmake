@@ -2,7 +2,7 @@
 #
 # Linux and macOS share all of these files and differ only in the entropy
 # source and the frame-pacer sleep, which is what each one's own host.c is.
-# The web and Android hosts take fs_dir.c and host.c from here directly and bring
+# The web and Android hosts take dir.c and host.c from here directly and bring
 # their own fs.c — neither has <aio.h> — so they do not include this.
 #
 # fs.c is the seam minus its byte transport, and the transport is a file of
@@ -14,7 +14,7 @@
 # Included after emu.cmake: it adds to emu_core.
 
 target_sources(emu_core PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/fs_dir.c
+    ${CMAKE_CURRENT_LIST_DIR}/dir.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
     ${CMAKE_CURRENT_LIST_DIR}/fs_aio.c
     ${CMAKE_CURRENT_LIST_DIR}/host.c)

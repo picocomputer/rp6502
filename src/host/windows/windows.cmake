@@ -13,7 +13,7 @@
 # Included after emu.cmake: it adds to emu_core.
 
 target_sources(emu_core PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}/fs_dir.c
+    ${CMAKE_CURRENT_LIST_DIR}/dir.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
     ${CMAKE_CURRENT_LIST_DIR}/host.c
     ${CMAKE_CURRENT_LIST_DIR}/win.c)

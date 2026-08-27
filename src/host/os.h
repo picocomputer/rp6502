@@ -12,7 +12,7 @@
  * What every machine answers: the clock it runs on, the stream its rand()
  * reads, and the host OS calls the machine's own code makes. Files are not
  * here -- a Pico has its own storage and a Pocket has the card, so the
- * filesystem is the software hosts' seam and lives in host/fs.h. */
+ * filesystem is the software hosts' seam and lives in host/api/fs.h. */
 
 #ifndef _HOST_OS_H_
 #define _HOST_OS_H_

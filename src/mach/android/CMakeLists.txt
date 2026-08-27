@@ -84,7 +84,7 @@ include(${RP6502_SRC}/core/emu.cmake)
 # exactly that reason — the libretro core takes the same pair on every OS
 # that is not Windows. One bionic filesystem answer, not two.
 target_sources(emu_core PRIVATE
-    ${RP6502_SRC}/host/posix/fs_dir.c
+    ${RP6502_SRC}/host/posix/dir.c
     ${RP6502_SRC}/host/posix/fs.c
     ${RP6502_SRC}/host/posix/fs_sync.c
     ${RP6502_SRC}/host/posix/host.c

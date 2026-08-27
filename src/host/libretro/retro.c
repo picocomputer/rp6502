@@ -29,7 +29,7 @@
 #include "core/mem/mem.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "host.h"
 
 #include "libretro.h"

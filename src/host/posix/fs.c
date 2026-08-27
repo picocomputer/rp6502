@@ -9,7 +9,7 @@
  * false so the msc_errno_to_api_errno funnel in core/sys/msc.c works unchanged.
  */
 
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "core/str/oem.h"
 #include <errno.h>
 #include <unistd.h>

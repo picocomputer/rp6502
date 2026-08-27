@@ -15,8 +15,8 @@
  * compiles a caller.
  */
 
-#ifndef _HOST_FS_H_
-#define _HOST_FS_H_
+#ifndef _HOST_API_FS_H_
+#define _HOST_API_FS_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -69,4 +69,4 @@ fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 void fs_sync(void);
 
-#endif /* _HOST_FS_H_ */
+#endif /* _HOST_API_FS_H_ */

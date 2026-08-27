@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows filesystem primitives (host/fs.h fs_*), the Win32 counterpart of
+ * Windows filesystem primitives (host/api/fs.h fs_*), the Win32 counterpart of
  * host/posix/fs.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
@@ -29,7 +29,7 @@
  * could not be lifted out of here even if there were a reason to.
  */
 
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "core/str/oem.h"
 #include "host/windows/win.h"
 #include <direct.h>

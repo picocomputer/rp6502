@@ -9,7 +9,7 @@
  * functions the other way, and a host root names the one it wants.
  */
 
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include <aio.h>
 #include <errno.h>
 #include <string.h>

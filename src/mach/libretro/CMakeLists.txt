@@ -55,7 +55,7 @@ if(WIN32)
     target_sources(emu_core PRIVATE ${RP6502_HOST}/host_win.c)
 else()
     target_sources(emu_core PRIVATE
-        ${RP6502_SRC}/host/posix/fs_dir.c
+        ${RP6502_SRC}/host/posix/dir.c
         ${RP6502_SRC}/host/posix/fs.c
         ${RP6502_SRC}/host/posix/fs_sync.c
         ${RP6502_SRC}/host/posix/host.c

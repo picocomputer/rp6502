@@ -8,7 +8,7 @@
  * names back with oem_from_utf8().
  */
 
-#include "host/fs_dir.h"
+#include "host/api/dir.h"
 #include "core/str/oem.h"
 #include <dirent.h>
 #include <errno.h>

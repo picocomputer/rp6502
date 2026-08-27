@@ -10,7 +10,7 @@
 #include "core/rom/rom.h"
 #include "core/rom/rom_rec.h"
 #include "core/rom/rom_win.h"
-#include "host/fs.h"
+#include "host/api/fs.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
 #include <errno.h>
