@@ -7,7 +7,7 @@
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "api/fat.h"
+#include "api/errno.h"
 #include "core/str/oem.h"
 #include "core/api/arg.h"
 #include "core/api/proc.h"
@@ -159,7 +159,7 @@ static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
         *got = br;
         if (fresult != FR_OK)
         {
-            *err = fat_fresult_to_api_errno(fresult);
+            *err = fresult_to_api(fresult);
             return STD_ERROR;
         }
         return STD_OK;
@@ -986,7 +986,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
     int io = 0;
     if (!rom_find_asset(asset_name, &asset_len, &io))
     {
-        *err = io > 0   ? fat_fresult_to_api_errno((unsigned)io)
+        *err = io > 0   ? fresult_to_api((unsigned)io)
                : io < 0 ? lfs_error_to_api_errno(io)
                         : API_ENOENT;
         return -1;

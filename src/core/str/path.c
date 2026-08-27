@@ -54,7 +54,7 @@ bool path_to_native(const char *path, char *out, size_t outsz)
         isalpha((unsigned char)rest[2]) && rest[3] == '/')
         w = snprintf(out, outsz, "%c:/%s", rest[2], rest + 4);
     else
-        w = snprintf(out, outsz, "%s", rest[0] ? rest : ".");
+        w = snprintf(out, outsz, "%s", rest);
     if (w < 0 || (size_t)w >= outsz)
     {
         errno = ENAMETOOLONG;

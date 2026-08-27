@@ -8,7 +8,7 @@
  */
 
 #include "api/dir.h"
-#include "api/fat.h"
+#include "api/errno.h"
 #include "core/api/api.h"
 #include "core/api/dir.h"
 #include "fatfs/ff.h"
@@ -29,11 +29,18 @@ static DIR dirs[DIR_MAX_OPEN];
 
 /* FatFs reports through a FRESULT, so every one of these is the same shape:
  * make the call, hand back what it said. */
+/* FatFs converts filenames through its own active page, so it is told. The
+ * volume's names are the drive's business, which is why this lives here. */
+void oem_fs_code_page(uint16_t cp)
+{
+    f_setcp(cp);
+}
+
 static inline bool fat_ok(FRESULT fresult, api_errno *err)
 {
     if (fresult == FR_OK)
         return true;
-    *err = fat_fresult_to_api_errno(fresult);
+    *err = fresult_to_api(fresult);
     return false;
 }
 

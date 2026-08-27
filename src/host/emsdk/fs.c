@@ -3,10 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Emscripten filesystem primitives (host/api/fs.h). The same POSIX calls as host/posix/fs.c
- * over the instant in-RAM MEMFS, but the byte transfer is synchronous: host_fs_read/host_fs_write
- * complete in one call and never return HOST_IO_PENDING — a zero-latency read has nothing to
- * keep alive. Web is single-threaded with no POSIX aio, so it gets its own seam.
+ * Emscripten filesystem primitives (core/api/fs.h). The same POSIX calls as host/posix/fs.c
+ * over the instant in-RAM MEMFS, but the byte transfer is synchronous: fs_std_read/fs_std_write
+ * complete in one call and never return STD_PENDING — a zero-latency read has nothing to
+ * keep alive. Web is single-threaded with no POSIX aio, so it gets its own driver.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-8 with
  * oem_to_utf8() (api/oem.h) before every libc call — the Emscripten runtime
@@ -14,7 +14,9 @@
  * oem_from_utf8().
  */
 
+#include "core/api/fs.h"
 #include "host/api/fs.h"
+#include "host/posix/errno.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include <emscripten.h>
@@ -100,6 +102,10 @@ bool host_fs_stat(const char *path, struct host_fs_meta *out)
 
 bool host_fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
+    /* A drive query names a drive, and no name is the one in use -- the same
+     * rule opendir follows, and what f_getfree does with "". */
+    if (!path[0])
+        path = ".";
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
         return false;
@@ -192,22 +198,6 @@ bool host_fs_remove(const char *path)
     return remove(u8) == 0; /* removes a file or an empty directory */
 }
 
-int host_fs_open(const char *path, uint8_t flags)
-{
-    char u8[FS_UPATH_MAX];
-    if (!path_to_utf8(path, u8))
-        return -1;
-    bool rd = flags & HOST_FS_RD, wr = flags & HOST_FS_WR;
-    int o = wr ? (rd ? O_RDWR : O_WRONLY) : O_RDONLY;
-    if (flags & HOST_FS_CREAT)
-        o |= O_CREAT;
-    if ((flags & HOST_FS_CREAT) && (flags & HOST_FS_EXCL))
-        o |= O_EXCL;
-    if ((flags & HOST_FS_TRUNC) && wr) /* only when opened for write */
-        o |= O_TRUNC;
-    return open(u8, o, 0666);
-}
-
 FILE *host_fs_fopen_rd(const char *path)
 {
     char u8[FS_UPATH_MAX];
@@ -216,43 +206,130 @@ FILE *host_fs_fopen_rd(const char *path)
     return fopen(u8, "rb");
 }
 
+/* ---- The std driver ------------------------------------------------------ */
+
+bool fs_std_handles(const char *path)
+{
+    (void)path;
+    return true; /* catch-all, registered last */
+}
+
+static int fs_open_native(const char *path, uint8_t flags, api_errno *err)
+{
+    char u8[FS_UPATH_MAX];
+    if (!path_to_utf8(path, u8))
+    {
+        *err = errno_to_api(errno);
+        return -1;
+    }
+    bool rd = flags & FS_RD, wr = flags & FS_WR;
+    int o = wr ? (rd ? O_RDWR : O_WRONLY) : O_RDONLY;
+    if (flags & FS_CREAT)
+        o |= O_CREAT;
+    if ((flags & FS_CREAT) && (flags & FS_EXCL))
+        o |= O_EXCL;
+    if ((flags & FS_TRUNC) && wr) /* only when opened for write */
+        o |= O_TRUNC;
+    int fd = open(u8, o, 0666);
+    if (fd < 0)
+        *err = errno_to_api(errno);
+    return fd;
+}
+
+int fs_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    int fd = fs_open_native(path, flags, err);
+    if (fd < 0)
+        return -1;
+    if (flags & FS_APPEND) /* a one-time seek to the end, after any TRUNC */
+    {
+        if (lseek(fd, 0, SEEK_END) < 0)
+        {
+            *err = errno_to_api(errno);
+            close(fd);
+            return -1;
+        }
+    }
+    return fd;
+}
+
+/* The ROM loader's own descriptor: read-only, one at a time, and moved out of
+ * the range open(2) hands out so a program can neither name it nor be given
+ * it. MEMFS descriptors start low and stay low, so anywhere well above them
+ * is out of reach. */
+#define ROM_FD 4000
+static bool rom_open;
+
+int fs_rom_open(const char *path, api_errno *err)
+{
+    if (rom_open)
+    {
+        close(ROM_FD);
+        rom_open = false;
+    }
+    int fd = fs_open_native(path, FS_RD, err);
+    if (fd < 0)
+        return -1;
+    if (fd != ROM_FD)
+    {
+        if (dup2(fd, ROM_FD) < 0)
+        {
+            *err = errno_to_api(errno);
+            close(fd);
+            return -1;
+        }
+        close(fd);
+    }
+    rom_open = true;
+    return ROM_FD;
+}
+
 /* MEMFS is RAM that goes away with the tab, so a file the guest wrote has to
  * reach IDBFS before the descriptor does. Asking the descriptor whether it was
  * writable costs one call and saves the sync on every read-only close. */
-int host_fs_close(int fd)
+std_rw_result fs_std_close(int desc, api_errno *err)
 {
-    int fl = fcntl(fd, F_GETFL);
-    int rc = close(fd);
-    if (rc == 0 && fl >= 0 && (fl & O_ACCMODE) != O_RDONLY)
+    int fl = fcntl(desc, F_GETFL);
+    int rc = close(desc);
+    if (desc == ROM_FD)
+        rom_open = false;
+    if (rc != 0)
+    {
+        *err = errno_to_api(errno);
+        return STD_ERROR;
+    }
+    if (fl >= 0 && (fl & O_ACCMODE) != O_RDONLY)
         web_idbfs_sync();
-    return rc;
+    return STD_OK;
 }
 
-host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    ssize_t r = read(fd, buf, count);
+    ssize_t r = read(desc, buf, count);
     if (r < 0)
     {
         *got = 0;
-        return HOST_IO_ERROR;
+        *err = errno_to_api(errno);
+        return STD_ERROR;
     }
     *got = (uint32_t)r;
-    return HOST_IO_OK;
+    return STD_OK;
 }
 
-host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
-    ssize_t r = write(fd, buf, count);
+    ssize_t r = write(desc, buf, count);
     if (r < 0)
     {
         *put = 0;
-        return HOST_IO_ERROR;
+        *err = errno_to_api(errno);
+        return STD_ERROR;
     }
     *put = (uint32_t)r;
-    return HOST_IO_OK;
+    return STD_OK;
 }
 
-int64_t host_fs_size(int fd)
+static int64_t fs_size_of(int fd)
 {
     struct stat st;
     if (fstat(fd, &st) != 0)
@@ -260,37 +337,80 @@ int64_t host_fs_size(int fd)
     return (int64_t)st.st_size;
 }
 
-int64_t host_fs_tell(int fd)
+int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    return (int64_t)lseek(fd, 0, SEEK_CUR);
-}
-
-/* fstat rather than lseek(SEEK_END) to measure: a seek that turns out to be
- * impossible must leave the pointer where it was, and moving it to the end to
- * ask how long the file is would strand it there. */
-int64_t host_fs_seek(int fd, uint64_t pos)
-{
-    int64_t size = host_fs_size(fd);
-    if (size < 0)
-        return -1;
-    if ((int64_t)pos > size)
+    int64_t base;
+    if (whence == SEEK_SET)
+        base = 0;
+    else if (whence == SEEK_CUR)
+        base = (int64_t)lseek(desc, 0, SEEK_CUR);
+    else if (whence == SEEK_END)
+        base = fs_size_of(desc);
+    else
     {
-        int fl = fcntl(fd, F_GETFL);
-        if (fl < 0)
-            return -1;
-        if ((fl & O_ACCMODE) == O_RDONLY)
-            pos = (uint64_t)size; /* read-only: stop at the end */
-        else if (ftruncate(fd, (off_t)pos) != 0)
-            return -1; /* no room: the pointer has not moved */
+        *err = API_EINVAL;
+        return -1;
     }
-    return (int64_t)lseek(fd, (off_t)pos, SEEK_SET);
+    if (base < 0)
+    {
+        *err = errno_to_api(errno);
+        return -1;
+    }
+    /* The position comes back as a signed 32-bit value (0xFFFFFFFF is the
+     * error sentinel), so a target past 2GB-1 is refused before the pointer
+     * moves rather than landing somewhere unreportable. */
+    int64_t target = base + off;
+    if (target < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (target > 0x7FFFFFFF)
+    {
+        *err = API_ERANGE;
+        return -1;
+    }
+    /* Measured with fstat, not a seek to the end: a seek that turns out to be
+     * impossible must leave the pointer where it was. */
+    int64_t size = fs_size_of(desc);
+    if (size < 0)
+    {
+        *err = errno_to_api(errno);
+        return -1;
+    }
+    if (target > size)
+    {
+        int fl = fcntl(desc, F_GETFL);
+        if (fl < 0)
+        {
+            *err = errno_to_api(errno);
+            return -1;
+        }
+        if ((fl & O_ACCMODE) == O_RDONLY)
+            target = size; /* read-only: stop at the end */
+        else if (ftruncate(desc, (off_t)target) != 0)
+        {
+            *err = errno_to_api(errno); /* no room: the pointer has not moved */
+            return -1;
+        }
+    }
+    int64_t np = lseek(desc, (off_t)target, SEEK_SET);
+    if (np < 0)
+    {
+        *err = errno_to_api(errno);
+        return -1;
+    }
+    *pos = (int32_t)np;
+    return 0;
 }
 
-bool host_fs_fsync(int fd)
+std_rw_result fs_std_sync(int desc, api_errno *err)
 {
-    if (fsync(fd) != 0)
-        return false;
+    if (fsync(desc) != 0)
+    {
+        *err = errno_to_api(errno);
+        return STD_ERROR;
+    }
     web_idbfs_sync();
-    return true;
+    return STD_OK;
 }
-

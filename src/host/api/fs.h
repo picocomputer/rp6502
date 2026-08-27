@@ -7,12 +7,13 @@
 
 /* Files, as a host OS keeps them.
  *
- * The software hosts' seam: the emulator's drives are a real filesystem
- * underneath, and each OS answers these its own way -- host/posix/fs.c for the
- * POSIX family (with its byte transport beside it, fs_aio.c or fs_sync.c),
- * host/windows/fs.c, host/emsdk/fs.c. A Pico has its own storage
- * and a Pocket has the card, so neither implements any of it and neither
- * compiles a caller.
+ * What is left of the middle layer: the metadata and namespace calls
+ * core/api/drive.c still stands on. Each of them dies with drive.c, when
+ * every host answers dir_backend_t in its own vocabulary instead of being
+ * translated up into this one.
+ *
+ * The files themselves left already -- a host implements core/api/fs.h's
+ * driver directly.
  */
 
 #ifndef _HOST_API_FS_H_
@@ -55,50 +56,9 @@ bool host_fs_realpath(const char *path, char *out, size_t outsz); /* absolute, '
 bool host_fs_rename(const char *oldp, const char *newp); /* replaces an existing target */
 bool host_fs_remove(const char *path);     /* a file or an empty directory */
 
-/* ---- byte I/O ---- */
-/* A transfer's outcome. The guest's stdio dispatcher has the same three states
- * and its own spelling of them; the host answers in its own so that a contract
- * about files does not depend on a guest API to say "that worked". */
-typedef enum
-{
-    HOST_IO_OK,      /* completed, success */
-    HOST_IO_ERROR,   /* failed, check errno */
-    HOST_IO_PENDING, /* incomplete, would block */
-} host_io_result;
-
-/* Open flags are the rp6502 SDK's own bits, not POSIX's. A firmware whose
- * filesystem is FatFs has no fcntl.h to borrow O_* from, and the low two bits
- * already mirror FA_READ/FA_WRITE -- so the host that has POSIX is the one
- * that translates. APPEND is not here: it is a seek to the end after the
- * open, which the layer above does once for everyone. */
-#define HOST_FS_RD 0x01
-#define HOST_FS_WR 0x02
-#define HOST_FS_CREAT 0x10
-#define HOST_FS_TRUNC 0x20
-#define HOST_FS_EXCL 0x80
-
-FILE *host_fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
-int host_fs_open(const char *path, uint8_t flags);
-/* Settles a still-in-flight host_fs_read/host_fs_write on this fd first, and
- * gets whatever was written to wherever the drive really lives -- on a host
- * whose filesystem is somewhere else, like the web's, that is not free and
- * this is where it is paid. */
-int host_fs_close(int fd);
-host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
-host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
-
-int64_t host_fs_size(int fd); /* the file's length, or -1 + errno */
-int64_t host_fs_tell(int fd); /* where the pointer is, or -1 + errno */
-
-/* Move the pointer to an absolute position, answering where it landed. This
- * is f_lseek's contract, because it is the narrower of the two: a writable
- * file is extended to pos, and a read-only one stops at its end -- which is
- * an answer and not a failure, so the caller is told where it stopped. A
- * writable file that cannot reach pos is out of room: -1 and ENOSPC, with the
- * pointer left where it was. A host with POSIX can say all of that; FatFs
- * cannot say anything wider. */
-int64_t host_fs_seek(int fd, uint64_t pos);
-
-bool host_fs_fsync(int fd); /* this file, to the medium */
+/* The ROM loader's stream, and nothing else: a whole-file read of a .rp6502
+ * for the record parser. Not a drive operation -- moving to host/os.h with
+ * the rest of what a machine owes core directly. */
+FILE *host_fs_fopen_rd(const char *path);
 
 #endif /* _HOST_API_FS_H_ */

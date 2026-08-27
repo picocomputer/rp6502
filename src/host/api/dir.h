@@ -8,7 +8,7 @@
 /* Reading a directory, as a host OS keeps them. The filesystem seam's other
  * half -- see host/api/fs.h for who implements it and who does not, and note
  * the prefix belongs to the seam rather than the file, the way
- * host/posix/fs_aio.c defines host_fs_read.
+ * host/posix/dir.c defines host_dir_read.
  *
  * Paths arrive spelled the way the 6502 spells them, drive prefix and all,
  * exactly as they do at host/api/fs.h.

@@ -26,6 +26,8 @@ void *host_dir_open(const char *path)
     char u8[DIR_UPATH_MAX];
     if (!path_to_native(path, native, sizeof native))
         return NULL;
+    if (!native[0]) /* a directory of no name is the working directory */
+        native[0] = '.', native[1] = 0;
     if (oem_to_utf8(native, u8, sizeof u8) >= sizeof u8)
     {
         errno = ENAMETOOLONG;

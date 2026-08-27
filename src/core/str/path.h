@@ -40,6 +40,10 @@ bool path_has_drive(const char *path);
  * no drive prefix is already native and crosses unchanged, which is what lets
  * a host path from a command line go straight through.
  *
+ * A path crosses as written -- an empty one stays empty, and the OS says
+ * what it thinks of that. Only the directory calls give "" a meaning (the
+ * working directory), and they say so themselves.
+ *
  * to_native sets errno and returns false if the result does not fit;
  * from_native returns the length written, or 0 -- never a short path, since
  * getcwd is full-path-or-error. */

@@ -3,35 +3,31 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows filesystem primitives (host/api/fs.h fs_*), the Win32 counterpart of
- * host/posix/fs.c.
+ * Files on a Win32 filesystem, as core/api/fs.h asks for them.
  *
- * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
- * oem_to_wide() (api/oem.h) before every …W call, and returned names/paths back
- * with oem_from_wide(). Fallible calls set errno and return false so the
- * fs_errno_to_api_errno funnel in core/api/fs.c works unchanged.
+ * Overlapped I/O throughout: a handle opened FILE_FLAG_OVERLAPPED has no file
+ * pointer of its own, so a descriptor is an index into a table that carries
+ * the offset, and one transfer is in flight at a time (the dispatcher is
+ * single-op, and re-dispatches until it retires). fs_std_close settles that
+ * transfer before the handle goes away.
  *
- * Semantic decisions vs. POSIX (do NOT silently diverge):
- *   - is_hidden reads FILE_ATTRIBUTE_HIDDEN, not a leading-dot name.
- *   - crtime is the real ftCreationTime (POSIX has none; it reports change time).
- *   - host_fs_rename MUST replace an existing target (MOVEFILE_REPLACE_EXISTING).
- *   - host_fs_remove MUST also delete an empty directory (POSIX remove() does).
- *   - byte I/O uses overlapped HANDLEs (FILE_FLAG_OVERLAPPED) with a tracked offset, so
- *     host_fs_read/host_fs_write are the non-blocking transfer; host_fs_open returns an index into
- *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
+ * There is no transport to choose here the way host/posix has fs_aio.c and
+ * fs_sync.c: overlapped is the kernel's own, with no helper threads to
+ * outlive an unloaded library, and the overlapped flag is given when the
+ * handle is made -- so the transfer could not leave this file even if there
+ * were a reason.
  *
- * The transport stays in this file, where host/posix keeps its own in
- * fs_aio.c and fs_sync.c. There is no second answer to choose between:
- * overlapped I/O is the kernel's, so unlike glibc's POSIX AIO there is no
- * pool of helper threads that could outlive an unloaded library, and
- * host_fs_close settles the one transfer in flight. And the transport owns
- * host_fs_open — the overlapped flag is given when the handle is made — so it
- * could not be lifted out of here even if there were a reason to.
+ * Paths cross in the guest's OEM code page and the 6502's spelling; the drive
+ * prefix comes off with path_to_native() and the code page with oem_to_wide()
+ * before every ...W call. Failures are reported with host/windows/errno.h,
+ * straight from GetLastError.
  */
 
-#include "host/api/fs.h"
+#include "core/api/fs.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
+#include "host/api/fs.h"
+#include "host/windows/errno.h"
 #include "host/windows/win.h"
 #include <direct.h>
 #include <errno.h>
@@ -39,6 +35,7 @@
 #include <io.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h> /* SEEK_SET/CUR/END */
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -114,6 +111,10 @@ bool host_fs_stat(const char *path, struct host_fs_meta *out)
 
 bool host_fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
+    /* A drive query names a drive, and no name is the one in use -- the same
+     * rule opendir follows, and what f_getfree does with "". */
+    if (!path[0])
+        path = ".";
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return false;
@@ -256,21 +257,24 @@ bool host_fs_remove(const char *path)
     return false;
 }
 
-/* An overlapped handle has no implicit file pointer, so host_fs_open returns an index into
- * this table and we track the offset ourselves. 16 host files + 16 ROM windows = 32
- * concurrent; 64 leaves headroom for tests. */
+/* An overlapped handle has no implicit file pointer, so a descriptor is an
+ * index into this table and the offset is ours to track. 16 open files + 16
+ * ROM windows = 32 concurrent; 64 leaves headroom for tests. One more beyond
+ * the table is the ROM loader's alone -- fs_std_open never counts that high,
+ * so a program can neither name it nor be handed it. */
 #define WIN_MAX_FILES 64
+#define WIN_FILE_ROM WIN_MAX_FILES
 static struct win_file
 {
     bool used;
     bool writable; /* a seek past the end extends this file rather than stopping */
     HANDLE h;
     int64_t pos;
-} win_files[WIN_MAX_FILES];
+} win_files[WIN_MAX_FILES + 1];
 
 static struct win_file *win_fil(int fd)
 {
-    if (fd < 0 || fd >= WIN_MAX_FILES || !win_files[fd].used)
+    if (fd < 0 || fd > WIN_FILE_ROM || !win_files[fd].used)
         return NULL;
     return &win_files[fd];
 }
@@ -284,23 +288,33 @@ static struct
 } g_xfer = {.fd = -1};
 static HANDLE g_xfer_event;
 
-int host_fs_open(const char *path, uint8_t flags)
+/* ---- The std driver ------------------------------------------------------ */
+
+bool fs_std_handles(const char *path)
+{
+    (void)path;
+    return true; /* catch-all, registered last */
+}
+
+static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return -1;
-
-    bool wr = (flags & HOST_FS_WR) != 0;
-    DWORD access = wr ? ((flags & HOST_FS_RD) ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_WRITE)
+    {
+        *err = API_EINVAL;
+        return INVALID_HANDLE_VALUE;
+    }
+    bool wr = (flags & FS_WR) != 0;
+    DWORD access = wr ? ((flags & FS_RD) ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_WRITE)
                       : GENERIC_READ;
     DWORD disp;
-    if ((flags & HOST_FS_CREAT) && (flags & HOST_FS_EXCL))
+    if ((flags & FS_CREAT) && (flags & FS_EXCL))
         disp = CREATE_NEW;
-    else if ((flags & HOST_FS_CREAT) && (flags & HOST_FS_TRUNC) && wr)
+    else if ((flags & FS_CREAT) && (flags & FS_TRUNC) && wr)
         disp = CREATE_ALWAYS;
-    else if (flags & HOST_FS_CREAT)
+    else if (flags & FS_CREAT)
         disp = OPEN_ALWAYS;
-    else if ((flags & HOST_FS_TRUNC) && wr)
+    else if ((flags & FS_TRUNC) && wr)
         disp = TRUNCATE_EXISTING;
     else
         disp = OPEN_EXISTING;
@@ -308,10 +322,15 @@ int host_fs_open(const char *path, uint8_t flags)
     HANDLE h = CreateFileW(w, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            NULL, disp, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
     if (h == INVALID_HANDLE_VALUE)
-    {
-        win_set_errno(GetLastError());
+        *err = win_last_error_to_api();
+    return h;
+}
+
+int fs_std_open(const char *path, uint8_t flags, api_errno *err)
+{
+    HANDLE h = win_open_handle(path, flags, err);
+    if (h == INVALID_HANDLE_VALUE)
         return -1;
-    }
     int fd = 0;
     for (; fd < WIN_MAX_FILES; fd++)
         if (!win_files[fd].used)
@@ -319,11 +338,38 @@ int host_fs_open(const char *path, uint8_t flags)
     if (fd == WIN_MAX_FILES)
     {
         CloseHandle(h);
-        errno = EMFILE;
+        *err = API_EMFILE;
         return -1;
     }
-    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0, .writable = wr};
+    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0, .writable = (flags & FS_WR) != 0};
+    if (flags & FS_APPEND) /* a one-time seek to the end, after any TRUNC */
+    {
+        LARGE_INTEGER sz;
+        if (!GetFileSizeEx(h, &sz))
+        {
+            *err = win_last_error_to_api();
+            win_files[fd].used = false;
+            CloseHandle(h);
+            return -1;
+        }
+        win_files[fd].pos = (int64_t)sz.QuadPart;
+    }
     return fd;
+}
+
+int fs_rom_open(const char *path, api_errno *err)
+{
+    struct win_file *rom = &win_files[WIN_FILE_ROM];
+    if (rom->used) /* one at a time: a new program replaces the last */
+    {
+        CloseHandle(rom->h);
+        rom->used = false;
+    }
+    HANDLE h = win_open_handle(path, FS_RD, err);
+    if (h == INVALID_HANDLE_VALUE)
+        return -1;
+    *rom = (struct win_file){.used = true, .h = h, .pos = 0, .writable = false};
+    return WIN_FILE_ROM;
 }
 
 FILE *host_fs_fopen_rd(const char *path)
@@ -334,13 +380,14 @@ FILE *host_fs_fopen_rd(const char *path)
     return _wfopen(w, L"rb");
 }
 
-int host_fs_close(int fd)
+std_rw_result fs_std_close(int desc, api_errno *err)
 {
+    int fd = desc;
     struct win_file *f = win_fil(fd);
     if (!f)
     {
-        errno = EBADF;
-        return -1;
+        *err = API_EBADF;
+        return STD_ERROR;
     }
     if (g_xfer.fd == fd) /* reap the in-flight transfer before the handle goes away */
     {
@@ -353,27 +400,28 @@ int host_fs_close(int fd)
     f->used = false;
     if (!ok)
     {
-        win_set_errno(GetLastError());
+        *err = win_last_error_to_api();
         return -1;
     }
     return 0;
 }
 
-static host_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
+static std_rw_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write,
+                               api_errno *err)
 {
     *got = 0;
     struct win_file *f = win_fil(fd);
     if (!f)
     {
-        errno = EBADF;
-        return HOST_IO_ERROR;
+        *err = API_EBADF;
+        return STD_ERROR;
     }
     if (g_xfer.fd < 0)
     {
         if (!g_xfer_event && !(g_xfer_event = CreateEventW(NULL, TRUE, FALSE, NULL)))
         {
-            win_set_errno(GetLastError());
-            return HOST_IO_ERROR;
+            *err = win_last_error_to_api();
+            return STD_ERROR;
         }
         ResetEvent(g_xfer_event);
         memset(&g_xfer.ov, 0, sizeof g_xfer.ov);
@@ -386,117 +434,130 @@ static host_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got
         {
             DWORD e = GetLastError();
             if (e == ERROR_HANDLE_EOF) /* read at/after EOF: done, 0 bytes */
-                return HOST_IO_OK;
+                return STD_OK;
             if (e != ERROR_IO_PENDING)
             {
-                win_set_errno(e);
-                return HOST_IO_ERROR;
+                *err = win_error_to_api(e);
+                return STD_ERROR;
             }
         }
         g_xfer.fd = fd; /* completed synchronously or queued: reap on the next dispatch */
-        return HOST_IO_PENDING;
+        return STD_PENDING;
     }
     DWORD bytes = 0;
     if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, FALSE))
     {
         DWORD e = GetLastError();
         if (e == ERROR_IO_INCOMPLETE)
-            return HOST_IO_PENDING;
+            return STD_PENDING;
         g_xfer.fd = -1;
         if (e == ERROR_HANDLE_EOF) /* completed at EOF: 0 bytes */
-            return HOST_IO_OK;
-        win_set_errno(e);
-        return HOST_IO_ERROR;
+            return STD_OK;
+        *err = win_error_to_api(e);
+        return STD_ERROR;
     }
     g_xfer.fd = -1;
     f->pos += bytes; /* the overlapped handle didn't move; advance our tracked offset */
     *got = (uint32_t)bytes;
-    return HOST_IO_OK;
+    return STD_OK;
 }
 
-host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    return xfer_step(fd, buf, count, got, false);
+    return xfer_step(desc, buf, count, got, false, err);
 }
 
-host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
-    return xfer_step(fd, (void *)buf, count, put, true);
+    return xfer_step(desc, (void *)buf, count, put, true, err);
 }
 
-int64_t host_fs_size(int fd)
+static int64_t win_size_of(struct win_file *f, api_errno *err)
 {
-    struct win_file *f = win_fil(fd);
-    if (!f)
-    {
-        errno = EBADF;
-        return -1;
-    }
     LARGE_INTEGER sz;
     if (!GetFileSizeEx(f->h, &sz))
     {
-        win_set_errno(GetLastError());
+        *err = win_last_error_to_api();
         return -1;
     }
     return (int64_t)sz.QuadPart;
 }
 
-int64_t host_fs_tell(int fd)
-{
-    struct win_file *f = win_fil(fd);
-    if (!f)
-    {
-        errno = EBADF;
-        return -1;
-    }
-    return f->pos;
-}
-
 /* An overlapped handle has no file pointer of its own, so the position is
  * ours to keep -- but the file's length is still the kernel's, and extending
  * it is a real call that can fail on a full volume. */
-int64_t host_fs_seek(int fd, uint64_t pos)
+int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    struct win_file *f = win_fil(fd);
+    struct win_file *f = win_fil(desc);
     if (!f)
     {
-        errno = EBADF;
+        *err = API_EBADF;
         return -1;
     }
-    int64_t size = host_fs_size(fd);
+    int64_t base;
+    if (whence == SEEK_SET)
+        base = 0;
+    else if (whence == SEEK_CUR)
+        base = f->pos;
+    else if (whence == SEEK_END)
+    {
+        base = win_size_of(f, err);
+        if (base < 0)
+            return -1;
+    }
+    else
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    /* The position comes back as a signed 32-bit value (0xFFFFFFFF is the
+     * error sentinel), so a target past 2GB-1 is refused before the pointer
+     * moves rather than landing somewhere unreportable. */
+    int64_t target = base + off;
+    if (target < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    if (target > 0x7FFFFFFF)
+    {
+        *err = API_ERANGE;
+        return -1;
+    }
+    int64_t size = win_size_of(f, err);
     if (size < 0)
         return -1;
-    if ((int64_t)pos > size)
+    if (target > size)
     {
         if (!f->writable)
-            pos = (uint64_t)size; /* read-only: stop at the end */
+            target = size; /* read-only: stop at the end */
         else
         {
-            FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = (LONGLONG)pos}};
+            FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = (LONGLONG)target}};
             if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
             {
-                win_set_errno(GetLastError());
+                *err = win_last_error_to_api();
                 return -1; /* no room: the pointer has not moved */
             }
         }
     }
-    f->pos = (int64_t)pos;
-    return f->pos;
+    f->pos = target;
+    *pos = (int32_t)target;
+    return 0;
 }
 
-bool host_fs_fsync(int fd)
+std_rw_result fs_std_sync(int desc, api_errno *err)
 {
-    struct win_file *f = win_fil(fd);
+    struct win_file *f = win_fil(desc);
     if (!f)
     {
-        errno = EBADF;
-        return false;
+        *err = API_EBADF;
+        return STD_ERROR;
     }
     if (!FlushFileBuffers(f->h))
     {
-        win_set_errno(GetLastError());
-        return false;
+        *err = win_last_error_to_api();
+        return STD_ERROR;
     }
-    return true;
+    return STD_OK;
 }
-

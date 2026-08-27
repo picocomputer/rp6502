@@ -37,6 +37,12 @@ static uint32_t g_rom_generation; /* bumped per successful rom_load; ROM Help wa
 
 static long fgets_line(FILE *f, char *line, size_t cap);
 
+/* The loader's descriptor on the running program's own .rp6502, opened on
+ * demand and held until another program replaces it. Every window reads
+ * through this one; a window closing does not close it, because the next
+ * asset the program opens wants it still there. */
+static int rom_fd = -1;
+
 /* Name the backing .rp6502 for the ROM: drive; the loader also records where its
  * asset directory begins (g_rom_assets_start). */
 static void rom_set_src(const char *hostpath)
@@ -49,6 +55,12 @@ static void rom_set_src(const char *hostpath)
  * untouched, and open windows are closed separately by the machine reset. */
 void rom_assets_reset(void)
 {
+    if (rom_fd >= 0)
+    {
+        api_errno ignored;
+        fs_std_close(rom_fd, &ignored);
+        rom_fd = -1;
+    }
     g_rom_src[0] = 0;
     g_rom_assets_start = 0;
 }
@@ -136,16 +148,17 @@ static bool path_is_rom(const char *path, const char **rest)
  * the non-blocking fs seam. Descriptors index the pool. ---- */
 static rom_win_t windows[ROM_OPEN_MAX];
 
-/* This machine's bytes are in a host file, and each window keeps its own
- * descriptor, so the seek is only to put it where the window is. */
+/* Every window shares the loader's one descriptor, so a fetch says where it
+ * wants to read rather than reading on from wherever the last one left off.
+ * The seek's own outcome goes to scratch: a clamp is not this read's failure,
+ * and the read that follows reports for itself. */
 static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
                                uint32_t count, uint32_t *got, api_errno *err)
 {
-    host_fs_seek(w->fd, at);
-    std_rw_result r = fs_io_to_std_result(host_fs_read(w->fd, buf, count, got));
-    if (r == STD_ERROR)
-        *err = fs_errno_to_api_errno(errno);
-    return r;
+    int32_t landed;
+    api_errno ignored;
+    fs_std_lseek(w->fd, SEEK_SET, (int32_t)at, &landed, &ignored);
+    return fs_std_read(w->fd, buf, count, got, err);
 }
 
 static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
@@ -153,16 +166,13 @@ static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
-    int fd = host_fs_open(hostpath, HOST_FS_RD);
-    if (fd < 0)
+    if (rom_fd < 0)
     {
-        *err = fs_errno_to_api_errno(errno);
-        return -1;
+        rom_fd = fs_rom_open(hostpath, err);
+        if (rom_fd < 0)
+            return -1;
     }
-    int des = rom_win_alloc(&rom_pool, (uint32_t)base, (uint32_t)len, fd, err);
-    if (des < 0)
-        host_fs_close(fd);
-    return des;
+    return rom_win_alloc(&rom_pool, (uint32_t)base, (uint32_t)len, rom_fd, err);
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
@@ -173,9 +183,7 @@ std_rw_result rom_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (w->fd >= 0)
-        host_fs_close(w->fd);
-    w->used = false;
+    w->used = false; /* the descriptor is the loader's, and outlives the window */
     return STD_OK;
 }
 

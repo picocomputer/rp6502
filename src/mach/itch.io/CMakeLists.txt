@@ -38,6 +38,7 @@ include(${RP6502_SRC}/core/emu.cmake)
 target_sources(emu_core PRIVATE
     ${RP6502_SRC}/host/posix/dir.c
     ${RP6502_SRC}/host/posix/host.c
+    ${RP6502_SRC}/host/posix/errno.c
     ${RP6502_HOST}/fs.c
     ${RP6502_HOST}/host.c)
 

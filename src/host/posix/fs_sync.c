@@ -3,8 +3,8 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The read/write/close half of the POSIX fs seam, done synchronously. The
- * contract permits HOST_IO_PENDING; it never requires it, and a transfer that
+ * The read/write/close slots of the POSIX file driver, done synchronously.
+ * The contract permits STD_PENDING; it never requires it, and a transfer that
  * finished before it answered is a legal answer to the same question
  * fs_aio.c answers over several scanlines.
  *
@@ -14,30 +14,43 @@
  * unmapped. There is nothing to reap here.
  */
 
-#include "host/api/fs.h"
+#include "core/api/fs.h"
+#include "host/posix/errno.h"
+#include <errno.h>
 #include <unistd.h>
 
-host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     *got = 0;
-    ssize_t r = read(fd, buf, count);
+    ssize_t r = read(desc, buf, count);
     if (r < 0)
-        return HOST_IO_ERROR;
+    {
+        *err = errno_to_api(errno);
+        return STD_ERROR;
+    }
     *got = (uint32_t)r;
-    return HOST_IO_OK;
+    return STD_OK;
 }
 
-host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
     *put = 0;
-    ssize_t r = write(fd, buf, count);
+    ssize_t r = write(desc, buf, count);
     if (r < 0)
-        return HOST_IO_ERROR;
+    {
+        *err = errno_to_api(errno);
+        return STD_ERROR;
+    }
     *put = (uint32_t)r;
-    return HOST_IO_OK;
+    return STD_OK;
 }
 
-int host_fs_close(int fd)
+std_rw_result fs_std_close(int desc, api_errno *err)
 {
-    return close(fd);
+    if (close(desc) != 0) /* also a deferred flush failure: ENOSPC, EIO */
+    {
+        *err = errno_to_api(errno);
+        return STD_ERROR;
+    }
+    return STD_OK;
 }

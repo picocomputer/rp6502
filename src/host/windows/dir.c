@@ -52,6 +52,8 @@ void *host_dir_open(const char *path)
     wchar_t base[WIN_WPATH_MAX];
     if (!path_to_native(path, native, sizeof native))
         return NULL;
+    if (!native[0]) /* a directory of no name is the working directory */
+        native[0] = '.', native[1] = 0;
     if (oem_to_wide(native, (uint16_t *)base, WIN_WPATH_MAX) <= 0)
     {
         errno = EINVAL;
