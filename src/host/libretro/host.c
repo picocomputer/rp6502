@@ -11,7 +11,7 @@
  * /dev/urandom rather than getrandom(2), which is Linux's and is gated
  * behind API 28 on Android. This one host spans Linux, macOS and Android,
  * and the file is there on all of them; what reads the result is the
- * reproducibility PRNG in host/emu/rand.c, not a key.
+ * reproducibility PRNG in core/rand_seed.c, not a key.
  */
 
 #include "host.h"

@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/emu/log.h"
+#include "core/sys/log.h"
 #include <stdarg.h>
 #include <stdio.h>
 

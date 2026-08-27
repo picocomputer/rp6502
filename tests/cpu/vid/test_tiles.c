@@ -11,7 +11,7 @@
  */
 
 #include "core/hid/keyboard.h"
-#include "host/emu/vtkeys.h"
+#include "core/hid/vtkeys.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"

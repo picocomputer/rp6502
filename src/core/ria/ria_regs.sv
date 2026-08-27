@@ -5,7 +5,7 @@
  *
  * The RIA register window at $FFE0-$FFFF. The emulator defines the
  * semantics and this must match it — every read side effect below is
- * there because core/ria/ria.c has it, not because the fabric wants it.
+ * there because core/sys/ria.c has it, not because the fabric wants it.
  *
  * Read data is combinational from pre-tick state; side effects land at
  * the enabled edge.

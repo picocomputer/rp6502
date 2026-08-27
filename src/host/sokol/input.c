@@ -10,7 +10,7 @@
 #include "host/sokol/window.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "host/emu/vtkeys.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/vga/vga_emu.h"

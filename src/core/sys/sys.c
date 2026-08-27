@@ -5,17 +5,17 @@
  *
  */
 
-#include "host/emu/proc.h"
+#include "core/api/proc_exec.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "host/emu/log.h"
-#include "host/emu/rom.h"
-#include "host/emu/vtkeys.h"
+#include "core/sys/log.h"
+#include "core/rom/rom.h"
+#include "core/hid/vtkeys.h"
 #include "core/lifecycle.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/ria/ria.h"
-#include "host/emu/sys.h"
+#include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "core/api/api.h"

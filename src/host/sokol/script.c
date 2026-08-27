@@ -7,10 +7,10 @@
 
 #include "host/sokol/script.h"
 #include "host/sokol/png.h"
-#include "host/emu/proc.h"
+#include "core/api/proc_exec.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
-#include "host/emu/vtkeys.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "host/sokol/gamepad.h"
 #include "core/hid/tablet.h"

@@ -13,7 +13,7 @@
 
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
-#include "host/emu/vtkeys.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/usage.h"
 #include "core/com/com.h"
 #include "core/hid/keyboard.h"

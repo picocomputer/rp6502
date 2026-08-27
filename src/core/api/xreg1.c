@@ -9,7 +9,7 @@
  * core/vga/canvas.c, core/vga/mode.c and core/term/term.c, and a machine
  * linking none of those cannot resolve it. A machine whose video device is a
  * real chip across four wires answers device 1 at the far end instead
- * (host/pico/vga/sys/pix.c) and lists host/emu/xreg0.c alone.
+ * (host/pico/vga/sys/pix.c) and lists core/api/xreg0.c alone.
  */
 
 #include "core/lifecycle.h"
@@ -19,7 +19,7 @@
 #include <string.h>
 
 /* The mode program being assembled. Channel 0 stores each register as it
- * arrives and the mode write consumes the lot; the dispatch in core/pix/pix.c
+ * arrives and the mode write consumes the lot; the dispatch in core/sys/pix.c
  * sends them high address to low, so the parameters are here before the mode
  * that reads them. */
 static uint16_t xregs[16];

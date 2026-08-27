@@ -13,7 +13,7 @@
 #include <stdint.h>
 
 /* The KEYBOARD source: every host keystroke, scripted or typed, enters the
- * machine here. The pushers are host/emu/vtkeys.c and the Pocket's own com.c.
+ * machine here. The pushers are core/hid/vtkeys.c and the Pocket's own com.c.
  * A RIA is not among them -- it links no core/com at all, and its console
  * pulls from keymap_in_chars instead, which is why the keymap keeps a queue. */
 void com_keyboard_push(const char *s, size_t n);

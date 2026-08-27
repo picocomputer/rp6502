@@ -24,15 +24,15 @@ extern "C"
 #include "core/dap/dbg.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
-#include "host/emu/sys.h"
+#include "core/sys/sys.h"
 #include "core/str/oem.h" /* oem_get_code_page_run (RIA panel status) */
-#include "host/emu/proc.h" /* proc_get_exit_code (exit-code display) */
+#include "core/api/proc_exec.h" /* proc_get_exit_code (exit-code display) */
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "host/sokol/dbgui.h"        /* the C-callable entry points this TU defines */
 #include "host/sokol/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
 #include "host/sokol/window.h"      /* window-scale presets */
-#include "host/emu/rom.h"        /* rom_read_asset (ROM Help viewer) */
+#include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
 #include "host/sokol/credits.h" /* EMU_CREDITS */
 #include "host/version.h"

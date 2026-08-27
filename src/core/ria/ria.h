@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 /* host/sokol/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
- * unlike its sibling host/emu headers this one must declare its own linkage. */
+ * unlike its sibling core/sys headers this one must declare its own linkage. */
 #ifdef __cplusplus
 extern "C"
 {

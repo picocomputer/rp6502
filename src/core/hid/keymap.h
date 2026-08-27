@@ -9,7 +9,7 @@
  * keyboard.c reports which keys are down and offers each press to this machine's
  * keymap. This answers with a layout, dead keys and a code page. A machine whose
  * host produced the characters first answers with nothing and takes text
- * instead -- src/host/emu/vtkeys.c, a different file and not this contract.
+ * instead -- src/core/hid/vtkeys.c, a different file and not this contract.
  */
 
 #ifndef _CORE_HID_KEYMAP_H_
@@ -21,7 +21,7 @@
 
 /* Every new key press, and the modifier byte after every report. A firmware
  * answers with a layout; a machine whose host resolved the characters before
- * the keystroke arrived answers with nothing -- src/host/emu/vtkeys.c. The
+ * the keystroke arrived answers with nothing -- src/core/hid/vtkeys.c. The
  * prefix names the answerer, so the declaration lives in the answerer's
  * header and core/hid/keyboard.h stays one module end to end. */
 void keymap_on_key(uint8_t modifier, uint8_t keycode);

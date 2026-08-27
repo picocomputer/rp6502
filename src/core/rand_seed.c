@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/emu/rand.h"
+#include "core/rand_seed.h"
 #include "core/rand.h"
 #include "host.h"
 #include <stdbool.h>

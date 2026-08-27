@@ -14,7 +14,7 @@
 
 #include "input.h"
 
-#include "host/emu/vtkeys.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/mouse.h"
