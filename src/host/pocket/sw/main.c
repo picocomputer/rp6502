@@ -19,7 +19,7 @@
 #include "log.h"
 #include "main.h"
 #include "mmio.h"
-#include "msc.h"
+#include "fs.h"
 #include "proc.h"
 #include "rand.h"
 #include "rom.h"
@@ -83,7 +83,7 @@ static uint8_t main_upd_seen;
 
 static bool main_rom_len(uint32_t *len)
 {
-    return msc_slot_len(MSC_SLOT_ROM, len) && *len;
+    return fs_slot_len(FS_SLOT_ROM, len) && *len;
 }
 
 /* No monitor here, so there is nothing a break could drop into. */

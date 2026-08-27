@@ -260,7 +260,7 @@ static void do_openfile()
      * that never once worked on hardware kept a green suite: the host
      * saw flags of 3 as 0x03000000 and opened without creating. Read
      * them the way the real host does, and put the byte order back in
-     * msc_win_u32 to watch this test go red. */
+     * fs_win_u32 to watch this test go red. */
     uint32_t flags = ((uint32_t)param[256] << 24) | ((uint32_t)param[257] << 16)
                      | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
     uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
@@ -1008,9 +1008,9 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
 }
 
 /* The other half of the drive: a sleep that lands INSIDE a file
- * operation rather than between two. msc_std_write starts a bridge
- * command, sets msc_busy, and returns to the task loop until it
- * retires, so a blob can carry msc_busy true and a half-issued command
+ * operation rather than between two. fs_std_write starts a bridge
+ * command, sets fs_busy, and returns to the task loop until it
+ * retires, so a blob can carry fs_busy true and a half-issued command
  * whose other end no longer exists. Waiting for the first write puts
  * the freeze in that window.
  */

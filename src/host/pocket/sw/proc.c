@@ -14,7 +14,7 @@
  * descriptors the outgoing program left open and the read needs one.
  */
 
-#include "msc.h"
+#include "fs.h"
 #include "proc.h"
 #include "rom.h"
 
@@ -44,7 +44,7 @@ void proc_restage(void)
     proc_cancel_launcher();
     arg_clear();
     proc_run(); /* an empty argv: nothing is running until the image starts */
-    if (msc_getfile(MSC_SLOT_ROM, proc_argv0, sizeof proc_argv0))
+    if (fs_getfile(FS_SLOT_ROM, proc_argv0, sizeof proc_argv0))
         arg_append(proc_argv0);
 }
 
@@ -92,7 +92,7 @@ bool proc_exec_take(void)
         return false;
     proc_exec_pending = false;
     uint32_t len;
-    if (!msc_stage_rom(proc_exec_path, &len))
+    if (!fs_stage_rom(proc_exec_path, &len))
     {
         printf("exec: no %s\n", proc_exec_path);
         return false;

@@ -248,7 +248,7 @@ The 6502 continues from the exact cycle the blob froze it in.
   to bind — but a binding made at runtime with `0x0192` is not in
   `data.json` and no page says whether it survives.
 
-  So `msc_restore` asks. `0x0190` answers with the path a slot is
+  So `fs_restore` asks. `0x0190` answers with the path a slot is
   bound to, and a slot still holding the right file is left alone.
   That is correct whichever way the host behaves, and it is the
   difference between one round trip per open file and none: a wake
@@ -268,7 +268,7 @@ The 6502 continues from the exact cycle the blob froze it in.
   other one, and it asserts the Open Files do not happen.
 
   So a file failure that only happens on hardware is now, by
-  construction, something the model does not have. `msc_restore` says
+  construction, something the model does not have. `fs_restore` says
   which descriptor refused and with which of the host's own result
   codes, because the last one of these cost a day of inference over a
   number nobody could read off the screen.

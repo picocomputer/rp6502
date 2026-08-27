@@ -29,7 +29,7 @@
 #include "com.h"
 #include "main.h"
 #include "mmio.h"
-#include "msc.h"
+#include "fs.h"
 #include "sst.h"
 
 #include "core/api/api.h"
@@ -108,7 +108,7 @@ void log_task(void)
 
     if (log_syncing)
     {
-        if (msc_std_sync(log_desc, &err) == STD_PENDING)
+        if (fs_std_sync(log_desc, &err) == STD_PENDING)
             return;
         log_syncing = false;
         /* Said after the flush that carried the lines it counts, so the
@@ -127,8 +127,8 @@ void log_task(void)
 
     if (log_desc < 0)
     {
-        log_desc = msc_std_open(LOG_PATH,
-                                MSC_O_WRITE | MSC_O_CREAT | MSC_O_APPEND,
+        log_desc = fs_std_open(LOG_PATH,
+                                FS_WR | FS_CREAT | FS_APPEND,
                                 &err);
         if (log_desc < 0)
         {
@@ -140,7 +140,7 @@ void log_task(void)
         }
     }
 
-    /* Latched: msc_std_write copies into the bridge window on the call
+    /* Latched: fs_std_write copies into the bridge window on the call
      * that starts the operation and polls on the ones after, so the
      * count it is given has to be the same each time or the file
      * position advances by a length that was never written. */
@@ -153,7 +153,7 @@ void log_task(void)
     }
 
     uint32_t wrote = 0;
-    std_rw_result res = msc_std_write(log_desc, &log_ring[log_tail],
+    std_rw_result res = fs_std_write(log_desc, &log_ring[log_tail],
                                       log_inflight, &wrote, &err);
     if (res == STD_PENDING && !wrote)
         return;

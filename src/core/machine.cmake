@@ -123,7 +123,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/cfg.c
         ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
         ${SW_SRC}/log.c ${SW_SRC}/mem.c
-        ${SW_SRC}/msc.c
+        ${SW_SRC}/dir.c ${SW_SRC}/fs.c
         ${SW_SRC}/proc.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c

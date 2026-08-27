@@ -29,16 +29,16 @@
 #include "sw/apf.h"
 #include "sw/cpu.h"
 #include "sw/log.h"
-#include "sw/msc.h"
+#include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
 
 /* vid first, so reversal puts vid_stop last: the display restore has to follow
- * everything that could still draw. msc before std, so reversal puts msc_stop
+ * everything that could still draw. fs before std, so reversal puts fs_stop
  * after std_stop -- std's closes are what park a read. */
 #define ROSTER                                                  \
     VID_LIFECYCLE, LOG_LIFECYCLE, PROC_LIFECYCLE,               \
-    AUD_LIFECYCLE, COM_LIFECYCLE, MSC_LIFECYCLE,                \
+    AUD_LIFECYCLE, COM_LIFECYCLE, FS_LIFECYCLE,                \
     STD_LIFECYCLE, RLN_LIFECYCLE, TERM_LIFECYCLE,               \
     KEYBOARD_LIFECYCLE,                                         \
     KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,       \

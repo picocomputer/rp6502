@@ -11,7 +11,7 @@
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "sw/msc.h"
+#include "sw/fs.h"
 #include "sw/rom.h"
 
 static const std_driver_t std_driver_table[] = {
@@ -23,13 +23,13 @@ static const std_driver_t std_driver_table[] = {
         .lseek = rom_std_lseek,
     },
     {
-        .handles = msc_std_handles,
-        .open = msc_std_open,
-        .close = msc_std_close,
-        .read = msc_std_read,
-        .write = msc_std_write,
-        .sync = msc_std_sync,
-        .lseek = msc_std_lseek,
+        .handles = fs_std_handles,
+        .open = fs_std_open,
+        .close = fs_std_close,
+        .read = fs_std_read,
+        .write = fs_std_write,
+        .sync = fs_std_sync,
+        .lseek = fs_std_lseek,
     },
 };
 

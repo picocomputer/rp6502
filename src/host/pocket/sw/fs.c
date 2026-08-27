@@ -3,26 +3,37 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The Pocket's drive. Eight data slots stand in for eight open files.
+ * Files on the APF host, as core/api/fs.h asks for them: the std driver, over
+ * the data-slot bridge and the slot pool it stands on.
  *
- * The host has no working directory and will not resolve a relative
- * name, so the drive spells one out. There is no single root to spell:
- * an open means the program's own saves folder and an exec means where
- * the menu browses, so each side of the API pins its own. A leading
- * slash names the card's root and travels untouched.
+ * There is no filesystem down there to speak of. A name is handed to the host
+ * and it binds a data slot to it; the eight descriptors are slots 1..8, and
+ * slot 0 is the ROM, which data.json puts first because a hot reload writes
+ * the new image through the first slot record. The directories such as they
+ * are live next door in dir.c.
  *
- * Paths are code page bytes going out and UTF-8 at the host, worst case
- * three bytes per character. A name that will not fit the struct is
- * refused rather than truncated into a different file.
+ * The host has no working directory and will not resolve a relative name, so
+ * the drive spells one out. There is no single root to spell: an open means
+ * the program's own saves folder and an exec means where the menu browses, so
+ * each side of the API pins its own. A leading slash names the card's root
+ * and travels untouched.
  *
- * A slot's file has a length, not a high-water mark, so a write past the
- * end costs a resize-open round trip before the bytes.
+ * Paths are code page bytes going out and UTF-8 at the host, worst case three
+ * bytes per character. A name that will not fit the struct is refused rather
+ * than truncated into a different file.
+ *
+ * A slot's file has a length, not a high-water mark, so a write past the end
+ * costs a resize-open round trip before the bytes. A transfer crosses through
+ * a 512-byte window, so a longer write lands in pieces and says STD_PENDING
+ * until the last one -- the dispatcher comes back for the rest. Sleep and
+ * wake can take the host away underneath an open file, so every entry point
+ * checks and rebinds.
  */
 
 #include "font.h"
 #include "log.h"
 #include "mmio.h"
-#include "msc.h"
+#include "fs.h"
 
 #include "core/str/unicode.h"
 
@@ -30,20 +41,20 @@
 #include <string.h>
 
 /* Slots 1-8 are the open files, above the ROM's slot 0. */
-#define MSC_SLOT_FIRST 1
-#define MSC_OPEN_MAX 8
+#define FS_SLOT_FIRST 1
+#define FS_OPEN_MAX 8
 
-#define MSC_NAME_MAX 256
-#define MSC_PARAM_FLAGS 256
-#define MSC_PARAM_SIZE 260
+#define FS_NAME_MAX 256
+#define FS_PARAM_FLAGS 256
+#define FS_PARAM_SIZE 260
 
-#define MSC_DS_CREATE 1u
-#define MSC_DS_RESIZE 2u
+#define FS_DS_CREATE 1u
+#define FS_DS_RESIZE 2u
 
 /* The card's sector. A short read that straddles two of them costs two
  * whatever this side does, so the fetch is aligned to one and never
  * shorter than one. */
-#define MSC_SECTOR 512u
+#define FS_SECTOR 512u
 
 static struct
 {
@@ -65,18 +76,18 @@ static struct
     uint32_t cache_len;
     /* Kept because growing the file means opening it again, and the
      * window the name went out through cannot be read back. */
-    char name[MSC_NAME_MAX];
-} msc_pool[MSC_OPEN_MAX];
+    char name[FS_NAME_MAX];
+} fs_pool[FS_OPEN_MAX];
 
 /* Two halves, because the task loop does not wait: a silent host holds
  * the bridge for about 0.9 seconds and spinning that out stops every
  * other task. Start it, and poll once per pass. */
-static void msc_start(uint32_t op)
+static void fs_start(uint32_t op)
 {
     FILE_CTL = op;
 }
 
-static bool msc_poll(uint32_t *st)
+static bool fs_poll(uint32_t *st)
 {
     uint32_t v = FILE_CTL;
     if (v & (FILE_ST_BUSY | FILE_ST_DRAIN))
@@ -88,23 +99,23 @@ static bool msc_poll(uint32_t *st)
 /* Counted rather than printed at the point of failure: a stream that
  * goes wrong goes wrong every frame, and a console full of it would be
  * the second thing the user could not read. Reported once. */
-static uint16_t msc_n_tmo, msc_n_err, msc_n_defer;
-static uint32_t msc_last_st;
+static uint16_t fs_n_tmo, fs_n_err, fs_n_defer;
+static uint32_t fs_last_st;
 
-void msc_log(void)
+void fs_log(void)
 {
     /* Deferrals are the restore's own one-pass stall and not a
      * failure, so they are reported beside the errors but never on
      * their own -- a clean restore says nothing. */
-    if (!msc_n_tmo && !msc_n_err)
+    if (!fs_n_tmo && !fs_n_err)
     {
-        msc_n_defer = 0;
+        fs_n_defer = 0;
         return;
     }
-    printf("msc: tmo=%u err=%u defer=%u last=%02x\n", (unsigned)msc_n_tmo,
-           (unsigned)msc_n_err, (unsigned)msc_n_defer,
-           (unsigned)(msc_last_st & 0xFFu));
-    msc_n_tmo = msc_n_err = msc_n_defer = 0;
+    printf("fs: tmo=%u err=%u defer=%u last=%02x\n", (unsigned)fs_n_tmo,
+           (unsigned)fs_n_err, (unsigned)fs_n_defer,
+           (unsigned)(fs_last_st & 0xFFu));
+    fs_n_tmo = fs_n_err = fs_n_defer = 0;
 }
 
 /* A restore has landed and the fixups have not finished. Between those
@@ -113,60 +124,60 @@ void msc_log(void)
  * into, and pocket_file was reconfigured under a command the sleeping
  * session issued. The main loop makes the window unavoidable -- api_task
  * runs before sst_task, so a syscall carried across the sleep is
- * re-dispatched a whole pass before msc_restore rebinds anything -- so
+ * re-dispatched a whole pass before fs_restore rebinds anything -- so
  * the guard belongs here, at the driver, where it holds whatever order
  * the tasks run in.
  *
- * Answering STD_PENDING is lossless: pos is not advanced, msc_restore
- * clears msc_busy, and the next pass re-issues the same operation
+ * Answering STD_PENDING is lossless: pos is not advanced, fs_restore
+ * clears fs_busy, and the next pass re-issues the same operation
  * against a slot that is its own again. The stall is one pass, because
  * sst_task clears the bit at the end of it. */
-static bool msc_adrift(void)
+static bool fs_adrift(void)
 {
     if (!(SST_CTL & SST_RESTORED))
         return false;
-    msc_n_defer++;
+    fs_n_defer++;
     return true;
 }
 
 /* A stream that fails, fails every frame. The first few say what
  * happened and the rest are counted, because a console nobody can read
  * is how this started. */
-#define MSC_SAY_MAX 4
+#define FS_SAY_MAX 4
 
-static bool msc_note(uint32_t st)
+static bool fs_note(uint32_t st)
 {
-    msc_last_st = st;
+    fs_last_st = st;
     if (st & FILE_ST_TIMEOUT)
-        msc_n_tmo++;
+        fs_n_tmo++;
     else if (st & FILE_ST_ERR)
-        msc_n_err++;
-    return (unsigned)(msc_n_tmo + msc_n_err) <= MSC_SAY_MAX;
+        fs_n_err++;
+    return (unsigned)(fs_n_tmo + fs_n_err) <= FS_SAY_MAX;
 }
 
 /* The blocking form, for open and boot-time staging: once per file, and
  * the 6502 is parked in its syscall either way. */
-static uint32_t msc_command(uint32_t op)
+static uint32_t fs_command(uint32_t op)
 {
     uint32_t st;
-    msc_start(op);
-    while (!msc_poll(&st))
+    fs_start(op);
+    while (!fs_poll(&st))
         ;
     return st;
 }
 
 /* One record is enough: the 6502 is parked in a single syscall, so only
  * one worker is ever mid-op. */
-static bool msc_busy;
+static bool fs_busy;
 
 /* A second command the write worker can have in flight: the resize-open
  * that makes room before the WRITE that fills it. */
-static bool msc_grow;
+static bool fs_grow;
 
 /* std_stop drains only descriptors it will flush, so a read-only one
  * arrives still in flight. Left there, the next command stacks a toggle
  * on top of it. */
-void msc_stop(void)
+void fs_stop(void)
 {
     /* Unconditional, because the two flags below say what the session
      * that wrote them was doing and the command in the fabric may
@@ -177,17 +188,17 @@ void msc_stop(void)
      * previous command instead. Idle costs one read. */
     uint32_t st;
     bool waited = false;
-    while (!msc_poll(&st))
+    while (!fs_poll(&st))
         waited = true;
-    if (waited || msc_busy || msc_grow)
-        LOG_SAY("msc: drain waited=%u busy=%u grow=%u st=%02x\n",
-               (unsigned)waited, (unsigned)msc_busy, (unsigned)msc_grow,
+    if (waited || fs_busy || fs_grow)
+        LOG_SAY("fs: drain waited=%u busy=%u grow=%u st=%02x\n",
+               (unsigned)waited, (unsigned)fs_busy, (unsigned)fs_grow,
                (unsigned)(st & 0xFFu));
-    msc_busy = false;
-    msc_grow = false;
+    fs_busy = false;
+    fs_grow = false;
 }
 
-static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
+static void fs_win_put(uint32_t off, const uint8_t *src, uint32_t len)
 {
     for (uint32_t i = 0; i < len; i += 4)
     {
@@ -202,28 +213,28 @@ static void msc_win_put(uint32_t off, const uint8_t *src, uint32_t len)
 /* Words, not bytes. The path rides the byte stream and arrives intact,
  * but an integer field is taken as the bridge word stands: written low
  * byte first, flags of 3 arrive as 0x03000000. */
-static void msc_win_u32(uint32_t off, uint32_t v)
+static void fs_win_u32(uint32_t off, uint32_t v)
 {
     FILE_WIN[off >> 2] = v;
 }
 
 /* The table is id/size pairs with no defined layout, so a slot's size is
  * looked up by its id. */
-#define MSC_DT_PAIRS 20
+#define FS_DT_PAIRS 20
 
-static uint32_t msc_dt(uint32_t word)
+static uint32_t fs_dt(uint32_t word)
 {
     FILE_ID = word;
-    msc_command(FILE_OP_DT);
+    fs_command(FILE_OP_DT);
     return FILE_RESULT;
 }
 
-bool msc_slot_len(uint32_t slot, uint32_t *len)
+bool fs_slot_len(uint32_t slot, uint32_t *len)
 {
-    for (uint32_t i = 0; i < MSC_DT_PAIRS; i++)
-        if (msc_dt(i * 2) == slot)
+    for (uint32_t i = 0; i < FS_DT_PAIRS; i++)
+        if (fs_dt(i * 2) == slot)
         {
-            *len = msc_dt(i * 2 + 1);
+            *len = fs_dt(i * 2 + 1);
             return true;
         }
     return false;
@@ -231,11 +242,11 @@ bool msc_slot_len(uint32_t slot, uint32_t *len)
 
 /* The shape of the reply is undocumented. This reads a NUL-terminated
  * name at offset 0, where Open File's parameter struct carries one. */
-bool msc_getfile(uint32_t slot, char *out, size_t cap)
+bool fs_getfile(uint32_t slot, char *out, size_t cap)
 {
     FILE_ID = slot;
     FILE_BRIDGE = GETFILE_BRIDGE;
-    uint32_t st = msc_command(FILE_OP_GETFILE);
+    uint32_t st = fs_command(FILE_OP_GETFILE);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
     /* An answer of ok with nothing written is legal -- Get File has no
@@ -244,13 +255,13 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
      * cannot be blanked beforehand to tell the difference. The fabric
      * watches for the write instead. Without this the caller is handed
      * the previous Get File's name for a slot that has none, which
-     * msc_still_bound would read as a binding that was kept. */
+     * fs_still_bound would read as a binding that was kept. */
     if (!(st & FILE_ST_WROTE))
         return false;
 
-    char utf8[MSC_NAME_MAX];
+    char utf8[FS_NAME_MAX];
     size_t n = 0;
-    while (n < MSC_NAME_MAX - 1 && GETFILE_WIN[n])
+    while (n < FS_NAME_MAX - 1 && GETFILE_WIN[n])
         utf8[n] = (char)GETFILE_WIN[n], n++;
     utf8[n] = 0;
 
@@ -278,20 +289,20 @@ bool msc_getfile(uint32_t slot, char *out, size_t cap)
 
 /* The host does not create folders and does not say so, so the package
  * ships the one folder the drive needs. */
-#define MSC_SAVES_LEN (sizeof MSC_SAVES_PATH - 1)
-#define MSC_RC_MALFORMED 4u
+#define FS_SAVES_LEN (sizeof FS_SAVES_PATH - 1)
+#define FS_RC_MALFORMED 4u
 
 /* Not a host answer: the command is on its way and the caller must come
  * back for it. */
-#define MSC_RC_STARTED 0xFFu
+#define FS_RC_STARTED 0xFFu
 
-/* Answers MSC_RC_MALFORMED without starting a command when the name will
+/* Answers FS_RC_MALFORMED without starting a command when the name will
  * not fit. */
-static uint32_t msc_try_open_start(uint32_t slot, const char *name,
+static uint32_t fs_try_open_start(uint32_t slot, const char *name,
                                    uint32_t flags, uint32_t size,
                                    const char *root)
 {
-    uint8_t pad[MSC_NAME_MAX];
+    uint8_t pad[FS_NAME_MAX];
     uint16_t page = font_get_code_page();
     size_t n = 0;
     if (*name != '/')
@@ -303,53 +314,53 @@ static uint32_t msc_try_open_start(uint32_t slot, const char *name,
     {
         char enc[4];
         int k = unicode_to_utf8_char(*s, page, enc);
-        if (n + (size_t)k >= MSC_NAME_MAX)
-            return MSC_RC_MALFORMED;
+        if (n + (size_t)k >= FS_NAME_MAX)
+            return FS_RC_MALFORMED;
         memcpy(pad + n, enc, (size_t)k);
         n += (size_t)k;
     }
-    memset(pad + n, 0, MSC_NAME_MAX - n);
-    msc_win_put(0, pad, MSC_NAME_MAX);
-    msc_win_u32(MSC_PARAM_FLAGS, flags);
-    msc_win_u32(MSC_PARAM_SIZE, size);
+    memset(pad + n, 0, FS_NAME_MAX - n);
+    fs_win_put(0, pad, FS_NAME_MAX);
+    fs_win_u32(FS_PARAM_FLAGS, flags);
+    fs_win_u32(FS_PARAM_SIZE, size);
     FILE_ID = slot;
-    msc_start(FILE_OP_OPEN);
-    return MSC_RC_STARTED;
+    fs_start(FILE_OP_OPEN);
+    return FS_RC_STARTED;
 }
 
-/* A bridge that stopped answering reads as MSC_RC_MALFORMED, which every
+/* A bridge that stopped answering reads as FS_RC_MALFORMED, which every
  * caller already treats as a refusal. */
-static bool msc_try_open_poll(uint32_t *rc)
+static bool fs_try_open_poll(uint32_t *rc)
 {
     uint32_t st;
-    if (!msc_poll(&st))
+    if (!fs_poll(&st))
         return false;
-    *rc = (st & FILE_ST_TIMEOUT) ? MSC_RC_MALFORMED : ((st & FILE_ST_ERR) >> 1);
+    *rc = (st & FILE_ST_TIMEOUT) ? FS_RC_MALFORMED : ((st & FILE_ST_ERR) >> 1);
     return true;
 }
 
 /* The blocking form, for open and for exec's staging. */
-static uint32_t msc_try_open(uint32_t slot, const char *name,
+static uint32_t fs_try_open(uint32_t slot, const char *name,
                              uint32_t flags, uint32_t size,
                              const char *root)
 {
-    uint32_t rc = msc_try_open_start(slot, name, flags, size, root);
-    if (rc == MSC_RC_STARTED)
-        while (!msc_try_open_poll(&rc))
+    uint32_t rc = fs_try_open_start(slot, name, flags, size, root);
+    if (rc == FS_RC_STARTED)
+        while (!fs_try_open_poll(&rc))
             ;
     return rc;
 }
 
-static bool msc_open_slot(uint32_t slot, const char *name, uint32_t flags,
+static bool fs_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
-    return msc_try_open(slot, name, flags, size, MSC_SAVES_PATH) <= 1;
+    return fs_try_open(slot, name, flags, size, FS_SAVES_PATH) <= 1;
 }
 
 /* Only the prefix is stripped; the slash after it, or its absence, is
  * what decides where the name lands. A drive that is not 0 is refused,
  * not aliased. */
-static const char *msc_strip_drive(const char *path)
+const char *fs_strip_drive(const char *path)
 {
     const char *p = path;
     if ((p[0] | 0x20) == 'm' && (p[1] | 0x20) == 's' && (p[2] | 0x20) == 'c')
@@ -368,17 +379,17 @@ static const char *msc_strip_drive(const char *path)
  * descriptor is the program's -- relative or absolute -- and the host
  * answers with the whole path, so the comparison rebuilds the prefix
  * the same way an open would have added it. */
-static bool msc_still_bound(int d)
+static bool fs_still_bound(int d)
 {
-    char have[MSC_NAME_MAX];
-    if (!msc_getfile(MSC_SLOT_FIRST + (uint32_t)d, have, sizeof have))
+    char have[FS_NAME_MAX];
+    if (!fs_getfile(FS_SLOT_FIRST + (uint32_t)d, have, sizeof have))
         return false;
-    const char *want = msc_pool[d].name;
+    const char *want = fs_pool[d].name;
     const char *at = have;
     if (*want != '/')
     {
-        size_t n = MSC_SAVES_LEN;
-        if (strncmp(have, MSC_SAVES_PATH, n) != 0)
+        size_t n = FS_SAVES_LEN;
+        if (strncmp(have, FS_SAVES_PATH, n) != 0)
             return false;
         at += n;
     }
@@ -406,17 +417,17 @@ static bool msc_still_bound(int d)
  * A slot that will not open again is left open here, so a program that
  * goes on using it is told the read failed rather than that its file
  * was never open. */
-void msc_restore(void)
+void fs_restore(void)
 {
-    msc_stop();
-    for (int d = 0; d < MSC_OPEN_MAX; d++)
+    fs_stop();
+    for (int d = 0; d < FS_OPEN_MAX; d++)
     {
-        if (!msc_pool[d].used)
+        if (!fs_pool[d].used)
             continue;
-        msc_pool[d].stale = true;
+        fs_pool[d].stale = true;
         /* The window is the board's and the blob does not carry it, so
          * whatever it held belongs to the session that went away. */
-        msc_pool[d].cache_len = 0;
+        fs_pool[d].cache_len = 0;
     }
 }
 
@@ -432,22 +443,22 @@ void msc_restore(void)
  * A slot that will not open again is left open, so a program that goes
  * on using it is told the read failed rather than that its file was
  * never open. */
-static void msc_rebind(int d)
+static void fs_rebind(int d)
 {
-    if (!msc_pool[d].stale)
+    if (!fs_pool[d].stale)
         return;
-    msc_pool[d].stale = false;
-    bool kept = msc_still_bound(d);
+    fs_pool[d].stale = false;
+    bool kept = fs_still_bound(d);
     uint32_t rc = 0;
     if (!kept)
-        rc = msc_try_open(MSC_SLOT_FIRST + (uint32_t)d,
-                          msc_pool[d].name, 0, 0, MSC_SAVES_PATH);
+        rc = fs_try_open(FS_SLOT_FIRST + (uint32_t)d,
+                          fs_pool[d].name, 0, 0, FS_SAVES_PATH);
     uint32_t len = 0;
-    bool got = msc_slot_len(MSC_SLOT_FIRST + (uint32_t)d, &len);
-    LOG_SAY("msc: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
-           (unsigned)d, msc_pool[d].name, (unsigned)kept, (unsigned)rc,
-           (unsigned)msc_pool[d].len, (unsigned)got, (unsigned)len,
-           (unsigned)msc_pool[d].pos, (unsigned)msc_pool[d].writable);
+    bool got = fs_slot_len(FS_SLOT_FIRST + (uint32_t)d, &len);
+    LOG_SAY("fs: %u '%s' kept=%u rc=%u blob=%u host=%u/%u pos=%u w=%u\n",
+           (unsigned)d, fs_pool[d].name, (unsigned)kept, (unsigned)rc,
+           (unsigned)fs_pool[d].len, (unsigned)got, (unsigned)len,
+           (unsigned)fs_pool[d].pos, (unsigned)fs_pool[d].writable);
     if (!kept && rc > 1)
         return;
     /* The length is the host's to say for a file this side did not
@@ -455,39 +466,39 @@ static void msc_rebind(int d)
      * the size the blob remembers. A writable descriptor keeps its
      * own, because it is what resized the file and the host's table
      * is only as fresh as the last open. */
-    if (got && !msc_pool[d].writable)
-        msc_pool[d].len = len;
-    if (msc_pool[d].pos > msc_pool[d].len)
-        msc_pool[d].pos = msc_pool[d].len;
+    if (got && !fs_pool[d].writable)
+        fs_pool[d].len = len;
+    if (fs_pool[d].pos > fs_pool[d].len)
+        fs_pool[d].pos = fs_pool[d].len;
 }
 
-static int msc_desc(int desc)
+static int fs_desc(int desc)
 {
-    if (desc < 0 || desc >= MSC_OPEN_MAX || !msc_pool[desc].used)
+    if (desc < 0 || desc >= FS_OPEN_MAX || !fs_pool[desc].used)
         return -1;
     return desc;
 }
 
 /* The bridge retires the command before pocket_file's deadline, so a host
  * that never picked it up arrives as result 7, not as our own timeout. */
-#define MSC_RC_NO_HOST 7u
+#define FS_RC_NO_HOST 7u
 
-static bool msc_unanswered(uint32_t st)
+static bool fs_unanswered(uint32_t st)
 {
     return (st & FILE_ST_TIMEOUT)
-           || ((st & FILE_ST_ERR) >> 1) == MSC_RC_NO_HOST;
+           || ((st & FILE_ST_ERR) >> 1) == FS_RC_NO_HOST;
 }
 
 /* Flush, 0x0188, is documented but absent from core_bridge_cmd.v. Asking
  * costs one deadline, so the first ask decides and is remembered. */
-static enum { MSC_FLUSH_UNTRIED, MSC_FLUSH_WORKS, MSC_FLUSH_NEVER }
-    msc_flush_state;
+static enum { FS_FLUSH_UNTRIED, FS_FLUSH_WORKS, FS_FLUSH_NEVER }
+    fs_flush_state;
 
 /* Chunked because the bridge's ~0.9 s deadline times the whole slot
  * operation, and the host writes at worst ~3.4 MB/s. */
-#define MSC_STAGE_CHUNK 0x80000u
+#define FS_STAGE_CHUNK 0x80000u
 
-bool msc_stage_rom(const char *path, uint32_t *len)
+bool fs_stage_rom(const char *path, uint32_t *len)
 {
     /* Never under a running 6502. The store is what its ROM: assets are
      * read out of, and rewriting it beneath a program is both a pause it
@@ -499,51 +510,51 @@ bool msc_stage_rom(const char *path, uint32_t *len)
         printf("rom: stage refused, 6502 running\n");
         return false;
     }
-    const char *p = msc_strip_drive(path);
+    const char *p = fs_strip_drive(path);
     if (!p || !*p)
         return false;
-    if (msc_try_open(MSC_SLOT_ROM, p, 0, 0, MSC_ASSETS_PATH) > 1)
+    if (fs_try_open(FS_SLOT_ROM, p, 0, 0, FS_ASSETS_PATH) > 1)
         return false;
-    if (!msc_slot_len(MSC_SLOT_ROM, len) || !*len || *len > ROM_MAX)
+    if (!fs_slot_len(FS_SLOT_ROM, len) || !*len || *len > ROM_MAX)
         return false;
-    for (uint32_t at = 0; at < *len; at += MSC_STAGE_CHUNK)
+    for (uint32_t at = 0; at < *len; at += FS_STAGE_CHUNK)
     {
         uint32_t n = *len - at;
-        if (n > MSC_STAGE_CHUNK)
-            n = MSC_STAGE_CHUNK;
-        FILE_ID = MSC_SLOT_ROM;
+        if (n > FS_STAGE_CHUNK)
+            n = FS_STAGE_CHUNK;
+        FILE_ID = FS_SLOT_ROM;
         FILE_OFFSET = at;
         FILE_BRIDGE = ROM_BRIDGE + at;
         FILE_LENGTH = n;
-        uint32_t st = msc_command(FILE_OP_READ);
+        uint32_t st = fs_command(FILE_OP_READ);
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
             return false;
     }
     return true;
 }
 
-bool msc_std_handles(const char *path)
+bool fs_std_handles(const char *path)
 {
     (void)path;
     return true;
 }
 
-int msc_std_open(const char *path, uint8_t flags, api_errno *err)
+int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    path = msc_strip_drive(path);
+    path = fs_strip_drive(path);
     if (!path)
     {
         *err = API_ENODEV;
         return -1;
     }
-    if (!*path || strlen(path) >= MSC_NAME_MAX - MSC_SAVES_LEN)
+    if (!*path || strlen(path) >= FS_NAME_MAX - FS_SAVES_LEN)
     {
         *err = API_EINVAL;
         return -1;
     }
     int d = -1;
-    for (int i = 0; i < MSC_OPEN_MAX; i++)
-        if (!msc_pool[i].used)
+    for (int i = 0; i < FS_OPEN_MAX; i++)
+        if (!fs_pool[i].used)
         {
             d = i;
             break;
@@ -553,26 +564,26 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
-    uint32_t slot = MSC_SLOT_FIRST + (uint32_t)d;
+    uint32_t slot = FS_SLOT_FIRST + (uint32_t)d;
 
     /* Creating takes both bits: create alone makes nothing, and both bits
      * against a file that exists would cut it to nothing. So probe first. */
-    bool exists = msc_open_slot(slot, path, 0, 0);
-    if (exists && (flags & (MSC_O_CREAT | MSC_O_EXCL))
-                      == (MSC_O_CREAT | MSC_O_EXCL))
+    bool exists = fs_open_slot(slot, path, 0, 0);
+    if (exists && (flags & (FS_CREAT | FS_EXCL))
+                      == (FS_CREAT | FS_EXCL))
     {
         *err = API_EEXIST;
         return -1;
     }
-    if (!exists && !(flags & MSC_O_CREAT))
+    if (!exists && !(flags & FS_CREAT))
     {
         *err = API_ENOENT;
         return -1;
     }
     /* The probe above found the file, so a failure here is the host's and
      * final; the retry below has nothing to offer. */
-    bool empty = !exists || (flags & MSC_O_TRUNC);
-    if (empty && exists && !msc_open_slot(slot, path, MSC_DS_RESIZE, 0))
+    bool empty = !exists || (flags & FS_TRUNC);
+    if (empty && exists && !fs_open_slot(slot, path, FS_DS_RESIZE, 0))
     {
         *err = API_EIO;
         return -1;
@@ -580,62 +591,62 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     /* A create into a missing folder returns a descriptor having written
      * nothing, and the result cannot tell the two apart. Ask again plainly. */
     if (!exists
-        && !(msc_open_slot(slot, path, MSC_DS_CREATE | MSC_DS_RESIZE, 0)
-             && msc_open_slot(slot, path, 0, 0)))
+        && !(fs_open_slot(slot, path, FS_DS_CREATE | FS_DS_RESIZE, 0)
+             && fs_open_slot(slot, path, 0, 0)))
     {
         *err = API_ENOENT;
         return -1;
     }
 
     uint32_t len = 0;
-    if (!msc_slot_len(slot, &len))
+    if (!fs_slot_len(slot, &len))
     {
         *err = API_EIO;
         return -1;
     }
-    msc_pool[d].used = true;
-    msc_pool[d].writable = (flags & MSC_O_WRITE) != 0;
+    fs_pool[d].used = true;
+    fs_pool[d].writable = (flags & FS_WR) != 0;
     /* A fresh binding, so nothing is owed and the window holds nothing
      * of this file. */
-    msc_pool[d].stale = false;
-    msc_pool[d].cache_at = 0;
-    msc_pool[d].cache_len = 0;
-    msc_pool[d].len = empty ? 0 : len;
-    msc_pool[d].pos = (flags & MSC_O_APPEND) ? msc_pool[d].len : 0;
-    memcpy(msc_pool[d].name, path, strlen(path) + 1);
+    fs_pool[d].stale = false;
+    fs_pool[d].cache_at = 0;
+    fs_pool[d].cache_len = 0;
+    fs_pool[d].len = empty ? 0 : len;
+    fs_pool[d].pos = (flags & FS_APPEND) ? fs_pool[d].len : 0;
+    memcpy(fs_pool[d].name, path, strlen(path) + 1);
     return d;
 }
 
 /* A close flushes: there is no close command, so this is the only thing
  * that puts a write on the card. It blocks, unlike sync, because
  * std_stop discards what close returns and would drop a STD_PENDING. */
-std_rw_result msc_std_close(int desc, api_errno *err)
+std_rw_result fs_std_close(int desc, api_errno *err)
 {
-    if (msc_desc(desc) < 0)
+    if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-    msc_rebind(desc);
+    fs_rebind(desc);
     std_rw_result res = STD_OK;
-    if (msc_pool[desc].writable && msc_flush_state != MSC_FLUSH_NEVER)
+    if (fs_pool[desc].writable && fs_flush_state != FS_FLUSH_NEVER)
     {
         uint32_t st;
         /* A read or write left in flight has to land before the flush
          * can start; the descriptor is going away either way. */
-        if (msc_busy)
+        if (fs_busy)
         {
-            while (!msc_poll(&st))
+            while (!fs_poll(&st))
                 ;
-            msc_busy = false;
+            fs_busy = false;
         }
-        FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
-        st = msc_command(FILE_OP_FLUSH);
-        if (msc_unanswered(st))
-            msc_flush_state = MSC_FLUSH_NEVER;
+        FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
+        st = fs_command(FILE_OP_FLUSH);
+        if (fs_unanswered(st))
+            fs_flush_state = FS_FLUSH_NEVER;
         else
         {
-            msc_flush_state = MSC_FLUSH_WORKS;
+            fs_flush_state = FS_FLUSH_WORKS;
             if (st & FILE_ST_ERR)
             {
                 *err = API_EIO;
@@ -644,24 +655,24 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         }
     }
     /* Released even when the flush failed, the way close always does. */
-    msc_pool[desc].used = false;
-    msc_pool[desc].cache_len = 0;
+    fs_pool[desc].used = false;
+    fs_pool[desc].cache_len = 0;
     return res;
 }
 
-std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
+std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *got, api_errno *err)
 {
     *got = 0;
-    if (msc_desc(desc) < 0)
+    if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (msc_adrift())
+    if (fs_adrift())
         return STD_PENDING;
-    msc_rebind(desc);
-    uint32_t pos = msc_pool[desc].pos, len = msc_pool[desc].len;
+    fs_rebind(desc);
+    uint32_t pos = fs_pool[desc].pos, len = fs_pool[desc].len;
     uint32_t want = pos < len ? len - pos : 0;
     if (want > count)
         want = count;
@@ -671,7 +682,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
         return STD_OK; /* short or zero at the end, which is EOF */
 
     /* Already here, so nothing goes to the card at all. */
-    uint32_t at = msc_pool[desc].cache_at, have = msc_pool[desc].cache_len;
+    uint32_t at = fs_pool[desc].cache_at, have = fs_pool[desc].cache_len;
     if (!(have && pos >= at && pos + want <= at + have))
     {
         /* What to fetch is the card's business, not the caller's: the
@@ -682,9 +693,9 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
          * and gets exactly what it asked for. */
         uint32_t from, n;
         bool grow = have && pos == at + have
-                    && !((at + have) % MSC_SECTOR)
+                    && !((at + have) % FS_SECTOR)
                     && have < FILE_XFER_MAX;
-        if (count > MSC_SECTOR)
+        if (count > FS_SECTOR)
         {
             from = pos;
             n = want;
@@ -692,10 +703,10 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
         }
         else
         {
-            from = grow ? pos : pos - (pos % MSC_SECTOR);
-            n = (pos % MSC_SECTOR) + count > MSC_SECTOR
-                    ? 2 * MSC_SECTOR
-                    : MSC_SECTOR;
+            from = grow ? pos : pos - (pos % FS_SECTOR);
+            n = (pos % FS_SECTOR) + count > FS_SECTOR
+                    ? 2 * FS_SECTOR
+                    : FS_SECTOR;
         }
         if (from + n > len)
             n = len - from;
@@ -709,35 +720,35 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
             into = 0;
         }
         uint32_t st;
-        if (!msc_busy)
+        if (!fs_busy)
         {
-            FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
+            FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
             FILE_OFFSET = from;
             FILE_BRIDGE = SLOT_WIN_BRIDGE(desc) + into;
             FILE_LENGTH = n;
-            msc_busy = true;
-            msc_start(FILE_OP_READ);
+            fs_busy = true;
+            fs_start(FILE_OP_READ);
         }
-        if (!msc_poll(&st))
+        if (!fs_poll(&st))
             return STD_PENDING;
-        msc_busy = false;
+        fs_busy = false;
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
-            if (msc_note(st))
-                printf("msc: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
+            if (fs_note(st))
+                printf("fs: read %u off=%u len=%u st=%02x\n", (unsigned)desc,
                        (unsigned)from, (unsigned)n, (unsigned)(st & 0xFFu));
-            msc_pool[desc].cache_len = 0;
+            fs_pool[desc].cache_len = 0;
             *err = API_EIO;
             return STD_ERROR;
         }
         if (grow)
-            msc_pool[desc].cache_len = have + n;
+            fs_pool[desc].cache_len = have + n;
         else
         {
-            msc_pool[desc].cache_at = from;
-            msc_pool[desc].cache_len = n;
+            fs_pool[desc].cache_at = from;
+            fs_pool[desc].cache_len = n;
         }
-        at = msc_pool[desc].cache_at;
+        at = fs_pool[desc].cache_at;
     }
     for (uint32_t i = 0; i < want; i++)
         buf[i] = (char)SLOT_WIN(desc)[pos - at + i];
@@ -746,123 +757,123 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count,
      * that landed anywhere in that loop lifted the tail of this buffer
      * out of a store the wake rebuilt. Asked once more here, the whole
      * read is re-taken instead of half-committed. */
-    if (msc_adrift())
+    if (fs_adrift())
         return STD_PENDING;
-    msc_pool[desc].pos = pos + want;
+    fs_pool[desc].pos = pos + want;
     *got = want;
     return STD_OK;
 }
 
-std_rw_result msc_std_write(int desc, const char *buf, uint32_t count,
+std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
                             uint32_t *wrote, api_errno *err)
 {
     *wrote = 0;
-    if (msc_desc(desc) < 0)
+    if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-    if (msc_adrift())
+    if (fs_adrift())
         return STD_PENDING;
-    msc_rebind(desc);
-    if (!msc_pool[desc].writable)
+    fs_rebind(desc);
+    if (!fs_pool[desc].writable)
     {
         *err = API_EACCES;
         return STD_ERROR;
     }
     /* Writes do not cache, and they make whatever the window holds a
      * different file. */
-    msc_pool[desc].cache_len = 0;
+    fs_pool[desc].cache_len = 0;
     if (!count)
         return STD_OK;
-    uint32_t pos = msc_pool[desc].pos;
+    uint32_t pos = fs_pool[desc].pos;
     uint32_t want = count > FILE_WIN_SIZE ? FILE_WIN_SIZE : count;
-    uint32_t slot = MSC_SLOT_FIRST + (uint32_t)desc;
-    if (pos + want > msc_pool[desc].len)
+    uint32_t slot = FS_SLOT_FIRST + (uint32_t)desc;
+    if (pos + want > fs_pool[desc].len)
     {
         uint32_t rc;
-        if (!msc_grow)
+        if (!fs_grow)
         {
-            if (msc_try_open_start(slot, msc_pool[desc].name,
-                                   MSC_DS_CREATE | MSC_DS_RESIZE, pos + want,
-                                   MSC_SAVES_PATH)
-                != MSC_RC_STARTED)
+            if (fs_try_open_start(slot, fs_pool[desc].name,
+                                   FS_DS_CREATE | FS_DS_RESIZE, pos + want,
+                                   FS_SAVES_PATH)
+                != FS_RC_STARTED)
             {
                 *err = API_ENOSPC;
                 return STD_ERROR;
             }
-            msc_grow = true;
+            fs_grow = true;
         }
-        if (!msc_try_open_poll(&rc))
+        if (!fs_try_open_poll(&rc))
             return STD_PENDING;
-        msc_grow = false;
+        fs_grow = false;
         if (rc > 1)
         {
             *err = API_ENOSPC;
             return STD_ERROR;
         }
-        msc_pool[desc].len = pos + want;
+        fs_pool[desc].len = pos + want;
     }
     uint32_t st;
-    if (!msc_busy)
+    if (!fs_busy)
     {
-        msc_win_put(0, (const uint8_t *)buf, want);
+        fs_win_put(0, (const uint8_t *)buf, want);
         FILE_ID = slot;
         FILE_OFFSET = pos;
         FILE_BRIDGE = FILE_WIN_BASE;
         FILE_LENGTH = want;
-        msc_busy = true;
-        msc_start(FILE_OP_WRITE);
+        fs_busy = true;
+        fs_start(FILE_OP_WRITE);
     }
-    if (!msc_poll(&st))
+    if (!fs_poll(&st))
         return STD_PENDING;
-    msc_busy = false;
+    fs_busy = false;
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
-        if (msc_note(st))
-            printf("msc: write %u off=%u len=%u st=%02x\n", (unsigned)desc,
+        if (fs_note(st))
+            printf("fs: write %u off=%u len=%u st=%02x\n", (unsigned)desc,
                    (unsigned)pos, (unsigned)want, (unsigned)(st & 0xFFu));
         *err = API_EIO;
         return STD_ERROR;
     }
-    if (msc_adrift())
+    if (fs_adrift())
         return STD_PENDING;
-    msc_pool[desc].pos = pos + want;
+    fs_pool[desc].pos = pos + want;
     *wrote = want;
     return want < count ? STD_PENDING : STD_OK;
 }
 
-std_rw_result msc_std_sync(int desc, api_errno *err)
+std_rw_result fs_std_sync(int desc, api_errno *err)
 {
-    if (msc_desc(desc) < 0)
+    if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
         return STD_ERROR;
     }
-    msc_rebind(desc);
-    /* msc_flush_state is sticky, so a verdict reached against a
+    fs_rebind(desc);
+    /* fs_flush_state is sticky, so a verdict reached against a
      * reconfigured bridge would condemn every flush for the rest of
      * the session. */
-    if (msc_adrift())
+    if (fs_adrift())
         return STD_PENDING;
-    if (msc_flush_state == MSC_FLUSH_NEVER)
+    if (fs_flush_state == FS_FLUSH_NEVER)
         return STD_OK;
     uint32_t st;
-    if (!msc_busy)
+    if (!fs_busy)
     {
-        FILE_ID = MSC_SLOT_FIRST + (uint32_t)desc;
-        msc_busy = true;
-        msc_start(FILE_OP_FLUSH);
+        FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
+        fs_busy = true;
+        fs_start(FILE_OP_FLUSH);
     }
-    if (!msc_poll(&st))
+    if (!fs_poll(&st))
         return STD_PENDING;
-    msc_busy = false;
-    if (msc_unanswered(st))
+    fs_busy = false;
+    if (fs_unanswered(st))
     {
-        msc_flush_state = MSC_FLUSH_NEVER;
+        fs_flush_state = FS_FLUSH_NEVER;
         return STD_OK;
     }
-    msc_flush_state = MSC_FLUSH_WORKS;
+    fs_flush_state = FS_FLUSH_WORKS;
     if (st & FILE_ST_ERR)
     {
         *err = API_EIO;
@@ -871,60 +882,25 @@ std_rw_result msc_std_sync(int desc, api_errno *err)
     return STD_OK;
 }
 
-int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
+int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err)
 {
-    if (msc_desc(desc) < 0)
+    if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
         return -1;
     }
-    msc_rebind(desc);
+    fs_rebind(desc);
     int32_t from = whence == SEEK_SET   ? 0
-                   : whence == SEEK_CUR ? (int32_t)msc_pool[desc].pos
-                   : whence == SEEK_END ? (int32_t)msc_pool[desc].len
+                   : whence == SEEK_CUR ? (int32_t)fs_pool[desc].pos
+                   : whence == SEEK_END ? (int32_t)fs_pool[desc].len
                                         : -1;
     if (from < 0 || from + off < 0)
     {
         *err = API_EINVAL;
         return -1;
     }
-    msc_pool[desc].pos = (uint32_t)(from + off);
+    fs_pool[desc].pos = (uint32_t)(from + off);
     *pos = from + off;
     return 0;
 }
-
-/* ---- The drive, as core/api/dir.c asks for it ---------------------------- */
-
-/* Synthetic: the host cannot be asked. Spelled from the drive so
- * appending a name opens the same file the bare name does. */
-static bool msc_dir_getcwd(char *buf, size_t size, api_errno *err)
-{
-    static const char cwd[] = "MSC0:/Saves/rp6502/common/";
-    if (size < sizeof cwd)
-    {
-        *err = API_ENOMEM;
-        return false;
-    }
-    memcpy(buf, cwd, sizeof cwd);
-    return true;
-}
-
-static bool msc_dir_chdrive(const char *drive, api_errno *err)
-{
-    const char *rest = msc_strip_drive(drive);
-    if (!rest || *rest)
-    {
-        *err = API_ENODEV;
-        return false;
-    }
-    return true;
-}
-
-/* One folder, no directories to walk and no metadata to read, so all this
- * drive answers is where it is and that it is the only one. The rest of the
- * slots stay empty and the syscalls above them say ENOSYS. */
-const dir_backend_t drive_backend = {
-    .chdrive = msc_dir_chdrive,
-    .getcwd = msc_dir_getcwd,
-};

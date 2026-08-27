@@ -42,7 +42,7 @@
 #include "log.h"
 #include "main.h"
 #include "mmio.h"
-#include "msc.h"
+#include "fs.h"
 #include "proc.h"
 #include "rom.h"
 #include "vga.h"
@@ -130,7 +130,7 @@ void sst_task(void)
 
     /* The host's slot-to-path bindings are a session's, and a wake is a
      * new session. */
-    msc_restore();
+    fs_restore();
 
     /* The staging store is the board's and no blob carries it, and the
      * device has been asked: loading a memory does not restore slot 0
@@ -153,26 +153,26 @@ void sst_task(void)
          * nothing restreamed -- has the store right already and is owed
          * nothing.
          *
-         * Relative against absolute: msc_stage_rom opens under the
+         * Relative against absolute: fs_stage_rom opens under the
          * assets folder, so the host spells back what this side asked
          * for with that in front. */
         const char *want = proc_staged_path();
         char bound[128];
         uint32_t len = 0;
         bool same = false;
-        if (want && *want && msc_getfile(MSC_SLOT_ROM, bound, sizeof bound))
+        if (want && *want && fs_getfile(FS_SLOT_ROM, bound, sizeof bound))
         {
             const char *at = bound;
             if (*want != '/'
-                && !strncmp(bound, MSC_ASSETS_PATH, sizeof MSC_ASSETS_PATH - 1))
-                at += sizeof MSC_ASSETS_PATH - 1;
+                && !strncmp(bound, FS_ASSETS_PATH, sizeof FS_ASSETS_PATH - 1))
+                at += sizeof FS_ASSETS_PATH - 1;
             same = !strcmp(at, want);
             LOG_SAY("rom: want '%s' bound '%s'%s\n", want, bound,
                     same ? " same" : "");
         }
         if (!same && (!want || !*want))
             printf("rom: no path to stage\n");
-        else if (!same && !msc_stage_rom(want, &len))
+        else if (!same && !fs_stage_rom(want, &len))
             printf("rom: stage '%s' failed\n", want);
         else if (!same)
         {
@@ -196,7 +196,7 @@ void sst_task(void)
     tim_init();
     LOG_SAY("sst: released mtime=%u:%u\n",
             (unsigned)(host_clock_us() >> 32), (unsigned)host_clock_us());
-    msc_log();
+    fs_log();
 
     /* The host re-announces its slots on a wake and the loop reads a
      * change in either announcement as the user picking a new program.

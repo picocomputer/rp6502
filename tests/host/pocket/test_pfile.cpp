@@ -256,7 +256,7 @@ static void do_openfile()
      * that never once worked on hardware kept a green suite: the host
      * saw flags of 3 as 0x03000000 and opened without creating. Read
      * them the way the real host does, and put the byte order back in
-     * msc_win_u32 to watch this test go red. */
+     * fs_win_u32 to watch this test go red. */
     uint32_t flags = ((uint32_t)param[256] << 24) | ((uint32_t)param[257] << 16)
                      | ((uint32_t)param[258] << 8) | (uint32_t)param[259];
     uint32_t size = ((uint32_t)param[260] << 24) | ((uint32_t)param[261] << 16)
