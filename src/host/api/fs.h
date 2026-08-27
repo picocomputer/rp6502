@@ -25,7 +25,7 @@
 #include <time.h>
 
 /* ---- file metadata (richer than struct stat so each OS fills it faithfully) ---- */
-struct fs_meta
+struct host_fs_meta
 {
     bool is_dir;
     bool is_readonly; /* POSIX: !(st_mode & S_IWUSR);  Win: FILE_ATTRIBUTE_READONLY */
@@ -34,20 +34,20 @@ struct fs_meta
     time_t mtime;
     time_t crtime; /* POSIX: st_ctime (change time);  Win: real creation time       */
 };
-bool fs_stat(const char *path, struct fs_meta *out);
-bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes);
+bool host_fs_stat(const char *path, struct host_fs_meta *out);
+bool host_fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes);
 
 /* ---- attribute / time mutators ---- */
-bool fs_set_readonly(const char *path, bool readonly);
-bool fs_set_mtime(const char *path, time_t mtime); /* sets last-modified only */
+bool host_fs_set_readonly(const char *path, bool readonly);
+bool host_fs_set_mtime(const char *path, time_t mtime); /* sets last-modified only */
 
 /* ---- namespace mutators / queries ---- */
-bool fs_mkdir(const char *path);
-bool fs_chdir(const char *path);
-bool fs_getcwd(char *buf, size_t sz); /* guest-encoding, '/'-separated */
-bool fs_realpath(const char *path, char *out, size_t outsz); /* absolute, '/'-separated */
-bool fs_rename(const char *oldp, const char *newp); /* replaces an existing target */
-bool fs_remove(const char *path);     /* a file or an empty directory */
+bool host_fs_mkdir(const char *path);
+bool host_fs_chdir(const char *path);
+bool host_fs_getcwd(char *buf, size_t sz); /* guest-encoding, '/'-separated */
+bool host_fs_realpath(const char *path, char *out, size_t outsz); /* absolute, '/'-separated */
+bool host_fs_rename(const char *oldp, const char *newp); /* replaces an existing target */
+bool host_fs_remove(const char *path);     /* a file or an empty directory */
 
 /* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
 /* A transfer's outcome. The guest's stdio dispatcher has the same three states
@@ -55,18 +55,18 @@ bool fs_remove(const char *path);     /* a file or an empty directory */
  * about files does not depend on a guest API to say "that worked". */
 typedef enum
 {
-    FS_IO_OK,      /* completed, success */
-    FS_IO_ERROR,   /* failed, check errno */
-    FS_IO_PENDING, /* incomplete, would block */
-} fs_io_result;
+    HOST_IO_OK,      /* completed, success */
+    HOST_IO_ERROR,   /* failed, check errno */
+    HOST_IO_PENDING, /* incomplete, would block */
+} host_io_result;
 
-FILE *fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
-int fs_open(const char *path, int flags, int mode);
-int fs_close(int fd); /* settles a still-in-flight fs_read/fs_write on this fd first */
-int64_t fs_lseek(int fd, int64_t off, int whence);
-int fs_ftruncate(int fd, int64_t length);
-fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
-fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
-void fs_sync(void);
+FILE *host_fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
+int host_fs_open(const char *path, int flags, int mode);
+int host_fs_close(int fd); /* settles a still-in-flight host_fs_read/host_fs_write on this fd first */
+int64_t host_fs_lseek(int fd, int64_t off, int whence);
+int host_fs_ftruncate(int fd, int64_t length);
+host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
+host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
+void host_fs_persist(void);
 
 #endif /* _HOST_API_FS_H_ */

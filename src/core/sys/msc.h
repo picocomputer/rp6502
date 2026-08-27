@@ -30,7 +30,7 @@ api_errno msc_errno_to_api_errno(int host_errno);
 /* Convert a host transfer outcome to the guest stdio driver's. The two enums say
  * the same three things and are deliberately separate types, so the crossing is
  * written down rather than assumed to be a cast. */
-std_rw_result msc_io_to_std_result(fs_io_result r);
+std_rw_result msc_io_to_std_result(host_io_result r);
 
 /* The native host MSC0: file driver (the writable catch-all), for std.c's table. */
 bool msc_std_handles(const char *path);

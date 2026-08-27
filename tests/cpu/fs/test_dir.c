@@ -53,9 +53,9 @@ UTEST(dir, lists_directory)
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
     char sub[512];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
-    ASSERT_TRUE(fs_mkdir(sub));
+    ASSERT_TRUE(host_fs_mkdir(sub));
 
-    ASSERT_TRUE(fs_chdir(d)); /* the program lists "" = the cwd */
+    ASSERT_TRUE(host_fs_chdir(d)); /* the program lists "" = the cwd */
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     cap_len = 0;
     cap[0] = 0;

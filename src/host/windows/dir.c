@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Windows directory enumeration (host/api/dir.h fs_dir_*), the Win32 counterpart
+ * Windows directory enumeration (host/api/dir.h host_dir_*), the Win32 counterpart
  * of host/posix/dir.c.
  *
  * Paths cross the seam in the guest's OEM code page. Convert to UTF-16 with
@@ -29,7 +29,7 @@ struct win_dir
     wchar_t pattern[WIN_WPATH_MAX];
 };
 
-void *fs_dir_open(const char *path)
+void *host_dir_open(const char *path)
 {
     wchar_t base[WIN_WPATH_MAX];
     if (oem_to_wide(path, (uint16_t *)base, WIN_WPATH_MAX) <= 0)
@@ -70,7 +70,7 @@ void *fs_dir_open(const char *path)
     return d;
 }
 
-int fs_dir_read(void *opaque, char *name, size_t namesz, bool *is_dir)
+int host_dir_read(void *opaque, char *name, size_t namesz, bool *is_dir)
 {
     struct win_dir *d = (struct win_dir *)opaque;
     if (!d || !d->alive)
@@ -95,7 +95,7 @@ int fs_dir_read(void *opaque, char *name, size_t namesz, bool *is_dir)
     return 1;
 }
 
-void fs_dir_rewind(void *opaque)
+void host_dir_rewind(void *opaque)
 {
     struct win_dir *d = (struct win_dir *)opaque;
     if (!d)
@@ -112,7 +112,7 @@ void fs_dir_rewind(void *opaque)
     d->alive = true;
 }
 
-void fs_dir_close(void *opaque)
+void host_dir_close(void *opaque)
 {
     struct win_dir *d = (struct win_dir *)opaque;
     if (!d)

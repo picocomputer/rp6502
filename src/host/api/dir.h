@@ -8,7 +8,7 @@
 /* Reading a directory, as a host OS keeps them. The filesystem seam's other
  * half -- see host/api/fs.h for who implements it and who does not, and note the
  * prefix belongs to the seam rather than the file, the way host/posix/fs_aio.c
- * defines fs_read.
+ * defines host_fs_read.
  *
  * Not to be confused with core/api/dir.h, which is the 6502's directory
  * syscalls. That layer asks this one for the entries it hands back.
@@ -20,10 +20,10 @@
 #include <stdbool.h>
 #include <stddef.h>
 
-void *fs_dir_open(const char *path); /* opaque stream, or NULL + errno */
+void *host_dir_open(const char *path); /* opaque stream, or NULL + errno */
 /* 1 = an entry (name + is_dir filled), 0 = end of directory, -1 = error (errno). */
-int fs_dir_read(void *d, char *name, size_t namesz, bool *is_dir);
-void fs_dir_rewind(void *d);
-void fs_dir_close(void *d);
+int host_dir_read(void *d, char *name, size_t namesz, bool *is_dir);
+void host_dir_rewind(void *d);
+void host_dir_close(void *d);
 
 #endif /* _HOST_API_DIR_H_ */

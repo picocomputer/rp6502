@@ -407,7 +407,7 @@ static void enter_save_directory(const char *content_path)
     }
     char oem[MSC_MAX_PATH];
     if (host_argv_to_oem(dir, oem, sizeof oem))
-        fs_chdir(oem);
+        host_fs_chdir(oem);
 }
 
 /* Stand a program up: a fresh machine, the image, then run. The first load
@@ -463,7 +463,7 @@ bool retro_load_game(const struct retro_game_info *game)
         log_error("ROM path too long");
         return false;
     }
-    if (!fs_realpath(given, loaded_rom, sizeof loaded_rom))
+    if (!host_fs_realpath(given, loaded_rom, sizeof loaded_rom))
         snprintf(loaded_rom, sizeof loaded_rom, "%s", given);
 
     environ_cb(RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS, (void *)input_descriptors);

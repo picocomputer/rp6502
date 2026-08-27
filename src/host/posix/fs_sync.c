@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The read/write/close half of the POSIX fs seam, done synchronously. The
- * contract permits FS_IO_PENDING; it never requires it, and a transfer that
+ * contract permits HOST_IO_PENDING; it never requires it, and a transfer that
  * finished before it answered is a legal answer to the same question
  * fs_aio.c answers over several scanlines.
  *
@@ -17,27 +17,27 @@
 #include "host/api/fs.h"
 #include <unistd.h>
 
-fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
     *got = 0;
     ssize_t r = read(fd, buf, count);
     if (r < 0)
-        return FS_IO_ERROR;
+        return HOST_IO_ERROR;
     *got = (uint32_t)r;
-    return FS_IO_OK;
+    return HOST_IO_OK;
 }
 
-fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
     *put = 0;
     ssize_t r = write(fd, buf, count);
     if (r < 0)
-        return FS_IO_ERROR;
+        return HOST_IO_ERROR;
     *put = (uint32_t)r;
-    return FS_IO_OK;
+    return HOST_IO_OK;
 }
 
-int fs_close(int fd)
+int host_fs_close(int fd)
 {
     return close(fd);
 }

@@ -14,18 +14,18 @@
  * Semantic decisions vs. POSIX (do NOT silently diverge):
  *   - is_hidden reads FILE_ATTRIBUTE_HIDDEN, not a leading-dot name.
  *   - crtime is the real ftCreationTime (POSIX has none; it reports change time).
- *   - fs_rename MUST replace an existing target (MOVEFILE_REPLACE_EXISTING).
- *   - fs_remove MUST also delete an empty directory (POSIX remove() does).
+ *   - host_fs_rename MUST replace an existing target (MOVEFILE_REPLACE_EXISTING).
+ *   - host_fs_remove MUST also delete an empty directory (POSIX remove() does).
  *   - byte I/O uses overlapped HANDLEs (FILE_FLAG_OVERLAPPED) with a tracked offset, so
- *     fs_read/fs_write are the non-blocking transfer; fs_open returns an index into
+ *     host_fs_read/host_fs_write are the non-blocking transfer; host_fs_open returns an index into
  *     win_files (an overlapped handle has no implicit file pointer, so we carry our own).
  *
  * The transport stays in this file, where host/posix keeps its own in
  * fs_aio.c and fs_sync.c. There is no second answer to choose between:
  * overlapped I/O is the kernel's, so unlike glibc's POSIX AIO there is no
  * pool of helper threads that could outlive an unloaded library, and
- * fs_close settles the one transfer in flight. And the transport owns
- * fs_open — the overlapped flag is given when the handle is made — so it
+ * host_fs_close settles the one transfer in flight. And the transport owns
+ * host_fs_open — the overlapped flag is given when the handle is made — so it
  * could not be lifted out of here even if there were a reason to.
  */
 
@@ -71,7 +71,7 @@ static void time_t_to_filetime(time_t t, FILETIME *ft)
     ft->dwHighDateTime = (DWORD)ull.HighPart;
 }
 
-bool fs_stat(const char *path, struct fs_meta *out)
+bool host_fs_stat(const char *path, struct host_fs_meta *out)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -91,7 +91,7 @@ bool fs_stat(const char *path, struct fs_meta *out)
     return true;
 }
 
-bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
+bool host_fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -117,7 +117,7 @@ bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes
     return true;
 }
 
-bool fs_set_readonly(const char *path, bool readonly)
+bool host_fs_set_readonly(const char *path, bool readonly)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -140,7 +140,7 @@ bool fs_set_readonly(const char *path, bool readonly)
     return true;
 }
 
-bool fs_set_mtime(const char *path, time_t mtime)
+bool host_fs_set_mtime(const char *path, time_t mtime)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -165,7 +165,7 @@ bool fs_set_mtime(const char *path, time_t mtime)
     return true;
 }
 
-bool fs_mkdir(const char *path)
+bool host_fs_mkdir(const char *path)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -175,7 +175,7 @@ bool fs_mkdir(const char *path)
     return true;
 }
 
-bool fs_chdir(const char *path)
+bool host_fs_chdir(const char *path)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -183,7 +183,7 @@ bool fs_chdir(const char *path)
     return _wchdir(w) == 0;
 }
 
-bool fs_getcwd(char *buf, size_t sz)
+bool host_fs_getcwd(char *buf, size_t sz)
 {
     wchar_t *w = _wgetcwd(NULL, 0);
     if (!w)
@@ -194,7 +194,7 @@ bool fs_getcwd(char *buf, size_t sz)
     return true;
 }
 
-bool fs_realpath(const char *path, char *out, size_t outsz)
+bool host_fs_realpath(const char *path, char *out, size_t outsz)
 {
     wchar_t wpath[WIN_WPATH_MAX], wfull[WIN_WPATH_MAX];
     if (!path_to_wide(path, wpath, WIN_WPATH_MAX))
@@ -210,7 +210,7 @@ bool fs_realpath(const char *path, char *out, size_t outsz)
     return true;
 }
 
-bool fs_rename(const char *oldp, const char *newp)
+bool host_fs_rename(const char *oldp, const char *newp)
 {
     wchar_t wo[WIN_WPATH_MAX], wn[WIN_WPATH_MAX];
     if (!path_to_wide(oldp, wo, WIN_WPATH_MAX) || !path_to_wide(newp, wn, WIN_WPATH_MAX))
@@ -223,7 +223,7 @@ bool fs_rename(const char *oldp, const char *newp)
     return true;
 }
 
-bool fs_remove(const char *path)
+bool host_fs_remove(const char *path)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -238,7 +238,7 @@ bool fs_remove(const char *path)
     return false;
 }
 
-/* An overlapped handle has no implicit file pointer, so fs_open returns an index into
+/* An overlapped handle has no implicit file pointer, so host_fs_open returns an index into
  * this table and we track the offset ourselves. 16 host files + 16 ROM windows = 32
  * concurrent; 64 leaves headroom for tests. */
 #define WIN_MAX_FILES 64
@@ -265,7 +265,7 @@ static struct
 } g_xfer = {.fd = -1};
 static HANDLE g_xfer_event;
 
-int fs_open(const char *path, int flags, int mode)
+int host_fs_open(const char *path, int flags, int mode)
 {
     (void)mode; /* Windows takes permissions from the file; msc opens writable */
     wchar_t w[WIN_WPATH_MAX];
@@ -312,7 +312,7 @@ int fs_open(const char *path, int flags, int mode)
     return fd;
 }
 
-FILE *fs_fopen_rd(const char *path)
+FILE *host_fs_fopen_rd(const char *path)
 {
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
@@ -320,7 +320,7 @@ FILE *fs_fopen_rd(const char *path)
     return _wfopen(w, L"rb");
 }
 
-int fs_close(int fd)
+int host_fs_close(int fd)
 {
     struct win_file *f = win_fil(fd);
     if (!f)
@@ -345,21 +345,21 @@ int fs_close(int fd)
     return 0;
 }
 
-static fs_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
+static host_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
 {
     *got = 0;
     struct win_file *f = win_fil(fd);
     if (!f)
     {
         errno = EBADF;
-        return FS_IO_ERROR;
+        return HOST_IO_ERROR;
     }
     if (g_xfer.fd < 0)
     {
         if (!g_xfer_event && !(g_xfer_event = CreateEventW(NULL, TRUE, FALSE, NULL)))
         {
             win_set_errno(GetLastError());
-            return FS_IO_ERROR;
+            return HOST_IO_ERROR;
         }
         ResetEvent(g_xfer_event);
         memset(&g_xfer.ov, 0, sizeof g_xfer.ov);
@@ -372,45 +372,45 @@ static fs_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, 
         {
             DWORD e = GetLastError();
             if (e == ERROR_HANDLE_EOF) /* read at/after EOF: done, 0 bytes */
-                return FS_IO_OK;
+                return HOST_IO_OK;
             if (e != ERROR_IO_PENDING)
             {
                 win_set_errno(e);
-                return FS_IO_ERROR;
+                return HOST_IO_ERROR;
             }
         }
         g_xfer.fd = fd; /* completed synchronously or queued: reap on the next dispatch */
-        return FS_IO_PENDING;
+        return HOST_IO_PENDING;
     }
     DWORD bytes = 0;
     if (!GetOverlappedResult(f->h, &g_xfer.ov, &bytes, FALSE))
     {
         DWORD e = GetLastError();
         if (e == ERROR_IO_INCOMPLETE)
-            return FS_IO_PENDING;
+            return HOST_IO_PENDING;
         g_xfer.fd = -1;
         if (e == ERROR_HANDLE_EOF) /* completed at EOF: 0 bytes */
-            return FS_IO_OK;
+            return HOST_IO_OK;
         win_set_errno(e);
-        return FS_IO_ERROR;
+        return HOST_IO_ERROR;
     }
     g_xfer.fd = -1;
     f->pos += bytes; /* the overlapped handle didn't move; advance our tracked offset */
     *got = (uint32_t)bytes;
-    return FS_IO_OK;
+    return HOST_IO_OK;
 }
 
-fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
     return xfer_step(fd, buf, count, got, false);
 }
 
-fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
     return xfer_step(fd, (void *)buf, count, put, true);
 }
 
-int64_t fs_lseek(int fd, int64_t off, int whence)
+int64_t host_fs_lseek(int fd, int64_t off, int whence)
 {
     struct win_file *f = win_fil(fd);
     if (!f)
@@ -448,7 +448,7 @@ int64_t fs_lseek(int fd, int64_t off, int whence)
     return np;
 }
 
-int fs_ftruncate(int fd, int64_t length)
+int host_fs_ftruncate(int fd, int64_t length)
 {
     struct win_file *f = win_fil(fd);
     if (!f)
@@ -465,4 +465,4 @@ int fs_ftruncate(int fd, int64_t length)
     return 0;
 }
 
-void fs_sync(void) {} /* a real host filesystem is already durable */
+void host_fs_persist(void) {} /* a real host filesystem is already durable */

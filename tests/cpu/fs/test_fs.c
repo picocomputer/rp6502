@@ -41,12 +41,12 @@ static bool fresh_cwd(void)
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop(); /* close any files a prior test left open */
-    if (!fs_chdir(dir))
+    if (!host_fs_chdir(dir))
         return false;
-    /* g_dir is the emulator's own view of the cwd (same fs_getcwd msc uses),
+    /* g_dir is the emulator's own view of the cwd (same host_fs_getcwd msc uses),
      * so the MSC0:<g_dir> comparisons below hold whatever the host's path
      * spelling — notably '/'-normalized on Windows. */
-    return fs_getcwd(g_dir, sizeof(g_dir));
+    return host_fs_getcwd(g_dir, sizeof(g_dir));
 }
 
 static bool host_exists(const char *rel)

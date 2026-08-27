@@ -62,7 +62,7 @@ static bool rom_find_asset(const char *name, size_t *base, size_t *len)
 {
     if (!g_rom_assets_start || !g_rom_src[0])
         return false;
-    FILE *f = fs_fopen_rd(g_rom_src);
+    FILE *f = host_fs_fopen_rd(g_rom_src);
     if (!f)
         return false;
     bool found = false;
@@ -104,7 +104,7 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz)
     size_t base, len;
     if (!rom_find_asset(name, &base, &len))
         return -1;
-    FILE *f = fs_fopen_rd(g_rom_src);
+    FILE *f = host_fs_fopen_rd(g_rom_src);
     if (!f)
         return -1;
     long got = -1;
@@ -141,8 +141,8 @@ static rom_win_t windows[ROM_OPEN_MAX];
 static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
                                uint32_t count, uint32_t *got, api_errno *err)
 {
-    fs_lseek(w->fd, (int64_t)at, SEEK_SET);
-    std_rw_result r = msc_io_to_std_result(fs_read(w->fd, buf, count, got));
+    host_fs_lseek(w->fd, (int64_t)at, SEEK_SET);
+    std_rw_result r = msc_io_to_std_result(host_fs_read(w->fd, buf, count, got));
     if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
     return r;
@@ -153,7 +153,7 @@ static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
-    int fd = fs_open(hostpath, O_RDONLY, 0);
+    int fd = host_fs_open(hostpath, O_RDONLY, 0);
     if (fd < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -161,7 +161,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
     }
     int des = rom_win_alloc(&rom_pool, (uint32_t)base, (uint32_t)len, fd, err);
     if (des < 0)
-        fs_close(fd);
+        host_fs_close(fd);
     return des;
 }
 
@@ -174,7 +174,7 @@ std_rw_result rom_std_close(int desc, api_errno *err)
         return STD_ERROR;
     }
     if (w->fd >= 0)
-        fs_close(w->fd);
+        host_fs_close(w->fd);
     w->used = false;
     return STD_OK;
 }
@@ -268,8 +268,8 @@ bool rom_install(const char *hostpath)
     const char *base = host_basename(hostpath);
     if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= MSC_MAX_PATH)
         return false;
-    struct fs_meta meta;
-    if (!fs_stat(hostpath, &meta)) /* must exist; size for the whole-file window */
+    struct host_fs_meta meta;
+    if (!host_fs_stat(hostpath, &meta)) /* must exist; size for the whole-file window */
         return false;
     for (int i = 0; i < INSTALL_MAX; i++)
         if (!installs[i].used)
@@ -327,7 +327,7 @@ bool rom_load(const char *path)
         log_error("cannot resolve ROM '%s'", path);
         return false;
     }
-    FILE *f = fs_fopen_rd(host);
+    FILE *f = host_fs_fopen_rd(host);
     if (!f)
     {
         log_error("cannot open ROM '%s'", path);

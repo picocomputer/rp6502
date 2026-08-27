@@ -128,15 +128,15 @@ size_t msc_from_host(const char *hostpath, char *out, size_t outsz)
     return (size_t)w;
 }
 
-std_rw_result msc_io_to_std_result(fs_io_result r)
+std_rw_result msc_io_to_std_result(host_io_result r)
 {
     switch (r)
     {
-    case FS_IO_OK:
+    case HOST_IO_OK:
         return STD_OK;
-    case FS_IO_PENDING:
+    case HOST_IO_PENDING:
         return STD_PENDING;
-    case FS_IO_ERROR:
+    case HOST_IO_ERROR:
         break;
     }
     return STD_ERROR;
@@ -207,7 +207,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = msc_errno_to_api_errno(errno);
         return -1;
     }
-    int fd = fs_open(host, flags_to_posix(flags), 0666);
+    int fd = host_fs_open(host, flags_to_posix(flags), 0666);
     if (fd < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -219,19 +219,19 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
             break;
     if (des == HOST_MAX_OPEN)
     {
-        fs_close(fd);
+        host_fs_close(fd);
         *err = API_EMFILE;
         return -1;
     }
     files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & 0x02) != 0};
     if (flags & 0x40) /* APPEND: one-time seek to EOF (O_TRUNC already ran) */
-        if (!fs_lseek(fd, 0, SEEK_END))
+        if (!host_fs_lseek(fd, 0, SEEK_END))
         {
             /* Reporting success here would hand back a descriptor positioned at
              * the start of a file the guest asked to append to. */
             *err = msc_errno_to_api_errno(errno);
             files[des].used = false;
-            fs_close(fd);
+            host_fs_close(fd);
             return -1;
         }
     return des;
@@ -248,10 +248,10 @@ std_rw_result msc_std_close(int desc, api_errno *err)
     bool wrote = f->wrote;
     int rc = 0;
     if (f->fd >= 0)
-        rc = fs_close(f->fd);
+        rc = host_fs_close(f->fd);
     f->used = false;
     if (wrote)
-        fs_sync(); /* a saved file just closed: persist the drive (web: IDBFS) */
+        host_fs_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
     if (rc != 0) /* deferred flush failure (ENOSPC/EIO on network/overlay FS) */
     {
         *err = msc_errno_to_api_errno(errno);
@@ -269,7 +269,7 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result r = msc_io_to_std_result(fs_read(f->fd, buf, count, got));
+    std_rw_result r = msc_io_to_std_result(host_fs_read(f->fd, buf, count, got));
     if (r == STD_ERROR)
         *err = msc_errno_to_api_errno(errno);
     return r;
@@ -284,7 +284,7 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result r = msc_io_to_std_result(fs_write(f->fd, buf, count, put));
+    std_rw_result r = msc_io_to_std_result(host_fs_write(f->fd, buf, count, put));
     if (r == STD_OK)
         f->wrote = true;
     else if (r == STD_ERROR)
@@ -303,7 +303,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     /* The position is reported back as a signed 32-bit value (0xFFFFFFFF is the
      * error sentinel), so reject a target past 2GB-1 before moving the pointer,
      * leaving the file pointer where it was rather than at an unreportable spot. */
-    int64_t cur = fs_lseek(f->fd, 0, SEEK_CUR);
+    int64_t cur = host_fs_lseek(f->fd, 0, SEEK_CUR);
     if (cur < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -316,8 +316,8 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
         base = cur;
     else if (whence == SEEK_END)
     {
-        base = fs_lseek(f->fd, 0, SEEK_END);
-        fs_lseek(f->fd, cur, SEEK_SET);
+        base = host_fs_lseek(f->fd, 0, SEEK_END);
+        host_fs_lseek(f->fd, cur, SEEK_SET);
         if (base < 0)
         {
             *err = msc_errno_to_api_errno(errno);
@@ -344,7 +344,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
      * pointer to its size; a writable file is extended to the target. Plain POSIX
      * lseek would leave a read pointer past EOF and defer any extension to the
      * next write, diverging from hardware. */
-    int64_t size = fs_lseek(f->fd, 0, SEEK_END);
+    int64_t size = host_fs_lseek(f->fd, 0, SEEK_END);
     if (size < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -354,13 +354,13 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     {
         if (!f->writable)
             target = size; /* read mode: clamp to EOF */
-        else if (fs_ftruncate(f->fd, target) < 0) /* write mode: extend the file */
+        else if (host_fs_ftruncate(f->fd, target) < 0) /* write mode: extend the file */
         {
             *err = msc_errno_to_api_errno(errno);
             return -1;
         }
     }
-    int64_t np = fs_lseek(f->fd, target, SEEK_SET);
+    int64_t np = host_fs_lseek(f->fd, target, SEEK_SET);
     if (np < 0)
     {
         *err = msc_errno_to_api_errno(errno);
@@ -373,7 +373,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
 std_rw_result msc_std_sync(int desc, api_errno *err)
 {
     (void)desc, (void)err;
-    fs_sync();
+    host_fs_persist();
     return STD_OK;
 }
 
@@ -411,7 +411,7 @@ static void fat_pack_time(time_t t, uint16_t *fdate, uint16_t *ftime)
 
 /* Synthesize FatFs attributes from host metadata (no FAT bits on the host, so:
  * directory, archive on files, read-only when unwritable, hidden per the platform). */
-static uint8_t fat_attrib(const struct fs_meta *m)
+static uint8_t fat_attrib(const struct host_fs_meta *m)
 {
     uint8_t a = m->is_dir ? FS_AM_DIR : FS_AM_ARC;
     if (m->is_readonly)
@@ -421,7 +421,7 @@ static uint8_t fat_attrib(const struct fs_meta *m)
     return a;
 }
 
-static void info_from_stat(FILINFO *fno, const struct fs_meta *m, const char *name)
+static void info_from_stat(FILINFO *fno, const struct host_fs_meta *m, const char *name)
 {
     snprintf(fno->fname, sizeof(fno->fname), "%s", name);
     fno->altname[0] = 0; /* host has no 8.3 short name */
@@ -480,8 +480,8 @@ static bool msc_dir_validate(int des, api_errno *err)
 static bool msc_dir_stat(const char *path, FILINFO *fno, api_errno *err)
 {
     TO_HOST(path, host);
-    struct fs_meta meta;
-    if (!host_ok(fs_stat(host, &meta), err))
+    struct host_fs_meta meta;
+    if (!host_ok(host_fs_stat(host, &meta), err))
         return false;
     /* stat names a single entry; report its basename, not the whole path. */
     const char *base = strrchr(host, '/');
@@ -501,7 +501,7 @@ static bool msc_dir_opendir(const char *path, int *des, api_errno *err)
         return false;
     }
     TO_HOST(path, host);
-    void *dp = fs_dir_open(host);
+    void *dp = host_dir_open(host);
     if (!host_ok(dp != NULL, err))
         return false;
     dirs[i].used = true;
@@ -521,7 +521,7 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
     int r;
     do
     {
-        r = fs_dir_read(d->dp, name, sizeof(name), &is_dir);
+        r = host_dir_read(d->dp, name, sizeof(name), &is_dir);
         if (!host_ok(r >= 0, err))
             return false;
         if (r == 0)
@@ -531,9 +531,9 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
         }
     } while (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
     char entry[MSC_MAX_PATH];
-    struct fs_meta meta;
+    struct host_fs_meta meta;
     if (snprintf(entry, sizeof(entry), "%s/%s", d->host, name) < (int)sizeof(entry) &&
-        fs_stat(entry, &meta))
+        host_fs_stat(entry, &meta))
         info_from_stat(fno, &meta, name);
     else
     {
@@ -547,7 +547,7 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
 static bool msc_dir_closedir(int des, api_errno *err)
 {
     (void)err;
-    fs_dir_close(dirs[des].dp);
+    host_dir_close(dirs[des].dp);
     dirs[des].used = false;
     dirs[des].dp = NULL;
     return true;
@@ -556,34 +556,34 @@ static bool msc_dir_closedir(int des, api_errno *err)
 static bool msc_dir_rewinddir(int des, api_errno *err)
 {
     (void)err;
-    fs_dir_rewind(dirs[des].dp);
+    host_dir_rewind(dirs[des].dp);
     return true;
 }
 
 static bool msc_dir_unlink(const char *path, api_errno *err)
 {
     TO_HOST(path, host);
-    return host_ok(fs_remove(host), err);
+    return host_ok(host_fs_remove(host), err);
 }
 
 static bool msc_dir_rename(const char *oldname, const char *newname, api_errno *err)
 {
     TO_HOST(oldname, ho);
     TO_HOST(newname, hn);
-    return host_ok(fs_rename(ho, hn), err);
+    return host_ok(host_fs_rename(ho, hn), err);
 }
 
 static bool msc_dir_mkdir(const char *path, api_errno *err)
 {
     TO_HOST(path, host);
-    return host_ok(fs_mkdir(host), err);
+    return host_ok(host_fs_mkdir(host), err);
 }
 
 static bool msc_dir_chdir(const char *path, api_errno *err)
 {
     TO_HOST(path, host);
     /* chdir validates existence and dir-ness, and sets errno */
-    return host_ok(fs_chdir(host), err);
+    return host_ok(host_fs_chdir(host), err);
 }
 
 /* The 6502 sees MSC0: (and the bare current drive); anything else is a
@@ -612,7 +612,7 @@ static bool msc_dir_chmod(const char *path, uint8_t attr, uint8_t mask, api_errn
     if (!(mask & FS_AM_RDO))
         return true;
     TO_HOST(path, host);
-    return host_ok(fs_set_readonly(host, (attr & FS_AM_RDO) != 0), err);
+    return host_ok(host_fs_set_readonly(host, (attr & FS_AM_RDO) != 0), err);
 }
 
 /* Best-effort: set the modification time from the FAT date/time. The creation
@@ -629,13 +629,13 @@ static bool msc_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
     tm.tm_min = (fno->ftime >> 5) & 0x3F;
     tm.tm_sec = (fno->ftime & 0x1F) * 2;
     tm.tm_isdst = -1;
-    return host_ok(fs_set_mtime(host, mktime(&tm)), err);
+    return host_ok(host_fs_set_mtime(host, mktime(&tm)), err);
 }
 
 static bool msc_dir_getcwd(char *buf, size_t size, api_errno *err)
 {
     char cwd[MSC_MAX_PATH];
-    if (!host_ok(fs_getcwd(cwd, sizeof(cwd)), err))
+    if (!host_ok(host_fs_getcwd(cwd, sizeof(cwd)), err))
         return false;
     if (!msc_from_host(cwd, buf, size)) /* did not fit: full-path-or-error */
     {
@@ -666,7 +666,7 @@ static bool msc_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_
 {
     TO_HOST(path, host);
     uint64_t tot_bytes, fre_bytes;
-    if (!host_ok(fs_freespace(host, &tot_bytes, &fre_bytes), err))
+    if (!host_ok(host_fs_freespace(host, &tot_bytes, &fre_bytes), err))
         return false;
     uint64_t tot = tot_bytes / 512;
     uint64_t fre = fre_bytes / 512;

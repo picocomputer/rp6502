@@ -35,7 +35,7 @@ static bool path_to_utf8(const char *path, char *u8 /* [FS_UPATH_MAX] */)
     return true;
 }
 
-bool fs_stat(const char *path, struct fs_meta *out)
+bool host_fs_stat(const char *path, struct host_fs_meta *out)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -54,7 +54,7 @@ bool fs_stat(const char *path, struct fs_meta *out)
     return true;
 }
 
-bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
+bool host_fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -68,7 +68,7 @@ bool fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes
     return true;
 }
 
-bool fs_set_readonly(const char *path, bool readonly)
+bool host_fs_set_readonly(const char *path, bool readonly)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -84,7 +84,7 @@ bool fs_set_readonly(const char *path, bool readonly)
     return chmod(u8, m) == 0;
 }
 
-bool fs_set_mtime(const char *path, time_t mtime)
+bool host_fs_set_mtime(const char *path, time_t mtime)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -94,7 +94,7 @@ bool fs_set_mtime(const char *path, time_t mtime)
     return utime(u8, &ub) == 0;
 }
 
-bool fs_mkdir(const char *path)
+bool host_fs_mkdir(const char *path)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -102,7 +102,7 @@ bool fs_mkdir(const char *path)
     return mkdir(u8, 0777) == 0;
 }
 
-bool fs_chdir(const char *path)
+bool host_fs_chdir(const char *path)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -110,7 +110,7 @@ bool fs_chdir(const char *path)
     return chdir(u8) == 0;
 }
 
-bool fs_getcwd(char *buf, size_t sz)
+bool host_fs_getcwd(char *buf, size_t sz)
 {
     char u8[FS_UPATH_MAX];
     if (!getcwd(u8, sizeof u8))
@@ -123,7 +123,7 @@ bool fs_getcwd(char *buf, size_t sz)
     return true;
 }
 
-bool fs_realpath(const char *path, char *out, size_t outsz)
+bool host_fs_realpath(const char *path, char *out, size_t outsz)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -141,7 +141,7 @@ bool fs_realpath(const char *path, char *out, size_t outsz)
     return true;
 }
 
-bool fs_rename(const char *oldp, const char *newp)
+bool host_fs_rename(const char *oldp, const char *newp)
 {
     char u8old[FS_UPATH_MAX];
     char u8new[FS_UPATH_MAX];
@@ -150,7 +150,7 @@ bool fs_rename(const char *oldp, const char *newp)
     return rename(u8old, u8new) == 0; /* POSIX rename replaces an existing target */
 }
 
-bool fs_remove(const char *path)
+bool host_fs_remove(const char *path)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -158,7 +158,7 @@ bool fs_remove(const char *path)
     return remove(u8) == 0; /* removes a file or an empty directory */
 }
 
-int fs_open(const char *path, int flags, int mode)
+int host_fs_open(const char *path, int flags, int mode)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -166,7 +166,7 @@ int fs_open(const char *path, int flags, int mode)
     return open(u8, flags, mode);
 }
 
-FILE *fs_fopen_rd(const char *path)
+FILE *host_fs_fopen_rd(const char *path)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
@@ -174,14 +174,14 @@ FILE *fs_fopen_rd(const char *path)
     return fopen(u8, "rb");
 }
 
-int64_t fs_lseek(int fd, int64_t off, int whence)
+int64_t host_fs_lseek(int fd, int64_t off, int whence)
 {
     return (int64_t)lseek(fd, (off_t)off, whence);
 }
 
-int fs_ftruncate(int fd, int64_t length)
+int host_fs_ftruncate(int fd, int64_t length)
 {
     return ftruncate(fd, (off_t)length);
 }
 
-void fs_sync(void) {} /* a real host filesystem is already durable */
+void host_fs_persist(void) {} /* a real host filesystem is already durable */

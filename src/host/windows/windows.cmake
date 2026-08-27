@@ -3,7 +3,7 @@
 # The desktop emulator and the libretro core share every file here. Unlike
 # host/posix there is no transport to choose: overlapped I/O is the kernel's
 # own, with no helper threads to outlive an unloaded library, and the
-# overlapped flag belongs to fs_open — so the transport could not leave
+# overlapped flag belongs to host_fs_open — so the transport could not leave
 # fs.c. See its header.
 #
 # What is not here is what differs between hosts rather than between

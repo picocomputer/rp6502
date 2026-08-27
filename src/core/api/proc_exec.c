@@ -57,7 +57,7 @@ bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
     char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH];
     const char *argv0 = rom;
-    if (!msc_has_drive_prefix(rom) && rom[0] != ':' && fs_realpath(rom, abs, sizeof(abs)))
+    if (!msc_has_drive_prefix(rom) && rom[0] != ':' && host_fs_realpath(rom, abs, sizeof(abs)))
     {
         msc_from_host(abs, msc, sizeof(msc));
         argv0 = msc;

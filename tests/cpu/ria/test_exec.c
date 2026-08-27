@@ -46,12 +46,12 @@ UTEST(exec, reexecs_self_with_arg)
      * `rp6502-emu exec.rp6502` from that dir); argv[0] is the absolute native
      * MSC0: path and round-trips through the exec resolver. */
     char abs[MSC_MAX_PATH], msc[MSC_MAX_PATH], dir[MSC_MAX_PATH];
-    ASSERT_TRUE(fs_realpath(TEST_FIXTURE, abs, sizeof(abs)));
+    ASSERT_TRUE(host_fs_realpath(TEST_FIXTURE, abs, sizeof(abs)));
     snprintf(dir, sizeof(dir), "%s", abs);
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
-    ASSERT_TRUE(fs_chdir(dir));
+    ASSERT_TRUE(host_fs_chdir(dir));
     msc_from_host(abs, msc, sizeof(msc)); /* -> "MSC0:<abs path>" */
     proc_set_argv(msc, 0, NULL);
 

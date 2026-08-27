@@ -38,10 +38,10 @@ static bool fresh(void)
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
-    if (!fs_chdir(dir))
+    if (!host_fs_chdir(dir))
         return false;
-    /* g_dir mirrors msc's own fs_getcwd, so MSC0:<g_dir> holds on any host. */
-    return fs_getcwd(g_dir, sizeof(g_dir));
+    /* g_dir mirrors msc's own host_fs_getcwd, so MSC0:<g_dir> holds on any host. */
+    return host_fs_getcwd(g_dir, sizeof(g_dir));
 }
 
 static void make_file(const char *rel, const char *data, uint16_t n)

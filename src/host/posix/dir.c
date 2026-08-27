@@ -16,7 +16,7 @@
 
 #define DIR_UPATH_MAX (3 * 4096) /* worst case: every OEM byte -> 3 UTF-8 bytes */
 
-void *fs_dir_open(const char *path)
+void *host_dir_open(const char *path)
 {
     char u8[DIR_UPATH_MAX];
     if (oem_to_utf8(path, u8, sizeof u8) >= sizeof u8)
@@ -27,7 +27,7 @@ void *fs_dir_open(const char *path)
     return opendir(u8);
 }
 
-int fs_dir_read(void *d, char *name, size_t namesz, bool *is_dir)
+int host_dir_read(void *d, char *name, size_t namesz, bool *is_dir)
 {
     errno = 0;
     struct dirent *de = readdir((DIR *)d);
@@ -38,12 +38,12 @@ int fs_dir_read(void *d, char *name, size_t namesz, bool *is_dir)
     return 1;
 }
 
-void fs_dir_rewind(void *d)
+void host_dir_rewind(void *d)
 {
     rewinddir((DIR *)d);
 }
 
-void fs_dir_close(void *d)
+void host_dir_close(void *d)
 {
     closedir((DIR *)d);
 }

@@ -623,7 +623,7 @@ bool window_core_boot_rom(const char *path)
     /* Screen out not-a-ROM files before rom_load touches machine state, so an
      * accidental drop leaves the running program alone. rom_load repeats the
      * check after resolving the drive/:name spellings this open can't. */
-    FILE *f = fs_fopen_rd(oem);
+    FILE *f = host_fs_fopen_rd(oem);
     if (f)
     {
         char magic[8];

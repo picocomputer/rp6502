@@ -24,14 +24,14 @@ static struct
     int fd;
 } g_xfer = {.fd = -1};
 
-static fs_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
+static host_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, bool is_write)
 {
     *got = 0;
     if (g_xfer.fd < 0)
     {
         off_t off = lseek(fd, 0, SEEK_CUR); /* aio positions explicitly; snapshot here */
         if (off < 0)
-            return FS_IO_ERROR;
+            return HOST_IO_ERROR;
         memset(&g_xfer.cb, 0, sizeof g_xfer.cb);
         g_xfer.cb.aio_fildes = fd;
         g_xfer.cb.aio_offset = off;
@@ -39,37 +39,37 @@ static fs_io_result xfer_step(int fd, void *buf, uint32_t count, uint32_t *got, 
         g_xfer.cb.aio_nbytes = count;
         g_xfer.cb.aio_sigevent.sigev_notify = SIGEV_NONE;
         if ((is_write ? aio_write(&g_xfer.cb) : aio_read(&g_xfer.cb)) != 0)
-            return FS_IO_ERROR;
+            return HOST_IO_ERROR;
         g_xfer.fd = fd;
-        return FS_IO_PENDING;
+        return HOST_IO_PENDING;
     }
     int e = aio_error(&g_xfer.cb);
     if (e == EINPROGRESS)
-        return FS_IO_PENDING;
+        return HOST_IO_PENDING;
     ssize_t r = aio_return(&g_xfer.cb);
     g_xfer.fd = -1;
     if (r < 0)
     {
         errno = e; /* the async failure, not aio_return's own errno write */
-        return FS_IO_ERROR;
+        return HOST_IO_ERROR;
     }
     if (r > 0)
         lseek(fd, g_xfer.cb.aio_offset + r, SEEK_SET); /* aio left the offset; advance it */
     *got = (uint32_t)r;
-    return FS_IO_OK;
+    return HOST_IO_OK;
 }
 
-fs_io_result fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
+host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
 {
     return xfer_step(fd, buf, count, got, false);
 }
 
-fs_io_result fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
+host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put)
 {
     return xfer_step(fd, (void *)buf, count, put, true);
 }
 
-int fs_close(int fd)
+int host_fs_close(int fd)
 {
     if (g_xfer.fd == fd) /* reap the in-flight transfer before the fd goes away */
     {
