@@ -40,6 +40,26 @@
 #include <time.h>
 #include <windows.h>
 
+/* A path arrives spelled the way the 6502 spells it. This drive is one
+ * directory of a real filesystem, so the drive prefix comes off here and what
+ * is left is the native path -- and then the code page comes off too. */
+static bool path_to_wide(const char *path, wchar_t *w, int wcount)
+{
+    char native[HOST_MAX_PATH];
+    if (!path_to_native(path, native, sizeof native))
+        return false;
+    return oem_to_wide(native, (uint16_t *)w, wcount) >= 0 && w[0];
+}
+
+/* And back: what Win32 answered, slashed and spelled for the 6502. */
+static bool path_from_wide(const wchar_t *w, char *out, size_t outsz)
+{
+    char native[HOST_MAX_PATH];
+    oem_from_wide((const uint16_t *)w, native, sizeof native);
+    win_to_slash(native);
+    return path_from_native(native, out, outsz);
+}
+
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
 bool host_fs_realpath(const char *path, char *out, size_t outsz)
