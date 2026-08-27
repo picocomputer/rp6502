@@ -4,7 +4,8 @@
 # host/posix there is no transport to choose: overlapped I/O is the kernel's
 # own, with no helper threads to outlive an unloaded library, and the
 # overlapped flag belongs to fs_std_open — so the transport could not leave
-# fs.c. See its header.
+# fs.c. See its header. Nothing collides with ff.h on Win32 either, so the
+# drive is one file rather than two.
 #
 # What is not here is what differs between hosts rather than between
 # operating systems: the frame-pacer sleep, the console attach, and the

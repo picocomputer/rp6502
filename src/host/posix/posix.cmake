@@ -2,14 +2,18 @@
 #
 # Linux and macOS share all of these files and differ only in the entropy
 # source and the frame-pacer sleep, which is what each one's own host.c is.
-# The web and Android hosts take dir.c and host.c from here directly and bring
-# their own fs.c — neither has <aio.h> — so they do not include this.
+# The web and Android hosts take dir.c, dirent.c, errno.c and host.c from here
+# directly and bring their own transport — neither has <aio.h> — so they do
+# not include this.
 #
-# fs.c is the driver minus its byte transport, and the transport is a file
-# of its own because there is more than one right answer: fs_aio.c for a host
-# that owns its process, fs_sync.c for one that is a guest in someone
-# else's. This include takes the asynchronous one; a root that wants the
-# other names these files itself.
+# fs.c is the file driver minus its read/write/close, which are a file of
+# their own because there is more than one right answer: fs_aio.c for a host
+# that owns its process, fs_sync.c for one that is a guest in someone else's.
+# This include takes the asynchronous one; a root that wants the other names
+# these files itself.
+#
+# dir.c is the drive, and dirent.c the directory walk it cannot hold itself --
+# <dirent.h> and FatFs's ff.h both define a type called DIR.
 #
 # Included after emu.cmake: it adds to emu_core.
 

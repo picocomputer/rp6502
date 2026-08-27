@@ -9,8 +9,9 @@
  * nothing gets the same answers as one that does.
  *
  * The questions that do need a filesystem belong to whichever drive would
- * have to answer them: core/api/fs.c maps into a host's namespace, and
- * host/pico/ria/sys/path.c resolves a CWD through FatFs.
+ * have to answer them: host/posix/dir.c and host/windows/dir.c map into their
+ * host's namespace, and host/pico/ria/sys/path.c resolves a CWD through
+ * FatFs.
  */
 
 #ifndef _CORE_STR_PATH_H_

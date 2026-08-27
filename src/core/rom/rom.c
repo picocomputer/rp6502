@@ -209,7 +209,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     const char *rest;
     path_is_rom(path, &rest);
-    if (flags & 0x02) /* write requested on a read-only asset */
+    if (flags & FS_WR) /* write requested on a read-only asset */
     {
         *err = API_EACCES;
         return -1;
