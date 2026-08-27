@@ -3,11 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * Test helpers to drive the host filesystem syscall handlers (core/api/fs.c
- * msc_api_*) the way the 6502 does: stage the args on the xstack / in the API
+ * Test helpers to drive the directory syscall handlers (core/api/dir.c
+ * dir_api_*) the way the 6502 does: stage the args on the xstack / in the API
  * registers, call the handler, then read the AX result and decode any pushed
  * FILINFO / string. The handlers are the unit under test; they call the platform
- * primitives (host/os.h) for the actual OS operations.
+ * primitives for the actual OS operations through this machine's drive.
  */
 
 #ifndef _EMU_TESTS_DIRSYS_H_

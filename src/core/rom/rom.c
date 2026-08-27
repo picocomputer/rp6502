@@ -11,7 +11,7 @@
 #include "core/rom/rom.h"
 #include "core/rom/rom_rec.h"
 #include "core/rom/rom_win.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
 #include <errno.h>
@@ -267,8 +267,16 @@ bool rom_install(const char *hostpath)
     const char *base = path_basename(hostpath);
     if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
         return false;
-    struct host_fs_meta meta;
-    if (!host_fs_stat(hostpath, &meta)) /* must exist; size for the whole-file window */
+    /* Must exist, and its length is the whole-file window's. Asked through the
+     * driver, because that is the machine's answer for what a file is. */
+    api_errno err;
+    int fd = fs_std_open(hostpath, FS_RD, &err);
+    if (fd < 0)
+        return false;
+    int32_t size;
+    bool sized = fs_std_lseek(fd, SEEK_END, 0, &size, &err) == 0;
+    fs_std_close(fd, &err);
+    if (!sized)
         return false;
     for (int i = 0; i < INSTALL_MAX; i++)
         if (!installs[i].used)
@@ -276,7 +284,7 @@ bool rom_install(const char *hostpath)
             installs[i].used = true;
             strcpy(installs[i].name, base);
             strcpy(installs[i].host, hostpath);
-            installs[i].size = (size_t)meta.size;
+            installs[i].size = (size_t)size;
             return true;
         }
     return false;

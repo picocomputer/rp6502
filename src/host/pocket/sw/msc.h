@@ -82,7 +82,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err);
 
 /* This drive, for core/api/dir.c's handlers. */
-extern const dir_backend_t msc_dir_backend;
+extern const dir_backend_t drive_backend;
 
 /* This driver's lifecycle row; see core/lifecycle.h. */
 #define MSC_LIFECYCLE LIFECYCLE(nul_init, nul_run, msc_stop, nul_break)

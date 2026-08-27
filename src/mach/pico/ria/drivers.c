@@ -3,16 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What this machine offers a program to open, and the one drive a path
- * reaches. Both are the machine's: which drivers exist is the same kind of
- * fact as which drivers come up, and belongs beside the roster that says so.
+ * What this machine offers a program to open. Which drivers exist is the same
+ * kind of fact as which drivers come up, and belongs beside the roster that
+ * says so. The drive a path reaches is not listed here: it is one symbol,
+ * drive_backend, and the host that is linked defines it.
  */
 
 #include "host.h"
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "ria/api/dir.h"
 #include "core/api/fs.h"
 #include "ria/mon/rom.h"
 #include "ria/net/modem.h"
@@ -21,11 +21,6 @@
 #include "ria/usb/vcp.h"
 
 // Driver table, the filesystem is catch-all and must be last.
-const dir_backend_t *dir_backend(void)
-{
-    return &fat_dir_backend;
-}
-
 static HOST_IN_FLASH("std_drivers") const std_driver_t std_driver_table[] = {
     {modem_std_handles, modem_std_open, modem_std_close, modem_std_read, modem_std_write, NULL, NULL},
     {vcp_std_handles, vcp_std_open, vcp_std_close, vcp_std_read, vcp_std_write, NULL, NULL},

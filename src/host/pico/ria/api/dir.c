@@ -164,7 +164,7 @@ static bool fat_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_
     return true;
 }
 
-const dir_backend_t HOST_IN_FLASH("fat_dir") fat_dir_backend = {
+const dir_backend_t HOST_IN_FLASH("fat_dir") drive_backend = {
     .stat = fat_dir_stat,
     .unlink = fat_dir_unlink,
     .rename = fat_dir_rename,

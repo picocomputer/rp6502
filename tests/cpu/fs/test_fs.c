@@ -7,7 +7,7 @@
  * filesystem (no chroot — MSC0:/ is the OS root, a relative path resolves the
  * process cwd, ".." walks freely), plus the read-only ROM: drive. Both the file
  * and dir/metadata ops are driven as the 6502 does — stage the xstack, call the
- * std_api_* / msc_api_* handler, read AX and any pushed result (stdsys.h,
+ * std_api_* / dir_api_* handler, read AX and any pushed result (stdsys.h,
  * dirsys.h) — since those handlers are now the whole implementation.
  */
 
@@ -19,7 +19,7 @@
 #include "core/api/fs.h"
 #include "core/str/path.h"
 #include "core/mem/mem.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "dirsys.h"
 #include "stdsys.h"
 #include "tb_hostos.h"
@@ -36,18 +36,38 @@
 
 static char g_dir[256]; /* a temp dir, made the cwd, in the 6502's spelling */
 
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_backend.chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_backend.getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_backend.mkdir(path, &err);
+}
+
 static bool fresh_cwd(void)
 {
     char dir[HOST_MAX_PATH];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop(); /* close any files a prior test left open */
-    if (!host_fs_chdir(dir))
+    if (!drive_chdir_to(dir))
         return false;
-    /* g_dir is the drive's own view of the cwd -- the same host_fs_getcwd the
+    /* g_dir is the drive's own view of the cwd -- the same getcwd slot the
      * syscalls answer with -- so the comparisons below hold whatever the host's
      * path spelling, notably '/'-normalized and //C/-drived on Windows. */
-    return host_fs_getcwd(g_dir, sizeof(g_dir));
+    return drive_cwd(g_dir, sizeof(g_dir));
 }
 
 /* Behind the drive's back: does the real filesystem have this file? */

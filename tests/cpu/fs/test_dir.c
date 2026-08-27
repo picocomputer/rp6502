@@ -14,8 +14,9 @@
  */
 
 #include "core/com/com.h"
+#include "core/api/dir.h"
 #include "core/api/fs.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "tb_hostos.h"
 #include "core/wdc/cpu.h"
 #include "emu_boot.h"
@@ -45,6 +46,26 @@ static void write_file(const char *dir, const char *name, const char *data)
     }
 }
 
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_backend.chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_backend.getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_backend.mkdir(path, &err);
+}
+
 UTEST(dir, lists_directory)
 {
     char d[512];
@@ -53,9 +74,9 @@ UTEST(dir, lists_directory)
     write_file(d, "beta.dat", "wider content here");  /* 18 bytes */
     char sub[512];
     snprintf(sub, sizeof(sub), "%s/subdir", d);
-    ASSERT_TRUE(host_fs_mkdir(sub));
+    ASSERT_TRUE(drive_mkdir_at(sub));
 
-    ASSERT_TRUE(host_fs_chdir(d)); /* the program lists "" = the cwd */
+    ASSERT_TRUE(drive_chdir_to(d)); /* the program lists "" = the cwd */
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     cap_len = 0;
     cap[0] = 0;

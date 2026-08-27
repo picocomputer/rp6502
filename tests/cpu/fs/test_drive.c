@@ -16,7 +16,7 @@
 #include "core/rom/rom.h"
 #include "core/api/fs.h"
 #include "core/str/path.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "core/mem/mem.h"
 #include "dirsys.h"
 #include "stdsys.h"
@@ -33,16 +33,36 @@
 
 static char g_dir[256]; /* a temp dir, made the MSC0: mount, in the 6502's spelling */
 
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_backend.chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_backend.getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_backend.mkdir(path, &err);
+}
+
 static bool fresh(void)
 {
     char dir[HOST_MAX_PATH];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
-    if (!host_fs_chdir(dir))
+    if (!drive_chdir_to(dir))
         return false;
-    /* g_dir mirrors the drive's own host_fs_getcwd, so it holds on any host. */
-    return host_fs_getcwd(g_dir, sizeof(g_dir));
+    /* g_dir mirrors the drive's own getcwd, so it holds on any host. */
+    return drive_cwd(g_dir, sizeof(g_dir));
 }
 
 static void make_file(const char *rel, const char *data, uint16_t n)

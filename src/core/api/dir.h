@@ -65,8 +65,9 @@ typedef struct
     bool (*validate)(int des, api_errno *err);
 } dir_backend_t;
 
-/* This machine's drive, supplied by its main.c. */
-const dir_backend_t *dir_backend(void);
+/* This machine's drive. One symbol, defined by whichever host is linked --
+ * no getter, because there was never a choice to make at run time. */
+extern const dir_backend_t drive_backend;
 
 /* Tell this machine's drive which code page its filenames are in. FatFs keeps
  * one of its own and must be told; a host filesystem takes the bytes as they

@@ -43,7 +43,7 @@
 #include "core/wdc/cpu.h"
 #include "core/lifecycle.h"
 #include "core/sys/sys.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
 #include <stdint.h>

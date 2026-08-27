@@ -3,20 +3,16 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What this machine offers a program to open, and the one drive a path
- * reaches. Both are the machine's: which drivers exist is the same kind of
- * fact as which drivers come up, and belongs beside the roster that says so.
+ * What this machine offers a program to open. Which drivers exist is the same
+ * kind of fact as which drivers come up, and belongs beside the roster that
+ * says so. The drive a path reaches is not listed here: it is one symbol,
+ * drive_backend, and the host that is linked defines it.
  */
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "sw/msc.h"
 #include "sw/rom.h"
-
-const dir_backend_t *dir_backend(void)
-{
-    return &msc_dir_backend;
-}
 
 static const std_driver_t std_driver_table[] = {
     {

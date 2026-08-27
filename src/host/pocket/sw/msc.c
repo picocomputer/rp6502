@@ -924,7 +924,7 @@ static bool msc_dir_chdrive(const char *drive, api_errno *err)
 /* One folder, no directories to walk and no metadata to read, so all this
  * drive answers is where it is and that it is the only one. The rest of the
  * slots stay empty and the syscalls above them say ENOSYS. */
-const dir_backend_t msc_dir_backend = {
+const dir_backend_t drive_backend = {
     .chdrive = msc_dir_chdrive,
     .getcwd = msc_dir_getcwd,
 };

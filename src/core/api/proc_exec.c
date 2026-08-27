@@ -9,7 +9,7 @@
 #include "core/api/proc.h"
 #include "core/api/fs.h"
 #include "core/str/path.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/api/api.h"

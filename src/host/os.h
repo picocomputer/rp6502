@@ -12,12 +12,13 @@
  * What every machine answers: the clock it runs on, the stream its rand()
  * reads, and the host OS calls the machine's own code makes. Files are not
  * here -- a Pico has its own storage and a Pocket has the card, so the
- * filesystem is the software hosts' seam and lives in host/api/fs.h. */
+ * filesystem driver is core/api/fs.h, which each host implements. */
 
 #ifndef _HOST_OS_H_
 #define _HOST_OS_H_
 
 #include <stdbool.h>
+#include <stdio.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
@@ -131,7 +132,21 @@ void host_console_attach(void);
 /* Where an application's config file goes, in the host's native path spelling
  * -- the machine has no config directory, an application does. This is also
  * where the literal "rp6502-emu" lives. ensure_parent_dir works in host path
- * encoding, not the guest OEM the fs_* seam speaks, so it is not host_fs_mkdir. */
+ * encoding, not the guest OEM the drive speaks, so it is not the drive. */
+/* A buffer for a host path. This is the OS's limit and not the API's: a host
+ * cwd, a realpath, or a path a frontend hands over arrives at whatever length
+ * the OS allows, and is only then measured against what a 6502 can hold. */
+#define HOST_MAX_PATH 4096
+
+/* The two filesystem calls core makes directly rather than through a driver.
+ * A path is spelled the way the 6502 spells it, both ways.
+ *
+ * realpath answers absolutely, which is what argv[0] needs to survive a chdir;
+ * fopen_rd hands back a stream for the ROM loader's record parser, which reads
+ * a whole file rather than serving a program. */
+bool host_fs_realpath(const char *path, char *out, size_t outsz);
+FILE *host_fs_fopen_rd(const char *path);
+
 bool host_config_dir(char *buf, size_t sz);        /* e.g. <APPDATA>/rp6502-emu or <XDG/HOME>/.../rp6502-emu */
 void host_ensure_parent_dir(const char *filepath); /* mkdir -p the directory that will hold filepath */
 

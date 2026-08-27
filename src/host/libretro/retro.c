@@ -21,6 +21,7 @@
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/sys/log.h"
+#include "core/api/dir.h"
 #include "core/api/fs.h"
 #include "core/api/proc_exec.h"
 #include "core/rom/rom.h"
@@ -29,7 +30,7 @@
 #include "core/mem/mem.h"
 #include "core/sys/sys.h"
 #include "core/vga/vga_emu.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "host.h"
 
 #include "libretro.h"
@@ -406,8 +407,9 @@ static void enter_save_directory(const char *content_path)
         dir = own;
     }
     char oem[HOST_MAX_PATH];
+    api_errno err;
     if (host_argv_to_oem(dir, oem, sizeof oem))
-        host_fs_chdir(oem);
+        drive_backend.chdir(oem, &err);
 }
 
 /* Stand a program up: a fresh machine, the image, then run. The first load

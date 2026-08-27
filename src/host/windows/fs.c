@@ -26,9 +26,8 @@
 #include "core/api/fs.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "host/windows/errno.h"
-#include "host/windows/win.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -41,180 +40,8 @@
 #include <time.h>
 #include <windows.h>
 
-/* A path arrives spelled the way the 6502 spells it. This drive is one
- * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too. */
-static bool path_to_wide(const char *path, wchar_t *w, int wcount)
-{
-    char native[HOST_MAX_PATH];
-    if (!path_to_native(path, native, sizeof native))
-        return false;
-    if (oem_to_wide(native, (uint16_t *)w, wcount) < 0 || !w[0])
-    {
-        errno = EINVAL;
-        return false;
-    }
-    return true;
-}
 
-/* And back: what Win32 answered, slashed and spelled for the 6502. */
-static bool path_from_wide(const wchar_t *w, char *out, size_t outsz)
-{
-    char native[HOST_MAX_PATH];
-    oem_from_wide((const uint16_t *)w, native, sizeof native);
-    win_to_slash(native);
-    if (!path_from_native(native, out, outsz))
-    {
-        errno = ENAMETOOLONG;
-        return false;
-    }
-    return true;
-}
-
-static time_t filetime_to_time_t(const FILETIME *ft)
-{
-    ULARGE_INTEGER ull;
-    ull.LowPart = ft->dwLowDateTime;
-    ull.HighPart = ft->dwHighDateTime;
-    if (ull.QuadPart < 116444736000000000ULL)
-        return (time_t)0;
-    return (time_t)((ull.QuadPart / 10000000ULL) - 11644473600ULL);
-}
-
-static void time_t_to_filetime(time_t t, FILETIME *ft)
-{
-    ULARGE_INTEGER ull;
-    ull.QuadPart = ((uint64_t)t + 11644473600ULL) * 10000000ULL;
-    ft->dwLowDateTime = ull.LowPart;
-    ft->dwHighDateTime = (DWORD)ull.HighPart;
-}
-
-bool host_fs_stat(const char *path, struct host_fs_meta *out)
-{
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (!GetFileAttributesExW(w, GetFileExInfoStandard, &fad))
-    {
-        win_set_errno(GetLastError());
-        return false;
-    }
-    out->is_dir = (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-    out->is_readonly = (fad.dwFileAttributes & FILE_ATTRIBUTE_READONLY) != 0;
-    out->is_hidden = (fad.dwFileAttributes & FILE_ATTRIBUTE_HIDDEN) != 0;
-    out->size = ((uint64_t)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
-    out->mtime = filetime_to_time_t(&fad.ftLastWriteTime);
-    out->crtime = filetime_to_time_t(&fad.ftCreationTime);
-    return true;
-}
-
-bool host_fs_freespace(const char *path, uint64_t *total_bytes, uint64_t *avail_bytes)
-{
-    /* A drive query names a drive, and no name is the one in use -- the same
-     * rule opendir follows, and what f_getfree does with "". */
-    if (!path[0])
-        path = ".";
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    /* Prefer the parent directory when path names a file. */
-    wchar_t dir[WIN_WPATH_MAX];
-    wcsncpy(dir, w, WIN_WPATH_MAX - 1);
-    dir[WIN_WPATH_MAX - 1] = 0;
-    wchar_t *slash = wcsrchr(dir, L'\\');
-    wchar_t *slash2 = wcsrchr(dir, L'/');
-    if (slash2 && (!slash || slash2 > slash))
-        slash = slash2;
-    if (slash && slash != dir && !(slash == dir + 2 && dir[1] == L':'))
-        *slash = 0;
-    ULARGE_INTEGER avail, total;
-    if (!GetDiskFreeSpaceExW(dir, &avail, &total, NULL))
-    {
-        win_set_errno(GetLastError());
-        return false;
-    }
-    *total_bytes = total.QuadPart;
-    *avail_bytes = avail.QuadPart;
-    return true;
-}
-
-bool host_fs_set_readonly(const char *path, bool readonly)
-{
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    DWORD a = GetFileAttributesW(w);
-    if (a == INVALID_FILE_ATTRIBUTES)
-    {
-        win_set_errno(GetLastError());
-        return false;
-    }
-    if (readonly)
-        a |= FILE_ATTRIBUTE_READONLY;
-    else
-        a &= ~FILE_ATTRIBUTE_READONLY;
-    if (!SetFileAttributesW(w, a))
-    {
-        win_set_errno(GetLastError());
-        return false;
-    }
-    return true;
-}
-
-bool host_fs_set_mtime(const char *path, time_t mtime)
-{
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    HANDLE h = CreateFileW(w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                           NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-    if (h == INVALID_HANDLE_VALUE)
-    {
-        win_set_errno(GetLastError());
-        return false;
-    }
-    FILETIME ft;
-    time_t_to_filetime(mtime, &ft);
-    BOOL ok = SetFileTime(h, NULL, NULL, &ft);
-    DWORD err = GetLastError();
-    CloseHandle(h);
-    if (!ok)
-    {
-        win_set_errno(err);
-        return false;
-    }
-    return true;
-}
-
-bool host_fs_mkdir(const char *path)
-{
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    if (_wmkdir(w) != 0)
-        return false;
-    return true;
-}
-
-bool host_fs_chdir(const char *path)
-{
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    return _wchdir(w) == 0;
-}
-
-bool host_fs_getcwd(char *buf, size_t sz)
-{
-    wchar_t *w = _wgetcwd(NULL, 0);
-    if (!w)
-        return false;
-    bool ok = path_from_wide(w, buf, sz);
-    free(w);
-    return ok;
-}
-
+/* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
 bool host_fs_realpath(const char *path, char *out, size_t outsz)
 {
     wchar_t wpath[WIN_WPATH_MAX], wfull[WIN_WPATH_MAX];
@@ -222,39 +49,8 @@ bool host_fs_realpath(const char *path, char *out, size_t outsz)
         return false;
     DWORD n = GetFullPathNameW(wpath, WIN_WPATH_MAX, wfull, NULL);
     if (n == 0 || n >= WIN_WPATH_MAX)
-    {
-        win_set_errno(n ? ERROR_FILENAME_EXCED_RANGE : GetLastError());
         return false;
-    }
     return path_from_wide(wfull, out, outsz);
-}
-
-bool host_fs_rename(const char *oldp, const char *newp)
-{
-    wchar_t wo[WIN_WPATH_MAX], wn[WIN_WPATH_MAX];
-    if (!path_to_wide(oldp, wo, WIN_WPATH_MAX) || !path_to_wide(newp, wn, WIN_WPATH_MAX))
-        return false;
-    if (!MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING))
-    {
-        win_set_errno(GetLastError());
-        return false;
-    }
-    return true;
-}
-
-bool host_fs_remove(const char *path)
-{
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
-        return false;
-    if (_wunlink(w) == 0)
-        return true;
-    if (errno == EACCES || errno == EPERM)
-    {
-        if (_wrmdir(w) == 0)
-            return true;
-    }
-    return false;
 }
 
 /* An overlapped handle has no implicit file pointer, so a descriptor is an

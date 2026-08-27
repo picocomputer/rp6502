@@ -10,11 +10,12 @@
  * loading a program by its MSC0: path, and the frame-boundary CPU restart.
  */
 
+#include "core/api/dir.h"
 #include "core/api/proc_exec.h"
 #include "core/com/com.h"
 #include "core/api/fs.h"
 #include "core/str/path.h"
-#include "host/api/fs.h"
+#include "host/os.h"
 #include "core/wdc/cpu.h"
 #include "emu_boot.h"
 #include <stdlib.h>
@@ -36,6 +37,26 @@ static void run_frames(int n)
         sys_run_frame();
 }
 
+/* Setup goes through the drive, because that is now the only way in: these
+ * are the backend's own slots, called the way core/api/dir.c calls them. */
+static bool drive_chdir_to(const char *path)
+{
+    api_errno err;
+    return drive_backend.chdir(path, &err);
+}
+
+static bool drive_cwd(char *buf, size_t sz)
+{
+    api_errno err;
+    return drive_backend.getcwd(buf, sz, &err);
+}
+
+static bool drive_mkdir_at(const char *path)
+{
+    api_errno err;
+    return drive_backend.mkdir(path, &err);
+}
+
 UTEST(exec, reexecs_self_with_arg)
 {
     cap_len = 0;
@@ -52,7 +73,7 @@ UTEST(exec, reexecs_self_with_arg)
     char *slash = strrchr(dir, '/');
     ASSERT_TRUE(slash != NULL);
     *slash = 0;
-    ASSERT_TRUE(host_fs_chdir(dir));
+    ASSERT_TRUE(drive_chdir_to(dir));
     proc_set_argv(abs, 0, NULL);
 
     com_set_tx_tap(tap);

@@ -13,6 +13,6 @@
 
 #include "core/api/dir.h"
 
-extern const dir_backend_t fat_dir_backend;
+extern const dir_backend_t drive_backend;
 
 #endif /* _RIA_API_DIR_H_ */

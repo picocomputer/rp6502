@@ -8,6 +8,10 @@
  * that is what this maps -- straight there, rather than through POSIX errno
  * on the way. Two tables in series only lose whatever the middle one cannot
  * spell.
+ *
+ * The two path scraps every Win32 file here needs come along, because they
+ * are too small to be a file and there is nowhere else both fs.c and dir.c
+ * already look.
  */
 
 #ifndef _HOST_WINDOWS_ERRNO_H_
@@ -15,6 +19,13 @@
 
 #include "core/api/api.h"
 #include <windows.h>
+
+/* A wide path buffer. Win32's own limit is longer than the API can carry, so
+ * this is generous rather than exact. */
+#define WIN_WPATH_MAX 4096
+
+/* Rewrite '\\' to '/' in place (the 6502's paths are '/'-separated). */
+void win_to_slash(char *p);
 
 api_errno win_error_to_api(DWORD e);
 
