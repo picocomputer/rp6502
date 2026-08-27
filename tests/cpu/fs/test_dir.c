@@ -14,7 +14,7 @@
  */
 
 #include "core/com/com.h"
-#include "core/sys/msc.h"
+#include "core/api/fs.h"
 #include "host/api/fs.h"
 #include "tb_hostos.h"
 #include "core/wdc/cpu.h"

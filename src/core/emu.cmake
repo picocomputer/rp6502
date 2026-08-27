@@ -71,7 +71,6 @@ add_library(emu_core STATIC
     # layout engine here at all.
     ${RP6502_SRC}/core/hid/vtkeys.c
     ${RP6502_SRC}/core/sys/log.c
-    ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/rom_rec.c
     ${RP6502_SRC}/core/rom/rom_win.c
@@ -97,6 +96,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/attr.c
     ${RP6502_SRC}/core/api/clk.c
     ${RP6502_SRC}/core/api/dir.c
+    ${RP6502_SRC}/core/api/fs.c
     ${RP6502_SRC}/core/api/ops.c
     ${RP6502_SRC}/core/str/oem.c
     ${RP6502_SRC}/core/str/unicode.c

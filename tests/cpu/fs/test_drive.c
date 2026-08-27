@@ -14,7 +14,7 @@
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/rom/rom.h"
-#include "core/sys/msc.h"
+#include "core/api/fs.h"
 #include "host/api/fs.h"
 #include "core/mem/mem.h"
 #include "dirsys.h"
@@ -34,7 +34,7 @@ static char g_dir[256]; /* a temp dir, made the MSC0: mount */
 
 static bool fresh(void)
 {
-    char dir[MSC_MAX_PATH];
+    char dir[FS_MAX_PATH];
     if (!host_make_tmpdir(dir, sizeof(dir)))
         return false;
     std_stop();
@@ -55,11 +55,11 @@ static void make_file(const char *rel, const char *data, uint16_t n)
 }
 
 /* g_dir is a host path, and on Windows that carries a drive letter the guest
- * spells //C/ instead. msc_from_host owns that mapping. */
+ * spells //C/ instead. fs_from_host owns that mapping. */
 static void msc_expect(char *out, size_t sz, const char *suffix)
 {
-    char base[MSC_MAX_PATH];
-    msc_from_host(g_dir, base, sizeof(base));
+    char base[FS_MAX_PATH];
+    fs_from_host(g_dir, base, sizeof(base));
     snprintf(out, sz, "%s%s", base, suffix);
 }
 
@@ -79,13 +79,13 @@ UTEST(drive, rom_resolve_and_load)
 
     /* A second install coexists on the null drive. */
     make_file("second.rp6502", "#!RP6502 two", 12);
-    char second[MSC_MAX_PATH];
+    char second[FS_MAX_PATH];
     snprintf(second, sizeof(second), "%s/second.rp6502", g_dir);
     ASSERT_TRUE(rom_install(second));
 
     /* The boot/exec loader resolves ":name" to the backing file — both installs,
      * case-insensitively like the firmware. */
-    char host[MSC_MAX_PATH];
+    char host[FS_MAX_PATH];
     ASSERT_TRUE(rom_resolve(":adventure.rp6502", host, sizeof(host)));
     ASSERT_STREQ(host, TEST_FIXTURE);
     ASSERT_TRUE(rom_resolve(":ADVENTURE.RP6502", host, sizeof(host))); /* case-insensitive */
@@ -151,7 +151,7 @@ UTEST(drive, mount_transparent_no_chroot)
 {
     ASSERT_TRUE(fresh()); /* cwd = g_dir */
 
-    char cwd[MSC_MAX_PATH], expect[MSC_MAX_PATH];
+    char cwd[FS_MAX_PATH], expect[FS_MAX_PATH];
     dir_api_getcwd();
     dsys_str(cwd, sizeof(cwd));
     msc_expect(expect, sizeof(expect), ""); /* getcwd is the native cwd */

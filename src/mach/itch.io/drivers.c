@@ -9,17 +9,17 @@
  */
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "core/sys/msc.h"
+#include "core/api/fs.h"
 #include "core/rom/rom.h"
 
 const dir_backend_t *dir_backend(void)
 {
-    return &msc_dir_backend;
+    return &fs_dir_backend;
 }
 
 static const std_driver_t std_driver_table[] = {
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
-    {msc_std_handles, msc_std_open, msc_std_close, msc_std_read, msc_std_write, msc_std_sync, msc_std_lseek},
+    {fs_std_handles, fs_std_open, fs_std_close, fs_std_read, fs_std_write, fs_std_sync, fs_std_lseek},
 };
 
 const std_driver_t *std_drivers(size_t *count)

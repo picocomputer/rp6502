@@ -3,17 +3,18 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * See fs.h.
  */
 
 #include "core/api/api.h"
-#include "core/api/std.h"
-#include "core/sys/msc.h"
-#include "host/api/fs.h"
-#include "host/api/dir.h"
-#include "host.h"
-#include "core/mem/mem.h"
 #include "core/api/dir.h"
+#include "core/api/fs.h"
+#include "core/api/std.h"
+#include "core/mem/mem.h"
 #include "core/str/oem.h"
+#include "host/api/dir.h"
+#include "host/api/fs.h"
+#include "host.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -63,7 +64,7 @@ static int flags_to_posix(uint8_t flags)
  * "MSC0:" (case-insensitive) are it and MSC1: names a device that is not here
  * -- the same answer chdrive gives. Anything else keeps its prefix and is
  * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
-const char *msc_strip_drive(const char *path)
+const char *fs_strip_drive(const char *path)
 {
     const char *colon = strchr(path, ':');
     if (!colon || colon == path)
@@ -74,9 +75,9 @@ const char *msc_strip_drive(const char *path)
     return is_drive ? colon + 1 : path;
 }
 
-bool msc_has_drive_prefix(const char *path)
+bool fs_has_drive_prefix(const char *path)
 {
-    return msc_strip_drive(path) != path;
+    return fs_strip_drive(path) != path;
 }
 
 /* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
@@ -98,9 +99,9 @@ static bool rest_to_host(const char *rest, char *host, size_t hsz)
     return true;
 }
 
-bool msc_to_host(const char *path, char *host, size_t hsz)
+bool fs_to_host(const char *path, char *host, size_t hsz)
 {
-    const char *rest = msc_strip_drive(path);
+    const char *rest = fs_strip_drive(path);
     /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
      * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
      * file; the boot/exec loader reaches installs via rom_resolve instead. */
@@ -116,7 +117,7 @@ bool msc_to_host(const char *path, char *host, size_t hsz)
  * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
  * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
  * path — getcwd is full-path-or-error). */
-size_t msc_from_host(const char *hostpath, char *out, size_t outsz)
+size_t fs_from_host(const char *hostpath, char *out, size_t outsz)
 {
     int w;
     if (isalpha((unsigned char)hostpath[0]) && hostpath[1] == ':')
@@ -128,7 +129,7 @@ size_t msc_from_host(const char *hostpath, char *out, size_t outsz)
     return (size_t)w;
 }
 
-std_rw_result msc_io_to_std_result(host_io_result r)
+std_rw_result fs_io_to_std_result(host_io_result r)
 {
     switch (r)
     {
@@ -143,7 +144,7 @@ std_rw_result msc_io_to_std_result(host_io_result r)
 }
 
 /* The fs backends report failures by setting POSIX errno; translate to the 6502 set. */
-api_errno msc_errno_to_api_errno(int host_errno)
+api_errno fs_errno_to_api_errno(int host_errno)
 {
     switch (host_errno)
     {
@@ -185,13 +186,13 @@ api_errno msc_errno_to_api_errno(int host_errno)
     }
 }
 
-bool msc_std_handles(const char *path)
+bool fs_std_handles(const char *path)
 {
     (void)path;
     return true; /* catch-all, registered last */
 }
 
-int msc_std_open(const char *path, uint8_t flags, api_errno *err)
+int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
     /* A name of nothing is not a name -- FatFs answers FR_INVALID_NAME, so
      * the firmware does too. An empty path is still the working directory
@@ -201,16 +202,16 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    char host[MSC_MAX_PATH];
-    if (!msc_to_host(path, host, sizeof(host)))
+    char host[FS_MAX_PATH];
+    if (!fs_to_host(path, host, sizeof(host)))
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return -1;
     }
     int fd = host_fs_open(host, flags_to_posix(flags), 0666);
     if (fd < 0)
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return -1;
     }
     int des = 0;
@@ -229,7 +230,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
         {
             /* Reporting success here would hand back a descriptor positioned at
              * the start of a file the guest asked to append to. */
-            *err = msc_errno_to_api_errno(errno);
+            *err = fs_errno_to_api_errno(errno);
             files[des].used = false;
             host_fs_close(fd);
             return -1;
@@ -237,7 +238,7 @@ int msc_std_open(const char *path, uint8_t flags, api_errno *err)
     return des;
 }
 
-std_rw_result msc_std_close(int desc, api_errno *err)
+std_rw_result fs_std_close(int desc, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -254,13 +255,13 @@ std_rw_result msc_std_close(int desc, api_errno *err)
         host_fs_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
     if (rc != 0) /* deferred flush failure (ENOSPC/EIO on network/overlay FS) */
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return STD_ERROR;
     }
     return STD_OK;
 }
 
-std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
+std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -269,13 +270,13 @@ std_rw_result msc_std_read(int desc, char *buf, uint32_t count, uint32_t *got, a
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result r = msc_io_to_std_result(host_fs_read(f->fd, buf, count, got));
+    std_rw_result r = fs_io_to_std_result(host_fs_read(f->fd, buf, count, got));
     if (r == STD_ERROR)
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
     return r;
 }
 
-std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
+std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -284,15 +285,15 @@ std_rw_result msc_std_write(int desc, const char *buf, uint32_t count, uint32_t 
         *err = API_EBADF;
         return STD_ERROR;
     }
-    std_rw_result r = msc_io_to_std_result(host_fs_write(f->fd, buf, count, put));
+    std_rw_result r = fs_io_to_std_result(host_fs_write(f->fd, buf, count, put));
     if (r == STD_OK)
         f->wrote = true;
     else if (r == STD_ERROR)
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
     return r;
 }
 
-int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
+int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
     struct host_file *f = host_fil(desc);
     if (!f)
@@ -306,7 +307,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     int64_t cur = host_fs_lseek(f->fd, 0, SEEK_CUR);
     if (cur < 0)
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return -1;
     }
     int64_t base;
@@ -320,7 +321,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
         host_fs_lseek(f->fd, cur, SEEK_SET);
         if (base < 0)
         {
-            *err = msc_errno_to_api_errno(errno);
+            *err = fs_errno_to_api_errno(errno);
             return -1;
         }
     }
@@ -347,7 +348,7 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
     int64_t size = host_fs_lseek(f->fd, 0, SEEK_END);
     if (size < 0)
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return -1;
     }
     if (target > size)
@@ -356,21 +357,21 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
             target = size; /* read mode: clamp to EOF */
         else if (host_fs_ftruncate(f->fd, target) < 0) /* write mode: extend the file */
         {
-            *err = msc_errno_to_api_errno(errno);
+            *err = fs_errno_to_api_errno(errno);
             return -1;
         }
     }
     int64_t np = host_fs_lseek(f->fd, target, SEEK_SET);
     if (np < 0)
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return -1;
     }
     *pos = (int32_t)np;
     return 0;
 }
 
-std_rw_result msc_std_sync(int desc, api_errno *err)
+std_rw_result fs_std_sync(int desc, api_errno *err)
 {
     (void)desc, (void)err;
     host_fs_persist();
@@ -440,7 +441,7 @@ struct host_dir
 {
     bool used;
     void *dp;
-    char host[MSC_MAX_PATH];
+    char host[FS_MAX_PATH];
 };
 static struct host_dir dirs[DIR_MAX_OPEN];
 
@@ -451,18 +452,18 @@ static struct host_dir dirs[DIR_MAX_OPEN];
 static inline bool host_ok(bool ok, api_errno *err)
 {
     if (!ok)
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
     return ok;
 }
 
 /* Every path arrives spelled the way the 6502 spells it, and has to be turned
  * into one this host understands before anything can be done with it. */
 #define TO_HOST(path, host)                        \
-    char host[MSC_MAX_PATH];                       \
-    if (!host_ok(msc_to_host((path), host, sizeof(host)), err)) \
+    char host[FS_MAX_PATH];                       \
+    if (!host_ok(fs_to_host((path), host, sizeof(host)), err)) \
     return false
 
-static bool msc_dir_validate(int des, api_errno *err)
+static bool fs_dir_validate(int des, api_errno *err)
 {
     if (des < 0 || des >= DIR_MAX_OPEN)
     {
@@ -477,7 +478,7 @@ static bool msc_dir_validate(int des, api_errno *err)
     return true;
 }
 
-static bool msc_dir_stat(const char *path, FILINFO *fno, api_errno *err)
+static bool fs_dir_stat(const char *path, FILINFO *fno, api_errno *err)
 {
     TO_HOST(path, host);
     struct host_fs_meta meta;
@@ -489,7 +490,7 @@ static bool msc_dir_stat(const char *path, FILINFO *fno, api_errno *err)
     return true;
 }
 
-static bool msc_dir_opendir(const char *path, int *des, api_errno *err)
+static bool fs_dir_opendir(const char *path, int *des, api_errno *err)
 {
     int i = 0;
     for (; i < DIR_MAX_OPEN; i++)
@@ -513,7 +514,7 @@ static bool msc_dir_opendir(const char *path, int *des, api_errno *err)
 
 /* The host hands back a bare name, so each entry is stat'd through the path
  * the directory was opened by. "." and ".." are not entries the 6502 sees. */
-static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
+static bool fs_dir_readdir(int des, FILINFO *fno, api_errno *err)
 {
     struct host_dir *d = &dirs[des];
     char name[256]; /* a directory entry name (<= NAME_MAX), not a full path */
@@ -530,7 +531,7 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
             return true;
         }
     } while (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
-    char entry[MSC_MAX_PATH];
+    char entry[FS_MAX_PATH];
     struct host_fs_meta meta;
     if (snprintf(entry, sizeof(entry), "%s/%s", d->host, name) < (int)sizeof(entry) &&
         host_fs_stat(entry, &meta))
@@ -544,7 +545,7 @@ static bool msc_dir_readdir(int des, FILINFO *fno, api_errno *err)
     return true;
 }
 
-static bool msc_dir_closedir(int des, api_errno *err)
+static bool fs_dir_closedir(int des, api_errno *err)
 {
     (void)err;
     host_dir_close(dirs[des].dp);
@@ -553,33 +554,33 @@ static bool msc_dir_closedir(int des, api_errno *err)
     return true;
 }
 
-static bool msc_dir_rewinddir(int des, api_errno *err)
+static bool fs_dir_rewinddir(int des, api_errno *err)
 {
     (void)err;
     host_dir_rewind(dirs[des].dp);
     return true;
 }
 
-static bool msc_dir_unlink(const char *path, api_errno *err)
+static bool fs_dir_unlink(const char *path, api_errno *err)
 {
     TO_HOST(path, host);
     return host_ok(host_fs_remove(host), err);
 }
 
-static bool msc_dir_rename(const char *oldname, const char *newname, api_errno *err)
+static bool fs_dir_rename(const char *oldname, const char *newname, api_errno *err)
 {
     TO_HOST(oldname, ho);
     TO_HOST(newname, hn);
     return host_ok(host_fs_rename(ho, hn), err);
 }
 
-static bool msc_dir_mkdir(const char *path, api_errno *err)
+static bool fs_dir_mkdir(const char *path, api_errno *err)
 {
     TO_HOST(path, host);
     return host_ok(host_fs_mkdir(host), err);
 }
 
-static bool msc_dir_chdir(const char *path, api_errno *err)
+static bool fs_dir_chdir(const char *path, api_errno *err)
 {
     TO_HOST(path, host);
     /* chdir validates existence and dir-ness, and sets errno */
@@ -588,7 +589,7 @@ static bool msc_dir_chdir(const char *path, api_errno *err)
 
 /* The 6502 sees MSC0: (and the bare current drive); anything else is a
  * missing device. */
-static bool msc_dir_chdrive(const char *drive, api_errno *err)
+static bool fs_dir_chdrive(const char *drive, api_errno *err)
 {
     if (drive[0] != ':') /* the null drive (installs) is not a cwd-able drive */
     {
@@ -607,7 +608,7 @@ static bool msc_dir_chdrive(const char *drive, api_errno *err)
 /* Best-effort: only the read-only bit maps to the host (write permission).
  * Hidden/system/archive have no host equivalent and are silently dropped --
  * including the path, which is not worth resolving to change nothing. */
-static bool msc_dir_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
+static bool fs_dir_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
     if (!(mask & FS_AM_RDO))
         return true;
@@ -617,7 +618,7 @@ static bool msc_dir_chmod(const char *path, uint8_t attr, uint8_t mask, api_errn
 
 /* Best-effort: set the modification time from the FAT date/time. The creation
  * time the API also carries is not settable on POSIX. */
-static bool msc_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
+static bool fs_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
 {
     TO_HOST(path, host);
     struct tm tm;
@@ -632,12 +633,12 @@ static bool msc_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
     return host_ok(host_fs_set_mtime(host, mktime(&tm)), err);
 }
 
-static bool msc_dir_getcwd(char *buf, size_t size, api_errno *err)
+static bool fs_dir_getcwd(char *buf, size_t size, api_errno *err)
 {
-    char cwd[MSC_MAX_PATH];
+    char cwd[FS_MAX_PATH];
     if (!host_ok(host_fs_getcwd(cwd, sizeof(cwd)), err))
         return false;
-    if (!msc_from_host(cwd, buf, size)) /* did not fit: full-path-or-error */
+    if (!fs_from_host(cwd, buf, size)) /* did not fit: full-path-or-error */
     {
         *err = API_ENOMEM;
         return false;
@@ -648,20 +649,20 @@ static bool msc_dir_getcwd(char *buf, size_t size, api_errno *err)
 /* The host filesystem has no FAT volume label. Report an empty one and accept
  * (ignore) a set, so label-aware programs run rather than erroring -- these
  * are answers, not missing calls, which is why neither slot is left NULL. */
-static bool msc_dir_getlabel(const char *path, char *label, size_t size, api_errno *err)
+static bool fs_dir_getlabel(const char *path, char *label, size_t size, api_errno *err)
 {
     (void)path, (void)size, (void)err;
     label[0] = 0;
     return true;
 }
 
-static bool msc_dir_setlabel(const char *path, api_errno *err)
+static bool fs_dir_setlabel(const char *path, api_errno *err)
 {
     (void)path, (void)err;
     return true;
 }
 
-static bool msc_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
+static bool fs_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                             api_errno *err)
 {
     TO_HOST(path, host);
@@ -675,22 +676,22 @@ static bool msc_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_
     return true;
 }
 
-const dir_backend_t msc_dir_backend = {
-    .stat = msc_dir_stat,
-    .unlink = msc_dir_unlink,
-    .rename = msc_dir_rename,
-    .mkdir = msc_dir_mkdir,
-    .chdir = msc_dir_chdir,
-    .chdrive = msc_dir_chdrive,
-    .chmod = msc_dir_chmod,
-    .utime = msc_dir_utime,
-    .getfree = msc_dir_getfree,
-    .getcwd = msc_dir_getcwd,
-    .getlabel = msc_dir_getlabel,
-    .setlabel = msc_dir_setlabel,
-    .opendir = msc_dir_opendir,
-    .readdir = msc_dir_readdir,
-    .closedir = msc_dir_closedir,
-    .rewinddir = msc_dir_rewinddir,
-    .validate = msc_dir_validate,
+const dir_backend_t fs_dir_backend = {
+    .stat = fs_dir_stat,
+    .unlink = fs_dir_unlink,
+    .rename = fs_dir_rename,
+    .mkdir = fs_dir_mkdir,
+    .chdir = fs_dir_chdir,
+    .chdrive = fs_dir_chdrive,
+    .chmod = fs_dir_chmod,
+    .utime = fs_dir_utime,
+    .getfree = fs_dir_getfree,
+    .getcwd = fs_dir_getcwd,
+    .getlabel = fs_dir_getlabel,
+    .setlabel = fs_dir_setlabel,
+    .opendir = fs_dir_opendir,
+    .readdir = fs_dir_readdir,
+    .closedir = fs_dir_closedir,
+    .rewinddir = fs_dir_rewinddir,
+    .validate = fs_dir_validate,
 };

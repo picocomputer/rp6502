@@ -15,7 +15,6 @@
 #include "core/api/proc_exec.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/sys/msc.h"
 #include "core/rom/rom.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"

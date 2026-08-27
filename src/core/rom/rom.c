@@ -6,7 +6,7 @@
  */
 
 #include "core/sys/log.h"
-#include "core/sys/msc.h"
+#include "core/api/fs.h"
 #include "core/rom/rom.h"
 #include "core/rom/rom_rec.h"
 #include "core/rom/rom_win.h"
@@ -31,7 +31,7 @@
  * memory: a "ROM:name" open scans the directory in the file for the entry, like
  * the firmware's rom_find_asset, then reads it on demand. A new program replaces
  * these; the MSC0: drive beside them is untouched. */
-static char g_rom_src[MSC_MAX_PATH];
+static char g_rom_src[FS_MAX_PATH];
 static size_t g_rom_assets_start;
 static uint32_t g_rom_generation; /* bumped per successful rom_load; ROM Help watches it */
 
@@ -142,9 +142,9 @@ static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
                                uint32_t count, uint32_t *got, api_errno *err)
 {
     host_fs_lseek(w->fd, (int64_t)at, SEEK_SET);
-    std_rw_result r = msc_io_to_std_result(host_fs_read(w->fd, buf, count, got));
+    std_rw_result r = fs_io_to_std_result(host_fs_read(w->fd, buf, count, got));
     if (r == STD_ERROR)
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
     return r;
 }
 
@@ -156,7 +156,7 @@ static int rom_window_open(const char *hostpath, size_t base, size_t len, api_er
     int fd = host_fs_open(hostpath, O_RDONLY, 0);
     if (fd < 0)
     {
-        *err = msc_errno_to_api_errno(errno);
+        *err = fs_errno_to_api_errno(errno);
         return -1;
     }
     int des = rom_win_alloc(&rom_pool, (uint32_t)base, (uint32_t)len, fd, err);
@@ -248,7 +248,7 @@ typedef struct
 {
     bool used;
     char name[INSTALL_NAME_MAX]; /* basename, e.g. "adventure.rp6502" (the text after ":") */
-    char host[MSC_MAX_PATH]; /* the backing file */
+    char host[FS_MAX_PATH]; /* the backing file */
     size_t size;
 } install_t;
 static install_t installs[INSTALL_MAX];
@@ -266,7 +266,7 @@ static const char *host_basename(const char *hostpath)
 bool rom_install(const char *hostpath)
 {
     const char *base = host_basename(hostpath);
-    if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= MSC_MAX_PATH)
+    if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= FS_MAX_PATH)
         return false;
     struct host_fs_meta meta;
     if (!host_fs_stat(hostpath, &meta)) /* must exist; size for the whole-file window */
@@ -294,7 +294,7 @@ static install_t *install_find(const char *name)
 }
 
 /* Resolve a boot/exec ROM path to the host file to open: an installed ":name" ->
- * its backing file, a drive path -> msc_to_host, else the bare path (the native
+ * its backing file, a drive path -> fs_to_host, else the bare path (the native
  * CLI / tests, against the process cwd). The loader then opens it. */
 bool rom_resolve(const char *path, char *out, size_t outsz)
 {
@@ -311,8 +311,8 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
         strcpy(out, in->host);
         return true;
     }
-    if (msc_has_drive_prefix(path))
-        return msc_to_host(path, out, outsz);
+    if (fs_has_drive_prefix(path))
+        return fs_to_host(path, out, outsz);
     if (strlen(path) >= outsz)
         return false;
     strcpy(out, path);
@@ -321,7 +321,7 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
 
 bool rom_load(const char *path)
 {
-    char host[MSC_MAX_PATH];
+    char host[FS_MAX_PATH];
     if (!rom_resolve(path, host, sizeof(host)))
     {
         log_error("cannot resolve ROM '%s'", path);
