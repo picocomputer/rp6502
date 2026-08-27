@@ -51,6 +51,11 @@ void HOST_IN_FLASH("oem_init") oem_init(void)
         oem_code_page_set = 0;
         oem_request_code_page(oem_resolve());
     }
+    /* The glyph store was rebuilt by font_init just above and has forgotten
+     * the page; oem_request_code_page only speaks when the number changes, so
+     * it would stay forgotten. On a machine whose font is another chip this is
+     * the PIX message that tells it, and this is where that message goes. */
+    vga_set_code_page(oem_code_page_run);
 }
 
 void oem_stop(void)

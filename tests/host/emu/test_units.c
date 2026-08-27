@@ -8,6 +8,7 @@
  */
 
 #include "core/api/oem.h"
+#include "core/term/font.h"
 #include "core/str/str.h"
 #include "host/sokol/cli.h"
 #include "core/hid/usage.h"
@@ -284,6 +285,26 @@ UTEST(keyboard, text_to_oem)
     vtkeys_text("\xF0\x9F\x98\x80"); /* U+1F600 unmappable -> 0x7F */
     ASSERT_EQ(keyboard_drain(b, sizeof b), 1);
     ASSERT_EQ((unsigned char)b[0], 0x7Fu);
+}
+
+/* font_init rebuilds the glyph store and knows nothing about the active code
+ * page, so oem_init has to tell it -- and therefore has to run after it. When
+ * it ran before, --cp 850 (and every non-EN locale, and the libretro code page
+ * option) converted bytes in one page and drew glyphs from another. */
+UTEST(oem, glyph_store_follows_the_run_page)
+{
+    /* Through the machine's real init, because the defect was the order
+     * inside it: font_init rebuilds the glyph store knowing nothing of the
+     * page, so oem_init has to follow it. */
+    ASSERT_TRUE(oem_set_code_page(850));
+    main_init();
+    ASSERT_EQ((uint16_t)850, oem_get_code_page_run());
+    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
+
+    ASSERT_TRUE(oem_set_code_page(0)); /* back to auto */
+    str_init();
+    main_init();
+    ASSERT_EQ(oem_get_code_page_run(), font_get_code_page());
 }
 
 /* The oem string family: UTF-8 <-> OEM round-trip in the active code page,

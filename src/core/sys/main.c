@@ -61,8 +61,8 @@ void main_init(void)
     rln_init();
     tim_init();
     str_init();
-    oem_init();
     font_init();
+    oem_init();
     term_init();
     vga_init();
 }
