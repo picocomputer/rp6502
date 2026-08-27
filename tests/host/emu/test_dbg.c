@@ -12,7 +12,7 @@
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
-#include "core/sys/vtkeys.h"
+#include "host/emu/vtkeys.h"
 #include "emu_boot.h"
 #include <string.h>
 

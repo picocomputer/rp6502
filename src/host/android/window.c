@@ -18,7 +18,7 @@
 #include "sokol/util/sokol_debugtext.h"
 #include "core/hid/gamepad.h"
 #include "core/lifecycle.h"
-#include "core/sys/rom.h"
+#include "host/emu/rom.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include <android/input.h>

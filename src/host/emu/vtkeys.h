@@ -13,8 +13,8 @@
  * whole of what keeps vtkeys_key and keyboard_key_down apart.
  */
 
-#ifndef _CORE_SYS_VTKEYS_H_
-#define _CORE_SYS_VTKEYS_H_
+#ifndef _HOST_EMU_VTKEYS_H_
+#define _HOST_EMU_VTKEYS_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -54,4 +54,4 @@ bool vtkeys_paste_busy(void);
  * the headless batch and a script all pace a paste identically. */
 void vtkeys_task(void);
 
-#endif /* _CORE_SYS_VTKEYS_H_ */
+#endif /* _HOST_EMU_VTKEYS_H_ */

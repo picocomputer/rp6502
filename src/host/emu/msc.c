@@ -7,7 +7,7 @@
 
 #include "core/api/api.h"
 #include "core/api/std.h"
-#include "core/sys/msc.h"
+#include "host/emu/msc.h"
 #include "host/fs.h"
 #include "host/fs_dir.h"
 #include "host.h"

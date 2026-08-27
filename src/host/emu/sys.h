@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _CORE_SYS_SYS_H_
-#define _CORE_SYS_SYS_H_
+#ifndef _HOST_EMU_SYS_H_
+#define _HOST_EMU_SYS_H_
 
 #include <stdint.h>
 
@@ -32,4 +32,4 @@ uint64_t sys_clk_now(void);
 
 unsigned long sys_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */
 
-#endif /* _CORE_SYS_SYS_H_ */
+#endif /* _HOST_EMU_SYS_H_ */

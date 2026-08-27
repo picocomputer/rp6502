@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _CORE_SYS_MSC_H_
-#define _CORE_SYS_MSC_H_
+#ifndef _HOST_EMU_MSC_H_
+#define _HOST_EMU_MSC_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -44,4 +44,4 @@ int msc_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno 
 /* This drive, for core/api/dir.c's handlers. */
 extern const dir_backend_t msc_dir_backend;
 
-#endif /* _CORE_SYS_MSC_H_ */
+#endif /* _HOST_EMU_MSC_H_ */

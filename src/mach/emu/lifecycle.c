@@ -12,11 +12,11 @@
  */
 
 #include "core/lifecycle.h"
-#include "core/sys/proc.h"
+#include "host/emu/proc.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/sys/msc.h"
-#include "core/sys/rom.h"
+#include "host/emu/msc.h"
+#include "host/emu/rom.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"

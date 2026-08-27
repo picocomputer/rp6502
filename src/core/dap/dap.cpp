@@ -25,7 +25,7 @@
 extern "C"
 {
 #include "core/str/oem.h"
-#include "core/sys/proc.h"
+#include "host/emu/proc.h"
 #include "core/dap/dbg.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"

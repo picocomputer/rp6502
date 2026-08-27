@@ -3,7 +3,7 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The pocket port of the .rp6502 loader, from core/sys/rom.c. The
+ * The pocket port of the .rp6502 loader, from host/emu/rom.c. The
  * emulator streams from a host file; here the whole image is resident in
  * the staging store. Same format, same rules: a load never writes
  * $FF00-$FFF9, the $FFFA-$FFFF vectors land in the register cells with

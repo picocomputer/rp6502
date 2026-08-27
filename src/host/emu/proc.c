@@ -5,9 +5,9 @@
  *
  */
 
-#include "core/sys/proc.h"
+#include "host/emu/proc.h"
 #include "core/api/proc.h"
-#include "core/sys/msc.h"
+#include "host/emu/msc.h"
 #include "host/fs.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"

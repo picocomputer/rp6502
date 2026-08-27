@@ -278,7 +278,7 @@ function(rp6502_add_script_test name)
     if(NOT S_TIMEOUT)
         set(S_TIMEOUT 120)
     endif()
-    # EMU_ECHO mirrors the terminal to stderr (core/sys/tty.c). A script fails on
+    # EMU_ECHO mirrors the terminal to stderr (host/emu/tty.c). A script fails on
     # one line and the question is always what the machine had been saying, so
     # --output-on-failure carries the console with it.
     set_tests_properties(script.${name} PROPERTIES

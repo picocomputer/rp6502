@@ -5,9 +5,9 @@
  *
  */
 
-#include "core/sys/log.h"
-#include "core/sys/msc.h"
-#include "core/sys/rom.h"
+#include "host/emu/log.h"
+#include "host/emu/msc.h"
+#include "host/emu/rom.h"
 #include "core/rom/rom_rec.h"
 #include "core/rom/rom_win.h"
 #include "host/fs.h"

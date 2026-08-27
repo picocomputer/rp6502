@@ -10,12 +10,12 @@
  */
 
 #include "core/ria.h"
-#include "core/sys/proc.h"
+#include "host/emu/proc.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
 #include "core/aud/bel.h"
-#include "core/sys/vtkeys.h"
+#include "host/emu/vtkeys.h"
 #include "core/com/com.h"
 #include "core/ria/ria.h"
 #include "stdsys.h"

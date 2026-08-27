@@ -54,9 +54,9 @@ add_custom_command(OUTPUT ${RSMP_COEF_H}
 add_custom_target(rsmp_coef DEPENDS ${RSMP_COEF_H})
 
 add_library(emu_core STATIC
-    ${RP6502_SRC}/core/sys/hid.c
-    ${RP6502_SRC}/core/sys/proc.c
-    ${RP6502_SRC}/core/sys/tim.c
+    ${RP6502_SRC}/host/emu/hid.c
+    ${RP6502_SRC}/host/emu/proc.c
+    ${RP6502_SRC}/host/emu/tim.c
     ${RP6502_SRC}/core/aud/aud_mix.c
     ${RP6502_SRC}/core/aud/rsmp.c
     ${RP6502_SRC}/core/dap/dbg.c
@@ -69,24 +69,24 @@ add_library(emu_core STATIC
     # are what a software machine answers where another has fabric or a
     # firmware -- the host already produced the characters, so there is no
     # layout engine here at all.
-    ${RP6502_SRC}/core/sys/vtkeys.c
-    ${RP6502_SRC}/core/sys/log.c
-    ${RP6502_SRC}/core/sys/msc.c
-    ${RP6502_SRC}/core/sys/rom.c
+    ${RP6502_SRC}/host/emu/vtkeys.c
+    ${RP6502_SRC}/host/emu/log.c
+    ${RP6502_SRC}/host/emu/msc.c
+    ${RP6502_SRC}/host/emu/rom.c
     ${RP6502_SRC}/core/rom/rom_rec.c
     ${RP6502_SRC}/core/rom/rom_win.c
     ${RP6502_SRC}/core/rand.c
-    ${RP6502_SRC}/core/sys/rand.c
-    ${RP6502_SRC}/core/sys/cfg.c
+    ${RP6502_SRC}/host/emu/rand.c
+    ${RP6502_SRC}/host/emu/cfg.c
     ${RP6502_SRC}/core/com/com.c
-    ${RP6502_SRC}/core/sys/tty.c
+    ${RP6502_SRC}/host/emu/tty.c
     ${RP6502_SRC}/core/wdc/cpu.c
     ${RP6502_SRC}/core/mem/mem.c
     ${RP6502_SRC}/core/pix/pix.c
     ${RP6502_SRC}/core/api/xreg0.c
     ${RP6502_SRC}/core/api/xreg1.c
     ${RP6502_SRC}/core/ria/ria.c
-    ${RP6502_SRC}/core/sys/sys.c
+    ${RP6502_SRC}/host/emu/sys.c
     ${RP6502_SRC}/core/vga/vga.c
     ${RP6502_SRC}/core/wdc/via.c
     ${RP6502_SRC}/core/wdc/w65c02.c

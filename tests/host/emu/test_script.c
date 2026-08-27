@@ -11,8 +11,8 @@
  */
 
 #include "host/sokol/script.h"
-#include "core/sys/rom.h"
-#include "core/sys/sys.h"
+#include "host/emu/rom.h"
+#include "host/emu/sys.h"
 #include "emu_boot.h"
 #include <stdio.h>
 

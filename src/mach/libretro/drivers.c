@@ -9,8 +9,8 @@
  */
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "core/sys/msc.h"
-#include "core/sys/rom.h"
+#include "host/emu/msc.h"
+#include "host/emu/rom.h"
 
 const dir_backend_t *dir_backend(void)
 {

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _CORE_SYS_PROC_H_
-#define _CORE_SYS_PROC_H_
+#ifndef _HOST_EMU_PROC_H_
+#define _HOST_EMU_PROC_H_
 
 #include "core/api/proc.h"
 #include <stdbool.h>
@@ -32,4 +32,4 @@ bool proc_exit(int16_t exit_code);     /* true if a launcher re-exec was schedul
  * Its own row because the two share a prefix and nothing else. */
 #define SYS_PROC_LIFECYCLE LIFECYCLE(proc_init, nul_run, nul_stop, nul_break)
 
-#endif /* _CORE_SYS_PROC_H_ */
+#endif /* _HOST_EMU_PROC_H_ */

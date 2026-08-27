@@ -9,7 +9,7 @@
 
 /* Path questions only the drive can answer, asked of FatFs. A machine whose
  * drive is a host filesystem resolves paths in its own drive module instead
- * (core/sys/msc.c), so nothing here is shared. */
+ * (host/emu/msc.c), so nothing here is shared. */
 
 #include <stdbool.h>
 #include <stddef.h>

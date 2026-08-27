@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/proc.h"
+#include "host/emu/proc.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"

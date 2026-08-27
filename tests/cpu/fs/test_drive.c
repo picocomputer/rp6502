@@ -13,8 +13,8 @@
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "core/sys/rom.h"
-#include "core/sys/msc.h"
+#include "host/emu/rom.h"
+#include "host/emu/msc.h"
 #include "host/fs.h"
 #include "core/mem/mem.h"
 #include "dirsys.h"
