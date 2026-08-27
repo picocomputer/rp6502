@@ -15,7 +15,7 @@
  */
 
 #include "core/api/fs.h"
-#include "host/posix/errno.h"
+#include "host/posix/errmap.h"
 #include <errno.h>
 #include <unistd.h>
 

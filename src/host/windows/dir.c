@@ -26,7 +26,7 @@
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "host/os.h"
-#include "host/windows/errno.h"
+#include "host/windows/errmap.h"
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>

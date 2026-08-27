@@ -133,7 +133,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/rom/rom_rec.c
     ${RP6502_ROOT}/src/core/rom/rom_win.c
     ${RIA_SRC}/api/dir.c
-    ${RIA_SRC}/api/errno.c
+    ${RIA_SRC}/api/errmap.c
     ${RIA_SRC}/api/fs.c
     ${RP6502_ROOT}/src/core/str/path.c
     ${RP6502_ROOT}/src/core/str/oem.c

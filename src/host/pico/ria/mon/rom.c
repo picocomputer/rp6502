@@ -7,7 +7,7 @@
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
-#include "api/errno.h"
+#include "api/errmap.h"
 #include "core/str/oem.h"
 #include "core/api/arg.h"
 #include "core/api/proc.h"

@@ -19,8 +19,8 @@
 
 target_sources(emu_core PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/dir.c
-    ${CMAKE_CURRENT_LIST_DIR}/dirent.c
-    ${CMAKE_CURRENT_LIST_DIR}/errno.c
+    ${CMAKE_CURRENT_LIST_DIR}/dirwalk.c
+    ${CMAKE_CURRENT_LIST_DIR}/errmap.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
     ${CMAKE_CURRENT_LIST_DIR}/fs_aio.c
     ${CMAKE_CURRENT_LIST_DIR}/host.c)

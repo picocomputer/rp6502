@@ -8,7 +8,7 @@
  */
 
 #include "api/dir.h"
-#include "api/errno.h"
+#include "api/errmap.h"
 #include "core/api/api.h"
 #include "core/api/dir.h"
 #include "fatfs/ff.h"

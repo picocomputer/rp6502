@@ -12,7 +12,7 @@
  * underneath is usb/msc.c.
  */
 
-#include "api/errno.h"
+#include "api/errmap.h"
 #include "core/api/fs.h"
 #include "fatfs/ff.h"
 #include <assert.h>

@@ -6,7 +6,7 @@
  * See errno.h.
  */
 
-#include "host/posix/errno.h"
+#include "host/posix/errmap.h"
 #include <errno.h>
 
 api_errno errno_to_api(int host_errno)

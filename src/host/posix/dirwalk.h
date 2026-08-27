@@ -12,10 +12,14 @@
  * one of the two has to give. Nothing here interprets anything; it hands back
  * a name and a struct stat, and dir.c turns those into what the 6502 asked
  * for.
+ *
+ * Named dirwalk and not dirent for the same reason errmap is not errno: a
+ * host directory can be on the include path, and a header named for a C
+ * library one is then found in its place.
  */
 
-#ifndef _HOST_POSIX_DIRENT_H_
-#define _HOST_POSIX_DIRENT_H_
+#ifndef _HOST_POSIX_DIRWALK_H_
+#define _HOST_POSIX_DIRWALK_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -33,4 +37,4 @@ int posix_readdir(void *d, char *u8name, size_t namesz, struct stat *st);
 void posix_rewinddir(void *d);
 void posix_closedir(void *d);
 
-#endif /* _HOST_POSIX_DIRENT_H_ */
+#endif /* _HOST_POSIX_DIRWALK_H_ */

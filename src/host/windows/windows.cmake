@@ -15,7 +15,7 @@
 
 target_sources(emu_core PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}/dir.c
-    ${CMAKE_CURRENT_LIST_DIR}/errno.c
+    ${CMAKE_CURRENT_LIST_DIR}/errmap.c
     ${CMAKE_CURRENT_LIST_DIR}/fs.c
     ${CMAKE_CURRENT_LIST_DIR}/host.c)
 

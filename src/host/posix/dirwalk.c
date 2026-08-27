@@ -6,7 +6,7 @@
  * See dirent.h.
  */
 
-#include "host/posix/dirent.h"
+#include "host/posix/dirwalk.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>

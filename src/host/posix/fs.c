@@ -11,7 +11,7 @@
 
 #include "core/api/fs.h"
 #include "host/os.h"
-#include "host/posix/errno.h"
+#include "host/posix/errmap.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include <errno.h>

@@ -25,8 +25,8 @@
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "host/os.h"
-#include "host/posix/dirent.h"
-#include "host/posix/errno.h"
+#include "host/posix/dirwalk.h"
+#include "host/posix/errmap.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>

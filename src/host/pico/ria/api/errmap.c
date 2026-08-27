@@ -6,7 +6,7 @@
  * See errno.h.
  */
 
-#include "api/errno.h"
+#include "api/errmap.h"
 #include "fatfs/ff.h"
 #include <assert.h>
 

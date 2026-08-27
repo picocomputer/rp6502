@@ -37,9 +37,9 @@ include(${RP6502_SRC}/core/emu.cmake)
 # only the two files a POSIX host shares.
 target_sources(emu_core PRIVATE
     ${RP6502_SRC}/host/posix/dir.c
-    ${RP6502_SRC}/host/posix/dirent.c
+    ${RP6502_SRC}/host/posix/dirwalk.c
     ${RP6502_SRC}/host/posix/host.c
-    ${RP6502_SRC}/host/posix/errno.c
+    ${RP6502_SRC}/host/posix/errmap.c
     ${RP6502_HOST}/fs.c
     ${RP6502_HOST}/host.c)
 

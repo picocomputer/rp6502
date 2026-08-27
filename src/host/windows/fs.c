@@ -19,7 +19,7 @@
  *
  * Paths cross in the guest's OEM code page and the 6502's spelling; the drive
  * prefix comes off with path_to_native() and the code page with oem_to_wide()
- * before every ...W call. Failures are reported with host/windows/errno.h,
+ * before every ...W call. Failures are reported with host/windows/errmap.h,
  * straight from GetLastError.
  */
 
@@ -27,7 +27,7 @@
 #include "core/str/oem.h"
 #include "core/str/path.h"
 #include "host/os.h"
-#include "host/windows/errno.h"
+#include "host/windows/errmap.h"
 #include <direct.h>
 #include <errno.h>
 #include <fcntl.h>
