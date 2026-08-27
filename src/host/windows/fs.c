@@ -500,4 +500,3 @@ bool host_fs_fsync(int fd)
     return true;
 }
 
-void host_fs_persist(void) {} /* a real host filesystem is already durable */

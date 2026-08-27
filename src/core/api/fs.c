@@ -15,24 +15,12 @@
 #include <stdio.h> /* SEEK_SET/CUR/END */
 #include <string.h>
 
-#define HOST_MAX_OPEN 16
-
-/* An open host file: a plain fd, flagged once it is written so the drive is persisted
- * when it closes. The read/write transfer is non-blocking in the fs seam. */
-struct host_file
-{
-    bool used;
-    int fd;
-    bool wrote;
-};
-static struct host_file files[HOST_MAX_OPEN];
-
-static struct host_file *host_fil(int desc)
-{
-    if (desc < 0 || desc >= HOST_MAX_OPEN || !files[desc].used)
-        return NULL;
-    return &files[desc];
-}
+/* A descriptor here is the host's own, handed back unchanged. std.c keeps
+ * whatever a driver returns and gives it back verbatim, and the host has to
+ * validate it anyway, so a pool of its own here would be a second table
+ * saying the same thing -- and a per-machine ceiling on top of the host's
+ * real one. How many files can be open is the host's answer to give.
+ */
 
 std_rw_result fs_io_to_std_result(host_io_result r)
 {
@@ -116,17 +104,6 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = fs_errno_to_api_errno(errno);
         return -1;
     }
-    int des = 0;
-    for (; des < HOST_MAX_OPEN; des++)
-        if (!files[des].used)
-            break;
-    if (des == HOST_MAX_OPEN)
-    {
-        host_fs_close(fd);
-        *err = API_EMFILE;
-        return -1;
-    }
-    files[des] = (struct host_file){.used = true, .fd = fd};
     if (flags & 0x40) /* APPEND: a one-time seek to the end, after any TRUNC */
     {
         int64_t end = host_fs_size(fd);
@@ -135,30 +112,16 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
             /* Reporting success here would hand back a descriptor positioned at
              * the start of a file the guest asked to append to. */
             *err = fs_errno_to_api_errno(errno);
-            files[des].used = false;
             host_fs_close(fd);
             return -1;
         }
     }
-    return des;
+    return fd;
 }
 
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
-    struct host_file *f = host_fil(desc);
-    if (!f)
-    {
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    bool wrote = f->wrote;
-    int rc = 0;
-    if (f->fd >= 0)
-        rc = host_fs_close(f->fd);
-    f->used = false;
-    if (wrote)
-        host_fs_persist(); /* a saved file just closed: persist the drive (web: IDBFS) */
-    if (rc != 0) /* deferred flush failure (ENOSPC/EIO on network/overlay FS) */
+    if (host_fs_close(desc) != 0) /* also a deferred flush failure: ENOSPC, EIO */
     {
         *err = fs_errno_to_api_errno(errno);
         return STD_ERROR;
@@ -168,14 +131,7 @@ std_rw_result fs_std_close(int desc, api_errno *err)
 
 std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    struct host_file *f = host_fil(desc);
-    if (!f)
-    {
-        *got = 0;
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    std_rw_result r = fs_io_to_std_result(host_fs_read(f->fd, buf, count, got));
+    std_rw_result r = fs_io_to_std_result(host_fs_read(desc, buf, count, got));
     if (r == STD_ERROR)
         *err = fs_errno_to_api_errno(errno);
     return r;
@@ -183,36 +139,21 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count, uint32_t *got, ap
 
 std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *put, api_errno *err)
 {
-    struct host_file *f = host_fil(desc);
-    if (!f)
-    {
-        *put = 0;
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    std_rw_result r = fs_io_to_std_result(host_fs_write(f->fd, buf, count, put));
-    if (r == STD_OK)
-        f->wrote = true;
-    else if (r == STD_ERROR)
+    std_rw_result r = fs_io_to_std_result(host_fs_write(desc, buf, count, put));
+    if (r == STD_ERROR)
         *err = fs_errno_to_api_errno(errno);
     return r;
 }
 
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    struct host_file *f = host_fil(desc);
-    if (!f)
-    {
-        *err = API_EBADF;
-        return -1;
-    }
     int64_t base;
     if (whence == SEEK_SET)
         base = 0;
     else if (whence == SEEK_CUR)
-        base = host_fs_tell(f->fd);
+        base = host_fs_tell(desc);
     else if (whence == SEEK_END)
-        base = host_fs_size(f->fd);
+        base = host_fs_size(desc);
     else
     {
         *err = API_EINVAL;
@@ -237,7 +178,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = API_ERANGE;
         return -1;
     }
-    int64_t np = host_fs_seek(f->fd, (uint64_t)target);
+    int64_t np = host_fs_seek(desc, (uint64_t)target);
     if (np < 0)
     {
         *err = fs_errno_to_api_errno(errno);
@@ -250,13 +191,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
 
 std_rw_result fs_std_sync(int desc, api_errno *err)
 {
-    struct host_file *f = host_fil(desc);
-    if (!f)
-    {
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    if (!host_fs_fsync(f->fd))
+    if (!host_fs_fsync(desc))
     {
         *err = fs_errno_to_api_errno(errno);
         return STD_ERROR;

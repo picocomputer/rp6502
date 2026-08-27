@@ -29,6 +29,26 @@
 #include <unistd.h>
 #include <utime.h>
 
+/* MEMFS is RAM that goes away with the tab. The page mounts IDBFS over the
+ * directory a program starts in and flushes it on pagehide; this is the same
+ * flush from this side, so a save is durable when the guest closes the file
+ * rather than only when the tab closes. Emscripten warns about overlapping
+ * syncfs calls, so one is in flight at a time -- the write itself is async and
+ * best-effort either way, which is why the page still flushes on the way out. */
+EM_JS(void, web_idbfs_sync, (), {
+    if (typeof FS === 'undefined' || globalThis.__rp6502_syncing)
+        return;
+    globalThis.__rp6502_syncing = true;
+    try
+    {
+        FS.syncfs(false, function() { globalThis.__rp6502_syncing = false; });
+    }
+    catch (e)
+    {
+        globalThis.__rp6502_syncing = false;
+    }
+});
+
 #define FS_UPATH_MAX (3 * 4096) /* worst case: every OEM byte -> 3 UTF-8 bytes */
 
 /* A path arrives spelled the way the 6502 spells it. This drive is one
@@ -196,9 +216,16 @@ FILE *host_fs_fopen_rd(const char *path)
     return fopen(u8, "rb");
 }
 
+/* MEMFS is RAM that goes away with the tab, so a file the guest wrote has to
+ * reach IDBFS before the descriptor does. Asking the descriptor whether it was
+ * writable costs one call and saves the sync on every read-only close. */
 int host_fs_close(int fd)
 {
-    return close(fd);
+    int fl = fcntl(fd, F_GETFL);
+    int rc = close(fd);
+    if (rc == 0 && fl >= 0 && (fl & O_ACCMODE) != O_RDONLY)
+        web_idbfs_sync();
+    return rc;
 }
 
 host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got)
@@ -263,8 +290,7 @@ bool host_fs_fsync(int fd)
 {
     if (fsync(fd) != 0)
         return false;
-    host_fs_persist();
+    web_idbfs_sync();
     return true;
 }
 
-void host_fs_persist(void) { web_idbfs_sync(); }

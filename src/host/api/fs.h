@@ -79,7 +79,11 @@ typedef enum
 
 FILE *host_fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
 int host_fs_open(const char *path, uint8_t flags);
-int host_fs_close(int fd); /* settles a still-in-flight host_fs_read/host_fs_write on this fd first */
+/* Settles a still-in-flight host_fs_read/host_fs_write on this fd first, and
+ * gets whatever was written to wherever the drive really lives -- on a host
+ * whose filesystem is somewhere else, like the web's, that is not free and
+ * this is where it is paid. */
+int host_fs_close(int fd);
 host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
 
@@ -96,6 +100,5 @@ int64_t host_fs_tell(int fd); /* where the pointer is, or -1 + errno */
 int64_t host_fs_seek(int fd, uint64_t pos);
 
 bool host_fs_fsync(int fd); /* this file, to the medium */
-void host_fs_persist(void); /* the drive, to wherever it really lives */
 
 #endif /* _HOST_API_FS_H_ */

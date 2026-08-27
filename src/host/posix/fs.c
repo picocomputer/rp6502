@@ -229,8 +229,6 @@ bool host_fs_fsync(int fd)
 {
     if (fsync(fd) != 0)
         return false;
-    host_fs_persist();
     return true;
 }
 
-void host_fs_persist(void) {} /* a real host filesystem is already durable */

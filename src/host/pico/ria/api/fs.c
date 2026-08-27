@@ -175,6 +175,3 @@ bool host_fs_fsync(int fd)
     }
     return true;
 }
-
-/* Nothing is staged anywhere else: a FAT volume is the medium. */
-void host_fs_persist(void) {}
