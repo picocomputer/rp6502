@@ -370,6 +370,11 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    /* Nothing was written, so there is nothing to push to the medium -- and
+     * FlushFileBuffers refuses a handle that has no write access at all,
+     * which is what a read-only descriptor is. */
+    if (!f->writable)
+        return STD_OK;
     if (!FlushFileBuffers(f->h))
     {
         *err = win_last_error_to_api();
