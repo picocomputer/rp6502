@@ -135,6 +135,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/api/dir.c
     ${RIA_SRC}/api/fat.c
     ${RIA_SRC}/api/fs.c
+    ${RP6502_ROOT}/src/core/str/path.c
     ${RP6502_ROOT}/src/core/str/oem.c
     ${RIA_SRC}/api/proc.c
     ${RP6502_ROOT}/src/core/str/unicode.c

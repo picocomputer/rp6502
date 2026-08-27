@@ -17,9 +17,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-// True if c is a path separator. FatFs accepts both '/' and '\'.
-#define str_is_sep(c) ((c) == '/' || (c) == '\\')
-
 // Change chars 0-9 a-f A-F to a binary int, no error checking.
 int str_xdigit_to_int(char ch);
 

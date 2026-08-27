@@ -12,6 +12,7 @@
 #include "core/api/std.h"
 #include "core/mem/mem.h"
 #include "core/str/oem.h"
+#include "core/str/path.h"
 #include "host/api/dir.h"
 #include "host/api/fs.h"
 #include "host.h"
@@ -60,26 +61,6 @@ static int flags_to_posix(uint8_t flags)
 
 /* ---- Address translation: MSC0: <-> host path ---------------------------- */
 
-/* Drop this machine's drive prefix. There is one writable drive, so "0:" and
- * "MSC0:" (case-insensitive) are it and MSC1: names a device that is not here
- * -- the same answer chdrive gives. Anything else keeps its prefix and is
- * treated as a relative name (the OS, not us, then rejects a bogus ":"). */
-const char *fs_strip_drive(const char *path)
-{
-    const char *colon = strchr(path, ':');
-    if (!colon || colon == path)
-        return path;
-    size_t n = (size_t)(colon - path);
-    bool is_drive = (n == 1 && path[0] == '0') ||
-                    (n == 4 && strncasecmp(path, "MSC0", 4) == 0);
-    return is_drive ? colon + 1 : path;
-}
-
-bool fs_has_drive_prefix(const char *path)
-{
-    return fs_strip_drive(path) != path;
-}
-
 /* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
  * drive; everything else is the native path verbatim — absolute "/x" from the OS
  * root, relative "x" from the process cwd. The OS resolves "." and "..". */
@@ -101,7 +82,7 @@ static bool rest_to_host(const char *rest, char *host, size_t hsz)
 
 bool fs_to_host(const char *path, char *host, size_t hsz)
 {
-    const char *rest = fs_strip_drive(path);
+    const char *rest = path_strip_drive(path);
     /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
      * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
      * file; the boot/exec loader reaches installs via rom_resolve instead. */
@@ -490,8 +471,7 @@ static bool fs_dir_stat(const char *path, FILINFO *fno, api_errno *err)
     if (!host_ok(host_fs_stat(host, &meta), err))
         return false;
     /* stat names a single entry; report its basename, not the whole path. */
-    const char *base = strrchr(host, '/');
-    info_from_stat(fno, &meta, base ? base + 1 : host);
+    info_from_stat(fno, &meta, path_basename(host));
     return true;
 }
 

@@ -8,6 +8,7 @@
 #include "core/api/proc_exec.h"
 #include "core/api/proc.h"
 #include "core/api/fs.h"
+#include "core/str/path.h"
 #include "host/api/fs.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
@@ -57,7 +58,7 @@ bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
     char abs[HOST_MAX_PATH], msc[HOST_MAX_PATH];
     const char *argv0 = rom;
-    if (!fs_has_drive_prefix(rom) && rom[0] != ':' && host_fs_realpath(rom, abs, sizeof(abs)))
+    if (!path_has_drive(rom) && rom[0] != ':' && host_fs_realpath(rom, abs, sizeof(abs)))
     {
         fs_from_host(abs, msc, sizeof(msc));
         argv0 = msc;

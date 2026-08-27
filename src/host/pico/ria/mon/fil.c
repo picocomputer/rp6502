@@ -7,6 +7,7 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "core/str/rln.h"
+#include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
 #include "ria/sys/mem.h"
@@ -54,7 +55,7 @@ static FRESULT fil_resolve_dst(const char *src, const char *dst,
         // colon; "0:name" must stay relative to that drive's directory.
         size_t dst_len = strlen(dst);
         char dst_end = dst_len ? dst[dst_len - 1] : '\0';
-        const char *sep = (str_is_sep(dst_end) || dst_end == ':') ? "" : "/";
+        const char *sep = (path_is_sep(dst_end) || dst_end == ':') ? "" : "/";
         int n = snprintf(out, out_sz, "%s%s%s", dst, sep, fname);
         if (n < 0 || (size_t)n >= out_sz)
             return FR_INVALID_NAME;

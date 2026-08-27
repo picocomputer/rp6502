@@ -98,6 +98,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/api/dir.c
     ${RP6502_SRC}/core/api/fs.c
     ${RP6502_SRC}/core/api/ops.c
+    ${RP6502_SRC}/core/str/path.c
     ${RP6502_SRC}/core/str/oem.c
     ${RP6502_SRC}/core/str/unicode.c
     ${OEMCP_C}

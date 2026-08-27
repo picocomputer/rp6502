@@ -7,6 +7,7 @@
 
 #include "core/sys/log.h"
 #include "core/api/fs.h"
+#include "core/str/path.h"
 #include "core/rom/rom.h"
 #include "core/rom/rom_rec.h"
 #include "core/rom/rom_win.h"
@@ -253,19 +254,10 @@ typedef struct
 } install_t;
 static install_t installs[INSTALL_MAX];
 
-static const char *host_basename(const char *hostpath)
-{
-    const char *base = hostpath;
-    for (const char *p = hostpath; *p; p++)
-        if (*p == '/' || *p == '\\')
-            base = p + 1;
-    return base;
-}
-
 /* Install a .rp6502 on the null drive, keyed by its host-path basename. */
 bool rom_install(const char *hostpath)
 {
-    const char *base = host_basename(hostpath);
+    const char *base = path_basename(hostpath);
     if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
         return false;
     struct host_fs_meta meta;
@@ -311,7 +303,7 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
         strcpy(out, in->host);
         return true;
     }
-    if (fs_has_drive_prefix(path))
+    if (path_has_drive(path))
         return fs_to_host(path, out, outsz);
     if (strlen(path) >= outsz)
         return false;

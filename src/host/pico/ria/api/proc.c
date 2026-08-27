@@ -12,6 +12,7 @@
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
 #include "core/str/rln.h"
+#include "core/str/path.h"
 #include "core/str/str.h"
 #include "sys/path.h"
 #include "ria/usb/nfc.h"
@@ -82,7 +83,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         // NFC paths ignore the CWD: imply the leading '/' after the drive.
         const char *colon = strchr(first_arg, ':');
         const char *rest = colon + 1;
-        if (str_is_sep(*rest))
+        if (path_is_sep(*rest))
             rest++;
         snprintf(path, sizeof(path), "%.*s/%s",
                  (int)(colon + 1 - first_arg), first_arg, rest);
@@ -136,7 +137,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     // Change to the directory containing the ROM before loading
     char *slash = NULL;
     for (char *p = path; *p; p++)
-        if (str_is_sep(*p))
+        if (path_is_sep(*p))
             slash = p;
     if (slash && slash > path)
     {

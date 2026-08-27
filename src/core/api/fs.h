@@ -34,8 +34,6 @@
  * Windows drive. */
 bool fs_to_host(const char *path, char *host, size_t hsz);          /* MSC0: -> host path */
 size_t fs_from_host(const char *hostpath, char *out, size_t outsz); /* host -> MSC0: */
-bool fs_has_drive_prefix(const char *path);   /* path carries an MSC0:/N: prefix */
-const char *fs_strip_drive(const char *path); /* path past a recognized drive prefix */
 
 /* Convert a host (POSIX) errno to an api_errno. */
 api_errno fs_errno_to_api_errno(int host_errno);
