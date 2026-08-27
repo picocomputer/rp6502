@@ -55,7 +55,7 @@ bool host_fs_realpath(const char *path, char *out, size_t outsz); /* absolute, '
 bool host_fs_rename(const char *oldp, const char *newp); /* replaces an existing target */
 bool host_fs_remove(const char *path);     /* a file or an empty directory */
 
-/* ---- byte I/O (POSIX O_* flags; binary on Windows) ---- */
+/* ---- byte I/O ---- */
 /* A transfer's outcome. The guest's stdio dispatcher has the same three states
  * and its own spelling of them; the host answers in its own so that a contract
  * about files does not depend on a guest API to say "that worked". */
@@ -66,13 +66,34 @@ typedef enum
     HOST_IO_PENDING, /* incomplete, would block */
 } host_io_result;
 
+/* Open flags are the rp6502 SDK's own bits, not POSIX's. A firmware whose
+ * filesystem is FatFs has no fcntl.h to borrow O_* from, and the low two bits
+ * already mirror FA_READ/FA_WRITE -- so the host that has POSIX is the one
+ * that translates. APPEND is not here: it is a seek to the end after the
+ * open, which the layer above does once for everyone. */
+#define HOST_FS_RD 0x01
+#define HOST_FS_WR 0x02
+#define HOST_FS_CREAT 0x10
+#define HOST_FS_TRUNC 0x20
+#define HOST_FS_EXCL 0x80
+
 FILE *host_fs_fopen_rd(const char *path); /* guest-encoding; read-only binary stream */
-int host_fs_open(const char *path, int flags, int mode);
+int host_fs_open(const char *path, uint8_t flags);
 int host_fs_close(int fd); /* settles a still-in-flight host_fs_read/host_fs_write on this fd first */
-int64_t host_fs_lseek(int fd, int64_t off, int whence);
-int host_fs_ftruncate(int fd, int64_t length);
 host_io_result host_fs_read(int fd, char *buf, uint32_t count, uint32_t *got);
 host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *put);
-void host_fs_persist(void);
+
+int64_t host_fs_size(int fd); /* the file's length, or -1 + errno */
+int64_t host_fs_tell(int fd); /* where the pointer is, or -1 + errno */
+
+/* Move the pointer to an absolute position, answering where it landed (or -1
+ * + errno). This is f_lseek's contract, because it is the narrower of the two:
+ * a writable file is extended to pos, a read-only one stops at its end, and a
+ * volume with no room left stops wherever it ran out. A host with POSIX can
+ * say all of that; FatFs cannot say anything wider. */
+int64_t host_fs_seek(int fd, uint64_t pos);
+
+bool host_fs_fsync(int fd); /* this file, to the medium */
+void host_fs_persist(void); /* the drive, to wherever it really lives */
 
 #endif /* _HOST_API_FS_H_ */

@@ -263,6 +263,7 @@ bool host_fs_remove(const char *path)
 static struct win_file
 {
     bool used;
+    bool writable; /* a seek past the end extends this file rather than stopping */
     HANDLE h;
     int64_t pos;
 } win_files[WIN_MAX_FILES];
@@ -283,28 +284,23 @@ static struct
 } g_xfer = {.fd = -1};
 static HANDLE g_xfer_event;
 
-int host_fs_open(const char *path, int flags, int mode)
+int host_fs_open(const char *path, uint8_t flags)
 {
-    (void)mode; /* Windows takes permissions from the file; msc opens writable */
     wchar_t w[WIN_WPATH_MAX];
     if (!path_to_wide(path, w, WIN_WPATH_MAX))
         return -1;
 
-    DWORD access;
-    switch (flags & (O_WRONLY | O_RDWR))
-    {
-    case O_WRONLY: access = GENERIC_WRITE; break;
-    case O_RDWR: access = GENERIC_READ | GENERIC_WRITE; break;
-    default: access = GENERIC_READ; break; /* O_RDONLY */
-    }
+    bool wr = (flags & HOST_FS_WR) != 0;
+    DWORD access = wr ? ((flags & HOST_FS_RD) ? (GENERIC_READ | GENERIC_WRITE) : GENERIC_WRITE)
+                      : GENERIC_READ;
     DWORD disp;
-    if ((flags & O_CREAT) && (flags & O_EXCL))
+    if ((flags & HOST_FS_CREAT) && (flags & HOST_FS_EXCL))
         disp = CREATE_NEW;
-    else if ((flags & O_CREAT) && (flags & O_TRUNC))
+    else if ((flags & HOST_FS_CREAT) && (flags & HOST_FS_TRUNC) && wr)
         disp = CREATE_ALWAYS;
-    else if (flags & O_CREAT)
+    else if (flags & HOST_FS_CREAT)
         disp = OPEN_ALWAYS;
-    else if (flags & O_TRUNC)
+    else if ((flags & HOST_FS_TRUNC) && wr)
         disp = TRUNCATE_EXISTING;
     else
         disp = OPEN_EXISTING;
@@ -326,7 +322,7 @@ int host_fs_open(const char *path, int flags, int mode)
         errno = EMFILE;
         return -1;
     }
-    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0};
+    win_files[fd] = (struct win_file){.used = true, .h = h, .pos = 0, .writable = wr};
     return fd;
 }
 
@@ -428,7 +424,7 @@ host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *
     return xfer_step(fd, (void *)buf, count, put, true);
 }
 
-int64_t host_fs_lseek(int fd, int64_t off, int whence)
+int64_t host_fs_size(int fd)
 {
     struct win_file *f = win_fil(fd);
     if (!f)
@@ -436,51 +432,72 @@ int64_t host_fs_lseek(int fd, int64_t off, int whence)
         errno = EBADF;
         return -1;
     }
-    int64_t base;
-    if (whence == SEEK_SET)
-        base = 0;
-    else if (whence == SEEK_CUR)
-        base = f->pos;
-    else if (whence == SEEK_END)
-    {
-        LARGE_INTEGER sz;
-        if (!GetFileSizeEx(f->h, &sz))
-        {
-            win_set_errno(GetLastError());
-            return -1;
-        }
-        base = sz.QuadPart;
-    }
-    else
-    {
-        errno = EINVAL;
-        return -1;
-    }
-    int64_t np = base + off;
-    if (np < 0)
-    {
-        errno = EINVAL;
-        return -1;
-    }
-    f->pos = np;
-    return np;
-}
-
-int host_fs_ftruncate(int fd, int64_t length)
-{
-    struct win_file *f = win_fil(fd);
-    if (!f)
-    {
-        errno = EBADF;
-        return -1;
-    }
-    FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = length}};
-    if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
+    LARGE_INTEGER sz;
+    if (!GetFileSizeEx(f->h, &sz))
     {
         win_set_errno(GetLastError());
         return -1;
     }
-    return 0;
+    return (int64_t)sz.QuadPart;
+}
+
+int64_t host_fs_tell(int fd)
+{
+    struct win_file *f = win_fil(fd);
+    if (!f)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    return f->pos;
+}
+
+/* An overlapped handle has no file pointer of its own, so the position is
+ * ours to keep -- but the file's length is still the kernel's, and extending
+ * it is a real call that can fail on a full volume. */
+int64_t host_fs_seek(int fd, uint64_t pos)
+{
+    struct win_file *f = win_fil(fd);
+    if (!f)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    int64_t size = host_fs_size(fd);
+    if (size < 0)
+        return -1;
+    if ((int64_t)pos > size)
+    {
+        if (!f->writable)
+            pos = (uint64_t)size; /* read-only: stop at the end */
+        else
+        {
+            FILE_END_OF_FILE_INFO eof = {.EndOfFile = {.QuadPart = (LONGLONG)pos}};
+            if (!SetFileInformationByHandle(f->h, FileEndOfFileInfo, &eof, sizeof eof))
+            {
+                win_set_errno(GetLastError());
+                return -1; /* no room: the pointer has not moved */
+            }
+        }
+    }
+    f->pos = (int64_t)pos;
+    return f->pos;
+}
+
+bool host_fs_fsync(int fd)
+{
+    struct win_file *f = win_fil(fd);
+    if (!f)
+    {
+        errno = EBADF;
+        return false;
+    }
+    if (!FlushFileBuffers(f->h))
+    {
+        win_set_errno(GetLastError());
+        return false;
+    }
+    return true;
 }
 
 void host_fs_persist(void) {} /* a real host filesystem is already durable */

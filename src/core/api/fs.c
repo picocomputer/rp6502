@@ -18,9 +18,8 @@
 #include "host.h"
 #include <ctype.h>
 #include <errno.h>
-#include <fcntl.h>
 #include <stdbool.h>
-#include <stdio.h>
+#include <stdio.h> /* SEEK_SET/CUR/END */
 #include <string.h>
 #include <strings.h>
 #include <time.h>
@@ -43,20 +42,6 @@ static struct host_file *host_fil(int desc)
     if (desc < 0 || desc >= HOST_MAX_OPEN || !files[desc].used)
         return NULL;
     return &files[desc];
-}
-
-/* flags are the rp6502 SDK open() bits (see fat_std_open in host/pico/ria/api/fs.c). */
-static int flags_to_posix(uint8_t flags)
-{
-    bool rd = flags & 0x01, wr = flags & 0x02;
-    int o = wr ? (rd ? O_RDWR : O_WRONLY) : O_RDONLY;
-    if (flags & 0x10) /* CREAT */
-        o |= O_CREAT;
-    if ((flags & 0x10) && (flags & 0x80)) /* CREAT + EXCL */
-        o |= O_EXCL;
-    if ((flags & 0x20) && wr) /* TRUNC, only when opened for write */
-        o |= O_TRUNC;
-    return o;
 }
 
 std_rw_result fs_io_to_std_result(host_io_result r)
@@ -132,7 +117,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    int fd = host_fs_open(path, flags_to_posix(flags), 0666);
+    int fd = host_fs_open(path, flags);
     if (fd < 0)
     {
         *err = fs_errno_to_api_errno(errno);
@@ -148,9 +133,11 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
-    files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & 0x02) != 0};
-    if (flags & 0x40) /* APPEND: one-time seek to EOF (O_TRUNC already ran) */
-        if (!host_fs_lseek(fd, 0, SEEK_END))
+    files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & HOST_FS_WR) != 0};
+    if (flags & 0x40) /* APPEND: a one-time seek to the end, after any TRUNC */
+    {
+        int64_t end = host_fs_size(fd);
+        if (end < 0 || host_fs_seek(fd, (uint64_t)end) < 0)
         {
             /* Reporting success here would hand back a descriptor positioned at
              * the start of a file the guest asked to append to. */
@@ -159,6 +146,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
             host_fs_close(fd);
             return -1;
         }
+    }
     return des;
 }
 
@@ -225,35 +213,26 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = API_EBADF;
         return -1;
     }
-    /* The position is reported back as a signed 32-bit value (0xFFFFFFFF is the
-     * error sentinel), so reject a target past 2GB-1 before moving the pointer,
-     * leaving the file pointer where it was rather than at an unreportable spot. */
-    int64_t cur = host_fs_lseek(f->fd, 0, SEEK_CUR);
-    if (cur < 0)
-    {
-        *err = fs_errno_to_api_errno(errno);
-        return -1;
-    }
     int64_t base;
     if (whence == SEEK_SET)
         base = 0;
     else if (whence == SEEK_CUR)
-        base = cur;
+        base = host_fs_tell(f->fd);
     else if (whence == SEEK_END)
-    {
-        base = host_fs_lseek(f->fd, 0, SEEK_END);
-        host_fs_lseek(f->fd, cur, SEEK_SET);
-        if (base < 0)
-        {
-            *err = fs_errno_to_api_errno(errno);
-            return -1;
-        }
-    }
+        base = host_fs_size(f->fd);
     else
     {
         *err = API_EINVAL;
         return -1;
     }
+    if (base < 0)
+    {
+        *err = fs_errno_to_api_errno(errno);
+        return -1;
+    }
+    /* The position is reported back as a signed 32-bit value (0xFFFFFFFF is the
+     * error sentinel), so reject a target past 2GB-1 before moving the pointer,
+     * leaving the file pointer where it was rather than at an unreportable spot. */
     int64_t target = base + off;
     if (target < 0)
     {
@@ -265,30 +244,18 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = API_ERANGE;
         return -1;
     }
-    /* Match FatFs f_lseek (firmware fat_std_lseek): a read-only file clamps the
-     * pointer to its size; a writable file is extended to the target. Plain POSIX
-     * lseek would leave a read pointer past EOF and defer any extension to the
-     * next write, diverging from hardware. */
-    int64_t size = host_fs_lseek(f->fd, 0, SEEK_END);
-    if (size < 0)
+    int64_t np = host_fs_seek(f->fd, (uint64_t)target);
+    if (np < 0)
     {
         *err = fs_errno_to_api_errno(errno);
         return -1;
     }
-    if (target > size)
+    /* A writable file is extended to the target, so landing short of it means
+     * the volume ran out -- FatFs clips silently and says FR_OK. A read-only
+     * file stopping at its end is the contract, not a failure. */
+    if (np != target && f->writable)
     {
-        if (!f->writable)
-            target = size; /* read mode: clamp to EOF */
-        else if (host_fs_ftruncate(f->fd, target) < 0) /* write mode: extend the file */
-        {
-            *err = fs_errno_to_api_errno(errno);
-            return -1;
-        }
-    }
-    int64_t np = host_fs_lseek(f->fd, target, SEEK_SET);
-    if (np < 0)
-    {
-        *err = fs_errno_to_api_errno(errno);
+        *err = API_ENOSPC;
         return -1;
     }
     *pos = (int32_t)np;
@@ -297,8 +264,17 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
 
 std_rw_result fs_std_sync(int desc, api_errno *err)
 {
-    (void)desc, (void)err;
-    host_fs_persist();
+    struct host_file *f = host_fil(desc);
+    if (!f)
+    {
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    if (!host_fs_fsync(f->fd))
+    {
+        *err = fs_errno_to_api_errno(errno);
+        return STD_ERROR;
+    }
     return STD_OK;
 }
 

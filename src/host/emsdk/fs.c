@@ -172,12 +172,20 @@ bool host_fs_remove(const char *path)
     return remove(u8) == 0; /* removes a file or an empty directory */
 }
 
-int host_fs_open(const char *path, int flags, int mode)
+int host_fs_open(const char *path, uint8_t flags)
 {
     char u8[FS_UPATH_MAX];
     if (!path_to_utf8(path, u8))
         return -1;
-    return open(u8, flags, mode);
+    bool rd = flags & HOST_FS_RD, wr = flags & HOST_FS_WR;
+    int o = wr ? (rd ? O_RDWR : O_WRONLY) : O_RDONLY;
+    if (flags & HOST_FS_CREAT)
+        o |= O_CREAT;
+    if ((flags & HOST_FS_CREAT) && (flags & HOST_FS_EXCL))
+        o |= O_EXCL;
+    if ((flags & HOST_FS_TRUNC) && wr) /* only when opened for write */
+        o |= O_TRUNC;
+    return open(u8, o, 0666);
 }
 
 FILE *host_fs_fopen_rd(const char *path)
@@ -217,22 +225,46 @@ host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *
     return HOST_IO_OK;
 }
 
-int64_t host_fs_lseek(int fd, int64_t off, int whence)
+int64_t host_fs_size(int fd)
 {
-    return (int64_t)lseek(fd, (off_t)off, whence);
+    struct stat st;
+    if (fstat(fd, &st) != 0)
+        return -1;
+    return (int64_t)st.st_size;
 }
 
-int host_fs_ftruncate(int fd, int64_t length)
+int64_t host_fs_tell(int fd)
 {
-    return ftruncate(fd, (off_t)length);
+    return (int64_t)lseek(fd, 0, SEEK_CUR);
 }
 
-/* Flush the MSC0: drive (IDBFS) to IndexedDB so writes survive a reload.
- * Async/fire-and-forget. EM_JS emits an imported symbol,
- * so wrap it in a plain host_fs_persist the cross-TU caller (msc.c) can link against. */
-EM_JS(void, web_idbfs_sync, (void), {
-    if (typeof FS !== 'undefined')
-        FS.syncfs(false, function (err) { if (err) console.error('syncfs(false)', err); });
-});
+/* fstat rather than lseek(SEEK_END) to measure: a seek that turns out to be
+ * impossible must leave the pointer where it was, and moving it to the end to
+ * ask how long the file is would strand it there. */
+int64_t host_fs_seek(int fd, uint64_t pos)
+{
+    int64_t size = host_fs_size(fd);
+    if (size < 0)
+        return -1;
+    if ((int64_t)pos > size)
+    {
+        int fl = fcntl(fd, F_GETFL);
+        if (fl < 0)
+            return -1;
+        if ((fl & O_ACCMODE) == O_RDONLY)
+            pos = (uint64_t)size; /* read-only: stop at the end */
+        else if (ftruncate(fd, (off_t)pos) != 0)
+            return -1; /* no room: the pointer has not moved */
+    }
+    return (int64_t)lseek(fd, (off_t)pos, SEEK_SET);
+}
+
+bool host_fs_fsync(int fd)
+{
+    if (fsync(fd) != 0)
+        return false;
+    host_fs_persist();
+    return true;
+}
 
 void host_fs_persist(void) { web_idbfs_sync(); }

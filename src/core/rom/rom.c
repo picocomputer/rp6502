@@ -15,7 +15,6 @@
 #include "core/mem/mem.h"
 #include "core/str/str.h"
 #include <errno.h>
-#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -142,7 +141,7 @@ static rom_win_t windows[ROM_OPEN_MAX];
 static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
                                uint32_t count, uint32_t *got, api_errno *err)
 {
-    host_fs_lseek(w->fd, (int64_t)at, SEEK_SET);
+    host_fs_seek(w->fd, at);
     std_rw_result r = fs_io_to_std_result(host_fs_read(w->fd, buf, count, got));
     if (r == STD_ERROR)
         *err = fs_errno_to_api_errno(errno);
@@ -154,7 +153,7 @@ static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
 /* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
 static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
 {
-    int fd = host_fs_open(hostpath, O_RDONLY, 0);
+    int fd = host_fs_open(hostpath, HOST_FS_RD);
     if (fd < 0)
     {
         *err = fs_errno_to_api_errno(errno);
