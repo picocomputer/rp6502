@@ -15,6 +15,7 @@
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "core/api/fs.h"
+#include "core/str/path.h"
 #include "host/api/fs.h"
 #include "core/mem/mem.h"
 #include "dirsys.h"
@@ -30,7 +31,7 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the MSC0: mount */
+static char g_dir[256]; /* a temp dir, made the MSC0: mount, in the 6502's spelling */
 
 static bool fresh(void)
 {
@@ -40,7 +41,7 @@ static bool fresh(void)
     std_stop();
     if (!host_fs_chdir(dir))
         return false;
-    /* g_dir mirrors msc's own host_fs_getcwd, so MSC0:<g_dir> holds on any host. */
+    /* g_dir mirrors the drive's own host_fs_getcwd, so it holds on any host. */
     return host_fs_getcwd(g_dir, sizeof(g_dir));
 }
 
@@ -54,13 +55,10 @@ static void make_file(const char *rel, const char *data, uint16_t n)
     }
 }
 
-/* g_dir is a host path, and on Windows that carries a drive letter the guest
- * spells //C/ instead. fs_from_host owns that mapping. */
+
 static void msc_expect(char *out, size_t sz, const char *suffix)
 {
-    char base[HOST_MAX_PATH];
-    fs_from_host(g_dir, base, sizeof(base));
-    snprintf(out, sz, "%s%s", base, suffix);
+    snprintf(out, sz, "%s%s", g_dir, suffix);
 }
 
 
@@ -161,9 +159,10 @@ UTEST(drive, mount_transparent_no_chroot)
     int f = ssys_open("MSC0:save.dat", O_WR | O_CREAT_ | O_TRUNC_);
     ASSERT_TRUE(f >= 0);
     ssys_close(f);
-    char hostprobe[512];
+    char hostprobe[512], probenative[HOST_MAX_PATH];
     snprintf(hostprobe, sizeof(hostprobe), "%s/save.dat", g_dir);
-    FILE *hp = fopen(hostprobe, "rb");
+    ASSERT_TRUE(path_to_native(hostprobe, probenative, sizeof(probenative)));
+    FILE *hp = fopen(probenative, "rb"); /* behind the drive's back */
     ASSERT_TRUE(hp != NULL);
     if (hp)
         fclose(hp);

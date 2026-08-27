@@ -30,11 +30,6 @@
  * bounded by this -- see host/api/fs.h's HOST_MAX_PATH. */
 #define FS_MAX_PATH (XSTACK_SIZE + 1)
 
-/* Path addressing: "MSC0:/x" native "/x", "MSC0:x" the cwd, "MSC0://C/x" a
- * Windows drive. */
-bool fs_to_host(const char *path, char *host, size_t hsz);          /* MSC0: -> host path */
-size_t fs_from_host(const char *hostpath, char *out, size_t outsz); /* host -> MSC0: */
-
 /* Convert a host (POSIX) errno to an api_errno. */
 api_errno fs_errno_to_api_errno(int host_errno);
 

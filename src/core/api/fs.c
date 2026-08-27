@@ -59,57 +59,6 @@ static int flags_to_posix(uint8_t flags)
     return o;
 }
 
-/* ---- Address translation: MSC0: <-> host path ---------------------------- */
-
-/* Map a drive-stripped MSC0: path to a host path. "//C/..." names a Windows
- * drive; everything else is the native path verbatim — absolute "/x" from the OS
- * root, relative "x" from the process cwd. The OS resolves "." and "..". */
-static bool rest_to_host(const char *rest, char *host, size_t hsz)
-{
-    int w;
-    if (rest[0] == '/' && rest[1] == '/' &&
-        isalpha((unsigned char)rest[2]) && rest[3] == '/')
-        w = snprintf(host, hsz, "%c:/%s", rest[2], rest + 4);
-    else
-        w = snprintf(host, hsz, "%s", rest[0] ? rest : ".");
-    if (w < 0 || (size_t)w >= hsz)
-    {
-        errno = ENAMETOOLONG;
-        return false;
-    }
-    return true;
-}
-
-bool fs_to_host(const char *path, char *host, size_t hsz)
-{
-    const char *rest = path_strip_drive(path);
-    /* A leading ":" is the null drive (installed ROMs, install.c) — never a host
-     * path. Refuse it here so neither ":name" nor "MSC0::name" can map onto a host
-     * file; the boot/exec loader reaches installs via rom_resolve instead. */
-    if (rest[0] == ':')
-    {
-        errno = ENOENT;
-        return false;
-    }
-    return rest_to_host(rest, host, hsz);
-}
-
-/* Render a host path as an MSC0: path (the inverse for absolutes): a Windows
- * "C:/x" -> "MSC0://C/x", else the path tacked under MSC0:. Returns its length,
- * or 0 if it did not fit (the caller must treat 0 as a failure, never a short
- * path — getcwd is full-path-or-error). */
-size_t fs_from_host(const char *hostpath, char *out, size_t outsz)
-{
-    int w;
-    if (isalpha((unsigned char)hostpath[0]) && hostpath[1] == ':')
-        w = snprintf(out, outsz, "MSC0://%c%s", hostpath[0], hostpath + 2);
-    else
-        w = snprintf(out, outsz, "MSC0:%s", hostpath);
-    if (w < 0 || (size_t)w >= outsz)
-        return 0;
-    return (size_t)w;
-}
-
 std_rw_result fs_io_to_std_result(host_io_result r)
 {
     switch (r)
@@ -183,13 +132,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    char host[FS_MAX_PATH];
-    if (!fs_to_host(path, host, sizeof(host)))
-    {
-        *err = fs_errno_to_api_errno(errno);
-        return -1;
-    }
-    int fd = host_fs_open(host, flags_to_posix(flags), 0666);
+    int fd = host_fs_open(path, flags_to_posix(flags), 0666);
     if (fd < 0)
     {
         *err = fs_errno_to_api_errno(errno);
@@ -420,14 +363,13 @@ static void info_from_stat(FILINFO *fno, const struct host_fs_meta *m, const cha
  * a path the API can carry anyway. */
 #define FS_MAX_NAME 256
 
-/* An open directory: the platform's stream, plus the path it was opened by,
- * because the host answers a read with a bare name and each entry has to be
- * stat'd through its full path. */
+/* An open directory is just the platform's stream: the host reports an
+ * entry's metadata along with its name, so nothing has to be looked up
+ * through a path afterwards. */
 struct host_dir
 {
     bool used;
     void *dp;
-    char host[FS_MAX_PATH];
 };
 static struct host_dir dirs[DIR_MAX_OPEN];
 
@@ -441,13 +383,6 @@ static inline bool host_ok(bool ok, api_errno *err)
         *err = fs_errno_to_api_errno(errno);
     return ok;
 }
-
-/* Every path arrives spelled the way the 6502 spells it, and has to be turned
- * into one this host understands before anything can be done with it. */
-#define TO_HOST(path, host)                        \
-    char host[FS_MAX_PATH];                       \
-    if (!host_ok(fs_to_host((path), host, sizeof(host)), err)) \
-    return false
 
 static bool fs_dir_validate(int des, api_errno *err)
 {
@@ -466,12 +401,11 @@ static bool fs_dir_validate(int des, api_errno *err)
 
 static bool fs_dir_stat(const char *path, FILINFO *fno, api_errno *err)
 {
-    TO_HOST(path, host);
     struct host_fs_meta meta;
-    if (!host_ok(host_fs_stat(host, &meta), err))
+    if (!host_ok(host_fs_stat(path, &meta), err))
         return false;
     /* stat names a single entry; report its basename, not the whole path. */
-    info_from_stat(fno, &meta, path_basename(host));
+    info_from_stat(fno, &meta, path_basename(path));
     return true;
 }
 
@@ -486,28 +420,25 @@ static bool fs_dir_opendir(const char *path, int *des, api_errno *err)
         *err = API_EMFILE;
         return false;
     }
-    TO_HOST(path, host);
-    void *dp = host_dir_open(host);
+    void *dp = host_dir_open(path);
     if (!host_ok(dp != NULL, err))
         return false;
     dirs[i].used = true;
     dirs[i].dp = dp;
-    snprintf(dirs[i].host, sizeof(dirs[i].host), "%s", host);
     *des = i;
     return true;
 }
 
-/* The host hands back a bare name, so each entry is stat'd through the path
- * the directory was opened by. "." and ".." are not entries the 6502 sees. */
+/* "." and ".." are not entries the 6502 sees. */
 static bool fs_dir_readdir(int des, FILINFO *fno, api_errno *err)
 {
     struct host_dir *d = &dirs[des];
     char name[FS_MAX_NAME]; /* a directory entry name, not a full path */
-    bool is_dir;
+    struct host_fs_meta meta;
     int r;
     do
     {
-        r = host_dir_read(d->dp, name, sizeof(name), &is_dir);
+        r = host_dir_read(d->dp, name, sizeof(name), &meta);
         if (!host_ok(r >= 0, err))
             return false;
         if (r == 0)
@@ -516,17 +447,7 @@ static bool fs_dir_readdir(int des, FILINFO *fno, api_errno *err)
             return true;
         }
     } while (strcmp(name, ".") == 0 || strcmp(name, "..") == 0);
-    char entry[FS_MAX_PATH + FS_MAX_NAME]; /* the open path, a '/', and the name */
-    struct host_fs_meta meta;
-    if (snprintf(entry, sizeof(entry), "%s/%s", d->host, name) < (int)sizeof(entry) &&
-        host_fs_stat(entry, &meta))
-        info_from_stat(fno, &meta, name);
-    else
-    {
-        memset(fno, 0, sizeof(*fno)); /* unstattable entry: name + dir guess */
-        snprintf(fno->fname, sizeof(fno->fname), "%s", name);
-        fno->fattrib = is_dir ? FS_AM_DIR : FS_AM_ARC;
-    }
+    info_from_stat(fno, &meta, name);
     return true;
 }
 
@@ -548,28 +469,23 @@ static bool fs_dir_rewinddir(int des, api_errno *err)
 
 static bool fs_dir_unlink(const char *path, api_errno *err)
 {
-    TO_HOST(path, host);
-    return host_ok(host_fs_remove(host), err);
+    return host_ok(host_fs_remove(path), err);
 }
 
 static bool fs_dir_rename(const char *oldname, const char *newname, api_errno *err)
 {
-    TO_HOST(oldname, ho);
-    TO_HOST(newname, hn);
-    return host_ok(host_fs_rename(ho, hn), err);
+    return host_ok(host_fs_rename(oldname, newname), err);
 }
 
 static bool fs_dir_mkdir(const char *path, api_errno *err)
 {
-    TO_HOST(path, host);
-    return host_ok(host_fs_mkdir(host), err);
+    return host_ok(host_fs_mkdir(path), err);
 }
 
 static bool fs_dir_chdir(const char *path, api_errno *err)
 {
-    TO_HOST(path, host);
     /* chdir validates existence and dir-ness, and sets errno */
-    return host_ok(host_fs_chdir(host), err);
+    return host_ok(host_fs_chdir(path), err);
 }
 
 /* The 6502 sees MSC0: (and the bare current drive); anything else is a
@@ -597,15 +513,13 @@ static bool fs_dir_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno
 {
     if (!(mask & FS_AM_RDO))
         return true;
-    TO_HOST(path, host);
-    return host_ok(host_fs_set_readonly(host, (attr & FS_AM_RDO) != 0), err);
+    return host_ok(host_fs_set_readonly(path, (attr & FS_AM_RDO) != 0), err);
 }
 
 /* Best-effort: set the modification time from the FAT date/time. The creation
  * time the API also carries is not settable on POSIX. */
 static bool fs_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
 {
-    TO_HOST(path, host);
     struct tm tm;
     memset(&tm, 0, sizeof(tm));
     tm.tm_year = ((fno->fdate >> 9) & 0x7F) + 1980 - 1900;
@@ -615,7 +529,7 @@ static bool fs_dir_utime(const char *path, const FILINFO *fno, api_errno *err)
     tm.tm_min = (fno->ftime >> 5) & 0x3F;
     tm.tm_sec = (fno->ftime & 0x1F) * 2;
     tm.tm_isdst = -1;
-    return host_ok(host_fs_set_mtime(host, mktime(&tm)), err);
+    return host_ok(host_fs_set_mtime(path, mktime(&tm)), err);
 }
 
 static bool fs_dir_getcwd(char *buf, size_t size, api_errno *err)
@@ -623,11 +537,12 @@ static bool fs_dir_getcwd(char *buf, size_t size, api_errno *err)
     char cwd[HOST_MAX_PATH];
     if (!host_ok(host_fs_getcwd(cwd, sizeof(cwd)), err))
         return false;
-    if (!fs_from_host(cwd, buf, size)) /* did not fit: full-path-or-error */
+    if (strlen(cwd) >= size) /* did not fit: full-path-or-error */
     {
         *err = API_ENOMEM;
         return false;
     }
+    strcpy(buf, cwd);
     return true;
 }
 
@@ -650,9 +565,8 @@ static bool fs_dir_setlabel(const char *path, api_errno *err)
 static bool fs_dir_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
                             api_errno *err)
 {
-    TO_HOST(path, host);
     uint64_t tot_bytes, fre_bytes;
-    if (!host_ok(host_fs_freespace(host, &tot_bytes, &fre_bytes), err))
+    if (!host_ok(host_fs_freespace(path, &tot_bytes, &fre_bytes), err))
         return false;
     uint64_t tot = tot_bytes / 512;
     uint64_t fre = fre_bytes / 512;

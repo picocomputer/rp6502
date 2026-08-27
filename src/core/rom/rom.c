@@ -285,9 +285,10 @@ static install_t *install_find(const char *name)
     return NULL;
 }
 
-/* Resolve a boot/exec ROM path to the host file to open: an installed ":name" ->
- * its backing file, a drive path -> fs_to_host, else the bare path (the native
- * CLI / tests, against the process cwd). The loader then opens it. */
+/* Resolve a boot/exec ROM path to the file to open: an installed ":name" ->
+ * its backing file, anything else verbatim. A drive path and a bare host path
+ * are both spellings the filesystem seam accepts, so neither is rewritten
+ * here. The loader then opens it. */
 bool rom_resolve(const char *path, char *out, size_t outsz)
 {
     if (path[0] == ':') /* null drive: an installed ROM, or nothing */
@@ -303,8 +304,6 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
         strcpy(out, in->host);
         return true;
     }
-    if (path_has_drive(path))
-        return fs_to_host(path, out, outsz);
     if (strlen(path) >= outsz)
         return false;
     strcpy(out, path);

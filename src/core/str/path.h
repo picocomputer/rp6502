@@ -17,6 +17,7 @@
 #define _CORE_STR_PATH_H_
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /* True if c separates path components. FatFs accepts both, so both are. */
 #define path_is_sep(c) ((c) == '/' || (c) == '\\')
@@ -32,5 +33,17 @@ const char *path_strip_drive(const char *path);
 
 /* Whether path_strip_drive would strip anything. */
 bool path_has_drive(const char *path);
+
+/* Between the two spellings of a path on a machine whose drive is a host
+ * filesystem. "MSC0:/x" is the native "/x", "MSC0:x" is relative to the
+ * process cwd, and "MSC0://C/x" names a Windows drive as "C:/x". A path with
+ * no drive prefix is already native and crosses unchanged, which is what lets
+ * a host path from a command line go straight through.
+ *
+ * to_native sets errno and returns false if the result does not fit;
+ * from_native returns the length written, or 0 -- never a short path, since
+ * getcwd is full-path-or-error. */
+bool path_to_native(const char *path, char *out, size_t outsz);
+size_t path_from_native(const char *native, char *out, size_t outsz);
 
 #endif /* _CORE_STR_PATH_H_ */

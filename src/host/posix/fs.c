@@ -11,6 +11,7 @@
 
 #include "host/api/fs.h"
 #include "core/str/oem.h"
+#include "core/str/path.h"
 #include <errno.h>
 #include <unistd.h>
 #include <sys/types.h>
@@ -25,9 +26,28 @@
 
 #define FS_UPATH_MAX (3 * 4096) /* worst case: every OEM byte -> 3 UTF-8 bytes */
 
+/* A path arrives spelled the way the 6502 spells it. This drive is one
+ * directory of a real filesystem, so the drive prefix comes off here and
+ * what is left is the native path -- and then the code page comes off too. */
 static bool path_to_utf8(const char *path, char *u8 /* [FS_UPATH_MAX] */)
 {
-    if (oem_to_utf8(path, u8, FS_UPATH_MAX) >= FS_UPATH_MAX)
+    char native[HOST_MAX_PATH];
+    if (!path_to_native(path, native, sizeof native))
+        return false;
+    if (oem_to_utf8(native, u8, FS_UPATH_MAX) >= FS_UPATH_MAX)
+    {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
+}
+
+/* And back: what the OS answered, spelled for the 6502. */
+static bool path_from_utf8(const char *u8, char *out, size_t outsz)
+{
+    char native[HOST_MAX_PATH];
+    if (oem_from_utf8(u8, native, sizeof native) >= sizeof native ||
+        !path_from_native(native, out, outsz))
     {
         errno = ENAMETOOLONG;
         return false;
@@ -43,8 +63,7 @@ bool host_fs_stat(const char *path, struct host_fs_meta *out)
     struct stat st;
     if (stat(u8, &st) != 0)
         return false;
-    const char *base = strrchr(path, '/');
-    base = base ? base + 1 : path;
+    const char *base = path_basename(path);
     out->is_dir = S_ISDIR(st.st_mode);
     out->is_readonly = !(st.st_mode & S_IWUSR);
     out->is_hidden = (base[0] == '.'); /* POSIX convention: leading-dot names */
@@ -115,12 +134,7 @@ bool host_fs_getcwd(char *buf, size_t sz)
     char u8[FS_UPATH_MAX];
     if (!getcwd(u8, sizeof u8))
         return false;
-    if (oem_from_utf8(u8, buf, sz) >= sz)
-    {
-        errno = ENAMETOOLONG;
-        return false;
-    }
-    return true;
+    return path_from_utf8(u8, buf, sz);
 }
 
 bool host_fs_realpath(const char *path, char *out, size_t outsz)
@@ -131,14 +145,9 @@ bool host_fs_realpath(const char *path, char *out, size_t outsz)
     char *r = realpath(u8, NULL);
     if (!r)
         return false;
-    size_t need = oem_from_utf8(r, out, outsz);
+    bool ok = path_from_utf8(r, out, outsz);
     free(r);
-    if (need >= outsz)
-    {
-        errno = ENAMETOOLONG;
-        return false;
-    }
-    return true;
+    return ok;
 }
 
 bool host_fs_rename(const char *oldp, const char *newp)

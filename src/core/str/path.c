@@ -7,6 +7,9 @@
  */
 
 #include "core/str/path.h"
+#include <ctype.h>
+#include <errno.h>
+#include <stdio.h>
 #include <string.h>
 #include <strings.h>
 
@@ -33,4 +36,41 @@ const char *path_strip_drive(const char *path)
 bool path_has_drive(const char *path)
 {
     return path_strip_drive(path) != path;
+}
+
+bool path_to_native(const char *path, char *out, size_t outsz)
+{
+    const char *rest = path_strip_drive(path);
+    /* A leading ":" is the null drive, where installed ROMs live. It has no
+     * native spelling at all, so neither ":name" nor "MSC0::name" can be made
+     * to land on a real file; the ROM loader reaches installs its own way. */
+    if (rest[0] == ':')
+    {
+        errno = ENOENT;
+        return false;
+    }
+    int w;
+    if (rest[0] == '/' && rest[1] == '/' &&
+        isalpha((unsigned char)rest[2]) && rest[3] == '/')
+        w = snprintf(out, outsz, "%c:/%s", rest[2], rest + 4);
+    else
+        w = snprintf(out, outsz, "%s", rest[0] ? rest : ".");
+    if (w < 0 || (size_t)w >= outsz)
+    {
+        errno = ENAMETOOLONG;
+        return false;
+    }
+    return true;
+}
+
+size_t path_from_native(const char *native, char *out, size_t outsz)
+{
+    int w;
+    if (isalpha((unsigned char)native[0]) && native[1] == ':')
+        w = snprintf(out, outsz, "MSC0://%c%s", native[0], native + 2);
+    else
+        w = snprintf(out, outsz, "MSC0:%s", native);
+    if (w < 0 || (size_t)w >= outsz)
+        return 0;
+    return (size_t)w;
 }

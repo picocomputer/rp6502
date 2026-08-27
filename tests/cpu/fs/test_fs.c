@@ -17,6 +17,7 @@
 #include "core/api/std.h"
 #include "core/rom/rom.h"
 #include "core/api/fs.h"
+#include "core/str/path.h"
 #include "core/mem/mem.h"
 #include "host/api/fs.h"
 #include "dirsys.h"
@@ -33,7 +34,7 @@
 #define O_CREAT_ 0x10
 #define O_TRUNC_ 0x20
 
-static char g_dir[256]; /* a temp dir, made the MSC0: cwd */
+static char g_dir[256]; /* a temp dir, made the cwd, in the 6502's spelling */
 
 static bool fresh_cwd(void)
 {
@@ -43,30 +44,28 @@ static bool fresh_cwd(void)
     std_stop(); /* close any files a prior test left open */
     if (!host_fs_chdir(dir))
         return false;
-    /* g_dir is the emulator's own view of the cwd (same host_fs_getcwd msc uses),
-     * so the MSC0:<g_dir> comparisons below hold whatever the host's path
-     * spelling — notably '/'-normalized on Windows. */
+    /* g_dir is the drive's own view of the cwd -- the same host_fs_getcwd the
+     * syscalls answer with -- so the comparisons below hold whatever the host's
+     * path spelling, notably '/'-normalized and //C/-drived on Windows. */
     return host_fs_getcwd(g_dir, sizeof(g_dir));
 }
 
+/* Behind the drive's back: does the real filesystem have this file? */
 static bool host_exists(const char *rel)
 {
-    char p[512];
+    char p[512], native[HOST_MAX_PATH];
     snprintf(p, sizeof(p), "%s/%s", g_dir, rel);
-    FILE *f = fopen(p, "rb");
+    if (!path_to_native(p, native, sizeof(native)))
+        return false;
+    FILE *f = fopen(native, "rb");
     if (f)
         fclose(f);
     return f != NULL;
 }
 
-/* g_dir is a host path, and on Windows that carries a drive letter the guest
- * spells //C/ instead. fs_from_host owns that mapping; its own vectors are in
- * path_forms below. */
 static void msc_expect(char *out, size_t sz, const char *suffix)
 {
-    char base[HOST_MAX_PATH];
-    fs_from_host(g_dir, base, sizeof(base));
-    snprintf(out, sz, "%s%s", base, suffix);
+    snprintf(out, sz, "%s%s", g_dir, suffix);
 }
 
 
@@ -177,16 +176,16 @@ UTEST(fs, path_translation)
 {
     char host[HOST_MAX_PATH], msc[HOST_MAX_PATH];
 
-    ASSERT_TRUE(fs_to_host("MSC0:/sub/file", host, sizeof(host)));
+    ASSERT_TRUE(path_to_native("MSC0:/sub/file", host, sizeof(host)));
     ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(fs_to_host("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
+    ASSERT_TRUE(path_to_native("0:/sub/file", host, sizeof(host))); /* numeric drive alias */
     ASSERT_STREQ(host, "/sub/file");
-    ASSERT_TRUE(fs_to_host("MSC0://C/Users/Homey", host, sizeof(host)));
+    ASSERT_TRUE(path_to_native("MSC0://C/Users/Homey", host, sizeof(host)));
     ASSERT_STREQ(host, "C:/Users/Homey");
 
-    fs_from_host("/sub/file", msc, sizeof(msc));
+    path_from_native("/sub/file", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0:/sub/file");
-    fs_from_host("C:/Users/Homey", msc, sizeof(msc));
+    path_from_native("C:/Users/Homey", msc, sizeof(msc));
     ASSERT_STREQ(msc, "MSC0://C/Users/Homey"); /* another drive keeps //C/ */
 }
 
@@ -373,9 +372,10 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     char rec[64];
     int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
 
-    char rompath[300];
+    char rompath[300], romnative[HOST_MAX_PATH];
     snprintf(rompath, sizeof(rompath), "%s/asset.rp6502", g_dir);
-    FILE *rf = fopen(rompath, "wb");
+    ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
+    FILE *rf = fopen(romnative, "wb");
     ASSERT_TRUE(rf != NULL);
     fputs("#!RP6502\r\n", rf);
     fprintf(rf, "#>$%X $0\r\n", (unsigned)(recn + 2)); /* chunks_len = the program section */

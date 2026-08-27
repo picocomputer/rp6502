@@ -56,13 +56,12 @@ bool proc_exec_pending(void)
  * through realpath. Empty args are kept, like the monitor's LOAD. */
 bool proc_set_argv(const char *rom, int argc, char *const *args)
 {
-    char abs[HOST_MAX_PATH], msc[HOST_MAX_PATH];
+    char abs[HOST_MAX_PATH];
     const char *argv0 = rom;
+    /* realpath answers in the 6502's spelling, so an absolute host path comes
+     * back as the drive path a program can hand straight back to exec. */
     if (!path_has_drive(rom) && rom[0] != ':' && host_fs_realpath(rom, abs, sizeof(abs)))
-    {
-        fs_from_host(abs, msc, sizeof(msc));
-        argv0 = msc;
-    }
+        argv0 = abs;
     /* Length-guard each string: arg_append's uint16 math trusts
      * monitor-capped tokens, but host input is unbounded. */
     arg_clear();

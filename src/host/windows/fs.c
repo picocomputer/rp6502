@@ -31,6 +31,7 @@
 
 #include "host/api/fs.h"
 #include "core/str/oem.h"
+#include "core/str/path.h"
 #include "host/windows/win.h"
 #include <direct.h>
 #include <errno.h>
@@ -43,11 +44,31 @@
 #include <time.h>
 #include <windows.h>
 
+/* A path arrives spelled the way the 6502 spells it. This drive is one
+ * directory of a real filesystem, so the drive prefix comes off here and what
+ * is left is the native path -- and then the code page comes off too. */
 static bool path_to_wide(const char *path, wchar_t *w, int wcount)
 {
-    if (oem_to_wide(path, (uint16_t *)w, wcount) < 0 || !w[0])
+    char native[HOST_MAX_PATH];
+    if (!path_to_native(path, native, sizeof native))
+        return false;
+    if (oem_to_wide(native, (uint16_t *)w, wcount) < 0 || !w[0])
     {
         errno = EINVAL;
+        return false;
+    }
+    return true;
+}
+
+/* And back: what Win32 answered, slashed and spelled for the 6502. */
+static bool path_from_wide(const wchar_t *w, char *out, size_t outsz)
+{
+    char native[HOST_MAX_PATH];
+    oem_from_wide((const uint16_t *)w, native, sizeof native);
+    win_to_slash(native);
+    if (!path_from_native(native, out, outsz))
+    {
+        errno = ENAMETOOLONG;
         return false;
     }
     return true;
@@ -188,10 +209,9 @@ bool host_fs_getcwd(char *buf, size_t sz)
     wchar_t *w = _wgetcwd(NULL, 0);
     if (!w)
         return false;
-    oem_from_wide((const uint16_t *)w, buf, sz);
+    bool ok = path_from_wide(w, buf, sz);
     free(w);
-    win_to_slash(buf);
-    return true;
+    return ok;
 }
 
 bool host_fs_realpath(const char *path, char *out, size_t outsz)
@@ -205,9 +225,7 @@ bool host_fs_realpath(const char *path, char *out, size_t outsz)
         win_set_errno(n ? ERROR_FILENAME_EXCED_RANGE : GetLastError());
         return false;
     }
-    oem_from_wide((const uint16_t *)wfull, out, outsz);
-    win_to_slash(out);
-    return true;
+    return path_from_wide(wfull, out, outsz);
 }
 
 bool host_fs_rename(const char *oldp, const char *newp)
