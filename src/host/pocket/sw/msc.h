@@ -16,7 +16,7 @@
 #include <stdint.h>
 
 /* The host's filesystem, over APF data slots. The catch-all std driver,
- * so it must be last in main_std_drivers. */
+ * so it must be last in std_drivers. */
 
 /* No working directory on this platform, so each side of the API pins
  * its own folder: std open resolves relative paths under SAVES, a

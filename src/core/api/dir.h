@@ -66,7 +66,7 @@ typedef struct
 } dir_backend_t;
 
 /* This machine's drive, supplied by its main.c. */
-const dir_backend_t *main_dir_backend(void);
+const dir_backend_t *dir_backend(void);
 
 /* Tell this machine's drive which code page its filenames are in. FatFs keeps
  * one of its own and must be told; a host filesystem takes the bytes as they

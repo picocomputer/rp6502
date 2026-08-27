@@ -7,7 +7,6 @@
  */
 
 #include "core/api/dir.h"
-#include "core/lifecycle.h"
 
 #include <string.h>
 
@@ -80,7 +79,7 @@ void dir_run(void)
 
 void dir_stop(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->closedir)
         return;
     api_errno err;
@@ -91,7 +90,7 @@ void dir_stop(void)
 
 bool dir_api_stat(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->stat)
         return dir_enosys();
     FILINFO fno;
@@ -105,7 +104,7 @@ bool dir_api_stat(void)
 
 bool dir_api_opendir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->opendir)
         return dir_enosys();
     int des;
@@ -118,7 +117,7 @@ bool dir_api_opendir(void)
 
 bool dir_api_readdir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->readdir)
         return dir_enosys();
     int des = API_A;
@@ -135,7 +134,7 @@ bool dir_api_readdir(void)
 
 bool dir_api_closedir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->closedir)
         return dir_enosys();
     int des = API_A;
@@ -147,7 +146,7 @@ bool dir_api_closedir(void)
 
 bool dir_api_telldir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->readdir)
         return dir_enosys();
     int des = API_A;
@@ -162,7 +161,7 @@ bool dir_api_telldir(void)
  * positioned at. */
 bool dir_api_seekdir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->readdir || !d->rewinddir)
         return dir_enosys();
     int des = API_A;
@@ -193,7 +192,7 @@ bool dir_api_seekdir(void)
 
 bool dir_api_rewinddir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->rewinddir)
         return dir_enosys();
     int des = API_A;
@@ -208,7 +207,7 @@ bool dir_api_rewinddir(void)
 
 bool dir_api_unlink(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->unlink)
         return dir_enosys();
     api_errno err;
@@ -217,7 +216,7 @@ bool dir_api_unlink(void)
 
 bool dir_api_rename(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->rename)
         return dir_enosys();
     /* The xstack holds newname\0oldname; rename takes them the other way. */
@@ -234,7 +233,7 @@ bool dir_api_rename(void)
 
 bool dir_api_chmod(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->chmod)
         return dir_enosys();
     uint8_t mask = API_A;
@@ -247,7 +246,7 @@ bool dir_api_chmod(void)
 
 bool dir_api_utime(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->utime)
         return dir_enosys();
     /* All four are popped whether or not this drive stores creation times,
@@ -264,7 +263,7 @@ bool dir_api_utime(void)
 
 bool dir_api_mkdir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->mkdir)
         return dir_enosys();
     api_errno err;
@@ -273,7 +272,7 @@ bool dir_api_mkdir(void)
 
 bool dir_api_chdir(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->chdir)
         return dir_enosys();
     api_errno err;
@@ -282,7 +281,7 @@ bool dir_api_chdir(void)
 
 bool dir_api_chdrive(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->chdrive)
         return dir_enosys();
     api_errno err;
@@ -293,7 +292,7 @@ bool dir_api_chdrive(void)
  * the top so the 6502 pops it in order. */
 bool dir_api_getcwd(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->getcwd)
         return dir_enosys();
     api_errno err;
@@ -309,7 +308,7 @@ bool dir_api_getcwd(void)
 
 bool dir_api_setlabel(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->setlabel)
         return dir_enosys();
     api_errno err;
@@ -318,7 +317,7 @@ bool dir_api_setlabel(void)
 
 bool dir_api_getlabel(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->getlabel)
         return dir_enosys();
     char label[12];
@@ -334,7 +333,7 @@ bool dir_api_getlabel(void)
 
 bool dir_api_getfree(void)
 {
-    const dir_backend_t *d = main_dir_backend();
+    const dir_backend_t *d = dir_backend();
     if (!d->getfree)
         return dir_enosys();
     uint32_t tot_sect, fre_sect;

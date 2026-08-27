@@ -55,6 +55,8 @@ add_custom_target(rsmp_coef DEPENDS ${RSMP_COEF_H})
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/lifecycle.c
+    ${RP6502_SRC}/core/sys/drivers.c
+    ${RP6502_SRC}/core/sys/hid.c
     ${RP6502_SRC}/core/sys/proc.c
     ${RP6502_SRC}/core/sys/tim.c
     ${RP6502_SRC}/core/aud/aud_mix.c

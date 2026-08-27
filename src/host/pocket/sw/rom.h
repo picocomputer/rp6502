@@ -24,7 +24,7 @@ uint32_t rom_staged_len(void);
 
 
 /* The ROM: drive: read-only windows onto the staged image's assets,
- * registered in main_std_drivers. */
+ * registered in std_drivers. */
 bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
 std_rw_result rom_std_close(int desc, api_errno *err);

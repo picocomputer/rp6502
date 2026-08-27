@@ -47,7 +47,7 @@ typedef enum
 
 // One stdio file driver. The open dispatcher claims a path with the first
 // driver whose handles() returns true, so an inactive driver simply returns
-// false. Each platform builds its own std_drivers[] table from this struct.
+// false. Each machine builds its own table from this struct.
 typedef struct
 {
     // handles, open, and close are required
@@ -62,5 +62,10 @@ typedef struct
     std_rw_result (*sync)(int desc, api_errno *);
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
 } std_driver_t;
+
+/* This machine's driver table, in the order open() tries them. Declared
+ * beside the struct it hands back rather than in a lifecycle header, which
+ * has no opinion about stdio. */
+const std_driver_t *std_drivers(size_t *count);
 
 #endif /* _CORE_API_STD_H_ */

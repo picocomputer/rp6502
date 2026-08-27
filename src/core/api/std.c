@@ -162,7 +162,7 @@ bool std_api_open(void)
     if (fd < 0)
         return api_return_errno(API_EMFILE);
     size_t count;
-    const std_driver_t *drivers = main_std_drivers(&count);
+    const std_driver_t *drivers = std_drivers(&count);
     for (size_t i = 0; i < count; i++)
     {
         if (drivers[i].handles(path))

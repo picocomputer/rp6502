@@ -12,8 +12,8 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
-#include "core/api/std.h"
 
 // This is true when the 6502 is running or there's a pending
 // request to start it.
@@ -36,9 +36,6 @@ void lifecycle_commit(void);
  * within them is the whole content, so they stay where the reasons are. */
 void lifecycle_on_run(void);
 void lifecycle_on_stop(void);
-
-// This platform's stdio driver table (built in its main.c).
-const std_driver_t *main_std_drivers(size_t *count);
 
 // Request to "break the system".
 // A break is triggered by CTRL-ALT-DEL or UART breaks.

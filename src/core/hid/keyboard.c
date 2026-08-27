@@ -4,13 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/lifecycle.h"
+#include "core/mem.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/hid.h"
 #include "core/hid/keymap.h"
 #include "host.h"
 #include "core/hid/usage.h"
 #include <stdio.h>
+#include <string.h>
 
 // RP6502 and Windows boots like an IBM AT with num lock on.
 // The Raspberry Pi Keyboard uses num lock to enable a num pad over

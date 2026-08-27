@@ -76,12 +76,12 @@ bool ria_get_sigint(void)
 }
 
 /* std.c wants the catch-all last, so the mass-storage drive follows ROM. */
-const dir_backend_t *main_dir_backend(void)
+const dir_backend_t *dir_backend(void)
 {
     return &msc_dir_backend;
 }
 
-static const std_driver_t main_drivers[] = {
+static const std_driver_t std_driver_table[] = {
     {
         .handles = rom_std_handles,
         .open = rom_std_open,
@@ -100,10 +100,10 @@ static const std_driver_t main_drivers[] = {
     },
 };
 
-const std_driver_t *main_std_drivers(size_t *count)
+const std_driver_t *std_drivers(size_t *count)
 {
-    *count = sizeof main_drivers / sizeof main_drivers[0];
-    return main_drivers;
+    *count = sizeof std_driver_table / sizeof std_driver_table[0];
+    return std_driver_table;
 }
 
 /* No str_init: one locale and no S() callers, so the localized chain is
