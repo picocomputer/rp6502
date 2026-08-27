@@ -12,7 +12,8 @@
 
 #include "core/api/dir.h"
 #include "core/api/std.h"
-#include "ria/api/fat.h"
+#include "ria/api/dir.h"
+#include "ria/api/fs.h"
 #include "ria/mon/rom.h"
 #include "ria/net/modem.h"
 #include "ria/usb/mid.h"

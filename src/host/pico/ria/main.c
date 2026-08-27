@@ -8,7 +8,6 @@
 #include "core/api/api.h"
 #include "core/api/attr.h"
 #include "core/api/clk.h"
-#include "api/fat.h"
 #include "core/api/dir.h"
 #include "core/str/oem.h"
 #include "core/api/proc.h"

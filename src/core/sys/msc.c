@@ -43,7 +43,7 @@ static struct host_file *host_fil(int desc)
     return &files[desc];
 }
 
-/* flags are the rp6502 SDK open() bits (see fat_std_open in host/pico/ria/api/fat.c). */
+/* flags are the rp6502 SDK open() bits (see fat_std_open in host/pico/ria/api/fs.c). */
 static int flags_to_posix(uint8_t flags)
 {
     bool rd = flags & 0x01, wr = flags & 0x02;
