@@ -52,6 +52,7 @@ endif()
 # One optimization unit in Release, as it was when this tree was one file:
 # This machine's roster: what it is made of, and the order it comes up in.
 target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c)
+target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/drivers.c)
 
 # emu_core was made above this line, so it is told, and everything made below
 # inherits the directory variable.

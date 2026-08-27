@@ -117,6 +117,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c
         ${RP6502_ROOT}/src/mach/pocket/lifecycle.c
+        ${RP6502_ROOT}/src/mach/pocket/drivers.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c

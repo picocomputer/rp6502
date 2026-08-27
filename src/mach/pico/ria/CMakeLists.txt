@@ -118,6 +118,7 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
     ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c
+    ${CMAKE_CURRENT_LIST_DIR}/drivers.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/lifecycle.c

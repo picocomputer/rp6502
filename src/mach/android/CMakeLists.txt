@@ -92,6 +92,7 @@ target_sources(emu_core PRIVATE
 
 # This machine's roster: what it is made of, and the order it comes up in.
 target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c)
+target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/drivers.c)
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

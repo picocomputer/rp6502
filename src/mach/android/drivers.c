@@ -3,16 +3,10 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * What this machine has for a program to open and for a path to reach: the
- * stdio driver table, and the one drive behind the directory calls. Both are
- * a machine's own -- the RIA offers six drivers and a FatFs volume, this
- * offers two and the host's filesystem.
- *
- * The Pocket's table (host/pocket/sw/main.c) is the same two rows written
- * again. Unifying them changes what that machine links, so it is not done
- * here, but it is worth knowing before a third copy appears.
+ * What this machine offers a program to open, and the one drive a path
+ * reaches. Both are the machine's: which drivers exist is the same kind of
+ * fact as which drivers come up, and belongs beside the roster that says so.
  */
-
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "core/sys/msc.h"

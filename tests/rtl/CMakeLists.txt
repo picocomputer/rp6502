@@ -77,6 +77,7 @@ target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 # against, so it is that machine and takes that machine's roster rather than
 # keeping a copy that could drift out from under the comparison.
 target_sources(emu_core PRIVATE ${RP6502_ROOT}/src/mach/emu/lifecycle.c)
+target_sources(emu_core PRIVATE ${RP6502_ROOT}/src/mach/emu/drivers.c)
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
