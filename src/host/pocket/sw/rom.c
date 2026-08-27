@@ -14,8 +14,8 @@
 #include "font.h"
 #include "mmio.h"
 #include "rom.h"
-#include "core/sys/rom_rec.h"
-#include "core/sys/rom_win.h"
+#include "core/rom/rom_rec.h"
+#include "core/rom/rom_win.h"
 
 #include "core/str/unicode.h"
 #include "core/mem.h"

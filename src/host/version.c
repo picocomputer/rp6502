@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/version.h"
+#include "host/version.h"
 #include "rp6502_version.h"
 
 /* Alone in its own unit so the generated header has exactly one object to

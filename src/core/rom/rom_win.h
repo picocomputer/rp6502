@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_SYS_ROM_WIN_H_
-#define _CORE_SYS_ROM_WIN_H_
+#ifndef _CORE_ROM_ROM_WIN_H_
+#define _CORE_ROM_ROM_WIN_H_
 
 /* A read-only window onto a stretch of a .rp6502: the asset a program opened
  * by name, which is not a file the machine has but a range inside one.
@@ -55,4 +55,4 @@ std_rw_result rom_win_read(const rom_win_pool_t *p, int desc, char *buf,
 int rom_win_lseek(const rom_win_pool_t *p, int desc, int8_t whence, int32_t off,
                   int32_t *pos, api_errno *err);
 
-#endif /* _CORE_SYS_ROM_WIN_H_ */
+#endif /* _CORE_ROM_ROM_WIN_H_ */

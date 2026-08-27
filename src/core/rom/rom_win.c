@@ -6,7 +6,7 @@
  * See rom_win.h.
  */
 
-#include "core/sys/rom_win.h"
+#include "core/rom/rom_win.h"
 
 #include <stdio.h> /* SEEK_SET and friends */
 

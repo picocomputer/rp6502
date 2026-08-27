@@ -19,7 +19,7 @@
 #include <string.h>
 
 /* The mode program being assembled. Channel 0 stores each register as it
- * arrives and the mode write consumes the lot; the dispatch in core/sys/pix.c
+ * arrives and the mode write consumes the lot; the dispatch in core/pix/pix.c
  * sends them high address to low, so the parameters are here before the mode
  * that reads them. */
 static uint16_t xregs[16];

@@ -127,7 +127,7 @@ else()
         ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c)
 
 if(WIN32)
     # The version metadata Explorer reads. RC is not one of project()'s

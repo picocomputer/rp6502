@@ -73,8 +73,8 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/log.c
     ${RP6502_SRC}/core/sys/msc.c
     ${RP6502_SRC}/core/sys/rom.c
-    ${RP6502_SRC}/core/sys/rom_rec.c
-    ${RP6502_SRC}/core/sys/rom_win.c
+    ${RP6502_SRC}/core/rom/rom_rec.c
+    ${RP6502_SRC}/core/rom/rom_win.c
     ${RP6502_SRC}/core/rand.c
     ${RP6502_SRC}/core/sys/rand.c
     ${RP6502_SRC}/core/sys/cfg.c
@@ -82,7 +82,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/sys/tty.c
     ${RP6502_SRC}/core/wdc/cpu.c
     ${RP6502_SRC}/core/mem/mem.c
-    ${RP6502_SRC}/core/sys/pix.c
+    ${RP6502_SRC}/core/pix/pix.c
     ${RP6502_SRC}/core/api/xreg0.c
     ${RP6502_SRC}/core/api/xreg1.c
     ${RP6502_SRC}/core/ria/ria.c

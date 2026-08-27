@@ -4,8 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#ifndef _CORE_SYS_ROM_REC_H_
-#define _CORE_SYS_ROM_REC_H_
+#ifndef _CORE_ROM_ROM_REC_H_
+#define _CORE_ROM_ROM_REC_H_
 
 /* A .rp6502 memory record: where it goes, how much of it there is, and what it
  * should add up to. The three numbers and the rules about them are the file
@@ -56,4 +56,4 @@ static inline bool rom_rec_complete(const rom_rec_vectors_t *v)
     return v->lo && v->hi;
 }
 
-#endif /* _CORE_SYS_ROM_REC_H_ */
+#endif /* _CORE_ROM_ROM_REC_H_ */

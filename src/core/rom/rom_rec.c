@@ -6,7 +6,7 @@
  * See rom_rec.h.
  */
 
-#include "core/sys/rom_rec.h"
+#include "core/rom/rom_rec.h"
 #include "core/str/str.h"
 
 rom_rec_result rom_rec_parse(const char *line, uint32_t max_len, rom_rec_t *rec)

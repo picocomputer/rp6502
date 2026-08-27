@@ -71,7 +71,7 @@ target_link_options(rp6502-emu PRIVATE
     "-lidbfs.js"
     "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain,addRunDependency,removeRunDependency")
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/core/sys/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c)
 
 # One web output: build/itch.io/bundle is the shippable itch.io sample, and
 # the link writes rp6502.js/.wasm straight into it so the engine exists once.

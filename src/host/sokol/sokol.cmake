@@ -24,7 +24,7 @@ set(RP6502_EMU_APP
     ${CMAKE_CURRENT_LIST_DIR}/png.c
     ${CMAKE_CURRENT_LIST_DIR}/gamepad.c
     ${CMAKE_CURRENT_LIST_DIR}/script.c
-    ${RP6502_SRC}/core/sys/version.c)
+    ${RP6502_SRC}/host/version.c)
 
 # The shared render core. A host's own window.c stands on it.
 set(RP6502_EMU_WINDOW

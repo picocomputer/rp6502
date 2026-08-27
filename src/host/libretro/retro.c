@@ -18,7 +18,7 @@
 
 #include "core/str/oem.h"
 #include "core/sys/rand.h"
-#include "core/sys/version.h"
+#include "host/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/sys/log.h"
 #include "core/sys/msc.h"
