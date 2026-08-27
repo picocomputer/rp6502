@@ -13,14 +13,14 @@
 #include "core/api/dir.h"
 #include "core/api/std.h"
 #include "ria/api/dir.h"
-#include "ria/api/fs.h"
+#include "core/api/fs.h"
 #include "ria/mon/rom.h"
 #include "ria/net/modem.h"
 #include "ria/usb/mid.h"
 #include "ria/usb/nfc.h"
 #include "ria/usb/vcp.h"
 
-// Driver table, msc is catch-all and must be last.
+// Driver table, the filesystem is catch-all and must be last.
 const dir_backend_t *dir_backend(void)
 {
     return &fat_dir_backend;
@@ -32,7 +32,7 @@ static HOST_IN_FLASH("std_drivers") const std_driver_t std_driver_table[] = {
     {mid_std_handles, mid_std_open, mid_std_close, mid_std_read, mid_std_write, mid_std_sync, NULL},
     {rom_std_handles, rom_std_open, rom_std_close, rom_std_read, NULL, NULL, rom_std_lseek},
     {nfc_std_handles, nfc_std_open, nfc_std_close, nfc_std_read, nfc_std_write, NULL, NULL},
-    {fat_std_handles, fat_std_open, fat_std_close, fat_std_read, fat_std_write, fat_std_sync, fat_std_lseek},
+    {fs_std_handles, fs_std_open, fs_std_close, fs_std_read, fs_std_write, fs_std_sync, fs_std_lseek},
 };
 
 const std_driver_t *std_drivers(size_t *count)

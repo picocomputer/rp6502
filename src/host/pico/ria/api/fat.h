@@ -14,7 +14,11 @@
 #include "core/api/api.h"
 #include <stdint.h>
 
-// Convert a FatFs FRESULT to an api_errno.
+// Convert a FatFs FRESULT to a POSIX errno, and to an api_errno through it.
+int fat_fresult_to_errno(unsigned fresult);
 api_errno fat_fresult_to_api_errno(unsigned fresult);
+
+// Set errno from a FRESULT, for the host/api/fs.h calls that report that way.
+void fat_fail(unsigned fresult);
 
 #endif /* _RIA_API_FAT_H_ */

@@ -24,7 +24,6 @@ struct host_file
     bool used;
     int fd;
     bool wrote;
-    bool writable; /* opened for write: lseek past EOF extends (else it clamps) */
 };
 static struct host_file files[HOST_MAX_OPEN];
 
@@ -76,6 +75,8 @@ api_errno fs_errno_to_api_errno(int host_errno)
         return API_EMFILE;
     case EBADF:
         return API_EBADF;
+    case EBUSY:
+        return API_EBUSY;
     case ENODEV:
     case ENXIO:
         return API_ENODEV;
@@ -100,9 +101,10 @@ bool fs_std_handles(const char *path)
 
 int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 {
-    /* A name of nothing is not a name -- FatFs answers FR_INVALID_NAME, so
-     * the firmware does too. An empty path is still the working directory
-     * to opendir, which is why this is here and not in the translation. */
+    /* A name of nothing is not a name. POSIX open("") is ENOENT and FatFs
+     * would say FR_INVALID_NAME, so the answer is settled here rather than
+     * differing by machine. An empty path is still the working directory to
+     * opendir, which is why this is here and not further down. */
     if (!path[0])
     {
         *err = API_ENOENT;
@@ -124,7 +126,7 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_EMFILE;
         return -1;
     }
-    files[des] = (struct host_file){.used = true, .fd = fd, .writable = (flags & HOST_FS_WR) != 0};
+    files[des] = (struct host_file){.used = true, .fd = fd};
     if (flags & 0x40) /* APPEND: a one-time seek to the end, after any TRUNC */
     {
         int64_t end = host_fs_size(fd);
@@ -241,14 +243,7 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
         *err = fs_errno_to_api_errno(errno);
         return -1;
     }
-    /* A writable file is extended to the target, so landing short of it means
-     * the volume ran out -- FatFs clips silently and says FR_OK. A read-only
-     * file stopping at its end is the contract, not a failure. */
-    if (np != target && f->writable)
-    {
-        *err = API_ENOSPC;
-        return -1;
-    }
+    /* np can be short of target: a read-only file stops at its end. */
     *pos = (int32_t)np;
     return 0;
 }

@@ -86,11 +86,13 @@ host_io_result host_fs_write(int fd, const char *buf, uint32_t count, uint32_t *
 int64_t host_fs_size(int fd); /* the file's length, or -1 + errno */
 int64_t host_fs_tell(int fd); /* where the pointer is, or -1 + errno */
 
-/* Move the pointer to an absolute position, answering where it landed (or -1
- * + errno). This is f_lseek's contract, because it is the narrower of the two:
- * a writable file is extended to pos, a read-only one stops at its end, and a
- * volume with no room left stops wherever it ran out. A host with POSIX can
- * say all of that; FatFs cannot say anything wider. */
+/* Move the pointer to an absolute position, answering where it landed. This
+ * is f_lseek's contract, because it is the narrower of the two: a writable
+ * file is extended to pos, and a read-only one stops at its end -- which is
+ * an answer and not a failure, so the caller is told where it stopped. A
+ * writable file that cannot reach pos is out of room: -1 and ENOSPC, with the
+ * pointer left where it was. A host with POSIX can say all of that; FatFs
+ * cannot say anything wider. */
 int64_t host_fs_seek(int fd, uint64_t pos);
 
 bool host_fs_fsync(int fd); /* this file, to the medium */
