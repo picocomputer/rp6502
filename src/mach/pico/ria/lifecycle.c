@@ -46,43 +46,61 @@
 #include "ria/sys/cfg.h"
 #include "ria/usb/usb.h"
 #include "ria/usb/mid.h"
+#include "ria/usb/nfc.h"
+#include "ria/usb/vcp.h"
+#include "ria/mon/uf2.h"
+#include "ria/ble/ble.h"
+#include "ria/net/ntp.h"
+#include "ria/net/wifi.h"
 
 /* The first eight are the machine's bring-up, and the order is the fabric's:
  * the clock before everything timed against it, the console before anything
  * prints, the banner before anything can queue an error under it, the bus
  * before the video that talks over it, and the filesystem before the config it
- * holds. The rest is init order and little else -- cyw after cfg because the
- * country code is an argument to the radio, usb late because its enumeration
- * window times a keyboard quirk, cpu last. */
-#define ROSTER                                                      \
-    SYS_LIFECYCLE, COM_LIFECYCLE, MON_LIFECYCLE, RIA_LIFECYCLE,     \
-    PIX_LIFECYCLE, VGA_LIFECYCLE, LFS_LIFECYCLE, CFG_LIFECYCLE,     \
-    PROC_LIFECYCLE, STR_LIFECYCLE, STD_LIFECYCLE,                   \
-    CYW_LIFECYCLE, OEM_LIFECYCLE, LED_LIFECYCLE,                    \
-    AUD_LIFECYCLE, MID_LIFECYCLE, KEYBOARD_LIFECYCLE,               \
-    KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,           \
-    TABLET_LIFECYCLE, ROM_LIFECYCLE, TIM_LIFECYCLE,                 \
-    MODEM_LIFECYCLE, RLN_LIFECYCLE, DIR_LIFECYCLE,                  \
-    API_LIFECYCLE, CLK_LIFECYCLE, MEM_LIFECYCLE, DRIVE_LIFECYCLE,   \
-    FIL_LIFECYCLE, RAM_LIFECYCLE, USB_LIFECYCLE, CPU_LIFECYCLE
+ * holds. The rest is init order and little else -- cyw before the three radio
+ * users, api before cpu so the registers are released before RESB rises, usb
+ * second-to-last because its enumeration window times a keyboard quirk and
+ * anything slow scheduled inside it stops the quirk firing, cpu last.
+ *
+ * The io_task column reads its order off this same list, and one rule is
+ * load-bearing there: rom before vcp, nfc and api, with api the last row that
+ * has one. api_task and nfc_task can arm an exec, and rom_task must not run
+ * after the arming in the same pass. vcp before nfc, which opens the device
+ * index vcp sets. */
+#define ROSTER                                                            \
+    SYS_MACH_LIFECYCLE, COM_MACH_LIFECYCLE, MON_MACH_LIFECYCLE,           \
+    RIA_MACH_LIFECYCLE, PIX_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE,           \
+    LFS_MACH_LIFECYCLE, CFG_MACH_LIFECYCLE,                               \
+    PROC_MACH_LIFECYCLE, STR_MACH_LIFECYCLE, STD_MACH_LIFECYCLE,          \
+    CYW_MACH_LIFECYCLE, WIFI_MACH_LIFECYCLE, NTP_MACH_LIFECYCLE,          \
+    BLE_MACH_LIFECYCLE, OEM_MACH_LIFECYCLE, LED_MACH_LIFECYCLE,           \
+    AUD_MACH_LIFECYCLE, MID_MACH_LIFECYCLE, KEYBOARD_MACH_LIFECYCLE,      \
+    KEYMAP_MACH_LIFECYCLE, MOUSE_MACH_LIFECYCLE, GAMEPAD_MACH_LIFECYCLE,  \
+    TABLET_MACH_LIFECYCLE,                                                \
+    MEM_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE, FIL_MACH_LIFECYCLE,           \
+    ROM_MACH_LIFECYCLE, UF2_MACH_LIFECYCLE, TIM_MACH_LIFECYCLE,           \
+    MODEM_MACH_LIFECYCLE, DIR_MACH_LIFECYCLE, CLK_MACH_LIFECYCLE,         \
+    DRIVE_MACH_LIFECYCLE, RAM_MACH_LIFECYCLE,                             \
+    VCP_MACH_LIFECYCLE, NFC_MACH_LIFECYCLE, API_MACH_LIFECYCLE,           \
+    USB_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
 
 void lifecycle_init(void)
 {
-#define LIFECYCLE(i, r, s, b) i();
+#define LIFECYCLE(i, t, iot, r, s, b) i();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
 }
 
 void lifecycle_on_run(void)
 {
-#define LIFECYCLE(i, r, s, b) r();
+#define LIFECYCLE(i, t, iot, r, s, b) r();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
 }
 
 void lifecycle_on_stop(void)
 {
-#define LIFECYCLE(i, r, s, b) s();
+#define LIFECYCLE(i, t, iot, r, s, b) s();
     LIFECYCLE_REVERSE(ROSTER)
 #undef LIFECYCLE
 }
@@ -92,7 +110,7 @@ void lifecycle_on_stop(void)
  * breaks printed. */
 void lifecycle_break_drivers(void)
 {
-#define LIFECYCLE(i, r, s, b) b();
+#define LIFECYCLE(i, t, iot, r, s, b) b();
     LIFECYCLE_REVERSE(ROSTER)
 #undef LIFECYCLE
 }

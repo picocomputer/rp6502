@@ -42,4 +42,8 @@ void wifi_load_pass(const char *str);
 bool wifi_set_pass(const char *pass);
 const char *wifi_get_pass(void);
 
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Joins and holds the network; retries on its own timer, so it needs no
+ * bring-up beyond the radio cyw already brought up. */
+#define WIFI_MACH_LIFECYCLE LIFECYCLE(nul_init, wifi_task, nul_task, nul_run, nul_stop, nul_break)
+
 #endif /* _RIA_NET_WIFI_H_ */

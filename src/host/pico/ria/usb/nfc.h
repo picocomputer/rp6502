@@ -41,4 +41,18 @@ std_rw_result nfc_std_close(int desc, api_errno *err);
 std_rw_result nfc_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result nfc_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Can arm an exec, so it runs after ROM and before API in the io column. */
+#define NFC_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, nfc_task, nul_run, nul_stop, nul_break)
+
+/* This driver's stdio row: the std_driver_t initializer core/api/std.c
+ * builds this machine's table from. A stream: no seek, nothing to flush. */
+#define NFC_STD_LIFECYCLE           \
+    {                               \
+        .handles = nfc_std_handles, \
+        .open = nfc_std_open,       \
+        .close = nfc_std_close,     \
+        .read = nfc_std_read,       \
+        .write = nfc_std_write,     \
+    }
+
 #endif /* _RIA_USB_NFC_H_ */

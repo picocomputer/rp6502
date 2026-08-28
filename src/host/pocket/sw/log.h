@@ -38,7 +38,7 @@ static inline void log_putc(char c) { (void)c; }
 
 #endif
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define LOG_LIFECYCLE LIFECYCLE(log_init, nul_run, nul_stop, nul_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define LOG_MACH_LIFECYCLE LIFECYCLE(log_init, log_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _FPGA_SW_LOG_H_ */

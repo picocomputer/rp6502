@@ -68,7 +68,7 @@ bool proc_exec_inflight(void);
 // Load a ROM via NFC
 void proc_nfc(const uint8_t *tag_data, size_t len);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define PROC_LIFECYCLE LIFECYCLE(nul_init, proc_run, proc_stop, nul_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define PROC_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break)
 
 #endif /* _CORE_API_PROC_H_ */

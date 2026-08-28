@@ -26,10 +26,10 @@ uint32_t vid_prog_word_get(void);
 bool mode0_prog(uint16_t *xregs);
 
 
-/* This driver's lifecycle row; see core/lifecycle.h. After TERM, because
+/* This driver's machine-lifecycle row; see core/lifecycle.h. After TERM, because
  * vid_init selects a canvas and that calls term_set_height. Its stop defers
  * the display restore to vid_task, so this row does not also have to be
  * first for the sake of being last. */
-#define VID_LIFECYCLE LIFECYCLE(vid_init, nul_run, vid_stop, nul_break)
+#define VID_MACH_LIFECYCLE LIFECYCLE(vid_init, nul_task, vid_task, nul_run, vid_stop, nul_break)
 
 #endif /* _FPGA_SW_VID_H_ */

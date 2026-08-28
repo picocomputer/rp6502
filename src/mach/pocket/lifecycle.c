@@ -28,44 +28,52 @@
 #include "core/aud/aud.h"
 #include "sw/apf.h"
 #include "sw/cpu.h"
+#include "sw/sst.h"
+#include "sw/bel.h"
+#include "sw/cfg.h"
 #include "sw/log.h"
 #include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
 
-/* aud before com, so the
- * bell hardware is quiet before the byte path that can ring it is armed. fs
- * before std, so reversal puts fs_stop after std_stop -- std's closes are
- * what park a read. unicode and layout before keymap, which asks them what
- * layouts exist. vid after term, whose height its canvas sets. cpu last,
- * because its run is RESB going back up. */
-#define ROSTER                                                  \
-    LOG_LIFECYCLE, PROC_LIFECYCLE,                              \
-    AUD_LIFECYCLE, COM_LIFECYCLE, FS_LIFECYCLE,                 \
-    STD_LIFECYCLE, RLN_LIFECYCLE, TERM_LIFECYCLE,               \
-    UNICODE_LIFECYCLE, LAYOUT_LIFECYCLE, KEYBOARD_LIFECYCLE,    \
-    KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,       \
-    TABLET_LIFECYCLE, VID_LIFECYCLE, APF_LIFECYCLE,             \
-    TIM_LIFECYCLE, RAND_LIFECYCLE, DIR_LIFECYCLE,               \
-    API_LIFECYCLE, CLK_LIFECYCLE, CPU_LIFECYCLE
+/* aud before com, so the bell hardware is quiet before the byte path that
+ * can ring it is armed. fs before std, so reversal puts fs_stop after
+ * std_stop -- std's closes are what park a read. unicode and layout before
+ * keymap, which asks them what layouts exist. vid after term, whose height
+ * its canvas sets. cpu last, because its run is RESB going back up.
+ *
+ * apf before keymap is the task column's rule, not init's: apf_task delivers
+ * the reports and keymap_task runs the repeat timer over them. bel takes no
+ * init -- the bell is part of the mixer aud brings up and restores. */
+#define ROSTER                                                            \
+    LOG_MACH_LIFECYCLE, CFG_MACH_LIFECYCLE, PROC_MACH_LIFECYCLE,          \
+    AUD_MACH_LIFECYCLE, BEL_MACH_LIFECYCLE,                               \
+    COM_MACH_LIFECYCLE, FS_MACH_LIFECYCLE,                                \
+    STD_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE, TERM_MACH_LIFECYCLE,          \
+    UNICODE_MACH_LIFECYCLE, LAYOUT_MACH_LIFECYCLE, KEYBOARD_MACH_LIFECYCLE, \
+    APF_MACH_LIFECYCLE, KEYMAP_MACH_LIFECYCLE,                            \
+    MOUSE_MACH_LIFECYCLE, GAMEPAD_MACH_LIFECYCLE, TABLET_MACH_LIFECYCLE,  \
+    VID_MACH_LIFECYCLE, TIM_MACH_LIFECYCLE, RAND_MACH_LIFECYCLE,          \
+    DIR_MACH_LIFECYCLE, API_MACH_LIFECYCLE, SST_MACH_LIFECYCLE,           \
+    CLK_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
 
 void lifecycle_init(void)
 {
-#define LIFECYCLE(i, r, s, b) i();
+#define LIFECYCLE(i, t, iot, r, s, b) i();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
 }
 
 void lifecycle_on_run(void)
 {
-#define LIFECYCLE(i, r, s, b) r();
+#define LIFECYCLE(i, t, iot, r, s, b) r();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
 }
 
 void lifecycle_on_stop(void)
 {
-#define LIFECYCLE(i, r, s, b) s();
+#define LIFECYCLE(i, t, iot, r, s, b) s();
     LIFECYCLE_REVERSE(ROSTER)
 #undef LIFECYCLE
 }

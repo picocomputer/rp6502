@@ -24,4 +24,8 @@ void ntp_task(void);
 
 int ntp_status_response(char *buf, size_t buf_size, int state, unsigned width);
 
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Sets the clock once the network is up, which it checks for itself each
+ * pass rather than being sequenced behind wifi. */
+#define NTP_MACH_LIFECYCLE LIFECYCLE(nul_init, ntp_task, nul_task, nul_run, nul_stop, nul_break)
+
 #endif /* _RIA_NET_NTP_H_ */

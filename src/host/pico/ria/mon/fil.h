@@ -39,7 +39,7 @@ void fil_mon_unlink(const char *args);
 void fil_mon_copy(const char *args);
 void fil_mon_move(const char *args);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define FIL_LIFECYCLE LIFECYCLE(nul_init, nul_run, nul_stop, fil_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define FIL_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, fil_task, nul_run, nul_stop, fil_break)
 
 #endif /* _RIA_MON_FIL_H_ */

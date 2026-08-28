@@ -44,4 +44,20 @@ const char *vcp_get_nfc_device_hash(void);
 bool vcp_set_nfc_device_name(const char *name);
 int vcp_nfc_open(void);
 
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Building a device hash blocks on USB string fetches, which pump the task
+ * column -- so this belongs in the column that is never re-entered. Before
+ * NFC, which opens the device index this sets. */
+#define VCP_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, vcp_task, nul_run, nul_stop, nul_break)
+
+/* This driver's stdio row: the std_driver_t initializer core/api/std.c
+ * builds this machine's table from. A stream: no seek, nothing to flush. */
+#define VCP_STD_LIFECYCLE           \
+    {                               \
+        .handles = vcp_std_handles, \
+        .open = vcp_std_open,       \
+        .close = vcp_std_close,     \
+        .read = vcp_std_read,       \
+        .write = vcp_std_write,     \
+    }
+
 #endif /* _RIA_USB_VCP_H_ */

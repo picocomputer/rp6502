@@ -53,4 +53,18 @@ int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *
  * fs_std_open, and the two are unrelated. */
 int fs_rom_open(const char *path, api_errno *err);
 
+/* This driver's stdio row: the std_driver_t initializer core/api/std.c
+ * builds this machine's table from. The catch-all: a machine lists it last, after every driver that claims a
+ * name of its own. */
+#define FS_STD_LIFECYCLE           \
+    {                              \
+        .handles = fs_std_handles, \
+        .open = fs_std_open,       \
+        .close = fs_std_close,     \
+        .read = fs_std_read,       \
+        .write = fs_std_write,     \
+        .sync = fs_std_sync,       \
+        .lseek = fs_std_lseek,     \
+    }
+
 #endif /* _CORE_API_FS_H_ */

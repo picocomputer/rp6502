@@ -56,8 +56,8 @@ uint16_t layout_dead3(int idx, unsigned entry, unsigned field);
 // One 16-bit word of the database image, by index. Written per platform.
 uint16_t layout_word(uint32_t index);
 
-/* This driver's lifecycle row; see core/lifecycle.h. layout_init returns
+/* This driver's machine-lifecycle row; see core/lifecycle.h. layout_init returns
  * whether a database arrived; a roster walk does not ask. */
-#define LAYOUT_LIFECYCLE LIFECYCLE(layout_init, nul_run, nul_stop, nul_break)
+#define LAYOUT_MACH_LIFECYCLE LIFECYCLE(layout_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _CORE_HID_LAYOUT_H_ */

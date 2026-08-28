@@ -55,18 +55,18 @@
  * this forward; stop walks it backward. This machine has no break fan-out --
  * there is no monitor to break into. */
 #define ROSTER                                                 \
-    RIA_LIFECYCLE, MEM_LIFECYCLE, PROC_EXEC_LIFECYCLE,           \
-    PROC_LIFECYCLE, STR_LIFECYCLE,                             \
-    COM_LIFECYCLE, STD_LIFECYCLE, RLN_LIFECYCLE,               \
-    TERM_LIFECYCLE, KEYBOARD_LIFECYCLE, MOUSE_LIFECYCLE,       \
-    GAMEPAD_LIFECYCLE, TABLET_LIFECYCLE, FONT_LIFECYCLE,       \
-    OEM_LIFECYCLE, VGA_LIFECYCLE, AUD_LIFECYCLE,               \
-    TIM_LIFECYCLE, DIR_LIFECYCLE, API_LIFECYCLE,               \
-    CLK_LIFECYCLE, VIA_LIFECYCLE, CPU_LIFECYCLE
+    RIA_MACH_LIFECYCLE, MEM_MACH_LIFECYCLE, PROC_EXEC_MACH_LIFECYCLE,           \
+    PROC_MACH_LIFECYCLE, STR_MACH_LIFECYCLE,                             \
+    COM_MACH_LIFECYCLE, STD_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE,               \
+    TERM_MACH_LIFECYCLE, KEYBOARD_MACH_LIFECYCLE, MOUSE_MACH_LIFECYCLE,       \
+    GAMEPAD_MACH_LIFECYCLE, TABLET_MACH_LIFECYCLE, FONT_MACH_LIFECYCLE,       \
+    OEM_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE, AUD_MACH_LIFECYCLE,               \
+    TIM_MACH_LIFECYCLE, DIR_MACH_LIFECYCLE, API_MACH_LIFECYCLE,               \
+    CLK_MACH_LIFECYCLE, VIA_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
 
 void lifecycle_init(void)
 {
-#define LIFECYCLE(i, r, s, b) i();
+#define LIFECYCLE(i, t, iot, r, s, b) i();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
 }
@@ -74,7 +74,7 @@ void lifecycle_init(void)
 /* The 6502 coming out of reset. */
 void lifecycle_on_run(void)
 {
-#define LIFECYCLE(i, r, s, b) r();
+#define LIFECYCLE(i, t, iot, r, s, b) r();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
 }
@@ -82,7 +82,7 @@ void lifecycle_on_run(void)
 /* Going back into it. */
 void lifecycle_on_stop(void)
 {
-#define LIFECYCLE(i, r, s, b) s();
+#define LIFECYCLE(i, t, iot, r, s, b) s();
     LIFECYCLE_REVERSE(ROSTER)
 #undef LIFECYCLE
 }

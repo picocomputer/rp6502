@@ -46,8 +46,8 @@ char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err);
 // Convert a littlefs error code to an api_errno.
 api_errno lfs_error_to_api_errno(int lfs_err);
 
-/* This driver's lifecycle row; see core/lifecycle.h. Only an init, which is
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Only an init, which is
  * still a lifecycle: the volume has to be mounted before anything reads it. */
-#define LFS_LIFECYCLE LIFECYCLE(lfs_init, nul_run, nul_stop, nul_break)
+#define LFS_MACH_LIFECYCLE LIFECYCLE(lfs_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _RIA_SYS_LFS_H_ */

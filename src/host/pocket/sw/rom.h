@@ -33,4 +33,15 @@ std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err);
 
+/* This driver's stdio row: the std_driver_t initializer core/api/std.c
+ * builds this machine's table from. Read-only. */
+#define ROM_STD_LIFECYCLE           \
+    {                               \
+        .handles = rom_std_handles, \
+        .open = rom_std_open,       \
+        .close = rom_std_close,     \
+        .read = rom_std_read,       \
+        .lseek = rom_std_lseek,     \
+    }
+
 #endif /* _FPGA_SW_ROM_H_ */

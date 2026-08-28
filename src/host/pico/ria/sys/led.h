@@ -23,7 +23,7 @@ void led_task(void);
 // Enable blinking
 void led_blink(bool enable);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define LED_LIFECYCLE LIFECYCLE(led_init, nul_run, nul_stop, nul_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define LED_MACH_LIFECYCLE LIFECYCLE(led_init, led_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _RIA_SYS_LED_H_ */

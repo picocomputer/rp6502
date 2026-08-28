@@ -16,4 +16,7 @@ void uf2_task(void);
 bool uf2_active(void);
 void uf2_mon_flash(const char *args);
 
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Writes firmware images to the filesystem. */
+#define UF2_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, uf2_task, nul_run, nul_stop, nul_break)
+
 #endif /* _RIA_MON_UF2_H_ */

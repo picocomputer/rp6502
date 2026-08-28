@@ -78,7 +78,7 @@ extern int16_t aud_sine_table[256];
 /* Build it. Every machine calls this from its own aud_init. */
 void aud_sine_init(void);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define AUD_LIFECYCLE LIFECYCLE(aud_init, nul_run, aud_stop, nul_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define AUD_MACH_LIFECYCLE LIFECYCLE(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break)
 
 #endif /* _CORE_AUD_AUD_H_ */

@@ -66,7 +66,7 @@ static inline void pix_send_blocking(uint8_t dev3, uint8_t ch4, uint8_t byte, ui
     pix_send(dev3, ch4, byte, word);
 }
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define PIX_LIFECYCLE LIFECYCLE(pix_init, nul_run, pix_stop, nul_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define PIX_MACH_LIFECYCLE LIFECYCLE(pix_init, nul_task, nul_task, nul_run, pix_stop, nul_break)
 
 #endif /* _RIA_SYS_PIX_H_ */

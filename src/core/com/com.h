@@ -38,7 +38,12 @@ void com_crlf_write(const char *buf, int len);
  * program output without rendering a frame. */
 void com_set_tx_tap(void (*tap)(const char *buf, int len));
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define COM_LIFECYCLE LIFECYCLE(com_init, com_run, nul_stop, nul_break)
+/* Drain the wire both ways. The host that is linked defines it -- a machine
+ * whose console is a UART has real work here, one whose console is the
+ * frame loop has none and never walks the column. */
+void com_task(void);
+
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define COM_MACH_LIFECYCLE LIFECYCLE(com_init, com_task, nul_task, com_run, nul_stop, nul_break)
 
 #endif /* _CORE_COM_COM_H_ */

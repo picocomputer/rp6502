@@ -34,7 +34,7 @@ bool tim_gmtime(time_t t, struct tm *out);
 // strftime emitting code page text
 size_t tim_strftime(char *dst, size_t max, const char *format, const struct tm *tm);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define TIM_LIFECYCLE LIFECYCLE(tim_init, nul_run, nul_stop, nul_break)
+/* This driver's machine-lifecycle row; see core/lifecycle.h. */
+#define TIM_MACH_LIFECYCLE LIFECYCLE(tim_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _CORE_API_TIM_H_ */
