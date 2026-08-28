@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/lifecycle.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
@@ -134,16 +135,16 @@ void ria_run(void)
     }
 }
 
+/* The 6502's side of a program stop. What is NOT here is closing a fast-load
+ * transfer: the action machinery opened that one and closes it itself, in
+ * ria_task, once the stop has committed. Otherwise this would have to run last
+ * in the fan-out -- vga_stop, rln_stop and com_stop all read ria_active() to
+ * tell a program stop from a transfer, and would see it change underneath
+ * them depending on where this row sat. */
 void ria_stop(void)
 {
     irq_enabled = 0;
     gpio_put(CPU_IRQB_PIN, true);
-    action_state = action_state_idle;
-    if (saved_reset_vec >= 0)
-    {
-        REGSW(0xFFFC) = saved_reset_vec;
-        saved_reset_vec = -1;
-    }
     ria_uart_rx_clear(); // discard input queued for the now-stopped 6502 UART
 }
 
@@ -154,6 +155,24 @@ bool ria_active(void)
 
 void ria_task(void)
 {
+    /* Close a transfer whose stop has been performed. Here rather than in
+     * ria_stop so ria_active() holds one value for the whole fan-out: every
+     * stop that asks sees the transfer whole, and none sees it half closed.
+     *
+     * Ahead of the watchdog, because a stop asked for before the machine ever
+     * started skips the fan-out entirely (core/lifecycle.c) -- without this
+     * the transfer would never close, and the stale watchdog would fire a
+     * timeout at whatever ran next. */
+    if (ria_active() && !lifecycle_active())
+    {
+        action_state = action_state_idle;
+        if (saved_reset_vec >= 0)
+        {
+            REGSW(0xFFFC) = saved_reset_vec;
+            saved_reset_vec = -1;
+        }
+    }
+
     // check on watchdog unless we explicitly ended or errored
     if (ria_active() && action_result == RIA_ACTION_RESULT_NONE)
     {
