@@ -10,7 +10,11 @@
  * that closes files and parks drivers. So the ask is cheap and idempotent, and
  * the machine's loop performs it at a moment of its own choosing. The one
  * thing that cannot wait is RESB, which goes down inside the ask, because a
- * 6502 left running would keep asking for what is being torn down.
+ * 6502 left running would keep asking for what is being torn down. That is a
+ * concurrency fact of the machines whose CPU runs beside the fan-out -- the
+ * Pico's second core, the Pocket's fabric. On a software machine the 6502
+ * only ever runs inside cpu_task, so there is no race for RESB to win; it
+ * goes down early there because a stop is a stop, not because it must.
  */
 
 #include "core/lifecycle.h"

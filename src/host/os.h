@@ -80,8 +80,11 @@
 /* ---- the machine's microsecond clock ---- */
 /* Microseconds since the machine started: TIMER0 on a Pico, the run loop's own
  * counter in the emulator, the fabric's mtime on a Pocket. Machine time, not
- * the host's -- it stands still while the machine is halted, and it is
- * savestate state where a machine has savestates. Wall time is tim_get_time. */
+ * the host's: it runs while the 6502 is halted, because a halted CPU is a CPU
+ * fetching nothing rather than a stopped clock, and it does not follow the
+ * host's wall clock -- an emulator paced against a display deliberately lets
+ * the two drift. It is savestate state where a machine has savestates. Wall
+ * time is tim_get_time. */
 uint64_t host_clock_us(void);
 
 /* Deadlines, from the clock above. Inline rather than a translation unit on

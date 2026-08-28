@@ -18,13 +18,10 @@
 #define SYS_OVERSAMPLE 8
 #define SYS_TICKS_PER_US (SYS_RP2350_KHZ * SYS_OVERSAMPLE / 1000) /* 2048 */
 
-
-/* The oversampled system clock; host_clock_us divides it by SYS_TICKS_PER_US to
- * serve the machine's microsecond clock. Run time is a reproducible function of
- * the frame count because the run loop advances this from an absolute per-scanline
- * deadline, never from the host's clock. */
-uint64_t sys_clk_now(void);
-
+/* That clock is what host_clock_us divides down, and the only thing that
+ * advances it is the CPU catching up to the beam -- an absolute per-scanline
+ * deadline, never the host's clock. So run time is a reproducible function of
+ * the frames that went by, which is what makes a timed test repeat. */
 
 /* One pass of this machine's super-loop: the driver walks, then any run or
  * stop that was asked for. Every host loops on this and nothing else; they

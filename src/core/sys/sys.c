@@ -39,7 +39,6 @@ static bool bus_read;
 static bool bus_via_irq;
 static bool bus_ria_irq;
 
-uint64_t sys_clk_now(void) { return sys_clk; }
 uint64_t host_clock_us(void) { return sys_clk / SYS_TICKS_PER_US; }
 
 /* No init: lifecycle_init runs exactly once per process, so static zero-initialization
