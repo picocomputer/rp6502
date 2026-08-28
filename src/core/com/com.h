@@ -40,7 +40,7 @@ void com_set_tx_tap(void (*tap)(const char *buf, int len));
 
 /* Drain the wire both ways. The host that is linked defines it -- a machine
  * whose console is a UART has real work here, one whose console is the
- * frame loop has none and never walks the column. */
+ * terminal the walk already reaches has nothing to do here. */
 void com_task(void);
 
 /* This driver's machine-lifecycle row; see core/lifecycle.h. */

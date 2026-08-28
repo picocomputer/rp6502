@@ -54,9 +54,13 @@ void *cpu_chip(void); /* w65c02_t* */
  * observer is registered. */
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
+/* Run the 6502 up to the beam. Defined in core/sys/sys.c, which owns the
+ * board this chip sits on. */
+void cpu_task(void);
+
 /* This driver's machine-lifecycle row; see core/lifecycle.h. A row lives with the
  * implementation, not the contract: which hooks a machine's CPU has is the
  * implementation's answer, and three of them differ. */
-#define CPU_MACH_LIFECYCLE LIFECYCLE(cpu_init, nul_task, nul_task, cpu_run, cpu_stop, nul_break)
+#define CPU_MACH_LIFECYCLE LIFECYCLE(cpu_init, cpu_task, nul_task, cpu_run, cpu_stop, nul_break)
 
 #endif /* _CORE_WDC_CPU_H_ */

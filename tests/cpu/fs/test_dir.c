@@ -82,7 +82,7 @@ UTEST(dir, lists_directory)
     cap[0] = 0;
     com_set_tx_tap(tap);
     for (int i = 0; i < 600 && !cpu_halted(); i++)
-        sys_run_frame();
+        emu_frames(1);
     com_set_tx_tap(NULL);
 
     ASSERT_TRUE(cpu_halted()); /* the program ran to completion */

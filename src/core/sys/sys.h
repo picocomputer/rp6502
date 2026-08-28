@@ -18,11 +18,6 @@
 #define SYS_OVERSAMPLE 8
 #define SYS_TICKS_PER_US (SYS_RP2350_KHZ * SYS_OVERSAMPLE / 1000) /* 2048 */
 
-/* Run one 60 Hz VGA frame. The norender form advances the CPU, chips, timing and
- * vsync but skips the per-scanline pixel work — a catch-up frame the pacer will not
- * present, and most of the per-frame cost. */
-void sys_run_frame(void);
-void sys_run_frame_norender(void);
 
 /* The oversampled system clock; host_clock_us divides it by SYS_TICKS_PER_US to
  * serve the machine's microsecond clock. Run time is a reproducible function of
@@ -30,6 +25,10 @@ void sys_run_frame_norender(void);
  * deadline, never from the host's clock. */
 uint64_t sys_clk_now(void);
 
-unsigned long sys_frame_count(void); /* diagnostic: total frames, advances at 60 Hz */
+
+/* One pass of this machine's super-loop: the driver walks, then any run or
+ * stop that was asked for. Every host loops on this and nothing else; they
+ * differ only in why they stop looping. */
+void main_task(void);
 
 #endif /* _HOST_EMU_SYS_H_ */

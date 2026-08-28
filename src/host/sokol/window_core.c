@@ -68,7 +68,6 @@ static struct
 /* Max emulated frames the pacer will run in one callback before dropping the
  * backlog (no fast-forward after a stall). Also the deepest frame-skip on a
  * sub-60 display: 6 supports presents down to ~10 Hz, caps catch-up to ~100 ms. */
-#define WINDOW_MAX_SKIP 6
 
 void window_set_bgcolor(uint8_t r, uint8_t g, uint8_t b)
 {
@@ -414,39 +413,18 @@ void window_core_frame(void)
     gamepad_input_task();
 #endif
 
-    /* Emulation is paced by an absolute monotonic clock: run exactly the number
-     * of fixed-60 Hz frames real time owes us since start — independent of the
-     * display refresh, so emulation speed is always correct. The deficit is
-     * capped and dropped (no fast-forward after a stall). Presentation is
-     * decoupled: only the LAST frame of a catch-up batch is rendered; the rest
-     * skip per-scanline pixel work (most of the per-frame cost), so falling
-     * behind stays cheap. The present clock is the vsync swap (vsync) or the
-     * software sleep at the bottom (no-vsync). */
-    double dt = sapp_frame_duration(); /* smoothed; only the EMU_BENCH_MS block uses it */
-    static uint64_t start_ns, done;
-    static bool started;
-    if (!started)
-    {
-        started = true;
-        start_ns = host_mono_ns();
-    }
-    uint64_t target = (host_mono_ns() - start_ns) * VGA_HZ / 1000000000ull;
-    if (host_window_menu_active()) /* Android ROM menu: freeze emulation */
-        done = target;
-    uint64_t behind = target > done ? target - done : 0;
-    if (behind > WINDOW_MAX_SKIP) /* hopelessly behind: drop the deficit, resync */
-    {
-        done += behind - WINDOW_MAX_SKIP;
-        behind = WINDOW_MAX_SKIP;
-    }
-    for (uint64_t i = 0; i < behind; i++)
-    {
-        if (i + 1 < behind)
-            sys_run_frame_norender(); /* catch-up frame: CPU/timing only, no pixels */
-        else
-            sys_run_frame(); /* the frame we'll present: render it */
-        done++;
-    }
+    /* Video leads on the wall clock -- the beam holds at each frame boundary
+     * until real time is owed it -- and the CPU follows it through the pump.
+     * A host that slept has its debt forgiven inside vga_task rather than
+     * fast-forwarded here. This loop's own bound is presentation: stop when a
+     * frame is ready, or when we have spent long enough that the window must
+     * be serviced whatever the machine is doing. */
+    double dt = sapp_frame_duration(); /* only the EMU_BENCH_MS block uses it */
+    const unsigned long seen = vga_frame_count();
+    const uint64_t deadline_ns = host_mono_ns() + 12000000ull;
+    while (vga_frame_count() == seen && host_mono_ns() < deadline_ns)
+        main_task();
+    const bool fresh = vga_frame_count() != seen;
 
     /* Ask the device how much room it has and hand it exactly that; --mute
      * opens no device, so nothing is asked for and nothing is generated. */
@@ -481,8 +459,8 @@ void window_core_frame(void)
         if (bench_total >= bench_limit)
         {
             fprintf(stderr, "EMU_BENCH: %lu VGA frames in %.3fs = %.1f Hz\n",
-                    sys_frame_count(), bench_total,
-                    (double)sys_frame_count() / bench_total);
+                    vga_frame_count(), bench_total,
+                    (double)vga_frame_count() / bench_total);
             sapp_request_quit();
         }
     }
@@ -554,11 +532,11 @@ void window_core_frame(void)
     });
 
     /* Upload the new frame from the window's framebuffer, but only when one was
-     * produced this callback; a duplicate present (behind == 0, e.g. a display
+     * produced this callback; a duplicate present (no new frame, e.g. a display
      * faster than 60 Hz) re-blits sfb's existing texture below without
      * re-uploading. A recreating resize must repopulate regardless. */
     static bool ever_uploaded;
-    if (behind > 0 || recreated)
+    if (fresh || recreated)
     {
         sfb_update(app.sfb, &(sfb_update_desc){
             .pixels = {.ptr = app.fb, .size = (size_t)cw * ch * sizeof(uint32_t)},
@@ -591,12 +569,11 @@ void window_core_frame(void)
     sg_end_pass();
     sg_commit();
 
-    /* No-vsync: sokol's loop is uncapped, so pace it in software to when the NEXT
-     * frame is due — start + (done+1)·period (absolute → no drift). Sleeping to
-     * done·period would target a deadline already past and busy-loop. With vsync
-     * the swap-block above already paces the loop. */
+    /* No-vsync: sokol's loop is uncapped, so pace the PRESENT in software.
+     * Emulation speed is not this sleep's business -- vga_task holds the beam
+     * against its own absolute anchor. */
     if (!app.vsync)
-        host_sleep_until_ns(start_ns + (done + 1) * (1000000000ull / VGA_HZ));
+        host_sleep_until_ns(host_mono_ns() + (1000000000ull / VGA_HZ));
 }
 
 bool window_core_boot_rom(const char *path)
@@ -1014,6 +991,8 @@ void window_core_cleanup(void)
     sg_shutdown();
 }
 
+/* A window presents whole frames, so the beam keeps frame time with the
+ * wall. The batch and script paths never call this and so never wait. */
 void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync,
                          bool exit_on_halt, int *out_w, int *out_h)
 {
@@ -1029,6 +1008,7 @@ void window_core_prepare(uint32_t *fb, double scale, bool have_scale, bool vsync
     app.vsync = vsync;
     app.exit_on_halt = exit_on_halt;
     vga_set_framebuffer(fb); /* what the window presents is what vga renders into */
+    vga_set_pace(VGA_PACE_FRAME);
     /* Open at a fixed height with the width set to the canvas aspect (square
      * pixels: display aspect = cw/ch), so a 4:3 canvas opens 640x480 and a 16:9
      * canvas opens wider. The WM may restore a previous size instead; that's fine

@@ -43,8 +43,7 @@ static bool boot(const char *input)
 
 static void run_frames(int n)
 {
-    for (int i = 0; i < n; i++)
-        sys_run_frame();
+    emu_frames((int)n);
 }
 
 /* The intro banner prints before any input is read — proves the program

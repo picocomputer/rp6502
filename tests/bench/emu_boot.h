@@ -7,6 +7,7 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
+#include "core/vga/vga_emu.h"
 #include "core/lifecycle.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
@@ -42,6 +43,15 @@ static inline bool emu_restart(const char *rom)
     lifecycle_run();
     lifecycle_commit();
     return true;
+}
+
+/* Run n whole frames, the way every host does: pump the machine until video
+ * says the frames went by. */
+static inline void emu_frames(int n)
+{
+    const unsigned long want = vga_frame_count() + (unsigned long)n;
+    while (vga_frame_count() < want)
+        main_task();
 }
 
 #endif /* _EMU_TESTS_EMU_BOOT_H_ */

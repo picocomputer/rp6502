@@ -297,13 +297,9 @@ int main(int argc, char **argv)
             script_task(); /* returns owing exactly one frame, or done */
             if (script_running())
             {
-                /* Rendered when the script could look at it: shot, crc and the
-                 * mark family must see real pixels, and the frame a command
-                 * runs after is the only one they ever see. */
-                if (script_needs_pixels())
-                    sys_run_frame();
-                else
-                    sys_run_frame_norender();
+                const unsigned long want = vga_frame_count() + 1;
+                while (vga_frame_count() < want)
+                    main_task();
             }
         }
         if (script_exit_code() || !o.screenshot)
@@ -312,13 +308,11 @@ int main(int argc, char **argv)
 
     if (o.screenshot)
     {
-        int frames = o.frames < 1 ? 1 : o.frames;
-        /* Only the final frame is captured, so settle the earlier ones without
-         * the per-scanline pixel work (most of the per-frame cost); render the
-         * last one and snapshot it. */
-        for (int i = 0; i < frames - 1; i++)
-            sys_run_frame_norender();
-        sys_run_frame(); /* renders into g_fb (registered above) */
+        const unsigned long want =
+            vga_frame_count() + (unsigned long)(o.frames < 1 ? 1 : o.frames);
+        while (vga_frame_count() < want)
+            main_task(); /* the last frame lands in g_fb, registered above */
+        const int frames = o.frames < 1 ? 1 : o.frames;
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */
         if (!png_write(o.screenshot, cw, ch, g_fb))

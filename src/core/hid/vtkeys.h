@@ -16,6 +16,7 @@
 #ifndef _HOST_EMU_VTKEYS_H_
 #define _HOST_EMU_VTKEYS_H_
 
+#include "core/lifecycle.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -50,8 +51,12 @@ void vtkeys_paste_cancel(void);
 /* True while a paste is still being handed to the ring. */
 bool vtkeys_paste_busy(void);
 
-/* Per-frame service: the paste drip. Called from sys_run_frame so the window,
+/* The paste drip, walked every pass. Ring space is what regulates it, so the window,
  * the headless batch and a script all pace a paste identically. */
 void vtkeys_task(void);
+
+/* This driver's machine-lifecycle row; see core/lifecycle.h. No stop hook:
+ * type-ahead deliberately survives an exec. */
+#define VTKEYS_MACH_LIFECYCLE LIFECYCLE(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _HOST_EMU_VTKEYS_H_ */

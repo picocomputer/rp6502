@@ -954,16 +954,6 @@ static bool script_settle(void)
 /* Run the script forward until it owes the machine a frame, which is the only
  * reason it hands control back. The caller runs exactly one frame per return,
  * so a wait costs the frames it asked for and not one more. */
-/* Whether the frame the script is owed is one it could look at. A run's frames
- * are seen only through the command after them, so all but the last can skip
- * the per-scanline pixel work — around a tenth of what a frame costs, the rest
- * being the 6502 and the raster itself. The blocking waits render every frame,
- * because which one settles them is not known until it has run. */
-bool script_needs_pixels(void)
-{
-    return !(script_wait == SCRIPT_FRAMES && script_budget > 0);
-}
-
 void script_task(void)
 {
     char line[SCRIPT_LINE_MAX];

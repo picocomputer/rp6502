@@ -30,6 +30,7 @@
 #include "core/aud/aud.h"
 #include "core/com/com.h"
 #include "core/hid/gamepad.h"
+#include "core/hid/vtkeys.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -45,18 +46,25 @@
 #include "core/wdc/cpu.h"
 #include "core/wdc/via.h"
 
-/* init and run walk this forward; stop walks it backward. This machine has
- * no break fan-out -- there is no monitor to break into -- and it walks
- * neither task column: the frame loop in core/sys/sys.c is this machine's
- * scheduler, and every call site there says why it is where it is. */
+/* init and run walk this forward; stop walks it backward; the two task
+ * columns are walked forward every pass of core/sys/sys.c's main_task, which
+ * is this machine's super-loop. There is no break fan-out -- no monitor to
+ * break into.
+ *
+ * Video leads and the CPU follows, so VGA sits before CPU: the beam advances
+ * a scanline and cpu_task runs the 6502 up to it. TERM stays after API in the
+ * io column (its lazy clears drain a row per call) and before VGA in the list
+ * (vga_init programs the console canvas, which asks term its height). VIA
+ * before CPU: they share RESB. */
 #define RP6502_MACH_DRIVERS                                                  \
     RIA_MACH_LIFECYCLE, MEM_MACH_LIFECYCLE, PROC_EXEC_MACH_LIFECYCLE,        \
     PROC_MACH_LIFECYCLE, STR_MACH_LIFECYCLE,                                 \
     COM_MACH_LIFECYCLE, STD_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE,              \
-    TERM_MACH_LIFECYCLE, KEYBOARD_MACH_LIFECYCLE, MOUSE_MACH_LIFECYCLE,      \
+    API_MACH_LIFECYCLE, TERM_MACH_LIFECYCLE,                                 \
+    KEYBOARD_MACH_LIFECYCLE, MOUSE_MACH_LIFECYCLE,                           \
     GAMEPAD_MACH_LIFECYCLE, TABLET_MACH_LIFECYCLE, FONT_MACH_LIFECYCLE,      \
-    OEM_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE, AUD_MACH_LIFECYCLE,              \
-    TIM_MACH_LIFECYCLE, DIR_MACH_LIFECYCLE, API_MACH_LIFECYCLE,              \
+    OEM_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE, VTKEYS_MACH_LIFECYCLE,           \
+    AUD_MACH_LIFECYCLE, TIM_MACH_LIFECYCLE, DIR_MACH_LIFECYCLE,              \
     CLK_MACH_LIFECYCLE, VIA_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
 
 /* What a program may open, in the order open() tries them. The filesystem is

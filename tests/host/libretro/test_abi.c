@@ -37,7 +37,7 @@ UTEST(abi, version_is_one)
 UTEST(abi, the_machine_is_not_exported)
 {
     static const char *inside[] = {
-        "lifecycle_init", "lifecycle_run", "lifecycle_stop", "rom_load", "sys_run_frame",
+        "lifecycle_init", "lifecycle_run", "lifecycle_stop", "rom_load", "main_task",
         "vga_set_framebuffer", "vga_canvas_size", "com_set_tx_tap", "mem_init",
         "aud_read", "aud_pump", "ram", "xram", "regs", "xstack",
         "keyboard_hid_set", "gamepad_host_report", "fs_std_open", "fs_std_read", "log_error",

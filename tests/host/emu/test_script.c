@@ -29,14 +29,14 @@ static unsigned long frames_for(const char *text)
 
     if (!emu_restart(TEST_FIXTURE) || !script_load(path))
         return (unsigned long)-1;
-    unsigned long before = sys_frame_count();
+    unsigned long before = vga_frame_count();
     while (script_running())
     {
         script_task();
         if (script_running())
-            script_needs_pixels() ? sys_run_frame() : sys_run_frame_norender();
+            emu_frames(1);
     }
-    return sys_frame_count() - before;
+    return vga_frame_count() - before;
 }
 
 UTEST(script, run_is_exact)

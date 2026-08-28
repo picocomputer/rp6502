@@ -17,6 +17,7 @@
 #include "core/term/term.h"
 #include "core/term/font.h"
 #include "core/vga/pixel_format.h"
+#include "host.h"
 #include <string.h>
 
 /* RGB555(+alpha bit) -> RGBA8 (0xAABBGGRR). Computed inline rather than through a
@@ -88,6 +89,78 @@ void vga_stop(void)
         vga_needs_reset = true;
 }
 
+static int16_t vga_vsync_scanline(void);
+static void vga_render_scanline(int y);
+
+/* ---- the beam ------------------------------------------------------------
+ *
+ * Video leads and the 6502 follows: this advances the beam at most one
+ * scanline per call, and cpu_task runs the machine up to wherever it got to.
+ * On real hardware the two run at once; here they zip, one line at a time.
+ */
+
+/* Absolute scanline, never reset. The deadline below is computed from it
+ * every time rather than accumulated, so integer division introduces no
+ * drift. */
+static uint64_t beam_n;
+static unsigned long frame_n;
+static bool vsynced;
+
+uint64_t vga_beam_clk(void)
+{
+    /* When scanline n is due on the machine's clock:
+     *   n * (SYS_RP2350_KHZ*1000 * SYS_OVERSAMPLE) / (60*525) = n * 4096000/63.
+     * Exact every 63 lines, so a second of frames is exactly a second. Do NOT
+     * "fix" the inexact 4096000/63 with a per-line remainder: that
+     * double-corrects and creates the drift it looks like it removes. The
+     * n*4096000 intermediate overflows a uint64 after ~4.5 years of uptime. */
+    return beam_n * 4096000ull / 63;
+}
+
+unsigned long vga_frame_count(void) { return frame_n; }
+
+/* What the beam waits for. Both modes release one line at a time -- the CPU
+ * zips in between either way -- and differ only in what the wall clock is
+ * held against: a whole frame for a host presenting a framebuffer, a single
+ * line for a host consuming scanlines. Unpaced is the default, and is what a
+ * script, a screenshot batch, a test and a frontend-paced core all want: the
+ * machine advances exactly as fast as it is pumped, which is the whole of
+ * their determinism. */
+static vga_pace_t g_pace;
+static uint64_t pace_anchor_ns;
+
+/* How far behind the wall the machine may fall before the debt is forgiven.
+ * A host that slept owes nothing: catching that up would fast-forward the
+ * program through time it was never there for. */
+#define VGA_PACE_SLACK_NS 100000000ull
+
+static uint64_t beam_due_ns(void)
+{
+    return g_pace == VGA_PACE_FRAME
+               ? (beam_n / VGA_SCANLINES) * (1000000000ull / VGA_HZ)
+               : beam_n * (1000000000ull / (VGA_HZ * VGA_SCANLINES));
+}
+
+void vga_set_pace(vga_pace_t pace)
+{
+    g_pace = pace;
+    if (pace != VGA_PACE_NONE)
+        pace_anchor_ns = host_mono_ns() - beam_due_ns(); /* here is on time */
+}
+
+static bool beam_due(void)
+{
+    if (g_pace == VGA_PACE_NONE)
+        return true;
+    const uint64_t now = host_mono_ns();
+    const uint64_t due = pace_anchor_ns + beam_due_ns();
+    if (now < due)
+        return false;
+    if (now - due > VGA_PACE_SLACK_NS)
+        pace_anchor_ns += now - due - VGA_PACE_SLACK_NS;
+    return true;
+}
+
 void vga_task(void)
 {
     if (vga_needs_reset)
@@ -98,9 +171,29 @@ void vga_task(void)
          * message would have become. */
         xreg1(0xF, 0x00, vga_get_display_type());
     }
+    if (!beam_due())
+        return;
+    /* Draw the line from the machine state as it stands now, before the
+     * cycles that belong to it have run -- the CPU catches up to the beam
+     * afterwards, so a write lands on later lines. Real per-scanline scanout. */
+    const int16_t line = (int16_t)(beam_n % VGA_SCANLINES);
+    if (line < vga_canvas_height())
+        vga_render_scanline(line);
+    beam_n++;
+    if (!vsynced && line + 1 >= vga_vsync_scanline())
+    {
+        REGS(0xFFE3) = (uint8_t)(REGS(0xFFE3) + 1); /* VSYNC counter, 8-bit wrap */
+        ria_trigger_vsync(); /* latch $FFF0 bit7; IRQ only if the program enabled it */
+        vsynced = true;
+    }
+    if (beam_n % VGA_SCANLINES == 0)
+    {
+        vsynced = false;
+        frame_n++;
+    }
 }
 
-int16_t vga_vsync_scanline(void)
+static int16_t vga_vsync_scanline(void)
 {
     /* Mirror the firmware (vga_scanline_complete): vsync fires at the highest
      * scanline any program renders, clamped to / falling back to the canvas
@@ -168,9 +261,9 @@ static void render_scanline(int y, uint32_t *fb)
 }
 
 /* Render scanline y of the current frame into the registered framebuffer,
- * interleaved with the CPU by sys_run_frame so mid-frame state changes land on
+ * interleaved with the CPU a line at a time, so mid-frame state changes land on
  * later lines (raster effects), matching the real per-scanline VGA scanout. */
-void vga_render_scanline(int y)
+static void vga_render_scanline(int y)
 {
     if (g_framebuffer)
         render_scanline(y, g_framebuffer);

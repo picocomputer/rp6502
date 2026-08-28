@@ -20,18 +20,18 @@ void vga_init(void);
 /* Arm a console reset for the next vga_task() when a program stops (firmware vga_stop). */
 void vga_stop(void);
 
-/* Perform an armed console reset via the DISPLAY xreg; call once per frame. */
+/* Advance the beam at most one scanline: render it, fire vsync where the
+ * program's last line falls, count the frame at the wrap. The 6502 follows,
+ * catching up to vga_beam_clk() -- on hardware the two run at once, here
+ * they zip. */
 void vga_task(void);
 
-/* The scanline at which vsync fires for the current frame — the highest
- * scanline any installed program renders (firmware fires ria_vsync there). */
-int16_t vga_vsync_scanline(void);
+/* The machine clock the beam has reached: what the CPU is owed. */
+uint64_t vga_beam_clk(void);
 
-/* Render one scanline y of the current frame into the present buffer (RGBA8
- * 0xAABBGGRR, canvas-native stride). Interleaved with the CPU between scanlines
- * so mid-frame state changes land on later lines (raster effects), matching
- * real per-scanline scanout. */
-void vga_render_scanline(int y);
+/* Frames completed. Pumping until this moves is how every host asks for a
+ * frame -- a window, a frontend, a script, a screenshot, a test. */
+unsigned long vga_frame_count(void);
 
 /* The largest canvas (the 640x480 boot console); framebuffer owners size
  * their storage with these. */
@@ -53,9 +53,23 @@ uint32_t *vga_get_framebuffer(void);
  * program, the code page -- is core/vga/vga.h, which every machine shares.
  * This file is only what the emulator additionally has: a framebuffer. */
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. A software machine
- * renders its own video and has no vga_run -- the firmware's is a link
- * check, not a frame. */
-#define VGA_MACH_LIFECYCLE LIFECYCLE(vga_init, nul_task, nul_task, nul_run, vga_stop, nul_break)
+/* What the beam waits for. Both modes release one scanline at a time, so the
+ * CPU zips in between either way; they differ only in what real time is held
+ * against. A host presenting a framebuffer keeps whole frames on time; a host
+ * consuming scanlines keeps each line on time. Unpaced -- the default -- never
+ * waits, which is what a script, a screenshot batch, a test and a
+ * frontend-paced core all want. */
+typedef enum
+{
+    VGA_PACE_NONE,
+    VGA_PACE_FRAME,
+    VGA_PACE_SCANLINE,
+} vga_pace_t;
+
+void vga_set_pace(vga_pace_t pace);
+
+/* This driver's machine-lifecycle row; see core/lifecycle.h. Video leads: its
+ * task runs before the CPU's, which follows the beam. */
+#define VGA_MACH_LIFECYCLE LIFECYCLE(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break)
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

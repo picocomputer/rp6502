@@ -580,7 +580,10 @@ void retro_run(void)
     input_poll_cb();
     input_poll(input_state_cb);
 
-    sys_run_frame();
+    /* The frontend paces us: one frame per call, as fast as this can run it. */
+    const unsigned long want = vga_frame_count() + 1;
+    while (vga_frame_count() < want)
+        main_task();
 
     int w, h;
     vga_canvas_size(&w, &h);

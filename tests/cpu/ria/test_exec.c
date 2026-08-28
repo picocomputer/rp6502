@@ -33,8 +33,7 @@ static void tap(const char *buf, int len)
 
 static void run_frames(int n)
 {
-    for (int i = 0; i < n; i++)
-        sys_run_frame();
+    emu_frames((int)n);
 }
 
 /* Setup goes through the drive, because that is now the only way in: these

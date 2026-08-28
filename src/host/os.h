@@ -118,7 +118,7 @@ bool host_argv_to_oem(const char *arg, char *dst, size_t dstsz);
  * needs no header from the application that calls them. A host that is none of
  * those things leaves them unimplemented and nothing links against them.
  *
- * Real time, for pacing a frame loop against the display -- not host_clock_us
+ * Real time, for pacing a machine against the display -- not host_clock_us
  * above, which a window deliberately lets drift when the host falls behind. The
  * sleep is a no-op where the present already paces. */
 uint64_t host_mono_ns(void);

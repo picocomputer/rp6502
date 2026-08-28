@@ -81,8 +81,7 @@ bool mut_boot(const char *rom)
     lifecycle_run();
     lifecycle_commit();
     vga_set_framebuffer(mut_fb);
-    for (int i = 0; i < MUT_SETTLE_FRAMES; i++)
-        sys_run_frame();
+    emu_frames((int)MUT_SETTLE_FRAMES);
     return true;
 }
 
@@ -95,7 +94,7 @@ const uint32_t *mut_frame(int w, int h)
 {
     (void)w;
     (void)h;
-    sys_run_frame();
+    emu_frames(1);
     return mut_fb;
 }
 

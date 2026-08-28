@@ -35,8 +35,7 @@ static void tap(const char *buf, int len)
 
 static void run_frames(int n)
 {
-    for (int i = 0; i < n; i++)
-        sys_run_frame();
+    emu_frames((int)n);
 }
 
 /* The 18-byte wire tm the 6502 libc pushes: 9 int16 in struct-tm order. */

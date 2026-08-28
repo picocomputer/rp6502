@@ -47,10 +47,6 @@ bool script_running(void);
  * hundred. The script is the only clock; nothing paces it against real time. */
 void script_task(void);
 
-/* Whether the frame script_task just asked for is one the script can observe.
- * False through the middle of a run, where the pixels are never looked at. */
-bool script_needs_pixels(void);
-
 /* Run one command line. False on a bad line or a failed assertion, either of
  * which ends the run. Public so a transport other than a file can drive the
  * same verbs. */

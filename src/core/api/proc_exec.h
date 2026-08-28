@@ -18,10 +18,12 @@ void proc_init(void); /* clear any pending exec (cold boot) */
 
 /* Request an exec: load rom_path (a host/drive path or overlay ROM name) as the
  * new program at the next frame boundary. Stops the current program; the frame
- * loop commits it via proc_take_exec(). */
+ * proc_exec_task() commits it. */
 void proc_exec(const char *rom_path);
-const char *proc_take_exec(void); /* the pending exec path, cleared, else NULL */
 bool proc_exec_pending(void);     /* an exec is queued but not yet committed */
+
+/* Perform a queued exec: stop, load, run -- all through the lifecycle. */
+void proc_exec_task(void);
 
 /* Launcher chain (firmware proc.h), reached by the vendored atr.c through the
  * LAUNCHER/EXIT_CODE attributes. A launcher re-runs after each child exits;
@@ -31,6 +33,6 @@ bool proc_exit(int16_t exit_code);     /* true if a launcher re-exec was schedul
 /* This driver's machine-lifecycle row; see core/lifecycle.h. The pending-exec queue
  * is its own driver, separate from core/api/proc.c's row -- they share a
  * prefix and nothing else, which is why this is named for the file. */
-#define PROC_EXEC_MACH_LIFECYCLE LIFECYCLE(proc_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+#define PROC_EXEC_MACH_LIFECYCLE LIFECYCLE(proc_init, nul_task, proc_exec_task, nul_run, nul_stop, nul_break)
 
 #endif /* _CORE_API_PROC_EXEC_H_ */

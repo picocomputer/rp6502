@@ -5,6 +5,9 @@
  *
  */
 
+#include "core/lifecycle.h"
+#include "core/sys/log.h"
+#include "core/rom/rom.h"
 #include "core/api/proc_exec.h"
 #include "core/api/proc.h"
 #include "core/api/fs.h"
@@ -21,7 +24,7 @@
 /* Pending exec (op 0x09): the new program loads at the frame boundary rather
  * than mid-tick, so the master clock and the partially-run frame stay
  * consistent. proc_exec() captures the ROM path and stops the current program;
- * the frame loop commits it via proc_take_exec(). */
+ * proc_exec_task() commits it. */
 static bool exec_pending;
 static char exec_path[HOST_MAX_PATH];
 
@@ -37,7 +40,7 @@ void proc_exec(const char *rom_path)
     cpu_set_halted(true); /* stop the current program; the tick loop exits */
 }
 
-const char *proc_take_exec(void)
+static const char *proc_take_exec(void)
 {
     if (!exec_pending)
         return NULL;
@@ -97,11 +100,31 @@ void proc_exec_relaunch(const char *path)
     proc_exec(path);
 }
 
-/* Never: a pending exec on this machine is the note the frame loop is about
+/* Never: a pending exec on this machine is the note proc_exec_task is about
  * to read, including the one the chain itself just wrote. A load someone else
  * committed cannot be outstanding at a stop, because an exec halts the 6502
  * on the spot rather than letting it reach EXIT. */
 bool proc_exec_inflight(void)
 {
     return false;
+}
+
+/* Commit a queued exec: put the outgoing program away, load the incoming one
+ * over the RAM it was running out of, and ask for the machine back. Both asks
+ * go through the latch, so the walk that is running right now finishes first
+ * -- which is the whole reason the latch exists. */
+void proc_exec_task(void)
+{
+    const char *path = proc_take_exec();
+    if (!path)
+        return;
+    lifecycle_stop();
+    lifecycle_commit(); /* the load below writes what the outgoing program ran on */
+    if (!rom_load(path))
+    {
+        log_error("exec failed to load '%s'", path);
+        proc_set_exit_code(1); /* stays halted from the stop above */
+        return;
+    }
+    lifecycle_run(); /* the pass's own commit starts it */
 }

@@ -61,7 +61,7 @@ UTEST(dbg, watchpoints_see_only_sram_reads)
     dbg_set_watch_cb(wp_tap);
     dbg_watch_armed = 1;
 
-    sys_run_frame();
+    emu_frames(1);
 
     dbg_watch_armed = 0;
     dbg_set_watch_cb(NULL);
@@ -83,7 +83,7 @@ UTEST(dbg, breakpoint_stops_at_entry)
     dbg_add_breakpoint(entry);
     dbg_set_active(true);
 
-    sys_run_frame();
+    emu_frames(1);
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry);
@@ -91,7 +91,7 @@ UTEST(dbg, breakpoint_stops_at_entry)
     ASSERT_FALSE(cpu_halted()); /* stopped, not exited */
 
     /* Held: while stopped, further frames do not advance the CPU. */
-    sys_run_frame();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry);
 
@@ -106,12 +106,12 @@ UTEST(dbg, step_advances_one_instruction)
     uint16_t entry = entry_pc();
     dbg_add_breakpoint(entry);
     dbg_set_active(true);
-    sys_run_frame();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
 
     dbg_remove_breakpoint(entry); /* prove the next stop is the step, not the bp */
     dbg_step(DBG_STEP_INSTR);
-    sys_run_frame();
+    emu_frames(1);
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_STEP);
@@ -128,7 +128,7 @@ UTEST(dbg, pause_stops_running_cpu)
     dbg_set_active(true);
     dbg_request_pause();
 
-    sys_run_frame();
+    emu_frames(1);
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_PAUSE);
@@ -144,7 +144,7 @@ UTEST(dbg, break_request_stops_as_breakpoint)
     dbg_set_active(true);
     dbg_request_break();
 
-    sys_run_frame();
+    emu_frames(1);
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ(dbg_stop_reason(), (int)DBG_REASON_BREAKPOINT);
@@ -159,7 +159,7 @@ UTEST(dbg, stop_at_entry)
     dbg_set_active(true);
     dbg_stop_at_entry();
 
-    sys_run_frame();
+    emu_frames(1);
 
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_EQ((int)dbg_stop_pc(), (int)entry_pc());
@@ -177,11 +177,11 @@ static uint32_t frame_crc(void)
     return mem_crc32(0, fb, (size_t)cw * ch * 4);
 }
 
-/* A stop freezes the machine but not the screen: terminal output that hasn't
- * been scanned out yet (a program's final prints before the halt) is swept to
- * the framebuffer once from the frozen state. All running frames here skip
- * rendering, so ONLY the stopped-state sweeps ever touch the framebuffer. */
-UTEST(dbg, stop_sweeps_pending_output_to_framebuffer)
+/* A stop holds the 6502 and nothing else. The beam keeps sweeping, so a
+ * program's final prints scan out on their own and the frame counter goes on
+ * advancing -- which is what a halted 65C02 sees on real hardware, and why
+ * there is nothing here to sweep by hand. */
+UTEST(dbg, a_stop_holds_the_cpu_and_not_the_screen)
 {
     ASSERT_TRUE(load());
     vga_set_framebuffer(fb);
@@ -190,21 +190,25 @@ UTEST(dbg, stop_sweeps_pending_output_to_framebuffer)
     dbg_set_active(true);
 
     dbg_add_breakpoint(entry_pc()); /* stop before anything prints */
-    sys_run_frame_norender();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
-    sys_run_frame();
+    /* Held, and the beam still runs: frames keep completing while the 6502
+     * fetches nothing. */
+    const unsigned long held_at = vga_frame_count();
+    emu_frames(1);
+    ASSERT_TRUE(dbg_is_stopped());
+    ASSERT_GT(vga_frame_count(), held_at);
     uint32_t console_blank = frame_crc();
-    ASSERT_NE(console_blank, untouched); /* the sweep painted the blank console */
+    ASSERT_NE(console_blank, untouched); /* the console scanned out */
 
     dbg_clear_breakpoints();
     dbg_continue();
-    for (int i = 0; i < 60; i++) /* intro banner prints; nothing rendered */
-        sys_run_frame_norender();
+    emu_frames(60); /* the intro banner prints and scans out */
     dbg_request_break();
-    sys_run_frame_norender();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
 
-    sys_run_frame();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
     ASSERT_NE(frame_crc(), console_blank); /* the banner reached the pixels */
 
@@ -221,7 +225,7 @@ UTEST(dbg, continue_runs_to_exit)
     uint16_t entry = entry_pc();
     dbg_add_breakpoint(entry);
     dbg_set_active(true);
-    sys_run_frame();
+    emu_frames(1);
     ASSERT_TRUE(dbg_is_stopped());
 
     dbg_clear_breakpoints();
@@ -231,7 +235,7 @@ UTEST(dbg, continue_runs_to_exit)
     /* Decline the intro prompt, "quit", then confirm "yes" -> the game exits. */
     vtkeys_paste("no\nquit\nyes\n");
     for (int i = 0; i < 600 && !cpu_halted(); i++)
-        sys_run_frame();
+        emu_frames(1);
     ASSERT_TRUE(cpu_halted());
     ASSERT_FALSE(dbg_is_stopped());
 

@@ -586,7 +586,7 @@ static void dbgui_register_settings_handlers(void)
 }
 
 /* Emulated VGA frame rate for the menu readout: target 60 Hz, dropping when the
- * host can't run the machine in real time. Measured from sys_frame_count() over
+ * host can't run the machine in real time. Measured from vga_frame_count() over
  * wall-clock windows — NOT io.Framerate, which is the host's uncapped present rate
  * (often hundreds of Hz) and says nothing about whether the emulation keeps pace.
  * Counts hold flat while stopped at a breakpoint, so it reads ~0 when paused. */
@@ -599,12 +599,12 @@ static float dbgui_vga_fps(void)
     if (!primed)
     {
         primed = true;
-        win_base = sys_frame_count();
+        win_base = vga_frame_count();
     }
     win_time += ImGui::GetIO().DeltaTime;
     if (win_time >= 0.5) /* refresh the reading twice a second */
     {
-        unsigned long now = sys_frame_count();
+        unsigned long now = vga_frame_count();
         fps = (float)((double)(now - win_base) / win_time);
         win_base = now;
         win_time = 0.0;
