@@ -66,11 +66,10 @@ void ria_verify_buf(uint16_t addr);
 // Prints a "?" error and returns true if last mbuf action failed.
 bool ria_handle_error(void);
 
-/* This driver's lifecycle row; see core/lifecycle.h. Nothing depends on where
- * this sits in the stop walk -- the transfer ria_active() reports is closed by
- * ria_task, not by ria_stop. The run walk is the constraint: ria_run installs
- * the fast-load stub over registers api_run also writes, so this row has to
- * follow API's. */
+/* This driver's lifecycle row; see core/lifecycle.h. Its position is init
+ * order and nothing more: the transfer that ria_active() reports is closed by
+ * ria_task, not by ria_stop, so no other driver's stop depends on where this
+ * one sits. */
 #define RIA_LIFECYCLE LIFECYCLE(ria_init, ria_run, ria_stop, nul_break)
 
 #endif /* _RIA_SYS_RIA_H_ */

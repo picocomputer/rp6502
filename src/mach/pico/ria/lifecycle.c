@@ -47,21 +47,15 @@
 #include "ria/usb/usb.h"
 #include "ria/usb/mid.h"
 
-/* The bring-up at the front is the fabric's order: the clock before everything
- * timed against it, the console before anything prints, the banner before
- * anything can queue an error under it, the bus before the video that talks
- * over it, and the filesystem before the config it holds. The rest is init
- * order and little else -- cyw after cfg because the country code is an
- * argument to the radio, usb late because its enumeration window times a
- * keyboard quirk, cpu last.
- *
- * api sits among them for the run walk rather than the init one, which it has
- * not got: api_run lays the released-register shape across $FFF2-$FFF9 and a
- * fast load's stub occupies $FFF0-$FFF7, so the RIA has to write last or the
- * 6502 leaves reset into six bytes of wreckage. */
+/* The first eight are the machine's bring-up, and the order is the fabric's:
+ * the clock before everything timed against it, the console before anything
+ * prints, the banner before anything can queue an error under it, the bus
+ * before the video that talks over it, and the filesystem before the config it
+ * holds. The rest is init order and little else -- cyw after cfg because the
+ * country code is an argument to the radio, usb late because its enumeration
+ * window times a keyboard quirk, cpu last. */
 #define ROSTER                                                      \
-    SYS_LIFECYCLE, COM_LIFECYCLE, MON_LIFECYCLE,                    \
-    API_LIFECYCLE, RIA_LIFECYCLE,                                   \
+    SYS_LIFECYCLE, COM_LIFECYCLE, MON_LIFECYCLE, RIA_LIFECYCLE,     \
     PIX_LIFECYCLE, VGA_LIFECYCLE, LFS_LIFECYCLE, CFG_LIFECYCLE,     \
     PROC_LIFECYCLE, STR_LIFECYCLE, STD_LIFECYCLE,                   \
     CYW_LIFECYCLE, OEM_LIFECYCLE, LED_LIFECYCLE,                    \
@@ -69,7 +63,7 @@
     KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,           \
     TABLET_LIFECYCLE, ROM_LIFECYCLE, TIM_LIFECYCLE,                 \
     MODEM_LIFECYCLE, RLN_LIFECYCLE, DIR_LIFECYCLE,                  \
-    CLK_LIFECYCLE, MEM_LIFECYCLE, DRIVE_LIFECYCLE,                  \
+    API_LIFECYCLE, CLK_LIFECYCLE, MEM_LIFECYCLE, DRIVE_LIFECYCLE,   \
     FIL_LIFECYCLE, RAM_LIFECYCLE, USB_LIFECYCLE, CPU_LIFECYCLE
 
 void lifecycle_init(void)
