@@ -22,7 +22,7 @@
 #include <hardware/dma.h>
 #include <hardware/sync.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RIA)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_RIA)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

@@ -48,7 +48,7 @@ bool modem_set_listen_port(uint16_t port)
 #include <pico/time.h>
 #include <stdlib.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_MODEM)
+#if defined(DEBUG_NET) || defined(DEBUG_NET_MODEM)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

@@ -10,7 +10,7 @@
 #include "host.h"
 #include <string.h>
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_GAMEPAD)
+#if defined(DEBUG_HID) || defined(DEBUG_HID_GAMEPAD)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

@@ -26,7 +26,7 @@
 #include <stdarg.h> /* before pico/printf.h, which uses va_list without it */
 #include <pico/printf.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CFG)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_CFG)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

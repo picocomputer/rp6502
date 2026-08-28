@@ -19,7 +19,7 @@
 #include <fatfs/ff.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_PROC)
+#if defined(DEBUG_API) || defined(DEBUG_API_PROC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

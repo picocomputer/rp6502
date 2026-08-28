@@ -26,7 +26,7 @@
 #include <hardware/watchdog.h>
 #include <pico/stdio.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_SYS)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_SYS)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

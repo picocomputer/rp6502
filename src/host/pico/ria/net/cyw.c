@@ -23,7 +23,7 @@ void cyw_task(void) {}
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CYW)
+#if defined(DEBUG_NET) || defined(DEBUG_NET_CYW)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

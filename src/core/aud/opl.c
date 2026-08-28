@@ -13,7 +13,7 @@
 #include <string.h>
 #include <emu8950/emu8950.h>
 
-#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_OPL)
+#if defined(DEBUG_AUD) || defined(DEBUG_AUD_OPL)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

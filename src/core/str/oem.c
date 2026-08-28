@@ -13,7 +13,7 @@
 #include "host.h"
 #include <string.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_OEM)
+#if defined(DEBUG_API) || defined(DEBUG_API_OEM)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

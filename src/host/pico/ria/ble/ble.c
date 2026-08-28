@@ -27,7 +27,7 @@ void ble_set_hid_leds(uint8_t) {}
 #include <pico/time.h>
 #include <btstack.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_BLE)
+#if defined(DEBUG_NET) || defined(DEBUG_NET_BLE)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

@@ -15,7 +15,7 @@
 #include <host/usbh_pvt.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_XIN)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_XIN)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

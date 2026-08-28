@@ -20,7 +20,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_DRIVE)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_DRIVE)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

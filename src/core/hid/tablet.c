@@ -11,7 +11,7 @@
 #include "host.h"
 #include <string.h>
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_TABLET)
+#if defined(DEBUG_HID) || defined(DEBUG_HID_TABLET)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

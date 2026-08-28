@@ -26,7 +26,7 @@
 
 extern int hcd_free_ep_count(void);
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_USB)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_USB)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

@@ -10,7 +10,7 @@
 #include "core/api/api.h"
 #include "core/cpu.h"
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_API)
+#if defined(DEBUG_API) || defined(DEBUG_API_API)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

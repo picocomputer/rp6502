@@ -16,7 +16,7 @@
 #include <pico.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_HELP)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_HELP)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

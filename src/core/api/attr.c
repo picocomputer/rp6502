@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_API) || defined(DEBUG_RIA_API_ATTR)
+#if defined(DEBUG_API) || defined(DEBUG_API_ATTR)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

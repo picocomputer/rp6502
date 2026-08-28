@@ -16,7 +16,7 @@
 #include <ctype.h>
 #include <assert.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_RLN)
+#if defined(DEBUG_STR) || defined(DEBUG_STR_RLN)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_MON) || defined(DEBUG_RIA_MON_UF2)
+#if defined(DEBUG_MON) || defined(DEBUG_MON_UF2)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -488,7 +488,7 @@ static void uf2_do_write(void)
     }
     struct uf2_block *b = (struct uf2_block *)UF2_RIA_BLOCK_BUF;
     uint32_t flash_addr = b->target_addr - XIP_BASE;
-#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+#ifdef DEBUG_MON_UF2_SIMULATE_FAILURE
     // Corrupt sector 0 so the flash is demonstrably broken after reboot —
     // lets us exercise the full failure-UX path end to end, including
     // what happens after a manual power-cycle on a half-written image.
@@ -576,7 +576,7 @@ static void uf2_do_vga_stream_block(void)
         uf2_cur_sector = sector;
     }
 
-#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+#ifdef DEBUG_MON_UF2_SIMULATE_FAILURE
     // Corrupt every byte in every block of sector 0 so the resulting
     // flash is demonstrably broken — lets us exercise the full
     // failure-UX path end to end, including what the VGA looks like
@@ -614,7 +614,7 @@ static void uf2_do_vga_wait(void)
     case 0:
         return;
     case 1:
-#ifdef DEBUG_RIA_MON_UF2_SIMULATE_FAILURE
+#ifdef DEBUG_MON_UF2_SIMULATE_FAILURE
         // Belt-and-suspenders: if VGA unexpectedly ack'd sector 0 after
         // the payload was corrupted, force lockup.
         if (uf2_vga_last_sector == 0)

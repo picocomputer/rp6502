@@ -15,7 +15,7 @@
 #include <ctype.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_CMD)
+#if defined(DEBUG_NET) || defined(DEBUG_NET_CMD)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

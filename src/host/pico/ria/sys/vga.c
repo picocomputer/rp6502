@@ -21,7 +21,7 @@
 #include <strings.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_VGA)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_VGA)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

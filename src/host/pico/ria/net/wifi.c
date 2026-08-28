@@ -19,7 +19,7 @@ int wifi_scan_response(char *, size_t, int, unsigned) { return -1; }
 #include "ria/sys/mem.h"
 #include <pico/cyw43_arch.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_WIFI)
+#if defined(DEBUG_NET) || defined(DEBUG_NET_WIFI)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

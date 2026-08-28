@@ -13,7 +13,7 @@
 #include <stdalign.h>
 #include <stdio.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_MEM)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_MEM)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

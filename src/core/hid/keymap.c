@@ -26,7 +26,7 @@
  * one — see src/host/windows. */
 #include <strings.h>
 
-#if defined(DEBUG_RIA_HID) || defined(DEBUG_RIA_HID_KEYBOARD)
+#if defined(DEBUG_HID) || defined(DEBUG_HID_KEYBOARD)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

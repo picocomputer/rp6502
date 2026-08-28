@@ -14,7 +14,7 @@
 #include <hardware/pwm.h>
 #include <hardware/clocks.h>
 
-#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_AUD)
+#if defined(DEBUG_AUD) || defined(DEBUG_AUD_AUD)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

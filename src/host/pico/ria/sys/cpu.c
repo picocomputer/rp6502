@@ -14,7 +14,7 @@
 #include <hardware/sync.h>
 #include <hardware/vreg.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_CPU)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_CPU)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

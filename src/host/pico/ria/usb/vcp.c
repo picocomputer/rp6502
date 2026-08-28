@@ -13,7 +13,7 @@
 #include <string.h>
 #include <ctype.h>
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_VCP)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_VCP)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

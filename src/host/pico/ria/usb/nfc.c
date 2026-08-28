@@ -15,7 +15,7 @@
 #include <string.h>
 #include <pico/time.h>
 
-#if defined(DEBUG_RIA_USB) || defined(DEBUG_RIA_USB_NFC)
+#if defined(DEBUG_USB) || defined(DEBUG_USB_NFC)
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }

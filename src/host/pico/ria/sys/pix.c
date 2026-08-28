@@ -14,7 +14,7 @@
 #include <pico/time.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_SYS) || defined(DEBUG_RIA_SYS_PIX)
+#if defined(DEBUG_SYS) || defined(DEBUG_SYS_PIX)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

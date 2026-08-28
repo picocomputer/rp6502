@@ -25,7 +25,7 @@
 #include "host.h"
 #include <assert.h>
 
-#if defined(DEBUG_RIA_STR) || defined(DEBUG_RIA_STR_STR)
+#if defined(DEBUG_STR) || defined(DEBUG_STR_STR)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

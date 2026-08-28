@@ -8,7 +8,7 @@
 #include "core/aud/bel.h"
 #include "host.h"
 
-#if defined(DEBUG_RIA_AUD) || defined(DEBUG_RIA_AUD_BEL)
+#if defined(DEBUG_AUD) || defined(DEBUG_AUD_BEL)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else

@@ -15,7 +15,7 @@
 #include <pico/stdlib.h>
 #include <string.h>
 
-#if defined(DEBUG_RIA_NET) || defined(DEBUG_RIA_NET_TEL)
+#if defined(DEBUG_NET) || defined(DEBUG_NET_TEL)
 #include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
