@@ -60,7 +60,7 @@ bool lifecycle_break_to_launcher(void);
  * machine has not got is simply absent from the list.
  *
  * The arity boilerplate below is the price of reversing a list in the
- * preprocessor. 32 rows is the ceiling; add more by extending the runs. */
+ * preprocessor. 40 rows is the ceiling; add more by extending the runs. */
 
 #define nul_init()
 #define nul_run()
@@ -102,6 +102,14 @@ bool lifecycle_break_to_launcher(void);
 #define LC_FWD_30(a, ...) a LC_FWD_29(__VA_ARGS__)
 #define LC_FWD_31(a, ...) a LC_FWD_30(__VA_ARGS__)
 #define LC_FWD_32(a, ...) a LC_FWD_31(__VA_ARGS__)
+#define LC_FWD_33(a, ...) a LC_FWD_32(__VA_ARGS__)
+#define LC_FWD_34(a, ...) a LC_FWD_33(__VA_ARGS__)
+#define LC_FWD_35(a, ...) a LC_FWD_34(__VA_ARGS__)
+#define LC_FWD_36(a, ...) a LC_FWD_35(__VA_ARGS__)
+#define LC_FWD_37(a, ...) a LC_FWD_36(__VA_ARGS__)
+#define LC_FWD_38(a, ...) a LC_FWD_37(__VA_ARGS__)
+#define LC_FWD_39(a, ...) a LC_FWD_38(__VA_ARGS__)
+#define LC_FWD_40(a, ...) a LC_FWD_39(__VA_ARGS__)
 
 #define LC_REV_1(a) a
 #define LC_REV_2(a, ...) LC_REV_1(__VA_ARGS__) a
@@ -135,9 +143,17 @@ bool lifecycle_break_to_launcher(void);
 #define LC_REV_30(a, ...) LC_REV_29(__VA_ARGS__) a
 #define LC_REV_31(a, ...) LC_REV_30(__VA_ARGS__) a
 #define LC_REV_32(a, ...) LC_REV_31(__VA_ARGS__) a
+#define LC_REV_33(a, ...) LC_REV_32(__VA_ARGS__) a
+#define LC_REV_34(a, ...) LC_REV_33(__VA_ARGS__) a
+#define LC_REV_35(a, ...) LC_REV_34(__VA_ARGS__) a
+#define LC_REV_36(a, ...) LC_REV_35(__VA_ARGS__) a
+#define LC_REV_37(a, ...) LC_REV_36(__VA_ARGS__) a
+#define LC_REV_38(a, ...) LC_REV_37(__VA_ARGS__) a
+#define LC_REV_39(a, ...) LC_REV_38(__VA_ARGS__) a
+#define LC_REV_40(a, ...) LC_REV_39(__VA_ARGS__) a
 
-#define LC_COUNT(...) LC_COUNT_(__VA_ARGS__, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
-#define LC_COUNT_(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, N, ...) N
+#define LC_COUNT(...) LC_COUNT_(__VA_ARGS__, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1)
+#define LC_COUNT_(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, N, ...) N
 
 #define LIFECYCLE_FORWARD(...) LC_CAT(LC_FWD_, LC_COUNT(__VA_ARGS__))(__VA_ARGS__)
 #define LIFECYCLE_REVERSE(...) LC_CAT(LC_REV_, LC_COUNT(__VA_ARGS__))(__VA_ARGS__)

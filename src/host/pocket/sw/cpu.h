@@ -9,15 +9,14 @@
 
 #include "core/cpu.h"
 
-/* This machine's 6502 lifecycle, called from its main.c. */
+/* This machine's 6502 lifecycle. */
 void cpu_init(void);
 void cpu_run(void);
 void cpu_stop(void);
 
-/* This machine's cpu row. cpu_init is not in it: it drives RESB low, which has
- * to happen before anything else runs, so the machine calls it before the walk
- * rather than wherever the shared order would have put it. */
-#undef CPU_LIFECYCLE
-#define CPU_LIFECYCLE LIFECYCLE(nul_init, cpu_run, cpu_stop, nul_break)
+/* This driver's lifecycle row; see core/lifecycle.h. A row lives with the
+ * implementation, not the contract, which is why no #undef is needed: this
+ * is the only cpu row a Pocket translation unit can see. */
+#define CPU_LIFECYCLE LIFECYCLE(cpu_init, cpu_run, cpu_stop, nul_break)
 
 #endif /* _FPGA_SW_CPU_H_ */

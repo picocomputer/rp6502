@@ -44,7 +44,4 @@ extern volatile uint8_t regs[];
 // feeding a prior result back as crc.
 uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define MEM_LIFECYCLE LIFECYCLE(mem_init, nul_run, nul_stop, nul_break)
-
 #endif /* _CORE_MEM_H_ */

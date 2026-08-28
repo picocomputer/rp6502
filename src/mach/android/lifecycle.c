@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's roster: the drivers it is made of, in the order it comes up.
- * core/lifecycle.c walks it -- forward for init and run, backward for stop.
+ * core/lifecycle.c walks it -- forward to bring up, backward to tear down.
  *
  * It lives with the machine rather than in core because which drivers a
  * machine has is the one thing core cannot know. The software machines start
@@ -51,8 +51,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* What this machine is made of, in the order it comes up. init, run and
- * break walk this forward; stop walks it backward. */
+/* What this machine is made of, in the order it comes up. init and run walk
+ * this forward; stop walks it backward. This machine has no break fan-out --
+ * there is no monitor to break into. */
 #define ROSTER                                                 \
     RIA_LIFECYCLE, MEM_LIFECYCLE, SYS_PROC_LIFECYCLE,           \
     PROC_LIFECYCLE, STR_LIFECYCLE,                             \

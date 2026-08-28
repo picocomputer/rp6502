@@ -34,4 +34,9 @@ void mem_init(void);
 /* One PHI2 tick of the SRAM. data is in/out. */
 void mem_tick(uint16_t addr, bool read, uint8_t *data);
 
+/* This driver's lifecycle row; see core/lifecycle.h. Here rather than in
+ * core/mem.h because mem_init is this file's -- a machine whose memory is
+ * real hardware has no such call and names its own row. */
+#define MEM_LIFECYCLE LIFECYCLE(mem_init, nul_run, nul_stop, nul_break)
+
 #endif /* _CORE_MEM_MEM_H_ */

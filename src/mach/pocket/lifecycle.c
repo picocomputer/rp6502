@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's roster: the drivers it is made of, in the order it comes up.
- * core/lifecycle.c walks it -- forward for init and run, backward for stop.
+ * core/lifecycle.c walks it -- forward to bring up, backward to tear down.
  */
 
 #include "core/lifecycle.h"

@@ -40,7 +40,9 @@ void cpu_set_phi2_khz_run(uint16_t phi2_khz);
 bool cpu_set_phi2_khz(uint16_t phi2_khz);
 uint16_t cpu_get_phi2_khz(void);
 
-/* This driver's lifecycle row; see core/lifecycle.h. */
-#define CPU_LIFECYCLE LIFECYCLE(cpu_init, cpu_run, cpu_stop, nul_break)
+/* No lifecycle row here. This header is the contract three machines answer
+ * differently, and a row names hooks -- so each implementation defines its
+ * own: core/wdc/cpu.h, host/pico/ria/sys/cpu.h, host/pocket/sw/cpu.h.
+ * Exactly one of those reaches any translation unit. */
 
 #endif /* _CORE_CPU_H_ */
