@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_EMU_PROC_H_
-#define _HOST_EMU_PROC_H_
+#ifndef _CORE_API_PROC_EXEC_H_
+#define _CORE_API_PROC_EXEC_H_
 
 #include "core/api/proc.h"
 #include <stdbool.h>
@@ -28,8 +28,9 @@ bool proc_exec_pending(void);     /* an exec is queued but not yet committed */
  * proc_exit schedules that re-exec. */
 bool proc_exit(int16_t exit_code);     /* true if a launcher re-exec was scheduled */
 
-/* The pending-exec queue, which is this machine's and not core/api/proc.c's.
- * Its own row because the two share a prefix and nothing else. */
-#define SYS_PROC_LIFECYCLE LIFECYCLE(proc_init, nul_run, nul_stop, nul_break)
+/* This driver's lifecycle row; see core/lifecycle.h. The pending-exec queue
+ * is its own driver, separate from core/api/proc.c's row -- they share a
+ * prefix and nothing else, which is why this is named for the file. */
+#define PROC_EXEC_LIFECYCLE LIFECYCLE(proc_init, nul_run, nul_stop, nul_break)
 
-#endif /* _HOST_EMU_PROC_H_ */
+#endif /* _CORE_API_PROC_EXEC_H_ */

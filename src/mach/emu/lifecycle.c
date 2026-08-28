@@ -55,7 +55,7 @@
  * this forward; stop walks it backward. This machine has no break fan-out --
  * there is no monitor to break into. */
 #define ROSTER                                                 \
-    RIA_LIFECYCLE, MEM_LIFECYCLE, SYS_PROC_LIFECYCLE,           \
+    RIA_LIFECYCLE, MEM_LIFECYCLE, PROC_EXEC_LIFECYCLE,           \
     PROC_LIFECYCLE, STR_LIFECYCLE,                             \
     COM_LIFECYCLE, STD_LIFECYCLE, RLN_LIFECYCLE,               \
     TERM_LIFECYCLE, KEYBOARD_LIFECYCLE, MOUSE_LIFECYCLE,       \
