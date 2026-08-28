@@ -40,7 +40,7 @@ const char *cyw_get_rf_country_code_verbose(void);
 // List known country codes for help
 int cyw_country_code_response(char *buf, size_t buf_size, int state, unsigned width);
 
-/* Hardware, but after CFG in the roster rather than among the bring-up rows
+/* Hardware, but after CFG in the driver list rather than among the bring-up rows
  * ahead of it: the country code is an argument to the radio's bring-up call,
  * so this cannot precede the config load. */
 #define CYW_MACH_LIFECYCLE LIFECYCLE(cyw_init, cyw_task, nul_task, nul_run, nul_stop, nul_break)

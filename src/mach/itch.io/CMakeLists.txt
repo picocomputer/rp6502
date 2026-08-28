@@ -42,9 +42,9 @@ target_sources(emu_core PRIVATE
     ${RP6502_HOST}/fs.c
     ${RP6502_HOST}/host.c)
 
-# This machine's roster: what it is made of, and the order it comes up in.
-target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c)
-target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/drivers.c)
+# This machine's drivers.h: what it is made of, the order it comes up in,
+# and what it offers a program to open.
+target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

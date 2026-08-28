@@ -50,7 +50,7 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 #endif
     "\n";
 
-/* First in the roster. The clock must be up before anything that derives from
+/* First of this machine's drivers. The clock must be up before anything that derives from
  * it (the RIA PIO divider, the audio PWM wrap, the RF band choice). */
 void __in_flash("sys_init") sys_init(void)
 {

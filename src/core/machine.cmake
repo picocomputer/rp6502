@@ -112,12 +112,11 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/*.h
         ${RP6502_SRC}/core/def/*.def
         ${RP6502_SRC}/host/pocket/*.h
+        ${RP6502_SRC}/mach/pocket/*.h
         ${RP6502_SRC}/host/pico/ria/*.h
         ${RP6502_SRC}/host/pico/vga/*.h)
     set(SW_SOURCES
         ${SW_SRC}/crt0.S ${SW_SRC}/main.c
-        ${RP6502_ROOT}/src/mach/pocket/lifecycle.c
-        ${RP6502_ROOT}/src/mach/pocket/drivers.c
         ${SW_SRC}/apf.c ${SW_SRC}/aud.c
         ${SW_SRC}/sst.c
         ${SW_SRC}/cfg.c
@@ -192,6 +191,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             -Werror=implicit-function-declaration
             -I ${RP6502_SRC}/host/pocket
             -I ${RP6502_SRC}
+            -I ${RP6502_SRC}/mach/pocket
             -I ${RP6502_ASSETS}
             "-DPICO_PROGRAM_NAME=\"RP6502-FPGA\""
             # vendored ffconf.h tests it with #if; the other two roots

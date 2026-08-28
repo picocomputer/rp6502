@@ -3,18 +3,25 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's roster: the drivers it is made of, in the order it comes up.
- * Forward to bring up, backward to tear down -- stop and break both, because
- * a break is a teardown and wants the same order for the same reason.
+ * This machine's drivers: the ones it is made of and the order it comes up
+ * in, and the ones it offers a program to open. Both are the same kind of
+ * fact, so they are the same file.
  *
- * The whole list is here. main() calls lifecycle_init and then loops.
+ * src/host/pico/ria/main.c walks the machine rows -- forward to bring up and
+ * to pump, backward to tear down. core/api/std.c builds the table from the
+ * stdio rows. The drive a path reaches is in neither list: core/api/dir.h
+ * names those calls and the host that is linked defines them.
  */
+
+#ifndef _MACH_DRIVERS_H_
+#define _MACH_DRIVERS_H_
 
 #include "core/lifecycle.h"
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
+#include "core/api/fs.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
@@ -67,7 +74,7 @@
  * has one. api_task and nfc_task can arm an exec, and rom_task must not run
  * after the arming in the same pass. vcp before nfc, which opens the device
  * index vcp sets. */
-#define ROSTER                                                            \
+#define RP6502_MACH_DRIVERS                                                            \
     SYS_MACH_LIFECYCLE, COM_MACH_LIFECYCLE, MON_MACH_LIFECYCLE,           \
     RIA_MACH_LIFECYCLE, PIX_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE,           \
     LFS_MACH_LIFECYCLE, CFG_MACH_LIFECYCLE,                               \
@@ -84,33 +91,10 @@
     VCP_MACH_LIFECYCLE, NFC_MACH_LIFECYCLE, API_MACH_LIFECYCLE,           \
     USB_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
 
-void lifecycle_init(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) i();
-    LIFECYCLE_FORWARD(ROSTER)
-#undef LIFECYCLE
-}
+/* What a program may open, in the order open() tries them. The filesystem is
+ * the catch-all, so it is last. */
+#define RP6502_STD_DRIVERS                                                \
+    MODEM_STD_LIFECYCLE, VCP_STD_LIFECYCLE, MID_STD_LIFECYCLE,            \
+    ROM_STD_LIFECYCLE, NFC_STD_LIFECYCLE, FS_STD_LIFECYCLE
 
-void lifecycle_on_run(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) r();
-    LIFECYCLE_FORWARD(ROSTER)
-#undef LIFECYCLE
-}
-
-void lifecycle_on_stop(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) s();
-    LIFECYCLE_REVERSE(ROSTER)
-#undef LIFECYCLE
-}
-
-/* Backward, like stop: a break is a teardown. It is also what puts com_break
- * near the last, where the newline it writes lands after whatever the other
- * breaks printed. */
-void lifecycle_break_drivers(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) b();
-    LIFECYCLE_REVERSE(ROSTER)
-#undef LIFECYCLE
-}
+#endif /* _MACH_DRIVERS_H_ */

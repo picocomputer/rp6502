@@ -100,6 +100,7 @@ set_source_files_properties(${RP6502_ROOT}/src/core/str/str.c PROPERTIES COMPILE
 
 target_include_directories(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
+    ${CMAKE_CURRENT_LIST_DIR}      # drivers.h, this machine's
     ${CMAKE_CURRENT_BINARY_DIR}
     ${RIA_SRC}
     ${RP6502_ROOT}/src
@@ -117,8 +118,6 @@ target_compile_definitions(${RIA_TARGET} PRIVATE
 
 target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
-    ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c
-    ${CMAKE_CURRENT_LIST_DIR}/drivers.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/host/pico/host_ria.c
     ${RP6502_ROOT}/src/core/lifecycle.c

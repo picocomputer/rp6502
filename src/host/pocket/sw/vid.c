@@ -120,7 +120,7 @@ void vid_restore(void)
 /* The console's code page and display type, restored on the way out of a
  * program -- deferred to vid_task, which is where the RIA's vga_task puts the
  * same two writes behind the same kind of flag. Deferring is what frees this
- * driver's roster position: the restore has to follow everything that could
+ * driver's position in the list: the restore has to follow everything that could
  * still draw, and a stop hook can only promise that by being last. A task can
  * promise it from anywhere, because it runs after the whole fan-out. */
 void vid_stop(void)

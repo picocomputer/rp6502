@@ -63,9 +63,9 @@ else()
         ${RP6502_HOST}/host.c)
 endif()
 
-# This machine's roster: what it is made of, and the order it comes up in.
-target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/lifecycle.c)
-target_sources(emu_core PRIVATE ${CMAKE_CURRENT_LIST_DIR}/drivers.c)
+# This machine's drivers.h: what it is made of, the order it comes up in,
+# and what it offers a program to open.
+target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 
 # Everything that reaches a shared object has to be relocatable, emu_core
 # included — it is a static library only on the way in.

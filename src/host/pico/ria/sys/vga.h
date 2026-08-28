@@ -63,7 +63,7 @@ void vga_set_canvas(uint16_t canvas_word);
 // VGA-bound protocol state pushed from other subsystems
 void vga_set_tel_console_active(bool active);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. After PIX in the roster:
+/* This driver's machine-lifecycle row; see core/lifecycle.h. After PIX in the driver list:
  * vga_init's first act is to disable the backchannel, which is a PIX message,
  * and its connect blocks on the bus RIA brought up. */
 #define VGA_MACH_LIFECYCLE LIFECYCLE(vga_init, vga_task, nul_task, vga_run, vga_stop, vga_break)

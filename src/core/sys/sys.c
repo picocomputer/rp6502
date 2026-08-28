@@ -12,6 +12,7 @@
 #include "core/rom/rom.h"
 #include "core/hid/vtkeys.h"
 #include "core/lifecycle.h"
+#include "drivers.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/ria/ria.h"
@@ -268,3 +269,43 @@ void sys_run_frame(void) { run_frame(true); }
  * CPU/chip/timing/vsync all advance; only the per-scanline pixel work is skipped
  * (most of the per-frame cost), so catching up after a slow/stalled host is cheap. */
 void sys_run_frame_norender(void) { run_frame(false); }
+
+/* This machine's walks, over the drivers its drivers.h lists. One copy for
+ * the four software machines: each root puts its own mach directory on the
+ * include path, the way it does for host.h, so "drivers.h" is its own.
+ *
+ * The task columns are deliberately not walked. The frame loop above is this
+ * machine's scheduler -- cycle-exact, per scanline and per frame -- and each
+ * call site up there says why it is where it is. */
+void lifecycle_init(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) i();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
+void lifecycle_on_run(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) r();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
+void lifecycle_on_stop(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) s();
+    LIFECYCLE_REVERSE(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
+/* Nowhere to break to: none of the software machines has a monitor, so the
+ * key that asked is an ordinary key. */
+bool lifecycle_break(void)
+{
+    return false;
+}
+
+bool lifecycle_break_to_launcher(void)
+{
+    return false;
+}

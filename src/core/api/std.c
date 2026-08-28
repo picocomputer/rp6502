@@ -13,6 +13,7 @@
 #include "core/mem.h"
 #include "core/pix.h"
 #include "host.h"
+#include "drivers.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -142,6 +143,17 @@ static std_rw_result std_tty_write(int desc, const char *buf, uint32_t count, ui
         com_write(buf[i]);
     *bytes_written = i;
     return STD_OK;
+}
+
+/* This machine's stdio driver table, listed by its drivers.h. The row order
+ * is the order open() tries them, so the filesystem catch-all is last. */
+static HOST_IN_FLASH("std_drivers") const std_driver_t std_driver_table[] = {
+    RP6502_STD_DRIVERS};
+
+const std_driver_t *std_drivers(size_t *count)
+{
+    *count = sizeof std_driver_table / sizeof std_driver_table[0];
+    return std_driver_table;
 }
 
 bool std_api_open(void)

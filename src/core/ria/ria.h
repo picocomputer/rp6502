@@ -82,7 +82,7 @@ bool ria_irq_asserted(void);
 }
 #endif
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. First in a roster, so
+/* This driver's machine-lifecycle row; see core/lifecycle.h. First in a machine's drivers, so
  * reversal puts its stop last -- which is where a machine with a real bus
  * needs it, because other stops read ria_active() to tell a program stop
  * from a fast-load transfer. This machine has no transfer and no stop. */

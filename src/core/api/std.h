@@ -63,9 +63,9 @@ typedef struct
     int (*lseek)(int desc, int8_t, int32_t, int32_t *, api_errno *);
 } std_driver_t;
 
-/* This machine's driver table, in the order open() tries them. Declared
- * beside the struct it hands back rather than in a lifecycle header, which
- * has no opinion about stdio. */
+/* This machine's driver table, in the order open() tries them. std.c builds
+ * it from the RP6502_STD_DRIVERS rows the machine's drivers.h lists; the
+ * accessor is declared beside the struct it hands back. */
 const std_driver_t *std_drivers(size_t *count);
 
 /* This driver's machine-lifecycle row; see core/lifecycle.h. */

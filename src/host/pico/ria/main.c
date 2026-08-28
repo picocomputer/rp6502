@@ -5,112 +5,66 @@
  */
 
 #include "ria/main.h"
-#include "core/api/api.h"
-#include "core/api/attr.h"
-#include "core/api/clk.h"
-#include "core/api/dir.h"
-#include "core/str/oem.h"
+#include "drivers.h"
 #include "core/api/proc.h"
-#include "core/api/std.h"
-#include "core/api/tim.h"
-#include "core/aud/aud.h"
-#include "core/aud/opl.h"
-#include "core/aud/psg.h"
-#include "ria/ble/ble.h"
-#include "core/hid/keyboard.h"
-#include "core/hid/keymap.h"
-#include "core/hid/mouse.h"
-#include "core/hid/gamepad.h"
-#include "core/hid/tablet.h"
-#include "ria/mon/drive.h"
-#include "ria/mon/fil.h"
-#include "ria/mon/mon.h"
-#include "ria/mon/ram.h"
-#include "ria/mon/rom.h"
-#include "ria/mon/uf2.h"
-#include "ria/net/cyw.h"
-#include "ria/net/modem.h"
-#include "ria/net/ntp.h"
-#include "ria/net/wifi.h"
-#include "core/str/rln.h"
-#include "core/str/str.h"
-#include "ria/sys/com.h"
-#include "ria/sys/cfg.h"
-#include "ria/sys/cpu.h"
-#include "ria/sys/led.h"
-#include "ria/sys/lfs.h"
-#include "ria/sys/mem.h"
-#include "ria/sys/pix.h"
-#include "ria/sys/ria.h"
-#include "ria/sys/sys.h"
-#include "ria/sys/vga.h"
-#include "ria/usb/usb.h"
-#include "ria/usb/mid.h"
-#include "ria/usb/nfc.h"
-#include "ria/usb/vcp.h"
-#include "ria/usb/xin.h"
 #include <pico/stdlib.h>
-#include <pico/time.h>
-#include <stdio.h>
-
-#ifndef NDEBUG
-#define TIME_TASK(fn)                                                  \
-    do                                                                 \
-    {                                                                  \
-        absolute_time_t _t0 = get_absolute_time();                     \
-        fn();                                                          \
-        int64_t _us = absolute_time_diff_us(_t0, get_absolute_time()); \
-        if (_us > 10000)                                               \
-            printf("SLOW " #fn " %lldus\n", (long long)_us);           \
-    } while (0)
-#else
-#define TIME_TASK(fn) fn()
-#endif
 
 /**************************************/
 /* All device drivers register below. */
 /**************************************/
 
-// Task events are repeatedly called by the main loop.
-// They must not block. All drivers are state machines.
+void lifecycle_init(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) i();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
 
-// These tasks run while FatFs is blocking.
-// Calling FatFs in here will summon a dragon.
+/* The task column. These run while FatFs is blocking -- msc_pump, the USB
+ * string fetch and the BLE shutdown spin all re-enter this to complete a
+ * transfer -- so calling FatFs from one of them will summon a dragon. They
+ * must not block either: every driver here is a state machine.
+ *
+ * A named function and not only a walk, because those three call it by name. */
 void main_task(void)
 {
-    TIME_TASK(usb_task);
-    std_task();
-    cpu_task();
-    ria_task();
-    keymap_task();
-    mid_task();
-    cyw_task();
-    vga_task();
-    com_task();
-    wifi_task();
-    ntp_task();
-    ble_task();
-    led_task();
-    modem_task();
-    ram_task();
+#define LIFECYCLE(i, t, iot, r, s, b) t();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
 }
 
-// Tasks that call FatFs should be here instead of main_task().
+/* The io_task column: the tasks that may call FatFs, never re-entered. The
+ * tail of this walk is load-bearing -- see the drivers.h exec rule. */
 static void task(void)
 {
-    mon_task();
-    mem_task();
-    rln_task();
-    fil_task();
-    rom_task();
-    uf2_task();
-    vcp_task();
-    nfc_task(); // must be last for exec
-    api_task(); // must be last for exec
+#define LIFECYCLE(i, t, iot, r, s, b) iot();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
 }
 
+void lifecycle_on_run(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) r();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
 
+void lifecycle_on_stop(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) s();
+    LIFECYCLE_REVERSE(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
 
+/* Backward, like stop: a break is a teardown. It is also what puts com_break
+ * near the last, where the newline it writes lands after whatever the other
+ * breaks printed. */
+void lifecycle_break_drivers(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) b();
+    LIFECYCLE_REVERSE(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
 
 // Triggered once after init then after every PHI2 change.
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)

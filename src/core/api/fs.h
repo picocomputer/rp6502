@@ -7,8 +7,8 @@
 /* The files on this machine's drive, as the 6502 opens them: the catch-all
  * entry in std.c's driver table.
  *
- * This is a contract and nothing else. Every machine's drivers.c lists these
- * seven, and the host that implements them is what changes -- host/posix/fs.c,
+ * This is a contract and nothing else. Every machine's drivers.h names the
+ * row below, and the host that implements the seven is what changes -- host/posix/fs.c,
  * host/windows/fs.c, host/emsdk/fs.c, host/pico/ria/api/fs.c,
  * host/pocket/sw/fs.c. Linking a different one is the whole of the seam.
  *

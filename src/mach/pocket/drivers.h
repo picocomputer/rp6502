@@ -3,9 +3,17 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * This machine's roster: the drivers it is made of, in the order it comes up.
- * core/lifecycle.c walks it -- forward to bring up, backward to tear down.
+ * This machine's drivers: the ones it is made of and the order it comes up
+ * in, and the ones it offers a program to open. Both are the same kind of
+ * fact, so they are the same file.
+ *
+ * src/host/pocket/sw/main.c walks the machine rows -- forward to bring up
+ * and to pump, backward to tear down. core/api/std.c builds the table from
+ * the stdio rows.
  */
+
+#ifndef _MACH_DRIVERS_H_
+#define _MACH_DRIVERS_H_
 
 #include "core/lifecycle.h"
 
@@ -35,6 +43,8 @@
 #include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
+#include "core/api/fs.h"
+#include "sw/rom.h"
 
 /* aud before com, so the bell hardware is quiet before the byte path that
  * can ring it is armed. fs before std, so reversal puts fs_stop after
@@ -45,7 +55,7 @@
  * apf before keymap is the task column's rule, not init's: apf_task delivers
  * the reports and keymap_task runs the repeat timer over them. bel takes no
  * init -- the bell is part of the mixer aud brings up and restores. */
-#define ROSTER                                                            \
+#define RP6502_MACH_DRIVERS                                                            \
     LOG_MACH_LIFECYCLE, CFG_MACH_LIFECYCLE, PROC_MACH_LIFECYCLE,          \
     AUD_MACH_LIFECYCLE, BEL_MACH_LIFECYCLE,                               \
     COM_MACH_LIFECYCLE, FS_MACH_LIFECYCLE,                                \
@@ -57,23 +67,8 @@
     DIR_MACH_LIFECYCLE, API_MACH_LIFECYCLE, SST_MACH_LIFECYCLE,           \
     CLK_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
 
-void lifecycle_init(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) i();
-    LIFECYCLE_FORWARD(ROSTER)
-#undef LIFECYCLE
-}
+/* What a program may open, in the order open() tries them. The filesystem is
+ * the catch-all, so it is last. */
+#define RP6502_STD_DRIVERS ROM_STD_LIFECYCLE, FS_STD_LIFECYCLE
 
-void lifecycle_on_run(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) r();
-    LIFECYCLE_FORWARD(ROSTER)
-#undef LIFECYCLE
-}
-
-void lifecycle_on_stop(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) s();
-    LIFECYCLE_REVERSE(ROSTER)
-#undef LIFECYCLE
-}
+#endif /* _MACH_DRIVERS_H_ */

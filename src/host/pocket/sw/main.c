@@ -7,6 +7,7 @@
  */
 
 #include "core/api/xreg.h"
+#include "drivers.h"
 #include <stdio.h>
 
 #include "apf.h"
@@ -166,6 +167,40 @@ static void main_stage(void)
         printf("rom: bad image\n");
 }
 
+void lifecycle_init(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) i();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
+/* Both task columns, back to back. File IO never blocks under a task pump
+ * here, so the RIA's split is not this machine's -- but the drivers it
+ * shares carry their column, and walking both is what reaches them all. */
+static void main_task(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) t();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+#define LIFECYCLE(i, t, iot, r, s, b) iot();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
+void lifecycle_on_run(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) r();
+    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
+void lifecycle_on_stop(void)
+{
+#define LIFECYCLE(i, t, iot, r, s, b) s();
+    LIFECYCLE_REVERSE(RP6502_MACH_DRIVERS)
+#undef LIFECYCLE
+}
+
 int main(void)
 {
     lifecycle_init();
@@ -219,18 +254,7 @@ int main(void)
                 api_return_ax(0);
             }
         }
-        cfg_task();
-        apf_task();
-        keymap_task(); /* the repeat timer; apf_task does the reports */
-        std_task();
-        com_task();
-        log_task();
-        bel_task();
-        rln_task();
-        term_task();
-        vid_task();
-        api_task();
-        sst_task();
+        main_task();
         /* Asked every pass, because at boot there was nothing to see.
          * The host writes the blob after Reset Exit, so the first
          * bridge write into the window arrives with this device's own
