@@ -64,7 +64,7 @@ bool clk_api_get_res(void);
 bool clk_api_get_time(void);
 bool clk_api_set_time(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define CLK_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, nul_task, clk_run, nul_stop, nul_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define CLK_DRIVER DRIVER(nul_init, nul_task, nul_task, clk_run, nul_stop, nul_break)
 
 #endif /* _CORE_API_CLK_H_ */

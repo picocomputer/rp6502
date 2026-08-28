@@ -43,7 +43,7 @@ void mon_response_confirm(mon_confirm_fn cb);
 // acceptable names when installing ROMs.
 bool mon_command_exists(const char *buf);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define MON_MACH_LIFECYCLE LIFECYCLE(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define MON_DRIVER DRIVER(mon_init, nul_task, mon_task, nul_run, mon_stop, mon_break)
 
 #endif /* _RIA_MON_MON_H_ */

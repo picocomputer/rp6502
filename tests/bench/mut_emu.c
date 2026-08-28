@@ -5,7 +5,7 @@
  *
  * The machine under test, when it is emu_core.
  *
- * Everything here is the emulator's own lifecycle, which emu_boot.h already
+ * Everything here is the emulator's own bring-up, which emu_boot.h already
  * describes: init once for the binary, load/run per program, a frame at a
  * time from there.
  */
@@ -37,7 +37,7 @@ void mut_init(int argc, const char *const argv[])
      * that can be reproduced: an expectation written down against a random
      * fill would be a different number every run. */
     mem_set_fill(false, 0, 0);
-    lifecycle_init();
+    mach_init();
 }
 
 void mut_free(void)
@@ -73,13 +73,13 @@ bool mut_boot(const char *rom)
      * other machine gets one by construction and a suite written to both has
      * to be able to say what XRAM held before its program ran. mem_init is
      * the first of the drivers, so the loader's bytes still land on top. */
-    lifecycle_stop();
-    lifecycle_commit();
+    mach_stop();
+    mach_commit();
     mem_init();
     if (!rom_load(rom))
         return false;
-    lifecycle_run();
-    lifecycle_commit();
+    mach_run();
+    mach_commit();
     vga_set_framebuffer(mut_fb);
     emu_frames((int)MUT_SETTLE_FRAMES);
     return true;

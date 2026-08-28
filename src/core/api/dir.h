@@ -119,7 +119,7 @@ bool dir_api_setlabel(void);
 bool dir_api_getlabel(void);
 bool dir_api_getfree(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define DIR_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define DIR_DRIVER DRIVER(nul_init, nul_task, nul_task, dir_run, dir_stop, nul_break)
 
 #endif /* _CORE_API_DIR_H_ */

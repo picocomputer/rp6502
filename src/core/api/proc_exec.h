@@ -22,7 +22,7 @@ void proc_init(void); /* clear any pending exec (cold boot) */
 void proc_exec(const char *rom_path);
 bool proc_exec_pending(void);     /* an exec is queued but not yet committed */
 
-/* Perform a queued exec: stop, load, run -- all through the lifecycle. */
+/* Perform a queued exec: stop, load, run -- all through the latch. */
 void proc_exec_task(void);
 
 /* Launcher chain (firmware proc.h), reached by the vendored atr.c through the
@@ -30,9 +30,9 @@ void proc_exec_task(void);
  * proc_exit schedules that re-exec. */
 bool proc_exit(int16_t exit_code);     /* true if a launcher re-exec was scheduled */
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. The pending-exec queue
+/* This driver's row in a machine's driver list; see core/mach.h. The pending-exec queue
  * is its own driver, separate from core/api/proc.c's row -- they share a
  * prefix and nothing else, which is why this is named for the file. */
-#define PROC_EXEC_MACH_LIFECYCLE LIFECYCLE(proc_init, nul_task, proc_exec_task, nul_run, nul_stop, nul_break)
+#define PROC_EXEC_DRIVER DRIVER(proc_init, nul_task, proc_exec_task, nul_run, nul_stop, nul_break)
 
 #endif /* _CORE_API_PROC_EXEC_H_ */

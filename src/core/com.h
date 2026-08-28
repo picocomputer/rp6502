@@ -6,7 +6,7 @@
 
 /* What the machine may ask of a console. Each machine writes its own driver --
  * a UART and CDC on the Pico, a ring the emulator fills, the APF bridge on a
- * Pocket -- and keeps its own pins, lifecycle and servers. */
+ * Pocket -- and keeps its own pins, bring-up and servers. */
 
 #ifndef _CORE_COM_H_
 #define _CORE_COM_H_

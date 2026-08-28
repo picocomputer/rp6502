@@ -29,7 +29,7 @@
 #define RIA_ACT_PIO pio1
 #define RIA_ACT_SM 0
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 
 /* Main events
  */
@@ -66,10 +66,10 @@ void ria_verify_buf(uint16_t addr);
 // Prints a "?" error and returns true if last mbuf action failed.
 bool ria_handle_error(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. Its position is init
+/* This driver's row in a machine's driver list; see core/mach.h. Its position is init
  * order and nothing more: the transfer that ria_active() reports is closed by
  * ria_task, not by ria_stop, so no other driver's stop depends on where this
  * one sits. */
-#define RIA_MACH_LIFECYCLE LIFECYCLE(ria_init, ria_task, nul_task, ria_run, ria_stop, nul_break)
+#define RIA_DRIVER DRIVER(ria_init, ria_task, nul_task, ria_run, ria_stop, nul_break)
 
 #endif /* _RIA_SYS_RIA_H_ */

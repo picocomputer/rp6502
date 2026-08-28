@@ -21,7 +21,7 @@
 #include "ria/net/cyw.h"
 #include "core/str/str.h"
 #include "core/str/rln.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "ria/net/wifi.h"
 #include <pico/stdlib.h>
 #include <stdio.h>

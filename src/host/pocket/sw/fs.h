@@ -74,7 +74,7 @@ bool fs_stage_rom(const char *path, uint32_t *len);
  * prefix unchanged, and this one refuses it. */
 const char *fs_strip_drive(const char *path);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define FS_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define FS_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, fs_stop, nul_break)
 
 #endif /* _FPGA_SW_FS_H_ */

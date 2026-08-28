@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/api/api.h"
 #include "core/api/std.h"
 #include "core/str/rln.h"

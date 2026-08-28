@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/sys/log.h"
 #include "core/rom/rom.h"
 #include "core/api/proc_exec.h"
@@ -118,13 +118,13 @@ void proc_exec_task(void)
     const char *path = proc_take_exec();
     if (!path)
         return;
-    lifecycle_stop();
-    lifecycle_commit(); /* the load below writes what the outgoing program ran on */
+    mach_stop();
+    mach_commit(); /* the load below writes what the outgoing program ran on */
     if (!rom_load(path))
     {
         log_error("exec failed to load '%s'", path);
         proc_set_exit_code(1); /* stays halted from the stop above */
         return;
     }
-    lifecycle_run(); /* the pass's own commit starts it */
+    mach_run(); /* the pass's own commit starts it */
 }

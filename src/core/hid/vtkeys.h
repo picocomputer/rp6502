@@ -16,7 +16,7 @@
 #ifndef _HOST_EMU_VTKEYS_H_
 #define _HOST_EMU_VTKEYS_H_
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -55,8 +55,8 @@ bool vtkeys_paste_busy(void);
  * the headless batch and a script all pace a paste identically. */
 void vtkeys_task(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. No stop hook:
+/* This driver's row in a machine's driver list; see core/mach.h. No stop hook:
  * type-ahead deliberately survives an exec. */
-#define VTKEYS_MACH_LIFECYCLE LIFECYCLE(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break)
+#define VTKEYS_DRIVER DRIVER(nul_init, vtkeys_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _HOST_EMU_VTKEYS_H_ */

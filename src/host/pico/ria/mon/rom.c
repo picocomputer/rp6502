@@ -327,7 +327,7 @@ static void rom_loading(void)
             if (usb_boot_enumerating())
                 return;
             rom_state = ROM_RUNNING;
-            lifecycle_run();
+            mach_run();
         }
         else
         {

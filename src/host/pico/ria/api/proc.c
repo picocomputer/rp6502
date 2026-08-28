@@ -36,7 +36,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 void proc_exec_start(const char *path)
 {
     (void)path;
-    lifecycle_stop();
+    mach_stop();
     rom_exec();
 }
 
@@ -130,9 +130,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    rln_stop();
-    mon_stop();
-    lifecycle_stop();
+    mach_stop(); /* the walk behind it stops rln and mon */
 
     // Change to the directory containing the ROM before loading
     char *slash = NULL;

@@ -16,7 +16,7 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
@@ -75,26 +75,26 @@
  * after the arming in the same pass. vcp before nfc, which opens the device
  * index vcp sets. */
 #define RP6502_MACH_DRIVERS                                                            \
-    SYS_MACH_LIFECYCLE, COM_MACH_LIFECYCLE, MON_MACH_LIFECYCLE,           \
-    RIA_MACH_LIFECYCLE, PIX_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE,           \
-    LFS_MACH_LIFECYCLE, CFG_MACH_LIFECYCLE,                               \
-    PROC_MACH_LIFECYCLE, STR_MACH_LIFECYCLE, STD_MACH_LIFECYCLE,          \
-    CYW_MACH_LIFECYCLE, WIFI_MACH_LIFECYCLE, NTP_MACH_LIFECYCLE,          \
-    BLE_MACH_LIFECYCLE, OEM_MACH_LIFECYCLE, LED_MACH_LIFECYCLE,           \
-    AUD_MACH_LIFECYCLE, MID_MACH_LIFECYCLE, KEYBOARD_MACH_LIFECYCLE,      \
-    KEYMAP_MACH_LIFECYCLE, MOUSE_MACH_LIFECYCLE, GAMEPAD_MACH_LIFECYCLE,  \
-    TABLET_MACH_LIFECYCLE,                                                \
-    MEM_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE, FIL_MACH_LIFECYCLE,           \
-    ROM_MACH_LIFECYCLE, UF2_MACH_LIFECYCLE, TIM_MACH_LIFECYCLE,           \
-    MODEM_MACH_LIFECYCLE, DIR_MACH_LIFECYCLE, CLK_MACH_LIFECYCLE,         \
-    DRIVE_MACH_LIFECYCLE, RAM_MACH_LIFECYCLE,                             \
-    VCP_MACH_LIFECYCLE, NFC_MACH_LIFECYCLE, API_MACH_LIFECYCLE,           \
-    USB_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
+    SYS_DRIVER, COM_DRIVER, MON_DRIVER,           \
+    RIA_DRIVER, PIX_DRIVER, VGA_DRIVER,           \
+    LFS_DRIVER, CFG_DRIVER,                               \
+    PROC_DRIVER, STR_DRIVER, STD_DRIVER,          \
+    CYW_DRIVER, WIFI_DRIVER, NTP_DRIVER,          \
+    BLE_DRIVER, OEM_DRIVER, LED_DRIVER,           \
+    AUD_DRIVER, MID_DRIVER, KEYBOARD_DRIVER,      \
+    KEYMAP_DRIVER, MOUSE_DRIVER, GAMEPAD_DRIVER,  \
+    TABLET_DRIVER,                                                \
+    MEM_DRIVER, RLN_DRIVER, FIL_DRIVER,           \
+    ROM_DRIVER, UF2_DRIVER, TIM_DRIVER,           \
+    MODEM_DRIVER, DIR_DRIVER, CLK_DRIVER,         \
+    DRIVE_DRIVER, RAM_DRIVER,                             \
+    VCP_DRIVER, NFC_DRIVER, API_DRIVER,           \
+    USB_DRIVER, CPU_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
 #define RP6502_STD_DRIVERS                                                \
-    MODEM_STD_LIFECYCLE, VCP_STD_LIFECYCLE, MID_STD_LIFECYCLE,            \
-    ROM_STD_LIFECYCLE, NFC_STD_LIFECYCLE, FS_STD_LIFECYCLE
+    MODEM_STD_DRIVER, VCP_STD_DRIVER, MID_STD_DRIVER,            \
+    ROM_STD_DRIVER, NFC_STD_DRIVER, FS_STD_DRIVER
 
 #endif /* _MACH_DRIVERS_H_ */

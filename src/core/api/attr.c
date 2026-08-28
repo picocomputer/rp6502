@@ -14,7 +14,7 @@
 #include "core/str/rln.h"
 #include "core/com.h"
 #include "core/cpu.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "host.h"
 #include <stdio.h>
 #include <string.h>

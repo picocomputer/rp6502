@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
@@ -160,10 +160,10 @@ void ria_task(void)
      * stop that asks sees the transfer whole, and none sees it half closed.
      *
      * Ahead of the watchdog, because a stop asked for before the machine ever
-     * started skips the fan-out entirely (core/lifecycle.c) -- without this
+     * started skips the fan-out entirely (core/mach.c) -- without this
      * the transfer would never close, and the stale watchdog would fire a
      * timeout at whatever ran next. */
-    if (ria_active() && !lifecycle_active())
+    if (ria_active() && !mach_active())
     {
         action_state = action_state_idle;
         if (saved_reset_vec >= 0)
@@ -179,7 +179,7 @@ void ria_task(void)
         if (time_reached(action_watchdog_timer))
         {
             action_result = RIA_ACTION_RESULT_TIMEOUT;
-            lifecycle_stop();
+            mach_stop();
         }
     }
 
@@ -235,7 +235,7 @@ void ria_read_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_read;
-    lifecycle_run();
+    mach_run();
 }
 
 void ria_verify_buf(uint16_t addr)
@@ -255,7 +255,7 @@ void ria_verify_buf(uint16_t addr)
     rw_end = len;
     rw_pos = 0;
     action_state = action_state_verify;
-    lifecycle_run();
+    mach_run();
 }
 
 void ria_write_buf(uint16_t addr)
@@ -276,7 +276,7 @@ void ria_write_buf(uint16_t addr)
     // First write doesn't always write because ???
     rw_pos = -1; // force a second write
     action_state = action_state_write;
-    lifecycle_run();
+    mach_run();
 }
 
 // 6502 memory-mapped UART (0xFFE0-0xFFE2) <-> console bridge. act_loop (core 1)
@@ -374,7 +374,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            lifecycle_stop();
+                            mach_stop();
                         }
                         else if (++rw_pos > 0 && rw_pos < rw_end)
                         {
@@ -391,7 +391,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         if (++rw_pos == rw_end)
                         {
                             action_result = RIA_ACTION_RESULT_FINISHED;
-                            lifecycle_stop();
+                            mach_stop();
                         }
                     }
                     break;
@@ -405,7 +405,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         {
                             if (action_result < 0)
                                 action_result = RIA_ACTION_RESULT_FINISHED;
-                            lifecycle_stop();
+                            mach_stop();
                         }
                     }
                     break;
@@ -439,7 +439,7 @@ __attribute__((optimize("O3"))) static void __no_inline_not_in_flash_func(act_lo
                         // what the program exited with, for a launcher to read
                         // back through ATTR_EXIT_CODE.
                         proc_set_exit_code((int16_t)API_AX);
-                        lifecycle_stop();
+                        mach_stop();
                     }
                     break;
                 case CASE_WRITE(0xFFEC): // xstack

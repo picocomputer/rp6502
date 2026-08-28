@@ -26,7 +26,7 @@ void font_set_code_page(uint16_t cp);
 
 uint16_t font_get_code_page(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define FONT_MACH_LIFECYCLE LIFECYCLE(font_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define FONT_DRIVER DRIVER(font_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _CORE_TERM_FONT_H_ */

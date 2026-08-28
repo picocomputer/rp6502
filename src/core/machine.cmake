@@ -133,7 +133,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/api/xreg0.c
         ${RP6502_SRC}/core/api/xreg1.c
         ${RP6502_SRC}/core/rand.c
-        ${RP6502_SRC}/core/lifecycle.c
+        ${RP6502_SRC}/core/mach.c
         ${RP6502_SRC}/core/api/api.c
         ${RP6502_SRC}/core/api/arg.c
         ${RP6502_SRC}/core/api/attr.c

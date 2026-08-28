@@ -12,7 +12,7 @@
 #include <stdint.h>
 
 /* Open a sokol window and run the machine until closed. The ROM must already be
- * loaded and lifecycle_init() called. fb is the caller-owned framebuffer (must hold
+ * loaded and mach_init() called. fb is the caller-owned framebuffer (must hold
  * the largest canvas); vga renders into it and the window presents it. scale
  * may be fractional; have_scale marks an explicit --scale, which beats the
  * remembered debug-session window size. vsync sets the GL swap interval (off =

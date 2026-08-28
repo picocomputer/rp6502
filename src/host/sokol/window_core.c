@@ -41,7 +41,7 @@
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"
 #include "core/wdc/cpu.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/sys/sys.h"
 #include "host/os.h"
 #include "core/vga/vga_emu.h"
@@ -619,14 +619,14 @@ bool window_core_boot_rom(const char *path)
      * the code page / PHI2 ride through from the previous program, like an exec. */
     /* Committed here rather than left for the next frame: the load below
      * writes the RAM the outgoing program was running out of. */
-    lifecycle_stop();
-    lifecycle_commit();
+    mach_stop();
+    mach_commit();
     if (!rom_load(oem))
-        return false; /* RAM may be part-written; stays halted from lifecycle_stop */
+        return false; /* RAM may be part-written; stays halted from mach_stop */
     proc_set_argv(oem, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
     proc_set_launcher(false);    /* a drop breaks any launcher chain */
-    lifecycle_run();
-    lifecycle_commit();
+    mach_run();
+    mach_commit();
     return true;
 }
 

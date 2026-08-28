@@ -9,15 +9,17 @@
 #include "core/ria.h"
 #include "core/mem/mem.h"
 #include "core/pix.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
 #include "core/vga/mode0.h"
 #include "core/term/term.h"
 #include "core/term/font.h"
+#include "core/sys/sys.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
 #include "core/vga/pixel_format.h"
 #include "host.h"
+#include <assert.h>
 #include <string.h>
 
 /* RGB555(+alpha bit) -> RGBA8 (0xAABBGGRR). Computed inline rather than through a
@@ -83,7 +85,7 @@ static bool vga_needs_reset;
 void vga_stop(void)
 {
     /* Reset only on a real program stop (firmware vga_stop). ria_active() is
-     * always false in the emu — no chunked fast-loads — so every lifecycle_stop is an
+     * always false in the emu — no chunked fast-loads — so every mach_stop is an
      * idle stop that arms, exactly as the firmware's exec/exit stop does. */
     if (!ria_active())
         vga_needs_reset = true;
@@ -106,15 +108,24 @@ static uint64_t beam_n;
 static unsigned long frame_n;
 static bool vsynced;
 
+/* When scanline n is due on the machine's clock:
+ *   n * (ticks per second) / (frames * scanlines) = n * 4096000/63.
+ * Written reduced, because the unreduced numerator overflows a uint64 in
+ * three days where this form lasts four and a half years -- and asserted
+ * against the constants it came from, because host_clock_us divides the same
+ * clock and the two silently disagreeing is the bug this prevents. */
+#define BEAM_NUM 4096000ull
+#define BEAM_DEN 63ull
+static_assert(BEAM_NUM * ((uint64_t)VGA_HZ * VGA_SCANLINES) ==
+                  BEAM_DEN * ((uint64_t)SYS_TICKS_PER_US * 1000000ull),
+              "the beam and host_clock_us must divide the same clock");
+
 uint64_t vga_beam_clk(void)
 {
-    /* When scanline n is due on the machine's clock:
-     *   n * (SYS_RP2350_KHZ*1000 * SYS_OVERSAMPLE) / (60*525) = n * 4096000/63.
-     * Exact every 63 lines, so a second of frames is exactly a second. Do NOT
-     * "fix" the inexact 4096000/63 with a per-line remainder: that
-     * double-corrects and creates the drift it looks like it removes. The
-     * n*4096000 intermediate overflows a uint64 after ~4.5 years of uptime. */
-    return beam_n * 4096000ull / 63;
+    /* Exact every 63 lines, so a second of frames is exactly a second. Do NOT
+     * "fix" the inexact ratio with a per-line remainder: that double-corrects
+     * and creates the drift it looks like it removes. */
+    return beam_n * BEAM_NUM / BEAM_DEN;
 }
 
 unsigned long vga_frame_count(void) { return frame_n; }

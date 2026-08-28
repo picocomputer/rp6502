@@ -11,7 +11,7 @@
 #include "core/sys/log.h"
 #include "core/rom/rom.h"
 #include "core/hid/vtkeys.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "drivers.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
@@ -41,7 +41,7 @@ static bool bus_ria_irq;
 
 uint64_t host_clock_us(void) { return sys_clk / SYS_TICKS_PER_US; }
 
-/* No init: lifecycle_init runs exactly once per process, so static zero-initialization
+/* No init: mach_init runs exactly once per process, so static zero-initialization
  * is the cold-boot state. (sys_init in ria/sys/sys.h is the firmware's monitor
  * banner, which the emulator does not implement.) */
 
@@ -159,48 +159,23 @@ void com_task(void) {}
  * The firmware mains are this loop with a different list. */
 void main_task(void)
 {
-#define LIFECYCLE(i, t, iot, r, s, b) t();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-#define LIFECYCLE(i, t, iot, r, s, b) iot();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-    lifecycle_commit();
-}
-
-/* This machine's walks, over the drivers its drivers.h lists. One copy for
- * the four software machines: each root puts its own mach directory on the
- * include path, the way it does for host.h, so "drivers.h" is its own.
- */
-void lifecycle_init(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) i();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-}
-
-void lifecycle_on_run(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) r();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-}
-
-void lifecycle_on_stop(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) s();
-    LIFECYCLE_REVERSE(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
+#define DRIVER(i, t, iot, r, s, b) t();
+    MACH_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
+#define DRIVER(i, t, iot, r, s, b) iot();
+    MACH_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
+    mach_commit();
 }
 
 /* Nowhere to break to: none of the software machines has a monitor, so the
  * key that asked is an ordinary key. */
-bool lifecycle_break(void)
+bool mach_break(void)
 {
     return false;
 }
 
-bool lifecycle_break_to_launcher(void)
+bool mach_break_to_launcher(void)
 {
     return false;
 }

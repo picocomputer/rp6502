@@ -41,7 +41,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/str/rln.h"
 #include "core/pix.h"
 #include "core/vga/mode1.h"
@@ -88,18 +88,18 @@ static bool main_rom_len(uint32_t *len)
 }
 
 /* No monitor here, so there is nothing a break could drop into. */
-bool lifecycle_break(void)
+bool mach_break(void)
 {
     return false;
 }
 
 /* Alt-F4. Stopping is enough, because proc_stop puts the launcher back. */
-bool lifecycle_break_to_launcher(void)
+bool mach_break_to_launcher(void)
 {
     if (!proc_has_launcher() || proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
-    lifecycle_stop();
+    mach_stop();
     return true;
 }
 
@@ -162,16 +162,9 @@ static void main_stage(void)
      * in progress from a finished one. */
     MMIO_SLOT = 0;
     if (ok)
-        lifecycle_run();
+        mach_run();
     else if (staged)
         printf("rom: bad image\n");
-}
-
-void lifecycle_init(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) i();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
 }
 
 /* Both task columns, back to back. File IO never blocks under a task pump
@@ -179,31 +172,17 @@ void lifecycle_init(void)
  * shares carry their column, and walking both is what reaches them all. */
 static void main_task(void)
 {
-#define LIFECYCLE(i, t, iot, r, s, b) t();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-#define LIFECYCLE(i, t, iot, r, s, b) iot();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-}
-
-void lifecycle_on_run(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) r();
-    LIFECYCLE_FORWARD(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
-}
-
-void lifecycle_on_stop(void)
-{
-#define LIFECYCLE(i, t, iot, r, s, b) s();
-    LIFECYCLE_REVERSE(RP6502_MACH_DRIVERS)
-#undef LIFECYCLE
+#define DRIVER(i, t, iot, r, s, b) t();
+    MACH_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
+#define DRIVER(i, t, iot, r, s, b) iot();
+    MACH_FORWARD(RP6502_MACH_DRIVERS)
+#undef DRIVER
 }
 
 int main(void)
 {
-    lifecycle_init();
+    mach_init();
 
     /* A blob already in the window means the host is waking this core
      * rather than starting it, and the restore that is coming will
@@ -250,7 +229,7 @@ int main(void)
             {
                 /* Captured before api_return_ax clobbers A/X. */
                 proc_set_exit_code((int16_t)API_AX);
-                lifecycle_stop();
+                mach_stop();
                 api_return_ax(0);
             }
         }
@@ -276,7 +255,7 @@ int main(void)
              * this line and neither of those says the engine never
              * finished. */
             LOG_SAY("main: blob\n");
-            lifecycle_stop();
+            mach_stop();
         }
         main_wake_pending = wake;
 
@@ -289,7 +268,7 @@ int main(void)
         {
             main_upd_seen = upd;
             restage = true;
-            lifecycle_stop();
+            mach_stop();
         }
         /* main_stage cleared this after the boot image, so anything
          * standing here again is a fresh settle. Left set until the
@@ -297,12 +276,12 @@ int main(void)
         if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
-            lifecycle_stop();
+            mach_stop();
         }
-        lifecycle_commit();
+        mach_commit();
         /* Below the commit rather than inside it: a machine already stopped is
          * owed no stop and would otherwise never launch. */
-        if (!lifecycle_active())
+        if (!mach_active())
         {
             if (restage)
             {
@@ -314,7 +293,7 @@ int main(void)
                 main_stage();
             }
             else if (proc_exec_take())
-                lifecycle_run();
+                mach_run();
         }
     }
 }

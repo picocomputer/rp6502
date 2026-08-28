@@ -9,7 +9,7 @@
  * A machine with no such transfer answers false and never latches.
  *
  * Its own header because six translation units want nothing but these three
- * and were reaching them through the lifecycle contract, which drags
+ * and were reaching them through the machine contract, which drags
  * core/api/std.h and core/api/api.h behind it. The implementation is
  * core/sys/ria.c on a software machine, host/pico/ria/sys/ria.c on the
  * firmware, and host/pocket/sw/main.c on a machine whose bus is fabric.

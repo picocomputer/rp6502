@@ -18,7 +18,7 @@ void main_wake_failed(void);
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 
 /* What main() saw at boot, said later: the moment it is knowable is the
  * moment the host may be streaming a blob in, and the console competes

@@ -10,7 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "core/lifecycle.h"
+#include "core/mach.h"
 
 /* This manages the main loop for the operating system.
  * Device drivers (everything is a device driver) are notified of various
@@ -28,6 +28,6 @@ void main_task(void);
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
 
 /* The break fan-out, walked from this machine's drivers.h. */
-void lifecycle_break_drivers(void);
+void mach_break_drivers(void);
 
 #endif /* _RIA_MAIN_H_ */

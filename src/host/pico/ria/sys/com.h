@@ -53,6 +53,6 @@ int com_vsnprintf_utf8(char *dst, size_t dst_size,
  * Early is also what its stop and its break want: both walk backward, so a
  * row near the front is torn down near the last -- com_stop writing the reset
  * after the other stops, com_break its newline after whatever they printed. */
-#define COM_MACH_LIFECYCLE LIFECYCLE(com_init, com_task, nul_task, com_run, com_stop, com_break)
+#define COM_DRIVER DRIVER(com_init, com_task, nul_task, com_run, com_stop, com_break)
 
 #endif /* _RIA_SYS_COM_H_ */

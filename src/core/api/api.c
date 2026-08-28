@@ -6,7 +6,7 @@
 
 #include "core/ria.h"
 #include "core/api/ops.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/api/api.h"
 #include "core/cpu.h"
 

@@ -35,7 +35,7 @@ int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. Read-only. */
-#define ROM_STD_LIFECYCLE           \
+#define ROM_STD_DRIVER           \
     {                               \
         .handles = rom_std_handles, \
         .open = rom_std_open,       \

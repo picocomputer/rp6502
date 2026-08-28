@@ -29,7 +29,7 @@ bool ram_active(void);
 void ram_mon_binary(const char *args);
 void ram_mon_address(const char *args);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define RAM_MACH_LIFECYCLE LIFECYCLE(nul_init, ram_task, nul_task, nul_run, nul_stop, ram_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define RAM_DRIVER DRIVER(nul_init, ram_task, nul_task, nul_run, nul_stop, ram_break)
 
 #endif /* _RIA_MON_RAM_H_ */

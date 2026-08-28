@@ -120,7 +120,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/host/pico/host_ria.c
-    ${RP6502_ROOT}/src/core/lifecycle.c
+    ${RP6502_ROOT}/src/core/mach.c
     ${RP6502_ROOT}/src/core/api/api.c
     ${RP6502_ROOT}/src/core/api/proc.c
     ${RP6502_ROOT}/src/core/api/arg.c

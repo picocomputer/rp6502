@@ -17,7 +17,7 @@
 
 #include "core/api/xreg.h"
 #include "core/pix.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/api/api.h"
 #include "core/mem.h"
 #include <string.h>

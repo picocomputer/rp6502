@@ -70,7 +70,7 @@ void sys_mon_reset(const char *args)
 {
     (void)args;
     arg_clear();
-    lifecycle_run();
+    mach_run();
 }
 
 /* What this machine says it is at boot. The monitor asks; the strings stay

@@ -6,7 +6,7 @@
 
 /* The 6502 every machine runs -- a real W65C02S clocked by PIO on the Pico, a
  * cycle model in the emulator, the fabric's on a Pocket. The pins and the
- * lifecycle belong to whoever wires it. */
+ * bring-up belong to whoever wires it. */
 
 #ifndef _CORE_CPU_H_
 #define _CORE_CPU_H_
@@ -24,7 +24,7 @@
 // the 6502 is running or about to run once RESB rises.
 bool cpu_active(void);
 
-/* RESB down. Called from inside lifecycle_stop rather than the fan-out behind it,
+/* RESB down. Called from inside mach_stop rather than the fan-out behind it,
  * because a 6502 left running would keep asking for what is being torn
  * down. */
 void cpu_stop(void);
@@ -40,7 +40,7 @@ void cpu_set_phi2_khz_run(uint16_t phi2_khz);
 bool cpu_set_phi2_khz(uint16_t phi2_khz);
 uint16_t cpu_get_phi2_khz(void);
 
-/* No lifecycle row here. This header is the contract three machines answer
+/* No driver row here. This header is the contract three machines answer
  * differently, and a row names hooks -- so each implementation defines its
  * own: core/wdc/cpu.h, host/pico/ria/sys/cpu.h, host/pocket/sw/cpu.h.
  * Exactly one of those reaches any translation unit. */

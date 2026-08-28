@@ -68,8 +68,8 @@ typedef enum
 
 void vga_set_pace(vga_pace_t pace);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. Video leads: its
+/* This driver's row in a machine's driver list; see core/mach.h. Video leads: its
  * task runs before the CPU's, which follows the beam. */
-#define VGA_MACH_LIFECYCLE LIFECYCLE(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break)
+#define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, vga_stop, nul_break)
 
 #endif /* _CORE_VGA_VGA_EMU_H_ */

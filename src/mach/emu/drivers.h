@@ -18,7 +18,7 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
@@ -57,18 +57,18 @@
  * (vga_init programs the console canvas, which asks term its height). VIA
  * before CPU: they share RESB. */
 #define RP6502_MACH_DRIVERS                                                  \
-    RIA_MACH_LIFECYCLE, MEM_MACH_LIFECYCLE, PROC_EXEC_MACH_LIFECYCLE,        \
-    PROC_MACH_LIFECYCLE, STR_MACH_LIFECYCLE,                                 \
-    COM_MACH_LIFECYCLE, STD_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE,              \
-    API_MACH_LIFECYCLE, TERM_MACH_LIFECYCLE,                                 \
-    KEYBOARD_MACH_LIFECYCLE, MOUSE_MACH_LIFECYCLE,                           \
-    GAMEPAD_MACH_LIFECYCLE, TABLET_MACH_LIFECYCLE, FONT_MACH_LIFECYCLE,      \
-    OEM_MACH_LIFECYCLE, VGA_MACH_LIFECYCLE, VTKEYS_MACH_LIFECYCLE,           \
-    AUD_MACH_LIFECYCLE, TIM_MACH_LIFECYCLE, DIR_MACH_LIFECYCLE,              \
-    CLK_MACH_LIFECYCLE, VIA_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
+    RIA_DRIVER, MEM_DRIVER, PROC_EXEC_DRIVER,        \
+    PROC_DRIVER, STR_DRIVER,                                 \
+    COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
+    API_DRIVER, TERM_DRIVER,                                 \
+    KEYBOARD_DRIVER, MOUSE_DRIVER,                           \
+    GAMEPAD_DRIVER, TABLET_DRIVER, FONT_DRIVER,      \
+    OEM_DRIVER, VGA_DRIVER, VTKEYS_DRIVER,           \
+    AUD_DRIVER, TIM_DRIVER, DIR_DRIVER,              \
+    CLK_DRIVER, VIA_DRIVER, CPU_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_LIFECYCLE, FS_STD_LIFECYCLE
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
 
 #endif /* _MACH_DRIVERS_H_ */

@@ -8,12 +8,12 @@
 #define _EMU_TESTS_EMU_BOOT_H_
 
 #include "core/vga/vga_emu.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/sys/sys.h"
 #include "core/rom/rom.h"
 #include "utest.h"
 
-/* The emulator lifecycle is init-once + load/run/stop per program (see
+/* The emulator machine is init-once + load/run/stop per program (see
  * the machine that ran it): the stop belongs to the program that ran, not to the one about
  * to. A test binary initializes the drivers exactly once, in a custom main(),
  * and each case ends the program the previous case left running before loading
@@ -25,23 +25,23 @@
     UTEST_STATE();                                   \
     int main(int argc, const char *const argv[])     \
     {                                                \
-        lifecycle_init();                                 \
+        mach_init();                                 \
         return utest_main(argc, argv);               \
     }
 
 /* Program change: end the previous program, load rom, start it — what an exec
  * and a ROM drop do. The first call per process runs on the just-inited, not-yet-
- * running machine, so its lifecycle_stop is a harmless no-op on the idle drivers.
+ * running machine, so its mach_stop is a harmless no-op on the idle drivers.
  * Committed on the spot, as the machine does it: the load writes the RAM the
  * outgoing program was running out of. */
 static inline bool emu_restart(const char *rom)
 {
-    lifecycle_stop();
-    lifecycle_commit();
+    mach_stop();
+    mach_commit();
     if (!rom_load(rom))
         return false;
-    lifecycle_run();
-    lifecycle_commit();
+    mach_run();
+    mach_commit();
     return true;
 }
 

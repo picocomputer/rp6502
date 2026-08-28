@@ -39,8 +39,8 @@ void ble_load_enabled(const char *str);
 bool ble_set_enabled(unsigned ble);
 uint8_t ble_get_enabled(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. The radio's other half. Its shutdown is cyw's to order, not the walk's
+/* This driver's row in a machine's driver list; see core/mach.h. The radio's other half. Its shutdown is cyw's to order, not the walk's
  * -- see cyw_reset_radio. */
-#define BLE_MACH_LIFECYCLE LIFECYCLE(nul_init, ble_task, nul_task, nul_run, nul_stop, nul_break)
+#define BLE_DRIVER DRIVER(nul_init, ble_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _RIA_BLE_BLE_H_ */

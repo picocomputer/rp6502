@@ -25,7 +25,7 @@ void drive_mon_disk(const char *args);
 // True while a destructive/scan pass is running.
 bool drive_active(void);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define DRIVE_MACH_LIFECYCLE LIFECYCLE(nul_init, nul_task, nul_task, nul_run, nul_stop, drive_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define DRIVE_DRIVER DRIVER(nul_init, nul_task, nul_task, nul_run, nul_stop, drive_break)
 
 #endif /* _RIA_MON_DRIVE_H_ */

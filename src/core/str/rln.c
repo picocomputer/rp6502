@@ -8,7 +8,7 @@
 #include "core/api/api.h"
 #include "core/str/rln.h"
 #include "core/com.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/vga/vga.h"
 #include "host.h"
 #include <stdio.h>
@@ -1440,7 +1440,7 @@ static void rln_cpr_dispatch(com_source_t src, uint16_t p1, uint16_t p2)
         rln_resize_redraw();
 }
 
-/* ----- Top-level task / lifecycle ----- */
+/* ----- Top-level task / driver hooks ----- */
 
 void rln_read_line(rln_read_callback_t callback)
 {

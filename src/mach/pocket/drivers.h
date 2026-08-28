@@ -15,7 +15,7 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/lifecycle.h"
+#include "core/mach.h"
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
@@ -56,19 +56,19 @@
  * the reports and keymap_task runs the repeat timer over them. bel takes no
  * init -- the bell is part of the mixer aud brings up and restores. */
 #define RP6502_MACH_DRIVERS                                                            \
-    LOG_MACH_LIFECYCLE, CFG_MACH_LIFECYCLE, PROC_MACH_LIFECYCLE,          \
-    AUD_MACH_LIFECYCLE, BEL_MACH_LIFECYCLE,                               \
-    COM_MACH_LIFECYCLE, FS_MACH_LIFECYCLE,                                \
-    STD_MACH_LIFECYCLE, RLN_MACH_LIFECYCLE, TERM_MACH_LIFECYCLE,          \
-    UNICODE_MACH_LIFECYCLE, LAYOUT_MACH_LIFECYCLE, KEYBOARD_MACH_LIFECYCLE, \
-    APF_MACH_LIFECYCLE, KEYMAP_MACH_LIFECYCLE,                            \
-    MOUSE_MACH_LIFECYCLE, GAMEPAD_MACH_LIFECYCLE, TABLET_MACH_LIFECYCLE,  \
-    VID_MACH_LIFECYCLE, TIM_MACH_LIFECYCLE, RAND_MACH_LIFECYCLE,          \
-    DIR_MACH_LIFECYCLE, API_MACH_LIFECYCLE, SST_MACH_LIFECYCLE,           \
-    CLK_MACH_LIFECYCLE, CPU_MACH_LIFECYCLE
+    LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,          \
+    AUD_DRIVER, BEL_DRIVER,                               \
+    COM_DRIVER, FS_DRIVER,                                \
+    STD_DRIVER, RLN_DRIVER, TERM_DRIVER,          \
+    UNICODE_DRIVER, LAYOUT_DRIVER, KEYBOARD_DRIVER, \
+    APF_DRIVER, KEYMAP_DRIVER,                            \
+    MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,  \
+    VID_DRIVER, TIM_DRIVER, RAND_DRIVER,          \
+    DIR_DRIVER, API_DRIVER, SST_DRIVER,           \
+    CLK_DRIVER, CPU_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
  * the catch-all, so it is last. */
-#define RP6502_STD_DRIVERS ROM_STD_LIFECYCLE, FS_STD_LIFECYCLE
+#define RP6502_STD_DRIVERS ROM_STD_DRIVER, FS_STD_DRIVER
 
 #endif /* _MACH_DRIVERS_H_ */

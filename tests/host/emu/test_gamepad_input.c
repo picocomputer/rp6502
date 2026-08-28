@@ -15,7 +15,7 @@
 
 #include "core/api/xreg.h"
 #include "host/sokol/gamepad_input.h"
-#include "core/lifecycle.h"
+#include "core/mach.h"
 #include "core/mem/mem.h"
 
 #include "utest.h"

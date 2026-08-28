@@ -35,9 +35,9 @@ uint32_t cpu_get_reset_us(void);
 // Configuration setting PHI2 (the pair it validates into is core/cpu.h's)
 void cpu_load_phi2_khz(const char *str);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. A row lives with the
+/* This driver's row in a machine's driver list; see core/mach.h. A row lives with the
  * implementation, not the contract: which hooks a machine's CPU has is the
  * implementation's answer, and three of them differ. */
-#define CPU_MACH_LIFECYCLE LIFECYCLE(cpu_init, cpu_task, nul_task, cpu_run, cpu_stop, nul_break)
+#define CPU_DRIVER DRIVER(cpu_init, cpu_task, nul_task, cpu_run, cpu_stop, nul_break)
 
 #endif /* _RIA_SYS_CPU_H_ */

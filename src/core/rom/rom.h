@@ -53,7 +53,7 @@ uint32_t rom_generation(void);
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. Read-only: the ROM a program is running out of. */
-#define ROM_STD_LIFECYCLE           \
+#define ROM_STD_DRIVER           \
     {                               \
         .handles = rom_std_handles, \
         .open = rom_std_open,       \

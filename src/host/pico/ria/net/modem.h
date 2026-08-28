@@ -78,12 +78,12 @@ bool modem_set_listen_port(uint16_t port);
 bool modem_conns_is_open(int desc);
 uint16_t modem_conns_listen_port(int desc);
 
-/* This driver's machine-lifecycle row; see core/lifecycle.h. */
-#define MODEM_MACH_LIFECYCLE LIFECYCLE(modem_init, modem_task, nul_task, nul_run, modem_stop, nul_break)
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define MODEM_DRIVER DRIVER(modem_init, modem_task, nul_task, nul_run, modem_stop, nul_break)
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. A stream: no seek, nothing to flush. */
-#define MODEM_STD_LIFECYCLE           \
+#define MODEM_STD_DRIVER           \
     {                                 \
         .handles = modem_std_handles, \
         .open = modem_std_open,       \
