@@ -37,6 +37,7 @@
 #endif
 #endif
 #include "core/str/unicode.h"
+#include <stdio.h>
 
 #ifndef FF_DEFINED
 typedef uint16_t WCHAR;
@@ -62,7 +63,15 @@ bool unicode_init(void)
     unicode_page_at = unicode_cp_at + unicode_pages;
     unicode_cvt1_at = unicode_page_at + unicode_pages * UNICODE_PAGE_WORDS;
     unicode_cvt2_at = unicode_cvt1_at + c1;
-    return unicode_word(0) == UNICODE_MAGIC;
+    if (unicode_word(0) != UNICODE_MAGIC)
+    {
+        /* Said here, where it is known, rather than by whoever called: a
+         * platform that links the tables in never reaches this, and one that
+         * loads them wants to hear about it once, at boot. */
+        printf("oem: no tables\n");
+        return false;
+    }
+    return true;
 }
 
 /* A platform that links the tables in never fails, so it is spared

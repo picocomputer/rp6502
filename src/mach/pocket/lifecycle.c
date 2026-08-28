@@ -11,6 +11,7 @@
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
+#include "core/api/dir.h"
 #include "core/api/proc.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
@@ -23,44 +24,37 @@
 #include "core/hid/tablet.h"
 #include "core/str/rln.h"
 #include "core/str/unicode.h"
-#include <stdio.h>
 #include "core/term/term.h"
 #include "core/aud/aud.h"
 #include "sw/apf.h"
 #include "sw/cpu.h"
+#include "sw/gpio.h"
 #include "sw/log.h"
 #include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
 
-/* vid first, so reversal puts vid_stop last: the display restore has to follow
- * everything that could still draw. fs before std, so reversal puts fs_stop
- * after std_stop -- std's closes are what park a read. */
+/* gpio first: RESB down before anything else runs. aud before com, so the
+ * bell hardware is quiet before the byte path that can ring it is armed. fs
+ * before std, so reversal puts fs_stop after std_stop -- std's closes are
+ * what park a read. unicode and layout before keymap, which asks them what
+ * layouts exist. vid after term, whose height its canvas sets. cpu last,
+ * because its run is RESB going back up. */
 #define ROSTER                                                  \
-    VID_LIFECYCLE, LOG_LIFECYCLE, PROC_LIFECYCLE,               \
-    AUD_LIFECYCLE, COM_LIFECYCLE, FS_LIFECYCLE,                \
+    GPIO_LIFECYCLE, LOG_LIFECYCLE, PROC_LIFECYCLE,              \
+    AUD_LIFECYCLE, COM_LIFECYCLE, FS_LIFECYCLE,                 \
     STD_LIFECYCLE, RLN_LIFECYCLE, TERM_LIFECYCLE,               \
-    KEYBOARD_LIFECYCLE,                                         \
+    UNICODE_LIFECYCLE, LAYOUT_LIFECYCLE, KEYBOARD_LIFECYCLE,    \
     KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,       \
-    TABLET_LIFECYCLE, APF_LIFECYCLE, TIM_LIFECYCLE,             \
-    RAND_LIFECYCLE, API_LIFECYCLE, CLK_LIFECYCLE, CPU_LIFECYCLE
+    TABLET_LIFECYCLE, VID_LIFECYCLE, APF_LIFECYCLE,             \
+    TIM_LIFECYCLE, RAND_LIFECYCLE, DIR_LIFECYCLE,               \
+    API_LIFECYCLE, CLK_LIFECYCLE, CPU_LIFECYCLE
 
 void lifecycle_init(void)
 {
-    cpu_init(); /* RESB low before anything else runs */
 #define LIFECYCLE(i, r, s, b) i();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
-    /* These two say so when an asset is missing, which a roster walk cannot,
-     * and both self-heal on first use anyway. After the walk, so the console
-     * they print to is up. */
-    if (!unicode_init())
-        printf("oem: no tables\n");
-    if (!layout_init())
-        printf("keyboard: no layouts\n");
-    /* The canvas this selects calls term_set_height, so it needs the term the
-     * walk laid out. */
-    vid_init();
 }
 
 void lifecycle_on_run(void)

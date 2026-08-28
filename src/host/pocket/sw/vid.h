@@ -26,9 +26,10 @@ uint32_t vid_prog_word_get(void);
 bool mode0_prog(uint16_t *xregs);
 
 
-/* First in this machine's roster, so reversal puts vid_stop last -- where the
- * display restore has to be, after everything that could still draw. vid_init
- * is not here: it needs term_init, so the machine calls it after the walk. */
-#define VID_LIFECYCLE LIFECYCLE(nul_init, nul_run, vid_stop, nul_break)
+/* This driver's lifecycle row; see core/lifecycle.h. After TERM, because
+ * vid_init selects a canvas and that calls term_set_height. Its stop defers
+ * the display restore to vid_task, so this row does not also have to be
+ * first for the sake of being last. */
+#define VID_LIFECYCLE LIFECYCLE(vid_init, nul_run, vid_stop, nul_break)
 
 #endif /* _FPGA_SW_VID_H_ */
