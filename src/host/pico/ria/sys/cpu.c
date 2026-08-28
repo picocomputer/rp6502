@@ -45,14 +45,6 @@ static void cpu_change_phi2_khz(uint16_t freq_khz)
     main_reclock(clkdiv_int, clkdiv_frac);
 }
 
-void cpu_main(void)
-{
-    // Hold the 6502 in reset from the very start of main().
-    gpio_init(CPU_RESB_PIN);
-    gpio_put(CPU_RESB_PIN, false);
-    gpio_set_dir(CPU_RESB_PIN, GPIO_OUT);
-}
-
 void __in_flash("cpu_init") cpu_init(void)
 {
     // Apply default only if config load did not set one.

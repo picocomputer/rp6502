@@ -49,12 +49,10 @@ __printflike(3, 4) int com_snprintf_utf8(char *dst, size_t dst_size,
 int com_vsnprintf_utf8(char *dst, size_t dst_size,
                        const char *utf8_fmt, va_list va);
 
-/* This machine's console row. com_init is the UART's pins and a settle, so it
- * is a prepend -- and it has to be first, because DBG() prints.
- *
- * com_break is not a row either, for the opposite reason: it ensures a newline
- * after whatever the other breaks printed, so it is an append. This row wants
- * to be early for stop and last for break, and cannot be both. */
-#define COM_HW_LIFECYCLE LIFECYCLE(nul_init, com_run, com_stop, nul_break)
+/* This machine's console row, early because everything after it may print.
+ * Early is also what its stop and its break want: both walk backward, so a
+ * row near the front is torn down near the last -- com_stop writing the reset
+ * after the other stops, com_break its newline after whatever they printed. */
+#define COM_LIFECYCLE LIFECYCLE(com_init, com_run, com_stop, com_break)
 
 #endif /* _RIA_SYS_COM_H_ */

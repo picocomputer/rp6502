@@ -22,8 +22,6 @@
 
 /* Main events
  */
-
-void cpu_main(void);
 void cpu_init(void);
 void cpu_task(void);
 void cpu_run(void);

@@ -147,7 +147,6 @@ bool lifecycle_break_to_launcher(void)
 int main(void)
 {
     sys_main();
-    cpu_main();
     lifecycle_init();
     while (true)
     {

@@ -4,12 +4,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * This machine's roster: the drivers it is made of, in the order it comes up.
- * core/lifecycle.c walks it -- forward for init, run and break, backward for
- * stop.
+ * Forward to bring up, backward to tear down -- stop and break both, because
+ * a break is a teardown and wants the same order for the same reason.
  *
- * What is not in it is this machine's electrical bring-up, which has to happen
- * before anything shared runs and in an order the fabric dictates rather than
- * the roster.
+ * The whole list is here. What runs outside it is main()'s sys_main, which is
+ * the voltage and the system clock: that is the platform arriving, not a
+ * driver, and everything including this roster is built on it.
  */
 
 #include "core/lifecycle.h"
@@ -37,6 +37,7 @@
 #include "ria/net/modem.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
+#include "ria/sys/gpio.h"
 #include "ria/sys/led.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
@@ -49,31 +50,27 @@
 #include "ria/usb/usb.h"
 #include "ria/usb/mid.h"
 
-/* ria, com and mon lead so that reversal puts their stops at the tail, where
- * the stop order needs them: ria_stop last because the three stops above it
- * read ria_active(), com_stop next-to-last because it writes the newline. */
+/* The first eight are the machine's bring-up, and the order is the fabric's:
+ * the bus quiet before anything drives it, the console before anything prints,
+ * the banner before anything can queue an error under it, the bus itself
+ * before the video that talks over it, and the filesystem before the config it
+ * holds. The rest is init order and little else -- cyw after cfg because the
+ * country code is an argument to the radio, usb late because its enumeration
+ * window times a keyboard quirk, cpu last because its run is RESB going up. */
 #define ROSTER                                                      \
-    RIA_HW_LIFECYCLE, COM_HW_LIFECYCLE, MON_LIFECYCLE,              \
-    PROC_LIFECYCLE, STR_LIFECYCLE, STD_LIFECYCLE,                   \
+    GPIO_LIFECYCLE, COM_LIFECYCLE, SYS_LIFECYCLE, RIA_LIFECYCLE,    \
+    PIX_LIFECYCLE, VGA_LIFECYCLE, LFS_LIFECYCLE, CFG_LIFECYCLE,     \
+    MON_LIFECYCLE, PROC_LIFECYCLE, STR_LIFECYCLE, STD_LIFECYCLE,    \
     CYW_LIFECYCLE, OEM_LIFECYCLE, LED_LIFECYCLE,                    \
     AUD_LIFECYCLE, MID_LIFECYCLE, KEYBOARD_LIFECYCLE,               \
     KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,           \
     TABLET_LIFECYCLE, ROM_LIFECYCLE, TIM_LIFECYCLE,                 \
     MODEM_LIFECYCLE, RLN_LIFECYCLE, DIR_LIFECYCLE,                  \
-    PIX_LIFECYCLE, VGA_HW_LIFECYCLE, API_LIFECYCLE,                 \
-    CLK_LIFECYCLE, MEM_HW_LIFECYCLE, DRIVE_LIFECYCLE,               \
+    API_LIFECYCLE, CLK_LIFECYCLE, MEM_LIFECYCLE, DRIVE_LIFECYCLE,   \
     FIL_LIFECYCLE, RAM_LIFECYCLE, USB_LIFECYCLE, CPU_LIFECYCLE
 
 void lifecycle_init(void)
 {
-    /* Order here is the fabric's, not the roster's. */
-    com_init();  /* stdio dispatcher first: DBG() prints */
-    sys_init();  /* queues the startup message, before anything can queue an error */
-    ria_init();  /* bus pins, four PIO programs, core1 */
-    pix_init();
-    vga_init();  /* after pix: it disables the backchannel through it */
-    lfs_init();
-    cfg_init();  /* on lfs, and before every row below that adopts a default */
 #define LIFECYCLE(i, r, s, b) i();
     LIFECYCLE_FORWARD(ROSTER)
 #undef LIFECYCLE
@@ -93,10 +90,12 @@ void lifecycle_on_stop(void)
 #undef LIFECYCLE
 }
 
+/* Backward, like stop: a break is a teardown. It is also what puts com_break
+ * near the last, where the newline it writes lands after whatever the other
+ * breaks printed. */
 void lifecycle_break_drivers(void)
 {
 #define LIFECYCLE(i, r, s, b) b();
-    LIFECYCLE_FORWARD(ROSTER)
+    LIFECYCLE_REVERSE(ROSTER)
 #undef LIFECYCLE
-    com_break(); /* the newline goes after whatever the rest of them printed */
 }

@@ -34,4 +34,9 @@ void sys_mon_reboot(const char *args);
 void sys_mon_reset(const char *args);
 void sys_mon_status(const char *args);
 
+/* This driver's lifecycle row; see core/lifecycle.h. Early, because sys_init
+ * queues the startup banner and the banner begins by clearing the terminal --
+ * anything queued before it would be erased, including an error. */
+#define SYS_LIFECYCLE LIFECYCLE(sys_init, nul_run, nul_stop, nul_break)
+
 #endif /* _RIA_SYS_SYS_H_ */
