@@ -7,7 +7,6 @@
 
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
-#include "core/vga/vga_emu.h"
 #include "core/aud/rsmp.h"
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
@@ -74,8 +73,8 @@ void aud_clear_irq(void) {}
 /* Native-rate stereo ring                                             */
 /* ------------------------------------------------------------------ */
 
-/* ~170 ms at 24 kHz — far more than one frame, so the app draining once per
- * frame never sees it fill. A consumer that falls behind drops the oldest. */
+/* Transit between the generator and the converter, not a store: a pull
+ * generates what it is about to take, so this sits near empty. */
 #define AUD_RING_FRAMES 4096
 static float g_ring[AUD_RING_FRAMES * 2];
 static unsigned g_head, g_tail; /* frame indices, mod AUD_RING_FRAMES */
@@ -86,15 +85,19 @@ static unsigned g_head, g_tail; /* frame indices, mod AUD_RING_FRAMES */
 static float g_viz[AUD_VIZ_SAMPLES];
 static int g_viz_pos;
 
-/* Fractional sample carry so a rate that isn't a multiple of 60 (OPL's 49716)
- * stays pitch-accurate: each frame is owed rate/60 samples on average. */
-static uint32_t g_sample_acc;
+/* The most one pull may generate. A device that opens its whole buffer at
+ * once asks for more than a machine should synthesize in one go; the next
+ * pull takes the rest. Below AUD_RING_FRAMES, so the ring cannot overrun. */
+#define AUD_PULL_MAX 2048
+
+static unsigned ring_count(void)
+{
+    return (g_head - g_tail) % AUD_RING_FRAMES;
+}
 
 static void ring_push(float l, float r)
 {
     unsigned next = (g_head + 1) % AUD_RING_FRAMES;
-    if (next == g_tail) /* full: drop the oldest frame */
-        g_tail = (g_tail + 1) % AUD_RING_FRAMES;
     g_ring[g_head * 2 + 0] = l;
     g_ring[g_head * 2 + 1] = r;
     g_head = next;
@@ -110,23 +113,17 @@ static bool g_enabled = true;
 void aud_set_enabled(bool on) { g_enabled = on; }
 bool aud_enabled(void) { return g_enabled; }
 
-void aud_task(void)
+/* Run the active device -- PSG, OPL, or the standing BEL, always installed
+ * like the firmware -- until the ring holds what this pull is about to take.
+ * The demand is the audio system's, which is the only clock a synth needs. */
+static void ring_fill(unsigned frames)
 {
-    if (!g_enabled)
-        return;
-
-    /* The active device handler: PSG, OPL, or the standing BEL (silent until
-     * rung), always installed like the firmware. */
     void (*handler)(void) = aud_irq_fn;
-    if (!handler)
+    if (!g_enabled || !handler)
         return;
-    uint32_t rate = aud_irq_rate;
-
-    g_sample_acc += rate;
-    unsigned n = g_sample_acc / VGA_HZ;
-    g_sample_acc -= n * VGA_HZ;
-
-    for (unsigned i = 0; i < n; i++)
+    if (frames > AUD_PULL_MAX)
+        frames = AUD_PULL_MAX;
+    while (ring_count() < frames)
     {
         handler(); /* advances the synth + writes g_out_l/g_out_r via aud_out */
         ring_push(g_out_l / 32768.0f, g_out_r / 32768.0f);
@@ -190,49 +187,55 @@ static void push_all(const float *f, int n,
     }
 }
 
-void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames))
+void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames),
+              int want_frames)
 {
     const int in_rate = aud_rate();
-    if (in_rate <= 0 || out_rate <= 0)
+    if (in_rate <= 0 || out_rate <= 0 || want_frames <= 0)
         return;
+
+    /* What the pull is worth in the machine's own samples. The resampler
+     * consumes at the rate ratio, so a 49716 Hz voice owes more of them. */
+    int need = (int)(((int64_t)want_frames * in_rate + out_rate - 1) / out_rate);
+    if (need > AUD_PULL_MAX)
+        need = AUD_PULL_MAX;
+    ring_fill((unsigned)need);
 
     static float in[4096 * 2];
     static float out[4096 * 2];
-    int navail;
 
     /* The usual case, and not merely an optimisation: a resampler run at
      * unity still rounds, and a voice generated at the device's own rate has
      * nothing to gain from being filtered. */
     if (in_rate == out_rate)
     {
-        while ((navail = aud_read(in, 4096)) > 0)
+        const int navail = aud_read(in, need);
+        if (navail > 0)
             push_all(in, navail, push);
         return;
     }
 
     const uint64_t step = rsmp_step((uint32_t)in_rate, (uint32_t)out_rate);
-    while ((navail = aud_read(in, 4096)) > 0)
+    const int navail = aud_read(in, need);
+    int oc = 0;
+    for (int i = 0; i < navail; i++)
     {
-        int oc = 0;
-        for (int i = 0; i < navail; i++)
+        int32_t bl[8], br[8];
+        const int n = rsmp_push(&g_rs_l, to_i(in[i * 2 + 0]), step, bl, 8);
+        rsmp_push(&g_rs_r, to_i(in[i * 2 + 1]), step, br, 8);
+        for (int k = 0; k < n; k++)
         {
-            int32_t bl[8], br[8];
-            const int n = rsmp_push(&g_rs_l, to_i(in[i * 2 + 0]), step, bl, 8);
-            rsmp_push(&g_rs_r, to_i(in[i * 2 + 1]), step, br, 8);
-            for (int k = 0; k < n; k++)
+            out[oc * 2 + 0] = to_f(bl[k]);
+            out[oc * 2 + 1] = to_f(br[k]);
+            if (++oc == 4096)
             {
-                out[oc * 2 + 0] = to_f(bl[k]);
-                out[oc * 2 + 1] = to_f(br[k]);
-                if (++oc == 4096)
-                {
-                    push_all(out, oc, push);
-                    oc = 0;
-                }
+                push_all(out, oc, push);
+                oc = 0;
             }
         }
-        if (oc > 0)
-            push_all(out, oc, push);
     }
+    if (oc > 0)
+        push_all(out, oc, push);
 }
 
 const float *aud_viz_buffer(int *num_samples)
@@ -250,7 +253,6 @@ void aud_stop(void)
      * don't bleed into the next. The BEL device keeps its state — a rung bell
      * rings through (CLAUDE.md); only this host-side ring is cleared. */
     g_head = g_tail = 0;
-    g_sample_acc = 0;
     xram_queue_head = xram_queue_tail = 0;
     xram_queue_page = 0;
     g_out_l = g_out_r = 0;

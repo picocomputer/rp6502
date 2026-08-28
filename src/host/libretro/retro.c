@@ -553,17 +553,13 @@ static int push_frames(const float *frames, int n)
     return n;
 }
 
+/* One frame's worth per call, which is what a frontend syncing on sound
+ * waits for. A silent machine generates silence rather than nothing: the
+ * standing BEL is always the installed device. */
 static void push_audio(void)
 {
     audio_frames_sent = 0;
-    aud_pump(RETRO_AUD_RATE, push_frames);
-    if (audio_frames_sent)
-        return;
-    /* A silent machine still has to keep time, or a frontend syncing on
-     * sound waits for a frame that never sounds. */
-    int frames = RETRO_AUD_RATE / VGA_HZ;
-    memset(audio_buf, 0, (size_t)frames * 2 * sizeof *audio_buf);
-    audio_batch_cb(audio_buf, (size_t)frames);
+    aud_pump(RETRO_AUD_RATE, push_frames, RETRO_AUD_RATE / VGA_HZ);
 }
 
 void retro_run(void)

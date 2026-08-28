@@ -131,20 +131,24 @@ UTEST(features, empty_args_kept)
     ASSERT_STREQ(argv3, "");
 }
 
-/* Pump frames, draining audio, until a nonzero sample appears or the budget
- * runs out. Returns whether the standing handler produced any audible output. */
-static bool pumped_audio(int frames)
+/* Pull a frame's worth of audio at a time until a nonzero sample appears or
+ * the budget runs out. Returns whether the standing handler was audible. */
+static bool g_heard;
+
+static int listening_push(const float *frames, int num_frames)
 {
-    static float buf[8192];
-    for (int f = 0; f < frames; f++)
-    {
-        aud_task();
-        int got = aud_read(buf, 4096);
-        for (int i = 0; i < got * 2; i++)
-            if (buf[i] != 0.0f)
-                return true;
-    }
-    return false;
+    for (int i = 0; i < num_frames * 2; i++)
+        if (frames[i] != 0.0f)
+            g_heard = true;
+    return num_frames;
+}
+
+static bool pumped_audio(int pulls)
+{
+    g_heard = false;
+    for (int p = 0; p < pulls && !g_heard; p++)
+        aud_pump(aud_native_rate(), listening_push, 800);
+    return g_heard;
 }
 
 /* Bell: the BEL is the standing audio device (firmware), present at boot and
@@ -179,25 +183,16 @@ UTEST(features, audio_disable)
     ASSERT_FALSE(aud_enabled());
     ASSERT_EQ(aud_rate(), 0);
 
-    /* Ringing a bell and pumping must produce nothing (no per-sample work). */
+    /* Ringing a bell and pulling must produce nothing (no per-sample work).
+     * aud_rate() is 0 while muted, which is what stops the pump dead. */
     bel_add(&bel_teletype);
-    static float buf[4096];
-    int total = 0;
-    for (int f = 0; f < 8; f++)
-    {
-        aud_task();
-        total += aud_read(buf, 2048);
-    }
-    ASSERT_EQ(total, 0);
+    ASSERT_FALSE(pumped_audio(8));
 
     aud_set_enabled(true); /* restore the default for any later test */
-    /* Drain the bell we rang: audio is a continuous stream (a reset never
-     * silences it), so play it out here instead of bleeding into a later test. */
-    for (int f = 0; f < 128; f++)
-    {
-        aud_task();
-        aud_read(buf, 2048);
-    }
+    /* Play out the bell we rang: audio is a continuous stream (a reset never
+     * silences it), so drain it here instead of bleeding into a later test. */
+    for (int p = 0; p < 128; p++)
+        aud_pump(aud_native_rate(), listening_push, 800);
 }
 
 UTEST_MAIN_EMU()

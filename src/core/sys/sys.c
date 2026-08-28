@@ -239,7 +239,6 @@ static void run_frame(bool render)
      * read callback) then advance any blocking syscall waiting on it. */
     rln_task();
     ria_task();
-    aud_task();
 
     /* An exec committed this frame: load the new program and restart the CPU,
      * keeping the system clock and the argv proc_api_exec stored. lifecycle_stop arms the

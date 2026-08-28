@@ -448,8 +448,10 @@ void window_core_frame(void)
         done++;
     }
 
-    if (saudio_isvalid()) /* --mute opens no device; skip the resample+push */
-        aud_pump(saudio_sample_rate(), saudio_push);
+    /* Ask the device how much room it has and hand it exactly that; --mute
+     * opens no device, so nothing is asked for and nothing is generated. */
+    if (saudio_isvalid())
+        aud_pump(saudio_sample_rate(), saudio_push, saudio_expect());
 
     /* Reflect the run state in the title so the user knows the run is done (exec
      * un-halts within a frame, so this only trips on a real exit), and close the

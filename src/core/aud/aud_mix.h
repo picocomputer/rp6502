@@ -15,8 +15,6 @@
 /* Main events
  */
 
-void aud_task(void); /* generate this frame's samples from the active device */
-
 /* --mute: disable audio entirely — the synth stops running (no per-frame
  * CPU work) and the window app opens no OS audio device. Default enabled. */
 void aud_set_enabled(bool on);
@@ -37,11 +35,14 @@ void aud_set_native_rate(uint32_t rate);
  * the native-rate ring. Returns the number of frames written. */
 int aud_read(float *dst, int max_frames);
 
-/* Drain the native-rate ring, linear-resample to out_rate, and hand finished
- * interleaved-stereo frames to push() in chunks. The caller supplies the sink
- * (the window app passes sokol-audio's saudio_push), so emu_core stays free of
- * any host audio backend. */
-void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames));
+/* Generate what the audio system asks for and hand it over: want_frames at
+ * out_rate, synthesized on demand from the machine's current audio state and
+ * resampled if the device's voice does not run at out_rate. The caller
+ * supplies both the demand (its device's room -- sokol's saudio_expect, a
+ * frontend's frame quota) and the sink, so emu_core stays free of any host
+ * audio backend. Nothing pulls, nothing is generated. */
+void aud_pump(int out_rate, int (*push)(const float *frames, int num_frames),
+              int want_frames);
 
 /* Rolling mono downmix of the produced output, for waveform display. */
 const float *aud_viz_buffer(int *num_samples);
