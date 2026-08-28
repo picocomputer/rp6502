@@ -7,6 +7,8 @@
 #ifndef _VGA_USB_CDC_H_
 #define _VGA_USB_CDC_H_
 
+#include "core/mach.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -18,5 +20,8 @@ void cdc_task(void);
 
 // True when a host terminal is ready and actively communicating
 bool cdc_is_ready(void);
+
+/* This driver's row in a machine's driver list; see core/mach.h. */
+#define CDC_DRIVER DRIVER(nul_init, cdc_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _VGA_USB_CDC_H_ */

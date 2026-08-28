@@ -1057,6 +1057,10 @@ static void scanvideo_timing_enable(bool enable)
 
 static void scanvideo_teardown(void)
 {
+    // First: the timing SM and its IRQs, before the program and the DMA they
+    // drive are taken away underneath them.
+    scanvideo_timing_enable(false);
+
     // Abort and unclaim DMA channels
     for (int i = 0; i < SCANVIDEO_PLANE_COUNT; i++)
     {
@@ -1068,7 +1072,6 @@ static void scanvideo_teardown(void)
     // Clear PIO instruction memory
     pio_clear_instruction_memory(video_pio);
 
-    scanvideo_timing_enable(false);
     for (int sm = 0; sm < 4; sm++)
         if (pio_sm_is_claimed(video_pio, sm))
             pio_sm_unclaim(video_pio, sm);

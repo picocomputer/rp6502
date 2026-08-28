@@ -28,6 +28,9 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
     term_view(&tv);
     const uint8_t scanrow = (uint8_t)(scanline_id & 7);
     const uint8_t *font_line = &font8[scanrow * 256];
+    /* The DEC row is 32 glyphs and term_out_glyph only sets TERM_ATTR_DEC for
+     * 0x5F..0x7E, but that invariant is not visible from here and a cell read
+     * before the terminal is up carries anything. Mask to the row. */
     const uint8_t *font_line_dec = &font_dec_8[scanrow * 32];
     // Each line attribute lights up only on the scan rows where its stroke
     // appears in the cell. The renderer's inner branch ANDs the cell's attr
@@ -61,7 +64,7 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
         if (attr)
         {
             if (attr & TERM_ATTR_DEC)
-                bits = font_line_dec[(uint8_t)(cell->font_code - 0x5F)];
+                bits = font_line_dec[(cell->font_code - 0x5F) & 31];
             if (attr & blink_mask)
                 fg = bg;
             if (attr & line_mask)
@@ -112,7 +115,7 @@ mode0_render_320(int16_t scanline_id, uint16_t *rgb)
             uint8_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & TERM_ATTR_DEC)
-                cbits = font_line_dec[(uint8_t)(cp->font_code - 0x5F)];
+                cbits = font_line_dec[(cp->font_code - 0x5F) & 31];
             if (cattr & line_mask)
                 cbits = 0xFF;
             modes_render_1bpp(crgb, cbits, cursor_color, cp->bg_color);
@@ -160,7 +163,7 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
         if (attr)
         {
             if (attr & TERM_ATTR_DEC)
-                bits = font_line_dec[(uint8_t)(cell->font_code - 0x5F)];
+                bits = font_line_dec[(cell->font_code - 0x5F) & 31];
             else if ((attr & TERM_ATTR_ITALIC) && cell->font_code < 0x80)
                 bits = italic_line[cell->font_code];
             if (attr & blink_mask)
@@ -214,7 +217,7 @@ mode0_render_640(int16_t scanline_id, uint16_t *rgb)
             uint8_t cattr = cp->attributes;
             uint8_t cbits = font_line[cp->font_code];
             if (cattr & TERM_ATTR_DEC)
-                cbits = font_line_dec[(uint8_t)(cp->font_code - 0x5F)];
+                cbits = font_line_dec[(cp->font_code - 0x5F) & 31];
             else if ((cattr & TERM_ATTR_ITALIC) && cp->font_code < 0x80)
                 cbits = italic_line[cp->font_code];
             if (cattr & line_mask)

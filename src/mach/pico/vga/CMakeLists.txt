@@ -21,13 +21,16 @@ target_compile_options(rp6502-vga PRIVATE
 
 target_include_directories(rp6502-vga PRIVATE
     ${RP6502_ROOT}/src/host/pico  # host.h, and this host's own
+    ${CMAKE_CURRENT_LIST_DIR}      # drivers.h, this machine's
     ${VGA_SRC}
     ${RP6502_ROOT}/src
 )
 
-target_compile_definitions(rp6502-vga PRIVATE 
-    PICO_FLASH_ASSUME_CORE1_SAFE=1
-)
+# Core 1 renders continuously and never reads HOST_IN_FLASH data -- the glyph
+# tables it walks are the RAM copies font_init fills -- so XIP being down for
+# a sector write does not reach it. (PICO_FLASH_ASSUME_CORE1_SAFE would say
+# that to pico_flash; this target links hardware_flash and calls it directly,
+# so the invariant is stated here instead of asserted there.)
 
 target_sources(rp6502-vga PRIVATE
     ${VGA_SRC}/main.c

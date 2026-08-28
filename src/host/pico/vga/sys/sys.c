@@ -24,10 +24,13 @@ __in_flash("sys_version") const char *sys_version(void)
 static volatile bool sys_flash_pending;
 static volatile uint16_t sys_flash_sector;
 
-void sys_flash_request(uint16_t sector_index)
+bool sys_flash_request(uint16_t sector_index)
 {
+    if ((uint32_t)sector_index >= PICO_FLASH_SIZE_BYTES / FLASH_SECTOR_SIZE)
+        return false;
     sys_flash_sector = sector_index;
     sys_flash_pending = true;
+    return true;
 }
 
 void sys_task(void)
@@ -36,6 +39,9 @@ void sys_task(void)
         return;
     sys_flash_pending = false;
 
+    /* This blocks every other task for tens of milliseconds, deliberately:
+     * a sector write is rare, the RIA is the only thing that asks for one,
+     * and video is core 1's plus core 0's ISRs, which keep running. */
     const uint32_t flash_offs = (uint32_t)sys_flash_sector * FLASH_SECTOR_SIZE;
     const uint8_t *src = (const uint8_t *)xram;
 
