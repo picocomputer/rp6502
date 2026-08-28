@@ -19,6 +19,7 @@
 #include "core/hid/gamepad.h"
 #include "core/mach.h"
 #include "core/rom/rom.h"
+#include "core/sys/exec.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include <android/input.h>
@@ -472,10 +473,9 @@ sapp_desc sokol_main(int argc, char* argv[])
     mach_init();
 
     // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
-    if (rom_load("boot.rp6502"))
+    if (exec_boot("boot.rp6502", 0, NULL, 0))
     {
         g_android_menu_active = false;
-        mach_run(); // start the boot ROM
         mach_commit();
     }
     else

@@ -7,6 +7,7 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
+#include "core/sys/exec.h"
 #include "core/vga/vga_emu.h"
 #include "core/mach.h"
 #include "core/sys/sys.h"
@@ -36,11 +37,8 @@
  * outgoing program was running out of. */
 static inline bool emu_restart(const char *rom)
 {
-    mach_stop();
-    mach_commit();
-    if (!rom_load(rom))
+    if (!exec_boot(rom, 0, NULL, 0))
         return false;
-    mach_run();
     mach_commit();
     return true;
 }

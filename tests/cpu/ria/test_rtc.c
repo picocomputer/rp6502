@@ -139,8 +139,15 @@ UTEST(rtc, code_page_drives_oem_mapping)
  * same vga_set_code_page the change did. */
 UTEST(rtc, stop_reverts_run_code_page)
 {
+    /* Stop once to shed whatever run page an earlier case left: a program's
+     * own exit parks the drivers now, so a restart's stop finds nothing to
+     * do and this case has to make its own starting point. */
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    mach_stop();
+    mach_commit();
     const uint16_t resolved = oem_get_code_page_run(); /* the config's, or the locale's */
+
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
     const uint16_t guest = resolved == 850 ? 437 : 850;
     oem_set_code_page_run(guest); /* a guest program changed the run page */
     ASSERT_EQ(oem_get_code_page_run(), guest);

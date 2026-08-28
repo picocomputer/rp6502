@@ -10,6 +10,7 @@
  * time from there.
  */
 
+#include "core/sys/exec.h"
 #include "mut.h"
 
 #include "core/com/com.h"
@@ -73,12 +74,8 @@ bool mut_boot(const char *rom)
      * other machine gets one by construction and a suite written to both has
      * to be able to say what XRAM held before its program ran. mem_init is
      * the first of the drivers, so the loader's bytes still land on top. */
-    mach_stop();
-    mach_commit();
-    mem_init();
-    if (!rom_load(rom))
+    if (!exec_boot(rom, 0, NULL, EXEC_REFILL))
         return false;
-    mach_run();
     mach_commit();
     vga_set_framebuffer(mut_fb);
     emu_frames((int)MUT_SETTLE_FRAMES);

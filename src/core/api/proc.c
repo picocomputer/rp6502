@@ -7,9 +7,10 @@
  * when it exits, and what it exited with. Every machine ran the same rules
  * -- a program registers itself, its children come back to it, and the
  * chain ends when the launcher itself stops -- and each had written them
- * out. What actually differs is how a machine starts the next program,
- * which is proc_exec_request, and whether one is already on its way, which
- * is proc_exec_inflight.
+ * out. What actually differs is how a machine starts the next program --
+ * proc_exec_start for one the running program asked for, proc_exec_relaunch
+ * for the launcher coming back -- and whether one is already on its way,
+ * which is proc_exec_inflight.
  */
 
 #include "core/api/proc.h"

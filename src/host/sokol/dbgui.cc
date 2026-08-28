@@ -26,7 +26,7 @@ extern "C"
 #include "core/mem/mem.h"
 #include "core/sys/sys.h"
 #include "core/str/oem.h" /* oem_get_code_page_run (RIA panel status) */
-#include "core/api/proc_exec.h" /* proc_get_exit_code (exit-code display) */
+#include "core/sys/exec.h" /* proc_get_exit_code (exit-code display) */
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
 #include "host/sokol/dbgui.h"        /* the C-callable entry points this TU defines */

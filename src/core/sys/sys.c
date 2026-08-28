@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/api/proc_exec.h"
+#include "core/sys/exec.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
 #include "core/sys/log.h"

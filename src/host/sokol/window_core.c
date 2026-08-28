@@ -34,7 +34,7 @@
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/api/proc_exec.h"
+#include "core/sys/exec.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
@@ -619,13 +619,8 @@ bool window_core_boot_rom(const char *path)
      * the code page / PHI2 ride through from the previous program, like an exec. */
     /* Committed here rather than left for the next frame: the load below
      * writes the RAM the outgoing program was running out of. */
-    mach_stop();
-    mach_commit();
-    if (!rom_load(oem))
-        return false; /* RAM may be part-written; stays halted from mach_stop */
-    proc_set_argv(oem, 0, NULL); /* like a CLI boot: the ROM's own path, no args */
-    proc_set_launcher(false);    /* a drop breaks any launcher chain */
-    mach_run();
+    if (!exec_boot(oem, 0, NULL, EXEC_UNCHAIN))
+        return false; /* RAM may be part-written; stays stopped */
     mach_commit();
     return true;
 }

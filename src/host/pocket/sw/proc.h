@@ -21,4 +21,9 @@ void proc_restage(void);
 const char *proc_staged_path(void);
 
 
+/* An exec is waiting and its image is staged, so the caller starts the
+ * machine again. Consumed by the call. This machine alone stages its own
+ * next program, so this is its own. */
+bool proc_exec_take(void);
+
 #endif /* _FPGA_SW_PROC_H_ */

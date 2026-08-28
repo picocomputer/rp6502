@@ -7,7 +7,10 @@
 #ifndef _CORE_API_PROC_H_
 #define _CORE_API_PROC_H_
 
-/* The process manager handles argv and launching other ROMs.
+/* The launcher chain: which program is running, which one to return to when
+ * it exits, and what it exited with. Every machine runs the same rules, so
+ * they are here once; how a machine actually starts the next program is the
+ * seam at the bottom, which each answers its own way.
  */
 
 #include <stddef.h>
@@ -31,11 +34,6 @@ const char *proc_running(void);
 
 bool proc_api_argv(void);
 bool proc_api_exec(void);
-
-/* Platforms that stage their own next program: true when an exec is
- * waiting and its image has been loaded, so the caller starts the
- * machine again. Consumed by the call. */
-bool proc_exec_take(void);
 
 /* Launcher: when set, proc_stop() will re-exec the launcher ROM.
  * The chain breaks when the launcher itself stops or on proc_cancel_launcher().
@@ -66,7 +64,6 @@ void proc_exec_relaunch(const char *path);
 bool proc_exec_inflight(void);
 
 // Load a ROM via NFC
-void proc_nfc(const uint8_t *tag_data, size_t len);
 
 /* This driver's row in a machine's driver list; see core/mach.h. */
 #define PROC_DRIVER DRIVER(nul_init, nul_task, nul_task, proc_run, proc_stop, nul_break)

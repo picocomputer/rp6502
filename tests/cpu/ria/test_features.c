@@ -10,7 +10,7 @@
  */
 
 #include "core/ria.h"
-#include "core/api/proc_exec.h"
+#include "core/sys/exec.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
@@ -81,30 +81,62 @@ UTEST(features, launcher_chain)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     /* A shell starts and registers itself as the launcher. */
-    proc_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    exec_set_argv("MSC0:/shell.rp6502", 0, NULL);
     ASSERT_FALSE(proc_has_launcher());
     proc_set_launcher(true);
     ASSERT_TRUE(proc_has_launcher());
     ASSERT_TRUE(proc_is_launcher());
 
     /* It execs a game (the reload calls proc_run): the game is not the launcher. */
-    proc_set_argv("MSC0:/game.rp6502", 0, NULL);
+    exec_set_argv("MSC0:/game.rp6502", 0, NULL);
     ASSERT_FALSE(proc_is_launcher());
     ASSERT_TRUE(proc_has_launcher());
 
-    /* The game exits -> the launcher is scheduled to re-run, chain still armed. */
-    ASSERT_TRUE(proc_exit(7));
+    /* The game exits. The stop walk decides the chain, so the re-run is armed
+     * by the commit rather than by the exit itself. */
+    proc_exit(7);
+    mach_commit();
     ASSERT_EQ(proc_get_exit_code(), 7);
     ASSERT_TRUE(proc_has_launcher());
+    ASSERT_TRUE(exec_pending()); /* the shell's re-run, queued once */
+    exec_init();                 /* standing in for the exec_task that loads it */
 
-    /* The frame loop reloads the shell (proc_exit set its argv); proc_run picks it
-     * up, so the shell is running again and is the launcher. */
+    /* proc_run picks up the argv the chain left, so the shell is running
+     * again and is the launcher. */
     proc_run();
     ASSERT_TRUE(proc_is_launcher());
 
     /* The shell itself exits -> no relaunch, chain cleared. */
-    ASSERT_FALSE(proc_exit(0));
+    mach_run();
+    mach_commit();
+    proc_exit(0);
+    mach_commit();
     ASSERT_FALSE(proc_has_launcher());
+    ASSERT_FALSE(exec_pending());
+}
+
+/* An exec is not an exit. exec_boot stops the machine on its way in, and that
+ * stop runs the same walk a program's exit does -- so the chain must be able
+ * to tell "this program is going away because it asked to be replaced" from
+ * "this program ended, put the launcher back". Get it wrong and the launcher
+ * loads over the child the program just asked for. */
+UTEST(features, an_exec_is_not_the_child_exiting)
+{
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE)); /* running, which the stop needs */
+
+    exec_set_argv("MSC0:/shell.rp6502", 0, NULL);
+    proc_set_launcher(true);
+    exec_set_argv("MSC0:/game.rp6502", 0, NULL);
+    ASSERT_FALSE(proc_is_launcher());
+    ASSERT_TRUE(proc_has_launcher());
+
+    exec_request("MSC0:/other.rp6502"); /* op 0x09, machine still running */
+    ASSERT_TRUE(exec_pending());
+
+    /* Performing it leaves nothing queued behind. The image cannot load here,
+     * which is fine: the queue is cleared before the load either way. */
+    exec_task();
+    ASSERT_FALSE(exec_pending());
 }
 
 /* Empty args are protocol elements: the seeded argv keeps them, so the
@@ -115,7 +147,7 @@ UTEST(features, empty_args_kept)
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
 
     char *args[] = {"", "x", ""};
-    ASSERT_TRUE(proc_set_argv("MSC0:/a.rp6502", 3, args));
+    ASSERT_TRUE(exec_set_argv("MSC0:/a.rp6502", 3, args));
     ASSERT_FALSE(proc_api_argv()); /* false = op complete, not still working */
 
     const uint8_t *blob = &xstack[xstack_ptr];

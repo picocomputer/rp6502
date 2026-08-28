@@ -8,7 +8,7 @@
 #include "core/str/oem.h"
 #include "core/mach.h"
 #include "core/str/str.h"
-#include "core/api/proc_exec.h"
+#include "core/sys/exec.h"
 #include "host/sokol/window.h"
 #include "host.h"
 #include "core/aud/aud_mix.h"
@@ -53,7 +53,7 @@ static void apply_options(const cli_options *o)
 static int run_dap(const cli_options *o)
 {
     cpu_set_halted(true); /* the machine is initialized; hold it (no program yet)
-                           * until the DAP launch loads + runs one via proc_exec */
+                           * until the DAP launch loads + runs one via exec_request */
     dbg_set_active(true);
 
     apply_options(o);
@@ -259,16 +259,10 @@ int main(int argc, char **argv)
         return window_run(g_fb, o.scale, o.have_scale, o.vsync, !o.debug);
     }
 
-    if (!rom_load(rom))
+    if (!exec_boot(rom, o.n_rom_args, o.rom_args, 0))
         return 1;
 
     vga_set_framebuffer(g_fb); /* the app owns the pixels; vga renders into them */
-
-    if (!proc_set_argv(rom, o.n_rom_args, o.rom_args))
-    {
-        fprintf(stderr, "rp6502-emu: ROM argv overflow\n");
-        return 1;
-    }
 
     apply_options(&o);
 
@@ -283,8 +277,7 @@ int main(int argc, char **argv)
     if (o.script && !script_load(o.script))
         return 1;
 
-    mach_run(); /* start the machine — mach_init only initialized the drivers */
-    mach_commit();
+    mach_commit(); /* exec_boot asked; this starts it */
 
     /* A script is the clock, always: it runs the machine here rather than under a
      * window, so a frame elapses only because the script asked for one and its

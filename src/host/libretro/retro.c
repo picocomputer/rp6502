@@ -23,7 +23,7 @@
 #include "core/sys/log.h"
 #include "core/api/dir.h"
 #include "core/api/fs.h"
-#include "core/api/proc_exec.h"
+#include "core/sys/exec.h"
 #include "core/rom/rom.h"
 #include "core/mach.h"
 #include "core/wdc/cpu.h"
@@ -418,23 +418,17 @@ static void enter_save_directory(const char *content_path)
 static bool boot(const char *rom_oem)
 {
     apply_options(machine_inited);
+    unsigned flags = EXEC_UNCHAIN;
     if (machine_inited)
-    {
-        mach_stop();
-        mach_commit(); /* before mem_init and the load wipe what it runs on */
-        mem_init();
-    }
+        flags |= EXEC_REFILL; /* every load after the first is a fresh machine */
     else
     {
         mach_init();
         machine_inited = true;
     }
-    if (!rom_load(rom_oem))
+    if (!exec_boot(rom_oem, 0, NULL, flags))
         return false;
     vga_set_framebuffer(frame_buf);
-    proc_set_argv(rom_oem, 0, NULL);
-    proc_set_launcher(false);
-    mach_run();
     mach_commit();
     shutdown_sent = false;
     geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */

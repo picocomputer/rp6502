@@ -24,7 +24,7 @@
 #include "core/api/dir.h"
 #include "core/api/fs.h"
 #include "core/api/proc.h"
-#include "core/api/proc_exec.h"
+#include "core/sys/exec.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/aud.h"
@@ -57,7 +57,7 @@
  * (vga_init programs the console canvas, which asks term its height). VIA
  * before CPU: they share RESB. */
 #define RP6502_MACH_DRIVERS                                                  \
-    RIA_DRIVER, MEM_DRIVER, PROC_EXEC_DRIVER,        \
+    RIA_DRIVER, MEM_DRIVER, EXEC_DRIVER,        \
     PROC_DRIVER, STR_DRIVER,                                 \
     COM_DRIVER, STD_DRIVER, RLN_DRIVER,              \
     API_DRIVER, TERM_DRIVER,                                 \
