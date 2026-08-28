@@ -10,6 +10,7 @@
 #include "core/aud/rsmp.h"
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
+#include "core/dap/dbg.h"
 #define _USE_MATH_DEFINES /* MSVC: expose M_PI from <math.h> */
 #include <math.h>
 #include <string.h>
@@ -115,7 +116,15 @@ bool aud_enabled(void) { return g_enabled; }
 
 /* Run the active device -- PSG, OPL, or the standing BEL, always installed
  * like the firmware -- until the ring holds what this pull is about to take.
- * The demand is the audio system's, which is the only clock a synth needs. */
+ * The demand is the audio system's, which is the only clock a synth needs.
+ *
+ * Except under the debugger, which is the one hold that silences. A stopped
+ * program is stopped for someone to read it, and a note left sustaining under
+ * the cursor for as long as that takes is not information. Silence rather
+ * than nothing: the device still wants its frames, and starving it trades a
+ * held note for a clicking one. The synth keeps its state and picks the note
+ * back up on resume. A lifecycle stop is not this -- audio plays through it,
+ * which is how the bell rings between programs. */
 static void ring_fill(unsigned frames)
 {
     void (*handler)(void) = aud_irq_fn;
@@ -123,10 +132,16 @@ static void ring_fill(unsigned frames)
         return;
     if (frames > AUD_PULL_MAX)
         frames = AUD_PULL_MAX;
+    const bool paused = dbg_is_stopped();
     while (ring_count() < frames)
     {
-        handler(); /* advances the synth + writes g_out_l/g_out_r via aud_out */
-        ring_push(g_out_l / 32768.0f, g_out_r / 32768.0f);
+        if (paused)
+            ring_push(0.0f, 0.0f);
+        else
+        {
+            handler(); /* advances the synth + writes g_out_l/g_out_r via aud_out */
+            ring_push(g_out_l / 32768.0f, g_out_r / 32768.0f);
+        }
     }
 }
 

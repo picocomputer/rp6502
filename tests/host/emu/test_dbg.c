@@ -13,6 +13,8 @@
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include "core/hid/vtkeys.h"
+#include "core/aud/aud_mix.h"
+#include "core/aud/bel.h"
 #include "emu_boot.h"
 #include <string.h>
 
@@ -27,12 +29,59 @@ static bool load(void)
     return emu_restart(TEST_FIXTURE);
 }
 
-/* Leave the engine inert so a later test (and sys_run_frame) runs normally. */
+/* Leave the engine inert so a later test runs normally. */
 static void disarm(void)
 {
     dbg_continue();
     dbg_clear_breakpoints();
     dbg_set_active(false);
+}
+
+/* Pull a frame of audio and report whether any of it was audible. */
+static bool g_heard;
+
+static int hearing_push(const float *frames, int num_frames)
+{
+    for (int i = 0; i < num_frames * 2; i++)
+        if (frames[i] != 0.0f)
+            g_heard = true;
+    return num_frames;
+}
+
+static bool audible(void)
+{
+    g_heard = false;
+    aud_pump(aud_native_rate(), hearing_push, 800);
+    return g_heard;
+}
+
+/* A debugger pause is the one hold that silences. The machine is stopped for
+ * someone to read, and a note sustaining under the cursor for as long as that
+ * takes is only annoying. A lifecycle stop is the opposite: audio plays right
+ * through it, which is how the bell rings between programs. */
+UTEST(dbg, a_pause_silences_but_a_lifecycle_stop_does_not)
+{
+    ASSERT_TRUE(load());
+
+    /* Stopped machine, ringing bell: the lifecycle stop does not silence. */
+    lifecycle_stop();
+    lifecycle_commit();
+    bel_add(&bel_teletype);
+    ASSERT_TRUE(audible());
+
+    /* Hold it in the debugger and the same bell goes quiet. */
+    dbg_set_active(true);
+    dbg_note_stop(entry_pc());
+    ASSERT_TRUE(dbg_is_stopped());
+    ASSERT_FALSE(audible());
+
+    /* Resume and it picks the note back up -- the synth kept its state. */
+    dbg_continue();
+    ASSERT_TRUE(audible());
+
+    disarm();
+    for (int i = 0; i < 256 && audible(); i++) /* play the bell out */
+        ;
 }
 
 /* Watchpoint tap: count what the bus hook reports, split by direction, and flag any
