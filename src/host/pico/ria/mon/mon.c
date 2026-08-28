@@ -687,6 +687,23 @@ void mon_task(void)
     }
 }
 
+/* The startup banner, queued before anything else can queue an error: it opens
+ * by clearing the terminal, so whatever went in ahead of it would be erased. */
+void __in_flash("mon_init") mon_init(void)
+{
+#ifdef NDEBUG
+    mon_add_response_utf8(STR_TERM_HARD_RESET);
+#else
+    // We can't soft reset cursor when ROMs stop because minicom
+    // will print the q, but one at startup is fine for debug.
+    mon_add_response_utf8("\30\33[0 q");
+    mon_add_response_utf8(STR_TERM_SOFT_RESET);
+#endif
+    mon_add_response_utf8("\n");
+    sys_add_boot_response();
+    mon_add_response_utf8("\n");
+}
+
 void mon_stop(void)
 {
     // Graceful return to a fresh prompt; dismisses --more-- if shown.

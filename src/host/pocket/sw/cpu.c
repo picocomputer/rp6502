@@ -45,11 +45,11 @@ uint16_t cpu_get_phi2_khz(void)
     return cpu_phi2_khz_set;
 }
 
-/* No reset reaches this register, so this is what decides the clock after a
- * host reset. Holding the 6502 is gpio.c's, and happens first -- nothing
- * between there and here reads the clock, because only the 6502 can. */
+/* No reset reaches either register, so this is what holds the 6502 and
+ * what decides the clock after a host reset. */
 void cpu_init(void)
 {
+    CPU_RESB = 0;
     MMIO_PHI2 = cpu_phi2_khz_set;
 }
 

@@ -677,6 +677,17 @@ void __in_flash("ria_init") ria_init(void)
     // safety check for compiler alignment
     assert(!((uintptr_t)regs & 0x1F));
 
+    // Adjustments for GPIO performance. Important!
+    for (int i = RIA_PIN_BASE; i < RIA_PIN_BASE + 15; i++)
+    {
+        pio_gpio_init(pio0, i); // any pio
+        gpio_set_pulls(i, false, false);
+        gpio_set_input_hysteresis_enabled(i, false);
+        hw_set_bits(&pio0->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio1->input_sync_bypass, 1u << i);
+        hw_set_bits(&pio2->input_sync_bypass, 1u << i);
+    }
+
     // the inits
     ria_cs_rwb_pio_init();
     ria_write_pio_init();

@@ -28,20 +28,19 @@
 #include "core/aud/aud.h"
 #include "sw/apf.h"
 #include "sw/cpu.h"
-#include "sw/gpio.h"
 #include "sw/log.h"
 #include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
 
-/* gpio first: RESB down before anything else runs. aud before com, so the
+/* aud before com, so the
  * bell hardware is quiet before the byte path that can ring it is armed. fs
  * before std, so reversal puts fs_stop after std_stop -- std's closes are
  * what park a read. unicode and layout before keymap, which asks them what
  * layouts exist. vid after term, whose height its canvas sets. cpu last,
  * because its run is RESB going back up. */
 #define ROSTER                                                  \
-    GPIO_LIFECYCLE, LOG_LIFECYCLE, PROC_LIFECYCLE,              \
+    LOG_LIFECYCLE, PROC_LIFECYCLE,                              \
     AUD_LIFECYCLE, COM_LIFECYCLE, FS_LIFECYCLE,                 \
     STD_LIFECYCLE, RLN_LIFECYCLE, TERM_LIFECYCLE,               \
     UNICODE_LIFECYCLE, LAYOUT_LIFECYCLE, KEYBOARD_LIFECYCLE,    \

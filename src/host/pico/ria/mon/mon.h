@@ -18,6 +18,7 @@
  */
 
 void mon_task(void);
+void mon_init(void);
 void mon_stop(void);
 void mon_break(void);
 
@@ -43,6 +44,6 @@ void mon_response_confirm(mon_confirm_fn cb);
 bool mon_command_exists(const char *buf);
 
 /* This driver's lifecycle row; see core/lifecycle.h. */
-#define MON_LIFECYCLE LIFECYCLE(nul_init, nul_run, mon_stop, mon_break)
+#define MON_LIFECYCLE LIFECYCLE(mon_init, nul_run, mon_stop, mon_break)
 
 #endif /* _RIA_MON_MON_H_ */

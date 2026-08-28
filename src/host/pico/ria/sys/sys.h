@@ -22,10 +22,13 @@
 /* Main events
  */
 
-/* The very first thing main() does: raise the voltage and set the system clock. */
-void sys_main(void);
-
+/* The voltage and the system clock, which everything derived from them needs
+ * first: the UART's baud, the PIO dividers, the radio's band. */
 void sys_init(void);
+
+
+/* Queue what this machine is, for the monitor's boot banner. */
+void sys_add_boot_response(void);
 
 /* Monitor commands
  */
@@ -34,9 +37,8 @@ void sys_mon_reboot(const char *args);
 void sys_mon_reset(const char *args);
 void sys_mon_status(const char *args);
 
-/* This driver's lifecycle row; see core/lifecycle.h. Early, because sys_init
- * queues the startup banner and the banner begins by clearing the terminal --
- * anything queued before it would be erased, including an error. */
+/* This driver's lifecycle row; see core/lifecycle.h. First, because the clock
+ * it sets is what every later row is timed against. */
 #define SYS_LIFECYCLE LIFECYCLE(sys_init, nul_run, nul_stop, nul_break)
 
 #endif /* _RIA_SYS_SYS_H_ */

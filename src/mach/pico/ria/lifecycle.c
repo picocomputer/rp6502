@@ -7,9 +7,7 @@
  * Forward to bring up, backward to tear down -- stop and break both, because
  * a break is a teardown and wants the same order for the same reason.
  *
- * The whole list is here. What runs outside it is main()'s sys_main, which is
- * the voltage and the system clock: that is the platform arriving, not a
- * driver, and everything including this roster is built on it.
+ * The whole list is here. main() calls lifecycle_init and then loops.
  */
 
 #include "core/lifecycle.h"
@@ -37,7 +35,6 @@
 #include "ria/net/modem.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cpu.h"
-#include "ria/sys/gpio.h"
 #include "ria/sys/led.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
@@ -51,16 +48,16 @@
 #include "ria/usb/mid.h"
 
 /* The first eight are the machine's bring-up, and the order is the fabric's:
- * the bus quiet before anything drives it, the console before anything prints,
- * the banner before anything can queue an error under it, the bus itself
+ * the clock before everything timed against it, the console before anything
+ * prints, the banner before anything can queue an error under it, the bus
  * before the video that talks over it, and the filesystem before the config it
  * holds. The rest is init order and little else -- cyw after cfg because the
  * country code is an argument to the radio, usb late because its enumeration
- * window times a keyboard quirk, cpu last because its run is RESB going up. */
+ * window times a keyboard quirk, cpu last. */
 #define ROSTER                                                      \
-    GPIO_LIFECYCLE, COM_LIFECYCLE, SYS_LIFECYCLE, RIA_LIFECYCLE,    \
+    SYS_LIFECYCLE, COM_LIFECYCLE, MON_LIFECYCLE, RIA_LIFECYCLE,     \
     PIX_LIFECYCLE, VGA_LIFECYCLE, LFS_LIFECYCLE, CFG_LIFECYCLE,     \
-    MON_LIFECYCLE, PROC_LIFECYCLE, STR_LIFECYCLE, STD_LIFECYCLE,    \
+    PROC_LIFECYCLE, STR_LIFECYCLE, STD_LIFECYCLE,                   \
     CYW_LIFECYCLE, OEM_LIFECYCLE, LED_LIFECYCLE,                    \
     AUD_LIFECYCLE, MID_LIFECYCLE, KEYBOARD_LIFECYCLE,               \
     KEYMAP_LIFECYCLE, MOUSE_LIFECYCLE, GAMEPAD_LIFECYCLE,           \

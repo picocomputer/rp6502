@@ -50,30 +50,14 @@ __in_flash("SYS_VERSION") static const char SYS_VERSION[] =
 #endif
     "\n";
 
-/* The very first thing main() does. The clock must be up before anything that
- * derives from it (the RIA PIO divider, the audio PWM wrap, the RF band choice). */
-void sys_main(void)
+/* First in the roster. The clock must be up before anything that derives from
+ * it (the RIA PIO divider, the audio PWM wrap, the RF band choice). */
+void __in_flash("sys_init") sys_init(void)
 {
     vreg_set_voltage(SYS_RP2350_VREG);
     set_sys_clock_khz(SYS_RP2350_KHZ, true);
 }
 
-void __in_flash("sys_init") sys_init(void)
-{
-#ifdef NDEBUG
-    mon_add_response_utf8(STR_TERM_HARD_RESET);
-#else
-    // We can't soft reset cursor when ROMs stop because minicom
-    // will print the q, but one at startup is fine for debug.
-    mon_add_response_utf8("\30\33[0 q");
-    mon_add_response_utf8(STR_TERM_SOFT_RESET);
-#endif
-    mon_add_response_utf8("\n");
-    mon_add_response_utf8(SYS_NAME);
-    mon_add_response_utf8(SYS_VERSION);
-    mon_add_response_fn(vga_boot_response);
-    mon_add_response_utf8("\n");
-}
 
 void sys_mon_reboot(const char *args)
 {
@@ -87,6 +71,15 @@ void sys_mon_reset(const char *args)
     (void)args;
     arg_clear();
     lifecycle_run();
+}
+
+/* What this machine says it is at boot. The monitor asks; the strings stay
+ * here, because they are this driver's to know. */
+void __in_flash("sys_add_boot_response") sys_add_boot_response(void)
+{
+    mon_add_response_utf8(SYS_NAME);
+    mon_add_response_utf8(SYS_VERSION);
+    mon_add_response_fn(vga_boot_response);
 }
 
 void sys_mon_status(const char *args)
