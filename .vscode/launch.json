@@ -266,9 +266,15 @@
             }
         },
         {
+            // cmake-tools' launchTargetPath, not the Pico extension's. The
+            // Pico one wraps this exact command and, on any failure to
+            // resolve, silently substitutes build/<project()>.elf -- which
+            // here is build/RP6502.elf, a file no target has ever produced.
+            // The other raspberry-pi-pico commands below are fine; they read
+            // the SDK install, not the launch target.
             "name": "Pico Debug (Cortex-Debug)",
             "cwd": "${userHome}/.pico-sdk/openocd/0.12.0+dev/scripts",
-            "executable": "${command:raspberry-pi-pico.launchTargetPath}",
+            "executable": "${command:cmake.launchTargetPath}",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",
@@ -283,7 +289,7 @@
             "runToEntryPoint": "main",
             "overrideLaunchCommands": [
                 "monitor reset init",
-                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+                "load \"${command:cmake.launchTargetPath}\""
             ],
             "openOCDLaunchCommands": [
                 "adapter speed 5000"
@@ -292,7 +298,7 @@
         {
             "name": "Pico Debug (Cortex-Debug with external OpenOCD)",
             "cwd": "${workspaceRoot}",
-            "executable": "${command:raspberry-pi-pico.launchTargetPath}",
+            "executable": "${command:cmake.launchTargetPath}",
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "external",
@@ -303,7 +309,7 @@
             "runToEntryPoint": "main",
             "overrideLaunchCommands": [
                 "monitor reset init",
-                "load \"${command:raspberry-pi-pico.launchTargetPath}\""
+                "load \"${command:cmake.launchTargetPath}\""
             ]
         },
         {
@@ -311,7 +317,7 @@
             "type": "cppdbg",
             "request": "launch",
             "cwd": "${workspaceRoot}",
-            "program": "${command:raspberry-pi-pico.launchTargetPath}",
+            "program": "${command:cmake.launchTargetPath}",
             "MIMode": "gdb",
             "miDebuggerPath": "${command:raspberry-pi-pico.getGDBPath}",
             "miDebuggerServerAddress": "localhost:3333",
