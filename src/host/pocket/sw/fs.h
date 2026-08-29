@@ -36,6 +36,15 @@
  * the first slot record. */
 #define FS_SLOT_ROM 0
 
+/* The single ROM descriptor: fs_rom_open/fs_rom_adopt hand it out, the
+ * fs_std calls serve it from the staging store, and the 6502 can never
+ * be given it -- fs_std_open never counts past its pool of 8. */
+#define FS_DESC_ROM 8
+
+/* Take the descriptor over the image the host staged itself -- a boot,
+ * where slot 0 was bound and written before anything ran. */
+int fs_rom_adopt(api_errno *err);
+
 /* Lands whatever a worker left at the bridge, so the next command does
  * not stack on top of it. */
 void fs_stop(void);
@@ -63,10 +72,10 @@ bool fs_slot_len(uint32_t slot, uint32_t *len);
  * lazy rebind asks from inside a program's own syscall. */
 bool fs_getfile(uint32_t slot, char *out, size_t cap);
 
-/* Pull a whole .rp6502 into the staging store where the host puts one,
- * so the loader parses it the same way either arrived. Blocking, and
- * only ever called with the 6502 stopped. */
-bool fs_stage_rom(const char *path, uint32_t *len);
+/* The length of the image behind the ROM descriptor. After a restore that
+ * is the blob's answer, and the store is supposed to be holding that many
+ * bytes of that program. */
+uint32_t fs_rom_staged_len(void);
 
 /* Past this machine's drive prefix, or NULL for a drive that is not this one.
  * Shared with dir.c, which has to answer chdrive the same way an open does.

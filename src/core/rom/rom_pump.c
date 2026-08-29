@@ -1,0 +1,165 @@
+/*
+ * Copyright (c) 2026 Rumbledethumps
+ *
+ * SPDX-License-Identifier: BSD-3-Clause
+ *
+ * The .rp6502 record pump, the piece of the loader every machine drives:
+ * the stream read through the fs seam's ROM descriptor, one record per
+ * step into the caller's buffer, CRC checked there. A machine that must
+ * not stall its walks steps it once per pass; one that can block loops
+ * it. The bytes land wherever the machine's own deposit puts them.
+ */
+
+#include "core/api/fs.h"
+#include "core/mem/mem.h"
+#include "core/rom/rom.h"
+#include "core/rom/rom_rec.h"
+#include "core/str/str.h"
+#include <stdio.h>
+#include <string.h>
+#include <strings.h>
+
+/* ------------------------------------------------------------------ */
+/* The record pump                                                     */
+/* ------------------------------------------------------------------ */
+
+/* Reads on the ROM descriptor may report STD_PENDING on a host whose file
+ * driver is asynchronous. The pump spins them out: it runs only after the
+ * machine stopped, when std_stop has closed every guest descriptor and
+ * reaped whatever was in flight, so the transfer it waits on is its own. */
+static std_rw_result pump_read(int fd, void *buf, uint32_t count, uint32_t *got,
+                               api_errno *err)
+{
+    std_rw_result r;
+    do
+        r = fs_std_read(fd, buf, count, got, err);
+    while (r == STD_PENDING);
+    return r;
+}
+
+/* One text line into line[] (NUL-terminated, CR/LF stripped, capped). Returns
+ * its length, or -1 at EOF with nothing read. The pump's position is left at
+ * the first byte after the newline -- the start of a record's raw data, or
+ * the next header. Reads a block and seeks back, because the seam has no
+ * byte-at-a-time worth using. */
+static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
+{
+    int32_t landed;
+    if (fs_std_lseek(p->fd, SEEK_SET, (int32_t)p->pos, &landed, err) < 0)
+        return -1;
+    uint32_t got = 0;
+    if (pump_read(p->fd, line, (uint32_t)cap - 1, &got, err) != STD_OK)
+        return -1;
+    if (got == 0)
+    {
+        line[0] = 0;
+        return -1; /* EOF */
+    }
+    size_t i = 0;
+    while (i < got && line[i] != '\n')
+        i++;
+    p->pos += (uint32_t)(i < got ? i + 1 : got);
+    if (i && line[i - 1] == '\r')
+        i--;
+    line[i] = 0;
+    return (long)i;
+}
+
+bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err)
+{
+    int fd = fs_rom_open(path, FS_RD, err);
+    if (fd < 0)
+        return false;
+    return rom_pump_open_fd(p, fd, err);
+}
+
+/* From a descriptor the machine already holds -- the Pocket boots from an
+ * image its host staged before anything ran, so the open was the host's. */
+bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
+{
+    memset(p, 0, sizeof *p);
+    p->fd = fd;
+    char line[ROM_REC_MAX];
+    if (pump_gets(p, line, sizeof line, err) < 0 ||
+        strncasecmp(line, "#!RP6502", 8) != 0)
+    {
+        rom_pump_close(p);
+        *err = API_ENOEXEC;
+        return false;
+    }
+    /* Optional "#>$chunks_len $crc" bounds the program records; named assets
+     * follow. The directory starts at the header line itself -- it parses as
+     * an asset with no name, so a walker skips it like any other entry.
+     * Classic format runs records to EOF and carries no assets. */
+    uint32_t after_shebang = p->pos;
+    long n = pump_gets(p, line, sizeof line, err);
+    if (n >= 2 && line[0] == '#' && line[1] == '>')
+    {
+        const char *scan = line + 2;
+        uint32_t chunks_len, image_crc;
+        if (!str_parse_uint32(&scan, &chunks_len) ||
+            !str_parse_uint32(&scan, &image_crc))
+        {
+            rom_pump_close(p);
+            *err = API_ENOEXEC;
+            return false;
+        }
+        p->prog_end = p->pos + chunks_len;
+        p->assets_start = after_shebang;
+    }
+    else
+        p->pos = after_shebang; /* classic: reprocess from line 2 */
+    return true;
+}
+
+rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec,
+                              api_errno *err)
+{
+    if (p->prog_end && p->pos >= p->prog_end)
+        return ROM_PUMP_EOF;
+    char line[ROM_REC_MAX];
+    long n = pump_gets(p, line, sizeof line, err);
+    if (n < 0)
+        return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF; /* classic ends at EOF */
+    rom_rec_result r = rom_rec_parse(line, ROM_REC_MAX, rec);
+    if (r == ROM_REC_SKIP)
+        return ROM_PUMP_SKIP;
+    if (r != ROM_REC_OK)
+    {
+        *err = API_ENOEXEC;
+        return ROM_PUMP_ERROR;
+    }
+    int32_t landed;
+    if (fs_std_lseek(p->fd, SEEK_SET, (int32_t)p->pos, &landed, err) < 0)
+        return ROM_PUMP_ERROR;
+    uint32_t got = 0;
+    if (pump_read(p->fd, buf, rec->len, &got, err) != STD_OK || got != rec->len)
+    {
+        *err = API_ENOEXEC;
+        return ROM_PUMP_ERROR;
+    }
+    p->pos += rec->len;
+    if (mem_crc32(0, buf, rec->len) != rec->crc)
+    {
+        *err = API_ENOEXEC;
+        return ROM_PUMP_ERROR;
+    }
+    rom_rec_note(&p->vectors, rec);
+    return ROM_PUMP_RECORD;
+}
+
+bool rom_pump_complete(const rom_pump_t *p)
+{
+    return rom_rec_complete(&p->vectors);
+}
+
+void rom_pump_close(rom_pump_t *p)
+{
+    if (p->fd >= 0)
+    {
+        api_errno ignored;
+        fs_std_close(p->fd, &ignored);
+        p->fd = -1;
+    }
+}
+

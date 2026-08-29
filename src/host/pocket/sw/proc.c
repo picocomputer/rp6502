@@ -91,15 +91,9 @@ bool proc_exec_take(void)
     if (!proc_exec_pending)
         return false;
     proc_exec_pending = false;
-    uint32_t len;
-    if (!fs_stage_rom(proc_exec_path, &len))
+    if (!rom_load(proc_exec_path))
     {
         printf("exec: no %s\n", proc_exec_path);
-        return false;
-    }
-    if (!rom_load_staged(len))
-    {
-        printf("exec: bad image\n");
         return false;
     }
     return true;

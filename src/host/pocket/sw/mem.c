@@ -42,8 +42,13 @@ static const uint32_t mem_crc_nibble[16] = {
 };
 
 
+/* The one mem_crc32 contract, as core/mem/mem.c and the RIA keep it: seed 0
+ * in, the zlib CRC out, chainable by passing a result back in. This machine
+ * used to keep the raw form and make every caller wrap it by hand, which is
+ * how the same name grew two meanings. */
 uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len)
 {
+    crc ^= 0xFFFFFFFFu;
     const uint8_t *p = buf;
     while (len--)
     {
@@ -51,5 +56,5 @@ uint32_t mem_crc32(uint32_t crc, const void *buf, size_t len)
         crc = (crc >> 4) ^ mem_crc_nibble[crc & 0x0F];
         crc = (crc >> 4) ^ mem_crc_nibble[crc & 0x0F];
     }
-    return crc;
+    return crc ^ 0xFFFFFFFFu;
 }

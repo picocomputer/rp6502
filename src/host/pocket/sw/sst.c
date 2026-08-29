@@ -158,7 +158,6 @@ void sst_task(void)
          * for with that in front. */
         const char *want = proc_staged_path();
         char bound[128];
-        uint32_t len = 0;
         bool same = false;
         if (want && *want && fs_getfile(FS_SLOT_ROM, bound, sizeof bound))
         {
@@ -172,17 +171,23 @@ void sst_task(void)
         }
         if (!same && (!want || !*want))
             printf("rom: no path to stage\n");
-        else if (!same && !fs_stage_rom(want, &len))
-            printf("rom: stage '%s' failed\n", want);
         else if (!same)
         {
-            /* Nothing re-parses the image -- rom_load_staged would
-             * rewrite the 6502 memory the blob just restored -- so the
-             * length is the only check left, and a file that changed on
-             * the card since the memory was made is worth saying. */
-            if (len != rom_staged_len())
-                printf("rom: staged %u, session had %u\n", (unsigned)len,
-                       (unsigned)rom_staged_len());
+            /* The blob restored the ROM descriptor open on the wrong
+             * store; close it and open the session's own file, which is
+             * the restage. Nothing re-parses the image -- the loader
+             * would rewrite the 6502 memory the blob just restored --
+             * so the length is the only check left, and a file that
+             * changed on the card since the memory was made is worth
+             * saying. */
+            uint32_t had = fs_rom_staged_len();
+            api_errno err;
+            fs_std_close(FS_DESC_ROM, &err);
+            if (fs_rom_open(want, FS_RD, &err) < 0)
+                printf("rom: stage '%s' failed\n", want);
+            else if (fs_rom_staged_len() != had)
+                printf("rom: staged %u, session had %u\n",
+                       (unsigned)fs_rom_staged_len(), (unsigned)had);
         }
     }
 

@@ -44,7 +44,7 @@
 #include "sw/rand.h"
 #include "sw/vid.h"
 #include "core/api/fs.h"
-#include "sw/rom.h"
+#include "core/rom/rom.h"
 
 /* aud before com, so the bell hardware is quiet before the byte path that
  * can ring it is armed. fs before std, so reversal puts fs_stop after

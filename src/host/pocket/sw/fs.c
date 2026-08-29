@@ -37,6 +37,7 @@
 
 #include "core/str/unicode.h"
 
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -498,28 +499,29 @@ static enum { FS_FLUSH_UNTRIED, FS_FLUSH_WORKS, FS_FLUSH_NEVER }
  * operation, and the host writes at worst ~3.4 MB/s. */
 #define FS_STAGE_CHUNK 0x80000u
 
-bool fs_stage_rom(const char *path, uint32_t *len)
+/* The single ROM descriptor's record, the same shape a pool entry keeps and
+ * as restorable: a wake's blob brings these statics back, which is what lets
+ * the restore treat the ROM like any file that was open when the machine
+ * slept. ROM_IMG holds the bytes, so reads never go near the bridge. */
+static struct
 {
-    /* Never under a running 6502. The store is what its ROM: assets are
-     * read out of, and rewriting it beneath a program is both a pause it
-     * did not ask for and a file changing under an open descriptor.
-     * Every caller stops the machine first; this is that rule made
-     * enforceable rather than remembered. */
-    if (CPU_RESB & 1)
+    bool used;
+    uint32_t len;
+    uint32_t pos;
+} fs_rom;
+
+uint32_t fs_rom_staged_len(void)
+{
+    return fs_rom.len;
+}
+
+/* Pull the bound slot-0 file into the staging store, chunked because the
+ * bridge's ~0.9 s deadline times the whole slot operation. */
+static bool fs_rom_pull(uint32_t len)
+{
+    for (uint32_t at = 0; at < len; at += FS_STAGE_CHUNK)
     {
-        printf("rom: stage refused, 6502 running\n");
-        return false;
-    }
-    const char *p = fs_strip_drive(path);
-    if (!p || !*p)
-        return false;
-    if (fs_try_open(FS_SLOT_ROM, p, 0, 0, FS_ASSETS_PATH) > 1)
-        return false;
-    if (!fs_slot_len(FS_SLOT_ROM, len) || !*len || *len > ROM_MAX)
-        return false;
-    for (uint32_t at = 0; at < *len; at += FS_STAGE_CHUNK)
-    {
-        uint32_t n = *len - at;
+        uint32_t n = len - at;
         if (n > FS_STAGE_CHUNK)
             n = FS_STAGE_CHUNK;
         FILE_ID = FS_SLOT_ROM;
@@ -531,6 +533,90 @@ bool fs_stage_rom(const char *path, uint32_t *len)
             return false;
     }
     return true;
+}
+
+/* fs_std_open's twin over slot 0: bind, record, hand back the one descriptor
+ * the 6502 can never be given. The extra work is the pull into ROM_IMG --
+ * except when the host already did it, which is what a boot is: slot 0 bound
+ * and written before anything ran. The still-bound check makes that open a
+ * no-op rebind, and any binding this side changes marks the store fresh
+ * itself, so the skip never serves stale bytes. */
+int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
+{
+    if (flags != FS_RD)
+    {
+        *err = (flags == (FS_WR | FS_CREAT | FS_EXCL)) ? API_EACCES : API_EINVAL;
+        return -1;
+    }
+    if (path[0] == ':')
+    {
+        *err = API_ENOENT; /* no null drive: nothing installs here */
+        return -1;
+    }
+    /* Never under a running 6502. The store is what ROM: assets are read out
+     * of, and rewriting it beneath a program is a file changing under an
+     * open descriptor. Every caller stops the machine first; this is that
+     * rule made enforceable rather than remembered. */
+    if (CPU_RESB & 1)
+    {
+        printf("rom: stage refused, 6502 running\n");
+        *err = API_EBUSY;
+        return -1;
+    }
+    const char *p = fs_strip_drive(path);
+    if (!p || !*p)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    assert(!fs_rom.used); /* the caller closes before opening again */
+    if (fs_try_open(FS_SLOT_ROM, p, 0, 0, FS_ASSETS_PATH) > 1)
+    {
+        *err = API_ENOENT;
+        return -1;
+    }
+    uint32_t len;
+    if (!fs_slot_len(FS_SLOT_ROM, &len) || !len || len > ROM_MAX)
+    {
+        *err = API_EIO;
+        return -1;
+    }
+    if (!fs_rom_pull(len))
+    {
+        *err = API_EIO;
+        return -1;
+    }
+    fs_rom.used = true;
+    fs_rom.len = len;
+    fs_rom.pos = 0;
+    return FS_DESC_ROM;
+}
+
+/* The boot's open, which was the host's: slot 0 arrives bound and written
+ * before anything runs, and a Get File this early burns a bridge deadline
+ * against the staging still in flight. So the boot adopts the descriptor
+ * over what is there and asks only its length; the name comes later, from
+ * proc_restage, once the host is free to answer. */
+int fs_rom_adopt(api_errno *err)
+{
+    assert(!fs_rom.used);
+    uint32_t len;
+    if (!fs_slot_len(FS_SLOT_ROM, &len) || !len || len > ROM_MAX)
+    {
+        *err = API_EIO;
+        return -1;
+    }
+    fs_rom.used = true;
+    fs_rom.len = len;
+    fs_rom.pos = 0;
+    return FS_DESC_ROM;
+}
+
+bool fs_rom_remove(const char *name, api_errno *err)
+{
+    (void)name;
+    *err = API_ENOENT; /* no null drive */
+    return false;
 }
 
 bool fs_std_handles(const char *path)
@@ -622,6 +708,13 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
  * std_stop discards what close returns and would drop a STD_PENDING. */
 std_rw_result fs_std_close(int desc, api_errno *err)
 {
+    (void)err;
+    if (desc == FS_DESC_ROM && fs_rom.used)
+    {
+        fs_rom.used = false; /* the store keeps the bytes; ROM: reads go on */
+        fs_rom.pos = 0;
+        return STD_OK;
+    }
     if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
@@ -664,6 +757,20 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
                            uint32_t *got, api_errno *err)
 {
     *got = 0;
+    if (desc == FS_DESC_ROM && fs_rom.used)
+    {
+        /* Out of the staging store, never the bridge, so a read here works
+         * even mid-restore -- which is what lets ROM: assets and the loader
+         * share this one descriptor with the files. */
+        uint32_t n = fs_rom.pos < fs_rom.len ? fs_rom.len - fs_rom.pos : 0;
+        if (n > count)
+            n = count;
+        for (uint32_t i = 0; i < n; i++)
+            buf[i] = (char)ROM_IMG[fs_rom.pos + i];
+        fs_rom.pos += n;
+        *got = n;
+        return STD_OK;
+    }
     if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;
@@ -885,6 +992,21 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
                   api_errno *err)
 {
+    if (desc == FS_DESC_ROM && fs_rom.used)
+    {
+        int32_t from = whence == SEEK_SET   ? 0
+                       : whence == SEEK_CUR ? (int32_t)fs_rom.pos
+                       : whence == SEEK_END ? (int32_t)fs_rom.len
+                                            : -1;
+        if (from < 0 || off < -from)
+        {
+            *err = API_EINVAL;
+            return -1;
+        }
+        fs_rom.pos = (uint32_t)(from + off);
+        *pos = (int32_t)fs_rom.pos;
+        return 0;
+    }
     if (fs_desc(desc) < 0)
     {
         *err = API_EBADF;

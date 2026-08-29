@@ -7,41 +7,15 @@
 #ifndef _FPGA_SW_ROM_H_
 #define _FPGA_SW_ROM_H_
 
-#include "core/api/api.h"
-#include "core/api/std.h"
-
 #include <stdbool.h>
-#include <stdint.h>
 
-/* Load the .rp6502 image the platform staged, len bytes at ROM_IMG.
- * True when the program and its reset vector are in place. */
-bool rom_load_staged(uint32_t len);
+/* Load a .rp6502 through the ROM descriptor into the fabric. The path is
+ * the host's spelling of a card file; the staging pull, the parse and the
+ * ROM: assets all ride the one descriptor underneath. True when the
+ * program and its reset vector are in place. */
+bool rom_load(const char *path);
 
-/* The length of the image the running session loaded. After a restore
- * that is the blob's answer, and the store is supposed to be holding
- * that many bytes of that program. */
-uint32_t rom_staged_len(void);
-
-
-/* The ROM: drive: read-only windows onto the staged image's assets,
- * registered in std_drivers. */
-bool rom_std_handles(const char *path);
-int rom_std_open(const char *path, uint8_t flags, api_errno *err);
-std_rw_result rom_std_close(int desc, api_errno *err);
-std_rw_result rom_std_read(int desc, char *buf, uint32_t count,
-                           uint32_t *got, api_errno *err);
-int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos,
-                  api_errno *err);
-
-/* This driver's stdio row: the std_driver_t initializer core/api/std.c
- * builds this machine's table from. Read-only. */
-#define ROM_STD_DRIVER           \
-    {                               \
-        .handles = rom_std_handles, \
-        .open = rom_std_open,       \
-        .close = rom_std_close,     \
-        .read = rom_std_read,       \
-        .lseek = rom_std_lseek,     \
-    }
+/* Over a descriptor already held -- the boot's, adopted from the host. */
+bool rom_load_fd(int fd);
 
 #endif /* _FPGA_SW_ROM_H_ */

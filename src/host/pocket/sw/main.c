@@ -24,6 +24,7 @@
 #include "proc.h"
 #include "rand.h"
 #include "rom.h"
+#include "core/rom/rom.h"
 #include "sst.h"
 #include "vga.h"
 #include "vid.h"
@@ -81,11 +82,6 @@ bool ria_get_sigint(void)
 /* No str_init: one locale and no S() callers, so the localized chain is
  * meant to collect under --gc-sections. */
 static uint8_t main_upd_seen;
-
-static bool main_rom_len(uint32_t *len)
-{
-    return fs_slot_len(FS_SLOT_ROM, len) && *len;
-}
 
 /* No monitor here, so there is nothing a break could drop into. */
 bool sys_break(void)
@@ -152,9 +148,11 @@ void main_wake_failed(void)
 
 static void main_stage(void)
 {
-    uint32_t len;
-    bool staged = main_rom_len(&len);
-    bool ok = staged && rom_load_staged(len);
+    rom_assets_reset(); /* a fresh image replaces whatever was adopted */
+    api_errno err;
+    int fd = fs_rom_adopt(&err); /* slot 0: bound and written by the host */
+    bool staged = fd >= 0;
+    bool ok = staged && rom_load_fd(fd);
     /* After the load, not before: Get File needs the host, which at boot
      * is still staging, and asking first burns the bridge's whole deadline. */
     proc_restage();

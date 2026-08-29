@@ -73,6 +73,7 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/log.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/rom_asset.c
+    ${RP6502_SRC}/core/rom/rom_pump.c
     ${RP6502_SRC}/core/rom/rom_rec.c
     ${RP6502_SRC}/core/rom/rom_win.c
     ${RP6502_SRC}/core/rand.c
