@@ -3,10 +3,9 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * The software machines' half of the loader: the install table (the null
- * drive as a map of names to backing files) and the deposit into
- * ram[]/xram[]. The pump these feed is rom_pump.c's, shared by every
- * machine.
+ * The software machines' loader: pump the records into ram[]/xram[]. The
+ * pump is rom_pump.c's, shared by every machine; the null drive the seam
+ * resolves ":name" through is alias.c's.
  */
 
 #include "core/log.h"
@@ -21,80 +20,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
-
-/* ------------------------------------------------------------------ */
-/* Install: map a boot/exec ":name" to its backing host .rp6502        */
-/* ------------------------------------------------------------------ */
-
-#define INSTALL_MAX 16
-#define INSTALL_NAME_MAX 64
-
-typedef struct
-{
-    bool used;
-    char name[INSTALL_NAME_MAX]; /* basename, e.g. "adventure.rp6502" (the text after ":") */
-    char host[HOST_MAX_PATH];    /* the backing file */
-} install_t;
-static install_t installs[INSTALL_MAX];
-
-/* Install a .rp6502 on the null drive, keyed by its host-path basename. */
-bool rom_install(const char *hostpath)
-{
-    const char *base = path_basename(hostpath);
-    if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
-        return false;
-    /* Must exist. Asked through the driver, because that is the machine's
-     * answer for what a file is. */
-    api_errno err;
-    int fd = fs_std_open(hostpath, FS_RD, &err);
-    if (fd < 0)
-        return false;
-    fs_std_close(fd, &err);
-    for (int i = 0; i < INSTALL_MAX; i++)
-        if (!installs[i].used)
-        {
-            installs[i].used = true;
-            strcpy(installs[i].name, base);
-            strcpy(installs[i].host, hostpath);
-            return true;
-        }
-    return false;
-}
-
-/* Find an installed ROM by name (the text after ":"), case-insensitively to match
- * the firmware's installed-name handling and the sibling ROM: asset driver. */
-static install_t *install_find(const char *name)
-{
-    for (int i = 0; i < INSTALL_MAX; i++)
-        if (installs[i].used && strcasecmp(installs[i].name, name) == 0)
-            return &installs[i];
-    return NULL;
-}
-
-/* Resolve a boot/exec ROM path to the file to open: an installed ":name" ->
- * its backing file, anything else verbatim. A drive path and a bare host path
- * are both spellings the filesystem seam accepts, so neither is rewritten
- * here. The loader then opens it. */
-bool rom_resolve(const char *path, char *out, size_t outsz)
-{
-    if (path[0] == ':') /* null drive: an installed ROM, or nothing */
-    {
-        install_t *in = install_find(path + 1);
-        if (!in)
-        {
-            errno = ENOENT;
-            return false;
-        }
-        if (strlen(in->host) >= outsz)
-            return false;
-        strcpy(out, in->host);
-        return true;
-    }
-    if (strlen(path) >= outsz)
-        return false;
-    strcpy(out, path);
-    return true;
-}
 
 /* ------------------------------------------------------------------ */
 /* This machine's loader: pump the records into ram[]/xram[]           */

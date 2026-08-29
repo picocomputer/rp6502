@@ -43,11 +43,10 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec, api_e
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);
 
-/* Install a .rp6502 on the null drive, keyed by its host-path basename, so a
- * boot/exec ":name" resolves back to it. */
+/* The null drive as a map (alias.c): an installed ":name" aliasing the host
+ * file that backs it. Nil unless the host defines ROM_ALIAS_MAX; the seam's
+ * fs_rom_open resolves through it. */
 bool rom_install(const char *hostpath);
-/* Map a boot/exec ROM path (":name" / drive path / bare) to the host file the
- * loader opens. */
 bool rom_resolve(const char *path, char *out, size_t outsz);
 
 /* Load a .rp6502 into ram[]/xram[]. The path may be a host path, a drive path

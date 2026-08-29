@@ -71,6 +71,7 @@ add_library(emu_core STATIC
     # layout engine here at all.
     ${RP6502_SRC}/core/hid/vtkeys.c
     ${RP6502_SRC}/core/log.c
+    ${RP6502_SRC}/core/rom/alias.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/rom_asset.c
     ${RP6502_SRC}/core/rom/rom_pump.c
@@ -180,6 +181,7 @@ target_include_directories(emu_core PUBLIC
     ${RP6502_VENDOR}
 )
 target_compile_definitions(emu_core PUBLIC
+    ROM_ALIAS_MAX=16 # --rom's null drive; the docs promise sixteen
     _GNU_SOURCE
     RP6502_EXFAT=0
     RP6502_LOCALE=EN
