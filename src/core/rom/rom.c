@@ -3,6 +3,11 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
+ * The .rp6502 loader: the record pump every machine drives, and this
+ * machine's deposit into ram[]/xram[]. The pump reads through the fs seam's
+ * ROM descriptor, one record per step, so a machine that must not stall its
+ * walks steps it once per pass and a machine that can block loops it. The
+ * bytes land wherever the machine puts them; the format lands here.
  */
 
 #include "core/log.h"
@@ -10,239 +15,148 @@
 #include "core/str/path.h"
 #include "core/rom/rom.h"
 #include "core/rom/rom_rec.h"
-#include "core/rom/rom_win.h"
 #include "host/os.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
 #include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
 /* ------------------------------------------------------------------ */
-/* ROM: drive — read-only assets, windows into the loaded .rp6502      */
+/* The record pump                                                     */
 /* ------------------------------------------------------------------ */
 
-#define ROM_OPEN_MAX 16 /* concurrent ROM: window opens (cf. the std fd pool) */
-
-/* The loaded program's backing .rp6502 and the file offset where its asset
- * directory begins (0 = the image carries no assets). Assets are NOT indexed in
- * memory: a "ROM:name" open scans the directory in the file for the entry, like
- * the firmware's rom_find_asset, then reads it on demand. A new program replaces
- * these; the MSC0: drive beside them is untouched. */
-static char g_rom_src[HOST_MAX_PATH];
-static size_t g_rom_assets_start;
-static uint32_t g_rom_generation; /* bumped per successful rom_load; ROM Help watches it */
-
-static long fgets_line(FILE *f, char *line, size_t cap);
-
-/* The loader's descriptor on the running program's own .rp6502, opened on
- * demand and held until another program replaces it. Every window reads
- * through this one; a window closing does not close it, because the next
- * asset the program opens wants it still there. */
-static int rom_fd = -1;
-
-/* Name the backing .rp6502 for the ROM: drive; the loader also records where its
- * asset directory begins (g_rom_assets_start). */
-static void rom_set_src(const char *hostpath)
+/* Reads on the ROM descriptor may report STD_PENDING on a host whose file
+ * driver is asynchronous. The pump spins them out: it runs only after the
+ * machine stopped, when std_stop has closed every guest descriptor and
+ * reaped whatever was in flight, so the transfer it waits on is its own. */
+static std_rw_result pump_read(int fd, void *buf, uint32_t count, uint32_t *got,
+                               api_errno *err)
 {
-    snprintf(g_rom_src, sizeof(g_rom_src), "%s", hostpath);
+    std_rw_result r;
+    do
+        r = fs_std_read(fd, buf, count, got, err);
+    while (r == STD_PENDING);
+    return r;
 }
 
-/* Forget the loaded ROM's assets when a new program loads (exec/boot). Nothing is
- * held but the directory's location, so this just clears it — the MSC0: drive is
- * untouched, and open windows are closed separately by the machine reset. */
-void rom_assets_reset(void)
-{
-    if (rom_fd >= 0)
-    {
-        api_errno ignored;
-        fs_std_close(rom_fd, &ignored);
-        rom_fd = -1;
-    }
-    g_rom_src[0] = 0;
-    g_rom_assets_start = 0;
-}
-
-/* Scan the asset directory in g_rom_src for the entry named `name` (the text
- * after "ROM:"). On success *base is the file offset of its data and *len its
- * length. Mirrors the firmware rom_find_asset: walk the "#>len crc name" headers
- * from the directory start, skipping each body, until the name matches or the
- * list ends — no in-memory index, so the program may carry any number of assets. */
-static bool rom_find_asset(const char *name, size_t *base, size_t *len)
-{
-    if (!g_rom_assets_start || !g_rom_src[0])
-        return false;
-    FILE *f = host_fs_fopen_rd(g_rom_src);
-    if (!f)
-        return false;
-    bool found = false;
-    if (fseek(f, (long)g_rom_assets_start, SEEK_SET) == 0)
-    {
-        char line[512];
-        while (fgets_line(f, line, sizeof(line)) > 0 && line[0] == '#' && line[1] == '>')
-        {
-            const char *p = line + 2;
-            uint32_t alen, acrc;
-            if (!str_parse_uint32(&p, &alen) || !str_parse_uint32(&p, &acrc))
-                break;
-            while (*p == ' ' || *p == '\t')
-                p++;
-            long data = ftell(f); /* the asset's data starts just after its header */
-            if (strcasecmp(p, name) == 0)
-            {
-                *base = (size_t)data;
-                *len = (size_t)alen;
-                found = true;
-                break;
-            }
-            if (fseek(f, data + (long)alen, SEEK_SET) != 0)
-                break; /* past EOF: no more assets */
-        }
-    }
-    fclose(f);
-    return found;
-}
-
-/* Read a named asset from the loaded ROM into buf (NUL-terminated). Returns bytes
- * read (< bufsz), or -1 if no ROM is loaded or the asset is absent. Host-side
- * reader for the debugger's ROM Help viewer; the guest reads assets via ROM:. */
-long rom_read_asset(const char *name, char *buf, size_t bufsz)
-{
-    if (!buf || bufsz == 0)
-        return -1;
-    buf[0] = 0;
-    size_t base, len;
-    if (!rom_find_asset(name, &base, &len))
-        return -1;
-    FILE *f = host_fs_fopen_rd(g_rom_src);
-    if (!f)
-        return -1;
-    long got = -1;
-    if (fseek(f, (long)base, SEEK_SET) == 0)
-    {
-        size_t want = (len < bufsz - 1) ? len : bufsz - 1;
-        got = (long)fread(buf, 1, want, f);
-        buf[got] = 0;
-    }
-    fclose(f);
-    return got;
-}
-
-uint32_t rom_generation(void) { return g_rom_generation; }
-
-/* If path names the ROM drive, return true and the asset name after "ROM:". */
-static bool path_is_rom(const char *path, const char **rest)
-{
-    if (strncasecmp(path, "ROM:", 4) == 0)
-    {
-        *rest = path + 4;
-        return true;
-    }
-    return false;
-}
-
-/* ---- Read-only file windows [base, base+len) into a host file, opened by the ROM:
- * asset driver. The window's fd is kept positioned at base + pos, and reads go through
- * the non-blocking fs seam. Descriptors index the pool. ---- */
-static rom_win_t windows[ROM_OPEN_MAX];
-
-/* Every window shares the loader's one descriptor, so a fetch says where it
- * wants to read rather than reading on from wherever the last one left off.
- * The seek's own outcome goes to scratch: a clamp is not this read's failure,
- * and the read that follows reports for itself. */
-static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
-                               uint32_t count, uint32_t *got, api_errno *err)
+/* One text line into line[] (NUL-terminated, CR/LF stripped, capped). Returns
+ * its length, or -1 at EOF with nothing read. The pump's position is left at
+ * the first byte after the newline -- the start of a record's raw data, or
+ * the next header. Reads a block and seeks back, because the seam has no
+ * byte-at-a-time worth using. */
+static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
 {
     int32_t landed;
-    api_errno ignored;
-    fs_std_lseek(w->fd, SEEK_SET, (int32_t)at, &landed, &ignored);
-    return fs_std_read(w->fd, buf, count, got, err);
-}
-
-static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
-
-/* Open a read-only [base, base+len) window on hostpath. desc >= 0, or -1 + *err. */
-static int rom_window_open(const char *hostpath, size_t base, size_t len, api_errno *err)
-{
-    if (rom_fd < 0)
-    {
-        rom_fd = fs_rom_open(hostpath, err);
-        if (rom_fd < 0)
-            return -1;
-    }
-    return rom_win_alloc(&rom_pool, (uint32_t)base, (uint32_t)len, rom_fd, err);
-}
-
-std_rw_result rom_std_close(int desc, api_errno *err)
-{
-    rom_win_t *w = rom_win_get(&rom_pool, desc);
-    if (!w)
-    {
-        *err = API_EBADF;
-        return STD_ERROR;
-    }
-    w->used = false; /* the descriptor is the loader's, and outlives the window */
-    return STD_OK;
-}
-
-std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
-{
-    return rom_win_read(&rom_pool, desc, buf, count, got, err);
-}
-
-int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
-{
-    return rom_win_lseek(&rom_pool, desc, whence, off, pos, err);
-}
-
-/* ---- The ROM: driver (read-only asset windows), registered in std.c's table. ---- */
-
-bool rom_std_handles(const char *path)
-{
-    const char *rest;
-    return path_is_rom(path, &rest);
-}
-
-int rom_std_open(const char *path, uint8_t flags, api_errno *err)
-{
-    const char *rest;
-    path_is_rom(path, &rest);
-    if (flags & FS_WR) /* write requested on a read-only asset */
-    {
-        *err = API_EACCES;
+    if (fs_std_lseek(p->fd, SEEK_SET, (int32_t)p->pos, &landed, err) < 0)
         return -1;
-    }
-    size_t base, len;
-    if (!rom_find_asset(rest, &base, &len))
-    {
-        *err = API_ENOENT;
+    uint32_t got = 0;
+    if (pump_read(p->fd, line, (uint32_t)cap - 1, &got, err) != STD_OK)
         return -1;
-    }
-    return rom_window_open(g_rom_src, base, len, err);
-}
-
-/* Read one text line from f into line[] (NUL-terminated, CR/LF stripped, capped).
- * Returns its length, or -1 at EOF with nothing read. The file position is left
- * at the first byte after the line's newline — i.e. the start of a record's raw
- * data, or the next header. */
-static long fgets_line(FILE *f, char *line, size_t cap)
-{
-    size_t i = 0;
-    int c;
-    while ((c = fgetc(f)) != EOF && c != '\n')
-        if (i + 1 < cap)
-            line[i++] = (char)c;
-    if (c == EOF && i == 0)
+    if (got == 0)
     {
         line[0] = 0;
-        return -1;
+        return -1; /* EOF */
     }
+    size_t i = 0;
+    while (i < got && line[i] != '\n')
+        i++;
+    p->pos += (uint32_t)(i < got ? i + 1 : got);
     if (i && line[i - 1] == '\r')
         i--;
     line[i] = 0;
     return (long)i;
+}
+
+bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err)
+{
+    memset(p, 0, sizeof *p);
+    p->fd = fs_rom_open(path, err);
+    if (p->fd < 0)
+        return false;
+    char line[ROM_REC_MAX];
+    if (pump_gets(p, line, sizeof line, err) < 0 ||
+        strncasecmp(line, "#!RP6502", 8) != 0)
+    {
+        rom_pump_close(p);
+        *err = API_ENOEXEC;
+        return false;
+    }
+    /* Optional "#>$chunks_len $crc" bounds the program records; named assets
+     * follow. The directory starts at the header line itself -- it parses as
+     * an asset with no name, so a walker skips it like any other entry.
+     * Classic format runs records to EOF and carries no assets. */
+    uint32_t after_shebang = p->pos;
+    long n = pump_gets(p, line, sizeof line, err);
+    if (n >= 2 && line[0] == '#' && line[1] == '>')
+    {
+        const char *scan = line + 2;
+        uint32_t chunks_len, image_crc;
+        if (!str_parse_uint32(&scan, &chunks_len) ||
+            !str_parse_uint32(&scan, &image_crc))
+        {
+            rom_pump_close(p);
+            *err = API_ENOEXEC;
+            return false;
+        }
+        p->prog_end = p->pos + chunks_len;
+        p->assets_start = after_shebang;
+    }
+    else
+        p->pos = after_shebang; /* classic: reprocess from line 2 */
+    return true;
+}
+
+rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec,
+                              api_errno *err)
+{
+    if (p->prog_end && p->pos >= p->prog_end)
+        return ROM_PUMP_EOF;
+    char line[ROM_REC_MAX];
+    long n = pump_gets(p, line, sizeof line, err);
+    if (n < 0)
+        return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF; /* classic ends at EOF */
+    rom_rec_result r = rom_rec_parse(line, ROM_REC_MAX, rec);
+    if (r == ROM_REC_SKIP)
+        return ROM_PUMP_SKIP;
+    if (r != ROM_REC_OK)
+    {
+        *err = API_ENOEXEC;
+        return ROM_PUMP_ERROR;
+    }
+    int32_t landed;
+    if (fs_std_lseek(p->fd, SEEK_SET, (int32_t)p->pos, &landed, err) < 0)
+        return ROM_PUMP_ERROR;
+    uint32_t got = 0;
+    if (pump_read(p->fd, buf, rec->len, &got, err) != STD_OK || got != rec->len)
+    {
+        *err = API_ENOEXEC;
+        return ROM_PUMP_ERROR;
+    }
+    p->pos += rec->len;
+    if (mem_crc32(0, buf, rec->len) != rec->crc)
+    {
+        *err = API_ENOEXEC;
+        return ROM_PUMP_ERROR;
+    }
+    rom_rec_note(&p->vectors, rec);
+    return ROM_PUMP_RECORD;
+}
+
+bool rom_pump_complete(const rom_pump_t *p)
+{
+    return rom_rec_complete(&p->vectors);
+}
+
+void rom_pump_close(rom_pump_t *p)
+{
+    if (p->fd >= 0)
+    {
+        api_errno ignored;
+        fs_std_close(p->fd, &ignored);
+        p->fd = -1;
+    }
 }
 
 /* ------------------------------------------------------------------ */
@@ -256,8 +170,7 @@ typedef struct
 {
     bool used;
     char name[INSTALL_NAME_MAX]; /* basename, e.g. "adventure.rp6502" (the text after ":") */
-    char host[HOST_MAX_PATH]; /* the backing file */
-    size_t size;
+    char host[HOST_MAX_PATH];    /* the backing file */
 } install_t;
 static install_t installs[INSTALL_MAX];
 
@@ -267,24 +180,19 @@ bool rom_install(const char *hostpath)
     const char *base = path_basename(hostpath);
     if (!*base || strlen(base) >= INSTALL_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
         return false;
-    /* Must exist, and its length is the whole-file window's. Asked through the
-     * driver, because that is the machine's answer for what a file is. */
+    /* Must exist. Asked through the driver, because that is the machine's
+     * answer for what a file is. */
     api_errno err;
     int fd = fs_std_open(hostpath, FS_RD, &err);
     if (fd < 0)
         return false;
-    int32_t size;
-    bool sized = fs_std_lseek(fd, SEEK_END, 0, &size, &err) == 0;
     fs_std_close(fd, &err);
-    if (!sized)
-        return false;
     for (int i = 0; i < INSTALL_MAX; i++)
         if (!installs[i].used)
         {
             installs[i].used = true;
             strcpy(installs[i].name, base);
             strcpy(installs[i].host, hostpath);
-            installs[i].size = (size_t)size;
             return true;
         }
     return false;
@@ -325,6 +233,33 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
     return true;
 }
 
+/* ------------------------------------------------------------------ */
+/* This machine's loader: pump the records into ram[]/xram[]           */
+/* ------------------------------------------------------------------ */
+
+/* Deposit one record's bytes. A load never writes the RIA register window:
+ * $FF00-$FFF9 is skipped (the firmware's ria_write_buf does the same over
+ * the bus), and the $FFFA-$FFFF vectors land in the register cells too --
+ * a load bypasses the bus, so ram[] keeps the shadow every reader uses and
+ * regs[] gets the copy the RIA would have taken. */
+static void rom_deposit(const rom_rec_t *rec, const uint8_t *buf)
+{
+    if (rec->addr > 0xFFFF)
+    {
+        for (uint32_t i = 0; i < rec->len; i++)
+            xram[rec->addr - 0x10000 + i] = buf[i]; /* volatile: no memcpy */
+        return;
+    }
+    for (uint32_t i = 0; i < rec->len; i++)
+    {
+        uint32_t a = rec->addr + i;
+        if (a < 0xFF00 || a >= 0xFFFA)
+            ram[a] = buf[i];
+        if (a >= 0xFFFA && a <= 0xFFFF)
+            regs[a & 0x1F] = buf[i];
+    }
+}
+
 bool rom_load(const char *path)
 {
     char host[HOST_MAX_PATH];
@@ -333,114 +268,38 @@ bool rom_load(const char *path)
         log_error("cannot resolve ROM '%s'", path);
         return false;
     }
-    FILE *f = host_fs_fopen_rd(host);
-    if (!f)
+    rom_assets_reset(); /* forget the previous ROM (the MSC0: drive persists) */
+    api_errno err;
+    rom_pump_t pump;
+    if (!rom_pump_open(&pump, host, &err))
     {
-        log_error("cannot open ROM '%s'", path);
+        log_error("cannot load ROM '%s'", path);
         return false;
     }
-
-    char line[512];
-    if (fgets_line(f, line, sizeof(line)) < 0 ||
-        strncasecmp(line, "#!RP6502", 8) != 0)
+    static uint8_t buf[ROM_REC_MAX];
+    rom_rec_t rec;
+    rom_pump_result r;
+    while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)
     {
-        log_error("not a .rp6502 file (bad magic)");
-        fclose(f);
-        return false;
-    }
-
-    /* Optional "#>$chunks_len $crc" header gives the program-section byte length;
-     * named assets follow it. Classic format (no header) is all program records,
-     * no assets. */
-    long after_magic = ftell(f);
-    long prog_end = -1; /* -1 = run to EOF (classic) */
-    long n = fgets_line(f, line, sizeof(line));
-    if (n >= 2 && line[0] == '#' && line[1] == '>')
-    {
-        const char *p = line + 2;
-        uint32_t chunks_len, image_crc;
-        if (!str_parse_uint32(&p, &chunks_len) || !str_parse_uint32(&p, &image_crc))
-        {
-            log_error("bad header line");
-            fclose(f);
-            return false;
-        }
-        prog_end = ftell(f) + (long)chunks_len; /* records end here; assets follow */
-    }
-    else
-        fseek(f, after_magic, SEEK_SET); /* classic: reprocess from line 2 */
-
-    rom_assets_reset();   /* forget the previous ROM's assets (the MSC0: drive persists) */
-    rom_set_src(host); /* ROM: reads seek into this file */
-    /* The asset directory (if any) begins where the program chunks end; a ROM:
-     * open scans it from there on demand. Classic images carry no assets. */
-    g_rom_assets_start = (prog_end >= 0) ? (size_t)prog_end : 0;
-
-    /* Program memory-chunk records: stream each straight into ram[]/xram[]. */
-    rom_rec_vectors_t vectors = {0};
-    while (prog_end < 0 || ftell(f) < prog_end)
-    {
-        n = fgets_line(f, line, sizeof(line));
-        if (n < 0)
-            break; /* EOF (classic) */
-        rom_rec_t rec;
-        rom_rec_result r = rom_rec_parse(line, 0, &rec);
-        if (r == ROM_REC_SKIP)
+        if (r == ROM_PUMP_SKIP)
             continue;
-        if (r == ROM_REC_MALFORMED)
+        if (r == ROM_PUMP_ERROR)
         {
-            log_error("malformed data record: %s", line);
-            fclose(f);
+            log_error("bad ROM record in '%s'", path);
+            rom_pump_close(&pump);
             return false;
         }
-        if (r == ROM_REC_RANGE)
-        {
-            log_error("data record out of range (addr=$%X len=$%X)", rec.addr, rec.len);
-            fclose(f);
-            return false;
-        }
-        const uint32_t addr = rec.addr, len = rec.len, crc = rec.crc;
-        uint8_t *dst = (addr > 0xFFFF) ? (uint8_t *)&xram[addr - 0x10000] : &ram[addr];
-        /* A ROM load must not write the RIA register window. The firmware's
-         * ria_write_buf skips $FF00-$FFF9 (only the $FFFA-$FFFF vectors land in
-         * that page); mirror it by snapshotting those cells and restoring them
-         * after the record streams in (the CRC still covers the file bytes). */
-        uint8_t guard_save[0xFFFA - 0xFF00];
-        bool guard = addr < 0x10000 && addr < 0xFFFA && addr + len > 0xFF00;
-        if (guard)
-            memcpy(guard_save, &ram[0xFF00], sizeof guard_save);
-        if (fread(dst, 1, len, f) != len)
-        {
-            log_error("truncated data record at $%X", addr);
-            fclose(f);
-            return false;
-        }
-        if (mem_crc32(0, dst, len) != crc)
-        {
-            log_error("CRC mismatch in record at $%X", addr);
-            fclose(f);
-            return false;
-        }
-        if (guard)
-            memcpy(&ram[0xFF00], guard_save, sizeof guard_save);
-        /* The vectors are RIA registers ($FFE0-$FFFF), and a load bypasses the bus,
-         * so publish them there too — ram[] keeps the shadow every other reader uses.
-         * The firmware's ria_write_buf reaches them over the bus instead. */
-        for (uint32_t a = 0xFFFA; a < 0x10000; a++)
-            if (a >= addr && a < addr + len)
-                regs[a & 0x1F] = ram[a];
-        rom_rec_note(&vectors, &rec);
+        rom_deposit(&rec, buf);
     }
-
-    /* Named assets follow the program chunks; they are not parsed here — a ROM:
-     * open scans the directory (from g_rom_assets_start) for the named entry and
-     * reads it on demand, so the bytes never enter RAM. */
-    fclose(f);
-    if (!rom_rec_complete(&vectors))
+    if (!rom_pump_complete(&pump))
     {
         log_error("ROM has no reset vector ($FFFC/$FFFD)");
+        rom_pump_close(&pump);
         return false;
     }
-    g_rom_generation++;
+    /* The descriptor and the directory offset become the ROM: drive's: an
+     * asset open scans the file for the entry and reads it on demand, so the
+     * bytes never enter RAM. */
+    rom_asset_adopt(pump.fd, pump.assets_start);
     return true;
 }

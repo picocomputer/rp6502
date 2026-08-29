@@ -13,6 +13,34 @@
 #include <stdint.h>
 
 #include "core/api/std.h"
+#include "core/rom/rom_rec.h"
+
+/* The record pump: the .rp6502 stream read through the fs seam's ROM
+ * descriptor, one record per step. A machine that must not stall its walks
+ * steps it once per pass; a machine that can block loops it. The machine
+ * deposits the bytes; the pump owns the format. buf is the machine's own
+ * ROM_REC_MAX bytes -- the firmware passes mbuf. */
+typedef struct
+{
+    int fd;                /* the loader's descriptor, fs_rom_open's */
+    uint32_t pos;          /* file offset of the next unread line */
+    uint32_t prog_end;     /* records end here; 0 = classic, run to EOF */
+    uint32_t assets_start; /* asset directory offset; 0 = no assets */
+    rom_rec_vectors_t vectors;
+} rom_pump_t;
+
+typedef enum
+{
+    ROM_PUMP_RECORD, /* rec + buf hold one deposited-ready record */
+    ROM_PUMP_SKIP,   /* a comment or blank line; nothing to deposit */
+    ROM_PUMP_EOF,    /* the program section is done */
+    ROM_PUMP_ERROR,  /* *err says; the image is not loadable */
+} rom_pump_result;
+
+bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err);
+rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec, api_errno *err);
+bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
+void rom_pump_close(rom_pump_t *p);
 
 /* Install a .rp6502 on the null drive, keyed by its host-path basename, so a
  * boot/exec ":name" resolves back to it. */
@@ -29,10 +57,15 @@ bool rom_resolve(const char *path, char *out, size_t outsz);
  * sink) on any format or CRC error. */
 bool rom_load(const char *path);
 
-/* ---- ROM: drive (rom.c): the .rp6502's bundled assets, read on demand from the
- * file. The loader names the backing file and notes where the asset directory
- * begins; a "ROM:name" open then scans the file for the entry — NO bytes are
- * copied into RAM, and the image may carry any number of assets. ---- */
+/* ---- ROM: drive (rom_asset.c): the .rp6502's bundled assets, read on demand
+ * from the file through the loader's descriptor. The loader adopts the
+ * descriptor and the directory offset into the driver; a "ROM:name" open then
+ * scans the file for the entry — NO bytes are copied into RAM, and the image
+ * may carry any number of assets. ---- */
+
+/* The loader hands its descriptor and asset-directory offset to the driver;
+ * the driver owns the descriptor from here (rom_assets_reset closes it). */
+void rom_asset_adopt(int fd, uint32_t assets_start);
 
 /* The ROM: file driver (read-only asset windows), for std.c's table. */
 bool rom_std_handles(const char *path);

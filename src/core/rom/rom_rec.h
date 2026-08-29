@@ -16,6 +16,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* The largest record the format produces: the packer caps every memory chunk
+ * at 1024 bytes and never crosses a 64 KB page (tools/rp6502.py). A machine's
+ * record buffer is this big and the parse refuses anything bigger. */
+#define ROM_REC_MAX 1024
+
 typedef struct
 {
     uint32_t addr, len, crc;
