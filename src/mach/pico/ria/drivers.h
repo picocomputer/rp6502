@@ -37,6 +37,7 @@
 #include "ria/mon/fil.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/ram.h"
+#include "core/rom/rom.h" /* ROM_STD_DRIVER: the one asset driver */
 #include "ria/mon/rom.h"
 #include "ria/net/cyw.h"
 #include "ria/net/modem.h"

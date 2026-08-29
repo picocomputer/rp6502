@@ -55,24 +55,11 @@ const char *rom_get_boot(void); // uses mbuf
 /* STDIO 
  */
 
-bool rom_std_handles(const char *path);
 int rom_std_open(const char *path, uint8_t flags, api_errno *err);
-std_rw_result rom_std_close(int desc, api_errno *err);
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
-int rom_std_lseek(int desc, int8_t whence, int32_t offset, int32_t *pos, api_errno *err);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
 #define ROM_DRIVER DRIVER(rom_init, nul_task, rom_task, nul_run, rom_stop, rom_break)
 
-/* This driver's stdio row: the std_driver_t initializer core/api/std.c
- * builds this machine's table from. Read-only. */
-#define ROM_STD_DRIVER           \
-    {                               \
-        .handles = rom_std_handles, \
-        .open = rom_std_open,       \
-        .close = rom_std_close,     \
-        .read = rom_std_read,       \
-        .lseek = rom_std_lseek,     \
-    }
 
 #endif /* _RIA_MON_ROM_H_ */

@@ -50,10 +50,19 @@ static void rom_deposit(const rom_rec_t *rec, const uint8_t *buf)
 
 bool rom_load(const char *path)
 {
+    /* The alias map is the loader's alone: an installed ":name" becomes its
+     * backing file here, and the seam below never sees a colon on this
+     * machine. */
+    char host[HOST_MAX_PATH];
+    if (!rom_resolve(path, host, sizeof(host)))
+    {
+        log_error("cannot resolve ROM '%s'", path);
+        return false;
+    }
     rom_assets_reset(); /* forget the previous ROM (the MSC0: drive persists) */
     api_errno err;
     rom_pump_t pump;
-    if (!rom_pump_open(&pump, path, &err))
+    if (!rom_pump_open(&pump, host, &err))
     {
         log_error("cannot load ROM '%s'", path);
         return false;

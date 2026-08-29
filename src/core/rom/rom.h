@@ -66,6 +66,9 @@ bool rom_load(const char *path);
 /* The loader hands its descriptor and asset-directory offset to the driver;
  * the driver owns the descriptor from here (rom_assets_reset closes it). */
 void rom_asset_adopt(int fd, uint32_t assets_start);
+bool rom_asset_find(const char *name, uint32_t *base, uint32_t *len);
+int rom_asset_fd(void);       /* the adopted descriptor */
+uint32_t rom_asset_dir(void); /* directory offset; 0 = classic, no assets */
 
 /* The ROM: file driver (read-only asset windows), for std.c's table. */
 bool rom_std_handles(const char *path);

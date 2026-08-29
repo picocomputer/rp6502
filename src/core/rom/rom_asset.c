@@ -14,8 +14,8 @@
 #include "core/rom/rom_rec.h"
 #include "core/rom/rom_win.h"
 #include "core/str/str.h"
+#include "core/str/oem.h"
 #include "core/str/unicode.h"
-#include "core/term/font.h"
 #include <ctype.h>
 #include <stdio.h> /* SEEK_SET */
 #include <string.h>
@@ -52,6 +52,12 @@ void rom_assets_reset(void)
 }
 
 uint32_t rom_generation(void) { return g_rom_generation; }
+
+/* The adopted descriptor, for a caller that streams an asset itself. */
+int rom_asset_fd(void) { return rom_fd; }
+
+/* Where the directory starts; 0 for a classic image with no assets. */
+uint32_t rom_asset_dir(void) { return rom_assets_start; }
 
 /* Reads on the ROM descriptor spin out STD_PENDING; see rom.c's pump_read.
  * Windows hand PENDING through instead (rom_fetch below) -- the guest's
@@ -102,7 +108,7 @@ static long asset_gets(uint32_t *pos, char *line, size_t cap)
  * 0x7F. The program header's entry has no name and matches nothing. */
 static bool asset_name_eq(const char *utf8, const char *oem)
 {
-    uint16_t page = font_get_code_page();
+    uint16_t page = oem_get_code_page_run();
     for (;;)
     {
         unsigned char a = unicode_from_utf8_next(&utf8, page);
@@ -117,8 +123,9 @@ static bool asset_name_eq(const char *utf8, const char *oem)
 /* Scan the asset directory for `name` (the text after "ROM:"). On success
  * *base is the file offset of its data and *len its length. Walk the
  * "#>len crc name" headers from the directory start, skipping each body,
- * until the name matches or the list ends. */
-static bool rom_find_asset(const char *name, uint32_t *base, uint32_t *len)
+ * until the name matches or the list ends. Public for the monitor's HELP,
+ * which streams an asset itself rather than opening a window. */
+bool rom_asset_find(const char *name, uint32_t *base, uint32_t *len)
 {
     if (!rom_assets_start || rom_fd < 0)
         return false;
@@ -153,7 +160,7 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz)
         return -1;
     buf[0] = 0;
     uint32_t base, len;
-    if (!rom_find_asset(name, &base, &len))
+    if (!rom_asset_find(name, &base, &len))
         return -1;
     if (!asset_seek(base))
         return -1;
@@ -216,7 +223,7 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     uint32_t base, len;
-    if (!rom_find_asset(rest, &base, &len))
+    if (!rom_asset_find(rest, &base, &len))
     {
         *err = API_ENOENT;
         return -1;

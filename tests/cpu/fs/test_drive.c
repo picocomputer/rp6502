@@ -142,7 +142,7 @@ UTEST(drive, fs_rom_open_is_the_one_way_in)
     ASSERT_TRUE(rom_install(TEST_FIXTURE));
 
     api_errno err;
-    int fd = fs_rom_open(":adventure.rp6502", FS_RD, &err);
+    int fd = fs_rom_open(TEST_FIXTURE, FS_RD, &err);
     ASSERT_TRUE(fd >= 0);
     char magic[8] = {0};
     uint32_t got = 0;
@@ -159,10 +159,9 @@ UTEST(drive, fs_rom_open_is_the_one_way_in)
 
     fs_std_close(fd, &err);
 
-    /* Colon-exclusive: a store miss is ENOENT, nothing tries the cwd. */
-    make_file("real.rp6502", "#!RP6502 x", 10);
-    ASSERT_TRUE(fs_rom_open(":real.rp6502", FS_RD, &err) < 0);
-    ASSERT_EQ(err, API_ENOENT);
+    /* The seam does not alias: rom_load resolves ":name" above it, and a
+     * colon reaching this host's open is just a name no file has. */
+    ASSERT_TRUE(fs_rom_open(":adventure.rp6502", FS_RD, &err) < 0);
 
     /* The write side: references have nothing to create; junk flags refuse. */
     ASSERT_TRUE(fs_rom_open(":new.rp6502", FS_WR | FS_CREAT | FS_EXCL, &err) < 0);

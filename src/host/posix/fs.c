@@ -10,7 +10,6 @@
  */
 
 #include "core/api/fs.h"
-#include "core/rom/rom.h" /* rom_resolve: the install table is this machine's null drive */
 #include "host/os.h"
 #include "host/posix/errmap.h"
 #include "core/str/oem.h"
@@ -138,25 +137,15 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
 /* The ROM descriptor: kept out of the range open(2) hands out so a program
  * can neither name it nor be given it. dup2 onto a descriptor above every
  * other -- the highest the process may hold -- is the cheapest way to say
- * that on POSIX. ":name" resolves through the install table, which is this
- * machine's null drive; it holds references, so the write combo has nothing
- * honest to create and refuses. */
+ * that on POSIX. The loader resolves ":name" through its alias map before
+ * this is called; nothing here spells a store, so the write combo has
+ * nothing honest to create and refuses. */
 int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
     if (flags != FS_RD)
     {
         *err = (flags == (FS_WR | FS_CREAT | FS_EXCL)) ? API_EACCES : API_EINVAL;
         return -1;
-    }
-    char host[HOST_MAX_PATH];
-    if (path[0] == ':')
-    {
-        if (!rom_resolve(path, host, sizeof host))
-        {
-            *err = API_ENOENT;
-            return -1;
-        }
-        path = host;
     }
     int fd = fs_open_native(path, FS_RD, err);
     if (fd < 0)

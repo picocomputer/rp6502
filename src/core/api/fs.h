@@ -43,14 +43,13 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
 std_rw_result fs_std_sync(int desc, api_errno *err);
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
 
-/* The machine's own opens: the .rp6502 a loader streams, and the null drive
- * ":name" names one on -- the store of installed ROMs (littlefs on a Pico,
- * the install table in the emulator, nothing on a Pocket). The colon is a
- * drive letter, not a search rule: ":name" is the store alone and a miss is
- * ENOENT, anything else is the filesystem exactly as fs_std_open spells it,
- * and neither ever tries the other, so an install cannot shadow a file. No
- * name policy lives here -- the contents make a ROM, and every caller reads
- * the shebang right after open.
+/* The machine's own opens: the .rp6502 a loader streams. On the machine that
+ * stores installed ROMs itself -- littlefs on a Pico -- ":name" opens one
+ * from the store, ENOENT on a miss, and never falls through to the
+ * filesystem, so an install cannot shadow a file. A machine whose installs
+ * are references keeps that map in the loader (rom/alias.c) and no colon
+ * ever reaches here. No name policy lives anywhere in this: the contents
+ * make a ROM, and every caller reads the shebang right after open.
  *
  * FS_RD opens the one read descriptor; the caller closes it before opening
  * again -- a clean lifecycle that lints bugs, so nothing here closes an old

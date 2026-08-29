@@ -26,7 +26,6 @@
 #include "core/api/fs.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
-#include "core/rom/rom.h" /* rom_resolve: the install table is this machine's null drive */
 #include "host/os.h"
 #include "host/windows/errmap.h"
 #include <direct.h>
@@ -180,16 +179,6 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
     {
         *err = (flags == (FS_WR | FS_CREAT | FS_EXCL)) ? API_EACCES : API_EINVAL;
         return -1;
-    }
-    char host[HOST_MAX_PATH];
-    if (path[0] == ':')
-    {
-        if (!rom_resolve(path, host, sizeof host))
-        {
-            *err = API_ENOENT;
-            return -1;
-        }
-        path = host;
     }
     HANDLE h = win_open_handle(path, FS_RD, err);
     if (h == INVALID_HANDLE_VALUE)
