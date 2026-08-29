@@ -12,7 +12,7 @@
 #include "core/api/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"
-#include "core/rom/rom_rec.h"
+#include "core/rom/record.h"
 #include "host/os.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"
@@ -30,7 +30,7 @@
  * the bus), and the $FFFA-$FFFF vectors land in the register cells too --
  * a load bypasses the bus, so ram[] keeps the shadow every reader uses and
  * regs[] gets the copy the RIA would have taken. */
-static void rom_deposit(const rom_rec_t *rec, const uint8_t *buf)
+static void rom_deposit(const rom_record_t *rec, const uint8_t *buf)
 {
     if (rec->addr > 0xFFFF)
     {
@@ -67,8 +67,8 @@ bool rom_load(const char *path)
         log_error("cannot load ROM '%s'", path);
         return false;
     }
-    static uint8_t buf[ROM_REC_MAX];
-    rom_rec_t rec;
+    static uint8_t buf[ROM_RECORD_MAX];
+    rom_record_t rec;
     rom_pump_result r;
     while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)
     {

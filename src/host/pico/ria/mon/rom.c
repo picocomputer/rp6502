@@ -20,8 +20,8 @@
 #include "ria/sys/mem.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "core/rom/rom_rec.h"
-#include "core/rom/rom_win.h"
+#include "core/rom/record.h"
+#include "core/rom/window.h"
 #include "sys/path.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
@@ -64,7 +64,7 @@ static uint32_t help_end;
 
 static void rom_loading(void)
 {
-    rom_rec_t rec;
+    rom_record_t rec;
     api_errno err;
     switch (rom_pump_next(&rom_pump, mbuf, &rec, &err))
     {
@@ -189,7 +189,7 @@ void rom_mon_install(const char *args)
         mon_add_response_errno(err);
         return;
     }
-    rom_rec_t rec;
+    rom_record_t rec;
     rom_pump_result r;
     while ((r = rom_pump_next(&rom_pump, mbuf, &rec, &err)) != ROM_PUMP_EOF)
         if (r == ROM_PUMP_ERROR)

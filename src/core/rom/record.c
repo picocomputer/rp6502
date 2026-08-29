@@ -3,26 +3,26 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * See rom_rec.h.
+ * See record.h.
  */
 
-#include "core/rom/rom_rec.h"
+#include "core/rom/record.h"
 #include "core/str/str.h"
 
-rom_rec_result rom_rec_parse(const char *line, uint32_t max_len, rom_rec_t *rec)
+rom_record_result rom_record_parse(const char *line, uint32_t max_len, rom_record_t *rec)
 {
     if (!line[0] || line[0] == '#')
-        return ROM_REC_SKIP;
+        return ROM_RECORD_SKIP;
     const char *p = line;
     if (!str_parse_uint32(&p, &rec->addr) ||
         !str_parse_uint32(&p, &rec->len) ||
         !str_parse_uint32(&p, &rec->crc) ||
         !str_parse_end(p))
-        return ROM_REC_MALFORMED;
+        return ROM_RECORD_MALFORMED;
     if (rec->addr > 0x1FFFF || rec->len == 0 ||
         rec->len > 0x20000 - rec->addr ||
         (rec->addr < 0x10000 && rec->len > 0x10000 - rec->addr) ||
         (max_len && rec->len > max_len))
-        return ROM_REC_RANGE;
-    return ROM_REC_OK;
+        return ROM_RECORD_RANGE;
+    return ROM_RECORD_OK;
 }

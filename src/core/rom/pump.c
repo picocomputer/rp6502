@@ -13,7 +13,7 @@
 #include "core/api/fs.h"
 #include "core/mem/mem.h"
 #include "core/rom/rom.h"
-#include "core/rom/rom_rec.h"
+#include "core/rom/record.h"
 #include "core/str/str.h"
 #include <stdio.h>
 #include <string.h>
@@ -79,7 +79,7 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
 {
     memset(p, 0, sizeof *p);
     p->fd = fd;
-    char line[ROM_REC_MAX];
+    char line[ROM_RECORD_MAX];
     if (pump_gets(p, line, sizeof line, err) < 0 ||
         strncasecmp(line, "#!RP6502", 8) != 0)
     {
@@ -112,7 +112,7 @@ bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err)
     return true;
 }
 
-rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec,
+rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
                               api_errno *err)
 {
     if (p->prog_end && p->pos >= p->prog_end)
@@ -120,13 +120,13 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec,
     /* The header line borrows the caller's record buffer: the parse is done
      * with it before the payload read below writes over it, and a task-pump
      * machine keeps a kilobyte off its stack. */
-    long n = pump_gets(p, (char *)buf, ROM_REC_MAX, err);
+    long n = pump_gets(p, (char *)buf, ROM_RECORD_MAX, err);
     if (n < 0)
         return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF; /* classic ends at EOF */
-    rom_rec_result r = rom_rec_parse((char *)buf, ROM_REC_MAX, rec);
-    if (r == ROM_REC_SKIP)
+    rom_record_result r = rom_record_parse((char *)buf, ROM_RECORD_MAX, rec);
+    if (r == ROM_RECORD_SKIP)
         return ROM_PUMP_SKIP;
-    if (r != ROM_REC_OK)
+    if (r != ROM_RECORD_OK)
     {
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;
@@ -146,13 +146,13 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec,
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;
     }
-    rom_rec_note(&p->vectors, rec);
+    rom_record_note(&p->vectors, rec);
     return ROM_PUMP_RECORD;
 }
 
 bool rom_pump_complete(const rom_pump_t *p)
 {
-    return rom_rec_complete(&p->vectors);
+    return rom_record_complete(&p->vectors);
 }
 
 void rom_pump_close(rom_pump_t *p)

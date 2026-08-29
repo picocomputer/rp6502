@@ -15,11 +15,11 @@
 #include "mmio.h"
 #include "rom.h"
 #include "core/rom/rom.h"
-#include "core/rom/rom_rec.h"
+#include "core/rom/record.h"
 
 #include <stdio.h>
 
-static void rom_deposit(const rom_rec_t *rec, const uint8_t *buf)
+static void rom_deposit(const rom_record_t *rec, const uint8_t *buf)
 {
     for (uint32_t i = 0; i < rec->len; i++)
     {
@@ -40,8 +40,8 @@ bool rom_load_fd(int fd)
     rom_pump_t pump;
     if (!rom_pump_open_fd(&pump, fd, &err))
         return false;
-    static uint8_t buf[ROM_REC_MAX];
-    rom_rec_t rec;
+    static uint8_t buf[ROM_RECORD_MAX];
+    rom_record_t rec;
     rom_pump_result r;
     while ((r = rom_pump_next(&pump, buf, &rec, &err)) != ROM_PUMP_EOF)
     {

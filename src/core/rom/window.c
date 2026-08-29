@@ -3,37 +3,37 @@
  *
  * SPDX-License-Identifier: BSD-3-Clause
  *
- * See rom_win.h.
+ * See window.h.
  */
 
-#include "core/rom/rom_win.h"
+#include "core/rom/window.h"
 
 #include <stdio.h> /* SEEK_SET and friends */
 
-int rom_win_alloc(const rom_win_pool_t *p, uint32_t base, uint32_t len, int fd,
+int rom_window_alloc(const rom_window_pool_t *p, uint32_t base, uint32_t len, int fd,
                   api_errno *err)
 {
     for (int i = 0; i < p->max; i++)
         if (!p->slots[i].used)
         {
-            p->slots[i] = (rom_win_t){.used = true, .base = base, .len = len, .fd = fd};
+            p->slots[i] = (rom_window_t){.used = true, .base = base, .len = len, .fd = fd};
             return i;
         }
     *err = API_EMFILE;
     return -1;
 }
 
-rom_win_t *rom_win_get(const rom_win_pool_t *p, int desc)
+rom_window_t *rom_window_get(const rom_window_pool_t *p, int desc)
 {
     if (desc < 0 || desc >= p->max || !p->slots[desc].used)
         return NULL;
     return &p->slots[desc];
 }
 
-std_rw_result rom_win_read(const rom_win_pool_t *p, int desc, char *buf,
+std_rw_result rom_window_read(const rom_window_pool_t *p, int desc, char *buf,
                            uint32_t count, uint32_t *got, api_errno *err)
 {
-    rom_win_t *w = rom_win_get(p, desc);
+    rom_window_t *w = rom_window_get(p, desc);
     if (!w)
     {
         *got = 0;
@@ -54,10 +54,10 @@ std_rw_result rom_win_read(const rom_win_pool_t *p, int desc, char *buf,
     return r;
 }
 
-int rom_win_lseek(const rom_win_pool_t *p, int desc, int8_t whence, int32_t off,
+int rom_window_lseek(const rom_window_pool_t *p, int desc, int8_t whence, int32_t off,
                   int32_t *pos, api_errno *err)
 {
-    rom_win_t *w = rom_win_get(p, desc);
+    rom_window_t *w = rom_window_get(p, desc);
     if (!w)
     {
         *err = API_EBADF;

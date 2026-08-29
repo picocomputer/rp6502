@@ -130,10 +130,10 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RP6502_ROOT}/src/core/api/dir.c
     ${RP6502_ROOT}/src/core/api/ops.c
     ${RP6502_ROOT}/src/core/api/xreg0.c
-    ${RP6502_ROOT}/src/core/rom/rom_asset.c
-    ${RP6502_ROOT}/src/core/rom/rom_pump.c
-    ${RP6502_ROOT}/src/core/rom/rom_rec.c
-    ${RP6502_ROOT}/src/core/rom/rom_win.c
+    ${RP6502_ROOT}/src/core/rom/asset.c
+    ${RP6502_ROOT}/src/core/rom/pump.c
+    ${RP6502_ROOT}/src/core/rom/record.c
+    ${RP6502_ROOT}/src/core/rom/window.c
     ${RIA_SRC}/api/dir.c
     ${RIA_SRC}/api/errmap.c
     ${RIA_SRC}/api/fs.c

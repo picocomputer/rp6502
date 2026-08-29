@@ -11,8 +11,8 @@
 
 #include "core/api/fs.h"
 #include "core/rom/rom.h"
-#include "core/rom/rom_rec.h"
-#include "core/rom/rom_win.h"
+#include "core/rom/record.h"
+#include "core/rom/window.h"
 #include "core/str/str.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
@@ -175,13 +175,13 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz)
 
 /* ---- The ROM: file driver (read-only asset windows), for std.c's table ---- */
 
-static rom_win_t windows[ROM_OPEN_MAX];
+static rom_window_t windows[ROM_OPEN_MAX];
 
 /* Every window shares the loader's one descriptor, so a fetch says where it
  * wants to read rather than reading on from wherever the last one left off.
  * The seek's own outcome goes to scratch: a clamp is not this read's failure,
  * and the read that follows reports for itself. */
-static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
+static std_rw_result rom_fetch(rom_window_t *w, uint32_t at, char *buf,
                                uint32_t count, uint32_t *got, api_errno *err)
 {
     int32_t landed;
@@ -190,7 +190,7 @@ static std_rw_result rom_fetch(rom_win_t *w, uint32_t at, char *buf,
     return fs_std_read(w->fd, buf, count, got, err);
 }
 
-static const rom_win_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
+static const rom_window_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
 
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
@@ -228,12 +228,12 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    return rom_win_alloc(&rom_pool, base, len, rom_fd, err);
+    return rom_window_alloc(&rom_pool, base, len, rom_fd, err);
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    rom_win_t *w = rom_win_get(&rom_pool, desc);
+    rom_window_t *w = rom_window_get(&rom_pool, desc);
     if (!w)
     {
         *err = API_EBADF;
@@ -245,10 +245,10 @@ std_rw_result rom_std_close(int desc, api_errno *err)
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    return rom_win_read(&rom_pool, desc, buf, count, got, err);
+    return rom_window_read(&rom_pool, desc, buf, count, got, err);
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    return rom_win_lseek(&rom_pool, desc, whence, off, pos, err);
+    return rom_window_lseek(&rom_pool, desc, whence, off, pos, err);
 }

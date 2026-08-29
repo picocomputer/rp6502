@@ -13,20 +13,20 @@
 #include <stdint.h>
 
 #include "core/api/std.h"
-#include "core/rom/rom_rec.h"
+#include "core/rom/record.h"
 
 /* The record pump: the .rp6502 stream read through the fs seam's ROM
  * descriptor, one record per step. A machine that must not stall its walks
  * steps it once per pass; a machine that can block loops it. The machine
  * deposits the bytes; the pump owns the format. buf is the machine's own
- * ROM_REC_MAX bytes -- the firmware passes mbuf. */
+ * ROM_RECORD_MAX bytes -- the firmware passes mbuf. */
 typedef struct
 {
     int fd;                /* the loader's descriptor, fs_rom_open's */
     uint32_t pos;          /* file offset of the next unread line */
     uint32_t prog_end;     /* records end here; 0 = classic, run to EOF */
     uint32_t assets_start; /* asset directory offset; 0 = no assets */
-    rom_rec_vectors_t vectors;
+    rom_record_vectors_t vectors;
 } rom_pump_t;
 
 typedef enum
@@ -39,7 +39,7 @@ typedef enum
 
 bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err);
 bool rom_pump_open_fd(rom_pump_t *p, int fd, api_errno *err); /* a descriptor the machine already holds */
-rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec, api_errno *err);
+rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec, api_errno *err);
 bool rom_pump_complete(const rom_pump_t *p); /* both reset-vector bytes arrived */
 void rom_pump_close(rom_pump_t *p);
 
@@ -57,7 +57,7 @@ bool rom_alias_resolve(const char *path, char *out, size_t outsz);
  * sink) on any format or CRC error. */
 bool rom_load(const char *path);
 
-/* ---- ROM: drive (rom_asset.c): the .rp6502's bundled assets, read on demand
+/* ---- ROM: drive (asset.c): the .rp6502's bundled assets, read on demand
  * from the file through the loader's descriptor. The loader adopts the
  * descriptor and the directory offset into the driver; a "ROM:name" open then
  * scans the file for the entry — NO bytes are copied into RAM, and the image
