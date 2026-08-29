@@ -305,6 +305,10 @@ void rom_exec(void)
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
+    /* The outgoing program's assets go with it. An exec runs inside the stop
+     * that ended it, so the idle task has not had its pass to let the ROM
+     * descriptor go, and the seam has only the one. */
+    rom_assets_reset();
     rom_pump_close(&rom_pump);
     api_errno err;
     if (!rom_pump_open(&rom_pump, path, &err))
