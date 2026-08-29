@@ -54,236 +54,13 @@ static enum {
 } rom_state;
 static uint32_t rom_addr;
 static uint32_t rom_len;
-static rom_rec_vectors_t rom_vectors;
 /* The loader's pump over the seam's ROM descriptor. fd -1 when no load is in
  * flight; the old handles below serve HELPING and INSTALL until they retire. */
 static rom_pump_t rom_pump = {.fd = -1};
 /* HELPING's own cursor over the adopted descriptor. */
 static uint32_t help_pos;
 static uint32_t help_end;
-static bool lfs_file_open;
-static lfs_file_t lfs_file;
-LFS_FILE_CONFIG(lfs_file_config, static);
-static FIL fat_fil;
-static uint32_t rom_end_pos;
-static uint32_t rom_assets_start;
 
-// Read one line into mbuf (CR/LF stripped). Returns the line length, 0 at EOF
-// (or a blank line); *err gets the I/O error (>0 FRESULT, <0 lfs) or 0.
-static size_t rom_gets(int *err)
-{
-    *err = 0;
-    mbuf[0] = 0;
-    if (fat_fil.obj.fs)
-    {
-        if (!f_gets((char *)mbuf, MBUF_SIZE, &fat_fil))
-        {
-            *err = (int)f_error(&fat_fil);
-            return 0;
-        }
-    }
-    else
-    {
-        if (!lfs_gets((char *)mbuf, MBUF_SIZE, &lfs_volume, &lfs_file, err))
-            return 0;
-    }
-    size_t len = strlen((char *)mbuf);
-    if (len && mbuf[len - 1] == '\n')
-        len--;
-    if (len && mbuf[len - 1] == '\r')
-        len--;
-    mbuf[len] = 0;
-    return len;
-}
-
-static uint32_t rom_ftell(void)
-{
-    if (fat_fil.obj.fs)
-        return (uint32_t)f_tell(&fat_fil);
-    lfs_soff_t p = lfs_file_tell(&lfs_volume, &lfs_file);
-    return p >= 0 ? (uint32_t)p : 0;
-}
-
-static void rom_close(void)
-{
-    if (lfs_file_open)
-    {
-        lfs_file_close(&lfs_volume, &lfs_file);
-        lfs_file_open = false;
-    }
-    if (fat_fil.obj.fs)
-    {
-        f_close(&fat_fil);
-        fat_fil.obj.fs = NULL;
-    }
-}
-
-// Seek the open ROM file. *err (NULL-tolerant) gets the I/O error on failure.
-static bool rom_fseek_to(uint32_t pos, int *err)
-{
-    if (err)
-        *err = 0;
-    if (fat_fil.obj.fs)
-    {
-        FRESULT fr = f_lseek(&fat_fil, (FSIZE_t)pos);
-        if (fr != FR_OK)
-        {
-            if (err)
-                *err = (int)fr;
-            return false;
-        }
-        return true;
-    }
-    lfs_soff_t r = lfs_file_seek(&lfs_volume, &lfs_file, (lfs_soff_t)pos, LFS_SEEK_SET);
-    if (r < 0)
-    {
-        if (err)
-            *err = (int)r;
-        return false;
-    }
-    return true;
-}
-
-
-static void rom_report_io(int err)
-{
-    mon_add_response_fatfs(err);
-    mon_add_response_lfs(err);
-}
-
-static bool rom_open(const char *path)
-{
-    if (*path != ':')
-    {
-        FRESULT fresult = f_open(&fat_fil, path, FA_READ);
-        mon_add_response_fatfs(fresult);
-        if (fresult != FR_OK)
-            return false;
-    }
-    else
-    {
-        const char *lfs_path = path + 1;
-        int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, lfs_path,
-                                         LFS_O_RDONLY, &lfs_file_config);
-        mon_add_response_lfs(lfsresult);
-        if (lfsresult < 0)
-            return false;
-        lfs_file_open = true;
-    }
-    int err;
-    size_t n = rom_gets(&err);
-    if (err)
-    {
-        rom_report_io(err);
-        return false;
-    }
-    if (n != 8 || strncasecmp("#!RP6502", (char *)mbuf, 8))
-        goto invalid;
-    uint32_t after_shebang = rom_ftell();
-    size_t line2_len = rom_gets(&err);
-    if (err)
-    {
-        rom_report_io(err);
-        return false;
-    }
-    if (line2_len >= 2 && mbuf[0] == '#' && mbuf[1] == '>')
-    {
-        // New format: parse null-asset header "#>len crc"
-        const char *p = (const char *)mbuf + 2;
-        uint32_t chunks_len, unused_image_crc;
-        if (!str_parse_uint32(&p, &chunks_len) ||
-            !str_parse_uint32(&p, &unused_image_crc))
-            goto invalid;
-        (void)unused_image_crc;
-        rom_end_pos = rom_ftell() + chunks_len;
-        rom_assets_start = after_shebang;
-    }
-    else
-    {
-        rom_end_pos = 0;
-        rom_assets_start = 0;
-        // Seek back so classic parsing starts from line 2
-        if (!rom_fseek_to(after_shebang, &err))
-        {
-            rom_report_io(err);
-            return false;
-        }
-    }
-    rom_vectors = (rom_rec_vectors_t){0};
-    return true;
-invalid:
-    mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-    return false;
-}
-
-static bool rom_at_eof(void)
-{
-    if (rom_end_pos)
-        return rom_ftell() >= rom_end_pos;
-    return fat_fil.obj.fs ? f_eof(&fat_fil)
-                          : lfs_eof(&lfs_volume, &lfs_file);
-}
-
-static bool rom_read(uint32_t len, uint32_t crc)
-{
-    if (fat_fil.obj.fs)
-    {
-        FRESULT fresult = f_read(&fat_fil, mbuf, len, &mbuf_len);
-        mon_add_response_fatfs(fresult);
-        if (fresult != FR_OK)
-            return false;
-    }
-    else
-    {
-        lfs_ssize_t lfsresult = lfs_file_read(&lfs_volume, &lfs_file, mbuf, len);
-        mon_add_response_lfs(lfsresult);
-        if (lfsresult < 0)
-            return false;
-        mbuf_len = lfsresult;
-    }
-    if (len != mbuf_len)
-    {
-        mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-        return false;
-    }
-    if (mem_crc32(0, mbuf, mbuf_len) != crc)
-    {
-        mon_add_response_utf8(S(STR_ERR_CRC));
-        return false;
-    }
-    return true;
-}
-
-static bool rom_next_chunk(void)
-{
-    mbuf_len = 0;
-    int err;
-    rom_gets(&err);
-    if (err)
-    {
-        rom_report_io(err);
-        return false;
-    }
-    /* A record must fit mbuf whole: this machine stages it there before the
-     * bus carries it across. */
-    rom_rec_t rec;
-    rom_rec_result r = rom_rec_parse((char *)mbuf, MBUF_SIZE, &rec);
-    if (r == ROM_REC_SKIP)
-        return true; /* a blank line or a comment */
-    if (r != ROM_REC_OK)
-    {
-        mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
-        return false;
-    }
-    rom_addr = rec.addr;
-    rom_len = rec.len;
-    if (!rom_read(rom_len, rec.crc))
-        return false;
-    /* After the read, not before: a record that arrives truncated or fails its
-     * CRC cannot vouch for the vector it was carrying. */
-    rom_rec_note(&rom_vectors, &rec);
-    return true;
-}
 
 static void rom_loading(void)
 {
@@ -401,50 +178,76 @@ void rom_mon_install(const char *args)
     }
     // mon_command_exists and help_topic_exists nuke our string
     tok = str_parse_string(&args_start);
-    if (!rom_open(tok))
+    /* Validate by parsing the whole image -- a ROM must carry its reset
+     * vector to be installed -- then rewind and stream the copy through the
+     * seam's two descriptors: the pump's read side, INSTALL's one write. */
+    rom_assets_reset();
+    rom_pump_close(&rom_pump);
+    api_errno err;
+    if (!rom_pump_open(&rom_pump, tok, &err))
+    {
+        mon_add_response_errno(err);
         return;
-    while (!rom_at_eof())
-        if (!rom_next_chunk())
+    }
+    rom_rec_t rec;
+    rom_pump_result r;
+    while ((r = rom_pump_next(&rom_pump, mbuf, &rec, &err)) != ROM_PUMP_EOF)
+        if (r == ROM_PUMP_ERROR)
+        {
+            mon_add_response_errno(err);
+            rom_pump_close(&rom_pump);
             return;
-    if (!rom_rec_complete(&rom_vectors))
+        }
+    if (!rom_pump_complete(&rom_pump))
     {
         mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+        rom_pump_close(&rom_pump);
         return;
     }
-    FRESULT fresult = f_rewind(&fat_fil);
-    mon_add_response_fatfs(fresult);
-    if (fresult != FR_OK)
-        return;
-    int lfsresult = lfs_file_opencfg(&lfs_volume, &lfs_file, lfs_name,
-                                     LFS_O_WRONLY | LFS_O_CREAT | LFS_O_EXCL,
-                                     &lfs_file_config);
-    mon_add_response_lfs(lfsresult);
-    if (lfsresult < 0)
-        return;
-    lfs_file_open = true;
-    while (true)
+    int32_t landed;
+    if (fs_std_lseek(rom_pump.fd, SEEK_SET, 0, &landed, &err) < 0)
     {
-        fresult = f_read(&fat_fil, mbuf, MBUF_SIZE, &mbuf_len);
-        mon_add_response_fatfs(fresult);
-        if (fresult != FR_OK)
-            break;
-        lfsresult = lfs_file_write(&lfs_volume, &lfs_file, mbuf, mbuf_len);
-        mon_add_response_lfs(lfsresult);
-        if (lfsresult < 0)
-            break;
-        if (mbuf_len < MBUF_SIZE)
-            break;
+        mon_add_response_errno(err);
+        rom_pump_close(&rom_pump);
+        return;
     }
-    int lfscloseresult = lfs_file_close(&lfs_volume, &lfs_file);
-    mon_add_response_lfs(lfscloseresult);
-    lfs_file_open = false;
-    if (lfsresult >= 0)
-        lfsresult = lfscloseresult;
-    fresult = f_close(&fat_fil);
-    fat_fil.obj.fs = NULL;
-    mon_add_response_fatfs(fresult);
-    if (fresult != FR_OK || lfsresult < 0)
-        lfs_remove(&lfs_volume, lfs_name);
+    char dest[1 + LFS_NAME_MAX + 1];
+    snprintf(dest, sizeof dest, ":%s", lfs_name);
+    int wr = fs_rom_open(dest, FS_WR | FS_CREAT | FS_EXCL, &err);
+    if (wr < 0)
+    {
+        mon_add_response_errno(err);
+        rom_pump_close(&rom_pump);
+        return;
+    }
+    bool ok = true;
+    for (;;)
+    {
+        uint32_t got = 0;
+        if (fs_std_read(rom_pump.fd, (char *)mbuf, MBUF_SIZE, &got, &err) != STD_OK)
+        {
+            ok = false;
+            break;
+        }
+        if (!got)
+            break;
+        uint32_t put = 0;
+        if (fs_std_write(wr, (const char *)mbuf, got, &put, &err) != STD_OK ||
+            put != got)
+        {
+            ok = false;
+            break;
+        }
+    }
+    if (fs_std_close(wr, &err) != STD_OK)
+        ok = false;
+    rom_pump_close(&rom_pump);
+    if (!ok)
+    {
+        mon_add_response_errno(err);
+        api_errno ignored;
+        fs_rom_remove(dest, &ignored);
+    }
 }
 
 void rom_mon_remove(const char *args)
@@ -465,8 +268,9 @@ void rom_mon_remove(const char *args)
     boot = str_parse_string(&boot);
     if (boot && !strcasecmp(name, boot))
         rom_set_boot("");
-    int lfsresult = lfs_remove(&lfs_volume, name);
-    mon_add_response_lfs(lfsresult);
+    api_errno err;
+    if (!fs_rom_remove(name, &err))
+        mon_add_response_errno(err);
 }
 
 void rom_exec(void)
@@ -503,7 +307,6 @@ void rom_exec(void)
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
-    rom_close();
     rom_pump_close(&rom_pump);
     api_errno err;
     if (!rom_pump_open(&rom_pump, path, &err))
@@ -555,9 +358,15 @@ bool rom_load_installed(const char *args)
     char name[LFS_NAME_MAX + 1];
     if (!rom_copy_install_name(name, tok, 0))
         return false;
-    struct lfs_info info;
-    if (lfs_stat(&lfs_volume, name, &info) < 0)
+    /* At the prompt nothing holds the ROM descriptor, so the existence test
+     * is the open itself. */
+    api_errno err;
+    char probe[1 + LFS_NAME_MAX + 1];
+    snprintf(probe, sizeof probe, ":%s", name);
+    int fd = fs_rom_open(probe, FS_RD, &err);
+    if (fd < 0)
         return false;
+    fs_std_close(fd, &err);
     char rom_argv0[1 + LFS_NAME_MAX + 1];
     snprintf(rom_argv0, sizeof(rom_argv0), ":%s", name);
     rom_load_argv(rom_argv0, args);
@@ -790,7 +599,6 @@ void rom_task(void)
     switch (rom_state)
     {
     case ROM_IDLE:
-        rom_close();
         rom_pump_close(&rom_pump);
         rom_assets_reset();
         break;
@@ -930,9 +738,13 @@ bool rom_set_boot(const char *args)
     char buf[LFS_NAME_MAX + 1];
     if (!rom_copy_install_name(buf, argv0, 0))
         return false;
-    struct lfs_info info;
-    if (lfs_stat(&lfs_volume, buf, &info) < 0)
+    api_errno err;
+    char probe[1 + LFS_NAME_MAX + 1];
+    snprintf(probe, sizeof probe, ":%s", buf);
+    int fd = fs_rom_open(probe, FS_RD, &err);
+    if (fd < 0)
         return false;
+    fs_std_close(fd, &err);
     while (!str_parse_end(p))
         if (!str_parse_string(&p))
             return false;
