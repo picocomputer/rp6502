@@ -73,6 +73,28 @@ UTEST(rom, loads_a_headerless_image)
     ASSERT_EQ(ram[0xFFFD], 0x03);
 }
 
+/* The format caps a record at 1024 bytes (the packer never writes more), and
+ * the pump refuses what the packer cannot produce -- on every machine, which
+ * this one stands in for. */
+UTEST(rom, rejects_a_record_over_the_format_cap)
+{
+    char path[HOST_MAX_PATH];
+    snprintf(path, sizeof path, "%s/overcap.rp6502", TEST_SCRATCH);
+    FILE *f = fopen(path, "wb");
+    ASSERT_TRUE(f != NULL);
+    static uint8_t big[1025];
+    fputs("#!RP6502\n", f);
+    fprintf(f, "$00300 $%X $%X\n", (unsigned)sizeof big,
+            (unsigned)mem_crc32(0, big, sizeof big));
+    fwrite(big, 1, sizeof big, f);
+    /* a reset vector so only the cap can be the refusal */
+    uint8_t vec[2] = {0x00, 0x03};
+    fprintf(f, "$FFFC $2 $%X\n", (unsigned)mem_crc32(0, vec, 2));
+    fwrite(vec, 1, 2, f);
+    fclose(f);
+    ASSERT_FALSE(rom_load(path));
+}
+
 UTEST(xreg, device_channel_dispatch)
 {
     ASSERT_TRUE(xreg0(0, 0, 0)); /* RIA-local devices: accepted (stub) */

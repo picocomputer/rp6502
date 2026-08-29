@@ -16,6 +16,7 @@
 #include "host/sokol/png.h"
 #include "core/rand_seed.h"
 #include "core/rom/rom.h"
+#include "core/str/path.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/sys.h"
@@ -168,7 +169,7 @@ int main(int argc, char **argv)
     for (int i = 0; i < o.n_installs; i++)
     {
         char oem[4096];
-        if (!host_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_install(oem))
+        if (!host_argv_to_oem(o.installs[i], oem, sizeof oem) || !rom_alias_insert(oem))
         {
             fprintf(stderr, "rp6502-emu: cannot install --rom '%s'\n", o.installs[i]);
             return 1;
@@ -237,7 +238,7 @@ int main(int argc, char **argv)
             fprintf(stderr, "rp6502-emu: ROM path too long\n");
             return 1;
         }
-        snprintf(bootbuf, sizeof(bootbuf), ":%s", cli_base_name(inst));
+        snprintf(bootbuf, sizeof(bootbuf), ":%s", path_basename(inst));
         rom = bootbuf;
     }
 

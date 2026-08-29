@@ -428,6 +428,44 @@ UTEST(fs, rom_asset_window_read_only_on_demand)
     ASSERT_EQ(ssys_errno(), api_platform_errno(API_ENOENT));
 }
 
+/* An asset is named in the file's UTF-8 and a program's path is code page
+ * bytes; the driver converts as it walks, so a non-ASCII name a build host
+ * wrote is openable by the code page spelling the guest actually has. */
+UTEST(fs, rom_asset_name_compares_through_the_code_page)
+{
+    ASSERT_TRUE(fresh_cwd());
+    oem_set_code_page_run(437);
+
+    unsigned char vec[2] = {0x00, 0x80};
+    uint32_t vcrc = mem_crc32(0, vec, 2);
+    char rec[64];
+    int recn = snprintf(rec, sizeof(rec), "$FFFC $2 $%X\r\n", vcrc);
+
+    char rompath[300], romnative[HOST_MAX_PATH];
+    snprintf(rompath, sizeof(rompath), "%s/cp.rp6502", g_dir);
+    ASSERT_TRUE(path_to_native(rompath, romnative, sizeof(romnative)));
+    FILE *rf = fopen(romnative, "wb");
+    ASSERT_TRUE(rf != NULL);
+    fputs("#!RP6502\r\n", rf);
+    fprintf(rf, "#>$%X $0\r\n", (unsigned)(recn + 2));
+    fwrite(rec, 1, (size_t)recn, rf);
+    fwrite(vec, 1, 2, rf);
+    /* "caf\u00e9" in UTF-8: c3 a9 is e-acute, CP437 0x82. */
+    fputs("#>$2 $0 caf\xc3\xa9\r\n", rf);
+    fwrite("ok", 1, 2, rf);
+    fclose(rf);
+
+    ASSERT_TRUE(rom_load(rompath));
+
+    char oem_name[16] = {'R', 'O', 'M', ':', 'c', 'a', 'f', (char)0x82, 0};
+    int f = ssys_open(oem_name, O_RD);
+    ASSERT_TRUE(f >= 0);
+    char buf[4] = {0};
+    ASSERT_EQ(ssys_read(f, buf, 4), 2);
+    ASSERT_STREQ(buf, "ok");
+    ssys_close(f);
+}
+
 /* OEM (code page) filenames: the guest works in CP437 bytes; the host seam
  * converts to the host's Unicode spelling and back, so the same OEM bytes
  * round-trip through create -> readdir -> stat -> unlink. */

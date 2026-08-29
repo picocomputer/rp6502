@@ -54,7 +54,7 @@ bool rom_load(const char *path)
      * backing file here, and the seam below never sees a colon on this
      * machine. */
     char host[HOST_MAX_PATH];
-    if (!rom_resolve(path, host, sizeof(host)))
+    if (!rom_alias_resolve(path, host, sizeof(host)))
     {
         log_error("cannot resolve ROM '%s'", path);
         return false;

@@ -32,6 +32,9 @@ bool rom_active(void);
  */
 
 void rom_mon_load(const char *args);
+/* The load below LOAD's argument gate: argv0 verbatim plus parsed args.
+ * NFC feeds installed names through here; the open answers for them. */
+void rom_load_argv(const char *argv0, const char *args);
 void rom_mon_info(const char *args);
 void rom_mon_install(const char *args);
 void rom_mon_remove(const char *args);

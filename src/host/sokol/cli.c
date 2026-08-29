@@ -18,12 +18,6 @@
 #include <getopt.h>
 #endif
 
-const char *cli_base_name(const char *p)
-{
-    const char *s = strrchr(p, '/');
-    return s ? s + 1 : p;
-}
-
 void cli_options_init(cli_options *o)
 {
     memset(o, 0, sizeof *o);

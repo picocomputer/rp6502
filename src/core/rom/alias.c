@@ -14,7 +14,6 @@
 #include "core/rom/rom.h"
 #include "core/str/path.h"
 #include "host/os.h"
-#include <errno.h>
 #include <string.h>
 #include <strings.h>
 
@@ -35,7 +34,7 @@ typedef struct
 static alias_t aliases[ROM_ALIAS_MAX];
 
 /* Install a .rp6502 on the null drive, keyed by its host-path basename. */
-bool rom_install(const char *hostpath)
+bool rom_alias_insert(const char *hostpath)
 {
     const char *base = path_basename(hostpath);
     if (!*base || strlen(base) >= ALIAS_NAME_MAX || strlen(hostpath) >= HOST_MAX_PATH)
@@ -59,13 +58,13 @@ bool rom_install(const char *hostpath)
 }
 
 /* Resolve ":name" to the file it aliases, case-insensitively to match the
- * firmware's installed-name handling. Anything else passes through verbatim:
- * a drive path and a bare host path are both spellings the filesystem seam
- * accepts, so neither is rewritten here. */
-bool rom_resolve(const char *path, char *out, size_t outsz)
+ * firmware's installed-name handling. Everything else -- including a colon
+ * name no alias claims -- passes through verbatim: this is a map, not a
+ * gate, and whether an unaliased name opens is the store's answer, not the
+ * list's. A machine whose store is real needs the pass-through. */
+bool rom_alias_resolve(const char *path, char *out, size_t outsz)
 {
-    if (path[0] == ':') /* null drive: an installed ROM, or nothing */
-    {
+    if (path[0] == ':')
         for (int i = 0; i < ROM_ALIAS_MAX; i++)
             if (aliases[i].used && strcasecmp(aliases[i].name, path + 1) == 0)
             {
@@ -74,30 +73,22 @@ bool rom_resolve(const char *path, char *out, size_t outsz)
                 strcpy(out, aliases[i].host);
                 return true;
             }
-        errno = ENOENT;
-        return false;
-    }
     if (strlen(path) >= outsz)
         return false;
     strcpy(out, path);
     return true;
 }
 
-#else /* !ROM_ALIAS_MAX: no null drive on this host */
+#else /* !ROM_ALIAS_MAX: no aliases; every name is the store's to answer */
 
-bool rom_install(const char *hostpath)
+bool rom_alias_insert(const char *hostpath)
 {
     (void)hostpath;
     return false;
 }
 
-bool rom_resolve(const char *path, char *out, size_t outsz)
+bool rom_alias_resolve(const char *path, char *out, size_t outsz)
 {
-    if (path[0] == ':')
-    {
-        errno = ENOENT;
-        return false;
-    }
     if (strlen(path) >= outsz)
         return false;
     strcpy(out, path);

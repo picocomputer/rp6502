@@ -63,6 +63,5 @@ int cli_parse_args(int argc, char **argv, cli_options *o);
 void cli_usage(FILE *out, const char *argv0);
 
 /* The path component after the last '/'. */
-const char *cli_base_name(const char *p);
 
 #endif /* _HOST_SOKOL_CLI_H_ */

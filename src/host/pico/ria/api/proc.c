@@ -71,12 +71,17 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
         goto fail;
     DBG("proc_nfc text %s\n", path);
 
-    // Parse the first arg for the ROM path. NFC tags address filesystem
-    // ROMs only; ':installed' names are rejected.
     const char *args = path;
     const char *first_arg = str_parse_string(&args);
-    if (!first_arg || *first_arg == ':')
+    if (!first_arg)
         goto fail;
+    if (*first_arg == ':')
+    {
+        /* An installed name: no drive to scan, no cwd to move, no case to
+         * correct. The open answers; a miss fails like any bad path. */
+        rom_load_argv(first_arg, args);
+        return;
+    }
 
     bool has_drive = (strchr(first_arg, ':') != NULL);
     if (has_drive)

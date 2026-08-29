@@ -604,19 +604,22 @@ bool window_core_boot_rom(const char *path)
         return false;
     }
     /* Screen out not-a-ROM files before rom_load touches machine state, so an
-     * accidental drop leaves the running program alone. rom_load repeats the
-     * check after resolving the drive/:name spellings this open can't. */
+     * accidental drop leaves the running program alone. A file this open
+     * cannot read would fail the load the same way, after the machine was
+     * already stopped -- refused here, it costs the running program nothing. */
     FILE *f = host_fs_fopen_rd(oem);
-    if (f)
+    if (!f)
     {
-        char magic[8];
-        size_t got = fread(magic, 1, sizeof magic, f);
-        fclose(f);
-        if (got != sizeof magic || strncasecmp(magic, "#!RP6502", 8) != 0)
-        {
-            fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
-            return false;
-        }
+        fprintf(stderr, "rp6502-emu: cannot read dropped file\n");
+        return false;
+    }
+    char magic[8];
+    size_t got = fread(magic, 1, sizeof magic, f);
+    fclose(f);
+    if (got != sizeof magic || strncasecmp(magic, "#!RP6502", 8) != 0)
+    {
+        fprintf(stderr, "rp6502-emu: not a .rp6502 file (bad magic)\n");
+        return false;
     }
     vtkeys_paste_cancel(); /* the new program must not receive an old paste */
     /* A dropped ROM is a program change (stop + load + run), not a machine reboot:

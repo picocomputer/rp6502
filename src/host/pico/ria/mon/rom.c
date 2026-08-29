@@ -317,7 +317,7 @@ void rom_exec(void)
     rom_state = ROM_LOADING;
 }
 
-static void rom_load_argv(const char *argv0, const char *args)
+void rom_load_argv(const char *argv0, const char *args)
 {
     arg_clear();
     if (!arg_append(argv0))

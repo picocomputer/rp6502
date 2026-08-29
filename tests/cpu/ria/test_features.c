@@ -11,6 +11,7 @@
 
 #include "core/sys.h"
 #include "core/ria.h"
+#include "core/api/arg.h"
 #include "core/api/exec.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"
@@ -114,6 +115,31 @@ UTEST(features, launcher_chain)
     sys_commit();
     ASSERT_FALSE(proc_has_launcher());
     ASSERT_FALSE(exec_pending());
+}
+
+/* An installed ROM's ":name" spelling survives the launcher chain verbatim:
+ * argv[0] is recorded and replayed exactly, and the reload resolves it
+ * through the alias map the same way the first exec did. */
+UTEST(features, an_installed_name_round_trips_the_chain)
+{
+    ASSERT_TRUE(emu_restart(TEST_FIXTURE));
+    ASSERT_TRUE(rom_alias_insert(TEST_FIXTURE)); /* ":adventure.rp6502" */
+
+    /* The launcher runs from the null drive and registers. */
+    exec_set_argv(":adventure.rp6502", 0, NULL);
+    proc_set_launcher(true);
+    ASSERT_TRUE(proc_is_launcher());
+
+    /* A child by filesystem path; the launcher's spelling is what replays. */
+    exec_set_argv("MSC0:/game.rp6502", 0, NULL);
+    proc_exit(0);
+    sys_commit();
+    ASSERT_TRUE(exec_pending());
+    /* The re-run boots the ":name" itself -- the whole path through resolve,
+     * the seam and the loader, not just the string. */
+    ASSERT_TRUE(exec_boot(":adventure.rp6502", 0, NULL, 0));
+    sys_commit();
+    ASSERT_STREQ(arg_index(0), ":adventure.rp6502");
 }
 
 /* An exec is not an exit. exec_boot stops the machine on its way in, and that
