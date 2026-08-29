@@ -20,8 +20,6 @@
 #include "ria/sys/mem.h"
 #include "core/str/rln.h"
 #include "core/str/str.h"
-#include "core/rom/record.h"
-#include "core/rom/window.h"
 #include "sys/path.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"

@@ -13,7 +13,6 @@
 #include "core/api/fs.h"
 #include "core/mem/mem.h"
 #include "core/rom/rom.h"
-#include "core/rom/record.h"
 #include "core/str/str.h"
 #include <stdio.h>
 #include <string.h>
@@ -22,6 +21,47 @@
 /* ------------------------------------------------------------------ */
 /* The record pump                                                     */
 /* ------------------------------------------------------------------ */
+
+typedef enum
+{
+    RECORD_OK,
+    RECORD_SKIP,      /* blank line or comment: not a record, not an error */
+    RECORD_MALFORMED, /* not three numbers and nothing else */
+    RECORD_RANGE,     /* would land somewhere no record may */
+} record_result;
+
+/* Read one header line. RAM is below 0x10000 and XRAM above, and a record
+ * may not straddle them, run off the end of either, or exceed the format's
+ * own record cap. */
+static record_result record_parse(const char *line, rom_record_t *rec)
+{
+    if (!line[0] || line[0] == '#')
+        return RECORD_SKIP;
+    const char *p = line;
+    if (!str_parse_uint32(&p, &rec->addr) ||
+        !str_parse_uint32(&p, &rec->len) ||
+        !str_parse_uint32(&p, &rec->crc) ||
+        !str_parse_end(p))
+        return RECORD_MALFORMED;
+    if (rec->addr > 0x1FFFF || rec->len == 0 ||
+        rec->len > 0x20000 - rec->addr ||
+        (rec->addr < 0x10000 && rec->len > 0x10000 - rec->addr) ||
+        rec->len > ROM_RECORD_MAX)
+        return RECORD_RANGE;
+    return RECORD_OK;
+}
+
+/* The reset vector is what makes an image loadable, and it arrives as two
+ * ordinary bytes inside whichever record happens to cover $FFFC and $FFFD.
+ * Noted only once a record has landed, so a truncated or corrupt one cannot
+ * vouch for the vector it was carrying. */
+static void record_note(rom_pump_t *p, const rom_record_t *rec)
+{
+    if (rec->addr <= 0xFFFC && rec->addr + rec->len > 0xFFFC)
+        p->vec_lo = true;
+    if (rec->addr <= 0xFFFD && rec->addr + rec->len > 0xFFFD)
+        p->vec_hi = true;
+}
 
 /* Reads on the ROM descriptor may report STD_PENDING on a host whose file
  * driver is asynchronous. The pump spins them out: it runs only after the
@@ -123,10 +163,10 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
     long n = pump_gets(p, (char *)buf, ROM_RECORD_MAX, err);
     if (n < 0)
         return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF; /* classic ends at EOF */
-    rom_record_result r = rom_record_parse((char *)buf, ROM_RECORD_MAX, rec);
-    if (r == ROM_RECORD_SKIP)
+    record_result r = record_parse((char *)buf, rec);
+    if (r == RECORD_SKIP)
         return ROM_PUMP_SKIP;
-    if (r != ROM_RECORD_OK)
+    if (r != RECORD_OK)
     {
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;
@@ -146,13 +186,13 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_record_t *rec,
         *err = API_ENOEXEC;
         return ROM_PUMP_ERROR;
     }
-    rom_record_note(&p->vectors, rec);
+    record_note(p, rec);
     return ROM_PUMP_RECORD;
 }
 
 bool rom_pump_complete(const rom_pump_t *p)
 {
-    return rom_record_complete(&p->vectors);
+    return p->vec_lo && p->vec_hi;
 }
 
 void rom_pump_close(rom_pump_t *p)

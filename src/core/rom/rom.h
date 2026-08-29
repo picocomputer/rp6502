@@ -13,7 +13,20 @@
 #include <stdint.h>
 
 #include "core/api/std.h"
-#include "core/rom/record.h"
+
+/* A .rp6502 memory record: where it goes, how much of it there is, and what
+ * it should add up to. The three numbers are the file format's, not any
+ * machine's reading of it; the pump decides the rules about them and each
+ * loader does its own moving of bytes and its own complaining. */
+typedef struct
+{
+    uint32_t addr, len, crc;
+} rom_record_t;
+
+/* The largest record the format produces: the packer caps every memory chunk
+ * at 1024 bytes and never crosses a 64 KB page (tools/rp6502.py). A machine's
+ * record buffer is this big and the pump refuses anything bigger. */
+#define ROM_RECORD_MAX 1024
 
 /* The record pump: the .rp6502 stream read through the fs seam's ROM
  * descriptor, one record per step. A machine that must not stall its walks
@@ -26,7 +39,7 @@ typedef struct
     uint32_t pos;          /* file offset of the next unread line */
     uint32_t prog_end;     /* records end here; 0 = classic, run to EOF */
     uint32_t assets_start; /* asset directory offset; 0 = no assets */
-    rom_record_vectors_t vectors;
+    bool vec_lo, vec_hi;   /* the reset-vector bytes seen land ($FFFC/$FFFD) */
 } rom_pump_t;
 
 typedef enum

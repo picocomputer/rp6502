@@ -75,8 +75,6 @@ add_library(emu_core STATIC
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/asset.c
     ${RP6502_SRC}/core/rom/pump.c
-    ${RP6502_SRC}/core/rom/record.c
-    ${RP6502_SRC}/core/rom/window.c
     ${RP6502_SRC}/core/rand.c
     ${RP6502_SRC}/core/rand_seed.c
     ${RP6502_SRC}/core/cfg.c

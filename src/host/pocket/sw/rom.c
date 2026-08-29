@@ -15,7 +15,6 @@
 #include "mmio.h"
 #include "rom.h"
 #include "core/rom/rom.h"
-#include "core/rom/record.h"
 
 #include <stdio.h>
 

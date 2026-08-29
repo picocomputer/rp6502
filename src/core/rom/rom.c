@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * The software machines' loader: pump the records into ram[]/xram[]. The
- * pump is rom_pump.c's, shared by every machine; the null drive the seam
+ * pump is pump.c's, shared by every machine; the null drive the seam
  * resolves ":name" through is alias.c's.
  */
 
@@ -12,7 +12,6 @@
 #include "core/api/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"
-#include "core/rom/record.h"
 #include "host/os.h"
 #include "core/mem/mem.h"
 #include "core/str/str.h"

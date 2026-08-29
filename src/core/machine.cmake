@@ -130,8 +130,6 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/pix.c
         ${RP6502_SRC}/core/rom/asset.c
         ${RP6502_SRC}/core/rom/pump.c
-        ${RP6502_SRC}/core/rom/record.c
-        ${RP6502_SRC}/core/rom/window.c
         ${RP6502_SRC}/core/api/xreg0.c
         ${RP6502_SRC}/core/api/xreg1.c
         ${RP6502_SRC}/core/rand.c

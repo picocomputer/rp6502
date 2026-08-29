@@ -11,8 +11,6 @@
 
 #include "core/api/fs.h"
 #include "core/rom/rom.h"
-#include "core/rom/record.h"
-#include "core/rom/window.h"
 #include "core/str/str.h"
 #include "core/str/oem.h"
 #include "core/str/unicode.h"
@@ -59,7 +57,7 @@ int rom_asset_fd(void) { return rom_fd; }
 /* Where the directory starts; 0 for a classic image with no assets. */
 uint32_t rom_asset_dir(void) { return rom_assets_start; }
 
-/* Reads on the ROM descriptor spin out STD_PENDING; see rom.c's pump_read.
+/* Reads on the ROM descriptor spin out STD_PENDING; see pump.c's pump_read.
  * Windows hand PENDING through instead (rom_fetch below) -- the guest's
  * dispatcher re-issues those. This blocking form serves the directory scan
  * and the host-side asset reader. */
@@ -175,22 +173,37 @@ long rom_read_asset(const char *name, char *buf, size_t bufsz)
 
 /* ---- The ROM: file driver (read-only asset windows), for std.c's table ---- */
 
-static rom_window_t windows[ROM_OPEN_MAX];
+/* A window is not a file the machine has but a range inside the loaded
+ * .rp6502: the bookkeeping of how much is left, what a seek past the end
+ * means, and that reading at the end is not an error. */
+typedef struct
+{
+    bool used;
+    uint32_t base, len, pos;
+} window_t;
+
+static window_t windows[ROM_OPEN_MAX];
 
 /* Every window shares the loader's one descriptor, so a fetch says where it
  * wants to read rather than reading on from wherever the last one left off.
  * The seek's own outcome goes to scratch: a clamp is not this read's failure,
- * and the read that follows reports for itself. */
-static std_rw_result rom_fetch(rom_window_t *w, uint32_t at, char *buf,
-                               uint32_t count, uint32_t *got, api_errno *err)
+ * and the read that follows reports for itself. PENDING is handed through --
+ * the guest's dispatcher re-issues those. */
+static std_rw_result window_fetch(uint32_t at, char *buf, uint32_t count,
+                                  uint32_t *got, api_errno *err)
 {
     int32_t landed;
     api_errno ignored;
-    fs_std_lseek(w->fd, SEEK_SET, (int32_t)at, &landed, &ignored);
-    return fs_std_read(w->fd, buf, count, got, err);
+    fs_std_lseek(rom_fd, SEEK_SET, (int32_t)at, &landed, &ignored);
+    return fs_std_read(rom_fd, buf, count, got, err);
 }
 
-static const rom_window_pool_t rom_pool = {windows, ROM_OPEN_MAX, rom_fetch};
+static window_t *window_get(int desc)
+{
+    if (desc < 0 || desc >= ROM_OPEN_MAX || !windows[desc].used)
+        return NULL;
+    return &windows[desc];
+}
 
 /* If path names the ROM drive, return true and the asset name after "ROM:". */
 static bool path_is_rom(const char *path, const char **rest)
@@ -228,12 +241,19 @@ int rom_std_open(const char *path, uint8_t flags, api_errno *err)
         *err = API_ENOENT;
         return -1;
     }
-    return rom_window_alloc(&rom_pool, base, len, rom_fd, err);
+    for (int i = 0; i < ROM_OPEN_MAX; i++)
+        if (!windows[i].used)
+        {
+            windows[i] = (window_t){.used = true, .base = base, .len = len};
+            return i;
+        }
+    *err = API_EMFILE;
+    return -1;
 }
 
 std_rw_result rom_std_close(int desc, api_errno *err)
 {
-    rom_window_t *w = rom_window_get(&rom_pool, desc);
+    window_t *w = window_get(desc);
     if (!w)
     {
         *err = API_EBADF;
@@ -245,10 +265,50 @@ std_rw_result rom_std_close(int desc, api_errno *err)
 
 std_rw_result rom_std_read(int desc, char *buf, uint32_t count, uint32_t *got, api_errno *err)
 {
-    return rom_window_read(&rom_pool, desc, buf, count, got, err);
+    window_t *w = window_get(desc);
+    if (!w)
+    {
+        *got = 0;
+        *err = API_EBADF;
+        return STD_ERROR;
+    }
+    uint32_t avail = w->pos < w->len ? w->len - w->pos : 0;
+    if (count > avail)
+        count = avail;
+    if (!count)
+    {
+        *got = 0;
+        return STD_OK; /* the window's end, which is EOF and not an error */
+    }
+    std_rw_result r = window_fetch(w->base + w->pos, buf, count, got, err);
+    if (r == STD_OK)
+        w->pos += *got;
+    return r;
 }
 
 int rom_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err)
 {
-    return rom_window_lseek(&rom_pool, desc, whence, off, pos, err);
+    window_t *w = window_get(desc);
+    if (!w)
+    {
+        *err = API_EBADF;
+        return -1;
+    }
+    int32_t from = whence == SEEK_SET   ? 0
+                   : whence == SEEK_CUR ? (int32_t)w->pos
+                   : whence == SEEK_END ? (int32_t)w->len
+                                        : -1;
+    if (from < 0 || from + off < 0)
+    {
+        *err = API_EINVAL;
+        return -1;
+    }
+    int32_t np = from + off;
+    /* Past the end is where the window ends, not an error: the asset simply
+     * stops there, and the next read says so by returning nothing. */
+    if ((uint32_t)np > w->len)
+        np = (int32_t)w->len;
+    w->pos = (uint32_t)np;
+    *pos = np;
+    return 0;
 }
