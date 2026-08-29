@@ -131,6 +131,49 @@ UTEST(drive, rom_resolve_and_load)
     ssys_close(f);
 }
 
+/* The seam itself: fs_rom_open serves ":name" (the null drive) and paths (the
+ * filesystem), colon-exclusive -- a miss is ENOENT, never a fall-through. The
+ * write combo refuses on this machine (installs are references), anything
+ * else is EINVAL, and the descriptor it returns is a C-side thing the 6502's
+ * std API rejects as the invalid fd it would be. */
+UTEST(drive, fs_rom_open_is_the_one_way_in)
+{
+    ASSERT_TRUE(fresh());
+    ASSERT_TRUE(rom_install(TEST_FIXTURE));
+
+    api_errno err;
+    int fd = fs_rom_open(":adventure.rp6502", FS_RD, &err);
+    ASSERT_TRUE(fd >= 0);
+    char magic[8] = {0};
+    uint32_t got = 0;
+    std_rw_result r;
+    do
+        r = fs_std_read(fd, magic, 8, &got, &err);
+    while (r == STD_PENDING);
+    ASSERT_EQ(r, STD_OK);
+    ASSERT_EQ(memcmp(magic, "#!RP6502", 8), 0);
+
+    /* The 6502 cannot use the ROM descriptor: it is not a guest fd. */
+    ASSERT_TRUE(ssys_read(fd, magic, 1) < 0);
+    ASSERT_TRUE(ssys_close(fd) < 0);
+
+    fs_std_close(fd, &err);
+
+    /* Colon-exclusive: a store miss is ENOENT, nothing tries the cwd. */
+    make_file("real.rp6502", "#!RP6502 x", 10);
+    ASSERT_TRUE(fs_rom_open(":real.rp6502", FS_RD, &err) < 0);
+    ASSERT_EQ(err, API_ENOENT);
+
+    /* The write side: references have nothing to create; junk flags refuse. */
+    ASSERT_TRUE(fs_rom_open(":new.rp6502", FS_WR | FS_CREAT | FS_EXCL, &err) < 0);
+    ASSERT_EQ(err, API_EACCES);
+    ASSERT_TRUE(fs_rom_open(TEST_FIXTURE, FS_WR, &err) < 0);
+    ASSERT_EQ(err, API_EINVAL);
+    ASSERT_FALSE(fs_rom_remove(":adventure.rp6502", &err));
+    ASSERT_EQ(err, API_EACCES);
+}
+
+
 /* The null drive is loader-only: never the cwd, never enumerated/stat'd/mutated.
  * Every MSC0: op on a ":name" (or bare ":") refuses it cleanly, and ":" never
  * aliases a host path — not even via "MSC0::name". */

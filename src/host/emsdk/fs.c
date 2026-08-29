@@ -15,6 +15,7 @@
  */
 
 #include "core/api/fs.h"
+#include "core/rom/rom.h" /* rom_resolve: the install table is this machine's null drive */
 #include "host/os.h"
 #include "host/posix/errmap.h"
 #include "core/str/oem.h"
@@ -151,19 +152,29 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return fd;
 }
 
-/* The ROM loader's own descriptor: read-only, one at a time, and moved out of
- * the range open(2) hands out so a program can neither name it nor be given
- * it. MEMFS descriptors start low and stay low, so anywhere well above them
- * is out of reach. */
+/* The ROM descriptor: moved out of the range open(2) hands out so a program
+ * can neither name it nor be given it. MEMFS descriptors start low and stay
+ * low, so anywhere well above them is out of reach. ":name" resolves through
+ * the install table, which holds references, so the write combo refuses. */
 #define ROM_FD 4000
 static bool rom_open;
 
-int fs_rom_open(const char *path, api_errno *err)
+int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
-    if (rom_open)
+    if (flags != FS_RD)
     {
-        close(ROM_FD);
-        rom_open = false;
+        *err = (flags == (FS_WR | FS_CREAT | FS_EXCL)) ? API_EACCES : API_EINVAL;
+        return -1;
+    }
+    char host[HOST_MAX_PATH];
+    if (path[0] == ':')
+    {
+        if (!rom_resolve(path, host, sizeof host))
+        {
+            *err = API_ENOENT;
+            return -1;
+        }
+        path = host;
     }
     int fd = fs_open_native(path, FS_RD, err);
     if (fd < 0)
@@ -180,6 +191,13 @@ int fs_rom_open(const char *path, api_errno *err)
     }
     rom_open = true;
     return ROM_FD;
+}
+
+bool fs_rom_remove(const char *name, api_errno *err)
+{
+    (void)name;
+    *err = API_EACCES; /* installs are references; there is nothing to delete */
+    return false;
 }
 
 /* MEMFS is RAM that goes away with the tab, so a file the guest wrote has to

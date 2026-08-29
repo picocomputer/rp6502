@@ -26,6 +26,7 @@
 #include "core/api/fs.h"
 #include "core/str/oem.h"
 #include "core/str/path.h"
+#include "core/rom/rom.h" /* rom_resolve: the install table is this machine's null drive */
 #include "host/os.h"
 #include "host/windows/errmap.h"
 #include <direct.h>
@@ -173,19 +174,36 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return fd;
 }
 
-int fs_rom_open(const char *path, api_errno *err)
+int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
 {
-    struct win_file *rom = &win_files[WIN_FILE_ROM];
-    if (rom->used) /* one at a time: a new program replaces the last */
+    if (flags != FS_RD)
     {
-        CloseHandle(rom->h);
-        rom->used = false;
+        *err = (flags == (FS_WR | FS_CREAT | FS_EXCL)) ? API_EACCES : API_EINVAL;
+        return -1;
+    }
+    char host[HOST_MAX_PATH];
+    if (path[0] == ':')
+    {
+        if (!rom_resolve(path, host, sizeof host))
+        {
+            *err = API_ENOENT;
+            return -1;
+        }
+        path = host;
     }
     HANDLE h = win_open_handle(path, FS_RD, err);
     if (h == INVALID_HANDLE_VALUE)
         return -1;
-    *rom = (struct win_file){.used = true, .h = h, .pos = 0, .writable = false};
+    win_files[WIN_FILE_ROM] =
+        (struct win_file){.used = true, .h = h, .pos = 0, .writable = false};
     return WIN_FILE_ROM;
+}
+
+bool fs_rom_remove(const char *name, api_errno *err)
+{
+    (void)name;
+    *err = API_EACCES; /* installs are references; there is nothing to delete */
+    return false;
 }
 
 FILE *host_fs_fopen_rd(const char *path)

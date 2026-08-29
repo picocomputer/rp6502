@@ -72,7 +72,7 @@ static long pump_gets(rom_pump_t *p, char *line, size_t cap, api_errno *err)
 bool rom_pump_open(rom_pump_t *p, const char *path, api_errno *err)
 {
     memset(p, 0, sizeof *p);
-    p->fd = fs_rom_open(path, err);
+    p->fd = fs_rom_open(path, FS_RD, err);
     if (p->fd < 0)
         return false;
     char line[ROM_REC_MAX];
@@ -262,16 +262,10 @@ static void rom_deposit(const rom_rec_t *rec, const uint8_t *buf)
 
 bool rom_load(const char *path)
 {
-    char host[HOST_MAX_PATH];
-    if (!rom_resolve(path, host, sizeof(host)))
-    {
-        log_error("cannot resolve ROM '%s'", path);
-        return false;
-    }
     rom_assets_reset(); /* forget the previous ROM (the MSC0: drive persists) */
     api_errno err;
     rom_pump_t pump;
-    if (!rom_pump_open(&pump, host, &err))
+    if (!rom_pump_open(&pump, path, &err))
     {
         log_error("cannot load ROM '%s'", path);
         return false;

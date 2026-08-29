@@ -43,15 +43,29 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count, uint32_t *
 std_rw_result fs_std_sync(int desc, api_errno *err);
 int fs_std_lseek(int desc, int8_t whence, int32_t off, int32_t *pos, api_errno *err);
 
-/* Read-only, for the ROM loader alone: the .rp6502 a machine is running out
- * of. One at a time -- a second open replaces the first, which is rom_load's
- * shape -- and the descriptor is outside the range fs_std_open can return, so
- * a program can neither reach it nor collide with it. fs_std_read, lseek and
- * close accept it, so a window needs nothing else.
+/* The machine's own opens: the .rp6502 a loader streams, and the null drive
+ * ":name" names one on -- the store of installed ROMs (littlefs on a Pico,
+ * the install table in the emulator, nothing on a Pocket). The colon is a
+ * drive letter, not a search rule: ":name" is the store alone and a miss is
+ * ENOENT, anything else is the filesystem exactly as fs_std_open spells it,
+ * and neither ever tries the other, so an install cannot shadow a file. No
+ * name policy lives here -- the contents make a ROM, and every caller reads
+ * the shebang right after open.
  *
- * A program opening the same file by name gets an ordinary descriptor from
- * fs_std_open, and the two are unrelated. */
-int fs_rom_open(const char *path, api_errno *err);
+ * FS_RD opens the one read descriptor; the caller closes it before opening
+ * again -- a clean lifecycle that lints bugs, so nothing here closes an old
+ * one behind the caller's back. FS_WR|FS_CREAT|FS_EXCL, and only that, and
+ * only on ":name", is INSTALL's one write -- EACCES where the store holds
+ * references or nothing. Any other flags are EINVAL.
+ *
+ * The descriptors are outside the range fs_std_open can return, so a program
+ * can neither reach one nor be handed one; fs_std_read, write, lseek and
+ * close accept them, so a caller needs nothing else. */
+int fs_rom_open(const char *path, uint8_t flags, api_errno *err);
+
+/* Take ":name" off the null drive: REMOVE, and INSTALL cleaning up a write
+ * that failed. */
+bool fs_rom_remove(const char *name, api_errno *err);
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c
  * builds this machine's table from. The catch-all: a machine lists it last, after every driver that claims a
