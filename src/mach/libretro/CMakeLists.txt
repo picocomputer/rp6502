@@ -34,7 +34,7 @@ include(${RP6502_ROOT}/version.cmake)
 # strip retro_get_system_info does and the same one the Pocket does for
 # core.json — so the .info in a release zip says what the binary beside it
 # reports, tag or CI run or the day someone built it.
-string(REGEX REPLACE "^Version " "" RP6502_INFO_VERSION "${RP6502_VERSION_STAMP}")
+set(RP6502_INFO_VERSION "${RP6502_VERSION_BARE}")
 configure_file(${CMAKE_CURRENT_LIST_DIR}/dist/rp6502_libretro.info.in
     ${CMAKE_BINARY_DIR}/rp6502_libretro.info @ONLY)
 
@@ -118,7 +118,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     endif()
 endif()
 
-rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/host/version.c)
+rp6502_use_version_header(rp6502_libretro ${RP6502_SRC}/host/version.c emu_core)
 
 # The suite needs python3 and the generated ROM corpus, which a buildbot
 # building a core to ship has no use for. Every other root builds its tests

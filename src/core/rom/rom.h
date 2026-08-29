@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_EMU_ROM_H_
-#define _HOST_EMU_ROM_H_
+#ifndef _CORE_ROM_ROM_H_
+#define _CORE_ROM_ROM_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -62,4 +62,4 @@ uint32_t rom_generation(void);
         .lseek = rom_std_lseek,     \
     }
 
-#endif /* _HOST_EMU_ROM_H_ */
+#endif /* _CORE_ROM_ROM_H_ */

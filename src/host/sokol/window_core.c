@@ -34,15 +34,15 @@
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
 #include "core/rom/rom.h"
 #include "core/wdc/cpu.h"
-#include "core/mach.h"
-#include "core/sys/sys.h"
+#include "core/sys.h"
+#include "core/sys.h"
 #include "host/os.h"
 #include "core/vga/vga_emu.h"
 #include <math.h>
@@ -423,7 +423,11 @@ void window_core_frame(void)
     const unsigned long seen = vga_frame_count();
     const uint64_t deadline_ns = host_mono_ns() + 12000000ull;
     while (vga_frame_count() == seen && host_mono_ns() < deadline_ns)
-        main_task();
+    {
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
     const bool fresh = vga_frame_count() != seen;
 
     /* Ask the device how much room it has and hand it exactly that; --mute
@@ -621,7 +625,7 @@ bool window_core_boot_rom(const char *path)
      * writes the RAM the outgoing program was running out of. */
     if (!exec_boot(oem, 0, NULL, EXEC_UNCHAIN))
         return false; /* RAM may be part-written; stays stopped */
-    mach_commit();
+    sys_commit();
     return true;
 }
 

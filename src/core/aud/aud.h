@@ -78,7 +78,7 @@ extern int16_t aud_sine_table[256];
 /* Build it. Every machine calls this from its own aud_init. */
 void aud_sine_init(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define AUD_DRIVER DRIVER(aud_init, nul_task, nul_task, nul_run, aud_stop, nul_break)
 
 #endif /* _CORE_AUD_AUD_H_ */

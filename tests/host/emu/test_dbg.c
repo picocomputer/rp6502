@@ -9,6 +9,7 @@
  */
 
 #include "core/dap/dbg.h"
+#include "core/sys.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
@@ -57,15 +58,15 @@ static bool audible(void)
 
 /* A debugger pause is the one hold that silences. The machine is stopped for
  * someone to read, and a note sustaining under the cursor for as long as that
- * takes is only annoying. A mach_stop is the opposite: audio plays right
+ * takes is only annoying. A sys_stop is the opposite: audio plays right
  * through it, which is how the bell rings between programs. */
 UTEST(dbg, a_pause_silences_but_a_mach_stop_does_not)
 {
     ASSERT_TRUE(load());
 
-    /* Stopped machine, ringing bell: mach_stop does not silence. */
-    mach_stop();
-    mach_commit();
+    /* Stopped machine, ringing bell: sys_stop does not silence. */
+    sys_stop();
+    sys_commit();
     bel_add(&bel_teletype);
     ASSERT_TRUE(audible());
 

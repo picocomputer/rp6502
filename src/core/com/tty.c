@@ -57,3 +57,8 @@ int com_printf(const char *fmt, ...)
     com_crlf_write(buf, w);
     return n;
 }
+
+/* The console's task on a machine whose console is the terminal the walk
+ * already reaches. The consoles with a transport of their own -- a UART, a
+ * fabric bridge -- do real work here; see core/com/com.h. */
+void com_task(void) {}

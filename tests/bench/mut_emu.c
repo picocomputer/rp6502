@@ -10,7 +10,8 @@
  * time from there.
  */
 
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
+#include "core/sys.h"
 #include "mut.h"
 
 #include "core/com/com.h"
@@ -38,7 +39,7 @@ void mut_init(int argc, const char *const argv[])
      * that can be reproduced: an expectation written down against a random
      * fill would be a different number every run. */
     mem_set_fill(false, 0, 0);
-    mach_init();
+    sys_init();
 }
 
 void mut_free(void)
@@ -76,7 +77,7 @@ bool mut_boot(const char *rom)
      * the first of the drivers, so the loader's bytes still land on top. */
     if (!exec_boot(rom, 0, NULL, EXEC_REFILL))
         return false;
-    mach_commit();
+    sys_commit();
     vga_set_framebuffer(mut_fb);
     emu_frames((int)MUT_SETTLE_FRAMES);
     return true;

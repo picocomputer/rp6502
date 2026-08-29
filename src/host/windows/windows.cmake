@@ -23,3 +23,12 @@ target_sources(emu_core PRIVATE
 # set for these files cannot hide newer APIs from the window and pad code
 # that compiles into the emulator beside them.
 target_compile_definitions(emu_core PRIVATE _WIN32_WINNT=0x0601)
+
+# The version metadata Explorer shows in Properties > Details. The template is
+# this host's, because a .rc is Windows source that windres and rc.exe compile
+# and the linker binds into the image. Enabling the RC language is not: a
+# language is enabled for a directory, so the machine does that and calls this.
+function(rp6502_windows_version_resource tgt)
+    configure_file(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/version.rc.in version.rc @ONLY)
+    target_sources(${tgt} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+endfunction()

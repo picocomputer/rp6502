@@ -7,10 +7,9 @@
 #ifndef _EMU_TESTS_EMU_BOOT_H_
 #define _EMU_TESTS_EMU_BOOT_H_
 
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/vga/vga_emu.h"
-#include "core/mach.h"
-#include "core/sys/sys.h"
+#include "core/sys.h"
 #include "core/rom/rom.h"
 #include "utest.h"
 
@@ -26,20 +25,20 @@
     UTEST_STATE();                                   \
     int main(int argc, const char *const argv[])     \
     {                                                \
-        mach_init();                                 \
+        sys_init();                                 \
         return utest_main(argc, argv);               \
     }
 
 /* Program change: end the previous program, load rom, start it — what an exec
  * and a ROM drop do. The first call per process runs on the just-inited, not-yet-
- * running machine, so its mach_stop is a harmless no-op on the idle drivers.
+ * running machine, so its sys_stop is a harmless no-op on the idle drivers.
  * Committed on the spot, as the machine does it: the load writes the RAM the
  * outgoing program was running out of. */
 static inline bool emu_restart(const char *rom)
 {
     if (!exec_boot(rom, 0, NULL, 0))
         return false;
-    mach_commit();
+    sys_commit();
     return true;
 }
 
@@ -49,7 +48,11 @@ static inline void emu_frames(int n)
 {
     const unsigned long want = vga_frame_count() + (unsigned long)n;
     while (vga_frame_count() < want)
-        main_task();
+    {
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
 }
 
 #endif /* _EMU_TESTS_EMU_BOOT_H_ */

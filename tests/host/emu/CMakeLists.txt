@@ -58,6 +58,10 @@ if(WIN32) # cli.c needs the same getopt the app uses
     target_compile_definitions(test_units PRIVATE _BSD_SOURCE)
 endif()
 
+# --- The latch: what a run and a stop asked before the same commit mean ---
+# No fixture: the claims are about the fan-outs, not about a program.
+rp6502_add_test(sys LIBS emu_core)
+
 # --- aud_pump: the seam between the machine's rate and the host's ---
 rp6502_add_test(pump LIBS emu_core TIMEOUT 60)
 

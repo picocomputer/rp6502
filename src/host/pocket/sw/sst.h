@@ -18,7 +18,7 @@ bool sst_pending(void);
  * happened, and then does it once. */
 void sst_task(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. The savestate engine: it reads and writes the slot, so it is not safe
+/* This driver's row in a machine's driver list; see core/driver.h. The savestate engine: it reads and writes the slot, so it is not safe
  * during file IO and runs after api in the io column. */
 #define SST_DRIVER DRIVER(nul_init, nul_task, sst_task, nul_run, nul_stop, nul_break)
 

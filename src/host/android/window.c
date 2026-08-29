@@ -17,9 +17,9 @@
 #include "sokol/sokol_log.h"
 #include "sokol/util/sokol_debugtext.h"
 #include "core/hid/gamepad.h"
-#include "core/mach.h"
+#include "core/sys.h"
 #include "core/rom/rom.h"
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include <android/input.h>
@@ -469,14 +469,14 @@ sapp_desc sokol_main(int argc, char* argv[])
     detect_rom_directory();
     chdir(g_rom_dir);
 
-    // Initialize the drivers once; the machine is started per-program (mach_run).
-    mach_init();
+    // Initialize the drivers once; the machine is started per-program (sys_run).
+    sys_init();
 
     // Try to load a default rom (boot.rp6502) if it exists, otherwise activate the menu
     if (exec_boot("boot.rp6502", 0, NULL, 0))
     {
         g_android_menu_active = false;
-        mach_commit();
+        sys_commit();
     }
     else
     {

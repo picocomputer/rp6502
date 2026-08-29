@@ -21,6 +21,7 @@
 
 #include "core/aud/aud_mix.h"
 #include "core/aud/bel.h"
+#include "core/sys.h"
 #include "emu_boot.h"
 
 #include <stdio.h>
@@ -52,8 +53,8 @@ static long pull(int out_rate, int want)
 
 UTEST(pump, a_matched_rate_is_a_copy)
 {
-    mach_stop(); /* the standing bell is the device; no program needed */
-    mach_commit();
+    sys_stop(); /* the standing bell is the device; no program needed */
+    sys_commit();
     /* The standing bell runs at the native rate, so this is the case that
      * happens on every machine that gives us the rate we asked for. */
     ASSERT_EQ(aud_rate(), (int)aud_native_rate());
@@ -66,7 +67,7 @@ UTEST(pump, a_matched_rate_is_a_copy)
 
 UTEST(pump, a_mismatched_rate_comes_out_the_right_length)
 {
-    mach_stop(); /* the standing bell is the device; no program needed */
+    sys_stop(); /* the standing bell is the device; no program needed */
     const int in_rate = aud_rate();
     ASSERT_GT(in_rate, 0);
 
@@ -86,7 +87,7 @@ UTEST(pump, a_mismatched_rate_comes_out_the_right_length)
 
 UTEST(pump, a_full_device_loses_only_what_it_refused)
 {
-    mach_stop(); /* the standing bell is the device; no program needed */
+    sys_stop(); /* the standing bell is the device; no program needed */
     bel_add(&bel_teletype);
 
     /* A sink that takes eight frames a call and no more. The pump must make

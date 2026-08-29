@@ -873,9 +873,9 @@ uint16_t msc_class_driver_open(uint8_t rhport, uint8_t dev_addr, tusb_desc_inter
 }
 
 // Pumps USB events and all application tasks during blocking I/O.
-// FatFs re-entry would be a problem, so main_task() never calls FatFs
+// FatFs re-entry would be a problem, so sys_task() never calls FatFs
 // but it does call the required tuh_task().
-static void msc_pump(void) { main_task(); }
+static void msc_pump(void) { sys_task(); }
 
 // Wait for transport ready, submit command, and wait for completion.
 // No autosense — used directly for REQUEST SENSE itself.

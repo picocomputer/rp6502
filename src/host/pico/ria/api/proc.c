@@ -8,6 +8,7 @@
 #include "core/api/arg.h"
 #include "core/api/proc.h"
 #include "core/aud/bel.h"
+#include "core/sys.h"
 #include "ria/main.h"
 #include "ria/mon/mon.h"
 #include "ria/mon/rom.h"
@@ -36,7 +37,7 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 void proc_exec_start(const char *path)
 {
     (void)path;
-    mach_stop();
+    sys_stop();
     rom_exec();
 }
 
@@ -130,7 +131,7 @@ void proc_nfc(const uint8_t *tag_data, size_t len)
     // Full success
     bel_add(&bel_nfc_success_1);
     bel_add(&bel_nfc_success_2);
-    mach_stop(); /* the walk behind it stops rln and mon */
+    sys_stop(); /* the walk behind it stops rln and mon */
 
     // Change to the directory containing the ROM before loading
     char *slash = NULL;

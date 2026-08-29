@@ -12,7 +12,7 @@
 #include "core/str/oem.h"
 #include "core/cfg.h"
 #include "core/hid/hid.h"
-#include "core/mach.h"
+#include "core/sys.h"
 #include "core/vga/vga.h"
 #include "host/os.h"
 
@@ -70,12 +70,12 @@ void cfg_save(void)
 {
 }
 
-bool mach_break(void)
+bool sys_break(void)
 {
     return false;
 }
 
-bool mach_break_to_launcher(void)
+bool sys_break_to_launcher(void)
 {
     return false;
 }

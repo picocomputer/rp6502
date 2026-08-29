@@ -14,8 +14,8 @@
  * is then true of all of them.
  */
 
-#ifndef _CORE_SYS_EXEC_H_
-#define _CORE_SYS_EXEC_H_
+#ifndef _CORE_API_EXEC_H_
+#define _CORE_API_EXEC_H_
 
 #include "core/api/proc.h"
 #include <stdbool.h>
@@ -30,7 +30,7 @@
  * written over what was running.
  *
  * Ends at the ask, not the doing: a caller inside a driver walk lets the
- * pass commit, and a host outside one calls mach_commit itself. */
+ * pass commit, and a host outside one calls sys_commit itself. */
 #define EXEC_REFILL 0x01  /* mem_init first: a fresh machine, not a program change */
 #define EXEC_UNCHAIN 0x02 /* break any launcher chain; a chosen program is not a child */
 bool exec_boot(const char *rom, int argc, char *const *args, unsigned flags);
@@ -53,9 +53,9 @@ void proc_exit(int16_t exit_code);
 void exec_init(void); /* clear any pending exec (cold boot) */
 void exec_task(void); /* perform a queued exec */
 
-/* This driver's row in a machine's driver list; see core/mach.h. The queue's
+/* This driver's row in a machine's driver list; see core/driver.h. The queue's
  * columns, beside core/api/proc.h's row for the chain: an exec is performed
  * in the io column because loading a ROM reads a file. */
 #define EXEC_DRIVER DRIVER(exec_init, nul_task, exec_task, nul_run, nul_stop, nul_break)
 
-#endif /* _CORE_SYS_EXEC_H_ */
+#endif /* _CORE_API_EXEC_H_ */

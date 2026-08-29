@@ -16,7 +16,7 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/mach.h"
+#include "core/driver.h"
 
 #include "core/api/api.h"
 #include "core/api/clk.h"
@@ -46,7 +46,6 @@
 #include "ria/sys/mem.h"
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
-#include "ria/sys/sys.h"
 #include "ria/sys/vga.h"
 #include "core/aud/aud.h"
 #include "ria/sys/lfs.h"
@@ -60,9 +59,9 @@
 #include "ria/net/ntp.h"
 #include "ria/net/wifi.h"
 
-/* The first eight are the machine's bring-up, and the order is the fabric's:
- * the clock before everything timed against it, the console before anything
- * prints, the banner before anything can queue an error under it, the bus
+/* The first seven are the machine's bring-up, and the order is the fabric's:
+ * the console before anything prints, the banner before anything can queue an
+ * error under it, the bus
  * before the video that talks over it, and the filesystem before the config it
  * holds. The rest is init order and little else -- cyw before the three radio
  * users, api before cpu so the registers are released before RESB rises, usb
@@ -75,7 +74,7 @@
  * after the arming in the same pass. vcp before nfc, which opens the device
  * index vcp sets. */
 #define RP6502_MACH_DRIVERS                                                            \
-    SYS_DRIVER, COM_DRIVER, MON_DRIVER,           \
+    COM_DRIVER, MON_DRIVER,                       \
     RIA_DRIVER, PIX_DRIVER, VGA_DRIVER,           \
     LFS_DRIVER, CFG_DRIVER,                               \
     PROC_DRIVER, STR_DRIVER, STD_DRIVER,          \

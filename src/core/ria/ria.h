@@ -15,7 +15,7 @@
 #include <stdint.h>
 
 /* host/sokol/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
- * unlike its sibling core/sys headers this one must declare its own linkage. */
+ * unlike its siblings in core this one must declare its own linkage. */
 #ifdef __cplusplus
 extern "C"
 {
@@ -82,7 +82,7 @@ bool ria_irq_asserted(void);
 }
 #endif
 
-/* This driver's row in a machine's driver list; see core/mach.h. First in a machine's drivers, so
+/* This driver's row in a machine's driver list; see core/driver.h. First in a machine's drivers, so
  * reversal puts its stop last -- which is where a machine with a real bus
  * needs it, because other stops read ria_active() to tell a program stop
  * from a fast-load transfer. This machine has no transfer and no stop. */

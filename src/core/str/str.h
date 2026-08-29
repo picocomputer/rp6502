@@ -95,7 +95,7 @@ bool str_set_locale(const char *name);
 const char *str_get_locale(void);
 const char *str_get_locale_verbose(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define STR_DRIVER DRIVER(str_init, nul_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _CORE_STR_STR_H_ */

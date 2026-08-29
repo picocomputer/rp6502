@@ -127,13 +127,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
         ${SW_SRC}/bel.c
-        ${RP6502_SRC}/core/sys/pix.c
+        ${RP6502_SRC}/core/pix.c
         ${RP6502_SRC}/core/rom/rom_rec.c
         ${RP6502_SRC}/core/rom/rom_win.c
         ${RP6502_SRC}/core/api/xreg0.c
         ${RP6502_SRC}/core/api/xreg1.c
         ${RP6502_SRC}/core/rand.c
-        ${RP6502_SRC}/core/mach.c
+        ${RP6502_SRC}/core/sys.c
         ${RP6502_SRC}/core/api/api.c
         ${RP6502_SRC}/core/api/arg.c
         ${RP6502_SRC}/core/api/attr.c

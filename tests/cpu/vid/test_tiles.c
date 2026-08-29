@@ -12,6 +12,7 @@
 
 #include "core/hid/keyboard.h"
 #include "core/hid/vtkeys.h"
+#include "core/sys.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
 #include "core/vga/vga_emu.h"
@@ -91,7 +92,7 @@ UTEST(mode2, keyboard_presses_exit)
 /* A program stop resets the VGA to the console canvas (firmware vga_stop ->
  * vga_task DISPLAY reset), so the next program starts on the console instead of
  * the previous program's graphics frame. Mirrors what a dropped ROM does: it
- * calls mach_stop, and the following frame's vga_task performs the reset. */
+ * calls sys_stop, and the following frame's vga_task performs the reset. */
 UTEST(mode2, stop_resets_canvas_to_console)
 {
     ASSERT_TRUE(emu_restart(TEST_FIXTURE));
@@ -99,8 +100,8 @@ UTEST(mode2, stop_resets_canvas_to_console)
     run_frames(20);
     ASSERT_EQ(vga_get_canvas(), vga_canvas_320_240); /* gfx canvas active */
 
-    mach_stop(); /* the outgoing program stops (as on a ROM swap) */
-    mach_commit();
+    sys_stop(); /* the outgoing program stops (as on a ROM swap) */
+    sys_commit();
     emu_frames(1); /* vga_task performs the armed console reset */
     ASSERT_EQ(vga_get_canvas(), vga_canvas_console);
 }

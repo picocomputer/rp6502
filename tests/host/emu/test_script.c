@@ -12,7 +12,6 @@
 
 #include "host/sokol/script.h"
 #include "core/rom/rom.h"
-#include "core/sys/sys.h"
 #include "emu_boot.h"
 #include <stdio.h>
 

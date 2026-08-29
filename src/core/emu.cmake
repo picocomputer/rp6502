@@ -55,7 +55,7 @@ add_custom_target(rsmp_coef DEPENDS ${RSMP_COEF_H})
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
-    ${RP6502_SRC}/core/sys/exec.c
+    ${RP6502_SRC}/core/api/exec.c
     ${RP6502_SRC}/core/api/tim.c
     ${RP6502_SRC}/core/aud/aud_mix.c
     ${RP6502_SRC}/core/aud/rsmp.c
@@ -70,26 +70,25 @@ add_library(emu_core STATIC
     # firmware -- the host already produced the characters, so there is no
     # layout engine here at all.
     ${RP6502_SRC}/core/hid/vtkeys.c
-    ${RP6502_SRC}/core/sys/log.c
+    ${RP6502_SRC}/core/log.c
     ${RP6502_SRC}/core/rom/rom.c
     ${RP6502_SRC}/core/rom/rom_rec.c
     ${RP6502_SRC}/core/rom/rom_win.c
     ${RP6502_SRC}/core/rand.c
     ${RP6502_SRC}/core/rand_seed.c
-    ${RP6502_SRC}/core/sys/cfg.c
+    ${RP6502_SRC}/core/cfg.c
     ${RP6502_SRC}/core/com/com.c
     ${RP6502_SRC}/core/com/tty.c
     ${RP6502_SRC}/core/wdc/cpu.c
     ${RP6502_SRC}/core/mem/mem.c
-    ${RP6502_SRC}/core/sys/pix.c
+    ${RP6502_SRC}/core/pix.c
     ${RP6502_SRC}/core/api/xreg0.c
     ${RP6502_SRC}/core/api/xreg1.c
-    ${RP6502_SRC}/core/sys/ria.c
-    ${RP6502_SRC}/core/sys/sys.c
+    ${RP6502_SRC}/core/ria/ria.c
     ${RP6502_SRC}/core/vga/vga.c
     ${RP6502_SRC}/core/wdc/via.c
     ${RP6502_SRC}/core/wdc/w65c02.c
-    ${RP6502_SRC}/core/mach.c
+    ${RP6502_SRC}/core/sys.c
     ${RP6502_SRC}/core/api/api.c
     ${RP6502_SRC}/core/api/proc.c
     ${RP6502_SRC}/core/api/arg.c

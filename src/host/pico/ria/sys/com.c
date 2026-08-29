@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/str/oem.h"
@@ -524,7 +525,7 @@ void com_break(void)
 
 #ifdef RP6502_RIA_W
     if (com_telnet_connected())
-        while (telnet_rx(SYS_TELNET_DESC, scratch, sizeof scratch))
+        while (telnet_rx(NET_TELNET_DESC, scratch, sizeof scratch))
             ;
     com_telnet_clear_rx();
 #endif
@@ -574,7 +575,7 @@ void com_task(void)
     if (current_break)
         hw_clear_bits(&uart_get_hw(COM_UART)->rsr, UART_UARTRSR_BITS);
     else if (break_detect)
-        mach_break();
+        sys_break();
     break_detect = current_break;
 
     com_telnet_task();

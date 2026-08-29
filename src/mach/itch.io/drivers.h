@@ -9,7 +9,7 @@
  *
  * It lives with the machine rather than in core because which drivers a
  * machine has is the one thing core cannot know. The software machines start
- * from the same list and are free to diverge. core/sys/sys.c walks the
+ * from the same list and are free to diverge. core/sys.c walks the
  * machine rows; core/api/std.c builds the table from the stdio rows. The
  * drive a path reaches is in neither list: core/api/dir.h names those calls
  * and the host that is linked defines them.
@@ -18,13 +18,13 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/mach.h"
+#include "core/driver.h"
 #include "core/api/api.h"
 #include "core/api/clk.h"
 #include "core/api/dir.h"
 #include "core/api/fs.h"
 #include "core/api/proc.h"
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/aud.h"
@@ -47,9 +47,9 @@
 #include "core/wdc/via.h"
 
 /* init and run walk this forward; stop walks it backward; the two task
- * columns are walked forward every pass of core/sys/sys.c's main_task, which
- * is this machine's super-loop. There is no break fan-out -- no monitor to
- * break into.
+ * columns are walked forward every pass of core/sys.c's sys_task and
+ * sys_io_task, which with sys_commit are this machine's super-loop. There
+ * is no break fan-out -- no monitor to break into.
  *
  * Video leads and the CPU follows, so VGA sits before CPU: the beam advances
  * a scanline and cpu_task runs the 6502 up to it. TERM stays after API in the

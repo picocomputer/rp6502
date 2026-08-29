@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Copyright (c) 2026 Rumbledethumps
+
+    SPDX-License-Identifier: BSD-3-Clause
+
+    What Finder's Get Info shows, and what the Dock reads the app's name from.
+    CFBundleVersion wants a dotted number, which a run id is not, so an
+    untagged build says 0.0 rather than lying; CFBundleGetInfoString is
+    free-form and says what the build really is.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>            <string>rp6502-emu</string>
+    <key>CFBundleIdentifier</key>            <string>com.picocomputer.rp6502-emu</string>
+    <key>CFBundleName</key>                  <string>rp6502-emu</string>
+    <key>CFBundleDisplayName</key>           <string>RP6502 Emulator</string>
+    <key>CFBundlePackageType</key>           <string>APPL</string>
+    <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+    <key>CFBundleShortVersionString</key>    <string>@RP6502_VERSION_DOTTED@</string>
+    <key>CFBundleVersion</key>               <string>@RP6502_VERSION_DOTTED@</string>
+    <key>CFBundleGetInfoString</key>         <string>@RP6502_VERSION_STAMP@</string>
+    <key>LSMinimumSystemVersion</key>        <string>11.0</string>
+    <key>NSHighResolutionCapable</key>       <true/>
+</dict>
+</plist>

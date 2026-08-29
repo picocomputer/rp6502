@@ -35,7 +35,7 @@
                 "--debug",
                 "${workspaceFolder}/tests/roms/${input:romPick}"
             ],
-            "cwd": "${workspaceFolder}/src/core/sys",
+            "cwd": "${workspaceFolder}",
             "environment": [
                 {
                     "name": "DEBUGINFOD_URLS",
@@ -76,7 +76,7 @@
             "args": [
                 "--debug"
             ],
-            "cwd": "${workspaceFolder}/src/core/sys",
+            "cwd": "${workspaceFolder}",
             "environment": [
                 {
                     "name": "DEBUGINFOD_URLS",
@@ -118,9 +118,8 @@
                 "--debug",
                 "${input:romPath}"
             ],
-            // The workspace folder, not src/core/sys: rom.c resolves a bare
-            // path against the process cwd, so a typed relative path needs a
-            // base anyone can predict.
+            // rom.c resolves a bare path against the process cwd, so a typed
+            // relative path needs a base anyone can predict.
             "cwd": "${workspaceFolder}",
             "environment": [
                 {

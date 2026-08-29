@@ -18,7 +18,7 @@ void apf_task(void);
  * levels, so a control standing still would leave the blank there. */
 void apf_refresh(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define APF_DRIVER DRIVER(apf_init, apf_task, nul_task, nul_run, nul_stop, nul_break)
 
 #endif /* _FPGA_SW_APF_H_ */

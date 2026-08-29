@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_EMU_RAND_H_
-#define _HOST_EMU_RAND_H_
+#ifndef _CORE_RAND_SEED_H_
+#define _CORE_RAND_SEED_H_
 
 #include <stdint.h>
 
@@ -19,4 +19,4 @@ void rand_set_seed(uint64_t seed);
  * which the 6502's rand() syscall reads and which nothing else may disturb. */
 uint64_t rand_seed_value(void);
 
-#endif /* _HOST_EMU_RAND_H_ */
+#endif /* _CORE_RAND_SEED_H_ */

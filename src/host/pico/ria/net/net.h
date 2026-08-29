@@ -23,7 +23,8 @@
 #define NET_MAX_CONNECTIONS MEMP_NUM_TCP_PCB_LISTEN
 #define NET_MAX_LISTENERS MEMP_NUM_TCP_PCB_LISTEN
 #define NET_MODEM_DESCS (NET_MAX_CONNECTIONS - NET_REM_DESCS)
-#define SYS_TELNET_DESC NET_MODEM_DESCS
+// The console's telnet gets the descriptor after the modems'.
+#define NET_TELNET_DESC NET_MODEM_DESCS
 #define NET_CONN_PBUF_DEPTH (TCP_WND / TCP_MSS + 1)
 
 typedef bool (*net_accept_fn)(uint16_t port);

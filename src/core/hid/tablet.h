@@ -130,7 +130,7 @@ void tablet_host_clear(void);
  * unmapped. */
 uint8_t tablet_control(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define TABLET_DRIVER DRIVER(tablet_init, nul_task, nul_task, nul_run, tablet_stop, nul_break)
 
 #endif /* _CORE_HID_TABLET_H_ */

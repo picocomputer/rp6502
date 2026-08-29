@@ -9,14 +9,14 @@
 #include "core/ria.h"
 #include "core/mem/mem.h"
 #include "core/pix.h"
-#include "core/mach.h"
+#include "core/driver.h"
 #include "core/ria/ria.h"
 #include "core/vga/vga_emu.h"
 #include "core/vga/prog.h"
 #include "core/vga/mode0.h"
 #include "core/term/term.h"
 #include "core/term/font.h"
-#include "core/sys/sys.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
+#include "core/wdc/cpu.h" /* SYS_TICKS_PER_US: the beam and the clock agree */
 #include "core/vga/pixel_format.h"
 #include "host.h"
 #include <assert.h>
@@ -85,7 +85,7 @@ static bool vga_needs_reset;
 void vga_stop(void)
 {
     /* Reset only on a real program stop (firmware vga_stop). ria_active() is
-     * always false in the emu — no chunked fast-loads — so every mach_stop is an
+     * always false in the emu — no chunked fast-loads — so every sys_stop is an
      * idle stop that arms, exactly as the firmware's exec/exit stop does. */
     if (!ria_active())
         vga_needs_reset = true;

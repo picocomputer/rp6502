@@ -10,7 +10,8 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
-#include "core/mach.h"
+#include "core/driver.h"
+#include "core/sys.h"
 
 /* This manages the main loop for the operating system.
  * Device drivers (everything is a device driver) are notified of various
@@ -24,10 +25,6 @@
 /* Special events dispatched from main.c
  */
 
-void main_task(void);
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac);
-
-/* The break fan-out, walked from this machine's drivers.h. */
-void mach_break_drivers(void);
 
 #endif /* _RIA_MAIN_H_ */

@@ -4,46 +4,21 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys.h"
 #include "ria/main.h"
 #include "drivers.h"
 #include "core/api/proc.h"
+#include "core/rp2350.h"
+#include <hardware/clocks.h>
+#include <hardware/vreg.h>
 #include <pico/stdlib.h>
+
+// The boost that rate is tested at, which only the board that sets it needs.
+#define SYS_RP2350_VREG VREG_VOLTAGE_1_15
 
 /**************************************/
 /* All device drivers register below. */
 /**************************************/
-
-/* The task column. These run while FatFs is blocking -- msc_pump, the USB
- * string fetch and the BLE shutdown spin all re-enter this to complete a
- * transfer -- so calling FatFs from one of them will summon a dragon. They
- * must not block either: every driver here is a state machine.
- *
- * A named function and not only a walk, because those three call it by name. */
-void main_task(void)
-{
-#define DRIVER(i, t, iot, r, s, b) t();
-    MACH_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
-}
-
-/* The io_task column: the tasks that may call FatFs, never re-entered. The
- * tail of this walk is load-bearing -- see the drivers.h exec rule. */
-static void task(void)
-{
-#define DRIVER(i, t, iot, r, s, b) iot();
-    MACH_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
-}
-
-/* Backward, like stop: a break is a teardown. It is also what puts com_break
- * near the last, where the newline it writes lands after whatever the other
- * breaks printed. */
-void mach_break_drivers(void)
-{
-#define DRIVER(i, t, iot, r, s, b) b();
-    MACH_REVERSE(RP6502_MACH_DRIVERS)
-#undef DRIVER
-}
 
 // Triggered once after init then after every PHI2 change.
 void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
@@ -58,39 +33,35 @@ void main_reclock(uint16_t clkdiv_int, uint8_t clkdiv_frac)
 /* This is the OS scheduler. */
 /*****************************/
 
-static bool is_breaking;
-
-bool mach_break(void)
+bool sys_break(void)
 {
     proc_cancel_launcher();
-    is_breaking = true;
+    sys_break_request();
     return true;
 }
 
-bool mach_break_to_launcher(void)
+bool sys_break_to_launcher(void)
 {
     // From the launcher there is nowhere to return to.
     if (proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
-    is_breaking = true;
+    sys_break_request();
     return true;
 }
 
 int main(void)
 {
-    mach_init();
+    /* Ahead of the drivers rather than first among them: everything derived
+     * from this clock -- the UART's baud, the PIO dividers, the radio's band --
+     * is set up by a driver, so it cannot itself be one. */
+    vreg_set_voltage(SYS_RP2350_VREG);
+    set_sys_clock_khz(SYS_RP2350_KHZ, true);
+    sys_init();
     while (true)
     {
-        main_task();
-        task();
-        if (is_breaking)
-            mach_stop();
-        mach_commit();
-        if (is_breaking)
-        {
-            mach_break_drivers();
-            is_breaking = false;
-        }
+        sys_task();
+        sys_io_task();
+        sys_commit();
     }
 }

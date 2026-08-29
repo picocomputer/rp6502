@@ -17,7 +17,7 @@
 static void init(void)
 {
 #define DRIVER(i, t, iot, r, s, b) i();
-    MACH_FORWARD(RP6502_MACH_DRIVERS)
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
     /* Last, and not inside vga_init where it used to live: core 1 renders
      * the terminal, and until everything above has run there is no terminal
@@ -34,7 +34,7 @@ static void init(void)
 static void task(void)
 {
 #define DRIVER(i, t, iot, r, s, b) t(); iot(); com_task();
-    MACH_FORWARD(RP6502_MACH_DRIVERS)
+    DRIVERS_FORWARD(RP6502_MACH_DRIVERS)
 #undef DRIVER
 }
 

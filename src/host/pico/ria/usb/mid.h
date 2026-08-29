@@ -37,7 +37,7 @@ std_rw_result mid_std_sync(int desc, api_errno *err);
 std_rw_result mid_std_read(int desc, char *buf, uint32_t count, uint32_t *bytes_read, api_errno *err);
 std_rw_result mid_std_write(int desc, const char *buf, uint32_t count, uint32_t *bytes_written, api_errno *err);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define MID_DRIVER DRIVER(nul_init, mid_task, nul_task, nul_run, mid_stop, nul_break)
 
 /* This driver's stdio row: the std_driver_t initializer core/api/std.c

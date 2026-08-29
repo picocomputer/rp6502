@@ -10,7 +10,7 @@
  * produced the asset — a check the two sides cannot both be wrong about.
  *
  * No second machine runs. emu_core is linked for its tables alone, and
- * mach_init is what fills them: font.c declares that storage uninitialized,
+ * sys_init is what fills them: font.c declares that storage uninitialized,
  * so without it these compare against whatever was there.
  *
  * The store is only reachable by peeking the fabric because nothing
@@ -26,7 +26,7 @@ extern "C"
 {
 /* The emulator's tables, as reference data. Its header carries no linkage
  * guard of its own; every other consumer is C. */
-#include "core/mach.h"
+#include "core/sys.h"
 }
 #include "tb_asm.h"
 #include "tb_machine.h"
@@ -192,7 +192,7 @@ UTEST_STATE();
 
 int main(int argc, const char *const argv[])
 {
-    mach_init(); /* font_init, which lays the reference tables out */
+    sys_init(); /* font_init, which lays the reference tables out */
     dut = new Vrp6502;
     int rc = utest_main(argc, argv);
     delete dut;

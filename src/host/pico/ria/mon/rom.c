@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/api/api.h"
@@ -327,7 +328,7 @@ static void rom_loading(void)
             if (usb_boot_enumerating())
                 return;
             rom_state = ROM_RUNNING;
-            mach_run();
+            sys_run();
         }
         else
         {

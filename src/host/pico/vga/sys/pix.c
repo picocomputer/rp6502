@@ -10,7 +10,7 @@
 #include "core/mem.h"
 #include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
-#include "vga/sys/sys.h"
+#include "vga/sys/flash.h"
 #include "vga/sys/vga.h"
 #include "core/term/font.h"
 #include "core/term/term.h"
@@ -78,7 +78,7 @@ static bool pix_ch15_xreg(uint8_t addr, uint16_t word)
     case 0x05: // FLASH_SECTOR
         /* A sector index times 4K reaches far past the flash; the SDK's
          * hard_assert is not compiled out, so an unchecked one panics. */
-        if (!sys_flash_request(word))
+        if (!flash_request(word))
             ria_nak();
         return true;
     case 0x06: // REBOOT_OR_LOCKUP

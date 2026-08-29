@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_EMU_LOG_H_
-#define _HOST_EMU_LOG_H_
+#ifndef _CORE_LOG_H_
+#define _CORE_LOG_H_
 
 /* Where the machine's diagnostics go. A host that owns its process prints
  * them; a host that is a guest in someone else's — a libretro core in a
@@ -24,4 +24,4 @@ void log_set_sink(log_sink_t sink);
  * there is nothing else to say yet. */
 void log_error(const char *fmt, ...);
 
-#endif /* _HOST_EMU_LOG_H_ */
+#endif /* _CORE_LOG_H_ */

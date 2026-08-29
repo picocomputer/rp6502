@@ -208,7 +208,7 @@ static inline bool api_return_errno(api_errno errnum)
     return api_return_axsreg(-1);
 }
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define API_DRIVER DRIVER(nul_init, nul_task, api_task, api_run, api_stop, nul_break)
 
 #endif /* _CORE_API_API_H_ */

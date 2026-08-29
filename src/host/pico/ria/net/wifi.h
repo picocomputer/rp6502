@@ -42,7 +42,7 @@ void wifi_load_pass(const char *str);
 bool wifi_set_pass(const char *pass);
 const char *wifi_get_pass(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. Joins and holds the network; retries on its own timer, so it needs no
+/* This driver's row in a machine's driver list; see core/driver.h. Joins and holds the network; retries on its own timer, so it needs no
  * bring-up beyond the radio cyw already brought up. */
 #define WIFI_DRIVER DRIVER(nul_init, wifi_task, nul_task, nul_run, nul_stop, nul_break)
 

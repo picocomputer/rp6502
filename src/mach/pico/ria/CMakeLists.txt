@@ -120,7 +120,8 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/main.c
     ${RP6502_ROOT}/src/host/pico/host.c
     ${RP6502_ROOT}/src/host/pico/host_ria.c
-    ${RP6502_ROOT}/src/core/mach.c
+    ${RP6502_ROOT}/src/core/sys.c
+    ${RP6502_ROOT}/src/host/version.c
     ${RP6502_ROOT}/src/core/api/api.c
     ${RP6502_ROOT}/src/core/api/proc.c
     ${RP6502_ROOT}/src/core/api/arg.c
@@ -165,6 +166,7 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/mon/ram.c
     ${RIA_SRC}/mon/rom.c
     ${RIA_SRC}/mon/set.c
+    ${RIA_SRC}/mon/status.c
     ${RIA_SRC}/mon/uf2.c
     ${RIA_SRC}/net/cmd.c
     ${RIA_SRC}/net/cyw.c
@@ -186,7 +188,6 @@ target_sources(${RIA_TARGET} PRIVATE
     ${RIA_SRC}/sys/path.c
     ${RIA_SRC}/sys/pix.c
     ${RIA_SRC}/sys/ria.c
-    ${RIA_SRC}/sys/sys.c
     ${RIA_SRC}/sys/vga.c
     ${RIA_SRC}/usb/mid.c
     ${RIA_SRC}/usb/msc.c
@@ -197,7 +198,7 @@ target_sources(${RIA_TARGET} PRIVATE
 )
 
 rp6502_use_version_header(${RIA_TARGET}
-    ${RIA_SRC}/sys/sys.c
+    ${RP6502_ROOT}/src/host/version.c
 )
 
 target_sources(${RIA_TARGET} PRIVATE

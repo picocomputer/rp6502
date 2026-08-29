@@ -22,6 +22,7 @@
  * afterwards, brought across by the blob with everything else.
  */
 
+#include "core/sys.h"
 #include "log.h"
 
 #ifdef RP6502_LOG_FILE
@@ -97,7 +98,7 @@ void log_task(void)
      * because a hot reload starts streaming into a machine that was
      * already running, and a flush underway then is the same
      * starvation. */
-    if (!log_inflight && (!mach_active() || sst_pending() || MMIO_SLOT))
+    if (!log_inflight && (!sys_active() || sst_pending() || MMIO_SLOT))
         return;
 
     if (log_retry_at && !host_deadline_passed(log_retry_at))

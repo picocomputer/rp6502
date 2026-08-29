@@ -4,9 +4,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
-#include "core/mach.h"
-#include "core/sys/exec.h"
-#include "core/sys/log.h"
+#include "core/sys.h"
+#include "core/api/exec.h"
+#include "core/log.h"
 #include "core/rom/rom.h"
 #include "core/api/proc.h"
 #include "core/api/arg.h"
@@ -60,8 +60,7 @@ bool exec_set_argv(const char *rom, int argc, char *const *args)
 
 bool exec_boot(const char *rom, int argc, char *const *args, unsigned flags)
 {
-    mach_stop();
-    mach_commit(); /* before the load writes what the outgoing program ran on */
+    sys_stop_now(); /* before the load writes what the outgoing program ran on */
     /* Whatever the outgoing program queued on its way out goes with it. The
      * stop above ran proc_stop, which arms a launcher relaunch when there is
      * a chain -- and a start that was asked for by name is not that child. */
@@ -74,7 +73,7 @@ bool exec_boot(const char *rom, int argc, char *const *args, unsigned flags)
         exec_set_argv(rom, argc, args);
     if (flags & EXEC_UNCHAIN)
         proc_set_launcher(false);
-    mach_run();
+    sys_run();
     return true;
 }
 
@@ -83,7 +82,7 @@ bool exec_boot(const char *rom, int argc, char *const *args, unsigned flags)
 void proc_exit(int16_t exit_code)
 {
     proc_set_exit_code(exit_code);
-    mach_stop();
+    sys_stop();
 }
 
 /* Both are the same note here: this machine loads at the frame boundary

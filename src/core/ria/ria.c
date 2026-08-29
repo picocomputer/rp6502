@@ -5,11 +5,11 @@
  *
  */
 
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
-#include "core/mach.h"
+#include "core/driver.h"
 #include "core/api/api.h"
 #include "core/ria/ria.h"
 #include <string.h>

@@ -9,8 +9,9 @@
  * a 6502 program, so each contract is pinned without a bespoke test ROM.
  */
 
+#include "core/sys.h"
 #include "core/ria.h"
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"
@@ -95,7 +96,7 @@ UTEST(features, launcher_chain)
     /* The game exits. The stop walk decides the chain, so the re-run is armed
      * by the commit rather than by the exit itself. */
     proc_exit(7);
-    mach_commit();
+    sys_commit();
     ASSERT_EQ(proc_get_exit_code(), 7);
     ASSERT_TRUE(proc_has_launcher());
     ASSERT_TRUE(exec_pending()); /* the shell's re-run, queued once */
@@ -107,10 +108,10 @@ UTEST(features, launcher_chain)
     ASSERT_TRUE(proc_is_launcher());
 
     /* The shell itself exits -> no relaunch, chain cleared. */
-    mach_run();
-    mach_commit();
+    sys_run();
+    sys_commit();
     proc_exit(0);
-    mach_commit();
+    sys_commit();
     ASSERT_FALSE(proc_has_launcher());
     ASSERT_FALSE(exec_pending());
 }

@@ -6,6 +6,7 @@
 
 #ifdef RP6502_RIA_W
 
+#include "core/sys.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "ria/net/net.h"
@@ -423,7 +424,7 @@ static void tel_process_rx_byte(int desc, tel_conn_t *tc, uint8_t byte,
             return;
         case TEL_BRK:
             if (tc->is_server)
-                mach_break();
+                sys_break();
             tc->rx_state = tel_rx_data;
             return;
         case TEL_IP:

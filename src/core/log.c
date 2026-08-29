@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/log.h"
+#include "core/log.h"
 #include <stdarg.h>
 #include <stdio.h>
 

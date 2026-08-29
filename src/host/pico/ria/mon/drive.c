@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/sys.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "ria/mon/drive.h"
@@ -428,7 +429,7 @@ static void drive_floppy_geometry(uint64_t blocks, uint8_t *tracks, uint8_t *hea
 // One mon_response producer drives a whole run (format/erase/verify), one chunk
 // per call, emitting at most one line; progress redraws in place via \r, so
 // unchanged-percent ticks emit nothing. drive_state selects the phase. Ctrl-C
-// aborts via mach_break(), whose break_() resets the queue and owns drive IDLE.
+// aborts via sys_break(), whose break_() resets the queue and owns drive IDLE.
 static int drive_run_response(char *buf, size_t size, int state, unsigned)
 {
     if (state < 0)
@@ -440,7 +441,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         {
             putchar('\n');
             msc_drive_reenumerate(drive_vol); // partial low-level format; drop stale mount
-            mach_break();
+            sys_break();
             return -1;
         }
         if (!msc_drive_format_track(drive_vol, drive_fmt_track, drive_fmt_head))
@@ -494,7 +495,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         {
             putchar('\n');
             msc_drive_reenumerate(drive_vol); // sectors were zeroed; drop stale mount
-            mach_break();
+            sys_break();
             return -1;
         }
         if (drive_lba >= drive_total) // all sectors zeroed; final progress already shown
@@ -535,7 +536,7 @@ static int drive_run_response(char *buf, size_t size, int state, unsigned)
         if (ria_get_sigint()) // Ctrl-C stops the scan
         {
             putchar('\n');
-            mach_break();
+            sys_break();
             return -1;
         }
         if (drive_pin_n) // re-reading a failed chunk one sector at a time

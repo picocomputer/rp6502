@@ -14,7 +14,7 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/mach.h"
+#include "core/driver.h"
 
 #include "core/term/font.h"
 #include "core/term/term.h"
@@ -22,7 +22,7 @@
 #include "vga/sys/led.h"
 #include "vga/sys/pix.h"
 #include "vga/sys/ria.h"
-#include "vga/sys/sys.h"
+#include "vga/sys/flash.h"
 #include "vga/sys/vga.h"
 #include "vga/usb/cdc.h"
 #include "vga/usb/usb.h"
@@ -36,6 +36,6 @@
  * Core 1 is launched after this walk, not inside it -- see main.c. */
 #define RP6502_MACH_DRIVERS                                              \
     COM_DRIVER, RIA_DRIVER, TERM_DRIVER, FONT_DRIVER, VGA_DRIVER,        \
-    CDC_DRIVER, USB_DRIVER, LED_DRIVER, PIX_DRIVER, SYS_DRIVER
+    CDC_DRIVER, USB_DRIVER, LED_DRIVER, PIX_DRIVER, FLASH_DRIVER
 
 #endif /* _MACH_DRIVERS_H_ */

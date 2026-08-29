@@ -8,7 +8,7 @@
 #include "core/aud/bel.h"
 #include "core/aud/psg.h"
 #include "ria/sys/cpu.h"
-#include "ria/sys/sys.h"
+#include "core/rp2350.h"
 #include <math.h>
 #include <pico/stdlib.h>
 #include <hardware/pwm.h>

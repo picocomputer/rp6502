@@ -312,8 +312,9 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${PKG_DIST} ${PKG_DIR}
         COMMAND ${CMAKE_COMMAND}
             -DCORE_JSON=${PKG_DIR}/Cores/Rumbledethumps.RP6502/core.json
-            "-DVERSION=${RP6502_VERSION_VALUE}"
-            "-DCI=${RP6502_CI_VALUE}"
+            -DSTAMP_SCRIPT=${RP6502_STAMP_SCRIPT}
+            "-DSTAMP_VERSION=${RP6502_VERSION_VALUE}"
+            "-DSTAMP_CI=${RP6502_CI_VALUE}"
             -P ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
         COMMAND ${CMAKE_COMMAND} -E make_directory
             ${PKG_DIR}/Assets/rp6502/common
@@ -328,7 +329,7 @@ if(QUARTUS_MAP AND QUARTUS_FIT AND QUARTUS_STA)
         COMMAND ${CMAKE_COMMAND} -E touch ${POCKET_DIR}/package.stamp
         DEPENDS ${POCKET_DIR}/core.bin ${VID_FONT_BIN} ${OEMCP_BIN} ${KBDLAY_BIN}
             ${PKG_DIST_FILES}
-            ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake
+            ${CMAKE_CURRENT_LIST_DIR}/stamp_core_json.cmake ${RP6502_STAMP_SCRIPT}
         COMMENT "Assembling the Pocket core package"
         VERBATIM)
     add_custom_target(pocket ALL DEPENDS ${POCKET_DIR}/package.stamp)

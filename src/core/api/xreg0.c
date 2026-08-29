@@ -13,7 +13,7 @@
  * written out again per machine, in a different shape each time.
  */
 
-#include "core/mach.h"
+#include "core/driver.h"
 #include "core/aud/opl.h"
 #include "core/aud/psg.h"
 #include "core/hid/hid.h"

@@ -6,9 +6,9 @@
  */
 
 #include "core/str/oem.h"
-#include "core/mach.h"
+#include "core/sys.h"
 #include "core/str/str.h"
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "host/sokol/window.h"
 #include "host.h"
 #include "core/aud/aud_mix.h"
@@ -18,7 +18,7 @@
 #include "core/rom/rom.h"
 #include "core/mem/mem.h"
 #include "core/wdc/cpu.h"
-#include "core/sys/sys.h"
+#include "core/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/sokol/cli.h"
 #include "host/sokol/script.h"
@@ -34,7 +34,7 @@
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];
 
 /* Apply the host/window presentation options shared by both launch paths. phi2,
- * cp, seed and fill are machine settings loaded as config before mach_init, not
+ * cp, seed and fill are machine settings loaded as config before sys_init, not
  * here -- which is also why they reach every launch path and these do not. */
 static void apply_options(const cli_options *o)
 {
@@ -130,7 +130,7 @@ int main(int argc, char **argv)
      * mirroring the firmware's cfg_init, whose *_load_* verbs run before
      * cpu_init/oem_init adopt them. Everything below needs the drivers + the
      * resolved code page (argv conversion is per-page), so it all follows
-     * mach_init; the machine is started (mach_run) after the ROM loads. */
+     * sys_init; the machine is started (sys_run) after the ROM loads. */
     if (o.phi2_khz > 0)
     {
         if (o.phi2_khz > UINT16_MAX || !cpu_set_phi2_khz((uint16_t)o.phi2_khz))
@@ -150,7 +150,7 @@ int main(int argc, char **argv)
     }
     /* One seed for the run, reaching both the memory fill and the RNG the ROM
      * reads, from streams far enough apart that the fill cannot move what the
-     * program's rand() returns. Set before mach_init because mem_init is the
+     * program's rand() returns. Set before sys_init because mem_init is the
      * first thing it does. */
     if (o.have_seed)
         rand_set_seed((uint64_t)o.seed);
@@ -160,7 +160,7 @@ int main(int argc, char **argv)
     if (o.fill_random && !o.have_seed)
         fprintf(stderr, "rp6502-emu: memory filled at random; --seed %llu repeats it\n",
                 (unsigned long long)rand_seed_value());
-    mach_init();
+    sys_init();
 
     /* Install ROMs before the boot load / any exec can resolve them. Paths and
      * ROM args are guest-bound, so they convert from host argv encoding to OEM
@@ -277,7 +277,7 @@ int main(int argc, char **argv)
     if (o.script && !script_load(o.script))
         return 1;
 
-    mach_commit(); /* exec_boot asked; this starts it */
+    sys_commit(); /* exec_boot asked; this starts it */
 
     /* A script is the clock, always: it runs the machine here rather than under a
      * window, so a frame elapses only because the script asked for one and its
@@ -292,7 +292,11 @@ int main(int argc, char **argv)
             {
                 const unsigned long want = vga_frame_count() + 1;
                 while (vga_frame_count() < want)
-                    main_task();
+                {
+                    sys_task();
+                    sys_io_task();
+                    sys_commit();
+                }
             }
         }
         if (script_exit_code() || !o.screenshot)
@@ -304,7 +308,11 @@ int main(int argc, char **argv)
         const unsigned long want =
             vga_frame_count() + (unsigned long)(o.frames < 1 ? 1 : o.frames);
         while (vga_frame_count() < want)
-            main_task(); /* the last frame lands in g_fb, registered above */
+        {
+            sys_task(); /* the last frame lands in g_fb, registered above */
+            sys_io_task();
+            sys_commit();
+        }
         const int frames = o.frames < 1 ? 1 : o.frames;
         int cw, ch;
         vga_canvas_size(&cw, &ch); /* PNG is the canvas's native resolution */

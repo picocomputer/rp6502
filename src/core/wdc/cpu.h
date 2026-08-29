@@ -14,6 +14,14 @@
 /* The machine's 6502 contract this file completes: cpu_active, the config and
  * run PHI2 pairs, and the CPU_PHI2_* range. */
 #include "core/cpu.h"
+#include "core/rp2350.h" /* SYS_RP2350_KHZ */
+
+/* The RIA's PIO clock divider is 16.8 fixed point, so a PHI2 period is
+ * 32*int + frac/8 system ticks -- not an integer. Counting the system clock in
+ * eighths makes every achievable PHI2 exact: 2048 MHz, no accumulated rounding.
+ * This is the unit cpu_cycle_ticks and host_clock_us are denominated in. */
+#define SYS_OVERSAMPLE 8
+#define SYS_TICKS_PER_US (SYS_RP2350_KHZ * SYS_OVERSAMPLE / 1000) /* 2048 */
 
 /* Cold boot: the clock, the pins and the core, from nothing. */
 void cpu_init(void);
@@ -54,11 +62,11 @@ void *cpu_chip(void); /* w65c02_t* */
  * observer is registered. */
 extern void (*cpu_dbg_cycle_cb)(uint64_t pins);
 
-/* Run the 6502 up to the beam. Defined in core/sys/sys.c, which owns the
- * board this chip sits on. */
+/* Run the 6502 up to the beam -- and with it every device on the bus, because
+ * this chip is the only master. */
 void cpu_task(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. A row lives with the
+/* This driver's row in a machine's driver list; see core/driver.h. A row lives with the
  * implementation, not the contract: which hooks a machine's CPU has is the
  * implementation's answer, and three of them differ. */
 #define CPU_DRIVER DRIVER(cpu_init, cpu_task, nul_task, cpu_run, cpu_stop, nul_break)

@@ -8,7 +8,7 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
-#include "ria/sys/sys.h"
+#include "core/rp2350.h"
 #include <pico/stdlib.h>
 #include <hardware/clocks.h>
 #include <hardware/sync.h>
@@ -24,7 +24,11 @@ static inline void DBG(const char *fmt, ...) { (void)fmt; }
 static uint16_t cpu_phi2_khz_run;
 static uint16_t cpu_phi2_khz_set;
 static volatile bool cpu_run_requested;
-static absolute_time_t cpu_resb_timer;
+/* Microseconds, not an absolute_time_t: cpu_stop writes this from either core
+ * and cpu_task reads it on core 0, and a 64-bit store is two on this part. A
+ * word is one, and the wrapping compare below is exact for any hold shorter
+ * than half the 32-bit range -- this one is microseconds. */
+static volatile uint32_t cpu_resb_deadline_us;
 
 // 6502 to RP2350 clock ratio is 1:32
 static_assert(CPU_PHI2_MAX_KHZ <= SYS_RP2350_KHZ / 32);
@@ -71,7 +75,7 @@ void cpu_task(void)
         if (cpu_run_requested)
         {
             // Enforce minimum RESB time
-            if (time_reached(cpu_resb_timer))
+            if ((int32_t)(time_us_32() - cpu_resb_deadline_us) >= 0)
                 gpio_put(CPU_RESB_PIN, true);
         }
         else if (cpu_phi2_khz_run != cpu_phi2_khz_set)
@@ -95,12 +99,12 @@ void cpu_stop(void)
     cpu_run_requested = false;
     __dmb();
     gpio_put(CPU_RESB_PIN, false);
-    cpu_resb_timer = make_timeout_time_us(cpu_get_reset_us());
+    cpu_resb_deadline_us = time_us_32() + cpu_get_reset_us();
 }
 
 void cpu_reclock(void)
 {
-    cpu_resb_timer = make_timeout_time_us(cpu_get_reset_us());
+    cpu_resb_deadline_us = time_us_32() + cpu_get_reset_us();
 }
 
 bool cpu_active(void)

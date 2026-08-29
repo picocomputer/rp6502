@@ -44,7 +44,7 @@ const char *vcp_get_nfc_device_hash(void);
 bool vcp_set_nfc_device_name(const char *name);
 int vcp_nfc_open(void);
 
-/* This driver's row in a machine's driver list; see core/mach.h. Building a device hash blocks on USB string fetches, which pump the task
+/* This driver's row in a machine's driver list; see core/driver.h. Building a device hash blocks on USB string fetches, which pump the task
  * column -- so this belongs in the column that is never re-entered. Before
  * NFC, which opens the device index this sets. */
 #define VCP_DRIVER DRIVER(nul_init, nul_task, vcp_task, nul_run, nul_stop, nul_break)

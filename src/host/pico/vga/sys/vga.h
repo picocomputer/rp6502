@@ -7,7 +7,7 @@
 #ifndef _VGA_SYS_VGA_H_
 #define _VGA_SYS_VGA_H_
 
-#include "core/mach.h"
+#include "core/driver.h"
 
 /* Video Graphics Array
  */
@@ -39,7 +39,7 @@ typedef enum
 
 void vga_set_display(vga_display_t display);
 void vga_xreg_canvas(uint16_t *xregs);
-/* This driver's row in a machine's driver list; see core/mach.h. Programs the console canvas, which asks the terminal its height, so it
+/* This driver's row in a machine's driver list; see core/driver.h. Programs the console canvas, which asks the terminal its height, so it
  * follows TERM and FONT. */
 #define VGA_DRIVER DRIVER(vga_init, vga_task, nul_task, nul_run, nul_stop, nul_break)
 

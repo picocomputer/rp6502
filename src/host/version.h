@@ -18,6 +18,12 @@ extern "C"
      * banners, from the same generated header. */
     const char *version_string(void);
 
+    /* The same, without the word a frontend supplies itself -- "0.31" where
+     * the above says "Version 0.31". Only a tagged build differs; a CI id and
+     * a timestamp read the same either way. Decided by version.cmake's stamp
+     * script, not by stripping a prefix off the string above. */
+    const char *version_bare(void);
+
 #ifdef __cplusplus
 }
 #endif

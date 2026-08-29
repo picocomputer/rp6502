@@ -32,20 +32,18 @@ jobs:
       version: ${{ steps.v.outputs.version }}
       fwver: ${{ steps.v.outputs.fwver }}
       fwci: ${{ steps.v.outputs.fwci }}
-      stamp: ${{ steps.v.outputs.stamp }}
     steps:
       - name: Derive version
         id: v
         run: |
           set -euo pipefail
-          # version names files, fwver/fwci go to CMake, and stamp is the same
-          # string the build writes into itself — for metadata fields that are
-          # filled in by hand out here rather than by a compiler.
+          # version names files; fwver/fwci go to CMake, which decides every
+          # version string a build says about itself. Nothing is spelled out
+          # twice here any more.
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwver=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "fwci=" >> "$GITHUB_OUTPUT"
-            echo "stamp=Version ${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             # Off a tag there is no version, and inventing one that looks like
             # a version is worse than not having it. The run id is what the
@@ -54,7 +52,6 @@ jobs:
             echo "version=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
             echo "fwver=" >> "$GITHUB_OUTPUT"
             echo "fwci=${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
-            echo "stamp=CI ${GITHUB_RUN_ID}" >> "$GITHUB_OUTPUT"
           fi
           cat "$GITHUB_OUTPUT"
 
@@ -171,9 +168,7 @@ jobs:
           cp build/ria/rp6502-ria-w.uf2     "stage/rp6502-${V}-ria-w.uf2"
           cp build/pico2/ria/rp6502-ria.uf2 "stage/rp6502-${V}-ria.uf2"
           cp build/vga/rp6502-vga.uf2       "stage/rp6502-${V}-vga.uf2"
-          # The README names the files it tells you to FLASH, so the version
-          # has to reach it too.
-          sed "s/@VERSION@/${V}/g" src/mach/pico/dist/README.txt > stage/README.txt
+          cp src/mach/pico/dist/README.txt stage/
           ( cd stage && zip -r "$GITHUB_WORKSPACE/${ARCHIVE}" . )
 
       - uses: actions/upload-artifact@v7
@@ -543,39 +538,11 @@ jobs:
         run: ctest --test-dir build/emu/macos/release --output-on-failure --parallel $(sysctl -n hw.ncpu)
 
       - name: Package macos
-        env:
-          FWVER: ${{ needs.version.outputs.fwver }}
-          STAMP: ${{ needs.version.outputs.stamp }}
         run: |
           set -euxo pipefail
-          # CFBundleVersion wants a dotted number, which a run id is not, so an
-          # untagged build says 0.0 rather than lying in Finder's Get Info.
-          # CFBundleGetInfoString is free-form and says what the build really is.
-          VER="${FWVER:-0.0}"
           mkdir stage
-          APP=stage/rp6502-emu.app
-          mkdir -p "$APP/Contents/MacOS"
-          cp build/emu/macos/release/rp6502-emu "$APP/Contents/MacOS/rp6502-emu"
-          chmod +x "$APP/Contents/MacOS/rp6502-emu"
-          cat > "$APP/Contents/Info.plist" <<PLIST
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>CFBundleExecutable</key>            <string>rp6502-emu</string>
-              <key>CFBundleIdentifier</key>            <string>com.picocomputer.rp6502-emu</string>
-              <key>CFBundleName</key>                  <string>rp6502-emu</string>
-              <key>CFBundleDisplayName</key>           <string>RP6502 Emulator</string>
-              <key>CFBundlePackageType</key>           <string>APPL</string>
-              <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
-              <key>CFBundleShortVersionString</key>    <string>${VER}</string>
-              <key>CFBundleVersion</key>               <string>${VER}</string>
-              <key>CFBundleGetInfoString</key>         <string>${STAMP}</string>
-              <key>LSMinimumSystemVersion</key>        <string>11.0</string>
-              <key>NSHighResolutionCapable</key>       <true/>
-          </dict>
-          </plist>
-          PLIST
+          # The build made the bundle; its Info.plist is host/macos/.
+          cp -R build/emu/macos/release/rp6502-emu.app stage/
           cp src/mach/emu/dist/macos/README.txt stage/
           # ditto is the platform's own archiver: it keeps the bundle's mode
           # bits and extended attributes, which zip and upload-artifact do not.

@@ -48,6 +48,10 @@ else()
     include(${RP6502_SRC}/host/posix/posix.cmake)
     target_sources(emu_core PRIVATE ${RP6502_HOST}/host.c)
 endif()
+if(APPLE)
+    # Everything else on this host comes through posix; the bundle does not.
+    include(${RP6502_SRC}/host/macos/macos.cmake)
+endif()
 
 # One optimization unit in Release, as it was when this tree was one file:
 # This machine's drivers.h: what it is made of, the order it comes up in,
@@ -127,15 +131,18 @@ else()
         ${CMAKE_DL_LIBS} Threads::Threads)
 endif()
 
-rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c)
+rp6502_use_version_header(rp6502-emu ${RP6502_SRC}/host/version.c emu_core)
 
 if(WIN32)
-    # The version metadata Explorer reads. RC is not one of project()'s
-    # languages, so it is enabled where it is used; both rc.exe and windres
-    # accept this file.
+    # RC is not one of project()'s languages, and a language is enabled for a
+    # directory rather than a target, so it is enabled here. The resource is
+    # host/windows/'s; both rc.exe and windres accept it.
     enable_language(RC)
-    configure_file(version.rc.in version.rc @ONLY)
-    target_sources(rp6502-emu PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/version.rc)
+    rp6502_windows_version_resource(rp6502-emu)
+endif()
+
+if(APPLE)
+    rp6502_macos_bundle(rp6502-emu)
 endif()
 
 rp6502_emu_debugger(rp6502-emu)

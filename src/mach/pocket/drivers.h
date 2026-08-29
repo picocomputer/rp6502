@@ -15,7 +15,7 @@
 #ifndef _MACH_DRIVERS_H_
 #define _MACH_DRIVERS_H_
 
-#include "core/mach.h"
+#include "core/driver.h"
 
 #include "core/api/api.h"
 #include "core/api/clk.h"

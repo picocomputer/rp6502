@@ -597,7 +597,7 @@ void ble_shutdown(void)
         // Poll until btstack completes the halting sequence.
         hci_power_control(HCI_POWER_OFF);
         while (hci_get_state() != HCI_STATE_OFF)
-            main_task();
+            sys_task();
         assert(ble_count_keyboard == 0);
         assert(ble_count_mouse == 0);
         assert(ble_count_gamepad == 0);

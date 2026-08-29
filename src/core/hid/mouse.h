@@ -68,7 +68,7 @@ bool mouse_umount(int slot);
 // Process HID report.
 void mouse_report(int slot, uint8_t const *report, size_t size);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define MOUSE_DRIVER DRIVER(mouse_init, nul_task, nul_task, nul_run, mouse_stop, nul_break)
 
 #endif /* _CORE_HID_MOUSE_H_ */

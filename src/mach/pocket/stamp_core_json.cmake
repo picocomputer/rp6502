@@ -1,12 +1,7 @@
-# The Pocket UI prints "Version " itself, so the tagged form is the bare
-# tag; Analogue caps the field at 31 characters.
-if(VERSION)
-    set(_ver "${VERSION}")
-elseif(CI)
-    set(_ver "CI ${CI}")
-else()
-    string(TIMESTAMP _ver "%b %d %Y %H:%M:%S %Z")
-endif()
+# The Pocket UI prints "Version " itself, so this takes the bare form that
+# version.cmake's stamp script decides. Analogue caps the field at 31 chars.
+include("${STAMP_SCRIPT}")
+set(_ver "${_stamp_bare}")
 string(LENGTH "${_ver}" _len)
 if(_len GREATER 31)
     message(FATAL_ERROR "metadata.version over 31 chars: '${_ver}'")

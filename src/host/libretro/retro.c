@@ -20,15 +20,15 @@
 #include "core/rand_seed.h"
 #include "host/version.h"
 #include "core/aud/aud_mix.h"
-#include "core/sys/log.h"
+#include "core/log.h"
 #include "core/api/dir.h"
 #include "core/api/fs.h"
-#include "core/sys/exec.h"
+#include "core/api/exec.h"
 #include "core/rom/rom.h"
-#include "core/mach.h"
+#include "core/sys.h"
 #include "core/wdc/cpu.h"
 #include "core/mem/mem.h"
-#include "core/sys/sys.h"
+#include "core/sys.h"
 #include "core/vga/vga_emu.h"
 #include "host/os.h"
 #include "host.h"
@@ -292,8 +292,8 @@ void retro_deinit(void)
 {
     if (machine_inited)
     {
-        mach_stop();
-        mach_commit(); /* no more frames after this to do it in */
+        sys_stop();
+        sys_commit(); /* no more frames after this to do it in */
     }
     machine_inited = false;
     loaded_rom[0] = 0;
@@ -312,8 +312,7 @@ void retro_get_system_info(struct retro_system_info *info)
     info->library_name = "Picocomputer 6502";
     /* The frontend prints this beside the name, so it supplies the word the
      * stamp has in front of a tagged build. */
-    info->library_version = version_string() +
-                            (strncmp(version_string(), "Version ", 8) ? 0 : 8);
+    info->library_version = version_bare();
     info->valid_extensions = "rp6502";
     /* A program's assets are never read into memory: a ROM: open scans the
      * file for them on demand, so the file has to stay where it is. */
@@ -423,13 +422,13 @@ static bool boot(const char *rom_oem)
         flags |= EXEC_REFILL; /* every load after the first is a fresh machine */
     else
     {
-        mach_init();
+        sys_init();
         machine_inited = true;
     }
     if (!exec_boot(rom_oem, 0, NULL, flags))
         return false;
     vga_set_framebuffer(frame_buf);
-    mach_commit();
+    sys_commit();
     shutdown_sent = false;
     geom_w = geom_h = 0; /* the first frame announces whatever canvas it is */
     return true;
@@ -485,8 +484,8 @@ void retro_unload_game(void)
 {
     if (machine_inited)
     {
-        mach_stop();
-        mach_commit(); /* the frontend may never call us again */
+        sys_stop();
+        sys_commit(); /* the frontend may never call us again */
     }
     loaded_rom[0] = 0;
     loaded_path[0] = 0;
@@ -577,7 +576,11 @@ void retro_run(void)
     /* The frontend paces us: one frame per call, as fast as this can run it. */
     const unsigned long want = vga_frame_count() + 1;
     while (vga_frame_count() < want)
-        main_task();
+    {
+        sys_task();
+        sys_io_task();
+        sys_commit();
+    }
 
     int w, h;
     vga_canvas_size(&w, &h);

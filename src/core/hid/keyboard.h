@@ -103,7 +103,7 @@ size_t keyboard_vt_seq(char *out, size_t cap, uint8_t hid_usage, int ansi_mod);
  * HID_KEY_NONE where there is no key, only a character. */
 char keyboard_ctrl_promote(char ch, uint8_t keycode);
 
-/* This driver's row in a machine's driver list; see core/mach.h. */
+/* This driver's row in a machine's driver list; see core/driver.h. */
 #define KEYBOARD_DRIVER DRIVER(keyboard_init, nul_task, nul_task, nul_run, keyboard_stop, nul_break)
 
 #endif /* _CORE_HID_KEYBOARD_H_ */

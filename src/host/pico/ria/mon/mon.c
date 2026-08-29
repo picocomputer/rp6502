@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/api/arg.h"
+#include "core/sys.h"
 #include "core/ria.h"
 #include "ria/main.h"
 #include "core/str/oem.h"
@@ -14,6 +16,7 @@
 #include "ria/mon/ram.h"
 #include "ria/mon/rom.h"
 #include "ria/mon/set.h"
+#include "ria/mon/status.h"
 #include "ria/mon/uf2.h"
 #include "ria/net/cyw.h"
 #include "core/str/rln.h"
@@ -21,10 +24,11 @@
 #include "ria/sys/com.h"
 #include "ria/sys/mem.h"
 #include "ria/sys/ria.h"
-#include "ria/sys/sys.h"
 #include "ria/usb/usb.h"
 #include <fatfs/ff.h>
 #include <littlefs/lfs.h>
+#include <hardware/watchdog.h>
+#include <pico/stdio.h>
 #include <pico/stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -76,6 +80,23 @@ static enum {
     MON_MORE_WAIT_CSI,
 } mon_more_state;
 
+/* The two commands that restart something. They are the table's, not a
+ * driver's: one reboots this chip, the other hands the 6502 back a machine it
+ * already has. */
+static void mon_reboot(const char *args)
+{
+    (void)args;
+    stdio_flush();
+    watchdog_reboot(0, 0, 0);
+}
+
+static void mon_reset(const char *args)
+{
+    (void)args;
+    arg_clear();
+    sys_run();
+}
+
 typedef void (*mon_command_fn)(const char *);
 __in_flash("mon_commands") static struct
 {
@@ -85,7 +106,7 @@ __in_flash("mon_commands") static struct
     {STR_HELP, help_mon_help},
     {STR_H, help_mon_help},
     {STR_QUESTION_MARK, help_mon_help},
-    {STR_STATUS, sys_mon_status},
+    {STR_STATUS, status_mon_status},
     {STR_SET, set_mon_set},
     {STR_LS, fil_mon_dir},
     {STR_DIR, fil_mon_dir},
@@ -96,8 +117,8 @@ __in_flash("mon_commands") static struct
     {STR_INFO, rom_mon_info},
     {STR_INSTALL, rom_mon_install},
     {STR_REMOVE, rom_mon_remove},
-    {STR_REBOOT, sys_mon_reboot},
-    {STR_RESET, sys_mon_reset},
+    {STR_REBOOT, mon_reboot},
+    {STR_RESET, mon_reset},
     {STR_FLASH, uf2_mon_flash},
     {STR_UPLOAD, fil_mon_upload},
     {STR_UNLINK, fil_mon_unlink},
@@ -490,7 +511,7 @@ static void mon_more(void)
 void mon_task(void)
 {
     // The monitor must never print while 6502 is running.
-    if (mach_active())
+    if (sys_active())
         return;
     if (mon_more_state)
     {
@@ -700,7 +721,7 @@ void __in_flash("mon_init") mon_init(void)
     mon_add_response_utf8(STR_TERM_SOFT_RESET);
 #endif
     mon_add_response_utf8("\n");
-    sys_add_boot_response();
+    status_add_boot_response();
     mon_add_response_utf8("\n");
 }
 

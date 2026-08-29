@@ -21,7 +21,7 @@
 #include "core/api/api.h"
 #include "core/api/arg.h"
 #include "core/api/proc.h"
-#include "core/mach.h"
+#include "core/sys.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -68,7 +68,7 @@ const char *proc_staged_path(void)
 void proc_exec_start(const char *path)
 {
     proc_exec_relaunch(path);
-    mach_stop();
+    sys_stop();
 }
 
 void proc_exec_relaunch(const char *path)

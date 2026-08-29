@@ -5,7 +5,7 @@
  *
  */
 
-#include "core/sys/log.h"
+#include "core/log.h"
 #include "core/api/fs.h"
 #include "core/str/path.h"
 #include "core/rom/rom.h"

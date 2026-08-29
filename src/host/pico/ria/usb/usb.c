@@ -272,7 +272,7 @@ static void usb_string_fetch_cb(tuh_xfer_t *xfer)
     usb_string_pending = false;
 }
 
-// Pumps main_task() while spinning, like msc_scsi_sync.
+// Pumps sys_task() while spinning, like msc_scsi_sync.
 static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
 {
     if (usb_string_pending)
@@ -292,7 +292,7 @@ static const void *usb_string_fetch(uint8_t daddr, uint8_t index)
     {
         if (tusb_time_millis_api() - start_ms >= 250)
             return NULL; // the callback still owns the buffer
-        main_task();
+        sys_task();
     }
     if (usb_string_result != XFER_RESULT_SUCCESS)
         memset(usb_string_buf, 0, sizeof(usb_string_buf));

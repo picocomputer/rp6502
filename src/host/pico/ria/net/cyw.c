@@ -19,7 +19,7 @@ void cyw_task(void) {}
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/cpu.h"
-#include "ria/sys/sys.h"
+#include "core/rp2350.h"
 #include <pico/cyw43_arch.h>
 #include <pico/cyw43_driver.h>
 
@@ -123,7 +123,7 @@ static int cyw_lookup_country(const char *cc)
 
 static void cyw_reset_radio(void)
 {
-    // ble_shutdown calls main_task which can restart wifi early
+    // ble_shutdown calls sys_task which can restart wifi early
     ble_shutdown(); // must be first
     wifi_shutdown(); // must be second
     cyw43_arch_deinit();

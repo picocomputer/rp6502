@@ -123,7 +123,7 @@ bool aud_enabled(void) { return g_enabled; }
  * the cursor for as long as that takes is not information. Silence rather
  * than nothing: the device still wants its frames, and starving it trades a
  * held note for a clicking one. The synth keeps its state and picks the note
- * back up on resume. A mach_stop is not this -- audio plays through it,
+ * back up on resume. A sys_stop is not this -- audio plays through it,
  * which is how the bell rings between programs. */
 static void ring_fill(unsigned frames)
 {

@@ -41,7 +41,7 @@
 #include "core/hid/mouse.h"
 #include "core/hid/gamepad.h"
 #include "core/hid/tablet.h"
-#include "core/mach.h"
+#include "core/sys.h"
 #include "core/str/rln.h"
 #include "core/pix.h"
 #include "core/vga/mode1.h"
@@ -88,18 +88,18 @@ static bool main_rom_len(uint32_t *len)
 }
 
 /* No monitor here, so there is nothing a break could drop into. */
-bool mach_break(void)
+bool sys_break(void)
 {
     return false;
 }
 
 /* Alt-F4. Stopping is enough, because proc_stop puts the launcher back. */
-bool mach_break_to_launcher(void)
+bool sys_break_to_launcher(void)
 {
     if (!proc_has_launcher() || proc_is_launcher())
         return false;
     api_set_ax(0xFFFF);
-    mach_stop();
+    sys_stop();
     return true;
 }
 
@@ -162,27 +162,14 @@ static void main_stage(void)
      * in progress from a finished one. */
     MMIO_SLOT = 0;
     if (ok)
-        mach_run();
+        sys_run();
     else if (staged)
         printf("rom: bad image\n");
 }
 
-/* Both task columns, back to back. File IO never blocks under a task pump
- * here, so the RIA's split is not this machine's -- but the drivers it
- * shares carry their column, and walking both is what reaches them all. */
-static void main_task(void)
-{
-#define DRIVER(i, t, iot, r, s, b) t();
-    MACH_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
-#define DRIVER(i, t, iot, r, s, b) iot();
-    MACH_FORWARD(RP6502_MACH_DRIVERS)
-#undef DRIVER
-}
-
 int main(void)
 {
-    mach_init();
+    sys_init();
 
     /* A blob already in the window means the host is waking this core
      * rather than starting it, and the restore that is coming will
@@ -229,11 +216,15 @@ int main(void)
             {
                 /* Captured before api_return_ax clobbers A/X. */
                 proc_set_exit_code((int16_t)API_AX);
-                mach_stop();
+                sys_stop();
                 api_return_ax(0);
             }
         }
-        main_task();
+        /* Both columns back to back. File IO never blocks under a task pump
+         * here, so the RIA's split is not this machine's -- but the drivers it
+         * shares carry their column, and walking both is what reaches them. */
+        sys_task();
+        sys_io_task();
         /* Asked every pass, because at boot there was nothing to see.
          * The host writes the blob after Reset Exit, so the first
          * bridge write into the window arrives with this device's own
@@ -255,7 +246,7 @@ int main(void)
              * this line and neither of those says the engine never
              * finished. */
             LOG_SAY("main: blob\n");
-            mach_stop();
+            sys_stop();
         }
         main_wake_pending = wake;
 
@@ -268,7 +259,7 @@ int main(void)
         {
             main_upd_seen = upd;
             restage = true;
-            mach_stop();
+            sys_stop();
         }
         /* main_stage cleared this after the boot image, so anything
          * standing here again is a fresh settle. Left set until the
@@ -276,12 +267,12 @@ int main(void)
         if (MMIO_SLOT && !main_wake_pending)
         {
             restage = true;
-            mach_stop();
+            sys_stop();
         }
-        mach_commit();
+        sys_commit();
         /* Below the commit rather than inside it: a machine already stopped is
          * owed no stop and would otherwise never launch. */
-        if (!mach_active())
+        if (!sys_active())
         {
             if (restage)
             {
@@ -293,7 +284,7 @@ int main(void)
                 main_stage();
             }
             else if (proc_exec_take())
-                mach_run();
+                sys_run();
         }
     }
 }
