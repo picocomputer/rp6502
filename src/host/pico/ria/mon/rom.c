@@ -26,6 +26,7 @@
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
 #include "ria/sys/lfs.h"
+#include "core/rom/rom.h" /* the pump: the loader half of this file now reads through the seam */
 #include "ria/sys/pix.h"
 #include "ria/sys/ria.h"
 #include "ria/usb/usb.h"
@@ -53,6 +54,9 @@ static enum {
 static uint32_t rom_addr;
 static uint32_t rom_len;
 static rom_rec_vectors_t rom_vectors;
+/* The loader's pump over the seam's ROM descriptor. fd -1 when no load is in
+ * flight; the old handles below serve HELPING and INSTALL until they retire. */
+static rom_pump_t rom_pump = {.fd = -1};
 static bool lfs_file_open;
 static lfs_file_t lfs_file;
 LFS_FILE_CONFIG(lfs_file_config, static);
@@ -321,9 +325,18 @@ static bool rom_next_chunk(void)
 
 static void rom_loading(void)
 {
-    if (rom_at_eof())
+    rom_rec_t rec;
+    api_errno err;
+    switch (rom_pump_next(&rom_pump, mbuf, &rec, &err))
     {
-        if (rom_rec_complete(&rom_vectors))
+    case ROM_PUMP_SKIP:
+        return; /* a blank line or a comment: one per pass, like a record */
+    case ROM_PUMP_ERROR:
+        rom_state = ROM_IDLE;
+        mon_add_response_errno(err);
+        return;
+    case ROM_PUMP_EOF:
+        if (rom_pump_complete(&rom_pump))
         {
             if (usb_boot_enumerating())
                 return;
@@ -336,14 +349,11 @@ static void rom_loading(void)
             mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
         }
         return;
-    }
-    if (!rom_next_chunk())
-    {
-        rom_state = ROM_IDLE;
-        return;
-    }
-    if (mbuf_len)
-    {
+    case ROM_PUMP_RECORD:
+        /* The record is staged in mbuf; the bus carries it from there. */
+        rom_addr = rec.addr;
+        rom_len = rec.len;
+        mbuf_len = rec.len;
         if (rom_addr > 0xFFFF)
             rom_state = ROM_XRAM_WRITING;
         else
@@ -351,6 +361,7 @@ static void rom_loading(void)
             rom_state = ROM_RIA_WRITING;
             ria_write_buf(rom_addr);
         }
+        return;
     }
 }
 
@@ -527,8 +538,13 @@ void rom_exec(void)
     if (!arg_replace(0, path))
         return mon_add_response_utf8(S(STR_ERR_INVALID_ARGUMENT));
     rom_close();
-    if (!rom_open(path))
+    rom_pump_close(&rom_pump);
+    api_errno err;
+    if (!rom_pump_open(&rom_pump, path, &err))
+    {
+        mon_add_response_errno(err);
         return;
+    }
     rom_state = ROM_LOADING;
 }
 
@@ -818,6 +834,7 @@ void rom_task(void)
     {
     case ROM_IDLE:
         rom_close();
+        rom_pump_close(&rom_pump);
         break;
     case ROM_HELPING:
     case ROM_RUNNING:

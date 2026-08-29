@@ -117,11 +117,13 @@ rom_pump_result rom_pump_next(rom_pump_t *p, uint8_t *buf, rom_rec_t *rec,
 {
     if (p->prog_end && p->pos >= p->prog_end)
         return ROM_PUMP_EOF;
-    char line[ROM_REC_MAX];
-    long n = pump_gets(p, line, sizeof line, err);
+    /* The header line borrows the caller's record buffer: the parse is done
+     * with it before the payload read below writes over it, and a task-pump
+     * machine keeps a kilobyte off its stack. */
+    long n = pump_gets(p, (char *)buf, ROM_REC_MAX, err);
     if (n < 0)
         return p->prog_end ? ROM_PUMP_ERROR : ROM_PUMP_EOF; /* classic ends at EOF */
-    rom_rec_result r = rom_rec_parse(line, ROM_REC_MAX, rec);
+    rom_rec_result r = rom_rec_parse((char *)buf, ROM_REC_MAX, rec);
     if (r == ROM_REC_SKIP)
         return ROM_PUMP_SKIP;
     if (r != ROM_REC_OK)

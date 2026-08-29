@@ -14,6 +14,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "core/api/api.h" /* api_errno: the seam's error currency */
+
 /* Main events
  */
 
@@ -33,6 +35,7 @@ void mon_add_response_fn_state(mon_response_fn fn, int state);
 void mon_add_response_utf8(const char *utf8);
 void mon_add_response_lfs(int result);
 void mon_add_response_fatfs(int fresult);
+void mon_add_response_errno(api_errno err); /* the seam's answers */
 
 // After queuing a preview, request a YES/no confirmation. cb() runs only if the
 // user types YES; Ctrl-C, break, or anything else cancels back to the prompt.

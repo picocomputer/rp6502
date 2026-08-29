@@ -445,6 +445,27 @@ void mon_add_response_fatfs(int fresult)
         mon_append_response(mon_fatfs_response, NULL, fresult);
 }
 
+/* The seam answers in api_errno; these are the ones its ROM half can say,
+ * worded with the strings the two backends already print. */
+void mon_add_response_errno(api_errno err)
+{
+    switch (err)
+    {
+    case API_ENOENT:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_NO_FILE));
+    case API_EACCES:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
+    case API_EEXIST:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_EXIST));
+    case API_ENOEXEC:
+        return mon_add_response_utf8(S(STR_ERR_ROM_DATA_INVALID));
+    case API_ENOSPC:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_DENIED));
+    default:
+        return mon_add_response_utf8(S(STR_ERR_FATFS_DISK_ERR));
+    }
+}
+
 static void mon_more(void)
 {
     if (mon_needs_break)
