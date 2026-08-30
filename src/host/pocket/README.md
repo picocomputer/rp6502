@@ -738,6 +738,26 @@ answer. It is worth asking anyway — the answer is the host's to change
 
 ## Reading the console
 
+A restore is the one event the card log could not record, and the reason
+is worth stating because it took a hardware run to see. `fs_pool`'s file
+position lives in the TCM the blob carries, so a restored session
+resumed writing at the offset it held when the state was saved --
+straight over the middle of the file it was recording. What came off the
+card was two runs spliced at an offset neither chose, with every sector
+the two did not cover still holding whatever was there before the file
+existed. A counter that appeared to resume mid-file was leftover bytes,
+and it was read as evidence. The log drops its descriptor and reopens on
+a restore now; `FS_APPEND` asks the host how long the file is, which is
+the one number true for both sessions.
+
+Measured after that fix, across a real Memory load: the restored session
+appends in order, and its output matches the pre-save session's pass
+through the same state byte for byte. The restore's own narration did
+not survive -- the ring was already overflowing from the freeze, and the
+drop counter showed 453 bytes of loss beyond the console text it
+swallowed, which is about what those lines weigh.
+
+
 The machine's console — the 6502's `$FFE1` writes and the soft CPU's own
 `com_printf`, interleaved — comes out two ways, both live in every
 bitstream.
