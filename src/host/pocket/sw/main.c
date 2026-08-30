@@ -23,7 +23,6 @@
 #include "fs.h"
 #include "proc.h"
 #include "rand.h"
-#include "probe.h"
 #include "rom.h"
 #include "core/rom/rom.h"
 #include "sst.h"
@@ -157,11 +156,6 @@ static void main_stage(void)
     /* After the load, not before: Get File needs the host, which at boot
      * is still staging, and asking first burns the bridge's whole deadline. */
     proc_restage();
-    /* Beside proc_restage's own ask, and at the same moment: this is the
-     * host-driven instant, the only one where the fabric's wrote bit has
-     * ever been seen to fire. A ROM swap comes back through here, which
-     * is what makes the swap a second sample rather than a second guess. */
-    probe_mark("stage");
     /* Cleared once the image is dealt with, so a watcher can tell a load
      * in progress from a finished one. */
     MMIO_SLOT = 0;

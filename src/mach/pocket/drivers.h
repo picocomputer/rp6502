@@ -40,7 +40,6 @@
 #include "sw/bel.h"
 #include "sw/cfg.h"
 #include "sw/log.h"
-#include "sw/probe.h"
 #include "sw/fs.h"
 #include "sw/rand.h"
 #include "sw/vid.h"
@@ -56,10 +55,7 @@
  * apf before keymap is the task column's rule, not init's: apf_task delivers
  * the reports and keymap_task runs the repeat timer over them. bel takes no
  * init -- the bell is part of the mixer aud brings up and restores.
- *
- * probe before sst, when it is built at all: sst_task takes a restore from
- * start to ack inside one pass, so a watcher placed after it never sees the
- * window open. */
+ */
 #define RP6502_MACH_DRIVERS                                                            \
     LOG_DRIVER, CFG_DRIVER, PROC_DRIVER,          \
     AUD_DRIVER, BEL_DRIVER,                               \
@@ -69,7 +65,7 @@
     APF_DRIVER, KEYMAP_DRIVER,                            \
     MOUSE_DRIVER, GAMEPAD_DRIVER, TABLET_DRIVER,  \
     VID_DRIVER, TIM_DRIVER, RAND_DRIVER,          \
-    DIR_DRIVER, API_DRIVER, PROBE_DRIVER, SST_DRIVER, \
+    DIR_DRIVER, API_DRIVER, SST_DRIVER,           \
     CLK_DRIVER, CPU_DRIVER
 
 /* What a program may open, in the order open() tries them. The filesystem is
