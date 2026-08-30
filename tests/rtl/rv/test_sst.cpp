@@ -60,7 +60,7 @@
 /* sst_engine.sv's SST_VERSION. It moves whenever the state page or the
  * firmware's restore contract changes, and a blob the bench builds has
  * to carry the current one or the engine is right to refuse it. */
-#define SST_VER 2u
+#define SST_VER 3u
 #define SST_END_MAGIC 0x52365345u
 
 static Vrp6502 *dut;
@@ -762,4 +762,61 @@ int main(int argc, const char *const argv[])
         delete dut;
     }
     return rc;
+}
+
+/* The console queue, which a sleep used to drop.
+ *
+ * Sixteen bytes the 6502 has written and the soft CPU has not taken
+ * yet. They live in the regs window at word 16, and reading that word
+ * is what takes a byte off the queue -- so the savestate cannot read
+ * it, and for two versions of the blob it did not read anything else
+ * either and the queue went out with the session. It has its own words
+ * now, which disturb nothing: 20 for the pointers and 21 to 24 for the
+ * bytes. Staged in, released, and asked for again. */
+UTEST(sst, the_console_queue_survives)
+{
+    power_on();
+    for (int i = 0; i < 2000; i++)
+        clk();
+
+    g_stage.assign(STAGE_BLOB + (W_TOTAL + 4) * 4, 0);
+    for (uint32_t i = 0; i < W_TOTAL; i++)
+        stage_word(i, 0);
+    /* Full, and every byte distinct, so a queue put back rotated or
+     * half-written is a different answer and not a lucky one. Read at
+     * 5, write wrapped round to it, which is what a full queue looks
+     * like and the one arrangement an off-by-one gets wrong. */
+    stage_word(B_REGS + 20, (16u << 8) | (5u << 4) | 5u);
+    stage_word(B_REGS + 21, 0xD3C2B1A0u);
+    stage_word(B_REGS + 22, 0xD7C6B5A4u);
+    stage_word(B_REGS + 23, 0xDBCAB9A8u);
+    stage_word(B_REGS + 24, 0xDFCEBDACu);
+    /* The 6502 stays in reset: a queue is only still the queue if
+     * nothing is pushing to it while this looks. */
+    stage_word(B_STATE + ST_MACH + 0, 0);
+    stage_seal();
+
+    dut->sst_load = 1;
+    dut->eval();
+    long guard = 0;
+    while (!dut->rp6502_sst_load_done && guard++ < 40000000L)
+        clk();
+    ASSERT_TRUE((int)dut->rp6502_sst_load_done);
+    dut->sst_load = 0;
+    dut->eval();
+    for (int i = 0; i < 200; i++)
+        clk();
+
+    ASSERT_TRUE(begin_save());
+    uint32_t w = 0;
+    ASSERT_TRUE(blob_word(B_REGS + 20, &w));
+    ASSERT_EQ((16u << 8) | (5u << 4) | 5u, w & 0x1FFFu);
+    ASSERT_TRUE(blob_word(B_REGS + 21, &w));
+    ASSERT_EQ(0xD3C2B1A0u, w);
+    ASSERT_TRUE(blob_word(B_REGS + 22, &w));
+    ASSERT_EQ(0xD7C6B5A4u, w);
+    ASSERT_TRUE(blob_word(B_REGS + 23, &w));
+    ASSERT_EQ(0xDBCAB9A8u, w);
+    ASSERT_TRUE(blob_word(B_REGS + 24, &w));
+    ASSERT_EQ(0xDFCEBDACu, w);
 }

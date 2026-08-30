@@ -205,12 +205,12 @@ module sst_engine
 
     localparam logic [31:0] SST_MAGIC = 32'h52365353;      // "R6SS"
     localparam logic [31:0] SST_END_MAGIC = 32'h52365345;  // "R6SE"
-    /* Two, because the state page's words 2 and 3 now mean something.
-     * The version covers the whole restore contract and not only the
-     * map: the blob carries the firmware, so a change to what the
-     * firmware puts back on a wake invalidates an old blob exactly as
-     * much as a change to the layout does, and belongs here too. */
-    localparam logic [31:0] SST_VERSION = 32'd2;
+    /* Three, because the console queue is carried now. The version
+     * covers the whole restore contract and not only the map: the blob
+     * carries the firmware, so a change to what the firmware puts back
+     * on a wake invalidates an old blob exactly as much as a change to
+     * the layout does, and belongs here too. */
+    localparam logic [31:0] SST_VERSION = 32'd3;
 
     /* The blob, where the host left it: an offset into the staging
      * store rather than an address in the machine, because the store is
@@ -220,8 +220,9 @@ module sst_engine
     /* The one word of the regs window that cannot be read: word 16 is
      * the console's outgoing byte and reading it takes it off the
      * queue. A savestate that read it would eat a character every time
-     * one was made, so it is not read and not written -- the queue is
-     * one of the things a sleep is documented to lose. */
+     * one was made, so it is not read and not written. The queue itself
+     * is carried -- ria_regs answers for it at words 20 to 24, which
+     * disturb nothing. */
     localparam int REGS_HOLE = 16;
 
     /* The state page, in the order a restore has to put it back. What
@@ -246,11 +247,10 @@ module sst_engine
     logic [31:0] flopreg[ST_RV];
     /* The regs window's flop half, in the window's own order: eight
      * words of the shared file, the interrupt pair, the receive
-     * handshake and API pending, and the stack pointer. The xstack
-     * guard is NOT here: its register lives in the window's array
-     * block on the unstopped clock, so a plain window write reaches it
-     * while the machine is frozen. Slot 10 is dead and stays reserved
-     * so the map does not renumber. */
+     * handshake and API pending, the console queue's pointers, and the
+     * stack pointer. The xstack guard is NOT here: its register lives
+     * in the window's array block on the unstopped clock, so a plain
+     * window write reaches it while the machine is frozen. */
     localparam int RIA_JAM = 12;
     logic [31:0] riareg[RIA_JAM];
     logic ria_flop;
@@ -260,6 +260,10 @@ module sst_engine
         if (off < 18'd8) ria_slot = 4'(off);
         else if (off == 18'd17) ria_slot = 4'd8;
         else if (off == 18'd18) ria_slot = 4'd9;
+        /* The console queue's pointers. Its sixteen bytes are an array
+         * on the memory clock and go back through the window with the
+         * xstack; only the read and write positions need the jam. */
+        else if (off == 18'd20) ria_slot = 4'd10;
         else if (off == 18'd200) ria_slot = 4'd11;
         else begin
             ria_slot = 4'd0;

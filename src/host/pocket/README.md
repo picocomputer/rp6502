@@ -210,6 +210,28 @@ Waking the machine is a sequenced handoff:
 
 The 6502 continues from the exact cycle the blob froze it in.
 
+### The console queue
+
+The RIA holds sixteen bytes of console output the 6502 has written and
+the soft CPU has not taken yet, and for two versions of the blob a
+sleep dropped them. Word 16 of the regs window is the queue's front
+door and *reading it takes the byte off*, so the savestate cannot read
+it — `REGS_HOLE` punches that one word out of the blob, and a walk that
+tried to save it would eat a character every time a state was made.
+
+The hole is right and the loss was not a consequence of it. The queue
+has its own words now — 20 for the read and write positions, 21 to 24
+for the sixteen bytes — which answer without disturbing anything. They
+were already inside the regs region, so nothing about the blob's shape
+changed; they simply meant nothing before. The bytes are an array on
+the memory clock and go back through the window with the xstack; the
+pointers are machine-clock flops and ride the jam, in the slot the map
+had been holding empty.
+
+That also closes the quieter half of the same bug: a load used to
+neither restore the queue nor clear it, so whatever the pre-restore
+session had left in it was delivered into the restored one.
+
 ### What a sleep does not carry
 
 - The PSG's envelopes, phase and noise, and the OPL's internal
@@ -222,9 +244,6 @@ The 6502 continues from the exact cycle the blob froze it in.
   make — would be ignored in the replayed byte and a sustained voice
   would come back silent for the rest of the program's life, which is
   a wider loss than the one above and not the one this promises.
-- Up to sixteen undrained console bytes: reading regs word 16 pops the
-  queue, so the blob has a hole there instead of a savestate that eats
-  a character every time one is made.
 - One in-flight type-ahead byte, an open LR/SC reservation (its SC
   fails, as the ISA permits), and the RW engine's suspended XRAM write
   — old-session work, deliberately discarded rather than allowed to

@@ -108,10 +108,11 @@ module ria_regs (
     end
     always_comb ria_regs_irq = (irq_pending & irq_enabled) != 8'h00;
 
-    /* The read below is asynchronous where a block's read address is
-     * registered. Left to itself Quartus builds this out of flip-flops,
-     * which is why the style is named rather than inferred. */
-    (* ramstyle = "MLAB, no_rw_check" *)
+    /* Flops, not an MLAB. The savestate reads the whole queue at once
+     * and writes the whole queue back, which is five more ports than a
+     * memory has: sixteen bytes of the 6502's console output that the
+     * soft CPU had not taken yet, and which a sleep used to drop on the
+     * floor. */
     logic [7:0] txf[16];
     logic [3:0] txf_w, txf_r;
     logic [4:0] txf_count;
@@ -123,6 +124,19 @@ module ria_regs (
      * the savestate. */
     always_comb push_now = en && cs && we && rs == 5'h01
         && txf_count < 5'd16 && !sst_own;
+
+    /* The console queue's four words in the regs window, and the fifth
+     * that carries its pointers. Read here and nowhere else: word 16 is
+     * the queue's front door and reading it takes the byte off, so the
+     * savestate cannot use it. */
+    localparam int TXQ_W0 = 21;
+    localparam int TXQ_PTR = 20;
+    logic txq_win;
+    logic [1:0] txq_row;
+    always_comb begin
+        txq_win = w_word >= 8'(TXQ_W0) && w_word < 8'(TXQ_W0 + 4);
+        txq_row = 2'(w_word - 8'(TXQ_W0));
+    end
 
     logic xr_wr_pend;
     logic [15:0] xr_wr_addr;
@@ -283,6 +297,10 @@ module ria_regs (
             xs3[xs_waddr3] <= xs_wdat3;
             xm3[xs_waddr3] <= xs_wdat3;
         end
+        if (w_we && txq_win)
+            for (int k = 0; k < 4; k++)
+                if (w_strb[k])
+                    txf[{txq_row, 2'(k)}] <= w_data[8 * k +: 8];
         if (w_we && xs_win && xs_word[7]) begin
             if (w_strb[0])
                 xs_guard[7:0] <= w_data[7:0];
@@ -298,6 +316,17 @@ module ria_regs (
     always_comb begin
         case (w_word)
             8'd16: ria_regs_b_rdata = {23'd0, txf_count != 5'd0, txf[txf_r]};
+            /* The console queue, whole, for the one reader that must
+             * not disturb it. */
+            8'(TXQ_PTR): ria_regs_b_rdata = {19'd0, txf_count, txf_r, txf_w};
+            8'(TXQ_W0 + 0): ria_regs_b_rdata =
+                {txf[3], txf[2], txf[1], txf[0]};
+            8'(TXQ_W0 + 1): ria_regs_b_rdata =
+                {txf[7], txf[6], txf[5], txf[4]};
+            8'(TXQ_W0 + 2): ria_regs_b_rdata =
+                {txf[11], txf[10], txf[9], txf[8]};
+            8'(TXQ_W0 + 3): ria_regs_b_rdata =
+                {txf[15], txf[14], txf[13], txf[12]};
             /* The interrupt enable has no other way out: the 6502
              * writes $FFF0 and nothing reads it back, and the pending
              * cell in regs is a mirror rewritten every clock. A
@@ -565,11 +594,18 @@ module ria_regs (
         end
         else if (w_we && w_word == 8'd200)
             xsp <= w_data[9:0];
-        if (push_now)
-            txf_w <= txf_w + 4'd1;
-        if (txf_pop)
-            txf_r <= txf_r + 4'd1;
-        txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
+        if (sst_jam) begin
+            txf_w <= sst_jam_data[10][3:0];
+            txf_r <= sst_jam_data[10][7:4];
+            txf_count <= sst_jam_data[10][12:8];
+        end
+        else begin
+            if (push_now)
+                txf_w <= txf_w + 4'd1;
+            if (txf_pop)
+                txf_r <= txf_r + 4'd1;
+            txf_count <= txf_count + {4'd0, push_now} - {4'd0, txf_pop};
+        end
         /* An unanswered ask arms the request; a landed byte, whether
          * pulled or offered, satisfies it. */
         if (en && cs && !we && !pull
