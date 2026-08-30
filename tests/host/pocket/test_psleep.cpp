@@ -949,8 +949,6 @@ UTEST(psleep, a_running_program_survives_the_reconfigure)
  */
 UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
 {
-    UTEST_SKIP("the firmware does not rebind a descriptor's data slot on wake");
-
     std::vector<uint8_t> rom = read_file(STREAM_ROM);
     ASSERT_GT(rom.size(), 0u);
 
@@ -1002,8 +1000,28 @@ UTEST(psleep, a_file_open_across_the_sleep_is_still_open)
          i++)
         step();
     ASSERT_TRUE(g_console.find("stream ok\r\n") != std::string::npos);
-    ASSERT_STREQ((before + want.substr(before.size()) + "stream ok\r\n").c_str(),
-                 (before + g_console).c_str());
+    /* Compared as strings, and reported by hand. The payload is binary,
+     * so it has NULs in it, and ASSERT_STREQ takes const char* out of
+     * two std::string temporaries that are destroyed before its strcmp
+     * runs -- it was comparing freed heap against freed heap, and
+     * passing on whatever the allocator happened to hand back. */
+    std::string want_tail = want.substr(before.size()) + "stream ok\r\n";
+    if (want_tail != g_console)
+    {
+        size_t at = 0;
+        while (at < want_tail.size() && at < g_console.size()
+               && want_tail[at] == g_console[at])
+            at++;
+        size_t from = at > 8 ? at - 8 : 0;
+        fprintf(stderr,
+                "join: before=%zu want=%zu got=%zu differ at %zu\n",
+                before.size(), want_tail.size(), g_console.size(), at);
+        for (size_t i = from; i < at + 8; i++)
+            fprintf(stderr, "  %zu want=%02x got=%02x\n", i,
+                    i < want_tail.size() ? (unsigned)(uint8_t)want_tail[i] : 0,
+                    i < g_console.size() ? (unsigned)(uint8_t)g_console[i] : 0);
+    }
+    ASSERT_TRUE(want_tail == g_console);
     teardown();
 }
 
