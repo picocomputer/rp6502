@@ -12,6 +12,7 @@ int ntp_status_response(char *, size_t, int, unsigned) { return -1; }
 
 #include "ria/net/ntp.h"
 #include "ria/net/wifi.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include <lwip/dns.h>
@@ -261,7 +262,7 @@ static const char *ntp_status_str(void)
 int ntp_status_response(char *buf, size_t buf_size, int state, unsigned)
 {
     (void)state;
-    com_snprintf_utf8(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
+    oem_snprintf(buf, buf_size, STR_STATUS_NTP, ntp_status_str());
     return -1;
 }
 

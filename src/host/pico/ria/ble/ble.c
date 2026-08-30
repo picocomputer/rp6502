@@ -13,6 +13,7 @@ void ble_set_hid_leds(uint8_t) {}
 
 #include "ria/ble/ble.h"
 #include "core/hid/parse.h"
+#include "core/str/oem.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/mouse.h"
 #include "core/hid/tablet.h"
@@ -618,17 +619,17 @@ int ble_status_response(char *buf, size_t buf_size, int state, unsigned)
     if (ble_enabled)
     {
         if (cyw_get_rf_enable())
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_FULL,
+            oem_snprintf(buf, buf_size, STR_STATUS_BLE_FULL,
                               ble_count_keyboard, ble_count_keyboard == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
                               ble_count_mouse, ble_count_mouse == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                               ble_count_gamepad, ble_count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),
                               ble_pairing ? S(STR_BLE_PAIRING) : "");
         else
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_RF_OFF));
+            oem_snprintf(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_RF_OFF));
     }
     else
     {
-        com_snprintf_utf8(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_DISABLED));
+        oem_snprintf(buf, buf_size, STR_STATUS_BLE_SIMPLE, S(STR_DISABLED));
     }
     return -1;
 }

@@ -11,6 +11,8 @@
 #include "core/vga/vga.h"
 #include "core/str/unicode.h"
 #include "host.h"
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
 #if defined(DEBUG_API) || defined(DEBUG_API_OEM)
@@ -202,4 +204,19 @@ size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz)
     while (w[len])
         len++;
     return oem_from_wide_n(w, len, dst, dstsz);
+}
+
+int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va)
+{
+    vsnprintf(dst, dst_size, utf8_fmt, va);
+    return (int)oem_from_utf8(dst, dst, dst_size);
+}
+
+int oem_snprintf(char *dst, size_t dst_size, const char *utf8_fmt, ...)
+{
+    va_list va;
+    va_start(va, utf8_fmt);
+    int n = oem_vsnprintf(dst, dst_size, utf8_fmt, va);
+    va_end(va);
+    return n;
 }

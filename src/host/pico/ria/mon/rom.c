@@ -705,13 +705,13 @@ int rom_installed_response(char *buf, size_t buf_size, int state, unsigned)
     {
         if (count)
         {
-            com_snprintf_utf8(buf, buf_size,
+            oem_snprintf(buf, buf_size,
                               count == 1 ? S(STR_ROM_INSTALLED_SINGULAR)
                                          : S(STR_ROM_INSTALLED_PLURAL),
                               count);
             return 1;
         }
-        com_snprintf_utf8(buf, buf_size, S(STR_ROM_INSTALLED_NONE));
+        oem_snprintf(buf, buf_size, S(STR_ROM_INSTALLED_NONE));
         return -1;
     }
     if (found)

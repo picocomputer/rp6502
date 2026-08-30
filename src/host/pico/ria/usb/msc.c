@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/str/oem.h"
 #include "ria/main.h"
 #include "tusb.h"
 #include "class/msc/msc.h"
@@ -1954,7 +1955,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
             msc_inquiry_rtrim(inq.vendor_id, 8);
             msc_inquiry_rtrim(inq.product_id, 16);
             msc_inquiry_rtrim(inq.product_rev, 4);
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+            oem_snprintf(buf, buf_size, STR_STATUS_MSC,
                               VolumeStr[vol],
                               sizebuf,
                               inq.vendor_id,
@@ -1963,7 +1964,7 @@ int msc_status_response(char *buf, size_t buf_size, int state, unsigned)
         }
         else
         {
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_MSC,
+            oem_snprintf(buf, buf_size, STR_STATUS_MSC,
                               VolumeStr[vol],
                               sizebuf,
                               S(STR_PARENS_NONE), S(STR_PARENS_NONE), "");

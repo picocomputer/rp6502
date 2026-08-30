@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 
+#include "core/str/oem.h"
 #include "core/sys.h"
 #include "core/ria.h"
 #include "ria/main.h"
@@ -195,7 +196,7 @@ void ria_task(void)
 
 static int ria_verify_error_response(char *buf, size_t buf_size, int state, unsigned)
 {
-    com_snprintf_utf8(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
+    oem_snprintf(buf, buf_size, S(STR_ERR_RIA_VERIFY), state);
     return -1;
 }
 

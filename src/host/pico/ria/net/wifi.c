@@ -13,6 +13,7 @@ int wifi_scan_response(char *, size_t, int, unsigned) { return -1; }
 
 #include "ria/net/cyw.h"
 #include "ria/net/wifi.h"
+#include "core/str/oem.h"
 #include "core/str/str.h"
 #include "ria/sys/com.h"
 #include "ria/sys/cfg.h"
@@ -182,10 +183,10 @@ int wifi_status_response(char *buf, size_t buf_size, int state, unsigned)
     {
         int32_t rssi;
         if (!cyw43_wifi_get_rssi(&cyw43_state, &rssi) && rssi != 0)
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_WIFI_RSSI,
+            oem_snprintf(buf, buf_size, STR_STATUS_WIFI_RSSI,
                               wifi_status_message(), (int)rssi);
         else
-            com_snprintf_utf8(buf, buf_size, STR_STATUS_WIFI, wifi_status_message());
+            oem_snprintf(buf, buf_size, STR_STATUS_WIFI, wifi_status_message());
     }
     break;
     case 1:
@@ -352,7 +353,7 @@ int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     if (!cyw_get_rf_enable())
     {
         if (state == 0)
-            com_snprintf_utf8(buf, buf_size, "%s\n", S(STR_RF_OFF));
+            oem_snprintf(buf, buf_size, "%s\n", S(STR_RF_OFF));
         return -1;
     }
     if (state == 0)
@@ -372,7 +373,7 @@ int wifi_scan_response(char *buf, size_t buf_size, int state, unsigned width)
     if (i >= wifi_ap_count)
     {
         if (i == 0)
-            com_snprintf_utf8(buf, buf_size, "%s\n", S(STR_WIFI_NO_NETWORKS));
+            oem_snprintf(buf, buf_size, "%s\n", S(STR_WIFI_NO_NETWORKS));
         return -1;
     }
     wifi_scan_format(i, buf, buf_size);

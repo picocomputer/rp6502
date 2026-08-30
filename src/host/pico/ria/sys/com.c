@@ -604,3 +604,20 @@ int com_printf(const char *fmt, ...)
     va_end(va);
     return n;
 }
+
+/* The longest caller is a monitor prompt; the UF2 progress line is shorter
+ * still. Sized so neither is ever the reason a message is cut. */
+#define COM_PRINTF_UTF8_SIZE 128
+
+int com_printf_utf8(const char *utf8_fmt, ...)
+{
+    char buf[COM_PRINTF_UTF8_SIZE];
+    va_list va;
+    va_start(va, utf8_fmt);
+    oem_vsnprintf(buf, sizeof(buf), utf8_fmt, va);
+    va_end(va);
+    int n = 0;
+    for (const char *p = buf; *p; p++, n++)
+        com_putchar(*p);
+    return n;
+}

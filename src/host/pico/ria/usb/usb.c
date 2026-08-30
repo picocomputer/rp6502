@@ -134,7 +134,7 @@ int usb_status_response(char *buf, size_t buf_size, int state, unsigned)
     (void)state;
     int count_gamepad = usb_count_hid_gamepad + xin_status_count();
     int count_ep_free = hcd_free_ep_count();
-    com_snprintf_utf8(buf, buf_size, STR_STATUS_USB,
+    oem_snprintf(buf, buf_size, STR_STATUS_USB,
                       usb_count_hid_keyboard, usb_count_hid_keyboard == 1 ? S(STR_KEYBOARD_SINGULAR) : S(STR_KEYBOARD_PLURAL),
                       usb_count_hid_mouse, usb_count_hid_mouse == 1 ? S(STR_MOUSE_SINGULAR) : S(STR_MOUSE_PLURAL),
                       count_gamepad, count_gamepad == 1 ? S(STR_GAMEPAD_SINGULAR) : S(STR_GAMEPAD_PLURAL),

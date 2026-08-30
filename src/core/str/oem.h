@@ -11,9 +11,20 @@
  * This affects RP6502-VGA, FatFs, and keyboards.
  */
 
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+/* Guarded the way core/com.h and the pico-sdk guard it, so whichever header
+ * arrives first wins and the other skips. */
+#ifndef __printflike
+#ifdef __GNUC__
+#define __printflike(a, b) __attribute__((__format__(__printf__, a, b)))
+#else
+#define __printflike(a, b)
+#endif
+#endif
 
 /* Main events
  */
@@ -55,6 +66,16 @@ size_t oem_from_utf8(const char *u8, char *dst, size_t dstsz);
 int oem_to_wide(const char *s, uint16_t *w, int wcount);
 size_t oem_from_wide(const uint16_t *w, char *dst, size_t dstsz);
 size_t oem_from_wide_n(const uint16_t *w, size_t wlen, char *dst, size_t dstsz);
+
+/* snprintf for UTF-8 source text destined for the code page: format, then
+ * convert. The conversion only ever contracts -- a multi-byte sequence
+ * becomes one OEM byte -- so it runs in place and needs no scratch buffer.
+ * Returns the converted length, as snprintf does. Converting in place is
+ * what rules out snprintf's measure-with-a-null-buffer idiom: dst must be
+ * a real buffer and dst_size at least one. */
+__printflike(3, 4) int oem_snprintf(char *dst, size_t dst_size,
+                                    const char *utf8_fmt, ...);
+int oem_vsnprintf(char *dst, size_t dst_size, const char *utf8_fmt, va_list va);
 
 /* This driver's row in a machine's driver list; see core/driver.h. */
 #define OEM_DRIVER DRIVER(oem_init, nul_task, nul_task, nul_run, oem_stop, nul_break)

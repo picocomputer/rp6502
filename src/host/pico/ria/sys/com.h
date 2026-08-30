@@ -40,14 +40,10 @@ bool com_telnet_set_key(const char *key);
 uint16_t com_telnet_get_port(void);
 const char *com_telnet_get_key(void);
 
-// Console TX, UTF-8 formatted. Pico only: the monitor, BLE and the
-// network status lines are the callers.
+/* Console TX for UTF-8 source text, converted to the code page on the way
+ * out. The monitor's prompts and the UF2 progress line are the callers;
+ * oem_snprintf is the same thing into a buffer. */
 __printflike(1, 2) int com_printf_utf8(const char *utf8_fmt, ...);
-int com_vprintf_utf8(const char *utf8_fmt, va_list va);
-__printflike(3, 4) int com_snprintf_utf8(char *dst, size_t dst_size,
-                                         const char *utf8_fmt, ...);
-int com_vsnprintf_utf8(char *dst, size_t dst_size,
-                       const char *utf8_fmt, va_list va);
 
 /* This machine's console row, early because everything after it may print.
  * Early is also what its stop and its break want: both walk backward, so a
