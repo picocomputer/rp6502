@@ -56,6 +56,9 @@ void fs_stop(void);
  * runtime binding across a restore is not documented; fs_rebind asks
  * rather than assuming. */
 void fs_restore(void);
+
+/* Drop a descriptor without telling the host. */
+void fs_release(int desc);
 /* The drive's own count of what went wrong since it was last asked,
  * said once rather than at every failure: a stream that fails, fails
  * every frame. Silent when nothing failed. */

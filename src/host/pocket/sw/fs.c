@@ -778,6 +778,19 @@ int fs_std_open(const char *path, uint8_t flags, api_errno *err)
     return d;
 }
 
+/* Hands a descriptor back without a word to the host. For a caller that
+ * knows the binding is worthless -- the log across a restore, whose
+ * position came out of the blob and points into the middle of the file
+ * it is trying to record. Flushing that would commit the wrong offset,
+ * and there is nothing to flush that reopening will not redo. */
+void fs_release(int desc)
+{
+    if (fs_desc(desc) < 0)
+        return;
+    fs_pool[desc].used = false;
+    fs_pool[desc].cache_len = 0;
+}
+
 /* A close flushes: there is no close command, so this is the only thing
  * that puts a write on the card. It blocks, unlike sync, because
  * std_stop discards what close returns and would drop a STD_PENDING. */

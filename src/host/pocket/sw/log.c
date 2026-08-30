@@ -89,6 +89,28 @@ void log_putc(char c)
     log_head = next;
 }
 
+/* A restore carries this descriptor's file position back with it, and
+ * that position belongs to the session the blob was taken from. Left
+ * alone, the woken machine resumes writing into the middle of the file
+ * it is trying to record: the log becomes a composite of two runs
+ * spliced at an offset neither of them chose, with whatever the two
+ * did not cover left over from whoever held those sectors before. It
+ * cost a hardware run to read one of those and believe it.
+ *
+ * So the binding is thrown away and taken again. FS_APPEND asks the
+ * host how long the file is now, which is the one number that is true
+ * for both sessions, and the record reads in order across the event
+ * that made it. The ring is kept -- what is in it has not been written
+ * yet and is the restored session's to say. */
+void log_restore(void)
+{
+    if (log_desc >= 0)
+        fs_release(log_desc);
+    log_desc = -1;
+    log_inflight = 0;
+    log_retry_at = 0;
+}
+
 void log_task(void)
 {
     /* Draining the staging store is this firmware's job and the bridge

@@ -24,6 +24,8 @@
 
 void log_init(void);
 void log_task(void);
+/* Retake the descriptor after a restore; see log.c. */
+void log_restore(void);
 /* Every console byte, from com_tx_write's fan-out. */
 void log_putc(char c);
 
@@ -34,6 +36,7 @@ void log_putc(char c);
  * either way. */
 static inline void log_init(void) {}
 static inline void log_task(void) {}
+static inline void log_restore(void) {}
 static inline void log_putc(char c) { (void)c; }
 
 #endif

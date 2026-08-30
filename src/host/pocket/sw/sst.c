@@ -146,6 +146,10 @@ void sst_task(void)
     /* The host's slot-to-path bindings are a session's, and a wake is a
      * new session. */
     fs_restore();
+    /* Before anything else writes a line: the log's own position came
+     * back with the blob and would splice this session into the middle
+     * of the last one. */
+    log_restore();
 
     /* The staging store is the board's and no blob carries it, and the
      * device has been asked: loading a memory does not restore slot 0
