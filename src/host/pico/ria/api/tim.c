@@ -11,6 +11,7 @@
 #include "core/str/str.h"
 #include "ria/sys/cfg.h"
 #include <pico/aon_timer.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -113,6 +114,19 @@ static int tim_tzinfo_index;
 int __wrap_iswspace(wint_t c)
 {
     return c == ' ' || (c >= '\t' && c <= '\r');
+}
+
+/* Eliminates a second, complete formatting engine: newlib's strftime calls
+ * sniprintf, which drags in _svfiprintf_r. Nothing we write calls it, so it
+ * forwards to the one printf this firmware already has.
+ * Enabled with -Wl,--wrap=sniprintf. */
+int __wrap_sniprintf(char *buf, size_t size, const char *fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    int n = vsnprintf(buf, size, fmt, va);
+    va_end(va);
+    return n;
 }
 
 void __in_flash("tim_init") tim_init(void)

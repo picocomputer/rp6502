@@ -4,7 +4,12 @@
 set(VGA_SRC ${RP6502_ROOT}/src/host/pico/vga)
 
 add_executable(rp6502-vga)
-target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS})
+target_compile_definitions(rp6502-vga PRIVATE ${RP6502_PROJECT_DEFINITIONS}
+    # This image formats no float at all; the pico printf carries
+    # _ftoa/_etoa unconditionally otherwise.
+    PICO_PRINTF_SUPPORT_FLOAT=0
+    PICO_PRINTF_SUPPORT_EXPONENTIAL=0
+)
 pico_add_extra_outputs(rp6502-vga)
 pico_set_program_name(rp6502-vga "RP6502-VGA")
 pico_set_binary_type(rp6502-vga copy_to_ram)

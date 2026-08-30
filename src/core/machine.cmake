@@ -184,6 +184,11 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
             # so text is the scarce thing here, not cycles.
             -msave-restore
             -Os -ffreestanding -nostartfiles
+            # Integer-only printf AND scanf. Both halves are load-bearing:
+            # the specs turns this one option into a --defsym for each, and
+            # scanf is reachable -- strftime calls tzset, which parses the
+            # TZ string with sscanf. Without the scanf defsym that resolves
+            # to the double implementation and drags in ryu float parsing.
             --specs=picolibc.specs -DPICOLIBC_INTEGER_PRINTF_SCANF
             -ffunction-sections -fdata-sections -Wl,--gc-sections -flto
             # -flto turns a missing prototype into a miscompile of

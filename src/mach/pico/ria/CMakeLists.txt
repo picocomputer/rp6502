@@ -81,10 +81,13 @@ set_target_properties(${RIA_TARGET} PROPERTIES
     INTERPROCEDURAL_OPTIMIZATION TRUE
 )
 
-# Avoid 26KB of unicode and jis we don't need
+# Avoid 26KB of unicode and jis we don't need, and the second printf engine
+# newlib's strftime would otherwise drag in through sniprintf.
 target_link_options(${RIA_TARGET} PRIVATE ${IPO_PRINTF_LINK_OPTIONS}
     -Wl,--wrap=iswspace
     -Wl,-u,__wrap_iswspace
+    -Wl,--wrap=sniprintf
+    -Wl,-u,__wrap_sniprintf
 )
 
 target_compile_options(${RIA_TARGET} PRIVATE
@@ -108,6 +111,9 @@ target_include_directories(${RIA_TARGET} PRIVATE
 )
 
 target_compile_definitions(${RIA_TARGET} PRIVATE
+    # Nothing in this firmware formats a float; sizes render with integer math.
+    PICO_PRINTF_SUPPORT_FLOAT=0
+    PICO_PRINTF_SUPPORT_EXPONENTIAL=0
     CYW43_CONFIG_FILE="${RIA_SRC}/cyw43_config.h"
     PICO_FLASH_ASSUME_CORE1_SAFE=1
     LFS_NO_ASSERT=1
