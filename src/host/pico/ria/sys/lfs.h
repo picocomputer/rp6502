@@ -37,7 +37,9 @@ void lfs_init(void);
 // Returns 1 at EOF, 0 if not, or -1 on error.
 int lfs_eof(lfs_t *lfs, lfs_file_t *file);
 
-// Print formatted characters to the file.
+/* Print formatted characters to the file. One write, so the format expands
+ * through a buffer of this size and anything longer is truncated. */
+#define LFS_PRINTF_MAX 320
 int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...);
 
 // Safe gets.

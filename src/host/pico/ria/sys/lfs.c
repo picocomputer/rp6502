@@ -7,10 +7,11 @@
 #include "core/api/api.h"
 #include "ria/mon/mon.h"
 #include "ria/sys/lfs.h"
-#include <pico/printf.h>
+
+#include <stdarg.h>
+#include <stdio.h>
 
 #if defined(DEBUG_SYS) || defined(DEBUG_SYS_LFS)
-#include <stdio.h>
 #define DBG(...) printf(__VA_ARGS__)
 #else
 static inline void DBG(const char *fmt, ...) { (void)fmt; }
@@ -111,38 +112,22 @@ int lfs_eof(lfs_t *lfs, lfs_file_t *file)
     return pos >= size;
 }
 
-struct lfs_printf_ctx
-{
-    lfs_t *lfs;
-    lfs_file_t *file;
-    int error;
-};
-
-static void lfs_printf_cb(char character, void *arg)
-{
-    struct lfs_printf_ctx *ctx = arg;
-    if (ctx->error < 0)
-        return;
-    lfs_ssize_t r = lfs_file_write(ctx->lfs, ctx->file, &character, 1);
-    if (r < 0)
-        ctx->error = r;
-}
-
 // Returns number of characters written or a lfs_error.
 int lfs_printf(lfs_t *lfs, lfs_file_t *file, const char *format, ...)
 {
+    char buf[LFS_PRINTF_MAX];
     va_list va;
     va_start(va, format);
-    struct lfs_printf_ctx ctx = {
-        .lfs = lfs,
-        .file = file,
-        .error = 0};
-    // vfctprintf is Marco Paland's "Tiny printf" from the Pi Pico SDK
-    int result = vfctprintf(lfs_printf_cb, &ctx, format, va);
+    int len = vsnprintf(buf, sizeof(buf), format, va);
     va_end(va);
-    if (ctx.error < 0)
-        return ctx.error;
-    return result;
+    if (len < 0)
+        return len;
+    if (len > (int)sizeof(buf) - 1)
+        len = (int)sizeof(buf) - 1;
+    lfs_ssize_t r = lfs_file_write(lfs, file, buf, (lfs_size_t)len);
+    if (r < 0)
+        return (int)r;
+    return len;
 }
 
 char *lfs_gets(char *str, size_t n, lfs_t *lfs, lfs_file_t *file, int *err)
