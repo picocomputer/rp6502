@@ -42,6 +42,7 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
     long frames = 0;
     bool moved = false;
     bool ran = false;
+    int quiet_frames = 0;
     /* An image waiting in the staging window; the firmware clears the
      * length when it is done with it, run or refused. */
     bool had_image = dut->rootp->rp6502__DOT__rv__DOT__mmio_slot_len != 0;
@@ -66,8 +67,18 @@ static bool tb_quiet(Dut *dut, Cycle cycle, long frame_limit = 20)
         frames++;
         bool stopped = dut->rootp->rp6502__DOT__w65c02__DOT__stop_flag != 0
             || !dut->rootp->rp6502__DOT__resb;
+        /* Two frames, not one. A firmware that is still working through
+         * a boot is silent while it does it, and one quiet frame edge
+         * can land inside that silence -- before the 6502 has been
+         * released -- which reads as a machine that refused its image.
+         * Whether it did is exactly what the caller is asking. */
         if (!pending && (ran || had_image) && stopped && !moved)
-            return true;
+        {
+            if (++quiet_frames >= 2)
+                return true;
+        }
+        else
+            quiet_frames = 0;
         moved = false;
     }
     return false;

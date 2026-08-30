@@ -40,6 +40,35 @@ foreach(dir top_level channels operator timers host_if misc clks)
     list(APPEND OPL2_SOURCES ${_opl_dir_src})
 endforeach()
 
+# A diagnostic build with no sound in it.
+#
+# The Pocket fit sits at 83% of the device and closes its worst path --
+# in ria_regs' console FIFO -- on where the fitter happened to put
+# things. Two unrelated four-line edits to pocket_file.sv both came back
+# failing setup on that path, which neither of them touches. While that
+# is true a diagnostic bitstream cannot be built at all, and a failed fit
+# says nothing about the change that provoked it.
+#
+# The OPL2 is the largest thing in the machine and bears on none of the
+# questions such a bitstream is built to ask, so this swaps it and the
+# other two engines for silent stand-ins with the same ports. It is a
+# measuring instrument, not a configuration: nothing ships with it.
+option(RP6502_AUD_STUB "Silent audio engines, to free the fitter's hands" OFF)
+if(RP6502_AUD_STUB)
+    set(OPL2_SOURCES)
+    set(AUD_SOURCES
+        ${RP6502_SRC}/core/aud/stub/aud_psg.sv
+        ${RP6502_SRC}/core/aud/stub/aud_opl.sv
+        ${RP6502_SRC}/core/aud/stub/aud_rsmp.sv)
+else()
+    set(AUD_SOURCES
+        ${AUD_SINE_PKG}
+        ${RP6502_SRC}/core/aud/aud_psg.sv
+        ${RP6502_SRC}/core/aud/aud_opl.sv
+        ${RSMP_COEF_PKG}
+        ${RP6502_SRC}/core/aud/aud_rsmp.sv)
+endif()
+
 set(RP6502_MACHINE_SOURCES
     ${RP6502_VENDOR}/hazard3_rp6502/hazard3_regfile_1w2r.v
     ${OPL2_SOURCES}
@@ -53,11 +82,7 @@ set(RP6502_MACHINE_SOURCES
     ${RP6502_SRC}/core/ria/ria_regs.sv
     ${RP6502_SRC}/core/rv/rv_soc.sv
     ${RP6502_SRC}/core/vga/vid_timing.sv
-    ${AUD_SINE_PKG}
-    ${RP6502_SRC}/core/aud/aud_psg.sv
-    ${RP6502_SRC}/core/aud/aud_opl.sv
-    ${RSMP_COEF_PKG}
-    ${RP6502_SRC}/core/aud/aud_rsmp.sv
+    ${AUD_SOURCES}
     ${VID_PALETTE_PKG}
     ${RP6502_SRC}/core/vga/vid_font.sv
     ${RP6502_SRC}/core/vga/vid_palram.sv
@@ -123,6 +148,7 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
         ${RP6502_SRC}/core/com/com.c ${SW_SRC}/com.c ${SW_SRC}/cpu.c ${SW_SRC}/font.c ${SW_SRC}/hid.c
         ${SW_SRC}/log.c ${SW_SRC}/mem.c
         ${SW_SRC}/dir.c ${SW_SRC}/fs.c
+        ${SW_SRC}/probe.c
         ${SW_SRC}/proc.c ${SW_SRC}/rand.c ${SW_SRC}/rom.c ${SW_SRC}/time.c
         ${SW_SRC}/trap.c ${SW_SRC}/tty.c ${SW_SRC}/unicode.c ${SW_SRC}/vga.c ${SW_SRC}/vid.c
         ${RP6502_SRC}/core/aud/bel_presets.c
@@ -173,6 +199,13 @@ if(RISCV_GCC AND RISCV_OBJCOPY)
     set(SW_LOG_DEFINE "")
     if(RP6502_LOG_FILE)
         set(SW_LOG_DEFINE -DRP6502_LOG_FILE)
+    endif()
+    # The host-behaviour probe, for the test package only. Its readings are
+    # bridge round trips, which is the one thing the drive and the staging
+    # store both need, so a shipping build carries none of it.
+    option(RP6502_POCKET_PROBE "Soft CPU asks the host what it really does" OFF)
+    if(RP6502_POCKET_PROBE)
+        list(APPEND SW_LOG_DEFINE -DRP6502_POCKET_PROBE)
     endif()
     add_custom_command(OUTPUT ${SW_BIN}
         COMMAND ${RISCV_GCC} -march=rv32imac_zicsr_zifencei -mabi=ilp32

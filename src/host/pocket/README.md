@@ -236,7 +236,7 @@ The 6502 continues from the exact cycle the blob froze it in.
   activity can still lose the program — holding the freeze off during
   single commands was tried and made it worse (it moves the cut into
   the gap between two commands of one operation); a hold spanning
-  whole operations is firmware work in `msc.c`, still open.
+  whole operations is firmware work in `fs.c`, still open.
 
   The split to keep straight is that a sleep cuts the power to the
   core and not to the card. The files are where they were. What
@@ -585,16 +585,23 @@ your code works:
 - The two integers in Open File's parameter struct are read as bridge
   words while the path lying next to them in the same struct is read as
   a byte stream. Get that wrong and every flag you send is zero.
-- The create bit on its own creates nothing. Resize is what makes the
-  file. Nowhere.
-- Creating into a folder that does not exist returns a **descriptor** —
-  the success code — and writes nothing. Nothing in the API creates a
-  folder either. So the documented way to make a file silently does not.
+- The create bit on its own creates nothing, and says it did. Asked to
+  create a file that is not there it answers 1, "created", and afterwards
+  the file is still not there. Resize alone is no better: it answers 3,
+  "not found", and makes nothing. Only the two bits together make a
+  file. Measured on OS 2.6 across four phases of one session, on names
+  carrying the boot's wall clock so each run started from nothing.
+- Creating into a folder that does not exist answers 1, "created", and
+  writes nothing. Nothing in the API creates a folder either. So the
+  documented way to make a file silently does not.
 - There is a flush command, 0x0188, in the reference. Analogue's own
   reference core does not implement it and the console does not answer
-  it. Issue one through the stock bridge and it never retires; every
-  data slot command after it queues forever. One call killed the drive
-  for the session until the override grew its own deadline. Not a word.
+  it — no response line appears against one, ever. What was written here
+  before, that a single call kills the drive for the session, is not
+  what this device does: a session issued 4391 of them and every read,
+  write, open and Get File afterwards completed normally. They cost a
+  round trip each and buy nothing. Whatever the older behaviour was, do
+  not plan against it.
 - The controller page packs a word's bytes most significant first — its
   own table puts the keyboard's first scan code in `joy[31:24]` — and
   then calls three fields "little endian byte order" without saying
@@ -635,6 +642,56 @@ spent a long time asserting that a part number was something we were
 never going to get, and the SDRAM controller was written against padded
 guesses on that basis while a 256 KB SRAM sat tied off in `core_top.sv`
 because nobody had read the page. That was our failure, not theirs.
+
+### What the fabric can and cannot tell you about an answer
+
+Get File has no result code for a slot that is defined and bound to
+nothing, which is every one of the eight file slots until a program
+opens one. It answers 0 either way. So the drive needs some other way to
+tell a name from silence, and `pocket_file` grew a bit for it:
+`FILE_ST_WROTE`, raised when the host writes into the response window
+while a Get File is outstanding.
+
+**It cannot answer that question, and it never could.** The host writes
+the whole 256-byte struct every time, blanked past the name — asked for
+a bound slot the window holds its path, asked for an unbound slot
+immediately after it comes back empty, and the emptiness is the host's
+doing rather than memory that happened to start zeroed. The bit is
+therefore 1 in both cases. What tells them apart is the window's own
+contents, which is what `fs_getfile` reads.
+
+The bit was also broken for most of its life, in a way worth recording
+because it took a hardware probe to see. `F_ARM` is a spin — it holds
+until the previous command's `target_dataslot_done` falls, and
+`core_bridge_cmd.v` holds that high "until next command is issued" —
+and it re-latched `gf_pend` every pass from a request line it had
+cleared in its own first cycle. So the arming lasted one `clk_74a`
+cycle, microseconds before the host writes anything. The single
+exception is the first command after power-on, where `done` is 0 out of
+reset: `F_ARM` runs once, falls straight through, and the flag stands.
+On the device that read as a bit that fired once per power-on and was
+dead for the other sixty-odd asks of a session. It is armed with the
+request now, in `F_START`.
+
+Two things that were believed about this and are not true. The host
+cannot outrun the fabric: every bridge write is a separate SPI
+transaction with its address re-clocked, and Analogue's own
+`io_bridge_peripheral.v` puts the worst case at "every 88 cycles @
+74.25mhz / which is about 1180ns" — sixty `clk_sys` cycles apart, so
+nothing here can alias. And `resp_hit` had no address compare by
+design, which was wrong: APF acknowledges every command by writing
+'bu' and 'ok' to `target_0` up in 0xF8xxxxxx, and those are bridge
+writes too, so the bit could be set by the conversation rather than the
+answer. It is filtered to the staging store now.
+
+### Bindings across a wake
+
+A binding made at runtime with 0x0192 **survives a sleep and wake**.
+Measured: slot 8 opened in one phase still named its file after two
+wakes, each of which is a full core relaunch. This is the question
+`fs_still_bound` exists to ask and that the documentation does not
+answer. It is worth asking anyway — the answer is the host's to change
+— but the deferred rebind normally finds its slots intact.
 
 ## Reading the console
 

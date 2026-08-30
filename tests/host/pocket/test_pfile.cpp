@@ -373,6 +373,12 @@ static void do_flush()
  * NUL-terminated name at offset 0 is what Open File's parameter struct
  * carries and what the firmware reads back; the real host is what
  * settles whether that is right. */
+/* Every Get File the firmware asks for, and whether the fabric noticed
+ * the answer. The bit is set while the command is still outstanding, so
+ * it is read after the completion this function hands back. */
+static int g_getfile_seen;
+static int g_getfile_wrote;
+
 static void do_getfile()
 {
     dut->target_dataslot_done = 0;
@@ -385,6 +391,13 @@ static void do_getfile()
         resp[i] = (uint8_t)name[i];
     host_put_bytes(at, resp.data(), resp.size());
     target_done();
+    /* The flag rides the completion handshake into clk_sys, so it is not
+     * there the instant done goes back up. */
+    for (int k = 0; k < 64; k++)
+        a_edge();
+    g_getfile_seen++;
+    if (dut->rootp->tb_pocket__DOT__core__DOT__file__DOT__wrote_flag)
+        g_getfile_wrote++;
 }
 
 /* One clk_sys step with the host watching for a command. The request
@@ -636,5 +649,79 @@ UTEST(pfile, a_card_without_the_drives_folder_fails_promptly)
         if (it->first != g_bound[0])
             made++;
     ASSERT_EQ(made, (size_t)0);
+    teardown();
+}
+
+/* The name the host gave us, read back by the program it names.
+ *
+ * argv[0] on this machine has one source: Get File on the ROM slot. The
+ * host answers with a 256-byte struct written into the response window
+ * -- every time, blanked to a leading NUL when a slot is bound to
+ * nothing, which is what tells a bound slot from an empty one. The
+ * firmware used to ask the fabric whether any write had landed instead
+ * of reading what the window said, and on hardware that flag stayed
+ * clear while the right path sat in the window: nine calls in ten
+ * discarded, argv empty, and a wake unable to recognise the ROM it was
+ * already running.
+ *
+ * Empty brackets are that bug. The path is the fix. */
+UTEST(pfile, the_program_is_told_what_it_is_called)
+{
+    std::vector<uint8_t> rom = read_file(ARGV_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    boot(rom, false);
+
+    for (long i = 0; i < 60000000L && g_console.find("]") == std::string::npos;
+         i++)
+        step();
+
+    if (g_console.find(".rp6502") == std::string::npos)
+        fprintf(stderr, "console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find(".rp6502") != std::string::npos);
+    /* And it is the slot's own name, not a leftover from an earlier ask. */
+    ASSERT_TRUE(g_console.find(g_bound[0]) != std::string::npos);
+    teardown();
+}
+
+/* A Get File the host answers must be seen to have been answered.
+ *
+ * The fabric raises a bit when the host writes into the response window
+ * while a Get File is outstanding, and the firmware once refused any
+ * answer that arrived without it. On hardware that bit fired on the
+ * first Get File after power-on and on none of the ninety that
+ * followed: gf_pend was armed a state late, in F_ARM, which is a spin
+ * that holds until the previous command's done falls and which
+ * re-latched the arming from a request line it had cleared in its own
+ * first cycle. Only the very first command escaped, done being 0 out of
+ * reset -- so every later ask went unattributed and every name the host
+ * gave was thrown away.
+ *
+ * Be clear about what this case does and does not do. It proves the bit
+ * is raised for a Get File that was answered, which is a total-failure
+ * net. It does NOT reproduce the one-shot, because provoking a second
+ * Get File needs the firmware to stage twice and this harness has no
+ * reload: dropping and re-settling dataslot_allcomplete here does not
+ * bring main_stage back round, and test_pocket.cpp is the bench that
+ * owns that sequence. Moving this there, or teaching this one to
+ * reload, is what would close it. */
+UTEST(pfile, every_get_file_is_seen_to_be_answered)
+{
+    std::vector<uint8_t> rom = read_file(ARGV_ROM);
+    ASSERT_GT(rom.size(), 0u);
+    g_getfile_seen = 0;
+    g_getfile_wrote = 0;
+    boot(rom, false);
+
+    for (long i = 0; i < 30000000L && g_getfile_seen < 1; i++)
+        step();
+
+
+    /* Two is the whole point: one proves nothing, since one is what the
+     * broken fabric managed. */
+    if (g_getfile_wrote != g_getfile_seen)
+        fprintf(stderr, "seen=%d wrote=%d console=[%s]\n", g_getfile_seen,
+                g_getfile_wrote, g_console.c_str());
+    ASSERT_GE(g_getfile_seen, 1);
+    ASSERT_EQ(g_getfile_wrote, g_getfile_seen);
     teardown();
 }

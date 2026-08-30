@@ -115,16 +115,25 @@ module pocket_file #(
      * store is the bridge's to write and cannot be blanked from this
      * side, so the only way to tell is to watch for the write.
      *
-     * Same shape as pocket_sst's blob_seen. The bridge's clock owns the
-     * toggle, the register file's clock catches its edge, and the write
-     * that starts the next command clears it, where tmo_flag is. */
+     * It is a level, sampled with the rest of the answer on ret_t's
+     * handshake -- the one crossing this module has already proved, and
+     * the one err_q, tmo_q and result_q ride.
+     *
+     * It was a toggle once, flipped per write, with the register file's
+     * clock watching for an edge -- which was never the problem, though
+     * it looked like one: APF writes a word at a time and Analogue's own
+     * io_bridge_peripheral.v puts the worst case at "every 88 cycles @
+     * 74.25mhz / which is about 1180ns", roughly sixty clk_sys cycles
+     * apart, because every word is a separate SPI transaction with its
+     * address re-clocked. Nothing there can outrun a 50.4 MHz sampler.
+     * The bit was dead for the reason recorded at F_START, and a level
+     * on the handshake is simply the honest way to carry it. */
     logic resp_hit, gf_pend;
-    logic wrote_t, wrote_flag;
-    /* Three deep and preserved, the same as ret_t's chain below and
-     * go_t's above -- which is not decoration: at two the Design
-     * Assistant counts this crossing under D101 and at three it does
-     * not, and those two are the module's own precedent. */
-    (* preserve *) logic wrote_t1, wrote_t2, wrote_t3;
+    logic wrote_q;
+    /* Watched by tests/host/pocket: the bit is the firmware's only
+     * evidence that a Get File was answered, and it went a whole
+     * hardware session firing once. Nothing looked at it here. */
+    logic wrote_flag /*verilator public_flat_rd*/;
     /* Preserved: two flops in series with nothing between them are
      * equivalent, and without a reset to tell them apart the fitter
      * merges them and the crossing loses its synchroniser. */
@@ -142,9 +151,6 @@ module pocket_file #(
         pocket_file_length = '0;
         pocket_file_bridgeaddr = '0;
         r_op = '0;
-        wrote_t1 = 1'b0;
-        wrote_t2 = 1'b0;
-        wrote_t3 = 1'b0;
         wrote_flag = 1'b0;
         go_t = 1'b0;
         busy = 1'b0;
@@ -175,16 +181,12 @@ module pocket_file #(
         ret_t1 <= ret_t;
         ret_t2 <= ret_t1;
         ret_t3 <= ret_t2;
-        wrote_t1 <= wrote_t;
-        wrote_t2 <= wrote_t1;
-        wrote_t3 <= wrote_t2;
-        if (wrote_t2 != wrote_t3)
-            wrote_flag <= 1'b1;
         if (ret_t2 != ret_t3) begin
             busy <= 1'b0;
             r_err <= err_q;
             tmo_flag <= tmo_q;
             r_result <= result_q;
+            wrote_flag <= wrote_q;
         end
         if (reg_we)
             case (addr[4:2])
@@ -229,19 +231,21 @@ module pocket_file #(
         pocket_file_resp_struct  = pocket_file_bridgeaddr;
     end
 
-    /* Any bridge write while a Get File is outstanding is the host
-     * answering it. Deliberately not an address compare: the response
-     * struct's address is a clk_sys register, and reading it here would
-     * put a new unsynchronised crossing into the design for something
-     * gf_pend already says. */
-    always_comb resp_hit = bridge_wr && gf_pend;
-    initial wrote_t = 1'b0;
-    always_ff @(posedge clk_74a or negedge arst_n) begin
-        if (!arst_n)
-            wrote_t <= 1'b0;
-        else if (resp_hit)
-            wrote_t <= !wrote_t;
-    end
+    /* A bridge write into the staging store while a Get File is
+     * outstanding is the host answering it.
+     *
+     * The nibble is not the response struct's own address -- that is a
+     * clk_sys register and reading it here would add an unsynchronised
+     * crossing -- but it is enough to tell the answer from the
+     * conversation about it. APF's three-stage mailbox acknowledges
+     * every command by writing 'bu' and 'ok' to target_0 up in
+     * 0xF8xxxxxx, and those are bridge writes too: without this, a
+     * command that returned no filename at all would still have set the
+     * flag, off the back of its own acknowledgement. The bit would have
+     * been answering the wrong question even on the one command where
+     * it still worked. */
+    always_comb resp_hit = bridge_wr && gf_pend
+        && bridge_addr[31:28] == 4'h0;
 
     logic [3:0] fstate;
     (* preserve *) logic go_t1, go_t2, go_t3;
@@ -251,6 +255,7 @@ module pocket_file #(
         if (!arst_n) begin
             fstate <= F_IDLE;
             gf_pend <= 1'b0;
+            wrote_q <= 1'b0;
             go_t1 <= 1'b0;
             go_t2 <= 1'b0;
             go_t3 <= 1'b0;
@@ -271,23 +276,37 @@ module pocket_file #(
             go_t2 <= go_t1;
             go_t3 <= go_t2;
             tmo   <= tmo + 1'b1;
+            /* Before the case, so a command starting in the same clock
+             * as a stray write clears rather than keeps it. */
+            if (resp_hit)
+                wrote_q <= 1'b1;
             if (fstate == F_IDLE)
                 gf_pend <= 1'b0;
             case (fstate)
                 F_START: begin
+                    wrote_q <= 1'b0;
                     pocket_file_read <= r_op == OP_READ;
                     pocket_file_write <= r_op == OP_WRITE;
                     pocket_file_openfile <= r_op == OP_OPEN;
                     pocket_file_getfile <= r_op == OP_GETFILE;
                     pocket_file_flush <= r_op == OP_FLUSH;
+                    /* Armed with the request rather than a state after
+                     * it. F_ARM is a spin -- it holds until done falls --
+                     * and it used to re-latch this from a request line it
+                     * had cleared in its own first cycle, so on every
+                     * command but one gf_pend went back down a cycle
+                     * later, microseconds before the host wrote anything.
+                     * The exception was the first command after power-on,
+                     * where done is still 0 from reset, F_ARM runs once
+                     * and falls straight through with the flag standing.
+                     * That is the whole of "the bit fires once per
+                     * power-on and never again". */
+                    gf_pend <= r_op == OP_GETFILE;
                     fstate <= F_ARM;
                 end
                 /* done is held high between commands, so the fall proves
                  * this one was taken and the rise is the answer. */
                 F_ARM: begin
-                    /* The old value: this is the clock that clears it,
-                     * and the flag has to outlive it. */
-                    gf_pend <= pocket_file_getfile;
                     pocket_file_read <= 1'b0;
                     pocket_file_write <= 1'b0;
                     pocket_file_openfile <= 1'b0;

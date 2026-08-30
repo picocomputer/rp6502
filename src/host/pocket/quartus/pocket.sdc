@@ -293,3 +293,14 @@ set_max_delay -from [get_registers {*pocket_file*|result_q[*]}] \
     -to [get_registers {*pocket_file*|r_result[*]}] 13.468
 set_min_delay -from [get_registers {*pocket_file*|result_q[*]}] \
     -to [get_registers {*pocket_file*|r_result[*]}] 0
+# Whether the host wrote into the response window rides the same
+# handshake as the three above and needs the same pair of lines. Adding
+# the flop without adding these cost three fits: the crossing is timed
+# as an ordinary path, misses by about five nanoseconds, and the failure
+# names a register in this module while the report's first entry is an
+# unrelated hold path -- which is exactly how it gets read as congestion
+# somewhere else. A new field in the answer needs a new line here.
+set_max_delay -from [get_registers {*pocket_file*|wrote_q}] \
+    -to [get_registers {*pocket_file*|wrote_flag}] 13.468
+set_min_delay -from [get_registers {*pocket_file*|wrote_q}] \
+    -to [get_registers {*pocket_file*|wrote_flag}] 0

@@ -118,6 +118,7 @@ if(RP6502_SOFT_CPU)
         TOP tb_pocket
         RTL ${POCKET_STACK}
         DEFS FILE_ROM="${FILE_ROM}" FSTEST_ROM="${FSTEST_ROM}"
-        DEPENDS file_rom fstest_rom
+            ARGV_ROM="${ARGV_ROM}"
+        DEPENDS file_rom fstest_rom argv_rom
         TIMEOUT 1200)
 endif()

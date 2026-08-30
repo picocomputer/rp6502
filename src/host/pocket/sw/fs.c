@@ -245,21 +245,38 @@ bool fs_slot_len(uint32_t slot, uint32_t *len)
  * name at offset 0, where Open File's parameter struct carries one. */
 bool fs_getfile(uint32_t slot, char *out, size_t cap)
 {
+    /* Cleared first: a refusal must not leave the caller holding the
+     * previous ask's answer. proc_restage keeps its name in a static,
+     * and a Get File that failed would otherwise stage the program
+     * before it. */
+    if (cap)
+        out[0] = 0;
     FILE_ID = slot;
     FILE_BRIDGE = GETFILE_BRIDGE;
     uint32_t st = fs_command(FILE_OP_GETFILE);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
-    /* An answer of ok with nothing written is legal -- Get File has no
-     * result code for a slot that is defined but has nothing bound --
-     * and the window is a read-only view of the staging store, so it
-     * cannot be blanked beforehand to tell the difference. The fabric
-     * watches for the write instead. Without this the caller is handed
-     * the previous Get File's name for a slot that has none, which
-     * fs_still_bound would read as a binding that was kept. */
-    if (!(st & FILE_ST_WROTE))
-        return false;
 
+    /* The window is the answer, and it says on its own whether there is
+     * one. Get File has no result code for a slot that is defined but
+     * bound to nothing, so this used to ask the fabric whether the host
+     * had written anything -- on the belief that a host with nothing to
+     * say writes nothing, leaving the previous ask's name in place.
+     *
+     * The device says otherwise. It writes the whole 256-byte struct
+     * every time, NUL at offset 0 when the slot is bound to nothing:
+     * measured on hardware, nine unbound slots in a row answering
+     * win[0]=(empty) while the bound one answered with its full path.
+     * The host blanks the window itself, so there is nothing to tell
+     * apart and nothing to watch for.
+     *
+     * Watching for it was worse than unnecessary. The flag is armed a
+     * state after the request goes out, and a host that answers inside
+     * that window is not counted -- so the same call that returned the
+     * right name in the window reported wrote=0 nine times out of ten,
+     * and every one of those names was thrown away here. That is what
+     * made a wake restage the ROM it was already running: the compare
+     * in fs_restore could never match a name it was never given. */
     char utf8[FS_NAME_MAX];
     size_t n = 0;
     while (n < FS_NAME_MAX - 1 && GETFILE_WIN[n])

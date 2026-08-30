@@ -122,7 +122,26 @@ R101 2
 #       the same packing sensitivity D102 records below, which reached
 #       this rule for the first time and cost a build to learn. Read the
 #       list before moving this line in either direction.
-D101 716
+#
+#       717 since the file bridge started saying whether the host wrote
+#       into its response window. Named in the report as structure 558,
+#       pocket_file's wrote_q -- read from the list, which is what this
+#       entry says to do. It is the fourth field of an answer whose
+#       other three are already counted above: written on clk_74a while
+#       the command is outstanding, then sampled on the far side only
+#       when ret_t's toggle has come through three flops, and bounded in
+#       the SDC by the same max_delay as err_q, tmo_q and result_q.
+#
+#       It rose because the bit stopped lying rather than because
+#       anything got less safe. It used to cross as a toggle with its
+#       own three-flop chain, which the tool credits and this rule
+#       therefore never counted -- and which did not work: the arming it
+#       depended on lasted one clk_74a cycle on every command but the
+#       first after reset, so on hardware the bit fired once per
+#       power-on and was dead for the other ninety asks of a session. A
+#       crossing the tool is happy with and the device is not is worth
+#       one line here.
+D101 717
 #
 # D102  Multi-bit crossings that are synchronised but may land
 #       misaligned. pocket_fifo's gray pointers, where one bit changes
