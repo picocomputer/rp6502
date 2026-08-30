@@ -84,6 +84,21 @@ bool sst_pending(void)
 void sst_task(void)
 {
     uint32_t ctl = SST_CTL;
+    /* Every change, not only the restores. A sleep that never reaches
+     * the restore below leaves no other trace this side: the host's own
+     * log stops at the sleep and picks up after it, so whether a blob
+     * was ever put into this machine is a question only the card file
+     * can answer. Silent in an off build, where LOG_SAY is nothing. */
+    static uint32_t ctl_said = ~0u;
+    if (ctl != ctl_said)
+    {
+        ctl_said = ctl;
+        LOG_SAY("sst: ctl=%02x seen=%u restored=%u err=%u under=%u\n",
+                (unsigned)(ctl & 0xFFu), (unsigned)!!(ctl & SST_BLOB_SEEN),
+                (unsigned)!!(ctl & SST_RESTORED),
+                (unsigned)!!(ctl & SST_RESTORE_ERR),
+                (unsigned)!!(ctl & SST_UNDERRUN));
+    }
     if (!(ctl & SST_RESTORED))
         return;
     /* Before anything downstream can fail, so a log that reaches here
