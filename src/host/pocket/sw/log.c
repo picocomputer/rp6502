@@ -57,7 +57,6 @@ static uint16_t log_head, log_tail;
 static uint32_t log_dropped;
 static int log_desc;
 static uint32_t log_inflight;
-static bool log_syncing;
 static host_deadline_t log_retry_at;
 
 void log_init(void)
@@ -67,8 +66,12 @@ void log_init(void)
     log_dropped = 0;
     log_desc = -1;
     log_inflight = 0;
-    log_syncing = false;
     log_retry_at = 0;
+}
+
+static uint16_t log_room(void)
+{
+    return (uint16_t)((log_tail - log_head - 1) & LOG_RING_MASK);
 }
 
 /* Dropped rather than overwritten: the bytes ahead of the head may be
@@ -107,20 +110,15 @@ void log_task(void)
 
     api_errno err = API_EIO;
 
-    if (log_syncing)
+    /* Said as soon as the ring has room, not once it is empty: a
+     * console the 6502 is flooding never empties, so that version was
+     * silent through exactly the runs that dropped the most -- and a
+     * log with unmarked gaps is worse than one that admits them. */
+    if (log_dropped && log_room() > LOG_CHUNK)
     {
-        if (fs_std_sync(log_desc, &err) == STD_PENDING)
-            return;
-        log_syncing = false;
-        /* Said after the flush that carried the lines it counts, so the
-         * number is never ahead of the gap it describes. */
-        if (log_dropped)
-        {
-            uint32_t n = log_dropped;
-            log_dropped = 0;
-            com_printf("log: dropped %u\n", (unsigned)n);
-        }
-        return;
+        uint32_t n = log_dropped;
+        log_dropped = 0;
+        com_printf("log: dropped %u\n", (unsigned)n);
     }
 
     if (log_head == log_tail)
@@ -170,10 +168,12 @@ void log_task(void)
         log_retry_at = host_deadline_ms(1000);
         return;
     }
-    /* Only at the end of what there was: a sync per chunk would put a
-     * flush command on the bridge for every window. */
-    if (log_head == log_tail)
-        log_syncing = true;
+    /* No sync. It was here, once the ring had emptied, on the belief
+     * that a flush is what makes a write durable. 0x0188 draws no
+     * response line from that console, ever, so it commits nothing, and
+     * asking anyway cost 4391 commands against 16 writes in one
+     * measured session. A write is durable when the host says it took
+     * it. */
 }
 
 #endif /* RP6502_LOG_FILE */
