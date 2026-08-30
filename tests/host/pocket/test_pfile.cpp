@@ -218,12 +218,34 @@ static void dt_set(uint32_t slot, uint32_t size)
 
 /* --- Target commands --- */
 
-static void target_done()
+/* The real host takes milliseconds to answer: the bridge moves one word
+ * per ~1180ns and the card behind it costs more than the transfer. A
+ * handler that answers within its own few cycles is a host the firmware
+ * never has to share the machine with, and against it every driver bug
+ * that needs a second worker running while a command is outstanding is
+ * invisible. This is a tenth of a millisecond -- short for a card, and
+ * long enough that the main loop goes round many times inside one
+ * command. */
+static long g_host_delay = 5000;
+
+static void host_wait(long n)
 {
+    while (n-- > 0)
+        tick();
+}
+
+static void target_answer(int err)
+{
+    host_wait(g_host_delay);
     dut->target_dataslot_done = 1;
-    dut->target_dataslot_err = 0;
+    dut->target_dataslot_err = err;
     for (int k = 0; k < 4; k++)
         a_edge();
+}
+
+static void target_done()
+{
+    target_answer(0);
 }
 
 static void do_openfile()
@@ -240,10 +262,7 @@ static void do_openfile()
     if (name.empty() || name[0] != '/')
     {
         g_opens++;
-        dut->target_dataslot_done = 1;
-        dut->target_dataslot_err = 4; /* malformed path */
-        for (int k = 0; k < 4; k++)
-            a_edge();
+        target_answer(4); /* malformed path */
         return;
     }
     std::string key = name;
@@ -276,10 +295,7 @@ static void do_openfile()
     {
         if (!(flags & 1))
         {
-            dut->target_dataslot_done = 1;
-            dut->target_dataslot_err = 3; /* file not found */
-            for (int k = 0; k < 4; k++)
-                a_edge();
+            target_answer(3); /* file not found */
             return;
         }
         /* Create takes both bits. Bit 0 on its own is answered with a
@@ -291,10 +307,7 @@ static void do_openfile()
          * the hollow answer the firmware's conjure exists for. */
         if (!(flags & 2) || !g_dirs.count(parent))
         {
-            dut->target_dataslot_done = 1;
-            dut->target_dataslot_err = 1; /* created and opened, it says */
-            for (int k = 0; k < 4; k++)
-                a_edge();
+            target_answer(1); /* created and opened, it says */
             return;
         }
         it = g_files.emplace(key, std::vector<uint8_t>()).first;
@@ -306,10 +319,7 @@ static void do_openfile()
     dt_set(slot, (uint32_t)it->second.size());
     /* 0 opened, 1 created and opened; the host tells them apart and only
      * 2 and up are failures. */
-    dut->target_dataslot_done = 1;
-    dut->target_dataslot_err = created ? 1 : 0;
-    for (int k = 0; k < 4; k++)
-        a_edge();
+    target_answer(created ? 1 : 0);
 }
 
 static void do_slotread()
@@ -723,5 +733,44 @@ UTEST(pfile, every_get_file_is_seen_to_be_answered)
                 g_getfile_wrote, g_console.c_str());
     ASSERT_GE(g_getfile_seen, 1);
     ASSERT_EQ(g_getfile_wrote, g_getfile_seen);
+    teardown();
+}
+
+/* A program reading its file while something else uses the drive.
+ *
+ * The fabric carries one command and answers it in one register, and
+ * for most of this suite the 6502 is the only thing asking — it is
+ * parked in a syscall, so its operation is the only one in flight and
+ * a poll can only ever find its own answer. RP6502_LOG_FILE puts a
+ * second writer in the same main loop and that stops being true: a
+ * read that retires the log's write copies out of a window the write
+ * never filled, and the program is handed bytes belonging to no file
+ * it opened.
+ *
+ * The ROM checks its own reads, so this only has to run it and listen.
+ * Both builds run it — off, it is the same read path with nothing to
+ * collide with, which is the control. */
+UTEST(pfile, a_read_is_not_answered_by_someone_elses_command)
+{
+    std::vector<uint8_t> rom = read_file(SLEEPFILE_ROM);
+    boot(rom, false);
+    /* Whole units of the pattern the ROM expects, which it re-reads
+     * from the top forever. */
+    std::vector<uint8_t> dat;
+    for (int u = 0; u < 64; u++)
+        for (const char *c = "0123456789ABCDEF"; *c; c++)
+            dat.push_back((uint8_t)*c);
+    g_files["/Saves/rp6502/common/probe.dat"] = dat;
+
+    for (long i = 0; i < 40000000L && g_console.size() < 4000; i++)
+        step();
+
+    if (g_console.find("CROOKED") != std::string::npos
+        || g_console.find("FAILED") != std::string::npos
+        || g_console.find("counting") == std::string::npos)
+        fprintf(stderr, "console: [%s]\n", g_console.c_str());
+    ASSERT_TRUE(g_console.find("counting") != std::string::npos);
+    ASSERT_TRUE(g_console.find("CROOKED") == std::string::npos);
+    ASSERT_TRUE(g_console.find("FAILED") == std::string::npos);
     teardown();
 }

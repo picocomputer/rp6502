@@ -80,21 +80,84 @@ static struct
     char name[FS_NAME_MAX];
 } fs_pool[FS_OPEN_MAX];
 
+/* The fabric carries one command and answers it in one register, so
+ * which worker issued it has to be written down. The 6502 is parked in
+ * a single syscall and only one of its operations is ever in flight --
+ * but the console's own writer is not the 6502 and runs in the same
+ * pass. A worker that retires a command it did not issue reads a window
+ * nothing filled and moves a file position by bytes that went to
+ * another file.
+ *
+ * An answer found by the wrong worker is kept for the right one instead
+ * of being dropped. That is what lets the blocking form wait out a
+ * record another worker is holding rather than deadlock against it. */
+#define FS_W_NONE 0u
+#define FS_W(d) ((uint32_t)(d) + 1u)
+/* Staging and binding, which are the machine's own and hold no
+ * descriptor. */
+#define FS_W_SYS (FS_OPEN_MAX + 1u)
+#define FS_W_MAX (FS_OPEN_MAX + 2u)
+
+static uint8_t fs_owner;
+static bool fs_mail[FS_W_MAX];
+static uint32_t fs_mail_st[FS_W_MAX];
+
 /* Two halves, because the task loop does not wait: a silent host holds
  * the bridge for about 0.9 seconds and spinning that out stops every
  * other task. Start it, and poll once per pass. */
-static void fs_start(uint32_t op)
+static void fs_start(uint32_t who, uint32_t op)
 {
+    fs_owner = (uint8_t)who;
+    fs_mail[who] = false;
     FILE_CTL = op;
 }
 
-static bool fs_poll(uint32_t *st)
+/* Reads the fabric at most once and files what it finds under whoever
+ * asked for it. */
+static void fs_reap(void)
 {
+    if (fs_owner == FS_W_NONE)
+        return;
     uint32_t v = FILE_CTL;
     if (v & (FILE_ST_BUSY | FILE_ST_DRAIN))
+        return;
+    fs_mail[fs_owner] = true;
+    fs_mail_st[fs_owner] = v;
+    fs_owner = FS_W_NONE;
+}
+
+static bool fs_poll(uint32_t who, uint32_t *st)
+{
+    fs_reap();
+    if (!fs_mail[who])
         return false;
-    *st = v;
+    fs_mail[who] = false;
+    *st = fs_mail_st[who];
     return true;
+}
+
+/* Free to take, or already ours.
+ *
+ * A worker that finds the record free re-issues even when its own
+ * answer is sitting in the mail. The mail is there so a blocking spin
+ * cannot destroy an answer, not so a later pass can pick one up: every
+ * caller here recomputes what to ask for on the way in, and fs_rebind
+ * can move the file's length and position between the command going
+ * out and the answer being read. Taking that answer for this pass's
+ * question records a window under an offset it was never filled at,
+ * and the stream comes back a byte short. fs_start drops the stale
+ * one. */
+static bool fs_may(uint32_t who)
+{
+    return fs_owner == FS_W_NONE || fs_owner == who;
+}
+
+/* For the blocking form: a command cannot go out over one that has not
+ * retired, so wait for it -- keeping its answer for its own worker. */
+static void fs_wait_free(void)
+{
+    while (fs_owner != FS_W_NONE)
+        fs_reap();
 }
 
 /* Counted rather than printed at the point of failure: a stream that
@@ -130,7 +193,7 @@ void fs_log(void)
  * the tasks run in.
  *
  * Answering STD_PENDING is lossless: pos is not advanced, fs_restore
- * clears fs_busy, and the next pass re-issues the same operation
+ * frees the record, and the next pass re-issues the same operation
  * against a slot that is its own again. The stall is one pass, because
  * sst_task clears the bit at the end of it. */
 static bool fs_adrift(void)
@@ -158,21 +221,18 @@ static bool fs_note(uint32_t st)
 
 /* The blocking form, for open and boot-time staging: once per file, and
  * the 6502 is parked in its syscall either way. */
-static uint32_t fs_command(uint32_t op)
+static uint32_t fs_command(uint32_t who, uint32_t op)
 {
     uint32_t st;
-    fs_start(op);
-    while (!fs_poll(&st))
+    fs_wait_free();
+    fs_start(who, op);
+    while (!fs_poll(who, &st))
         ;
     return st;
 }
 
-/* One record is enough: the 6502 is parked in a single syscall, so only
- * one worker is ever mid-op. */
-static bool fs_busy;
-
-/* A second command the write worker can have in flight: the resize-open
- * that makes room before the WRITE that fills it. */
+/* The write worker's other command: the resize-open that makes room
+ * before the WRITE that fills it. */
 static bool fs_grow;
 
 /* std_stop drains only descriptors it will flush, so a read-only one
@@ -187,15 +247,12 @@ void fs_stop(void)
      * skipping the drain there stacks the next command's toggle onto a
      * live one, where the bridge drops it outright and answers the
      * previous command instead. Idle costs one read. */
-    uint32_t st;
-    bool waited = false;
-    while (!fs_poll(&st))
-        waited = true;
-    if (waited || fs_busy || fs_grow)
-        LOG_SAY("fs: drain waited=%u busy=%u grow=%u st=%02x\n",
-               (unsigned)waited, (unsigned)fs_busy, (unsigned)fs_grow,
-               (unsigned)(st & 0xFFu));
-    fs_busy = false;
+    unsigned held = fs_owner;
+    fs_wait_free();
+    if (held || fs_grow)
+        LOG_SAY("fs: drain who=%u grow=%u\n", held, (unsigned)fs_grow);
+    for (uint32_t w = 0; w < FS_W_MAX; w++)
+        fs_mail[w] = false;
     fs_grow = false;
 }
 
@@ -226,7 +283,7 @@ static void fs_win_u32(uint32_t off, uint32_t v)
 static uint32_t fs_dt(uint32_t word)
 {
     FILE_ID = word;
-    fs_command(FILE_OP_DT);
+    fs_command(FS_W_SYS, FILE_OP_DT);
     return FILE_RESULT;
 }
 
@@ -253,7 +310,7 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap)
         out[0] = 0;
     FILE_ID = slot;
     FILE_BRIDGE = GETFILE_BRIDGE;
-    uint32_t st = fs_command(FILE_OP_GETFILE);
+    uint32_t st = fs_command(FS_W_SYS, FILE_OP_GETFILE);
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         return false;
 
@@ -316,9 +373,9 @@ bool fs_getfile(uint32_t slot, char *out, size_t cap)
 
 /* Answers FS_RC_MALFORMED without starting a command when the name will
  * not fit. */
-static uint32_t fs_try_open_start(uint32_t slot, const char *name,
-                                   uint32_t flags, uint32_t size,
-                                   const char *root)
+static uint32_t fs_try_open_start(uint32_t who, uint32_t slot,
+                                   const char *name, uint32_t flags,
+                                   uint32_t size, const char *root)
 {
     uint8_t pad[FS_NAME_MAX];
     uint16_t page = font_get_code_page();
@@ -342,29 +399,30 @@ static uint32_t fs_try_open_start(uint32_t slot, const char *name,
     fs_win_u32(FS_PARAM_FLAGS, flags);
     fs_win_u32(FS_PARAM_SIZE, size);
     FILE_ID = slot;
-    fs_start(FILE_OP_OPEN);
+    fs_start(who, FILE_OP_OPEN);
     return FS_RC_STARTED;
 }
 
 /* A bridge that stopped answering reads as FS_RC_MALFORMED, which every
  * caller already treats as a refusal. */
-static bool fs_try_open_poll(uint32_t *rc)
+static bool fs_try_open_poll(uint32_t who, uint32_t *rc)
 {
     uint32_t st;
-    if (!fs_poll(&st))
+    if (!fs_poll(who, &st))
         return false;
     *rc = (st & FILE_ST_TIMEOUT) ? FS_RC_MALFORMED : ((st & FILE_ST_ERR) >> 1);
     return true;
 }
 
 /* The blocking form, for open and for exec's staging. */
-static uint32_t fs_try_open(uint32_t slot, const char *name,
+static uint32_t fs_try_open(uint32_t who, uint32_t slot, const char *name,
                              uint32_t flags, uint32_t size,
                              const char *root)
 {
-    uint32_t rc = fs_try_open_start(slot, name, flags, size, root);
+    fs_wait_free();
+    uint32_t rc = fs_try_open_start(who, slot, name, flags, size, root);
     if (rc == FS_RC_STARTED)
-        while (!fs_try_open_poll(&rc))
+        while (!fs_try_open_poll(who, &rc))
             ;
     return rc;
 }
@@ -372,7 +430,7 @@ static uint32_t fs_try_open(uint32_t slot, const char *name,
 static bool fs_open_slot(uint32_t slot, const char *name, uint32_t flags,
                           uint32_t size)
 {
-    return fs_try_open(slot, name, flags, size, FS_SAVES_PATH) <= 1;
+    return fs_try_open(FS_W_SYS, slot, name, flags, size, FS_SAVES_PATH) <= 1;
 }
 
 /* Only the prefix is stripped; the slash after it, or its absence, is
@@ -469,7 +527,7 @@ static void fs_rebind(int d)
     bool kept = fs_still_bound(d);
     uint32_t rc = 0;
     if (!kept)
-        rc = fs_try_open(FS_SLOT_FIRST + (uint32_t)d,
+        rc = fs_try_open(FS_W(d), FS_SLOT_FIRST + (uint32_t)d,
                           fs_pool[d].name, 0, 0, FS_SAVES_PATH);
     uint32_t len = 0;
     bool got = fs_slot_len(FS_SLOT_FIRST + (uint32_t)d, &len);
@@ -545,7 +603,7 @@ static bool fs_rom_pull(uint32_t len)
         FILE_OFFSET = at;
         FILE_BRIDGE = ROM_BRIDGE + at;
         FILE_LENGTH = n;
-        uint32_t st = fs_command(FILE_OP_READ);
+        uint32_t st = fs_command(FS_W_SYS, FILE_OP_READ);
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
             return false;
     }
@@ -587,7 +645,7 @@ int fs_rom_open(const char *path, uint8_t flags, api_errno *err)
         return -1;
     }
     assert(!fs_rom.used); /* the caller closes before opening again */
-    if (fs_try_open(FS_SLOT_ROM, p, 0, 0, FS_ASSETS_PATH) > 1)
+    if (fs_try_open(FS_W_SYS, FS_SLOT_ROM, p, 0, 0, FS_ASSETS_PATH) > 1)
     {
         *err = API_ENOENT;
         return -1;
@@ -728,7 +786,10 @@ std_rw_result fs_std_close(int desc, api_errno *err)
     (void)err;
     if (desc == FS_DESC_ROM && fs_rom.used)
     {
-        fs_rom.used = false; /* the store keeps the bytes; ROM: reads go on */
+        /* The store keeps the bytes, but only for the next pull to
+         * overwrite: a ROM: read after this answers EBADF until
+         * fs_rom_open or fs_rom_adopt hands the descriptor out again. */
+        fs_rom.used = false;
         fs_rom.pos = 0;
         return STD_OK;
     }
@@ -737,21 +798,43 @@ std_rw_result fs_std_close(int desc, api_errno *err)
         *err = API_EBADF;
         return STD_ERROR;
     }
+    /* Nothing below this needs the host, so it is answered while a
+     * restore is still in flight: a descriptor with nothing to flush is
+     * released from this side alone. Taken before the guard because a
+     * close that costs no round trip should not wait for one. */
+    if (!fs_pool[desc].writable || fs_flush_state == FS_FLUSH_NEVER)
+    {
+        fs_pool[desc].used = false;
+        fs_pool[desc].cache_len = 0;
+        return STD_OK;
+    }
+    /* Everything past here talks to the host, and a close carried
+     * across a sleep arrives before the fixups have run: api_task is a
+     * whole pass ahead of sst_task, so the syscall the sleeping session
+     * left outstanding is re-dispatched against a bridge still holding
+     * the dead session's command and a slot the wake rebound. fs_rebind
+     * is no help there -- stale comes out of the blob as false, so it
+     * does nothing -- and the flush below then stacks a toggle onto a
+     * live command, which the bridge drops. The answer was EIO, and it
+     * printed nothing.
+     *
+     * Deferring is lossless: used stays set, nothing is released, and
+     * the next pass re-issues the same close against a drained bridge.
+     * The one loss is a break landing inside std_stop's own teardown,
+     * which discards what close returns -- the slot leaks for the
+     * session there rather than flushing into a bridge that cannot hear
+     * it, which is the better of the two. */
+    if (fs_adrift())
+        return STD_PENDING;
     fs_rebind(desc);
     std_rw_result res = STD_OK;
-    if (fs_pool[desc].writable && fs_flush_state != FS_FLUSH_NEVER)
     {
-        uint32_t st;
         /* A read or write left in flight has to land before the flush
          * can start; the descriptor is going away either way. */
-        if (fs_busy)
-        {
-            while (!fs_poll(&st))
-                ;
-            fs_busy = false;
-        }
+        fs_wait_free();
+        fs_mail[FS_W(desc)] = false;
         FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
-        st = fs_command(FILE_OP_FLUSH);
+        uint32_t st = fs_command(FS_W(desc), FILE_OP_FLUSH);
         if (fs_unanswered(st))
             fs_flush_state = FS_FLUSH_NEVER;
         else
@@ -844,18 +927,18 @@ std_rw_result fs_std_read(int desc, char *buf, uint32_t count,
             into = 0;
         }
         uint32_t st;
-        if (!fs_busy)
+        if (!fs_may(FS_W(desc)))
+            return STD_PENDING;
+        if (fs_owner == FS_W_NONE)
         {
             FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
             FILE_OFFSET = from;
             FILE_BRIDGE = SLOT_WIN_BRIDGE(desc) + into;
             FILE_LENGTH = n;
-            fs_busy = true;
-            fs_start(FILE_OP_READ);
+            fs_start(FS_W(desc), FILE_OP_READ);
         }
-        if (!fs_poll(&st))
+        if (!fs_poll(FS_W(desc), &st))
             return STD_PENDING;
-        fs_busy = false;
         if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
         {
             if (fs_note(st))
@@ -916,9 +999,11 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
     if (pos + want > fs_pool[desc].len)
     {
         uint32_t rc;
+        if (!fs_may(FS_W(desc)))
+            return STD_PENDING;
         if (!fs_grow)
         {
-            if (fs_try_open_start(slot, fs_pool[desc].name,
+            if (fs_try_open_start(FS_W(desc), slot, fs_pool[desc].name,
                                    FS_DS_CREATE | FS_DS_RESIZE, pos + want,
                                    FS_SAVES_PATH)
                 != FS_RC_STARTED)
@@ -928,7 +1013,7 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
             }
             fs_grow = true;
         }
-        if (!fs_try_open_poll(&rc))
+        if (!fs_try_open_poll(FS_W(desc), &rc))
             return STD_PENDING;
         fs_grow = false;
         if (rc > 1)
@@ -939,19 +1024,19 @@ std_rw_result fs_std_write(int desc, const char *buf, uint32_t count,
         fs_pool[desc].len = pos + want;
     }
     uint32_t st;
-    if (!fs_busy)
+    if (!fs_may(FS_W(desc)))
+        return STD_PENDING;
+    if (fs_owner == FS_W_NONE)
     {
         fs_win_put(0, (const uint8_t *)buf, want);
         FILE_ID = slot;
         FILE_OFFSET = pos;
         FILE_BRIDGE = FILE_WIN_BASE;
         FILE_LENGTH = want;
-        fs_busy = true;
-        fs_start(FILE_OP_WRITE);
+        fs_start(FS_W(desc), FILE_OP_WRITE);
     }
-    if (!fs_poll(&st))
+    if (!fs_poll(FS_W(desc), &st))
         return STD_PENDING;
-    fs_busy = false;
     if (st & (FILE_ST_ERR | FILE_ST_TIMEOUT))
     {
         if (fs_note(st))
@@ -983,15 +1068,15 @@ std_rw_result fs_std_sync(int desc, api_errno *err)
     if (fs_flush_state == FS_FLUSH_NEVER)
         return STD_OK;
     uint32_t st;
-    if (!fs_busy)
+    if (!fs_may(FS_W(desc)))
+        return STD_PENDING;
+    if (fs_owner == FS_W_NONE)
     {
         FILE_ID = FS_SLOT_FIRST + (uint32_t)desc;
-        fs_busy = true;
-        fs_start(FILE_OP_FLUSH);
+        fs_start(FS_W(desc), FILE_OP_FLUSH);
     }
-    if (!fs_poll(&st))
+    if (!fs_poll(FS_W(desc), &st))
         return STD_PENDING;
-    fs_busy = false;
     if (fs_unanswered(st))
     {
         fs_flush_state = FS_FLUSH_NEVER;

@@ -185,6 +185,18 @@ rp6502_test_rom(probe_rom GEN ${RP6502_TESTS_DIR}/gen/probe_rom_gen.py
     DEPENDS ${RP6502_ROM_GEN}
     COMMENT "Generating the open-file probe ROM")
 
+# A file read across a sleep, and a count printed while it is read:
+# issue 183 in the reads and issue 185 in the gap the count shows. The
+# Pocket bench runs it for the reads, which is where a second worker on
+# the file bridge can answer them; the count needs a sleep, so that half
+# is run on hardware.
+set(SLEEPFILE_ROM ${RP6502_TEST_ROM_DIR}/sleepfile.rp6502)
+rp6502_test_rom(sleepfile_rom GEN ${RP6502_TESTS_DIR}/gen/sleepfile_rom_gen.py
+    ARGS --emit ${SLEEPFILE_ROM}
+    OUTPUTS ${SLEEPFILE_ROM}
+    DEPENDS ${RP6502_ROM_GEN}
+    COMMENT "Generating the sleep file probe ROM")
+
 # Music's stand-in, in two variants. A ROM: asset read in a loop forever,
 # printing what arrives, so a descriptor left on the wrong file after a
 # sleep says so in letters rather than in silence. Built here so they

@@ -684,6 +684,30 @@ design, which was wrong: APF acknowledges every command by writing
 writes too, so the bit could be set by the conversation rather than the
 answer. It is filtered to the staging store now.
 
+### One command, one owner
+
+The fabric carries one file command at a time and answers it in one
+register, and for most of this driver's life that was enough: the 6502
+is parked in a single syscall, so its operation is the only one in
+flight and a poll can only find its own answer.
+
+`RP6502_LOG_FILE` puts a second writer in the same main loop and that
+stops being true. A read that retires the log's write copies out of a
+window the write never filled, and the program is handed bytes that
+belong to no file it opened. On the device this reads as a program
+whose file has turned to garbage — the same run that was supposed to be
+diagnosing something else. `fs.c` records who issued the command now,
+and an answer found by the wrong worker is kept for the right one
+rather than dropped, which is what lets the blocking form wait out a
+record another worker is holding instead of deadlocking against it.
+
+The reason this shipped is worth more than the bug. The bench's model
+host answered every command within its own handful of cycles, so the
+firmware never had to share the machine with an outstanding command and
+no ordering bug could show. It waits a tenth of a millisecond now —
+short for a card, long enough that the main loop goes round many times
+inside one command — and the bug reproduces on the first run.
+
 ### Bindings across a wake
 
 A binding made at runtime with 0x0192 **survives a sleep and wake**.
