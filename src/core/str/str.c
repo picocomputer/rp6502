@@ -462,22 +462,26 @@ bool str_parse_end(const char *args)
     return true;
 }
 
+
 void str_size(uint64_t bytes, char *out, size_t out_size)
 {
     const char *unit;
-    double size;
     if (bytes < 5000000ULL)
     {
         // Floppy-era media: KB, rolling to MB, trailing zeros stripped.
-        unit = "KB";
-        size = bytes / 1024.0;
-        if (size >= 1000)
+        unsigned milli;
+        if (bytes < 1024000ULL)
+        {
+            unit = "KB";
+            milli = (unsigned)((bytes * 1000 + 512) / 1024);
+        }
+        else
         {
             unit = "MB";
-            size /= 1000;
+            milli = (unsigned)((bytes + 512) / 1024);
         }
         char num[16];
-        snprintf(num, sizeof(num), "%.3f", size);
+        snprintf(num, sizeof(num), "%u.%03u", milli / 1000, milli % 1000);
         char *p = num + strlen(num) - 1;
         while (*p == '0')
             *p-- = '\0';
@@ -487,18 +491,22 @@ void str_size(uint64_t bytes, char *out, size_t out_size)
     }
     else
     {
-        unit = "MB";
-        size = bytes / 1e6;
-        if (size >= 1000)
+        unsigned tenths;
+        if (bytes < 1000000000ULL)
+        {
+            unit = "MB";
+            tenths = (unsigned)((bytes + 50000) / 100000);
+        }
+        else if (bytes < 1000000000000ULL)
         {
             unit = "GB";
-            size /= 1000;
+            tenths = (unsigned)((bytes + 50000000) / 100000000);
         }
-        if (size >= 1000)
+        else
         {
             unit = "TB";
-            size /= 1000;
+            tenths = (unsigned)((bytes + 50000000000ULL) / 100000000000ULL);
         }
-        snprintf(out, out_size, "%.1f %s", size, unit);
+        snprintf(out, out_size, "%u.%u %s", tenths / 10, tenths % 10, unit);
     }
 }
