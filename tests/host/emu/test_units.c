@@ -12,7 +12,7 @@
 #include "core/str/oem.h"
 #include "core/term/font.h"
 #include "core/str/str.h"
-#include "host/sokol/cli.h"
+#include "mach/sokol/app/cli.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/gamepad.h"

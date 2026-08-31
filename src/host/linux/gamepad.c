@@ -13,7 +13,7 @@
  * ABS_RX/ABS_RY.
  */
 
-#include "host/sokol/gamepad_input.h"
+#include "mach/sokol/win/gamepad_input.h"
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>

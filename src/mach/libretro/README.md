@@ -7,7 +7,7 @@ that is `src/mach/libretro/dist/README.txt`.
 
 A libretro frontend owns the loop, the window, the audio device and the
 input hardware, and calls `retro_run` once per video frame. So this host
-is `emu_core` and an ABI file, and none of `src/host/sokol` — no sokol,
+is `emu_core` and an ABI file, and none of `src/mach/sokol` — no sokol,
 no command line, no script channel, no debugger, no `main()`.
 
 The seams it needs were already there:

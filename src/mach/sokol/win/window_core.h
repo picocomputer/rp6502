@@ -4,14 +4,14 @@
  * SPDX-License-Identifier: BSD-3-Clause
  *
  * Internal interface between the shared, host-neutral window core
- * (host/sokol/window_core.c) and the per-host window files (host/<os>/window.c).
- * Not a public header — app code uses host/sokol/window.h. The per-host file supplies
+ * (mach/sokol/win/window_core.c) and the per-host window files (host/<os>/window.c).
+ * Not a public header — app code uses mach/sokol/win/window.h. The per-host file supplies
  * the entry point (window_run / sokol_main) and the host_window_* hooks; the
  * core supplies the render/frame/present pipeline and the four sokol callbacks.
  */
 
-#ifndef _HOST_SOKOL_WINDOW_CORE_H_
-#define _HOST_SOKOL_WINDOW_CORE_H_
+#ifndef _MACH_SOKOL_WIN_WINDOW_CORE_H_
+#define _MACH_SOKOL_WIN_WINDOW_CORE_H_
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -85,4 +85,4 @@ void host_window_files_dropped(void);
  * Called when the docs link under the drop-a-ROM prompt is clicked. */
 void host_window_open_url(const char *url);
 
-#endif /* _HOST_SOKOL_WINDOW_CORE_H_ */
+#endif /* _MACH_SOKOL_WIN_WINDOW_CORE_H_ */

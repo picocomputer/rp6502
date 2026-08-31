@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_SOKOL_GAMEPAD_INPUT_H_
-#define _HOST_SOKOL_GAMEPAD_INPUT_H_
+#ifndef _MACH_SOKOL_WIN_GAMEPAD_INPUT_H_
+#define _MACH_SOKOL_WIN_GAMEPAD_INPUT_H_
 
 #include "core/hid/gamepad.h"
 #include <stdbool.h>
@@ -52,4 +52,4 @@ void host_gamepad_close(void);
  * Called once per presented frame while a program has the block mapped. */
 int host_gamepad_poll(gamepad_host_t *gamepads, int max);
 
-#endif /* _HOST_SOKOL_GAMEPAD_INPUT_H_ */
+#endif /* _MACH_SOKOL_WIN_GAMEPAD_INPUT_H_ */

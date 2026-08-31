@@ -14,7 +14,7 @@
  * with everything else rather than from a thread.
  */
 
-#include "host/sokol/gamepad_input.h"
+#include "mach/sokol/win/gamepad_input.h"
 
 #import <GameController/GameController.h>
 

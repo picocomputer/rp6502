@@ -11,8 +11,8 @@
  */
 
 #include "host/os.h" /* host_mono_ns, host_sleep_until_ns */
-#include "host/sokol/window.h"
-#include "host/sokol/window_core.h"
+#include "mach/sokol/win/window.h"
+#include "mach/sokol/win/window_core.h"
 #include "sokol/sokol_app.h"
 #include "sokol/sokol_gfx.h"
 #include "sokol/sokol_glue.h"
@@ -23,13 +23,13 @@
 #include "sokol/util/sokol_gl.h"
 #include "sokol/sokol_audio.h"
 #ifdef EMU_WITH_DEBUGGER
-#include "host/sokol/dbgui.h"
+#include "mach/sokol/dbg/dbgui.h"
 #include "core/dap/dap.h"
 #endif
-#include "host/sokol/icon.h"
-#include "host/sokol/input.h"
+#include "mach/sokol/win/icon.h"
+#include "mach/sokol/win/input.h"
 #ifdef RP6502_PAD_HOST
-#include "host/sokol/gamepad_input.h"
+#include "mach/sokol/win/gamepad_input.h"
 #endif
 #include "mach/version.h"
 #include "core/aud/aud_mix.h"

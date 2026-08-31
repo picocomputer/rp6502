@@ -28,14 +28,14 @@ extern "C"
 #include "core/api/exec.h" /* proc_get_exit_code (exit-code display) */
 #include "core/vga/vga_emu.h"
 #include "core/wdc/via.h"
-#include "host/sokol/dbgui.h"        /* the C-callable entry points this TU defines */
-#include "host/sokol/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
-#include "host/sokol/window.h"      /* window-scale presets */
+#include "mach/sokol/dbg/dbgui.h"        /* the C-callable entry points this TU defines */
+#include "mach/sokol/dbg/dbgui_layout.h" /* ImGui-owned layout persistence (file side) */
+#include "mach/sokol/win/window.h"      /* window-scale presets */
 #include "core/rom/rom.h"        /* rom_read_asset (ROM Help viewer) */
 }
-#include "host/sokol/credits.h" /* EMU_CREDITS */
+#include "mach/sokol/app/credits.h" /* EMU_CREDITS */
 #include "mach/version.h"
-#include "host/sokol/icon.h"    /* icon_desc() - Credits masthead icon */
+#include "mach/sokol/win/icon.h"    /* icon_desc() - Credits masthead icon */
 
 #include "chips/chips/w65c02.h" /* w65c02_t (type + macros; CHIPS_IMPL is in wdc/w65c02.c) */
 #include "chips/chips/m6522.h"  /* m6522_t (type; CHIPS_IMPL is in via.c) */
@@ -57,8 +57,8 @@ extern "C"
 #include "chips/util/w65c02dasm.h"   /* WDC 65C02 disassembler */
 #include "chips/ui/ui_dasm.h"        /* after w65c02dasm.h (impl calls w65c02dasm_op) */
 #include "chips/ui/ui_w65c02.h"      /* CPU register window */
-#include "host/sokol/ui_ria.h"  /* our RIA debug window (bespoke, not a chips fork) */
-#include "host/sokol/ui_ini.h"  /* dummy elements: [RP6502][Launch] + [Window][Manager] */
+#include "mach/sokol/dbg/ui_ria.h"  /* our RIA debug window (bespoke, not a chips fork) */
+#include "mach/sokol/dbg/ui_ini.h"  /* dummy elements: [RP6502][Launch] + [Window][Manager] */
 #include "chips/ui/ui_m6522.h"
 #include "chips/ui/ui_dbg.h"         /* disassembly/breakpoints */
 

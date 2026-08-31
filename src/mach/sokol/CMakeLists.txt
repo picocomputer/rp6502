@@ -67,7 +67,7 @@ target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/host/sokol/sokol.cmake)
+include(${RP6502_SRC}/mach/sokol/sokol.cmake)
 
 # The desktop window + audio stack. Windows and macOS carry their own
 # (D3D11/Metal); Linux/BSD needs GL + X11 (+ Xi/Xcursor) and ALSA. These are
@@ -87,11 +87,11 @@ endif()
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/host/sokol/main.c
+    ${RP6502_SRC}/mach/sokol/app/main.c
     ${RP6502_EMU_WINDOW}
     ${RP6502_HOST}/window.c
     ${RP6502_HOST}/gamepad.c
-    ${RP6502_SRC}/host/sokol/gamepad_input.c)
+    ${RP6502_SRC}/mach/sokol/win/gamepad_input.c)
 target_link_libraries(rp6502-emu PRIVATE emu_core)
 target_compile_definitions(rp6502-emu PRIVATE SOKOL_NO_ENTRY RP6502_PAD_HOST)
 
@@ -117,9 +117,9 @@ elseif(APPLE)
     # sokol on macOS needs Objective-C; compile the impl units as .m and
     # link the Cocoa/Metal frameworks. (macOS bring-up pass.)
     set_source_files_properties(
-        ${RP6502_SRC}/host/sokol/sokol_impl.c
-        ${RP6502_SRC}/host/sokol/window_core.c
-        ${RP6502_SRC}/host/sokol/input.c
+        ${RP6502_SRC}/mach/sokol/win/sokol_impl.c
+        ${RP6502_SRC}/mach/sokol/win/window_core.c
+        ${RP6502_SRC}/mach/sokol/win/input.c
         ${RP6502_HOST}/window.c
         ${RP6502_HOST}/gamepad.c
         PROPERTIES COMPILE_FLAGS "-x objective-c")

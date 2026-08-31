@@ -5,12 +5,12 @@
  *
  */
 
-#ifndef _HOST_SOKOL_INPUT_H_
-#define _HOST_SOKOL_INPUT_H_
+#ifndef _MACH_SOKOL_WIN_INPUT_H_
+#define _MACH_SOKOL_WIN_INPUT_H_
 
 struct sapp_event;
 
 /* Translate one host (sokol) input event into emulated keyboard/mouse input. */
 void input_event(const struct sapp_event *e);
 
-#endif /* _HOST_SOKOL_INPUT_H_ */
+#endif /* _MACH_SOKOL_WIN_INPUT_H_ */

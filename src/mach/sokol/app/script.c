@@ -5,14 +5,14 @@
  *
  */
 
-#include "host/sokol/script.h"
-#include "host/sokol/png.h"
+#include "mach/sokol/app/script.h"
+#include "mach/sokol/app/png.h"
 #include "core/api/exec.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
-#include "host/sokol/gamepad.h"
+#include "mach/sokol/app/gamepad.h"
 #include "core/hid/tablet.h"
 #include "core/com/com.h"
 #include "core/wdc/cpu.h"

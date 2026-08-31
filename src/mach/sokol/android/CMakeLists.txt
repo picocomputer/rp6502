@@ -104,7 +104,7 @@ target_include_directories(emu_core PUBLIC ${RP6502_SRC}/mach/sokol)
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/host/sokol/sokol.cmake)
+include(${RP6502_SRC}/mach/sokol/sokol.cmake)
 
 # No main() and no SOKOL_NO_ENTRY: this host enters through sokol_main in
 # window.c, which NativeActivity calls.

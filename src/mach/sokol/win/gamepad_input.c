@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/sokol/gamepad_input.h"
+#include "mach/sokol/win/gamepad_input.h"
 #include <string.h>
 
 /* Frames between attempts to open the host's controllers. The web shell

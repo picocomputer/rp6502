@@ -5,9 +5,9 @@
  *
  */
 
-#include "host/sokol/input.h"
+#include "mach/sokol/win/input.h"
 
-#include "host/sokol/window.h"
+#include "mach/sokol/win/window.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"

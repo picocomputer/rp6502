@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/sokol/png.h"
+#include "mach/sokol/app/png.h"
 #include "core/mem.h"
 #include <stdio.h>
 #include <stdlib.h>

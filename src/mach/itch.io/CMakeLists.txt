@@ -49,11 +49,11 @@ target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 
-include(${RP6502_SRC}/host/sokol/sokol.cmake)
+include(${RP6502_SRC}/mach/sokol/sokol.cmake)
 
 add_executable(rp6502-emu
     ${RP6502_EMU_APP}
-    ${RP6502_SRC}/host/sokol/main.c
+    ${RP6502_SRC}/mach/sokol/app/main.c
     ${RP6502_HOST}/exports.c
     ${RP6502_EMU_WINDOW}
     ${RP6502_HOST}/window.c)

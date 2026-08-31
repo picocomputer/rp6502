@@ -10,11 +10,11 @@
 #include "core/sys.h"
 #include "core/str/str.h"
 #include "core/api/exec.h"
-#include "host/sokol/window.h"
+#include "mach/sokol/win/window.h"
 #include "host.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "host/sokol/png.h"
+#include "mach/sokol/app/png.h"
 #include "core/rand_seed.h"
 #include "core/rom/rom.h"
 #include "core/str/path.h"
@@ -22,15 +22,15 @@
 #include "core/wdc/cpu.h"
 #include "core/sys.h"
 #include "core/vga/vga_emu.h"
-#include "host/sokol/cli.h"
-#include "host/sokol/script.h"
-#include "host/sokol/credits.h"
+#include "mach/sokol/app/cli.h"
+#include "mach/sokol/app/script.h"
+#include "mach/sokol/app/credits.h"
 #include "mach/version.h"
 #include <stdio.h>
 #include <string.h>
 #ifdef EMU_WITH_DEBUGGER
 #include "core/dap/dap.h"
-#include "host/sokol/dbgui.h" /* dbgui_set_config_file (--ini) */
+#include "mach/sokol/dbg/dbgui.h" /* dbgui_set_config_file (--ini) */
 #endif
 
 static uint32_t g_fb[VGA_MAX_WIDTH * VGA_MAX_HEIGHT];

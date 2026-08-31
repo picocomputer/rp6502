@@ -11,8 +11,8 @@
  * ImGui's built-in [Window] handler. No chips-UI dependency here.
  */
 
-#ifndef _HOST_SOKOL_DBGUI_LAYOUT_H_
-#define _HOST_SOKOL_DBGUI_LAYOUT_H_
+#ifndef _MACH_SOKOL_DBG_DBGUI_LAYOUT_H_
+#define _MACH_SOKOL_DBG_DBGUI_LAYOUT_H_
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -24,4 +24,4 @@ void dbgui_layout_load(void);
 /* Serialize ImGui's settings (geometry + custom handlers) to the config file. */
 void dbgui_layout_save(void);
 
-#endif /* _HOST_SOKOL_DBGUI_LAYOUT_H_ */
+#endif /* _MACH_SOKOL_DBG_DBGUI_LAYOUT_H_ */

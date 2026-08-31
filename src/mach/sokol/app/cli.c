@@ -5,7 +5,7 @@
  *
  */
 
-#include "host/sokol/cli.h"
+#include "mach/sokol/app/cli.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>

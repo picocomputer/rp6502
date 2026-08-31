@@ -10,7 +10,7 @@
  * nothing observable from inside a script can.
  */
 
-#include "host/sokol/script.h"
+#include "mach/sokol/app/script.h"
 #include "core/rom/rom.h"
 #include "emu_boot.h"
 #include <stdio.h>

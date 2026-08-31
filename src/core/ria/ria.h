@@ -14,7 +14,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* host/sokol/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
+/* mach/sokol/dbg/ui_ria.h includes this from a C++ TU outside any extern "C" wrapper, so
  * unlike its siblings in core this one must declare its own linkage. */
 #ifdef __cplusplus
 extern "C"

@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef _HOST_SOKOL_SCRIPT_H_
-#define _HOST_SOKOL_SCRIPT_H_
+#ifndef _MACH_SOKOL_APP_SCRIPT_H_
+#define _MACH_SOKOL_APP_SCRIPT_H_
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -55,4 +55,4 @@ bool script_command(const char *line);
 /* 0 when every assertion held. */
 int script_exit_code(void);
 
-#endif /* _HOST_SOKOL_SCRIPT_H_ */
+#endif /* _MACH_SOKOL_APP_SCRIPT_H_ */

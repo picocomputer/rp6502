@@ -9,7 +9,7 @@
  */
 
 #include "host.h"
-#include "host/sokol/window.h" /* host_sleep_until_ns */
+#include "mach/sokol/win/window.h" /* host_sleep_until_ns */
 #include <time.h>
 
 uint64_t host_entropy_64(void)
