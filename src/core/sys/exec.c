@@ -5,7 +5,7 @@
  */
 
 #include "core/sys.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/log.h"
 #include "core/rom/rom.h"
 #include "core/api/proc.h"
@@ -15,20 +15,33 @@
 #include "core/str/path.h"
 #include "host/os.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-/* The exec a program asked for, waiting for a frame boundary. */
+/* The exec a program asked for, waiting for a frame boundary. Owned; exec_task
+ * takes it before loading, so nothing the stop walk does can free the string
+ * being loaded. (proc_stop's inflight guard means it would not today, but that
+ * is its invariant to keep, not this one's to lean on.) */
 static bool queued;
-static char queued_path[HOST_MAX_PATH];
+static char *queued_path;
 
 void exec_init(void)
 {
+    free(queued_path);
+    queued_path = NULL;
     queued = false;
 }
 
 void exec_request(const char *rom_path)
 {
-    snprintf(queued_path, sizeof(queued_path), "%s", rom_path);
+    char *own = strdup(rom_path);
+    if (!own)
+    {
+        log_error("cannot queue ROM '%s'", rom_path);
+        return; /* nothing queued: the current program keeps running */
+    }
+    free(queued_path);
+    queued_path = own;
     queued = true;
     cpu_set_halted(true); /* stop the current program; the tick loop exits */
 }
@@ -111,8 +124,10 @@ void exec_task(void)
 {
     if (!queued)
         return;
-    /* queued_path outlives the clear inside exec_boot -- only the flag is
-     * dropped, and nothing writes the buffer until the next request. */
-    if (!exec_boot(queued_path, -1, NULL, 0))
+    char *path = queued_path; /* taken: exec_boot's stop walk runs while this
+                               * string is still the one being loaded */
+    queued_path = NULL;
+    if (!exec_boot(path, -1, NULL, 0))
         proc_set_exit_code(1); /* stays stopped from exec_boot's stop */
+    free(path);
 }

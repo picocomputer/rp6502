@@ -11,7 +11,7 @@
  */
 
 #include "core/api/dir.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/com/com.h"
 #include "core/api/fs.h"
 #include "core/str/path.h"

@@ -9,7 +9,7 @@
 #include "core/str/oem.h"
 #include "core/sys.h"
 #include "core/str/str.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "mach/sokol/win/window.h"
 #include "host.h"
 #include "core/aud/aud_mix.h"

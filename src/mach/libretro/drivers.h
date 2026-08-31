@@ -24,7 +24,7 @@
 #include "core/api/dir.h"
 #include "core/api/fs.h"
 #include "core/api/proc.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/api/std.h"
 #include "core/api/tim.h"
 #include "core/aud/aud.h"

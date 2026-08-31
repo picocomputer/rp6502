@@ -7,7 +7,7 @@
 
 #include "mach/sokol/app/script.h"
 #include "mach/sokol/app/png.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/hid/keyboard.h"
 #include "core/hid/usage.h"
 #include "core/hid/vtkeys.h"

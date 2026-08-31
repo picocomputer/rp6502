@@ -12,7 +12,7 @@
 #include "core/sys.h"
 #include "core/ria.h"
 #include "core/api/arg.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/api/std.h"
 #include "core/aud/aud_mix.h"
 #include "core/mem/mem.h"

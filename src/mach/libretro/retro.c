@@ -24,7 +24,7 @@
 #include "core/log.h"
 #include "core/api/dir.h"
 #include "core/api/fs.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/rom/rom.h"
 #include "core/sys.h"
 #include "core/wdc/cpu.h"

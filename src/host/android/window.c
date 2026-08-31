@@ -19,7 +19,7 @@
 #include "core/hid/gamepad.h"
 #include "core/sys.h"
 #include "core/rom/rom.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/wdc/cpu.h"
 #include "core/vga/vga_emu.h"
 #include <android/input.h>

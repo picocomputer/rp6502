@@ -14,8 +14,8 @@
  * is then true of all of them.
  */
 
-#ifndef _CORE_API_EXEC_H_
-#define _CORE_API_EXEC_H_
+#ifndef _CORE_SYS_EXEC_H_
+#define _CORE_SYS_EXEC_H_
 
 #include "core/api/proc.h"
 #include <stdbool.h>
@@ -58,4 +58,4 @@ void exec_task(void); /* perform a queued exec */
  * in the io column because loading a ROM reads a file. */
 #define EXEC_DRIVER DRIVER(exec_init, nul_task, exec_task, nul_run, nul_stop, nul_break, nul_config, nul_config)
 
-#endif /* _CORE_API_EXEC_H_ */
+#endif /* _CORE_SYS_EXEC_H_ */

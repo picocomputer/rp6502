@@ -55,7 +55,7 @@ add_custom_target(rsmp_coef DEPENDS ${RSMP_COEF_H})
 
 add_library(emu_core STATIC
     ${RP6502_SRC}/core/hid/hid_null.c
-    ${RP6502_SRC}/core/api/exec.c
+    ${RP6502_SRC}/core/sys/exec.c
     ${RP6502_SRC}/core/api/tim.c
     ${RP6502_SRC}/core/aud/aud_mix.c
     ${RP6502_SRC}/core/aud/rsmp.c

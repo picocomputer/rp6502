@@ -10,7 +10,7 @@
  * time from there.
  */
 
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/sys.h"
 #include "mut.h"
 

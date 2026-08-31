@@ -34,7 +34,7 @@
 #include "mach/version.h"
 #include "core/aud/aud_mix.h"
 #include "core/dap/dbg.h"
-#include "core/api/exec.h"
+#include "core/sys/exec.h"
 #include "core/str/oem.h"
 #include "core/hid/vtkeys.h"
 #include "core/hid/mouse.h"
