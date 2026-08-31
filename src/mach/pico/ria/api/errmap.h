@@ -10,7 +10,7 @@
  * sees a FRESULT.
  *
  * Named errmap and not errno because a host directory is on the include path
- * (mach/emu.cmake puts it there so host.h can be reached), and a header
+ * (this machine puts one there so host.h can be reached), and a header
  * called errno.h there is the one every C library picks up instead of its
  * own. Renaming it back breaks every translation unit at once.
  */

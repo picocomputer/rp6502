@@ -9,7 +9,7 @@
 # that the soft CPU drives, so what used to be its own test is now the
 # machine's — tests/cpu/aud, with the rest of what both machines answer.
 
-# host/pocket for "host.h": these compile core drivers, which ask their
+# mach/pocket for "host.h": these compile core drivers, which ask their
 # host where to place things, and any machine that is not a Pico answers
 # the same do-nothing way. The test_apf precedent.
 set(AUD_SHIM_INCLUDES ${CMAKE_CURRENT_LIST_DIR} ${RP6502_ASSETS}
