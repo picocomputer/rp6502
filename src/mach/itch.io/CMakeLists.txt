@@ -1,7 +1,7 @@
 # The emulator in a browser, and the itch.io bundle it assembles.
 #
 # The toolchain names itself, so `cmake -S src/mach/itch.io -B build/itch.io`
-# is the whole invocation: host/emsdk/emsdk_toolchain.cmake fetches and
+# is the whole invocation: emsdk_toolchain.cmake beside it fetches and
 # installs Emscripten the first time. CMAKE_TOOLCHAIN_FILE is read by project() below
 # and a -D on the command line still wins.
 
@@ -12,7 +12,7 @@ set(RP6502_SRC ${RP6502_ROOT}/src)
 set(RP6502_VENDOR ${RP6502_ROOT}/vendor)
 
 if(NOT CMAKE_TOOLCHAIN_FILE)
-    set(CMAKE_TOOLCHAIN_FILE ${RP6502_SRC}/host/emsdk/emsdk_toolchain.cmake)
+    set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_LIST_DIR}/emsdk_toolchain.cmake)
 endif()
 
 project(rp6502-emu-web C CXX)
@@ -31,7 +31,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Emit compile_commands.json
 # First: it takes RP6502_CI out of the cache, so nothing may read it earlier.
 include(${RP6502_ROOT}/version.cmake)
 
-set(RP6502_HOST ${RP6502_SRC}/host/emsdk)
+set(RP6502_HOST ${CMAKE_CURRENT_LIST_DIR})
 include(${RP6502_SRC}/mach/emu.cmake)
 # The browser has no <aio.h>, so this host brings its own fs seam and takes
 # only the two files a POSIX host shares.
@@ -42,9 +42,8 @@ target_sources(emu_core PRIVATE
     ${RP6502_HOST}/fs.c
     ${RP6502_HOST}/host.c)
 
-# This machine's drivers.h: what it is made of, the order it comes up in,
-# and what it offers a program to open.
-target_include_directories(emu_core PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+# drivers.h and host.h are both this directory's, and emu.cmake already leads
+# the include path with RP6502_HOST -- which is it.
 
 set_property(TARGET emu_core PROPERTY INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ${RP6502_EMU_IPO})

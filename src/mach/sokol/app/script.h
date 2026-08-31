@@ -14,7 +14,7 @@
 /* Scripted input: a line-oriented command language that plugs in gamepads,
  * moves pointers, types and asserts, so a program reading its input from XRAM
  * can be tested with nothing at the keyboard. This is a host in the same sense
- * as host/emsdk/exports.c and host/android/window.c — it assembles reports and
+ * as mach/itch.io/exports.c and host/android/window.c — it assembles reports and
  * hands them to the same hid seams a real device would.
  *
  * A failed assertion prints the script line and ends the run; script_exit_code is
