@@ -37,40 +37,75 @@
 #include <stdio.h> /* SEEK_SET/CUR/END */
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 #include <time.h>
 #include <windows.h>
 
 /* A path arrives spelled the way the 6502 spells it. This drive is one
  * directory of a real filesystem, so the drive prefix comes off here and what
- * is left is the native path -- and then the code page comes off too. */
-static bool path_to_wide(const char *path, wchar_t *w, int wcount)
+ * is left is the native path -- and then the code page comes off too.
+ *
+ * Allocated to fit rather than capped: path_to_native never grows a path and
+ * oem_to_wide writes exactly one unit per OEM byte, so the length is known
+ * rather than guessed -- and a conversion sized to what it produces cannot
+ * truncate, which neither oem_to_wide nor oem_from_wide would report if it
+ * did. The caller frees. */
+static wchar_t *path_to_wide(const char *path)
 {
-    char native[HOST_MAX_PATH];
-    if (!path_to_native(path, native, sizeof native))
-        return false;
-    return oem_to_wide(native, (uint16_t *)w, wcount) >= 0 && w[0];
+    size_t nsz = strlen(path) + 1;
+    char *native = malloc(nsz);
+    if (!native)
+        return NULL;
+    if (!path_to_native(path, native, nsz))
+    {
+        free(native);
+        return NULL;
+    }
+    size_t wcount = strlen(native) + 1;
+    wchar_t *w = malloc(wcount * sizeof *w);
+    if (w)
+    {
+        oem_to_wide(native, (uint16_t *)w, (int)wcount);
+        if (!w[0]) /* a path of no name reaches no file here */
+        {
+            free(w);
+            w = NULL;
+        }
+    }
+    free(native);
+    return w;
 }
 
 /* And back: what Win32 answered, slashed and spelled for the 6502. */
 static bool path_from_wide(const wchar_t *w, char *out, size_t outsz)
 {
-    char native[HOST_MAX_PATH];
-    oem_from_wide((const uint16_t *)w, native, sizeof native);
+    size_t nsz = wcslen(w) + 1; /* one OEM byte per unit */
+    char *native = malloc(nsz);
+    if (!native)
+        return false;
+    oem_from_wide((const uint16_t *)w, native, nsz);
     win_to_slash(native);
-    return path_from_native(native, out, outsz);
+    bool ok = path_from_native(native, out, outsz) != 0;
+    free(native);
+    return ok;
 }
 
 
 /* Absolute, in the 6502's spelling -- what argv[0] needs to survive a chdir. */
 bool host_fs_realpath(const char *path, char *out, size_t outsz)
 {
-    wchar_t wpath[WIN_WPATH_MAX], wfull[WIN_WPATH_MAX];
-    if (!path_to_wide(path, wpath, WIN_WPATH_MAX))
+    wchar_t *wpath = path_to_wide(path);
+    if (!wpath)
         return false;
-    DWORD n = GetFullPathNameW(wpath, WIN_WPATH_MAX, wfull, NULL);
-    if (n == 0 || n >= WIN_WPATH_MAX)
-        return false;
-    return path_from_wide(wfull, out, outsz);
+    /* Asked for its own length first: zero means failure, otherwise it counts
+     * the terminating null, which is exactly what the second call wants. */
+    DWORD n = GetFullPathNameW(wpath, 0, NULL, NULL);
+    wchar_t *wfull = n ? malloc((size_t)n * sizeof *wfull) : NULL;
+    DWORD got = wfull ? GetFullPathNameW(wpath, n, wfull, NULL) : 0;
+    /* got >= n means it grew since the sizing call and asked again */
+    bool ok = got && got < n && path_from_wide(wfull, out, outsz);
+    free(wpath), free(wfull);
+    return ok;
 }
 
 /* An overlapped handle has no implicit file pointer, so a descriptor is an
@@ -114,8 +149,8 @@ bool fs_std_handles(const char *path)
 
 static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
+    wchar_t *w = path_to_wide(path);
+    if (!w)
     {
         *err = API_EINVAL;
         return INVALID_HANDLE_VALUE;
@@ -138,7 +173,8 @@ static HANDLE win_open_handle(const char *path, uint8_t flags, api_errno *err)
     HANDLE h = CreateFileW(w, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            NULL, disp, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OVERLAPPED, NULL);
     if (h == INVALID_HANDLE_VALUE)
-        *err = win_last_error_to_api();
+        *err = win_last_error_to_api(); /* before the free, which may clobber it */
+    free(w);
     return h;
 }
 
@@ -197,10 +233,12 @@ bool fs_rom_remove(const char *name, api_errno *err)
 
 FILE *host_fs_fopen_rd(const char *path)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX))
+    wchar_t *w = path_to_wide(path);
+    if (!w)
         return NULL;
-    return _wfopen(w, L"rb");
+    FILE *f = _wfopen(w, L"rb");
+    free(w);
+    return f;
 }
 
 std_rw_result fs_std_close(int desc, api_errno *err)

@@ -25,10 +25,6 @@
 #include "core/api/api.h"
 #include <windows.h>
 
-/* A wide path buffer. Win32's own limit is longer than the API can carry, so
- * this is generous rather than exact. */
-#define WIN_WPATH_MAX 4096
-
 /* Rewrite '\\' to '/' in place (the 6502's paths are '/'-separated). */
 void win_to_slash(char *p);
 

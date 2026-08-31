@@ -29,6 +29,7 @@
 #include "host/windows/errmap.h"
 #include <stdlib.h>
 #include <string.h>
+#include <wchar.h>
 #include <strings.h>
 #include <windows.h>
 
@@ -37,16 +38,29 @@
 /* A path arrives spelled the way the 6502 spells it. This drive is one
  * directory of a real filesystem, so the drive prefix comes off here and what
  * is left is the native path -- and then the code page comes off too. */
-static bool path_to_wide(const char *path, wchar_t *w, int wcount, api_errno *err)
+static wchar_t *path_to_wide(const char *path, api_errno *err)
 {
-    char native[HOST_MAX_PATH];
-    if (!path_to_native(path, native, sizeof native) ||
-        oem_to_wide(native, (uint16_t *)w, wcount) < 0)
+    size_t nsz = strlen(path) + 1;
+    char *native = malloc(nsz);
+    if (!native)
     {
-        *err = API_EINVAL;
-        return false;
+        *err = API_ENOMEM;
+        return NULL;
     }
-    return true;
+    if (!path_to_native(path, native, nsz))
+    {
+        free(native);
+        *err = API_EINVAL;
+        return NULL;
+    }
+    size_t wcount = strlen(native) + 1; /* one unit per OEM byte */
+    wchar_t *w = malloc(wcount * sizeof *w);
+    if (w)
+        oem_to_wide(native, (uint16_t *)w, (int)wcount);
+    else
+        *err = API_ENOMEM;
+    free(native);
+    return w;
 }
 
 /* Whatever Win32 last complained about, in the API's words. */
@@ -95,7 +109,7 @@ struct win_dir
     WIN32_FIND_DATAW fd;
     bool first; /* FindFirstFileW already yielded the first entry */
     bool alive;
-    wchar_t pattern[WIN_WPATH_MAX];
+    wchar_t *pattern; /* owned, the FindFirstFile glob this slot rewinds to */
 };
 static struct win_dir dirs[DIR_MAX_OPEN];
 
@@ -116,11 +130,13 @@ bool drive_validate(int des, api_errno *err)
 
 bool drive_stat(const char *path, f_stat_t *info, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
         return false;
     WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (!win_ok(GetFileAttributesExW(w, GetFileExInfoStandard, &fad), err))
+    bool got = win_ok(GetFileAttributesExW(w, GetFileExInfoStandard, &fad), err);
+    free(w);
+    if (!got)
         return false;
     /* The two records agree on every field this reads. */
     WIN32_FIND_DATAW fd;
@@ -147,27 +163,33 @@ bool drive_opendir(const char *path, int *des, api_errno *err)
         return false;
     }
     struct win_dir *d = &dirs[i];
-    wchar_t base[WIN_WPATH_MAX];
-    if (!path_to_wide(path, base, WIN_WPATH_MAX, err))
+    wchar_t *base = path_to_wide(path, err);
+    if (!base)
         return false;
-    if (!base[0]) /* a directory of no name is the working directory */
-        base[0] = L'.', base[1] = 0;
-    size_t n = wcslen(base);
-    while (n > 0 && (base[n - 1] == L'\\' || base[n - 1] == L'/'))
-        base[--n] = 0;
-    if (n + 3 >= WIN_WPATH_MAX)
+    const wchar_t *b = base[0] ? base : L"."; /* no name is the working directory */
+    size_t n = wcslen(b);
+    while (n > 0 && (b[n - 1] == L'\\' || b[n - 1] == L'/'))
+        n--;
+    wchar_t *pattern = malloc((n + 3) * sizeof *pattern); /* + \\ * and the null */
+    if (!pattern)
     {
-        *err = API_EINVAL;
+        free(base);
+        *err = API_ENOMEM;
         return false;
     }
-    memcpy(d->pattern, base, (n + 1) * sizeof(wchar_t));
-    d->pattern[n++] = L'\\';
-    d->pattern[n++] = L'*';
-    d->pattern[n] = 0;
+    memcpy(pattern, b, n * sizeof(wchar_t));
+    pattern[n++] = L'\\';
+    pattern[n++] = L'*';
+    pattern[n] = 0;
+    free(base);
 
-    d->h = FindFirstFileW(d->pattern, &d->fd);
+    d->h = FindFirstFileW(pattern, &d->fd);
     if (!win_ok(d->h != INVALID_HANDLE_VALUE, err))
+    {
+        free(pattern);
         return false;
+    }
+    d->pattern = pattern; /* the slot was free, so closedir already released one */
     d->used = true;
     d->first = true;
     d->alive = true;
@@ -216,6 +238,8 @@ bool drive_closedir(int des, api_errno *err)
     struct win_dir *d = &dirs[des];
     if (d->alive && d->h != INVALID_HANDLE_VALUE)
         FindClose(d->h);
+    free(d->pattern);
+    d->pattern = NULL;
     d->used = false;
     d->alive = false;
     d->h = INVALID_HANDLE_VALUE;
@@ -240,44 +264,59 @@ bool drive_rewinddir(int des, api_errno *err)
 
 bool drive_unlink(const char *path, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
         return false;
-    if (DeleteFileW(w))
-        return true;
-    DWORD e = GetLastError();
-    /* One call for both, the way the API asks: a directory refuses DeleteFile
-     * with an access complaint, and RemoveDirectory is what it wanted. */
-    if (e == ERROR_ACCESS_DENIED && RemoveDirectoryW(w))
-        return true;
-    *err = win_error_to_api(e);
-    return false;
+    bool ok = DeleteFileW(w);
+    if (!ok)
+    {
+        DWORD e = GetLastError();
+        /* One call for both, the way the API asks: a directory refuses
+         * DeleteFile with an access complaint, and RemoveDirectory is what it
+         * wanted. */
+        ok = e == ERROR_ACCESS_DENIED && RemoveDirectoryW(w);
+        if (!ok)
+            *err = win_error_to_api(e);
+    }
+    free(w);
+    return ok;
 }
 
 bool drive_rename(const char *oldname, const char *newname, api_errno *err)
 {
-    wchar_t wo[WIN_WPATH_MAX], wn[WIN_WPATH_MAX];
-    if (!path_to_wide(oldname, wo, WIN_WPATH_MAX, err) ||
-        !path_to_wide(newname, wn, WIN_WPATH_MAX, err))
+    wchar_t *wo = path_to_wide(oldname, err);
+    if (!wo)
         return false;
-    return win_ok(MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING), err);
+    wchar_t *wn = path_to_wide(newname, err);
+    if (!wn)
+    {
+        free(wo);
+        return false;
+    }
+    bool ok = win_ok(MoveFileExW(wo, wn, MOVEFILE_REPLACE_EXISTING), err);
+    free(wo), free(wn);
+    return ok;
 }
 
 bool drive_mkdir(const char *path, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
         return false;
-    return win_ok(CreateDirectoryW(w, NULL), err);
+    bool ok = win_ok(CreateDirectoryW(w, NULL), err);
+    free(w);
+    return ok;
 }
 
 bool drive_chdir(const char *path, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
         return false;
     /* validates existence and dir-ness */
-    return win_ok(SetCurrentDirectoryW(w), err);
+    bool ok = win_ok(SetCurrentDirectoryW(w), err);
+    free(w);
+    return ok;
 }
 
 /* The 6502 sees MSC0: (and the bare current drive); anything else is a
@@ -304,17 +343,21 @@ bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
 {
     if (!(mask & FS_AM_MASK))
         return true;
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
         return false;
     DWORD a = GetFileAttributesW(w);
-    if (!win_ok(a != INVALID_FILE_ATTRIBUTES, err))
-        return false;
-    DWORD touched = mask & FS_AM_MASK & ~(DWORD)FILE_ATTRIBUTE_DIRECTORY;
-    a = (a & ~touched) | (attr & touched);
-    if (!a)
-        a = FILE_ATTRIBUTE_NORMAL;
-    return win_ok(SetFileAttributesW(w, a), err);
+    bool ok = win_ok(a != INVALID_FILE_ATTRIBUTES, err);
+    if (ok)
+    {
+        DWORD touched = mask & FS_AM_MASK & ~(DWORD)FILE_ATTRIBUTE_DIRECTORY;
+        a = (a & ~touched) | (attr & touched);
+        if (!a)
+            a = FILE_ATTRIBUTE_NORMAL;
+        ok = win_ok(SetFileAttributesW(w, a), err);
+    }
+    free(w);
+    return ok;
 }
 
 /* Set the modification time from the FAT date/time -- the same conversion
@@ -322,16 +365,21 @@ bool drive_chmod(const char *path, uint8_t attr, uint8_t mask, api_errno *err)
  * API also carries, so it does. */
 bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path, w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path, err);
+    if (!w)
         return false;
     FILETIME lft, ft;
     if (!win_ok(DosDateTimeToFileTime(info->fdate, info->ftime, &lft), err) ||
         !win_ok(LocalFileTimeToFileTime(&lft, &ft), err))
+    {
+        free(w);
         return false;
+    }
     HANDLE h = CreateFileW(w, FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE,
                            NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-    if (!win_ok(h != INVALID_HANDLE_VALUE, err))
+    bool opened = win_ok(h != INVALID_HANDLE_VALUE, err);
+    free(w);
+    if (!opened)
         return false;
     BOOL ok = SetFileTime(h, NULL, NULL, &ft);
     DWORD e = GetLastError();
@@ -346,24 +394,44 @@ bool drive_utime(const char *path, const f_stat_t *info, api_errno *err)
 
 bool drive_getcwd(char *buf, size_t size, api_errno *err)
 {
-    wchar_t w[WIN_WPATH_MAX];
-    DWORD n = GetCurrentDirectoryW(WIN_WPATH_MAX, w);
-    if (n == 0 || n >= WIN_WPATH_MAX)
+    /* Asked for its own length first: zero means failure, otherwise it counts
+     * the terminating null, which is what the second call wants. */
+    DWORD n = GetCurrentDirectoryW(0, NULL);
+    if (!n)
     {
-        *err = n ? API_ENOMEM : win_last_error_to_api();
+        *err = win_last_error_to_api();
         return false;
     }
-    char native[HOST_MAX_PATH], cwd[HOST_MAX_PATH];
-    oem_from_wide((const uint16_t *)w, native, sizeof native);
-    win_to_slash(native);
-    if (!path_from_native(native, cwd, sizeof cwd) ||
-        strlen(cwd) >= size) /* did not fit: full-path-or-error */
+    wchar_t *w = malloc((size_t)n * sizeof *w);
+    if (!w)
     {
         *err = API_ENOMEM;
         return false;
     }
-    strcpy(buf, cwd);
-    return true;
+    DWORD got = GetCurrentDirectoryW(n, w);
+    if (!got || got >= n) /* grew since the sizing call: it asked again */
+    {
+        *err = got ? API_ENOMEM : win_last_error_to_api();
+        free(w);
+        return false;
+    }
+    /* one OEM byte per unit, and path_from_native prepends at most six */
+    size_t sz = wcslen(w) + 7;
+    char *native = malloc(sz), *cwd = malloc(sz);
+    bool ok = native && cwd;
+    if (ok)
+    {
+        oem_from_wide((const uint16_t *)w, native, sz);
+        win_to_slash(native);
+        ok = path_from_native(native, cwd, sz) &&
+             strlen(cwd) < size; /* did not fit: full-path-or-error */
+    }
+    if (ok)
+        strcpy(buf, cwd);
+    else
+        *err = API_ENOMEM;
+    free(w), free(native), free(cwd);
+    return ok;
 }
 
 /* A Windows volume has a label, but it is not the FAT label the API means and
@@ -388,21 +456,22 @@ bool drive_getfree(const char *path, uint32_t *tot_sect, uint32_t *fre_sect,
 {
     /* A drive query names a drive, and no name is the one in use -- the same
      * rule opendir follows, and what f_getfree does with "". */
-    wchar_t w[WIN_WPATH_MAX];
-    if (!path_to_wide(path[0] ? path : ".", w, WIN_WPATH_MAX, err))
+    wchar_t *w = path_to_wide(path[0] ? path : ".", err);
+    if (!w)
         return false;
-    /* Prefer the parent directory when path names a file. */
-    wchar_t dir[WIN_WPATH_MAX];
-    wcsncpy(dir, w, WIN_WPATH_MAX - 1);
-    dir[WIN_WPATH_MAX - 1] = 0;
-    wchar_t *slash = wcsrchr(dir, L'\\');
-    wchar_t *slash2 = wcsrchr(dir, L'/');
+    /* Prefer the parent directory when path names a file. Truncated in place:
+     * the copy this used to make of itself was the fixed buffer's, not the
+     * algorithm's. */
+    wchar_t *slash = wcsrchr(w, L'\\');
+    wchar_t *slash2 = wcsrchr(w, L'/');
     if (slash2 && (!slash || slash2 > slash))
         slash = slash2;
-    if (slash && slash != dir && !(slash == dir + 2 && dir[1] == L':'))
+    if (slash && slash != w && !(slash == w + 2 && w[1] == L':'))
         *slash = 0;
     ULARGE_INTEGER avail, total;
-    if (!win_ok(GetDiskFreeSpaceExW(dir, &avail, &total, NULL), err))
+    bool ok = win_ok(GetDiskFreeSpaceExW(w, &avail, &total, NULL), err);
+    free(w);
+    if (!ok)
         return false;
     uint64_t tot = total.QuadPart / 512;
     uint64_t fre = avail.QuadPart / 512;
